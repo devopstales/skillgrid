@@ -1,5 +1,5 @@
 ---
-name: /sdd-adr
+name: sdd-adr
 id: sdd-adr
 category: Workflow
 description: Author or review architectural decision records (ADRs) using hub templates

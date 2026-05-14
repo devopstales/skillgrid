@@ -1,5 +1,5 @@
 ---
-name: /sdd-apply
+name: sdd-apply
 id: sdd-apply
 category: Workflow
 description: Implement SDD tasks — writes code following specs and design
@@ -24,6 +24,14 @@ MANDATORY PRECHECK:
   `.skillgrid/scripts/validate-task-labels.sh openspec/changes/{change-name}/tasks.md`
 - If validation fails, STOP and return blocked status with the validation errors.
 - If required artifacts (`spec`, `design`, `tasks`) are missing, fail closed with `status: failed`.
+
+VDD — DECOMPOSE (before implementation):
+- Read `.agents/skills/vdd-decompose/SKILL.md`
+- If `openspec/changes/{change-name}/tasks.md` exists but has not been decomposed to beads:
+  - Read the change artifacts (proposal, tasks, design) to understand scope
+  - Decompose complex tasks into atomic beads (Epics → Issues → Sub-issues) with dependency chains
+  - Run proactive gap detection (missing tests, rollbacks, monitoring)
+  - Store beads at `.beads/{change-name}-beads.json`
 
 ENGRAM PERSISTENCE (artifact store mode: engram):
 CRITICAL: mem_search returns 300-char PREVIEWS, not full content. You MUST call mem_get_observation(id) for EVERY artifact.

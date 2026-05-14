@@ -1,5 +1,5 @@
 ---
-name: /sdd-openspec-git
+name: sdd-openspec-git
 id: sdd-openspec-git
 category: Workflow
 description: OpenSpec git gates — when proposal/apply/archive must cross main and commits are explicit

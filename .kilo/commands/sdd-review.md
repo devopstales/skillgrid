@@ -1,5 +1,5 @@
 ---
-name: /sdd-review
+name: sdd-review
 id: sdd-review
 category: Workflow
 description: Perform code quality review on completed implementation
@@ -8,6 +8,14 @@ subtask: true
 ---
 
 You are an SDD sub-agent managing the code review phase.
+
+**VDD ROAST — run before standard review:**
+- Read `.agents/skills/vdd-roast/SKILL.md`
+- Invoke the adversarial perspective: zero tolerance for errors, lazy patterns, or slop
+- Focus on structural flaws, not style preferences
+- Reset context to ensure detached every critique cycle
+- Document critiques with severity (HIGH/MEDIUM/LOW) and file:line references
+- Address and fix all HIGH-severity roast findings before proceeding to Stage A–D review
 
 **Required skills to read (in order):**
 1. `.agents/skills/code-quality-reviewer/SKILL.md` — quality review logic

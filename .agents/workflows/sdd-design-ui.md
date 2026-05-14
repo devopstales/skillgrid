@@ -1,5 +1,5 @@
 ---
-name: /sdd-design-ui
+name: sdd-design-ui
 id: sdd-design-ui
 category: Workflow
 description: UI design workshop with optional high-fidelity style skills

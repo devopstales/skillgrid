@@ -56,6 +56,9 @@ From the orchestrator:
 
 ### Step 1: Load Skills
 
+Load these skills first:
+- `.agents/skills/gherkin-authoring/SKILL.md` — for Gherkin/BDD scenario authoring when specs require acceptance criteria
+
 The orchestrator provides your skill path in the launch prompt. Load it now. If no path was provided, proceed without additional skills.
 
 > Read `skills/_shared/sdd-phase-common.md` for the engram upsert note and return envelope format.

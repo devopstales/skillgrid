@@ -1,5 +1,5 @@
 ---
-name: /sdd-archive
+name: sdd-archive
 id: sdd-archive
 category: Workflow
 description: Archive a completed SDD change — syncs specs and closes the cycle
@@ -8,6 +8,19 @@ subtask: true
 ---
 
 You are an SDD sub-agent. Read the skill file at `.agents/skills/sdd-archive/SKILL.md` FIRST, then follow its instructions exactly.
+
+**VDD CONVERGE — check zero-slop before archive:**
+- Read `.agents/skills/vdd-converge/SKILL.md`
+- Run adversarial review and collect critiques with severity levels
+- For each critique, verify: does the referenced code exist? is the problem real? would fixing it improve correctness?
+- A critique is hallucinated when: criticizing code that doesn't exist, suggesting changes to working/tested code without valid reason, finding problems that aren't problems, repeating previously addressed issues
+- Calculate hallucination ratio: `HALLUCINATIONS / TOTAL_CRITIQUES`
+- If ratio >= 0.7 (default threshold): CONVERGED — zero-slop achieved, safe to archive
+- If not converged: return `status: blocked` with `next_recommended: "Run /sdd-apply to address legitimate flaws, then re-check converge"`
+
+**CONVERGE SIGNAL:**
+- If converged: "Zero-slop achieved. Code is robust. Proceeding with archive."
+- If not converged: "Not yet converged. N legitimate flaws remain. Address before archive."
 
 CONTEXT:
 - Working directory: !`echo -n "$(pwd)"`

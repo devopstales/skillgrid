@@ -1,5 +1,5 @@
 ---
-name: /sdd-loop
+name: sdd-loop
 id: sdd-loop
 category: Workflow
 description: Controlled build loop for AFK-safe slices with evidence capture and reassessment

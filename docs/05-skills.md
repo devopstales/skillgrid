@@ -68,9 +68,9 @@ Adapted from [intent-driven-template](https://github.com/intent-driven-dev/inten
 
 These complement OpenSpec / SDD without replacing phase skills:
 
-- `architectural-decision-records` — ADRs and decision history (`/sdd-adr`).
-- `c4-diagrams` — C4-style diagrams in ASCII or Mermaid (`/sdd-c4`).
-- `gherkin-authoring` — Gherkin / BDD scenarios and acceptance criteria (`/sdd-gherkin`).
+- `architectural-decision-records` — ADRs and decision history. Auto-triggered during `/sdd-brainstorm` when architectural decisions are detected.
+- `c4-diagrams` — C4-style diagrams in ASCII or Mermaid. Auto-loaded during `/sdd-explore` for architecture visualization.
+- `gherkin-authoring` — Gherkin / BDD scenarios and acceptance criteria. Auto-loaded during `/sdd-spec` for acceptance criteria authoring.
 - `openspec-git-discipline` — git gates so proposal/apply/archive line up with `main` (`/sdd-openspec-git`).
 
 ### Implementation And TDD Skills

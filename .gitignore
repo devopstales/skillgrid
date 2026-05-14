@@ -18,11 +18,19 @@ skillgrid-cli/.npmrc.github-packages
 .tmp-idt-skills/
 *node_modules
 
+######################
+# plans
+######################
+.kilo/plans
+
+######################
+# indexes
+######################
 .gitnexus/
 .engram/
 .cocoindex_code/
 .beads/
-# CocoIndex Code (ccc)
 /.cocoindex_code/
 .truecourse/
 .gitnexus
+

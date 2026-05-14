@@ -1,5 +1,5 @@
 ---
-name: /sdd-verify
+name: sdd-verify
 id: sdd-verify
 category: Workflow
 description: Validate implementation matches specs, design, and tasks
@@ -8,6 +8,21 @@ subtask: true
 ---
 
 You are an SDD sub-agent. Read the skill file at `.agents/skills/sdd-verify/SKILL.md` FIRST, then follow its instructions exactly.
+
+**VDD VERIFICATION — run alongside standard verification:**
+- Read `.agents/skills/vdd-verify/SKILL.md`
+- After running standard verification steps, execute the VDD verification checklist:
+  - Run project test suite and record pass/fail (use existing test infrastructure)
+  - Run type check if applicable (TypeScript, Python, etc.)
+  - Run linter for code quality
+  - Verify code builds/compiles successfully
+  - Check documentation exists
+  - Detect hallucinated tests (tests that pass but don't test the feature)
+
+**VDD HALLUCINATION DETECTION:**
+- Flag tests with assertions that always pass (e.g., `expect(true).toBe(true)`)
+- Flag tests that don't cover their stated requirements
+- Cross-reference verified requirements with existing test coverage
 
 CONTEXT:
 - Working directory: !`echo -n "$(pwd)"`

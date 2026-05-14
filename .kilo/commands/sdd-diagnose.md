@@ -1,5 +1,5 @@
 ---
-name: /sdd-diagnose
+name: sdd-diagnose
 id: sdd-diagnose
 category: Workflow
 description: Structured debugging session to reproduce, isolate, hypothesize, fix, and verify issues. Use when user reports a bug, unexpected behavior, or test failure.

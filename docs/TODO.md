@@ -50,6 +50,10 @@
   * Assign different AI models to different SDD phases
   * Build Loop
   * Specialist persona board
+* integrte project level ide plens
+  * force kilo, kiro, antigravity to use project level plens
+  * use thos ofr PRD, spec creation cicle.
+    * `.kilo/plans`
 
 ## Components
 

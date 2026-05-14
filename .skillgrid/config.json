@@ -2,6 +2,12 @@
   "artifactStore": {
     "mode": "hybrid"
   },
+  "vdd": {
+    "chainlink_enabled": true,
+    "beads_path": ".beads",
+    "max_refinement_iterations": 10,
+    "hallucination_threshold": 0.7
+  },
   "prdWorkflow": {
     "source": "preset",
     "preset": "skillgrid-default",

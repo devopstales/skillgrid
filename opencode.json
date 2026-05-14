@@ -1,67 +1,67 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": [
+      ".agents/skills"
+    ]
+  },
   "mcp": {
-    "context7-http": { 
-      "enabled": true,
+    "context7-http": {
       "type": "remote",
-      "url": "https://mcp.context7.com/mcp"
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true
     },
     "deepwiki-http": {
-      "enabled": true, 
       "type": "remote",
-      "url": "https://mcp.deepwiki.com/mcp"
+      "url": "https://mcp.deepwiki.com/mcp",
+      "enabled": true
     },
-    "exa-http": { 
-      "enabled": true,
+    "exa-http": {
       "type": "remote",
-      "url": "https://mcp.exa.ai/mcp"
+      "url": "https://mcp.exa.ai/mcp",
+      "enabled": true
     },
     "engram": {
+      "type": "local",
       "command": [
         "engram",
         "mcp",
         "--tools=agent"
       ],
-      "enabled": true,
-      "type": "local"
+      "enabled": true
     },
     "ccc": {
-      "enabled": true,
       "type": "local",
       "command": [
         "ccc",
         "mcp"
-      ]
+      ],
+      "enabled": true
     },
     "gitnexus": {
-      "enabled": true,
-      "type": "local",  
+      "type": "local",
       "command": [
         "npx",
         "-y",
         "gitnexus@1.3.11",
         "mcp"
-      ]
+      ],
+      "enabled": true
     },
-    "trivy": {    
-      "enabled": true,
-      "type": "local", 
+    "trivy": {
+      "type": "local",
       "command": [
         "trivy",
         "mcp"
-      ]
+      ],
+      "enabled": true
     }
   },
+  "instructions": [
+    ".agents/rules/*.mdc",
+    "AGENTS.md"
+  ],
   "permission": {
-    "bash": {
-      "*": "allow",
-      "git commit *": "ask",
-      "git push": "ask",
-      "git push *": "ask",
-      "git push --force *": "ask",
-      "git rebase *": "ask",
-      "git reset --hard *": "ask"
-    },
     "read": {
       "*": "allow",
       "**/.env": "deny",
@@ -70,6 +70,15 @@
       "**/secrets/**": "deny",
       "*.env": "deny",
       "*.env.*": "deny"
+    },
+    "bash": {
+      "*": "allow",
+      "git commit *": "ask",
+      "git push": "ask",
+      "git push *": "ask",
+      "git push --force *": "ask",
+      "git rebase *": "ask",
+      "git reset --hard *": "ask"
     }
   }
 }

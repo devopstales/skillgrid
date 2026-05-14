@@ -70,7 +70,7 @@ The result is less prompt babysitting and more deliberate progress. Agents can m
 | **Verification-Driven Development (VDD)** | |
 | **User validation** | Explicit checks: spec alignment, review gates, test evidence, security passes, not silent merge-by-default. |
 | **Build Loop** | A controlled `/sdd-loop` iteration that advances one safe `[AFK]` slice, records evidence, then reassesses before continuing or stopping. |
-| **Agentic pipeline** | A sequence of command-driven phases (`/sdd-init`, `/sdd-explore`, `/sdd-brainstorm`, `/sdd-loop`, `/sdd-apply`, `/sdd-board`, `/sdd-verify`, `/sdd-archive`) with tools and skills attached, not one long autonomous chat. Optional adjuncts (`/sdd-openspec-git`, `/sdd-adr`, `/sdd-c4`, `/sdd-gherkin`) support git gates, ADRs, diagrams, and Gherkin — see `docs/04-commands.md`. |
+| **Agentic pipeline** | A sequence of command-driven phases (`/sdd-init`, `/sdd-explore`, `/sdd-brainstorm`, `/sdd-loop`, `/sdd-apply`, `/sdd-board`, `/sdd-verify`, `/sdd-archive`) with tools and skills attached, not one long autonomous chat. Optional adjuncts (`/sdd-openspec-git`, `/sdd-adr`) support git gates and ADRs — see `docs/04-commands.md`. |
 | **Harness** | The configured layer around the model: rules, skills, MCP, memory, indexing, handoff paths, UI, so behavior is repeatable and auditable. |
 | **Artifacts over transcripts** | PRDs, OpenSpec changes, handoff markdown, logs, and checkpoints are the system of record; chat is ephemeral. |
 | **Specialist persona board** | The parent can ask focused personas for independent reports on a decision, but the parent/user/spec remains authoritative. |

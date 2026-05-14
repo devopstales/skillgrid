@@ -1,5 +1,5 @@
 ---
-name: /sdd-persona-resolve
+name: sdd-persona-resolve
 id: sdd-persona-resolve
 category: Workflow
 description: Record accepted decision and rejected options for persona board output

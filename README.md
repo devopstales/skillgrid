@@ -4,7 +4,7 @@
 
 <img width="768" alt="skillgrid brand" src="docs/assets/v9NDj7Jw.jpeg" />
 
-<p><strong>AISkillGrid — An In-Battery spec-driven workflows orchestration for AI coding agents.</strong></p>
+A **configuration hub** for opinionated AI-assisted development: reusable **skills**, **slash commands**, and spec-driven workflow with OpenSpec-style change management.
 
 <p>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache-2.0"></a>
@@ -18,45 +18,43 @@
 
 ## What It Does
 
-AISkillGrid is a local-first operating layer for AI-assisted development.
+AISkillGrid is a local-first operating layer for AI-assisted development. It turns open-ended chat into a structured engineering workflow with phase commands, reusable skills, durable artifacts, verification-first quality gates, and memory integration.
 
-It turns open-ended chat into a structured engineering workflow:
+## Highlights
 
-- phase commands (`/sdd-*`)
-- reusable skills (`.agents/skills/*`)
-- durable artifacts (`.skillgrid/` + `openspec/changes/`)
-- verification-first quality gates
-- memory and indexing integration
+| Feature | What it does | Why it matters |
+|---------|--------------|----------------|
+| SDD Workflow | Guides work through init, explore, brainstorm, plan, apply, verify, and finish | Keeps agent work tied to explicit phases, artifacts, and exit checks |
+| Multi-IDE command hub | Ships `/sdd-*` commands for Cursor, Kilo, OpenCode, and GitHub Copilot prompts | One workflow travels across the IDEs you use |
+| Agent skills catalog | Provides reusable skills for TDD, review, security, UI design, research, OpenSpec, and more | Agents get focused operating procedures instead of ad hoc chat instructions |
+| File-first handoff | Stores PRDs, OpenSpec changes, handoff files, event logs, checkpoints under the repo | Work survives context resets without requiring a database or hosted service |
+| Intent-gated loop | Adds `/sdd-loop` for the next safe phase or `[AFK]` slice, with explicit HITL and verification stop conditions | Long-running agent work stays bounded by artifacts and user authority |
 
-The goal is not blind autonomy. The goal is controllable, reviewable progress with clear stop conditions.
+## The Basic Workflow
 
-## Active Command Surface
+1. **Init** (`/sdd-init`) - Bootstraps project context, detects stack, configures persistence (hybrid mode recommended), and creates `.skillgrid/` and `openspec/` directories.
 
-This repository currently uses:
+2. **Explore** (`/sdd-explore`) - Free-form codebase investigation. Maps architecture, identifies patterns, compares approaches. Makes NO code changes.
 
-- `/sdd-init`
-- `/sdd-explore`
-- `/sdd-brainstorm`
-- `/sdd-design-ui`
-- `/sdd-diagnose`
-- `/sdd-openspec-git` (OpenSpec git gates vs `main`)
-- `/sdd-adr` (architectural decision records)
-- `/sdd-c4` (C4 diagrams)
-- `/sdd-gherkin` (Gherkin / BDD scenarios)
-- `/sdd-apply`
-- `/sdd-verify`
-- `/sdd-archive`
+3. **Brainstorm** (`/sdd-brainstorm`) - Full planning pipeline: explore → clarify → propose → spec → design → tasks. Produces artifacts in `openspec/changes/<name>/`.
 
-Typical flow:
+4. **Apply** (`/sdd-apply` or `/sdd-loop`) - Implements tasks using TDD. Two-stage review per task: spec compliance then code quality. Fresh subagent per task.
 
-```mermaid
-flowchart LR
-  Init[Init] --> Explore[Explore]
-  Explore --> Brainstorm[Brainstorm]
-  Brainstorm --> Apply[Apply]
-  Apply --> Verify[Verify]
-  Verify --> Archive[Archive]
-```
+5. **Verify** (`/sdd-verify`) - Stage 1: Spec compliance verification. Traces every requirement to code/test evidence. PASS/FAIL/PARTIAL verdict.
+
+6. **Review** (`/sdd-review`) - Stage 2: Code quality review. Evaluates style, DRY, errors, tests, security, performance. APPROVED/CHANGES_REQUESTED.
+
+7. **Archive** (`/sdd-archive`) - Pre-merge gate (tests green, lint clean, worktree clean) then merges/PRs/keeps/discards per configuration.
+
+**The agent checks for relevant skills before any task. Mandatory workflows, not suggestions.**
+
+## Two-Stage Review
+
+**Spec compliance** (`sdd-verify`) - Traces every requirement to code/test evidence. PASS/FAIL/PARTIAL verdict with gap analysis.
+
+**Code quality** (`sdd-review`) - Evaluates style, DRY, errors, tests, security, performance. Severity-tagged issues (CRITICAL/IMPORTANT/MINOR) and APPROVED/CHANGES_REQUESTED verdict.
+
+---
 
 ## Quick Start
 
@@ -81,26 +79,7 @@ flowchart LR
    /sdd-archive
    ```
 
-## Core Concepts
-
-| Concept | Meaning here |
-|--------|----------------|
-| **Human-in-the-loop (HITL)** | An enforceable task label for human-required decisions. HITL-labeled work hard-stops unattended execution and must be resolved before AFK apply continues. |
-| **Away-from-keyboard (AFK)** | An enforceable task label for unattended execution. Only AFK-labeled slices with explicit scope, files, acceptance criteria, and verification should pass into `/sdd-apply`. |
-| **Shared understanding** | Before planning, the agent should question the user until goal, scope, constraints, and tradeoffs are understood well enough to write durable artifacts. |
-| **Smart zone / dumb zone** | Long context makes coding judgment worse. Keep implementation and review units small enough to fit in a fresh, focused context. |
-| **Context rot** | Accuracy drops when a session carries too much stale chat, compacted history, or unrelated work. AISkillGrid fights this with slices, artifacts, and fresh subagents. |
-| **Vertical slices** | Break work into thin, testable increments that cross the necessary layers and produce feedback early. Avoid long horizontal phases that only build one layer. |
-| **TDD loop** | Behavioral implementation should use RED/GREEN/refactor: write a failing test, make it pass with minimal code, then clean up. |
-| **Build Loop** | A controlled `/sdd-loop` iteration that advances one safe `[AFK]` slice, records evidence, then reassesses before continuing or stopping. |
-| **User validation** | Explicit checks: spec alignment, review gates, test evidence, security passes, not silent merge-by-default. |
-| **Spec-driven development** | Intent lives in specs and change artifacts before and during code. AI implements toward those specs; verification traces back to them. |
-| **Intent-driven development** | The workflow starts from durable user intent: goals, scope, constraints, and success criteria. Shared understanding and specs translate that intent into plans and slices so implementation stays aligned with what “done” means—not only with files changed. |
-| **Agentic pipeline** | A sequence of command-driven phases (`/sdd-init`, `/sdd-explore`, `/sdd-brainstorm`, `/sdd-loop`, `/sdd-apply`, `/sdd-board`, `/sdd-verify`, `/sdd-archive`) with tools and skills attached, not one long autonomous chat. Optional adjuncts (`/sdd-openspec-git`, `/sdd-adr`, `/sdd-c4`, `/sdd-gherkin`) support git gates, ADRs, diagrams, and Gherkin when needed — see `docs/04-commands.md`. |
-| **Harness** | The configured layer around the model: rules, skills, MCP, memory, indexing, handoff paths, UI, so behavior is repeatable and auditable. |
-| **Artifacts over transcripts** | PRDs, OpenSpec changes, handoff markdown, logs, and checkpoints are the system of record; chat is ephemeral. |
-| **Specialist persona board** | The parent can ask focused personas for independent reports on a decision, but the parent/user/spec remains authoritative. |
-| **Local-first and portable** | State lives in the repo and local services where possible; no single vendor runtime is required to resume work. |
+---
 
 ## High Council
 
@@ -120,24 +99,37 @@ Specialist **Norse** personas are delegated viewpoints—not owners of the workf
 | Bragi | Structured artifact author: specs, tasks, and clear traceable requirement wording. |
 | Vidar | Root-cause debugging: systematic investigation, evidence, regression prevention. |
 
+---
+
+## Philosophy
+
+- **TDD** - Write tests first, always
+- **Systematic over ad-hoc** - Process over guessing  
+- **Complexity reduction** - Simplicity as primary goal
+- **Evidence over claims** - Verify before declaring success
+
+---
+
 ## Documentation
 
-Read in order:
+| Doc | Contents |
+|-----|----------|
+| [docs/00-start-here.md](docs/00-start-here.md) | Start-here overview and manifesto: human-in-the-loop pipelines, spec-driven guidance |
+| [docs/01-installation.md](docs/01-installation.md) | Install toolchain and workflow CLIs |
+| [docs/02-workflow-usage.md](docs/02-workflow-usage.md) | Skillgrid phases, `.skillgrid/config.json`, PRD and OpenSpec handoff |
+| [docs/03-skillgrid-logic.md](docs/03-skillgrid-logic.md) | PRD/INDEX/OpenSpec hierarchy and `.skillgrid/templates/` blanks |
+| [docs/04-commands.md](docs/04-commands.md) | Slash commands and where they live per IDE |
+| [docs/05-skills.md](docs/05-skills.md) | Catalog of all skills with paths and summaries |
+| [docs/06-rules-and-governance.md](docs/06-rules-and-governance.md) | Where project rules live and how they are maintained |
+| [docs/07-hooks-and-automation.md](docs/07-hooks-and-automation.md) | Shared hooks and automation policy |
+| [docs/08-multi-agent-work.md](docs/08-multi-agent-work.md) | Subagents, personas, dependency waves, handoff/event logs |
+| [docs/09-subagent-personas.md](docs/09-subagent-personas.md) | Specialist persona catalog |
+| [docs/10-mcp-servers.md](docs/10-mcp-servers.md) | MCP server connections |
+| [docs/11-memory-and-indexing.md](docs/11-memory-and-indexing.md) | Durable context and codebase search |
+| [docs/12-ticketing-integrations.md](docs/12-ticketing-integrations.md) | Local and external work tracking |
+| [docs/13-webui.md](docs/13-webui.md) | Local web dashboard |
 
-1. [`docs/00-start-here.md`](docs/00-start-here.md)
-2. [`docs/01-installation.md`](docs/01-installation.md)
-3. [`docs/02-workflow-usage.md`](docs/02-workflow-usage.md)
-4. [`docs/03-skillgrid-logic.md`](docs/03-skillgrid-logic.md)
-5. [`docs/04-commands.md`](docs/04-commands.md)
-6. [`docs/05-skills.md`](docs/05-skills.md)
-7. [`docs/06-rules-and-governance.md`](docs/06-rules-and-governance.md)
-8. [`docs/07-hooks-and-automation.md`](docs/07-hooks-and-automation.md)
-9. [`docs/08-multi-agent-work.md`](docs/08-multi-agent-work.md)
-10. [`docs/09-subagent-personas.md`](docs/09-subagent-personas.md)
-11. [`docs/10-mcp-servers.md`](docs/10-mcp-servers.md)
-12. [`docs/11-memory-and-indexing.md`](docs/11-memory-and-indexing.md)
-13. [`docs/12-ticketing-integrations.md`](docs/12-ticketing-integrations.md)
-14. [`docs/13-webui.md`](docs/13-webui.md)
+---
 
 ## Contributing
 

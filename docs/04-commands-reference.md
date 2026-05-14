@@ -17,8 +17,6 @@ This document lists every slash command, what it does, and which skills it uses.
 | `/sdd-archive [name]` | Archive | Sync delta specs, merge/PR/keep branch — requires verify + review + pre-merge gate passed |
 | `/sdd-adr [topic]` | Specialist | Author or review architecture decision records |
 | `/sdd-design-ui [surface]` | Specialist | UI design workshop with high-fidelity skills |
-| `/sdd-gherkin <input>` | Specialist | Draft, review, or tighten Gherkin/BDD scenarios |
-| `/sdd-c4 <scope>` | Specialist | C4-style architecture diagrams (ASCII or Mermaid) |
 | `/sdd-diagnose <bug>` | Specialist | **4-phase systematic debugging:** reproduce → isolate → root cause → fix → verify |
 | `/sdd-openspec-git` | Gate | OpenSpec git discipline gates |
 | `/sdd-persona-board <decision>` | Board | Multi-perspective decision-making with Norse personas |
@@ -266,30 +264,6 @@ Then executes user-chosen disposition: merge to main / open PR / keep branch / d
 **Input:** Surface or change name
 
 **Output:** UI design direction, preview artifacts (via `preview.sh`)
-
----
-
-### `/sdd-gherkin <input>`
-
-**What it does:** Drafts, reviews, or tightens Gherkin/BDD scenarios and acceptance criteria.
-
-**Skills used:** `gherkin-authoring`
-
-**Input:** Feature file path, change name, or inline scenario text
-
-**Output:** Updated `.feature` files or spec excerpts
-
----
-
-### `/sdd-c4 <scope>`
-
-**What it does:** Generates C4-style architecture diagrams (ASCII or Mermaid) for systems and codebases.
-
-**Skills used:** `c4-diagrams`
-
-**Input:** System or scope description
-
-**Output:** ASCII or Mermaid diagrams
 
 ---
 

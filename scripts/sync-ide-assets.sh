@@ -71,8 +71,8 @@ def render_command(src: Path) -> str:
 
     rendered = [
         "---",
-        f"name: /{values.get('id') or stem}",
-        f"id: {values.get('id') or stem}",
+f"name: {values.get('id') or stem}",
+         f"id: {values.get('id') or stem}",
         f"category: {values.get('category') or 'Workflow'}",
         f"description: {description}",
     ]
