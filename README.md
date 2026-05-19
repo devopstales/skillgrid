@@ -38,7 +38,7 @@ AISkillGrid is a local-first operating layer for AI-assisted development. It tur
 
 3. **Brainstorm** (`/sdd-brainstorm`) - Full planning pipeline: explore → clarify → propose → spec → design → tasks. Produces artifacts in `openspec/changes/<name>/`.
 
-4. **Apply** (`/sdd-apply` or `/sdd-loop`) - Implements tasks using TDD. Two-stage review per task: spec compliance then code quality. Fresh subagent per task.
+4. **Apply** — `/sdd-loop` (Ralph orchestrator: one AFK task per iteration, delegates to `/sdd-apply`) or `/sdd-apply` directly (multi-task implementation session with TDD and two-stage review).
 
 5. **Verify** (`/sdd-verify`) - Stage 1: Spec compliance verification. Traces every requirement to code/test evidence. PASS/FAIL/PARTIAL verdict.
 

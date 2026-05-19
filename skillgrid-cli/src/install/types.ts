@@ -22,6 +22,8 @@ export interface InstallOptions {
   nonInteractive: boolean;
   mergeMcp: boolean;
   mcpKeyFilter: string[] | null;
+  /** When true (default), install sdd-gate pre-commit/pre-push hooks after .skillgrid sync. */
+  installSddHooks: boolean;
 }
 
 export const INSTALL_VERSION = "1.0.0";

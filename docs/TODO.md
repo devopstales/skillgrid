@@ -136,10 +136,8 @@
   * [-] sdd-verify
   * [-] sdd-archive
   * [-] sdd-ui-design
-  * [ ] sdd-test - runs tests and captures evidence tied to success criteria.
-    * Missing skills: playwright, browser-testing-with-devtools, e2e-testing, e2e-runner
-  * [ ] sdd-security - performs a deeper security pass when needed.
-    * Missing skills: security-review, security-scan, semgrep-security, trivy-security, vulnerability-scanner
+   * [ ] sdd-security - performs a deeper security pass when needed.
+     * Missing skills: security-review, security-scan, semgrep-security, trivy-security, vulnerability-scanner
 
 
   * [ ] orchestrator ???

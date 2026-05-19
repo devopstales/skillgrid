@@ -2,15 +2,27 @@
 
 This document defines hook locations, shared scripts, and automation policy across supported agent surfaces.
 
-## Canonical Shared Hook Script
+## Canonical Shared Hook Scripts
 
 - Shared refresh hook: `.agents/hooks/refresh-indexes.sh`
-- Purpose: trigger index refresh policy after merge/bootstrap shell flows
-- Current behavior:
-  - refresh `ccc` index
-  - run GitNexus stale-check using `.gitnexus/meta.json` and `git rev-parse HEAD`
-  - preserve embeddings mode when re-analyzing
-  - fail-open with logs
+- SDD gate script: `.skillgrid/scripts/sdd-gate.sh`
+- Hook installation: `install.sh` or `skillgrid install` (not a standalone hook script)
+
+### SDD Gate Hooks
+
+- Purpose: programmatic enforcement of SDD gates (label validation, artifact checks, phase routing)
+- Trigger: pre-commit (staged `openspec/changes/*`), pre-push (only changes touched in the push)
+- Behavior:
+  - Pre-commit infers phase from staged paths per change (`propose` → `spec` → `design` → `tasks` → `apply`)
+  - Pre-push runs `sdd-gate.sh verify` only for changes with `tasks.md` that appear in the outgoing commit range
+  - Exit code 1 = blocked (no commit/push proceeds)
+
+Installation (automatic when the target is a git repo; skip with `--no-sdd-hooks`):
+
+```bash
+./install.sh -p /path/to/project
+skillgrid install -p /path/to/project
+```
 
 ## Surface Wiring
 

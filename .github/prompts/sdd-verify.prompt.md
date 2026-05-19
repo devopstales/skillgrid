@@ -27,10 +27,16 @@ CONTEXT:
 TASK:
 Verify the active SDD change. Read the proposal, specs, design, and tasks artifacts. Then:
 
-MANDATORY PRECHECK:
-- Run `.skillgrid/scripts/validate-task-labels.sh openspec/changes/{change-name}/tasks.md` before verification.
-- If validation fails, report a CRITICAL gate failure and return FAIL.
-- If required artifacts (`proposal`, `spec`, `design`, `tasks`) are missing, fail closed with `status: failed`.
+GATE:
+- Before verification, run:
+  `.skillgrid/scripts/sdd-gate.sh verify --change {change-name}`
+- If this script exits non-zero, stop immediately and return:
+  ```
+  status: "blocked"
+  executive_summary: "Gate failure — see sdd-gate errors above"
+  next_recommended: "Fix gate failures before verification"
+  ```
+- The gate script handles label validation, artifact checks, two-stage review state, and persona board status.
 
 ENGRAM PERSISTENCE (artifact store mode: engram):
 CRITICAL: mem_search returns 300-char PREVIEWS, not full content. You MUST call mem_get_observation(id) for EVERY artifact.

@@ -118,8 +118,8 @@ This distinction is enforced as a workflow gate, not a soft convention:
 
 Automation hook:
 
-- run `.skillgrid/scripts/validate-task-labels.sh openspec/changes/<change-name>/tasks.md` as a hard precheck in both `/sdd-apply` and `/sdd-verify`;
-- treat validator failures as blocking (`blocked` in apply, `FAIL` in verify).
+- run `.skillgrid/scripts/sdd-gate.sh <phase> --change <change-name>` as the hard precheck (`apply`, `verify`, etc.);
+- label validation is included inside the gate script — treat gate exit 1 as blocking (`blocked` in apply, `failed` in verify).
 
 Vertical slices should create early feedback. Prefer a thin path through the necessary layers over a horizontal plan where one phase only changes schema, another only changes API, and another only changes UI. A good first slice behaves like a tracer bullet: small enough to build safely, but complete enough to prove direction.
 
@@ -203,9 +203,11 @@ Use:
 
 for controlled implementation from an approved task list.
 
-`/sdd-loop` performs one AFK-safe slice at a time (`pick -> execute -> evidence -> reassess -> continue/stop`) and should be the default continuation entrypoint.
+`/sdd-loop` is the **Ralph loop orchestrator**: one AFK task per invocation (`plan → delegate to /sdd-apply → reflect → stop`). Use it as the default AFK continuation entrypoint. For unattended runs: `.skillgrid/scripts/sdd-ralph-loop.sh <change> [max]`.
 
-Use `/sdd-apply` directly when you intentionally want a single targeted implementation pass without loop control.
+Full guide: **[SDD Ralph Loop](17-sdd-ralph-loop.md)**.
+
+Use `/sdd-apply` directly when you want a **single session** to chew through many tasks (sequential subagents, full pipeline) without the per-iteration Ralph controller.
 
 The agent should:
 

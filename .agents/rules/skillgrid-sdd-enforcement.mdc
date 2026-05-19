@@ -24,7 +24,7 @@ Treat as **gates**, not etiquette:
 - Never run unattended apply on `[HITL]` work.
 - Only `[AFK]` slices belong in unattended `/sdd-loop` iterations.
 
-Validator: `.skillgrid/scripts/validate-task-labels.sh` on `tasks.md` where workflows require it.
+Validator: `.skillgrid/scripts/sdd-gate.sh <phase> --change <name>` (includes label checks when `tasks.md` exists).
 
 ## Two-stage review (implementation-ready work)
 

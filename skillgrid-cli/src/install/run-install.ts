@@ -22,6 +22,7 @@ import { logInfo, logSuccess, logWarn } from "./log.js";
 import { interactiveIdeSelection, interactiveMcpSelection, interactiveToolsSelection } from "./interactive.js";
 import type { ParsedInstallArgv } from "./parse-install-argv.js";
 import { ensureReleaseHubCache } from "./clone-release-hub.js";
+import { installSddGateHooks, uninstallSddGateHooks } from "./sdd-gate-hooks.js";
 
 function ideFolder(ide: IdeId): string {
   switch (ide) {
@@ -266,9 +267,13 @@ export async function runInstallCli(localHubFallback: string, parsed: ParsedInst
     nonInteractive: parsed.nonInteractive,
     mergeMcp,
     mcpKeyFilter: mcpFilter,
+    installSddHooks: parsed.installSddHooks,
   };
 
   if (opts.uninstall) {
+    if (opts.installSddHooks) {
+      uninstallSddGateHooks(opts.projectPath, opts.dryRun);
+    }
     uninstall(opts);
     return 0;
   }
@@ -431,6 +436,11 @@ export async function runInstallCli(localHubFallback: string, parsed: ParsedInst
     logInfo(`Skills source not found: ${skillsSrc} — skipping skills sync`);
   }
 
+  if (opts.installSddHooks) {
+    console.log("");
+    installSddGateHooks(opts.projectPath, opts.dryRun);
+  }
+
   if (opts.selectedIdes.includes("copilot")) {
     for (const extra of [".github", ".copilot"]) {
       const src = join(hubRoot, extra);
@@ -536,6 +546,7 @@ Options:
   -y, --yes             Non-interactive mode (skip prompts)
   --no-mcp              Skip MCP server configuration
   -n, --dry-run         Show what would be installed without making changes
+  --no-sdd-hooks        Skip SDD gate pre-commit/pre-push git hooks
   -u, --uninstall       Remove managed IDE dirs from target
   -v, --version         Print version
   -h, --help            Show help`);

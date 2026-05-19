@@ -10,8 +10,8 @@ This document lists every slash command, what it does, and which skills it uses.
 | `/sdd-brainstorm <name>` | Planning | Full planning pipeline: explore → propose → spec → design → tasks |
 | `/sdd-explore <topic>` | Planning | Free-form codebase investigation (no code changes) |
 | `/sdd-clarify <name>` | Planning | Interactive questioning to sharpen terminology, update CONTEXT.md |
-| `/sdd-apply [name]` | Build | Implement tasks — orchestrates workspace setup, granular planning, sequential agent execution with TDD enforcement |
-| `/sdd-loop [name]` | Build | Controlled build loop for AFK-safe slices |
+| `/sdd-apply [name]` | Build | **Worker:** implement tasks (all remaining, or one task when called from the loop) — TDD, workspace, sequential subagents |
+| `/sdd-loop [name]` | Build | **Ralph loop:** one AFK task per fresh invocation — plan → delegate to `/sdd-apply` → reflect → stop (no direct coding) |
 | `/sdd-verify [name]` | Verify | **Stage 1:** Spec compliance verification — trace requirements to code/tests |
 | `/sdd-review [name]` | Verify | **Stage 2:** Code quality review — style, DRY, error handling, security, maintainability |
 | `/sdd-archive [name]` | Archive | Sync delta specs, merge/PR/keep branch — requires verify + review + pre-merge gate passed |
@@ -115,47 +115,46 @@ This document lists every slash command, what it does, and which skills it uses.
 
 ### `/sdd-apply [change-name]`
 
-**Phase:** Implementation
+**Phase:** Implementation (worker)
 
-**What it does:** Orchestrates the full implementation pipeline:
-1. Workspace isolation (creates git worktree)
-2. Plan validation (ensures tasks are granular and TDD-compliant)
-3. Sequential agent execution (dispatches fresh subagent per task with two-stage review)
-4. Evidence collection (TDD logs, spec compliance, quality review per task)
+**What it does:** Writes code and tests from `tasks.md`, specs, and design. When you invoke it directly, it works through **remaining** incomplete tasks (workspace isolation, granular planning, sequential subagents, TDD, two-stage review) until done or blocked.
 
-Follows enforced TDD protocol automatically. No human checkpoints between tasks unless blocked.
+When invoked **from `/sdd-loop`**, it implements **only the one task** named in the delegation prompt, then returns.
 
-**Skills used:** `sdd-apply` (orchestrator), `isolated-workspace`, `granular-planning`, `sequential-agent-executor`, `enforced-tdd-protocol`
+**Skills used:** `sdd-apply`, `isolated-workspace`, `granular-planning`, `sequential-agent-executor`, `enforced-tdd-protocol`
 
-**Input:** Optional change name (picks active change if omitted)
+**Preflight:** `.skillgrid/scripts/sdd-gate.sh apply --change <name>` (canonical gate)
 
-**Preflight gate:**
-1. Task label validation (`.skillgrid/scripts/validate-task-labels.sh`)
-2. Artifacts present (tasks.md, specs/, design.md)
-3. TDD compliance check (if TDD enabled)
-
-**Output:** Implemented code, passing tests, updated `tasks.md` with `[x]` marks, per-task evidence in `.agents/tasks/<change-id>/`
-
-**Execution modes:**
-- Default: `sequential-agent-executor` (fresh subagent per task, two-stage review)
-- Alternative: `batch-executor` (checkpointed batches, manual review between)
+**Output:** Code, tests, updated `tasks.md`, commits, standard return envelope
 
 ---
 
 ### `/sdd-loop [change-name]`
 
-**Phase:** Implementation (controlled continuation)
+**Phase:** Build — Ralph loop (orchestrator only)
 
-**What it does:** Picks one AFK-safe slice per iteration, executes it through the full pipeline (workspace → plan → apply → verify locally), captures verification evidence, then reassesses risk. Stops deterministically on gate failures. Safer for long-running sessions where context might be lost.
+**Full documentation:** [SDD Ralph Loop](17-sdd-ralph-loop.md)
 
-**Skills used:** `sdd-apply` (delegated per slice), `sdd-verify` (local check), `sdd-persona-board` (escalation on risk)
+**What it does:** Runs **one iteration** per invocation ([Ralph pattern](https://ghuntley.com/ralph/)): pick the next `[Label: AFK]` task from `tasks.md`, delegate it to `/sdd-apply` with explicit single-task scope, append learnings to `ralph-loop-state.md` / `progress.txt`, then **stop**. Does not write application code.
 
-**Input:** Optional change name
+**Not the same as `/sdd-apply`:** loop = conductor; apply = musician.
 
-**Output artifacts:**
-- Updated `.skillgrid/tasks/context_<change-id>.md`
-- Event log `.skillgrid/tasks/events/<change-id>.jsonl`
-- Slice verification reports
+**Architecture (one iteration):**
+```
+PLAN → DELEGATE (/sdd-apply, one task) → REFLECT → STOP
+```
+
+**AFK multi-iteration driver:**
+```bash
+.skillgrid/scripts/sdd-ralph-loop.sh <change-name> [max-iterations]
+```
+Uses `SDD_RALPH_AGENT` (`claude` | `opencode` | `cursor`). Stops when output contains `<promise>COMPLETE</promise>` ([snarktank/ralph](https://github.com/snarktank/ralph), [aihero Ralph guide](https://www.aihero.dev/getting-started-with-ralph)).
+
+**Completion:** `<promise>COMPLETE</promise>` when all AFK tasks are `[x]`; then run `/sdd-verify`.
+
+**Memory between iterations:** `tasks.md`, git commits, `.skillgrid/tasks/research/<change>/ralph-loop-state.md`, `progress.txt`
+
+**Skills used:** orchestration only; execution via `sdd-apply`
 
 ---
 

@@ -320,7 +320,7 @@ node scripts/render-multi-ide-personas.mjs
 Mirror agent files from Cursor sources:
 
 ```bash
-./scripts/sync-ide-assets.sh
+./install.sh -p /path/to/project -s   # --sync-assets renders commands, prompts, agents, rules
 ```
 
 Surface capability tiers and fallback behavior: `.configs/ide-persona-capabilities.json`, described alongside other IDE layout notes in `100-ide-configs.md`.

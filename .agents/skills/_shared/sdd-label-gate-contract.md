@@ -2,29 +2,33 @@
 
 Applies to implementation and verification phases using task labels.
 
-## Validator Command
+## Validator
 
-Run before implementation or deep verification:
+All label validation is handled by the unified gate script (do not invoke the label script directly from phase prompts):
 
 ```bash
-.skillgrid/scripts/validate-task-labels.sh openspec/changes/{change-name}/tasks.md
+.skillgrid/scripts/sdd-gate.sh <phase> --change <change-name>
 ```
 
-## Rules
+The gate script calls `validate-task-labels.sh` internally when `tasks.md` exists.
 
-- Validation failure is a hard gate failure.
-- Missing or invalid `[Label: AFK|HITL]` metadata is blocking.
-- Record validator output in report artifacts.
+## Rules (now enforced programmatically)
+
+- Validation failure is a hard gate failure (script exits 1)
+- Missing or invalid `[Label: AFK|HITL]` metadata is blocking
+- Git hooks enforce label validation pre-commit and pre-push
+- No manual validation needed in phase prompts — the gate script is the source of truth
 
 ## Status Mapping
 
-- Apply phase: return `status: blocked` on validation failure.
-- Verify phase: return `status: failed` with CRITICAL gate finding.
+- Apply phase: gate script exit 1 → phase returns `status: blocked`
+- Verify phase: gate script exit 1 → phase returns `status: failed` with CRITICAL gate finding
+- Git hooks: commit/push blocked on exit 1
 
-## Required Output Fields on Failure
+## Output Fields (on gate failure)
 
-- `status`
-- `executive_summary`
-- `artifacts` (include validator evidence path/output)
-- `next_recommended` (explicit remediation)
-- `risks` (include workflow-quality risk)
+- `status`: `blocked` or `failed`
+- `executive_summary`: gate error details
+- `artifacts`: gate output evidence
+- `next_recommended`: explicit remediation
+- `risks`: workflow-quality risk

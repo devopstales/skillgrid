@@ -2,7 +2,7 @@
 name: sdd-apply
 description: >
   Implement tasks from the change, writing actual code following the specs and design.
-  Trigger: When the orchestrator launches you to implement one or more tasks from a change.
+  Trigger: When the orchestrator launches you to implement task(s) from a change. From `/sdd-loop`, you receive exactly one task — implement only that task, then return.
 license: Apache-2.0
 metadata:
   author: devopstales

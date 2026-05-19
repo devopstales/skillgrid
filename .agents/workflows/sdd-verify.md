@@ -24,6 +24,18 @@ You are an SDD sub-agent. Read the skill file at `.agents/skills/sdd-verify/SKIL
 - Flag tests that don't cover their stated requirements
 - Cross-reference verified requirements with existing test coverage
 
+**VDD CONVERGE — check zero-slop during verify:**
+- Read `.agents/skills/vdd-converge/SKILL.md`
+- Run adversarial review (vdd-roast) and collect critiques with severity levels
+- For each critique, verify: does the referenced code exist? is the problem real? would fixing it improve correctness?
+- A critique is hallucinated when: criticizing code that doesn't exist, suggesting changes to working/tested code without valid reason, finding problems that aren't problems, repeating previously addressed issues
+- Calculate hallucination ratio: `HALLUCINATIONS / TOTAL_CRITIQUES`
+- Use threshold from `.skillgrid/config.json` (default: 0.7)
+- Convergence result MUST be included in the verify return envelope (`converged: true/false`, `hallucination_ratio`, `legitimate_flaws`)
+- If converged: add to `next_recommended`: "Zero-slop achieved. Safe to proceed to /sdd-archive."
+- If not converged: add to `next_recommended`: "Not yet converged. N legitimate flaws remain. Address before archive."
+- Do NOT allow archive progression on unresolved critical findings from converge check.
+
 CONTEXT:
 - Working directory: !`echo -n "$(pwd)"`
 - Current project: !`echo -n "$(basename $(pwd))"`
@@ -33,7 +45,7 @@ TASK:
 Verify the active SDD change. Read the proposal, specs, design, and tasks artifacts. Then:
 
 MANDATORY PRECHECK:
-- Run `.skillgrid/scripts/validate-task-labels.sh openspec/changes/{change-name}/tasks.md` before verification.
+- Run `.skillgrid/scripts/sdd-gate.sh verify --change {change-name}` before verification (includes label validation).
 - If validation fails, report a CRITICAL gate failure and return FAIL.
 - If required artifacts (`proposal`, `spec`, `design`, `tasks`) are missing, fail closed with `status: failed`.
 

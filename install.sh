@@ -72,6 +72,8 @@ NON_INTERACTIVE=false
 MERGE_MCP=true
 ALL_MCP=false
 MCP_KEY_FILTER_JSON=""
+SYNC_ASSETS=false
+INSTALL_SDD_HOOKS=true
 
 # =============================================================================
 # GLOBALS: Colors, IDE mappings, dependency declarations
@@ -153,6 +155,8 @@ Options:
   -y, --yes             Non-interactive mode (skip prompts)
   --no-mcp              Skip MCP server configuration
   -n, --dry-run         Show what would be installed without making changes
+  -s, --sync-assets     Run IDE asset sync (render hub commands/prompts/agents/rules into each selected IDE after install)
+  --no-sdd-hooks        Skip installing SDD gate pre-commit/pre-push git hooks
   -u, --uninstall       Remove .ai-config and managed IDE dirs from target
   -v, --version         Print Version
   -h, --help            Show this help message
@@ -1131,13 +1135,11 @@ run_sanity_check() {
     sanity_check_file "Skill catalog" "$SCRIPT_DIR/.agents/skills"
     sanity_check_file "Skillgrid UI script" "$SCRIPT_DIR/.skillgrid/scripts/skillgrid-ui.mjs"
     sanity_check_file "Preview script" "$SCRIPT_DIR/.skillgrid/scripts/preview.sh"
-    sanity_check_file "IDE sync script" "$SCRIPT_DIR/scripts/sync-ide-assets.sh"
     sanity_check_file "Node package manifest" "$SCRIPT_DIR/package.json"
 
     echo ""
     echo "Hub script checks:"
     sanity_check_command "skillgrid-ui.mjs syntax" "node --check \"$SCRIPT_DIR/.skillgrid/scripts/skillgrid-ui.mjs\"" "check Node and the dashboard script"
-    sanity_check_command "sync-ide-assets.sh syntax" "bash -n \"$SCRIPT_DIR/scripts/sync-ide-assets.sh\"" "check sync script syntax"
 
     echo ""
     if [ "$SANITY_FAILURES" -eq 0 ]; then
@@ -1420,6 +1422,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         -n|--dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        -s|--sync-assets)
+            SYNC_ASSETS=true
+            shift
+            ;;
+        --no-sdd-hooks)
+            INSTALL_SDD_HOOKS=false
             shift
             ;;
         -u|--uninstall)
@@ -1727,6 +1737,228 @@ setup_antigravity() {
     log_success "Antigravity setup complete"
 }
 
+# SDD gate git hooks (inline — install via install.sh only; skillgrid-cli has TS parity).
+_sdd_hook_git_hooks_dir() {
+    local project="$1"
+    local git_dir
+    git_dir="$(git -C "$project" rev-parse --git-dir 2>/dev/null)" || return 1
+    case "$git_dir" in
+        /*) echo "${git_dir}/hooks" ;;
+        *) echo "${project}/${git_dir}/hooks" ;;
+    esac
+}
+
+_sdd_hook_contains_sdd_gate() {
+    local f="$1"
+    [ -f "$f" ] && grep -q "sdd-gate" "$f" 2>/dev/null
+}
+
+install_sdd_gate_hooks() {
+    local project="$1"
+    local gate_script hooks_dir
+
+    [ "$INSTALL_SDD_HOOKS" = true ] || return 0
+
+    if ! git -C "$project" rev-parse --git-dir &>/dev/null; then
+        log_info "SDD gate hooks: skipped (not a git repository)"
+        return 0
+    fi
+
+    gate_script="$project/.skillgrid/scripts/sdd-gate.sh"
+    if [ ! -f "$gate_script" ]; then
+        log_warn "SDD gate hooks: skipped — missing $gate_script"
+        return 0
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        log_info "[DRY-RUN] Would install SDD gate hooks in $project"
+        return 0
+    fi
+
+    hooks_dir="$(_sdd_hook_git_hooks_dir "$project")" || {
+        log_warn "SDD gate hooks: could not resolve git hooks directory"
+        return 0
+    }
+
+    log_info "Installing SDD gate git hooks..."
+    chmod +x "$gate_script"
+    mkdir -p "$hooks_dir"
+
+    cat > "$hooks_dir/pre-commit" <<'SDD_PRE_COMMIT'
+#!/usr/bin/env bash
+# Pre-commit hook: run sdd-gate.sh on SDD changes when openspec/ changes are staged.
+
+set -uo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root" || exit 1
+
+staged_files="$(git diff --cached --name-only 2>/dev/null || true)"
+if [[ -z "$staged_files" ]]; then
+  exit 0
+fi
+
+change_dirs=()
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  if [[ "$f" == openspec/changes/* ]] || [[ "$f" == .openspec/changes/* ]]; then
+    dir="$(echo "$f" | cut -d'/' -f1-3)"
+    change_dirs+=("$dir")
+  fi
+done <<< "$staged_files"
+
+if [[ ${#change_dirs[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+unique_dirs=()
+for d in "${change_dirs[@]}"; do
+  found=false
+  for u in "${unique_dirs[@]+"${unique_dirs[@]}"}"; do
+    [[ "$u" == "$d" ]] && found=true && break
+  done
+  "$found" || unique_dirs+=("$d")
+done
+
+sdd_detect_phase() {
+  local change_name="$1"
+  local prefix="openspec/changes/${change_name}/"
+  local staged
+  staged="$(git diff --cached --name-only -- "${prefix}" 2>/dev/null || true)"
+  if echo "$staged" | grep -qE 'tasks\.md$'; then
+    echo "apply"
+  elif echo "$staged" | grep -qE 'design\.md$'; then
+    echo "design"
+  elif echo "$staged" | grep -qE 'specs/.*/spec\.md$'; then
+    echo "spec"
+  elif echo "$staged" | grep -qE 'proposal\.md$'; then
+    echo "propose"
+  elif echo "$staged" | grep -qE 'ui-(wireframes|decisions)\.md$'; then
+    echo "design"
+  else
+    echo "tasks"
+  fi
+}
+
+errors=0
+for d in "${unique_dirs[@]}"; do
+  dir_name="$(basename "$d")"
+  [[ "$dir_name" == "archive" ]] && continue
+  phase="$(sdd_detect_phase "$dir_name")"
+  echo "[sdd-gate] Running gate for: ${d} (phase=${phase})" >&2
+
+  if ! "${repo_root}/.skillgrid/scripts/sdd-gate.sh" "$phase" --change "$dir_name" 2>&1; then
+    echo "" >&2
+    echo "=== sdd-gate PRE-COMMIT BLOCKED ===" >&2
+    echo "Phase: $phase | Change: $dir_name" >&2
+    echo "Fix gate failures before committing. Run manually:" >&2
+    echo "  .skillgrid/scripts/sdd-gate.sh $phase --change $dir_name" >&2
+    errors=1
+  fi
+done
+
+exit $errors
+SDD_PRE_COMMIT
+
+    cat > "$hooks_dir/pre-push" <<'SDD_PRE_PUSH'
+#!/usr/bin/env bash
+# Pre-push hook: verify only SDD changes included in this push.
+
+set -uo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root" || exit 1
+errors=0
+
+change_names=()
+sdd_collect_change_from_path() {
+  local f="$1"
+  local name=""
+  if [[ "$f" == openspec/changes/*/* ]]; then
+    name="$(echo "$f" | cut -d'/' -f3)"
+  elif [[ "$f" == .openspec/changes/*/* ]]; then
+    name="$(echo "$f" | cut -d'/' -f3)"
+  else
+    return 0
+  fi
+  [[ -z "$name" || "$name" == "archive" ]] && return 0
+  local found=false
+  for c in "${change_names[@]+"${change_names[@]}"}"; do
+    [[ "$c" == "$name" ]] && found=true && break
+  done
+  "$found" || change_names+=("$name")
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [[ -z "$local_sha" ]] && continue
+  if [[ "$local_sha" == "0000000000000000000000000000000000000000" ]]; then
+    continue
+  fi
+  if [[ "$remote_sha" == "0000000000000000000000000000000000000000" ]]; then
+    range="$local_sha"
+  else
+    range="${remote_sha}..${local_sha}"
+  fi
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    sdd_collect_change_from_path "$f"
+  done < <(git diff --name-only "$range" 2>/dev/null || true)
+done
+
+if [[ ${#change_names[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+for change_name in "${change_names[@]}"; do
+  change_dir="$repo_root/openspec/changes/$change_name"
+  [[ -f "${change_dir}/tasks.md" ]] || continue
+
+  echo "[sdd-gate-pre-push] Checking: $change_name" >&2
+
+  if ! "${repo_root}/.skillgrid/scripts/sdd-gate.sh" verify --change "$change_name" 2>&1; then
+    echo "" >&2
+    echo "=== sdd-gate PRE-PUSH BLOCKED ===" >&2
+    echo "Change: $change_name" >&2
+    echo "Resolve gate failures before pushing. Run manually:" >&2
+    echo "  .skillgrid/scripts/sdd-gate.sh verify --change $change_name" >&2
+    errors=1
+  fi
+done
+
+exit $errors
+SDD_PRE_PUSH
+
+    chmod +x "$hooks_dir/pre-commit" "$hooks_dir/pre-push"
+    log_success "SDD gate hooks installed ($hooks_dir/pre-commit, $hooks_dir/pre-push)"
+}
+
+uninstall_sdd_gate_hooks() {
+    local project="$1"
+    local hooks_dir
+
+    [ "$INSTALL_SDD_HOOKS" = true ] || return 0
+
+    if ! git -C "$project" rev-parse --git-dir &>/dev/null; then
+        return 0
+    fi
+
+    if [ "$DRY_RUN" = true ]; then
+        echo "[DRY-RUN] Would remove SDD gate git hooks from $project"
+        return 0
+    fi
+
+    hooks_dir="$(_sdd_hook_git_hooks_dir "$project")" || return 0
+
+    if _sdd_hook_contains_sdd_gate "$hooks_dir/pre-commit"; then
+        rm -f "$hooks_dir/pre-commit"
+        log_info "Removed $hooks_dir/pre-commit (sdd-gate)"
+    fi
+    if _sdd_hook_contains_sdd_gate "$hooks_dir/pre-push"; then
+        rm -f "$hooks_dir/pre-push"
+        log_info "Removed $hooks_dir/pre-push (sdd-gate)"
+    fi
+}
+
 # Helper function to ensure directory exists
 ensure_dir() {
     local dir="$1"
@@ -1737,6 +1969,161 @@ ensure_dir() {
             mkdir -p "$dir"
         fi
     fi
+}
+
+# =============================================================================
+# IDE ASSET SYNC: render hub commands/prompts/agents/rules to each selected IDE
+# =============================================================================
+# Inline rendering so install.sh is the single orchestrator for IDE setup.
+# Enabled via --sync-assets / -s.
+
+run_ide_asset_sync() {
+    log_info "Syncing IDE assets — rendering commands, prompts, agents, and rules..."
+
+    if [ "$DRY_RUN" = true ]; then
+        log_info "[DRY-RUN] run_ide_asset_sync: targets = ${SELECTED_IDES[*]}, no files would be changed"
+        return 0
+    fi
+
+    if ! command -v python3 &>/dev/null; then
+        log_warn "IDE asset sync skipped: python3 not found (install Python 3 to enable asset sync)"
+        return 0
+    fi
+
+    SRC_WORKFLOWS="$SCRIPT_DIR/.agents/workflows"
+
+    # --- 1. Render commands from hub workflows → .cursor/commands/, .kilo/commands/, .opencode/commands/ ---
+    # IDE command path mapping
+    declare -A IDE_CMD_DIRS=(
+        [cursor]="$PROJECT_PATH/.cursor/commands"
+        [kilo]="$PROJECT_PATH/.kilo/commands"
+        [opencode]="$PROJECT_PATH/.opencode/commands"
+    )
+    for ide in "${SELECTED_IDES[@]}"; do
+        dest="${IDE_CMD_DIRS[$ide]}"
+        [ -z "$dest" ] && continue
+        mkdir -p "$dest"
+        for src in "$SRC_WORKFLOWS"/*.md; do
+            [ -f "$src" ] || continue
+            python3 - "$src" "$dest" <<'PYINLINE'
+import sys, re
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+
+def frontmatter(text):
+    m = re.match(r"^---\n(.*?)\n---\n?", text, re.DOTALL)
+    if not m:
+        return {}, text
+    fields = []
+    for line in m.group(1).splitlines():
+        if not line.strip() or ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        fields.append((k.strip(), v.strip()))
+    return {k: v for k, v in fields}, text[m.end():]
+
+text = src.read_text(encoding="utf-8")
+vals, body = frontmatter(text)
+desc = vals.get("description", src.stem)
+
+lines = [
+    "---",
+    f"name: {vals.get('id') or src.stem}",
+    f"id: {vals.get('id') or src.stem}",
+    f"category: {vals.get('category') or 'Workflow'}",
+    f"description: {desc}",
+]
+for k, v in vals.items():
+    if k not in {"name", "id", "category", "description"}:
+        lines.append(f"{k}: {v}")
+lines.append("---")
+out = "\n".join(lines) + "\n" + body
+(dest / src.name).write_text(out, encoding="utf-8")
+PYINLINE
+        done
+        # prune stale mirrors
+        for f in "$dest"/*.md; do
+            [ -f "$f" ] || continue
+            base="$(basename "$f")"
+            [ -f "$SRC_WORKFLOWS/$base" ] || rm -f "$f"
+        done
+        log_success "Rendered commands → $dest"
+    done
+
+    # --- 2. Render Copilot prompts from hub workflows → .github/prompts/ ---
+    if [[ " ${SELECTED_IDES[*]} " =~ " copilot " ]]; then
+        gh_dest="$PROJECT_PATH/.github/prompts"
+        mkdir -p "$gh_dest"
+        for src in "$SRC_WORKFLOWS"/*.md; do
+            [ -f "$src" ] || continue
+            # extract frontmatter description
+            desc="$(sed -n '1,/^---$/p' "$src" | grep '^description:' | head -1 | sed 's/^description:[[:space:]]*//')"
+            [ -z "$desc" ] && desc="$(basename "$src" .md)"
+            # strip frontmatter, keep body
+            body="$(sed -e '1,/^---$/d' "$src")"
+            out="---\ndescription: $desc\n---\n$body"
+            echo "$out" > "$gh_dest/$(basename "$src" .md).prompt.md"
+        done
+        # prune stale mirrors
+        for f in "$gh_dest"/*.prompt.md; do
+            [ -f "$f" ] || continue
+            sname="$(basename "$f" .prompt.md).md"
+            [ -f "$SRC_WORKFLOWS/$sname" ] || rm -f "$f"
+        done
+        log_success "Rendered prompts → $gh_dest"
+    fi
+
+    # --- 3. Mirror agents from .cursor/agents → other IDE agent dirs ---
+    if [ -d "$SCRIPT_DIR/.cursor/agents" ]; then
+        AGENT_DEST_DIRS=(
+            "$PROJECT_PATH/.github/agents"
+            "$PROJECT_PATH/.kilo/agents"
+            "$PROJECT_PATH/.opencode/agents"
+        )
+        for ad in "${AGENT_DEST_DIRS[@]}"; do
+            mkdir -p "$ad"
+            for f in "$SCRIPT_DIR/.cursor/agents"/*.md; do
+                [ -f "$f" ] || continue
+                cp "$f" "$ad/"
+            done
+            # prune stale
+            for f in "$ad"/*.md; do
+                [ -f "$f" ] || continue
+                base="$(basename "$f")"
+                [ -f "$SCRIPT_DIR/.cursor/agents/$base" ] || rm -f "$f"
+            done
+        done
+        # prune from IDE dirs where the source file is deleted
+        for target in "${AGENT_DEST_DIRS[@]}"; do
+            for f in "$target"/*.md; do
+                [ -f "$f" ] || continue
+                base="$(basename "$f")"
+                [ -f "$SCRIPT_DIR/.cursor/agents/$base" ] || rm -f "$f"
+            done
+        done
+        log_success "Mirrored agents → .github/agents .kilo/agents .opencode/agents"
+    fi
+
+    # --- 4. Mirror rules from hub (.agents/rules + .cursor/rules) → .kilo/rules + .opencode/rules ---
+    RULE_DEST_DIRS=("$PROJECT_PATH/.kilo/rules" "$PROJECT_PATH/.opencode/rules")
+    for rule_dir in "${RULE_DEST_DIRS[@]}"; do
+        mkdir -p "$rule_dir"
+        for src in "$SCRIPT_DIR/.agents/rules"/*.mdc "$SCRIPT_DIR/.cursor/rules"/*.mdc; do
+            [ -f "$src" ] || continue
+            cp "$src" "$rule_dir/"
+        done
+        # prune stale
+        for f in "$rule_dir"/*.mdc; do
+            [ -f "$f" ] || continue
+            base="$(basename "$f")"
+            [ -f "$SCRIPT_DIR/.agents/rules/$base" ] || [ -f "$SCRIPT_DIR/.cursor/rules/$base" ] || rm -f "$f"
+        done
+    done
+    log_success "Mirrored rules → .kilo/rules .opencode/rules"
+
+    log_success "IDE asset sync complete"
 }
 
 # =============================================================================
@@ -1831,6 +2218,8 @@ main() {
                 fi
             done
         fi
+
+        uninstall_sdd_gate_hooks "$PROJECT_PATH"
 
         echo ""
         echo "Done!"
@@ -2141,6 +2530,15 @@ main() {
             fi
         done
     fi
+
+    # Run IDE asset sync — render hub commands/prompts/agents/rules into selected IDE folders
+    # Invoked when --sync-assets (-s) is passed.
+    if [ "$SYNC_ASSETS" = true ]; then
+        run_ide_asset_sync
+    fi
+
+    # SDD gate git hooks (requires .skillgrid/scripts/sdd-gate.sh in target)
+    install_sdd_gate_hooks "$PROJECT_PATH"
 
     # Merge MCP configs
     echo ""

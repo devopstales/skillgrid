@@ -15,6 +15,7 @@ export interface ParsedInstallArgv {
   /** Same as install.sh -AA / --all-mcp: skip MCP prompt, merge every hub server (still respects later --no-mcp). */
   allMcp: boolean;
   mcpKeyFilter: string[] | null;
+  installSddHooks: boolean;
   help: boolean;
   version: boolean;
 }
@@ -34,6 +35,7 @@ export function parseInstallArgv(argv: string[]): ParsedInstallArgv {
     mergeMcp: true,
     allMcp: false,
     mcpKeyFilter: null,
+    installSddHooks: true,
     help: false,
     version: false,
   };
@@ -107,6 +109,11 @@ export function parseInstallArgv(argv: string[]): ParsedInstallArgv {
     }
     if (a === "--no-mcp") {
       out.mergeMcp = false;
+      i += 1;
+      continue;
+    }
+    if (a === "--no-sdd-hooks") {
+      out.installSddHooks = false;
       i += 1;
       continue;
     }

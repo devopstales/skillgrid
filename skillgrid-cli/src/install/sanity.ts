@@ -78,6 +78,7 @@ export function runSanityCheck(hubRoot: string): number {
   sanityCheckFile("Skill catalog", join(hubRoot, ".agents", "skills"));
   sanityCheckFile("Skillgrid UI script", join(hubRoot, ".skillgrid", "scripts", "skillgrid-ui.mjs"));
   sanityCheckFile("Preview script", join(hubRoot, ".skillgrid", "scripts", "preview.sh"));
+  sanityCheckFile("SDD gate script", join(hubRoot, ".skillgrid", "scripts", "sdd-gate.sh"));
   sanityCheckFile("IDE sync script", join(hubRoot, "scripts", "sync-ide-assets.sh"));
   sanityCheckFile("Node package manifest", join(hubRoot, "package.json"));
 

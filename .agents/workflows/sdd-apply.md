@@ -17,11 +17,15 @@ CONTEXT:
 - Artifact store mode: hybrid
 
 TASK:
-Implement the remaining incomplete tasks for the active SDD change.
+Implement tasks for the active SDD change.
+
+**Default (direct `/sdd-apply`):** Work through remaining incomplete tasks until done or blocked.
+
+**When invoked from `/sdd-loop`:** Implement **only** the single task line passed in the delegation prompt. Do not start other checklist items. Commit and return after that one task.
 
 MANDATORY PRECHECK:
 - Before any implementation, run:
-  `.skillgrid/scripts/validate-task-labels.sh openspec/changes/{change-name}/tasks.md`
+  `.skillgrid/scripts/sdd-gate.sh apply --change {change-name}`
 - If validation fails, STOP and return blocked status with the validation errors.
 - If required artifacts (`spec`, `design`, `tasks`) are missing, fail closed with `status: failed`.
 

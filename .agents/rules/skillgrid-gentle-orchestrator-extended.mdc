@@ -62,6 +62,18 @@ Cache choice for the session.
 proposal -> specs --> tasks -> apply -> verify -> archive
              ^
            design
+
+| Phase | Required Nordic owner | Optional supporting personas |
+| --- | --- | --- |
+| `init` | `odin` or `mimir` | `mimir`, `loki` |
+| `explore` | `loki` | `odin`, `thor` |
+| `propose` | `odin` | `loki`, `bragi` |
+| `spec` | `tyr` or `bragi` | `odin`, `loki` |
+| `design` | `odin` | `thor`, `loki`, `frigg` |
+| `tasks` | `thor` or `bragi` | `tyr`, `odin` |
+| `apply` | `thor` | `odin`, `frigg` |
+| `verify` | `tyr` | `heimdall`, `frigg`, `loki` |
+| `archive` | `odin` | `mimir`, `bragi` |
 ```
 
 ## Mandatory usage routing (Nordic phase ownership + gates)
