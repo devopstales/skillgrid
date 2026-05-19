@@ -124,6 +124,29 @@ Typical roles:
 - GitNexus exposes repository graph, context, impact, process, and query tools.
 - CocoIndex Code supports semantic code search.
 
+### Context Window Optimization
+
+context-mode keeps bulky tool output out of the live context window and indexes session events for resume after compaction.
+
+Typical server key:
+
+```text
+context-mode
+```
+
+Typical role:
+
+- Sandbox Bash/Read/WebFetch output via `ctx_*` tools; enforce routing with IDE hooks (Cursor, Copilot) or the OpenCode/Kilo plugin.
+- Install CLI: `npm install -g context-mode` (the installer runs this automatically when MCP merge includes the hub fragment).
+
+Hub fragment:
+
+```text
+.configs/mcp/context-mode.json
+```
+
+IDE assets (when Cursor/Copilot are selected): `.configs/context-mode/` templates copied to `.cursor/hooks.json`, `.cursor/rules/context-mode.mdc`, and `.github/hooks/context-mode.json`.
+
 ### Product And Design Utilities
 
 Some MCP servers serve specific product or UI workflows.

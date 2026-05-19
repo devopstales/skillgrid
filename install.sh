@@ -46,7 +46,7 @@
 #   3. Dependency check  → optional install of missing tools
 #   4. MCP merge         → jq-merge .configs/mcp/**/*.json → canonical mcpServers
 #   5. IDE setup         → per-IDE setup_*() maps merged MCP to native JSON schemas
-#   6. Optional tools    → gitnexus + engram CLIs always; -t adds openspec/dmux/brave-search-cli/cocoindex-code; npm/uv/brew installs, then copy + openspec init when selected
+#   6. Optional tools    → gitnexus + engram + context-mode CLIs always; -t adds openspec/dmux/brave-search-cli/cocoindex-code; npm/uv/brew installs, then copy + openspec init when selected
 #
 # DEPENDENCIES:
 #   Runtime:  bash 3.2+ (incl. macOS /bin/bash), rsync, jq
@@ -149,7 +149,7 @@ Options:
   -a, --antigravity     Setup configuration for Google Antigravity
   -A, --all             Setup for all supported IDEs (Default if none selected)
   -AA, --all-mcp        Merge every hub MCP server (skip MCP prompt; clears any subset filter). Implies MCP merge on unless later --no-mcp
-  -t, --tools           Interactive prompt for extra optional tools (openspec, dmux, brave-search-cli, cocoindex-code); gitnexus + engram CLIs are always installed when possible
+  -t, --tools           Interactive prompt for extra optional tools (openspec, dmux, brave-search-cli, cocoindex-code); gitnexus, engram, and context-mode CLIs are always installed when possible
   -d, --deps            Check and install dependencies before install
   --sanity-check        Verify hub dependencies and expected files without installing or writing
   -y, --yes             Non-interactive mode (skip prompts)
@@ -163,7 +163,7 @@ Options:
 
 Interactive mode: On TTY with no IDE flags, choose IDEs (1-5 or a=all) and MCP servers.
 Use -AA or --all-mcp to skip the MCP prompt and install all hub MCP servers (still respects --no-mcp if it appears later on the command line).
-Use -t to pick optional tools interactively (openspec, dmux, brave-search-cli, cocoindex-code/ccc). GitNexus and Engram CLIs are always attempted (hub MCP); see docs/01-installation.md.
+Use -t to pick optional tools interactively (openspec, dmux, brave-search-cli, cocoindex-code/ccc). GitNexus, Engram, and context-mode CLIs are always attempted (hub MCP); see docs/01-installation.md.
 EOF
 }
 
@@ -526,16 +526,27 @@ install_openspec_cli() {
     return 1
 }
 
+# Return 0 when merged MCP includes context-mode (.configs/mcp/context-mode.json)
+mcp_context_mode_is_selected() {
+    [ "$MERGE_MCP" = true ] || return 1
+    if [ -z "$MCP_KEY_FILTER_JSON" ]; then
+        return 0
+    fi
+    command -v jq &>/dev/null || return 1
+    printf '%s' "$MCP_KEY_FILTER_JSON" | jq -e 'type == "array" and index("context-mode") != null' >/dev/null 2>&1
+}
+
 # Install CLIs for SELECTED_TOOLS (uv / hub npm / brew).
-# GitNexus + Engram match hub MCP fragments (.configs/mcp/); their CLIs are always reconciled.
+# GitNexus + Engram + context-mode match hub MCP fragments (.configs/mcp/); their CLIs are always reconciled.
 install_optional_tool_clis() {
     tool_is_selected gitnexus || SELECTED_TOOLS+=("gitnexus")
     tool_is_selected engram || SELECTED_TOOLS+=("engram")
+    tool_is_selected context-mode || SELECTED_TOOLS+=("context-mode")
 
     [ ${#SELECTED_TOOLS[@]} -eq 0 ] && return 0
 
     echo ""
-    echo "Optional tools — installing CLIs (includes gitnexus + engram for bundled MCP)..."
+    echo "Optional tools — installing CLIs (includes gitnexus, engram, and context-mode for bundled MCP)..."
     echo ""
 
     if tool_is_selected gitnexus; then
@@ -595,6 +606,23 @@ install_optional_tool_clis() {
         fi
     fi
 
+    if tool_is_selected context-mode; then
+        if command -v context-mode &>/dev/null; then
+            log_info "context-mode CLI already on PATH"
+        elif [ "$DRY_RUN" = true ]; then
+            echo "[DRY-RUN] npm install -g context-mode"
+        elif command -v npm &>/dev/null; then
+            log_info "Installing context-mode (npm install -g context-mode)..."
+            if npm install -g context-mode; then
+                log_success "context-mode installed"
+            else
+                log_warn "context-mode: npm install -g failed — see https://github.com/mksglu/context-mode"
+            fi
+        else
+            log_warn "context-mode: npm not found — install Node.js, then run: npm install -g context-mode"
+        fi
+    fi
+
     if tool_is_selected engram; then
         if command -v engram &>/dev/null; then
             local engram_path
@@ -640,12 +668,12 @@ install_optional_tool_clis() {
 interactive_tools_selection() {
     [ "$TOOLS_INTERACTIVE" = true ] || return 0
     [ "$NON_INTERACTIVE" != true ] || {
-        log_info "Optional tools: skipping -t prompt (--yes); gitnexus + engram CLIs still run with the rest of install"
+        log_info "Optional tools: skipping -t prompt (--yes); gitnexus, engram, and context-mode CLIs still run with the rest of install"
         return 0
     }
     case "${CI:-}" in
         true|1|yes|YES)
-            log_info "Optional tools: skipping -t prompt (CI); gitnexus + engram CLIs still run with install"
+            log_info "Optional tools: skipping -t prompt (CI); gitnexus, engram, and context-mode CLIs still run with install"
             return 0
             ;;
     esac
@@ -661,7 +689,7 @@ interactive_tools_selection() {
     echo "  3) brave-search-cli — Brave Search CLI, bx (curl | sh from brave/brave-search-cli)"
     echo "  4) cocoindex-code — CocoIndex Code, ccc (uv tool install --upgrade 'cocoindex-code[full]')"
     echo ""
-    echo "  (gitnexus + engram are installed automatically for hub MCP — not listed here.)"
+    echo "  (gitnexus, engram, and context-mode are installed automatically for hub MCP — not listed here.)"
     echo ""
     echo "  a — all four   |   n — none   |   e.g. 1,2 — pick by number"
     echo ""
@@ -901,6 +929,117 @@ mcp_emit_for_antigravity() {
     '
 }
 
+verify_context_mode_setup() {
+    [ "$MERGE_MCP" = true ] || {
+        log_info "context-mode: skipped because --no-mcp was used"
+        return 0
+    }
+
+    if command -v context-mode &>/dev/null; then
+        log_success "context-mode CLI available: $(command -v context-mode)"
+    else
+        log_warn "context-mode CLI not on PATH — install with: npm install -g context-mode"
+    fi
+
+    mcp_context_mode_is_selected || {
+        log_warn "context-mode MCP server not in merged config — select it during MCP setup or use all MCP servers"
+        return 0
+    }
+
+    local merged_mcp="$1"
+    if [ -n "$merged_mcp" ] && command -v jq &>/dev/null; then
+        if printf '%s' "$merged_mcp" | jq -e '.mcpServers["context-mode"]' >/dev/null 2>&1; then
+            log_success "context-mode MCP server included in merged config"
+        else
+            log_warn "context-mode MCP server not included in merged config"
+        fi
+    fi
+}
+
+# Copy context-mode hooks/rules (Cursor) and Copilot hooks when MCP merge includes context-mode
+setup_context_mode_assets() {
+    mcp_context_mode_is_selected || {
+        log_info "context-mode assets: skipped (not in merged MCP selection)"
+        return 0
+    }
+
+    local hub_ctx="$SCRIPT_DIR/.configs/context-mode"
+
+    if [[ " ${SELECTED_IDES[*]} " =~ " cursor " ]]; then
+        local rules_src="$hub_ctx/cursor/context-mode.mdc"
+        local rules_dst="$PROJECT_PATH/.cursor/rules/context-mode.mdc"
+        local hooks_src="$hub_ctx/cursor/hooks.json"
+        local hooks_dst="$PROJECT_PATH/.cursor/hooks.json"
+        if [ -f "$rules_src" ]; then
+            if [ -f "$rules_dst" ]; then
+                log_info "context-mode: Cursor rules already exist — left unchanged ($rules_dst)"
+            elif [ "$DRY_RUN" = true ]; then
+                echo "[DRY-RUN] Would copy context-mode.mdc -> $rules_dst"
+            else
+                mkdir -p "$(dirname "$rules_dst")"
+                cp "$rules_src" "$rules_dst"
+                log_success "context-mode: installed Cursor routing rules"
+            fi
+        else
+            log_warn "context-mode: missing hub template $rules_src"
+        fi
+        if [ -f "$hooks_src" ]; then
+            if [ -f "$hooks_dst" ]; then
+                log_info "context-mode: Cursor hooks already exist — left unchanged ($hooks_dst)"
+            elif [ "$DRY_RUN" = true ]; then
+                echo "[DRY-RUN] Would copy hooks.json -> $hooks_dst"
+            else
+                mkdir -p "$(dirname "$hooks_dst")"
+                cp "$hooks_src" "$hooks_dst"
+                log_success "context-mode: installed Cursor hooks"
+            fi
+        else
+            log_warn "context-mode: missing hub template $hooks_src"
+        fi
+    fi
+
+    if [[ " ${SELECTED_IDES[*]} " =~ " copilot " ]]; then
+        local copilot_hooks_src="$hub_ctx/copilot/hooks.json"
+        local copilot_hooks_dst="$PROJECT_PATH/.github/hooks/context-mode.json"
+        if [ ! -f "$copilot_hooks_src" ]; then
+            log_warn "context-mode: missing hub template $copilot_hooks_src"
+        elif [ "$DRY_RUN" = true ]; then
+            echo "[DRY-RUN] Would copy Copilot hooks -> $copilot_hooks_dst"
+        else
+            mkdir -p "$(dirname "$copilot_hooks_dst")"
+            cp "$copilot_hooks_src" "$copilot_hooks_dst"
+            log_success "context-mode: installed Copilot hooks ($copilot_hooks_dst)"
+        fi
+    fi
+}
+
+# OpenCode/Kilo: register context-mode plugin and drop duplicate MCP entry (plugin provides ctx_* tools).
+jq_patch_context_mode_plugin() {
+    local cfg_file="$1"
+    [ -f "$cfg_file" ] || return 0
+    command -v jq &>/dev/null || {
+        log_warn "context-mode: jq required to patch plugin in $cfg_file"
+        return 0
+    }
+    mcp_context_mode_is_selected || return 0
+    if [ "$DRY_RUN" = true ]; then
+        echo "[DRY-RUN] Would add context-mode plugin to $cfg_file"
+        return 0
+    fi
+    local tmp
+    tmp=$(mktemp)
+    if jq '
+      .plugin = ((.plugin // []) | if index("context-mode") then . else . + ["context-mode"] end)
+      | if (.mcp | type) == "object" then .mcp |= del(.["context-mode"]) else . end
+    ' "$cfg_file" > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$cfg_file"
+        log_success "context-mode: plugin registered in $cfg_file (MCP entry omitted)"
+    else
+        rm -f "$tmp"
+        log_warn "context-mode: could not patch $cfg_file"
+    fi
+}
+
 verify_engram_setup() {
     [ "$MERGE_MCP" = true ] || {
         log_info "Engram MCP: skipped because --no-mcp was used"
@@ -1125,6 +1264,7 @@ run_sanity_check() {
     sanity_check_command "cocoindex-code (ccc)" "command -v ccc" "install with: uv tool install --upgrade 'cocoindex-code[full]'"
     sanity_check_command "dmux" "command -v dmux || [ -x \"$SCRIPT_DIR/node_modules/.bin/dmux\" ]" "run npm ci or install dmux"
     sanity_check_command "engram" "command -v engram" "install with: brew install gentleman-programming/tap/engram"
+    sanity_check_command "context-mode" "command -v context-mode" "install with: npm install -g context-mode"
     sanity_check_command "brave-search-cli (bx)" "command -v bx" "install from brave-search-cli"
 
     echo ""
@@ -1132,6 +1272,8 @@ run_sanity_check() {
     sanity_check_file "AGENTS.md template" "$SCRIPT_DIR/.configs/AGENTS.md"
     sanity_check_file "MCP config fragments" "$SCRIPT_DIR/.configs/mcp"
     sanity_check_file "Engram MCP fragment" "$SCRIPT_DIR/.configs/mcp/command/engram.json"
+    sanity_check_file "context-mode MCP fragment" "$SCRIPT_DIR/.configs/mcp/context-mode.json"
+    sanity_check_file "context-mode Cursor hooks template" "$SCRIPT_DIR/.configs/context-mode/cursor/hooks.json"
     sanity_check_file "Skill catalog" "$SCRIPT_DIR/.agents/skills"
     sanity_check_file "Skillgrid CLI package" "$SCRIPT_DIR/skillgrid-cli/package.json"
     sanity_check_file "Preview script" "$SCRIPT_DIR/.skillgrid/scripts/preview.sh"
@@ -1664,6 +1806,7 @@ setup_kilo() {
         local count
         count=$(jq '.mcp | keys | length' "$kilo_cfg")
         log_success "Wrote Kilo MCP: $kilo_cfg ($count server(s); OpenCode-style local/remote)"
+        jq_patch_context_mode_plugin "$kilo_cfg"
         if [ -f "$tool_dir/mcp.json" ]; then
             log_info "Note: legacy $tool_dir/mcp.json exists — Kilo reads $kilo_cfg; remove mcp.json if unused"
         fi
@@ -1715,8 +1858,11 @@ setup_opencode() {
         log_warn "jq not found - cannot patch $mcp_file"
     fi
 
+    jq_patch_context_mode_plugin "$mcp_file"
+
     cp "$mcp_file" "$root_opencode"
     log_success "Wrote project root opencode.json (same content as .opencode/opencode.json)"
+    jq_patch_context_mode_plugin "$root_opencode"
 }
 
 # Setup Antigravity: write mcp_config.json directly
@@ -2556,6 +2702,7 @@ main() {
         MERGED_MCP=$(merge_mcp_configs)
     fi
     verify_engram_setup "$MERGED_MCP"
+    verify_context_mode_setup "$MERGED_MCP"
 
     # Setup selected IDEs
     echo ""
@@ -2599,6 +2746,10 @@ main() {
                 ;;
         esac
     done
+
+    echo ""
+    log_info "context-mode integration..."
+    setup_context_mode_assets
 
     # Optional tool: openspec (hub → project)
     if tool_is_selected openspec && [ -d "$SCRIPT_DIR/openspec" ]; then

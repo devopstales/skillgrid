@@ -67,6 +67,9 @@ export function runSanityCheck(hubRoot: string): number {
   if (commandOnPath("engram")) sanityOk("engram");
   else sanityFail("engram — install with: brew install gentleman-programming/tap/engram");
 
+  if (commandOnPath("context-mode")) sanityOk("context-mode");
+  else sanityFail("context-mode — install with: npm install -g context-mode");
+
   if (commandOnPath("bx")) sanityOk("brave-search-cli (bx)");
   else sanityFail("brave-search-cli (bx) — install from brave-search-cli");
 
@@ -75,6 +78,8 @@ export function runSanityCheck(hubRoot: string): number {
   sanityCheckFile("AGENTS.md template", join(hubRoot, ".configs", "AGENTS.md"));
   sanityCheckFile("MCP config fragments", join(hubRoot, ".configs", "mcp"));
   sanityCheckFile("Engram MCP fragment", join(hubRoot, ".configs", "mcp", "command", "engram.json"));
+  sanityCheckFile("context-mode MCP fragment", join(hubRoot, ".configs", "mcp", "context-mode.json"));
+  sanityCheckFile("context-mode Cursor hooks template", join(hubRoot, ".configs", "context-mode", "cursor", "hooks.json"));
   sanityCheckFile("Skill catalog", join(hubRoot, ".agents", "skills"));
   sanityCheckFile("Skillgrid CLI package", join(hubRoot, "skillgrid-cli", "package.json"));
   sanityCheckFile("Preview script", join(hubRoot, ".skillgrid", "scripts", "preview.sh"));

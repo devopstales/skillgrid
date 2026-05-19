@@ -182,7 +182,7 @@ export async function interactiveMcpSelection(
 export async function interactiveToolsSelection(nonInteractive: boolean, toolsInteractive: boolean): Promise<OptionalToolId[]> {
   if (!toolsInteractiveEligible(nonInteractive, toolsInteractive)) {
     if (toolsInteractive && (nonInteractive || isCi())) {
-      logInfo("Optional tools: skipping -t prompt (--yes or CI); gitnexus + engram CLIs still run with the rest of install");
+      logInfo("Optional tools: skipping -t prompt (--yes or CI); gitnexus, engram, and context-mode CLIs still run with the rest of install");
     }
     return [];
   }
@@ -196,7 +196,7 @@ export async function interactiveToolsSelection(nonInteractive: boolean, toolsIn
     console.log("  3) brave-search-cli — Brave Search CLI, bx (curl | sh from brave/brave-search-cli)");
     console.log("  4) cocoindex-code — CocoIndex Code, ccc (uv tool install --upgrade 'cocoindex-code[full]')");
     console.log("");
-    console.log("  (gitnexus + engram are installed automatically for hub MCP — not listed here.)");
+    console.log("  (gitnexus, engram, and context-mode are installed automatically for hub MCP — not listed here.)");
     console.log("");
     console.log("  a — all four   |   n — none   |   e.g. 1,2 — pick by number");
     console.log("");
@@ -209,7 +209,7 @@ export async function interactiveToolsSelection(nonInteractive: boolean, toolsIn
       }
       const lower = choice.toLowerCase();
       if (lower === "a" || lower === "all") {
-        logInfo("Optional tools: openspec, dmux, brave-search-cli, cocoindex-code (gitnexus + engram always)");
+        logInfo("Optional tools: openspec, dmux, brave-search-cli, cocoindex-code (gitnexus, engram, context-mode always)");
         return ["openspec", "dmux", "brave-search-cli", "cocoindex-code"];
       }
       if (lower === "n" || lower === "no" || lower === "none" || lower === "skip") {

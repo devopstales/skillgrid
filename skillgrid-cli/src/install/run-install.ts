@@ -15,6 +15,7 @@ import {
   setupOpencode,
   verifyEngramSetup,
 } from "./ide.js";
+import { setupContextModeAssets, verifyContextModeSetup } from "./context-mode.js";
 import { ensureTrivyMcpPlugin, installOptionalToolClis } from "./optional-tools.js";
 import { countMissingDeps, installDependencyPackages, showDependencies } from "./deps.js";
 import { toolIsSelected } from "./optional-tools-helpers.js";
@@ -462,6 +463,7 @@ export async function runInstallCli(localHubFallback: string, parsed: ParsedInst
   console.log("Merging MCP configurations...");
   const merged = computeMergedMcp(hubRoot, opts.mergeMcp, opts.mcpKeyFilter);
   verifyEngramSetup(hubRoot, merged, opts.mergeMcp);
+  verifyContextModeSetup(merged, opts.mergeMcp);
 
   console.log("");
   console.log("Setting up IDE configurations...");
@@ -490,6 +492,10 @@ export async function runInstallCli(localHubFallback: string, parsed: ParsedInst
         break;
     }
   }
+
+  console.log("");
+  logInfo("context-mode integration...");
+  setupContextModeAssets(hubRoot, opts.projectPath, opts.selectedIdes, opts.mergeMcp, merged, opts.dryRun);
 
   if (toolIsSelected(opts.selectedTools, "openspec") && existsSync(join(hubRoot, "openspec"))) {
     const target = join(opts.projectPath, "openspec");
@@ -540,7 +546,7 @@ Options:
   -a, --antigravity     Setup configuration for Google Antigravity
   -A, --all, --all-ides Setup for all supported IDEs (default if none selected)
   -AA, --all-mcp        Merge every hub MCP server (skip MCP prompt; respects later --no-mcp)
-  -t, --tools           Interactive optional tools (openspec, dmux, brave-search-cli, cocoindex-code); gitnexus + engram always
+  -t, --tools           Interactive optional tools (openspec, dmux, brave-search-cli, cocoindex-code); gitnexus, engram, context-mode always
   -d, --deps            Check and install dependencies before install
   --sanity-check        Verify hub dependencies and expected files (read-only)
   -y, --yes             Non-interactive mode (skip prompts)

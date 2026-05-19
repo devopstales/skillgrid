@@ -31,7 +31,7 @@
 | Skills | `.agents/skills/` | `.agents/skills/`, `.cursor/skills/` |
 | Rules | `.agents/rules/`, `AGENTS.md` | `.cursor/rules/`, `AGENTS.md` |
 | Agents | `.agents/agents.md`, `.agent/agents/` | `.cursor/agents/` |
-| Hooks | `.agents/hooks/` | `.cursor/hooks.json`, `.cursor/hooks/` |
+| Hooks | `.agents/hooks/`, `.agents/settings.json` (Gemini/Antigravity) | `.cursor/hooks.json`, `.cursor/hooks/` |
 | MCP | `~/.gemini/antigravity/mcp_config.json`, `.agent/mcp_config.json` | `.cursor/mcp.json` |
 | Plugins | X | `.cursor/plugins/` |
 
@@ -71,7 +71,7 @@ Hub workflow rules (modular Cursor-style `.mdc`, scope via `description` / `glob
 | Skills | `.agents/skills/`, `.claude/skills/`, `.github/skills`, `.copilot/skills` | `.agents/skills/`, `.claude/skills/`, `.kilo/skills/` | `.agents/skills/`, `.claude/skills/`, `.opencode/skills/` |
 | Rules | `.github/instructions/*.instructions.md`, `.github/copilot-instructions.md`, `AGENTS.md` | `.kilo/rules/`, `AGENTS.md` | `.opencode/rules/`, `AGENTS.md` |
 | Agents | `.github/agents/` | `.kilo/agents/` | `.opencode/agents/` |
-| Hooks | `.github/hooks/*.json` | `.kilo/hook/hooks.md` | `.opencode/hook/hooks.md` |
+| Hooks | `.github/hooks/*.json` (e.g. `context-mode.json`) | `.kilo/kilo.jsonc` plugin + `.kilo/hook/hooks.md` | `.opencode/opencode.json` plugin + `.opencode/hook/hooks.md` |
 | MCP | `.vscode/mcp.json` | `.kilo/kilo.jsonc` | `.opencode/opencode.jsonc` |
 | Plugins | X | X | `.opencode/plugins/` |
 
@@ -122,7 +122,8 @@ This writes `norse-personas.json` files into each surface (`.cursor`, `.kilo`, `
     "preToolUse": [
       {
         "command": "context-mode hook cursor pretooluse",
-        "matcher": "Shell|Read|Grep|WebFetch|Task|MCP:ctx_execute|MCP:ctx_execute_file|MCP:ctx_batch_execute"
+        "matcher": "Shell|Read|Grep|WebFetch|Task|MCP:ctx_execute|
+        MCP:ctx_execute_file|MCP:ctx_batch_execute"
       }
     ],
     "postToolUse": [
@@ -133,6 +134,13 @@ This writes `norse-personas.json` files into each surface (`.cursor`, `.kilo`, `
   }
 }
 ```
+
+Hub ships [context-mode](https://github.com/mksglu/context-mode) hooks and routing rules in-repo (synced to targets via `install.sh` / `skillgrid install`):
+
+- `.cursor/hooks.json` — `preToolUse`, `postToolUse`, `stop`
+- `.cursor/rules/context-mode.mdc` — routing rules (`alwaysApply: true`)
+
+Requires `context-mode` on PATH (`npm install -g context-mode`). Verify: `ctx stats` in agent chat.
 
 ```json
 .cursor/mcp.json

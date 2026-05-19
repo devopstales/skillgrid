@@ -12,6 +12,11 @@ import {
 } from "./mcp.js";
 import { logInfo, logSuccess, logWarn } from "./log.js";
 import { commandOnPath } from "./exec.js";
+import {
+  contextModeInMerged,
+  ensureContextModePlugin,
+  omitContextModeFromMcpRecord,
+} from "./context-mode.js";
 
 function ensureDir(dir: string, dryRun: boolean) {
   if (dryRun) {
@@ -96,7 +101,10 @@ export function setupKilo(project: string, merged: McpServersShape | null, merge
     return;
   }
 
-  const mcpObj = emitOpencodeStyleMcpObject(merged);
+  let mcpObj = emitOpencodeStyleMcpObject(merged) as Record<string, unknown>;
+  if (contextModeInMerged(merged, mergeMcp)) {
+    mcpObj = omitContextModeFromMcpRecord(mcpObj);
+  }
   if (dryRun) {
     console.log(`[DRY-RUN] Would merge MCP into ${kiloCfg}`);
     logSuccess("Kilocode setup complete");
@@ -116,6 +124,9 @@ export function setupKilo(project: string, merged: McpServersShape | null, merge
     doc = {};
   }
   doc.mcp = mcpObj;
+  if (contextModeInMerged(merged, mergeMcp)) {
+    ensureContextModePlugin(doc);
+  }
   writeFileSync(kiloCfg, `${JSON.stringify(doc, null, 2)}\n`, "utf8");
   const count = Object.keys(mcpObj).length;
   logSuccess(`Wrote Kilo MCP: ${kiloCfg} (${count} server(s); OpenCode-style local/remote)`);
@@ -150,7 +161,10 @@ export function setupOpencode(hubRoot: string, project: string, merged: McpServe
   }
 
   if (mergeMcp && merged) {
-    const opencodeMcp = emitOpencodeStyleMcpObject(merged);
+    let opencodeMcp = emitOpencodeStyleMcpObject(merged) as Record<string, unknown>;
+    if (contextModeInMerged(merged, mergeMcp)) {
+      opencodeMcp = omitContextModeFromMcpRecord(opencodeMcp);
+    }
     if (dryRun) {
       console.log(`[DRY-RUN] Would patch .mcp in ${mcpFile}`);
     } else {
@@ -162,6 +176,9 @@ export function setupOpencode(hubRoot: string, project: string, merged: McpServe
       }
       if (doc) {
         doc.mcp = opencodeMcp;
+        if (contextModeInMerged(merged, mergeMcp)) {
+          ensureContextModePlugin(doc);
+        }
         writeFileSync(mcpFile, `${JSON.stringify(doc, null, 2)}\n`, "utf8");
         const count = Object.keys(opencodeMcp).length;
         logSuccess(`Updated MCP config: ${mcpFile} (${count} server(s))`);

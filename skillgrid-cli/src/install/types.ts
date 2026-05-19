@@ -6,7 +6,8 @@ export type OptionalToolId =
   | "brave-search-cli"
   | "cocoindex-code"
   | "gitnexus"
-  | "engram";
+  | "engram"
+  | "context-mode";
 
 export interface InstallOptions {
   projectPath: string;

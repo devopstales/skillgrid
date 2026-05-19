@@ -6,6 +6,7 @@ import { logInfo, logSuccess, logWarn } from "./log.js";
 import { commandOnPath } from "./exec.js";
 import { toolIsSelected } from "./optional-tools-helpers.js";
 import { mcpTrivyIsSelected } from "./deps.js";
+import { installContextModeCli } from "./context-mode.js";
 
 function hubNpmBin(hubRoot: string, name: string): string {
   return join(hubRoot, "node_modules", ".bin", name);
@@ -79,17 +80,18 @@ function ensureUv(dryRun: boolean): boolean {
   return commandOnPath("uv");
 }
 
-/** Mutates `selected` to always include gitnexus + engram (install.sh behavior). */
+/** Mutates `selected` to always include gitnexus, engram, and context-mode (install.sh behavior). */
 export function reconcileDefaultTools(selected: OptionalToolId[]): void {
   if (!toolIsSelected(selected, "gitnexus")) selected.push("gitnexus");
   if (!toolIsSelected(selected, "engram")) selected.push("engram");
+  if (!toolIsSelected(selected, "context-mode")) selected.push("context-mode");
 }
 
 export function installOptionalToolClis(hubRoot: string, selected: OptionalToolId[], dryRun: boolean): void {
   reconcileDefaultTools(selected);
 
   console.log("");
-  console.log("Optional tools — installing CLIs (includes gitnexus + engram for bundled MCP)...");
+  console.log("Optional tools — installing CLIs (includes gitnexus, engram, and context-mode for bundled MCP)...");
   console.log("");
 
   if (toolIsSelected(selected, "gitnexus")) {
@@ -127,6 +129,10 @@ export function installOptionalToolClis(hubRoot: string, selected: OptionalToolI
       if (r.status === 0) logSuccess("dmux installed (npm -g)");
       else logWarn("dmux: npm install -g failed");
     } else logWarn("dmux: npm not found — install Node.js");
+  }
+
+  if (toolIsSelected(selected, "context-mode")) {
+    installContextModeCli(dryRun);
   }
 
   if (toolIsSelected(selected, "engram")) {

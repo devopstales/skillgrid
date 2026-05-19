@@ -49,6 +49,7 @@ Optional capabilities may use:
 - ***OpenSpec*** for spec based development augmentation.
 - ***Engram*** for persistent memory.
 - ***GitNexus*** for repository maps and graph-aware agent context.
+- ***context-mode*** for sandboxed tool output, session continuity, and context-window optimization ([mksglu/context-mode](https://github.com/mksglu/context-mode)).
 - ***CocoIndex Code***, usually called `ccc`, for semantic code search.
 - ***Trivy*** for security scanning.
 - ***Beads*** , usually called `bd`. An issue tracker for status.
