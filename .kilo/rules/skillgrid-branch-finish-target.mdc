@@ -14,12 +14,12 @@ After verification, the workflow should **close the loop** explicitly (merge, PR
 
 1. **Verify** — `/sdd-verify` (or equivalent evidence) completed; criticals resolved or recorded.
 2. **Decide** — choose one: **merge**, **open PR**, **keep branch for later**, **discard** (with rationale).
-3. **Record** — handoff + events (+ Engram if used) state the decision and branch/worktree identity when relevant.
+3. **Record** — handoff + events (+ Engram if used) state the decision and branch identity when relevant.
 4. **Refresh indexes explicitly (post-merge required)**:
    - `ccc index` (when ccc is configured)
    - `npx gitnexus analyze` (or `npx gitnexus analyze --embeddings` when embeddings were already enabled)
-5. **Cleanup** — remove temporary worktrees/branches only after evidence, logs, and index refresh are written; never delete state that verification still needs.
+5. **Cleanup** — remove temporary branches only after evidence, logs, and index refresh are written; never delete state that verification still needs.
 
-If **persona board** or **HITL** blocked release, do not “finish” silently — **`next_recommended`** must name the blocking reason.
+If **persona hard gates** or **HITL** blocked release, do not “finish” silently — **`next_recommended`** must name the blocking reason.
 
-See also **`docs/08-multi-agent-work.md`** (worktree lifecycle) and **`docs/TODO.md`** (branch-finish backlog).
+See also **`docs/08-multi-agent-work.md`** (parallel lanes) and **`docs/TODO.md`** (branch-finish backlog).

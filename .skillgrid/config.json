@@ -48,17 +48,8 @@
     "evidence_retention_days": 30,
     "auto_cleanup_on_violation": true
   },
-  "workspace": {
-    "enabled": true,
-    "auto_create": true,
-    "auto_cleanup": "prompt",
-    "worktree_root": ".worktrees",
-    "baseline_tests_required": true,
-    "resume_existing": true
-  },
   "apply": {
     "execution_mode": "sequential_agent",
-    "auto_workspace": true,
     "tdd_enforcement": true,
     "resume_enabled": true
   },
@@ -106,14 +97,13 @@
     "require_code_review": true,
     "require_tests_green": true,
     "require_lint_clean": false,
-    "allow_dirty_worktree": false,
+    "allow_uncommitted_changes": false,
     "auto_merge_on_pass": false,
     "security_scan": true
   },
   "archive": {
     "default_disposition": "prompt",
     "auto_merge_after_verify": false,
-    "delete_worktree_after_archive": true,
     "keep_verification_reports": true,
     "retention_policy_days": 90
   },
@@ -122,7 +112,7 @@
     "max_parallel_slices": 3
   },
   "skills": {
-    "auto_invoke": ["isolated-workspace", "enforced-tdd-protocol"],
+    "auto_invoke": ["enforced-tdd-protocol"],
     "mandatory": ["enforced-tdd-protocol"],
     "pre_review_checklist": true,
     "post_review_integration": true

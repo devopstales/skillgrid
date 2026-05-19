@@ -23,10 +23,11 @@ Load these shared contracts when they apply:
 - `skills/_shared/sdd-return-envelope.md`
 - `skills/_shared/sdd-label-gate-contract.md`
 - `skills/_shared/sdd-enforcement-contract.md`
+- `skills/_shared/sdd-persona-delegation.md` (coordinator: when dispatching Norse persona subagents)
 
 ## C. Return Envelope
 
-Use the canonical envelope defined in `skills/_shared/sdd-return-envelope.md`.
+Every phase **must** return the canonical envelope in `skills/_shared/sdd-return-envelope.md` (JSON or YAML). Required: `status`, `executive_summary` (`overview`, `used_tokens`), `artifacts`, `next_recommended`, `risks`, `skill_resolution`; optional `detailed_report`. On `blocked`/`failed`, include stop condition, failing gate, and missing evidence per that contract. Phase-specific extensions (verify converge, loop completion sigil, persona subagent fields) are documented there — do not drop base fields.
 
 ## D. Compatibility Note
 

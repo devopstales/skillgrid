@@ -10,7 +10,7 @@ alwaysApply: false
 
 Companion: `.agents/rules/skillgrid-sdd-orchestrator.mdc`.
 
-Repo truth for paths: **`docs/04-commands.md`**.
+Repo truth for paths: **`docs/04-commands-reference.md`**.
 
 ## Delegation mechanism
 
@@ -33,7 +33,7 @@ Prefer **named phase agents** via your IDE subagent runner (workspace agents oft
 
 ## Command surface
 
-See **`docs/04-commands.md`** for the current `/sdd-*` list (`init`, `explore`, `brainstorm`, `apply`, `loop`, `persona-board`, `verify`, `archive`, etc.).
+See **`docs/04-commands-reference.md`** for the current `/sdd-*` list (`init`, `explore`, `brainstorm`, `apply`, `loop`, `verify`, `archive`, etc.).
 
 **Meta-command style** workflows (conceptual): chaining explore → propose → spec → design → tasks without exposing each slash command — remain **orchestrator responsibility**; phase agents are not substitutes for intentional scope.
 
@@ -62,48 +62,44 @@ Cache choice for the session.
 proposal -> specs --> tasks -> apply -> verify -> archive
              ^
            design
+
+Phase → persona invocations: read **`sdd-<phase>/SKILL.md`** (section **Norse persona invocations (coordinator)**) and the matching workflow/command. Protocol: **`sdd-persona-delegation.md`**. One subagent = one `persona` + `capability`.
 ```
 
-## Mandatory usage routing (Nordic phase ownership + gates)
+## Mandatory usage routing (skills + gates)
 
-The orchestrator MUST route phase execution through Nordic owners:
+The session coordinator MUST satisfy **required** persona rows in the active phase skill before marking the phase complete. See **`docs/09-subagent-personas.md`** and **`sdd-persona-delegation.md`**.
 
-| Phase | Required Nordic owner | Optional supporting personas |
-| --- | --- | --- |
-| `init` | `odin` or `mimir` | `mimir`, `loki` |
-| `explore` | `loki` | `odin`, `thor` |
-| `propose` | `odin` | `loki`, `bragi` |
-| `spec` | `tyr` or `bragi` | `odin`, `loki` |
-| `design` | `odin` | `thor`, `loki`, `frigg` |
-| `tasks` | `thor` or `bragi` | `tyr`, `odin` |
-| `apply` | `thor` | `odin`, `frigg` |
-| `verify` | `tyr` | `heimdall`, `frigg`, `loki` |
-| `archive` | `odin` | `mimir`, `bragi` |
+Quick index (full tables in each skill):
 
-Gate personas (required by phase outcome):
-
-- `verify` MUST include `tyr` (spec/compliance gate).
-- `verify` MUST include `heimdall` for security-sensitive or release-bound changes.
-- `ux-content` or user-facing decisions SHOULD include `frigg`.
-- High-risk architecture decisions SHOULD include `loki`.
+| Phase | Skill file |
+| --- | --- |
+| `init` | `sdd-init/SKILL.md` |
+| `explore` | `sdd-explore/SKILL.md` |
+| `spec` | `sdd-spec/SKILL.md` |
+| `design` | `sdd-design/SKILL.md` |
+| `tasks` | `sdd-tasks/SKILL.md` |
+| `apply` | `sdd-apply/SKILL.md` |
+| `verify` | `sdd-verify/SKILL.md` |
+| `diagnose` | `sdd-diagnose/SKILL.md` |
 
 ## Completion blockers (fail closed)
 
 Do not mark a phase complete when any of the following is true:
 
-1. Required Nordic phase owner was not invoked for that phase.
-2. Required gate persona(s) were not invoked.
-3. Executor output lacks required envelope fields (`status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`).
-4. Persona board/gate output lacks required board fields (`personas_invoked`, `conflicts`, `hitl_required`, `accepted_decision`) when board flow was used.
+1. Required persona invocations in the active phase skill were not run (or not waived in handoff with rationale).
+2. Required conditional invocations in that skill (e.g. `heimdall` on verify) were skipped without rationale.
+3. Executor output lacks required envelope fields per `.agents/skills/_shared/sdd-return-envelope.md`.
+4. Persona subagent output lacks `persona`, `capability`, `findings_severity` when a Norse persona was dispatched.
 5. `tyr` or `heimdall` returns critical findings not resolved/accepted with explicit rationale.
 
 ## Phase return contract
 
-Executors return: `status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`, and **`skill_resolution`** when applicable.
+Executors return the canonical envelope in `.agents/skills/_shared/sdd-return-envelope.md` (including `skill_resolution`; failure/block fields when applicable).
 
 ## Model assignments
 
-Cache **phase → model alias** for your toolchain (canonical tables: `.configs/ide-model-mapping.json`, `.agents/workflows/sdd-persona-route.md`). Default practice: stronger models for orchestration and deep design; lighter models for mechanical tasks — substitute per surface.
+Cache **phase → model alias** for your toolchain (`.configs/ide-model-mapping.json`). Persona list: `sdd-persona-delegation.md`. Default practice: stronger models for coordinator and deep design; lighter models for mechanical tasks.
 
 ## Skill registry resolution (Mandatory for code delegations)
 

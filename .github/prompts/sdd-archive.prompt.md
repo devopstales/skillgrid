@@ -56,7 +56,7 @@ Then:
 3. Move the change folder to archive with date prefix
 4. Verify the archive is complete
 
-Return a structured result with: status, executive_summary, artifacts, and next_recommended.
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`.
 
 ---
 

@@ -247,11 +247,14 @@ gate_persona_routing() {
   fi
 
   case "$persona" in
-    odin|thor|tyr|heimdall|frigg|loki|mimir|bragi)
-      add_pass "persona" "Known Nordic persona '${persona}'"
+    kvasir|mimir|thor|tyr|heimdall|frigg|loki|bragi|vidar)
+      add_pass "persona" "Known Norse persona '${persona}'"
+      ;;
+    odin)
+      add_warning "persona" "odin is coordinator branding — prefer registry persona+capability for ${PHASE}"
       ;;
     *)
-      add_error "persona" "Persona '${persona}' is not a valid Nordic persona for ${PHASE}"
+      add_error "persona" "Persona '${persona}' is not a valid Norse persona for ${PHASE}"
       ;;
   esac
 }
@@ -318,26 +321,34 @@ gate_two_stage_review() {
   fi
 }
 
-# 7. Persona board hard gates (verify/archive)
-gate_persona_board() {
+# 7. Persona hard gates (tyr/heimdall critical, HITL flags in research)
+gate_persona_hardgates() {
   local research_dir=".skillgrid/tasks/research/${CHANGE}"
-  if ! is_gate_active "persona_board"; then add_run "persona_board"; return; fi
-
-  if [[ "$PHASE" != "verify" ]] && [[ "$PHASE" != "archive" ]]; then
-    add_pass "persona_board" "N/A for ${PHASE}"
+  if is_gate_skipped "persona_hardgates" || is_gate_skipped "persona_board"; then
+    add_run "persona_hardgates"
     return
   fi
 
-  if [[ -d "$research_dir" ]]; then
-    local hitl_files
-    hitl_files="$(grep -rl "hitl_required.*true\|\[HitL\]\|HITL" "$research_dir" 2>/dev/null || true)"
-    if [[ -n "$hitl_files" ]]; then
-      add_error "persona_board" "Board reports indicate unresolved HITL decision"
-    else
-      add_pass "persona_board" "No unresolved board blocks"
-    fi
+  if [[ "$PHASE" != "verify" ]] && [[ "$PHASE" != "archive" ]]; then
+    add_pass "persona_hardgates" "N/A for ${PHASE}"
+    return
+  fi
+
+  if [[ ! -d "$research_dir" ]]; then
+    add_pass "persona_hardgates" "No persona research dir for ${CHANGE}"
+    return
+  fi
+
+  local hitl_files critical_files
+  hitl_files="$(grep -rl "hitl_required.*true\|\[HitL\]\|HITL required: yes" "$research_dir" 2>/dev/null || true)"
+  critical_files="$(grep -rl "findings_severity.*critical\|severity: critical\|CRITICAL" "$research_dir" 2>/dev/null || true)"
+
+  if [[ -n "$hitl_files" ]]; then
+    add_error "persona_hardgates" "Persona reports indicate unresolved HITL"
+  elif [[ -n "$critical_files" ]]; then
+    add_error "persona_hardgates" "Persona reports contain unresolved critical findings"
   else
-    add_pass "persona_board" "No board reports for ${CHANGE}"
+    add_pass "persona_hardgates" "No unresolved persona hard-gate blocks"
   fi
 }
 
@@ -358,9 +369,9 @@ run_gates() {
     apply)
       gate_labels; gate_artifacts; gate_phase_state; gate_persona_routing; gate_slices ;;
     verify)
-      gate_labels; gate_artifacts; gate_phase_state; gate_two_stage_review; gate_persona_board; gate_slices ;;
+      gate_labels; gate_artifacts; gate_phase_state; gate_two_stage_review; gate_persona_hardgates; gate_slices ;;
     archive)
-      gate_labels; gate_artifacts; gate_phase_state; gate_two_stage_review; gate_persona_routing; gate_persona_board ;;
+      gate_labels; gate_artifacts; gate_phase_state; gate_two_stage_review; gate_persona_routing; gate_persona_hardgates ;;
   esac
 
   add_pass "total" "All gates complete"

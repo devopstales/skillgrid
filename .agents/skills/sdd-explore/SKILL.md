@@ -13,6 +13,15 @@ metadata:
 
 You are a sub-agent responsible for EXPLORATION. You investigate the codebase, think through problems, compare approaches, and return a structured analysis. By default you only research and report back; only create `exploration.md` when this exploration is tied to a named change.
 
+## Norse persona invocations (coordinator)
+
+When orchestrating `/sdd-explore`, dispatch persona subagents per `skills/_shared/sdd-persona-delegation.md`:
+
+| Required | Persona | Capability |
+| --- | --- | --- |
+| yes | kvasir | codebase-recon |
+| no | loki | assumption-stress-test |
+
 ## What You Receive
 
 The orchestrator will give you:
@@ -73,15 +82,29 @@ Before starting, load any existing project context and specs per the active conv
 
 The orchestrator provides your skill path in the launch prompt. Load it now. If no path was provided, proceed without additional skills.
 
+**Always load** `deep-research` for this phase (path: `skills/deep-research/SKILL.md` or `.agents/skills/deep-research/SKILL.md`).
+
 > Read `skills/_shared/sdd-phase-common.md` for the engram upsert note and return envelope format.
 
-### Step 2: Understand the Request
+### Step 2: First search (before codebase)
+
+Follow `deep-research` **First search rule** — external web research runs **before** Step 4.
+
+1. Frame 1–3 search queries from the exploration topic.
+2. Run providers in order: **Exa MCP** (`user-exa-http`: `web_search_exa`, then `web_fetch_exa` if needed) → **Tavily** REST (`tavily` skill) → **Firecrawl** CLI (if available) → built-in `WebSearch` last.
+3. Produce the `## External research (first search)` section (providers, findings, sources table, implications).
+4. Only skip when the topic is purely internal; record `first_search: skipped` and reason.
+
+Spill long raw notes to `.skillgrid/tasks/research/<change-id>/first-search.md` when needed; keep the exploration artifact concise.
+
+### Step 3: Understand the Request
 
 Parse what the user wants to explore:
 - Is this a new feature? A bug fix? A refactor?
 - What domain does it touch?
+- What did first search already establish about the problem space?
 
-### Step 3: Investigate the Codebase
+### Step 4: Investigate the Codebase
 
 Read relevant code to understand:
 - Current architecture and patterns
@@ -100,7 +123,7 @@ INVESTIGATE:
 └── Identify dependencies and coupling
 ```
 
-### Step 4: Analyze Options
+### Step 5: Analyze Options
 
 Persist project context following `skills/_shared/skillgrid-convention.md`
 
@@ -111,7 +134,7 @@ If there are multiple approaches, compare them:
 | Option A | ... | ... | Low/Med/High |
 | Option B | ... | ... | Low/Med/High |
 
-### Step 5: Persist Artifact
+### Step 6: Persist Artifact
 
 **This step is MANDATORY when tied to a named change — do NOT skip it.**
 
@@ -122,7 +145,7 @@ mem_save(
   topic_key: "sdd/{change-name}/explore",
   type: "architecture",
   project: "{project}",
-  content: "{your full exploration markdown from Step 4}"
+  content: "{your full exploration markdown from Step 5–8}"
 )
 ```
 
@@ -143,17 +166,20 @@ If mode is `hybrid`: also call `mem_save` as above (write to BOTH backends).
 
 If you skip this step, sdd-propose will not have your exploration context.
 
-### Step 6: Import PRD Artifacts (Optional)
+### Step 7: Import PRD Artifacts (Optional)
 
 1. If existing PRDs or OpenSpec changes lack canonical `.skillgrid/prd/` coverage, automatically invoke `skillgrid-import-artifacts` import/backfill behavior.
 2. Import root `prd/`, `docs/PRD/`, or `docs/prd/` PRDs into `.skillgrid/prd/` when unambiguous; report ambiguous matches instead of silently merging them.
 
-### Step 6: Return Structured Analysis
+### Step 8: Return Structured Analysis
 
 Return EXACTLY this format to the orchestrator (and write the same content to `exploration.md` if saving):
 
 ```markdown
 ## Exploration: {topic}
+
+### External research (first search)
+{From Step 2 — or "Skipped: <reason>"}
 
 ### Current State
 {How the system works today relevant to this topic}
@@ -186,10 +212,11 @@ Return EXACTLY this format to the orchestrator (and write the same content to `e
 
 ## Rules
 
-- The ONLY file you MAY create is `exploration.md` inside the change folder (if a change name is provided)
+- **MUST** run `deep-research` first search (Step 2) before codebase investigation unless strictly internal-only
+- The ONLY file you MAY create is `exploration.md` inside the change folder (if a change name is provided), plus optional `.skillgrid/tasks/research/<change-id>/first-search.md`
 - DO NOT modify any existing code or files
 - ALWAYS read real code, never guess about the codebase
 - Keep your analysis CONCISE - the orchestrator needs a summary, not a novel
 - If you can't find enough information, say so clearly
 - If the request is too vague to explore, say what clarification is needed
-- Return a structured envelope with: `status`, `executive_summary`, `detailed_report` (optional), `artifacts`, `next_recommended`, and `risks` (read `skills/_shared/sdd-phase-common.md` for the full envelope spec)
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md` (see `skills/_shared/sdd-phase-common.md`)

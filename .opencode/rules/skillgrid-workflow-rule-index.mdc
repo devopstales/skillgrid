@@ -24,7 +24,7 @@ Backlog checkpoints: **`docs/TODO.md`**. Canonical enforcement: **`.agents/skill
 
 - **`skillgrid-sdd-orchestrator.mdc`**
 - **`/sdd-loop`**, **`skillgrid-sdd-execution.mdc`**
-- **`skillgrid-persona-board.mdc`**, **`.agents/workflows/sdd-persona-route.md`**
+- **`sdd-persona-delegation.md`**, **`sdd-<phase>/SKILL.md`**, **`docs/09-subagent-personas.md`**
 
 ## Enforcement & review
 
@@ -34,7 +34,7 @@ Backlog checkpoints: **`docs/TODO.md`**. Canonical enforcement: **`.agents/skill
 ## Branch completion & parallelism
 
 - **`skillgrid-branch-finish-target.mdc`**
-- **`docs/08-multi-agent-work.md`** — dependency waves and worktrees
+- **`docs/08-multi-agent-work.md`** — dependency waves and parallel lanes
 
 ## Planning artifacts & returns
 

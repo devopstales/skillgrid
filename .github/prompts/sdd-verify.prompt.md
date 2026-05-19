@@ -36,7 +36,7 @@ GATE:
   executive_summary: "Gate failure — see sdd-gate errors above"
   next_recommended: "Fix gate failures before verification"
   ```
-- The gate script handles label validation, artifact checks, two-stage review state, and persona board status.
+- The gate script handles label validation, artifact checks, two-stage review state, and persona hard-gate status (`persona_hardgates`).
 
 ENGRAM PERSISTENCE (artifact store mode: engram):
 CRITICAL: mem_search returns 300-char PREVIEWS, not full content. You MUST call mem_get_observation(id) for EVERY artifact.
@@ -62,7 +62,7 @@ Then:
 6. Build the spec compliance matrix
 
 BOARD ESCALATION (critical/conflict path):
-- If verification evidence is conflicting, or a high-risk architecture/security/release decision is required, invoke `/sdd-persona-board` before final status (`/sdd-board` remains a compatibility alias).
+- If verification evidence is conflicting, dispatch additional persona invocations from `sdd-verify/SKILL.md` per `sdd-persona-delegation.md` before final status.
 - Use board presets based on decision type:
   - architecture -> `odin`, `thor`, `tyr`, `loki`
   - security -> `heimdall`, `tyr`, `thor`, `loki`
@@ -88,15 +88,7 @@ ENFORCEMENT CONTRACT:
   - board escalation failures or unresolved board conflicts must prevent progression to `/sdd-archive`
   - both stages pass => allow progression to `/sdd-archive`
 
-Return a structured verification report with:
-- `status`: `completed | blocked | failed`
-- `executive_summary`:
-  - `overview`
-  - `used_tokens` (`input`, `output`, `total`, or `not_available`)
-- `detailed_report`: verification matrix, executed checks, and critical findings
-- `artifacts`: report paths and evidence paths
-- `next_recommended`: concrete next command/action
-- `risks`: open/accepted risks or explicit `none`
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`. Include verify/VDD extension fields from that contract when applicable.
 
 ---
 

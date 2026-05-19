@@ -16,6 +16,7 @@ import type {
   WorkflowItem
 } from "../shared/types.js";
 import { listDirectories, listFilesRecursive, readTextIfExists, slugify, toPosixRelative } from "./fs-utils.js";
+import { readOpenSessionsStatus } from "./opensessions-client.js";
 import { EMPTY_TASK_STATS, firstParagraph, parseMarkdownMetadata, parseTaskStats } from "./parsers.js";
 
 export type BuildDashboardOptions = {
@@ -24,8 +25,8 @@ export type BuildDashboardOptions = {
   dashboardOrigin: string;
   gitnexusUrl?: string;
   openspecUiUrl?: string;
-  /** Skip HTTP health checks (e.g. TUI refresh loop, offline use). */
-  skipToolHealthChecks?: boolean;
+  openSessionsHost?: string;
+  openSessionsPort?: number;
 };
 
 type SkillgridConfig = {
@@ -48,12 +49,16 @@ export async function buildDashboardData(options: BuildDashboardOptions): Promis
   const skillgridConfig = await readSkillgridConfig(repoRoot);
   const issues = buildBoardIssues({ prds, changes, specs, events, previews, skillgridConfig });
   const origin = options.dashboardOrigin.replace(/\/$/, "");
-  const tools = options.skipToolHealthChecks
-    ? offlineToolPlaceholders(origin, options.openspecUiUrl)
-    : await readToolStatuses({
-        gitnexusUrl: options.gitnexusUrl ?? `${origin}/gitnexus/`,
-        openspecUiUrl: options.openspecUiUrl ?? "http://localhost:3100"
-      });
+  const openSessions = await readOpenSessionsStatus(repoRoot, {
+    host: options.openSessionsHost,
+    port: options.openSessionsPort
+  });
+  const tools = await readToolStatuses({
+    gitnexusUrl: options.gitnexusUrl ?? `${origin}/gitnexus/`,
+    openspecUiUrl: options.openspecUiUrl ?? "http://localhost:3100",
+    openSessionsUrl: openSessions.url,
+    openSessionsHealthy: openSessions.healthy
+  });
 
   if (prds.length === 0) {
     warnings.push("No PRDs found under .skillgrid/prd.");
@@ -77,6 +82,7 @@ export async function buildDashboardData(options: BuildDashboardOptions): Promis
     handoffs,
     checkpoints,
     tools,
+    openSessions,
     warnings
   };
 }
@@ -561,26 +567,12 @@ function issueLane(input: {
   return input.skillgridConfig.fallbackStatus;
 }
 
-function offlineToolPlaceholders(origin: string, openspecUiUrl?: string): ToolStatus[] {
-  return [
-    {
-      id: "gitnexus",
-      name: "GitNexus Web UI",
-      url: `${origin}/gitnexus/`,
-      healthy: false,
-      startCommand: "Health check skipped (TUI / offline mode)."
-    },
-    {
-      id: "openspecui",
-      name: "OpenSpecUI",
-      url: openspecUiUrl ?? "http://localhost:3100",
-      healthy: false,
-      startCommand: "Health check skipped (TUI / offline mode)."
-    }
-  ];
-}
-
-async function readToolStatuses(urls: { gitnexusUrl: string; openspecUiUrl: string }): Promise<ToolStatus[]> {
+async function readToolStatuses(urls: {
+  gitnexusUrl: string;
+  openspecUiUrl: string;
+  openSessionsUrl?: string;
+  openSessionsHealthy: boolean;
+}): Promise<ToolStatus[]> {
   const [gitnexusHealthy, openspecHealthy] = await Promise.all([isHealthy(urls.gitnexusUrl), isHealthy(urls.openspecUiUrl)]);
 
   return [
@@ -598,6 +590,14 @@ async function readToolStatuses(urls: { gitnexusUrl: string; openspecUiUrl: stri
       url: urls.openspecUiUrl,
       healthy: openspecHealthy,
       startCommand: "npx openspecui@latest"
+    },
+    {
+      id: "opensessions",
+      name: "opensessions",
+      url: urls.openSessionsUrl ?? "http://127.0.0.1:7391",
+      healthy: urls.openSessionsHealthy,
+      startCommand:
+        "TPM: set -g @plugin 'Ataraxy-Labs/opensessions' — then prefix o → s in tmux. Agent status in this dashboard uses the opensessions WebSocket API on port 7391."
     }
   ];
 }

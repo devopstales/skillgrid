@@ -8,9 +8,14 @@ agent: odin
 
 Follow the SDD orchestrator workflow for starting a new change named "$ARGUMENTS".
 
+Norse personas: dispatch per step using each phase skill's **Norse persona invocations (coordinator)** section (`sdd-explore`, `sdd-propose`, `sdd-spec`, `sdd-design`, `sdd-tasks`). Protocol: `.agents/skills/_shared/sdd-persona-delegation.md`. Optional during brainstorm: `loki` → `assumption-stress-test`, `mimir` → `architecture-coherence`.
+
 WORKFLOW:
 1. **Read `.skillgrid/project/CONTEXT.md`** if it exists. Note any relevant glossary terms, assumptions, or success criteria before proceeding.
-2. Launch `sdd-explore` sub-agent to investigate the codebase for this change
+2. Launch `sdd-explore` sub-agent to investigate this change. The explore prompt **must** require:
+   - Load `deep-research` (`.agents/skills/deep-research/SKILL.md`)
+   - **First search rule:** run Exa/Tavily/Firecrawl web research **before** reading application code (see `deep-research` provider stack)
+   - Merge external findings into `exploration.md` under `### External research (first search)`
 3. Present the exploration summary to the user
 4. Launch `sdd-clarify` sub-agent to refine understanding:
    - It will ask questions to resolve ambiguity about goals, scope, and constraints.
@@ -32,12 +37,12 @@ If the proposal involves user-facing changes (components, layouts, interactions,
 
 ### ARCHITECTURAL DECISION RECORDS (ADR) INTEGRATION POINT
 
-If the exploration or clarification phases uncover significant architectural decisions:
+If exploration or clarification uncovers significant architectural decisions, capture them **inside `sdd-design`** (not a separate phase):
 
-- Launch `sdd-adr` after `sdd-design` to capture any architecturally significant choices
+- Instruct the design sub-agent to load `architectural-decision-records` when ADR triggers apply
 - ADR triggers: technology stack changes, framework selections, data storage decisions, API patterns, security approaches
-- Create one ADR per decision; link related ADRs for traceability
-- ADRs should precede PRD finalization to ensure decisions are documented before implementation planning
+- One ADR per decision in `.skillgrid/adr/`; link related ADRs; update `.skillgrid/project/ARCHITECTURE.md` under **Durable decisions**
+- ADRs should precede PRD finalization
 
 ### CONTINUE WITH STANDARD PHASES
 
@@ -45,14 +50,13 @@ Run these sub-agents in sequence after clarification (and UI design if applicabl
 
 1. `sdd-propose` — create the proposal (using the clarifications)
 2. `sdd-spec` — write functional & technical specifications
-3. `sdd-design` — create technical design architecture
+3. `sdd-design` — technical design architecture **and ADRs** (when triggers apply; see ADR integration above)
     → **If UI scope**: trigger UI design sub-flow above, then merge outputs
-4. `sdd-adr` — author architectural decision records for any significant decisions discovered during explore/clarify
-5. `sdd-prd` — consolidate into PRD (`.skillgrid/prd/PRD<NN>_$ARGUMENTS.md`)
+4. `sdd-prd` — consolidate into PRD (`.skillgrid/prd/PRD<NN>_$ARGUMENTS.md`)
     - Include UI decisions, wireframe references, and accessibility notes in the PRD
-6. `sdd-tasks` — break down into vertically sliced implementation tasks
+5. `sdd-tasks` — break down into vertically sliced implementation tasks
     - Tag UI-related tasks with `area: frontend` or `area: ui`
-7. `beads-sync` — sync OpenSpec changes to Beads tasks (run after brainstorm completes)
+6. `beads-sync` — sync OpenSpec changes to Beads tasks (run after brainstorm completes)
 
 CONTEXT:
 - Working directory: !`echo -n "$(pwd)"`
@@ -63,7 +67,7 @@ CONTEXT:
 
 ENGRAM NOTE:
 Sub-agents handle persistence automatically. Each phase saves its artifact to engram with topic_key:
-- `"sdd/$ARGUMENTS/{type}"` where type ∈ {explore, clarify, propose, spec, design, adr, prd, tasks}
+- `"sdd/$ARGUMENTS/{type}"` where type ∈ {explore, clarify, propose, spec, design, prd, tasks}
 - UI-specific artifacts use: `"sdd/$ARGUMENTS/ui/{wireframes, decisions, tokens}"`
 
 FILESYSTEM PERSISTENCE:
@@ -79,9 +83,8 @@ openspec/changes/$ARGUMENTS/
 
 ORCHESTRATOR RULES:
 - Do NOT execute phase work inline — delegate to sub-agents.
-- Before launching `sdd-adr`, verify:
-  - Significant architectural decisions were discovered in explore/clarify phases
-  - Decision context and constraints are documented
+- When delegating `sdd-explore`, inject: `SKILL: Load deep-research` and `First search before codebase` (non-negotiable unless user declares internal-only scope).
+- When delegating `sdd-design`, include ADR triggers and context from explore/clarify if architectural decisions were discovered
 - Before launching `sdd-tasks`, verify:
   - Technical design is complete
   - UI artifacts are merged (if ui_scope: true)
@@ -106,7 +109,7 @@ ENFORCEMENT CONTRACT:
   - phase routing and stop conditions
   - mandatory skill-gate checks
   - two-stage review gate
-  - standard return envelope
+  - standard return envelope (`.agents/skills/_shared/sdd-return-envelope.md`) from each delegated phase
 - Brainstorm-specific override:
   - For planning-only execution, Stage 2 (`code quality`) is `not_applicable` unless implementation code was produced in error.
 

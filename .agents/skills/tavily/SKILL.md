@@ -11,6 +11,7 @@ Provide a curl-based interface to Tavily’s REST API for web search, extraction
 
 ## When to Use
 
+- **SDD explore/brainstorm:** load `deep-research` first; Tavily is **tier-2** after Exa MCP when Exa is unavailable or thin.
 - Use when a task needs live web information, site extraction, mapping, or crawling.
 - Use when web searches are needed and no built-in tool is available, or when Tavily’s LLM-friendly output (summaries, chunks, sources, citations) is beneficial.
 - Use when a task requires structured search results, extraction, or site discovery from Tavily.

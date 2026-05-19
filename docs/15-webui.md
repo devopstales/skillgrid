@@ -14,6 +14,10 @@ Then open the local address printed by the server. The common default is:
 127.0.0.1:8787
 ```
 
+Alternative: `skillgrid serve` from a built `skillgrid-cli` binary (see hub README).
+
+For **terminal** beads triage and graph-aware task ranking, use [beads_viewer](17-external-tools.md) (`bv`) — Skillgrid does not ship a built-in CLI TUI.
+
 ## Why The Web UI Exists
 
 AI work can become invisible when it lives only in chat. The web UI gives users and stakeholders a place to see:
@@ -35,11 +39,13 @@ This turns AISkillGrid from a prompt library into an observable workflow.
 ```mermaid
 flowchart TD
   WebUI[Local Web UI] --> Board[Board View]
+  WebUI --> Agents[Agents View]
   WebUI --> Workflow[Workflow View]
   WebUI --> Subagents[Subagents View]
   WebUI --> Previews[Preview Links]
   WebUI --> Graph[GitNexus View]
   Board --> PRD[PRD Files]
+  Agents --> OpenSessions[OpenSessions WS 7391]
   Workflow --> Events[Event Logs]
   Subagents --> Reports[Research And Reports]
   Graph --> GitNexus[GitNexus UI]
@@ -94,6 +100,21 @@ It can show:
 
 This is the view to use when asking, “Can the agent keep going, or does a human need to decide something?”
 
+## Agents View (OpenSessions)
+
+The **Agents** tab shows live coding-agent status from [opensessions](17-external-tools.md) when the tmux sidebar server is running.
+
+It helps answer:
+
+- Which tmux sessions match this repository?
+- What agent is running (idle, tool-running, done, error, …)?
+- Is there progress metadata or an unseen session marker?
+- What branch and ports are attached to each session?
+
+The dashboard polls the OpenSessions WebSocket API on **`127.0.0.1:7391`** (override with `OPENSESSIONS_HOST` / `OPENSESSIONS_PORT`). When the server is offline, the view shows the install/start hint from the tools panel instead of session cards.
+
+This complements file-based subagent reports: OpenSessions reflects **live terminal/agent runtime**, while `.skillgrid/tasks/research/` holds durable persona and research outputs.
+
 ## Subagents View
 
 The Subagents view collects delegated work activity.
@@ -143,6 +164,7 @@ The dashboard reads files that already belong to the Skillgrid workflow:
 | `.gitnexus/` | GitNexus view and graph status |
 | `.engram/manifest.json` | Engram export counts, when team memory sync is used |
 | `.skillgrid/project/SKILL_REGISTRY.md` | Skill registry availability and skill count |
+| OpenSessions WebSocket (`127.0.0.1:7391`) | Agents tab — live tmux session and agent status |
 
 No separate database is required for the core local dashboard model.
 

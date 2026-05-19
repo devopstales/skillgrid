@@ -39,5 +39,5 @@ This document centralizes where project rules live, how they are applied, and ho
 - `02-workflow-usage.md`
 - `08-multi-agent-work.md`
 - `09-subagent-personas.md`
-- `11-memory-and-indexing.md`
+- `13-memory-and-indexing.md`
 - `100-ide-configs.md`

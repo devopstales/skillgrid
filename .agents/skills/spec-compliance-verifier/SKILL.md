@@ -37,7 +37,7 @@ Manual usage:
 
 Expects to find:
 - Slice spec file: `openspec/changes/<change-id>/specs/<slice-slug>/spec.md`
-- Implementation files (from git diff or worktree)
+- Implementation files (from git diff or working tree)
 - Test files (test suite output available)
 - Optional: task list for task→spec mapping
 

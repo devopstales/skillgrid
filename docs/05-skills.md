@@ -48,12 +48,11 @@ These are directly tied to the active `/sdd-*` command surface:
 - `sdd-ui-design`
 - `sdd-prd`
 - `sdd-tasks` — enhanced with TDD enforcement, granularity rules, no-placeholders validation
-- `sdd-apply` — orchestrator: invokes `isolated-workspace` → validates granular plan → dispatches `sequential-agent-executor`
+- `sdd-apply` — orchestrator: validates granular plan → dispatches `sequential-agent-executor`
 - `sdd-verify` — **Stage 1:** spec compliance verification (invokes `spec-compliance-verifier`)
 - `sdd-review` — **Stage 2:** code quality review (invokes `code-quality-reviewer`)
 - `sdd-archive` — requires `sdd-verify` PASS + `sdd-review` APPROVED + `pre-merge-verification` PASS
 - `sdd-diagnose` — enhanced with 4-phase systematic debugging protocol: evidence gathering → pattern analysis → hypothesis → fix. Includes 3-fixes threshold escalation: if 3+ attempted fixes fail, STOP and question architecture → escalate to `sdd-architecture-review`.
-- `sdd-adr` (conditional) — ADRs in `.skillgrid/adr/` if architectural decisions needed
 - `sdd-openspec-git` — git gates for proposal/apply/archive alignment
 
 `/sdd-brainstorm` orchestrates most of these phases in sequence.
@@ -64,11 +63,11 @@ New `SKILL.md` files should follow the shared scaffold: **`.agents/skills/_share
 
 ### Spec, Architecture, And Git Discipline (Intent-driven style)
 
-Adapted from [intent-driven-template](https://github.com/intent-driven-dev/intent-driven-template/tree/main/.agents/skills) (`grill-me` not vendored here). Slash workflows: **`docs/04-commands.md`** (*Discovery and planning*, adjunct list, and *Current command surface*).
+Adapted from [intent-driven-template](https://github.com/intent-driven-dev/intent-driven-template/tree/main/.agents/skills) (`grill-me` not vendored here). Slash workflows: **`docs/04-commands-reference.md`** (quick reference, per-command detail, workflow diagram).
 
 These complement OpenSpec / SDD without replacing phase skills:
 
-- `architectural-decision-records` — ADRs and decision history. Auto-triggered during `/sdd-brainstorm` when architectural decisions are detected.
+- `architectural-decision-records` — ADRs and decision history. Loaded during `sdd-design` in `/sdd-brainstorm` when ADR triggers apply; also via `/sdd-explore` for a focused decision topic.
 - `c4-diagrams` — C4-style diagrams in ASCII or Mermaid. Auto-loaded during `/sdd-explore` for architecture visualization.
 - `gherkin-authoring` — Gherkin / BDD scenarios and acceptance criteria. Auto-loaded during `/sdd-spec` for acceptance criteria authoring.
 - `openspec-git-discipline` — git gates so proposal/apply/archive line up with `main` (`/sdd-openspec-git`).
@@ -82,9 +81,8 @@ These complement OpenSpec / SDD without replacing phase skills:
 
 ### Parallel delegation (sub-agents)
 
-- `parallel-delegate` — coordinator playbook for **parallel Task-style** runs: split independent lanes, child prompt shape, merge and conflict rules. Does not replace `sdd-*` / OpenSpec phases.
+- `parallel-delegate` — coordinator playbook for **parallel Task-style** runs: split independent lanes, child prompt shape, merge and conflict rules. Use separate branches when lanes edit code in parallel. Does not replace `sdd-*` / OpenSpec phases.
 - `sequential-agent-executor` — core execution engine: dispatches fresh subagent per task, two-stage review (spec compliance then code quality), continuous execution without human checkpoints. Used by `sdd-apply`.
-- `parallel-slice-dispatcher` — orchestrates independent vertical slices in parallel worktrees, merges results, detects conflicts. Used by `sdd-parallel-execute` (future).
 - `batch-executor` — alternative execution mode: execute tasks in batches with manual checkpoints between batches.
 
 ### Quality Gates & Verification Skills
@@ -93,12 +91,8 @@ These form the two-stage review pipeline:
 
 - `spec-compliance-verifier` — **Stage 1:** traces every spec requirement to code/test evidence, produces PASS/FAIL/PARTIAL verdict with gap analysis. Used by `sdd-verify`.
 - `code-quality-reviewer` — **Stage 2:** evaluates code health (readability, DRY, error handling, test quality, security, performance). Severity-tags issues (CRITICAL/IMPORTANT/MINOR), recommends APPROVED/CHANGES_REQUESTED. Used by `sdd-review`.
-- `pre-merge-verification` — **Final gate:** combines spec compliance + code review + tests green + lint clean + worktree clean + branch mergeable + security scan. Required before `sdd-archive`.
+- `pre-merge-verification` — **Final gate:** combines spec compliance + code review + tests green + lint clean + clean working tree + branch mergeable + security scan. Required before `sdd-archive`.
 - `enforced-tdd-protocol` — pre-implementation gate ensuring RED-GREEN-REFACTOR sequence with failure evidence capture.
-
-### Workspace & Environment Skills
-
-- `isolated-workspace` — automatically creates and manages git worktrees for each `sdd-apply` session. Ensures clean baseline, parallel work safety, automatic cleanup on archive. Mandatory pre-step for all implementation.
 
 ### Planning & Decomposition Skills
 
@@ -148,8 +142,10 @@ These provide project-specific quality and boundary rules when changes touch tho
 
 ### External Docs And Research Skills
 
-- `context7` for up-to-date library/framework docs.
-- `exa-search` for broader web research.
+- `deep-research` — **first search** orchestration for SDD explore/brainstorm (Exa MCP → Tavily → Firecrawl → built-in web search).
+- `exa-search` — Exa MCP tool reference (`web_search_exa`, `web_fetch_exa`).
+- `tavily` — Tavily REST when Exa MCP is unavailable.
+- `context7` for up-to-date library/framework docs after a stack choice is known.
 
 ### Security & Architecture Analysis Skills
 

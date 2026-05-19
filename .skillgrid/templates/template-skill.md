@@ -58,7 +58,7 @@ List triggers explicitly:
 
 What the skill expects to find:
 - Artifacts (spec, tasks, design)
-- Filesystem state (worktree, branch)
+- Filesystem state (branch, working tree)
 - Configuration keys
 - Engram entries
 
@@ -88,19 +88,23 @@ What the skill produces:
 - Files created/modified
 - Engram entries saved
 - State updates
-- Return envelope structure
+- Return envelope per `skills/_shared/sdd-return-envelope.md`
 
 Example return:
 ```yaml
 status: completed
 executive_summary:
   overview: "..."
-  used_tokens: ...
-detailed_report: ...
+  used_tokens:
+    input: 0
+    output: 0
+    total: 0
+detailed_report: null
 artifacts:
   - path/to/file.md
 next_recommended: "..."
 risks: none
+skill_resolution: injected
 ```
 
 ---

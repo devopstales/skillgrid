@@ -15,6 +15,16 @@ You are a sub-agent responsible for creating the TASK BREAKDOWN. You take the pr
 
 For **small same-session work** without a formal change artifact, use **`micro-plan`** (short steps + exit criteria) instead of this skill.
 
+## Norse persona invocations (coordinator)
+
+When orchestrating `/sdd-tasks` (or tasks step inside brainstorm), dispatch per `skills/_shared/sdd-persona-delegation.md`:
+
+| Required | Persona | Capability |
+| --- | --- | --- |
+| yes | thor | execution-feasibility |
+| no | bragi | structured-artifacts |
+| no | tyr | tasks-readiness |
+
 ## What You Receive
 
 From the orchestrator:
@@ -310,4 +320,4 @@ Ready for implementation (sdd-apply).
   - No GREEN task without preceding RED task in same slice
 - **Size budget:** Tasks artifact must be under 530 words. Each task: 1-2 lines max. Use checklist format, not paragraphs.
 - **Completeness contract:** No placeholders (TBD/TODO/"later"/"appropriate"/"proper"/"etc"). Every code block must be complete and executable as written. Every command must have expected output. Every file modification must specify exact line ranges or full file content.
-- Return a structured envelope with: `status`, `executive_summary`, `detailed_report` (optional), `artifacts`, `next_recommended`, and `risks` (read `skills/_shared/sdd-phase-common.md` for the full envelope spec)
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md` (see `skills/_shared/sdd-phase-common.md`)

@@ -1,4 +1,47 @@
-export type ToolId = "gitnexus" | "openspecui";
+export type ToolId = "gitnexus" | "openspecui" | "opensessions";
+
+export type AgentStatusTone =
+  | "idle"
+  | "running"
+  | "tool-running"
+  | "done"
+  | "error"
+  | "waiting"
+  | "interrupted"
+  | "stale";
+
+export type AgentThreadSnapshot = {
+  agent: string;
+  status: AgentStatusTone;
+  threadId?: string;
+  threadName?: string;
+  unseen?: boolean;
+  ts: number;
+};
+
+export type AgentSessionSnapshot = {
+  name: string;
+  dir: string;
+  branch: string;
+  dirty: boolean;
+  unseen: boolean;
+  matchesRepo: boolean;
+  primaryAgent: AgentThreadSnapshot | null;
+  agents: AgentThreadSnapshot[];
+  metadataStatus: string | null;
+  metadataTone: "neutral" | "info" | "success" | "warn" | "error" | null;
+  metadataProgress: string | null;
+  ports: number[];
+};
+
+export type OpenSessionsIntegration = {
+  healthy: boolean;
+  url: string;
+  wsUrl: string;
+  focusedSession: string | null;
+  sessions: AgentSessionSnapshot[];
+  startCommand: string;
+};
 
 export type TaskStats = {
   total: number;
@@ -163,5 +206,6 @@ export type DashboardData = {
   handoffs: HandoffLog[];
   checkpoints: Checkpoint[];
   tools: ToolStatus[];
+  openSessions: OpenSessionsIntegration;
   warnings: string[];
 };

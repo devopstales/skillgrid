@@ -19,7 +19,7 @@ During initialization, decide:
 - PRD workflow: default statuses, provider-style statuses, imported statuses, or custom statuses.
 - Index refresh policy: initialize and explicitly refresh GitNexus/ccc indexes during `/sdd-init`.
 - Optional persistent memory: Engram.
-- Skill registry: `.skillgrid/project/SKILL_REGISTRY.md` for compact rules used in subagent prompts (refresh when skills under `.agents/skills/` change; see `docs/11-memory-and-indexing.md`).
+- Skill registry: `.skillgrid/project/SKILL_REGISTRY.md` for compact rules used in subagent prompts (refresh when skills under `.agents/skills/` change; see `docs/13-memory-and-indexing.md`).
 
 The recommended default for most users is a hybrid model: keep reviewable files in the repository and save concise durable memory summaries.
 
@@ -37,12 +37,11 @@ flowchart TD
   Explore --> Brainstorm
   Brainstorm --> Loop[sdd-loop]
   Loop --> Apply[sdd-apply]
-  Apply --> Board[sdd-persona-board optional]
-  Board --> Verify[sdd-verify]
+  Apply --> Verify[sdd-verify]
   Verify --> Archive[sdd-archive]
 ```
 
-Use `/sdd-explore` when the project is braun field. Use `/sdd-brainstorm` when you want the full change pipeline (clarify, propose, spec, design, PRD, tasks).
+Use `/sdd-explore` when the project is greenfield or the topic needs investigation first (web research via `deep-research`, then codebase — no code changes). Use `/sdd-brainstorm` when you want the full change pipeline (clarify, propose, spec, design, PRD, tasks).
 
 ## PRD index, hierarchy, and OpenSpec layout
 
@@ -205,7 +204,7 @@ for controlled implementation from an approved task list.
 
 `/sdd-loop` is the **Ralph loop orchestrator**: one AFK task per invocation (`plan → delegate to /sdd-apply → reflect → stop`). Use it as the default AFK continuation entrypoint. For unattended runs: `.skillgrid/scripts/sdd-ralph-loop.sh <change> [max]`.
 
-Full guide: **[SDD Ralph Loop](17-sdd-ralph-loop.md)**.
+Full guide: **[SDD Ralph Loop](10-sdd-ralph-loop.md)**.
 
 Use `/sdd-apply` directly when you want a **single session** to chew through many tasks (sequential subagents, full pipeline) without the per-iteration Ralph controller.
 
@@ -236,10 +235,8 @@ flowchart TD
   Gate -->|No| Stop[Stop For HITL Or Breakdown]
   Gate -->|Yes| Apply[Apply One Slice]
   Apply --> Evidence[Capture Evidence]
-  Evidence --> BoardNeed{Board Needed}
-  BoardNeed -->|Yes| Board[sdd-persona-board]
-  BoardNeed -->|No| Update[Update Handoff And Events]
-  Board --> Update
+  Evidence --> PersonaGate{Required persona reports}
+  PersonaGate --> Update[Update Handoff And Events]
   Update --> Reassess[Reassess Context And Risk]
   Reassess --> Pick
 ```
@@ -271,19 +268,17 @@ Ordering matters. Do not accept code quality review before spec compliance passe
 
 For user-facing behavior, add UAT notes or a manual QA checklist after automated evidence. Failed UAT should create focused fix tasks rather than a vague “try again” loop.
 
-When a decision needs multiple viewpoints, use a specialist persona board. The parent picks only the relevant personas, asks each for a bounded report, reads the reports, records the accepted decision and rejected options, then either continues or marks the issue HITL.
+When a phase needs independent judgment, the coordinator dispatches Norse personas listed in that phase's **`sdd-<phase>/SKILL.md`** (*Norse persona invocations*). Each subagent returns one report; the coordinator merges, records decisions in the handoff, and either continues or marks HITL.
 
-Use `/sdd-persona-board <decision>` as the dedicated entrypoint for this process (with `/sdd-board` kept as a compatibility alias), and allow `/sdd-loop` or `/sdd-verify` to invoke it automatically when conflict/critical escalation is detected.
+Protocol: **`.agents/skills/_shared/sdd-persona-delegation.md`**. On conflict during verify, dispatch extra invocations from **`sdd-verify/SKILL.md`** (e.g. `loki`, `heimdall`).
 
-The board must write durable state:
+Durable state:
 
 - reports under `.skillgrid/tasks/research/<change-id>/`;
-- a decision record in `.skillgrid/tasks/context_<change-id>.md`;
+- handoff in `.skillgrid/tasks/context_<change-id>.md`;
 - JSONL events in `.skillgrid/tasks/events/<change-id>.jsonl`.
 
-The board advises. It does not silently vote the workflow forward.
-
-For the full multi-agent operating model, see `08-multi-agent-work.md`. It covers personas, dependency waves, handoff and event logs, the subagent orchestration skill, planned git worktree separation, and parallelism rules.
+For the full multi-agent operating model, see `08-multi-agent-work.md`. It covers personas, dependency waves, handoff and event logs, the subagent orchestration skill, parallel branch lanes, and parallelism rules.
 
 CI-ready default progression is verify-first:
 

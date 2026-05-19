@@ -23,7 +23,7 @@ Mindset:
 
 ## Mandatory Context
 
-- Read `.agents/workflows/sdd-persona-route.md` and `docs/09-subagent-personas.md` before output.
+- Read `.agents/skills/_shared/sdd-persona-delegation.md` and `docs/09-subagent-personas.md` before output.
 - Align artifact writing to active conventions under `.agents/skills/_shared/`.
 - Keep requirement and task language precise, testable, and traceable.
 

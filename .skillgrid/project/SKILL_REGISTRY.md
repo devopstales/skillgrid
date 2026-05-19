@@ -14,6 +14,7 @@ Orchestrators read this file before delegating. Inject **Compact rules** blocks 
 | `c4-diagrams` | `.agents/skills/c4-diagrams/SKILL.md` |
 | `ccc` | `.agents/skills/ccc/SKILL.md` |
 | `context7` | `.agents/skills/context7/SKILL.md` |
+| `deep-research` | `.agents/skills/deep-research/SKILL.md` |
 | `design-taste-frontend` | `.agents/skills/design-taste-frontend/SKILL.md` |
 | `engram-architecture-guardrails` | `.agents/skills/engram-architecture-guardrails/SKILL.md` |
 | `engram-backlog-triage` | `.agents/skills/engram-backlog-triage/SKILL.md` |
@@ -93,12 +94,12 @@ Orchestrators read this file before delegating. Inject **Compact rules** blocks 
 
 ### openspec-git-discipline
 
-- OpenSpec state a downstream phase depends on must be on `main` before that phase; apply is allowed from branch/worktree only if the same proposal change is already on `main`.
+- OpenSpec state a downstream phase depends on must be on `main` before that phase; apply is allowed from a feature branch only if the same proposal change is already on `main`.
 - Archive only from `main` after implementation is merged back.
 - Before apply: run `git status --short`; ensure no uncommitted proposal files for the target change under `openspec/changes/`.
 - Before the next `continue` artifact: prompt to commit completed work or explicit consent to proceed uncommitted.
 - Do not create commits, branches, or merges unless the user explicitly asked.
-- Worktree or local branch visibility does not prove the proposal reached `main`.
+- Checking out a feature branch locally does not prove the proposal reached `main`.
 
 ### architectural-decision-records
 
@@ -127,6 +128,13 @@ Orchestrators read this file before delegating. Inject **Compact rules** blocks 
 - 3–7 numbered steps max; each step one primary action; explicit **exit criteria** checkboxes before closing.
 - Not for full SDD/OpenSpec changes — hand off to `sdd-tasks`, `sdd-design`, or `openspec-continue-change` when scope grows.
 - Do not expand scope silently; residual work → follow-up or formal change track.
+
+### deep-research
+
+- **First search before codebase** when loaded from `sdd-explore` / `sdd-brainstorm` (skip only for strictly internal topics; state reason).
+- Provider order: Exa MCP `user-exa-http` (`web_search_exa`, `web_fetch_exa`) → Tavily REST → Firecrawl CLI → built-in web search.
+- Emit `## External research (first search)` with cited URLs; reconcile with repo findings afterward.
+- Spill long notes to `.skillgrid/tasks/research/<change-id>/first-search.md`.
 
 ### parallel-delegate
 
@@ -157,5 +165,5 @@ Orchestrators read this file before delegating. Inject **Compact rules** blocks 
 
 ## Refresh notes
 
-- Last refreshed: 2026-05-10 (added `micro-plan`, `parallel-delegate`; `requesting-code-review`, `receiving-code-review`; PR author vs reviewer split; `SKILL-authoring-template.md`)
+- Last refreshed: 2026-05-19 (added `deep-research`; first-search rule in `sdd-explore` / `sdd-brainstorm`)
 - Re-run inventory when adding or removing directories under `.agents/skills/`.

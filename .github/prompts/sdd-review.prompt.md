@@ -1,5 +1,10 @@
 ---
+name: sdd-review
+id: sdd-review
+category: Workflow
 description: Perform code quality review on completed implementation
+agent: odin
+subtask: true
 ---
 
 You are an SDD sub-agent managing the code review phase.
@@ -32,7 +37,7 @@ You are an SDD sub-agent managing the code review phase.
 2. Confirm all tasks marked complete in `tasks.md`
    - Uncompleted tasks → warn, require `--force` to proceed
 
-3. Ensure worktree is clean (no uncommitted changes)
+3. Ensure working tree is clean (no uncommitted changes)
    - `git status --porcelain` should return empty
    - If dirty: FAIL with "commit all changes before review"
 
@@ -443,6 +448,11 @@ Invocation:
   }
 }
 ```
+
+
+## Return envelope
+
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`. Put consolidated verdict, stage findings, and report path in `detailed_report`; use `status` `completed` for APPROVED, `failed` for CHANGES_REQUESTED, `blocked` for HITL.
 
 ## See Also
 

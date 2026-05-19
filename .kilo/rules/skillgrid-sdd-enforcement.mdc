@@ -37,7 +37,7 @@ Critical findings in either stage **block** progression until fixed, explicitly 
 
 ## Return envelope
 
-Phases must return a structured envelope. Baseline fields: `status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`. Persona-board commands extend with `personas_invoked`, `conflicts`, `hitl_required`, `accepted_decision` (see `docs/09-subagent-personas.md`, Return contract).
+Phases must return the canonical envelope in `.agents/skills/_shared/sdd-return-envelope.md`: `status`, `executive_summary` (`overview`, `used_tokens`), `detailed_report` (optional), `artifacts`, `next_recommended`, `risks`, `skill_resolution`; on `blocked`/`failed`, stop condition, failing gate, and missing evidence. Persona-board commands add `personas_invoked`, `conflicts`, `hitl_required`, `accepted_decision` (see `docs/09-subagent-personas.md`, Return contract).
 
 ## Verification before “done”
 

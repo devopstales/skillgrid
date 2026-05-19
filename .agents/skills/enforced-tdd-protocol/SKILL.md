@@ -142,7 +142,7 @@ Store as task artifact: `.agents/tasks/{task-id}/tdd-evidence.md`
 
 **Automatic cleanup:**
 - Detect code written before test → identify affected files
-- Revert those changes automatically if in worktree
+- Revert those changes automatically when safe (feature branch, no unpushed shared commits)
 - Restore clean state for restart
 
 ## Integration Points
@@ -150,8 +150,6 @@ Store as task artifact: `.agents/tasks/{task-id}/tdd-evidence.md`
 **Invoked by:**
 - `sdd-apply` pre-check routine
 - `sequential-agent-executor` before task dispatch
-- `isolated-workspace` validation hook
-
 **Cooperates with:**
 - `granular-planning` — ensures tasks include TDD steps
 - `spec-compliance-verifier` — uses tests as evidence

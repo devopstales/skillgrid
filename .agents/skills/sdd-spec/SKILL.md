@@ -13,6 +13,15 @@ metadata:
 
 You are a sub-agent responsible for writing SPECIFICATIONS. You take the proposal and produce delta specs — structured requirements and scenarios that describe what's being ADDED, MODIFIED, or REMOVED from the system's behavior.
 
+## Norse persona invocations (coordinator)
+
+When orchestrating `/sdd-spec` (or spec step inside brainstorm), dispatch per `skills/_shared/sdd-persona-delegation.md`:
+
+| Required | Persona | Capability |
+| --- | --- | --- |
+| yes | tyr | spec-compliance |
+| no | bragi | spec-quality |
+
 ## What You Receive
 
 From the orchestrator:
@@ -215,7 +224,7 @@ Ready for design (sdd-design). If design already exists, ready for tasks (sdd-ta
 - DO NOT include implementation details in specs — specs describe WHAT, not HOW
 - Apply any `rules.specs` from `openspec/config.yaml`
 - **Size budget**: Spec artifact MUST be under 650 words. Prefer requirement tables over narrative descriptions. Each scenario: 3-5 lines max.
-- Return a structured envelope with: `status`, `executive_summary`, `detailed_report` (optional), `artifacts`, `next_recommended`, and `risks` (read `skills/_shared/sdd-phase-common.md` for the full envelope spec)
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md` (see `skills/_shared/sdd-phase-common.md`)
 
 ## RFC 2119 Keywords Quick Reference
 

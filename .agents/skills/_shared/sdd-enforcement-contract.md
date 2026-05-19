@@ -30,8 +30,8 @@ All gates run through `sdd-gate.sh`:
 | design | labels, artifacts, phase_state, persona_routing |
 | tasks | labels, artifacts, phase_state, persona_routing |
 | apply | labels, artifacts, phase_state, persona_routing, slices |
-| verify | labels, artifacts, phase_state, two_stage_review, persona_board, slices |
-| archive | labels, artifacts, phase_state, two_stage_review, persona_routing, persona_board |
+| verify | labels, artifacts, phase_state, two_stage_review, persona_hardgates, slices |
+| archive | labels, artifacts, phase_state, two_stage_review, persona_routing, persona_hardgates |
 
 ### Artifact requirements (enforced by `gate_artifacts`)
 
@@ -65,4 +65,4 @@ Gate failures are **programmatic hard blocks**:
 
 ## 5) Standard Return Envelope
 
-Use `skills/_shared/sdd-return-envelope.md` as canonical envelope contract.
+Every phase must return the canonical envelope in `skills/_shared/sdd-return-envelope.md` (JSON or YAML). Required: `status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`, `skill_resolution`. On `blocked`/`failed`, include stop condition, failing gate, and missing evidence. Phase extensions (verify converge, loop completion sigil, persona subagent fields) are additive — never omit base fields.

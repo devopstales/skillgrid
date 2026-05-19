@@ -18,14 +18,8 @@ Load and follow first:
 1. Parse arguments for the active change name, phase (propose, continue, apply, verify, archive), or general git-state check.
 2. Apply the skill’s gates: `git status --short`, branch vs `main`, whether proposal artifacts are committed before apply, archive only from `main` after merge.
 3. If the user has not asked for commits/branches/merges, **pause and explain** — never auto-commit or merge.
-4. Surface red flags from the skill (worktree-only proposal, archiving from feature branch, etc.) with the suggested wording from the skill when helpful.
+4. Surface red flags from the skill (branch-only proposal, archiving from feature branch, etc.) with the suggested wording from the skill when helpful.
 
 ## Return Contract
 
-Return a structured result with:
-- `status`: `completed | blocked | failed`
-- `executive_summary`
-- `detailed_report` (git facts, openspec paths checked, gate outcomes)
-- `artifacts` (paths to any written notes; usually none unless user asked)
-- `next_recommended` (e.g. merge to `main`, commit artifacts, run `/sdd-apply`)
-- `risks`
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`.

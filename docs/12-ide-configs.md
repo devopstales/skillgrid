@@ -47,7 +47,7 @@ Hub workflow rules (modular Cursor-style `.mdc`, scope via `description` / `glob
 - `skillgrid-sdd-enforcement.mdc` — gates, labels, two-stage review
 - `skillgrid-sdd-orchestrator.mdc` — coordinator-only delegation and subagent CONTEXT protocol
 - `skillgrid-sdd-execution.mdc` — apply/loop/TDD/evidence expectations
-- `skillgrid-persona-board.mdc` — Norse board commands and hard stops
+- Phase-bound persona dispatch — `sdd-<phase>/SKILL.md` + `sdd-persona-delegation.md` (see `docs/09-subagent-personas.md`)
 - `skillgrid-multiagent-handoff.mdc` — subagent parallelism and merge duty
 - `skillgrid-engram-memory.mdc` — Engram retrieval, proactive saves, session close
 - `skillgrid-communication-discipline.mdc` — honesty, pause, commits (pairs with persona rule)
@@ -98,7 +98,7 @@ Hub workflow rules (modular Cursor-style `.mdc`, scope via `description` / `glob
 
 Norse persona theming and routing are centralized in shared config files:
 
-- `.agents/workflows/sdd-persona-route.md` and `.agents/workflows/sdd-persona-board.md` (persona roles, routing matrix, hard rules, return contract)
+- `.agents/skills/_shared/sdd-persona-delegation.md` and `sdd-<phase>/SKILL.md` (per-phase persona invocations)
 - `.configs/ide-model-mapping.json` (surface model mapping by `fast|balanced|deep`)
 - `.configs/ide-persona-capabilities.json` (surface capability tiers and fallback policy)
 
@@ -108,7 +108,7 @@ Render cross-IDE persona manifests with:
 node scripts/render-multi-ide-personas.mjs
 ```
 
-This writes `norse-personas.json` files into each surface (`.cursor`, `.kilo`, `.opencode`, `.github`, `.gemini`, `.codex`, `.pi`, `.antigravity`, `.vscode`, `.claude`) so command routing can stay consistent across toolchains.
+This writes `norse-personas.json` files into each surface (`.cursor`, `.kilo`, `.opencode`, `.github`, `.gemini`, `.codex`, `.pi`, `.antigravity`, `.vscode`, `.claude`) so agent prompt metadata stays consistent across toolchains. Persona **dispatch** is defined in `sdd-<phase>/SKILL.md`, not in those JSON files.
 
 ### Google Antigravity
 

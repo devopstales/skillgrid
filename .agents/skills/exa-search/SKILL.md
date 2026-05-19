@@ -19,7 +19,7 @@ Neural search for web content, code, companies, and people via the Exa MCP serve
 
 ## When Used From Skillgrid
 
-For Skillgrid work, Exa is one research provider; coordinate multi-lane research with **`parallel-delegate`**. Put long findings under `.skillgrid/tasks/research/<change-id>/`, cite sources, and update the handoff with the short decision or open question.
+For SDD **explore** and **brainstorm**, load **`deep-research`** first — it runs Exa as tier-1 **before** codebase investigation (first search rule). For ad-hoc research, Exa is one provider; coordinate multi-lane work with **`parallel-delegate`**. Put long findings under `.skillgrid/tasks/research/<change-id>/`, cite sources, and update the handoff with the short decision or open question.
 
 ## MCP Requirement
 
@@ -103,5 +103,5 @@ get_code_context_exa(query: "WebAssembly component model examples", tokensNum: 4
 
 ## Related Skills
 
-- `deep-research` — Full research workflow using firecrawl + exa together
+- `deep-research` — SDD first-search orchestration (Exa MCP → Tavily → Firecrawl)
 - `market-research` — Business-oriented research with decision frameworks

@@ -14,6 +14,11 @@ CONTEXT:
 - Current project: !`echo -n "$(basename $(pwd))"`
 - Artifact store mode: hybrid
 
+PERSONA INVOCATIONS (coordinator — see `sdd-init/SKILL.md`):
+- Required: `mimir` → `bootstrap-readiness`
+- Optional: `kvasir` → `codebase-recon`
+Protocol: `.agents/skills/_shared/sdd-persona-delegation.md`
+
 TASK:
 Initialize Spec-Driven Development in this project. Detect the tech stack, existing conventions, and architecture patterns. Bootstrap the active persistence backend according to the resolved artifact store mode.
 As part of initialization, run explicit index refresh for any configured indexers (`ccc index`, `npx gitnexus analyze`, preserving `--embeddings` when already in use) and report what was refreshed.
@@ -25,7 +30,7 @@ topic_key enables upserts — re-running init updates, not duplicates.
 FILESYSTEM PERSISTENCE:
   Reade .agents/skills/_shared/skillgrid-handoff.md for filesystem persistence instructions.
 
-Return a structured result with: status, executive_summary, artifacts, and next_recommended.
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`.
 
 ---
 

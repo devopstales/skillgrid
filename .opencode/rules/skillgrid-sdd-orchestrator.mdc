@@ -14,7 +14,7 @@ Stay a thin coordinator thread: delegate substantive reads/writes/tests to the c
 
 ## Required split (when both agent families exist)
 
-- Nordic personas (`odin`, `thor`, `tyr`, `heimdall`, `frigg`, `loki`, `mimir`, `bragi`) are both execution owners and gate reviewers.
+- Norse personas are stateless capability packs; bindings are in each `sdd-<phase>/SKILL.md` — dispatch per phase, do not treat any persona as permanent session owner.
 - Route each phase to its required Nordic owner (see extended orchestrator rule).
 - Keep hard-gate semantics independent: `tyr` and `heimdall` critical findings block progression.
 - Do not close phases when required owner or gate outputs are missing.
@@ -38,7 +38,7 @@ Where the stack uses Engram for init bookkeeping, respect the project’s init g
 
 ## Model tiers
 
-Prefer phase-appropriate models when the toolchain supports aliases (see `.configs/ide-model-mapping.json` and persona routing in `.agents/workflows/sdd-persona-route.md`).
+Prefer phase-appropriate models when the toolchain supports aliases (see `.configs/ide-model-mapping.json` and `sdd-persona-delegation.md`).
 
 ## Sub-agent context protocol (CONTEXT + skills)
 

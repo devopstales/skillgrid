@@ -27,6 +27,8 @@ AISkillGrid is a local-first operating layer for AI-assisted development. It tur
 | SDD Workflow | Guides work through init, explore, brainstorm, plan, apply, verify, and finish | Keeps agent work tied to explicit phases, artifacts, and exit checks |
 | Multi-IDE command hub | Ships `/sdd-*` commands for Cursor, Kilo, OpenCode, and GitHub Copilot prompts | One workflow travels across the IDEs you use |
 | Agent skills catalog | Provides reusable skills for TDD, review, security, UI design, research, OpenSpec, and more | Agents get focused operating procedures instead of ad hoc chat instructions |
+| Deep research | `deep-research` runs web search (Exa → Tavily → Firecrawl) before codebase reads in explore/brainstorm | External context lands before local investigation, reducing blind spots |
+| Phase-bound personas | Norse specialists dispatch from each `sdd-<phase>/SKILL.md`; `tyr` / `heimdall` hard-gate on critical findings | Independent review without a separate persona-board command surface |
 | File-first handoff | Stores PRDs, OpenSpec changes, handoff files, event logs, checkpoints under the repo | Work survives context resets without requiring a database or hosted service |
 | Intent-gated loop | Adds `/sdd-loop` for the next safe phase or `[AFK]` slice, with explicit HITL and verification stop conditions | Long-running agent work stays bounded by artifacts and user authority |
 
@@ -34,7 +36,7 @@ AISkillGrid is a local-first operating layer for AI-assisted development. It tur
 
 1. **Init** (`/sdd-init`) - Bootstraps project context, detects stack, configures persistence (hybrid mode recommended), and creates `.skillgrid/` and `openspec/` directories.
 
-2. **Explore** (`/sdd-explore`) - Free-form codebase investigation. Maps architecture, identifies patterns, compares approaches. Makes NO code changes.
+2. **Explore** (`/sdd-explore`) - Web research first (`deep-research`), then codebase investigation. Maps architecture, identifies patterns, compares approaches. Makes NO code changes.
 
 3. **Brainstorm** (`/sdd-brainstorm`) - Full planning pipeline: explore → clarify → propose → spec → design → tasks. Produces artifacts in `openspec/changes/<name>/`.
 
@@ -44,7 +46,7 @@ AISkillGrid is a local-first operating layer for AI-assisted development. It tur
 
 6. **Review** (`/sdd-review`) - Stage 2: Code quality review. Evaluates style, DRY, errors, tests, security, performance. APPROVED/CHANGES_REQUESTED.
 
-7. **Archive** (`/sdd-archive`) - Pre-merge gate (tests green, lint clean, worktree clean) then merges/PRs/keeps/discards per configuration.
+7. **Archive** (`/sdd-archive`) - Pre-merge gate (tests green, lint clean, working tree clean) then merges/PRs/keeps/discards per configuration.
 
 **The agent checks for relevant skills before any task. Mandatory workflows, not suggestions.**
 
@@ -74,8 +76,10 @@ AISkillGrid is a local-first operating layer for AI-assisted development. It tur
 4. Implement and verify:
 
    ```text
-   /sdd-apply
+   /sdd-loop          # one [AFK] task per invocation
+   /sdd-apply         # for a full session
    /sdd-verify
+   /sdd-review
    /sdd-archive
    ```
 
@@ -83,12 +87,11 @@ AISkillGrid is a local-first operating layer for AI-assisted development. It tur
 
 ## High Council
 
-Specialist **Norse** personas are delegated viewpoints—not owners of the workflow. The parent session (typically **`odin`**) merges reports; **`tyr`** and **`heimdall`** can **hard-gate** progression on critical findings. Details, routing matrix, and commands: [`subagent-personas`](docs/09-subagent-personas.md).
+Specialist **Norse** personas are delegated viewpoints—not owners of the workflow. The **session coordinator** merges reports; bindings are in each **`sdd-<phase>/SKILL.md`**. **`tyr`** and **`heimdall`** can **hard-gate** on critical findings. Details: [`subagent-personas`](docs/09-subagent-personas.md).
 
 | Persona | Job |
 | --- | --- |
-| Odin | Primary session owner: SDD sequencing, tools, delegation (default OpenCode primary). |
-| Board | Persona-board chair: route personas, run parallel reports, merge verdicts, enforce gates (`/sdd-persona-board`, `/sdd-board`, …). |
+| Coordinator (`odin` on some surfaces) | SDD sequencing, tools, persona dispatch per phase skill. |
 | Kvasir | Fast read-only codebase recon: map, entrypoints, dependency direction before big edits. |
 | Thor | Implementation enforcer: delivery feasibility, execution quality, momentum. |
 | Tyr | Spec and compliance verifier: traceability and acceptance criteria; **critical = hard stop** until resolved or accepted. |
@@ -118,16 +121,20 @@ Specialist **Norse** personas are delegated viewpoints—not owners of the workf
 | [docs/01-installation.md](docs/01-installation.md) | Install toolchain and workflow CLIs |
 | [docs/02-workflow-usage.md](docs/02-workflow-usage.md) | Skillgrid phases, `.skillgrid/config.json`, PRD and OpenSpec handoff |
 | [docs/03-skillgrid-logic.md](docs/03-skillgrid-logic.md) | PRD/INDEX/OpenSpec hierarchy and `.skillgrid/templates/` blanks |
-| [docs/04-commands.md](docs/04-commands.md) | Slash commands and where they live per IDE |
+| [docs/04-commands-reference.md](docs/04-commands-reference.md) | Slash commands and where they live per IDE |
 | [docs/05-skills.md](docs/05-skills.md) | Catalog of all skills with paths and summaries |
 | [docs/06-rules-and-governance.md](docs/06-rules-and-governance.md) | Where project rules live and how they are maintained |
 | [docs/07-hooks-and-automation.md](docs/07-hooks-and-automation.md) | Shared hooks and automation policy |
 | [docs/08-multi-agent-work.md](docs/08-multi-agent-work.md) | Subagents, personas, dependency waves, handoff/event logs |
 | [docs/09-subagent-personas.md](docs/09-subagent-personas.md) | Specialist persona catalog |
-| [docs/10-mcp-servers.md](docs/10-mcp-servers.md) | MCP server connections |
-| [docs/11-memory-and-indexing.md](docs/11-memory-and-indexing.md) | Durable context and codebase search |
-| [docs/12-ticketing-integrations.md](docs/12-ticketing-integrations.md) | Local and external work tracking |
-| [docs/13-webui.md](docs/13-webui.md) | Local web dashboard |
+| [docs/10-sdd-ralph-loop.md](docs/10-sdd-ralph-loop.md) | Ralph build loop (`/sdd-loop`, AFK driver) |
+| [docs/11-mcp-servers.md](docs/11-mcp-servers.md) | MCP server connections |
+| [docs/12-ide-configs.md](docs/12-ide-configs.md) | IDE layout and command paths per surface |
+| [docs/13-memory-and-indexing.md](docs/13-memory-and-indexing.md) | Durable context and codebase search |
+| [docs/14-ticketing-integrations.md](docs/14-ticketing-integrations.md) | Local and external work tracking |
+| [docs/15-webui.md](docs/15-webui.md) | Local web dashboard |
+| [docs/16-validation.md](docs/16-validation.md) | Verification gates and quality checks |
+| [docs/17-external-tools.md](docs/17-external-tools.md) | Optional third-party CLIs and integrations |
 
 ---
 

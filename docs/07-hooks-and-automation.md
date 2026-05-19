@@ -56,5 +56,5 @@ Refresh automation is intended for shell commands matching:
 
 - `01-installation.md`
 - `02-workflow-usage.md`
-- `11-memory-and-indexing.md`
+- `13-memory-and-indexing.md`
 - `100-ide-configs.md`

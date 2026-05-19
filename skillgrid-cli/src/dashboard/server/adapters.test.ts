@@ -23,6 +23,9 @@ describe("buildDashboardData", () => {
     expect(data.lanes.map((lane) => lane.id)).toEqual(["draft", "todo", "inprogress", "devdone", "done", "archived"]);
     expect(data.warnings).toContain("No PRDs found under .skillgrid/prd.");
     expect(data.warnings).toContain("No OpenSpec changes found under openspec/changes.");
+    expect(data.openSessions.healthy).toBe(false);
+    expect(data.openSessions.sessions).toEqual([]);
+    expect(data.tools.some((tool) => tool.id === "opensessions")).toBe(true);
   });
 
   it("merges a PRD and OpenSpec change into one issue with change-local specs as subtasks", async () => {

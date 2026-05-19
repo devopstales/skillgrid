@@ -93,5 +93,5 @@ Required debug checklist in outputs:
 
 Local workflow integration:
 - Use this persona when `/sdd-diagnose` is active or when board preset is `debugging`.
-- If diagnosis surfaces spec/architecture risk, route follow-up through `/sdd-persona-board`.
+- If diagnosis surfaces spec/architecture risk, record follow-up in handoff and dispatch personas per the appropriate `sdd-<phase>/SKILL.md`.
 - Persist concise findings in local task artifacts before handoff.

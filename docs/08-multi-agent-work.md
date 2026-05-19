@@ -36,20 +36,12 @@ Do not use multiple agents to hide uncertainty. If scope is unclear, route back 
 
 Personas are specialist roles. They are not workflows by themselves. A skill is the procedure; a persona is the viewpoint and report style.
 
-Milestone 2.5 standardizes workflow-facing persona names to the Norse set:
+Norse personas are **stateless capability packs**. Bindings live in each **`sdd-<phase>/SKILL.md`** (section *Norse persona invocations*). Protocol: **`sdd-persona-delegation.md`**.
 
-- `odin` — **primary** allfather session owner (SDD, tools, delegation).
-- `board` — persona-board chair (route, merge, hard gates).
-- `kvasir` — fast read-only codebase recon.
-- `thor` — implementation enforcer and delivery momentum.
-- `tyr` — spec/compliance verifier (hard gate on critical findings).
-- `heimdall` — security and release-gate sentinel (hard gate on critical findings).
-- `frigg` — UX/product clarity reviewer.
-- `loki` — adversarial critic/challenge persona.
+- Session **coordinator** — orchestration and merge (OpenCode may use agent name `odin`; not a persona slot).
+- `kvasir`, `mimir`, `thor`, `tyr`, `heimdall`, `frigg`, `loki`, `bragi`, `vidar` — dispatched per phase skill.
 
-Legacy neutral personas remain useful as role descriptions, but routing, board contracts, and command outputs should use the Norse IDs from `.agents/workflows/sdd-persona-route.md` and `docs/09-subagent-personas.md`.
-
-Role table, IDE agent paths, persona-board commands, routing matrix, and return envelope fields: **`09-subagent-personas.md`**.
+Full catalog and hard gates: **`09-subagent-personas.md`**.
 
 ## Handoff And Event Logs
 
@@ -95,7 +87,7 @@ Useful event fields:
 
 ## Subagent Orchestration Skill
 
-The canonical operating rules live in the `sdd-*` workflow skills under `.agents/skills/` (especially `sdd-explore`, `sdd-apply`, `sdd-verify`, and `sdd-archive`). Load the relevant skill whenever an `sdd-*` workflow dispatches subagents for exploration, research, design critique, implementation, testing, security, validation, or decision-board work.
+The canonical operating rules live in the `sdd-*` workflow skills under `.agents/skills/` (especially `sdd-explore`, `sdd-apply`, `sdd-verify`, and `sdd-archive`). Load the relevant skill whenever an `sdd-*` workflow dispatches subagents for exploration, research, design critique, implementation, testing, security, validation, or phase-bound persona review.
 
 That skill defines:
 
@@ -130,46 +122,35 @@ Required context injection packet fields:
 
 Do not paste session history into subagent prompts. Build the prompt from durable artifacts and a short task-specific context packet.
 
-## Specialist Persona Board
+## Phase-bound persona dispatch
 
-Use a specialist persona board when a decision benefits from **independent viewpoints** before the parent session or human operator commits—architecture trade-offs, security posture, UX and content clarity, go/no-go release, and explicit risk acceptance.
+When a phase needs independent judgment, the coordinator runs required invocations from the active **`sdd-<phase>/SKILL.md`**. Reports go under `.skillgrid/tasks/research/<change-id>/`; the coordinator merges and records decisions.
 
-Canonical decision types map to persona sets (for example `architecture`, `security`, `ux-content`, `go-no-go-release`, `risk-acceptance`); workflow aliases such as `arch`, `ux`, `release`, and `risk` normalize to those keys. Full matrix, slash commands (`/sdd-persona-board`, `/sdd-persona-route`, and the rest), return contract extensions, contract source paths, and hard-gate wording: **`09-subagent-personas.md`**. Command inventory: **`04-commands.md`**.
+**Hard gates (summary):** **`tyr`** / **`heimdall`** critical blocks progression; unresolved critical conflict → HITL; user owns release/destructive choices. See **`sdd-persona-delegation.md`**.
 
-**Hard gates (summary):** no persona overrides hard gates; **`tyr`** or **`heimdall`** reporting **critical** blocks progression until resolved per policy; **unresolved critical conflict** between personas blocks progression (HITL); the **user** is final authority on **release** and **destructive** choices (see `.agents/workflows/sdd-persona-route.md`).
-
-The board is advisory. It does not replace the user, PRD, OpenSpec change, parent session judgment, or orchestration policy.
-
-Every board must produce:
+Every persona dispatch must produce:
 
 - one focused report per persona under `.skillgrid/tasks/research/<change-id>/`;
 - a decision entry in `.skillgrid/tasks/context_<change-id>.md`;
 - JSONL events in `.skillgrid/tasks/events/<change-id>.jsonl`;
 - a parent summary that records accepted decision, rejected options, conflicts, HITL status, and next safe action.
 
-Suggested handoff record:
+Suggested handoff record (see also `skillgrid-handoff.md`):
 
 ```markdown
-## Decision Board: <decision-id>
+## Persona merge: <phase> — <change-id>
 
-Question:
-Personas:
+Personas invoked (persona → capability):
 Report paths:
-Accepted decision:
+Accepted findings / decision:
 Rejected options:
-Reason:
 Conflicts:
 HITL required: yes/no
 Artifacts updated:
 Next safe action:
 ```
 
-Suggested board event statuses:
-
-- `started` when the parent opens the board;
-- `persona_reported` for each returned persona report;
-- `decided` when the parent records an accepted decision;
-- `blocked` when reports conflict or HITL is required.
+Suggested persona event fields: `node: "persona"`, `status: "dispatched" | "completed" | "blocked"`, `persona`, `capability`, `findings_severity`, `hitlRequired`.
 
 ## Dependency Waves
 
@@ -205,50 +186,17 @@ Dispatch decision test:
 
 Dependency waves pair naturally with vertical slices. Horizontal layer plans usually parallelize badly because later tasks cannot be verified until the stack is assembled.
 
-## Git Worktree Separation
+## Parallel implementation lanes
 
-Skillgrid currently works safely in a single working tree by using handoff files, event logs, small scopes, and non-overlapping outputs. For heavier parallel implementation, use isolated git worktrees: after design and task approval, create an isolated workspace on a new branch, run project setup, verify a clean test baseline, and let the agent work without contaminating the main working tree.
-
-Use worktree separation when:
-
-- two or more implementation agents need to edit code in parallel;
-- file ownership is not trivially non-overlapping;
-- a task is risky enough to isolate from the main workspace;
-- a dependency wave should produce separate reviewable branches before merge.
-
-Expected worktree lifecycle:
-
-1. **Prepare:** parent confirms PRD, OpenSpec, tasks, handoff, and HITL blockers are ready.
-2. **Create branch/worktree:** one isolated branch per implementation lane or wave.
-3. **Bootstrap:** install or refresh dependencies only as needed for that worktree.
-4. **Baseline:** run the project’s clean baseline checks before edits. If baseline fails, stop and record the failure before assigning implementation.
-5. **Implement:** subagent works only on the assigned slice with a bounded context packet.
-6. **Verify:** run slice-level tests and any required integrated checks.
-7. **Review:** parent or reviewer inspects diff, reports, and evidence.
-8. **Finish:** choose explicitly: merge, open PR, keep for later, discard, or convert failures into fix tasks.
-9. **Clean up:** remove temporary worktrees only after evidence, handoff, and event logs are recorded.
+Skillgrid works safely in a single clone using handoff files, event logs, small scopes, and non-overlapping outputs. For parallel implementation, use **separate branches** (one lane per branch), explicit file ownership, and `parallel-delegate` for merge discipline.
 
 Parallel lane model:
 
-- parent creates or selects one worktree per implementation lane;
+- parent assigns one branch per implementation lane when lanes are truly independent;
 - each lane gets the same PRD/OpenSpec/handoff context plus its assigned slice;
 - each lane writes its own report and event suggestions;
 - parent reviews diffs, runs verification, and merges lanes in dependency order;
 - conflicts or failed verification route back to a fix task, not silent merge.
-
-Worktree event fields should include the branch and worktree path when available:
-
-```json
-{
-  "node": "worktree",
-  "status": "created|baseline_passed|baseline_failed|merged|discarded|kept",
-  "branch": "<branch-name>",
-  "worktree": "<path>",
-  "summary": "<one-line result>"
-}
-```
-
-Do not use worktrees as a substitute for clear task boundaries. They reduce file-level collisions; they do not solve ambiguous scope.
 
 ## Parallelism Rules
 
@@ -258,9 +206,9 @@ Good parallel work:
 
 - repo mapping and external research;
 - design critique and API constraint review;
-- independent decision-board reports;
+- independent persona capability reports (parallel when phase skill allows);
 - test strategy and security review;
-- implementation lanes in separate worktrees or with explicit non-overlapping file ownership.
+- implementation lanes on separate branches with explicit non-overlapping file ownership.
 
 Bad parallel work:
 
@@ -299,7 +247,7 @@ Do not run unbounded retries. Maximum automated retries per mismatch set: **3**.
 
 ## Implementation Delegation
 
-For implementation, prefer one `[AFK]` vertical slice at a time unless worktree separation or explicit file ownership makes parallel lanes safe.
+For implementation, prefer one `[AFK]` vertical slice at a time unless separate branches and explicit file ownership make parallel lanes safe.
 
 The standard implementation delegation loop is:
 
@@ -335,7 +283,6 @@ The parent session should:
 - decide which findings are accepted;
 - update handoff and event logs;
 - sequence dependency waves;
-- decide whether worktree separation is required;
 - run integrated verification after parallel work;
 - stop on critical blockers.
 

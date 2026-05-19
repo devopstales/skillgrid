@@ -123,26 +123,24 @@ Apply enforcement to all `sdd-*` phases handled by `sdd-orchestrator` using:
 
 This handoff document remains focused on state, timeline, and evidence tracking. Enforcement semantics are centralized in the shared contracts above.
 
-### Decision Board Records
+### Persona dispatch records
 
-When a specialist persona board is used, the parent must record the decision in the handoff before advancing:
+When Norse persona subagents run for a phase (see `sdd-<phase>/SKILL.md` and `sdd-persona-delegation.md`), the coordinator records merged outcomes in the handoff before advancing:
 
 ```markdown
-## Decision Board: <decision-id>
+## Persona merge: <phase> — <change-id>
 
-Question:
-Personas:
+Personas invoked (persona → capability):
 Report paths:
-Accepted decision:
+Accepted findings / decision:
 Rejected options:
-Reason:
 Conflicts:
 HITL required: yes/no
 Artifacts updated:
 Next safe action:
 ```
 
-Board events use the same JSONL log and should include `node: "decision-board"`, `status: "started" | "persona_reported" | "decided" | "blocked"`, `decisionId`, `question`, `personas`, `reports`, `acceptedDecision`, `hitlRequired`, and `nextAction` when known. The board advises; the parent, user, PRD, and OpenSpec artifacts remain authoritative.
+Persona events use the same JSONL log with `node: "persona"`, `status: "dispatched" | "completed" | "blocked"`, `persona`, `capability`, `output`, `findings_severity`, and `hitlRequired` when known. Personas advise; the coordinator, user, PRD, and OpenSpec artifacts remain authoritative.
 
 ### Slice Completion Summary
 

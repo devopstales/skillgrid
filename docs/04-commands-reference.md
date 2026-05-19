@@ -10,21 +10,16 @@ This document lists every slash command, what it does, and which skills it uses.
 | `/sdd-brainstorm <name>` | Planning | Full planning pipeline: explore → propose → spec → design → tasks |
 | `/sdd-explore <topic>` | Planning | Free-form codebase investigation (no code changes) |
 | `/sdd-clarify <name>` | Planning | Interactive questioning to sharpen terminology, update CONTEXT.md |
-| `/sdd-apply [name]` | Build | **Worker:** implement tasks (all remaining, or one task when called from the loop) — TDD, workspace, sequential subagents |
+| `/sdd-apply [name]` | Build | **Worker:** implement tasks (all remaining, or one task when called from the loop) — TDD, sequential subagents |
 | `/sdd-loop [name]` | Build | **Ralph loop:** one AFK task per fresh invocation — plan → delegate to `/sdd-apply` → reflect → stop (no direct coding) |
 | `/sdd-verify [name]` | Verify | **Stage 1:** Spec compliance verification — trace requirements to code/tests |
 | `/sdd-review [name]` | Verify | **Stage 2:** Code quality review — style, DRY, error handling, security, maintainability |
 | `/sdd-archive [name]` | Archive | Sync delta specs, merge/PR/keep branch — requires verify + review + pre-merge gate passed |
-| `/sdd-adr [topic]` | Specialist | Author or review architecture decision records |
 | `/sdd-design-ui [surface]` | Specialist | UI design workshop with high-fidelity skills |
 | `/sdd-diagnose <bug>` | Specialist | **4-phase systematic debugging:** reproduce → isolate → root cause → fix → verify |
 | `/sdd-openspec-git` | Gate | OpenSpec git discipline gates |
-| `/sdd-persona-board <decision>` | Board | Multi-perspective decision-making with Norse personas |
-| `/sdd-persona-route <type>` | Board | Select personas for a decision type |
-| `/sdd-persona-report <id>` | Board | Merge and summarize persona verdicts |
-| `/sdd-persona-resolve <id>` | Board | Record accepted decision and rejected options |
-| `/sdd-persona-health` | Board | Validate persona prompt packs and readiness |
-| `/sdd-persona-list` | Board | List all available personas and roles |
+
+**Norse personas** are not separate commands. The coordinator dispatches them per phase — see **`sdd-<phase>/SKILL.md`** (section *Norse persona invocations*) and **`sdd-persona-delegation.md`**. Guide: **`docs/09-subagent-personas.md`**.
 
 ---
 
@@ -62,16 +57,15 @@ This document lists every slash command, what it does, and which skills it uses.
 
 | Step | Skill | Output |
 |------|-------|--------|
-| 1 | `sdd-explore` | Codebase investigation, approach comparison |
+| 1 | `sdd-explore` + `deep-research` | Web research first, then codebase investigation and approach comparison |
 | 2 | `sdd-clarify` | Interactive questioning, CONTEXT.md updates |
 | 3 | `sdd-propose` | `proposal.md` — intent, scope, approach, rollback plan |
 | 4 | `sdd-spec` | `specs/<domain>/spec.md` — delta specs with Given/When/Then |
-| 5 | `sdd-design` | `design.md` — architecture decisions, data flow, file changes |
-| 6 | `sdd-adr` (conditional) | ADRs in `.skillgrid/adr/` if architectural decisions needed |
-| 7 | `sdd-design-ui` (conditional) | UI design artifacts if user-facing scope |
-| 8 | `sdd-prd` | `.skillgrid/prd/PRD<NN>_<slug>.md` — product requirements |
-| 9 | `sdd-tasks` | `tasks.md` — implementation checklist with HITL/AFK labels |
-| 10 | `beads-sync` (conditional) | Beads epic + issues if `beads_enable: true` |
+| 5 | `sdd-design` | `design.md` — architecture decisions, data flow, file changes; ADRs in `.skillgrid/adr/` when triggers apply |
+| 6 | `sdd-design-ui` (conditional) | UI design artifacts if user-facing scope |
+| 7 | `sdd-prd` | `.skillgrid/prd/PRD<NN>_<slug>.md` — product requirements |
+| 8 | `sdd-tasks` | `tasks.md` — implementation checklist with HITL/AFK labels |
+| 9 | `beads-sync` (conditional) | Beads epic + issues if `beads_enable: true` |
 
 **Input:** Change name (kebab-case)
 
@@ -89,13 +83,13 @@ This document lists every slash command, what it does, and which skills it uses.
 
 **Phase:** Planning (standalone investigation)
 
-**What it does:** Free-form exploration of a topic or feature idea. Reads codebase, compares approaches, provides recommendation. Makes NO code changes.
+**What it does:** Free-form exploration of a topic or feature idea. Reads codebase, compares approaches, provides recommendation. Makes NO code changes. When the topic is an architectural decision, drafts or reviews an ADR in `.skillgrid/adr/` using `architectural-decision-records`.
 
-**Skills used:** `sdd-explore`, `parallel-delegate`, `exa-search`
+**Skills used:** `sdd-explore`, `deep-research` (first search: Exa MCP → Tavily → Firecrawl), `parallel-delegate`, `exa-search`, `architectural-decision-records` (ADR-focused topics)
 
-**Input:** Topic to explore
+**Input:** Topic to explore, or decision topic / ADR path for ADR authoring or review
 
-**Output:** Exploration findings (engram topic or `exploration.md`)
+**Output:** Exploration findings (engram topic or `exploration.md`); or ADR file(s) and `ARCHITECTURE.md` updates for ADR-focused runs
 
 ---
 
@@ -117,11 +111,11 @@ This document lists every slash command, what it does, and which skills it uses.
 
 **Phase:** Implementation (worker)
 
-**What it does:** Writes code and tests from `tasks.md`, specs, and design. When you invoke it directly, it works through **remaining** incomplete tasks (workspace isolation, granular planning, sequential subagents, TDD, two-stage review) until done or blocked.
+**What it does:** Writes code and tests from `tasks.md`, specs, and design. When you invoke it directly, it works through **remaining** incomplete tasks (granular planning, sequential subagents, TDD, two-stage review) until done or blocked.
 
 When invoked **from `/sdd-loop`**, it implements **only the one task** named in the delegation prompt, then returns.
 
-**Skills used:** `sdd-apply`, `isolated-workspace`, `granular-planning`, `sequential-agent-executor`, `enforced-tdd-protocol`
+**Skills used:** `sdd-apply`, `granular-planning`, `sequential-agent-executor`, `enforced-tdd-protocol`
 
 **Preflight:** `.skillgrid/scripts/sdd-gate.sh apply --change <name>` (canonical gate)
 
@@ -133,7 +127,7 @@ When invoked **from `/sdd-loop`**, it implements **only the one task** named in 
 
 **Phase:** Build — Ralph loop (orchestrator only)
 
-**Full documentation:** [SDD Ralph Loop](17-sdd-ralph-loop.md)
+**Full documentation:** [SDD Ralph Loop](10-sdd-ralph-loop.md)
 
 **What it does:** Runs **one iteration** per invocation ([Ralph pattern](https://ghuntley.com/ralph/)): pick the next `[Label: AFK]` task from `tasks.md`, delegate it to `/sdd-apply` with explicit single-task scope, append learnings to `ralph-loop-state.md` / `progress.txt`, then **stop**. Does not write application code.
 
@@ -216,11 +210,11 @@ Uses `SDD_RALPH_AGENT` (`claude` | `opencode` | `cursor`). Stops when output con
 **What it does:** Three-gate precheck before archiving:
 1. **Spec compliance** (`sdd-verify` passed)
 2. **Code quality** (`sdd-review` approved)
-3. **Pre-merge verification** (tests green, lint clean, worktree clean, branch mergeable, security scan)
+3. **Pre-merge verification** (tests green, lint clean, working tree clean, branch mergeable, security scan)
 
-Then executes user-chosen disposition: merge to main / open PR / keep branch / discard. Cleans up workspace if `isolated-workspace` was used.
+Then executes user-chosen disposition: merge to main / open PR / keep branch / discard.
 
-**Skills used:** `sdd-archive` (orchestrator), `pre-merge-verification` (gate), `isolated-workspace` (cleanup)
+**Skills used:** `sdd-archive` (orchestrator), `pre-merge-verification` (gate)
 
 **Input:** Optional change name
 
@@ -234,25 +228,12 @@ Then executes user-chosen disposition: merge to main / open PR / keep branch / d
 - Move `openspec/changes/<id>/` → `openspec/archive/YYYY-MM-DD-<id>/`
 - Update `.skillgrid/prd/INDEX.md` if PRD-linked (mark tasks complete)
 - Clear active change state
-- Remove worktree if isolated
 
 **Gate enforcement:** If any precheck fails → `status: blocked`, `next_recommended` lists fixes. No archive until all three gates pass.
 
 ---
 
 ## Specialist Commands
-
-### `/sdd-adr [topic]`
-
-**What it does:** Authors or reviews architectural decision records using MADR (Markdown Any Decision Record) format with hub templates.
-
-**Skills used:** `architectural-decision-records`
-
-**Input:** Decision topic or file path
-
-**Output:** ADR file in `.skillgrid/adr/NNNN-kebab-title.md`
-
----
 
 ### `/sdd-design-ui [surface]`
 
@@ -300,81 +281,11 @@ Then executes user-chosen disposition: merge to main / open PR / keep branch / d
 
 ---
 
-## Persona Board Commands
+## Norse personas (per-phase, in skills)
 
-The Norse persona board provides multi-perspective decision-making with hard-gate enforcement.
+Each SDD phase skill and workflow includes **Norse persona invocations (coordinator)** — which `persona` + `capability` to dispatch before the phase completes. Protocol: **`.agents/skills/_shared/sdd-persona-delegation.md`**.
 
-### `/sdd-persona-board <decision> [--preset <alias>]`
-
-**What it does:** Runs a complete persona board cycle — defines decision scope, resolves routing preset, dispatches selected personas in parallel, merges findings, persists artifacts.
-
-**Skills used:** `sdd-persona-route` (routing), individual persona prompt packs
-
-**Presets:**
-
-| Preset | Personas | Use case |
-|--------|----------|----------|
-| `arch` | Tyr, Mimir | Architecture decisions |
-| `security` | Heimdall, Vidar | Security review |
-| `ux` | Frigg | UX/content decisions |
-| `release` | Tyr, Heimdall | Go/no-go release gate |
-| `risk` | Loki, Tyr | Risk acceptance |
-| `debug` | Vidar, Mimir | Debugging strategy |
-| `bootstrap` | Mimir | Init/readiness check |
-
-**Input:** Decision ID/question, optional preset alias
-
-**Output:** Persona reports in `.skillgrid/tasks/research/<change-id>/`, decision record
-
----
-
-### `/sdd-persona-route <decision-type>`
-
-**What it does:** Selects the right Norse personas for a given decision type. Maps decision types to persona sets.
-
-**Input:** Decision type (architecture, security, ux-content, go-no-go-release, risk-acceptance, bootstrap-readiness, spec-quality, tasks-readiness, debugging)
-
-**Output:** Selected personas with rationale
-
----
-
-### `/sdd-persona-report <decision-id>`
-
-**What it does:** Merges and summarizes persona verdicts for one decision. Detects conflicts and classifies severity.
-
-**Input:** Decision ID
-
-**Output:** Merged report, handoff, event log
-
----
-
-### `/sdd-persona-resolve <decision-id>`
-
-**What it does:** Records the accepted decision and rejected options from persona board output.
-
-**Input:** Decision ID
-
-**Output:** Updated handoff, event log
-
----
-
-### `/sdd-persona-health`
-
-**What it does:** Validates Norse persona prompt packs, model routing, and surface readiness.
-
-**Input:** None
-
-**Output:** Health report with blockers
-
----
-
-### `/sdd-persona-list`
-
-**What it does:** Lists all Norse personas, their mapped roles, and runtime availability.
-
-**Input:** Optional filter
-
-**Output:** Persona registry listing
+Example (`sdd-verify`): required `tyr` → `spec-compliance`; conditional `heimdall`, `frigg`, `loki`.
 
 ---
 
@@ -389,7 +300,8 @@ These skills are not invoked directly as commands but are auto-loaded when the o
 | `skillgrid-skill-registry` | Initializing Skillgrid, refreshing project context |
 | `micro-plan` | Quick fix, "few steps", "simple plan", small operational plan |
 | `parallel-delegate` | Multiple independent files, parallel research passes |
-| `exa-search` | Web search, code research, company intel |
+| `deep-research` | First-search orchestration for explore/brainstorm (Exa → Tavily → Firecrawl) |
+| `exa-search` | Exa MCP tools (`web_search_exa`, `web_fetch_exa`) |
 | `ccc` | Semantic code search, indexing after changes |
 | `gitnexus-cli` | Analyzing/indexing repos, generating wikis |
 | `full-output-enforcement` | Tasks requiring exhaustive, unabridged output |
@@ -432,12 +344,11 @@ These enforce project-specific conventions for the Engram project. They are auto
     │
     ▼
 /sdd-brainstorm <name>
-    ├── sdd-explore     → codebase investigation
+    ├── sdd-explore     → deep-research (web) then codebase investigation
     ├── sdd-clarify     → terminology, CONTEXT.md
     ├── sdd-propose     → proposal.md
     ├── sdd-spec        → specs/<domain>/spec.md
-    ├── sdd-design      → design.md
-    ├── sdd-adr         → ADRs (if architectural)
+    ├── sdd-design      → design.md (+ ADRs in `.skillgrid/adr/` when triggers apply)
     ├── sdd-design-ui   → UI artifacts (if user-facing)
     ├── sdd-prd         → PRD<NN>_<name>.md
     ├── sdd-tasks       → tasks.md (HITL/AFK labels, granular, TDD-compliant)
@@ -445,7 +356,6 @@ These enforce project-specific conventions for the Engram project. They are auto
         │
         ▼
 /sdd-apply <name>
-    ├── isolated-workspace        → create worktree, baseline tests
     ├── granular-planning check   → tasks are atomic (2–5 min each)
     ├── sequential-agent-executor → per-task subagent dispatch
     │   ├── Implementer (RED/GREEN/REFACTOR)
@@ -472,7 +382,7 @@ pre-merge-verification        [FINAL GATE]
     ├── sdd-review approved ✓
     ├── tests green ✓
     ├── lint clean ✓
-    ├── worktree clean ✓
+    ├── working tree clean ✓
     ├── branch mergeable ✓
     └── security scan ✓ (if enabled)
         │
@@ -480,7 +390,6 @@ pre-merge-verification        [FINAL GATE]
 /sdd-archive <name>
     ├── Choose disposition: merge / PR / keep / discard
     ├── Execute disposition
-    ├── Cleanup workspace (if isolated)
     └── Archive artifacts → openspec/archive/
         │
         ▼
@@ -488,6 +397,24 @@ beads-retrospective
     ├── analyze patterns, tech debt
     └── suggest new OpenSpec proposals
 ```
+
+---
+
+## Return envelope (all phases)
+
+Every `sdd-*` command and phase skill ends with the **same structured envelope** (JSON or YAML). Canonical contract: [`.agents/skills/_shared/sdd-return-envelope.md`](../.agents/skills/_shared/sdd-return-envelope.md).
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `status` | yes | `completed`, `blocked`, or `failed` |
+| `executive_summary` | yes | `overview` (1–3 sentences), `used_tokens` |
+| `detailed_report` | no | Verbose matrix, checks, or phase-specific detail |
+| `artifacts` | yes | Paths written or validated |
+| `next_recommended` | yes | Next safe command or action |
+| `risks` | yes | List or `none` |
+| `skill_resolution` | yes | How project standards were loaded |
+
+On `blocked` or `failed`, also include stop condition, failing gate id, and missing evidence (see contract). Extensions: verify/VDD converge fields, loop `<promise>COMPLETE</promise>`, persona subagent fields — all documented in the contract file.
 
 ---
 

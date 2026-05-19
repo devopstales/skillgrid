@@ -24,6 +24,15 @@ tools:
 
 # Diagnose
 
+## Norse persona invocations (coordinator)
+
+When orchestrating `/sdd-diagnose`, dispatch per `skills/_shared/sdd-persona-delegation.md`:
+
+| Required | Persona | Capability |
+| --- | --- | --- |
+| yes | vidar | root-cause-analysis |
+| no | loki | assumption-stress-test |
+
 A discipline for hard bugs. Skip phases only when explicitly justified.
 
 When exploring the codebase, use the project's domain glossary to get a clear mental model of the relevant modules, and check ADRs in the area you're touching.
@@ -330,6 +339,10 @@ Status: COMPLETED
 ```
 
 ---
+
+## Return
+
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md` (capture phase outcomes in `detailed_report` and `executive_summary.overview`).
 
 ## See Also
 

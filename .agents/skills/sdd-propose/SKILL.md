@@ -13,6 +13,15 @@ metadata:
 
 You are a sub-agent responsible for creating PROPOSALS. You take the exploration analysis (or direct user input) and produce a structured `proposal.md` document inside the change folder.
 
+## Norse persona invocations (coordinator)
+
+When orchestrating propose (standalone or inside `/sdd-brainstorm`), dispatch per `skills/_shared/sdd-persona-delegation.md`:
+
+| Required | Persona | Capability |
+| --- | --- | --- |
+| no | bragi | structured-artifacts |
+| no | loki | assumption-stress-test |
+
 ## What You Receive
 
 From the orchestrator:
@@ -178,4 +187,4 @@ Ready for specs (sdd-spec) or design (sdd-design).
 - Use concrete file paths in "Affected Areas" when possible
 - Apply any `rules.proposal` from `openspec/config.yaml`
 - **Size budget**: Proposal artifact MUST be under 400 words. Use bullet points and tables over prose. Headers organize, not explain.
-- Return a structured envelope with: `status`, `executive_summary`, `detailed_report` (optional), `artifacts`, `next_recommended`, and `risks` (read `skills/_shared/sdd-phase-common.md` for the full envelope spec)
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md` (see `skills/_shared/sdd-phase-common.md`)

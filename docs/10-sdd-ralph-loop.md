@@ -2,7 +2,7 @@
 
 The **SDD Ralph loop** is Skillgrid’s native implementation of the [Ralph pattern](https://ghuntley.com/ralph/): run the same bounded workflow repeatedly with **fresh agent context** each time, persisting memory only through **files and git**, not chat history.
 
-It is **not** a dependency on [PortableRalph](https://github.com/aaron777collins/portableralph), [snarktank/ralph](https://github.com/snarktank/ralph), or [ralph-tui](https://ralph-tui.com) — those are related tools you may use alongside Skillgrid (see [External tools](16-external-tools.md)). This document describes Skillgrid’s `/sdd-loop` command and `.skillgrid/scripts/sdd-ralph-loop.sh` driver only.
+It is **not** a dependency on [PortableRalph](https://github.com/aaron777collins/portableralph), [snarktank/ralph](https://github.com/snarktank/ralph), or [ralph-tui](https://ralph-tui.com) — those are related tools you may use alongside Skillgrid (see [External tools](17-external-tools.md)). This document describes Skillgrid’s `/sdd-loop` command and `.skillgrid/scripts/sdd-ralph-loop.sh` driver only.
 
 **Canonical workflow (for agents):** `.agents/workflows/sdd-loop.md`  
 **Command reference (summary):** [Commands reference — `/sdd-loop`](04-commands-reference.md#sdd-loop-change-name)
@@ -170,7 +170,7 @@ When every implementable `[Label: AFK]` task in `tasks.md` is `[x]` and there ar
 |-----------|------------|
 | Next task is `[Label: HITL]` | Stop loop; resolve with human; do not auto-apply |
 | `sdd-gate.sh` or label validation fails | Fix artifacts; re-run `/sdd-loop` |
-| `tyr` / `heimdall` critical finding | Resolve or `/sdd-persona-board` |
+| `tyr` / `heimdall` critical finding | Resolve or dispatch personas per `sdd-verify/SKILL.md` + HITL |
 | Iteration cap reached (default 10 per session) | Review state; resume later |
 | Task too large for one window | Split in `/sdd-tasks`; do not force the loop |
 
@@ -210,7 +210,7 @@ When `/sdd-loop` calls `/sdd-apply`, it must pass **single-task scope**, for exa
 |------|--------------------------------|
 | [PortableRalph](https://github.com/aaron777collins/portableralph) | Same *idea* (plan file + progress + bash loop); different files and prompts. Not bundled. |
 | [snarktank/ralph](https://github.com/snarktank/ralph) | `prd.json` + `progress.txt` + `ralph.sh`; Skillgrid uses OpenSpec `tasks.md` + `ralph-loop-state.md`. |
-| [ralph-tui](https://ralph-tui.com) | Separate orchestrator with beads/PRD trackers; see [External tools § ralph-tui](16-external-tools.md). Can complement SDD but does not replace `/sdd-loop`. |
+| [ralph-tui](https://ralph-tui.com) | Separate orchestrator with beads/PRD trackers; see [External tools § ralph-tui](17-external-tools.md). Can complement SDD but does not replace `/sdd-loop`. |
 
 ---
 

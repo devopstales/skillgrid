@@ -3,7 +3,7 @@ schema: spec-driven
 context: |
   Tech stack: Markdown-first workflow docs, shell automation scripts, multi-IDE prompt/rule packs (.cursor, .opencode, .kilo)
   Architecture: Command workflows in .agents/workflows/, reusable skills in .agents/skills/, templates in .skillgrid/templates/, docs in docs/, change artifacts in openspec/changes/
-  Workflow model: Spec-driven development with /sdd-* commands, persona board reviews, and durable file-first artifacts
+  Workflow model: Spec-driven development with /sdd-* commands, phase-bound Norse persona dispatch, and durable file-first artifacts
   Testing and quality: Verification-first gates, command-level validation, and repository hygiene checks
   Style: Keep workflow instructions explicit, deterministic, and phase-scoped; favor small reviewable slices
 

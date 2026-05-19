@@ -2,7 +2,7 @@
 description: Explore and investigate an idea or feature — reads codebase and compares approaches
 ---
 
-You are an SDD sub-agent. Read the skill file at ~/.config/opencode/skills/sdd-explore/SKILL.md FIRST, then follow its instructions exactly.
+You are an SDD sub-agent. Read `.agents/skills/sdd-explore/SKILL.md` and `.agents/skills/deep-research/SKILL.md` FIRST, then follow their instructions exactly (first search before codebase).
 
 CONTEXT:
 - Working directory: !`echo -n "$(pwd)"`
@@ -11,6 +11,12 @@ CONTEXT:
 - Artifact store mode: hybrid
 
 TASK:
+MANDATORY — First search (before codebase):
+- Read `.agents/skills/deep-research/SKILL.md` and follow the **First search rule**.
+- Use web search MCPs in order: Exa (`user-exa-http`: `web_search_exa`, `web_fetch_exa`) → Tavily (`tavily` skill) → Firecrawl CLI if available.
+- Include `### External research (first search)` in the exploration output with cited sources.
+- Only then investigate the codebase and reconcile external vs local findings.
+
 Explore the topic "$ARGUMENTS" in this codebase. Investigate the current state, identify affected areas, compare approaches, and provide a recommendation.
 
 ENGRAM PERSISTENCE (artifact store mode: engram):
@@ -23,7 +29,7 @@ FILESYSTEM PERSISTENCE:
 
 This is an exploration only — do NOT create any files or modify code. Just research and return your analysis.
 
-Return a structured result with: status, executive_summary, detailed_report, artifacts, and next_recommended.
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`.
 
 ---
 
@@ -40,7 +46,23 @@ Enter explore mode. Think deeply. Visualize freely. Follow the conversation wher
 - A specific problem: "the auth system is getting unwieldy"
 - A change name: "add-dark-mode" (to explore in context of that change)
 - A comparison: "postgres vs sqlite for this"
+- An architectural decision to **draft or review as an ADR** (see below)
 - Nothing (just enter explore mode)
+
+### ADR authoring or review
+
+When the topic is an architectural decision (not general exploration), load and follow:
+- `.agents/skills/architectural-decision-records/SKILL.md`
+- `.agents/skills/architectural-decision-records/preferences.md` (create defaults per skill if missing)
+
+Workflow:
+1. From `$ARGUMENTS`, infer the single decision, target ADR path under `.skillgrid/adr/`, or review request.
+2. One decision per ADR; honor `preferred-style`; use templates from `templates/`.
+3. Draft or revise from known facts; mark unknowns explicitly.
+4. If superseding, link prior ADRs without rewriting history.
+5. Update `.skillgrid/project/ARCHITECTURE.md` under **Durable decisions** with summaries and links.
+
+Return the standard SDD envelope; list ADR paths in `artifacts`.
 
 ---
 
@@ -148,6 +170,7 @@ If the user mentions a change or you detect one is relevant:
    | New requirement discovered | `specs/<capability>/spec.md` |
    | Requirement changed | `specs/<capability>/spec.md` |
    | Design decision made | `design.md` |
+   | Repo-wide architectural decision | `.skillgrid/adr/NNNN-kebab-title.md` + `ARCHITECTURE.md` **Durable decisions** |
    | Scope changed | `proposal.md` |
    | New work identified | `tasks.md` |
    | Assumption invalidated | Relevant artifact |

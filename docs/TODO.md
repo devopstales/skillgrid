@@ -27,9 +27,6 @@
   * [ ] codemaps
 * skillgrid-cli
   * installer
-  * tui
-    * engram integration ?
-    * engram tui
   * web ui
     * engram integration ?
 * search
@@ -40,7 +37,9 @@
     * use ccc gitnexus
   * [X] agent personas
   * paralel search subagents
-  * Missing skills: deep-research, tavily, perplexity-sonar, and the whole brave-* set (brave-web-search, brave-news-search, etc.)
+  * [X] deep-research (first search in sdd-explore / sdd-brainstorm; Exa MCP → Tavily → Firecrawl)
+  * [X] tavily (REST skill; used by deep-research fallback)
+  * Missing skills: perplexity-sonar, and the whole brave-* set (brave-web-search, brave-news-search, etc.)
 * documentation operations
   * Missing skills: documentation-lookup, documentation-and-adrs, documentation-templates
 * [-] ui design
@@ -49,7 +48,7 @@
 * questions
   * Assign different AI models to different SDD phases
   * Build Loop
-  * Specialist persona board
+  * [X] Phase-bound Norse persona dispatch (in `sdd-<phase>/SKILL.md`, not board commands)
 * integrte project level ide plens
   * force kilo, kiro, antigravity to use project level plens
   * use thos ofr PRD, spec creation cicle.
@@ -66,12 +65,12 @@
     * [X] sdd-init skill
     * [X] store to engram
     * [X] `_shared/skillgrid-handoff.md`
-    * [ ] status, executive_summary, artifacts, and next_recommended ???
+    * [X] standard return envelope (`_shared/sdd-return-envelope.md`)
   * sdd-explore
     * [X] sdd-explore skill
     * [X] store to engram
     * [X] `_shared/skillgrid-handoff.md`
-    * [ ] status, executive_summary, artifacts, and next_recommended ???
+    * [X] standard return envelope (`_shared/sdd-return-envelope.md`)
   * sdd-brainstorm
     * [X] Advanced questioning -> sdd-clarify skill
     * [X] sdd-explore skill
@@ -155,7 +154,7 @@
 
 ### Objective
 
-Ship high-impact workflow upgrades: enforceable pipelines, strict phase gates, model routing, persona-board decisions, and Norse-themed operator clarity where it helps.
+Ship high-impact workflow upgrades: enforceable pipelines, strict phase gates, model routing, phase-bound persona dispatch in SDD skills, and Norse-themed operator clarity where it helps.
 
 ### Rethink personas
 
@@ -164,29 +163,6 @@ Ship high-impact workflow upgrades: enforceable pipelines, strict phase gates, m
 - [-] Enforcement & review (partial — see Milestone 1):
   - [-] branch-finish protocol (`verify -> merge/PR/keep/discard -> cleanup`)
     - [X] explicit post-merge index refresh (`ccc index`, `npx gitnexus analyze`)
-  - [ ] optional git-worktree execution mode for risky/parallel slices — **detailed checklist: [Git worktrees](#git-worktrees-plan)**
-
-### Git worktrees (plan)
-
-**Context (from product notes):** Cursor already supports Task / parallel agents; `parallel-delegate` covers *what* to hand off and merge. **Git worktrees** add an optional *where*: isolated working directories per branch, aligned with `openspec-git-discipline` (proposal on `main` before apply from branch/worktree) and with branch/PR hygiene (`engram-branch-pr`, `engram-commit-hygiene`). Do **not** duplicate the full SDD pipeline in a worktree skill—keep it mechanics + gates + pointers.
-
-**Goal:** A short, project-neutral hub artifact so agents and humans can spin parallel feature lanes safely (especially next to OpenSpec apply-from-worktree flows).
-
-**Deliverables**
-
-- [ ] **Skill** `.agents/skills/git-worktrees/` (or `skillgrid-git-worktrees/`) — single `SKILL.md`:
-  - [ ] When to use: parallel implementation lane, risky experiment, long-running review branch, paired with OpenSpec apply instructions that allow worktree *if* proposal state is on `main` (cite `openspec-git-discipline`).
-  - [ ] Commands / checklist: `git worktree list`, `git worktree add <path> <branch>`, linked clone vs same-repo path conventions, naming convention for worktree dirs (e.g. `../repo.wt/<branch-slug>`).
-  - [ ] Cleanup: `git worktree remove`, prune, confirm no uncommitted loss; branch delete policy after merge.
-  - [ ] **Do not** auto-commit or merge; explicit user consent (same bar as `openspec-git-discipline`).
-- [ ] **Docs** — `docs/04-commands.md` (optional `/sdd-worktree` or document as skill-only), `docs/02-workflow-usage.md` (one subsection: when worktree vs single clone), cross-link `openspec-git-discipline` and branch-finish ritual.
-- [ ] **Registry** — add skill row + compact rules block in `.skillgrid/project/SKILL_REGISTRY.md` when the skill lands.
-- [ ] **Optional workflow** `.agents/workflows/sdd-worktree.md` — thin wrapper that loads the skill + returns standard envelope (`status`, `next_recommended`), only if we want a slash command mirror.
-
-**Branch-finish ritual (overlap, do not fork):** One-page “finishing a development branch” behavior stays aligned with existing `engram-branch-pr` + `openspec-git-discipline` + archive/sync; the worktree plan should **link** to that ritual (squash/rebase policy, final verify, post-merge cleanup) rather than re-specify it.
-
-**Parallel agents:** Use existing `parallel-delegate` for dispatch/merge; worktree skill only supplies filesystem/git layout and safety checks. Execute wericle slices: https://lobehub.com/skills/akornmeier-claude-config-openspec-dev?activeTab=skill
-
 ### Milestone 3 — Model Routing + Session Efficiency
 
 - [ ] Add per-phase model routing in config:
@@ -202,7 +178,6 @@ Ship high-impact workflow upgrades: enforceable pipelines, strict phase gates, m
 
 ### Workflow Hardening Backlog
 
-- [ ] Optional worktree mode for risky or parallel implementation lanes — **see [Git worktrees](#git-worktrees-plan)**
 - [ ] Agent health-check command (ping all required personas + MCP readiness)
 - [X] Enforce split usage: `sdd-*` executors + Nordic gate personas (`tyr`/`heimdall` hard gate)
 - [ ] Persona report contract template:

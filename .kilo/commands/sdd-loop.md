@@ -123,7 +123,7 @@ Invoke the worker with an explicit single-task scope:
 >
 > When done: run project quality checks (tests/typecheck as per design), mark **only** this task `[x]`, commit with a message referencing the task, return the standard envelope.
 
-Wait for sdd-apply’s return envelope (`status`, `executive_summary`, `artifacts`, `next_recommended`, `risks`).
+Wait for sdd-apply’s return envelope per `.agents/skills/_shared/sdd-return-envelope.md`.
 
 If `status` is `blocked` or `failed`, do not pick another task in this iteration — go to Reflect.
 
@@ -192,7 +192,7 @@ Tell the user:
 | Condition | Action |
 |---|---|
 | Next task is `[Label: HITL]` | Stop; `next_recommended`: human decision |
-| `tyr` / `heimdall` critical finding | Stop; resolve or `/sdd-persona-board` |
+| `tyr` / `heimdall` critical finding | Stop; resolve or dispatch personas per `sdd-verify/SKILL.md` + HITL |
 | Gate or label validation failed | Stop; fix artifacts |
 | Iteration ≥ max (default 10 per session) | Stop; warn; resume later |
 
@@ -223,17 +223,7 @@ Apply:
 
 ## Return envelope
 
-```json
-{
-  "status": "completed | blocked | failed",
-  "executive_summary": { "overview": "...", "used_tokens": {} },
-  "artifacts": [
-    ".skillgrid/tasks/research/{change}/ralph-loop-state.md",
-    ".skillgrid/tasks/research/{change}/progress.txt"
-  ],
-  "next_recommended": "Run /sdd-loop again | /sdd-verify | fix HITL | ...",
-  "risks": "..."
-}
-```
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`.
 
-If complete, include `<promise>COMPLETE</promise>` in `executive_summary.overview` or as the final line.
+Phase extension: when all AFK tasks are complete, include `<promise>COMPLETE</promise>` in `executive_summary.overview` (or as the final line). Typical `artifacts` include `.skillgrid/tasks/research/{change}/ralph-loop-state.md` and `progress.txt`.
+

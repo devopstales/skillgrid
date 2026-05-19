@@ -4,14 +4,13 @@ description: >
   Executes granular implementation plans by dispatching fresh subagents per task
   with two-stage review (spec compliance, then code quality) after each.
   Continuous execution without human checkpoints between tasks.
-  Trigger: Invoked by sdd-apply after workspace setup and plan validation.
+  Trigger: Invoked by sdd-apply after plan validation and TDD pre-checks.
 license: Apache-2.0
 metadata:
   author: aiskillgrid-integration
   version: "1.0"
   dependencies:
     - "enforced-tdd-protocol"
-    - "isolated-workspace"
   mode: orchestrator
   triggers:
     - "execution_phase"
@@ -29,13 +28,13 @@ Orchestrates task execution by dispatching fresh subagents per task, performing 
 ## When to Use
 
 Invoked automatically:
-- After `sdd-apply` completes pre-checks (workspace ready, plan exists, TDD enforced)
+- After `sdd-apply` completes pre-checks (plan exists, branch ready, TDD enforced)
 - When `granular-planning` produces sufficient task detail
 - For sequential execution of tasks in a single change slice
 
 Not used when:
 - Manual execution requested (operator controls)
-- Parallel execution across independent slices (use `parallel-slice-dispatcher` instead)
+- Parallel execution across independent slices (use `parallel-delegate` with separate branches per lane instead)
 
 ## Execution Pipeline
 
@@ -47,7 +46,7 @@ Not used when:
 3. Create TodoWrite tracker with all tasks
 4. Mark task 1 as current
 5. Record starting SHA for rollback capability
-6. Verify worktree state (clean, on branch, tests passing)
+6. Verify git state (clean working tree, on feature branch, tests passing)
 ```
 
 ### Phase 1: Per-Task Dispatch Loop
@@ -69,7 +68,7 @@ Model tier: Fast model for simple tasks, standard for integration
 Context:
   - Task specification (complete)
   - Slice spec (bounded context)
-  - Current state of files in worktree
+  - Current state of files on the branch
   - TDD protocol requirements (enforced-tdd-protocol reference)
   - Any relevant existing code patterns
 
@@ -259,9 +258,9 @@ On completion or fatal error, update `sdd/apply-status` in engram.
 - Escalate to `sdd-review` with human-in-loop
 - Mark task `[HITL]` retroactively
 
-**Worktree corruption:**
+**Unrecoverable git state** (detached HEAD, merge conflict mid-run, corrupted branch):
 - Abort execution
-- Return to base branch
+- Return to last known-good commit or base branch
 - Notify user with recovery instructions
 
 ## Cost Optimization
@@ -294,11 +293,10 @@ Invokes:
 - `code-quality-reviewer`  — stage 2 review (reuses skill directly)
 
 Coordinates with:
-- `isolated-workspace` — ensures worktree ready before dispatch
 - `pre-merge-verification` — receives pass/fail from final integration review
 
 ## See Also
 
 - Superpowers reference: `skills/subagent-driven-development/SKILL.md` (source methodology)
 - Alternative: `batch-executor` for checkpointed execution
-- Related: `parallel-slice-dispatcher` for parallel slice execution
+- Related: `parallel-delegate` for parallel slice execution when lanes are independent

@@ -11,7 +11,7 @@ Canonical procedures: `.agents/workflows/sdd-apply.md`, `.agents/workflows/sdd-l
 
 ## Slices
 
-- Take **one** clear slice or `[AFK]` task per unattended iteration unless worktrees or ownership allow parallel lanes.
+- Take **one** clear slice or `[AFK]` task per unattended iteration unless separate branches and explicit ownership allow parallel lanes.
 - Stop on ambiguity, missing acceptance criteria, or unresolved `[HITL]` blockers.
 
 ## TDD

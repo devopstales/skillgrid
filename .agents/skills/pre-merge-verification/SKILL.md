@@ -145,7 +145,7 @@ Format:
 | Code quality review | ✅ PASS | reviews/2025-05-13-review.md |
 | Test suite | ✅ PASS | 127 tests passed |
 | Lint/typecheck | ⚠️ WARN | 3 style warnings (non-blocking) |
-| Clean worktree | ✅ PASS | no uncommitted changes |
+| Clean working tree | ✅ PASS | no uncommitted changes |
 | Branch mergeable | ✅ PASS | up to date with main |
 | Security scan | ✅ PASS | 0 critical vulnerabilities |
 
@@ -182,7 +182,6 @@ fi
 
 Only after pre-merge verification PASS does `sdd-archive` proceed with:
 - Closing change artifacts
-- Cleaning up workspace (if `isolated-workspace` used)
 - Updating INDEX if PRD-linked
 
 ## CI/CD Integration
@@ -203,7 +202,7 @@ For automated pipelines, `pre-merge-verification` can run as CI job:
     "require_code_review": true,
     "require_tests_green": true,
     "require_lint_clean": false,       // warnings only
-    "allow_dirty_worktree": false,
+    "allow_uncommitted_changes": false,
     "auto_merge_on_pass": false,
     "security_scan": true
   }

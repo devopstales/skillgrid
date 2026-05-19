@@ -8,6 +8,6 @@ export default defineConfig({
   root: pkgRoot,
   test: {
     environment: "node",
-    include: ["src/dashboard/**/*.test.ts", "src/tui/**/*.test.ts"]
+    include: ["src/dashboard/**/*.test.ts"]
   }
 });

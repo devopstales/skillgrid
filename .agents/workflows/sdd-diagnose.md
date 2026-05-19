@@ -15,6 +15,11 @@ If the issue involves a term that conflicts with the glossary, flag it immediate
 
 </context-awareness>
 
+PERSONA INVOCATIONS (coordinator — see `sdd-diagnose/SKILL.md`):
+- Required: `vidar` → `root-cause-analysis`
+- Optional: `loki` → `assumption-stress-test`
+Protocol: `.agents/skills/_shared/sdd-persona-delegation.md`
+
 <workflow>
 
 ## The Diagnostic Loop
@@ -128,6 +133,12 @@ Before closing, verify all are true:
 
 - After a successful diagnose, the user may run `/sdd-apply` to implement the fix more thoroughly (if the fix was a temporary change).
 - If the diagnosis reveals a missing success criterion or domain assumption, update `CONTEXT.md` via `/sdd-clarify` or ask the user.
-- If the issue requires an architectural decision, offer to create an ADR.
+- If the issue requires an architectural decision, load `architectural-decision-records` and draft an ADR in `.skillgrid/adr/` (or offer `/sdd-explore <decision-topic>` for a focused ADR pass).
+
+
+## Return envelope
+
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`. Capture repro, isolation, root cause, fix, and verification in `detailed_report` and `executive_summary.overview`.
+
 
 </integration>

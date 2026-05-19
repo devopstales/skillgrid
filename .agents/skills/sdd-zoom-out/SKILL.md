@@ -55,6 +55,10 @@ I don't know this area of code well. Go up a layer of abstraction. Give me a map
 - <related module 2> — <relationship>
 ```
 
+## Return
+
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md` (module map and friction notes in `detailed_report`).
+
 ## Rules
 
 - Do NOT dive into implementation details — the point is the map, not the territory.

@@ -73,7 +73,12 @@ Then:
 6. Build the spec compliance matrix
 
 BOARD ESCALATION (critical/conflict path):
-- If verification evidence is conflicting, or a high-risk architecture/security/release decision is required, invoke `/sdd-persona-board` before final status (`/sdd-board` remains a compatibility alias).
+PERSONA INVOCATIONS (coordinator — see `sdd-verify/SKILL.md`):
+- Required: `tyr` → `spec-compliance`
+- When applicable: `heimdall` → `security-review` / `release-gate`; `frigg` → `ux-clarity`; `loki` → `assumption-stress-test` on conflict
+Protocol: `.agents/skills/_shared/sdd-persona-delegation.md`
+
+- If verification evidence is conflicting, dispatch additional persona invocations from `sdd-verify/SKILL.md` before final status.
 - Use board presets based on decision type:
   - architecture -> `odin`, `thor`, `tyr`, `loki`
   - security -> `heimdall`, `tyr`, `thor`, `loki`
@@ -99,15 +104,7 @@ ENFORCEMENT CONTRACT:
   - board escalation failures or unresolved board conflicts must prevent progression to `/sdd-archive`
   - both stages pass => allow progression to `/sdd-archive`
 
-Return a structured verification report with:
-- `status`: `completed | blocked | failed`
-- `executive_summary`:
-  - `overview`
-  - `used_tokens` (`input`, `output`, `total`, or `not_available`)
-- `detailed_report`: verification matrix, executed checks, and critical findings
-- `artifacts`: report paths and evidence paths
-- `next_recommended`: concrete next command/action
-- `risks`: open/accepted risks or explicit `none`
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`. Include verify/VDD extension fields from that contract when applicable.
 
 ---
 

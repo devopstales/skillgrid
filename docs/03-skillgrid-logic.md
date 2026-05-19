@@ -7,54 +7,62 @@ This document is the **human-oriented** reference for how **PRDs** (product requ
 The diagram below is the Skillgrid mental model: product intent lives in **PRD** and **INDEX** files, execution intent is refined in an **OpenSpec** change, engineering work runs against **slice specs** and **tasks**, and feedback updates the catalog and snapshot. (Other tools—for example a local issue DAG or “beads”-style trackers—can mirror the same graph; they are optional and not required by this hub.)
 
 ```mermaid
-flowchart TB
-  SddAdr["sdd-adr"]
-  SddApply["add-apply"]
-  SddArchive["sdd-archive"]
-  SddBoard["sdd-board"]
-  SddBrainstorm["sdd-brainstorm"]
-  SddDesignUi["sdd-design-ui"]
-  SdddDiagnose["sdd-diagnose"]
-  SddExplore["sdd-explore"]
-  SddInit["sdd-init"]
-  SddLoop["sdd-loop"]
-  SddParalelExecute["sdd-parallel-execute"]
-  SddReview["sdd-review"]
-  SddVerify["sdd-verify"]
-
-  subgraph Planning["Phase 1 – Planning"]
-    SddInit --> SddExplore --> SddBrainstorm
-    SddInit --> SddBrainstorm
-    SddBrainstorm --> SddAdr
-    SddBrainstorm --> SddDesignUi
-    SddBrainstorm --> SddBoard --> SddAdr
+graph TB
+  subgraph phase0[Phase 0 Initialize]
+    sdd_init["sdd-init"]
+    sdd_explore["sdd-explore"]
   end
 
-  subgraph Implementation["Phase 2 – Implementation"]
-    SddAdr --> SddLoop
-    SddAdr --> SddApply
-    SddAdr --> SddParalelExecute
-    SddDesignUi --> SddLoop
-    SddDesignUi --> SddApply
-    SddDesignUi --> SddParalelExecute
+  subgraph phase1[Phase 1 Planning]
+    sdd_brainstorm["sdd-brainstorm"]
+    sdd_design_ui["sdd-design-ui"]
+    sdd_init --> sdd_explore
+    sdd_explore --> sdd_brainstorm
+    sdd_init --> sdd_brainstorm
+    sdd_brainstorm --> sdd_design_ui
   end
 
-  subgraph Verification["Phase 3 – Verification"]
-    SddLoop --> SddReview
-    SddApply --> SddReview
-    SddParalelExecute --> SddReview
-    SddReview --> SddVerify
+  subgraph phase2[Phase 2 Implementation]
+    sdd_loop["sdd-loop"]
+    sdd_apply["sdd-apply"]
   end
 
-  subgraph Debug["Phase 4 – Debug"]
-    SddVerify --> SdddDiagnose
+  subgraph phase3[Phase 3 Verification]
+    sdd_review["sdd-review"]
+    sdd_verify["sdd-verify"]
+    sdd_review --> sdd_verify
   end
 
-  subgraph Archive["Phase 5 – Archive"]
-    SddVerify --> SddArchive
-    SdddDiagnose --> SddArchive
+  subgraph phase4[Phase 4 Debug]
+    sdd_diagnose["sdd-diagnose"]
   end
+
+  subgraph phase5[Phase 5 Archive]
+    sdd_archive["sdd-archive"]
+  end
+
+  sdd_design_ui --> sdd_loop
+  sdd_design_ui --> sdd_apply
+  sdd_loop --> sdd_review
+  sdd_apply --> sdd_review
+  sdd_verify --> sdd_diagnose
+  sdd_verify --> sdd_archive
+  sdd_diagnose --> sdd_archive
 ```
+
+**Planning detail:** `/sdd-brainstorm` orchestrates clarify → propose → spec → design → PRD → tasks (and optional UI design). `/sdd-explore` and the brainstorm explore step run **`deep-research`** (web search before codebase reads). Persona dispatch is per phase skill — see `docs/09-subagent-personas.md`.
+
+## Execution model: linear, single clone
+
+Skillgrid’s default SDD path is a **linear, non-parallel, single-agent workflow**:
+
+- One **session coordinator** advances phases in order (init → plan → apply → verify → archive).
+- Implementation runs **one vertical slice at a time** on the **current branch** in the **same working tree** (`/sdd-loop` enforces one `[AFK]` task per invocation; `/sdd-apply` may run more tasks in one session, but still serially).
+- Skillgrid **does not use `git worktree`** (or other isolated clone layouts) as part of the core workflow. There is no built-in “one worktree per parallel lane” model.
+
+**What still uses subagents:** Norse personas and skills such as `parallel-delegate` may dispatch **read-only or report-only** subagents (research, review, recon). Those return artifacts under `.skillgrid/tasks/research/`; the coordinator merges them and continues on the **same** tree. They are not a substitute for parallel implementation branches.
+
+**If you need parallel coding:** use normal git branches and your own merge process outside this harness, or tools documented in `docs/17-external-tools.md` (for example `ralph-tui --parallel` with its own worktree story). That is optional and **not** the Skillgrid default.
 
 ## Where templates live
 
@@ -101,7 +109,7 @@ openspec/changes/<change-id>/
 
 ## ADRs (MADR)
 
-Repo-wide architectural decisions use **MADR** (Markdown Any Decision Record) files under **`.skillgrid/adr/`** (named `NNNN-kebab-title.md`). That directory holds **only** those **ADR** (architecture decision record) files — no README or other metadata there. Copy **`.skillgrid/templates/template-adr.md`**. Summaries and links belong in **`.skillgrid/project/ARCHITECTURE.md`** under **Durable decisions** so others can discover decisions. To draft or review an ADR with the hub’s templates and discipline, use **`/sdd-adr`** (skill **`architectural-decision-records`**).
+Repo-wide architectural decisions use **MADR** (Markdown Any Decision Record) files under **`.skillgrid/adr/`** (named `NNNN-kebab-title.md`). That directory holds **only** those **ADR** (architecture decision record) files — no README or other metadata there. Copy **`.skillgrid/templates/template-adr.md`**. Summaries and links belong in **`.skillgrid/project/ARCHITECTURE.md`** under **Durable decisions** so others can discover decisions. Draft or review ADRs with skill **`architectural-decision-records`**: during **`/sdd-brainstorm`** inside the **`sdd-design`** phase when triggers apply, or standalone via **`/sdd-explore <decision-topic>`**.
 
 ## Session bootstrap
 
@@ -111,3 +119,4 @@ For session bootstrap, see **`.agents/rules/`** (coordinator rules). **Project g
 
 - [Workflow usage](02-workflow-usage.md) — commands, slices, handoff, smart zone
 - [Skills](05-skills.md) — how skills load and when to use registry
+- [Commands reference](04-commands-reference.md) — slash commands and phase skills

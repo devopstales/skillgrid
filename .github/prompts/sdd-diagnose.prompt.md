@@ -125,6 +125,6 @@ Before closing, verify all are true:
 
 - After a successful diagnose, the user may run `/sdd-apply` to implement the fix more thoroughly (if the fix was a temporary change).
 - If the diagnosis reveals a missing success criterion or domain assumption, update `CONTEXT.md` via `/sdd-clarify` or ask the user.
-- If the issue requires an architectural decision, offer to create an ADR.
+- If the issue requires an architectural decision, load `architectural-decision-records` and draft an ADR in `.skillgrid/adr/` (or offer `/sdd-explore <decision-topic>` for a focused ADR pass).
 
 </integration>

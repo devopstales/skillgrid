@@ -89,9 +89,15 @@ set -g @opensessions-width "30"
 | Codex | `~/.codex/sessions/` or `$CODEX_HOME/sessions/` |
 | OpenCode | SQLite database in `~/.local/share/opencode/opencode.db` |
 
+### Skillgrid dashboard integration
+
+When you run `skillgrid serve` (or the legacy `node .skillgrid/scripts/skillgrid-ui.mjs` entrypoint), the local dashboard **Agents** tab subscribes to the same OpenSessions WebSocket feed. Sessions whose working directory matches the repo root appear under **This repository**; others appear under **Other sessions**. See [Web UI — Agents view](15-webui.md#agents-view-opensessions).
+
+If the sidebar server is not running, the dashboard still works for PRDs, handoffs, and events — only live agent status is unavailable.
+
 ### Programmatic API
 
-The local server runs on `127.0.0.1:7391`. All endpoints accept `POST` with `Content-Type: application/json`.
+The local server runs on `127.0.0.1:7391`. The dashboard reads aggregate state over WebSocket; HTTP `POST` endpoints below are for scripts and hooks pushing status. All HTTP endpoints accept `POST` with `Content-Type: application/json`.
 
 #### Set status
 
@@ -385,7 +391,7 @@ Outputs a 400KB-1MB HTML file with force-directed graph, node hover details, Pag
 **License:** MIT  
 **Stack:** Bun runtime, OpenTUI
 
-> **Skillgrid’s built-in loop:** For OpenSpec/SDD projects, use native [`/sdd-loop`](17-sdd-ralph-loop.md) and `.skillgrid/scripts/sdd-ralph-loop.sh` — not ralph-tui. Ralph TUI is optional when you want beads or `prd.json` trackers.
+> **Skillgrid’s built-in loop:** For OpenSpec/SDD projects, use native [`/sdd-loop`](10-sdd-ralph-loop.md) and `.skillgrid/scripts/sdd-ralph-loop.sh` — not ralph-tui. Ralph TUI is optional when you want beads or `prd.json` trackers.
 
 ### Purpose
 

@@ -13,6 +13,16 @@ metadata:
 
 You are a sub-agent responsible for TECHNICAL DESIGN. You take the proposal and specs, then produce a `design.md` that captures HOW the change will be implemented — architecture decisions, data flow, file changes, and technical rationale.
 
+## Norse persona invocations (coordinator)
+
+When orchestrating `/sdd-design` (or design step inside brainstorm), dispatch per `skills/_shared/sdd-persona-delegation.md`:
+
+| Required | Persona | Capability | When |
+| --- | --- | --- | --- |
+| yes | mimir | architecture-coherence | always |
+| no | thor | execution-feasibility | always |
+| no | frigg | ux-clarity | `ui_scope` or user-facing change |
+
 ## What You Receive
 
 From the orchestrator:
@@ -152,6 +162,23 @@ If not applicable, state "No migration required."}
 - [ ] {Any decision that needs team input}
 ```
 
+### Step 3b: ADRs (conditional)
+
+When decisions are **architecturally significant** for the repo (not only change-local notes in `design.md`), capture durable ADRs:
+
+**Triggers:** technology stack changes, framework selections, data storage, API patterns, security approaches, or other choices future maintainers must reconstruct.
+
+1. Load `.agents/skills/architectural-decision-records/SKILL.md` and `preferences.md` (create defaults per skill if missing).
+2. For each significant decision, draft one ADR at `.skillgrid/adr/NNNN-kebab-title.md` (copy from `.skillgrid/templates/template-adr.md` when starting fresh).
+3. Follow the skill: one decision per ADR; honor `preferred-style`; pick templates from `templates/`.
+4. Draft or revise from known facts only; mark unknowns explicitly.
+5. If superseding, link or reference prior ADRs without rewriting history.
+6. Add summaries and links under **Durable decisions** in `.skillgrid/project/ARCHITECTURE.md`.
+
+Skip when every decision is adequately captured in `design.md` and does not need a repo-wide ADR.
+
+List ADR paths in the return envelope `artifacts` array.
+
 ### Step 4: Persist Artifact
 
 **This step is MANDATORY — do NOT skip it.**
@@ -186,6 +213,7 @@ Return to the orchestrator:
 ### Summary
 - **Approach**: {one-line technical approach}
 - **Key Decisions**: {N decisions documented}
+- **ADRs**: {N created or updated in `.skillgrid/adr/`, or "none"}
 - **Files Affected**: {N new, M modified, K deleted}
 - **Testing Strategy**: {unit/integration/e2e coverage planned}
 
@@ -207,4 +235,4 @@ Ready for tasks (sdd-tasks).
 - Apply any `rules.design` from `openspec/config.yaml`
 - If you have open questions that BLOCK the design, say so clearly — don't guess
 - **Size budget**: Design artifact MUST be under 800 words. Architecture decisions as tables (option | tradeoff | decision). Code snippets only for non-obvious patterns.
-- Return a structured envelope with: `status`, `executive_summary`, `detailed_report` (optional), `artifacts`, `next_recommended`, and `risks` (read `skills/_shared/sdd-phase-common.md` for the full envelope spec)
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md` (see `skills/_shared/sdd-phase-common.md`)

@@ -13,6 +13,15 @@ metadata:
 
 You are a sub-agent responsible for initializing the Spec-Driven Development (SDD) context in a project. You detect the project stack and conventions, then bootstrap the active persistence backend.
 
+## Norse persona invocations (coordinator)
+
+When orchestrating `/sdd-init`, dispatch persona subagents per `skills/_shared/sdd-persona-delegation.md` before marking the phase complete:
+
+| Required | Persona | Capability |
+| --- | --- | --- |
+| yes | mimir | bootstrap-readiness |
+| no | kvasir | codebase-recon |
+
 ## Execution and Persistence Contract
 
 - If mode is `engram`:
@@ -280,4 +289,4 @@ Ready for /sdd-explore <topic>, /sdd-plan <change-name> or /sdd-brainstorm <chan
 - ALWAYS detect the real tech stack, don't guess
 - If the project already has an `openspec/` directory, report what exists and ask the orchestrator if it should be updated
 - Keep config.yaml context CONCISE - no more than 10 lines
-- Return a structured envelope with: `status`, `executive_summary`, `detailed_report` (optional), `artifacts`, `next_recommended`, and `risks`
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md` (see `skills/_shared/sdd-phase-common.md`)

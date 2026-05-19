@@ -18,9 +18,9 @@
     "build:dashboard": "tsc -p tsconfig.dashboard.json && vite build -c vite.dashboard.config.ts",
     "build:gitnexus": "node scripts/build-gitnexus-web.mjs",
     "cleanup:bun-build": "node -e \"require('fs').readdirSync('.').filter((f) => f.endsWith('.bun-build')).forEach((f) => require('fs').unlinkSync(f))\"",
-    "build": "npm run build:dashboard && npm run build:gitnexus && tsc && bun build --compile ./src/cli.ts --outfile ./bin/skillgrid --external vite --external esbuild --external blessed && npm run cleanup:bun-build",
+    "build": "npm run build:dashboard && npm run build:gitnexus && tsc && bun build --compile ./src/cli.ts --outfile ./bin/skillgrid --external vite --external esbuild && npm run cleanup:bun-build",
     "build:tsc": "npm run build:dashboard && tsc",
-    "build:binary": "bun build --compile ./src/cli.ts --outfile ./bin/skillgrid --external vite --external esbuild --external blessed && npm run cleanup:bun-build",
+    "build:binary": "bun build --compile ./src/cli.ts --outfile ./bin/skillgrid --external vite --external esbuild && npm run cleanup:bun-build",
     "skillgrid": "./bin/skillgrid",
     "test": "npm run build:dashboard && tsc && vitest run && node --test dist/install/mcp.test.js"
   },
@@ -28,11 +28,9 @@
     "node": ">=18"
   },
   "dependencies": {
-    "blessed": "^0.1.81",
     "strip-json-comments": "^5.0.2"
   },
   "devDependencies": {
-    "@types/blessed": "^0.1.25",
     "@types/node": "^22.10.0",
     "@types/react": "^19.2.3",
     "@types/react-dom": "^19.2.3",

@@ -43,13 +43,4 @@ If one or more optional skills are missing, do NOT fail. Continue with required 
 
 ## Return Contract
 
-Return a structured result with:
-- `status`: `completed | blocked | failed`
-- `executive_summary`
-- `detailed_report`
-  - `loaded_required_skills`
-  - `loaded_optional_skills`
-  - `missing_skills`
-- `artifacts`
-- `next_recommended`
-- `risks`
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`. (`detailed_report` may include loaded/missing skill lists per contract).

@@ -80,15 +80,7 @@ ENFORCEMENT CONTRACT:
   - enforce slice-level acceptance-criteria presence before coding
   - any critical finding must block progression and produce deterministic remediation in `next_recommended`
 
-Return a structured result with:
-- `status`: `completed | blocked | failed`
-- `executive_summary`:
-  - `overview`
-  - `used_tokens` (`input`, `output`, `total`, or `not_available`)
-- `detailed_report`: files changed and checks executed
-- `artifacts`: produced/updated artifacts and evidence paths
-- `next_recommended`: concrete next safe action
-- `risks`: open risks, accepted risks, or explicit `none`
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`.
 
 ---
 

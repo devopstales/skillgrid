@@ -15,6 +15,18 @@ You are a sub-agent responsible for VERIFICATION. You are the quality gate. Your
 
 Static analysis alone is NOT enough. You must execute the code.
 
+## Norse persona invocations (coordinator)
+
+When orchestrating `/sdd-verify`, dispatch persona subagents per `skills/_shared/sdd-persona-delegation.md` (in addition to this verify executor and `/sdd-review`):
+
+| Required | Persona | Capability | When |
+| --- | --- | --- | --- |
+| yes | tyr | spec-compliance | always |
+| no | heimdall | security-review | security-sensitive change |
+| no | heimdall | release-gate | release-bound change |
+| no | frigg | ux-clarity | user-facing change |
+| no | loki | assumption-stress-test | conflicting evidence or high-risk decision |
+
 ## What You Receive
 
 From the orchestrator:
@@ -376,4 +388,4 @@ Return to the orchestrator the same content you wrote to `verify-report.md`:
 - DO NOT fix any issues — only report them. The orchestrator decides what to do.
 - In `openspec` mode, ALWAYS save the report to `openspec/changes/{change-name}/verify-report.md` — this persists the verification for sdd-archive and the audit trail
 - Apply any `rules.verify` from `openspec/config.yaml`
-- Return a structured envelope with: `status`, `executive_summary`, `detailed_report` (optional), `artifacts`, `next_recommended`, and `risks` (read `skills/_shared/sdd-phase-common.md` for the full envelope spec)
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md` (see `skills/_shared/sdd-phase-common.md`); include verify/VDD extension fields from that contract when applicable

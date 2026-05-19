@@ -69,11 +69,12 @@ The result is less prompt babysitting and more deliberate progress. Agents can m
 | **Intent-driven development** | The workflow starts from durable user intent: goals, scope, constraints, and success criteria. Shared understanding and specs translate that intent into plans and slices so implementation stays aligned with what “done” means—not only with files changed. |
 | **Verification-Driven Development (VDD)** | |
 | **User validation** | Explicit checks: spec alignment, review gates, test evidence, security passes, not silent merge-by-default. |
-| **Build Loop** | A controlled `/sdd-loop` iteration that advances one safe `[AFK]` slice, records evidence, then reassesses before continuing or stopping. See `docs/17-sdd-ralph-loop.md`. |
-| **Agentic pipeline** | A sequence of command-driven phases (`/sdd-init`, `/sdd-explore`, `/sdd-brainstorm`, `/sdd-loop`, `/sdd-apply`, `/sdd-board`, `/sdd-verify`, `/sdd-archive`) with tools and skills attached, not one long autonomous chat. Optional adjuncts (`/sdd-openspec-git`, `/sdd-adr`) support git gates and ADRs — see `docs/04-commands-reference.md`. |
+| **Build Loop** | A controlled `/sdd-loop` iteration that advances one safe `[AFK]` slice, records evidence, then reassesses before continuing or stopping. See `docs/10-sdd-ralph-loop.md`. |
+| **Agentic pipeline** | Command-driven phases (`/sdd-init`, `/sdd-explore`, `/sdd-brainstorm`, `/sdd-loop`, `/sdd-apply`, `/sdd-verify`, `/sdd-review`, `/sdd-archive`) with tools and skills attached, not one long autonomous chat. Optional `/sdd-openspec-git` for git gates; ADRs during `sdd-design` or `/sdd-explore` — see `docs/04-commands-reference.md`. |
 | **Harness** | The configured layer around the model: rules, skills, MCP, memory, indexing, handoff paths, UI, so behavior is repeatable and auditable. |
 | **Artifacts over transcripts** | PRDs, OpenSpec changes, handoff markdown, logs, and checkpoints are the system of record; chat is ephemeral. |
-| **Specialist persona board** | The parent can ask focused personas for independent reports on a decision, but the parent/user/spec remains authoritative. |
+| **Norse persona dispatch** | Per SDD phase, the coordinator dispatches persona+capability subagents (see each `sdd-<phase>/SKILL.md`); parent/user/spec remains authoritative. No separate persona-board commands. |
+| **Deep research (first search)** | In explore/brainstorm, `deep-research` runs web search (Exa → Tavily → Firecrawl) before reading application code unless scope is strictly internal. |
 | **Local-first and portable** | State lives in the repo and local services where possible; no single vendor runtime is required to resume work. |
 
 If a single idea ties this together: **AI assists; you validate; intent and specs (through the harness) keep both honest.**
@@ -102,16 +103,19 @@ Read the files in this folder in numeric order:
 3. `02-workflow-usage.md` explains how a new user should operate the system.
 4. `03-skillgrid-logic.md` explains PRD/INDEX/OpenSpec hierarchy and **`.skillgrid/templates/`** file blanks.
 5. `04-commands-reference.md` explains the workflow commands.
-5b. `17-sdd-ralph-loop.md` explains the Ralph build loop (`/sdd-loop`, AFK driver, vs `/sdd-apply`).
 6. `05-skills.md` explains reusable agent skills.
 7. `06-rules-and-governance.md` explains where project rules live and how they are maintained.
 8. `07-hooks-and-automation.md` explains shared hooks and automation policy.
-9. `08-multi-agent-work.md` explains subagents, personas, dependency waves, handoff/event logs, orchestration, worktree separation, and parallelism.
+9. `08-multi-agent-work.md` explains subagents, personas, dependency waves, handoff/event logs, orchestration, and parallelism.
 10. `09-subagent-personas.md` explains the specialist persona catalog.
-11. `10-mcp-servers.md` explains external tool connections.
-12. `11-memory-and-indexing.md` explains durable context and codebase search.
-13. `12-ticketing-integrations.md` explains local and external work tracking.
-14. `13-webui.md` explains the local dashboard.
+11. `10-sdd-ralph-loop.md` explains the Ralph build loop (`/sdd-loop`, AFK driver, vs `/sdd-apply`).
+12. `11-mcp-servers.md` explains external tool connections.
+13. `12-ide-configs.md` explains IDE layout and command paths per surface.
+14. `13-memory-and-indexing.md` explains durable context and codebase search.
+15. `14-ticketing-integrations.md` explains local and external work tracking.
+16. `15-webui.md` explains the local dashboard.
+17. `16-validation.md` explains verification gates and quality checks.
+18. `17-external-tools.md` explains optional third-party CLIs and integrations.
 
 ## First Mental Model
 

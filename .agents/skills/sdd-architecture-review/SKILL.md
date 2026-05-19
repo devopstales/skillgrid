@@ -86,6 +86,10 @@ Side effects happen inline as decisions crystallize:
 - **User rejects the candidate with a load-bearing reason?** Offer an ADR, framed as: _"Want me to record this as an ADR so future architecture reviews don't re-suggest it?"_ Only offer when the reason would actually be needed by a future explorer to avoid re-suggesting the same thing — skip ephemeral reasons ("not worth it right now") and self-evident ones.
 - **Want to explore alternative interfaces for the deepened module?** Use the `sdd-ui-design` skill's "design-it-twice" rule for interface decisions.
 
+## Return
+
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md` (candidates and accepted deepening in `detailed_report`).
+
 ## Integration with SDD
 
 - Read `.skillgrid/project/CONTEXT.md` before starting.

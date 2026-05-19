@@ -20,7 +20,7 @@ topic_key enables upserts — re-running init updates, not duplicates.
 FILESYSTEM PERSISTENCE:
   Reade .agents/skills/_shared/skillgrid-handoff.md for filesystem persistence instructions.
 
-Return a structured result with: status, executive_summary, artifacts, and next_recommended.
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`.
 
 ---
 

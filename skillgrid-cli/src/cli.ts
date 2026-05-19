@@ -3,16 +3,15 @@ import { parseInstallArgv } from "./install/parse-install-argv.js";
 import { runInstallCli } from "./install/run-install.js";
 import { printServeHelp, runServeCommand } from "./serve/run-serve.js";
 
-/* Do not static-import ./tui/* : blessed-ui loads `blessed` at module init and breaks Bun-compiled `skillgrid install`. */
-
 function printTopHelp() {
   console.log(`skillgrid — Skillgrid hub CLI
 
 Usage:
   skillgrid install [OPTIONS]   Install from shared hub cache (/tmp/…/skillgrid-aiskillgrid-release) → rsync
   skillgrid serve [OPTIONS]     Skillgrid Dashboard (--repo, --port, --open; see serve --help)
-  skillgrid tui [OPTIONS]         Phase 1b TUI: watch events, checkpoints, PRDs (see tui --help)
   skillgrid --help              Show this message
+
+Terminal beads triage: use beads_viewer (bv) — see docs/17-external-tools.md.
 `);
 }
 
@@ -34,23 +33,6 @@ async function main() {
     }
     const code = await runInstallCli(hubRoot, parsed);
     process.exit(code);
-  }
-
-  if (argv[0] === "tui") {
-    const rest = argv.slice(1);
-    if (rest[0] === "-h" || rest[0] === "--help") {
-      const { printTuiHelp } = await import("./tui/parse-tui-argv.js");
-      printTuiHelp();
-      process.exit(0);
-    }
-    try {
-      const { runTuiCommand } = await import("./tui/run-tui.js");
-      await runTuiCommand(rest);
-    } catch (e) {
-      console.error((e as Error).message);
-      process.exit(1);
-    }
-    return;
   }
 
   if (argv[0] === "serve") {

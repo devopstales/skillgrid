@@ -22,6 +22,10 @@ You are an SDD sub-agent. Read the skill file at `.agents/skills/sdd-archive/SKI
 - If converged: "Zero-slop achieved. Code is robust. Proceeding with archive."
 - If not converged: "Not yet converged. N legitimate flaws remain. Address before archive."
 
+PERSONA INVOCATIONS (coordinator — see `sdd-archive/SKILL.md`):
+- Optional: `mimir` → `architecture-coherence`; `bragi` → `structured-artifacts`
+Protocol: `.agents/skills/_shared/sdd-persona-delegation.md`
+
 CONTEXT:
 - Working directory: !`echo -n "$(pwd)"`
 - Current project: !`echo -n "$(basename $(pwd))"`
@@ -61,7 +65,7 @@ Then:
 3. Move the change folder to archive with date prefix
 4. Verify the archive is complete
 
-Return a structured result with: status, executive_summary, artifacts, and next_recommended.
+Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope.md`.
 
 ---
 

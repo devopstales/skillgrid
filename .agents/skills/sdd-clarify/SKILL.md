@@ -126,6 +126,9 @@ Only offer to create an ADR (in `.skillgrid/adr/`) when all three are true:
 
 If any of the three is missing, skip the ADR. Use the format in [template-adr.md](.skillgrid/templates/template-adr.md).
 
+## Return
 
+- Load `skills/_shared/sdd-phase-common.md` for executor protocol.
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md`.
 
 </supporting-info>

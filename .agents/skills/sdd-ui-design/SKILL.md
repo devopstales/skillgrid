@@ -116,13 +116,8 @@ When a UI decision affects implementation, insert this section into the change `
 4. Capture accessibility, responsive, and testing implications.
 5. Update durable artifacts and include exact preview file paths.
 
-## Output Contract
+## Return
 
-Return:
-
-- `status`: `completed | blocked | failed`
-- `executive_summary`: selected direction and decision rationale
-- `detailed_report`: options considered, tradeoffs, and constraints
-- `artifacts`: updated paths (preview, docs, design artifacts)
-- `next_recommended`: follow-up command, usually `sdd-apply` or `sdd-verify`
-- `risks`: unresolved design or implementation risks, or `none`
+- Load `skills/_shared/sdd-phase-common.md` for executor protocol.
+- **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md`.
+- Put selected direction and rationale in `executive_summary.overview`; options/tradeoffs in `detailed_report` (may use `loaded_required_skills`, `loaded_optional_skills`, `missing_skills` per contract phase extensions).

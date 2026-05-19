@@ -2,7 +2,15 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { BoardIssue, BoardLane, DashboardData, DashboardEvent, ToolStatus } from "../shared/types.js";
+import type {
+  AgentSessionSnapshot,
+  AgentStatusTone,
+  BoardIssue,
+  BoardLane,
+  DashboardData,
+  DashboardEvent,
+  ToolStatus
+} from "../shared/types.js";
 
 type View = "board" | "agents" | "tools";
 
@@ -19,14 +27,32 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/dashboard")
-      .then(async (response) => {
-        if (!response.ok) throw new Error(await response.text());
-        return response.json() as Promise<DashboardData>;
-      })
-      .then(setData)
-      .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "Failed to load dashboard data"));
-  }, []);
+    let cancelled = false;
+
+    const load = () =>
+      fetch("/api/dashboard")
+        .then(async (response) => {
+          if (!response.ok) throw new Error(await response.text());
+          return response.json() as Promise<DashboardData>;
+        })
+        .then((payload) => {
+          if (!cancelled) setData(payload);
+        })
+        .catch((caught: unknown) => {
+          if (!cancelled) {
+            setError(caught instanceof Error ? caught.message : "Failed to load dashboard data");
+          }
+        });
+
+    void load();
+    const interval =
+      activeView === "agents" && !issuePageId ? window.setInterval(() => void load(), 3000) : undefined;
+
+    return () => {
+      cancelled = true;
+      if (interval) window.clearInterval(interval);
+    };
+  }, [activeView, issuePageId]);
 
   const selectedIssue = data?.issues.find((issue) => issue.id === issuePageId);
 
@@ -244,8 +270,50 @@ function IssuePage({
 }
 
 function AgentView({ data }: { data: DashboardData }) {
+  const repoSessions = data.openSessions.sessions.filter((session) => session.matchesRepo);
+  const otherSessions = data.openSessions.sessions.filter((session) => !session.matchesRepo);
+
   return (
-    <section className="split">
+    <section className="agent-view">
+      <section className="panel">
+        <div className="panel-heading">
+          <h2>Live agent status</h2>
+          <p className="panel-subtitle">
+            <span className={`status-dot ${data.openSessions.healthy ? "healthy" : "offline"}`} />
+            {data.openSessions.healthy
+              ? `opensessions @ ${data.openSessions.url}`
+              : "opensessions not reachable — start the tmux sidebar server"}
+          </p>
+        </div>
+        {!data.openSessions.healthy ? (
+          <div className="command compact-command">
+            <span>Start</span>
+            <code>{data.openSessions.startCommand}</code>
+          </div>
+        ) : null}
+        {data.openSessions.focusedSession ? (
+          <p className="meta-line">Focused tmux session: {data.openSessions.focusedSession}</p>
+        ) : null}
+        {repoSessions.length > 0 ? (
+          <div className="agent-session-grid">
+            <h3>This repository</h3>
+            {repoSessions.map((session) => (
+              <AgentSessionCard key={session.name} session={session} />
+            ))}
+          </div>
+        ) : data.openSessions.healthy ? (
+          <div className="empty compact">No tmux sessions matched this repo path.</div>
+        ) : null}
+        {otherSessions.length > 0 ? (
+          <div className="agent-session-grid">
+            <h3>Other sessions</h3>
+            {otherSessions.map((session) => (
+              <AgentSessionCard key={session.name} session={session} />
+            ))}
+          </div>
+        ) : null}
+      </section>
+      <section className="split">
       <div className="panel">
         <h2>Handoff Logs</h2>
         {data.handoffs.map((handoff) => (
@@ -263,8 +331,47 @@ function AgentView({ data }: { data: DashboardData }) {
         <h2>Agent Timeline</h2>
         <Timeline events={data.events} />
       </div>
+      </section>
     </section>
   );
+}
+
+function AgentSessionCard({ session }: { session: AgentSessionSnapshot }) {
+  const primary = session.primaryAgent;
+  const statusLabel = primary
+    ? `${primary.agent} · ${formatAgentStatus(primary.status)}${primary.threadName ? ` · ${primary.threadName}` : ""}`
+    : session.metadataStatus ?? "No agent activity";
+
+  return (
+    <article className={`agent-session-card ${session.unseen ? "unseen" : ""}`}>
+      <div className="agent-session-header">
+        <strong>{session.name}</strong>
+        {session.unseen ? <span className="unseen-badge">unseen</span> : null}
+      </div>
+      <p className={`agent-status-line tone-${primary?.status ?? session.metadataTone ?? "neutral"}`}>{statusLabel}</p>
+      {session.metadataProgress ? <p className="meta-line">Progress: {session.metadataProgress}</p> : null}
+      <p className="meta-line">
+        {[session.branch ? `branch ${session.branch}${session.dirty ? " *" : ""}` : undefined, session.dir || undefined]
+          .filter(Boolean)
+          .join(" | ")}
+      </p>
+      {session.ports.length > 0 ? <p className="meta-line">Ports: {session.ports.join(", ")}</p> : null}
+      {session.agents.length > 1 ? (
+        <ul className="agent-thread-list">
+          {session.agents.map((agent) => (
+            <li key={`${agent.agent}:${agent.threadId ?? agent.ts}`}>
+              {agent.agent} · {formatAgentStatus(agent.status)}
+              {agent.threadName ? ` · ${agent.threadName}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </article>
+  );
+}
+
+function formatAgentStatus(status: AgentStatusTone): string {
+  return status.replace(/-/g, " ");
 }
 
 function CheckpointList({ checkpoints }: { checkpoints: DashboardData["checkpoints"] }) {
