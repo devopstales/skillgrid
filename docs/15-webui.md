@@ -2,19 +2,16 @@
 
 The AISkillGrid web UI is a local dashboard for project workflow state. It makes agent work visible without requiring a hosted platform.
 
-Start it from the project root:
+From the project root (requires [skillgrid-cli](../skillgrid-cli/) built or on `PATH`):
 
 ```bash
-node .skillgrid/scripts/skillgrid-ui.mjs
+skillgrid serve
+# optional: skillgrid serve --open --port 8787
 ```
 
-Then open the local address printed by the server. The common default is:
+Then open the local address printed by the server (common default `127.0.0.1:8787`).
 
-```text
-127.0.0.1:8787
-```
-
-Alternative: `skillgrid serve` from a built `skillgrid-cli` binary (see hub README).
+Script inventory: [.skillgrid/scripts/README.md](../.skillgrid/scripts/README.md) (dashboard is not a script in that folder).
 
 For **terminal** beads triage and graph-aware task ranking, use [beads_viewer](17-external-tools.md) (`bv`) — Skillgrid does not ship a built-in CLI TUI.
 
@@ -165,8 +162,21 @@ The dashboard reads files that already belong to the Skillgrid workflow:
 | `.engram/manifest.json` | Engram export counts, when team memory sync is used |
 | `.skillgrid/project/SKILL_REGISTRY.md` | Skill registry availability and skill count |
 | OpenSessions WebSocket (`127.0.0.1:7391`) | Agents tab — live tmux session and agent status |
+| `.skillgrid/tasks/checkpoints.log` | Checkpoint index (see below) |
 
 No separate database is required for the core local dashboard model.
+
+### Checkpoints in the UI
+
+Operational checkpoints are documented in **[Checkpoints (Tier 1)](18-checkpoints.md)**. The dashboard **reads only** `checkpoints.log` (it does not run `checkpoint-record.sh`).
+
+| Location | Behavior |
+|----------|----------|
+| **Board** | Header stat: total checkpoint count |
+| **Issue detail** | Filtered list for the open change (`change`, `prd`, or `context` path match) |
+| **Agents** tab | Full checkpoint list alongside handoff logs and the event timeline |
+
+Each card shows: name, timestamp, evidence (or raw line), and metadata (change, branch, sha). Newest entries appear first.
 
 The dashboard reads `.engram/manifest.json` directly when it exists. It does not call the Engram CLI or expose memory contents.
 

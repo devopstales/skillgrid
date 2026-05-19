@@ -91,7 +91,7 @@ set -g @opensessions-width "30"
 
 ### Skillgrid dashboard integration
 
-When you run `skillgrid serve` (or the legacy `node .skillgrid/scripts/skillgrid-ui.mjs` entrypoint), the local dashboard **Agents** tab subscribes to the same OpenSessions WebSocket feed. Sessions whose working directory matches the repo root appear under **This repository**; others appear under **Other sessions**. See [Web UI — Agents view](15-webui.md#agents-view-opensessions).
+When you run `skillgrid serve` from skillgrid-cli, the local dashboard **Agents** tab subscribes to the same OpenSessions WebSocket feed. Sessions whose working directory matches the repo root appear under **This repository**; others appear under **Other sessions**. See [Web UI — Agents view](15-webui.md#agents-view-opensessions).
 
 If the sidebar server is not running, the dashboard still works for PRDs, handoffs, and events — only live agent status is unavailable.
 

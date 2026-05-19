@@ -299,11 +299,17 @@ async function readCheckpoints(repoRoot: string): Promise<Checkpoint[]> {
 
 function parseCheckpointLine(line: string, sourcePath: string, lineNumber: number): Checkpoint | undefined {
   const trimmed = line.trim();
-  if (!trimmed) {
+  if (!trimmed || trimmed.startsWith("#")) {
     return undefined;
   }
   const [time, ...rest] = trimmed.split(/\s+/);
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(time)) {
+    return undefined;
+  }
   const fields = parseCheckpointFields(rest.join(" "));
+  if (Object.keys(fields).length === 0) {
+    return undefined;
+  }
   return {
     id: `${sourcePath}:${lineNumber}`,
     sourcePath,

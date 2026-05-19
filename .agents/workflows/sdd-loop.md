@@ -158,9 +158,14 @@ Commit: {short sha or "none"}
 
 3. Extend `.skillgrid/tasks/context_{change-name}.md` with `## Last Ralph iteration` (see `skillgrid-handoff.md` slice summary).
 
-4. Append one JSONL event to `.skillgrid/tasks/events/{change-name}.jsonl`.
+4. Record operational checkpoint (Tier 1):
+   ```bash
+   .skillgrid/scripts/checkpoint-record.sh --change {change-name} --name "after-loop-${N}" --trigger after-loop --phase loop --slice "{task line}" --evidence "{result}: {tests/checks summary}"
+   ```
 
-5. If implementation passed and sdd-apply did not update `AGENTS.md` / project docs with a discovered convention, add a brief note to the appropriate doc (per handoff).
+5. Append one JSONL event to `.skillgrid/tasks/events/{change-name}.jsonl` for the loop iteration (in addition to the checkpoint event).
+
+6. If implementation passed and sdd-apply did not update `AGENTS.md` / project docs with a discovered convention, add a brief note to the appropriate doc (per handoff).
 
 ---
 

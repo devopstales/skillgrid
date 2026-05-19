@@ -134,7 +134,13 @@ Each apply-ready slice should include:
 - verification command;
 - TDD expectation or explicit non-TDD exception.
 
-Treat the PRD and OpenSpec artifacts as the destination: they define what done means. Treat `tasks.md`, issues, handoff, event logs, and checkpoints as the journey: they define how agents move toward done. The journey should be a Kanban/DAG of independently grabbable slices, not only a linear checklist. Record `blockedBy` and `unblocks` relationships so independent work can be grouped into safe dependency waves.
+Treat the PRD and OpenSpec artifacts as the destination: they define what done means. Treat `tasks.md`, issues, handoff, event logs, and checkpoints as the journey: they define how agents move toward done.
+
+### Operational checkpoints
+
+Before apply (after the apply gate), after each `/sdd-loop` iteration, on verify pass, and before archive, the coordinator runs `.skillgrid/scripts/checkpoint-record.sh` so the repo records branch, SHA, and phase-bound evidence. That gives the next agent a git-anchored resume point without relying on chat history.
+
+See **[Checkpoints (Tier 1)](18-checkpoints.md)** for flags, log format, triggers, and dashboard behavior. The journey should be a Kanban/DAG of independently grabbable slices, not only a linear checklist. Record `blockedBy` and `unblocks` relationships so independent work can be grouped into safe dependency waves.
 
 ## Smart Zone And Context Rot
 
@@ -358,8 +364,8 @@ For explicit session-to-session transfer, use the handoff helper scripts:
 ```bash
 .skillgrid/scripts/handoff-create.sh full <slug> [continues-from]
 .skillgrid/scripts/handoff-create.sh quick <slug>
+.skillgrid/scripts/handoff-resume.sh list
 .skillgrid/scripts/handoff-resume.sh [latest|.skillgrid/handoffs/<file>.md] [max-age-days]
-.skillgrid/scripts/handoff-list.sh
 .skillgrid/scripts/handoff-validate.sh .skillgrid/handoffs/<file>.md
 .skillgrid/scripts/handoff-check-staleness.sh .skillgrid/handoffs/<file>.md [max-age-days]
 ```

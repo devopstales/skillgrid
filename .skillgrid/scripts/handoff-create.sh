@@ -4,9 +4,10 @@ set -euo pipefail
 mode="${1:-full}"
 slug="${2:-session}"
 continues_from="${3:-}"
+change_id="${4:-}"
 
 if [[ "${mode}" != "full" && "${mode}" != "quick" ]]; then
-  echo "Usage: $0 <full|quick> [slug] [continues-from-path]"
+  echo "Usage: $0 <full|quick> [slug] [continues-from-path] [change-id]"
   exit 1
 fi
 
@@ -78,5 +79,15 @@ fi
     echo "- `no commits found`"
   fi
 } >> "${handoff_path}"
+
+if [[ -n "${change_id}" && -x "${repo_root}/.skillgrid/scripts/checkpoint-record.sh" ]]; then
+  "${repo_root}/.skillgrid/scripts/checkpoint-record.sh" \
+    --change "${change_id}" \
+    --name handoff-create \
+    --trigger handoff-create \
+    --phase handoff \
+    --evidence "handoff ${mode} snapshot ${handoff_path}" \
+    || echo "WARN: checkpoint-record failed (handoff still created)" >&2
+fi
 
 echo "${handoff_path}"

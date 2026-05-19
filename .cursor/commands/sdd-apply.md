@@ -33,6 +33,10 @@ MANDATORY PRECHECK:
   next_recommended: "Fix gate failures in tasks.md or artifacts before proceeding"
   ```
 - Do NOT attempt manual label checks or artifact checks — the gate script is the single source of truth.
+- After gate passes, **before any code edits**, record a checkpoint:
+  ```bash
+  .skillgrid/scripts/checkpoint-record.sh --change {change-name} --name before-apply --trigger before-apply --phase apply --evidence "apply gate passed"
+  ```
 
 VDD — DECOMPOSE (before implementation):
 - Read `.agents/skills/vdd-decompose/SKILL.md`

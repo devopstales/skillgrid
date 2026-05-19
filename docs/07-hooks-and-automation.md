@@ -8,12 +8,15 @@ This document defines hook locations, shared scripts, and automation policy acro
 - SDD gate script: `.skillgrid/scripts/sdd-gate.sh`
 - Hook installation: `install.sh` or `skillgrid install` (not a standalone hook script)
 
+Full script inventory: [`.skillgrid/scripts/README.md`](../.skillgrid/scripts/README.md).
+
 ### SDD Gate Hooks
 
 - Purpose: programmatic enforcement of SDD gates (label validation, artifact checks, phase routing)
 - Trigger: pre-commit (staged `openspec/changes/*`), pre-push (only changes touched in the push)
 - Behavior:
-  - Pre-commit infers phase from staged paths per change (`propose` → `spec` → `design` → `tasks` → `apply`)
+  - Pre-commit infers phase from staged paths per change (`propose` → `spec` → `design` → `tasks` → `apply` → `verify-report` → `reviews`)
+  - `sdd-gate.sh review` blocks until **sdd-verify** evidence exists; `sdd-gate.sh archive` also requires **sdd-review** APPROVED
   - Pre-push runs `sdd-gate.sh verify` only for changes with `tasks.md` that appear in the outgoing commit range
   - Exit code 1 = blocked (no commit/push proceeds)
 

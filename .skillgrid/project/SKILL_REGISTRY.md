@@ -84,6 +84,7 @@ Orchestrators read this file before delegating. Inject **Compact rules** blocks 
 | `sdd-verify` | `.agents/skills/sdd-verify/SKILL.md` |
 | `skillgrid-skill-registry` | `.agents/skills/skillgrid-skill-registry/SKILL.md` |
 | `skillgrid-tdd` | `.agents/skills/skillgrid-tdd/SKILL.md` |
+| `skillgrid-checkpoints` | `.agents/skills/skillgrid-checkpoints/SKILL.md` |
 | `skillgrid-vertical-slices` | `.agents/skills/skillgrid-vertical-slices/SKILL.md` |
 | `stitch-design-taste` | `.agents/skills/stitch-design-taste/SKILL.md` |
 | `superdesign` | `.agents/skills/superdesign/SKILL.md` |

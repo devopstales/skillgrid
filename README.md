@@ -135,6 +135,7 @@ Specialist **Norse** personas are delegated viewpoints—not owners of the workf
 | [docs/15-webui.md](docs/15-webui.md) | Local web dashboard |
 | [docs/16-validation.md](docs/16-validation.md) | Verification gates and quality checks |
 | [docs/17-external-tools.md](docs/17-external-tools.md) | Optional third-party CLIs and integrations |
+| [docs/18-checkpoints.md](docs/18-checkpoints.md) | Tier 1 operational checkpoints (log, handoff, events, SDD triggers) |
 
 ---
 

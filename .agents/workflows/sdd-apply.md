@@ -32,6 +32,11 @@ MANDATORY PRECHECK:
   `.skillgrid/scripts/sdd-gate.sh apply --change {change-name}`
 - If validation fails, STOP and return blocked status with the validation errors.
 - If required artifacts (`spec`, `design`, `tasks`) are missing, fail closed with `status: failed`.
+- After gate passes, **before any code edits**, record a checkpoint:
+  ```bash
+  .skillgrid/scripts/checkpoint-record.sh --change {change-name} --name before-apply --trigger before-apply --phase apply --evidence "apply gate passed"
+  ```
+  See `.agents/skills/skillgrid-checkpoints/SKILL.md`.
 
 VDD — DECOMPOSE (before implementation):
 - Read `.agents/skills/vdd-decompose/SKILL.md`

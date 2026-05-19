@@ -45,9 +45,16 @@ TASK:
 Verify the active SDD change. Read the proposal, specs, design, and tasks artifacts. Then:
 
 MANDATORY PRECHECK:
-- Run `.skillgrid/scripts/sdd-gate.sh verify --change {change-name}` before verification (includes label validation).
+- Run `.skillgrid/scripts/sdd-gate.sh verify --change {change-name}` before verification (labels, artifacts, slices, persona hard gates — does **not** require review artifacts).
 - If validation fails, report a CRITICAL gate failure and return FAIL.
 - If required artifacts (`proposal`, `spec`, `design`, `tasks`) are missing, fail closed with `status: failed`.
+- After PASS, run `/sdd-review` — `sdd-gate.sh review` blocks until verify evidence exists.
+
+CHECKPOINT (after verification completes):
+- When verdict is **PASS** or **PASS WITH WARNINGS**, before returning:
+  ```bash
+  .skillgrid/scripts/checkpoint-record.sh --change {change-name} --name verify-pass --trigger verify-pass --phase verify --evidence "verify PASS"
+  ```
 
 ENGRAM PERSISTENCE (artifact store mode: engram):
 CRITICAL: mem_search returns 300-char PREVIEWS, not full content. You MUST call mem_get_observation(id) for EVERY artifact.

@@ -420,15 +420,16 @@ On `blocked` or `failed`, also include stop condition, failing gate id, and miss
 
 ## Utility Scripts
 
-Located in `.skillgrid/scripts/`:
+Located in `.skillgrid/scripts/` (see [scripts README](../.skillgrid/scripts/README.md)):
 
 | Script | Purpose |
 |--------|---------|
+| `checkpoint-record.sh` | Tier 1 checkpoint — see [Checkpoints](18-checkpoints.md) (`skillgrid checkpoint` wraps this) |
 | `validate-task-labels.sh` | Validates `[Label: AFK|HITL]` and `[Budget: safe|RISK]` in tasks.md |
 | `preview.sh` | Scaffolds preview artifacts for UI design |
 | `handoff-create.sh` | Creates a new handoff record |
 | `handoff-resume.sh` | Resumes from a handoff record |
 | `handoff-validate.sh` | Validates handoff record integrity |
 | `handoff-check-staleness.sh` | Checks if handoff is stale |
-| `handoff-list.sh` | Lists available handoff records |
-| `handoff-registry-init.sh` | Initializes handoff registry |
+| `handoff-resume.sh list` | Lists session handoffs under `.skillgrid/handoffs/` |
+| `handoff-registry-init.sh` | Initializes `registry_<change-id>.md` dispatch index |

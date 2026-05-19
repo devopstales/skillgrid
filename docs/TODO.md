@@ -185,7 +185,4 @@ Ship high-impact workflow upgrades: enforceable pipelines, strict phase gates, m
   - [ ] evidence path
   - [ ] impacted artifact(s)
   - [ ] disposition (`must-fix | accept-risk | follow-up`)
-- [ ] CI guards:
-  - [ ] tasks label validator
-  - [ ] spec matrix presence
-  - [ ] gate result must exist before archive
+

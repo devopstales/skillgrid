@@ -28,9 +28,9 @@ graph TB
   end
 
   subgraph phase3[Phase 3 Verification]
-    sdd_review["sdd-review"]
     sdd_verify["sdd-verify"]
-    sdd_review --> sdd_verify
+    sdd_review["sdd-review"]
+    sdd_verify --> sdd_review
   end
 
   subgraph phase4[Phase 4 Debug]
@@ -43,10 +43,10 @@ graph TB
 
   sdd_design_ui --> sdd_loop
   sdd_design_ui --> sdd_apply
-  sdd_loop --> sdd_review
-  sdd_apply --> sdd_review
-  sdd_verify --> sdd_diagnose
-  sdd_verify --> sdd_archive
+  sdd_loop --> sdd_verify
+  sdd_apply --> sdd_verify
+  sdd_review --> sdd_diagnose
+  sdd_review --> sdd_archive
   sdd_diagnose --> sdd_archive
 ```
 
@@ -63,6 +63,12 @@ Skillgrid’s default SDD path is a **linear, non-parallel, single-agent workflo
 **What still uses subagents:** Norse personas and skills such as `parallel-delegate` may dispatch **read-only or report-only** subagents (research, review, recon). Those return artifacts under `.skillgrid/tasks/research/`; the coordinator merges them and continues on the **same** tree. They are not a substitute for parallel implementation branches.
 
 **If you need parallel coding:** use normal git branches and your own merge process outside this harness, or tools documented in `docs/17-external-tools.md` (for example `ralph-tui --parallel` with its own worktree story). That is optional and **not** the Skillgrid default.
+
+## Operational checkpoints (Tier 1)
+
+Safe resume points on the **same branch** (no worktrees): each run of `checkpoint-record.sh` updates `checkpoints.log`, **Last checkpoint** in the handoff, and a JSONL timeline row. SDD triggers include **`before-apply`** (after apply gate, before code), **`after-loop`**, **`verify-pass`**, **`pre-archive`**, and **`handoff-create`**.
+
+Full reference: **[docs/18-checkpoints.md](18-checkpoints.md)**.
 
 ## Where templates live
 
@@ -120,3 +126,4 @@ For session bootstrap, see **`.agents/rules/`** (coordinator rules). **Project g
 - [Workflow usage](02-workflow-usage.md) — commands, slices, handoff, smart zone
 - [Skills](05-skills.md) — how skills load and when to use registry
 - [Commands reference](04-commands-reference.md) — slash commands and phase skills
+- [Checkpoints](18-checkpoints.md) — Tier 1 operational checkpoints

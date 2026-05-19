@@ -1,6 +1,7 @@
 import { hubRootFromCliModule } from "./install/hub-root.js";
 import { parseInstallArgv } from "./install/parse-install-argv.js";
 import { runInstallCli } from "./install/run-install.js";
+import { printCheckpointHelp, runCheckpointCommand } from "./checkpoint/run-checkpoint.js";
 import { printServeHelp, runServeCommand } from "./serve/run-serve.js";
 
 function printTopHelp() {
@@ -9,6 +10,7 @@ function printTopHelp() {
 Usage:
   skillgrid install [OPTIONS]   Install from shared hub cache (/tmp/…/skillgrid-aiskillgrid-release) → rsync
   skillgrid serve [OPTIONS]     Skillgrid Dashboard (--repo, --port, --open; see serve --help)
+  skillgrid checkpoint [OPTS]   Record Tier 1 checkpoint (docs/18-checkpoints.md)
   skillgrid --help              Show this message
 
 Terminal beads triage: use beads_viewer (bv) — see docs/17-external-tools.md.
@@ -33,6 +35,15 @@ async function main() {
     }
     const code = await runInstallCli(hubRoot, parsed);
     process.exit(code);
+  }
+
+  if (argv[0] === "checkpoint") {
+    const rest = argv.slice(1);
+    if (rest[0] === "-h" || rest[0] === "--help") {
+      printCheckpointHelp();
+      process.exit(0);
+    }
+    process.exit(runCheckpointCommand(rest));
   }
 
   if (argv[0] === "serve") {

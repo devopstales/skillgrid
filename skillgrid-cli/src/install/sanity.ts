@@ -76,18 +76,19 @@ export function runSanityCheck(hubRoot: string): number {
   sanityCheckFile("MCP config fragments", join(hubRoot, ".configs", "mcp"));
   sanityCheckFile("Engram MCP fragment", join(hubRoot, ".configs", "mcp", "command", "engram.json"));
   sanityCheckFile("Skill catalog", join(hubRoot, ".agents", "skills"));
-  sanityCheckFile("Skillgrid UI script", join(hubRoot, ".skillgrid", "scripts", "skillgrid-ui.mjs"));
+  sanityCheckFile("Skillgrid CLI package", join(hubRoot, "skillgrid-cli", "package.json"));
   sanityCheckFile("Preview script", join(hubRoot, ".skillgrid", "scripts", "preview.sh"));
+  sanityCheckFile("Checkpoint script", join(hubRoot, ".skillgrid", "scripts", "checkpoint-record.sh"));
   sanityCheckFile("SDD gate script", join(hubRoot, ".skillgrid", "scripts", "sdd-gate.sh"));
   sanityCheckFile("IDE sync script", join(hubRoot, "scripts", "sync-ide-assets.sh"));
   sanityCheckFile("Node package manifest", join(hubRoot, "package.json"));
 
   console.log("");
   console.log("Hub script checks:");
-  const skillgridUi = join(hubRoot, ".skillgrid", "scripts", "skillgrid-ui.mjs");
-  const r1 = spawnSync("node", ["--check", skillgridUi], { stdio: "ignore" });
-  if (r1.status === 0) sanityOk("skillgrid-ui.mjs syntax");
-  else sanityFail("skillgrid-ui.mjs syntax — check Node and the dashboard script");
+  const checkpoint = join(hubRoot, ".skillgrid", "scripts", "checkpoint-record.sh");
+  const r1 = spawnSync("bash", ["-n", checkpoint], { stdio: "ignore" });
+  if (r1.status === 0) sanityOk("checkpoint-record.sh syntax");
+  else sanityFail("checkpoint-record.sh syntax — check bash script");
 
   const sync = join(hubRoot, "scripts", "sync-ide-assets.sh");
   const r2 = spawnSync("bash", ["-n", sync], { stdio: "ignore" });

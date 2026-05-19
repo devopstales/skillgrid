@@ -22,7 +22,8 @@
 
 set -uo pipefail
 
-cd "$(dirname "$0")/../.." || exit 3  # navigate to repo root from scripts dir
+REPO_ROOT="${SKILLGRID_REPO_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
+cd "$REPO_ROOT" || exit 3
 
 # --- Global state -----------------------------------------------------------
 
@@ -81,7 +82,7 @@ is_gate_active() {
 parse_args() {
   if [[ $# -lt 1 ]]; then
     echo "Usage: sdd-gate.sh <phase> --change <name> [options]" >&2
-    echo "  Phases: brainstorm propose spec design tasks apply verify archive" >&2
+    echo "  Phases: brainstorm propose spec design tasks apply verify review archive" >&2
     exit 2
   fi
 
@@ -107,7 +108,7 @@ parse_args() {
   fi
 
   case "$PHASE" in
-    brainstorm|propose|spec|design|tasks|apply|verify|archive) ;;
+    brainstorm|propose|spec|design|tasks|apply|verify|review|archive) ;;
     *)
       echo "ERROR: Unknown phase '$PHASE'" >&2; exit 2 ;;
   esac
@@ -180,7 +181,7 @@ gate_artifacts() {
     tasks)
       required=("proposal.md" "design.md")
       ;;
-    apply|verify|archive)
+    apply|verify|review|archive)
       required=("proposal.md" "design.md" "tasks.md")
       ;;
   esac
@@ -191,7 +192,7 @@ gate_artifacts() {
   done
 
   case "$PHASE" in
-    brainstorm|spec|design|tasks|apply|verify|archive)
+    brainstorm|spec|design|tasks|apply|verify|review|archive)
       change_has_spec_file || missing+=("specs/**/spec.md")
       ;;
   esac
@@ -288,40 +289,108 @@ gate_slices() {
   fi
 }
 
-# 6. Two-stage review (verify phase only)
-gate_two_stage_review() {
-  local research_dir=".skillgrid/tasks/research/${CHANGE}"
-  local stage1="${research_dir}/stage1-spec-compliance.md"
-  local stage2="${research_dir}/stage2-code-quality.md"
-  if ! is_gate_active "two_stage_review"; then add_run "two_stage_review"; return; fi
+# --- verify / review ordering helpers ---------------------------------------
 
-  if [[ "$PHASE" != "verify" ]]; then
-    add_pass "two_stage_review" "N/A for ${PHASE}"
+research_dir_for_change() {
+  printf '%s' ".skillgrid/tasks/research/${CHANGE}"
+}
+
+report_has_blocking_findings() {
+  local file="$1"
+  [[ -f "$file" ]] || return 1
+  grep -qE 'CRITICAL|critical.*block|status:[[:space:]]*failed|\*\*FAIL\*\*|^FAIL$|Verdict:[[:space:]]*FAIL|Recommendation:[[:space:]]*CHANGES_REQUESTED' "$file" 2>/dev/null
+}
+
+verify_report_passed() {
+  local report="openspec/changes/${CHANGE}/verify-report.md"
+  [[ -f "$report" ]] || return 1
+  report_has_blocking_findings "$report" && return 1
+  grep -qiE '\bPASS\b|PASS WITH WARNINGS|status:[[:space:]]*pass' "$report"
+}
+
+verify_passed_for_change() {
+  local state_per_change=".skillgrid/state/${CHANGE}/verification_status"
+  local state_global=".skillgrid/state/verification_status"
+  local checkpoint_log=".skillgrid/tasks/checkpoints.log"
+  local stage1
+  stage1="$(research_dir_for_change)/stage1-spec-compliance.md"
+
+  if [[ -f "$state_per_change" ]] && [[ "$(tr '[:upper:]' '[:lower:]' < "$state_per_change" | tr -d '[:space:]')" == "passed" ]]; then
+    return 0
+  fi
+  if [[ -f "$state_global" ]] && [[ "$(tr '[:upper:]' '[:lower:]' < "$state_global" | tr -d '[:space:]')" == "passed" ]]; then
+    return 0
+  fi
+  if verify_report_passed; then
+    return 0
+  fi
+  if [[ -f "$checkpoint_log" ]] && grep -qE "change=${CHANGE}[[:space:]].*name=verify-pass|name=verify-pass[[:space:]].*change=${CHANGE}" "$checkpoint_log" 2>/dev/null; then
+    return 0
+  fi
+  if [[ -f "$stage1" ]] && ! report_has_blocking_findings "$stage1"; then
+    grep -qiE 'PASS|APPROVED|status:[[:space:]]*pass' "$stage1" 2>/dev/null && return 0
+  fi
+  return 1
+}
+
+review_approved_for_change() {
+  local state_per_change=".skillgrid/state/${CHANGE}/review_status"
+  local research_dir stage2 review_glob f
+  research_dir="$(research_dir_for_change)"
+  stage2="${research_dir}/stage2-code-quality.md"
+
+  if [[ -f "$state_per_change" ]] && [[ "$(tr '[:upper:]' '[:lower:]' < "$state_per_change" | tr -d '[:space:]')" == "approved" ]]; then
+    return 0
+  fi
+  if [[ -f "$stage2" ]] && ! report_has_blocking_findings "$stage2"; then
+    grep -qiE 'APPROVED|status:[[:space:]]*approved|Recommendation:[[:space:]]*APPROVED' "$stage2" 2>/dev/null && return 0
+  fi
+  shopt -s nullglob
+  review_glob=(openspec/changes/${CHANGE}/reviews/*.md)
+  shopt -u nullglob
+  for f in "${review_glob[@]+"${review_glob[@]}"}"; do
+    if grep -qiE 'APPROVED|Recommendation:[[:space:]]*APPROVED|status:[[:space:]]*approved' "$f" && ! report_has_blocking_findings "$f"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# 6. Verify must complete before review (review + archive phases)
+gate_verify_before_review() {
+  if ! is_gate_active "verify_before_review"; then add_run "verify_before_review"; return; fi
+
+  case "$PHASE" in
+    review|archive)
+      if verify_passed_for_change; then
+        add_pass "verify_before_review" "sdd-verify evidence present for ${CHANGE}"
+      else
+        add_error "verify_before_review" "Run /sdd-verify first — need PASS in openspec/changes/${CHANGE}/verify-report.md (or verify-pass checkpoint / .skillgrid/state/${CHANGE}/verification_status)"
+      fi
+      ;;
+    *)
+      add_pass "verify_before_review" "N/A for ${PHASE}"
+      ;;
+  esac
+}
+
+# 7. Code quality review must complete before archive
+gate_review_before_archive() {
+  if ! is_gate_active "review_before_archive"; then add_run "review_before_archive"; return; fi
+
+  if [[ "$PHASE" != "archive" ]]; then
+    add_pass "review_before_archive" "N/A for ${PHASE}"
     return
   fi
 
-  local -a missing_stages=()
-  [[ ! -f "$stage1" ]] && missing_stages+=("stage1-spec-compliance")
-  [[ ! -f "$stage2" ]] && missing_stages+=("stage2-code-quality")
-
-  if [[ ${#missing_stages[@]} -gt 0 ]]; then
-    add_error "two_stage_review" "Missing review stage(s): ${missing_stages[*]}"
-    return
-  fi
-
-  # Check for critical findings in stage reports
-  local critical_found=false
-  grep -q "CRITICAL\|critical.*block\|status: failed" "$stage1" 2>/dev/null && critical_found=true
-  grep -q "CRITICAL\|critical.*block\|status: failed" "$stage2" 2>/dev/null && critical_found=true
-
-  if "$critical_found"; then
-    add_error "two_stage_review" "Review reports contain critical findings — blocks progression"
+  if review_approved_for_change; then
+    add_pass "review_before_archive" "sdd-review evidence present for ${CHANGE}"
   else
-    add_pass "two_stage_review" "Both stages passed without critical findings"
+    add_error "review_before_archive" "Run /sdd-review after verify — need APPROVED in openspec/changes/${CHANGE}/reviews/ or stage2-code-quality report"
   fi
 }
 
-# 7. Persona hard gates (tyr/heimdall critical, HITL flags in research)
+# 8. Persona hard gates (tyr/heimdall critical, HITL flags in research)
 gate_persona_hardgates() {
   local research_dir=".skillgrid/tasks/research/${CHANGE}"
   if is_gate_skipped "persona_hardgates" || is_gate_skipped "persona_board"; then
@@ -369,9 +438,11 @@ run_gates() {
     apply)
       gate_labels; gate_artifacts; gate_phase_state; gate_persona_routing; gate_slices ;;
     verify)
-      gate_labels; gate_artifacts; gate_phase_state; gate_two_stage_review; gate_persona_hardgates; gate_slices ;;
+      gate_labels; gate_artifacts; gate_phase_state; gate_persona_hardgates; gate_slices ;;
+    review)
+      gate_labels; gate_artifacts; gate_phase_state; gate_verify_before_review ;;
     archive)
-      gate_labels; gate_artifacts; gate_phase_state; gate_two_stage_review; gate_persona_routing; gate_persona_hardgates ;;
+      gate_labels; gate_artifacts; gate_phase_state; gate_verify_before_review; gate_review_before_archive; gate_persona_routing; gate_persona_hardgates ;;
   esac
 
   add_pass "total" "All gates complete"

@@ -116,6 +116,7 @@ Read the files in this folder in numeric order:
 16. `15-webui.md` explains the local dashboard.
 17. `16-validation.md` explains verification gates and quality checks.
 18. `17-external-tools.md` explains optional third-party CLIs and integrations.
+19. `18-checkpoints.md` explains Tier 1 operational checkpoints (`checkpoint-record.sh`, SDD triggers, log format).
 
 ## First Mental Model
 

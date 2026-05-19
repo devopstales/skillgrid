@@ -41,7 +41,7 @@ GATE:
   executive_summary: "Gate failure — see sdd-gate errors above"
   next_recommended: "Fix gate failures before verification"
   ```
-- The gate script handles label validation, artifact checks, two-stage review state, and persona hard-gate status (`persona_hardgates`).
+- The gate script handles label validation, artifact checks, and persona hard-gate status (`persona_hardgates`). It does **not** require review artifacts — run `/sdd-review` only after verify PASS.
 
 ENGRAM PERSISTENCE (artifact store mode: engram):
 CRITICAL: mem_search returns 300-char PREVIEWS, not full content. You MUST call mem_get_observation(id) for EVERY artifact.

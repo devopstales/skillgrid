@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Resume, list, or validate session handoffs under .skillgrid/handoffs/
+# Usage:
+#   handoff-resume.sh list
+#   handoff-resume.sh [latest|path] [max-age-days]
 set -euo pipefail
 
 if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
@@ -9,6 +13,16 @@ fi
 repo_root="$(git rev-parse --show-toplevel)"
 handoff_input="${1:-latest}"
 max_age_days="${2:-3}"
+
+if [[ "${handoff_input}" == "list" ]]; then
+  handoff_dir="${repo_root}/.skillgrid/handoffs"
+  if [[ ! -d "${handoff_dir}" ]]; then
+    echo "No handoff directory found at ${handoff_dir}"
+    exit 0
+  fi
+  ls -1t "${handoff_dir}"/*.md 2>/dev/null || echo "No handoff files found."
+  exit 0
+fi
 
 if [[ "${handoff_input}" == "latest" ]]; then
   handoff_path="$(ls -1t "${repo_root}"/.skillgrid/handoffs/*.md 2>/dev/null | sed -n '1p')"

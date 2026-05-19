@@ -77,7 +77,11 @@ These complement OpenSpec / SDD without replacing phase skills:
 - `micro-plan` — short operational plans (3–7 steps, exit criteria) for quick work; does not replace `sdd-tasks` / `sdd-design` / `openspec-continue-change`.
 - `enforced-tdd-protocol` — mandatory TDD gate: RED (failing test) → GREEN (minimal code) → REFACTOR. Auto-invoked before every implementation task. Iron law: NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST.
 - `skillgrid-tdd` — legacy TDD enforcer (still used for backward compatibility; `enforced-tdd-protocol` is stricter).
-- `skillgrid-vertical-slices` — helps split work into independently testable slices.
+
+### Skillgrid artifact skills
+
+- `skillgrid-checkpoints` — Tier 1 operational checkpoints: `checkpoint-record.sh` / `skillgrid checkpoint`; updates `checkpoints.log`, handoff **Last checkpoint**, and `node: checkpoint` events. Mandatory triggers: `before-apply`, `after-loop`, `verify-pass`, `pre-archive`, `handoff-create`. Doc: [18-checkpoints.md](18-checkpoints.md).
+- `skillgrid-vertical-slices` — helps split work into independently testable slices; task templates may name slice-level checkpoints.
 
 ### Parallel delegation (sub-agents)
 

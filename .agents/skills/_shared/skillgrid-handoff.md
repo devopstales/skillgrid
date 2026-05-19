@@ -49,8 +49,20 @@ Required sections in every active handoff context file:
 - `AFK-ready work`
 - `Dependency waves`
 - `Research index`
-- `Last checkpoint`
+- `Last checkpoint` (synced by `checkpoint-record.sh` — see `skillgrid-checkpoints`)
 - `Next steps` (ordered immediate continuation actions)
+
+### Operational checkpoints (Tier 1)
+
+Record safe resume points with:
+
+```bash
+.skillgrid/scripts/checkpoint-record.sh --change <change-id> --name <label> --trigger <trigger> --phase <phase> --evidence "<summary>"
+```
+
+**Mandatory triggers:** `before-apply` (after apply gate, before code), `after-loop` (each `/sdd-loop` reflect), `verify-pass` (PASS verdict), `pre-archive` (before archive ops), `handoff-create` (handoff create mode).
+
+Writes: `.skillgrid/tasks/checkpoints.log`, updates `## Last checkpoint` in `context_<change-id>.md`, appends `node: checkpoint` to `events/<change-id>.jsonl`.
 
 Canonical schema boundaries:
 

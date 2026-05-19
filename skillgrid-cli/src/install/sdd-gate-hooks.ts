@@ -43,7 +43,11 @@ sdd_detect_phase() {
   local prefix="openspec/changes/\${change_name}/"
   local staged
   staged="$(git diff --cached --name-only -- "\${prefix}" 2>/dev/null || true)"
-  if echo "$staged" | grep -qE 'tasks\\.md$'; then
+  if echo "$staged" | grep -qE 'reviews/.*\\.md$'; then
+    echo "review"
+  elif echo "$staged" | grep -qE 'verify-report\\.md$'; then
+    echo "verify"
+  elif echo "$staged" | grep -qE 'tasks\\.md$'; then
     echo "apply"
   elif echo "$staged" | grep -qE 'design\\.md$'; then
     echo "design"

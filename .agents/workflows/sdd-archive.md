@@ -38,6 +38,10 @@ MANDATORY PRECHECK (CI-ready default, fail closed):
 - Confirm verification evidence exists for the active change before archive.
 - If verification report/artifacts are missing or indicate unresolved critical findings, return `status: failed` and do not archive.
 - If needed, route to `/sdd-verify` first and set `next_recommended` accordingly.
+- Before archive file operations, record a checkpoint:
+  ```bash
+  .skillgrid/scripts/checkpoint-record.sh --change {change-name} --name pre-archive --trigger pre-archive --phase archive --evidence "pre-archive gate passed"
+  ```
 
 ENGRAM PERSISTENCE (artifact store mode: engram):
 CRITICAL: mem_search returns 300-char PREVIEWS, not full content. You MUST call mem_get_observation(id) for EVERY artifact.

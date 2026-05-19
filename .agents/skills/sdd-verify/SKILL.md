@@ -389,3 +389,7 @@ Return to the orchestrator the same content you wrote to `verify-report.md`:
 - In `openspec` mode, ALWAYS save the report to `openspec/changes/{change-name}/verify-report.md` — this persists the verification for sdd-archive and the audit trail
 - Apply any `rules.verify` from `openspec/config.yaml`
 - **Return:** the standard SDD envelope per `skills/_shared/sdd-return-envelope.md` (see `skills/_shared/sdd-phase-common.md`); include verify/VDD extension fields from that contract when applicable
+- When **Verdict** is `PASS` or `PASS WITH WARNINGS`, record a checkpoint before returning:
+  ```bash
+  .skillgrid/scripts/checkpoint-record.sh --change {change-name} --name verify-pass --trigger verify-pass --phase verify --evidence "verify {verdict}"
+  ```

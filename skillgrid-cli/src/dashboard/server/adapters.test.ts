@@ -94,6 +94,56 @@ Preview: /preview/.skillgrid%2Fpreview%2Fdashboard.html
     expect(data.previews[0].path).toBe(".skillgrid/preview/dashboard.html");
   });
 
+  it("ignores blank, comment, and malformed checkpoint lines", async () => {
+    const root = await tempRepo();
+    await write(
+      root,
+      ".skillgrid/tasks/checkpoints.log",
+      [
+        "",
+        "# audit note — not a checkpoint",
+        "malformed-no-fields",
+        "2026-05-03T12:00:00Z name=valid change=only-good-line"
+      ].join("\n")
+    );
+
+    const data = await buildDashboardData({ repoRoot: root, dashboardOrigin: "http://127.0.0.1:1" });
+
+    expect(data.checkpoints).toHaveLength(1);
+    expect(data.checkpoints[0]).toMatchObject({ name: "valid", changeId: "only-good-line" });
+  });
+
+  it("filters checkpoints on the issue detail view by change, prd, or context path", async () => {
+    const root = await tempRepo();
+    await write(
+      root,
+      ".skillgrid/prd/PRD01_alpha.md",
+      "# Alpha\nStatus: Build\nChange ID: alpha-change\n"
+    );
+    await write(root, "openspec/changes/alpha-change/tasks.md", "- [ ] work\n");
+    await write(
+      root,
+      ".skillgrid/tasks/checkpoints.log",
+      [
+        "2026-05-01T10:00:00Z name=for-alpha change=alpha-change prd=.skillgrid/prd/PRD01_alpha.md context=.skillgrid/tasks/context_alpha-change.md",
+        "2026-05-01T11:00:00Z name=for-other change=other-change"
+      ].join("\n") + "\n"
+    );
+
+    const data = await buildDashboardData({ repoRoot: root, dashboardOrigin: "http://127.0.0.1:1" });
+    const issue = data.issues.find((entry) => entry.changeId === "alpha-change");
+    expect(issue).toBeDefined();
+
+    const related = data.checkpoints.filter(
+      (checkpoint) =>
+        checkpoint.changeId === issue?.changeId ||
+        checkpoint.prd === issue?.prdPath ||
+        checkpoint.context === issue?.contextPath
+    );
+    expect(related).toHaveLength(1);
+    expect(related[0].name).toBe("for-alpha");
+  });
+
   it("creates an issue for an OpenSpec change without a PRD", async () => {
     const root = await tempRepo();
     await write(root, "openspec/changes/api-cleanup/tasks.md", "- [ ] remove old route\n");

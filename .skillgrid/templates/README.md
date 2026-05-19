@@ -25,8 +25,7 @@ Agent skill files (`SKILL.md` under `.agents/skills/<name>/`) use the shared sca
 Handoff helper scripts:
 
 - `.skillgrid/scripts/handoff-create.sh` (`full` or `quick`)
-- `.skillgrid/scripts/handoff-resume.sh`
-- `.skillgrid/scripts/handoff-list.sh`
+- `.skillgrid/scripts/handoff-resume.sh` (`list`, `latest`, or path)
 - `.skillgrid/scripts/handoff-validate.sh`
 - `.skillgrid/scripts/handoff-check-staleness.sh`
 - `.skillgrid/scripts/handoff-registry-init.sh`

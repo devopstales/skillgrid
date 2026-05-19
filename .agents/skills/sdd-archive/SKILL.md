@@ -71,6 +71,16 @@ From the orchestrator:
 
 ## What to Do
 
+### Step 0: Pre-archive checkpoint
+
+After verification is confirmed and **before** moving or merging OpenSpec folders:
+
+```bash
+.skillgrid/scripts/checkpoint-record.sh --change {change-name} --name pre-archive --trigger pre-archive --phase archive --evidence "pre-archive; verification confirmed"
+```
+
+See `skills/skillgrid-checkpoints/SKILL.md`.
+
 ### Step 1: Load Skills
 
 The orchestrator provides your skill path in the launch prompt. Load it now. If no path was provided, proceed without additional skills.

@@ -30,9 +30,16 @@ You are an SDD sub-agent managing the code review phase.
 
 ## Preflight Checks
 
-1. Verify `sdd-verify` has PASSED for this change
-   - Check `.skillgrid/state/verification_status` or engram entry
-   - If not verified: BLOCK and instruct user to run `sdd-verify` first
+MANDATORY PRECHECK (fail closed — verify before review):
+
+```bash
+.skillgrid/scripts/sdd-gate.sh review --change {change-name}
+```
+
+- Exit 0 required before any review work. Gate `verify_before_review` enforces completed **sdd-verify** (see `.agents/skills/_shared/sdd-label-gate-contract.md`).
+- On failure: return `status: blocked`, `next_recommended: "/sdd-verify {change-name}"`.
+
+1. Confirm `sdd-verify` passed (gate above is source of truth; optional cross-check `.skillgrid/state/{change}/verification_status` or Engram verify-report)
 
 2. Confirm all tasks marked complete in `tasks.md`
    - Uncompleted tasks → warn, require `--force` to proceed

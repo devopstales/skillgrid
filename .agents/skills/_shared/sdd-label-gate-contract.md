@@ -19,10 +19,18 @@ The gate script calls `validate-task-labels.sh` internally when `tasks.md` exist
 - Git hooks enforce label validation pre-commit and pre-push
 - No manual validation needed in phase prompts — the gate script is the source of truth
 
+## Verify-before-review (programmatic)
+
+- **`sdd-gate.sh review`** and **`sdd-gate.sh archive`** run gate `verify_before_review`.
+- Review is blocked until **sdd-verify** evidence exists: `openspec/changes/<change>/verify-report.md` with a PASS verdict, a `verify-pass` checkpoint, or `.skillgrid/state/<change>/verification_status` = `passed`.
+- **`sdd-gate.sh archive`** also runs `review_before_archive` (requires **sdd-review** APPROVED).
+- **`sdd-gate.sh verify`** precheck does **not** require review artifacts — only labels, artifacts, slices, and persona hard gates.
+
 ## Status Mapping
 
 - Apply phase: gate script exit 1 → phase returns `status: blocked`
 - Verify phase: gate script exit 1 → phase returns `status: failed` with CRITICAL gate finding
+- Review phase: gate script exit 1 → `status: blocked` when verify evidence is missing
 - Git hooks: commit/push blocked on exit 1
 
 ## Output Fields (on gate failure)

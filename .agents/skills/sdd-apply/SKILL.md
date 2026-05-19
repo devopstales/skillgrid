@@ -98,6 +98,16 @@ Before you implement anything, parse the assigned tasks to identify the vertical
 
 **Hard preflight check (automated):**
 
+The coordinator runs `sdd-gate.sh apply` before you receive this task. If you are starting apply directly, run the gate first.
+
+After the gate passes and **before any code edits**, record a checkpoint:
+
+```bash
+.skillgrid/scripts/checkpoint-record.sh --change {change-name} --name before-apply --trigger before-apply --phase apply --evidence "apply gate passed"
+```
+
+See `skills/skillgrid-checkpoints/SKILL.md`.
+
 Run the label validator before any code edits:
 
 ```bash

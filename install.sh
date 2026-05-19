@@ -1133,13 +1133,17 @@ run_sanity_check() {
     sanity_check_file "MCP config fragments" "$SCRIPT_DIR/.configs/mcp"
     sanity_check_file "Engram MCP fragment" "$SCRIPT_DIR/.configs/mcp/command/engram.json"
     sanity_check_file "Skill catalog" "$SCRIPT_DIR/.agents/skills"
-    sanity_check_file "Skillgrid UI script" "$SCRIPT_DIR/.skillgrid/scripts/skillgrid-ui.mjs"
+    sanity_check_file "Skillgrid CLI package" "$SCRIPT_DIR/skillgrid-cli/package.json"
     sanity_check_file "Preview script" "$SCRIPT_DIR/.skillgrid/scripts/preview.sh"
+    sanity_check_file "SDD gate script" "$SCRIPT_DIR/.skillgrid/scripts/sdd-gate.sh"
+    sanity_check_file "Checkpoint script" "$SCRIPT_DIR/.skillgrid/scripts/checkpoint-record.sh"
     sanity_check_file "Node package manifest" "$SCRIPT_DIR/package.json"
 
     echo ""
     echo "Hub script checks:"
-    sanity_check_command "skillgrid-ui.mjs syntax" "node --check \"$SCRIPT_DIR/.skillgrid/scripts/skillgrid-ui.mjs\"" "check Node and the dashboard script"
+    sanity_check_command "skillgrid-cli present" "test -f \"$SCRIPT_DIR/skillgrid-cli/tsconfig.json\"" "build dashboard via skillgrid-cli (skillgrid serve)"
+    sanity_check_command "sdd-gate.sh syntax" "bash -n \"$SCRIPT_DIR/.skillgrid/scripts/sdd-gate.sh\"" "check SDD gate script"
+    sanity_check_command "checkpoint-record.sh syntax" "bash -n \"$SCRIPT_DIR/.skillgrid/scripts/checkpoint-record.sh\"" "check checkpoint script"
 
     echo ""
     if [ "$SANITY_FAILURES" -eq 0 ]; then
@@ -1825,7 +1829,11 @@ sdd_detect_phase() {
   local prefix="openspec/changes/${change_name}/"
   local staged
   staged="$(git diff --cached --name-only -- "${prefix}" 2>/dev/null || true)"
-  if echo "$staged" | grep -qE 'tasks\.md$'; then
+  if echo "$staged" | grep -qE 'reviews/.*\.md$'; then
+    echo "review"
+  elif echo "$staged" | grep -qE 'verify-report\.md$'; then
+    echo "verify"
+  elif echo "$staged" | grep -qE 'tasks\.md$'; then
     echo "apply"
   elif echo "$staged" | grep -qE 'design\.md$'; then
     echo "design"
