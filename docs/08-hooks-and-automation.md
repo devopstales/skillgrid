@@ -53,11 +53,11 @@ Refresh automation is intended for shell commands matching:
 1. Keep hook logic deduplicated under `.agents/hooks/`.
 2. Surface-specific files should be thin wrappers/config only.
 3. Hook failures should not block user workflow unless explicitly set to fail-closed.
-4. Any hook behavior change must be reflected in this file and in `100-ide-configs.md`.
+4. Any hook behavior change must be reflected in this file and in `17-ide-configs.md`.
 
 ## Related Documents
 
 - `01-installation.md`
 - `02-workflow-usage.md`
-- `13-memory-and-indexing.md`
-- `100-ide-configs.md`
+- `12-memory-and-indexing.md`
+- `17-ide-configs.md`

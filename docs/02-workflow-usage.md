@@ -19,7 +19,8 @@ During initialization, decide:
 - PRD workflow: default statuses, provider-style statuses, imported statuses, or custom statuses.
 - Index refresh policy: initialize and explicitly refresh GitNexus/ccc indexes during `/sdd-init`.
 - Optional persistent memory: Engram.
-- Skill registry: `.skillgrid/project/SKILL_REGISTRY.md` for compact rules used in subagent prompts (refresh when skills under `.agents/skills/` change; see `docs/13-memory-and-indexing.md`).
+- Skill registry: `.skillgrid/project/SKILL_REGISTRY.md` for compact rules used in subagent prompts (refresh when skills under `.agents/skills/` change; see `docs/12-memory-and-indexing.md`).
+- Harness config: `.skillgrid/config.json` — see `docs/04-config-reference.md`.
 
 The recommended default for most users is a hybrid model: keep reviewable files in the repository and save concise durable memory summaries.
 
@@ -140,7 +141,7 @@ Treat the PRD and OpenSpec artifacts as the destination: they define what done m
 
 Before apply (after the apply gate), after each `/sdd-loop` iteration, on verify pass, and before archive, the coordinator runs `.skillgrid/scripts/checkpoint-record.sh` so the repo records branch, SHA, and phase-bound evidence. That gives the next agent a git-anchored resume point without relying on chat history.
 
-See **[Checkpoints (Tier 1)](18-checkpoints.md)** for flags, log format, triggers, and dashboard behavior. The journey should be a Kanban/DAG of independently grabbable slices, not only a linear checklist. Record `blockedBy` and `unblocks` relationships so independent work can be grouped into safe dependency waves.
+See **[Checkpoints (Tier 1)](14-checkpoints.md)** for flags, log format, triggers, and dashboard behavior. The journey should be a Kanban/DAG of independently grabbable slices, not only a linear checklist. Record `blockedBy` and `unblocks` relationships so independent work can be grouped into safe dependency waves.
 
 ## Smart Zone And Context Rot
 
@@ -210,7 +211,7 @@ for controlled implementation from an approved task list.
 
 `/sdd-loop` is the **Ralph loop orchestrator**: one AFK task per invocation (`plan → delegate to /sdd-apply → reflect → stop`). Use it as the default AFK continuation entrypoint. For unattended runs: `.skillgrid/scripts/sdd-ralph-loop.sh <change> [max]`.
 
-Full guide: **[SDD Ralph Loop](10-sdd-ralph-loop.md)**.
+Full guide: **[SDD Ralph Loop](11-sdd-ralph-loop.md)**.
 
 Use `/sdd-apply` directly when you want a **single session** to chew through many tasks (sequential subagents, full pipeline) without the per-iteration Ralph controller.
 
@@ -284,7 +285,7 @@ Durable state:
 - handoff in `.skillgrid/tasks/context_<change-id>.md`;
 - JSONL events in `.skillgrid/tasks/events/<change-id>.jsonl`.
 
-For the full multi-agent operating model, see `08-multi-agent-work.md`. It covers personas, dependency waves, handoff and event logs, the subagent orchestration skill, parallel branch lanes, and parallelism rules.
+For the full multi-agent operating model, see `09-multi-agent-work.md`. It covers personas, dependency waves, handoff and event logs, the subagent orchestration skill, parallel branch lanes, and parallelism rules.
 
 CI-ready default progression is verify-first:
 

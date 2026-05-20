@@ -69,8 +69,8 @@ The result is less prompt babysitting and more deliberate progress. Agents can m
 | **Intent-driven development** | The workflow starts from durable user intent: goals, scope, constraints, and success criteria. Shared understanding and specs translate that intent into plans and slices so implementation stays aligned with what “done” means—not only with files changed. |
 | **Verification-Driven Development (VDD)** | |
 | **User validation** | Explicit checks: spec alignment, review gates, test evidence, security passes, not silent merge-by-default. |
-| **Build Loop** | A controlled `/sdd-loop` iteration that advances one safe `[AFK]` slice, records evidence, then reassesses before continuing or stopping. See `docs/10-sdd-ralph-loop.md`. |
-| **Agentic pipeline** | Command-driven phases (`/sdd-init`, `/sdd-explore`, `/sdd-brainstorm`, `/sdd-loop`, `/sdd-apply`, `/sdd-verify`, `/sdd-review`, `/sdd-archive`) with tools and skills attached, not one long autonomous chat. Optional `/sdd-openspec-git` for git gates; ADRs during `sdd-design` or `/sdd-explore` — see `docs/04-commands-reference.md`. |
+| **Build Loop** | A controlled `/sdd-loop` iteration that advances one safe `[AFK]` slice, records evidence, then reassesses before continuing or stopping. See `docs/11-sdd-ralph-loop.md`. |
+| **Agentic pipeline** | Command-driven phases (`/sdd-init`, `/sdd-explore`, `/sdd-brainstorm`, `/sdd-loop`, `/sdd-apply`, `/sdd-verify`, `/sdd-review`, `/sdd-archive`) with tools and skills attached, not one long autonomous chat. Optional `/sdd-openspec-git` for git gates; ADRs during `sdd-design` or `/sdd-explore` — see `docs/05-commands-reference.md`. |
 | **Harness** | The configured layer around the model: rules, skills, MCP, memory, indexing, handoff paths, UI, so behavior is repeatable and auditable. |
 | **Artifacts over transcripts** | PRDs, OpenSpec changes, handoff markdown, logs, and checkpoints are the system of record; chat is ephemeral. |
 | **Norse persona dispatch** | Per SDD phase, the coordinator dispatches persona+capability subagents (see each `sdd-<phase>/SKILL.md`); parent/user/spec remains authoritative. No separate persona-board commands. |
@@ -102,21 +102,22 @@ Read the files in this folder in numeric order:
 2. `01-installation.md` explains what gets installed and where.
 3. `02-workflow-usage.md` explains how a new user should operate the system.
 4. `03-skillgrid-logic.md` explains PRD/INDEX/OpenSpec hierarchy and **`.skillgrid/templates/`** file blanks.
-5. `04-commands-reference.md` explains the workflow commands.
-6. `05-skills.md` explains reusable agent skills.
-7. `06-rules-and-governance.md` explains where project rules live and how they are maintained.
-8. `07-hooks-and-automation.md` explains shared hooks and automation policy.
-9. `08-multi-agent-work.md` explains subagents, personas, dependency waves, handoff/event logs, orchestration, and parallelism.
-10. `09-subagent-personas.md` explains the specialist persona catalog.
-11. `10-sdd-ralph-loop.md` explains the Ralph build loop (`/sdd-loop`, AFK driver, vs `/sdd-apply`).
-12. `11-mcp-servers.md` explains external tool connections.
-13. `12-ide-configs.md` explains IDE layout and command paths per surface.
-14. `13-memory-and-indexing.md` explains durable context and codebase search.
-15. `14-ticketing-integrations.md` explains local and external work tracking.
-16. `15-webui.md` explains the local dashboard.
-17. `16-validation.md` explains verification gates and quality checks.
-18. `17-external-tools.md` explains optional third-party CLIs and integrations.
-19. `18-checkpoints.md` explains Tier 1 operational checkpoints (`checkpoint-record.sh`, SDD triggers, log format).
+5. `04-config-reference.md` explains **`.skillgrid/config.json`** (gates, PRD workflow, TDD, review, archive).
+6. `05-commands-reference.md` explains the workflow commands.
+7. `06-skills.md` explains reusable agent skills.
+8. `07-rules-and-governance.md` explains where project rules live and how they are maintained.
+9. `08-hooks-and-automation.md` explains shared hooks and automation policy.
+10. `09-multi-agent-work.md` explains subagents, personas, dependency waves, handoff/event logs, orchestration, and parallelism.
+11. `10-subagent-personas.md` explains the specialist persona catalog.
+12. `11-sdd-ralph-loop.md` explains the Ralph build loop (`/sdd-loop`, AFK driver, vs `/sdd-apply`).
+13. `12-memory-and-indexing.md` explains durable context and codebase search.
+14. `13-mcp-servers.md` explains MCP server connections.
+15. `14-checkpoints.md` explains Tier 1 operational checkpoints (`checkpoint-record.sh`, SDD triggers, log format).
+16. `15-ticketing-integrations.md` explains local and external work tracking.
+17. `16-review-artifacts.md` explains verify/review artifact paths and gate outputs.
+18. `17-ide-configs.md` explains IDE layout and command paths per surface.
+19. `18-webui.md` explains the local dashboard.
+20. `19-external-tools.md` explains optional third-party CLIs and integrations (**last**).
 
 ## First Mental Model
 

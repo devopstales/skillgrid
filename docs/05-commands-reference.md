@@ -19,7 +19,7 @@ This document lists every slash command, what it does, and which skills it uses.
 | `/sdd-diagnose <bug>` | Specialist | **4-phase systematic debugging:** reproduce → isolate → root cause → fix → verify |
 | `/sdd-openspec-git` | Gate | OpenSpec git discipline gates |
 
-**Norse personas** are not separate commands. The coordinator dispatches them per phase — see **`sdd-<phase>/SKILL.md`** (section *Norse persona invocations*) and **`sdd-persona-delegation.md`**. Guide: **`docs/09-subagent-personas.md`**.
+**Norse personas** are not separate commands. The coordinator dispatches them per phase — see **`sdd-<phase>/SKILL.md`** (section *Norse persona invocations*) and **`sdd-persona-delegation.md`**. Guide: **`docs/10-subagent-personas.md`**.
 
 ---
 
@@ -127,7 +127,7 @@ When invoked **from `/sdd-loop`**, it implements **only the one task** named in 
 
 **Phase:** Build — Ralph loop (orchestrator only)
 
-**Full documentation:** [SDD Ralph Loop](10-sdd-ralph-loop.md)
+**Full documentation:** [SDD Ralph Loop](11-sdd-ralph-loop.md)
 
 **What it does:** Runs **one iteration** per invocation ([Ralph pattern](https://ghuntley.com/ralph/)): pick the next `[Label: AFK]` task from `tasks.md`, delegate it to `/sdd-apply` with explicit single-task scope, append learnings to `ralph-loop-state.md` / `progress.txt`, then **stop**. Does not write application code.
 
@@ -424,7 +424,7 @@ Located in `.skillgrid/scripts/` (see [scripts README](../.skillgrid/scripts/REA
 
 | Script | Purpose |
 |--------|---------|
-| `checkpoint-record.sh` | Tier 1 checkpoint — see [Checkpoints](18-checkpoints.md) (`skillgrid checkpoint` wraps this) |
+| `checkpoint-record.sh` | Tier 1 checkpoint — see [Checkpoints](14-checkpoints.md) (`skillgrid checkpoint` wraps this) |
 | `validate-task-labels.sh` | Validates `[Label: AFK|HITL]` and `[Budget: safe|RISK]` in tasks.md |
 | `preview.sh` | Scaffolds preview artifacts for UI design |
 | `handoff-create.sh` | Creates a new handoff record |

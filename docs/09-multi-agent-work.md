@@ -41,7 +41,7 @@ Norse personas are **stateless capability packs**. Bindings live in each **`sdd-
 - Session **coordinator** — orchestration and merge (OpenCode may use agent name `odin`; not a persona slot).
 - `kvasir`, `mimir`, `thor`, `tyr`, `heimdall`, `frigg`, `loki`, `bragi`, `vidar` — dispatched per phase skill.
 
-Full catalog and hard gates: **`09-subagent-personas.md`**.
+Full catalog and hard gates: **`10-subagent-personas.md`**.
 
 ## Handoff And Event Logs
 

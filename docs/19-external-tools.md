@@ -91,7 +91,7 @@ set -g @opensessions-width "30"
 
 ### Skillgrid dashboard integration
 
-When you run `skillgrid serve` from skillgrid-cli, the local dashboard **Agents** tab subscribes to the same OpenSessions WebSocket feed. Sessions whose working directory matches the repo root appear under **This repository**; others appear under **Other sessions**. See [Web UI — Agents view](15-webui.md#agents-view-opensessions).
+When you run `skillgrid serve` from skillgrid-cli, the local dashboard **Agents** tab subscribes to the same OpenSessions WebSocket feed. Sessions whose working directory matches the repo root appear under **This repository**; others appear under **Other sessions**. See [Web UI — Agents view](18-webui.md#agents-view-opensessions).
 
 If the sidebar server is not running, the dashboard still works for PRDs, handoffs, and events — only live agent status is unavailable.
 
@@ -391,7 +391,7 @@ Outputs a 400KB-1MB HTML file with force-directed graph, node hover details, Pag
 **License:** MIT  
 **Stack:** Bun runtime, OpenTUI
 
-> **Skillgrid’s built-in loop:** For OpenSpec/SDD projects, use native [`/sdd-loop`](10-sdd-ralph-loop.md) and `.skillgrid/scripts/sdd-ralph-loop.sh` — not ralph-tui. Ralph TUI is optional when you want beads or `prd.json` trackers.
+> **Skillgrid’s built-in loop:** For OpenSpec/SDD projects, use native [`/sdd-loop`](11-sdd-ralph-loop.md) and `.skillgrid/scripts/sdd-ralph-loop.sh` — not ralph-tui. Ralph TUI is optional when you want beads or `prd.json` trackers.
 
 ### Purpose
 
@@ -679,6 +679,84 @@ Keys while Ralph is running:
 
 ---
 
+## 4. TrueCourse
+
+**Repo:** [truecourse-ai/truecourse](https://github.com/truecourse-ai/truecourse)  
+**License:** MIT  
+**CLI:** `npx -y truecourse` (Node.js >= 20)
+
+### Purpose
+
+TrueCourse analyzes architecture and code intelligence: circular dependencies, layer violations, dead modules, security anti-patterns, and 1,200+ deterministic rules (JavaScript, TypeScript, Python). LLM-powered rules are optional (requires `claude` on PATH).
+
+### Installation
+
+```bash
+npm install -g truecourse
+# or per-run:
+npx -y truecourse analyze --no-llm
+```
+
+Skillgrid `install.sh -t` can install the global CLI. Sanity check: `command -v truecourse || command -v npx`.
+
+### Baseline (required for diff + hooks)
+
+On **`main`**:
+
+```bash
+npx -y truecourse analyze --no-llm
+git add .truecourse/LATEST.json .truecourse/config.json
+git commit -m "chore: truecourse baseline"
+```
+
+Commit only from `main` — feature branches should use `--diff`, not update `LATEST.json`.
+
+### Skillgrid skills
+
+| Skill | Role |
+| --- | --- |
+| `truecourse-review` | **SDD `/sdd-review` Stage B** — script-backed diff analyze + list |
+| `truecourse-analyze` | Interactive full/diff analysis |
+| `truecourse-list` | Paginated violations |
+| `truecourse-fix` | Apply suggested fixes |
+| `truecourse-hooks` | Pre-commit hook (`critical`/`high` block) |
+
+**Stage B script:**
+
+```bash
+.skillgrid/scripts/run-truecourse-review.sh --change <change-id> --no-llm
+```
+
+Artifacts: `.agents/reviews/<change>/truecourse-*.txt` — see [16-review-artifacts.md](16-review-artifacts.md).
+
+### Configuration
+
+`.skillgrid/config.json`:
+
+```json
+"review": {
+  "architecture": {
+    "truecourse_enabled": false,
+    "truecourse_mode": "diff",
+    "truecourse_llm": false,
+    "fail_on_new_violations": true,
+    "min_severity_to_fail": "high"
+  }
+}
+```
+
+Enable with `"truecourse_enabled": true` or `/sdd-review --architecture`.
+
+### Integration with SDD
+
+```
+/sdd-verify → /sdd-review (Stage B: truecourse-review) → /sdd-archive
+```
+
+Optional: `truecourse hooks install` for local commit blocking (slower commits). Bypass: `git commit --no-verify`.
+
+---
+
 ## Tool Comparison Matrix
 
 | Need | Best tool |
@@ -690,3 +768,5 @@ Keys while Ralph is running:
 | AI-ready task triage | `bv --robot-triage` |
 | Multi-epic parallel execution | `ralph-tui --parallel` |
 | Full workflow | `bv` (plan) + `ralph-tui` (execute) + `opensessions` (observe) |
+| Architecture / layer violations on a change | `truecourse-review` (via `/sdd-review --architecture`) |
+| Interactive architecture scan | `npx -y truecourse analyze` + `truecourse-analyze` skill |

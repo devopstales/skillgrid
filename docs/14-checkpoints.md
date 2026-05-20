@@ -199,7 +199,7 @@ The local dashboard reads `checkpoints.log` only (no live git calls).
 | **Issue detail** | Checkpoints filtered by `change`, `prd`, or `context` path |
 | **Agents** tab | All checkpoints (with handoff logs and timeline) |
 
-Start the UI: `skillgrid serve` (skillgrid-cli). Details: [Web UI](15-webui.md).
+Start the UI: `skillgrid serve` (skillgrid-cli). Details: [Web UI](18-webui.md).
 
 ---
 
@@ -275,6 +275,6 @@ Start the UI: `skillgrid serve` (skillgrid-cli). Details: [Web UI](15-webui.md).
 
 - [Skillgrid logic — execution model](03-skillgrid-logic.md) — linear single-clone workflow
 - [Workflow usage](02-workflow-usage.md) — handoff, events, journey vs destination
-- [Commands reference — utility scripts](04-commands-reference.md#utility-scripts)
-- [Skills — skillgrid-checkpoints](05-skills.md)
-- [Web UI](15-webui.md)
+- [Commands reference — utility scripts](05-commands-reference.md#utility-scripts)
+- [Skills — skillgrid-checkpoints](06-skills.md)
+- [Web UI](18-webui.md)

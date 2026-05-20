@@ -83,6 +83,6 @@ Persona subagents add to the SDD envelope: `persona`, `capability`, `findings_se
 
 ## Related reading
 
-- `04-commands-reference.md` — SDD commands
+- `05-commands-reference.md` — SDD commands
 - `02-workflow-usage.md` — main workflow
-- `08-multi-agent-work.md` — delegation model
+- `09-multi-agent-work.md` — delegation model

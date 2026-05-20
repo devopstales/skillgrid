@@ -63,7 +63,7 @@ New `SKILL.md` files should follow the shared scaffold: **`.agents/skills/_share
 
 ### Spec, Architecture, And Git Discipline (Intent-driven style)
 
-Adapted from [intent-driven-template](https://github.com/intent-driven-dev/intent-driven-template/tree/main/.agents/skills) (`grill-me` not vendored here). Slash workflows: **`docs/04-commands-reference.md`** (quick reference, per-command detail, workflow diagram).
+Adapted from [intent-driven-template](https://github.com/intent-driven-dev/intent-driven-template/tree/main/.agents/skills) (`grill-me` not vendored here). Slash workflows: **`docs/05-commands-reference.md`** (quick reference, per-command detail, workflow diagram).
 
 These complement OpenSpec / SDD without replacing phase skills:
 
@@ -80,7 +80,7 @@ These complement OpenSpec / SDD without replacing phase skills:
 
 ### Skillgrid artifact skills
 
-- `skillgrid-checkpoints` — Tier 1 operational checkpoints: `checkpoint-record.sh` / `skillgrid checkpoint`; updates `checkpoints.log`, handoff **Last checkpoint**, and `node: checkpoint` events. Mandatory triggers: `before-apply`, `after-loop`, `verify-pass`, `pre-archive`, `handoff-create`. Doc: [18-checkpoints.md](18-checkpoints.md).
+- `skillgrid-checkpoints` — Tier 1 operational checkpoints: `checkpoint-record.sh` / `skillgrid checkpoint`; updates `checkpoints.log`, handoff **Last checkpoint**, and `node: checkpoint` events. Mandatory triggers: `before-apply`, `after-loop`, `verify-pass`, `pre-archive`, `handoff-create`. Doc: [checkpoints.md](14-checkpoints.md).
 - `skillgrid-vertical-slices` — helps split work into independently testable slices; task templates may name slice-level checkpoints.
 
 ### Parallel delegation (sub-agents)
@@ -155,10 +155,11 @@ These provide project-specific quality and boundary rules when changes touch tho
 
 External analysis tools integrated into quality review:
 
-- `truecourse-analyze` — runs TrueCourse repository architecture analysis; produces baseline and diff of violations (circular deps, layer violations, missing abstractions). Used by `sdd-review` when architecture checking enabled.
-- `truecourse-list` — lists TrueCourse violations with filtering, paging; shows new and resolved since baseline.
-- `truecourse-fix` — applies automated fixes for some TrueCourse violations (where available).
-- `truecourse-hooks` — installs and manages pre-commit hook that blocks new violations.
+- `truecourse-review` — **SDD Stage B:** runs `npx truecourse analyze --diff` + `list --diff` via `.skillgrid/scripts/run-truecourse-review.sh`; writes review artifacts. Used by `sdd-review` when `review.architecture.truecourse_enabled`.
+- `truecourse-analyze` — interactive full or diff analysis ([truecourse-ai/truecourse](https://github.com/truecourse-ai/truecourse)).
+- `truecourse-list` — paginated violation listing (full or diff).
+- `truecourse-fix` — applies automated fixes where TrueCourse provides a `Fix:` block.
+- `truecourse-hooks` — pre-commit hook install/status (`truecourse hooks install`).
 - `trivy` (MCP) — vulnerability scanner for dependencies, secrets, and misconfigurations. Invoked as MCP tool `trivy_scan_filesystem`, `trivy_scan_image`, `trivy_scan_repository`. Integrated into `sdd-review` security stage.
 
 ## Why Skills Matter

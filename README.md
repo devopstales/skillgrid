@@ -87,7 +87,7 @@ AISkillGrid is a local-first operating layer for AI-assisted development. It tur
 
 ## High Council
 
-Specialist **Norse** personas are delegated viewpoints—not owners of the workflow. The **session coordinator** merges reports; bindings are in each **`sdd-<phase>/SKILL.md`**. **`tyr`** and **`heimdall`** can **hard-gate** on critical findings. Details: [`subagent-personas`](docs/09-subagent-personas.md).
+Specialist **Norse** personas are delegated viewpoints—not owners of the workflow. The **session coordinator** merges reports; bindings are in each **`sdd-<phase>/SKILL.md`**. **`tyr`** and **`heimdall`** can **hard-gate** on critical findings. Details: [`subagent-personas`](docs/10-subagent-personas.md).
 
 | Persona | Job |
 | --- | --- |
@@ -119,23 +119,24 @@ Specialist **Norse** personas are delegated viewpoints—not owners of the workf
 |-----|----------|
 | [docs/00-start-here.md](docs/00-start-here.md) | Start-here overview and manifesto: human-in-the-loop pipelines, spec-driven guidance |
 | [docs/01-installation.md](docs/01-installation.md) | Install toolchain and workflow CLIs |
-| [docs/02-workflow-usage.md](docs/02-workflow-usage.md) | Skillgrid phases, `.skillgrid/config.json`, PRD and OpenSpec handoff |
+| [docs/02-workflow-usage.md](docs/02-workflow-usage.md) | Skillgrid phases, PRD and OpenSpec handoff |
 | [docs/03-skillgrid-logic.md](docs/03-skillgrid-logic.md) | PRD/INDEX/OpenSpec hierarchy and `.skillgrid/templates/` blanks |
-| [docs/04-commands-reference.md](docs/04-commands-reference.md) | Slash commands and where they live per IDE |
-| [docs/05-skills.md](docs/05-skills.md) | Catalog of all skills with paths and summaries |
-| [docs/06-rules-and-governance.md](docs/06-rules-and-governance.md) | Where project rules live and how they are maintained |
-| [docs/07-hooks-and-automation.md](docs/07-hooks-and-automation.md) | Shared hooks and automation policy |
-| [docs/08-multi-agent-work.md](docs/08-multi-agent-work.md) | Subagents, personas, dependency waves, handoff/event logs |
-| [docs/09-subagent-personas.md](docs/09-subagent-personas.md) | Specialist persona catalog |
-| [docs/10-sdd-ralph-loop.md](docs/10-sdd-ralph-loop.md) | Ralph build loop (`/sdd-loop`, AFK driver) |
-| [docs/11-mcp-servers.md](docs/11-mcp-servers.md) | MCP server connections |
-| [docs/12-ide-configs.md](docs/12-ide-configs.md) | IDE layout and command paths per surface |
-| [docs/13-memory-and-indexing.md](docs/13-memory-and-indexing.md) | Durable context and codebase search |
-| [docs/14-ticketing-integrations.md](docs/14-ticketing-integrations.md) | Local and external work tracking |
-| [docs/15-webui.md](docs/15-webui.md) | Local web dashboard |
-| [docs/16-validation.md](docs/16-validation.md) | Verification gates and quality checks |
-| [docs/17-external-tools.md](docs/17-external-tools.md) | Optional third-party CLIs and integrations |
-| [docs/18-checkpoints.md](docs/18-checkpoints.md) | Tier 1 operational checkpoints (log, handoff, events, SDD triggers) |
+| [docs/04-config-reference.md](docs/04-config-reference.md) | `.skillgrid/config.json` — workflow gates, PRD board, TDD, verify/review |
+| [docs/05-commands-reference.md](docs/05-commands-reference.md) | Slash commands and where they live per IDE |
+| [docs/06-skills.md](docs/06-skills.md) | Catalog of all skills with paths and summaries |
+| [docs/07-rules-and-governance.md](docs/07-rules-and-governance.md) | Where project rules live and how they are maintained |
+| [docs/08-hooks-and-automation.md](docs/08-hooks-and-automation.md) | Shared hooks and automation policy |
+| [docs/09-multi-agent-work.md](docs/09-multi-agent-work.md) | Subagents, personas, dependency waves, handoff/event logs |
+| [docs/10-subagent-personas.md](docs/10-subagent-personas.md) | Specialist persona catalog |
+| [docs/11-sdd-ralph-loop.md](docs/11-sdd-ralph-loop.md) | Ralph build loop (`/sdd-loop`, AFK driver) |
+| [docs/12-memory-and-indexing.md](docs/12-memory-and-indexing.md) | Durable context and codebase search |
+| [docs/13-mcp-servers.md](docs/13-mcp-servers.md) | MCP server connections |
+| [docs/14-checkpoints.md](docs/14-checkpoints.md) | Tier 1 operational checkpoints (log, handoff, events, SDD triggers) |
+| [docs/15-ticketing-integrations.md](docs/15-ticketing-integrations.md) | Local and external work tracking |
+| [docs/16-review-artifacts.md](docs/16-review-artifacts.md) | Verify/review artifact paths and merge gates |
+| [docs/17-ide-configs.md](docs/17-ide-configs.md) | IDE layout and command paths per surface |
+| [docs/18-webui.md](docs/18-webui.md) | Local web dashboard |
+| [docs/19-external-tools.md](docs/19-external-tools.md) | Optional third-party CLIs and integrations |
 
 ---
 

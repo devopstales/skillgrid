@@ -13,7 +13,7 @@ Then open the local address printed by the server (common default `127.0.0.1:878
 
 Script inventory: [.skillgrid/scripts/README.md](../.skillgrid/scripts/README.md) (dashboard is not a script in that folder).
 
-For **terminal** beads triage and graph-aware task ranking, use [beads_viewer](17-external-tools.md) (`bv`) — Skillgrid does not ship a built-in CLI TUI.
+For **terminal** beads triage and graph-aware task ranking, use [beads_viewer](19-external-tools.md) (`bv`) — Skillgrid does not ship a built-in CLI TUI.
 
 ## Why The Web UI Exists
 
@@ -99,7 +99,7 @@ This is the view to use when asking, “Can the agent keep going, or does a huma
 
 ## Agents View (OpenSessions)
 
-The **Agents** tab shows live coding-agent status from [opensessions](17-external-tools.md) when the tmux sidebar server is running.
+The **Agents** tab shows live coding-agent status from [opensessions](19-external-tools.md) when the tmux sidebar server is running.
 
 It helps answer:
 
@@ -147,6 +147,24 @@ Typical local source:
 
 This gives users a quick way to jump from workflow state into codebase structure, impact analysis, and graph-aware exploration.
 
+## TrueCourse View
+
+The Skillgrid dashboard bundles the [TrueCourse](https://github.com/truecourse-ai/truecourse) web UI at `/truecourse/` (build: `npm run build:truecourse` in `skillgrid-cli`). The UI talks to the TrueCourse API server on port **3001** (CORS-enabled); start it separately:
+
+```bash
+npm install -g truecourse
+truecourse analyze          # once per repo — creates .truecourse/
+truecourse dashboard --service   # or --console
+```
+
+Then open the **TrueCourse** tab in Skillgrid, or visit `http://<skillgrid-host>:<port>/truecourse/`. Override the API host/port with `SKILLGRID_TRUECOURSE_HOST` and `SKILLGRID_TRUECOURSE_PORT` when starting `skillgrid serve`.
+
+Typical local source:
+
+```text
+.truecourse/
+```
+
 ## Data Sources
 
 The dashboard reads files that already belong to the Skillgrid workflow:
@@ -159,6 +177,7 @@ The dashboard reads files that already belong to the Skillgrid workflow:
 | `.skillgrid/tasks/research/<change-id>/` | Reports and research artifacts |
 | `.skillgrid/preview/` | Preview links |
 | `.gitnexus/` | GitNexus view and graph status |
+| `.truecourse/` | TrueCourse architecture analysis and violations |
 | `.engram/manifest.json` | Engram export counts, when team memory sync is used |
 | `.skillgrid/project/SKILL_REGISTRY.md` | Skill registry availability and skill count |
 | OpenSessions WebSocket (`127.0.0.1:7391`) | Agents tab — live tmux session and agent status |
@@ -168,7 +187,7 @@ No separate database is required for the core local dashboard model.
 
 ### Checkpoints in the UI
 
-Operational checkpoints are documented in **[Checkpoints (Tier 1)](18-checkpoints.md)**. The dashboard **reads only** `checkpoints.log` (it does not run `checkpoint-record.sh`).
+Operational checkpoints are documented in **[Checkpoints (Tier 1)](14-checkpoints.md)**. The dashboard **reads only** `checkpoints.log` (it does not run `checkpoint-record.sh`).
 
 | Location | Behavior |
 |----------|----------|

@@ -2,10 +2,10 @@
 
 The **SDD Ralph loop** is Skillgrid’s native implementation of the [Ralph pattern](https://ghuntley.com/ralph/): run the same bounded workflow repeatedly with **fresh agent context** each time, persisting memory only through **files and git**, not chat history.
 
-It is **not** a dependency on [PortableRalph](https://github.com/aaron777collins/portableralph), [snarktank/ralph](https://github.com/snarktank/ralph), or [ralph-tui](https://ralph-tui.com) — those are related tools you may use alongside Skillgrid (see [External tools](17-external-tools.md)). This document describes Skillgrid’s `/sdd-loop` command and `.skillgrid/scripts/sdd-ralph-loop.sh` driver only.
+It is **not** a dependency on [PortableRalph](https://github.com/aaron777collins/portableralph), [snarktank/ralph](https://github.com/snarktank/ralph), or [ralph-tui](https://ralph-tui.com) — those are related tools you may use alongside Skillgrid (see [External tools](19-external-tools.md)). This document describes Skillgrid’s `/sdd-loop` command and `.skillgrid/scripts/sdd-ralph-loop.sh` driver only.
 
 **Canonical workflow (for agents):** `.agents/workflows/sdd-loop.md`  
-**Command reference (summary):** [Commands reference — `/sdd-loop`](04-commands-reference.md#sdd-loop-change-name)
+**Command reference (summary):** [Commands reference — `/sdd-loop`](05-commands-reference.md#sdd-loop-change-name)
 
 ---
 
@@ -64,7 +64,7 @@ Before starting a loop on a change:
 2. **Tasks are loop-sized** — each AFK item should fit one context window ([snarktank/ralph](https://github.com/snarktank/ralph) “right-sized stories”: column + migration, not “build entire dashboard”).
 3. **Labels** — implementable items use `[Label: AFK]`; human decisions use `[Label: HITL]` (never picked by the loop).
 4. **Git repo** — commits are part of cross-iteration memory.
-5. **Gates installed** (optional but recommended) — `install.sh` or `skillgrid install` can install `sdd-gate` pre-commit/pre-push hooks; see [Hooks and automation](07-hooks-and-automation.md).
+5. **Gates installed** (optional but recommended) — `install.sh` or `skillgrid install` can install `sdd-gate` pre-commit/pre-push hooks; see [Hooks and automation](08-hooks-and-automation.md).
 
 ---
 
@@ -186,7 +186,7 @@ Before delegating to `/sdd-apply`, the orchestrator runs:
 .skillgrid/scripts/sdd-gate.sh apply --change <name>
 ```
 
-Git hooks (when installed via `install.sh` / `skillgrid install`) can also enforce gates on commit/push for OpenSpec changes. See [Hooks and automation](07-hooks-and-automation.md).
+Git hooks (when installed via `install.sh` / `skillgrid install`) can also enforce gates on commit/push for OpenSpec changes. See [Hooks and automation](08-hooks-and-automation.md).
 
 ---
 
@@ -210,7 +210,7 @@ When `/sdd-loop` calls `/sdd-apply`, it must pass **single-task scope**, for exa
 |------|--------------------------------|
 | [PortableRalph](https://github.com/aaron777collins/portableralph) | Same *idea* (plan file + progress + bash loop); different files and prompts. Not bundled. |
 | [snarktank/ralph](https://github.com/snarktank/ralph) | `prd.json` + `progress.txt` + `ralph.sh`; Skillgrid uses OpenSpec `tasks.md` + `ralph-loop-state.md`. |
-| [ralph-tui](https://ralph-tui.com) | Separate orchestrator with beads/PRD trackers; see [External tools § ralph-tui](17-external-tools.md). Can complement SDD but does not replace `/sdd-loop`. |
+| [ralph-tui](https://ralph-tui.com) | Separate orchestrator with beads/PRD trackers; see [External tools § ralph-tui](19-external-tools.md). Can complement SDD but does not replace `/sdd-loop`. |
 
 ---
 
@@ -242,8 +242,8 @@ git log --oneline -10
 ## Further reading
 
 - [Workflow usage — During implementation](02-workflow-usage.md#during-implementation)
-- [Commands reference — `/sdd-loop`](04-commands-reference.md#sdd-loop-change-name)
-- [Commands reference — `/sdd-apply`](04-commands-reference.md#sdd-apply-change-name)
-- [Multi-agent work](08-multi-agent-work.md) — handoff and event conventions
+- [Commands reference — `/sdd-loop`](05-commands-reference.md#sdd-loop-change-name)
+- [Commands reference — `/sdd-apply`](05-commands-reference.md#sdd-apply-change-name)
+- [Multi-agent work](09-multi-agent-work.md) — handoff and event conventions
 - [Geoffrey Huntley — Ralph](https://ghuntley.com/ralph/)
 - [Getting Started With Ralph](https://www.aihero.dev/getting-started-with-ralph)

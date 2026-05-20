@@ -50,7 +50,7 @@ graph TB
   sdd_diagnose --> sdd_archive
 ```
 
-**Planning detail:** `/sdd-brainstorm` orchestrates clarify → propose → spec → design → PRD → tasks (and optional UI design). `/sdd-explore` and the brainstorm explore step run **`deep-research`** (web search before codebase reads). Persona dispatch is per phase skill — see `docs/09-subagent-personas.md`.
+**Planning detail:** `/sdd-brainstorm` orchestrates clarify → propose → spec → design → PRD → tasks (and optional UI design). `/sdd-explore` and the brainstorm explore step run **`deep-research`** (web search before codebase reads). Persona dispatch is per phase skill — see `docs/10-subagent-personas.md`.
 
 ## Execution model: linear, single clone
 
@@ -62,13 +62,13 @@ Skillgrid’s default SDD path is a **linear, non-parallel, single-agent workflo
 
 **What still uses subagents:** Norse personas and skills such as `parallel-delegate` may dispatch **read-only or report-only** subagents (research, review, recon). Those return artifacts under `.skillgrid/tasks/research/`; the coordinator merges them and continues on the **same** tree. They are not a substitute for parallel implementation branches.
 
-**If you need parallel coding:** use normal git branches and your own merge process outside this harness, or tools documented in `docs/17-external-tools.md` (for example `ralph-tui --parallel` with its own worktree story). That is optional and **not** the Skillgrid default.
+**If you need parallel coding:** use normal git branches and your own merge process outside this harness, or tools documented in `docs/19-external-tools.md` (for example `ralph-tui --parallel` with its own worktree story). That is optional and **not** the Skillgrid default.
 
 ## Operational checkpoints (Tier 1)
 
 Safe resume points on the **same branch** (no worktrees): each run of `checkpoint-record.sh` updates `checkpoints.log`, **Last checkpoint** in the handoff, and a JSONL timeline row. SDD triggers include **`before-apply`** (after apply gate, before code), **`after-loop`**, **`verify-pass`**, **`pre-archive`**, and **`handoff-create`**.
 
-Full reference: **[docs/18-checkpoints.md](18-checkpoints.md)**.
+Full reference: **[checkpoints.md](14-checkpoints.md)**.
 
 ## Where templates live
 
@@ -119,11 +119,12 @@ Repo-wide architectural decisions use **MADR** (Markdown Any Decision Record) fi
 
 ## Session bootstrap
 
-For session bootstrap, see **`.agents/rules/`** (coordinator rules). **Project glossary and `CONTEXT.md` policy** live in **`.skillgrid/project/CONTEXT.md`**. Configuration lives in **`.skillgrid/config.json`** (artifact store mode, PRD workflow, phase order, beads toggle). See also **`docs/02-workflow-usage.md`**.
+For session bootstrap, see **`.agents/rules/`** (coordinator rules). **Project glossary and `CONTEXT.md` policy** live in **`.skillgrid/project/CONTEXT.md`**. Harness configuration: **[`.skillgrid/config.json`](04-config-reference.md)** (full key reference). See also **[Workflow usage](02-workflow-usage.md)**.
 
 ## Related docs
 
 - [Workflow usage](02-workflow-usage.md) — commands, slices, handoff, smart zone
-- [Skills](05-skills.md) — how skills load and when to use registry
-- [Commands reference](04-commands-reference.md) — slash commands and phase skills
-- [Checkpoints](18-checkpoints.md) — Tier 1 operational checkpoints
+- [Config reference](04-config-reference.md) — `.skillgrid/config.json` keys and gates
+- [Skills](06-skills.md) — how skills load and when to use registry
+- [Commands reference](05-commands-reference.md) — slash commands and phase skills
+- [Checkpoints](14-checkpoints.md) — Tier 1 operational checkpoints

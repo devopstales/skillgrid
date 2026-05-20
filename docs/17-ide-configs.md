@@ -47,7 +47,7 @@ Hub workflow rules (modular Cursor-style `.mdc`, scope via `description` / `glob
 - `skillgrid-sdd-enforcement.mdc` — gates, labels, two-stage review
 - `skillgrid-sdd-orchestrator.mdc` — coordinator-only delegation and subagent CONTEXT protocol
 - `skillgrid-sdd-execution.mdc` — apply/loop/TDD/evidence expectations
-- Phase-bound persona dispatch — `sdd-<phase>/SKILL.md` + `sdd-persona-delegation.md` (see `docs/09-subagent-personas.md`)
+- Phase-bound persona dispatch — `sdd-<phase>/SKILL.md` + `sdd-persona-delegation.md` (see `docs/10-subagent-personas.md`)
 - `skillgrid-multiagent-handoff.mdc` — subagent parallelism and merge duty
 - `skillgrid-engram-memory.mdc` — Engram retrieval, proactive saves, session close
 - `skillgrid-communication-discipline.mdc` — honesty, pause, commits (pairs with persona rule)
