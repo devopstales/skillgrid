@@ -15,7 +15,14 @@ import type {
   ToolStatus,
   WorkflowItem
 } from "../shared/types.js";
-import { listDirectories, listFilesRecursive, readTextIfExists, slugify, toPosixRelative } from "./fs-utils.js";
+import {
+  listDirectories,
+  listFilesRecursive,
+  readTextIfExists,
+  resolveRepoRoot,
+  slugify,
+  toPosixRelative
+} from "./fs-utils.js";
 import { readOpenSessionsStatus } from "./opensessions-client.js";
 import { EMPTY_TASK_STATS, firstParagraph, parseMarkdownMetadata, parseTaskStats } from "./parsers.js";
 
@@ -24,6 +31,7 @@ export type BuildDashboardOptions = {
   /** e.g. http://127.0.0.1:5241 — used for bundled GitNexus at /gitnexus/ */
   dashboardOrigin: string;
   gitnexusUrl?: string;
+  truecourseUrl?: string;
   openspecUiUrl?: string;
   openSessionsHost?: string;
   openSessionsPort?: number;
@@ -36,7 +44,7 @@ type SkillgridConfig = {
 };
 
 export async function buildDashboardData(options: BuildDashboardOptions): Promise<DashboardData> {
-  const repoRoot = path.resolve(options.repoRoot);
+  const repoRoot = resolveRepoRoot(options.repoRoot);
   const warnings: string[] = [];
   const events = await readEvents(repoRoot, warnings);
   const previews = await readPreviews(repoRoot);
@@ -53,8 +61,11 @@ export async function buildDashboardData(options: BuildDashboardOptions): Promis
     host: options.openSessionsHost,
     port: options.openSessionsPort
   });
+  const truecourseApiUrl = (options.truecourseUrl ?? defaultTruecourseApiUrl()).replace(/\/$/, "");
   const tools = await readToolStatuses({
     gitnexusUrl: options.gitnexusUrl ?? `${origin}/gitnexus/`,
+    truecourseWebUrl: `${origin}/truecourse/`,
+    truecourseApiUrl,
     openspecUiUrl: options.openspecUiUrl ?? "http://localhost:3100",
     openSessionsUrl: openSessions.url,
     openSessionsHealthy: openSessions.healthy
@@ -573,13 +584,25 @@ function issueLane(input: {
   return input.skillgridConfig.fallbackStatus;
 }
 
+function defaultTruecourseApiUrl(): string {
+  const port = process.env.TRUECOURSE_PORT ?? process.env.SKILLGRID_TRUECOURSE_PORT ?? "3001";
+  const host = process.env.TRUECOURSE_HOST ?? process.env.SKILLGRID_TRUECOURSE_HOST ?? "127.0.0.1";
+  return `http://${host}:${port}`;
+}
+
 async function readToolStatuses(urls: {
   gitnexusUrl: string;
+  truecourseWebUrl: string;
+  truecourseApiUrl: string;
   openspecUiUrl: string;
   openSessionsUrl?: string;
   openSessionsHealthy: boolean;
 }): Promise<ToolStatus[]> {
-  const [gitnexusHealthy, openspecHealthy] = await Promise.all([isHealthy(urls.gitnexusUrl), isHealthy(urls.openspecUiUrl)]);
+  const [gitnexusHealthy, truecourseApiHealthy, openspecHealthy] = await Promise.all([
+    isHealthy(urls.gitnexusUrl),
+    isHealthy(`${urls.truecourseApiUrl.replace(/\/$/, "")}/api/health`),
+    isHealthy(urls.openspecUiUrl)
+  ]);
 
   return [
     {
@@ -589,6 +612,13 @@ async function readToolStatuses(urls: {
       healthy: gitnexusHealthy,
       startCommand:
         "Bundled under this dashboard at /gitnexus/ (build: npm run build:gitnexus in skillgrid-cli). Start the GitNexus API server separately and open /gitnexus/?server=http://127.0.0.1:4747"
+    },
+    {
+      id: "truecourse",
+      name: "TrueCourse",
+      url: urls.truecourseWebUrl,
+      healthy: truecourseApiHealthy,
+      startCommand: `npm install -g truecourse && truecourse dashboard --service (API ${urls.truecourseApiUrl}; UI bundled at /truecourse/)`
     },
     {
       id: "openspecui",

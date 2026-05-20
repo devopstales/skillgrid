@@ -1,5 +1,6 @@
 node_modules/
 dist/
+tmp/
 .tmp-testproj/
 .tmp-checkpoint-*/
 bin/skillgrid

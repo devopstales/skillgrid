@@ -203,10 +203,11 @@ export async function interactiveToolsSelection(nonInteractive: boolean, toolsIn
     console.log("  2) dmux — tmux pane manager (hub npx, or npm -g fallback)");
     console.log("  3) brave-search-cli — Brave Search CLI, bx (curl | sh from brave/brave-search-cli)");
     console.log("  4) cocoindex-code — CocoIndex Code, ccc (uv tool install --upgrade 'cocoindex-code[full]')");
+    console.log("  5) truecourse — architecture analysis CLI (npm install -g truecourse)");
     console.log("");
     console.log("  (gitnexus, engram, and context-mode are installed automatically for hub MCP — not listed here.)");
     console.log("");
-    console.log("  a — all four   |   n — none   |   e.g. 1,2 — pick by number");
+    console.log("  a — all five   |   n — none   |   e.g. 1,2 — pick by number");
     console.log("");
 
     while (true) {
@@ -217,8 +218,8 @@ export async function interactiveToolsSelection(nonInteractive: boolean, toolsIn
       }
       const lower = choice.toLowerCase();
       if (lower === "a" || lower === "all") {
-        logInfo("Optional tools: openspec, dmux, brave-search-cli, cocoindex-code (gitnexus, engram, context-mode always)");
-        return ["openspec", "dmux", "brave-search-cli", "cocoindex-code"];
+        logInfo("Optional tools: openspec, dmux, brave-search-cli, cocoindex-code, truecourse (gitnexus, engram, context-mode always)");
+        return ["openspec", "dmux", "brave-search-cli", "cocoindex-code", "truecourse"];
       }
       if (lower === "n" || lower === "no" || lower === "none" || lower === "skip") {
         logInfo("Optional tools: none");
@@ -231,6 +232,7 @@ export async function interactiveToolsSelection(nonInteractive: boolean, toolsIn
         "2": "dmux",
         "3": "brave-search-cli",
         "4": "cocoindex-code",
+        "5": "truecourse",
       };
       let bad = false;
       for (const tok of choice.split(",")) {
@@ -238,7 +240,7 @@ export async function interactiveToolsSelection(nonInteractive: boolean, toolsIn
         if (!t) continue;
         const id = map[t];
         if (!id) {
-          logWarn(`invalid index: ${t} (use 1–4, a, or n)`);
+          logWarn(`invalid index: ${t} (use 1–5, a, or n)`);
           bad = true;
           break;
         }
@@ -246,7 +248,7 @@ export async function interactiveToolsSelection(nonInteractive: boolean, toolsIn
       }
       if (bad) continue;
       if (tools.length === 0) {
-        logWarn("Pick at least one number (1–4), a for all, or n for none");
+        logWarn("Pick at least one number (1–5), a for all, or n for none");
         continue;
       }
       logInfo(`Optional tools: selected ${tools.length} tool(s)`);

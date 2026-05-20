@@ -162,6 +162,17 @@ export function installOptionalToolClis(hubRoot: string, selected: OptionalToolI
     } else logWarn("brave-search-cli: curl not found — install curl or run the install command manually");
   }
 
+  if (toolIsSelected(selected, "truecourse")) {
+    if (commandOnPath("truecourse")) logInfo("truecourse CLI already on PATH");
+    else if (dryRun) console.log("[DRY-RUN] npm install -g truecourse");
+    else if (commandOnPath("npm")) {
+      logInfo("Installing TrueCourse (npm install -g truecourse)...");
+      const r = spawnSync("npm", ["install", "-g", "truecourse"], { stdio: "inherit" });
+      if (r.status === 0) logSuccess("truecourse installed");
+      else logWarn("truecourse: npm install -g failed — see https://github.com/truecourse-ai/truecourse");
+    } else logWarn("truecourse: npm not found — install Node.js, then run: npm install -g truecourse");
+  }
+
   console.log("");
 }
 

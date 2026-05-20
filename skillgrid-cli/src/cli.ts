@@ -10,10 +10,8 @@ function printTopHelp() {
 Usage:
   skillgrid install [OPTIONS]   Install from shared hub cache (/tmp/…/skillgrid-aiskillgrid-release) → rsync
   skillgrid serve [OPTIONS]     Skillgrid Dashboard (--repo, --port, --open; see serve --help)
-  skillgrid checkpoint [OPTS]   Record Tier 1 checkpoint (docs/18-checkpoints.md)
+  skillgrid checkpoint [OPTS]   Record Tier 1 checkpoint (docs/14-checkpoints.md)
   skillgrid --help              Show this message
-
-Terminal beads triage: use beads_viewer (bv) — see docs/17-external-tools.md.
 `);
 }
 

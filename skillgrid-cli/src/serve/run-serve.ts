@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveRepoRoot } from "../dashboard/server/fs-utils.js";
 import { startDashboardServer } from "../dashboard/server/server.js";
 
 const DASHBOARD_CLIENT_INDEX = ["dist", "dashboard", "client", "index.html"] as const;
@@ -79,7 +80,7 @@ function parseServeOptions(argv: string[]): ServeOptions {
     else if (a === "--open") open = true;
     else if (a === "--dev") dev = true;
     else if (a === "--repo" && n) {
-      repoRoot = path.resolve(n);
+      repoRoot = resolveRepoRoot(n);
       i += 1;
     } else if (a === "--prd-dir" || a === "--prd_dir") {
       if (n) i += 1;
@@ -127,6 +128,11 @@ Options:
 Environment (optional):
   SKILLGRID_UI_PORT, SKILLGRID_UI_HOST
   PRD_KANBAN_PORT, PRD_KANBAN_HOST (deprecated aliases for port/host)
+  SKILLGRID_TRUECOURSE_PORT, SKILLGRID_TRUECOURSE_HOST (TrueCourse API; default 127.0.0.1:3001)
+
+Bundled tools (build with npm run build in skillgrid-cli):
+  /gitnexus/    GitNexus web UI
+  /truecourse/  TrueCourse dashboard (start API: truecourse dashboard)
 `);
 }
 
@@ -151,7 +157,11 @@ export async function runServeCommand(importMetaUrl: string, argv: string[]): Pr
   const packageRoot = resolveSkillgridCliPackageRoot(importMetaUrl);
   const clientRoot = path.join(packageRoot, "dist", "dashboard", "client");
   const gitnexusClientRoot = path.join(packageRoot, "dist", "dashboard", "gitnexus");
+  const truecourseClientRoot = path.join(packageRoot, "dist", "dashboard", "truecourse");
   const dashboardSrcRoot = opts.dev ? path.join(packageRoot, "src", "dashboard") : undefined;
+  const truecoursePort = process.env.TRUECOURSE_PORT ?? process.env.SKILLGRID_TRUECOURSE_PORT ?? "3001";
+  const truecourseHost = process.env.TRUECOURSE_HOST ?? process.env.SKILLGRID_TRUECOURSE_HOST ?? "127.0.0.1";
+  const truecourseApiUrl = `http://${truecourseHost}:${truecoursePort}`;
 
   const server = await startDashboardServer({
     repoRoot: opts.repoRoot,
@@ -160,12 +170,15 @@ export async function runServeCommand(importMetaUrl: string, argv: string[]): Pr
     dev: opts.dev,
     clientRoot,
     dashboardSrcRoot,
-    gitnexusClientRoot
+    gitnexusClientRoot,
+    truecourseClientRoot,
+    truecourseApiUrl
   });
 
   console.log(`Skillgrid Dashboard`);
   console.log(`Repo: ${opts.repoRoot}`);
   console.log(`URL:  ${server.url}`);
+  console.log(`TrueCourse UI: ${server.url}/truecourse/ (requires TrueCourse API at ${truecourseApiUrl})`);
 
   if (opts.open) openBrowser(server.url);
 

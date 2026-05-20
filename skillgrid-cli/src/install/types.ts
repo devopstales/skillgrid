@@ -5,6 +5,7 @@ export type OptionalToolId =
   | "dmux"
   | "brave-search-cli"
   | "cocoindex-code"
+  | "truecourse"
   | "gitnexus"
   | "engram"
   | "context-mode";

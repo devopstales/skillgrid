@@ -73,6 +73,9 @@ export function runSanityCheck(hubRoot: string): number {
   if (commandOnPath("bx")) sanityOk("brave-search-cli (bx)");
   else sanityFail("brave-search-cli (bx) — install from brave-search-cli");
 
+  if (commandOnPath("truecourse") || commandOnPath("npx")) sanityOk("truecourse");
+  else sanityFail("truecourse — install with: npm install -g truecourse");
+
   console.log("");
   console.log("Agent CLIs (optional; install with skillgrid install -g):");
   sanityCheckCommand("Claude Code (claude)", "command -v claude", "npm install -g @anthropic-ai/claude-code");

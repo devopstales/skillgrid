@@ -557,7 +557,7 @@ Options:
   -a, --antigravity     Setup configuration for Google Antigravity
   -A, --all, --all-ides Setup for all supported IDEs (default if none selected)
   -AA, --all-mcp        Merge every hub MCP server (skip MCP prompt; respects later --no-mcp)
-  -t, --tools           Interactive optional tools (openspec, dmux, brave-search-cli, cocoindex-code); gitnexus, engram, context-mode always
+  -t, --tools           Interactive optional tools (openspec, dmux, brave-search-cli, cocoindex-code, truecourse); gitnexus, engram, context-mode always
   -g, --agents          Interactive agent CLIs (Claude Code, OpenCode, kilo, Codex, Gemini CLI, pi)
   -d, --deps            Check and install dependencies before install
   --sanity-check        Verify hub dependencies and expected files (read-only)

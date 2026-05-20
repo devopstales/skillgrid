@@ -1,5 +1,43 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, realpathSync } from "node:fs";
 import path from "node:path";
+
+/** Expand leading `~` (Node `path.resolve` does not). */
+export function expandUserPath(input: string): string {
+  const trimmed = input.trim();
+  if (trimmed === "~") {
+    return process.env.HOME ?? process.env.USERPROFILE ?? trimmed;
+  }
+  if (trimmed.startsWith("~/")) {
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+    return home ? path.join(home, trimmed.slice(2)) : trimmed;
+  }
+  return trimmed;
+}
+
+/** Canonical repo root for dashboard + opensessions matching. */
+export function resolveRepoRoot(repoRoot: string): string {
+  return path.resolve(expandUserPath(repoRoot));
+}
+
+function tryRealpath(filePath: string): string {
+  try {
+    return realpathSync.native(filePath);
+  } catch {
+    return path.resolve(filePath);
+  }
+}
+
+/**
+ * True when a tmux session cwd is the repo root or a subdirectory (symlink-safe).
+ */
+export function sessionDirMatchesRepo(sessionDir: string, repoRoot: string): boolean {
+  if (!sessionDir?.trim()) return false;
+  const resolvedSession = tryRealpath(path.resolve(sessionDir));
+  const resolvedRepo = tryRealpath(resolveRepoRoot(repoRoot));
+  if (resolvedSession === resolvedRepo) return true;
+  const repoPrefix = resolvedRepo.endsWith(path.sep) ? resolvedRepo : `${resolvedRepo}${path.sep}`;
+  return resolvedSession.startsWith(repoPrefix);
+}
 
 export async function pathExists(filePath: string): Promise<boolean> {
   try {

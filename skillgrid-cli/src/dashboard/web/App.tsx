@@ -93,6 +93,9 @@ export default function App() {
           <Tab active={false} onClick={() => window.location.assign("/gitnexus/")}>
             GitNexus
           </Tab>
+          <Tab active={false} onClick={() => window.location.assign("/truecourse/")}>
+            TrueCourse
+          </Tab>
         </nav>
       ) : null}
 
@@ -291,8 +294,11 @@ function AgentView({ data }: { data: DashboardData }) {
             <code>{data.openSessions.startCommand}</code>
           </div>
         ) : null}
-        {data.openSessions.focusedSession ? (
-          <p className="meta-line">Focused tmux session: {data.openSessions.focusedSession}</p>
+        {data.openSessions.activeSessionSummary ? (
+          <p className="meta-line">Active tmux session: {data.openSessions.activeSessionSummary}</p>
+        ) : null}
+        {data.openSessions.sidebarFocusSummary ? (
+          <p className="meta-line">OpenSessions sidebar focus: {data.openSessions.sidebarFocusSummary}</p>
         ) : null}
         {repoSessions.length > 0 ? (
           <div className="agent-session-grid">
@@ -302,7 +308,20 @@ function AgentView({ data }: { data: DashboardData }) {
             ))}
           </div>
         ) : data.openSessions.healthy ? (
-          <div className="empty compact">No tmux sessions matched this repo path.</div>
+          <div className="empty compact">
+            <p>No tmux sessions matched this repo path.</p>
+            <p className="meta-line">
+              Dashboard repo: <code>{data.repoRoot}</code>
+            </p>
+            {otherSessions.length > 0 ? (
+              <p className="meta-line">
+                {otherSessions.length} session(s) use other directories — check cwd matches the path above (or start
+                tmux in the repo root).
+              </p>
+            ) : (
+              <p className="meta-line">No other tmux sessions reported by opensessions.</p>
+            )}
+          </div>
         ) : null}
         {otherSessions.length > 0 ? (
           <div className="agent-session-grid">

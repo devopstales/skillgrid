@@ -4,6 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildDashboardData } from "./adapters.js";
 import { isInside, pathExists } from "./fs-utils.js";
+import { sendMountedSpa } from "./mounted-spa.js";
+import { mimeType } from "./mime.js";
 
 export type DashboardServerOptions = {
   repoRoot: string;
@@ -17,6 +19,10 @@ export type DashboardServerOptions = {
   /** Production build of GitNexus Web (index.html + assets). Default: ../gitnexus next to this module. */
   gitnexusClientRoot?: string;
   gitnexusUrl?: string;
+  /** Production build of TrueCourse dashboard client. Default: ../truecourse next to this module. */
+  truecourseClientRoot?: string;
+  /** TrueCourse API server (default http://127.0.0.1:3001). Bundled UI calls this origin (CORS). */
+  truecourseApiUrl?: string;
   openspecUiUrl?: string;
 };
 
@@ -28,6 +34,7 @@ export async function startDashboardServer(options: DashboardServerOptions): Pro
     options.dashboardSrcRoot ?? path.join(compiledServerRoot, "..", "..", "src", "dashboard")
   );
   const gitnexusRoot = path.resolve(options.gitnexusClientRoot ?? path.join(compiledServerRoot, "..", "gitnexus"));
+  const truecourseRoot = path.resolve(options.truecourseClientRoot ?? path.join(compiledServerRoot, "..", "truecourse"));
 
   if (!options.dev) {
     const indexHtml = path.join(clientRoot, "index.html");
@@ -59,6 +66,7 @@ export async function startDashboardServer(options: DashboardServerOptions): Pro
             repoRoot,
             dashboardOrigin: requestUrl.origin,
             gitnexusUrl: options.gitnexusUrl,
+            truecourseUrl: options.truecourseApiUrl,
             openspecUiUrl: options.openspecUiUrl
           })
         );
@@ -73,7 +81,23 @@ export async function startDashboardServer(options: DashboardServerOptions): Pro
           );
           return;
         }
-        await sendGitnexusSpa(gitnexusRoot, requestUrl.pathname, response);
+        await sendMountedSpa(gitnexusRoot, "/gitnexus", requestUrl.pathname, response, {
+          missingMessage: "GitNexus asset not found."
+        });
+        return;
+      }
+
+      if (requestUrl.pathname === "/truecourse" || requestUrl.pathname.startsWith("/truecourse/")) {
+        if (!(await pathExists(path.join(truecourseRoot, "index.html")))) {
+          response.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+          response.end(
+            "TrueCourse web bundle missing. From skillgrid-cli run: npm run build:truecourse (Node 20+, git, pnpm, network). Or build the hub with: npm run build"
+          );
+          return;
+        }
+        await sendMountedSpa(truecourseRoot, "/truecourse", requestUrl.pathname, response, {
+          missingMessage: "TrueCourse asset not found."
+        });
         return;
       }
 
@@ -156,37 +180,6 @@ async function sendPreview(repoRoot: string, pathname: string, response: ServerR
   createReadStream(filePath).pipe(response);
 }
 
-async function sendGitnexusSpa(gitnexusRoot: string, pathname: string, response: ServerResponse): Promise<void> {
-  const mount = "/gitnexus";
-  let rel =
-    pathname === mount || pathname === `${mount}/`
-      ? "/index.html"
-      : pathname.startsWith(`${mount}/`)
-        ? pathname.slice(mount.length)
-        : "/index.html";
-  if (!rel.startsWith("/")) rel = `/${rel}`;
-  const filePath = path.resolve(gitnexusRoot, `.${decodeURIComponent(rel)}`);
-  const fallback = path.join(gitnexusRoot, "index.html");
-  const target =
-    (isInside(gitnexusRoot, filePath) || filePath === gitnexusRoot) && (await pathExists(filePath)) ? filePath : fallback;
-
-  if (!(await pathExists(target))) {
-    response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    response.end("GitNexus asset not found.");
-    return;
-  }
-
-  const cache =
-    pathname.startsWith(`${mount}/assets/`) && path.extname(target) !== ".html"
-      ? "public, max-age=86400"
-      : "no-store";
-  response.writeHead(200, {
-    "content-type": mimeType(target),
-    "cache-control": cache
-  });
-  createReadStream(target).pipe(response);
-}
-
 async function sendStatic(clientRoot: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
   const requestUrl = new URL(request.url ?? "/", "http://localhost");
   const requestedPath = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
@@ -212,14 +205,3 @@ function sendError(response: ServerResponse, error: unknown): void {
   response.end(JSON.stringify({ error: message }));
 }
 
-function mimeType(filePath: string): string {
-  const extension = path.extname(filePath);
-  if (extension === ".html") return "text/html; charset=utf-8";
-  if (extension === ".js") return "text/javascript; charset=utf-8";
-  if (extension === ".css") return "text/css; charset=utf-8";
-  if (extension === ".json") return "application/json; charset=utf-8";
-  if (extension === ".svg") return "image/svg+xml";
-  if (extension === ".png") return "image/png";
-  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
-  return "application/octet-stream";
-}

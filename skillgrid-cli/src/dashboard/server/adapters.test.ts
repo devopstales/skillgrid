@@ -26,6 +26,7 @@ describe("buildDashboardData", () => {
     expect(data.openSessions.healthy).toBe(false);
     expect(data.openSessions.sessions).toEqual([]);
     expect(data.tools.some((tool) => tool.id === "opensessions")).toBe(true);
+    expect(data.tools.some((tool) => tool.id === "truecourse")).toBe(true);
   });
 
   it("merges a PRD and OpenSpec change into one issue with change-local specs as subtasks", async () => {

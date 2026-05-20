@@ -33,7 +33,7 @@ Options:
   --context <path>    Handoff path (default: .skillgrid/tasks/context_<change>.md)
   --dry-run           Print actions without writing
 
-See: docs/18-checkpoints.md and .agents/skills/skillgrid-checkpoints/SKILL.md
+See: docs/14-checkpoints.md and .agents/skills/skillgrid-checkpoints/SKILL.md
 `);
 }
 

@@ -1,4 +1,4 @@
-export type ToolId = "gitnexus" | "openspecui" | "opensessions";
+export type ToolId = "gitnexus" | "truecourse" | "openspecui" | "opensessions";
 
 export type AgentStatusTone =
   | "idle"
@@ -38,7 +38,10 @@ export type OpenSessionsIntegration = {
   healthy: boolean;
   url: string;
   wsUrl: string;
+  currentSession: string | null;
   focusedSession: string | null;
+  activeSessionSummary: string | null;
+  sidebarFocusSummary: string | null;
   sessions: AgentSessionSnapshot[];
   startCommand: string;
 };

@@ -1,7 +1,13 @@
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { formatMetadataProgress, mapOpenSessionsForRepo, type OpenSessionsServerState } from "./opensessions-client.js";
+import {
+  formatMetadataProgress,
+  formatSessionSummary,
+  mapOpenSessionsForRepo,
+  normalizeSessionRef,
+  type OpenSessionsServerState
+} from "./opensessions-client.js";
 
 describe("mapOpenSessionsForRepo", () => {
   it("marks sessions that match the repo root and sorts repo sessions first", () => {
@@ -71,6 +77,62 @@ describe("mapOpenSessionsForRepo", () => {
       name: "other",
       matchesRepo: false
     });
+  });
+
+  it("matches sessions whose cwd is inside the repo root", () => {
+    const repoRoot = path.join(os.tmpdir(), "skillgrid-repo-root");
+    const nestedDir = path.join(repoRoot, "packages", "app");
+    const state: OpenSessionsServerState = {
+      type: "state",
+      focusedSession: "work",
+      currentSession: "work",
+      ts: 1,
+      sessions: [
+        {
+          name: "work",
+          dir: nestedDir,
+          branch: "main",
+          dirty: false,
+          unseen: false,
+          ports: [],
+          agentState: null,
+          agents: []
+        }
+      ]
+    };
+
+    const mapped = mapOpenSessionsForRepo(state, repoRoot);
+    expect(mapped[0]?.matchesRepo).toBe(true);
+  });
+});
+
+describe("normalizeSessionRef", () => {
+  it("maps numeric index to session name when name is not a literal match", () => {
+    const sessions = [
+      { name: "kubedash", dir: "/tmp/k", branch: "main", dirty: false, unseen: false, ports: [], agentState: null, agents: [] },
+      { name: "other", dir: "/tmp/o", branch: "dev", dirty: false, unseen: false, ports: [], agentState: null, agents: [] }
+    ] as OpenSessionsServerState["sessions"];
+    expect(normalizeSessionRef(0, sessions)).toBe("kubedash");
+    expect(normalizeSessionRef("0", sessions)).toBe("kubedash");
+  });
+
+  it("keeps literal session name 0 when present", () => {
+    const sessions = [
+      { name: "0", dir: "/tmp", branch: "main", dirty: false, unseen: false, ports: [], agentState: null, agents: [] }
+    ] as OpenSessionsServerState["sessions"];
+    expect(normalizeSessionRef("0", sessions)).toBe("0");
+    expect(normalizeSessionRef(0, sessions)).toBe("0");
+  });
+});
+
+describe("formatSessionSummary", () => {
+  it("includes branch and directory", () => {
+    const summary = formatSessionSummary("work", [
+      { name: "work", branch: "feat/x", dir: "/Users/me/proj", matchesRepo: true } as never
+    ]);
+    expect(summary).toContain("work");
+    expect(summary).toContain("branch feat/x");
+    expect(summary).toContain("proj");
   });
 });
 

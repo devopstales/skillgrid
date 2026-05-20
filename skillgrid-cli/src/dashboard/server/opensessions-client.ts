@@ -1,4 +1,5 @@
 import path from "node:path";
+import { resolveRepoRoot, sessionDirMatchesRepo } from "./fs-utils.js";
 
 /** Mirrors opensessions `AgentStatus` (packages/runtime/src/contracts/agent.ts). */
 export type OpenSessionsAgentStatus =
@@ -68,7 +69,14 @@ export type OpenSessionsStatus = {
   healthy: boolean;
   url: string;
   wsUrl: string;
+  /** Active tmux session (attached client), when reported by opensessions. */
+  currentSession: string | null;
+  /** Sidebar selection in opensessions UI — may differ from currentSession. */
   focusedSession: string | null;
+  /** Human-readable active session (name · branch · cwd). */
+  activeSessionSummary: string | null;
+  /** Set only when sidebar focus differs from active tmux session. */
+  sidebarFocusSummary: string | null;
   sessions: AgentSessionCard[];
   startCommand: string;
 };
@@ -100,8 +108,50 @@ export function formatMetadataProgress(
   return progress.label ?? null;
 }
 
+/**
+ * Resolve session name from opensessions payload (handles mistaken numeric indices).
+ */
+export function normalizeSessionRef(
+  ref: unknown,
+  sessions: OpenSessionsSessionData[]
+): string | null {
+  if (ref === null || ref === undefined) return null;
+  if (typeof ref === "number" && Number.isInteger(ref)) {
+    if (ref >= 0 && ref < sessions.length) return sessions[ref]!.name;
+    return null;
+  }
+  const text = String(ref).trim();
+  if (!text) return null;
+  if (sessions.some((s) => s.name === text)) return text;
+  if (/^\d+$/.test(text)) {
+    const idx = Number(text);
+    if (idx >= 0 && idx < sessions.length) return sessions[idx]!.name;
+  }
+  return text;
+}
+
+export function formatSessionSummary(
+  sessionName: string | null,
+  sessions: Pick<AgentSessionCard, "name" | "branch" | "dir">[]
+): string | null {
+  if (!sessionName) return null;
+  const session = sessions.find((s) => s.name === sessionName);
+  if (!session) return sessionName;
+  const bits: string[] = [session.name];
+  if (session.branch) bits.push(`branch ${session.branch}`);
+  if (session.dir) {
+    const home = process.env.HOME ?? "";
+    const dir =
+      home && session.dir.startsWith(home)
+        ? `~${session.dir.slice(home.length)}`
+        : session.dir;
+    bits.push(dir.length > 52 ? `…${dir.slice(-51)}` : dir);
+  }
+  return bits.join(" · ");
+}
+
 export function mapOpenSessionsForRepo(state: OpenSessionsServerState, repoRoot: string): AgentSessionCard[] {
-  const normalizedRepo = path.resolve(repoRoot);
+  const normalizedRepo = resolveRepoRoot(repoRoot);
   return state.sessions
     .map((session) => toAgentSessionCard(session, normalizedRepo))
     .sort((a, b) => {
@@ -112,8 +162,7 @@ export function mapOpenSessionsForRepo(state: OpenSessionsServerState, repoRoot:
 }
 
 function toAgentSessionCard(session: OpenSessionsSessionData, normalizedRepo: string): AgentSessionCard {
-  const sessionDir = session.dir ? path.resolve(session.dir) : "";
-  const matchesRepo = Boolean(sessionDir && sessionDir === normalizedRepo);
+  const matchesRepo = sessionDirMatchesRepo(session.dir, normalizedRepo);
   const metadata = session.metadata ?? null;
 
   return {
@@ -202,18 +251,34 @@ export async function readOpenSessionsStatus(
       healthy: false,
       url: httpUrl,
       wsUrl,
+      currentSession: null,
       focusedSession: null,
+      activeSessionSummary: null,
+      sidebarFocusSummary: null,
       sessions: [],
       startCommand
     };
   }
 
+  const sessions = mapOpenSessionsForRepo(snapshot, repoRoot);
+  const currentSession = normalizeSessionRef(snapshot.currentSession, snapshot.sessions);
+  const focusedSession = normalizeSessionRef(snapshot.focusedSession, snapshot.sessions);
+  const activeName = currentSession ?? focusedSession;
+  const activeSessionSummary = formatSessionSummary(activeName, sessions);
+  const sidebarFocusSummary =
+    focusedSession && focusedSession !== currentSession
+      ? formatSessionSummary(focusedSession, sessions)
+      : null;
+
   return {
     healthy: true,
     url: httpUrl,
     wsUrl,
-    focusedSession: snapshot.focusedSession,
-    sessions: mapOpenSessionsForRepo(snapshot, repoRoot),
+    currentSession,
+    focusedSession,
+    activeSessionSummary,
+    sidebarFocusSummary,
+    sessions,
     startCommand
   };
 }

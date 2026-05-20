@@ -17,8 +17,9 @@
   "scripts": {
     "build:dashboard": "tsc -p tsconfig.dashboard.json && vite build -c vite.dashboard.config.ts",
     "build:gitnexus": "node scripts/build-gitnexus-web.mjs",
+    "build:truecourse": "node scripts/build-truecourse-web.mjs",
     "cleanup:bun-build": "node -e \"require('fs').readdirSync('.').filter((f) => f.endsWith('.bun-build')).forEach((f) => require('fs').unlinkSync(f))\"",
-    "build": "npm run build:dashboard && npm run build:gitnexus && tsc && bun build --compile ./src/cli.ts --outfile ./bin/skillgrid --external vite --external esbuild && npm run cleanup:bun-build",
+    "build": "npm run build:dashboard && npm run build:gitnexus && npm run build:truecourse && tsc && bun build --compile ./src/cli.ts --outfile ./bin/skillgrid --external vite --external esbuild && npm run cleanup:bun-build",
     "build:tsc": "npm run build:dashboard && tsc",
     "build:binary": "bun build --compile ./src/cli.ts --outfile ./bin/skillgrid --external vite --external esbuild && npm run cleanup:bun-build",
     "skillgrid": "./bin/skillgrid",
