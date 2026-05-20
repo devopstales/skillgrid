@@ -47,6 +47,7 @@
 #   4. MCP merge         → jq-merge .configs/mcp/**/*.json → canonical mcpServers
 #   5. IDE setup         → per-IDE setup_*() maps merged MCP to native JSON schemas
 #   6. Optional tools    → gitnexus + engram + context-mode CLIs always; -t adds openspec/dmux/brave-search-cli/cocoindex-code; npm/uv/brew installs, then copy + openspec init when selected
+#   7. Agent CLIs        → -g interactive prompt installs Claude Code, OpenCode, kilo, Codex, Gemini CLI, pi (npm/curl/brew)
 #
 # DEPENDENCIES:
 #   Runtime:  bash 3.2+ (incl. macOS /bin/bash), rsync, jq
@@ -63,6 +64,8 @@ PROJECT_PATH=""
 SELECTED_IDES=()
 SELECTED_TOOLS=()
 TOOLS_INTERACTIVE=false
+SELECTED_AGENTS=()
+AGENTS_INTERACTIVE=false
 DRY_RUN=false
 UNINSTALL=false
 CHECK_DEPS=false
@@ -150,6 +153,7 @@ Options:
   -A, --all             Setup for all supported IDEs (Default if none selected)
   -AA, --all-mcp        Merge every hub MCP server (skip MCP prompt; clears any subset filter). Implies MCP merge on unless later --no-mcp
   -t, --tools           Interactive prompt for extra optional tools (openspec, dmux, brave-search-cli, cocoindex-code); gitnexus, engram, and context-mode CLIs are always installed when possible
+  -g, --agents          Interactive prompt to install agent CLIs (Claude Code, OpenCode, kilo, Codex, Gemini CLI, pi)
   -d, --deps            Check and install dependencies before install
   --sanity-check        Verify hub dependencies and expected files without installing or writing
   -y, --yes             Non-interactive mode (skip prompts)
@@ -164,6 +168,7 @@ Options:
 Interactive mode: On TTY with no IDE flags, choose IDEs (1-5 or a=all) and MCP servers.
 Use -AA or --all-mcp to skip the MCP prompt and install all hub MCP servers (still respects --no-mcp if it appears later on the command line).
 Use -t to pick optional tools interactively (openspec, dmux, brave-search-cli, cocoindex-code/ccc). GitNexus, Engram, and context-mode CLIs are always attempted (hub MCP); see docs/01-installation.md.
+Use -g to pick agent CLIs interactively (Claude Code, OpenCode, kilo, Codex, Gemini CLI, pi); see docs/12-ide-configs.md.
 EOF
 }
 
@@ -433,6 +438,16 @@ tool_is_selected() {
     local t
     for t in "${SELECTED_TOOLS[@]}"; do
         [ "$t" = "$id" ] && return 0
+    done
+    return 1
+}
+
+# Return 0 if agent id is in SELECTED_AGENTS
+agent_is_selected() {
+    local id="$1"
+    local a
+    for a in "${SELECTED_AGENTS[@]}"; do
+        [ "$a" = "$id" ] && return 0
     done
     return 1
 }
@@ -747,6 +762,246 @@ interactive_tools_selection() {
         log_info "Optional tools: selected ${#SELECTED_TOOLS[@]} tool(s)"
         return 0
     done
+}
+
+# Interactive agent CLI selection (Claude Code, OpenCode, kilo, Codex, Gemini CLI, pi)
+interactive_agents_selection() {
+    [ "$AGENTS_INTERACTIVE" = true ] || return 0
+    [ "$NON_INTERACTIVE" != true ] || {
+        log_info "Agent CLIs: skipping -g prompt (--yes)"
+        return 0
+    }
+    case "${CI:-}" in
+        true|1|yes|YES)
+            log_info "Agent CLIs: skipping -g prompt (CI)"
+            return 0
+            ;;
+    esac
+    [ -t 0 ] && [ -t 1 ] || {
+        log_warn "Agent CLIs: not a TTY — skipping agent selection (use a terminal for -g)"
+        return 0
+    }
+
+    echo ""
+    echo -e "${CYAN}Agent CLIs${NC} — install coding-agent command-line tools?"
+    echo "  1) Claude Code (claude)"
+    echo "  2) OpenCode (opencode)"
+    echo "  3) Kilocode (kilo)"
+    echo "  4) Codex (codex)"
+    echo "  5) Gemini CLI (gemini)"
+    echo "  6) pi (@mariozechner/pi-coding-agent)"
+    echo ""
+    echo "  a — all six   |   n — none   |   e.g. 1,3,5 — pick by number"
+    echo ""
+
+    local choice
+    while true; do
+        if ! read -r -p "Agent choice [n]: " choice; then
+            echo ""
+            log_info "Agent CLIs: none (default)"
+            return 0
+        fi
+        choice=$(printf '%s' "$choice" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [ -z "$choice" ]; then
+            log_info "Agent CLIs: none (default)"
+            return 0
+        fi
+        local lower
+        lower=$(printf '%s' "$choice" | tr '[:upper:]' '[:lower:]')
+        case "$lower" in
+            a|all)
+                SELECTED_AGENTS=("claude-code" "opencode" "kilo" "codex" "gemini" "pi")
+                log_info "Agent CLIs: all six selected"
+                return 0
+                ;;
+            n|no|none|skip)
+                log_info "Agent CLIs: none"
+                return 0
+                ;;
+        esac
+
+        SELECTED_AGENTS=()
+        local tok invalid=""
+        local -a parts
+        IFS=',' read -ra parts <<< "$choice"
+        for tok in "${parts[@]}"; do
+            tok=$(printf '%s' "$tok" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            [ -z "$tok" ] && continue
+            case "$tok" in
+                1) SELECTED_AGENTS+=("claude-code") ;;
+                2) SELECTED_AGENTS+=("opencode") ;;
+                3) SELECTED_AGENTS+=("kilo") ;;
+                4) SELECTED_AGENTS+=("codex") ;;
+                5) SELECTED_AGENTS+=("gemini") ;;
+                6) SELECTED_AGENTS+=("pi") ;;
+                *) invalid="invalid index: $tok (use 1–6, a, or n)"; break ;;
+            esac
+        done
+
+        if [ -n "$invalid" ]; then
+            log_warn "$invalid"
+            continue
+        fi
+        if [ ${#SELECTED_AGENTS[@]} -eq 0 ]; then
+            log_warn "Pick at least one number (1–6), a for all, or n for none"
+            continue
+        fi
+        log_info "Agent CLIs: selected ${#SELECTED_AGENTS[@]} agent(s)"
+        return 0
+    done
+}
+
+# Install CLIs for SELECTED_AGENTS (npm / curl / brew)
+install_agent_clis() {
+    [ ${#SELECTED_AGENTS[@]} -eq 0 ] && return 0
+
+    echo ""
+    echo "Agent CLIs — installing selected coding-agent tools..."
+    echo ""
+
+    if agent_is_selected claude-code; then
+        if command -v claude &>/dev/null; then
+            log_info "Claude Code already on PATH: $(command -v claude)"
+        elif [ "$DRY_RUN" = true ]; then
+            echo "[DRY-RUN] npm install -g @anthropic-ai/claude-code"
+        elif command -v npm &>/dev/null; then
+            log_info "Installing Claude Code (npm install -g @anthropic-ai/claude-code)..."
+            if npm install -g @anthropic-ai/claude-code; then
+                log_success "Claude Code installed (claude)"
+            else
+                log_warn "Claude Code: npm install -g failed — see https://docs.anthropic.com/en/docs/claude-code"
+            fi
+        else
+            log_warn "Claude Code: npm not found — install Node.js, then: npm install -g @anthropic-ai/claude-code"
+        fi
+    fi
+
+    if agent_is_selected opencode; then
+        if command -v opencode &>/dev/null; then
+            log_info "OpenCode already on PATH: $(command -v opencode)"
+        elif [ "$DRY_RUN" = true ]; then
+            echo "[DRY-RUN] curl -fsSL https://opencode.ai/install | bash"
+            echo "[DRY-RUN] fallback: brew install opencode"
+        elif command -v curl &>/dev/null; then
+            log_info "Installing OpenCode (official install script)..."
+            if curl -fsSL https://opencode.ai/install | bash; then
+                log_success "OpenCode installed (opencode)"
+            elif command -v brew &>/dev/null && brew install opencode; then
+                log_success "OpenCode installed via Homebrew (opencode)"
+            else
+                log_warn "OpenCode: install failed — try: curl -fsSL https://opencode.ai/install | bash"
+            fi
+        elif command -v brew &>/dev/null; then
+            log_info "Installing OpenCode (Homebrew)..."
+            if brew install opencode; then
+                log_success "OpenCode installed (opencode)"
+            else
+                log_warn "OpenCode: brew install failed"
+            fi
+        else
+            log_warn "OpenCode: curl and brew not found — install manually from https://opencode.ai"
+        fi
+    fi
+
+    if agent_is_selected kilo; then
+        if command -v kilo &>/dev/null; then
+            log_info "Kilocode already on PATH: $(command -v kilo)"
+        elif [ "$DRY_RUN" = true ]; then
+            echo "[DRY-RUN] npm install -g @kilocode/cli"
+            echo "[DRY-RUN] fallback: brew install Kilo-Org/tap/kilo"
+        elif command -v npm &>/dev/null; then
+            log_info "Installing Kilocode CLI (npm install -g @kilocode/cli)..."
+            if npm install -g @kilocode/cli; then
+                log_success "Kilocode installed (kilo)"
+            elif command -v brew &>/dev/null && brew install Kilo-Org/tap/kilo; then
+                log_success "Kilocode installed via Homebrew (kilo)"
+            else
+                log_warn "Kilocode: npm install -g failed — try: npm install -g @kilocode/cli"
+            fi
+        elif command -v brew &>/dev/null; then
+            log_info "Installing Kilocode (Homebrew)..."
+            if brew install Kilo-Org/tap/kilo; then
+                log_success "Kilocode installed (kilo)"
+            else
+                log_warn "Kilocode: brew install failed"
+            fi
+        else
+            log_warn "Kilocode: npm and brew not found — install Node.js or Homebrew first"
+        fi
+    fi
+
+    if agent_is_selected codex; then
+        if command -v codex &>/dev/null; then
+            log_info "Codex already on PATH: $(command -v codex)"
+        elif [ "$DRY_RUN" = true ]; then
+            echo "[DRY-RUN] npm install -g @openai/codex"
+            echo "[DRY-RUN] fallback: brew install --cask codex"
+        elif command -v npm &>/dev/null; then
+            log_info "Installing Codex (npm install -g @openai/codex)..."
+            if npm install -g @openai/codex; then
+                log_success "Codex installed (codex)"
+            elif command -v brew &>/dev/null && brew install --cask codex; then
+                log_success "Codex installed via Homebrew cask (codex)"
+            else
+                log_warn "Codex: npm install -g failed — see https://developers.openai.com/codex"
+            fi
+        elif command -v brew &>/dev/null; then
+            log_info "Installing Codex (Homebrew cask)..."
+            if brew install --cask codex; then
+                log_success "Codex installed (codex)"
+            else
+                log_warn "Codex: brew install --cask codex failed"
+            fi
+        else
+            log_warn "Codex: npm and brew not found — install Node.js or Homebrew first"
+        fi
+    fi
+
+    if agent_is_selected gemini; then
+        if command -v gemini &>/dev/null; then
+            log_info "Gemini CLI already on PATH: $(command -v gemini)"
+        elif [ "$DRY_RUN" = true ]; then
+            echo "[DRY-RUN] npm install -g @google/gemini-cli"
+            echo "[DRY-RUN] fallback: brew install gemini-cli"
+        elif command -v npm &>/dev/null; then
+            log_info "Installing Gemini CLI (npm install -g @google/gemini-cli)..."
+            if npm install -g @google/gemini-cli; then
+                log_success "Gemini CLI installed (gemini)"
+            elif command -v brew &>/dev/null && brew install gemini-cli; then
+                log_success "Gemini CLI installed via Homebrew (gemini)"
+            else
+                log_warn "Gemini CLI: npm install -g failed — see https://github.com/google-gemini/gemini-cli"
+            fi
+        elif command -v brew &>/dev/null; then
+            log_info "Installing Gemini CLI (Homebrew)..."
+            if brew install gemini-cli; then
+                log_success "Gemini CLI installed (gemini)"
+            else
+                log_warn "Gemini CLI: brew install failed"
+            fi
+        else
+            log_warn "Gemini CLI: npm and brew not found — install Node.js or Homebrew first"
+        fi
+    fi
+
+    if agent_is_selected pi; then
+        if command -v pi &>/dev/null; then
+            log_info "pi already on PATH: $(command -v pi)"
+        elif [ "$DRY_RUN" = true ]; then
+            echo "[DRY-RUN] npm install -g @mariozechner/pi-coding-agent"
+        elif command -v npm &>/dev/null; then
+            log_info "Installing pi (npm install -g @mariozechner/pi-coding-agent)..."
+            if npm install -g @mariozechner/pi-coding-agent; then
+                log_success "pi installed"
+            else
+                log_warn "pi: npm install -g failed — see docs/12-ide-configs.md"
+            fi
+        else
+            log_warn "pi: npm not found — install Node.js, then: npm install -g @mariozechner/pi-coding-agent"
+        fi
+    fi
+
+    echo ""
 }
 
 # Merge all MCP configs from .configs/mcp.json and .configs/mcp/**/*.json
@@ -1268,12 +1523,23 @@ run_sanity_check() {
     sanity_check_command "brave-search-cli (bx)" "command -v bx" "install from brave-search-cli"
 
     echo ""
+    echo "Agent CLIs (optional; install with ./install.sh -g):"
+    sanity_check_command "Claude Code (claude)" "command -v claude" "npm install -g @anthropic-ai/claude-code"
+    sanity_check_command "OpenCode (opencode)" "command -v opencode" "curl -fsSL https://opencode.ai/install | bash"
+    sanity_check_command "Kilocode (kilo)" "command -v kilo" "npm install -g @kilocode/cli"
+    sanity_check_command "Codex (codex)" "command -v codex" "npm install -g @openai/codex"
+    sanity_check_command "Gemini CLI (gemini)" "command -v gemini" "npm install -g @google/gemini-cli"
+    sanity_check_command "pi" "command -v pi" "npm install -g @mariozechner/pi-coding-agent"
+
+    echo ""
     echo "Hub files:"
     sanity_check_file "AGENTS.md template" "$SCRIPT_DIR/.configs/AGENTS.md"
     sanity_check_file "MCP config fragments" "$SCRIPT_DIR/.configs/mcp"
     sanity_check_file "Engram MCP fragment" "$SCRIPT_DIR/.configs/mcp/command/engram.json"
     sanity_check_file "context-mode MCP fragment" "$SCRIPT_DIR/.configs/mcp/context-mode.json"
     sanity_check_file "context-mode Cursor hooks template" "$SCRIPT_DIR/.configs/context-mode/cursor/hooks.json"
+    sanity_check_file "GitNexus Cursor hook script" "$SCRIPT_DIR/.cursor/hooks/gitnexus-hook.cjs"
+    sanity_check_file "GitNexus Cursor hook lock" "$SCRIPT_DIR/.cursor/hooks/hook-lock.cjs"
     sanity_check_file "Skill catalog" "$SCRIPT_DIR/.agents/skills"
     sanity_check_file "Skillgrid CLI package" "$SCRIPT_DIR/skillgrid-cli/package.json"
     sanity_check_file "Preview script" "$SCRIPT_DIR/.skillgrid/scripts/preview.sh"
@@ -1549,6 +1815,10 @@ while [[ $# -gt 0 ]]; do
             TOOLS_INTERACTIVE=true
             shift
             ;;
+        -g|--agents)
+            AGENTS_INTERACTIVE=true
+            shift
+            ;;
         -d|--deps)
             CHECK_DEPS=true
             shift
@@ -1621,6 +1891,9 @@ interactive_mcp_selection
 
 # Optional tools — must run before --deps counts (openspec / dmux / brave-search-cli / cocoindex-code; gitnexus+engram always in install_optional_tool_clis)
 interactive_tools_selection
+
+# Agent CLIs — Claude Code, OpenCode, kilo, Codex, Gemini CLI, pi (when -g)
+interactive_agents_selection
 
 # Handle --deps flag (check and optionally install)
 if [ "$CHECK_DEPS" = true ]; then
@@ -2454,6 +2727,9 @@ main() {
 
     # Optional tool CLIs (uv / hub npm / brew) — after dep prompt, before copying configs
     install_optional_tool_clis
+
+    # Agent CLIs (npm / curl / brew) — when selected via -g
+    install_agent_clis
 
     ensure_trivy_mcp_plugin
 

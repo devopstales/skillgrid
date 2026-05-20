@@ -9,6 +9,9 @@ export type OptionalToolId =
   | "engram"
   | "context-mode";
 
+/** Coding-agent CLIs selectable via -g / --agents (install.sh parity). */
+export type AgentId = "claude-code" | "opencode" | "kilo" | "codex" | "gemini" | "pi";
+
 export interface InstallOptions {
   projectPath: string;
   hubRoot: string;
@@ -16,6 +19,8 @@ export interface InstallOptions {
   allIdes: boolean;
   selectedTools: OptionalToolId[];
   toolsInteractive: boolean;
+  selectedAgents: AgentId[];
+  agentsInteractive: boolean;
   dryRun: boolean;
   uninstall: boolean;
   checkDeps: boolean;

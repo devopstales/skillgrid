@@ -74,12 +74,23 @@ export function runSanityCheck(hubRoot: string): number {
   else sanityFail("brave-search-cli (bx) — install from brave-search-cli");
 
   console.log("");
+  console.log("Agent CLIs (optional; install with skillgrid install -g):");
+  sanityCheckCommand("Claude Code (claude)", "command -v claude", "npm install -g @anthropic-ai/claude-code");
+  sanityCheckCommand("OpenCode (opencode)", "command -v opencode", "curl -fsSL https://opencode.ai/install | bash");
+  sanityCheckCommand("Kilocode (kilo)", "command -v kilo", "npm install -g @kilocode/cli");
+  sanityCheckCommand("Codex (codex)", "command -v codex", "npm install -g @openai/codex");
+  sanityCheckCommand("Gemini CLI (gemini)", "command -v gemini", "npm install -g @google/gemini-cli");
+  sanityCheckCommand("pi", "command -v pi", "npm install -g @mariozechner/pi-coding-agent");
+
+  console.log("");
   console.log("Hub files:");
   sanityCheckFile("AGENTS.md template", join(hubRoot, ".configs", "AGENTS.md"));
   sanityCheckFile("MCP config fragments", join(hubRoot, ".configs", "mcp"));
   sanityCheckFile("Engram MCP fragment", join(hubRoot, ".configs", "mcp", "command", "engram.json"));
   sanityCheckFile("context-mode MCP fragment", join(hubRoot, ".configs", "mcp", "context-mode.json"));
   sanityCheckFile("context-mode Cursor hooks template", join(hubRoot, ".configs", "context-mode", "cursor", "hooks.json"));
+  sanityCheckFile("GitNexus Cursor hook script", join(hubRoot, ".cursor", "hooks", "gitnexus-hook.cjs"));
+  sanityCheckFile("GitNexus Cursor hook lock", join(hubRoot, ".cursor", "hooks", "hook-lock.cjs"));
   sanityCheckFile("Skill catalog", join(hubRoot, ".agents", "skills"));
   sanityCheckFile("Skillgrid CLI package", join(hubRoot, "skillgrid-cli", "package.json"));
   sanityCheckFile("Preview script", join(hubRoot, ".skillgrid", "scripts", "preview.sh"));

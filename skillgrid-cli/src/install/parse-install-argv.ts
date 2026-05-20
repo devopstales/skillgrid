@@ -6,6 +6,7 @@ export interface ParsedInstallArgv {
   allIdes: boolean;
   selectedTools: OptionalToolId[];
   toolsInteractive: boolean;
+  agentsInteractive: boolean;
   dryRun: boolean;
   uninstall: boolean;
   checkDeps: boolean;
@@ -27,6 +28,7 @@ export function parseInstallArgv(argv: string[]): ParsedInstallArgv {
     allIdes: false,
     selectedTools: [],
     toolsInteractive: false,
+    agentsInteractive: false,
     dryRun: false,
     uninstall: false,
     checkDeps: false,
@@ -88,6 +90,11 @@ export function parseInstallArgv(argv: string[]): ParsedInstallArgv {
     }
     if (a === "-t" || a === "--tools") {
       out.toolsInteractive = true;
+      i += 1;
+      continue;
+    }
+    if (a === "-g" || a === "--agents") {
+      out.agentsInteractive = true;
       i += 1;
       continue;
     }

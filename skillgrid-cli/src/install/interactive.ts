@@ -1,7 +1,7 @@
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { collectMcpMergePaths, getAvailableMcpServerKeys, mergeMcpJsonFiles } from "./mcp.js";
-import type { IdeId, OptionalToolId } from "./types.js";
+import type { AgentId, IdeId, OptionalToolId } from "./types.js";
 import { logInfo, logWarn } from "./log.js";
 
 function isCi(): boolean {
@@ -26,6 +26,14 @@ function mcpInteractiveEligible(nonInteractive: boolean, mergeMcp: boolean): boo
 
 function toolsInteractiveEligible(nonInteractive: boolean, toolsInteractive: boolean): boolean {
   if (!toolsInteractive) return false;
+  if (nonInteractive) return false;
+  if (isCi()) return false;
+  if (!input.isTTY || !output.isTTY) return false;
+  return true;
+}
+
+function agentsInteractiveEligible(nonInteractive: boolean, agentsInteractive: boolean): boolean {
+  if (!agentsInteractive) return false;
   if (nonInteractive) return false;
   if (isCi()) return false;
   if (!input.isTTY || !output.isTTY) return false;
@@ -243,6 +251,78 @@ export async function interactiveToolsSelection(nonInteractive: boolean, toolsIn
       }
       logInfo(`Optional tools: selected ${tools.length} tool(s)`);
       return tools;
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+export async function interactiveAgentsSelection(nonInteractive: boolean, agentsInteractive: boolean): Promise<AgentId[]> {
+  if (!agentsInteractiveEligible(nonInteractive, agentsInteractive)) {
+    if (agentsInteractive && (nonInteractive || isCi())) {
+      logInfo("Agent CLIs: skipping -g prompt (--yes or CI)");
+    }
+    return [];
+  }
+
+  const rl = readline.createInterface({ input, output });
+  try {
+    console.log("");
+    console.log("\u001b[0;36mAgent CLIs\u001b[0m — install coding-agent command-line tools?");
+    console.log("  1) Claude Code (claude)");
+    console.log("  2) OpenCode (opencode)");
+    console.log("  3) Kilocode (kilo)");
+    console.log("  4) Codex (codex)");
+    console.log("  5) Gemini CLI (gemini)");
+    console.log("  6) pi (@mariozechner/pi-coding-agent)");
+    console.log("");
+    console.log("  a — all six   |   n — none   |   e.g. 1,3,5 — pick by number");
+    console.log("");
+
+    while (true) {
+      const choice = (await rl.question("Agent choice [n]: ")).trim();
+      if (!choice) {
+        logInfo("Agent CLIs: none (default)");
+        return [];
+      }
+      const lower = choice.toLowerCase();
+      if (lower === "a" || lower === "all") {
+        logInfo("Agent CLIs: all six selected");
+        return ["claude-code", "opencode", "kilo", "codex", "gemini", "pi"];
+      }
+      if (lower === "n" || lower === "no" || lower === "none" || lower === "skip") {
+        logInfo("Agent CLIs: none");
+        return [];
+      }
+
+      const agents: AgentId[] = [];
+      const map: Record<string, AgentId> = {
+        "1": "claude-code",
+        "2": "opencode",
+        "3": "kilo",
+        "4": "codex",
+        "5": "gemini",
+        "6": "pi",
+      };
+      let bad = false;
+      for (const tok of choice.split(",")) {
+        const t = tok.trim();
+        if (!t) continue;
+        const id = map[t];
+        if (!id) {
+          logWarn(`invalid index: ${t} (use 1–6, a, or n)`);
+          bad = true;
+          break;
+        }
+        agents.push(id);
+      }
+      if (bad) continue;
+      if (agents.length === 0) {
+        logWarn("Pick at least one number (1–6), a for all, or n for none");
+        continue;
+      }
+      logInfo(`Agent CLIs: selected ${agents.length} agent(s)`);
+      return agents;
     }
   } finally {
     rl.close();

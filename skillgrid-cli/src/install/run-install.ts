@@ -16,11 +16,17 @@ import {
   verifyEngramSetup,
 } from "./ide.js";
 import { setupContextModeAssets, verifyContextModeSetup } from "./context-mode.js";
+import { installAgentClis } from "./agent-tools.js";
 import { ensureTrivyMcpPlugin, installOptionalToolClis } from "./optional-tools.js";
 import { countMissingDeps, installDependencyPackages, showDependencies } from "./deps.js";
 import { toolIsSelected } from "./optional-tools-helpers.js";
 import { logInfo, logSuccess, logWarn } from "./log.js";
-import { interactiveIdeSelection, interactiveMcpSelection, interactiveToolsSelection } from "./interactive.js";
+import {
+  interactiveAgentsSelection,
+  interactiveIdeSelection,
+  interactiveMcpSelection,
+  interactiveToolsSelection,
+} from "./interactive.js";
 import type { ParsedInstallArgv } from "./parse-install-argv.js";
 import { ensureReleaseHubCache } from "./clone-release-hub.js";
 import { installSddGateHooks, uninstallSddGateHooks } from "./sdd-gate-hooks.js";
@@ -233,6 +239,8 @@ export async function runInstallCli(localHubFallback: string, parsed: ParsedInst
   let selectedTools = [...parsed.selectedTools];
   selectedTools = [...selectedTools, ...(await interactiveToolsSelection(parsed.nonInteractive, parsed.toolsInteractive))];
 
+  const selectedAgents = await interactiveAgentsSelection(parsed.nonInteractive, parsed.agentsInteractive);
+
   if (parsed.checkDeps) {
     showDependencies(selectedIdes, allIdes, selectedTools, mergeMcp, mcpFilter);
     await maybePromptInstallDepsForDepsFlag(selectedIdes, allIdes, selectedTools, parsed.dryRun, mergeMcp, mcpFilter);
@@ -261,6 +269,8 @@ export async function runInstallCli(localHubFallback: string, parsed: ParsedInst
     allIdes,
     selectedTools,
     toolsInteractive: parsed.toolsInteractive,
+    selectedAgents,
+    agentsInteractive: parsed.agentsInteractive,
     dryRun: parsed.dryRun,
     uninstall: parsed.uninstall,
     checkDeps: parsed.checkDeps,
@@ -286,6 +296,7 @@ export async function runInstallCli(localHubFallback: string, parsed: ParsedInst
   }
 
   installOptionalToolClis(hubRoot, [...opts.selectedTools], opts.dryRun);
+  installAgentClis([...opts.selectedAgents], opts.dryRun);
   ensureTrivyMcpPlugin(mergeMcp, mcpFilter, opts.dryRun);
 
   if (opts.dryRun) {
@@ -547,6 +558,7 @@ Options:
   -A, --all, --all-ides Setup for all supported IDEs (default if none selected)
   -AA, --all-mcp        Merge every hub MCP server (skip MCP prompt; respects later --no-mcp)
   -t, --tools           Interactive optional tools (openspec, dmux, brave-search-cli, cocoindex-code); gitnexus, engram, context-mode always
+  -g, --agents          Interactive agent CLIs (Claude Code, OpenCode, kilo, Codex, Gemini CLI, pi)
   -d, --deps            Check and install dependencies before install
   --sanity-check        Verify hub dependencies and expected files (read-only)
   -y, --yes             Non-interactive mode (skip prompts)
