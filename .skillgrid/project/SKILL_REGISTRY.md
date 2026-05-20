@@ -82,6 +82,15 @@ Orchestrators read this file before delegating. Inject **Compact rules** blocks 
 | `sdd-tasks` | `.agents/skills/sdd-tasks/SKILL.md` |
 | `sdd-ui-design` | `.agents/skills/sdd-ui-design/SKILL.md` |
 | `sdd-verify` | `.agents/skills/sdd-verify/SKILL.md` |
+| `sdd-review` | `.agents/skills/sdd-review/SKILL.md` |
+| `truecourse-analyze` | `.agents/skills/truecourse-analyze/SKILL.md` |
+| `truecourse-list` | `.agents/skills/truecourse-list/SKILL.md` |
+| `truecourse-fix` | `.agents/skills/truecourse-fix/SKILL.md` |
+| `truecourse-hooks` | `.agents/skills/truecourse-hooks/SKILL.md` |
+| `truecourse-review` | `.agents/skills/truecourse-review/SKILL.md` |
+| `security-review` | `.agents/skills/security-review/SKILL.md` |
+| `trivy-security` | `.agents/skills/trivy-security/SKILL.md` |
+| `vulnerability-scanner` | `.agents/skills/vulnerability-scanner/SKILL.md` |
 | `skillgrid-skill-registry` | `.agents/skills/skillgrid-skill-registry/SKILL.md` |
 | `skillgrid-tdd` | `.agents/skills/skillgrid-tdd/SKILL.md` |
 | `skillgrid-checkpoints` | `.agents/skills/skillgrid-checkpoints/SKILL.md` |

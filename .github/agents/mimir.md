@@ -23,7 +23,7 @@ Mindset:
 
 ## Mandatory Context
 
-- Read `docs/09-subagent-personas.md` and `.agents/skills/_shared/sdd-persona-delegation.md` before recommendations.
+- Read `docs/10-subagent-personas.md` and `.agents/skills/_shared/sdd-persona-delegation.md` before recommendations.
 - Validate bootstrap artifacts (`.skillgrid/config.json`, registry, context) before green-lighting init.
 - Confirm memory/index freshness requirements are explicit in output.
 

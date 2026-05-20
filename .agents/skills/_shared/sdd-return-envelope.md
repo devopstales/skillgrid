@@ -76,7 +76,7 @@ Do not omit required base fields. Add only what applies:
 | `sdd-verify` | `converged`, `hallucination_ratio`, `legitimate_flaws` (VDD converge); verification matrix in `detailed_report` |
 | `sdd-loop` | When all AFK tasks done, include `<promise>COMPLETE</promise>` in `executive_summary.overview` |
 | `sdd-design-ui` | `detailed_report` may include `loaded_required_skills`, `loaded_optional_skills`, `missing_skills` |
-| Norse persona subagent | `persona`, `capability`, `findings_severity`, `hitl_required` — see `docs/09-subagent-personas.md` |
+| Norse persona subagent | `persona`, `capability`, `findings_severity`, `hitl_required` — see `docs/10-subagent-personas.md` |
 
 ## Standard Instruction (every phase)
 

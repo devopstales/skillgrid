@@ -103,7 +103,19 @@ Read tasks.md
 └── Flag: CRITICAL if core tasks incomplete, WARNING if cleanup tasks incomplete
 ```
 
-### Step 2a: Enforce AFK/HITL Label Contract (Automated Gate)
+### Step 2a: Security sensitivity classification
+
+Run before deeper verification (feeds review and optional heimdall gate):
+
+```bash
+.skillgrid/scripts/classify-security-sensitive.sh --change {change-name}
+```
+
+- If `.skillgrid/state/{change-name}/security_sensitive` exists → tag verify-report front matter: `security-sensitive: true` and list reasons.
+- When tagged: **require** `heimdall` → `security-review` persona report (`.skillgrid/tasks/research/{change}/heimdall-security-review.md`) before PASS, unless user explicitly risk-accepts with HITL note in report.
+- Security **requirements** in spec/design: add rows to Step 6 compliance matrix (requirement → code evidence → test evidence → status).
+
+### Step 2b: Enforce AFK/HITL Label Contract (Automated Gate)
 
 Run the label validator before any deeper verification:
 
@@ -283,6 +295,7 @@ Return to the orchestrator the same content you wrote to `verify-report.md`:
 
 **Change**: {change-name}
 **Version**: {spec version or N/A}
+**Security-sensitive**: {yes | no} (from classify-security-sensitive.sh)
 
 ---
 

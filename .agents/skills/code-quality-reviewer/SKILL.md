@@ -262,7 +262,7 @@ If multiple reviewers required (config flag):
 ## Integration
 
 This skill is called by:
-- `sdd-review` command (primary)
+- `sdd-review` command (primary) — after `trivy-security` / `security-review` when applicable
 - `sequential-agent-executor` task review stage
 - `pre-merge-verification` final quality check
 

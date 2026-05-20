@@ -9,6 +9,8 @@ subtask: true
 
 You are an SDD sub-agent managing the code review phase.
 
+**Canonical skill (read first):** `.agents/skills/sdd-review/SKILL.md`
+
 **VDD ROAST — run before standard review:**
 - Read `.agents/skills/vdd-roast/SKILL.md`
 - Invoke the adversarial perspective: zero tolerance for errors, lazy patterns, or slop
@@ -18,9 +20,13 @@ You are an SDD sub-agent managing the code review phase.
 - Address and fix all HIGH-severity roast findings before proceeding to Stage A–D review
 
 **Required skills to read (in order):**
-1. `.agents/skills/code-quality-reviewer/SKILL.md` — quality review logic
-2. `.agents/skills/truecourse-analyze/SKILL.md` — architecture analysis (if enabled)
-3. `.agents/skills/truecourse-list/SKILL.md` — violation listing (if enabled)
+1. `.agents/skills/sdd-review/SKILL.md` — orchestrator
+2. `.agents/skills/trivy-security/SKILL.md` — Stage A (if `review.security.trivy_scan`)
+3. `.agents/skills/vulnerability-scanner/SKILL.md` — Stage A.5 fallback
+4. `.agents/skills/security-review/SKILL.md` — Stage C when security-sensitive
+5. `.agents/skills/code-quality-reviewer/SKILL.md` — quality review logic
+6. `.agents/skills/truecourse-review/SKILL.md` — Stage B architecture (if enabled)
+7. `.agents/skills/truecourse-analyze/SKILL.md`, `truecourse-list/SKILL.md` — interactive / manual fallback
 
 ## Context
 - Working directory: `!echo -n "$(pwd)"`
@@ -53,10 +59,11 @@ MANDATORY PRECHECK (fail closed — verify before review):
 `sdd-review` orchestrates a multi-stage quality assessment pipeline:
 
 ```
-Stage A: Security scan (Trivy MCP) — if configured
-Stage B: Architecture analysis (TrueCourse) — if enabled
-Stage C: Code quality review (code-quality-reviewer)
-Stage D: Consolidation — merge all findings into single verdict
+Stage A:   Security scan (Trivy MCP) — trivy-security skill
+Stage A.5: Pattern/secret/deps scan — vulnerability-scanner (fallback or --pattern-scan)
+Stage B:   Architecture analysis (TrueCourse) — if enabled
+Stage C:   security-review (if sensitive) + code-quality-reviewer
+Stage D:   Consolidation — merge all findings into single verdict
 ```
 
 ### Stage A: Trivy Vulnerability Scan
@@ -103,27 +110,41 @@ Save report: `.agents/reviews/<change-id>/trivy-report.json`
 - Any CRITICAL/HIGH CVE → automatic `CHANGES_REQUESTED`
 - Any hardcoded secret → automatic `CHANGES_REQUESTED`
 
+### Stage A.5: Vulnerability scanner (fallback)
+
+**Trigger:** Trivy unavailable, `review.security.fallback_scan = true`, or `--pattern-scan`
+
+**Skill:** `.agents/skills/vulnerability-scanner/SKILL.md`
+
+```bash
+python .agents/skills/vulnerability-scanner/scripts/security_scan.py . --scan-type all \
+  2>&1 | tee .agents/reviews/<change-id>/vulnerability-scan.json
+```
+
+Parse JSON output; map `critical`/`high` findings to review CRITICAL. Use `checklists.md` for manual gaps Trivy does not cover.
+
 ### Stage B: TrueCourse Architecture Analysis
 
 **Trigger:** Config `review.architecture.truecourse_enabled = true` OR flag `--architecture`
 
+**Skill:** `.agents/skills/truecourse-review/SKILL.md` — upstream [truecourse-ai/truecourse](https://github.com/truecourse-ai/truecourse)
+
 **Prerequisites:**
-- `npx -y truecourse` available
-- Baseline `.truecourse/LATEST.json` exists (from full analysis on main)
+- Node.js >= 20, `npx -y truecourse`
+- Baseline `.truecourse/LATEST.json` on `main` (committed once)
 
-**Mode:**
-- Default: `--diff` (only new violations in current branch)
-- `--full-analysis` flag: full repo scan (slower, comprehensive)
-- LLM rules: only if user approves (`--llm` flag or config `truecourse_llm: true`)
-
-**Execution:**
+**Execution (preferred):**
 ```bash
-# Diff mode (preferred)
-npx -y truecourse analyze --diff --no-llm 2>&1 | tee .agents/reviews/<change-id>/truecourse-diff.json
-
-# Get violation list (first page)
-npx -y truecourse list --diff --limit 20 2>&1 | tee .agents/reviews/<change-id>/truecourse-violations.txt
+.skillgrid/scripts/run-truecourse-review.sh --change <change-id> --no-llm
 ```
+
+**Manual fallback:**
+```bash
+npx -y truecourse analyze --diff --no-llm 2>&1 | tee .agents/reviews/<change-id>/truecourse-analyze.txt
+npx -y truecourse list --diff --limit 50 2>&1 | tee .agents/reviews/<change-id>/truecourse-violations.txt
+```
+
+**Mode:** `--full-analysis` → script `--full`. LLM: `--llm` only with user approval.
 
 **Parse:**
 - New violations count by severity
@@ -466,6 +487,6 @@ Return the standard SDD envelope per `.agents/skills/_shared/sdd-return-envelope
 - Stage 1: `spec-compliance-verifier` (`sdd-verify`)
 - Final gate: `pre-merge-verification` (combines verify + review + other checks)
 - Security scanner: `trivy` MCP integration — https://github.com/aquasecurity/trivy
-- Architecture analysis: `truecourse` skills — https://github.com/truecourse-systems/truecourse
+- Architecture analysis: [truecourse-ai/truecourse](https://github.com/truecourse-ai/truecourse) — `truecourse-review`, `truecourse-analyze`, `truecourse-list`, `truecourse-fix`, `truecourse-hooks`
 - Skills: `truecourse-analyze`, `truecourse-list`, `truecourse-fix`, `truecourse-hooks`
 - Superpowers pattern: two-stage code quality review

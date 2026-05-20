@@ -10,6 +10,11 @@
     "postToolUse": [
       {
         "command": "context-mode hook cursor posttooluse"
+      },
+      {
+        "matcher": "Shell|Read|Grep",
+        "command": "node ./.cursor/hooks/gitnexus-hook.cjs",
+        "timeout": 10
       }
     ],
     "stop": [

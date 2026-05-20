@@ -27,7 +27,7 @@ Every delegated prompt must include a compact context injection packet:
 
 Parallelize only when goals are independent, outputs do not collide on the same files without ownership, and the parent can read and merge all results before advancing.
 
-Dependency waves per `docs/08-multi-agent-work.md`: respect `blockedBy` / `unblocks` and failed verification gates downstream.
+Dependency waves per `docs/09-multi-agent-work.md`: respect `blockedBy` / `unblocks` and failed verification gates downstream.
 
 Sequencing gate before parallel dispatch:
 

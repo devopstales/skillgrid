@@ -333,6 +333,26 @@ verify_passed_for_change() {
   return 1
 }
 
+is_security_sensitive_change() {
+  [[ -f ".skillgrid/state/${CHANGE}/security_sensitive" ]]
+}
+
+review_security_artifacts_present() {
+  local trivy=".agents/reviews/${CHANGE}/trivy-report.json"
+  local vuln=".agents/reviews/${CHANGE}/vulnerability-scan.json"
+  [[ -f "$trivy" || -f "$vuln" ]]
+}
+
+review_truecourse_enabled() {
+  grep -qE '"truecourse_enabled"[[:space:]]*:[[:space:]]*true' "${REPO_ROOT}/.skillgrid/config.json" 2>/dev/null
+}
+
+review_truecourse_artifacts_present() {
+  local analyze=".agents/reviews/${CHANGE}/truecourse-analyze.txt"
+  local violations=".agents/reviews/${CHANGE}/truecourse-violations.txt"
+  [[ -f "$analyze" && -f "$violations" ]]
+}
+
 review_approved_for_change() {
   local state_per_change=".skillgrid/state/${CHANGE}/review_status"
   local research_dir stage2 review_glob f
@@ -383,10 +403,61 @@ gate_review_before_archive() {
     return
   fi
 
-  if review_approved_for_change; then
-    add_pass "review_before_archive" "sdd-review evidence present for ${CHANGE}"
-  else
+  if ! review_approved_for_change; then
     add_error "review_before_archive" "Run /sdd-review after verify — need APPROVED in openspec/changes/${CHANGE}/reviews/ or stage2-code-quality report"
+    return
+  fi
+
+  if is_security_sensitive_change && ! review_security_artifacts_present; then
+    add_warning "review_before_archive" "security_sensitive change missing scan artifacts under .agents/reviews/${CHANGE}/ (trivy-report.json or vulnerability-scan.json)"
+  fi
+
+  if review_truecourse_enabled && ! review_truecourse_artifacts_present; then
+    add_warning "review_before_archive" "review.architecture.truecourse_enabled but missing .agents/reviews/${CHANGE}/truecourse-analyze.txt — run run-truecourse-review.sh"
+  fi
+
+  add_pass "review_before_archive" "sdd-review evidence present for ${CHANGE}"
+}
+
+# 7c. TrueCourse artifacts when architecture review enabled
+gate_review_truecourse_artifacts() {
+  if ! is_gate_active "review_truecourse_artifacts"; then add_run "review_truecourse_artifacts"; return; fi
+
+  if [[ "$PHASE" != "review" && "$PHASE" != "archive" ]]; then
+    add_pass "review_truecourse_artifacts" "N/A for ${PHASE}"
+    return
+  fi
+
+  if ! review_truecourse_enabled; then
+    add_pass "review_truecourse_artifacts" "truecourse_enabled false in config"
+    return
+  fi
+
+  if review_truecourse_artifacts_present; then
+    add_pass "review_truecourse_artifacts" "TrueCourse review artifacts present for ${CHANGE}"
+  else
+    add_warning "review_truecourse_artifacts" "Run .skillgrid/scripts/run-truecourse-review.sh --change ${CHANGE} (or /sdd-review --architecture)"
+  fi
+}
+
+# 7b. Review phase: encourage security scan artifacts when sensitive
+gate_review_security_artifacts() {
+  if ! is_gate_active "review_security_artifacts"; then add_run "review_security_artifacts"; return; fi
+
+  if [[ "$PHASE" != "review" && "$PHASE" != "archive" ]]; then
+    add_pass "review_security_artifacts" "N/A for ${PHASE}"
+    return
+  fi
+
+  if ! is_security_sensitive_change; then
+    add_pass "review_security_artifacts" "Change not security_sensitive"
+    return
+  fi
+
+  if review_security_artifacts_present; then
+    add_pass "review_security_artifacts" "Security scan artifacts present for ${CHANGE}"
+  else
+    add_warning "review_security_artifacts" "Run /sdd-review --security (Trivy) or ensure vulnerability-scan.json for ${CHANGE}"
   fi
 }
 
@@ -440,9 +511,9 @@ run_gates() {
     verify)
       gate_labels; gate_artifacts; gate_phase_state; gate_persona_hardgates; gate_slices ;;
     review)
-      gate_labels; gate_artifacts; gate_phase_state; gate_verify_before_review ;;
+      gate_labels; gate_artifacts; gate_phase_state; gate_verify_before_review; gate_review_security_artifacts; gate_review_truecourse_artifacts ;;
     archive)
-      gate_labels; gate_artifacts; gate_phase_state; gate_verify_before_review; gate_review_before_archive; gate_persona_routing; gate_persona_hardgates ;;
+      gate_labels; gate_artifacts; gate_phase_state; gate_verify_before_review; gate_review_before_archive; gate_review_security_artifacts; gate_review_truecourse_artifacts; gate_persona_routing; gate_persona_hardgates ;;
   esac
 
   add_pass "total" "All gates complete"

@@ -21,7 +21,7 @@ Write the registry to:
 .skillgrid/project/SKILL_REGISTRY.md
 ```
 
-This file is generated project context. It complements `docs/05-skills.md`; it does not replace the human-facing skills documentation.
+This file is generated project context. It complements `docs/06-skills.md`; it does not replace the human-facing skills documentation.
 
 When documenting or creating skills, use **`.agents/skills/_shared/SKILL-authoring-template.md`** as the canonical `SKILL.md` shape (triggers, out of scope, stop conditions, example prompt).
 

@@ -69,7 +69,7 @@ Use this shape for `.skillgrid/project/CONTEXT.md`:
 
 ## When agents read vs write CONTEXT
 
-Canonical command list: **`docs/04-commands-reference.md`**.
+Canonical command list: **`docs/05-commands-reference.md`**.
 
 | Situation | Read `CONTEXT.md`? | Write `CONTEXT.md`? |
 | --- | --- | --- |

@@ -2,18 +2,20 @@
 
 Executable helpers installed under `.skillgrid/scripts/` in each target repo. Run from the **repository root** unless noted.
 
-The Web UI is **not** in this folder — use `skillgrid serve` from [skillgrid-cli](../../skillgrid-cli/) (see [docs/15-webui.md](../../docs/15-webui.md)).
+The Web UI is **not** in this folder — use `skillgrid serve` from [skillgrid-cli](../../skillgrid-cli/) (see [docs/18-webui.md](../../docs/18-webui.md)).
 
 ## SDD gates and apply
 
 | Script | Purpose | Called by |
 |--------|---------|-----------|
-| `sdd-gate.sh` | Phase gates (labels, artifacts, routing) | `/sdd-apply`, `/sdd-verify`, `/sdd-loop`, git hooks via `install.sh` |
+| `sdd-gate.sh` | Phase gates (labels, artifacts, routing, review security artifacts) | `/sdd-apply`, `/sdd-verify`, `/sdd-review`, `/sdd-loop`, git hooks via `install.sh` |
+| `classify-security-sensitive.sh` | Tag change as security-sensitive from diff | `/sdd-verify` (Step 2a) |
+| `run-truecourse-review.sh` | TrueCourse diff analyze + list → review artifacts | `/sdd-review` Stage B (`truecourse-review` skill) |
 | `validate-task-labels.sh` | `[Label: AFK\|HITL]` and `[Budget: …]` on `tasks.md` | `sdd-gate.sh`, `sdd-apply` / `sdd-verify` skills |
 | `checkpoint-record.sh` | Tier 1 checkpoint (log + handoff + event) | SDD workflows, `skillgrid checkpoint` |
-| `sdd-ralph-loop.sh` | AFK multi-iteration `/sdd-loop` driver | [docs/10-sdd-ralph-loop.md](../../docs/10-sdd-ralph-loop.md) |
+| `sdd-ralph-loop.sh` | AFK multi-iteration `/sdd-loop` driver | [docs/11-sdd-ralph-loop.md](../../docs/11-sdd-ralph-loop.md) |
 
-Docs: [18-checkpoints.md](../../docs/18-checkpoints.md), [07-hooks-and-automation.md](../../docs/07-hooks-and-automation.md).
+Docs: [14-checkpoints.md](../../docs/14-checkpoints.md), [08-hooks-and-automation.md](../../docs/08-hooks-and-automation.md).
 
 ## UI previews
 

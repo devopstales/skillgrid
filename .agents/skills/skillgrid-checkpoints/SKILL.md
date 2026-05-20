@@ -73,7 +73,7 @@ skillgrid checkpoint --change <change-id> --name <label> [same options]
 
 ## Related
 
-- **`docs/18-checkpoints.md`** — canonical human reference (format, triggers, CLI, dashboard, troubleshooting)
+- **`docs/14-checkpoints.md`** — canonical human reference (format, triggers, CLI, dashboard, troubleshooting)
 - `.agents/skills/_shared/skillgrid-handoff.md` — handoff + event contract
-- `docs/15-webui.md` — where checkpoints appear in the Web UI
+- `docs/18-webui.md` — where checkpoints appear in the Web UI
 - `skillgrid-vertical-slices` — slice-level checkpoint names in tasks

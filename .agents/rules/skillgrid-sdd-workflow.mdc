@@ -16,7 +16,7 @@ For every `/sdd-*` phase **except** `/sdd-init`, follow `.agents/rules/skillgrid
 
 Use the named command that matches the phase. Rough dependency shape:
 
-`proposal → specs → design → tasks → apply → verify → archive` (with `explore` / `brainstorm` / `loop` as entry or continuation paths per `docs/04-commands-reference.md`).
+`proposal → specs → design → tasks → apply → verify → archive` (with `explore` / `brainstorm` / `loop` as entry or continuation paths per `docs/05-commands-reference.md`).
 
 ## OpenSpec change layout (typical)
 
@@ -39,6 +39,6 @@ Respect the project’s artifact store mode (`engram` / `openspec` / `hybrid` / 
 
 ## Where details live
 
-- Command list: `docs/04-commands-reference.md`
+- Command list: `docs/05-commands-reference.md`
 - Usage narrative: `docs/02-workflow-usage.md`
 - Enforcement gates: `.agents/rules/skillgrid-sdd-enforcement.mdc` and `.agents/skills/_shared/sdd-enforcement-contract.md`

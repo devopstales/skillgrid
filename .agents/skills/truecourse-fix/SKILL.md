@@ -1,6 +1,11 @@
 ---
 name: truecourse-fix
-description: Fix TrueCourse violations that have suggested fixes
+description: >
+  Apply TrueCourse suggested fixes. Repo: https://github.com/truecourse-ai/truecourse
+license: Apache-2.0
+metadata:
+  author: truecourse-ai
+  version: "1.0"
 user_invocable: true
 triggers:
   - fix violations

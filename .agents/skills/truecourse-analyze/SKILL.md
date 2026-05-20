@@ -1,6 +1,11 @@
 ---
 name: truecourse-analyze
-description: Run TrueCourse architecture analysis on this repository
+description: >
+  Run TrueCourse architecture analysis (npx truecourse). Repo: https://github.com/truecourse-ai/truecourse
+license: Apache-2.0
+metadata:
+  author: truecourse-ai
+  version: "1.0"
 user_invocable: true
 triggers:
   - analyze this repo

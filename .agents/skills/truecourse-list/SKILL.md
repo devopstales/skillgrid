@@ -1,6 +1,11 @@
 ---
 name: truecourse-list
-description: List TrueCourse violations found in this repository
+description: >
+  List TrueCourse violations (npx truecourse list). Repo: https://github.com/truecourse-ai/truecourse
+license: Apache-2.0
+metadata:
+  author: truecourse-ai
+  version: "1.0"
 user_invocable: true
 triggers:
   - show violations

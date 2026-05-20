@@ -22,4 +22,4 @@ After verification, the workflow should **close the loop** explicitly (merge, PR
 
 If **persona hard gates** or **HITL** blocked release, do not “finish” silently — **`next_recommended`** must name the blocking reason.
 
-See also **`docs/08-multi-agent-work.md`** (parallel lanes) and **`docs/TODO.md`** (branch-finish backlog).
+See also **`docs/09-multi-agent-work.md`** (parallel lanes) and **`docs/TODO.md`** (branch-finish backlog).

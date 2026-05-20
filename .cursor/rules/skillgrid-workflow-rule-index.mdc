@@ -16,7 +16,7 @@ Backlog checkpoints: **`docs/TODO.md`**. Canonical enforcement: **`.agents/skill
 
 ## IDE layout
 
-- **`docs/100-ide-configs.md`** — command/skill/rule paths per surface
+- **`docs/17-ide-configs.md`** — command/skill/rule paths per surface
 - **`.configs/opencode.json`** — agents, permissions, MCP wiring
 - **`scripts/sync-ide-assets.sh`** — mirror commands/agents where applicable
 
@@ -24,7 +24,7 @@ Backlog checkpoints: **`docs/TODO.md`**. Canonical enforcement: **`.agents/skill
 
 - **`skillgrid-sdd-orchestrator.mdc`**
 - **`/sdd-loop`**, **`skillgrid-sdd-execution.mdc`**
-- **`sdd-persona-delegation.md`**, **`sdd-<phase>/SKILL.md`**, **`docs/09-subagent-personas.md`**
+- **`sdd-persona-delegation.md`**, **`sdd-<phase>/SKILL.md`**, **`docs/10-subagent-personas.md`**
 
 ## Enforcement & review
 
@@ -34,7 +34,7 @@ Backlog checkpoints: **`docs/TODO.md`**. Canonical enforcement: **`.agents/skill
 ## Branch completion & parallelism
 
 - **`skillgrid-branch-finish-target.mdc`**
-- **`docs/08-multi-agent-work.md`** — dependency waves and parallel lanes
+- **`docs/09-multi-agent-work.md`** — dependency waves and parallel lanes
 
 ## Planning artifacts & returns
 

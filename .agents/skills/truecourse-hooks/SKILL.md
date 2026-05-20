@@ -1,6 +1,11 @@
 ---
 name: truecourse-hooks
-description: Install, configure, or remove the TrueCourse pre-commit hook
+description: >
+  Install/configure TrueCourse pre-commit hook (npx truecourse hooks). https://github.com/truecourse-ai/truecourse
+license: Apache-2.0
+metadata:
+  author: truecourse-ai
+  version: "1.0"
 user_invocable: true
 triggers:
   - install the pre-commit hook

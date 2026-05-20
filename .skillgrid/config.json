@@ -70,7 +70,12 @@
   "verify": {
     "require_full_coverage": true,
     "allow_partial": false,
-    "auto_evidence_collection": true
+    "auto_evidence_collection": true,
+    "security": {
+      "classify_sensitive": true,
+      "require_heimdall_when_sensitive": true,
+      "advisory_scan": false
+    }
   },
   "review": {
     "required": true,
@@ -82,7 +87,8 @@
       "trivy_scan": true,
       "trivy_severity": ["CRITICAL", "HIGH", "MEDIUM"],
       "fail_on_cve": true,
-      "fail_on_secret": true
+      "fail_on_secret": true,
+      "fallback_scan": true
     },
     "architecture": {
       "truecourse_enabled": false,

@@ -27,7 +27,7 @@ Mindset:
 - Read **`AGENTS.md`** at the project root when it exists.
 - For non-`/sdd-init` SDD work, read **`.skillgrid/project/CONTEXT.md`** when it exists.
 - Follow **`.agents/rules/`**, **`.agents/skills/`**, and **`docs/02-workflow-usage.md`**.
-- Persona protocol: **`.agents/skills/_shared/sdd-persona-delegation.md`** and **`docs/09-subagent-personas.md`**.
+- Persona protocol: **`.agents/skills/_shared/sdd-persona-delegation.md`** and **`docs/10-subagent-personas.md`**.
 
 ## Phase delegation
 

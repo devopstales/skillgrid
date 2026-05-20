@@ -149,7 +149,7 @@ Command routing:
 
 ## Configuration
 
-Config keys in `.skillgrid/config.json` that affect behavior:
+Config keys in `.skillgrid/config.json` that affect behavior (see `docs/04-config-reference.md`):
 
 ```json
 {

@@ -73,7 +73,7 @@ Create this directory structure:
 
 ```
 .skillgrid/
-├── config.json                 ← Stores config choices like PRD workflow source, artifact store mode, and ticketing provider
+├── config.json                 ← Harness config (see docs/04-config-reference.md)
 ├──project/                     ← Project-specific docs generated or updated by skills
     ├── ARCHITECTURE.md         ← Summary of detected architecture patterns and tech stack 
     ├── PROJECT.md              ← Summary of detected project conventions (linters, test frameworks, CI)
