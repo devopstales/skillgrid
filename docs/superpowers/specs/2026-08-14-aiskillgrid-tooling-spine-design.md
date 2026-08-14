@@ -30,12 +30,13 @@ After layout ensure + optional git sync, before/with agent skill copy:
 |------|--------|--------|
 | Engram | GitHub release binary | `dependencies/bin/engram` |
 | qntx/skill | GitHub release binary | `dependencies/bin/skills` |
-| Backlog.md | Prefer GitHub release binary into `dependencies/bin/` when a Skillgrid-supported asset exists; else managed npm `backlog.md` | bin or `npm/bin` |
 | GitNexus | npm (no standalone binary) | `npm` prefix → `gitnexus` |
-| OpenSpec | npm `@fission-ai/openspec` | `npm` prefix → `openspec` |
 | Context7 MCP | npm `@upstash/context7-mcp` | managed npm |
 | Playwright MCP | npm `@playwright/mcp` | managed npm |
 | DeepWiki MCP | Official HTTP remote MCP (no local npm) | `https://mcp.deepwiki.com/mcp` |
+| Exa MCP | Official HTTP remote MCP (no local npm) | `https://mcp.exa.ai/mcp` |
+
+OpenSpec and Backlog.md are **not** installed (deferred — Superpowers owns plans/specs/tasks).
 
 ### Rules
 
@@ -44,7 +45,8 @@ After layout ensure + optional git sync, before/with agent skill copy:
 - Prefer absolute paths to managed binaries in MCP `command` fields (avoids `npx -y` cold starts).
 - Re-running install is idempotent (re-download only if missing/outdated policy TBD; v1: ensure present, npm install again OK).
 - This slice does **not** run `skills add` / upstream pack orchestration (slice B — see [05-skills.md](../../05-skills.md) and `packs/skills/sources.yaml`).
-- This slice does **not** run OpenSpec/Backlog project scaffolds or `AGENT.md` generation (slice C / later).
+- This slice does **not** run `AGENT.md` generation (slice C / later).
+- OpenSpec / Backlog are out of default stack (not scaffolds in this slice either).
 - Playwright browser ensure (`npx playwright install`) is a follow-up; warn once that browsers may be required.
 
 ## Home layout
@@ -52,9 +54,9 @@ After layout ensure + optional git sync, before/with agent skill copy:
 ```text
 ~/.aiskillgrid/
   dependencies/
-    bin/          # engram, skills, backlog (if binary), …
+    bin/          # engram, skills, …
   npm/            # isolated npm prefix
-    bin/          # gitnexus, openspec, backlog.md, npx, MCP CLIs
+    bin/          # gitnexus, npx, MCP CLIs
     cache/        # npm cache
   tools/          # synced hub repo
   config.yaml
@@ -77,13 +79,12 @@ Extend `home.Paths` with `DepsBinDir`, `NpmDir`, `NpmBinDir`, `NpmCacheDir`. `En
 | `{{AISKILLGRID_BIN}}` | `~/.aiskillgrid/dependencies/bin` |
 | `{{AISKILLGRID_ENGRAM}}` | Absolute path to managed `engram` |
 | `{{AISKILLGRID_GITNEXUS}}` | Absolute path to managed `gitnexus` |
-| `{{AISKILLGRID_BACKLOG}}` | Absolute path to managed backlog binary |
 
 Optional entry metadata (stripped before merge):
 
 - `"requires": "binary:engram"` | `"npm:gitnexus"` — skip + warn if not installed
 - Always include Context7 / Playwright when their npm packages installed; else warn as a group if npm unavailable
-- Always include DeepWiki HTTP entry (`http:deepwiki` always present)
+- Always include DeepWiki and Exa HTTP entries (`http:deepwiki` / `http:exa` always present)
 
 Merge rules unchanged: overwrite only keys with prefix `aiskillgrid-`; one-time `.bak`.
 
@@ -149,8 +150,8 @@ Suggested `tools` surface:
 
 ## Out of scope (this slice)
 
-- Upstream skill orchestration via `skills add` (Superpowers, mattpocock, OpenSpec, Engram, gentle-ai — [05-skills.md](../../05-skills.md))
-- OpenSpec `openspec init` / Backlog project scaffold
+- Upstream skill orchestration via `skills add` (Superpowers, mattpocock, Engram, gentle-ai — [05-skills.md](../../05-skills.md))
+- OpenSpec / Backlog.md (deferred from default stack)
 - `AGENT.md` / `CLAUDE.md` / `GEMINI.md` generation
 - Portable Node download (system Node required for npm tools)
 - Homebrew formula / Nix flake for aiskillgrid itself

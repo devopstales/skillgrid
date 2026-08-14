@@ -94,9 +94,12 @@ func TestRunInstallPhaseNetworkFailuresWarn(t *testing.T) {
 		}
 	}
 
-	// deepwiki should always be present
+	// deepwiki + exa should always be present
 	if !res.Present["http:deepwiki"] {
 		t.Fatal("http:deepwiki should always be present")
+	}
+	if !res.Present["http:exa"] {
+		t.Fatal("http:exa should always be present")
 	}
 }
 
@@ -235,6 +238,9 @@ func TestRunInstallPhaseBuildsPresenceMap(t *testing.T) {
 	}
 	if !res.Present["http:deepwiki"] {
 		t.Fatal("http:deepwiki should always be present")
+	}
+	if !res.Present["http:exa"] {
+		t.Fatal("http:exa should always be present")
 	}
 }
 

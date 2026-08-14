@@ -78,7 +78,7 @@ func TestShippedMCPPackAgreesWithInstallPhase(t *testing.T) {
 		t.Fatal("shipped pack has no servers")
 	}
 
-	presenceKeys := map[string]bool{"http:deepwiki": true}
+	presenceKeys := map[string]bool{"http:deepwiki": true, "http:exa": true}
 	for _, bin := range releaseBinaries {
 		presenceKeys["binary:"+bin.binary] = true
 	}

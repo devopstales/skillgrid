@@ -31,8 +31,6 @@ func ResolveMCPServers(packPath string, p home.Paths, present map[string]bool) (
 		"{{AISKILLGRID_BIN}}":        p.DepsBinDir,
 		"{{AISKILLGRID_ENGRAM}}":     filepath.Join(p.DepsBinDir, "engram"),
 		"{{AISKILLGRID_GITNEXUS}}":   ManagedBinOrDefault(p, "gitnexus"),
-		"{{AISKILLGRID_BACKLOG}}":    ManagedBinOrDefault(p, "backlog"),
-		"{{AISKILLGRID_OPENSPEC}}":   ManagedBinOrDefault(p, "openspec"),
 		"{{AISKILLGRID_CONTEXT7}}":   ManagedBinOrDefault(p, "context7-mcp"),
 		"{{AISKILLGRID_PLAYWRIGHT}}": ManagedBinOrDefault(p, "playwright-mcp", "mcp-server-playwright"),
 	}

@@ -18,6 +18,13 @@ func setupPack(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("# stub\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	rules := filepath.Join(root, "packs", "rules")
+	if err := os.MkdirAll(rules, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rules, "no-ai-commit-coauthors.mdc"), []byte("---\nalwaysApply: true\n---\n# no ai\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	mcpDir := filepath.Join(root, "packs", "mcp")
 	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -48,6 +55,10 @@ func TestCursorProjectInstall(t *testing.T) {
 	if _, err := os.Stat(skillPath); err != nil {
 		t.Fatal(err)
 	}
+	rulePath := filepath.Join(project, ".cursor", "rules", "no-ai-commit-coauthors.mdc")
+	if _, err := os.Stat(rulePath); err != nil {
+		t.Fatal(err)
+	}
 	mcpPath := filepath.Join(project, ".cursor", "mcp.json")
 	obj, err := mcpmerge.LoadOrEmpty(mcpPath)
 	if err != nil {
@@ -76,6 +87,10 @@ func TestKiloGlobalInstall(t *testing.T) {
 	if _, err := os.Stat(skillPath); err != nil {
 		t.Fatal(err)
 	}
+	rulePath := filepath.Join(userHome, ".kilo", "rules", "no-ai-commit-coauthors.mdc")
+	if _, err := os.Stat(rulePath); err != nil {
+		t.Fatal(err)
+	}
 	mcpPath := filepath.Join(cfg, "kilo", "kilo.jsonc")
 	obj, err := mcpmerge.LoadOrEmpty(mcpPath)
 	if err != nil {
@@ -101,6 +116,18 @@ func TestAllAgentsInstall(t *testing.T) {
 	for _, a := range All() {
 		if _, err := a.Install(ctx); err != nil {
 			t.Fatalf("%s: %v", a.Name(), err)
+		}
+	}
+	// Copilot gets .instructions.md; others keep .mdc
+	paths := []string{
+		filepath.Join(project, ".cursor", "rules", "no-ai-commit-coauthors.mdc"),
+		filepath.Join(project, ".kilo", "rules", "no-ai-commit-coauthors.mdc"),
+		filepath.Join(project, ".opencode", "rules", "no-ai-commit-coauthors.mdc"),
+		filepath.Join(project, ".github", "instructions", "no-ai-commit-coauthors.instructions.md"),
+	}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("missing rule at %s: %v", p, err)
 		}
 	}
 }

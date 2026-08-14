@@ -20,10 +20,8 @@ func StatusLines(p home.Paths) []string {
 	return []string{
 		fmt.Sprintf("Managed npm: %s (node: %s)", p.NpmDir, nodeOK),
 		fmt.Sprintf("Binaries: engram=%s skills=%s", yn(engram), yn(skills)),
-		fmt.Sprintf("NPM bins: gitnexus=%s backlog=%s openspec=%s context7=%s playwright=%s",
+		fmt.Sprintf("NPM bins: gitnexus=%s context7=%s playwright=%s",
 			yn(npmPresent(p, "gitnexus")),
-			yn(npmPresent(p, "backlog.md")),
-			yn(npmPresent(p, "@fission-ai/openspec")),
 			yn(npmPresent(p, "@upstash/context7-mcp")),
 			yn(npmPresent(p, "@playwright/mcp")),
 		),

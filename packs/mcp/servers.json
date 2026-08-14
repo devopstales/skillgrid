@@ -10,11 +10,6 @@
       "args": ["mcp"],
       "requires": "npm:gitnexus"
     },
-    "aiskillgrid-backlog": {
-      "command": "{{AISKILLGRID_BACKLOG}}",
-      "args": ["mcp"],
-      "requires": "npm:backlog.md"
-    },
     "aiskillgrid-context7": {
       "command": "{{AISKILLGRID_CONTEXT7}}",
       "env": {
@@ -34,6 +29,10 @@
     "aiskillgrid-deepwiki": {
       "url": "https://mcp.deepwiki.com/mcp",
       "requires": "http:deepwiki"
+    },
+    "aiskillgrid-exa": {
+      "url": "https://mcp.exa.ai/mcp",
+      "requires": "http:exa"
     }
   }
 }

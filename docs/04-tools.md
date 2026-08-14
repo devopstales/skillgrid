@@ -12,6 +12,7 @@ Agreed optional tool integrations for aiskillgrid. Default pattern on `aiskillgr
 | Code map / indexing | [GitNexus](https://github.com/abhigyanpatwari/GitNexus) | Graph / impact analysis (“what depends on X”) | **Managed npm** → `gitnexus` + MCP |
 | Library docs | [Context7](https://context7.com) MCP | Up-to-date library/framework API docs in-agent | **Managed npm** `@upstash/context7-mcp` → absolute managed bin |
 | Repo / wiki docs | [DeepWiki](https://deepwiki.com) MCP | Ask questions about GitHub repos / codebase docs | **HTTP remote MCP** (always available; no local binary) |
+| Web search | [Exa](https://exa.ai) MCP | Web search / fetch / research | **HTTP remote MCP** `https://mcp.exa.ai/mcp` (always available) |
 | Browser / E2E | [Playwright](https://playwright.dev) MCP | Drive a real browser for UI checks and flows | **Managed npm** `@playwright/mcp` → absolute managed bin; browsers may need separate install |
 
 ### Engram
@@ -40,6 +41,12 @@ Agreed optional tool integrations for aiskillgrid. Default pattern on `aiskillgr
 - On install: merge Skillgrid-owned MCP entry (e.g. `aiskillgrid-deepwiki`) using the **HTTP remote URL** pinned in `packs/mcp/servers.json` — no local npm package required.
 - Always considered available for MCP resolution (`http:deepwiki`); complements GitNexus: **GitNexus = structural code map**; **DeepWiki = natural-language docs/repo understanding**.
 
+### Exa
+
+- MCP for web search and page fetch ([Exa MCP](https://docs.exa.ai/reference/exa-mcp)).
+- On install: merge Skillgrid-owned MCP entry (`aiskillgrid-exa`) with hosted URL `https://mcp.exa.ai/mcp` — no local npm package required.
+- Always considered available for MCP resolution (`http:exa`). Free tier works anonymously with rate limits; for higher limits add an [API key](https://dashboard.exa.ai/api-keys) via client headers (`x-api-key` / `Authorization: Bearer`) — do not commit secrets to the hub.
+
 ### Playwright
 
 - MCP for browser automation and UI verification ([Playwright MCP](https://github.com/microsoft/playwright-mcp)).
@@ -51,7 +58,7 @@ Agreed optional tool integrations for aiskillgrid. Default pattern on `aiskillgr
 - **OpenSpec** — deferred (Superpowers owns plans/specs/tasks)
 - **Backlog.md** — deferred (Superpowers owns task checklists)
 - CocoIndex Code (semantic search)
-- Web research / other browser stacks (agent-browser, etc.) as alternatives
+- Other browser stacks (agent-browser, etc.) as alternatives
 - Security scanners
 - Upstream skill orchestration (see [05-skills.md](05-skills.md))
 
@@ -69,7 +76,7 @@ Agreed optional tool integrations for aiskillgrid. Default pattern on `aiskillgr
 ```text
 Managed npm: ~/.aiskillgrid/npm (node: yes|no)
 Binaries: engram=yes|no skills=yes|no
-NPM bins: gitnexus=yes|no
+NPM bins: gitnexus=yes|no context7=yes|no playwright=yes|no
 ```
 
 Tooling spine (managed install + MCP resolve/merge) is **implemented** in the CLI. Skill orchestration and agent-file generation remain in [TODO.md](TODO.md).

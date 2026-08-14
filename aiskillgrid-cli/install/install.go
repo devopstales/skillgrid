@@ -8,7 +8,9 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/aiskillgrid/aiskillgrid/agents"
+	"github.com/aiskillgrid/aiskillgrid/githooks"
 	"github.com/aiskillgrid/aiskillgrid/home"
+	"github.com/aiskillgrid/aiskillgrid/plugins"
 	"github.com/aiskillgrid/aiskillgrid/sync"
 	"github.com/aiskillgrid/aiskillgrid/tools"
 )
@@ -165,6 +167,45 @@ func Run(opts Options) error {
 		fmt.Printf("Installed for %s (%d paths)\n", a.Name(), len(res.Written))
 	}
 
+	if hookPath, err := githooks.InstallCommitMsgHook(projectDir, packRoot); err != nil {
+		failed = append(failed, fmt.Sprintf("git-hook: %v", err))
+		_ = home.AppendLog(paths.LogsDir, fmt.Sprintf("git-hook failed: %v", err))
+	} else if hookPath != "" {
+		state.WrittenPaths["git-hooks"] = []string{hookPath}
+		_ = home.AppendLog(paths.LogsDir, "git-hook commit-msg ok path="+hookPath)
+		fmt.Printf("Installed git commit-msg hook (strip AI co-authors): %s\n", hookPath)
+	}
+
+	pluginRes, err := plugins.InstallSuperpowers(plugins.Options{
+		Agents:     agentNames,
+		Scope:      scope,
+		ProjectDir: projectDir,
+		HomeRoot:   userHome,
+		ConfigDir:  configDir,
+		DepsDir:    paths.DepsDir,
+	})
+	if err != nil {
+		failed = append(failed, fmt.Sprintf("superpowers-plugin: %v", err))
+		_ = home.AppendLog(paths.LogsDir, fmt.Sprintf("superpowers plugin failed: %v", err))
+	} else {
+		recordPluginResult(&state, paths.LogsDir, "superpowers", pluginRes)
+	}
+
+	karpathyRes, err := plugins.InstallKarpathyGuidelines(plugins.Options{
+		Agents:     agentNames,
+		Scope:      scope,
+		ProjectDir: projectDir,
+		HomeRoot:   userHome,
+		ConfigDir:  configDir,
+		DepsDir:    paths.DepsDir,
+	})
+	if err != nil {
+		failed = append(failed, fmt.Sprintf("karpathy-guidelines: %v", err))
+		_ = home.AppendLog(paths.LogsDir, fmt.Sprintf("karpathy guidelines failed: %v", err))
+	} else {
+		recordPluginResult(&state, paths.LogsDir, "karpathy", karpathyRes)
+	}
+
 	if err := home.SaveState(paths.StateFile, state); err != nil {
 		return err
 	}
@@ -189,4 +230,27 @@ func findRepoRoot(start string) string {
 		dir = parent
 	}
 	return ""
+}
+
+func recordPluginResult(state *home.State, logsDir, label string, res plugins.Result) {
+	labelTitle := label
+	switch label {
+	case "superpowers":
+		labelTitle = "Superpowers plugin"
+	case "karpathy":
+		labelTitle = "Karpathy guidelines"
+	}
+	for agent, wpaths := range res.Written {
+		key := "plugin-" + label + "-" + agent
+		state.WrittenPaths[key] = wpaths
+		fmt.Printf("Installed %s for %s (%d paths)\n", labelTitle, agent, len(wpaths))
+		_ = home.AppendLog(logsDir, fmt.Sprintf("%s %s ok rev=%s", label, agent, res.Rev))
+	}
+	for _, w := range res.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		_ = home.AppendLog(logsDir, "warn: "+w)
+	}
+	if res.Checkout != "" {
+		state.WrittenPaths["plugin-"+label+"-checkout"] = []string{res.Checkout}
+	}
 }

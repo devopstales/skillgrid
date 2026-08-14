@@ -41,8 +41,6 @@ var managedNpmPackages = []struct {
 	bins []string
 }{
 	{"gitnexus", []string{"gitnexus"}},
-	{"backlog.md", []string{"backlog"}},
-	{"@fission-ai/openspec", []string{"openspec"}},
 	{"@upstash/context7-mcp", []string{"context7-mcp"}},
 	{"@playwright/mcp", []string{"playwright-mcp", "mcp-server-playwright"}},
 }
@@ -51,8 +49,8 @@ var managedNpmPackages = []struct {
 // 1. Ensure layout dirs
 // 2. Try binary installs (engram, skills) - failures → warning, continue
 // 3. Try EnsureManagedNPM; on failure → warning, skip npm packages
-// 4. Else InstallNPMPackages with: gitnexus, backlog.md, @fission-ai/openspec, @upstash/context7-mcp, @playwright/mcp
-// 5. Build present map from files that exist under DepsBinDir / managed npm prefix; always set http:deepwiki true
+// 4. Else InstallNPMPackages with: gitnexus, @upstash/context7-mcp, @playwright/mcp
+// 5. Build present map from files that exist under DepsBinDir / managed npm prefix; always set http:deepwiki and http:exa true
 // 6. ResolveMCPServers
 // 7. If playwright MCP present, append warning: browsers may need install later
 func RunInstallPhase(p home.Paths, packRoot string, opts PhaseOptions) (PhaseResult, error) {
@@ -161,8 +159,9 @@ func buildPresenceMap(p home.Paths, result *PhaseResult) {
 		}
 	}
 
-	// DeepWiki is a remote HTTP server, so it needs nothing installed locally.
+	// Remote HTTP MCP servers need nothing installed locally.
 	result.Present["http:deepwiki"] = true
+	result.Present["http:exa"] = true
 }
 
 func fileExists(path string) bool {

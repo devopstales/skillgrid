@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/aiskillgrid/aiskillgrid/home"
 	"github.com/aiskillgrid/aiskillgrid/mcpmerge"
@@ -66,6 +67,10 @@ func skillsSrc(packRoot string) string {
 	return filepath.Join(packRoot, "packs", "skills")
 }
 
+func rulesSrc(packRoot string) string {
+	return filepath.Join(packRoot, "packs", "rules")
+}
+
 func mcpPack(packRoot string) string {
 	return filepath.Join(packRoot, "packs", "mcp", "servers.json")
 }
@@ -86,6 +91,37 @@ func copySkills(srcDir, dstDir string) ([]string, error) {
 		src := filepath.Join(srcDir, e.Name())
 		dst := filepath.Join(dstDir, e.Name())
 		if err := copyDir(src, dst); err != nil {
+			return written, err
+		}
+		written = append(written, dst)
+	}
+	return written, nil
+}
+
+// copyRules copies flat rule files from packs/rules into dstDir.
+// When destExt is non-empty (e.g. ".instructions.md"), .mdc sources are renamed
+// to that extension for agents that do not use Cursor-style rules.
+func copyRules(srcDir, dstDir, destExt string) ([]string, error) {
+	var written []string
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		src := filepath.Join(srcDir, name)
+		dstName := name
+		if destExt != "" && filepath.Ext(name) == ".mdc" {
+			dstName = strings.TrimSuffix(name, filepath.Ext(name)) + destExt
+		}
+		dst := filepath.Join(dstDir, dstName)
+		if err := copyFile(src, dst); err != nil {
 			return written, err
 		}
 		written = append(written, dst)
@@ -145,16 +181,28 @@ func mergeMCPFile(path, mcpKey, packRoot string, resolved map[string]any) error 
 	return mcpmerge.WriteObject(path, root)
 }
 
-func installSkillsAndMCP(ctx Context, skillsDir, mcpPath, mcpKey string) ([]string, error) {
+func installSkillsRulesAndMCP(ctx Context, skillsDir, rulesDir, rulesExt, mcpPath, mcpKey string) ([]string, error) {
 	var written []string
 	copied, err := copySkills(skillsSrc(ctx.PackRoot), skillsDir)
 	if err != nil {
 		return nil, err
 	}
 	written = append(written, copied...)
+	if rulesDir != "" {
+		rules, err := copyRules(rulesSrc(ctx.PackRoot), rulesDir, rulesExt)
+		if err != nil {
+			return written, err
+		}
+		written = append(written, rules...)
+	}
 	if err := mergeMCPFile(mcpPath, mcpKey, ctx.PackRoot, ctx.ResolvedMCP); err != nil {
 		return written, err
 	}
 	written = append(written, mcpPath)
 	return written, nil
+}
+
+// installSkillsAndMCP is kept for callers that only need skills+MCP (no rules dir).
+func installSkillsAndMCP(ctx Context, skillsDir, mcpPath, mcpKey string) ([]string, error) {
+	return installSkillsRulesAndMCP(ctx, skillsDir, "", "", mcpPath, mcpKey)
 }

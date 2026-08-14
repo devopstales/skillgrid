@@ -1,152 +1,152 @@
-# AISkillGrid
-
-<div align="center">
-
-<img width="768" alt="skillgrid brand" src="docs/assets/v9NDj7Jw.jpeg" />
-
-A **configuration hub** for opinionated AI-assisted development: reusable **skills**, **slash commands**, and spec-driven workflow with OpenSpec-style change management.
-
-<p>
-<a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache-2.0"></a>
-<img src="https://img.shields.io/badge/workflow-SDD-orange" alt="Workflow: SDD">
-<img src="https://img.shields.io/badge/docs-numbered%20guides-success" alt="Docs: Numbered Guides">
+<p align="center">
+  <img src="docs/assets/v9NDj7Jw.jpeg" alt="skillgrid" width="100%" />
 </p>
 
-</div>
+<h1 align="center">skillgrid</h1>
+
+<p align="center">
+  <strong>One CLI. One hub. Every agent, wired.</strong>
+</p>
+
+<p align="center">
+  Sync skills and MCP tools into Cursor, Kilo, OpenCode, and VS Code Copilot —<br />
+  without hunting configs, copy-pasting JSON, or reinventing your stack every project.
+</p>
+
+<p align="center">
+  <a href="docs/00-start-here.md">Start here</a> ·
+  <a href="docs/01-installation.md">Install</a> ·
+  <a href="docs/02-usage.md">Usage</a> ·
+  <a href="docs/README.md">Docs</a>
+</p>
 
 ---
 
-## What It Does
+## Why skillgrid?
 
-AISkillGrid is a local-first operating layer for AI-assisted development. It turns open-ended chat into a structured engineering workflow with phase commands, reusable skills, durable artifacts, verification-first quality gates, and memory integration.
+AI coding agents are only as good as the skills and tools behind them. Today that means scattered repos, hand-rolled MCP configs, and a different setup for every client.
 
-## Highlights
+**skillgrid** (`aiskillgrid`) is the cross-platform Go CLI that ends that chaos:
 
-| Feature | What it does | Why it matters |
-|---------|--------------|----------------|
-| SDD Workflow | Guides work through init, explore, brainstorm, plan, apply, verify, and finish | Keeps agent work tied to explicit phases, artifacts, and exit checks |
-| Multi-IDE command hub | Ships `/sdd-*` commands for Cursor, Kilo, OpenCode, and GitHub Copilot prompts | One workflow travels across the IDEs you use |
-| Agent skills catalog | Provides reusable skills for TDD, review, security, UI design, research, OpenSpec, and more | Agents get focused operating procedures instead of ad hoc chat instructions |
-| Deep research | `deep-research` runs web search (Exa → Tavily → Firecrawl) before codebase reads in explore/brainstorm | External context lands before local investigation, reducing blind spots |
-| Phase-bound personas | Norse specialists dispatch from each `sdd-<phase>/SKILL.md`; `tyr` / `heimdall` hard-gate on critical findings | Independent review without a separate persona-board command surface |
-| File-first handoff | Stores PRDs, OpenSpec changes, handoff files, event logs, checkpoints under the repo | Work survives context resets without requiring a database or hosted service |
-| Intent-gated loop | Adds `/sdd-loop` for the next safe phase or `[AFK]` slice, with explicit HITL and verification stop conditions | Long-running agent work stays bounded by artifacts and user authority |
+1. **Sync** this hub into a managed home (`~/.aiskillgrid`)
+2. **Install** skills + MCP wiring into the agents you actually use
+3. **Ship** the same memory, code-map, specs, and docs stack everywhere
 
-## The Basic Workflow
-
-1. **Init** (`/sdd-init`) - Bootstraps project context, detects stack, configures persistence (hybrid mode recommended), and creates `.skillgrid/` and `openspec/` directories.
-
-2. **Explore** (`/sdd-explore`) - Web research first (`deep-research`), then codebase investigation. Maps architecture, identifies patterns, compares approaches. Makes NO code changes.
-
-3. **Brainstorm** (`/sdd-brainstorm`) - Full planning pipeline: explore → clarify → propose → spec → design → tasks. Produces artifacts in `openspec/changes/<name>/`.
-
-4. **Apply** — `/sdd-loop` (Ralph orchestrator: one AFK task per iteration, delegates to `/sdd-apply`) or `/sdd-apply` directly (multi-task implementation session with TDD and two-stage review).
-
-5. **Verify** (`/sdd-verify`) - Stage 1: Spec compliance verification. Traces every requirement to code/test evidence. PASS/FAIL/PARTIAL verdict.
-
-6. **Review** (`/sdd-review`) - Stage 2: Code quality review. Evaluates style, DRY, errors, tests, security, performance. APPROVED/CHANGES_REQUESTED.
-
-7. **Archive** (`/sdd-archive`) - Pre-merge gate (tests green, lint clean, working tree clean) then merges/PRs/keeps/discards per configuration.
-
-**The agent checks for relevant skills before any task. Mandatory workflows, not suggestions.**
-
-## Two-Stage Review
-
-**Spec compliance** (`sdd-verify`) - Traces every requirement to code/test evidence. PASS/FAIL/PARTIAL verdict with gap analysis.
-
-**Code quality** (`sdd-review`) - Evaluates style, DRY, errors, tests, security, performance. Severity-tagged issues (CRITICAL/IMPORTANT/MINOR) and APPROVED/CHANGES_REQUESTED verdict.
+Independent project. Fresh start. Built to scale with your agent fleet.
 
 ---
 
-## Quick Start
+## What you get
 
-1. Open this repository in your agent-enabled IDE.
-2. Bootstrap project context:
+| | |
+|---|---|
+| **Clients (v1)** | Kilo / Kilo Code · OpenCode · Cursor · VS Code (Copilot) |
+| **Coming next** | Claude Code · pi · Gemini CLI · Antigravity · Codex |
+| **Tools** | Engram · GitNexus · Context7 · DeepWiki · Exa · Playwright |
+| **Skills** | Superpowers (plugin) · Karpathy Guidelines · mattpocock · Engram · gentle-ai via [qntx/skill](https://github.com/qntx/skill) |
+| **Runtime** | Managed `~/.aiskillgrid/npm/` + absolute managed bins for MCP — no global Node pollution |
 
-   ```text
-   /sdd-init
-   ```
-
-3. Start a change:
-
-   ```text
-   /sdd-brainstorm <change-name>
-   ```
-
-4. Implement and verify:
-
-   ```text
-   /sdd-loop          # one [AFK] task per invocation
-   /sdd-apply         # for a full session
-   /sdd-verify
-   /sdd-review
-   /sdd-archive
-   ```
+Deep dives: [docs/04-tools.md](docs/04-tools.md) · [docs/05-skills.md](docs/05-skills.md)
 
 ---
 
-## High Council
+## Install
 
-Specialist **Norse** personas are delegated viewpoints—not owners of the workflow. The **session coordinator** merges reports; bindings are in each **`sdd-<phase>/SKILL.md`**. **`tyr`** and **`heimdall`** can **hard-gate** on critical findings. Details: [`subagent-personas`](docs/10-subagent-personas.md).
+### From a release (recommended)
 
-| Persona | Job |
-| --- | --- |
-| Coordinator (`odin` on some surfaces) | SDD sequencing, tools, persona dispatch per phase skill. |
-| Kvasir | Fast read-only codebase recon: map, entrypoints, dependency direction before big edits. |
-| Thor | Implementation enforcer: delivery feasibility, execution quality, momentum. |
-| Tyr | Spec and compliance verifier: traceability and acceptance criteria; **critical = hard stop** until resolved or accepted. |
-| Heimdall | Security and release-gate sentinel: threat model and exploitability; **critical = hard stop** until resolved or accepted. |
-| Frigg | UX and product-clarity reviewer: flows, accessibility, content quality. |
-| Loki | Adversarial critic: counterexamples and assumption stress-tests; can flag conflicts needing HITL. |
-| Mimir | Bootstrap / memory continuity and architecture coherence; strategic voice on architecture-style boards. |
-| Bragi | Structured artifact author: specs, tasks, and clear traceable requirement wording. |
-| Vidar | Root-cause debugging: systematic investigation, evidence, regression prevention. |
+**macOS / Linux**
 
----
+```bash
+curl -fsSL https://raw.githubusercontent.com/aiskillgrid/aiskillgrid/main/scripts/install.sh | bash
+```
 
-## Philosophy
+**Windows (PowerShell)**
 
-- **TDD** - Write tests first, always
-- **Systematic over ad-hoc** - Process over guessing  
-- **Complexity reduction** - Simplicity as primary goal
-- **Evidence over claims** - Verify before declaring success
+```powershell
+irm https://raw.githubusercontent.com/aiskillgrid/aiskillgrid/main/scripts/install.ps1 | iex
+```
 
----
+Release assets: `aiskillgrid-<version>-<os>-<arch>`  
+(e.g. `aiskillgrid-0.1.0-darwin-arm64`, `aiskillgrid-0.1.0-windows-amd64.exe`)
 
-## Documentation
+### From source
 
-| Doc | Contents |
-|-----|----------|
-| [docs/00-start-here.md](docs/00-start-here.md) | Start-here overview and manifesto: human-in-the-loop pipelines, spec-driven guidance |
-| [docs/01-installation.md](docs/01-installation.md) | Install toolchain and workflow CLIs |
-| [docs/02-workflow-usage.md](docs/02-workflow-usage.md) | Skillgrid phases, PRD and OpenSpec handoff |
-| [docs/03-skillgrid-logic.md](docs/03-skillgrid-logic.md) | PRD/INDEX/OpenSpec hierarchy and `.skillgrid/templates/` blanks |
-| [docs/04-config-reference.md](docs/04-config-reference.md) | `.skillgrid/config.json` — workflow gates, PRD board, TDD, verify/review |
-| [docs/05-commands-reference.md](docs/05-commands-reference.md) | Slash commands and where they live per IDE |
-| [docs/06-skills.md](docs/06-skills.md) | Catalog of all skills with paths and summaries |
-| [docs/07-rules-and-governance.md](docs/07-rules-and-governance.md) | Where project rules live and how they are maintained |
-| [docs/08-hooks-and-automation.md](docs/08-hooks-and-automation.md) | Shared hooks and automation policy |
-| [docs/09-multi-agent-work.md](docs/09-multi-agent-work.md) | Subagents, personas, dependency waves, handoff/event logs |
-| [docs/10-subagent-personas.md](docs/10-subagent-personas.md) | Specialist persona catalog |
-| [docs/11-sdd-ralph-loop.md](docs/11-sdd-ralph-loop.md) | Ralph build loop (`/sdd-loop`, AFK driver) |
-| [docs/12-memory-and-indexing.md](docs/12-memory-and-indexing.md) | Durable context and codebase search |
-| [docs/13-mcp-servers.md](docs/13-mcp-servers.md) | MCP server connections |
-| [docs/14-checkpoints.md](docs/14-checkpoints.md) | Tier 1 operational checkpoints (log, handoff, events, SDD triggers) |
-| [docs/15-ticketing-integrations.md](docs/15-ticketing-integrations.md) | Local and external work tracking |
-| [docs/16-review-artifacts.md](docs/16-review-artifacts.md) | Verify/review artifact paths and merge gates |
-| [docs/17-ide-configs.md](docs/17-ide-configs.md) | IDE layout and command paths per surface |
-| [docs/18-webui.md](docs/18-webui.md) | Local web dashboard |
-| [docs/19-external-tools.md](docs/19-external-tools.md) | Optional third-party CLIs and integrations |
+```bash
+cd aiskillgrid-cli
+go build -o ../bin/aiskillgrid .
+```
+
+Or with [Task](https://taskfile.dev):
+
+```bash
+task --taskfile .Taskfile.yml build
+```
+
+### Coming soon
+
+- **Homebrew** — `brew install …`
+- **Nix** — `nix run .#aiskillgrid`
+
+Full guide: [docs/01-installation.md](docs/01-installation.md)
 
 ---
 
-## Contributing
+## Managed home
 
-- Keep changes aligned to active `/sdd-*` workflow commands.
-- Update numbered docs whenever command or skill behavior changes.
-- Prefer small, reviewable PRs with clear verification evidence.
+```
+~/.aiskillgrid/          # override with AISKILLGRID_HOME
+  config.yaml
+  tools/                 # git checkout of this hub repo
+  dependencies/          # upstream checkouts (superpowers, karpathy, …)
+    bin/                 # native binaries (engram, skills, …)
+  npm/                   # isolated npm prefix for MCP packages
+  state.json
+  logs/
+  sessions/
+  memories/
+```
 
-## License
+---
 
-Apache-2.0. See `LICENSE`.
+## Usage
 
+```bash
+aiskillgrid sync                 # clone/pull repo into ~/.aiskillgrid/tools
+aiskillgrid install              # pick scope + agents, wire skills & MCP
+aiskillgrid install --scope global --agents cursor,kilo --yes
+aiskillgrid status
+aiskillgrid version
+```
+
+Install defaults to **global** scope when prompted; project scope writes under the current working directory.
+
+Install also wires Superpowers as a plugin, Karpathy Guidelines (skill + rules), pack rules, git `commit-msg` hook, and MCP entries (including Exa). Project `AGENT.md` / `CLAUDE.md` / `GEMINI.md` generation is still on the backlog — [docs/06-agent-files.md](docs/06-agent-files.md).
+
+---
+
+## Docs
+
+| Doc | What |
+|-----|------|
+| [00 — Start here](docs/00-start-here.md) | Product overview |
+| [01 — Installation](docs/01-installation.md) | Binary + managed home |
+| [02 — Usage](docs/02-usage.md) | sync / install / status |
+| [03 — Clients](docs/03-clients.md) | Client ids and paths |
+| [04 — Tools](docs/04-tools.md) | Engram, GitNexus, Context7, DeepWiki, Exa, Playwright |
+| [05 — Skills](docs/05-skills.md) | Superpowers plugin · Karpathy · composition profile |
+| [06 — Agent files](docs/06-agent-files.md) | AGENT.md / CLAUDE.md / GEMINI.md |
+
+---
+
+## Development
+
+```bash
+task --taskfile .Taskfile.yml test
+task --taskfile .Taskfile.yml release
+```
+
+---
+
+<p align="center">
+  <em>Stop configuring agents. Start compounding skills.</em>
+</p>
