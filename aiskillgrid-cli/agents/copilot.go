@@ -20,7 +20,5 @@ func (c Copilot) Install(ctx Context) (Result, error) {
 		mcpPath = filepath.Join(ctx.ConfigDir, "Code", "User", "mcp.json")
 	}
 	written, err := installSkillsAndMCP(ctx, skillsDir, mcpPath, "servers")
-	// VS Code mcp.json may use "servers" (newer) — also ensure mcpServers if empty pack.
-	// If merge wrote under "servers", also try dual-key for compatibility when file empty.
 	return Result{Agent: c.Name(), Written: written}, err
 }
