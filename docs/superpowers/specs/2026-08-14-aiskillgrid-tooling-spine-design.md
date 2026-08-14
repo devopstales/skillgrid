@@ -35,7 +35,7 @@ After layout ensure + optional git sync, before/with agent skill copy:
 | OpenSpec | npm `@fission-ai/openspec` | `npm` prefix → `openspec` |
 | Context7 MCP | npm `@upstash/context7-mcp` | managed npm |
 | Playwright MCP | npm `@playwright/mcp` | managed npm |
-| DeepWiki MCP | Pin package or HTTP at implement; prefer npm if package exists | managed npm / HTTP |
+| DeepWiki MCP | Official HTTP remote MCP (no local npm) | `https://mcp.deepwiki.com/mcp` |
 
 ### Rules
 
@@ -82,7 +82,8 @@ Extend `home.Paths` with `DepsBinDir`, `NpmDir`, `NpmBinDir`, `NpmCacheDir`. `En
 Optional entry metadata (stripped before merge):
 
 - `"requires": "binary:engram"` | `"npm:gitnexus"` — skip + warn if not installed
-- Always include Context7 / Playwright / DeepWiki when their npm packages installed; else warn as a group if npm unavailable
+- Always include Context7 / Playwright when their npm packages installed; else warn as a group if npm unavailable
+- Always include DeepWiki HTTP entry (`http:deepwiki` always present)
 
 Merge rules unchanged: overwrite only keys with prefix `aiskillgrid-`; one-time `.bak`.
 
