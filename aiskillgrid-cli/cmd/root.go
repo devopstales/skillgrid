@@ -8,6 +8,7 @@ import (
 	"github.com/aiskillgrid/aiskillgrid/home"
 	"github.com/aiskillgrid/aiskillgrid/install"
 	"github.com/aiskillgrid/aiskillgrid/sync"
+	"github.com/aiskillgrid/aiskillgrid/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -137,19 +138,22 @@ func statusCmd() *cobra.Command {
 			}
 			if st.UpdatedAt.IsZero() {
 				fmt.Println("Last install: none")
-				return nil
+			} else {
+				fmt.Printf("Last install: %s\n", st.UpdatedAt.Format("2006-01-02 15:04:05 UTC"))
+				fmt.Printf("  Scope: %s\n", st.Scope)
+				if st.ProjectDir != "" {
+					fmt.Printf("  Project: %s\n", st.ProjectDir)
+				}
+				fmt.Printf("  Agents: %s\n", strings.Join(st.Agents, ", "))
+				if st.RepoRev != "" {
+					fmt.Printf("  Install rev: %s\n", st.RepoRev)
+				}
+				for agent, pathsWritten := range st.WrittenPaths {
+					fmt.Printf("  %s: %d paths\n", agent, len(pathsWritten))
+				}
 			}
-			fmt.Printf("Last install: %s\n", st.UpdatedAt.Format("2006-01-02 15:04:05 UTC"))
-			fmt.Printf("  Scope: %s\n", st.Scope)
-			if st.ProjectDir != "" {
-				fmt.Printf("  Project: %s\n", st.ProjectDir)
-			}
-			fmt.Printf("  Agents: %s\n", strings.Join(st.Agents, ", "))
-			if st.RepoRev != "" {
-				fmt.Printf("  Install rev: %s\n", st.RepoRev)
-			}
-			for agent, pathsWritten := range st.WrittenPaths {
-				fmt.Printf("  %s: %d paths\n", agent, len(pathsWritten))
+			for _, line := range tools.StatusLines(paths) {
+				fmt.Println(line)
 			}
 			return nil
 		},
