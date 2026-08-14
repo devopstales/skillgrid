@@ -1,0 +1,41 @@
+{
+  "mcpServers": {
+    "aiskillgrid-engram": {
+      "command": "{{AISKILLGRID_ENGRAM}}",
+      "args": ["mcp"],
+      "requires": "binary:engram"
+    },
+    "aiskillgrid-gitnexus": {
+      "command": "{{AISKILLGRID_GITNEXUS}}",
+      "args": ["mcp"],
+      "requires": "npm:gitnexus"
+    },
+    "aiskillgrid-backlog": {
+      "command": "{{AISKILLGRID_BACKLOG}}",
+      "args": ["mcp"],
+      "requires": "npm:backlog.md"
+    },
+    "aiskillgrid-context7": {
+      "command": "{{AISKILLGRID_NPX}}",
+      "args": ["@upstash/context7-mcp"],
+      "env": {
+        "npm_config_prefix": "{{AISKILLGRID_NPM}}",
+        "npm_config_cache": "{{AISKILLGRID_NPM_CACHE}}"
+      },
+      "requires": "npm:@upstash/context7-mcp"
+    },
+    "aiskillgrid-playwright": {
+      "command": "{{AISKILLGRID_NPX}}",
+      "args": ["@playwright/mcp"],
+      "env": {
+        "npm_config_prefix": "{{AISKILLGRID_NPM}}",
+        "npm_config_cache": "{{AISKILLGRID_NPM_CACHE}}"
+      },
+      "requires": "npm:@playwright/mcp"
+    },
+    "aiskillgrid-deepwiki": {
+      "url": "https://mcp.deepwiki.com/mcp",
+      "requires": "http:deepwiki"
+    }
+  }
+}
