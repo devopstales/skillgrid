@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // Downloader fetches data from a URL. Injectable for tests.
@@ -41,33 +42,26 @@ func EnsureFileExecutable(path string, data []byte) error {
 }
 
 // EnsureReleaseBinary downloads a release asset if not already present and executable.
-// Skips download if destName already exists in destDir and is a regular file.
+// Skips download if destName already exists in destDir and is executable (Unix: any
+// execute bit set; Windows: any regular file).
 func EnsureReleaseBinary(destDir, destName, assetURL string, get Downloader) error {
 	if get == nil {
 		get = HTTPGet
 	}
 	dest := filepath.Join(destDir, destName)
-	
-	// Skip if file exists and is regular
+
 	if st, err := os.Stat(dest); err == nil && st.Mode().IsRegular() {
-		return nil
+		if runtime.GOOS == "windows" || st.Mode()&0o111 != 0 {
+			return nil
+		}
 	}
 
-	// Download
 	data, err := get(assetURL)
 	if err != nil {
 		return err
 	}
 
-	// Write with executable permissions
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return err
-	}
-	tmp := dest + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o755); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dest)
+	return EnsureFileExecutable(dest, data)
 }
 
 // EngramAssetURL constructs a GitHub release URL for engram binary.

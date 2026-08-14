@@ -7,8 +7,42 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func TestEnsureReleaseBinaryReplacesNonExecutable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows treats any existing regular file as executable enough to skip")
+	}
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "engram")
+	if err := os.WriteFile(dest, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	get := func(url string) ([]byte, error) {
+		calls++
+		return []byte("#!/bin/sh\necho ok\n"), nil
+	}
+	if err := EnsureReleaseBinary(dir, "engram", "https://example.invalid/engram", get); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected download for non-executable file, calls=%d", calls)
+	}
+	st, err := os.Stat(dest)
+	if err != nil || st.Mode()&0o111 == 0 {
+		t.Fatalf("not executable after replace: %v %#o", err, st.Mode())
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("echo ok")) {
+		t.Fatalf("content not replaced: %q", data)
+	}
+}
 
 func TestEnsureReleaseBinaryWritesAndSkips(t *testing.T) {
 	dir := t.TempDir()
