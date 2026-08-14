@@ -32,28 +32,28 @@ type Config struct {
 }
 
 type State struct {
-	UpdatedAt   time.Time        `json:"updated_at"`
-	Scope       string           `json:"scope"`
-	ProjectDir  string           `json:"project_dir,omitempty"`
-	Agents      []string         `json:"agents"`
-	RepoURL     string           `json:"repo_url"`
-	RepoRev     string           `json:"repo_rev,omitempty"`
+	UpdatedAt    time.Time           `json:"updated_at"`
+	Scope        string              `json:"scope"`
+	ProjectDir   string              `json:"project_dir,omitempty"`
+	Agents       []string            `json:"agents"`
+	RepoURL      string              `json:"repo_url"`
+	RepoRev      string              `json:"repo_rev,omitempty"`
 	WrittenPaths map[string][]string `json:"written_paths"`
 }
 
 type Paths struct {
-	Root         string
-	ConfigFile   string
-	StateFile    string
-	ToolsDir     string
-	DepsDir      string
-	DepsBinDir   string
-	NpmDir       string
-	NpmBinDir    string
-	NpmCacheDir  string
-	LogsDir      string
-	SessionsDir  string
-	MemoriesDir  string
+	Root        string
+	ConfigFile  string
+	StateFile   string
+	ToolsDir    string
+	DepsDir     string
+	DepsBinDir  string
+	NpmDir      string
+	NpmBinDir   string
+	NpmCacheDir string
+	LogsDir     string
+	SessionsDir string
+	MemoriesDir string
 }
 
 func DefaultRepoURL() string {

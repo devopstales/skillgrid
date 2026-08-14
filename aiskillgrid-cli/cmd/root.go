@@ -13,13 +13,13 @@ import (
 )
 
 var (
-	Version   = "0.1.0"
-	Commit    = "dev"
-	scopeFlag string
+	Version    = "0.1.0"
+	Commit     = "dev"
+	scopeFlag  string
 	agentsFlag string
-	yesFlag   bool
-	skipSync  bool
-	repoURL   string
+	yesFlag    bool
+	skipSync   bool
+	repoURL    string
 )
 
 func Execute() error {
