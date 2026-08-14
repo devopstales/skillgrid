@@ -23,15 +23,18 @@ func ResolveMCPServers(packPath string, p home.Paths, present map[string]bool) (
 		return nil, nil, fmt.Errorf("parse pack: %w", err)
 	}
 
-	// Build replacement map
+	// Build replacement map. MCP commands point at absolute managed executables;
+	// the managed prefix has no npx of its own to shell out through.
 	repl := map[string]string{
-		"{{AISKILLGRID_NPM}}":       p.NpmDir,
-		"{{AISKILLGRID_NPM_CACHE}}": p.NpmCacheDir,
-		"{{AISKILLGRID_BIN}}":       p.DepsBinDir,
-		"{{AISKILLGRID_NPX}}":       filepath.Join(p.NpmBinDir, "npx"),
-		"{{AISKILLGRID_ENGRAM}}":    filepath.Join(p.DepsBinDir, "engram"),
-		"{{AISKILLGRID_GITNEXUS}}":  ManagedBin(p, "gitnexus"),
-		"{{AISKILLGRID_BACKLOG}}":   ManagedBin(p, "backlog"),
+		"{{AISKILLGRID_NPM}}":        p.NpmDir,
+		"{{AISKILLGRID_NPM_CACHE}}":  p.NpmCacheDir,
+		"{{AISKILLGRID_BIN}}":        p.DepsBinDir,
+		"{{AISKILLGRID_ENGRAM}}":     filepath.Join(p.DepsBinDir, "engram"),
+		"{{AISKILLGRID_GITNEXUS}}":   ManagedBinOrDefault(p, "gitnexus"),
+		"{{AISKILLGRID_BACKLOG}}":    ManagedBinOrDefault(p, "backlog"),
+		"{{AISKILLGRID_OPENSPEC}}":   ManagedBinOrDefault(p, "openspec"),
+		"{{AISKILLGRID_CONTEXT7}}":   ManagedBinOrDefault(p, "context7-mcp"),
+		"{{AISKILLGRID_PLAYWRIGHT}}": ManagedBinOrDefault(p, "playwright-mcp", "mcp-server-playwright"),
 	}
 
 	servers = make(map[string]any)
@@ -55,6 +58,14 @@ func ResolveMCPServers(packPath string, p home.Paths, present map[string]bool) (
 
 		// Substitute placeholders in all string fields recursively
 		entry = substituteStrings(entry, repl).(map[string]any)
+
+		// A resolved absolute command that is missing would make the agent fail
+		// to start the server, so drop the entry instead of writing it out.
+		if cmd, ok := entry["command"].(string); ok && filepath.IsAbs(cmd) && !fileExists(cmd) {
+			warnings = append(warnings, fmt.Sprintf("skipped %s: command not found: %s", name, cmd))
+			continue
+		}
+
 		servers[name] = entry
 	}
 

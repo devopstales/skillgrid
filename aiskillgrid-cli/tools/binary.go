@@ -11,14 +11,22 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
+)
+
+const (
+	downloadTimeout = 60 * time.Second
+	maxDownloadSize = 200 << 20
 )
 
 // Downloader fetches data from a URL. Injectable for tests.
 type Downloader func(url string) ([]byte, error)
 
-// HTTPGet is the default Downloader using http.Get.
+// HTTPGet is the default Downloader. It bounds both wall time and response size
+// so a hung or hostile endpoint cannot stall or exhaust memory during install.
 var HTTPGet Downloader = func(url string) ([]byte, error) {
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: downloadTimeout}
+	resp, err := client.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +34,14 @@ var HTTPGet Downloader = func(url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
 	}
-	return io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxDownloadSize {
+		return nil, fmt.Errorf("response exceeds %d byte limit: %s", maxDownloadSize, url)
+	}
+	return data, nil
 }
 
 // EnsureFileExecutable writes data to path with executable permissions.
@@ -41,34 +56,38 @@ func EnsureFileExecutable(path string, data []byte) error {
 	return os.Rename(tmp, path)
 }
 
-// EnsureReleaseBinary downloads a release asset if not already present and executable.
-// Skips download if destName already exists in destDir and is executable (Unix: any
-// execute bit set; Windows: any regular file).
+// BinaryInstalled reports whether path is a regular file that can be executed
+// (Unix: any execute bit set; Windows: any regular file).
+func BinaryInstalled(path string) bool {
+	st, err := os.Stat(path)
+	if err != nil || !st.Mode().IsRegular() {
+		return false
+	}
+	return runtime.GOOS == "windows" || st.Mode()&0o111 != 0
+}
+
+// EnsureReleaseBinary downloads a release asset into destDir/destName unless an
+// executable copy is already there. Release assets are commonly tar.gz or zip
+// archives, so the payload is unpacked when destName is found inside it and
+// written verbatim otherwise.
 func EnsureReleaseBinary(destDir, destName, assetURL string, get Downloader) error {
 	if get == nil {
 		get = HTTPGet
 	}
 	dest := filepath.Join(destDir, destName)
-
-	if st, err := os.Stat(dest); err == nil && st.Mode().IsRegular() {
-		if runtime.GOOS == "windows" || st.Mode()&0o111 != 0 {
-			return nil
-		}
+	if BinaryInstalled(dest) {
+		return nil
 	}
 
 	data, err := get(assetURL)
 	if err != nil {
 		return err
 	}
+	if extracted, err := ExtractBinaryFromArchive(data, destName); err == nil {
+		data = extracted
+	}
 
 	return EnsureFileExecutable(dest, data)
-}
-
-// EngramAssetURL constructs a GitHub release URL for engram binary.
-// In production, this may be resolved via GitHub API with injectable fetchJSON.
-func EngramAssetURL(goos, goarch string) (string, error) {
-	// For now, return a pattern that can be used in tests or with API resolution
-	return fmt.Sprintf("https://github.com/engram-sh/engram/releases/latest/download/engram-%s-%s", goos, goarch), nil
 }
 
 // ExtractBinaryFromArchive extracts a named file from tar.gz or zip archive.

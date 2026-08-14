@@ -20,7 +20,31 @@ type PhaseResult struct {
 type PhaseOptions struct {
 	Downloader           Downloader
 	ReleaseAssetResolver ReleaseAssetResolver
+	NpmInstaller         NpmInstaller
 	SkipNetwork          bool
+}
+
+// releaseBinaries are installed from GitHub releases into DepsBinDir.
+var releaseBinaries = []struct {
+	name   string
+	repo   string
+	binary string
+}{
+	{"engram", "Gentleman-Programming/engram", "engram"},
+	{"skills", "qntx/skill", "skills"},
+}
+
+// managedNpmPackages are installed into the managed npm prefix. bins lists the
+// executable names the package may publish, newest naming first.
+var managedNpmPackages = []struct {
+	pkg  string
+	bins []string
+}{
+	{"gitnexus", []string{"gitnexus"}},
+	{"backlog.md", []string{"backlog"}},
+	{"@fission-ai/openspec", []string{"openspec"}},
+	{"@upstash/context7-mcp", []string{"context7-mcp"}},
+	{"@playwright/mcp", []string{"playwright-mcp", "mcp-server-playwright"}},
 }
 
 // RunInstallPhase orchestrates the tools installation process:
@@ -28,7 +52,7 @@ type PhaseOptions struct {
 // 2. Try binary installs (engram, skills) - failures → warning, continue
 // 3. Try EnsureManagedNPM; on failure → warning, skip npm packages
 // 4. Else InstallNPMPackages with: gitnexus, backlog.md, @fission-ai/openspec, @upstash/context7-mcp, @playwright/mcp
-// 5. Build present map from files that exist under DepsBinDir / NpmBinDir; always set http:deepwiki true
+// 5. Build present map from files that exist under DepsBinDir / managed npm prefix; always set http:deepwiki true
 // 6. ResolveMCPServers
 // 7. If playwright MCP present, append warning: browsers may need install later
 func RunInstallPhase(p home.Paths, packRoot string, opts PhaseOptions) (PhaseResult, error) {
@@ -49,7 +73,7 @@ func RunInstallPhase(p home.Paths, packRoot string, opts PhaseOptions) (PhaseRes
 
 	// Step 3-4: Try NPM setup and packages
 	if !opts.SkipNetwork {
-		installNPMPackages(p, &result)
+		installNPMPackages(p, &result, opts)
 	}
 
 	// Step 5: Build presence map
@@ -73,116 +97,71 @@ func RunInstallPhase(p home.Paths, packRoot string, opts PhaseOptions) (PhaseRes
 }
 
 func installBinaries(p home.Paths, result *PhaseResult, opts PhaseOptions) {
-	binaries := []struct {
-		name   string
-		repo   string
-		binary string
-	}{
-		{"engram", "Gentleman-Programming/engram", "engram"},
-		{"skills", "qntx/skill", "skills"},
-	}
-
 	resolver := opts.ReleaseAssetResolver
 	if resolver == nil {
 		resolver = GitHubReleaseAssetURL(opts.Downloader)
 	}
 
-	for _, bin := range binaries {
+	for _, bin := range releaseBinaries {
+		// Resolving the release costs a GitHub API call, so check first.
+		if BinaryInstalled(filepath.Join(p.DepsBinDir, bin.binary)) {
+			continue
+		}
+
 		assetURL, err := resolver(bin.repo, runtime.GOOS, runtime.GOARCH)
 		if err != nil || assetURL == "" {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("failed to resolve %s release: %v", bin.name, err))
+			result.Warnings = append(result.Warnings, resolveFailureWarning(bin.name, err))
 			continue
 		}
 
-		// Download and extract
-		get := opts.Downloader
-		if get == nil {
-			get = HTTPGet
-		}
-
-		data, err := get(assetURL)
-		if err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("failed to download %s: %v", bin.name, err))
-			continue
-		}
-
-		// Try to extract from archive
-		binaryData, err := ExtractBinaryFromArchive(data, bin.binary)
-		if err != nil {
-			// Maybe it's a raw binary
-			binaryData = data
-		}
-
-		dest := filepath.Join(p.DepsBinDir, bin.binary)
-		if err := EnsureFileExecutable(dest, binaryData); err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("failed to write %s: %v", bin.name, err))
-			continue
+		if err := EnsureReleaseBinary(p.DepsBinDir, bin.binary, assetURL, opts.Downloader); err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("failed to install %s: %v", bin.name, err))
 		}
 	}
 }
 
-func installNPMPackages(p home.Paths, result *PhaseResult) {
+func resolveFailureWarning(name string, err error) string {
+	if err != nil {
+		return fmt.Sprintf("failed to resolve %s release: %v", name, err)
+	}
+	return fmt.Sprintf("failed to resolve %s release: no matching asset", name)
+}
+
+func installNPMPackages(p home.Paths, result *PhaseResult, opts PhaseOptions) {
+	install := opts.NpmInstaller
+	if install == nil {
+		install = InstallNPMPackages
+	}
+
 	if err := EnsureManagedNPM(p); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("npm setup failed: %v", err))
 		return
 	}
 
-	packages := []string{
-		"gitnexus",
-		"backlog.md",
-		"@fission-ai/openspec",
-		"@upstash/context7-mcp",
-		"@playwright/mcp",
+	packages := make([]string, 0, len(managedNpmPackages))
+	for _, pkg := range managedNpmPackages {
+		packages = append(packages, pkg.pkg)
 	}
 
-	if err := InstallNPMPackages(p, packages); err != nil {
+	if err := install(p, packages); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("npm install failed: %v", err))
 	}
 }
 
 func buildPresenceMap(p home.Paths, result *PhaseResult) {
-	// Check binaries in DepsBinDir
-	checkBinaries := []string{"engram", "skills"}
-	for _, name := range checkBinaries {
-		path := filepath.Join(p.DepsBinDir, name)
-		if fileExists(path) {
-			result.Present["binary:"+name] = true
+	for _, bin := range releaseBinaries {
+		if fileExists(filepath.Join(p.DepsBinDir, bin.binary)) {
+			result.Present["binary:"+bin.binary] = true
 		}
 	}
 
-	// Check npm packages in NpmBinDir
-	checkNPMBinaries := []string{
-		"gitnexus",
-		"backlog",
-	}
-	for _, name := range checkNPMBinaries {
-		// Use package name for presence key
-		pkgName := name
-		if name == "backlog" {
-			pkgName = "backlog.md"
-		}
-		path := ManagedBin(p, name)
-		if fileExists(path) {
-			result.Present["npm:"+pkgName] = true
+	for _, pkg := range managedNpmPackages {
+		if NpmPackageInstalled(p, pkg.pkg, pkg.bins...) {
+			result.Present["npm:"+pkg.pkg] = true
 		}
 	}
 
-	// Check npm packages that are run via npx (no dedicated binary)
-	checkNPMPackages := []string{
-		"@upstash/context7-mcp",
-		"@playwright/mcp",
-		"@fission-ai/openspec",
-	}
-	for _, pkgName := range checkNPMPackages {
-		// Check if package.json exists in node_modules
-		pkgDir := filepath.Join(p.NpmDir, "node_modules", pkgName)
-		pkgJSON := filepath.Join(pkgDir, "package.json")
-		if fileExists(pkgJSON) {
-			result.Present["npm:"+pkgName] = true
-		}
-	}
-
-	// Always mark http:deepwiki as present
+	// DeepWiki is a remote HTTP server, so it needs nothing installed locally.
 	result.Present["http:deepwiki"] = true
 }
 

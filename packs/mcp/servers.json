@@ -16,8 +16,7 @@
       "requires": "npm:backlog.md"
     },
     "aiskillgrid-context7": {
-      "command": "{{AISKILLGRID_NPX}}",
-      "args": ["@upstash/context7-mcp"],
+      "command": "{{AISKILLGRID_CONTEXT7}}",
       "env": {
         "npm_config_prefix": "{{AISKILLGRID_NPM}}",
         "npm_config_cache": "{{AISKILLGRID_NPM_CACHE}}"
@@ -25,8 +24,7 @@
       "requires": "npm:@upstash/context7-mcp"
     },
     "aiskillgrid-playwright": {
-      "command": "{{AISKILLGRID_NPX}}",
-      "args": ["@playwright/mcp"],
+      "command": "{{AISKILLGRID_PLAYWRIGHT}}",
       "env": {
         "npm_config_prefix": "{{AISKILLGRID_NPM}}",
         "npm_config_cache": "{{AISKILLGRID_NPM_CACHE}}"
