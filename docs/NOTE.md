@@ -72,6 +72,11 @@
 * [ ] [cucumber](https://cucumber.io/docs/cucumber/)
 * [ ] [gherkin](https://cucumber.io/docs/gherkin/reference)
 
+### Security
+
+* [ ] Trivy
+* [ ] [secure-rules](https://github.com/TikiTribe/claude-secure-coding-rules/tree/main)
+
 ## Plugins
 
 ```

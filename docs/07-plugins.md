@@ -21,15 +21,21 @@ This doc focuses on the plugin mechanics. For skills (behavior definitions) see 
 For each selected agent (kilo, opencode) the CLI does:
 
 1. Installs the git ref into the agent's config dir:
-   ```bash
-   npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/<agent>" --cache "$HOME/.config/<agent>/npm/cache"
-   ```
+```bash
+npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/<agent>" --cache "$HOME/.config/<agent>/npm/cache"
+```
+
 2. Registers the resolved path under the top-level `plugin` key of that agent's config (idempotent append):
-   ```json
-   {
-     "plugin": ["~/.config/<agent>/node_modules/superpowers"]
-   }
-   ```
+```json
+{
+  "plugin": ["/home/you/.config/kilo/node_modules/superpowers"],
+  "skills": {
+    "paths": [
+      "/home/you/.config/kilo/node_modules/superpowers/skills"
+    ]
+  }
+}
+```
 
 ```mermaid
 flowchart LR
@@ -66,6 +72,40 @@ Concretely (`installPlugins`, `cmd/steps.go`):
 2. If kilo is selected and `~/.config/kilo/plugins/engram.ts` is missing, copy it from `~/.config/opencode/plugins/engram.ts`. This gives kilo the same engram plugin without running a second `engram setup`.
 
 The engram memory backend is also exposed to agents as an MCP server (see [04-mcp-servers](04-mcp-servers.md) — the `engram` local entry `engram mcp`).
+
+```bash
+~/.aiskillgrid/bin/engram setup opencode
+~/.aiskillgrid/bin/engram setup codex
+~/.aiskillgrid/bin/engram setup cursor
+
+cp ~/.config/opencode/plugins/engram.ts ~/.config/kilo/plugin/
+cp ~/.config/opencode/tui.json ~/.config/kilo/tui.json
+
+```
+
+## Context Mode
+
+After Superpowers, `install` wires [context-mode](https://github.com/mksglu/context-mode) for the selected agents. It is a **plugin**, not an MCP server.
+
+```bash
+git clone https://github.com/mksglu/context-mode.git ~/.cursor/plugins/local/context-mode
+
+npm install context-mode --prefix "$HOME/.config/opencode"
+# then
+"plugin": ["context-mode"]
+cp ~/.config/opencode/node_modules/context-mode/configs/opencode/AGENTS.md ~/.config/opencode/AGENTS.md
+
+npm install context-mode --prefix "$HOME/.config/kilo"
+# then
+"plugin": ["context-mode"]
+cp ~/.config/kilo/node_modules/context-mode/configs/opencode/AGENTS.md ~/.config/kilo/AGENTS.md
+
+codex plugin marketplace add mksglu/context-mode
+# then in ~/.codex/config.toml
+[features]
+plugin_hooks = true
+hooks = true
+```
 
 ## Why two mechanisms
 
