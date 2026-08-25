@@ -49,5 +49,6 @@ task build
 | [02-usage](02-usage.md) | Day-to-day usage: flags, dry-run, sync-repo, PATH |
 | [03-config-reference](03-config-reference.md) | Every file in `config.d/` and its schema |
 | [04-mcp-servers](04-mcp-servers.md) | MCP registry, merge semantics, backups |
-| [05-skills-and-plugins](05-skills-and-plugins.md) | Skills and the superpowers/engram plugins |
+| [05-skills](05-skills.md) | Skill installation from `skills.yaml` |
 | [06-rules](06-rules.md) | Where `AGENTS.md` comes from and how it lands in agents |
+| [07-plugins](07-plugins.md) | superpowers and engram plugins, per-agent registration |

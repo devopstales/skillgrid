@@ -38,6 +38,8 @@ npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$H
 }
 ```
 
+* `https://github.com/kdcokenny/opencode-background-agents`
+
 ## Skills
 
 ```
