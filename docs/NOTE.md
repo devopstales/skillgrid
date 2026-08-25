@@ -27,6 +27,7 @@
 * [?] [GitNexus](https://github.com/abhigyanpatwari/GitNexus)
 * [X] [codegraph](https://github.com/colbymchenry/codegraph)
 * [?] [graphify]()
+* [?] [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
 * [X] [Engram](https://github.com/Gentleman-Programming/engram)
 
 ### Spec driven development
@@ -49,10 +50,14 @@
 
 ### Design Tools
 
+* design.md
 * [ ] [taste-skill](https://github.com/Leonxlnx/taste-skill)
 * [ ] [npxskillui](https://github.com/amaancoderx/npxskillui)
 * [ ] [impeccable](https://github.com/pbakaus/impeccable)
 * [ ] [open-design](https://github.com/nexu-io/open-design)
+* [ ] [kombai](https://kombai.com/)
+* [ ] [penpot](https://penpot.app/self-host#options)
+* [ ] [penpot-desktop](https://github.com/author-more/penpot-desktop/wiki/Installation)
 
 ### Usage Data
 
@@ -64,7 +69,8 @@
 
 * [X] playwright
 * [X] agent-browser
-* [ ] [cucumber]()
+* [ ] [cucumber](https://cucumber.io/docs/cucumber/)
+* [ ] [gherkin](https://cucumber.io/docs/gherkin/reference)
 
 ## Plugins
 
