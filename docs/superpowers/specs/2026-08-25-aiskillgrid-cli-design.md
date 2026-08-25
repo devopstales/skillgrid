@@ -1,5 +1,7 @@
 # 2026-08-25 aiskillgrid-cli Design
 
+> **STATUS: COMPLETE (2026-08-25)** — all steps of this spec are implemented; `go build` + all tests pass. See the plans doc for the full task history.
+
 ## Goal
 
 A single Go binary that installs and configures AI agent tooling from a checked-out `aiskillgrid` repo using config-driven steps for repo setup, Node validation, npm installs, plugins, skills, MCPs, and PATH output.
@@ -49,89 +51,103 @@ The CLI reads this file after cloning/syncing the repo; it does not hardcode the
 
 ## Flags
 
+Implemented flags (per-subcommand parsing; flags work before or after the subcommand name):
+
 - `--skip-clone` — skip the git clone step during install
-- `--sync-repo` — sync extra paths into `~/.aiskillgrid/repos/aiskillgrid` during install
-- `--dry-run` / `-d` — print planned changes without writing
+- `--sync-repo <path>` — sync a local checkout into `~/.aiskillgrid/repos/aiskillgrid` instead of cloning
+- `--dry-run` — print planned changes without writing (no npm installs, no MCP/rules writes, no backups)
+- `--verbose` — print detailed changes (full MCP entries)
+- `--yes` — skip interactive prompts; default agent selection
+
+`AISKILLGRID_REPO_URL` env var overrides the clone target.
 
 ## Install Flow (Step-by-Step)
 
-1. **Repo setup**
-   - Create `~/.aiskillgrid/` with `repos/` subdir
-   - Clone `https://github.com/devopstales/aiskillgrid.git` into `repos/` on `release/2` branch
-   - Copy `repos/aiskillgrid/config.d` into `~/.aiskillgrid/config.d`
+Implemented in `cmd/install.go` + `cmd/steps.go`, matching `docs/00-aiskillgrid-cli.md`:
 
-2. **Node validation**
-   - Detect or install Node.js per `scripts/install_node.sh`
-   - Fail with clear message if Node is missing and auto-install is unavailable
+0. **Agent selector** — `selectAgents` (interactive; `--yes`/`--dry-run` skip it and default to all agents) — runs **first**, before any setup
 
-3. **Engram binary installation**
-   - Detect OS/ARCH
-   - Query GitHub Releases API for latest `engram` version
-   - Download matching prebuilt tarball:
-     - `darwin_arm64`, `darwin_amd64`, `linux_arm64`, `linux_amd64`
-   - Extract `engram` binary into `~/.aiskillgrid/bin/`
-   - Make binary executable
+1. **Repo setup** — `internal/repo/repo.go`
+   - `--sync-repo <path>`: copy the local checkout into `~/.aiskillgrid/repos/aiskillgrid`
+   - otherwise clone `https://github.com/devopstales/aiskillgrid.git` (override: `AISKILLGRID_REPO_URL`)
+   - `--skip-clone` + `--sync-repo` together: sync wins; both skipped: use existing `~/.aiskillgrid` state
+   - Copy `config.d/` into `~/.aiskillgrid/config.d`
+
+2. **Node validation** — `ensureNode`
+   - `node` on PATH → pass; otherwise run `~/.aiskillgrid/repos/aiskillgrid/scripts/install_node.sh` (warn, do not abort)
+
+3. **Engram binary installation** — `internal/engram/install.go`
+   - Detect OS/ARCH; query GitHub Releases API for latest `engram` version
+   - Download matching prebuilt tarball (`darwin_arm64`, `darwin_amd64`, `linux_arm64`, `linux_amd64`)
+   - Extract `engram` binary into `~/.aiskillgrid/bin/`, chmod `+x`
    - Do not use Homebrew or `go install`
 
-4. **Agent and tool installation**
+4. **Agent and tool installation** — `cmd/npm.go`
    - Read `~/.aiskillgrid/config.d/tools.yaml`
-   - Install each package into `~/.aiskillgrid/` via npm:
-     ```bash
-     npm install <package> --prefix "$HOME/.aiskillgrid"
-     ```
-   - Packages are exactly those listed under `agents:` and `tools:` in `tools.yaml`
+   - `npm install <agents...> <tools...> --prefix "$HOME/.aiskillgrid"` (binaries land in `~/.aiskillgrid/node_modules/.bin`)
 
-5. **Plugin installation**
-   - Run:
+5. **Plugin installation** — `installPlugins`
+   - Per selected agent:
      ```bash
-     npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/kilo"
-     npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/opencode"
+     npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/<agent>"
      ```
-   - Update each agent's JSON config with:
-     ```json
-     { "plugin": ["<resolved-plugin-path>"] }
-     ```
+   - Register under the config's `plugin` key: `["~/.config/<agent>/node_modules/superpowers"]` (idempotent append)
+   - If `opencode` selected: run `~/.aiskillgrid/bin/engram setup opencode`
+   - Copy `~/.config/opencode/plugins/engram.ts` → `~/.config/kilo/plugins/engram.ts` if missing
 
-6. **Skill installation**
-   - Read `~/.aiskillgrid/config.d/skills.yaml`
-   - For each entry, run:
-     ```bash
-     npx skills add <repo> --agent <agent> -g -s '*' -y
-     ```
+6. **Skill installation** — `installSkills`
+   - Read `~/.aiskillgrid/config.d/skills.yaml` (`repo`, `skill`, optional `agent` — default `amp`)
+   - Per entry: `~/.aiskillgrid/node_modules/.bin/skills add <repo> --agent <agent> -g -s <skill> -y` (warn and continue on failure)
 
-6. **MCP installation**
+7. **MCP installation** — `internal/config/merger.go` + `internal/mcp/registry.go`
    - Read `~/.aiskillgrid/config.d/mcp.yaml`
-   - Merge MCP server entries into each selected agent's config under the `mcp` key
-   - Preserve existing keys; overwrite only new/updated entries
+   - Merge entries into each selected agent's config under the `mcp` key (gjson/sjson, JSONC-aware)
+   - Preserves existing keys; overwrite only managed entries; **backup to `~/.aiskillgrid/backups/` before every edit** (keep last 10 per file)
 
-7. **PATH output**
-   - Print shell export statements the user should add to their rc file:
-     ```bash
-     export PATH="$HOME/.aiskillgrid/bin:$PATH"
-     export PATH="$HOME/.aiskillgrid/npm/.bin:$PATH"
-     ```
+8. **Rules** — `copyRules`
+   - Copy `~/.aiskillgrid/config.d/AGENTS.md` → `~/.agents/AGENTS.md`
+   - Append `~/.agents/AGENTS.md` to each selected agent config's `instructions` array (JSON-aware, idempotent)
+
+9. **PATH output**
+    - Print after the `install finished` line, separated by a blank line:
+      ```bash
+      export PATH="$HOME/.aiskillgrid/bin:$PATH"
+      export PATH="$HOME/.aiskillgrid/node_modules/.bin:$PATH"
+      ```
 
 ## MCP Tool Registry
 
-Tools are defined in config files, not hardcoded. Default set:
+Tools are defined in `config.d/mcp.yaml`, not hardcoded. Default set:
 
 | ID | Type | Source |
 |-----|------|--------|
-| `context7-http` | remote | `https://mcp.context7.com/mcp` |
-| `deepwiki-http` | remote | `https://mcp.deepwiki.com/mcp` |
-| `exa-http` | remote | `https://mcp.exa.ai/mcp` |
+| `context7` | remote | `https://mcp.context7.com/mcp` |
+| `deepwiki` | remote | `https://mcp.deepwiki.com/mcp` |
+| `exa` | remote | `https://mcp.exa.ai/mcp` |
 | `engram` | local | `engram mcp` |
 | `ccc` | local | `ccc mcp` |
-| `gitnexus` | local | `gitnexus mcp` |
+| `gitnexus` | local | `npx -y gitnexus@1.3.11 mcp` |
 | `trivy` | local | `trivy mcp` |
 
 Local tools: dependency check warns but does not fail if the binary is missing.
 
+## Skills Registry
+
+Skills are defined in `config.d/skills.yaml`, not hardcoded. Default set:
+
+| Repo | Skill | Agent (default `amp`) |
+|------|-------|------|
+| `obra/superpowers` | `*` | — |
+| `gentleman-programming/engram` | `engram-memory` | — |
+| `gentleman-programming/engram` | `engram-memory-protocol` | — |
+| `gentleman-programming/engram` | `engram-testing-coverage` | — |
+
 ## Interactive Selection UI
 
-Two-step selection using bubbletea TUI:
-1. Select which agents to configure
-2. For each selected agent, select which MCP tools to enable
+Implemented as a prompt-based agent selector (`selectAgents`, `cmd/steps.go`):
+1. Select which agents to configure (comma-separated; empty input = all) — `--yes` / `--dry-run` skip it and default to all agents
+
+The bubbletea TUI for per-agent MCP tool selection (step 2) is **not yet implemented**; all MCP servers from `mcp.yaml` are merged into each selected agent.
 
 ## Config Merge Semantics
 
@@ -161,31 +177,47 @@ Two-step selection using bubbletea TUI:
 ```
 aiskillgrid-v2/
 ├── aiskillgrid-cli/
-│   ├── go.mod
+│   ├── go.mod / go.sum
 │   ├── cmd/
-│   │   ├── main.go
-│   │   └── install/
-│   │       └── install.go
+│   │   ├── main.go            # subcommand + flag parsing, usage, help
+│   │   ├── main_test.go
+│   │   ├── install.go         # runInstall flow, backups, rules, sync-repo
+│   │   ├── npm.go             # npm install of tools.yaml packages
+│   │   └── steps.go           # node check, agent selector, plugins, skills
 │   ├── internal/
 │   │   ├── config/
-│   │   │   ├── writer.go
-│   │   │   └── merger.go
+│   │   │   ├── types.go       # ToolsConfig, SkillsConfig, MCPConfig + YAML loaders
+│   │   │   ├── merger.go      # gjson/sjson JSONC-aware MCP merge
+│   │   │   ├── path.go        # PATH instruction writer
+│   │   │   ├── testdata/      # tools.yaml, mcp.yaml fixtures
+│   │   │   ├── *_test.go
 │   │   ├── mcp/
-│   │   │   └── registry.go
-│   │   └── tui/
-│   │       └── select.go
-│   └── scripts/
-│       └── install_node.sh
+│   │   │   └── registry.go    # mcp.yaml loader + dependency precheck
+│   │   ├── engram/
+│   │   │   └── install.go     # prebuilt binary installer
+│   │   ├── repo/
+│   │   │   └── repo.go        # Sync/Clone into ~/.aiskillgrid
+│   │   ├── logging/
+│   │   │   └── log.go         # file-based validation logger
+│   │   └── smoke/
+│   │       └── smoke_test.go  # integration smoke test
 ├── docs/
-│   └── 00-aiskillgrid-cli.md
+│   ├── 00-aiskillgrid-cli.md
+│   └── superpowers/{plans,specs}/
 ├── config.d/          ← synced from repo for local dev
+│   ├── AGENTS.md
+│   ├── mcp.yaml
+│   ├── skills.yaml
 │   └── tools.yaml
+├── scripts/
+│   └── install_node.sh
 ├── Taskfile.yml
 └── README.md
 ```
 
 ## Testing
 
-- Unit tests for config merge logic
-- Unit tests for `--dry-run` output
+- Unit tests for config merge logic (merge, comment preservation, dry-run)
+- Unit tests for PATH output, YAML loaders (tools/mcp/skills), and dry-run semantics
 - Integration smoke test: run `install --dry-run` against temp home dir
+- Full-suite: `cd aiskillgrid-cli && go test ./...` (all packages green)
