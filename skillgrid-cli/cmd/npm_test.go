@@ -7,8 +7,44 @@ import (
 	"testing"
 )
 
+func TestResolveGitHubShorthandToRegistryName(t *testing.T) {
+	cases := map[string]string{
+		"vercel-labs/skills":         "skills",
+		"vercel-labs/agent-browser":  "agent-browser",
+		"@kilocode/cli":              "@kilocode/cli",
+		"@playwright/cli@latest":     "@playwright/cli@latest",
+		"husky":                      "husky",
+		"git+https://example.com/a.git": "git+https://example.com/a.git",
+	}
+	for in, want := range cases {
+		if got := resolveNPMPackage(in); got != want {
+			t.Fatalf("resolveNPMPackage(%q)=%q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSplitNPMPackagesAfterResolve(t *testing.T) {
+	var resolved []string
+	for _, p := range []string{
+		"@kilocode/cli",
+		"husky",
+		"vercel-labs/skills",
+		"@playwright/cli@latest",
+		"vercel-labs/agent-browser",
+	} {
+		resolved = append(resolved, resolveNPMPackage(p))
+	}
+	reg, git := splitNPMPackages(resolved)
+	if strings.Join(reg, ",") != "@kilocode/cli,husky,skills,@playwright/cli@latest,agent-browser" {
+		t.Fatalf("registry pkgs: %v", reg)
+	}
+	if len(git) != 0 {
+		t.Fatalf("github shorthand should not use git install, got %v", git)
+	}
+}
+
 func TestNPMInstallEnvSkipsHuskyPrepare(t *testing.T) {
-	env := npmInstallEnv("/tmp/prefix")
+	env := npmInstallEnv("/tmp/prefix", false)
 	found := false
 	for _, e := range env {
 		if e == "HUSKY=0" {
@@ -22,20 +58,26 @@ func TestNPMInstallEnvSkipsHuskyPrepare(t *testing.T) {
 }
 
 func TestNPMInstallArgsAllowScriptsAsInstallerUser(t *testing.T) {
-	args := npmInstallArgs("/tmp/prefix", "/tmp/prefix/cache", []string{"@kilocode/cli", "skills"})
+	args := npmInstallArgs("/tmp/prefix", "/tmp/prefix/cache", []string{"@kilocode/cli", "skills"}, false)
 	got := strings.Join(args, " ")
 	for _, want := range []string{
 		"install -g",
 		"--prefix /tmp/prefix",
 		"--cache /tmp/prefix/cache",
-		"--unsafe-perm",
 		"--script-shell /bin/sh",
+		"--dangerously-allow-all-scripts",
 		"@kilocode/cli",
 		"skills",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in npm args: %s", want, got)
 		}
+	}
+	if strings.Contains(got, "--unsafe-perm") {
+		t.Fatalf("npm 11 dropped --unsafe-perm: %s", got)
+	}
+	if strings.Contains(got, "--ignore-scripts") {
+		t.Fatalf("registry install must run postinstall: %s", got)
 	}
 }
 

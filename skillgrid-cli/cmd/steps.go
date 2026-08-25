@@ -284,7 +284,7 @@ func hasAgent(agents []string, want string) bool {
 
 func hasTool(tools []string, want string) bool {
 	for _, t := range tools {
-		if t == want {
+		if t == want || strings.HasSuffix(t, "/"+want) {
 			return true
 		}
 	}

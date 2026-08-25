@@ -70,8 +70,17 @@ func runInstall(skipClone bool, syncRepo string, dryRun bool, verbose bool, nonI
 	if dryRun {
 		prefix := mustExpandHomePath("~/.skillgrid/npm")
 		cache := filepath.Join(prefix, "cache")
-		pkgs := append(append([]string{}, tools.Agents...), tools.Tools...)
-		logging.Info("[dry-run] HUSKY=0 npm " + strings.Join(npmInstallArgs(prefix, cache, pkgs), " "))
+		var pkgs []string
+		for _, p := range append(append([]string{}, tools.Agents...), tools.Tools...) {
+			pkgs = append(pkgs, resolveNPMPackage(p))
+		}
+		registry, git := splitNPMPackages(pkgs)
+		if len(registry) > 0 {
+			logging.Info("[dry-run] HUSKY=0 npm " + strings.Join(npmInstallArgs(prefix, cache, registry, false), " "))
+		}
+		if len(git) > 0 {
+			logging.Info("[dry-run] HUSKY=0 npm " + strings.Join(npmInstallArgs(prefix, cache, git, true), " "))
+		}
 	} else if err := installNPM(baseDir); err != nil {
 		logging.Warn("npm install failed: " + err.Error())
 	}
