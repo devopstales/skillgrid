@@ -8,3 +8,17 @@ skills:
     skill: engram-memory-protocol
   - repo: gentleman-programming/engram
     skill: engram-testing-coverage
+  - repo: affaan-m/ecc
+    skill: exa-search
+  - repo: alirezarezvani/claude-skills
+    skill: karpathy-coder
+  - repo: szkocot/andrej-karpathy-skills
+    skill: karpathy-guidelines
+  - repo: aahl/skills
+    skill: mcp-deepwiki
+  - repo: microsoft/playwright-cli
+    skill: playwright-cli
+  - repo: currents-dev/playwright-best-practices-skill
+    skill: playwright-best-practices
+  - repo: vercel-labs/agent-browser
+    skill: "*"

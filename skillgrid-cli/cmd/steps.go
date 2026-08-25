@@ -60,8 +60,63 @@ func selectAgents(agents []string) []string {
 
 const superpowersRef = "superpowers@git+https://github.com/obra/superpowers.git"
 
-// installPlugins installs the superpowers plugin per agent (docs step 6)
-// and registers it under the "plugin" key of each agent config.
+// ensureSkillPaths registers the superpowers skills directory in the agent
+// config's "skills.paths". Kilo only trusts skills under absolute paths
+// listed there; plugin-injected skill paths are treated as untrusted and
+// fail parsing with "blocked file reference outside project config scope".
+func ensureSkillPaths(baseDir string, agents []string, dryRun bool) {
+	for _, agent := range agents {
+		prefix := agentConfigPrefix(agent)
+		if prefix == "" {
+			continue
+		}
+		cfgPath := agentConfigPath(agent)
+		if _, err := os.Stat(cfgPath); err != nil {
+			logging.Warn("skill paths skipped for " + agent + ": config not found " + cfgPath)
+			continue
+		}
+		skillsDir := filepath.Join(prefix, "node_modules", "superpowers", "skills")
+		if home, err := os.UserHomeDir(); err == nil {
+			skillsDir = strings.ReplaceAll(skillsDir, home, "~")
+		}
+		data, err := os.ReadFile(cfgPath)
+		if err != nil {
+			continue
+		}
+		existing := []string{}
+		for _, v := range jsonc.Get(string(data), "skills.paths").Array() {
+			existing = append(existing, v.String())
+		}
+		found := false
+		for _, have := range existing {
+			if have == skillsDir {
+				found = true
+			}
+		}
+		if found {
+			continue
+		}
+		if dryRun {
+			logging.Info("[dry-run] skills.paths += " + skillsDir + " in " + cfgPath)
+			continue
+		}
+		backUpConfig(baseDir, cfgPath, dryRun)
+		existing = append(existing, skillsDir)
+		updated, err := sjson.Set(string(data), "skills.paths", existing)
+		if err != nil {
+			logging.Warn("skills.paths: " + err.Error())
+			continue
+		}
+		if werr := os.WriteFile(cfgPath, []byte(updated), 0644); werr == nil {
+			logging.Info("skills.paths += " + skillsDir + " in " + cfgPath)
+		}
+	}
+}
+
+// installPlugins installs the superpowers plugin per agent (docs step 6).
+// For Kilo, copies the plugin JS directly to ~/.config/kilo/plugins/ instead
+// of adding a "plugin" entry to kilo.jsonc. For OpenCode, registers it under
+// the "plugin" key.
 func installPlugins(baseDir string, agents []string, dryRun bool) {
 	for _, agent := range agents {
 		prefix := agentConfigPrefix(agent)
@@ -73,6 +128,26 @@ func installPlugins(baseDir string, agents []string, dryRun bool) {
 			if err := exec.Command("npm", "install", superpowersRef, "--prefix", prefix, "--cache", npmCache).Run(); err != nil {
 				logging.Warn("plugin install failed for " + agent + ": " + err.Error())
 			}
+		}
+		if agent == "kilo" {
+			srcPlugin := filepath.Join(prefix, "node_modules", "superpowers", ".opencode", "plugins", "superpowers.js")
+			dstPlugin := filepath.Join(prefix, "plugins", "superpowers.js")
+			if dryRun {
+				if _, err := os.Stat(srcPlugin); err == nil {
+					logging.Info("[dry-run] cp " + srcPlugin + " " + dstPlugin)
+				}
+				continue
+			}
+			if _, err := os.Stat(dstPlugin); os.IsNotExist(err) {
+				if data, err := os.ReadFile(srcPlugin); err == nil {
+					if err := os.MkdirAll(filepath.Dir(dstPlugin), 0o755); err == nil {
+						if err := os.WriteFile(dstPlugin, data, 0o644); err == nil {
+							logging.Info("plugin copied to " + dstPlugin)
+						}
+					}
+				}
+			}
+			continue
 		}
 		pluginPath := filepath.Join(prefix, "node_modules", "superpowers")
 		if home, err := os.UserHomeDir(); err == nil {
@@ -86,9 +161,14 @@ func installPlugins(baseDir string, agents []string, dryRun bool) {
 	engramHome := filepath.Join(mustExpandHomePath("~"), ".config")
 	srcEngram := filepath.Join(engramHome, "opencode", "plugins", "engram.ts")
 	dstEngram := filepath.Join(engramHome, "kilo", "plugins", "engram.ts")
+	srcTUI := filepath.Join(engramHome, "opencode", "tui.json")
+	dstTUI := filepath.Join(engramHome, "kilo", "tui.json")
 	if dryRun {
 		if _, err := os.Stat(filepath.Join(engramHome, "opencode", "plugins")); err == nil {
 			logging.Info("[dry-run] cp " + srcEngram + " " + dstEngram)
+		}
+		if _, err := os.Stat(srcTUI); err == nil {
+			logging.Info("[dry-run] cp " + srcTUI + " " + dstTUI)
 		}
 		return
 	}
@@ -103,9 +183,18 @@ func installPlugins(baseDir string, agents []string, dryRun bool) {
 	}
 	if _, err := os.Stat(dstEngram); os.IsNotExist(err) {
 		if data, err := os.ReadFile(srcEngram); err == nil {
-			if err := os.MkdirAll(filepath.Dir(dstEngram), 0755); err == nil {
-				if err := os.WriteFile(dstEngram, data, 0644); err == nil {
+			if err := os.MkdirAll(filepath.Dir(dstEngram), 0o755); err == nil {
+				if err := os.WriteFile(dstEngram, data, 0o644); err == nil {
 					logging.Info("engram plugin copied to " + dstEngram)
+				}
+			}
+		}
+	}
+	if _, err := os.Stat(dstTUI); os.IsNotExist(err) {
+		if data, err := os.ReadFile(srcTUI); err == nil {
+			if err := os.MkdirAll(filepath.Dir(dstTUI), 0o755); err == nil {
+				if err := os.WriteFile(dstTUI, data, 0o644); err == nil {
+					logging.Info("tui.json copied to " + dstTUI)
 				}
 			}
 		}
@@ -155,7 +244,7 @@ func installSkills(baseDir string, dryRun bool) {
 		logging.Warn("skills: " + err.Error())
 		return
 	}
-	skillsBin := filepath.Join(baseDir, "npm", "node_modules", ".bin", "skills")
+	skillsBin := filepath.Join(mustExpandHomePath("~/.skillgrid/npm"), "bin", "skills")
 	if _, err := os.Stat(skillsBin); err != nil {
 		skillsBin = "skills"
 	}
@@ -187,6 +276,15 @@ func installSkills(baseDir string, dryRun bool) {
 func hasAgent(agents []string, want string) bool {
 	for _, a := range agents {
 		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasTool(tools []string, want string) bool {
+	for _, t := range tools {
+		if t == want {
 			return true
 		}
 	}

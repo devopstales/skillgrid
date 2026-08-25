@@ -3,7 +3,11 @@ agents:
   - "opencode-ai"
 
 tools:
+  - "husky"
   - "vercel-labs/skills"
-  - "@playwright/cli@latest"
+  - "@colbymchenry/codegraph"
+  - "@upstash/context7-mcp"
   - "@playwright/mcp@latest"
-  - "agent-browser"
+  - "@playwright/cli@latest"
+  - "@cucumber/cucumber"
+  - "vercel-labs/agent-browser"

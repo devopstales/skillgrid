@@ -10,6 +10,7 @@ import (
 	"github.com/tidwall/sjson"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -67,16 +68,27 @@ func runInstall(skipClone bool, syncRepo string, dryRun bool, verbose bool, nonI
 		return
 	}
 	if dryRun {
-		prefix := filepath.Join(baseDir, "npm")
-		for _, p := range append(tools.Agents, tools.Tools...) {
-			logging.Info("[dry-run] npm install " + p + " --prefix " + prefix + " --cache " + filepath.Join(prefix, "cache"))
-		}
+		prefix := mustExpandHomePath("~/.skillgrid/npm")
+		cache := filepath.Join(prefix, "cache")
+		pkgs := append(append([]string{}, tools.Agents...), tools.Tools...)
+		logging.Info("[dry-run] HUSKY=0 npm " + strings.Join(npmInstallArgs(prefix, cache, pkgs), " "))
 	} else if err := installNPM(baseDir); err != nil {
 		logging.Warn("npm install failed: " + err.Error())
 	}
 
+	// Step 4b: run agent-browser install (downloads Chrome)
+	if hasTool(tools.Tools, "agent-browser") {
+		agentBrowserBin := filepath.Join(mustExpandHomePath("~/.skillgrid/npm"), "bin", "agent-browser")
+		if dryRun {
+			logging.Info("[dry-run] " + agentBrowserBin + " install")
+		} else if err := exec.Command(agentBrowserBin, "install").Run(); err != nil {
+			logging.Warn("agent-browser install failed: " + err.Error())
+		}
+	}
+
 	// Step 5: install plugins
 	installPlugins(baseDir, agents, dryRun)
+	ensureSkillPaths(baseDir, agents, dryRun)
 
 	// Step 6: install skills from skills.yaml
 	installSkills(baseDir, dryRun)

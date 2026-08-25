@@ -5,4 +5,4 @@ dist/
 skillgrid-cli/skillgrid
 .tmp-home/
 .tmp-proj/
-.kilo/
+.kilo/npm-test/

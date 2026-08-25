@@ -12,6 +12,22 @@ servers:
     command:
       - engram
       - mcp
+  codegraph:
+    type: local
+    command:
+      - codegraph
+      - mcp
+  playwright:
+    type: local
+    command:
+      - playwright-mcp
+  agent-browser:
+    type: local
+    command:
+      - agent-browser
+      - mcp
+      - --tools
+      - all
   exa:
     type: remote
     url: https://mcp.exa.ai/mcp
