@@ -1,0 +1,12 @@
+servers:
+  context7-http:
+    type: remote
+    url: https://mcp.context7.com/mcp
+  deepwiki-http:
+    type: remote
+    url: https://mcp.deepwiki.com/mcp
+  engram:
+    type: local
+    command:
+      - engam
+      - mcp

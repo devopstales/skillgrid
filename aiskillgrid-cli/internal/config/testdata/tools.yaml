@@ -1,0 +1,8 @@
+agents:
+  - "@kilocode/cli"
+  - "opencode-ai"
+
+tools:
+  - "vercel-labs/skills"
+  - "@playwright/cli@latest"
+  - "@playwright/mcp@latest"
