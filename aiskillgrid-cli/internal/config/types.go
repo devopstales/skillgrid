@@ -17,6 +17,16 @@ type ToolsConfig struct {
 	Tools  []string `yaml:"tools"`
 }
 
+type SkillEntry struct {
+	Repo  string `yaml:"repo"`
+	Skill string `yaml:"skill"`
+	Agent string `yaml:"agent"`
+}
+
+type SkillsConfig struct {
+	Skills []SkillEntry `yaml:"skills"`
+}
+
 type MCPServerConfig struct {
 	Type    string   `yaml:"type"`
 	URL     string   `yaml:"url,omitempty"`
@@ -33,6 +43,21 @@ func LoadToolsYAML(path string) (*ToolsConfig, error) {
 		return nil, err
 	}
 	var cfg ToolsConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func LoadSkillsYAML(path string) (*SkillsConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &SkillsConfig{}, nil
+		}
+		return nil, err
+	}
+	var cfg SkillsConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}

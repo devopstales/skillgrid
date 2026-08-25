@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -36,5 +38,31 @@ func TestLoadMCPYAML(t *testing.T) {
 	}
 	if srv.URL != "https://mcp.context7.com/mcp" {
 		t.Fatalf("unexpected url: %s", srv.URL)
+	}
+}
+
+func TestLoadSkillsYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "skills.yaml")
+	os.WriteFile(path, []byte("skills:\n  - repo: obra/superpowers\n    skill: \"*\"\n  - repo: gentleman-programming/engram\n    skill: engram-memory\n"), 0644)
+	cfg, err := LoadSkillsYAML(path)
+	if err != nil {
+		t.Fatalf("LoadSkillsYAML failed: %v", err)
+	}
+	if len(cfg.Skills) != 2 {
+		t.Fatalf("expected 2 skills, got %d", len(cfg.Skills))
+	}
+	if cfg.Skills[0].Repo != "obra/superpowers" || cfg.Skills[0].Skill != "*" {
+		t.Fatalf("unexpected first skill: %v", cfg.Skills[0])
+	}
+}
+
+func TestLoadSkillsYAMLMissingFile(t *testing.T) {
+	cfg, err := LoadSkillsYAML(filepath.Join(t.TempDir(), "skills.yaml"))
+	if err != nil {
+		t.Fatalf("missing file should not error: %v", err)
+	}
+	if len(cfg.Skills) != 0 {
+		t.Fatalf("expected no skills, got %d", len(cfg.Skills))
 	}
 }
