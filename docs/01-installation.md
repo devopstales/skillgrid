@@ -1,17 +1,17 @@
 # Installation
 
-Installation has two parts: building the `aiskillgrid` binary, and running it. The binary does not need to be built on every machine you target — build it once locally or on CI, then run it wherever the environment should be reproduced.
+Installation has two parts: building the `skillgrid` binary, and running it. The binary does not need to be built on every machine you target — build it once locally or on CI, then run it wherever the environment should be reproduced.
 
-This is one of the main advantages of aiskillgrid: the same config that a teammate, a CI box, or a new laptop reads produces the same agent environment. No per-machine ritual.
+This is one of the main advantages of skillgrid: the same config that a teammate, a CI box, or a new laptop reads produces the same agent environment. No per-machine ritual.
 
 ## What The Installer Does
 
-At a high level, `aiskillgrid install` reads `config.d/`, installs tools, and merges shared configuration into each agent's config file.
+At a high level, `skillgrid install` reads `config.d/`, installs tools, and merges shared configuration into each agent's config file.
 
 ```mermaid
 flowchart TD
-  Repo[aiskillgrid repo / config.d] --> CLI[aiskillgrid binary]
-  CLI --> Base[~/.aiskillgrid/]
+  Repo[skillgrid repo / config.d] --> CLI[skillgrid binary]
+  CLI --> Base[~/.skillgrid/]
   Base --> NPM[npm packages: agents + tools]
   Base --> Eng[engram binary]
   Base --> Plugins[superpowers plugin per agent]
@@ -37,7 +37,7 @@ From the repo root:
 task build
 ```
 
-This produces `bin/aiskillgrid`. For cross-platform builds:
+This produces `bin/skillgrid`. For cross-platform builds:
 
 ```bash
 task build-all        # darwin-amd64, darwin-arm64, linux-amd64, linux-arm64
@@ -50,20 +50,20 @@ Two common modes:
 
 ```bash
 # 1) clone mode: pulls the release repo and uses its config.d
-./bin/aiskillgrid install
+./bin/skillgrid install
 
 # 2) sync mode: develops against a local checkout (repo + config.d are copied)
-./bin/aiskillgrid install --sync-repo /path/to/local/aiskillgrid
+./bin/skillgrid install --sync-repo /path/to/local/skillgrid
 ```
 
-Every step runs in this order (see `docs/00-aiskillgrid-cli.md` for the source-of-truth list):
+Every step runs in this order (see `docs/00-skillgrid-cli.md` for the source-of-truth list):
 
 | Step | What happens | Source of truth |
 |------|--------------|-----------------|
 | 0 | Interactive agent selector | prompt (skipped with `--yes`) |
-| 1 | Clone or sync repo, copy `config.d` | `repos/aiskillgrid` |
+| 1 | Clone or sync repo, copy `config.d` | `repos/skillgrid` |
 | 2 | Check Node.js, install via `scripts/install_node.sh` if missing | repo script |
-| 3 | Install `engram` prebuilt binary into `~/.aiskillgrid/bin` | GitHub Releases |
+| 3 | Install `engram` prebuilt binary into `~/.skillgrid/bin` | GitHub Releases |
 | 4 | `npm install` of `agents` + `tools` | `config.d/tools.yaml` |
 | 5 | Install superpowers plugin per selected agent, run `engram setup opencode` | hardcoded ref in code |
 | 6 | Install skills via local `skills` CLI | `config.d/skills.yaml` |
@@ -73,13 +73,14 @@ Every step runs in this order (see `docs/00-aiskillgrid-cli.md` for the source-o
 
 ## Base Directory Layout
 
-After a successful install, `~/.aiskillgrid/` holds everything the CLI owns:
+After a successful install, `~/.skillgrid/` holds everything the CLI owns:
 
 ```
-~/.aiskillgrid/
+~/.skillgrid/
 ├── bin/                     # engram binary
-├── node_modules/.bin/       # agent CLIs and tools (npm --prefix install)
-├── repos/aiskillgrid/       # cloned/synced aiskillgrid source
+├── npm/node_modules/.bin/   # agent CLIs and tools (npm --prefix ~/.skillgrid/npm)
+├── npm/cache/               # npm cache for the installs above
+├── repos/skillgrid/       # cloned/synced skillgrid source
 ├── config.d/                # tools.yaml, mcp.yaml, skills.yaml, AGENTS.md
 ├── backups/                 # timestamped backup of every agent config edit
 ├── logs/install.log         # full run log (errors, warnings, info)
@@ -94,46 +95,46 @@ This is the canonical step list the CLI implements:
 # 0) interactive agent selector (prompt; skipped with --yes)
 
 # 1) clone repo
-mkdir ~/.aiskillgrid/repos
-git clone -b release/2 https://github.com/devopstales/aiskillgrid.git repos/
-cp -r repos/aiskillgrid/config.d ~/.aiskillgrid/
+mkdir ~/.skillgrid/repos
+git clone -b release/2 https://github.com/devopstales/skillgrid.git repos/
+cp -r repos/skillgrid/config.d ~/.skillgrid/
 
 # 2) check and install node (scripts/install_node.sh)
 
-# 3) install engram binary into ~/.aiskillgrid/bin
+# 3) install engram binary into ~/.skillgrid/bin
 ENGRAM_VERSION=$(curl -s https://api.github.com/repos/Gentleman-Programming/engram/releases/latest | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
 # platform: darwin_arm64 | darwin_amd64 | linux_arm64 | linux_amd64
 curl -L "https://github.com/Gentleman-Programming/engram/releases/download/v${ENGRAM_VERSION}/engram_${ENGRAM_VERSION}_${PLATFORM}.tar.gz" -o /tmp/engram.tar.gz
-tar -xzf /tmp/engram.tar.gz -C ~/.aiskillgrid/bin
-chmod +x ~/.aiskillgrid/bin/engram
+tar -xzf /tmp/engram.tar.gz -C ~/.skillgrid/bin
+chmod +x ~/.skillgrid/bin/engram
 
 # 4) install selected agents and tools based on config.d/tools.yaml
-npm install @kilocode/cli --prefix "$HOME/.aiskillgrid"
-npm install opencode-ai --prefix "$HOME/.aiskillgrid"
-npm install vercel-labs/skills --prefix "$HOME/.aiskillgrid"
-npm install @playwright/cli@latest --prefix "$HOME/.aiskillgrid"
-npm install @playwright/mcp@latest --prefix "$HOME/.aiskillgrid"
-npm install agent-browser --prefix "$HOME/.aiskillgrid"
+npm install @kilocode/cli --prefix "$HOME/.skillgrid/npm" --cache "$HOME/.skillgrid/npm/cache"
+npm install opencode-ai --prefix "$HOME/.skillgrid/npm" --cache "$HOME/.skillgrid/npm/cache"
+npm install vercel-labs/skills --prefix "$HOME/.skillgrid/npm" --cache "$HOME/.skillgrid/npm/cache"
+npm install @playwright/cli@latest --prefix "$HOME/.skillgrid/npm" --cache "$HOME/.skillgrid/npm/cache"
+npm install @playwright/mcp@latest --prefix "$HOME/.skillgrid/npm" --cache "$HOME/.skillgrid/npm/cache"
+npm install agent-browser --prefix "$HOME/.skillgrid/npm" --cache "$HOME/.skillgrid/npm/cache"
 
 # 5) install plugins
-npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/kilo"
-npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/opencode"
+npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/kilo" --cache "$HOME/.config/kilo/npm/cache"
+npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/opencode" --cache "$HOME/.config/opencode/npm/cache"
 # register: "plugin": ["~/.config/<agent>/node_modules/superpowers"]
 engram setup opencode
 cp ~/.config/opencode/plugins/engram.ts ~/.config/kilo/plugins/engram.ts
 
 # 6) install skills based on config.d/skills.yaml
-~/.aiskillgrid/node_modules/.bin/skills add obra/superpowers --agent amp -g -s '*' -y
+~/.skillgrid/npm/node_modules/.bin/skills add obra/superpowers --agent amp -g -s '*' -y
 
 # 7) install mcp based on config.d/mcp.yaml (merge into agent configs)
 
 # 8) install rules
-cp ~/.aiskillgrid/config.d/AGENTS.md ~/.agents/AGENTS.md
+cp ~/.skillgrid/config.d/AGENTS.md ~/.agents/AGENTS.md
 # register in ~/.config/kilo/kilo.jsonc and ~/.config/opencode/opencode.jsonc (instructions)
 
 # 9) print PATH exports
-export PATH="$HOME/.aiskillgrid/bin:$PATH"
-export PATH="$HOME/.aiskillgrid/node_modules/.bin:$PATH"
+export PATH="$HOME/.skillgrid/bin:$PATH"
+export PATH="$HOME/.skillgrid/npm/node_modules/.bin:$PATH"
 ```
 
 The next PATH step (doc 02) explains the two lines the installer prints.

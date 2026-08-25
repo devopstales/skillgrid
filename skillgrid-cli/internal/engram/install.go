@@ -1,7 +1,7 @@
 package engram
 
 import (
-	"aiskillgrid-cli/internal/logging"
+	"skillgrid-cli/internal/logging"
 	"archive/tar"
 	"compress/gzip"
 	"fmt"

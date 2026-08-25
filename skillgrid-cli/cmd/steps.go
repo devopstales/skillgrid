@@ -1,8 +1,8 @@
 package main
 
 import (
-	"aiskillgrid-cli/internal/config"
-	"aiskillgrid-cli/internal/logging"
+	"skillgrid-cli/internal/config"
+	"skillgrid-cli/internal/logging"
 	jsonc "github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"fmt"
@@ -20,7 +20,7 @@ func ensureNode(baseDir string) error {
 			return nil
 		}
 	}
-	script := filepath.Join(baseDir, "repos", "aiskillgrid", "scripts", "install_node.sh")
+	script := filepath.Join(baseDir, "repos", "skillgrid", "scripts", "install_node.sh")
 	if _, err := os.Stat(script); err != nil {
 		return fmt.Errorf("node not found and installer script missing at %s (run install_node.sh manually)", script)
 	}
@@ -69,7 +69,8 @@ func installPlugins(baseDir string, agents []string, dryRun bool) {
 			continue
 		}
 		if !dryRun {
-			if err := exec.Command("npm", "install", superpowersRef, "--prefix", prefix).Run(); err != nil {
+			npmCache := filepath.Join(prefix, "npm", "cache")
+			if err := exec.Command("npm", "install", superpowersRef, "--prefix", prefix, "--cache", npmCache).Run(); err != nil {
 				logging.Warn("plugin install failed for " + agent + ": " + err.Error())
 			}
 		}
@@ -154,7 +155,7 @@ func installSkills(baseDir string, dryRun bool) {
 		logging.Warn("skills: " + err.Error())
 		return
 	}
-	skillsBin := filepath.Join(baseDir, "node_modules", ".bin", "skills")
+	skillsBin := filepath.Join(baseDir, "npm", "node_modules", ".bin", "skills")
 	if _, err := os.Stat(skillsBin); err != nil {
 		skillsBin = "skills"
 	}

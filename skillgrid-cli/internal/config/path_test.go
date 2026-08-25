@@ -13,17 +13,17 @@ func TestWritePathInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UserHomeDir failed: %v", err)
 	}
-	baseDir := filepath.Join(home, ".aiskillgrid")
+	baseDir := filepath.Join(home, ".skillgrid")
 	var buf bytes.Buffer
 	err = WritePathInstructions(baseDir, &buf)
 	if err != nil {
 		t.Fatalf("WritePathInstructions failed: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, `export PATH="$HOME/.aiskillgrid/bin:$PATH"`) {
+	if !strings.Contains(out, `export PATH="$HOME/.skillgrid/bin:$PATH"`) {
 		t.Fatalf("missing bin path export:\n%s", out)
 	}
-	if !strings.Contains(out, `export PATH="$HOME/.aiskillgrid/node_modules/.bin:$PATH"`) {
+	if !strings.Contains(out, `export PATH="$HOME/.skillgrid/npm/node_modules/.bin:$PATH"`) {
 		t.Fatalf("missing npm path export:\n%s", out)
 	}
 }

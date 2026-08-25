@@ -1,53 +1,70 @@
 version: '3'
 
+env:
+  GOTOOLCHAIN: local
+
 vars:
-  APP_NAME: aiskillgrid
+  APP_NAME: skillgrid
   BUILD_DIR: bin
   MAIN_PKG: ./cmd
   VERSION: "1.0.0"
-
 tasks:
   default:
     cmds:
       - task: build
-  
+
   build:
-    desc: Build the application for current platform
+    desc: Build the application for the current platform and symlink bin/{{.APP_NAME}}
     cmds:
-      - mkdir -p {{.BUILD_DIR}}
-      - cd aiskillgrid-cli && go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}} {{.MAIN_PKG}}
-  
+      - |
+        os=$(uname -s | tr '[:upper:]' '[:lower:]')
+        case $(uname -m) in
+          x86_64|amd64) arch=amd64 ;;
+          aarch64|arm64) arch=arm64 ;;
+          *) arch=$(uname -m) ;;
+        esac
+        platform="$os-$arch"
+        mkdir -p {{.BUILD_DIR}}
+        (cd skillgrid-cli && GOOS="$os" GOARCH="$arch" go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-$platform {{.MAIN_PKG }})
+        ln -sf {{.APP_NAME}}-$platform {{.BUILD_DIR}}/{{.APP_NAME }}
+        ls -l {{.BUILD_DIR}}
+
   build-darwin-amd64:
     desc: Build for macOS Intel (amd64)
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - cd aiskillgrid-cli && GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-darwin-amd64 {{.MAIN_PKG}}
-  
+      - cd skillgrid-cli && GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-darwin-amd64 {{.MAIN_PKG }}
+      - ln -sf {{.APP_NAME}}-darwin-amd64 {{.BUILD_DIR}}/{{.APP_NAME }}
+
   build-darwin-arm64:
     desc: Build for macOS Apple Silicon (arm64)
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - cd aiskillgrid-cli && GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-darwin-arm64 {{.MAIN_PKG}}
-  
+      - cd skillgrid-cli && GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-darwin-arm64 {{.MAIN_PKG }}
+      - ln -sf {{.APP_NAME}}-darwin-arm64 {{.BUILD_DIR}}/{{.APP_NAME }}
+
   build-linux-amd64:
     desc: Build for Linux Intel (amd64)
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - cd aiskillgrid-cli && GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-linux-amd64 {{.MAIN_PKG}}
-  
+      - cd skillgrid-cli && GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-linux-amd64 {{.MAIN_PKG }}
+      - ln -sf {{.APP_NAME}}-linux-amd64 {{.BUILD_DIR}}/{{.APP_NAME }}
+
   build-linux-arm64:
     desc: Build for Linux ARM (arm64)
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - cd aiskillgrid-cli && GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-linux-arm64 {{.MAIN_PKG}}
-  
+      - cd skillgrid-cli && GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-linux-arm64 {{.MAIN_PKG }}
+      - ln -sf {{.APP_NAME}}-linux-arm64 {{.BUILD_DIR}}/{{.APP_NAME }}
+
   build-all:
-    desc: Build for all target platforms
+    desc: Build for all target platforms (symlink left at last built platform)
     cmds:
       - task: build-darwin-amd64
       - task: build-darwin-arm64
       - task: build-linux-amd64
       - task: build-linux-arm64
+      - task: build
       - echo "Builds completed. Check {{.BUILD_DIR}} directory."
 
   release-build:
@@ -68,29 +85,29 @@ tasks:
     desc: Build and install CLI binary to ~/go/bin
     cmds:
       - mkdir -p ~/go/bin
-      - cd aiskillgrid-cli && go install {{.MAIN_PKG}}
-  
+      - cd skillgrid-cli && go install {{.MAIN_PKG }}
+
   clean:
     desc: Clean build artifacts
     cmds:
       - rm -rf {{.BUILD_DIR}}/ dist/
-  
+
   test:
     desc: Run Go tests
     cmds:
-      - go test ./...
+      - cd skillgrid-cli && go test ./...
 
   test-cli:
     desc: Run CLI tests only
     cmds:
-      - cd aiskillgrid-cli && go test ./...
-  
+      - cd skillgrid-cli && go test ./...
+
   mod-tidy:
-    desc: Clean up go modules
+    desc: Clean up Go modules
     cmds:
-      - go mod tidy
-  
+      - cd skillgrid-cli && go mod tidy
+
   mod-download:
     desc: Download and verify dependencies
     cmds:
-      - go mod download
+      - cd skillgrid-cli && go mod download

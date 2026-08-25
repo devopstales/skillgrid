@@ -73,11 +73,11 @@ Verify work before claiming it is done — evidence before assertions:
 - For CLI tools, run the command the user would run and check exit code + output.
 - Prefer no-op confirmation: a change is done only when its success criterion (tests, command output, validation) has been observed.
 
-### aiskillgrid-cli (if present in workspace)
+### skillgrid-cli (if present in workspace)
 
-- Tooling lives in `~/.aiskillgrid`: binaries in `~/.aiskillgrid/bin`, npm binaries in `~/.aiskillgrid/node_modules/.bin` (packages installed with `--prefix "$HOME/.aiskillgrid"`).
+- Tooling lives in `~/.skillgrid`: binaries in `~/.skillgrid/bin`, npm binaries in `~/.skillgrid/npm/node_modules/.bin` (packages installed with `npm install --prefix "$HOME/.skillgrid/npm" --cache "$HOME/.skillgrid/npm/cache"`).
 - YAML files in `config.d/` are the single source of truth for installs; do not hardcode package names in code.
-- Keep unit tests for config merge logic and `--dry-run` output passing (`go build ./... && go test ./...` in `aiskillgrid-cli/`).
+- Keep unit tests for config merge logic and `--dry-run` output passing (`go build ./... && go test ./...` in `skillgrid-cli/`).
 - Commit messages: short imperative, one line (e.g. `fix: merge MCP entries without clobbering keys`).
 
 ## Environment

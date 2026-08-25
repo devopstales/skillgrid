@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 )
 
-// DefaultRepoURL is the fallback clone source (docs/00-aiskillgrid-cli.md).
-const DefaultRepoURL = "https://github.com/devopstales/aiskillgrid.git"
+// DefaultRepoURL is the fallback clone source (docs/00-skillgrid-cli.md).
+const DefaultRepoURL = "https://github.com/devopstales/skillgrid.git"
 
-// Sync copies a local repo checkout into baseDir/repos/aiskillgrid and
+// Sync copies a local repo checkout into baseDir/repos/skillgrid and
 // refreshes baseDir/config.d from its config.d directory.
 func Sync(src, baseDir string) error {
 	src, err := filepath.Abs(src)
@@ -21,7 +21,7 @@ func Sync(src, baseDir string) error {
 	if fi, err := os.Stat(src); err != nil || !fi.IsDir() {
 		return fmt.Errorf("sync source not found: %s", src)
 	}
-	dst := filepath.Join(baseDir, "repos", "aiskillgrid")
+	dst := filepath.Join(baseDir, "repos", "skillgrid")
 	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err
 	}
@@ -41,10 +41,10 @@ func Sync(src, baseDir string) error {
 	return nil
 }
 
-// Clone git-clones the repo into baseDir/repos/aiskillgrid and copies its
+// Clone git-clones the repo into baseDir/repos/skillgrid and copies its
 // config.d into baseDir/config.d.
 func Clone(baseDir, url string) error {
-	dst := filepath.Join(baseDir, "repos", "aiskillgrid")
+	dst := filepath.Join(baseDir, "repos", "skillgrid")
 	if fi, err := os.Stat(dst); err == nil && fi.IsDir() {
 		cmd := exec.Command("git", "-C", dst, "pull")
 		cmd.Stdout = os.Stdout

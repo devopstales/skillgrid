@@ -13,7 +13,7 @@ func TestUsagePrintsOnNoArgs(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 	flag.CommandLine.SetOutput(w)
-	os.Args = []string{"aiskillgrid-cli"}
+	os.Args = []string{"skillgrid-cli"}
 	Run()
 	w.Close()
 	os.Stdout = old

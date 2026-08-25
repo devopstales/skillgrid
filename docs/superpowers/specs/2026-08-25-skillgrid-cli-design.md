@@ -1,10 +1,10 @@
-# 2026-08-25 aiskillgrid-cli Design
+# 2026-08-25 skillgrid-cli Design
 
 > **STATUS: COMPLETE (2026-08-25)** — all steps of this spec are implemented; `go build` + all tests pass. See the plans doc for the full task history.
 
 ## Goal
 
-A single Go binary that installs and configures AI agent tooling from a checked-out `aiskillgrid` repo using config-driven steps for repo setup, Node validation, npm installs, plugins, skills, MCPs, and PATH output.
+A single Go binary that installs and configures AI agent tooling from a checked-out `skillgrid` repo using config-driven steps for repo setup, Node validation, npm installs, plugins, skills, MCPs, and PATH output.
 
 ## Supported Agents
 
@@ -18,11 +18,11 @@ A single Go binary that installs and configures AI agent tooling from a checked-
 | `gemini-cli` | *(config path TBD)* |
 | `antigravity` | *(config path TBD)* |
 
-> Config paths for `cursor`, `claude`, `codex`, `gemini-cli`, and `antigravity` are not yet defined in `docs/00-aiskillgrid-cli.md`; listed here from `docs/NOTE.md` for completeness.
+> Config paths for `cursor`, `claude`, `codex`, `gemini-cli`, and `antigravity` are not yet defined in `docs/00-skillgrid-cli.md`; listed here from `docs/NOTE.md` for completeness.
 
 ## Base Directory
 
-All install paths are rooted at `~/.aiskillgrid/`.
+All install paths are rooted at `~/.skillgrid/`.
 
 ## Config-Driven Data
 
@@ -47,44 +47,44 @@ The CLI reads this file after cloning/syncing the repo; it does not hardcode the
 | Command | Alias | Purpose |
 |---------|-------|---------|
 | `install` | `in` | Clone repo, validate Node, install plugins/skills/MCPs, print PATH additions |
-| `sync-repo` | — | Sync external repo contents into `~/.aiskillgrid/repos/aiskillgrid` without running full install |
+| `sync-repo` | — | Sync external repo contents into `~/.skillgrid/repos/skillgrid` without running full install |
 
 ## Flags
 
 Implemented flags (per-subcommand parsing; flags work before or after the subcommand name):
 
 - `--skip-clone` — skip the git clone step during install
-- `--sync-repo <path>` — sync a local checkout into `~/.aiskillgrid/repos/aiskillgrid` instead of cloning
+- `--sync-repo <path>` — sync a local checkout into `~/.skillgrid/repos/skillgrid` instead of cloning
 - `--dry-run` — print planned changes without writing (no npm installs, no MCP/rules writes, no backups)
 - `--verbose` — print detailed changes (full MCP entries)
 - `--yes` — skip interactive prompts; default agent selection
 
-`AISKILLGRID_REPO_URL` env var overrides the clone target.
+`SKILLGRID_REPO_URL` env var overrides the clone target.
 
 ## Install Flow (Step-by-Step)
 
-Implemented in `cmd/install.go` + `cmd/steps.go`, matching `docs/00-aiskillgrid-cli.md`:
+Implemented in `cmd/install.go` + `cmd/steps.go`, matching `docs/00-skillgrid-cli.md`:
 
 0. **Agent selector** — `selectAgents` (interactive; `--yes`/`--dry-run` skip it and default to all agents) — runs **first**, before any setup
 
 1. **Repo setup** — `internal/repo/repo.go`
-   - `--sync-repo <path>`: copy the local checkout into `~/.aiskillgrid/repos/aiskillgrid`
-   - otherwise clone `https://github.com/devopstales/aiskillgrid.git` (override: `AISKILLGRID_REPO_URL`)
-   - `--skip-clone` + `--sync-repo` together: sync wins; both skipped: use existing `~/.aiskillgrid` state
-   - Copy `config.d/` into `~/.aiskillgrid/config.d`
+   - `--sync-repo <path>`: copy the local checkout into `~/.skillgrid/repos/skillgrid`
+   - otherwise clone `https://github.com/devopstales/skillgrid.git` (override: `SKILLGRID_REPO_URL`)
+   - `--skip-clone` + `--sync-repo` together: sync wins; both skipped: use existing `~/.skillgrid` state
+   - Copy `config.d/` into `~/.skillgrid/config.d`
 
 2. **Node validation** — `ensureNode`
-   - `node` on PATH → pass; otherwise run `~/.aiskillgrid/repos/aiskillgrid/scripts/install_node.sh` (warn, do not abort)
+   - `node` on PATH → pass; otherwise run `~/.skillgrid/repos/skillgrid/scripts/install_node.sh` (warn, do not abort)
 
 3. **Engram binary installation** — `internal/engram/install.go`
    - Detect OS/ARCH; query GitHub Releases API for latest `engram` version
    - Download matching prebuilt tarball (`darwin_arm64`, `darwin_amd64`, `linux_arm64`, `linux_amd64`)
-   - Extract `engram` binary into `~/.aiskillgrid/bin/`, chmod `+x`
+   - Extract `engram` binary into `~/.skillgrid/bin/`, chmod `+x`
    - Do not use Homebrew or `go install`
 
 4. **Agent and tool installation** — `cmd/npm.go`
-   - Read `~/.aiskillgrid/config.d/tools.yaml`
-   - `npm install <agents...> <tools...> --prefix "$HOME/.aiskillgrid"` (binaries land in `~/.aiskillgrid/node_modules/.bin`)
+   - Read `~/.skillgrid/config.d/tools.yaml`
+   - `npm install <agents...> <tools...> --prefix "$HOME/.skillgrid/npm" --cache "$HOME/.skillgrid/npm/cache"` (binaries land in `~/.skillgrid/npm/node_modules/.bin`)
 
 5. **Plugin installation** — `installPlugins`
    - Per selected agent:
@@ -92,27 +92,27 @@ Implemented in `cmd/install.go` + `cmd/steps.go`, matching `docs/00-aiskillgrid-
      npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/<agent>"
      ```
    - Register under the config's `plugin` key: `["~/.config/<agent>/node_modules/superpowers"]` (idempotent append)
-   - If `opencode` selected: run `~/.aiskillgrid/bin/engram setup opencode`
+   - If `opencode` selected: run `~/.skillgrid/bin/engram setup opencode`
    - Copy `~/.config/opencode/plugins/engram.ts` → `~/.config/kilo/plugins/engram.ts` if missing
 
 6. **Skill installation** — `installSkills`
-   - Read `~/.aiskillgrid/config.d/skills.yaml` (`repo`, `skill`, optional `agent` — default `amp`)
-   - Per entry: `~/.aiskillgrid/node_modules/.bin/skills add <repo> --agent <agent> -g -s <skill> -y` (warn and continue on failure)
+   - Read `~/.skillgrid/config.d/skills.yaml` (`repo`, `skill`, optional `agent` — default `amp`)
+   - Per entry: `~/.skillgrid/npm/node_modules/.bin/skills add <repo> --agent <agent> -g -s <skill> -y` (warn and continue on failure)
 
 7. **MCP installation** — `internal/config/merger.go` + `internal/mcp/registry.go`
-   - Read `~/.aiskillgrid/config.d/mcp.yaml`
+   - Read `~/.skillgrid/config.d/mcp.yaml`
    - Merge entries into each selected agent's config under the `mcp` key (gjson/sjson, JSONC-aware)
-   - Preserves existing keys; overwrite only managed entries; **backup to `~/.aiskillgrid/backups/` before every edit** (keep last 10 per file)
+   - Preserves existing keys; overwrite only managed entries; **backup to `~/.skillgrid/backups/` before every edit** (keep last 10 per file)
 
 8. **Rules** — `copyRules`
-   - Copy `~/.aiskillgrid/config.d/AGENTS.md` → `~/.agents/AGENTS.md`
+   - Copy `~/.skillgrid/config.d/AGENTS.md` → `~/.agents/AGENTS.md`
    - Append `~/.agents/AGENTS.md` to each selected agent config's `instructions` array (JSON-aware, idempotent)
 
 9. **PATH output**
     - Print after the `install finished` line, separated by a blank line:
       ```bash
-      export PATH="$HOME/.aiskillgrid/bin:$PATH"
-      export PATH="$HOME/.aiskillgrid/node_modules/.bin:$PATH"
+      export PATH="$HOME/.skillgrid/bin:$PATH"
+      export PATH="$HOME/.skillgrid/npm/node_modules/.bin:$PATH"
       ```
 
 ## MCP Tool Registry
@@ -175,8 +175,8 @@ The bubbletea TUI for per-agent MCP tool selection (step 2) is **not yet impleme
 ## File Layout
 
 ```
-aiskillgrid-v2/
-├── aiskillgrid-cli/
+skillgrid-v2/
+├── skillgrid-cli/
 │   ├── go.mod / go.sum
 │   ├── cmd/
 │   │   ├── main.go            # subcommand + flag parsing, usage, help
@@ -196,13 +196,13 @@ aiskillgrid-v2/
 │   │   ├── engram/
 │   │   │   └── install.go     # prebuilt binary installer
 │   │   ├── repo/
-│   │   │   └── repo.go        # Sync/Clone into ~/.aiskillgrid
+│   │   │   └── repo.go        # Sync/Clone into ~/.skillgrid
 │   │   ├── logging/
 │   │   │   └── log.go         # file-based validation logger
 │   │   └── smoke/
 │   │       └── smoke_test.go  # integration smoke test
 ├── docs/
-│   ├── 00-aiskillgrid-cli.md
+│   ├── 00-skillgrid-cli.md
 │   └── superpowers/{plans,specs}/
 ├── config.d/          ← synced from repo for local dev
 │   ├── AGENTS.md
@@ -220,4 +220,4 @@ aiskillgrid-v2/
 - Unit tests for config merge logic (merge, comment preservation, dry-run)
 - Unit tests for PATH output, YAML loaders (tools/mcp/skills), and dry-run semantics
 - Integration smoke test: run `install --dry-run` against temp home dir
-- Full-suite: `cd aiskillgrid-cli && go test ./...` (all packages green)
+- Full-suite: `cd skillgrid-cli && go test ./...` (all packages green)

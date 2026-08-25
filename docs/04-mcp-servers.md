@@ -24,7 +24,7 @@ Local tools whose binary is not on PATH do not fail the install — the merge st
 
 For each selected agent, the CLI:
 
-1. Backs up the existing config file to `~/.aiskillgrid/backups/` (keep last 10 per file).
+1. Backs up the existing config file to `~/.skillgrid/backups/` (keep last 10 per file).
 2. Reads the JSON/JSONC.
 3. For each server in `mcp.yaml`, sets `mcp.<name>` to the canonical entry for that server.
 4. Appends `mcp.<name>-<old-type>` with the old entry if the entry existed under the same name before with a *different* `type` — the CLI never deletes a user override silently.
@@ -47,7 +47,7 @@ This matches both Kilo Code's and OpenCode's documented MCP schema — `type` + 
 
 ```bash
 # dry run shows what would change
-./bin/aiskillgrid install --dry-run --sync-repo $(pwd) --verbose
+./bin/skillgrid install --dry-run --sync-repo $(pwd) --verbose
 
 # verify the file is still valid JSON after
 node -e 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.config/kilo/kilo.jsonc","utf8")); console.log("kilo OK")'
@@ -59,7 +59,7 @@ node -e 'JSON.parse(require("fs").readFileSync(process.env.HOME+"/.config/openco
 Every non-dry-run run creates a backup before each edit:
 
 ```bash
-ls ~/.aiskillgrid/backups/
+ls ~/.skillgrid/backups/
 # kilo.jsonc.20260825-154345.bak
 # kilo.jsonc.20260825-154345.bak.2
 # opencode.jsonc.20260825-154345.bak
@@ -68,7 +68,7 @@ ls ~/.aiskillgrid/backups/
 Rolling back to a specific moment is a `cp`:
 
 ```bash
-cp ~/.aiskillgrid/backups/kilo.jsonc.20260825-154345.bak ~/.config/kilo/kilo.jsonc
+cp ~/.skillgrid/backups/kilo.jsonc.20260825-154345.bak ~/.config/kilo/kilo.jsonc
 ```
 
 ## Adding a New MCP Server

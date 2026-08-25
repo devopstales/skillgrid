@@ -1,6 +1,6 @@
 # Plugins
 
-aiskillgrid installs **plugins** per agent in step 5 of the install flow. Plugins are richer than single MCP endpoints or skills — they bundle agent behaviors, hooks, and (for engram) a persistent memory backend.
+skillgrid installs **plugins** per agent in step 5 of the install flow. Plugins are richer than single MCP endpoints or skills — they bundle agent behaviors, hooks, and (for engram) a persistent memory backend.
 
 Two plugins are installed by default:
 
@@ -22,7 +22,7 @@ For each selected agent (kilo, opencode) the CLI does:
 
 1. Installs the git ref into the agent's config dir:
    ```bash
-   npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/<agent>"
+   npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/<agent>" --cache "$HOME/.config/<agent>/npm/cache"
    ```
 2. Registers the resolved path under the top-level `plugin` key of that agent's config (idempotent append):
    ```json
@@ -43,26 +43,26 @@ Notes:
 
 - The `plugin` array append is idempotent — re-running does not duplicate the entry.
 - The path is stored with `~` in place of the home directory, so the config stays portable across machines.
-- A backup of the agent config is taken before the `plugin` key is written (`~/.aiskillgrid/backups/`).
+- A backup of the agent config is taken before the `plugin` key is written (`~/.skillgrid/backups/`).
 - Plugin install failure **warns and continues** (per the error-handling contract) — the MCP and rules steps still run.
 
 ## engram
 
 engram spans two install steps:
 
-- **Step 3** installs the prebuilt binary to `~/.aiskillgrid/bin/engram`.
+- **Step 3** installs the prebuilt binary to `~/.skillgrid/bin/engram`.
 - **Step 5 (plugin)** wires it into the agents that need it:
 
 ```mermaid
 flowchart LR
-  Bin[engine binary in ~/.aiskillgrid/bin] --> Setup[engram setup opencode]
+  Bin[engine binary in ~/.skillgrid/bin] --> Setup[engram setup opencode]
   Setup --> OpFile[.config/opencode/plugins/engram.ts]
   OpFile -->|copy if missing| KiFile[.config/kilo/plugins/engram.ts]
 ```
 
 Concretely (`installPlugins`, `cmd/steps.go`):
 
-1. If `opencode` is among the selected agents, run `engram setup opencode` (using the installed binary at `~/.aiskillgrid/bin/engram`, falling back to `engram` on PATH).
+1. If `opencode` is among the selected agents, run `engram setup opencode` (using the installed binary at `~/.skillgrid/bin/engram`, falling back to `engram` on PATH).
 2. If kilo is selected and `~/.config/kilo/plugins/engram.ts` is missing, copy it from `~/.config/opencode/plugins/engram.ts`. This gives kilo the same engram plugin without running a second `engram setup`.
 
 The engram memory backend is also exposed to agents as an MCP server (see [04-mcp-servers](04-mcp-servers.md) — the `engram` local entry `engram mcp`).
@@ -85,7 +85,7 @@ To force a fresh superpowers build, remove the prefix first:
 
 ```bash
 rm -rf ~/.config/kilo/node_modules/superpowers ~/.config/opencode/node_modules/superpowers
-./bin/aiskillgrid install
+./bin/skillgrid install
 ```
 
 ## Reference

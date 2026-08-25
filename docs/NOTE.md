@@ -16,14 +16,54 @@
 
 ## Tools
 
-* [ ] skills
-* [ ] playwright
-* [ ] agent-browser
-* [ ] engram
+### Agent Orchectration
+
+* [ ] [opencode-4hol](https://dev.to/uenyioha/porting-claude-codes-agent-teams-to-opencode-4hol)
+* [ ] [Cleave](https://cleave.dev/)
+
+### Memory
+
+* [?] [CocoIndex-Code](https://github.com/cocoindex-io/cocoindex-code)
+* [?] [GitNexus](https://github.com/abhigyanpatwari/GitNexus)
+* [X] [codegraph](https://github.com/colbymchenry/codegraph)
+* [?] [graphify]()
+* [X] [Engram](https://github.com/Gentleman-Programming/engram)
+
+### Spec driven development
+
+* PRD
+* [-] [openspec](https://openspec.dev/)
+* [X] [Superpowers](https://github.com/obra/superpowers)
+
+### Ticketingt
+
+* Atlassian MCP
+* GitHub MCP
+* Gitlab MCP
+* Vercel
+* backlog.md
+
+### checkoint
+
+* Superpowers - uses commits
+
+### Design Tools
+
+* [ ] [taste-skill](https://github.com/Leonxlnx/taste-skill)
+* [ ] [npxskillui](https://github.com/amaancoderx/npxskillui)
+* [ ] [impeccable](https://github.com/pbakaus/impeccable)
+* [ ] [open-design](https://github.com/nexu-io/open-design)
+
+### Usage Data
+
+* [ ] [context-mode](https://github.com/mksglu/context-mode)
 * [ ] [gryph](https://github.com/safedep/gryph)
-* graphify ??
-* gitnexus ??
-* ccc - coconaut code index ???
+
+
+### Testing
+
+* [X] playwright
+* [X] agent-browser
 * [ ] [cucumber]()
 
 ## Plugins
@@ -42,6 +82,8 @@ npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$H
 
 ## Skills
 
+* [X] skills
+
 ```
 skills add obra/superpowers --agent amp -g -s '*' -y
 skills add gentleman-programming/engram --agent amp -g -s 'engram-memory' -y
@@ -55,7 +97,7 @@ skills add gentleman-programming/engram --agent amp -g -s 'engram-testing-covera
 
 ## Rules
 
-Copy `~/.aiskillgrid/config.d/AGENTS.md` to `~/.agents/AGENTS.md` and add it to the configs:
+Copy `~/.skillgrid/config.d/AGENTS.md` to `~/.agents/AGENTS.md` and add it to the configs:
 
 * `~/.config/kilo/kilo.jsonc`
 * `~/.config/opencode/opencode.json`

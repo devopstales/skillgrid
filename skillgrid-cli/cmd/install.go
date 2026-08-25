@@ -1,11 +1,11 @@
 package main
 
 import (
-	"aiskillgrid-cli/internal/config"
-	"aiskillgrid-cli/internal/engram"
-	"aiskillgrid-cli/internal/logging"
-	"aiskillgrid-cli/internal/mcp"
-	"aiskillgrid-cli/internal/repo"
+	"skillgrid-cli/internal/config"
+	"skillgrid-cli/internal/engram"
+	"skillgrid-cli/internal/logging"
+	"skillgrid-cli/internal/mcp"
+	"skillgrid-cli/internal/repo"
 	jsonc "github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"fmt"
@@ -17,7 +17,7 @@ import (
 )
 
 func runInstall(skipClone bool, syncRepo string, dryRun bool, verbose bool, nonInteractive bool) {
-	baseDir := mustExpandHomePath("~/.aiskillgrid")
+	baseDir := mustExpandHomePath("~/.skillgrid")
 	if err := logging.Init(baseDir); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to init logging: %v\n", err)
 		return
@@ -67,8 +67,9 @@ func runInstall(skipClone bool, syncRepo string, dryRun bool, verbose bool, nonI
 		return
 	}
 	if dryRun {
+		prefix := filepath.Join(baseDir, "npm")
 		for _, p := range append(tools.Agents, tools.Tools...) {
-			logging.Info("[dry-run] npm install " + p)
+			logging.Info("[dry-run] npm install " + p + " --prefix " + prefix + " --cache " + filepath.Join(prefix, "cache"))
 		}
 	} else if err := installNPM(baseDir); err != nil {
 		logging.Warn("npm install failed: " + err.Error())
@@ -120,7 +121,7 @@ func runInstall(skipClone bool, syncRepo string, dryRun bool, verbose bool, nonI
 }
 
 func repoURL() string {
-	if u := os.Getenv("AISKILLGRID_REPO_URL"); u != "" {
+	if u := os.Getenv("SKILLGRID_REPO_URL"); u != "" {
 		return u
 	}
 	return repo.DefaultRepoURL
@@ -178,7 +179,7 @@ func pruneBackups(dir, baseName string) {
 }
 
 func copyRules(baseDir string, agents []string, dryRun bool) {
-	src := filepath.Join(mustExpandHomePath("~/.aiskillgrid"), "config.d", "AGENTS.md")
+	src := filepath.Join(mustExpandHomePath("~/.skillgrid"), "config.d", "AGENTS.md")
 	dstDir := filepath.Join(mustExpandHomePath("~"), ".agents")
 	dst := filepath.Join(dstDir, "AGENTS.md")
 	data, err := os.ReadFile(src)
@@ -243,7 +244,7 @@ func ensureRulesReference(cfgPath, rulesPath string) {
 }
 
 func runSyncRepo(extraPath string) {
-	baseDir := mustExpandHomePath("~/.aiskillgrid")
+	baseDir := mustExpandHomePath("~/.skillgrid")
 	if err := logging.Init(baseDir); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to init logging: %v\n", err)
 		return

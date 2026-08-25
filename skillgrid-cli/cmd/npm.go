@@ -1,7 +1,7 @@
 package main
 
 import (
-	"aiskillgrid-cli/internal/config"
+	"skillgrid-cli/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,8 +18,10 @@ func installNPM(baseDir string) error {
 	}
 	pkgs := append([]string{}, tools.Agents...)
 	pkgs = append(pkgs, tools.Tools...)
+	prefix := filepath.Join(baseDir, "npm")
+	cache := filepath.Join(prefix, "cache")
 	args := append([]string{"install"}, pkgs...)
-	args = append(args, "--prefix", baseDir)
+	args = append(args, "--prefix", prefix, "--cache", cache)
 	return exec.Command("npm", args...).Run()
 }
 

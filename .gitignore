@@ -2,6 +2,7 @@ bin/
 dist/
 *.exe
 .DS_Store
-aiskillgrid-cli/aiskillgrid
+skillgrid-cli/skillgrid
 .tmp-home/
 .tmp-proj/
+.kilo/

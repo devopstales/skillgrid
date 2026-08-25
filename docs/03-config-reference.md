@@ -13,7 +13,7 @@ Four files matter (the CLI reads three of them):
 
 ## tools.yaml
 
-The list of npm packages installed with `--prefix "$HOME/.aiskillgrid"`.
+The list of npm packages installed with `--prefix "$HOME/.skillgrid/npm" --cache "$HOME/.skillgrid/npm/cache"`.
 
 ```yaml
 agents:
@@ -86,7 +86,7 @@ Per-entry fields:
 - `skill` (defaults to `"*"`) — the skill name (or `*` for all)
 - `agent` (defaults to `amp`) — target agent identifier for the `skills` CLI
 
-The CLI invokes `<skills> add <repo> --agent <agent> -g -s <skill> -y` for each entry, using `~/.aiskillgrid/node_modules/.bin/skills` if present.
+The CLI invokes `<skills> add <repo> --agent <agent> -g -s <skill> -y` for each entry, using `~/.skillgrid/npm/node_modules/.bin/skills` if present.
 
 ## AGENTS.md
 

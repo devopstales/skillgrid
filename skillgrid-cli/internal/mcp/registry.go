@@ -1,7 +1,7 @@
 package mcp
 
 import (
-	"aiskillgrid-cli/internal/config"
+	"skillgrid-cli/internal/config"
 	"fmt"
 	"os"
 	"os/exec"

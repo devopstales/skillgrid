@@ -8,7 +8,7 @@ import (
 )
 
 func printUsage() {
-	fmt.Fprintln(os.Stdout, "AI Skill Grid Installer\n\nUsage:\n  aiskillgrid <command> [flags]\n\nCommands:\n  install, in   Run full install\n  sync-repo     Sync repo contents without full install\n  help          Show this help\n\nFlags (install):\n  -skip-clone        skip git clone step\n  -sync-repo path    sync a repo path into ~/.aiskillgrid/repos/aiskillgrid\n  -dry-run           print planned changes without writing\n  -verbose           print detailed changes (MCP entries etc.)\n  -yes               skip interactive prompts (default agent selection)")
+	fmt.Fprintln(os.Stdout, "AI Skill Grid Installer\n\nUsage:\n  skillgrid <command> [flags]\n\nCommands:\n  install, in   Run full install\n  sync-repo     Sync repo contents without full install\n  help          Show this help\n\nFlags (install):\n  -skip-clone        skip git clone step\n  -sync-repo path    sync a repo path into ~/.skillgrid/repos/skillgrid\n  -dry-run           print planned changes without writing\n  -verbose           print detailed changes (MCP entries etc.)\n  -yes               skip interactive prompts (default agent selection)")
 }
 
 func wantHelp(argv []string) bool {
@@ -33,7 +33,7 @@ func parseInstallArgs(rest []string) (bool, string, bool, bool, bool, error) {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	skip := fs.Bool("skip-clone", false, "skip git clone step")
-	sync := fs.String("sync-repo", "", "sync repo path into ~/.aiskillgrid/repos/aiskillgrid")
+	sync := fs.String("sync-repo", "", "sync repo path into ~/.skillgrid/repos/skillgrid")
 	dry := fs.Bool("dry-run", false, "print planned changes without writing")
 	verbose := fs.Bool("verbose", false, "print detailed changes")
 	yes := fs.Bool("yes", false, "skip interactive prompts (default agent selection)")
@@ -67,7 +67,7 @@ func Run() int {
 	case "sync-repo":
 		fs := flag.NewFlagSet("sync-repo", flag.ContinueOnError)
 		fs.SetOutput(io.Discard)
-		sync := fs.String("sync-repo", "", "path to sync into ~/.aiskillgrid/repos/aiskillgrid")
+		sync := fs.String("sync-repo", "", "path to sync into ~/.skillgrid/repos/skillgrid")
 		if err := fs.Parse(rest); err != nil {
 			printUsage()
 			return 1

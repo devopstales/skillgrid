@@ -1,4 +1,4 @@
-# aiskillgrid cli
+# skillgrid cli
 
 A single Go binary that installs and configures your AI agents in one command, from one place: a checked-in `config.d/` where the tools, MCP servers, and rules live as plain YAML.
 
@@ -8,7 +8,7 @@ The point is simple: your agent setup should not live in your head, in shell his
 
 Most AI agent setups accumulate by accident: one MCP server added for a demo, one skill copied from a tutorial, an `AGENTS.md` that drifted out of sync because nobody re-ran the install. When you open a new laptop — or a new agent — you rebuild the whole thing by hand and it never quite matches the old one.
 
-aiskillgrid solves that by making the whole setup reproducible:
+skillgrid solves that by making the whole setup reproducible:
 
 - `config.d/tools.yaml` defines which agent CLIs and tools get installed.
 - `config.d/mcp.yaml` defines which MCP servers merge into each agent's config.
@@ -32,13 +32,13 @@ One binary reads those files, does the work, backs up what it touches, and print
 task build
 
 # install into this machine (clone mode)
-./bin/aiskillgrid install
+./bin/skillgrid install
 
 # or point it at a local checkout of this repo (dev loop)
-./bin/aiskillgrid install --sync-repo /path/to/aiskillgrid-v2
+./bin/skillgrid install --sync-repo /path/to/skillgrid-v2
 
 # preview instead of apply
-./bin/aiskillgrid install --dry-run
+./bin/skillgrid install --dry-run
 ```
 
 ## Documentation Map

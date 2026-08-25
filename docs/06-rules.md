@@ -1,6 +1,6 @@
 # Rules
 
-Rules are the shared `AGENTS.md` that every agent in your environment should follow. aiskillgrid keeps one canonical copy in `config.d/AGENTS.md` and materializes it to both places where agents read it:
+Rules are the shared `AGENTS.md` that every agent in your environment should follow. skillgrid keeps one canonical copy in `config.d/AGENTS.md` and materializes it to both places where agents read it:
 
 1. `~/.agents/AGENTS.md` — the portable location, referenced by Kilo and OpenCode
 2. Each selected agent config's `instructions` array — the per-agent registration
@@ -20,7 +20,7 @@ flowchart LR
 
 Concretely:
 
-1. Copy `~/.aiskillgrid/config.d/AGENTS.md` → `~/.agents/AGENTS.md` (overwriting on each install).
+1. Copy `~/.skillgrid/config.d/AGENTS.md` → `~/.agents/AGENTS.md` (overwriting on each install).
 2. For each selected agent, append `~/.agents/AGENTS.md` to the `instructions` array of that agent's config.
 3. The append is idempotent — re-running does not produce duplicate entries.
 
@@ -39,15 +39,15 @@ The installer uses `tidwall/sjson` to append to `instructions` without touching 
 ## Where to Change Rules
 
 - **Shared rules** (all agents, all projects): edit `config.d/AGENTS.md`, then re-run `install`.
-- **Project-specific rules**: keep a project's `AGENTS.md` in that project's repo. It does not interact with aiskillgrid.
-- **Per-agent rules**: edit `~/.config/<agent>/`'s config directly — aiskillgrid's `plugin` and `instructions` merges preserve unrelated keys, so a hand-added `instructions` entry survives reinstalls.
+- **Project-specific rules**: keep a project's `AGENTS.md` in that project's repo. It does not interact with skillgrid.
+- **Per-agent rules**: edit `~/.config/<agent>/`'s config directly — skillgrid's `plugin` and `instructions` merges preserve unrelated keys, so a hand-added `instructions` entry survives reinstalls.
 
 ## The Default AGENTS.md
 
 The default `config.d/AGENTS.md` covers:
 
 - AI agent behavior rules (concise responses, prefer edits, no secrets)
-- aiskillgrid environment (`~/.aiskillgrid/` layout)
+- skillgrid environment (`~/.skillgrid/` layout)
 - Verification discipline (tests/build/lint before claiming done)
 - Commit + config-source-of-truth conventions
 
