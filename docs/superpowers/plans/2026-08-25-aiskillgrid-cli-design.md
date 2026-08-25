@@ -1,6 +1,8 @@
 # aiskillgrid-cli Core Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+
+> **STATUS: COMPLETE (2026-08-25)** — All 11 tasks are implemented and verified (`go build` + all tests pass). The `install` subcommand also now follows every step of `docs/00-aiskillgrid-cli.md`. Implementation delta vs. the plan below.
 
 **Goal:** Build the core Go CLI framework, config-driven MCP registry, JSONC-aware config merge engine, dry-run mode, PATH output writer, and file-based validation logger.
 
@@ -33,7 +35,7 @@
 - Consumes: none
 - Produces: `logging.Init(baseDir string) error`, `logging.Info(msg string)`, `logging.Warn(msg string)`, `logging.Error(msg string)`, `logging.Path() string`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package logging
@@ -75,12 +77,12 @@ func TestWritesAppend(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd aiskillgrid-cli && go test ./internal/logging/ -v`
 Expected: FAIL with `undefined: logging.Init`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `aiskillgrid-cli/internal/logging/log.go`:
 
@@ -142,12 +144,12 @@ func Warn(msg string)  { write("WARN", msg) }
 func Error(msg string) { write("ERROR", msg) }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd aiskillgrid-cli && go test ./internal/logging/ -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aiskillgrid-cli/go.mod aiskillgrid-cli/internal/logging/log.go aiskillgrid-cli/internal/logging/log_test.go
@@ -166,17 +168,17 @@ git commit -m "feat: add file-based logging"
 - Consumes: none
 - Produces: Go module with yaml.v3 dependency
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Run: `cd aiskillgrid-cli && go test ./...`
 Expected: FAIL because module is incomplete or missing deps
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd aiskillgrid-cli && go test ./...`
 Expected: FAIL with module or import error
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Update `aiskillgrid-cli/go.mod`:
 
@@ -194,12 +196,12 @@ Run:
 cd aiskillgrid-cli && go mod tidy
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd aiskillgrid-cli && go test ./...`
 Expected: PASS (no tests yet, but module compiles)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aiskillgrid-cli/go.mod aiskillgrid-cli/go.sum
@@ -218,7 +220,7 @@ git commit -m "chore: initialize go module with yaml.v3"
 - Consumes: `logging.Init`, `logging.Warn`, `logging.Error`
 - Produces: `engram.InstallBinary(baseDir string) error`, `engram.DetectPlatform() (string, string, error)`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package engram
@@ -268,12 +270,12 @@ func TestInstallBinaryDownloadsAndExtracts(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd aiskillgrid-cli && go test ./internal/engram/ -v`
 Expected: FAIL with `undefined: engram.InstallBinary`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `aiskillgrid-cli/internal/engram/install.go`:
 
@@ -422,12 +424,12 @@ func extractTarGz(path, dest string) error {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd aiskillgrid-cli && go test ./internal/engram/ -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aiskillgrid-cli/internal/engram/install.go aiskillgrid-cli/internal/engram/install_test.go
@@ -446,7 +448,7 @@ git commit -m "feat: add engram prebuilt binary installer"
 - Consumes: none
 - Produces: `config.ToolsConfig`, `config.MCPConfig`, `config.AgentConfig`, `config.LoadToolsYAML(path string) (*ToolsConfig, error)`, `config.LoadMCPYAML(path string) (*MCPConfig, error)`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package config
@@ -521,12 +523,12 @@ servers:
       - mcp
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd aiskillgrid-cli && go test ./internal/config/ -v`
 Expected: FAIL with `undefined: config.LoadToolsYAML`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `aiskillgrid-cli/internal/config/types.go`:
 
@@ -578,12 +580,12 @@ func LoadMCPYAML(path string) (*MCPConfig, error) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd aiskillgrid-cli && go test ./internal/config/ -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aiskillgrid-cli/internal/config/types.go aiskillgrid-cli/internal/config/types_test.go aiskillgrid-cli/internal/config/testdata/tools.yaml aiskillgrid-cli/internal/config/testdata/mcp.yaml
@@ -602,7 +604,7 @@ git commit -m "feat: add config types and yaml loaders"
 - Consumes: none
 - Produces: `config.MergeMCP(configPath string, servers map[string]*McpServer, dryRun bool) (*Plan, error)`, `config.Plan` with `Changes []Change`, `Change` with `Path, Action, Key, Value`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package config
@@ -685,12 +687,12 @@ func TestMergeMCPOverwriteExisting(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd aiskillgrid-cli && go test ./internal/config/ -run TestMergeMCP -v`
 Expected: FAIL with `undefined: config.MergeMCP`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `aiskillgrid-cli/internal/config/merger.go`:
 
@@ -782,12 +784,12 @@ func formatServer(name string, srv *McpServer) string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd aiskillgrid-cli && go test ./internal/config/ -run TestMergeMCP -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aiskillgrid-cli/internal/config/merger.go aiskillgrid-cli/internal/config/merger_test.go
@@ -806,7 +808,7 @@ git commit -m "feat: add JSONC-aware config merge engine"
 - Consumes: `config.LoadMCPYAML`
 - Produces: `mcp.LoadRegistry(configDir string) (map[string]*McpServer, error)`, `mcp.PrecheckDependencies(servers map[string]*McpServer) []string`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package mcp
@@ -864,12 +866,12 @@ servers:
       - mcp
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd aiskillgrid-cli && go test ./internal/mcp/ -run TestLoadRegistry -v`
 Expected: FAIL with `undefined: mcp.LoadRegistry`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `aiskillgrid-cli/internal/mcp/registry.go`:
 
@@ -920,12 +922,12 @@ func PrecheckDependencies(servers map[string]*config.McpServer) []string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd aiskillgrid-cli && go test ./internal/mcp/ -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aiskillgrid-cli/internal/mcp/registry.go aiskillgrid-cli/internal/mcp/registry_test.go aiskillgrid-cli/internal/mcp/testdata/mcp.yaml
@@ -944,7 +946,7 @@ git commit -m "feat: add MCP registry loader and dependency precheck"
 - Consumes: none
 - Produces: `config.WritePathInstructions(baseDir string, writer io.Writer) error`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package config
@@ -971,12 +973,12 @@ func TestWritePathInstructions(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd aiskillgrid-cli && go test ./internal/config/ -run TestWritePathInstructions -v`
 Expected: FAIL with `undefined: config.WritePathInstructions`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `aiskillgrid-cli/internal/config/path.go`:
 
@@ -1009,12 +1011,12 @@ func WritePathInstructions(baseDir string, writer io.Writer) error {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd aiskillgrid-cli && go test ./internal/config/ -run TestWritePathInstructions -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aiskillgrid-cli/internal/config/path.go aiskillgrid-cli/internal/config/path_test.go
@@ -1033,7 +1035,7 @@ git commit -m "feat: add PATH instruction writer"
 - Consumes: `logging.Init`, `config.LoadToolsYAML`, `config.LoadMCPYAML`, `mcp.LoadRegistry`, `config.MergeMCP`, `config.WritePathInstructions`
 - Produces: CLI executable with `install`/`in` and `sync-repo` commands, flags `--skip-clone`, `--sync-repo`, `--dry-run`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `aiskillgrid-cli/cmd/main_test.go`:
 
@@ -1064,12 +1066,12 @@ func TestUsagePrintsOnNoArgs(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd aiskillgrid-cli && go test ./cmd/ -v`
 Expected: FAIL with `undefined: main.main` or package main issue
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `aiskillgrid-cli/cmd/main.go`:
 
@@ -1202,12 +1204,12 @@ func agentConfigPath(agent string) string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd aiskillgrid-cli && go test ./cmd/ -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aiskillgrid-cli/cmd/main.go aiskillgrid-cli/cmd/install.go aiskillgrid-cli/cmd/main_test.go
@@ -1225,7 +1227,7 @@ git commit -m "feat: add CLI entry point with install and sync-repo subcommands"
 - Consumes: `config.MergeMCP`, `config.Plan`
 - Produces: test coverage for dry-run output semantics
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package config
@@ -1282,21 +1284,21 @@ func TestDryRunReportsUpdateForExistingKey(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd aiskillgrid-cli && go test ./internal/config/ -run TestDryRun -v`
 Expected: FAIL because `MergeMCP` does not yet return `*Plan` in non-dry-run path, or dry-run logic missing
 
-- [ ] **Step 3: Implement minimal code to make tests pass**
+- [x] **Step 3: Implement minimal code to make tests pass**
 
 The implementation in Task 4 already returns `*Plan` and branches on `dryRun`. Verify it handles both cases correctly. If needed, adjust `MergeMCP` to ensure dry-run never writes the file.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd aiskillgrid-cli && go test ./internal/config/ -run TestDryRun -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aiskillgrid-cli/internal/config/dryrun_test.go
@@ -1314,7 +1316,7 @@ git commit -m "test: add dry-run unit tests"
 - Consumes: `cmd.runInstall`, `config.MergeMCP`, `mcp.LoadRegistry`
 - Produces: executable smoke test using temp HOME
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package smoke
@@ -1350,12 +1352,12 @@ func TestDryRunSmoke(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd aiskillgrid-cli && go test ./internal/smoke/ -v`
 Expected: FAIL because package or helper not yet wired
 
-- [ ] **Step 3: Implement minimal wiring**
+- [x] **Step 3: Implement minimal wiring**
 
 Add `func initTestLogging(baseDir string) error` in `internal/logging/log.go` that resets `once` for testing:
 
@@ -1367,12 +1369,12 @@ func ResetForTest() {
 
 Update smoke test to call `logging.ResetForTest()` before `logging.Init(tmpHome)`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd aiskillgrid-cli && go test ./internal/smoke/ -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add aiskillgrid-cli/internal/smoke/smoke_test.go aiskillgrid-cli/internal/logging/log.go
@@ -1391,7 +1393,7 @@ git commit -m "test: add integration smoke test for dry-run"
 - Consumes: all previous tasks
 - Produces: working `build` and `test` tasks from repo root
 
-- [ ] **Step 1: Update Taskfile**
+- [x] **Step 1: Update Taskfile**
 
 Replace `MAIN_PKG` and add `test-cli` task:
 
@@ -1412,7 +1414,7 @@ Add:
       - cd aiskillgrid-cli && go test ./...
 ```
 
-- [ ] **Step 2: Verify build works**
+- [x] **Step 2: Verify build works**
 
 Run: `task build`
 Expected: Creates `bin/aiskillgrid-cli`
@@ -1420,7 +1422,7 @@ Expected: Creates `bin/aiskillgrid-cli`
 Run: `task test-cli`
 Expected: All tests pass
 
-- [ ] **Step 3: Write README**
+- [x] **Step 3: Write README**
 
 Create `aiskillgrid-cli/README.md`:
 
@@ -1451,7 +1453,7 @@ aiskillgrid-cli sync-repo --sync-repo /extra/path
 Validation logs are written to `~/.aiskillgrid/logs/install.log`.
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add Taskfile.yml aiskillgrid-cli/README.md
@@ -1476,8 +1478,18 @@ git commit -m "chore: update Taskfile and add CLI README"
 - Integration smoke test -> Task 10
 - Engram prebuilt binary install -> Task 3
 
-Gaps: Node validation, npm installs, plugin/skill install, bubbletea TUI. Deferred to Plan 2.
+Gaps: only the bubbletea TUI for per-agent MCP tool selection is deferred (agent selection is prompt-based; all `mcp.yaml` servers are merged by default). Node validation, npm installs, plugin install and skill install from `config.d/` are implemented.
 
 **2. Placeholder scan:** No TBD/TODO placeholders remain. All code blocks are concrete.
 
 **3. Type consistency:** `config.McpServer`, `config.MergeMCP`, `config.Plan`, `mcp.LoadRegistry`, `engram.InstallBinary` are consistent across tasks.
+
+## Implementation Delta (completed 2026-08-25)
+
+Deviations from the plan that landed in the working tree (all tasks above are committed on top):
+
+- **Merge engine (Task 5):** substring replacement replaced with `tidwall/gjson`+`sjson` JSONC-aware merge; entries emitted in the documented lowercase shape (`type`, `url`/`command`, `enabled`) per Kilo/OpenCode MCP docs — plan's `formatServer` (capitalized struct keys) produced invalid configs.
+- **PATH writer (Task 7):** npm binaries path corrected to `~/.aiskillgrid/node_modules/.bin` (npm `--prefix` layout); exported after `install finished` with a blank line.
+- **New steps not in plan:** `npm install` of `tools.yaml` packages (`cmd/npm.go`), real repo `Sync`/`Clone` into `~/.aiskillgrid/repos/` + `config.d` (`internal/repo/`), config backup before every edit (`~/.aiskillgrid/backups/`, keep 10), rules copy + `instructions` reference in both agent configs, and the `-verbose`/`-yes` flags.
+- **Doc-steps added (docs/00-aiskillgrid-cli.md parity):** node check/install via `scripts/install_node.sh` (`ensureNode`), interactive agent selector (`selectAgents`, default all, `-yes` skips), superpowers plugin install per agent + `plugin` key registration + `engram setup opencode` + `engram.ts` copy to kilo (`installPlugins`), and skill install from `config.d/skills.yaml` (`LoadSkillsYAML` + `installSkills`, per-entry `repo`/`skill`/`agent`).
+- **CLI (Task 8):** flags now parsed per-subcommand (`install <flags>` and `<flags> install` both work); `help` subcommand added; binary named `aiskillgrid`.
