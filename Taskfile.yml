@@ -3,7 +3,7 @@ version: '3'
 vars:
   APP_NAME: aiskillgrid-cli
   BUILD_DIR: bin
-  MAIN_PKG: ./cmd/install
+  MAIN_PKG: ./cmd
   VERSION: "1.0.0"
 
 tasks:
@@ -15,31 +15,31 @@ tasks:
     desc: Build the application for current platform
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - go build -ldflags="-s -w" -o {{.BUILD_DIR}}/{{.APP_NAME}} {{.MAIN_PKG}}
+      - cd aiskillgrid-cli && go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}} {{.MAIN_PKG}}
   
   build-darwin-amd64:
     desc: Build for macOS Intel (amd64)
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/{{.APP_NAME}}-darwin-amd64 {{.MAIN_PKG}}
+      - cd aiskillgrid-cli && GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-darwin-amd64 {{.MAIN_PKG}}
   
   build-darwin-arm64:
     desc: Build for macOS Apple Silicon (arm64)
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/{{.APP_NAME}}-darwin-arm64 {{.MAIN_PKG}}
+      - cd aiskillgrid-cli && GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-darwin-arm64 {{.MAIN_PKG}}
   
   build-linux-amd64:
     desc: Build for Linux Intel (amd64)
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/{{.APP_NAME}}-linux-amd64 {{.MAIN_PKG}}
+      - cd aiskillgrid-cli && GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-linux-amd64 {{.MAIN_PKG}}
   
   build-linux-arm64:
     desc: Build for Linux ARM (arm64)
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/{{.APP_NAME}}-linux-arm64 {{.MAIN_PKG}}
+      - cd aiskillgrid-cli && GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o ../{{.BUILD_DIR}}/{{.APP_NAME}}-linux-arm64 {{.MAIN_PKG}}
   
   build-all:
     desc: Build for all target platforms
@@ -68,7 +68,7 @@ tasks:
     desc: Build and install CLI binary to ~/go/bin
     cmds:
       - mkdir -p ~/go/bin
-      - go install {{.MAIN_PKG}}
+      - cd aiskillgrid-cli && go install {{.MAIN_PKG}}
   
   clean:
     desc: Clean build artifacts
@@ -79,6 +79,11 @@ tasks:
     desc: Run Go tests
     cmds:
       - go test ./...
+
+  test-cli:
+    desc: Run CLI tests only
+    cmds:
+      - cd aiskillgrid-cli && go test ./...
   
   mod-tidy:
     desc: Clean up go modules
