@@ -1,96 +1,53 @@
 # aiskillgrid cli
 
-It is a go based single binari to install and configire the ai agents with preselected tools.
+A single Go binary that installs and configures your AI agents in one command, from one place: a checked-in `config.d/` where the tools, MCP servers, and rules live as plain YAML.
 
-## Install subcommand
+The point is simple: your agent setup should not live in your head, in shell history, or in a second blog post per IDE. It should be a config, a repo, and one binary that makes your machine match that config.
 
-1) Clone this git repo at home
+## Why This Exists
+
+Most AI agent setups accumulate by accident: one MCP server added for a demo, one skill copied from a tutorial, an `AGENTS.md` that drifted out of sync because nobody re-ran the install. When you open a new laptop — or a new agent — you rebuild the whole thing by hand and it never quite matches the old one.
+
+aiskillgrid solves that by making the whole setup reproducible:
+
+- `config.d/tools.yaml` defines which agent CLIs and tools get installed.
+- `config.d/mcp.yaml` defines which MCP servers merge into each agent's config.
+- `config.d/skills.yaml` defines which skills get added.
+- `config.d/AGENTS.md` defines the rules every agent runs under.
+
+One binary reads those files, does the work, backs up what it touches, and prints the PATH lines you still need. Re-run it any time to reconcile the difference.
+
+## What You Get
+
+- A reproducible agent environment across supported agents (Kilo, OpenCode today; more via `config.d`).
+- JSON-aware config merge that preserves your existing keys and comments — no hand-editing `kilo.jsonc`.
+- Automatic backups of every agent config before it is modified, pruned to the last 10.
+- A dry-run mode that shows exactly what would change without touching anything.
+- Config-as-source-of-truth: changing what gets installed means editing a YAML file, not the code.
+
+## Quick Start
 
 ```bash
-mkdir ~/.aiskillgrid
-cd ~/.aiskillgrid
-mkdir ~/.aiskillgrid/repos
-git clone -b release/2 https://github.com/devopstales/aiskillgrid.git repos/
-cp -r repos/aiskillgrid/config.d .
+# build
+task build
+
+# install into this machine (clone mode)
+./bin/aiskillgrid install
+
+# or point it at a local checkout of this repo (dev loop)
+./bin/aiskillgrid install --sync-repo /path/to/aiskillgrid-v2
+
+# preview instead of apply
+./bin/aiskillgrid install --dry-run
 ```
 
-2) check and install node
+## Documentation Map
 
-```bash
-based on scripts/install_node.sh
-```
-
-3) install engram binary into `~/.aiskillgrid/bin`
-
-```bash
-ENGram_VERSION=$(curl -s https://api.github.com/repos/Gentleman-Programming/engram/releases/latest | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m)
-case "$OS-$ARCH" in
-  darwin-arm64) PLATFORM="darwin_arm64" ;;
-  darwin-x86_64) PLATFORM="darwin_amd64" ;;
-  linux-arm64) PLATFORM="linux_arm64" ;;
-  linux-x86_64) PLATFORM="linux_amd64" ;;
-esac
-curl -L "https://github.com/Gentleman-Programming/engram/releases/download/v${ENGram_VERSION}/engram_${ENGram_VERSION}_${PLATFORM}.tar.gz" -o /tmp/engram.tar.gz
-tar -xzf /tmp/engram.tar.gz -C ~/.aiskillgrid/bin
-chmod +x ~/.aiskillgrid/bin/engram
-```
-
-4) Install selected agents and tools into to `~/.aiskillgrid` based on `~/.aiskillgrid/config.d/tools.yaml`
-
-```bash
-npm install @kilocode/cli --prefix "$HOME/.aiskillgrid"
-npm install opencode-ai --prefix "$HOME/.aiskillgrid"
-
-npm install vercel-labs/skills --prefix "$HOME/.aiskillgrid"
-npm install @playwright/cli@latest --prefix "$HOME/.aiskillgrid"
-npm install @playwright/mcp@latest --prefix "$HOME/.aiskillgrid"
-npm install agent-browser --prefix "$HOME/.aiskillgrid"
-```
-
-4) install plugins
-
-```bash
-npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/kilo"
-
-npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/opencode"
-
-nano ~/.config/kilo/kilo.jsonc
-{
-  "plugin": ["~/.config/kilo/node_modules/superpowers"]
-}
-nano ~/.config/opencode/opencode.json
-{
-  "plugin": ["~/.config/opencode/node_modules/superpowers"]
-}
-```
-
-```bash
-engram setup opencode
-
-cp .config/opencode/plugins/engram.ts .config/kilo/plugins/engram.ts
-
-
-
-5) install skills based on config file `~/.aiskillgrid/config.d/skills.yaml`
-
-```bash
-npx skills add obra/superpowers --agent amp -g -s '*' -y
-```
-
-6) install mcp based on config file `~/.aiskillgrid/config.d/mcp.yaml`
-
-7) install rules: Copy `~/.aiskillgrid/config.d/AGENTS.md` to `~/.agents/AGENTS.md` and add it to the configs:
-
-* `~/.config/kilo/kilo.jsonc`
-* `~/.config/opencode/opencode.json`
-
-
-8) print paths that the user shoud add to $PATH variable
-
-### Optional selectorts
-
-* `--skip-clone` - do not git clone repo
-* `--sync-repo` - add path that will be synced into  `~/.aiskillgrid/repos/aiskillgrid`
-* `--verbose` - verbose logging on screan
+| Doc | Topic |
+|-----|-------|
+| [01-installation](01-installation.md) | Requirements, build, install flow step by step |
+| [02-usage](02-usage.md) | Day-to-day usage: flags, dry-run, sync-repo, PATH |
+| [03-config-reference](03-config-reference.md) | Every file in `config.d/` and its schema |
+| [04-mcp-servers](04-mcp-servers.md) | MCP registry, merge semantics, backups |
+| [05-skills-and-plugins](05-skills-and-plugins.md) | Skills and the superpowers/engram plugins |
+| [06-rules](06-rules.md) | Where `AGENTS.md` comes from and how it lands in agents |
