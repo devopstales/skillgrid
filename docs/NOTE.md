@@ -57,3 +57,12 @@ Copy `~/.aiskillgrid/config.d/AGENTS.md` to `~/.agents/AGENTS.md` and add it to 
 
 * `~/.config/kilo/kilo.jsonc`
 * `~/.config/opencode/opencode.json`
+* `https://github.com/obra/superpowers/blob/main/CLAUDE.md`
+* `https://github.com/multica-ai/andrej-karpathy-skills/blob/main/CLAUDE.md`
+
+## Installers
+
+* bash script
+  * use prebuilt binary
+* brew
+* nix flake
