@@ -16,13 +16,22 @@ import (
 	"time"
 )
 
-func runInstall(skipClone bool, syncRepo string, dryRun bool, verbose bool) {
+func runInstall(skipClone bool, syncRepo string, dryRun bool, verbose bool, nonInteractive bool) {
 	baseDir := mustExpandHomePath("~/.aiskillgrid")
 	if err := logging.Init(baseDir); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to init logging: %v\n", err)
 		return
 	}
 	logging.Info("install started")
+
+	allAgents := []string{"kilo", "opencode"}
+
+	// Step 0: interactive agent selector (first, before any setup)
+	agents := allAgents
+	if !dryRun && !nonInteractive {
+		agents = selectAgents(allAgents)
+	}
+	logging.Info("agents selected: " + strings.Join(agents, ", "))
 
 	switch {
 	case syncRepo != "":
@@ -41,14 +50,17 @@ func runInstall(skipClone bool, syncRepo string, dryRun bool, verbose bool) {
 		logging.Info("skipping repo step (-skip-clone)")
 	}
 
+	// Step 2: check and install node
+	if err := ensureNode(baseDir); err != nil {
+		logging.Warn("node check: " + err.Error())
+	}
+
+	// Step 3: engram binary
 	if err := engram.InstallBinary(baseDir); err != nil {
 		logging.Warn("engram install failed: " + err.Error())
 	}
 
-	if err := installNPM(baseDir); err != nil {
-		logging.Warn("npm install failed: " + err.Error())
-	}
-
+	// Step 4: install selected agents and tools from tools.yaml
 	tools, err := config.LoadToolsYAML(filepath.Join(baseDir, "config.d", "tools.yaml"))
 	if err != nil {
 		logging.Error("load tools config failed: " + err.Error())
@@ -58,15 +70,22 @@ func runInstall(skipClone bool, syncRepo string, dryRun bool, verbose bool) {
 		for _, p := range append(tools.Agents, tools.Tools...) {
 			logging.Info("[dry-run] npm install " + p)
 		}
+	} else if err := installNPM(baseDir); err != nil {
+		logging.Warn("npm install failed: " + err.Error())
 	}
 
+	// Step 5: install plugins
+	installPlugins(baseDir, agents, dryRun)
+
+	// Step 6: install skills from skills.yaml
+	installSkills(baseDir, dryRun)
+
+	// Step 7: install mcp from mcp.yaml
 	mcpServers, err := mcp.LoadRegistry(filepath.Join(baseDir, "config.d"))
 	if err != nil {
 		logging.Error("load mcp config failed: " + err.Error())
 		return
 	}
-
-	agents := []string{"kilo", "opencode"}
 	for _, agent := range agents {
 		configPath := agentConfigPath(agent)
 		if _, err := os.Stat(configPath); err != nil {
@@ -90,7 +109,8 @@ func runInstall(skipClone bool, syncRepo string, dryRun bool, verbose bool) {
 		}
 	}
 
-	copyRules(baseDir, dryRun)
+	// Step 8: install rules
+	copyRules(baseDir, agents, dryRun)
 
 	logging.Info("install finished")
 	fmt.Fprintln(os.Stdout)
@@ -157,7 +177,7 @@ func pruneBackups(dir, baseName string) {
 	}
 }
 
-func copyRules(baseDir string, dryRun bool) {
+func copyRules(baseDir string, agents []string, dryRun bool) {
 	src := filepath.Join(mustExpandHomePath("~/.aiskillgrid"), "config.d", "AGENTS.md")
 	dstDir := filepath.Join(mustExpandHomePath("~"), ".agents")
 	dst := filepath.Join(dstDir, "AGENTS.md")
@@ -175,7 +195,7 @@ func copyRules(baseDir string, dryRun bool) {
 		return
 	}
 	logging.Info("rules copied to " + dst)
-	for _, agent := range []string{"kilo", "opencode"} {
+	for _, agent := range agents {
 		cfgPath := agentConfigPath(agent)
 		if cfgPath == "" {
 			continue

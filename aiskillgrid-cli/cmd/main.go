@@ -8,7 +8,7 @@ import (
 )
 
 func printUsage() {
-	fmt.Fprintln(os.Stdout, "AI Skill Grid Installer\n\nUsage:\n  aiskillgrid <command> [flags]\n\nCommands:\n  install, in   Run full install\n  sync-repo     Sync repo contents without full install\n  help          Show this help\n\nFlags (install):\n  -skip-clone        skip git clone step\n  -sync-repo path    sync a repo path into ~/.aiskillgrid/repos/aiskillgrid\n  -dry-run           print planned changes without writing\n  -verbose           print detailed changes (MCP entries etc.)")
+	fmt.Fprintln(os.Stdout, "AI Skill Grid Installer\n\nUsage:\n  aiskillgrid <command> [flags]\n\nCommands:\n  install, in   Run full install\n  sync-repo     Sync repo contents without full install\n  help          Show this help\n\nFlags (install):\n  -skip-clone        skip git clone step\n  -sync-repo path    sync a repo path into ~/.aiskillgrid/repos/aiskillgrid\n  -dry-run           print planned changes without writing\n  -verbose           print detailed changes (MCP entries etc.)\n  -yes               skip interactive prompts (default agent selection)")
 }
 
 func wantHelp(argv []string) bool {
@@ -29,17 +29,18 @@ func splitCommand(args []string) (string, []string) {
 	return "", args
 }
 
-func parseInstallArgs(rest []string) (bool, string, bool, bool, error) {
+func parseInstallArgs(rest []string) (bool, string, bool, bool, bool, error) {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	skip := fs.Bool("skip-clone", false, "skip git clone step")
 	sync := fs.String("sync-repo", "", "sync repo path into ~/.aiskillgrid/repos/aiskillgrid")
 	dry := fs.Bool("dry-run", false, "print planned changes without writing")
 	verbose := fs.Bool("verbose", false, "print detailed changes")
+	yes := fs.Bool("yes", false, "skip interactive prompts (default agent selection)")
 	if err := fs.Parse(rest); err != nil {
-		return false, "", false, false, err
+		return false, "", false, false, false, err
 	}
-	return *skip, *sync, *dry, *verbose, nil
+	return *skip, *sync, *dry, *verbose, *yes, nil
 }
 
 func Run() int {
@@ -57,12 +58,12 @@ func Run() int {
 
 	switch cmd {
 	case "install", "in":
-		skip, sync, dry, verbose, err := parseInstallArgs(rest)
+		skip, sync, dry, verbose, yes, err := parseInstallArgs(rest)
 		if err != nil {
 			printUsage()
 			return 1
 		}
-		runInstall(skip, sync, dry, verbose)
+		runInstall(skip, sync, dry, verbose, yes)
 	case "sync-repo":
 		fs := flag.NewFlagSet("sync-repo", flag.ContinueOnError)
 		fs.SetOutput(io.Discard)
