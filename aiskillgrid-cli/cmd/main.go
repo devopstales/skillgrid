@@ -3,35 +3,87 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 )
 
-var (
-	skipClone = flag.Bool("skip-clone", false, "skip git clone step")
-	syncRepo  = flag.String("sync-repo", "", "sync extra paths into ~/.aiskillgrid/repos/aiskillgrid")
-	dryRun    = flag.Bool("dry-run", false, "print planned changes without writing")
-)
+func printUsage() {
+	fmt.Fprintln(os.Stdout, "AI Skill Grid Installer\n\nUsage:\n  aiskillgrid <command> [flags]\n\nCommands:\n  install, in   Run full install\n  sync-repo     Sync repo contents without full install\n  help          Show this help\n\nFlags (install):\n  -skip-clone        skip git clone step\n  -sync-repo path    sync a repo path into ~/.aiskillgrid/repos/aiskillgrid\n  -dry-run           print planned changes without writing\n  -verbose           print detailed changes (MCP entries etc.)")
+}
+
+func wantHelp(argv []string) bool {
+	for _, a := range argv {
+		if a == "-h" || a == "--help" || a == "-help" || a == "help" {
+			return true
+		}
+	}
+	return false
+}
+
+func splitCommand(args []string) (string, []string) {
+	for i, a := range args {
+		if len(a) > 0 && a[0] != '-' {
+			return a, args[i+1:]
+		}
+	}
+	return "", args
+}
+
+func parseInstallArgs(rest []string) (bool, string, bool, bool, error) {
+	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	skip := fs.Bool("skip-clone", false, "skip git clone step")
+	sync := fs.String("sync-repo", "", "sync repo path into ~/.aiskillgrid/repos/aiskillgrid")
+	dry := fs.Bool("dry-run", false, "print planned changes without writing")
+	verbose := fs.Bool("verbose", false, "print detailed changes")
+	if err := fs.Parse(rest); err != nil {
+		return false, "", false, false, err
+	}
+	return *skip, *sync, *dry, *verbose, nil
+}
 
 func Run() int {
-	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "AI Skill Grid Installer\n\nUsage:\n  aiskillgrid-cli <command> [flags]\n\nCommands:\n  install, in   Run full install\n  sync-repo     Sync repo contents without full install\n\nFlags:\n")
-		flag.PrintDefaults()
+	args := os.Args[1:]
+	if wantHelp(args) {
+		printUsage()
+		return 0
 	}
-	flag.Parse()
 
-	args := flag.Args()
-	if len(args) == 0 {
-		flag.Usage()
+	cmd, rest := splitCommand(args)
+	if cmd == "" {
+		printUsage()
 		return 1
 	}
 
-	switch args[0] {
+	switch cmd {
 	case "install", "in":
-		runInstall(*skipClone, *syncRepo, *dryRun)
+		skip, sync, dry, verbose, err := parseInstallArgs(rest)
+		if err != nil {
+			printUsage()
+			return 1
+		}
+		runInstall(skip, sync, dry, verbose)
 	case "sync-repo":
-		runSyncRepo(*syncRepo)
+		fs := flag.NewFlagSet("sync-repo", flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+		sync := fs.String("sync-repo", "", "path to sync into ~/.aiskillgrid/repos/aiskillgrid")
+		if err := fs.Parse(rest); err != nil {
+			printUsage()
+			return 1
+		}
+		path := *sync
+		if path == "" && fs.NArg() > 0 {
+			path = fs.Arg(0)
+		}
+		if path == "" {
+			printUsage()
+			return 1
+		}
+		runSyncRepo(path)
+	case "help":
+		printUsage()
 	default:
-		flag.Usage()
+		printUsage()
 		return 1
 	}
 	return 0

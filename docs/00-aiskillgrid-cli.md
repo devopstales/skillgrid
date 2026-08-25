@@ -66,18 +66,31 @@ nano ~/.config/opencode/opencode.json
 }
 ```
 
+```bash
+engram setup opencode
+
+cp .config/opencode/plugins/engram.ts .config/kilo/plugins/engram.ts
+
+
+
 5) install skills based on config file `~/.aiskillgrid/config.d/skills.yaml`
 
 ```bash
 npx skills add obra/superpowers --agent amp -g -s '*' -y
 ```
 
-7) install mcp based on config file `~/.aiskillgrid/config.d/mcp.yaml`
+6) install mcp based on config file `~/.aiskillgrid/config.d/mcp.yaml`
+
+7) install rules: Copy `~/.aiskillgrid/config.d/AGENTS.md` to `~/.agents/AGENTS.md` and add it to the configs:
+
+* `~/.config/kilo/kilo.jsonc`
+* `~/.config/opencode/opencode.json`
 
 
-7) print paths that the user shoud add to $PATH variable
+8) print paths that the user shoud add to $PATH variable
 
 ### Optional selectorts
 
 * `--skip-clone` - do not git clone repo
 * `--sync-repo` - add path that will be synced into  `~/.aiskillgrid/repos/aiskillgrid`
+* `--verbose` - verbose logging on screan

@@ -23,7 +23,7 @@ func TestWritePathInstructions(t *testing.T) {
 	if !strings.Contains(out, `export PATH="$HOME/.aiskillgrid/bin:$PATH"`) {
 		t.Fatalf("missing bin path export:\n%s", out)
 	}
-	if !strings.Contains(out, `export PATH="$HOME/.aiskillgrid/npm/.bin:$PATH"`) {
+	if !strings.Contains(out, `export PATH="$HOME/.aiskillgrid/node_modules/.bin:$PATH"`) {
 		t.Fatalf("missing npm path export:\n%s", out)
 	}
 }

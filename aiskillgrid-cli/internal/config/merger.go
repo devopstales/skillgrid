@@ -1,11 +1,12 @@
 package config
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
+
+	jsonc "github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type ChangeAction string
@@ -32,50 +33,61 @@ func MergeMCP(configPath string, servers map[string]*McpServer, dryRun bool) (*P
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-
 	plan := &Plan{}
+	updated := string(data)
+	existing := jsonc.Get(updated, "mcp").Map()
+
+	for name, srv := range servers {
+		entry := buildServerEntry(srv)
+
+		path := "mcp." + name
+		exists := jsonc.Get(updated, path).Exists()
+		updated, err = sjson.Set(updated, path, entry)
+		if err != nil {
+			return nil, fmt.Errorf("set %s: %w", name, err)
+		}
+		act := ActionAdd
+		if exists {
+			act = ActionUpdate
+		}
+		b, merr := json.Marshal(entry)
+		if merr != nil {
+			return nil, fmt.Errorf("marshal %s: %w", name, merr)
+		}
+		plan.Changes = append(plan.Changes, Change{Path: configPath, Action: act, Key: name, Value: string(b)})
+
+		if ex, ok := existing[name]; ok && ex.Exists() && jsonc.Get(ex.Raw, "type").String() != entry["type"] {
+			renamed := fmt.Sprintf("%s-%s", name, jsonc.Get(ex.Raw, "type").String())
+			renamedPath := "mcp." + renamed
+			if !jsonc.Get(updated, renamedPath).Exists() {
+				updated, err = sjson.SetRaw(updated, renamedPath, ex.Raw)
+				if err != nil {
+					return nil, fmt.Errorf("rename %s: %w", name, err)
+				}
+			}
+			plan.Changes = append(plan.Changes, Change{Path: configPath, Action: ActionUpdate, Key: renamed, Value: ex.Raw})
+		}
+	}
 
 	if dryRun {
-		for name := range servers {
-			if bytes.Contains(data, []byte(`"`+name+`"`)) {
-				plan.Changes = append(plan.Changes, Change{
-					Path: configPath, Action: ActionUpdate, Key: name,
-					Value: formatServer(name, servers[name]),
-				})
-			} else {
-				plan.Changes = append(plan.Changes, Change{
-					Path: configPath, Action: ActionAdd, Key: name,
-					Value: formatServer(name, servers[name]),
-				})
-			}
-		}
 		return plan, nil
 	}
-
-	updated := string(data)
-	for name, srv := range servers {
-		entry := formatServer(name, srv)
-		if idx := bytes.Index(data, []byte(`"`+name+`"`)); idx >= 0 {
-			start := bytes.LastIndex(data[:idx], []byte("{"))
-			end := bytes.Index(data[idx:], []byte("}"))
-			if start >= 0 && end >= 0 {
-				oldBlock := data[start : idx+end+1]
-				updated = strings.Replace(updated, string(oldBlock), entry, 1)
-				plan.Changes = append(plan.Changes, Change{Path: configPath, Action: ActionUpdate, Key: name, Value: entry})
-				continue
-			}
-		}
-		updated = strings.Replace(updated, `"mcp": {`, `"mcp": {\n    `+entry+",", 1)
-		plan.Changes = append(plan.Changes, Change{Path: configPath, Action: ActionAdd, Key: name, Value: entry})
-	}
-
 	if err := os.WriteFile(configPath, []byte(updated), 0644); err != nil {
 		return nil, fmt.Errorf("write config: %w", err)
 	}
 	return plan, nil
 }
 
-func formatServer(name string, srv *McpServer) string {
-	b, _ := json.MarshalIndent(srv, "    ", "  ")
-	return `"` + name + `": ` + string(b)
+func buildServerEntry(srv *McpServer) map[string]interface{} {
+	entry := map[string]interface{}{"type": srv.Type, "enabled": true}
+	if srv.Type == "remote" {
+		entry["url"] = srv.URL
+	} else if len(srv.Command) > 0 {
+		cmds := make([]interface{}, len(srv.Command))
+		for i, c := range srv.Command {
+			cmds[i] = c
+		}
+		entry["command"] = cmds
+	}
+	return entry
 }

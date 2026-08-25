@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -8,9 +9,9 @@ import (
 )
 
 var (
-	once   sync.Once
+	once    sync.Once
 	logPath string
-	mu     sync.Mutex
+	mu      sync.Mutex
 )
 
 func ResetForTest() {
@@ -21,10 +22,8 @@ func Init(baseDir string) error {
 	var err error
 	once.Do(func() {
 		logPath = filepath.Join(baseDir, "logs", "install.log")
-		if err != nil {
-			return
-		}
-		if mkErr := os.MkdirAll(filepath.Dir(logPath), 0755); mkErr != nil {
+		mkErr := os.MkdirAll(filepath.Dir(logPath), 0755)
+		if mkErr != nil {
 			err = mkErr
 			return
 		}
@@ -43,15 +42,20 @@ func Path() string {
 }
 
 func write(level, msg string) {
+	if level == "ERROR" {
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", msg)
+	} else {
+		fmt.Fprintln(os.Stdout, msg)
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
+	if logPath == "" {
 		return
 	}
-	defer f.Close()
-	line := time.Now().Format(time.RFC3339) + " [" + level + "] " + msg + "\n"
-	f.WriteString(line)
+	if fp, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+		defer fp.Close()
+		fp.WriteString(time.Now().Format(time.RFC3339) + " [" + level + "] " + msg + "\n")
+	}
 }
 
 func Info(msg string)  { write("INFO", msg) }

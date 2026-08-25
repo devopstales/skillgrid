@@ -1,0 +1,10 @@
+# Installed via: npx skills add <repo> --agent amp -g -s '<skill>' -y
+skills:
+  - repo: obra/superpowers
+    skill: "*"
+  - repo: gentleman-programming/engram
+    skill: engram-memory
+  - repo: gentleman-programming/engram
+    skill: engram-memory-protocol
+  - repo: gentleman-programming/engram
+    skill: engram-testing-coverage

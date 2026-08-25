@@ -11,7 +11,7 @@ import (
 
 func WritePathInstructions(baseDir string, writer io.Writer) error {
 	bin := filepath.Join(baseDir, "bin")
-	npmBin := filepath.Join(baseDir, "npm", ".bin")
+	npmBin := filepath.Join(baseDir, "node_modules", ".bin")
 	if home, err := os.UserHomeDir(); err == nil {
 		bin = strings.Replace(bin, home, "$HOME", 1)
 		npmBin = strings.Replace(npmBin, home, "$HOME", 1)

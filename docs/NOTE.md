@@ -6,8 +6,8 @@
 * [ ] kilo
   * `~/.kiro/settings/mcp.json`
   * `~/.config/kilo/kilo.jsonc`
-  * `~/.config/kilo/opencode.json`
 * [ ] opencode
+  * `~/.config/opencode/opencode.json`
 * cursor
 * claud
 * codex
@@ -41,7 +41,10 @@ npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$H
 ## Skills
 
 ```
-npx skills add obra/superpowers --agent amp -g -s '*' -y
+skills add obra/superpowers --agent amp -g -s '*' -y
+skills add gentleman-programming/engram --agent amp -g -s 'engram-memory' -y
+skills add gentleman-programming/engram --agent amp -g -s 'engram-memory-protocol' -y
+skills add gentleman-programming/engram --agent amp -g -s 'engram-testing-coverag' -y
 ```
 
 * SDD - Spec-Driven Development
@@ -49,3 +52,8 @@ npx skills add obra/superpowers --agent amp -g -s '*' -y
 * DDD - [Behaviour-Driven Development](https://cucumber.io/docs/bdd)
 
 ## Rules
+
+Copy `~/.aiskillgrid/config.d/AGENTS.md` to `~/.agents/AGENTS.md` and add it to the configs:
+
+* `~/.config/kilo/kilo.jsonc`
+* `~/.config/opencode/opencode.json`
