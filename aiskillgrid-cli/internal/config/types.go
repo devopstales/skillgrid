@@ -5,6 +5,13 @@ import (
 	"os"
 )
 
+type McpServer struct {
+	Type    string   `yaml:"type"`
+	URL     string   `yaml:"url,omitempty"`
+	Command []string `yaml:"command,omitempty"`
+	Enabled bool     `yaml:"enabled,omitempty"`
+}
+
 type ToolsConfig struct {
 	Agents []string `yaml:"agents"`
 	Tools  []string `yaml:"tools"`
