@@ -11,3 +11,4 @@ tools:
   - "@playwright/cli@latest"
   - "@cucumber/cucumber"
   - "vercel-labs/agent-browser"
+  - "@safedep/gryph"
