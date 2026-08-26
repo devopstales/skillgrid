@@ -10,7 +10,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	mcplib "github.com/mark3labs/mcp-go/mcp"
+
 	mnemonighttp "skillgrid-cli/internal/mnemonic/http"
+	"skillgrid-cli/internal/mnemonic/memory"
+	mnemcp "skillgrid-cli/internal/mnemonic/mcp"
 	"skillgrid-cli/internal/mnemonic/service"
 )
 
@@ -161,16 +165,65 @@ func TestHTTPBearerAuthOnWriteRoutes(t *testing.T) {
 
 func TestMCPAndHTTPObservationParity(t *testing.T) {
 	// Verify MCP mem_save and HTTP POST /observations produce identical DB rows.
-	repoDir := t.TempDir()
 	dataDir := t.TempDir()
 	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
 
-	if err := os.MkdirAll(filepath.Join(repoDir, ".git"), 0o755); err != nil {
+	mcpRepo := t.TempDir()
+	httpRepo := t.TempDir()
+	for _, dir := range []string{mcpRepo, httpRepo} {
+		if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	const (
+		title    = "Parity test observation"
+		content  = "Same content for parity check"
+		typ      = "decision"
+		scope    = "personal"
+		topicKey = "decision/parity-test"
+	)
+
+	svc := service.New(dataDir)
+
+	mcpSessionID, mcpProjectID, err := svc.SessionStart(t.Context(), mcpRepo)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	svc := service.New(dataDir)
-	sessionID, projectID, err := svc.SessionStart(t.Context(), repoDir)
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	if err := os.Chdir(mcpRepo); err != nil {
+		t.Fatal(err)
+	}
+
+	mcpRes, err := mnemcp.InvokeMemSave(t.Context(), mcplib.CallToolRequest{
+		Params: mcplib.CallToolParams{
+			Name: "mem_save",
+			Arguments: map[string]any{
+				"title":      title,
+				"type":       typ,
+				"content":    content,
+				"session_id": mcpSessionID,
+				"scope":      scope,
+				"topic_key":  topicKey,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpID := parseToolResultID(t, mcpRes)
+
+	mcpObs, err := svc.GetObservation(t.Context(), mcpProjectID, mcpID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	httpSessionID, httpProjectID, err := svc.SessionStart(t.Context(), httpRepo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,16 +232,14 @@ func TestMCPAndHTTPObservationParity(t *testing.T) {
 	ts := httptest.NewServer(httpServer.Handler())
 	t.Cleanup(ts.Close)
 
-	const title = "Parity test observation"
-	const content = "Same content for parity check"
-	const typ = "decision"
-
 	httpBody, _ := json.Marshal(map[string]string{
-		"session_id": sessionID,
+		"session_id": httpSessionID,
 		"type":       typ,
 		"title":      title,
 		"content":    content,
-		"project":    projectID,
+		"project":    httpProjectID,
+		"scope":      scope,
+		"topic_key":  topicKey,
 	})
 	httpRes, err := http.Post(ts.URL+"/observations", "application/json", bytes.NewReader(httpBody))
 	if err != nil {
@@ -200,24 +251,70 @@ func TestMCPAndHTTPObservationParity(t *testing.T) {
 		t.Fatalf("HTTP save failed: %d %s", httpRes.StatusCode, body)
 	}
 
-	var httpPayload struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.NewDecoder(httpRes.Body).Decode(&httpPayload); err != nil {
-		t.Fatal(err)
-	}
+	httpID := parseJSONID(t, httpRes.Body)
 
-	hits, err := svc.SearchObservations(t.Context(), projectID, "Parity", "any", 20)
+	httpObs, err := svc.GetObservation(t.Context(), httpProjectID, httpID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hits) != 1 {
-		t.Fatalf("expected 1 observation, got %d", len(hits))
+
+	assertObservationParityFields(t, mcpObs, httpObs)
+	if mcpObs.Scope != "user" {
+		t.Fatalf("scope personal→user: mcp scope=%q", mcpObs.Scope)
 	}
-	if hits[0].ID != httpPayload.ID {
-		t.Fatalf("id mismatch: db=%d http=%d", hits[0].ID, httpPayload.ID)
+	if httpObs.Scope != "user" {
+		t.Fatalf("scope personal→user: http scope=%q", httpObs.Scope)
 	}
-	if hits[0].Title != title {
-		t.Fatalf("title=%q", hits[0].Title)
+}
+
+func parseToolResultID(t *testing.T, res *mcplib.CallToolResult) int64 {
+	t.Helper()
+	if res == nil {
+		t.Fatal("nil tool result")
+	}
+	if res.IsError {
+		t.Fatalf("tool error: %+v", res.Content)
+	}
+	if len(res.Content) != 1 {
+		t.Fatalf("expected 1 content block, got %d", len(res.Content))
+	}
+	tc, ok := res.Content[0].(mcplib.TextContent)
+	if !ok {
+		t.Fatalf("expected TextContent, got %T", res.Content[0])
+	}
+	return parseJSONID(t, bytes.NewReader([]byte(tc.Text)))
+}
+
+func parseJSONID(t *testing.T, r io.Reader) int64 {
+	t.Helper()
+	var payload struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(r).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ID == 0 {
+		t.Fatal("expected non-zero id")
+	}
+	return payload.ID
+}
+
+func assertObservationParityFields(t *testing.T, mcpObs, httpObs memory.Observation) {
+	t.Helper()
+	checks := []struct {
+		name    string
+		mcpVal  string
+		httpVal string
+	}{
+		{"normalized_hash", mcpObs.NormalizedHash, httpObs.NormalizedHash},
+		{"scope", mcpObs.Scope, httpObs.Scope},
+		{"title", mcpObs.Title, httpObs.Title},
+		{"content", mcpObs.Content, httpObs.Content},
+		{"topic_key", mcpObs.TopicKey, httpObs.TopicKey},
+	}
+	for _, c := range checks {
+		if c.mcpVal != c.httpVal {
+			t.Fatalf("%s: mcp=%q http=%q", c.name, c.mcpVal, c.httpVal)
+		}
 	}
 }
