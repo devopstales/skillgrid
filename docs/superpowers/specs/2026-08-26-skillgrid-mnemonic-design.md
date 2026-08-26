@@ -1,8 +1,8 @@
-# Skillgrid MemIndex — unified SQLite memory + code search
+# Skillgrid Mnemonic — unified SQLite memory + code search
 
-> **STATUS: DRAFT (2026-08-26)**
+> **STATUS: active (2026-08-26)** — v1 implemented on `feat/skillgrid-mnemonic`; promote to **DECIDED** after merge to `release/2`.
 
-**Plan:** [2026-08-26-skillgrid-memindex.md](../plans/2026-08-26-skillgrid-memindex.md)
+**Plan:** [2026-08-26-skillgrid-mnemonic.md](../plans/2026-08-26-skillgrid-mnemonic.md)
 
 **Related:** [2026-08-26-code-indexing-design.md](2026-08-26-code-indexing-design.md), [2026-08-26-add-mcp-integration-design.md](2026-08-26-add-mcp-integration-design.md), [05-skills.md](../../05-skills.md), [NOTE.md](../../NOTE.md)
 

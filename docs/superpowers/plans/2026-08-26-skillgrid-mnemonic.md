@@ -1,4 +1,4 @@
-# Skillgrid MemIndex — implementation plan
+# Skillgrid Mnemonic — implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,25 @@
 
 **Tech Stack:** Go 1.22+, modernc.org/sqlite, github.com/mark3labs/mcp-go, gopkg.in/yaml.v3 (existing).
 
-**Spec:** [2026-08-26-skillgrid-memindex-design.md](../specs/2026-08-26-skillgrid-memindex-design.md)
+**Spec:** [2026-08-26-skillgrid-mnemonic-design.md](../specs/2026-08-26-skillgrid-mnemonic-design.md)
+
+## Development status
+
+> **Last updated:** 2026-08-26
+
+| Phase | Plan tasks | Status | Git |
+|-------|------------|--------|-----|
+| **v1** | 1–18, 10–16, 12 | **COMPLETE** | branch `feat/skillgrid-mnemonic` @ `254fed5` |
+| v1.1 | 19–22, 24–26 | not started | — |
+| v2 | 23 | not started | — |
+
+**Delivered (v1):** `internal/mnemonic/` — SQLite store, memory + sessions, incremental code index + FTS, web cache, MCP tools (`mem_*`, `code_*`, `web_*`), HTTP `skillgrid serve`, CLI `index` / `web` / `setup`, OpenCode/Kilo plugin + Cursor rule, `config.d/indexing.yaml`, install gating on `profile: mnemonic`.
+
+**Manual verification:** `skillgrid index` (111 files / 304 chunks), Kilo MCP connected, HTTP `/health` ok, `setup kilocode` → `kilo.jsonc` + AGENTS.md.
+
+**Merge:** PR `release/2` ← `feat/skillgrid-mnemonic` — [open compare](https://github.com/devopstales/skillgrid/compare/release/2...feat/skillgrid-mnemonic?expand=1)
+
+**Cutover (post-merge):** set `indexing.profile: mnemonic`; uncomment `skillgrid-mnemonic` in `config.d/mcp.yaml`; demote Engram to opt-in.
 
 ## Global Constraints
 

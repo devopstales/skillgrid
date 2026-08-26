@@ -36,6 +36,7 @@
 
 * [?] [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
 * [X] [Engram](https://github.com/Gentleman-Programming/engram)
+* [~] **Skillgrid Mnemonic** — v1 on `feat/skillgrid-mnemonic` ([spec](superpowers/specs/2026-08-26-skillgrid-mnemonic-design.md)); replaces Engram when `indexing.profile: mnemonic`
 
 ### Spec driven development
 
