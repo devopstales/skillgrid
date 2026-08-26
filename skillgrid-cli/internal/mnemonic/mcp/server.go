@@ -13,5 +13,6 @@ const (
 func Start() error {
 	s := server.NewMCPServer(serverName, serverVersion)
 	registerMemoryTools(s)
+	registerCodeTools(s)
 	return server.ServeStdio(s)
 }
