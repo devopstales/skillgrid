@@ -14,6 +14,7 @@ What ships in `config.d/mcp.yaml` today:
 | `deepwiki` | remote | `https://mcp.deepwiki.com/mcp` |
 | `exa` | remote | `https://mcp.exa.ai/mcp` |
 | `engram` | local | `engram mcp` (binary from step 3) |
+| `skillgrid-mnemonic` | local | `skillgrid mcp` *(commented in default `mcp.yaml`; uncomment to replace `engram` when `profile: mnemonic`)* |
 | `ccc` | local | `ccc mcp` |
 | `gitnexus` | local | `npx -y gitnexus@1.3.11 mcp` |
 | `trivy` | local | `trivy mcp` |

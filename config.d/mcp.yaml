@@ -12,6 +12,11 @@ servers:
     command:
       - engram
       - mcp
+  # skillgrid-mnemonic:
+  #   type: local
+  #   command:
+  #     - skillgrid
+  #     - mcp
   codegraph:
     type: local
     command:

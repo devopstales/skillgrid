@@ -8,6 +8,10 @@ Once built, the CLI is intentionally small: two commands, a handful of flags. Th
 |---------|-------|---------|
 | `install` | `in` | Run the full install flow |
 | `sync-repo` | — | Copy a local checkout into `~/.skillgrid/repos/skillgrid` (plus `config.d`) without running the rest |
+| `index` | — | Incremental code index for the cwd git root (respects `config.d/indexing.yaml`) |
+| `index --status` | — | Print index stats (same as MCP `code_status`) |
+| `mcp` | — | Stdio MCP server (`mem_*`, `code_*`, `web_*` tools) |
+| `serve` | — | HTTP API for OpenCode/Kilo mnemonic plugins |
 | `help` | — | Print usage |
 
 Flags parse the same before or after the command name: `install --dry-run` and `--dry-run install` both work.
@@ -78,6 +82,28 @@ tail -50 ~/.skillgrid/logs/install.log
 - Backups keep the last 10 per file; older ones are pruned.
 - The merge is JSON-aware and idempotent — running install twice does not duplicate keys.
 - The `--dry-run` flag guarantees zero writes (no npm, no config edits, no backups).
+
+## Mnemonic (memory + code index + web cache)
+
+When `config.d/indexing.yaml` sets `profile: mnemonic`, the same `skillgrid` binary exposes MCP tools for session memory, repository text search, and cached web research. Agent rule:
+
+> `mem_*` = decisions/history; `code_*` = repo text search; **`web_*` = cache Context7/Exa/DeepWiki/fetch before re-querying**; GitNexus opt-in for impact graphs.
+
+### Index lifecycle
+
+1. After clone (or when opening a repo for the first time), run `skillgrid index` from the repo root.
+2. Re-run `skillgrid index` when the codebase changes materially or `code_status` reports stale stats.
+3. During chat, agents call `code_status` before grepping large unknown areas; use `code_search` → `code_read` after the index is warm.
+
+```bash
+# first-time or refresh
+skillgrid index
+
+# check stats without re-indexing
+skillgrid index --status
+```
+
+Data lives under `~/.skillgrid/mnemonic/` (override with `SKILLGRID_MNEMONIC_DATA_DIR`). Index settings merge from the nearest `config.d/indexing.yaml` walking up from cwd.
 
 ## Development Workflows (SDD, IDD, BDD, TDD)
 

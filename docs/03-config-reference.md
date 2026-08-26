@@ -10,6 +10,7 @@ Four files matter (the CLI reads three of them):
 | `mcp.yaml` | yes (step 7) | MCP servers to merge into each agent config |
 | `skills.yaml` | yes (step 6) | Skills to add via the local `skills` CLI |
 | `AGENTS.md` | yes (step 8) | Rules file copied to `~/.agents/` and registered in each agent |
+| `indexing.yaml` | yes (mnemonic) | Code index + web cache profile when `profile: mnemonic` |
 
 ## tools.yaml
 
@@ -87,6 +88,51 @@ Per-entry fields:
 - `agent` (defaults to `amp`) — target agent identifier for the `skills` CLI
 
 The CLI invokes `<skills> add <repo> --agent <agent> -g -s <skill> -y` for each entry, using `~/.skillgrid/npm/node_modules/.bin/skills` if present.
+
+## indexing.yaml
+
+Mnemonic profile for built-in SQLite memory, code FTS index, and web research cache. Read by `skillgrid index`, `skillgrid mcp`, and `skillgrid serve` — they walk up from the working directory to find `config.d/indexing.yaml` (same pattern as project resolution).
+
+```yaml
+profile: mnemonic
+mnemonic:
+  include: ["**/*.go", "**/*.ts", "**/*.tsx", "**/*.md"]
+  exclude: ["**/node_modules/**", "**/.git/**", "**/dist/**"]
+  chunk_lines: 80
+  chunk_overlap: 10
+  embeddings: false
+  web_cache:
+    enabled: true
+    max_entry_bytes: 262144
+    ttl:
+      context7: 720h
+      exa: 168h
+      deepwiki: 336h
+      fetch: 168h
+      manual: 0
+    sources: [context7, exa, deepwiki, fetch, manual]
+  http:
+    enabled: true
+    host: 127.0.0.1
+    port: 7438
+    auto_start: plugin
+gitnexus:
+  enabled: false
+```
+
+Fields consumed in v1:
+
+| Field | Purpose |
+|-------|---------|
+| `profile` | `mnemonic` selects the built-in indexer; other profiles fall back to defaults |
+| `mnemonic.include` / `exclude` | Glob patterns for `skillgrid index` |
+| `mnemonic.chunk_lines` / `chunk_overlap` | Line-based chunking for FTS |
+| `mnemonic.web_cache.*` | TTL and size limits for cached Context7/Exa/DeepWiki/fetch snapshots |
+| `gitnexus.enabled` | Opt-in flag for GitNexus impact graphs (not consumed until hybrid profile lands) |
+
+v1.1+ keys (`watch`, `branch_aware`, `search.fusion_strategy`, `plugin.*`, `embeddings`) are documented in the shipped file for forward compatibility; the Go loader ignores them until their tasks land.
+
+When `profile: mnemonic` is active, uncomment `skillgrid-mnemonic` in `mcp.yaml` to replace external `engram mcp` after cutover. See [04-mcp-servers](04-mcp-servers.md).
 
 ## AGENTS.md
 

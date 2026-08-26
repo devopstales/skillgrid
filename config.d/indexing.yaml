@@ -1,0 +1,39 @@
+profile: mnemonic
+mnemonic:
+  include: ["**/*.go", "**/*.ts", "**/*.tsx", "**/*.md"]
+  exclude: ["**/node_modules/**", "**/.git/**", "**/dist/**"]
+  chunk_lines: 80
+  chunk_overlap: 10
+  embeddings: false
+  web_cache:
+    enabled: true
+    max_entry_bytes: 262144
+    ttl:
+      context7: 720h
+      exa: 168h
+      deepwiki: 336h
+      fetch: 168h
+      manual: 0
+    sources: [context7, exa, deepwiki, fetch, manual]
+  http:
+    enabled: true
+    host: 127.0.0.1
+    port: 7438
+    auto_start: plugin
+  # v1.1+ (see Tasks 19–22)
+  watch: false                 # file watcher; debounced re-index
+  branch_aware: true           # branch catalog (Task 21)
+  search:
+    fusion_strategy: rrf       # v2 when embeddings: true (Task 23)
+  plugin:
+    # v1.1 Hermes-style proactive hooks (Task 26)
+    standing_inject: true      # type=standing always in system prompt
+    auto_inject: true          # chat.message → GET /search
+    inject_score_min: 0.4
+    inject_max_per_turn: 2
+    error_prefetch: true       # tool.execute.after bash failure
+    correction_detect: true    # rule-based on chat.message
+    compaction_flush: true     # summarize + save before GET /context
+    idle_review: false         # optional LLM review on session.idle (plugin-only)
+gitnexus:
+  enabled: false
