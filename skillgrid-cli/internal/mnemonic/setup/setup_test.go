@@ -86,6 +86,22 @@ func TestSetupOpenCodeIdempotent(t *testing.T) {
 	}
 }
 
+func TestSetupKiloCodeWithoutOpenCodeBridge(t *testing.T) {
+	home := t.TempDir()
+	repoRoot := testRepoRoot(t)
+
+	if err := SetupKiloCode(home, repoRoot, false); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(home, ".config", "kilo", "plugins", "mnemonic.ts")); err != nil {
+		t.Fatalf("plugin not copied from repo: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "kilo", "shared", "http-client.ts")); err != nil {
+		t.Fatalf("http-client not copied from repo: %v", err)
+	}
+}
+
 func TestSetupKiloCodeIdempotent(t *testing.T) {
 	home, repoRoot := testHomeAndRepo(t)
 
@@ -104,6 +120,19 @@ func TestSetupKiloCodeIdempotent(t *testing.T) {
 	content := string(data)
 	if strings.Count(content, `"skillgrid-mnemonic"`) != 1 {
 		t.Errorf("expected one mcp entry, got %d", strings.Count(content, `"skillgrid-mnemonic"`))
+	}
+
+	plugins := jsonc.Get(content, "plugin").Array()
+	pluginPath := tildePath(home, filepath.Join(home, ".config", "kilo", "plugins", "mnemonic.ts"))
+	foundPlugin := false
+	for _, p := range plugins {
+		if p.String() == pluginPath {
+			foundPlugin = true
+			break
+		}
+	}
+	if !foundPlugin {
+		t.Errorf("plugin path %q not in kilo config", pluginPath)
 	}
 
 	agentsPath := filepath.Join(home, ".config", "kilo", "AGENTS.md")

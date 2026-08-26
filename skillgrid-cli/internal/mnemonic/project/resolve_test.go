@@ -42,7 +42,7 @@ func TestResolveFromGitRemote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "github.com/devopstales/skillgrid"
+	want := "skillgrid"
 	if got != want {
 		t.Fatalf("Resolve() = %q, want %q", got, want)
 	}

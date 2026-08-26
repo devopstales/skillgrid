@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -21,11 +22,22 @@ type Store struct {
 
 // Open opens or creates the SQLite database for projectID under dataDir.
 func Open(dataDir, projectID string) (*Store, error) {
+	if strings.TrimSpace(projectID) == "" {
+		return nil, fmt.Errorf("project id is required")
+	}
+	if strings.Contains(projectID, "..") {
+		return nil, fmt.Errorf("invalid project id %q", projectID)
+	}
+
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
 
+	// Project IDs from git remotes look like host/owner/repo — create nested dirs.
 	dbPath := filepath.Join(dataDir, projectID+".sqlite")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		return nil, fmt.Errorf("create db dir: %w", err)
+	}
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)

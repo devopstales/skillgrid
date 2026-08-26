@@ -13,7 +13,7 @@ import (
 
 // Resolve determines the project ID for cwd using, in order:
 // 1. nearest .skillgrid/config.json "project" field
-// 2. git remote origin URL normalized to host/owner/repo
+// 2. git remote origin repo basename (e.g. skillgrid from github.com/owner/skillgrid)
 // 3. {basename(cwd)}-{sha256(cwd)[:8]}
 func Resolve(cwd string) (string, error) {
 	abs, err := filepath.Abs(cwd)
@@ -99,7 +99,7 @@ func normalizeRemoteURL(raw string) (string, bool) {
 		if host == "" || path == "" {
 			return "", false
 		}
-		return host + "/" + path, true
+		return repoNameFromPath(path), true
 	}
 
 	// Strip scheme and .git suffix for https/ssh/file URLs.
@@ -118,7 +118,17 @@ func normalizeRemoteURL(raw string) (string, bool) {
 	if raw == "" || !strings.Contains(raw, "/") {
 		return "", false
 	}
-	return strings.ToLower(raw), true
+	return repoNameFromPath(raw), true
+}
+
+func repoNameFromPath(path string) string {
+	path = strings.Trim(path, "/")
+	if path == "" {
+		return ""
+	}
+	parts := strings.Split(path, "/")
+	name := parts[len(parts)-1]
+	return normalizeProjectID(name)
 }
 
 func fallbackProjectID(absCWD string) string {

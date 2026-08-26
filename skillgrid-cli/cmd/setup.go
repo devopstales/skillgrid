@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 
 	"skillgrid-cli/internal/mnemonic/setup"
 )
@@ -20,5 +21,24 @@ func runSetup(args []string) error {
 	}
 	agent := fs.Arg(0)
 	repoRoot := setup.FindRepoRoot("")
-	return setup.RunSetup(agent, repoRoot, *dryRun)
+	if err := setup.RunSetup(agent, repoRoot, *dryRun); err != nil {
+		return err
+	}
+	if !*dryRun {
+		fmt.Fprintf(os.Stderr, "skillgrid setup %s: ok (config in ~/.config/%s/)\n", agent, setupAgentConfigDir(agent))
+	}
+	return nil
+}
+
+func setupAgentConfigDir(agent string) string {
+	switch agent {
+	case "opencode":
+		return "opencode"
+	case "kilocode", "kilo":
+		return "kilo"
+	case "cursor":
+		return "cursor (mcp.json + rules/)"
+	default:
+		return "?"
+	}
 }
