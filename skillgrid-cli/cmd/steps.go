@@ -1,15 +1,18 @@
 package main
 
 import (
-	"skillgrid-cli/internal/config"
-	"skillgrid-cli/internal/logging"
-	jsonc "github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	jsonc "github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
+
+	"skillgrid-cli/internal/config"
+	"skillgrid-cli/internal/logging"
+	"skillgrid-cli/internal/mnemonic/setup"
 )
 
 // ensureNode verifies node is usable; if missing it runs the repo's
@@ -197,6 +200,34 @@ func installPlugins(baseDir string, agents []string, dryRun bool) {
 					logging.Info("tui.json copied to " + dstTUI)
 				}
 			}
+		}
+	}
+}
+
+// installMnemonicPlugins runs skillgrid setup per agent when indexing.profile is mnemonic.
+func installMnemonicPlugins(baseDir string, agents []string, dryRun bool) {
+	profile, err := config.LoadIndexingProfile(filepath.Join(baseDir, "config.d", "indexing.yaml"))
+	if err != nil {
+		logging.Warn("mnemonic setup skipped: " + err.Error())
+		return
+	}
+	if profile != "mnemonic" {
+		return
+	}
+	repoRoot := filepath.Join(baseDir, "repos", "skillgrid")
+	if hasAgent(agents, "opencode") {
+		if err := setup.RunSetup("opencode", repoRoot, dryRun); err != nil {
+			logging.Warn("mnemonic setup opencode failed: " + err.Error())
+		}
+	}
+	if hasAgent(agents, "kilo") {
+		if err := setup.RunSetup("kilocode", repoRoot, dryRun); err != nil {
+			logging.Warn("mnemonic setup kilocode failed: " + err.Error())
+		}
+	}
+	if hasAgent(agents, "cursor") {
+		if err := setup.RunSetup("cursor", repoRoot, dryRun); err != nil {
+			logging.Warn("mnemonic setup cursor failed: " + err.Error())
 		}
 	}
 }

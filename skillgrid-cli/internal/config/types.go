@@ -75,3 +75,24 @@ func LoadMCPYAML(path string) (*MCPConfig, error) {
 	}
 	return &cfg, nil
 }
+
+type indexingProfile struct {
+	Profile string `yaml:"profile"`
+}
+
+// LoadIndexingProfile returns the profile field from config.d/indexing.yaml.
+// Missing file yields an empty profile without error.
+func LoadIndexingProfile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	var cfg indexingProfile
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return "", err
+	}
+	return cfg.Profile, nil
+}

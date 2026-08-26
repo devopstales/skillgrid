@@ -9,6 +9,8 @@ Two plugins are installed by default:
 | superpowers | `obra/superpowers` (git) | npm `--prefix` install per agent + `plugin` key registration |
 | engram | `Gentleman-Programming/engram` (binary) | `engram setup opencode` + `engram.ts` copied to kilo |
 
+When `config.d/indexing.yaml` sets `profile: mnemonic`, **Mnemonic** replaces engram as the persistent-memory backend. The installer runs `skillgrid setup` per selected agent immediately after the superpowers step (see [Mnemonic](#mnemonic) below).
+
 This doc focuses on the plugin mechanics. For skills (behavior definitions) see [05-skills](05-skills.md); for MCP servers see [04-mcp-servers](04-mcp-servers.md).
 
 ## What a plugin is here
@@ -84,6 +86,52 @@ cp ~/.config/opencode/plugins/engram.ts ~/.config/kilo/plugin/
 cp ~/.config/opencode/tui.json ~/.config/kilo/tui.json
 
 ```
+
+## Mnemonic
+
+When `config.d/indexing.yaml` sets `profile: mnemonic`, the installer runs Mnemonic setup after superpowers (`installMnemonicPlugins` in `cmd/steps.go`). Setup is gated on that profile — other profiles skip this step entirely.
+
+For each selected agent, the CLI invokes the same commands as manual setup:
+
+```bash
+skillgrid setup opencode
+skillgrid setup kilocode    # when kilo is selected
+skillgrid setup cursor      # when cursor is selected
+```
+
+With `--dry-run`, the installer logs planned setup steps, e.g. `[dry-run] skillgrid setup opencode`.
+
+### Three-agent transport
+
+Mnemonic uses two transport layers per agent: MCP tools (`skillgrid mcp`) and, where supported, an HTTP plugin that talks to `skillgrid serve`.
+
+| Agent | MCP | HTTP plugin |
+|-------|-----|-------------|
+| OpenCode | `skillgrid mcp` in `opencode.json` (`skillgrid-mnemonic`) | `mnemonic.ts` → `skillgrid serve` |
+| Kilo Code | same MCP entry in `kilo.jsonc` | copied plugin + `AGENTS.md` protocol marker |
+| Cursor | `skillgrid mcp` in `~/.cursor/mcp.json` | rule only (no HTTP plugin) |
+
+The MCP server id `skillgrid-mnemonic` matches the commented entry in `config.d/mcp.yaml`. Uncomment it (and disable `engram`) when cutting over to the mnemonic profile. Setup also writes the same id directly into agent configs during `skillgrid setup`.
+
+```mermaid
+flowchart LR
+  Profile[indexing.yaml profile: mnemonic] --> Setup[installMnemonicPlugins]
+  Setup --> OC[skillgrid setup opencode]
+  Setup --> Kilo[skillgrid setup kilocode]
+  Setup --> Cur[skillgrid setup cursor]
+  OC --> MCP1[MCP: skillgrid-mnemonic]
+  OC --> HTTP[HTTP: mnemonic.ts + serve]
+  Kilo --> MCP2[MCP: skillgrid-mnemonic]
+  Kilo --> Bridge[bridge plugin from opencode]
+  Cur --> MCP3[MCP: skillgrid-mnemonic]
+  Cur --> Rule[.cursor/rules/mnemonic.mdc]
+```
+
+Notes:
+
+- Repo root for plugin files is `~/.skillgrid/repos/skillgrid` (synced during install).
+- Setup failure **warns and continues** — MCP merge and rules steps still run.
+- Re-running `install` is idempotent: setup upserts MCP entries and copies plugins only when missing.
 
 ## Context Mode
 

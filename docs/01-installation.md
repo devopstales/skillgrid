@@ -65,7 +65,7 @@ Every step runs in this order (see `docs/00-skillgrid-cli.md` for the source-of-
 | 2 | Check Node.js, install via `scripts/install_node.sh` if missing | repo script |
 | 3 | Install `engram` prebuilt binary into `~/.skillgrid/bin` | GitHub Releases |
 | 4 | `npm install` of `agents` + `tools` | `config.d/tools.yaml` |
-| 5 | Install superpowers plugin per selected agent, run `engram setup opencode` | hardcoded ref in code |
+| 5 | Install superpowers plugin per selected agent, run `engram setup opencode`; when `indexing.profile: mnemonic`, run `skillgrid setup` for opencode / kilocode / cursor | hardcoded ref in code + `config.d/indexing.yaml` |
 | 6 | Install skills via local `skills` CLI | `config.d/skills.yaml` |
 | 7 | Merge MCP servers into each agent config | `config.d/mcp.yaml` |
 | 8 | Copy rules to `~/.agents/AGENTS.md`, register in each agent config | `config.d/AGENTS.md` |
@@ -122,6 +122,10 @@ npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$H
 # register: "plugin": ["~/.config/<agent>/node_modules/superpowers"]
 engram setup opencode
 cp ~/.config/opencode/plugins/engram.ts ~/.config/kilo/plugins/engram.ts
+# when config.d/indexing.yaml profile is mnemonic:
+skillgrid setup opencode
+skillgrid setup kilocode
+skillgrid setup cursor
 
 # 6) install skills based on config.d/skills.yaml
 ~/.skillgrid/npm/node_modules/.bin/skills add obra/superpowers --agent amp -g -s '*' -y

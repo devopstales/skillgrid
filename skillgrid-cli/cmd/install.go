@@ -97,6 +97,7 @@ func runInstall(skipClone bool, syncRepo string, dryRun bool, verbose bool, nonI
 
 	// Step 5: install plugins
 	installPlugins(baseDir, agents, dryRun)
+	installMnemonicPlugins(baseDir, agents, dryRun)
 	ensureSkillPaths(baseDir, agents, dryRun)
 
 	// Step 6: install skills from skills.yaml
