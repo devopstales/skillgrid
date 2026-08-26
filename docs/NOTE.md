@@ -104,7 +104,8 @@ skills add gentleman-programming/engram --agent amp -g -s 'engram-testing-covera
 
 * SDD - Spec-Driven Development
 * TDD - Test-Driven Development
-* DDD - [Behaviour-Driven Development](https://cucumber.io/docs/bdd)
+* DDD - [Behaviour-Driven Development](https://cucumber.io/docs/bdd) - [Behaviour-Driven-Template](https://github.com/intent-driven-dev/behavior-driven-template)
+* IDD - [intent-driven-template](https://github.com/intent-driven-dev/intent-driven-template/tree/main)
 
 ## Rules
 
@@ -121,3 +122,68 @@ Copy `~/.skillgrid/config.d/AGENTS.md` to `~/.agents/AGENTS.md` and add it to th
   * use prebuilt binary
 * brew
 * nix flake
+
+# Usage
+
+## Init
+
+* init subcommand
+  * force project level code index
+* project init by skill and command
+  * generate project leve AGENTS.md
+
+### What to Include into AGENTS.md
+
+Keep this file short, but make sure it covers the full working agreement:
+
+* Project overview: one or two lines on what the project is and what kind of work the agent is doing.
+* Environment and tooling: language version, package manager, run commands, virtual environment names, test commands, and lint or format commands.
+* Engineering standards: expectations for tests, error handling, code quality, and reviewable diffs.
+* Security and escalation boundaries: where the agent may work, what it must not access, and which actions require approval.
+* Dependency policies: which dependency tools are allowed, whether the standard library is preferred, and when new packages need approval.
+* Architectural constraints: design choices that are frozen unless a human approves a change.
+* Definition of done: the checks that must pass before the work is complete.
+
+Here is a concise example:
+
+```md
+# Project Overview
+CLI tool for anomaly detection on time-series CSVs.
+
+# Environment & Tooling
+- Python 3.12+
+- Dependency management: uv
+- Dependencies defined in pyproject.toml
+- Commit uv.lock
+- Run: uv run python -m app
+- Tests: uv run pytest
+- Lint/format: ruff check . && ruff format .
+
+# Engineering Standards
+- Add or update tests for behavior changes
+- Handle invalid input explicitly
+- Keep diffs small and reviewable
+
+# Security & Escalation Boundaries
+- Work only in this repository
+- No network access except the model connection
+- Do not read secrets or credential stores
+- Ask before installing dependencies, deleting files, or changing auth logic
+
+# Dependency Policies
+- Prefer the standard library
+- New packages require approval
+- Do not use pip or conda
+
+# Architecture Constraints
+- Single-process CLI application
+- No external database
+- No network calls
+
+# Definition of Done
+- Tests pass
+- Lint and formatting pass
+- Edge cases are covered
+- No new warnings are introduced
+- Update the spec if behavior changes
+```

@@ -21,18 +21,20 @@ This doc focuses on the plugin mechanics. For skills (behavior definitions) see 
 For each selected agent (kilo, opencode) the CLI does:
 
 1. Installs the git ref into the agent's config dir:
+
 ```bash
-npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/<agent>" --cache "$HOME/.config/<agent>/npm/cache"
+npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/kilo"
+
+ln -sf ~/.config/kilo/node_modules/superpowers/.kilo/plugins/superpowers.js \
+  ~/.config/kilo/plugins/superpowers.js
 ```
 
 2. Registers the resolved path under the top-level `plugin` key of that agent's config (idempotent append):
+
 ```json
 {
-  "plugin": ["/home/you/.config/kilo/node_modules/superpowers"],
   "skills": {
-    "paths": [
-      "/home/you/.config/kilo/node_modules/superpowers/skills"
-    ]
+    "paths": ["~/.config/kilo/node_modules/superpowers/skills"]
   }
 }
 ```

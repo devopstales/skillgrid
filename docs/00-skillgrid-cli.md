@@ -46,7 +46,7 @@ task build
 | Doc | Topic |
 |-----|-------|
 | [01-installation](01-installation.md) | Requirements, build, install flow step by step |
-| [02-usage](02-usage.md) | Day-to-day usage: flags, dry-run, sync-repo, PATH |
+| [02-usage](02-usage.md) | Day-to-day usage: flags, dry-run, sync-repo, PATH, SDD/IDD/BDD/TDD workflows |
 | [03-config-reference](03-config-reference.md) | Every file in `config.d/` and its schema |
 | [04-mcp-servers](04-mcp-servers.md) | MCP registry, merge semantics, backups |
 | [05-skills](05-skills.md) | Skill installation from `skills.yaml` |
