@@ -169,7 +169,8 @@ flowchart TD
 | skillgrid CLI | [spec](specs/2026-08-25-skillgrid-cli-design.md) | [plan](plans/2026-08-25-skillgrid-cli-design.md) | ARCHIVED / complete | — |
 | **IDD + BDD** | [spec](specs/2026-08-26-idd-bdd-design.md) | [plan](plans/2026-08-26-idd-bdd.md) | active; 0/9 tasks | **P0** |
 | add-mcp | [spec](specs/2026-08-26-add-mcp-integration-design.md) | [plan](plans/2026-08-26-add-mcp-integration.md) | active; 0/7 tasks | P1 |
-| Code indexing | [spec](specs/2026-08-26-code-indexing-design.md) | *not written* | — | P1 |
+| Code indexing (GitNexus) | [spec](specs/2026-08-26-code-indexing-design.md) | *not written* | — | P1 |
+| **MemIndex** (SQLite memory + code FTS) | [spec](specs/2026-08-26-skillgrid-memindex-design.md) | [plan](plans/2026-08-26-skillgrid-memindex.md) | active; 0/26 tasks (18 v1 + 8 v1.1/v2) | **P1 alt** |
 | Testing enforcement | [spec](specs/2026-08-26-testing-enforcement-design.md) | [plan](plans/2026-08-26-testing-enforcement.md) | active; 0/9 tasks | P1 |
 | Gryph | [spec](specs/2026-08-26-gryph-integration-design.md) | [plan](plans/2026-08-26-gryph-integration.md) | active; 0/3 tasks | P2 |
 | UI design | [spec](specs/2026-08-26-ui-design-integration-design.md) | *not written* | — | P2 |
@@ -219,7 +220,7 @@ Parallel optional: **Wave 1.1 Gryph** (does not block IDD).
 
 Before Wave 3.2 or Wave 6:
 
-- [ ] `plans/2026-08-26-code-indexing.md` — derive from [code-indexing-design.md](specs/2026-08-26-code-indexing-design.md)
+- [ ] `plans/2026-08-26-code-indexing.md` — derive from [code-indexing-design.md](specs/2026-08-26-code-indexing-design.md) *(or adopt MemIndex plan instead)*
 - [ ] `plans/2026-08-26-ui-design-integration.md` — derive from [ui-design-integration-design.md](specs/2026-08-26-ui-design-integration-design.md)
 - [ ] `plans/2026-08-25-installers.md` — optional; derive from [installers spec](specs/2026-08-25-installers.md)
 

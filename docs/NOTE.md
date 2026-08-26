@@ -26,7 +26,14 @@
 * [?] [CocoIndex-Code](https://github.com/cocoindex-io/cocoindex-code)
 * [?] [GitNexus](https://github.com/abhigyanpatwari/GitNexus)
 * [X] [codegraph](https://github.com/colbymchenry/codegraph)
-* [?] [graphify]()
+* [?] [graphify](https://github.com/Graphify-Labs/graphify)
+* [?] [codebase-index](https://github.com/denfry/codebase-index)
+* [?] [srclight](https://github.com/srclight/srclight) - [Docs](https://dev.to/tofutim/how-we-built-a-hybrid-fts5-embedding-search-for-code-and-why-you-need-both-4ec2)
+* [?] [foldwork](https://github.com/foldwork-dev/mcp-injector) - [Docs](https://www.foldwork.dev/)
+
+* [Local-First Documentation](https://neuledge.com/blog/2026-02-19/local-first-documentation-for-ai)
+* [Openclow SQlight Memory](https://www.pingcap.com/blog/local-first-rag-using-sqlite-ai-agent-memory-openclaw/)
+
 * [?] [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
 * [X] [Engram](https://github.com/Gentleman-Programming/engram)
 
