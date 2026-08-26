@@ -3,14 +3,10 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"os"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"skillgrid-cli/internal/mnemonic/config"
-	"skillgrid-cli/internal/mnemonic/project"
-	"skillgrid-cli/internal/mnemonic/store"
 	"skillgrid-cli/internal/mnemonic/webcache"
 )
 
@@ -88,7 +84,7 @@ func webCacheStatusTool() mcplib.Tool {
 }
 
 func handleWebCacheLookup(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, cleanup, err := openWebCacheService()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -99,7 +95,7 @@ func handleWebCacheLookup(ctx context.Context, req mcplib.CallToolRequest) (*mcp
 		return toolError(err)
 	}
 
-	result, err := svc.Lookup(ctx, webcache.LookupInput{
+	result, err := svc.WebLookup(ctx, projectID, webcache.LookupInput{
 		Source:      source,
 		URL:         req.GetString("url", ""),
 		Query:       req.GetString("query", ""),
@@ -118,7 +114,7 @@ func handleWebCacheLookup(ctx context.Context, req mcplib.CallToolRequest) (*mcp
 }
 
 func handleWebCacheSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, cleanup, err := openWebCacheService()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -140,7 +136,7 @@ func handleWebCacheSave(ctx context.Context, req mcplib.CallToolRequest) (*mcpli
 		}
 	}
 
-	id, err := svc.Save(ctx, webcache.SaveWebInput{
+	id, err := svc.WebSave(ctx, projectID, webcache.SaveWebInput{
 		Source:     source,
 		Content:    content,
 		URL:        req.GetString("url", ""),
@@ -161,7 +157,7 @@ func handleWebCacheSave(ctx context.Context, req mcplib.CallToolRequest) (*mcpli
 }
 
 func handleWebCacheSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, cleanup, err := openWebCacheService()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -182,7 +178,7 @@ func handleWebCacheSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcp
 	}
 
 	limit := int(req.GetFloat("limit", 20))
-	hits, err := svc.Search(ctx, query, req.GetString("source", ""), freshOnly, limit)
+	hits, err := svc.WebSearch(ctx, projectID, query, req.GetString("source", ""), freshOnly, limit)
 	if err != nil {
 		return toolError(err)
 	}
@@ -190,7 +186,7 @@ func handleWebCacheSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcp
 }
 
 func handleWebCacheGet(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, cleanup, err := openWebCacheService()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -201,7 +197,7 @@ func handleWebCacheGet(ctx context.Context, req mcplib.CallToolRequest) (*mcplib
 		return toolError(err)
 	}
 
-	entry, err := svc.Get(ctx, int64(id))
+	entry, err := svc.WebGet(ctx, projectID, int64(id))
 	if err != nil {
 		return toolError(err)
 	}
@@ -210,42 +206,17 @@ func handleWebCacheGet(ctx context.Context, req mcplib.CallToolRequest) (*mcplib
 
 func handleWebCacheStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 	_ = req
-	svc, cleanup, err := openWebCacheService()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
 	defer cleanup()
 
-	st, err := svc.CacheStatus(ctx)
+	st, err := svc.WebCacheStatus(ctx, projectID)
 	if err != nil {
 		return toolError(err)
 	}
 	return JSONResult(statusDTO(st))
-}
-
-func openWebCacheService() (*webcache.Service, func(), error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	projectID, err := project.Resolve(cwd)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	dataDir, err := mnemonicDataDir()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	st, err := store.Open(dataDir, projectID)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	cfg := config.Load(cwd).WebCache
-	return webcache.New(st, projectID, cfg), func() { st.Close() }, nil
 }
 
 func lookupDTO(r webcache.LookupResult) map[string]any {

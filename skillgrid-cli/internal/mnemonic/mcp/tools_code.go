@@ -2,8 +2,6 @@ package mcp
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -11,11 +9,7 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"skillgrid-cli/internal/mnemonic/codeindex"
-	"skillgrid-cli/internal/mnemonic/config"
-	"skillgrid-cli/internal/mnemonic/project"
 	"skillgrid-cli/internal/mnemonic/search"
-	"skillgrid-cli/internal/mnemonic/store"
 )
 
 func registerCodeTools(s *server.MCPServer) {
@@ -66,33 +60,32 @@ func handleCodeStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 	_ = ctx
 	_ = req
 
-	st, cleanup, err := openProjectStore()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
 	defer cleanup()
 
-	status, err := codeindex.GetStatus(st)
+	status, stale, err := svc.CodeStatus(ctx, projectID)
 	if err != nil {
 		return toolError(err)
 	}
 
 	return JSONResult(map[string]any{
-		"file_count":    status.FileCount,
-		"chunk_count":   status.ChunkCount,
-		"last_indexed":  status.LastIndexed,
-		"stale":         codeIndexStale(status),
+		"file_count":   status.FileCount,
+		"chunk_count":  status.ChunkCount,
+		"last_indexed": status.LastIndexed,
+		"stale":        stale,
 	})
 }
 
 func handleCodeIndex(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 	_ = req
 
-	st, cleanup, err := openProjectStore()
+	svc, err := rootService()
 	if err != nil {
 		return toolError(err)
 	}
-	defer cleanup()
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -104,15 +97,7 @@ func handleCodeIndex(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		root = gitRoot
 	}
 
-	cfg := config.Load(root)
-	idxCfg := codeindex.Config{
-		Include:      cfg.Include,
-		Exclude:      cfg.Exclude,
-		ChunkLines:   cfg.ChunkLines,
-		ChunkOverlap: cfg.ChunkOverlap,
-	}
-
-	stats, err := codeindex.New(st).Run(ctx, root, idxCfg)
+	stats, err := svc.RunCodeIndex(ctx, root)
 	if err != nil {
 		return toolError(err)
 	}
@@ -126,9 +111,7 @@ func handleCodeIndex(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 }
 
 func handleCodeSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	_ = ctx
-
-	st, cleanup, err := openProjectStore()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -140,7 +123,7 @@ func handleCodeSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 	}
 
 	limit := int(req.GetFloat("limit", 20))
-	hits, err := search.CodeSearch(st.DB, query, limit)
+	hits, err := svc.CodeSearch(ctx, projectID, query, limit)
 	if err != nil {
 		return toolError(err)
 	}
@@ -149,9 +132,7 @@ func handleCodeSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 }
 
 func handleCodeRead(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	_ = ctx
-
-	st, cleanup, err := openProjectStore()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -165,39 +146,11 @@ func handleCodeRead(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Ca
 	startLine := int(req.GetFloat("start_line", 0))
 	endLine := int(req.GetFloat("end_line", 0))
 
-	result, err := readIndexedCode(st.DB, path, startLine, endLine)
+	result, err := svc.ReadIndexedCode(ctx, projectID, path, startLine, endLine)
 	if err != nil {
 		return toolError(err)
 	}
 	return JSONResult(result)
-}
-
-func openProjectStore() (*store.Store, func(), error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	projectID, err := project.Resolve(cwd)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	dataDir, err := mnemonicDataDir()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	st, err := store.Open(dataDir, projectID)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return st, func() { st.Close() }, nil
-}
-
-func codeIndexStale(status codeindex.Status) bool {
-	return status.FileCount == 0 || status.LastIndexed == ""
 }
 
 func codeHitDTOs(hits []search.CodeHit) []map[string]any {
@@ -212,72 +165,6 @@ func codeHitDTOs(hits []search.CodeHit) []map[string]any {
 		}
 	}
 	return out
-}
-
-func readIndexedCode(db *sql.DB, path string, startLine, endLine int) (map[string]any, error) {
-	var fileID int64
-	err := db.QueryRow(`SELECT id FROM files WHERE path = ?`, path).Scan(&fileID)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("file not indexed: %s", path)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	var rows *sql.Rows
-	if startLine > 0 {
-		if endLine <= 0 {
-			endLine = startLine
-		}
-		rows, err = db.Query(`
-			SELECT start_line, end_line, text FROM chunks
-			WHERE file_id = ? AND start_line <= ? AND end_line >= ?
-			ORDER BY start_line`,
-			fileID, endLine, startLine,
-		)
-	} else {
-		rows, err = db.Query(`
-			SELECT start_line, end_line, text FROM chunks
-			WHERE file_id = ?
-			ORDER BY start_line`,
-			fileID,
-		)
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var parts []string
-	firstLine := 0
-	lastLine := 0
-	for rows.Next() {
-		var chunkStart, chunkEnd int
-		var text string
-		if err := rows.Scan(&chunkStart, &chunkEnd, &text); err != nil {
-			return nil, err
-		}
-		if firstLine == 0 || chunkStart < firstLine {
-			firstLine = chunkStart
-		}
-		if chunkEnd > lastLine {
-			lastLine = chunkEnd
-		}
-		parts = append(parts, text)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(parts) == 0 {
-		return nil, fmt.Errorf("no indexed chunks for %s", path)
-	}
-
-	return map[string]any{
-		"path":       path,
-		"start_line": firstLine,
-		"end_line":   lastLine,
-		"text":       strings.Join(parts, "\n"),
-	}, nil
 }
 
 func gitRoot(cwd string) (string, error) {

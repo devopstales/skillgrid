@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -11,8 +10,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"skillgrid-cli/internal/mnemonic/memory"
-	"skillgrid-cli/internal/mnemonic/project"
-	"skillgrid-cli/internal/mnemonic/store"
+	"skillgrid-cli/internal/mnemonic/service"
 )
 
 func registerMemoryTools(s *server.MCPServer) {
@@ -102,7 +100,7 @@ func memSuggestTopicKeyTool() mcplib.Tool {
 }
 
 func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, cleanup, err := openMemoryService()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -125,16 +123,11 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 		return toolError(err)
 	}
 
-	scope := req.GetString("scope", "project")
-	if scope == "personal" {
-		scope = "user"
-	}
-
-	id, err := svc.Save(ctx, memory.SaveInput{
+	id, err := svc.SaveObservation(ctx, projectID, service.SaveObservationInput{
 		Title:     title,
 		Type:      typ,
 		Content:   content,
-		Scope:     scope,
+		Scope:     req.GetString("scope", "project"),
 		TopicKey:  req.GetString("topic_key", ""),
 		SessionID: sessionID,
 	})
@@ -145,7 +138,7 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 }
 
 func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, cleanup, err := openMemoryService()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -159,7 +152,7 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 	matchMode := req.GetString("match_mode", "any")
 	limit := int(req.GetFloat("limit", 20))
 
-	hits, err := svc.Search(ctx, query, matchMode, limit)
+	hits, err := svc.SearchObservations(ctx, projectID, query, matchMode, limit)
 	if err != nil {
 		return toolError(err)
 	}
@@ -167,14 +160,14 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 }
 
 func handleMemContext(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, cleanup, err := openMemoryService()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
 	defer cleanup()
 
 	limit := int(req.GetFloat("limit", 5))
-	sessions, err := svc.RecentContext(ctx, limit)
+	sessions, err := svc.RecentContext(ctx, projectID, limit)
 	if err != nil {
 		return toolError(err)
 	}
@@ -182,7 +175,7 @@ func handleMemContext(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 }
 
 func handleMemGetObservation(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, cleanup, err := openMemoryService()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -193,7 +186,7 @@ func handleMemGetObservation(ctx context.Context, req mcplib.CallToolRequest) (*
 		return toolError(err)
 	}
 
-	obs, err := svc.Get(ctx, int64(id))
+	obs, err := svc.GetObservation(ctx, projectID, int64(id))
 	if err != nil {
 		return toolError(err)
 	}
@@ -210,13 +203,12 @@ func handleMemSessionStart(ctx context.Context, req mcplib.CallToolRequest) (*mc
 		}
 	}
 
-	svc, cleanup, err := openMemoryServiceForDirectory(dir)
+	svc, err := rootService()
 	if err != nil {
 		return toolError(err)
 	}
-	defer cleanup()
 
-	sessionID, err := svc.SessionStart(ctx, dir)
+	sessionID, _, err := svc.SessionStart(ctx, dir)
 	if err != nil {
 		return toolError(err)
 	}
@@ -224,7 +216,7 @@ func handleMemSessionStart(ctx context.Context, req mcplib.CallToolRequest) (*mc
 }
 
 func handleMemSessionEnd(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, cleanup, err := openMemoryService()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -235,14 +227,14 @@ func handleMemSessionEnd(ctx context.Context, req mcplib.CallToolRequest) (*mcpl
 		return toolError(err)
 	}
 
-	if err := svc.SessionEnd(ctx, sessionID, req.GetString("summary", "")); err != nil {
+	if err := svc.SessionEnd(ctx, projectID, sessionID, req.GetString("summary", "")); err != nil {
 		return toolError(err)
 	}
 	return JSONResult(map[string]any{"session_id": sessionID, "status": "ended"})
 }
 
 func handleMemSessionSummary(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, cleanup, err := openMemoryService()
+	svc, projectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -257,7 +249,7 @@ func handleMemSessionSummary(ctx context.Context, req mcplib.CallToolRequest) (*
 		return toolError(err)
 	}
 
-	if err := svc.SessionSummary(ctx, sessionID, summary); err != nil {
+	if err := svc.SessionSummary(ctx, projectID, sessionID, summary); err != nil {
 		return toolError(err)
 	}
 	return JSONResult(map[string]any{"session_id": sessionID, "saved": true})
@@ -272,47 +264,24 @@ func handleMemSuggestTopicKey(_ context.Context, req mcplib.CallToolRequest) (*m
 	return JSONResult(map[string]string{"topic_key": key})
 }
 
-func openMemoryService() (*memory.Service, func(), error) {
-	cwd, err := os.Getwd()
+func openService() (*service.Service, string, func(), error) {
+	svc, err := rootService()
 	if err != nil {
-		return nil, nil, err
+		return nil, "", nil, err
 	}
-	return openMemoryServiceForDirectory(cwd)
+	h, cleanup, err := svc.OpenForCWD()
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return svc, h.ProjectID(), cleanup, nil
 }
 
-func openMemoryServiceForDirectory(directory string) (*memory.Service, func(), error) {
-	absDir, err := filepath.Abs(directory)
+func rootService() (*service.Service, error) {
+	dataDir, err := service.DefaultDataDir()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	projectID, err := project.Resolve(absDir)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	dataDir, err := mnemonicDataDir()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	st, err := store.Open(dataDir, projectID)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return memory.New(st, projectID), func() { st.Close() }, nil
-}
-
-func mnemonicDataDir() (string, error) {
-	if v := os.Getenv("SKILLGRID_MNEMONIC_DATA_DIR"); v != "" {
-		return v, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".skillgrid", "mnemonic"), nil
+	return service.New(dataDir), nil
 }
 
 func toolError(err error) (*mcplib.CallToolResult, error) {
