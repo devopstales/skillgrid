@@ -97,7 +97,7 @@ Built-in SQLite memory + code FTS + web cache via `skillgrid mcp` / `skillgrid s
 
 | # | Track | Plan tasks | Depends on | Outcome |
 |---|-------|------------|------------|---------|
-| 3.5 **∥** | [Mnemonic](specs/2026-08-26-skillgrid-memindex-design.md) | [plan](plans/2026-08-26-skillgrid-memindex.md) Tasks 1–10+ | Wave 1.2 | `config.d/indexing.yaml`; `skillgrid index`; commented `skillgrid-mnemonic` in `mcp.yaml` |
+| 3.5 **∥** | [Mnemonic](specs/2026-08-26-skillgrid-mnemonic-design.md) | [plan](plans/2026-08-26-skillgrid-mnemonic.md) Tasks 1–10+ | Wave 1.2 | `config.d/indexing.yaml`; `skillgrid index`; commented `skillgrid-mnemonic` in `mcp.yaml` |
 
 Teams choose **either** Wave 3.2 (GitNexus primary, demote codegraph/ccc) **or** Wave 3.5 (mnemonic profile, optional GitNexus overlay). Do not enable both as primary memory/index backends without explicit hybrid config.
 
@@ -182,7 +182,7 @@ flowchart TD
 | **IDD + BDD** | [spec](specs/2026-08-26-idd-bdd-design.md) | [plan](plans/2026-08-26-idd-bdd.md) | active; 0/9 tasks | **P0** |
 | add-mcp | [spec](specs/2026-08-26-add-mcp-integration-design.md) | [plan](plans/2026-08-26-add-mcp-integration.md) | active; 0/7 tasks | P1 |
 | Code indexing (GitNexus) | [spec](specs/2026-08-26-code-indexing-design.md) | *not written* | — | P1 |
-| **Mnemonic** (SQLite memory + code FTS) | [spec](specs/2026-08-26-skillgrid-memindex-design.md) | [plan](plans/2026-08-26-skillgrid-memindex.md) | active; Task 10 config/docs done | **P1 alt** |
+| **Mnemonic** (SQLite memory + code FTS) | [spec](specs/2026-08-26-skillgrid-mnemonic-design.md) | [plan](plans/2026-08-26-skillgrid-mnemonic.md) | active; Task 10 config/docs done | **P1 alt** |
 | Testing enforcement | [spec](specs/2026-08-26-testing-enforcement-design.md) | [plan](plans/2026-08-26-testing-enforcement.md) | active; 0/9 tasks | P1 |
 | Gryph | [spec](specs/2026-08-26-gryph-integration-design.md) | [plan](plans/2026-08-26-gryph-integration.md) | active; 0/3 tasks | P2 |
 | UI design | [spec](specs/2026-08-26-ui-design-integration-design.md) | *not written* | — | P2 |

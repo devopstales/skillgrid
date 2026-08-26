@@ -41,7 +41,7 @@ Format for `mem_save`:
 - Different topics must not overwrite each other (e.g. architecture vs bugfix)
 - Reuse the same `topic_key` to update an evolving topic instead of creating new observations
 - If unsure about the key, call `mem_suggest_topic_key` first and then reuse it
-- Use `mem_update` when you have an exact observation ID to correct
+- Use `mem_update` when you have an exact observation ID to correct (v1.1)
 
 ## When to Search Memory
 

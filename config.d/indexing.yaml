@@ -1,7 +1,7 @@
 profile: mnemonic
 mnemonic:
   include: ["**/*.go", "**/*.ts", "**/*.tsx", "**/*.md"]
-  exclude: ["**/node_modules/**", "**/.git/**", "**/dist/**"]
+  exclude: ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.skillgrid/**"]
   chunk_lines: 80
   chunk_overlap: 10
   embeddings: false

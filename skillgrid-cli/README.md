@@ -2,6 +2,8 @@
 
 Go CLI that installs and configures AI agent tooling.
 
+Requires **Go 1.22+**; `go.mod` pins `toolchain go1.24.0` for `modernc.org/sqlite` (Taskfile uses `GOTOOLCHAIN=auto` to fetch it if needed).
+
 ## Build
 
 ```
