@@ -201,19 +201,20 @@ func handleMemGetObservation(ctx context.Context, req mcplib.CallToolRequest) (*
 }
 
 func handleMemSessionStart(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, cleanup, err := openMemoryService()
-	if err != nil {
-		return toolError(err)
-	}
-	defer cleanup()
-
 	dir := req.GetString("directory", "")
 	if dir == "" {
+		var err error
 		dir, err = os.Getwd()
 		if err != nil {
 			return toolError(err)
 		}
 	}
+
+	svc, cleanup, err := openMemoryServiceForDirectory(dir)
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
 
 	sessionID, err := svc.SessionStart(ctx, dir)
 	if err != nil {
@@ -276,8 +277,16 @@ func openMemoryService() (*memory.Service, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	return openMemoryServiceForDirectory(cwd)
+}
 
-	projectID, err := project.Resolve(cwd)
+func openMemoryServiceForDirectory(directory string) (*memory.Service, func(), error) {
+	absDir, err := filepath.Abs(directory)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	projectID, err := project.Resolve(absDir)
 	if err != nil {
 		return nil, nil, err
 	}
