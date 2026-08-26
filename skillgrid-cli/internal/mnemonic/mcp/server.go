@@ -14,5 +14,6 @@ func Start() error {
 	s := server.NewMCPServer(serverName, serverVersion)
 	registerMemoryTools(s)
 	registerCodeTools(s)
+	registerWebTools(s)
 	return server.ServeStdio(s)
 }
