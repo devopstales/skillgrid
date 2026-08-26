@@ -2,6 +2,8 @@ package memory_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -208,5 +210,95 @@ func TestMemoryGet(t *testing.T) {
 	}
 	if obs.ID != id || obs.Type != "discovery" {
 		t.Fatalf("unexpected observation: %+v", obs)
+	}
+}
+
+func TestSessionLifecycle(t *testing.T) {
+	workspace := t.TempDir()
+	cfgDir := filepath.Join(workspace, ".skillgrid")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(cfgDir, "config.json"),
+		[]byte(`{"project":"test-project"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	svc, _ := openTestService(t)
+	ctx := context.Background()
+
+	sessionID, err := svc.SessionStart(ctx, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sessionID == "" {
+		t.Fatal("expected non-empty session id")
+	}
+
+	const summary = "Implemented session lifecycle and recent context APIs."
+	if err := svc.SessionSummary(ctx, sessionID, summary); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := svc.RecentContext(ctx, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session in recent context, got %d", len(sessions))
+	}
+	if sessions[0].ID != sessionID {
+		t.Fatalf("session id=%q, want %q", sessions[0].ID, sessionID)
+	}
+	if sessions[0].Summary != summary {
+		t.Fatalf("summary=%q, want %q", sessions[0].Summary, summary)
+	}
+	if sessions[0].Status != "active" {
+		t.Fatalf("status=%q, want active", sessions[0].Status)
+	}
+}
+
+func TestSessionEnd(t *testing.T) {
+	workspace := t.TempDir()
+	cfgDir := filepath.Join(workspace, ".skillgrid")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(cfgDir, "config.json"),
+		[]byte(`{"project":"test-project"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	svc, _ := openTestService(t)
+	ctx := context.Background()
+
+	sessionID, err := svc.SessionStart(ctx, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const summary = "Closed session after indexing pass."
+	if err := svc.SessionEnd(ctx, sessionID, summary); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := svc.RecentContext(ctx, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	if sessions[0].Status != "ended" {
+		t.Fatalf("status=%q, want ended", sessions[0].Status)
+	}
+	if sessions[0].Summary != summary {
+		t.Fatalf("summary=%q, want %q", sessions[0].Summary, summary)
 	}
 }

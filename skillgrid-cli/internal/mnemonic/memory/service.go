@@ -7,13 +7,20 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
+	"skillgrid-cli/internal/mnemonic/project"
 	"skillgrid-cli/internal/mnemonic/store"
 )
 
-const defaultSearchLimit = 20
+const (
+	defaultSearchLimit  = 20
+	defaultContextLimit = 5
+)
 
 // Service provides save and search over project-scoped observations.
 type Service struct {
@@ -29,6 +36,17 @@ type SaveInput struct {
 	Scope     string
 	TopicKey  string
 	SessionID string
+}
+
+// Session is a workspace session with optional summary.
+type Session struct {
+	ID        string
+	Project   string
+	Directory string
+	StartedAt string
+	EndedAt   string
+	Summary   string
+	Status    string
 }
 
 // Observation is a stored memory entry.
@@ -195,6 +213,137 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	return obs, nil
 }
 
+// SessionStart creates a new active session for directory.
+func (s *Service) SessionStart(ctx context.Context, directory string) (string, error) {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return "", errors.New("memory service not initialized")
+	}
+	if strings.TrimSpace(directory) == "" {
+		return "", errors.New("directory is required")
+	}
+
+	absDir, err := filepath.Abs(directory)
+	if err != nil {
+		return "", fmt.Errorf("resolve directory: %w", err)
+	}
+
+	projectID, err := project.Resolve(absDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve project: %w", err)
+	}
+
+	sessionID := uuid.New().String()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	_, err = s.store.DB.ExecContext(ctx, `
+		INSERT INTO sessions (id, project, directory, started_at, status)
+		VALUES (?, ?, ?, ?, 'active')`,
+		sessionID, projectID, absDir, now,
+	)
+	if err != nil {
+		return "", fmt.Errorf("insert session: %w", err)
+	}
+
+	return sessionID, nil
+}
+
+// SessionSummary stores an end-of-session summary.
+func (s *Service) SessionSummary(ctx context.Context, sessionID, summary string) error {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return errors.New("memory service not initialized")
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return errors.New("session_id is required")
+	}
+	if strings.TrimSpace(summary) == "" {
+		return errors.New("summary is required")
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.store.DB.ExecContext(ctx, `
+		UPDATE sessions SET summary = ?, ended_at = ?
+		WHERE id = ? AND project = ?`,
+		summary, now, sessionID, s.projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("update session summary: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("session summary rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	return nil
+}
+
+// SessionEnd ends a session with an optional summary.
+func (s *Service) SessionEnd(ctx context.Context, sessionID, summary string) error {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return errors.New("memory service not initialized")
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return errors.New("session_id is required")
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	var res sql.Result
+	var err error
+
+	if strings.TrimSpace(summary) != "" {
+		res, err = s.store.DB.ExecContext(ctx, `
+			UPDATE sessions SET summary = ?, ended_at = ?, status = 'ended'
+			WHERE id = ? AND project = ?`,
+			summary, now, sessionID, s.projectID,
+		)
+	} else {
+		res, err = s.store.DB.ExecContext(ctx, `
+			UPDATE sessions SET ended_at = ?, status = 'ended'
+			WHERE id = ? AND project = ?`,
+			now, sessionID, s.projectID,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("end session: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("session end rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	return nil
+}
+
+// RecentContext returns the most recent sessions that have summaries.
+func (s *Service) RecentContext(ctx context.Context, limit int) ([]Session, error) {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return nil, errors.New("memory service not initialized")
+	}
+	if limit <= 0 {
+		limit = defaultContextLimit
+	}
+
+	rows, err := s.store.DB.QueryContext(ctx, `
+		SELECT id, project, directory, started_at, ended_at, summary, status
+		FROM sessions
+		WHERE project = ? AND summary IS NOT NULL AND TRIM(summary) != ''
+		ORDER BY COALESCE(ended_at, started_at) DESC
+		LIMIT ?`,
+		s.projectID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("recent context: %w", err)
+	}
+	defer rows.Close()
+
+	return scanSessions(rows)
+}
+
 func normalizedHash(title, content, typ string) string {
 	sum := sha256.Sum256([]byte(title + content + typ))
 	return hex.EncodeToString(sum[:])
@@ -244,6 +393,31 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate observations: %w", err)
+	}
+	return out, nil
+}
+
+func scanSessions(rows *sql.Rows) ([]Session, error) {
+	var out []Session
+	for rows.Next() {
+		var sess Session
+		var endedAt, summary sql.NullString
+		if err := rows.Scan(
+			&sess.ID, &sess.Project, &sess.Directory, &sess.StartedAt,
+			&endedAt, &summary, &sess.Status,
+		); err != nil {
+			return nil, fmt.Errorf("scan session: %w", err)
+		}
+		if endedAt.Valid {
+			sess.EndedAt = endedAt.String
+		}
+		if summary.Valid {
+			sess.Summary = summary.String
+		}
+		out = append(out, sess)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sessions: %w", err)
 	}
 	return out, nil
 }
