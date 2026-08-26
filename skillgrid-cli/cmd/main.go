@@ -8,7 +8,7 @@ import (
 )
 
 func printUsage() {
-	fmt.Fprintln(os.Stdout, "AI Skill Grid Installer\n\nUsage:\n  skillgrid <command> [flags]\n\nCommands:\n  install, in   Run full install\n  sync-repo     Sync repo contents without full install\n  help          Show this help\n\nFlags (install):\n  -skip-clone        skip git clone step\n  -sync-repo path    sync a repo path into ~/.skillgrid/repos/skillgrid\n  -dry-run           print planned changes without writing\n  -verbose           print detailed changes (MCP entries etc.)\n  -yes               skip interactive prompts (default agent selection)")
+	fmt.Fprintln(os.Stdout, "AI Skill Grid Installer\n\nUsage:\n  skillgrid <command> [flags]\n\nCommands:\n  install, in   Run full install\n  sync-repo     Sync repo contents without full install\n  mcp           Start MCP server for mnemonic memory\n  serve         Start mnemonic HTTP server\n  index         Incrementally index code for FTS search\n  setup         Initialize mnemonic database and schema\n  help          Show this help\n\nFlags (install):\n  -skip-clone        skip git clone step\n  -sync-repo path    sync a repo path into ~/.skillgrid/repos/skillgrid\n  -dry-run           print planned changes without writing\n  -verbose           print detailed changes (MCP entries etc.)\n  -yes               skip interactive prompts (default agent selection)")
 }
 
 func wantHelp(argv []string) bool {
@@ -81,6 +81,23 @@ func Run() int {
 			return 1
 		}
 		runSyncRepo(path)
+	case "mcp":
+		runMCP()
+	case "serve":
+		if err := runServe(rest); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	case "index":
+		if err := runIndex(rest); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	case "setup":
+		if err := runSetup(rest); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
 	case "help":
 		printUsage()
 	default:
