@@ -1,0 +1,8 @@
+---
+description: Skillgrid Mnemonic protocol
+alwaysApply: true
+---
+
+<!-- BEGIN SKILLGRID MNEMONIC — body rendered by skillgrid setup from shared/memory-protocol.md -->
+{{MEMORY_PROTOCOL}}
+<!-- END SKILLGRID MNEMONIC -->
