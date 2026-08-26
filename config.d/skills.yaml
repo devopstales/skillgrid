@@ -1,13 +1,9 @@
 # Installed via: npx skills add <repo> --agent amp -g -s '<skill>' -y
+# Local skills (config.d/skills/) are discovered via skills.paths — no skills add needed.
 skills:
   - repo: obra/superpowers
     skill: "*"
-  - repo: gentleman-programming/engram
-    skill: engram-memory
-  - repo: gentleman-programming/engram
-    skill: engram-memory-protocol
-  - repo: gentleman-programming/engram
-    skill: engram-testing-coverage
+  # mnemonic-memory: local fork at config.d/skills/mnemonic-memory/ (default memory protocol)
   - repo: affaan-m/ecc
     skill: exa-search
   - repo: alirezarezvani/claude-skills
@@ -22,3 +18,11 @@ skills:
     skill: playwright-best-practices
   - repo: vercel-labs/agent-browser
     skill: "*"
+
+# Opt-in — Engram (when Mnemonic is not the primary memory server):
+#  - repo: gentleman-programming/engram
+#    skill: engram-memory
+#  - repo: gentleman-programming/engram
+#    skill: engram-memory-protocol
+#  - repo: gentleman-programming/engram
+#    skill: engram-testing-coverage

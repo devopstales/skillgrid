@@ -14,8 +14,7 @@ Skills are behaviors agents load per task. Installed via `config.d/skills.yaml` 
 |-------|------|
 | `using-superpowers` | Find and invoke skills at session start |
 | `brainstorming` | Creative work before code |
-| `engram-memory` | Always-active persistent memory (`mem_save`, `mem_search`, …) |
-| `engram-memory-protocol` | When to save, search, and close sessions |
+| `mnemonic-memory` | Always-active persistent memory (`mem_save`, `mem_search`, `code_*`, `web_*`, …) |
 
 ### Spec, IDD & BDD
 
@@ -84,7 +83,7 @@ Skills are behaviors agents load per task. Installed via `config.d/skills.yaml` 
 
 | Status | Skills |
 |--------|--------|
-| **Installed** | All superpowers (14), `engram-memory`, `engram-memory-protocol`, `exa-search`, `karpathy-coder`, `mcp-deepwiki`, `playwright-cli`, `playwright-best-practices`, `agent-browser`, partial local pack (`bdd-workflow`, `gherkin-authoring`, `acceptance-test-authoring`, `bdd-git-discipline`, `glossary`, `grilling`, `webapp-testing`, `karpathy-guidelines`) |
+| **Installed** | All superpowers (14), `mnemonic-memory` (local), `exa-search`, `karpathy-coder`, `mcp-deepwiki`, `playwright-cli`, `playwright-best-practices`, `agent-browser`, partial local pack (`bdd-workflow`, `gherkin-authoring`, `acceptance-test-authoring`, `bdd-git-discipline`, `glossary`, `grilling`, `webapp-testing`, `karpathy-guidelines`) |
 | **Planned** | `idd-workflow`, `bdd-zone-check`, `architectural-decision-records`, `c4-diagrams`, `impeccable` |
 | **Remove** | `engram-testing-coverage` (duplicate TDD owner) |
 
@@ -94,6 +93,8 @@ Skills are behaviors agents load per task. Installed via `config.d/skills.yaml` 
 
 | Skill | When |
 |-------|------|
+| `engram-memory` | Standalone Engram MCP instead of Mnemonic |
+| `engram-memory-protocol` | Engram-specific protocol companion |
 | `engram-docs-alignment` | Doc-heavy repos |
 | `engram-backlog-triage` | GitHub maintainer triage |
 
