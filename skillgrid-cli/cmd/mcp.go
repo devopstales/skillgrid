@@ -1,6 +1,15 @@
 package main
 
+import (
+	"fmt"
+	"os"
+
+	"skillgrid-cli/internal/mnemonic/mcp"
+)
+
 func runMCP() {
-	// TODO Task 8: mnemonic/mcp.Start()
-	println("skillgrid mcp: not yet implemented")
+	if err := mcp.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
