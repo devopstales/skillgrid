@@ -1,50 +1,3 @@
-## Workflow
-
-
-```
-proposal → specs → design → adr → tasks
-```
-
-```bash
-workflow:
-  proposal:
-    -> openspec/changes/<change-id>/proposal.md
-  specs:
-    -> openspec/changes/<change-id>/specs/<spec-id>/spec.md
-  design:
-    -> openspec/changes/<change-id>/design.md
-  adr:
-    -> openspec/changes/<change>/adr.md
-    -> openspec/adr/YYYY-MM-DD-<topic>.md
-  tasks:
-    -> openspec/changes/<change-id>/tasks.md
-```
-
-```bash
-openspec/adr/YYYY-MM-DD-<topic>.md
-openspec/changes/archive/
-openspec/changes/<change-id>/
-openspec/changes/<change-id>/adr.md
-openspec/changes/<change-id>/design.md
-openspec/changes/<change-id>/proposal.md
-openspec/changes/<change-id>/tasks.md
-openspec/changes/<change-id>/specs/
-openspec/changes/<change-id>/specs/<spec-id>/spec.md
-```
-
-## Artifact Map
-
-| Workflow Stage | Skill | Creates | From Template |
-|----------------|-------|---------|---------------|
-| setup | project-context | `AGENTS.md` | — |
-| setup | project-context | `openspec/config.yaml` | — |
-| proposal | brainstorming | `openspec/changes/<change-id>/proposal.md` | `openspec/schemas/intent-driven/templates/proposal.md` |
-| specs | spec-as-source | `openspec/changes/<change-id>/specs/<spec-id>/spec.md` | `.agents/skills/spec-as-source/references/spec.md` |
-| design | brainstorming | `openspec/changes/<change-id>/design.md` | `openspec/schemas/intent-driven/templates/design.md` |
-| adr | architectural-decision-records | `openspec/changes/<change-id>/adr.md` | `openspec/schemas/intent-driven/templates/adr.md` |
-| adr | architectural-decision-records | `openspec/adr/YYYY-MM-DD-<topic>.md` | `.agents/skills/architectural-decision-records/templates/` (mad full/minimal, nygard, y-statement, custom) |
-| tasks | write-tasks | `openspec/changes/<change-id>/tasks.md` | `openspec/schemas/intent-driven/templates/tasks.md` |
-
 ## Pending Decision: Ownership of proposal.md and design.md
 
 **Conflict discovered** (2026-08-27): Two skills claim to author `openspec/changes/<change-id>/proposal.md` and `design.md`:
@@ -136,20 +89,3 @@ Both are legitimate; the question is which workflow owns the **proposal and desi
 | Agent-learning cost | low | lowest | high |
 
 **Decision (TBD — awaiting user choice):** A, B, or C
-
-## Functions
-
-* intent-driven-template
-  * test driven development
-  * acceptance-test
-  * gherkin - BDD
-* BMAD
-  * [X] project-context -> AGENTS.md and openspec/config.yaml
-* superpowers
-  * [X] brainstorming
-  * [x] write-tasks
-  * micro commits - commit as checkpoint
-  * git worktree
-    * https://intent-driven.dev/blog/2026/04/01/openspec-git-worktrees-opencode/
-    * subagent-driven-development
-    * executing-plans
