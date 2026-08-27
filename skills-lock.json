@@ -1,17 +1,108 @@
 {
   "version": 1,
   "skills": {
-    "grill-me": {
-      "source": "mattpocock/skills",
+    "acceptance-test-authoring": {
+      "source": "intent-driven-dev/intent-driven-template",
       "sourceType": "github",
-      "skillPath": "skills/productivity/grill-me/SKILL.md",
-      "computedHash": "9cdbb4b8f7a3aeaef82e6230c9e823500d4a8a1214c726cf342cf9829d34fc7d"
+      "skillPath": ".agents/skills/acceptance-test-authoring/SKILL.md",
+      "computedHash": "d9b8e9ecb4f3ea717fdd2fdb5b8222425de930eb04a963ea6cca7185c754628e",
+      "localPatch": "acceptance-tests/ rewritten to .skillgrid/acceptance-tests/ in SKILL.md, SETUP.md files, EXTRACTION.md, gherkin-lintrc.json"
+    },
+    "architectural-decision-records": {
+      "source": "intent-driven-dev/intent-driven-template",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/architectural-decision-records/SKILL.md",
+      "computedHash": "c3b652c85febab965645a570e440fd1df6cbfd30756e86b56cb73f90aedc9739"
     },
     "brainstorming": {
       "source": "superpowers",
       "sourceType": "github",
       "skillPath": "skills/brainstorming/SKILL.md",
-      "computedHash": "627e8f55e2be77cfca23a17fa27ce6a90f31c39edc31c30ed9d3f799752052bd"
+      "computedHash": "a0577eaab390cc7ee414f3c0bc87d6d3a28fd27b0ae9e56c8477dfdd7d781322"
+    },
+    "c4-diagrams": {
+      "source": "superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/c4-diagrams/SKILL.md",
+      "computedHash": "5ba43fe1b6e7c763beab75aaa897f314a6b259ed42285ca4db6c00cdf59510c5"
+    },
+    "gherkin-authoring": {
+      "source": "intent-driven-dev/intent-driven-template",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/gherkin-authoring/SKILL.md",
+      "computedHash": "6be226f25e2968f6175e59067f05915508c60eddf4717a46f21f332a403943ac"
+    },
+    "glossary": {
+      "source": "bmad",
+      "sourceType": "github",
+      "skillPath": "skills/glossary/SKILL.md",
+      "computedHash": "fc27a5bef15a8bc00f6ad1fca76ab842c5f81d881ec260ef267f20967c2934b2"
+    },
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grill-me/SKILL.md",
+      "computedHash": "caaf8b8de1684f96e26b28f3c29189db5c89cce4b73e1c93d86164f66ef88637"
+    },
+    "openspec-apply-change": {
+      "source": "openspec",
+      "sourceType": "github",
+      "skillPath": "skills/apply-change/SKILL.md",
+      "computedHash": "9bc2d4661cba9cb3b540a3dd5e958646b701b9575c573669938927ec93108a1b"
+    },
+    "openspec-archive-change": {
+      "source": "openspec",
+      "sourceType": "github",
+      "skillPath": "skills/archive-change/SKILL.md",
+      "computedHash": "e6364769863dbfa2ca3cc05edf127b6c535d5a136af85776fb9a34352968b475"
+    },
+    "openspec-explore": {
+      "source": "openspec",
+      "sourceType": "github",
+      "skillPath": "skills/explore/SKILL.md",
+      "computedHash": "2b4bd3f3171cdbb46b03050c172bf0dd8c703f37b46ea59737de28e70a2094cb"
+    },
+    "openspec-onboard": {
+      "source": "openspec",
+      "sourceType": "github",
+      "skillPath": "skills/onboard/SKILL.md",
+      "computedHash": "12b7fbe19e2d7fbc7c8874dc281e0aab655bed72eb9e961efb8d2ac28fc1885c"
+    },
+    "openspec-propose": {
+      "source": "openspec",
+      "sourceType": "github",
+      "skillPath": "skills/propose/SKILL.md",
+      "computedHash": "3d993daee500c765ba93a2a5f167e3510c81dc4749e9626361c986f8d2a27f7c"
+    },
+    "openspec-sync-specs": {
+      "source": "openspec",
+      "sourceType": "github",
+      "skillPath": "skills/sync-specs/SKILL.md",
+      "computedHash": "10976095976c6bb53a840f5f6ea74924c3ab2cd21b3fb7c624dc7b28411574fb"
+    },
+    "openspec-verify-change": {
+      "source": "openspec",
+      "sourceType": "github",
+      "skillPath": "skills/verify-change/SKILL.md",
+      "computedHash": "6e55af9ecd207644fd7d993aa1933da30d1595880fe20b67ede7b0d9f646a291"
+    },
+    "project-context": {
+      "source": "bmad",
+      "sourceType": "github",
+      "skillPath": "skills/project-context/SKILL.md",
+      "computedHash": "9e7b95ffd083c8bbd3d760d4a762325bae01953cde2ce5075dc2a57790116418"
+    },
+    "spec-as-source": {
+      "source": "intent-driven-dev/intent-driven-template",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/spec-as-source/SKILL.md",
+      "computedHash": "ed399cfdbbf10985699e3361e5f9e6e152b2f0840c25a91f9b6f029209851b22"
+    },
+    "write-tasks": {
+      "source": "superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/write-tasks/SKILL.md",
+      "computedHash": "d6d8d023b4867597d5e6934c005cccdac08bff3195dec524850713aa2d1f0f5f"
     }
   }
 }
