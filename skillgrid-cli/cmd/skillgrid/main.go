@@ -47,6 +47,10 @@ func main() {
 		fmt.Fprintln(w, `Commands:`)
 		fmt.Fprintln(w, `  install, in   Run full install`)
 		fmt.Fprintln(w, `  sync-repo     Sync git repo contents without full install`)
+	fmt.Fprintln(w, `  mcp           Run the Mnemonic MCP stdio server`)
+	fmt.Fprintln(w, `  serve         Run the Mnemonic HTTP API (default :7438)`)
+	fmt.Fprintln(w, `  index         Incremental code indexing`)
+	fmt.Fprintln(w, `  setup         Install agent plugins (opencode|kilocode|cursor)`)
 		fmt.Fprintln(w, `  help          Show this help`)
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, `Flags (install):`)
@@ -83,7 +87,84 @@ func main() {
 	fs.BoolVar(&vSkipTools, "skip-tools", false, "skip global npm tool install")
 	fs.BoolVar(&vSkipAgents, "skip-agents", false, "skip the ~/.agents override step")
 
-	if err := fs.Parse(reorderArgs(os.Args[1:])); err != nil {
+	args := os.Args[1:]
+
+	// Subcommands own their flags; dispatch on the first bare-arg token
+	// before the install flag set runs (subcommand flags like --dir/--port
+	// are not part of the top-level flag set).
+	rest := args
+	for i, a := range args {
+		if a == "-" || strings.HasPrefix(a, "--") {
+			continue
+		}
+		if isBoolFlagToken(a) {
+			continue
+		}
+		rest = args[i:]
+		break
+	}
+
+	switch rest[0] {
+	case "mcp":
+		runMCP(version, rest[1:])
+		return
+	case "serve":
+		runServe(version, rest[1:])
+		return
+	case "index":
+		runIndex(version, rest[1:])
+		return
+	case "setup":
+		runSetup(version, rest[1:])
+		return
+	case "sync-repo":
+		syncPath := ""
+		if len(rest) >= 2 {
+			syncPath = rest[1]
+		}
+		if syncPath == "" {
+			for _, a := range rest[1:] {
+				if strings.HasPrefix(a, "--sync-repo=") {
+					syncPath = strings.TrimPrefix(a, "--sync-repo=")
+				}
+			}
+		}
+		if syncPath == "" {
+			fmt.Fprintln(os.Stderr, "error: sync-repo requires a PATH argument (see --help)")
+			os.Exit(2)
+		}
+		if h, err := os.UserHomeDir(); err == nil && h != "" {
+			cfg := install.Config{
+				Version:   version,
+				HomeDir:   h,
+				RepoHome:  h + "/.skillgrid",
+				RepoDir:   h + "/.skillgrid/repos/skillgrid",
+				AgentsDir: h + "/.agents",
+			}
+			if err := cfg.SyncRepo(syncPath); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+		} else {
+			if err := syncRepoOnly(version, syncPath); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+		}
+		return
+	case "help", "-h", "--help":
+		fallthrough
+	case "":
+		fs.Usage()
+		return
+	case "install", "in":
+		// continue to install flag parsing below
+	default:
+		fmt.Fprintf(os.Stderr, "error: unknown command %q (see --help)\n", rest[0])
+		os.Exit(2)
+	}
+
+	if err := fs.Parse(reorderArgs(args)); err != nil {
 		os.Exit(2)
 	}
 
@@ -93,7 +174,27 @@ func main() {
 	}
 
 	pos := fs.Args()
-	if len(pos) > 0 && (pos[0] == "help" || pos[0] == "-h" || pos[0] == "--help") {
+
+	// --sync-repo PATH (flag form) — subcommand form handled above.
+	syncPath := vSync
+	if syncPath != "" {
+		home := homeDir()
+		cfg := install.Config{
+			Version:   version,
+			HomeDir:   home,
+			RepoHome:  home + "/.skillgrid",
+			RepoDir:   home + "/.skillgrid/repos/skillgrid",
+			AgentsDir: home + "/.agents",
+		}
+		if err := cfg.SyncRepo(syncPath); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Only run install when explicitly invoked with the "install" subcommand.
+	if len(pos) == 0 || (pos[0] != "install" && pos[0] != "in") {
 		fs.Usage()
 		return
 	}
@@ -121,38 +222,41 @@ func main() {
 		SkipAgentsCopy: vSkipAgents,
 	}
 
-	// --sync-repo PATH (flag form) or "sync-repo PATH" (subcommand form).
-	syncPath := vSync
-	if syncPath == "" && len(pos) >= 2 && pos[0] == "sync-repo" {
-		syncPath = pos[1]
-	}
-	if len(pos) > 0 && pos[0] == "sync-repo" && syncPath == "" {
-		fmt.Fprintln(os.Stderr, "error: sync-repo requires a PATH argument (see --help)")
-		os.Exit(2)
-	}
-	if syncPath != "" {
-		if err := cfg.SyncRepo(syncPath); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	if len(pos) > 0 && pos[0] != "install" && pos[0] != "in" {
-		fmt.Fprintf(os.Stderr, "error: unknown command %q (see --help)\n", pos[0])
-		os.Exit(2)
-	}
-
-	// Only run install when explicitly invoked with the "install" subcommand.
-	if len(pos) == 0 {
-		fs.Usage()
-		return
-	}
-
 	if err := install.Run(&cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+func homeDir() string {
+	h, _ := os.UserHomeDir()
+	return h
+}
+
+func syncRepoOnly(version, syncPath string) error {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	cfg := install.Config{
+		Version:   version,
+		HomeDir:   h,
+		RepoHome:  h + "/.skillgrid",
+		RepoDir:   h + "/.skillgrid/repos/skillgrid",
+		AgentsDir: h + "/.agents",
+	}
+	return cfg.SyncRepo(syncPath)
+}
+
+// isBoolFlagToken reports whether a "-x/--x" token is a known boolean flag
+// (does not consume the following token as its value).
+func isBoolFlagToken(a string) bool {
+	name := a
+	if idx := strings.Index(name, "="); idx >= 0 {
+		return false
+	}
+	name = strings.TrimLeft(name, "-")
+	return boolFlags[name]
 }
 
 // reorderArgs moves flag arguments in front of positional arguments so that

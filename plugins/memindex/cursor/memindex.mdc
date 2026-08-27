@@ -1,0 +1,48 @@
+---
+description: skillgrid MemIndex — memory, code search and web-cache protocol for Cursor agents
+alwaysApply: true
+---
+
+# MemIndex (skillgrid-memindex MCP)
+
+Use the `skillgrid-memindex` MCP server. The store is local SQLite at
+`~/.skillgrid/memindex/`; `skillgrid serve` exposes the same layer over
+`http://127.0.0.1:7438`.
+
+## Memory Protocol
+
+| When | Tool |
+|------|------|
+| Session start / resume | `mem_context` (then `mem_search` if a topic recurs, `mem_get_observation` for full text) |
+| Decision / bugfix / non-obvious discovery / config change / new pattern / learned preference | `mem_save` IMMEDIATELY |
+| Reuse an evolving topic | `mem_save` with the same `topic_key` (upsert, not duplicate) |
+| Unsure of a topic key | `mem_suggest_topic_key` |
+| Ending a session | `mem_session_summary` with Goal / Discoveries / Accomplished / Next Steps / Relevant Files |
+
+`mem_save.type`: standing, preference, convention, decision, bugfix, lesson,
+correction, discovery, session_log (aliases: architecture→decision,
+pattern→convention, config→discovery).
+`mem_save.scope`: project (default), user, global.
+
+## Code Search Ladder
+
+1. `code_status` — check freshness; if stale, `code_index` (or `skillgrid index`).
+2. `code_search(query, limit)` — BM25 full-text search over chunks.
+3. `code_read(path, start_line, end_line)` — full source for chosen hits.
+
+Prefer this ladder over raw grep/rg in unknown areas of a large repo.
+Use grep when you already know the exact identifier or need exhaustive matches.
+
+## Web Research Cache
+
+- `web_cache_lookup(source, cache_key)` BEFORE Context7 / Exa / DeepWiki / web fetch.
+- `web_cache_save(source, cache_key, content, ...)` IMMEDIATELY after the remote call.
+- `web_cache_search(query, fresh_only)` for "what did we find about X online?".
+- `stale: true` → re-fetch and re-save. 256KB cap per entry (summarize first).
+- TTLs: context7 30d, exa 7d, deepwiki 14d, fetch 7d, manual none.
+
+## After compaction
+
+1. IMMEDIATELY `mem_session_summary` to persist pre-compaction work.
+2. `mem_context` to recover additional prior context.
+3. Then continue.

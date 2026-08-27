@@ -2,10 +2,10 @@
 
 ## Epic 1: Storage layer
 
-- [ ] 1-1 Create `internal/memindex/store/` with SQLite schema (sessions, observations, files, chunks, web_cache, meta)
-- [ ] 1-2 Implement FTS5 virtual tables and sync triggers
-- [ ] 1-3 Implement migrations and schema versioning
-- [ ] 1-4 Implement project resolution (git remote URL normalization, fallback)
+- [x] 1-1 Create `internal/memindex/store/` with SQLite schema (sessions, observations, files, chunks, web_cache, meta)
+- [x] 1-2 Implement FTS5 virtual tables and sync triggers
+- [x] 1-3 Implement migrations and schema versioning
+- [x] 1-4 Implement project resolution (git remote URL normalization, fallback)
 
 ## Epic 2: Memory layer
 

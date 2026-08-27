@@ -1,0 +1,29 @@
+profile: intent-driven
+
+mnemonic:
+  include:
+    - "**/*.go"
+    - "**/*.ts"
+    - "**/*.tsx"
+    - "**/*.md"
+  exclude:
+    - "**/node_modules/**"
+    - "**/.git/**"
+    - "**/dist/**"
+    - "**/.skillgrid/**"
+  chunk_lines: 80
+  chunk_overlap: 10
+  web_cache:
+    enabled: true
+    max_entry_bytes: 262144
+    ttl:
+      context7: "720h"
+      exa: "168h"
+      deepwiki: "336h"
+      fetch: "168h"
+    sources:
+      - context7
+      - exa
+      - deepwiki
+      - fetch
+      - manual
