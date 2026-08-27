@@ -1,6 +1,0 @@
-{
-    "magic-npx": {
-      "command": "npx",
-      "args": ["-y", "@magicuidesign/mcp@latest"]
-    }
-}

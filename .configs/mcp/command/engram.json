@@ -1,6 +1,0 @@
-{
-    "engram": {
-        "command": "engram",
-        "args": ["mcp", "--tools=agent"]
-      }
-}
