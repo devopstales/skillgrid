@@ -1,135 +1,155 @@
 ## Workflow
 
-```
-idea -> proposal -> specs -> (design -> adr) -> tasks
-
-AGENTS.md -> proposal/ -> specs/ -> (design, adr) -> "Epic" / "Stories"
-```
-
-### Phase 1: Idea
-
-Before writing any code or generating detailed specs, classify the incoming request or idea into one of three paths. This "right-sizing" ensures you don't over-process simple fixes or under-plan complex architectures.
-
-* Primary Agents: Analyst or PM
-* Required Skills:
-    * `project-context` (BMAD) -> AGENTS.md
-    * `brainstorming` (Superpowers) -> spec
-    * `grilling`
-* Artifacts:
-    * "Project Cotext": AGENTS.md or opensec config
-    * "Specs":
-
-### Phase 2: Proposal (The "Why")
-
-Before generating implementation details, you must explicitly capture the intent. This prevents AI from solving the wrong problem.
-
-* Primary Agents: Analyst or PM
-* Required Workflows:
-    * `forge-idea` (BMAD): Helps refine the raw idea into a structured proposal.md document stored in `openspec/changes/<id>/`.
-* Artifacts:
-    * "Proposal": Document why the change matters.
-
-### Phase 3: Specification (The "What")
-
-This is the core of the workflow. You must define observable behavior and ensure that specification context travels with the implementation plan.
-
-* Primary Agents: PM
-* Required Skills:
-    * `gherkin-authoring` (intent-driven-template): Authoring the Gherkin scenarios themselves.
-    * `acceptance-test-authoring` (intent-driven-template): Turning specs into acceptance tests.
-* Artifacts:
-    * "Specs": Define the expected behavior using testable, Gherkin-style scenarios (Given/When/Then).
-* Test Mapping: Every Gherkin scenario MUST map 1:1 to a runnable acceptance test (via `acceptance-test-authoring`). The Phase 7 verification gate executes these tests — a scenario with no runnable test is not a verified scenario.
-
-### Phase 4: Design & Architectural Decisions (The "How")
-
-Translate the spec into a technical reality while preserving decisions for future AI context windows.
-
-* Primary Agents: Architect
-* Required Skills:
-    * `build` (BMAD, Design Phase): Winston analyzes the specs and generates data flow diagrams, API contracts, and trade-off analyses.
-    * `writing-designs` (Superpowers) -> design
-* Artifacts:
-    * "Design Document": Explain the implementation approach, data flows, and technical trade-offs.
-    * "Architectural Decision Records" (ADRs): Explicitly record durable decisions (e.g., "We chose vector DB X over Y because..."). This prevents the AI from re-explaining or re-deriving these choices in every chat session.
-
-### Phase 5: Task Planning
-
-Break the design down into actionable work, but handle conflicts with a "never-stall" doctrine.
-
-* Primary Agents: Architect
-* Required Skills:
-    * `writing-designs` (Superpowers, renamed writing-plans): Translates the design into a strict, step-by-step execution plan. It enforces DRY, YAGNI, and ensures no "placeholder" code is left in the instructions.
-* Artifacts:
-    * Task Generation: Turn the accepted intent, behavior, and design into discrete, actionable tasks.
-    * "Epic" / "Stories"
-
-### Phase 6: Dispatch & Execution (Subagent-Driven Development)
-
-Execute the tasks using specialized AI coding agents, optimizing for efficiency and token usage.
-
-* Primary Skill (The Controller): 
-    * `subagent-driven-development` (SDD) (Superpowers). This is the master orchestrator. It reads the Traveling Spec, sets up the .skillgrid/sdd/ workspace, and dispatches subagents.
-    * `executing-designs` (Superpowers, renamed executing-plans) to implement this design task-by-task.
-* Supporting Skills:
-    * `using-git-worktrees` (Superpowers): Ensures the AI builds in an isolated git worktree so it doesn't corrupt your main branch.
-
-* Context Loading: Pass the "traveling spec," ADRs, and design documents to the implementation agents.
-* Batching Micro-Tasks: Do not dispatch a new agent for every 1-line change. Batch small, same-shape tasks (e.g., updating a constant across 10 files) into a single dispatch to reduce context-switching overhead and cost.
-* Review Loop: Implementation agents write the code; separate "Reviewer" agents check the output against the Gherkin scenarios defined in Phase 3.
-
-### Phase 7: Review, Correction, and Learning
-
-AI-driven development is an iterative loop, not a one-way street.
-
-* Primary Skills:
-    * `verification-before-completion` (Superpowers): A hard gate that forces the AI to prove the code works against the Gherkin specs before it is allowed to claim the task is done.
-    * `requesting-code-review` & `receiving-code-review` (Superpowers): Dispatches a separate "Reviewer" subagent to check the Implementer's code. The reviewer evaluates the diff against the spec, not the session history.
-    * `systematic-debugging` (Superpowers): Triggered only if tests fail. It forces the AI to find the root cause rather than guessing.
-    * `finishing-a-development-branch` (Superpowers): Handles the PR creation, merging, and crucially, deletes the ephemeral .skillgrid/sdd/ workspace.
-
-* Validation: Ensure the implemented code matches the observable behavior defined in the specs, not just the literal instructions.
-* Correction: If the AI hallucinates or drifts, correct the behavior and update the ADR or Spec to prevent the same error in the future.
-* Durable Context: Ensure that all corrections and new knowledge are saved as durable context. The AI should "learn" from the project history so it doesn't repeat mistakes in future sessions.
-
-## File Structure
 
 ```
-openspec/
-└── changes/            # Per-change traveling artifacts
-    └── <id>/
-        ├── idea.md     # The "Intent" (Raw intent + right-sizing)
-        ├── proposal.md # The "Why" (Business value, scope)
-        ├── specs/      # The "What" (Gherkin scenarios)
-        ├── design.md   # The "How" (Architecture, conditional)
-        ├── adr.md      # Architectural Decision Records
-        └── tasks.md    # Implementation tasks for SDD
-
+proposal → specs → design → adr → tasks
 ```
 
-```
-.skillgrid/          # Hidden from normal view
-└── sdd/               # Subagent-Driven Development workspace
-    └── 001-guest-checkout/    # Plan-scoped (deleted after merge)
-        ├── plan.md            # Master execution plan
-        ├── ledger.md          # Conflict rulings (never-stall)
-        ├── task-briefs/       # Context for implementer subagents
-        ├── review-packages/   # Context for reviewer subagents
-        └── finish-report.md   # Final summary + all rulings surfaced
+```bash
+workflow:
+  proposal:
+    -> openspec/changes/<change-id>/proposal.md
+  specs:
+    -> openspec/changes/<change-id>/specs/<spec-id>/spec.md
+  design:
+    -> openspec/changes/<change-id>/design.md
+  adr:
+    -> openspec/changes/<change>/adr.md
+    -> openspec/adr/YYYY-MM-DD-<topic>.md
+  tasks:
+    -> openspec/changes/<change-id>/tasks.md
 ```
 
+```bash
+openspec/adr/YYYY-MM-DD-<topic>.md
+openspec/changes/archive/
+openspec/changes/<change-id>/
+openspec/changes/<change-id>/adr.md
+openspec/changes/<change-id>/design.md
+openspec/changes/<change-id>/proposal.md
+openspec/changes/<change-id>/tasks.md
+openspec/changes/<change-id>/specs/
+openspec/changes/<change-id>/specs/<spec-id>/spec.md
 ```
-.worktrees/
-```
 
-* Deep research
-* automated testing (100% covarage)
-* documentation
+## Artifact Map
 
-* Spec Driven Development
-* Test Driven Development
-* Intent Driven Development
+| Workflow Stage | Skill | Creates | From Template |
+|----------------|-------|---------|---------------|
+| setup | project-context | `AGENTS.md` | — |
+| setup | project-context | `openspec/config.yaml` | — |
+| proposal | brainstorming | `openspec/changes/<change-id>/proposal.md` | `openspec/schemas/intent-driven/templates/proposal.md` |
+| specs | spec-as-source | `openspec/changes/<change-id>/specs/<spec-id>/spec.md` | `.agents/skills/spec-as-source/references/spec.md` |
+| design | brainstorming | `openspec/changes/<change-id>/design.md` | `openspec/schemas/intent-driven/templates/design.md` |
+| adr | architectural-decision-records | `openspec/changes/<change-id>/adr.md` | `openspec/schemas/intent-driven/templates/adr.md` |
+| adr | architectural-decision-records | `openspec/adr/YYYY-MM-DD-<topic>.md` | `.agents/skills/architectural-decision-records/templates/` (mad full/minimal, nygard, y-statement, custom) |
+| tasks | write-tasks | `openspec/changes/<change-id>/tasks.md` | `openspec/schemas/intent-driven/templates/tasks.md` |
 
-* memory
-* index
-* browser automatization
+## Pending Decision: Ownership of proposal.md and design.md
+
+**Conflict discovered** (2026-08-27): Two skills claim to author `openspec/changes/<change-id>/proposal.md` and `design.md`:
+
+| Skill | Origin | What it does with these files |
+|-------|--------|-------------------------------|
+| `brainstorming` | superpowers (adapted, `.agents/skills/brainstorming/SKILL.md`) | Dialogue-first authoring: classify spike/bounded/architectural, ask questions, propose 2-3 approaches, get per-section approval, then write proposal.md + design.md (lines 100-101) |
+| `openspec-propose` | OpenSpec native (`.agents/skills/openspec-propose/SKILL.md`) | One-shot generation: derive change name from request, run `openspec new change`, follow schema-driven artifact pipeline via `openspec instructions` — creates proposal.md, specs, design.md, tasks.md in a single workflow (lines 18-21) |
+
+Both are legitimate; the question is which workflow owns the **proposal and design stages** while the other stays out of the way.
+
+### Proposal A — brainstorms own authoring, openspec-propose demoted to scaffolding only (current state)
+
+**Rules:**
+- `brainstorming` is the sole author of `proposal.md` and `design.md` for new changes (architectural path).
+- `openspec-propose` may still run `openspec new change` for directory/metadata scaffolding (`.openspec.yaml`), but its artifact-generation steps are skipped when a `brainstorming` run has already produced the artifacts.
+- `openspec-explore` stays as the in-flight amendment path (edits proposal.md on scope change, design.md on design decisions).
+
+**Pros:**
+- Preserves the approval gate (HARD-GATE) — user sees each design section before anything is written.
+- Two-approach proposals with tradeoffs give the user real choice, vs. one-shot generation.
+- Matches the `AGENTS.md` preference of "think before coding".
+
+**Cons:**
+- Two overlapping skills — new agents may not know which to invoke; the `openspec-propose` description invites it strongly ("Use when the user wants to quickly describe what they want to build and get a complete proposal").
+- More steps in the loop for simple changes; brainstorming's ceremonial overhead.
+- `openspec-propose` is version-managed by OpenSpec — upstream updates could re-introduce the conflict.
+
+**Mitigations:**
+- Edit `openspec-propose` description to "Scaffold a change directory. Use only to create/change directories; `brainstorming` authors the artifacts. (local patch)"
+- Add a line to `openspec/config.yaml` proposal stage: "Author: brainstorming; scaffolding: openspec-propose"
+- Track the local patch in `AGENTS.md` so refreshes don't silently revert it.
+
+### Proposal B — openspec-propose owns the full artifact pipeline; brainstorming kept only for spike/bounded paths
+
+**Rules:**
+- `openspec-propose` runs end-to-end: proposal.md → specs → design.md → tasks.md.
+- `brainstorming` shrinks to a pre-flight dialogue skill: spike and bounded paths only (no file writes). Architectural work goes straight to `openspec-propose`.
+- Approval gate moves into `openspec/config.yaml` proposal rules: "User must approve each generated artifact before the next is created."
+
+**Pros:**
+- One authoritative artifact pipeline — no duplication, fewer steps for new agents to learn.
+- Schema-driven (`openspec instructions`) — adding a new artifact type (e.g., `adr.md` in the pipeline) is a schema change, not a skill edit.
+- Upgrades cleanly with OpenSpec releases.
+- Aligns with the `intent-driven-template` function set where `spec-as-source` already owns spec authoring via OpenSpec conventions.
+
+**Cons:**
+- One-shot generation loses the per-section approval gate the `brainstorming` HARD-GATE enforces; users may find themselves approving a full design they didn't shape.
+- The "2-3 approaches with tradeoffs" step is lost — the pipeline produces one design.
+- `AGENTS.md` rule "Think before coding / simplicity first" is weakened for the most consequential changes (architectural).
+
+**Mitigations:**
+- Keep `brainstorming` as an optional pre-step that runs *before* `openspec-propose` when the user wants approach-level tradeoffs; it contributes a requirements brief that `openspec-propose` consumes.
+- Add a `config.yaml` rule: "After generation, present each artifact for approval before implementation tasks are written."
+
+### Proposal C — hybrid: separate the concerns by artifact type, not by workflow
+
+**Rules:**
+- `brainstorming` owns **proposal.md** (what & why) — its strength is intent discovery.
+- `openspec-propose` owns **design.md + specs + tasks.md** generation — its strength is schema-driven, one-shot artifact authoring.
+- Pipeline: `brainstorming` (dialogue → approved proposal) → `openspec new change` scaffolding → `openspec-propose` (generates design/specs/tasks from the approved proposal) → `architectural-decision-records` (ADR stage) → `write-tasks` refines tasks.md.
+- `openspec-explore` remains the amendment path for all artifacts mid-change.
+
+**Pros:**
+- Each skill does what it's best at; no step is lost.
+- The approval gate survives (it's on the proposal, which is the most important artifact to align on before downstream generation).
+- Downstream artifacts (design/specs/tasks) are generated consistently from the schema — fewer freeform writes.
+- The `brainstorming` architectural path shrinks to one artifact, which simplifies its checklist (steps 6-10 collapse to step 6, then hand off).
+
+**Cons:**
+- Two skills still involved in planning — the handoff between them must be explicit (approved proposal.md is the handoff contract).
+- `openspec-propose` currently generates proposal.md itself; a local patch is needed to allow it to skip the proposal and consume the existing one (or rely on `openspec instructions` per-artifact generation).
+- Most complex ruleset — new agents need to know the handoff contract.
+
+**Mitigations:**
+- Update `brainstorming` step 10: hand off with "Approved proposal at `openspec/changes/<id>/proposal.md`. Next: invoke `openspec-propose` restricted to design+specs+tasks."
+- Patch `openspec-propose` step 5-6 to detect an existing approved `proposal.md` and skip regeneration (check `openspec status --json` for `done` proposal before regenerating it).
+- Record the handoff contract in `AGENTS.md` under Pitfalls.
+
+### Comparison
+
+| Criterion | A: brainstorming owns | B: openspec-propose owns | C: hybrid split |
+|-----------|:---------------------:|:------------------------:|:---------------:|
+| Approval gate preserved | ✅ | ⚠️ weakened | ✅ |
+| Approach tradeoffs | ✅ | ❌ | ✅ (on proposal) |
+| Single pipeline clarity | ❌ two paths | ✅ | ⚠️ handoff contract |
+| Upstream upgrade safety | ❌ local patches | ✅ | ⚠️ one local patch |
+| Fits intent-driven-template | ⚠️ | ✅ | ✅ |
+| Agent-learning cost | low | lowest | high |
+
+**Decision (TBD — awaiting user choice):** A, B, or C
+
+## Functions
+
+* intent-driven-template
+  * test driven development
+  * acceptance-test
+  * gherkin - BDD
+* BMAD
+  * [X] project-context -> AGENTS.md and openspec/config.yaml
+* superpowers
+  * [X] brainstorming
+  * [x] write-tasks
+  * micro commits - commit as checkpoint
+  * git worktree
+    * https://intent-driven.dev/blog/2026/04/01/openspec-git-worktrees-opencode/
+    * subagent-driven-development
+    * executing-plans

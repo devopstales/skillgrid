@@ -26,6 +26,17 @@ Do not use ADRs for transient implementation details, meeting notes, or insignif
 7. Write honest consequences: benefits, downsides, follow-up.
 8. Preserve history: supersede old accepted ADRs; do not rewrite them away.
 
+## Output Locations
+
+When active inside a Skillgrid repository, write ADR artifacts to these locations:
+
+- **Change-scoped ADR Review Manifest**: `openspec/changes/<change-id>/adr.md`
+  - Use the template at `openspec/schemas/intent-driven/templates/adr.md`
+  - Lists the in-force ADRs reviewed for this change and any new durable ADRs created; do not duplicate full Context/Decision/Consequences content into it
+- **Repository-level durable ADR**: `openspec/adr/YYYY-MM-DD-<topic>.md`
+  - One file per architecturally significant decision
+  - Use the matching template under `templates/`
+
 ## Template Choice
 
 | Situation | Template |
