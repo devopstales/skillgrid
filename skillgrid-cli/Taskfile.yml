@@ -1,0 +1,80 @@
+# Taskfile for skillgrid-cli (https://taskfile.dev).
+#
+#   task              build the local platform binary into dist/
+#   task all          cross-build linux (amd64+386) and darwin (amd64+arm64)
+#   task test         go vet && go test ./...
+#   task fmt          gofmt -w the whole module
+#   task clean        remove dist/
+#   task install      copy dist/skillgrid-linux-amd64 → ~/.skillgrid/bin/skillgrid
+#   task version      show the version that would be baked in
+#
+# Version is derived from `git describe --tags --always --dirty`.
+# Override with SKILLGRID_VERSION=vX.Y.Z env.
+
+version: "3"
+
+vars:
+  BIN: skillgrid
+  OUT: dist
+  PKG: ./cmd/skillgrid
+  VERSION:
+    sh: echo "${SKILLGRID_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)}"
+
+tasks:
+  default:
+    cmds:
+      - task: build
+
+  build:
+    desc: Build the local platform binary into dist/.
+    cmds:
+      - mkdir -p {{.OUT}}
+      - go build -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.OUT}}/{{.BIN}} {{.PKG}}
+
+  all:
+    desc: Cross-build linux amd64+386 and darwin amd64+arm64.
+    cmds:
+      - mkdir -p {{.OUT}}
+      - task: build-linux
+      - task: build-darwin
+
+  build-linux:
+    desc: Build linux binaries (amd64 + 386).
+    cmds:
+      - GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.OUT}}/{{.BIN}}-linux-amd64 {{.PKG}}
+      - GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.OUT}}/{{.BIN}}-linux-386 {{.PKG}}
+
+  build-darwin:
+    desc: Build macOS binaries (amd64 + arm64).
+    cmds:
+      - GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.OUT}}/{{.BIN}}-darwin-amd64 {{.PKG}}
+      - GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.OUT}}/{{.BIN}}-darwin-arm64 {{.PKG}}
+
+  test:
+    desc: Run go vet and go test ./...
+    cmds:
+      - go vet ./...
+      - go test ./...
+
+  fmt:
+    desc: gofmt -w the whole module.
+    cmds:
+      - gofmt -l -w .
+
+  clean:
+    desc: Remove dist/.
+    cmds:
+      - rm -rf {{.OUT}}
+
+  version:
+    desc: Show the version that would be baked in.
+    cmds:
+      - echo {{.VERSION}}
+
+  install:
+    desc: Install the linux-amd64 binary into ~/.skillgrid/bin (after `task all`).
+    cmds:
+      - mkdir -p "$HOME/.skillgrid/bin"
+      - cp {{.OUT}}/{{.BIN}}-linux-amd64 "$HOME/.skillgrid/bin/{{.BIN}}"
+      - chmod +x "$HOME/.skillgrid/bin/{{.BIN}}"
+      - echo "installed to $HOME/.skillgrid/bin/{{.BIN}}"
