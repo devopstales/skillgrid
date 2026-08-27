@@ -15,5 +15,5 @@ install*.sh*
 .skillgrid/acceptance-tests/.extracted/
 .skillgrid/acceptance-tests/reports/
 
-# skillgrid-cli build artifacts (keep sources under skillgrid-cli/)
-skillgrid-cli/dist/
+# skillgrid-cli build artifacts (Taskfile at repo root builds into dist/)
+/dist/

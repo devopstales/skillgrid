@@ -3,11 +3,33 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/install"
 )
+
+// flagShorthands maps long flag names to their shorthand aliases.
+var flagShorthands = map[string]string{
+	"version":    "v",
+	"skip-clone": "s",
+	"sync-repo":  "n",
+	"verbose":    "vv",
+	"yes":        "y",
+}
+
+// boolFlags lists every boolean flag name (long + shorthand).
+var boolFlags = map[string]bool{
+	"version": true, "v": true,
+	"skip-clone": true, "s": true,
+	"dry-run": true,
+	"verbose": true, "vv": true,
+	"yes": true, "y": true,
+	"skip-tools":  true,
+	"skip-agents": true,
+}
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
 var version = "0.1.0-dev"
@@ -20,13 +42,15 @@ func main() {
 		fmt.Fprintln(w, `skillgrid — install the AI-assisted development hub`)
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, `Usage:`)
-		fmt.Fprintln(w, `  skillgrid [flags]                 install into this machine (default)`)
-		fmt.Fprintln(w, `  skillgrid sync-repo PATH [flags]  sync a repo PATH into ~/.skillgrid and override ~/.agents`)
-		fmt.Fprintln(w, `  skillgrid --version             print version`)
-		fmt.Fprintln(w, `  skillgrid --help                show this help`)
+		fmt.Fprintln(w, `  skillgrid <command> [flags]`)
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, `Flags:`)
-		fs.PrintDefaults()
+		fmt.Fprintln(w, `Commands:`)
+		fmt.Fprintln(w, `  install, in   Run full install`)
+		fmt.Fprintln(w, `  sync-repo     Sync git repo contents without full install`)
+		fmt.Fprintln(w, `  help          Show this help`)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, `Flags (install):`)
+		printFlags(fs, w)
 	}
 
 	var (
@@ -43,23 +67,23 @@ func main() {
 		vSkipAgents bool
 	)
 	fs.BoolVar(&vVersion, "version", false, "print version and exit")
-	fs.BoolVar(&vVersion, "V", false, "shorthand for --version")
+	fs.BoolVar(&vVersion, "v", false, "shorthand for --version")
 	fs.BoolVar(&vSkip, "skip-clone", false, "skip the git clone step")
 	fs.BoolVar(&vSkip, "s", false, "shorthand for --skip-clone")
-	fs.StringVar(&vSync, "sync-repo", "", "sync this repo path into ~/.skillgrid and override ~/.agents")
+	fs.StringVar(&vSync, "sync-repo", "", "sync a repo path into ~/.skillgrid/repos/skillgrid")
+	fs.StringVar(&vSync, "n", "", "shorthand for --sync-repo")
 	fs.StringVar(&vRepoURL, "repo-url", install.DefaultRepoURL, "git URL to clone")
 	fs.StringVar(&vBranch, "branch", install.DefaultBranch, "branch to check out")
 	fs.BoolVar(&vDry, "dry-run", false, "print planned changes without writing")
-	fs.BoolVar(&vDry, "n", false, "shorthand for --dry-run")
 	fs.BoolVar(&vVerbose, "verbose", false, "print detailed changes (MCP entries etc.)")
-	fs.BoolVar(&vVerbose, "l", false, "shorthand for --verbose (long)")
+	fs.BoolVar(&vVerbose, "vv", false, "shorthand for --verbose")
 	fs.BoolVar(&vYes, "yes", false, "skip interactive prompts (default agent selection)")
 	fs.BoolVar(&vYes, "y", false, "shorthand for --yes")
 	fs.StringVar(&vAgents, "agents", "", "comma-separated agent keys (opencode,kilo,cursor)")
 	fs.BoolVar(&vSkipTools, "skip-tools", false, "skip global npm tool install")
 	fs.BoolVar(&vSkipAgents, "skip-agents", false, "skip the ~/.agents override step")
 
-	if err := fs.Parse(os.Args[1:]); err != nil {
+	if err := fs.Parse(reorderArgs(os.Args[1:])); err != nil {
 		os.Exit(2)
 	}
 
@@ -114,16 +138,52 @@ func main() {
 		return
 	}
 
-	if len(pos) > 0 && pos[0] != "install" {
+	if len(pos) > 0 && pos[0] != "install" && pos[0] != "in" {
 		fmt.Fprintf(os.Stderr, "error: unknown command %q (see --help)\n", pos[0])
 		os.Exit(2)
 	}
 
-	// Default action: install.
+	// Only run install when explicitly invoked with the "install" subcommand.
+	if len(pos) == 0 {
+		fs.Usage()
+		return
+	}
+
 	if err := install.Run(&cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// reorderArgs moves flag arguments in front of positional arguments so that
+// `skillgrid install --skip-clone` parses like `skillgrid --skip-clone install`.
+func reorderArgs(args []string) []string {
+	var flags, positional []string
+	seenSep := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" && !seenSep {
+			seenSep = true
+			positional = append(positional, a)
+			continue
+		}
+		if seenSep || !strings.HasPrefix(a, "-") {
+			positional = append(positional, a)
+			continue
+		}
+		if idx := strings.Index(a, "="); idx >= 0 {
+			flags = append(flags, a)
+			continue
+		}
+		name := strings.TrimLeft(a, "-")
+		isBool := boolFlags[name]
+		flags = append(flags, a)
+		if !isBool && i+1 < len(args) {
+			flags = append(flags, args[i+1])
+			i++
+		}
+	}
+	return append(flags, positional...)
 }
 
 func parseAgents(s string) []string {
@@ -135,4 +195,42 @@ func parseAgents(s string) []string {
 		}
 	}
 	return out
+}
+
+// printFlags prints all flags with double-dash long form, sorted alphabetically.
+func printFlags(fs *flag.FlagSet, w io.Writer) {
+	type entry struct {
+		name      string
+		usage     string
+		defValue  string
+		shorthand string
+	}
+	var entries []entry
+	fs.VisitAll(func(f *flag.Flag) {
+		// Skip shorthand-only entries (length 1 or known shorthands)
+		if len(f.Name) == 1 || f.Name == "vv" {
+			return
+		}
+		sh, _ := flagShorthands[f.Name]
+		entries = append(entries, entry{
+			name:      f.Name,
+			usage:     f.Usage,
+			defValue:  f.DefValue,
+			shorthand: sh,
+		})
+	})
+
+	sort.Slice(entries, func(i, j int) bool { return entries[i].name < entries[j].name })
+
+	for _, e := range entries {
+		prefix := fmt.Sprintf("  --%s", e.name)
+		if e.shorthand != "" {
+			prefix = fmt.Sprintf("  -%s, --%s", e.shorthand, e.name)
+		}
+		if e.defValue != "" && e.defValue != "false" && e.defValue != "0" {
+			fmt.Fprintf(w, "%-24s %s\n", prefix, e.usage+" (default "+fmt.Sprintf("%q", e.defValue)+")")
+		} else {
+			fmt.Fprintf(w, "%-24s %s\n", prefix, e.usage)
+		}
+	}
 }

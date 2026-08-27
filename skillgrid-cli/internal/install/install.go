@@ -166,16 +166,18 @@ func selectAgents(c *Config) error {
 		VerboseOut(c, "default selection (yes mode): opencode, kilo, cursor")
 		return nil
 	}
+	if !ui.Interactive() {
+		c.Agents = []string{"opencode", "kilo"}
+		VerboseOut(c, "non-interactive default: opencode, kilo")
+		return nil
+	}
 
 	agents := AvailableAgents()
 	opts := make([]ui.Option, len(agents))
-	defaults := map[string]bool{"opencode": true, "kilo": true, "cursor": false}
 	for i, a := range agents {
 		opts[i] = ui.Option{
-			Label:   a.Name,
-			Value:   a.Key,
-			Default: defaults[a.Key],
-			Hint:    a.Hint,
+			Label: a.Name,
+			Value: a.Key,
 		}
 	}
 	selected, _, err := ui.MultiSelect("Install skillgrid for which agents? (a=all, q=cancel)", opts)
@@ -183,7 +185,8 @@ func selectAgents(c *Config) error {
 		return err
 	}
 	if len(selected) == 0 {
-		return fmt.Errorf("no agents selected")
+		VerboseOut(c, "no agents selected — skipping agent install")
+		return nil
 	}
 	c.Agents = selected
 	return nil

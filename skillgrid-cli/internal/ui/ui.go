@@ -19,6 +19,40 @@ func init() {
 	}
 }
 
+// Letter returns a/a-letter for the option at index i (a, b, c, ...).
+func Letter(i int) rune { return rune('a' + i) }
+
+// IsTTY reports whether both stdin and stdout are TTYs. When false, we
+// cannot prompt at all and should default silently (CI, pipe, etc).
+func IsTTY() bool {
+	if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&fs.ModeDevice == 0 {
+		return false
+	}
+	if fi, err := os.Stdin.Stat(); err != nil || fi.Mode()&fs.ModeDevice == 0 {
+		return false
+	}
+	return true
+}
+
+// FancyUI reports whether the terminal supports cursor-positioning escapes.
+// Requires a TTY plus a capable TERM and no NO_COLOR/SKILLGRID_PLAIN.
+func FancyUI() bool {
+	if !IsTTY() {
+		return false
+	}
+	if os.Getenv("NO_COLOR") != "" || os.Getenv("SKILLGRID_PLAIN") != "" {
+		return false
+	}
+	term := os.Getenv("TERM")
+	if term == "" || term == "dumb" || term == "linux" {
+		return false
+	}
+	return true
+}
+
+// Interactive reports whether we can prompt at all (both fds are TTYs).
+func Interactive() bool { return IsTTY() }
+
 // C wraps s with an ANSI color code (open) + reset when a TTY is available.
 func C(open, s string) string {
 	if !ttyColor {
