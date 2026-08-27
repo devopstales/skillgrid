@@ -27,6 +27,8 @@ Read `AGENTS.md`, harness or agent specific rule files, docs folders, and any no
 
 Rules to follow regardless of what the repo does: governance, security and compliance, coding standards, style guides, frozen areas. Ask for outside documents too — handbooks, wikis, architecture docs, MCP knowledgebases. Note the paths; do not read them yet.
 
+Also establish the **acceptance stack**: ask whether the project runs acceptance tests with `javascript` (cucumber-js) or `python` (behave). Record it as `stack:` in `openspec/config.yaml` when the user answers. If the user defers, add `stack: # javascript | python (choose before first acceptance run)` as a placeholder line and flag it as a TODO for the first `spec-as-source` run. Never guess silently — `acceptance-test-authoring` refuses to scaffold without a recorded value.
+
 Greenfield: this is the whole content. Brownfield: it is the half no scan reaches.
 
 ### 3. Discover and verify
@@ -48,7 +50,7 @@ Only what no scan reaches: what agents keep getting wrong here, what is off limi
 
 ### 5. Show the block, then write it
 
-Compose against `AGENTS.md` and `openspec/config.yaml` templates. For each candidate, ask first whether a hook, lint rule, or CI check enforces it better than prose; if so propose the check, and the line becomes the fallback if they decline.
+Compose against `AGENTS.md` and `openspec/config.yaml` (with `schema:`, `context:`, `stack:`, and per-stage `rules:`). For each candidate, ask first whether a hook, lint rule, or CI check enforces it better than prose; if so propose the check, and the line becomes the fallback if they decline.
 
 **Show the complete block before writing it**, and every child block alongside it — one approval covers the set. On approval, splice between the markers, leaving everything outside them byte-identical. Fill each provenance line with today's date and the verified SHA.
 

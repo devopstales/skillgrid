@@ -12,3 +12,5 @@ install*.sh*
 .skillgrid/tasks/*.md
 .skillgrid/tasks/events/*.jsonl
 .skillgrid/tasks/events/*.json
+.skillgrid/acceptance-tests/.extracted/
+.skillgrid/acceptance-tests/reports/
