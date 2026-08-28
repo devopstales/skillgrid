@@ -1,14 +1,23 @@
+# Tools
 
+## Validate
 
 * Excalidraw
 * v0
 * deep research
 * deepseak harness
-
-
-* skills
-* mcp-installer
-* openspec
 * Backlog.md
 * beads
 * chloe
+
+
+## Selected
+
+* [X] openspec
+* [X] skills
+* mcp-installer
+* [?] engram
+* [ ] agent-browser
+* [ ] playwright
+* contextmode
+* girafe

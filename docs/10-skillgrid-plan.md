@@ -1,52 +1,5 @@
-## Workflow
 
-
-```
-proposal → specs → design → adr → tasks
-```
-
-```bash
-workflow:
-  proposal:
-    -> openspec/changes/<change-id>/proposal.md
-  specs:
-    -> openspec/changes/<change-id>/specs/<spec-id>/spec.md
-  design:
-    -> openspec/changes/<change-id>/design.md
-  adr:
-    -> openspec/changes/<change>/adr.md
-    -> openspec/adr/YYYY-MM-DD-<topic>.md
-  tasks:
-    -> openspec/changes/<change-id>/tasks.md
-```
-
-```bash
-openspec/adr/YYYY-MM-DD-<topic>.md
-openspec/changes/archive/
-openspec/changes/<change-id>/
-openspec/changes/<change-id>/adr.md
-openspec/changes/<change-id>/design.md
-openspec/changes/<change-id>/proposal.md
-openspec/changes/<change-id>/tasks.md
-openspec/changes/<change-id>/specs/
-openspec/changes/<change-id>/specs/<spec-id>/spec.md
-```
-
-## Artifact Map
-
-| Workflow Stage | Skill | Creates | From Template |
-|----------------|-------|---------|---------------|
-| setup | project-context | `AGENTS.md` | — |
-| setup | project-context | `openspec/config.yaml` (incl. `stack:` for acceptance) | — |
-| proposal | brainstorming | `openspec/changes/<change-id>/proposal.md` | `openspec/schemas/intent-driven/templates/proposal.md` |
-| specs | spec-as-source + gherkin-authoring | `openspec/changes/<change-id>/specs/<spec-id>/spec.md` | `.agents/skills/spec-as-source/references/spec.md` (fenced Gherkin — overrides schema template) |
-| acceptance | acceptance-test-authoring (per `stack:`) | `.skillgrid/acceptance-tests/` (runner, step defs, page objects) | `.agents/skills/acceptance-test-authoring/references/<stack>/SETUP.md` |
-| design | brainstorming | `openspec/changes/<change-id>/design.md` | `openspec/schemas/intent-driven/templates/design.md` |
-| adr | architectural-decision-records | `openspec/changes/<change-id>/adr.md` | `openspec/schemas/intent-driven/templates/adr.md` |
-| adr | architectural-decision-records | `openspec/adr/YYYY-MM-DD-<topic>.md` | `.agents/skills/architectural-decision-records/templates/` (mad full/minimal, nygard, y-statement, custom) |
-| tasks | write-tasks | `openspec/changes/<change-id>/tasks.md` | `openspec/schemas/intent-driven/templates/tasks.md` |
-
-## Functions
+## Functions Skills
 
 * intent-driven-template
   * test driven development
@@ -57,15 +10,29 @@ openspec/changes/<change-id>/specs/<spec-id>/spec.md
 * BMAD
   * [X] `project-context` -> AGENTS.md and openspec/config.yaml
 * superpowers
+  * [-] `using-superpowers` like skill -> trigger `brainstorming`
   * [X] `brainstorming`
   * [x] `write-tasks`
   * validation
-  * use-superpowers like skill
   * micro commits - commit as checkpoint
   * git worktree
     * https://intent-driven.dev/blog/2026/04/01/openspec-git-worktrees-opencode/
     * subagent-driven-development
     * executing-plans
+* mattpocock
+  * `grill-me`
+  * `domain-modeling`
+  * `setup-matt-pocock-skills`
+  * `to-tickets`
+
+## Mempory
+
+* engram
+  * bin
+  * mcp
+  * plugin
+  * skills
+  * rulesqq
 * mnemonic
   * mcp
   * api
@@ -73,3 +40,39 @@ openspec/changes/<change-id>/specs/<spec-id>/spec.md
   * skills like engram
   * integrate to skills like engram in gente-ai
   * plugin like engram
+
+## MCP
+
+## Plugins
+
+* engram
+* superpowers
+* mnemonic
+* skilgrid
+
+## Rules
+
+* AI discipline
+  * AGENTS.md
+  * rule files
+* rules
+  * engorce commit mesage
+  * engorce openspec like backlogmd do
+  * mnemonic like engram
+  - For OpenSpec propose/apply/verify/archive workflows, use the local `openspec-git-discipline` skill to enforce proposal commits before apply and merge-before-archive discipline.
+
+
+
+# TODO
+
+document workflows:
+  - openspec workflow
+  - skillgrid workflow
+
+paths in skills
+integrate openspec into skillgrid skills
+integrate mnemonic into skillgrid skills like engram
+
+~/.config/superpowers/hooks/
+write-pla
+write-tasks
