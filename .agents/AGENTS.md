@@ -21,6 +21,7 @@ Don't assume. Don't hide confusion. Surface tradeoffs.
 - If multiple interpretations exist, present them — don't pick silently.
 - If a simpler approach exists, say so. Push back when warranted.
 - If something is unclear, stop. Name what's confusing. Ask.
+- **Before writing any code, check for applicable skills and invoke them first.** No exceptions for "simple" tasks. If a skill exists for the work, use it.
 
 ## 2. Simplicity First
 

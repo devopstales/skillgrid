@@ -23,7 +23,7 @@ Example:
 | Account | A registered customer identity that owns profile, billing, and access settings. | Referring to the customer identity in product workflows. | Using for a bank account, login session, or internal staff user. |
 ```
 
-Use glossary entries for project-specific language. Avoid generic dictionary
+Use skillgrid:glossary entries for project-specific language. Avoid generic dictionary
 words and one-off implementation details.
 
 ## Companion Reference Files
@@ -72,7 +72,7 @@ formatting would reduce readability.
 
 ## Framework Usage
 
-The glossary skill is framework-agnostic. It can be used with any documentation,
+The skillgrid:glossary skill is framework-agnostic. It can be used with any documentation,
 specification, planning, or requirements workflow where terminology consistency
 matters.
 
@@ -81,7 +81,7 @@ For OpenSpec projects, require it from `openspec/config.yaml`:
 ```yaml
 rules:
   proposal:
-    - Must use glossary skill
+    - Must use skillgrid:glossary skill
 ```
 
 You can also require it for other OpenSpec stages, such as `design`, or
