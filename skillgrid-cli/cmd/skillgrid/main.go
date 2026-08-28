@@ -104,7 +104,12 @@ func main() {
 		break
 	}
 
-	switch rest[0] {
+	rest0 := ""
+	if len(rest) > 0 {
+		rest0 = rest[0]
+	}
+
+	switch rest0 {
 	case "mcp":
 		runMCP(version, rest[1:])
 		return
@@ -160,7 +165,7 @@ func main() {
 	case "install", "in":
 		// continue to install flag parsing below
 	default:
-		fmt.Fprintf(os.Stderr, "error: unknown command %q (see --help)\n", rest[0])
+		fmt.Fprintf(os.Stderr, "error: unknown command %q (see --help)\n", rest0)
 		os.Exit(2)
 	}
 

@@ -69,3 +69,17 @@
 - [x] 10-1 Run `go build ./... && go test ./...` — all green
 - [x] 10-2 Run `openspec validate memindex --type change --strict` before archive
 - [ ] 10-3 Archive via `openspec archive memindex`
+
+## Epic 11: AGENTS.md rules injection
+
+- [x] 11-1 Add mnemonic protocol block to AGENTS.md between managed markers
+- [x] 11-2 Include memory lifecycle rules (save, search, session, compaction)
+- [x] 11-3 Include code search ladder and web cache workflow rules
+
+## Epic 12: Skill integration
+
+- [x] 12-1 Update brainstorming skill to reference `mem_search` for prior work
+- [x] 12-2 Update openspec-apply-change skill to reference `code_search`
+- [x] 12-3 Update openspec-explore skill to reference `mem_search`
+- [x] 12-4 Update project-context skill to preserve mnemonic markers
+- [x] 12-5 Update spec-as-source skill to reference `mem_search`

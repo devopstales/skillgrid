@@ -18,6 +18,9 @@ After `skillgrid install`, agents make tool calls with no audit trail. For secur
 - `gryph-opencode-hooks`: Install gryph audit hooks into OpenCode via `gryph install --agent opencode`
 - `gryph-kilo-plugin-copy`: Copy the OpenCode gryph plugin into Kilo's plugins directory (first-write-wins)
 - `gryph-policy-setup`: Scaffold and enable gryph security policy (`policy init`, `validate`, `config set policy.enabled true`)
+- `kilo-plugin-copy`: Generic mechanism to copy any plugin into Kilo's plugins directory
+- `opencode-hooks`: Generic mechanism to install audit hooks into OpenCode
+- `policy-setup`: Generic mechanism to scaffold and enable security policies
 
 ### Modified Capabilities
 

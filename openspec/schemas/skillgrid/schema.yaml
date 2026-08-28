@@ -7,26 +7,23 @@ artifacts:
     description: Structured proposal documenting why the change matters
     template: proposal.md
     instruction: >
-      Create the proposal document using the `forge-idea`, `brainstorming`,
-      and `using-superpowers` skills to refine raw intent into a structured
-      proposal. Use `grill-me` to challenge assumptions, `glossary` for
-      terminology consistency, and `project-context` to capture the declared
-      stack. Enforce commit messages with the `openspec-git-discipline` skill.
+      Create the proposal document using the `grill-me`, `glossary`,
+      `brainstorming`, and `project-context` skills.
 
        Sections:
 
-      - **Why**: 1-2 sentences on the problem or opportunity. What problem does
-      this solve? Why now?
+       - **Why** - 1-2 sentences on the problem or opportunity. What problem does
+       this solve? Why now?
 
-      - **What Changes**: Bullet list of changes. Be specific about new
-      capabilities, modifications, or removals. Mark breaking changes with
-      **BREAKING**.
+       - **What Changes** - Bullet list of changes. Be specific about new
+       capabilities, modifications, or removals. Mark breaking changes with
+       **BREAKING**.
 
-      - **Capabilities**: Identify which behaviour specs will be created or modified:
-        - **New Capabilities**: List capabilities being introduced. Each becomes a new `specs/<name>/spec.md`. Use kebab-case names (e.g., `user-auth`, `data-export`).
-        - **Modified Capabilities**: List existing capabilities whose behaviour is changing. Only include if spec-level behaviour changes, not just implementation details. Each needs an OpenSpec Markdown delta file at `specs/<name>/spec.md`. Check `openspec/specs/` for existing spec names. Leave empty if no behaviour changes.
+       - **Capabilities** - Identify which behaviour specs will be created or modified:
+         - **New Capabilities** - List capabilities being introduced. Each becomes a new `specs/<name>/spec.md`. Use kebab-case names (e.g., `user-auth`, `data-export`).
+         - **Modified Capabilities** - List existing capabilities whose behaviour is changing. Only include if spec-level behaviour changes, not just implementation details. Each needs an OpenSpec Markdown delta file at `specs/<name>/spec.md`. Check `openspec/specs/` for existing spec names. Leave empty if no behaviour changes.
 
-      - **Impact**: Affected code, APIs, dependencies, or systems.
+       - **Impact** - Affected code, APIs, dependencies, or systems.
 
       IMPORTANT: The Capabilities section is critical. It creates the contract
       between proposal and specs phases. Research existing specs before filling
@@ -43,12 +40,8 @@ artifacts:
     template: spec.md
     instruction: >
       Create specification files that define WHAT the system should do.
-      Align with test driven development principles from the
-      `intent-driven-template` skill.
-
-      Use `gherkin-authoring` for scenario authoring and `acceptance-test-authoring`
-      for test mapping. Every Gherkin scenario MUST map 1:1 to a runnable
-      acceptance test. A scenario with no runnable test is not a verified scenario.
+      Use `gherkin-authoring` for scenario authoring, `spec-as-source` for
+      delta spec structure, and `c4-diagrams` and `glossary` for context.
 
       Create one spec file per capability listed in the proposal's Capabilities
       section.
@@ -62,15 +55,15 @@ artifacts:
 
       Delta operations (use ## headers):
 
-      - **ADDED Requirements**: New capabilities
+      - **ADDED Requirements** - New capabilities
 
-      - **MODIFIED Requirements**: Changed behavior - MUST include full updated
+      - **MODIFIED Requirements** - Changed behavior - MUST include full updated
       content
 
-      - **REMOVED Requirements**: Deprecated features - MUST include **Reason**
+      - **REMOVED Requirements** - Deprecated features - MUST include **Reason**
       and **Migration**
 
-      - **RENAMED Requirements**: Name changes only - use FROM:/TO: format
+      - **RENAMED Requirements** - Name changes only - use FROM:/TO: format
 
       Format requirements:
 
@@ -80,7 +73,7 @@ artifacts:
 
       - Each scenario: `#### Scenario: <name>` with WHEN/THEN format
 
-      - **CRITICAL**: Scenarios MUST use exactly 4 hashtags (`####`). Using 3
+      - **CRITICAL** - Scenarios MUST use exactly 4 hashtags (`####`). Using 3
       hashtags or bullets will fail silently.
 
       - Every requirement MUST have at least one scenario.
@@ -126,9 +119,9 @@ artifacts:
 
       ### Requirement: Legacy export
 
-      **Reason**: Replaced by new export system
+      **Reason** - Replaced by new export system
 
-      **Migration**: Use new export endpoint at /api/v2/export
+      **Migration** - Use new export endpoint at /api/v2/export
 
       ```
 
@@ -141,14 +134,7 @@ artifacts:
     template: design.md
     instruction: >
       Create the design document that explains HOW to implement the change.
-      Use `writing-designs` (renamed `writing-plans`) for structure, `build`
-      for data flow diagrams, `c4-diagrams` for architecture, `brainstorming`
-      and `grill-me` for ideation, `project-context` for stack context, and
-      `domain-modeling` for domain modeling. Use `glossary` for terminology
-      consistency.
-
-      Use `writing-designs` skill for structure and `build` skill for data
-      flow diagrams, API contracts, and trade-off analyses.
+      Use `c4-diagrams` and `glossary` for context.
 
       When to include design.md (create only if any apply):
 
@@ -174,19 +160,19 @@ artifacts:
 
       Sections:
 
-      - **Context**: Background, current state, constraints, stakeholders
+      - **Context** - Background, current state, constraints, stakeholders
 
-      - **Goals / Non-Goals**: What this design achieves and explicitly excludes
+      - **Goals / Non-Goals** - What this design achieves and explicitly excludes
 
-      - **Decisions**: Key technical choices with rationale (why X over Y?).
+      - **Decisions** - Key technical choices with rationale (why X over Y?).
       Include alternatives considered for each decision.
 
-      - **Risks / Trade-offs**: Known limitations, things that could go wrong.
+      - **Risks / Trade-offs** - Known limitations, things that could go wrong.
       Format: [Risk] -> Mitigation
 
-      - **Migration Plan**: Steps to deploy, rollback strategy (if applicable)
+      - **Migration Plan** - Steps to deploy, rollback strategy (if applicable)
 
-      - **Open Questions**: Outstanding decisions or unknowns to resolve.
+      - **Open Questions** - Outstanding decisions or unknowns to resolve.
       Include any in-force ADRs that this design suggests revisiting; the adr
       step will record the supersession.
 
@@ -272,12 +258,8 @@ artifacts:
     template: tasks.md
     instruction: >
       Create the Epic and Stories that break down the implementation work.
-      Use `write-tasks` and `writing-designs` (renamed `writing-plans`) to
-      translate the design into discrete, actionable tasks.
-
-      Use `writing-designs` skill (renamed `writing-plans`) to translate the
-      design into discrete, actionable tasks. Enforce DRY, YAGNI, and ensure
-      no "placeholder" code is left in the instructions.
+      Use `write-tasks` and `spec-as-source` to translate the design into
+      discrete, actionable tasks.
 
       Guidelines:
 
@@ -316,7 +298,6 @@ apply:
       so the main branch is not corrupted.
     - `micro-commits`: Commit at checkpoints.
     - `validation`: Verify implementation against specs.
-    - `domain-modeling`: Model domain before implementation.
     
     Context Loading: Pass the "traveling spec," ADRs, and design documents to
     the implementation agents.

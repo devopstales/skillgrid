@@ -13,6 +13,8 @@ Skillgrid today depends on two external indexers (Engram for memory, GitNexus/cc
 - Add `skillgrid setup opencode|kilocode|cursor` commands
 - Fork `engram-memory` skill → `memindex-memory`
 - Add `web_cache_*` tools for caching remote MCP research results
+- Inject Mnemonic Memory Protocol into AGENTS.md (matching engram protocol block pattern)
+- Integrate mnemonic tools into skillgrid skills (brainstorming, openspec-apply-change, openspec-explore, project-context, spec-as-source)
 
 ## Capabilities
 
@@ -24,6 +26,9 @@ Skillgrid today depends on two external indexers (Engram for memory, GitNexus/cc
 - `mcp-transport`: MCP stdio server (`skillgrid mcp`) for agent tool calls
 - `http-api`: HTTP REST API (`skillgrid serve`) for OpenCode/Kilo plugin hooks
 - `agent-plugins`: OpenCode/Kilo plugins for session lifecycle, Memory Protocol injection, compaction recovery
+- `agents-rules`: Mnemonic protocol block injected into AGENTS.md (matching engram protocol pattern)
+- `skill-integration`: Mnemonic tool references integrated into skillgrid skills (brainstorming, openspec-apply-change, etc.)
+- `vscode-plugin`: VSCode extension for skillgrid integration (skills, MCP servers, commands)
 
 ### Modified Capabilities
 

@@ -15,7 +15,7 @@ The `skillgrid-cli` is the primary installation method for Skillgrid, but its be
 This change documents the existing CLI. The capabilities below name the spec files
 describing each documented area, so the proposal and specs stay in 1:1 agreement:
 `install-command`, `sync-repo`, `agent-selection`, `tool-install`, `config-system`,
-`build`.
+`build`, `mcp-install`, `plugin-install`.
 
 ### New Capabilities
 

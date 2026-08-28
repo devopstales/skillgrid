@@ -90,6 +90,28 @@ The design is informed by: Engram (memory protocol), Hermes Memory (layered scop
 
 **Rollback:** Remove `skillgrid-memindex` MCP entry from `mcp.yaml`, re-add Engram/GitNexus entries, delete `~/.skillgrid/memindex/`.
 
+## Decisions (continued)
+
+### 5. AGENTS.md protocol injection
+
+**Decision:** Inject the Mnemonic Memory Protocol into AGENTS.md between managed markers (`<!-- BEGIN MNEMONIC MEMORY PROTOCOL -->` / `<!-- END MNEMONIC MEMORY PROTOCOL -->`), matching the engram protocol block pattern.
+
+**Alternatives considered:**
+- Plugin-only injection — rejected: agents without plugin support (Cursor, Codex, plain Claude) would miss the protocol
+- Separate `MNEMONIC.md` file — rejected: fragments the memory protocol across files, harder to discover
+
+**Rationale:** AGENTS.md is the universal agent instruction file. The marker pattern allows idempotent setup and preserves the block during `project-context` refreshes.
+
+### 6. Skill integration
+
+**Decision:** Integrate mnemonic tool references into existing skillgrid skills (brainstorming, openspec-apply-change, openspec-explore, project-context, spec-as-source) rather than creating a separate skill per integration point.
+
+**Alternatives considered:**
+- Standalone `mnemonic-skills` skill — rejected: fragments discovery, skills are loaded individually
+- Only update `memindex-memory` — rejected: other skills (brainstorming, apply-change) also benefit from memory/code search
+
+**Rationale:** Each skill already has a "context gathering" or "exploration" phase where `mem_search` / `code_search` references fit naturally.
+
 ## Open Questions
 
 1. **Profile migration:** Default new installs to `memindex` or keep Engram until v1 ships?
