@@ -25,6 +25,12 @@
   * `setup-matt-pocock-skills`
   * `to-tickets`
 
+```
+skills add gentleman-programming/engram --agent amp -g -s 'engram-memory' -y
+skills add gentleman-programming/engram --agent amp -g -s 'engram-memory-protocol' -y
+skills add gentleman-programming/engram --agent amp -g -s 'engram-testing-coverag' -y
+```
+
 ## Mempory
 
 * engram
@@ -46,21 +52,53 @@
 ## Plugins
 
 * engram
+  * https://github.com/Gentleman-Programming/gentle-ai/issues/270
+  * https://github.com/Gentleman-Programming/gentle-ai/pull/284/changes
 * superpowers
 * mnemonic
 * skilgrid
+* opencode-subagent-statusline
 
 ## Rules
 
 * AI discipline
   * AGENTS.md
-  * rule files
+  * rule files  ???
 * rules
-  * engorce commit mesage
-  * engorce openspec like backlogmd do
+  * enforce commit mesage
+  * enforce openspec like backlogmd do
   * mnemonic like engram
   - For OpenSpec propose/apply/verify/archive workflows, use the local `openspec-git-discipline` skill to enforce proposal commits before apply and merge-before-archive discipline.
 
+## Usage Data
+
+* [ ] [context-mode](https://github.com/mksglu/context-mode)
+* [ ] [gryph](https://github.com/safedep/gryph)
+
+## Agent Orchectration
+
+* [ ] [opencode-4hol](https://dev.to/uenyioha/porting-claude-codes-agent-teams-to-opencode-4hol)
+* [ ] [Cleave](https://cleave.dev/)
+* [ ] opensessions + tmux ???
+
+## Ticketing
+
+* [ ] Atlassian MCP
+* [ ] GitHub MCP
+* [ ] Gitlab MCP
+* [ ] Vercel
+
+
+## Design Tools
+
+* [ ] design.md
+* [ ] [taste-skill](https://github.com/Leonxlnx/taste-skill)
+* [ ] [npxskillui](https://github.com/amaancoderx/npxskillui)
+* [ ] [impeccable](https://github.com/pbakaus/impeccable)
+* [ ] [open-design](https://github.com/nexu-io/open-design)
+* [ ] [kombai](https://kombai.com/)
+* [ ] [penpot](https://penpot.app/self-host#options)
+* [ ] [penpot-desktop](https://github.com/author-more/penpot-desktop/wiki/Installation)
 
 
 # TODO
