@@ -79,3 +79,105 @@ removing manual edges.
 - **GIVEN** a manual edge and auto edges on the same node pair
 - **WHEN** auto-synthesis runs again
 - **THEN** the auto edges are rebuilt and the manual edge remains
+
+### Requirement: Exploration and analysis MCP tools
+
+The system SHALL expose `list_repos`, `check`, `rename`, `detect_changes`, and `cypher`
+tools for repository discovery, structural health, rename planning, change mapping, and
+raw graph queries.
+
+#### Scenario: List repositories
+- **WHEN** `list_repos` is called
+- **THEN** all project stores with per-project graph size and staleness are returned
+
+#### Scenario: Structural check
+- **WHEN** `check` is called for a project
+- **THEN** orphan nodes, symbols without `DEFINES`, per-pass staleness, and an edge-type distribution are returned
+
+#### Scenario: Rename planner
+- **GIVEN** a symbol with in-file and cross-file usages
+- **WHEN** `rename` is called for that symbol
+- **THEN** all affected locations (call sites, `CALLS` edges, `MENTIONS` files) are returned ranked, without any mutation
+
+#### Scenario: Detect changes
+- **GIVEN** a git diff (working tree or since a base ref)
+- **WHEN** `detect_changes` is called
+- **THEN** the changed files, touched symbols, downstream impact, and observations mentioning the files are returned
+
+#### Scenario: Cypher supported subset
+- **GIVEN** a query within the supported mini-Cypher subset
+- **WHEN** `cypher` is called
+- **THEN** the matching nodes and edges are returned as a JSON array
+
+#### Scenario: Cypher unsupported feature
+- **GIVEN** a query using a feature outside the supported subset (e.g., variable-length path, `OPTIONAL MATCH`, aggregation, or `MERGE`)
+- **WHEN** `cypher` is called
+- **THEN** a structured error names the unsupported feature and lists the supported subset
+
+### Requirement: PDG and taint MCP tools
+
+The system SHALL expose `explain` and `pdg_query` tools that read PDG and taint data
+persisted at index time.
+
+#### Scenario: Explain a taint finding
+- **GIVEN** a precomputed taint flow for a symbol
+- **WHEN** `explain` is called for that flow
+- **THEN** the `TAINT_PATH`, block steps, sanitizers, and confidence are returned
+
+#### Scenario: Query the PDG
+- **GIVEN** a function with persisted PDG data
+- **WHEN** `pdg_query` is called for that function
+- **THEN** the CFG/CDG/reaching-def view is returned, optionally scoped to a from/to block range and type
+
+#### Scenario: PDG not available
+- **GIVEN** a symbol with no persisted PDG data (`pdg.enabled=false` or the pass was not run)
+- **WHEN** `explain` or `pdg_query` is called for that symbol
+- **THEN** the tool returns a not-available message naming the symbol and the required config gate
+
+### Requirement: API contract MCP tools
+
+The system SHALL expose `route_map`, `tool_map`, `shape_check`, and `api_impact` tools
+that read contract data persisted at index time.
+
+#### Scenario: Route map
+- **WHEN** `route_map` is called for a project
+- **THEN** routes → handlers → fetchers grouped by framework, with entry points, are returned
+
+#### Scenario: Tool map
+- **WHEN** `tool_map` is called for a project
+- **THEN** MCP/RPC tools → definitions → handlers → callers are returned
+
+#### Scenario: Shape check
+- **WHEN** `shape_check` is called for a route
+- **THEN** matched, missing, and extra fields per consumer are returned
+
+#### Scenario: API impact
+- **GIVEN** a route handler feeding one or more consumers
+- **WHEN** `api_impact` is called for that route
+- **THEN** the downstream consumers/tools/routes it feeds are returned with hop depths
+
+#### Scenario: Contracts not available
+- **GIVEN** a project with no persisted contract data (`contracts.enabled=false` or the pass was not run)
+- **WHEN** any contract tool is called
+- **THEN** the tool returns a not-available message naming the required config gate
+
+### Requirement: Memory and verdict tools over transport
+
+The system SHALL expose the memory tools (`mem_timeline`, `mem_stats`, `mem_doctor`,
+`mem_current_project`, `mem_update`, `mem_delete`, `mem_save_prompt`,
+`mem_capture_passive`, `mem_review`) and `graph_judge` through both the `skillgrid mcp`
+stdio server and `skillgrid serve` HTTP routes.
+
+#### Scenario: Memory tools return raw JSON
+- **WHEN** any memory tool is called via MCP
+- **THEN** it returns raw JSON through the existing `JSONResult` wrapper
+
+#### Scenario: Memory HTTP write routes require auth
+- **GIVEN** the HTTP server is running with `SKILLGRID_HTTP_TOKEN` set
+- **WHEN** `POST /memory/prompts`, `POST /memory/capture-passive`, `PATCH /memory/observations/{id}`, `DELETE /memory/observations/{id}`, or `POST /graph/judge` is called without a bearer token
+- **THEN** the request is rejected with `401 Unauthorized`
+
+#### Scenario: Memory HTTP equivalence
+- **GIVEN** the HTTP server is running
+- **WHEN** `GET /memory/prompts/recent`, `GET /memory/timeline`, `GET /memory/stats`, `GET /memory/doctor`, `GET /memory/current-project`, or `GET /memory/review` are called
+- **THEN** they behave equivalently to their MCP counterparts

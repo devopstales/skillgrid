@@ -3,23 +3,34 @@
 ### Requirement: Incremental code indexing
 
 The system SHALL provide `skillgrid index` for incremental file/chunk indexing with FTS5
-search, and an opt-in symbol extraction pass that derives graph nodes and edges from Go
-files.
+search, plus opt-in extraction passes — symbol, PDG/taint, and API-contract — that derive
+graph nodes and edges for the enabled languages and frameworks. Each pass is
+independently config-gated and pass-scoped so regeneration touches only its own edges.
 
 #### Scenario: Cold index
-- **GIVEN** a project with unindexed `.go` files
+- **GIVEN** a project with unindexed source files
 - **WHEN** `skillgrid index` runs
 - **THEN** files are chunked and indexed in FTS
 
 #### Scenario: Symbol extraction pass
 - **GIVEN** symbol extraction is enabled in `config.d/indexing.yaml`
-- **WHEN** `skillgrid index` runs over Go files
-- **THEN** symbol nodes and DEFINES/CALLS/IMPORTS/EXTENDS edges are created in the graph tables
+- **WHEN** `skillgrid index` runs over enabled-language files
+- **THEN** symbol nodes and DEFINES/CALLS/IMPORTS/EXTENDS edges are created in the graph tables with `pass='symbols'`
 
-#### Scenario: Symbol extraction disabled
-- **GIVEN** symbol extraction is disabled or unset in config
+#### Scenario: PDG extraction pass
+- **GIVEN** PDG extraction is enabled in `config.d/indexing.yaml`
+- **WHEN** `skillgrid index` runs over enabled-language files
+- **THEN** basic-block nodes and CFG/CDG/REACHING_DEF/SOURCE/SINK/SANITIZES/TAINTED/TAINT_PATH edges are created with `pass='pdg'`
+
+#### Scenario: API-contract extraction pass
+- **GIVEN** contract extraction is enabled in `config.d/indexing.yaml`
+- **WHEN** `skillgrid index` runs over enabled-framework files
+- **THEN** route/tool/shape nodes and their contract edges are created with `pass='contracts'`
+
+#### Scenario: Extraction passes disabled
+- **GIVEN** an extraction pass is disabled or unset in config
 - **WHEN** `skillgrid index` runs
-- **THEN** indexing completes with no graph writes from the symbol pass
+- **THEN** indexing completes with no graph writes from that pass
 
 #### Scenario: Warm no-op
 - **GIVEN** a project where no files changed since last index
@@ -29,7 +40,7 @@ files.
 #### Scenario: Incremental update
 - **GIVEN** a project where some files changed since last index
 - **WHEN** `skillgrid index` runs
-- **THEN** only changed files are re-chunked and re-indexed and their symbol edges are regenerated
+- **THEN** only changed files are re-chunked and re-indexed and each enabled pass regenerates that file's own pass-scoped edges
 
 #### Scenario: Exclude paths
 - **GIVEN** `indexing.yaml` excludes `node_modules/**` and `**/.git/**`
