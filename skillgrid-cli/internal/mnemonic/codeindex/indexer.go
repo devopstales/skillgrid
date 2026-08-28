@@ -29,10 +29,10 @@ type Config struct {
 
 // Stats summarizes one indexing run.
 type Stats struct {
-	FilesIndexed int
-	FilesSkipped int
-	FilesDeleted int
-	ChunksAdded  int
+	FilesIndexed int `json:"files_indexed"`
+	FilesSkipped int `json:"files_skipped"`
+	FilesDeleted int `json:"files_deleted"`
+	ChunksAdded  int `json:"chunks_added"`
 }
 
 // ScannedFile is a candidate file discovered under the index root.
@@ -350,9 +350,9 @@ func upsertFile(tx *sql.Tx, file ScannedFile, indexedAt string) (int64, error) {
 
 // Status reports aggregate index statistics.
 type Status struct {
-	FileCount   int
-	ChunkCount  int
-	LastIndexed string
+	FileCount   int    `json:"file_count"`
+	ChunkCount  int    `json:"chunk_count"`
+	LastIndexed string `json:"last_indexed,omitempty"`
 }
 
 // GetStatus returns current index stats from the store.

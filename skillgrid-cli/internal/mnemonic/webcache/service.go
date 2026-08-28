@@ -31,18 +31,18 @@ type Service struct {
 
 // SaveWebInput holds fields for persisting a cached snapshot.
 type SaveWebInput struct {
-	Source     string
-	Content    string
-	URL        string
-	Title      string
-	Query      string
-	LibraryID  string
-	VersionTag string
-	RepoName   string
-	Question   string
-	SortParams string
-	Metadata   map[string]any
-	SessionID  string
+	Source     string         `json:"source"`
+	Content    string         `json:"content"`
+	URL        string         `json:"url,omitempty"`
+	Title      string         `json:"title,omitempty"`
+	Query      string         `json:"query,omitempty"`
+	LibraryID  string         `json:"library_id,omitempty"`
+	VersionTag string         `json:"version_tag,omitempty"`
+	RepoName   string         `json:"repo_name,omitempty"`
+	Question   string         `json:"question,omitempty"`
+	SortParams string         `json:"sort_params,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	SessionID  string         `json:"session_id,omitempty"`
 }
 
 // LookupInput identifies a cache entry for lookup.
@@ -61,52 +61,52 @@ type LookupInput struct {
 
 // LookupResult is the outcome of a cache lookup.
 type LookupResult struct {
-	Status    string
-	Fresh     bool
-	ID        int64
-	FetchedAt string
-	ExpiresAt string
+	Status    string `json:"status"`
+	Fresh     bool   `json:"fresh"`
+	ID        int64  `json:"id,omitempty"`
+	FetchedAt string `json:"fetched_at,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
 // WebHit is a search result over cached snapshots.
 type WebHit struct {
-	ID         int64
-	Source     string
-	Title      string
-	Query      string
-	URL        string
-	LibraryID  string
-	FetchedAt  string
-	ExpiresAt  string
+	ID        int64  `json:"id"`
+	Source    string `json:"source"`
+	Title     string `json:"title,omitempty"`
+	Query     string `json:"query,omitempty"`
+	URL       string `json:"url,omitempty"`
+	LibraryID string `json:"library_id,omitempty"`
+	FetchedAt string `json:"fetched_at,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
 // WebEntry is a full cached snapshot.
 type WebEntry struct {
-	ID           int64
-	Project      string
-	Source       string
-	CacheKey     string
-	URL          string
-	Title        string
-	Query        string
-	LibraryID    string
-	VersionTag   string
-	Content      string
-	MetadataJSON string
-	ContentHash  string
-	FetchedAt    string
-	ExpiresAt    string
-	SessionID    string
-	CreatedAt    string
+	ID           int64  `json:"id"`
+	Project      string `json:"project"`
+	Source       string `json:"source"`
+	CacheKey     string `json:"cache_key,omitempty"`
+	URL          string `json:"url,omitempty"`
+	Title        string `json:"title,omitempty"`
+	Query        string `json:"query,omitempty"`
+	LibraryID    string `json:"library_id,omitempty"`
+	VersionTag   string `json:"version_tag,omitempty"`
+	Content      string `json:"content,omitempty"`
+	MetadataJSON string `json:"metadata_json,omitempty"`
+	ContentHash  string `json:"content_hash,omitempty"`
+	FetchedAt    string `json:"fetched_at,omitempty"`
+	ExpiresAt    string `json:"expires_at,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
 }
 
 // Status holds aggregate web cache statistics.
 type Status struct {
-	TotalEntries   int
-	ExpiredEntries int
-	BySource       map[string]int
-	OldestFetch    string
-	NewestFetch    string
+	TotalEntries   int            `json:"total_entries"`
+	ExpiredEntries int            `json:"expired_entries"`
+	BySource       map[string]int `json:"by_source"`
+	OldestFetch    string         `json:"oldest_fetch,omitempty"`
+	NewestFetch    string         `json:"newest_fetch,omitempty"`
 }
 
 // New creates a web cache service for the given store and project ID.

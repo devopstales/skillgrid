@@ -11,11 +11,11 @@ const defaultCodeSearchLimit = 20
 
 // CodeHit is one FTS match over an indexed code chunk.
 type CodeHit struct {
-	Path      string
-	StartLine int
-	EndLine   int
-	Snippet   string
-	Score     float64
+	Path      string  `json:"path"`
+	StartLine int     `json:"start_line"`
+	EndLine   int     `json:"end_line"`
+	Snippet   string  `json:"snippet"`
+	Score     float64 `json:"score"`
 }
 
 // CodeSearch runs BM25-ranked FTS over indexed code chunks.

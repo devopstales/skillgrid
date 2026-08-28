@@ -1,24 +1,80 @@
 schema: skillgrid
 
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
-#
-#     Use senior-dev sub-agent for all src related work and senior-qa for acceptance tests.
-#     Do not optimize the batch the tasks for senior-dev and senior-qa, call them as many times as necessary in smaller batches as dev and qa work may be interleaved.
+context: |
+  Tech stack: [declared per project]
+  We use conventional commits
+  Domain: [declared per project]
+
+  Use senior-dev sub-agent for all src related work and senior-qa for acceptance tests.
+  Do not optimize the batch the tasks for senior-dev and senior-qa, call them as many times as necessary in smaller batches as dev and qa work may be interleaved.
+
+memory:
+  engram:
+    - bin
+    - mcp
+    - plugin
+    - skills
+    - rules
+  mnemonic:
+    - mcp
+    - api
+    - memory and code index
+    - skills like engram
+    - integrate to skills like engram in gente-ai
+    - plugin like engram
+
+plugins:
+  - engram
+  - superpowers
+  - mnemonic
+  - skillgrid
+
+mcp: []
 
 rules:
+  ai_discipline:
+    - AGENTS.md
+    - rule files
+
+  openspec:
+    - enforce commit messages
+    - enforce openspec like backlogmd do
+    - mnemonic like engram
+    - use openspec-git-discipline skill for propose/apply/verify/archive workflows
+
   proposal:
     - Must use grill-me skill
     - Must use glossary skill
+    - Must use brainstorming skill
+    - Must use project-context skill
+    - Must use forge-idea skill
+    - Must enforce commit messages
+
   specs:
+    - Must use acceptance-test-authoring skill
+    - Must use gherkin-authoring skill
     - Must use spec-as-source skill
+
   design:
     - Must use c4-diagrams skill
     - Must use glossary skill
+    - Must use brainstorming skill
+    - Must use grill-me skill
+    - Must use project-context skill
+    - Must use writing-designs skill
+
   adr:
     - Must use architectural-decision-records skill
+    - Must use grill-me skill
+
   tasks:
     - Must use spec-as-source skill
+    - Must use write-tasks skill
+    - Must use writing-designs skill
 
+  apply:
+    - Must use subagent-driven-development skill
+    - Must use executing-designs skill
+    - Must use using-git-worktrees skill
+    - Must use micro-commits skill
+    - Must use validation skill

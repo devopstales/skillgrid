@@ -277,11 +277,22 @@ func openService() (*service.Service, string, func(), error) {
 }
 
 func rootService() (*service.Service, error) {
+	if svc != nil {
+		return svc, nil
+	}
 	dataDir, err := service.DefaultDataDir()
 	if err != nil {
 		return nil, err
 	}
-	return service.New(dataDir), nil
+	svc = service.New(dataDir)
+	return svc, nil
+}
+
+// SetService overrides the service used by all tool handlers. Test hook and
+// for embedding the MCP server with a caller-provided store (e.g. a shared
+// SQLite directory).
+func SetService(s *service.Service) {
+	svc = s
 }
 
 func toolError(err error) (*mcplib.CallToolResult, error) {

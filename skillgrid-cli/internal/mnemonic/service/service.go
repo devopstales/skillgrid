@@ -130,12 +130,12 @@ func (s *Service) SessionSummary(ctx context.Context, projectID, sessionID, summ
 
 // SaveObservationInput holds fields for saving an observation (HTTP + MCP).
 type SaveObservationInput struct {
-	Title     string
-	Type      string
-	Content   string
-	Scope     string
-	TopicKey  string
-	SessionID string
+	Title     string `json:"title"`
+	Type      string `json:"type"`
+	Content   string `json:"content"`
+	Scope     string `json:"scope"`
+	TopicKey  string `json:"topic_key"`
+	SessionID string `json:"session_id"`
 }
 
 // SaveObservation stores an observation with scope normalization matching MCP mem_save.

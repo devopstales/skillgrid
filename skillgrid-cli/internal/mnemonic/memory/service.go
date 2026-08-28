@@ -41,29 +41,29 @@ type SaveInput struct {
 
 // Session is a workspace session with optional summary.
 type Session struct {
-	ID        string
-	Project   string
-	Directory string
-	StartedAt string
-	EndedAt   string
-	Summary   string
-	Status    string
+	ID        string `json:"id"`
+	Project   string `json:"project"`
+	Directory string `json:"directory"`
+	StartedAt string `json:"started_at"`
+	EndedAt   string `json:"ended_at,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+	Status    string `json:"status"`
 }
 
 // Observation is a stored memory entry.
 type Observation struct {
-	ID             int64
-	SessionID      string
-	Type           string
-	Title          string
-	Content        string
-	Project        string
-	Scope          string
-	TopicKey       string
-	NormalizedHash string
-	RevisionCount  int
-	CreatedAt      string
-	UpdatedAt      string
+	ID             int64  `json:"id"`
+	SessionID      string `json:"session_id"`
+	Type           string `json:"type"`
+	Title          string `json:"title"`
+	Content        string `json:"content"`
+	Project        string `json:"project"`
+	Scope          string `json:"scope"`
+	TopicKey       string `json:"topic_key,omitempty"`
+	NormalizedHash string `json:"normalized_hash,omitempty"`
+	RevisionCount  int    `json:"revision_count"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 // New creates a memory service for the given store and project ID.
@@ -82,8 +82,14 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	if strings.TrimSpace(in.Title) == "" {
 		return 0, errors.New("title is required")
 	}
+	if strings.TrimSpace(in.Content) == "" {
+		return 0, errors.New("content is required")
+	}
 	if strings.TrimSpace(in.Type) == "" {
 		return 0, errors.New("type is required")
+	}
+	if !IsValidType(in.Type) {
+		return 0, fmt.Errorf("invalid type %q (allowed: standing, preference, convention, decision, architecture, bugfix, pattern, config, correction, discovery, learning, lesson, session_log)", in.Type)
 	}
 
 	hash := normalizedHash(in.Title, in.Content, in.Type)
@@ -325,6 +331,30 @@ func (s *Service) RecentContext(ctx context.Context, limit int) ([]Session, erro
 	}
 	defer rows.Close()
 	return scanSessions(rows)
+}
+
+var validTypes = map[string]struct{}{
+	"standing":     {},
+	"preference":   {},
+	"convention":   {},
+	"decision":     {},
+	"architecture": {},
+	"bugfix":       {},
+	"pattern":      {},
+	"config":       {},
+	"correction":   {},
+	"discovery":    {},
+	"learning":     {},
+	"lesson":       {},
+	"session_log":  {},
+}
+
+// IsValidType reports whether typ is one of the allowed observation types.
+// Case-insensitive. Includes the skill taxonomy plus the MCP tool's advertised
+// aliases (pattern, config, learning, lesson).
+func IsValidType(typ string) bool {
+	_, ok := validTypes[strings.ToLower(strings.TrimSpace(typ))]
+	return ok
 }
 
 func normalizedHash(title, content, typ string) string {

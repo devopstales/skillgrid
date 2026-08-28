@@ -171,8 +171,9 @@ func runSetup(version string, args []string) {
 	fs.StringVar(&repoRoot, "repo-root", "", "skillgrid repo root (auto-detected)")
 	fs.BoolVar(&dryRun, "dry-run", false, "print planned changes without writing")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: skillgrid setup --agent <agent> [flags]")
-		fmt.Fprintln(fs.Output(), "  Install Mnemonic plugins for an AI agent.")
+		fmt.Fprintln(fs.Output(), `usage: skillgrid setup <opencode|kilocode|cursor> [flags]
+  (equivalently: skillgrid setup --agent <agent> [flags])
+  Install Mnemonic plugins for an AI agent.`)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -180,8 +181,14 @@ func runSetup(version string, args []string) {
 	}
 	_ = version
 
+	// Positional agent name: first non-flag argument.
+	positional := fs.Args()
+	if agent == "" && len(positional) > 0 {
+		agent = positional[0]
+	}
+
 	if agent == "" {
-		fmt.Fprintln(os.Stderr, "error: --agent is required (opencode, kilocode, cursor)")
+		fmt.Fprintln(os.Stderr, "error: missing agent (opencode, kilocode, or cursor)")
 		os.Exit(2)
 	}
 	if err := setup.RunSetup(agent, repoRoot, dryRun); err != nil {

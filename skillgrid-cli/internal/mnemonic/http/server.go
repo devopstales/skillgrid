@@ -38,10 +38,13 @@ func (s *Server) registerRoutes() {
 
 	s.mux.HandleFunc("GET /context", s.handleContext)
 	s.mux.HandleFunc("POST /observations", s.requireWriteAuth(s.handleObservationCreate))
+	s.mux.HandleFunc("GET /observations/recent", s.handleObservationsRecent)
 	s.mux.HandleFunc("GET /search", s.handleSearch)
 
 	s.mux.HandleFunc("GET /code/status", s.handleCodeStatus)
+	s.mux.HandleFunc("POST /code/index", s.requireWriteAuth(s.handleCodeIndex))
 	s.mux.HandleFunc("GET /code/search", s.handleCodeSearch)
+	s.mux.HandleFunc("GET /code/read", s.handleCodeRead)
 
 	s.mux.HandleFunc("GET /web/lookup", s.handleWebLookup)
 	s.mux.HandleFunc("POST /web/cache", s.requireWriteAuth(s.handleWebCacheSave))
@@ -152,6 +155,71 @@ func (s *Server) handleObservationCreate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+}
+
+func (s *Server) handleObservationsRecent(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	limit := queryInt(r, "limit", 5)
+	sessions, err := s.svc.RecentContext(r.Context(), projectID, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+}
+
+func (s *Server) handleCodeIndex(w http.ResponseWriter, r *http.Request) {
+	dir := r.URL.Query().Get("dir")
+	if dir == "" {
+		var err error
+		dir, err = os.Getwd()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	stats, err := s.svc.RunCodeIndex(r.Context(), dir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"files_indexed": stats.FilesIndexed,
+		"files_skipped": stats.FilesSkipped,
+		"files_deleted": stats.FilesDeleted,
+		"chunks_added":  stats.ChunksAdded,
+	})
+}
+
+func (s *Server) handleCodeRead(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	path := q.Get("path")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	startLine, endLine := 0, 0
+	if v := q.Get("start_line"); v != "" {
+		startLine, _ = strconv.Atoi(v)
+	}
+	if v := q.Get("end_line"); v != "" {
+		endLine, _ = strconv.Atoi(v)
+	}
+	result, err := s.svc.ReadIndexedCode(r.Context(), projectID, path, startLine, endLine)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {

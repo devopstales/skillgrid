@@ -7,10 +7,13 @@ artifacts:
     description: Structured proposal documenting why the change matters
     template: proposal.md
     instruction: >
-      Create the proposal document using the `forge-idea` skill to refine raw
-      intent into a structured proposal.
+      Create the proposal document using the `forge-idea`, `brainstorming`,
+      and `using-superpowers` skills to refine raw intent into a structured
+      proposal. Use `grill-me` to challenge assumptions, `glossary` for
+      terminology consistency, and `project-context` to capture the declared
+      stack. Enforce commit messages with the `openspec-git-discipline` skill.
 
-      Sections:
+       Sections:
 
       - **Why**: 1-2 sentences on the problem or opportunity. What problem does
       this solve? Why now?
@@ -40,6 +43,8 @@ artifacts:
     template: spec.md
     instruction: >
       Create specification files that define WHAT the system should do.
+      Align with test driven development principles from the
+      `intent-driven-template` skill.
 
       Use `gherkin-authoring` for scenario authoring and `acceptance-test-authoring`
       for test mapping. Every Gherkin scenario MUST map 1:1 to a runnable
@@ -136,6 +141,11 @@ artifacts:
     template: design.md
     instruction: >
       Create the design document that explains HOW to implement the change.
+      Use `writing-designs` (renamed `writing-plans`) for structure, `build`
+      for data flow diagrams, `c4-diagrams` for architecture, `brainstorming`
+      and `grill-me` for ideation, `project-context` for stack context, and
+      `domain-modeling` for domain modeling. Use `glossary` for terminology
+      consistency.
 
       Use `writing-designs` skill for structure and `build` skill for data
       flow diagrams, API contracts, and trade-off analyses.
@@ -194,9 +204,10 @@ artifacts:
     instruction: >
       Complete ADR review for this change by writing a concise manifest at
       openspec/changes/<change>/adr.md. This change-local file is the artifact
-      completion marker for the adr step. Existing files under <repo>/adr/ are
-      required context for the review, but they MUST NOT satisfy completion for
-      a new change.
+      completion marker for the adr step. Use the
+      `architectural-decision-records` and `grill-me` skills. Existing files
+      under <repo>/adr/ are required context for the review, but they MUST NOT
+      satisfy completion for a new change.
 
       Use the `architectural-decision-records` skill for ADR authoring.
 
@@ -261,6 +272,8 @@ artifacts:
     template: tasks.md
     instruction: >
       Create the Epic and Stories that break down the implementation work.
+      Use `write-tasks` and `writing-designs` (renamed `writing-plans`) to
+      translate the design into discrete, actionable tasks.
 
       Use `writing-designs` skill (renamed `writing-plans`) to translate the
       design into discrete, actionable tasks. Enforce DRY, YAGNI, and ensure
@@ -301,6 +314,9 @@ apply:
       task-by-task.
     - `using-git-worktrees`: Ensure builds happen in an isolated git worktree
       so the main branch is not corrupted.
+    - `micro-commits`: Commit at checkpoints.
+    - `validation`: Verify implementation against specs.
+    - `domain-modeling`: Model domain before implementation.
     
     Context Loading: Pass the "traveling spec," ADRs, and design documents to
     the implementation agents.
