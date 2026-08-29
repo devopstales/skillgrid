@@ -58,3 +58,29 @@ Content body with structured sections:
 - `web_cache_lookup` — check cache before remote MCPs
 - `web_cache_save` — persist after Context7/Exa/DeepWiki/WebFetch
 - `web_cache_search` — FTS5 over cached research
+
+## Privacy
+
+Wrap anything sensitive (tokens, secrets, PII, internal paths) in `<private>…</private>`.
+The value is stripped from stored content, replaced by `[REDACTED]`.
+
+## Passive Capture (automatic)
+
+Mnemonic captures memory beyond explicit `mem_save` — no agent work required:
+- **User prompts** — each non-trivial chat message is stored (for "what were we
+  working on" recall).
+- **Task output** — when a `Task`/subagent finishes, the server extracts
+  `## Key Learnings:` bullets and numbered items into passive observations
+  (type inferred, e.g. `bugfix` / `decision` / `discovery`).
+- **Save nudges** — if 15+ min pass without a `mem_save`, the system prompt
+  reminds you.
+
+To make Task output captureable, include a short `## Key Learnings:` section
+(numbered or bulleted) at the end of long task output.
+
+## After Compaction
+
+If you see `FIRST ACTION REQUIRED` or a compaction notice as your first
+prompt, call `mem_session_summary` with the compacted summary before doing
+anything else — without this, everything done before the compaction is lost
+from the persistent store.

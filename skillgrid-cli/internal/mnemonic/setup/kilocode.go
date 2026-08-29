@@ -9,7 +9,7 @@ import (
 )
 
 // SetupKiloCode registers MCP, writes the AGENTS.md protocol block, and installs the HTTP plugin.
-func SetupKiloCode(home, repoRoot string, dryRun bool) error {
+func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun bool) error {
 	if repoRoot == "" {
 		return fmt.Errorf("repo root not found (run from skillgrid checkout or sync repo)")
 	}
@@ -18,8 +18,13 @@ func SetupKiloCode(home, repoRoot string, dryRun bool) error {
 	if err := ensureConfigFile(cfgPath, dryRun); err != nil {
 		return err
 	}
-	if err := upsertOpenCodeMCP(cfgPath, dryRun); err != nil {
+	if err := backupConfigFile(home, "kilo", cfgPath, dryRun); err != nil {
 		return err
+	}
+	for _, entry := range mcpEntries {
+		if err := upsertOpenCodeMCP(cfgPath, entry, dryRun); err != nil {
+			return err
+		}
 	}
 
 	protocol := ProtocolMarkdownFromRepo(repoRoot)
@@ -36,6 +41,9 @@ func SetupKiloCode(home, repoRoot string, dryRun bool) error {
 	if dryRun {
 		logging.Info("[dry-run] write " + agentsPath)
 	} else {
+		if err := backupConfigFile(home, "kilo", agentsPath, dryRun); err != nil {
+			return err
+		}
 		if err := os.MkdirAll(filepath.Dir(agentsPath), 0o755); err != nil {
 			return err
 		}
@@ -48,10 +56,10 @@ func SetupKiloCode(home, repoRoot string, dryRun bool) error {
 	pluginDst := filepath.Join(kiloDir, "plugins", "mnemonic.ts")
 	sharedDst := filepath.Join(kiloDir, "shared", "http-client.ts")
 
-	if err := copyFromRepo(repoRoot, pluginRelPath, pluginDst, dryRun); err != nil {
+	if err := copyFromRepo(repoRoot, kiloPluginRel, pluginDst, dryRun); err != nil {
 		return err
 	}
-	if err := copyFromRepo(repoRoot, httpClientRelPath, sharedDst, dryRun); err != nil {
+	if err := copyFromRepo(repoRoot, opencodePluginRel, sharedDst, dryRun); err != nil {
 		return err
 	}
 

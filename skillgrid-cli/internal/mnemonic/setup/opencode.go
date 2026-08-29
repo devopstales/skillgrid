@@ -10,7 +10,7 @@ import (
 )
 
 // SetupOpenCode copies the Mnemonic plugin and registers MCP + plugin path in OpenCode config.
-func SetupOpenCode(home, repoRoot string, dryRun bool) error {
+func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun bool) error {
 	if repoRoot == "" {
 		return fmt.Errorf("repo root not found (run from skillgrid checkout or sync repo)")
 	}
@@ -19,10 +19,10 @@ func SetupOpenCode(home, repoRoot string, dryRun bool) error {
 	pluginDst := filepath.Join(opencodeDir, "plugins", "mnemonic.ts")
 	sharedDst := filepath.Join(opencodeDir, "shared", "http-client.ts")
 
-	if err := copyFromRepo(repoRoot, pluginRelPath, pluginDst, dryRun); err != nil {
+	if err := copyFromRepo(repoRoot, opencodePluginRel, pluginDst, dryRun); err != nil {
 		return err
 	}
-	if err := copyFromRepo(repoRoot, httpClientRelPath, sharedDst, dryRun); err != nil {
+	if err := copyFromRepo(repoRoot, kiloPluginRel, sharedDst, dryRun); err != nil {
 		return err
 	}
 
@@ -30,22 +30,43 @@ func SetupOpenCode(home, repoRoot string, dryRun bool) error {
 	if err := ensureConfigFile(cfgPath, dryRun); err != nil {
 		return err
 	}
-	if err := upsertOpenCodeMCP(cfgPath, dryRun); err != nil {
+	if err := backupConfigFile(home, "opencode", cfgPath, dryRun); err != nil {
 		return err
+	}
+	for _, entry := range mcpEntries {
+		if err := upsertOpenCodeMCP(cfgPath, entry, dryRun); err != nil {
+			return err
+		}
 	}
 
 	pluginRef := tildePath(home, pluginDst)
 	return appendPluginPath(cfgPath, pluginRef, dryRun)
 }
 
-func upsertOpenCodeMCP(cfgPath string, dryRun bool) error {
+func upsertOpenCodeMCP(cfgPath string, entry MCPServerConfig, dryRun bool) error {
 	data, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return fmt.Errorf("read config %s: %w", cfgPath, err)
 	}
-	path := "mcp." + mcpServerName
-	entry := mnemonicMCPEntry()
-	updated, err := sjson.Set(string(data), path, entry)
+	path := "mcp." + entry.Name
+	var mcpEntry map[string]interface{}
+	if entry.Type == "remote" {
+		mcpEntry = map[string]interface{}{
+			"type": "remote",
+			"url":  entry.URL,
+		}
+	} else {
+		cmd := make([]interface{}, len(entry.Command))
+		for i, c := range entry.Command {
+			cmd[i] = c
+		}
+		mcpEntry = map[string]interface{}{
+			"type":    "local",
+			"command": cmd,
+			"enabled": true,
+		}
+	}
+	updated, err := sjson.Set(string(data), path, mcpEntry)
 	if err != nil {
 		return fmt.Errorf("upsert mcp: %w", err)
 	}

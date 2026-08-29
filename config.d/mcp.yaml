@@ -1,0 +1,38 @@
+# MCP servers to merge into each agent's config (kilo.jsonc, opencode.json)
+# type: remote -> url; local -> command (first entry must be on PATH)
+servers:
+  context7:
+    type: remote
+    url: https://mcp.context7.com/mcp
+  deepwiki:
+    type: remote
+    url: https://mcp.deepwiki.com/mcp
+  engram:
+    type: local
+    command:
+      - engram
+      - mcp
+  skillgrid-mnemonic:
+    type: local
+    command:
+      - skillgrid
+      - mcp
+  playwright:
+    type: local
+    command:
+      - playwright-mcp
+  agent-browser:
+    type: local
+    command:
+      - agent-browser
+      - mcp
+      - --tools
+      - all
+  exa:
+    type: remote
+    url: https://mcp.exa.ai/mcp
+  trivy:
+    type: local
+    command:
+      - trivy
+      - mcp

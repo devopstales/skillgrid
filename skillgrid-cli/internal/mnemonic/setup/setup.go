@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/logging"
 )
@@ -13,16 +16,16 @@ import (
 const (
 	mcpServerName = "skillgrid-mnemonic"
 
-	pluginRelPath     = "plugins/mnemonic/opencode/mnemonic.ts"
-	httpClientRelPath = "plugins/mnemonic/shared/http-client.ts"
-	cursorTemplateRel = "plugins/mnemonic/cursor/mnemonic.mdc"
+	opencodePluginRel = "plugins/opencode/mnemonic.ts"
+	kiloPluginRel     = "plugins/kilo/mnemonic.ts"
+	cursorTemplateRel = "plugins/cursor/mnemonic.mdc"
 
 	kiloBeginMarker = "<!-- BEGIN SKILLGRID MNEMONIC — managed by skillgrid setup kilocode -->"
 	kiloEndMarker   = "<!-- END SKILLGRID MNEMONIC -->"
 )
 
 // RunSetup configures Mnemonic for the given agent (opencode, kilocode, cursor).
-func RunSetup(agent, repoRoot string, dryRun bool) error {
+func RunSetup(agent, repoRoot string, mcpEntries []MCPServerConfig, dryRun bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -35,17 +38,54 @@ func RunSetup(agent, repoRoot string, dryRun bool) error {
 	}
 	switch agent {
 	case "opencode":
-		return SetupOpenCode(home, repoRoot, dryRun)
+		return SetupOpenCode(home, repoRoot, mcpEntries, dryRun)
 	case "kilocode", "kilo":
-		return SetupKiloCode(home, repoRoot, dryRun)
+		return SetupKiloCode(home, repoRoot, mcpEntries, dryRun)
 	case "cursor":
-		return SetupCursor(home, dryRun)
+		return SetupCursor(home, repoRoot, mcpEntries, dryRun)
 	default:
 		return fmt.Errorf("unknown agent %q (use opencode, kilocode, or cursor)", agent)
 	}
 }
 
-// FindRepoRoot walks upward from start (or cwd when empty) for pluginRelPath.
+// MCPServerConfig represents a single MCP server entry from config.d/mcp.yaml.
+type MCPServerConfig struct {
+	Name    string
+	Type    string
+	URL     string
+	Command []string
+}
+
+// LoadMCPConfig reads config.d/mcp.yaml from the repo root.
+func LoadMCPConfig(repoRoot string) ([]MCPServerConfig, error) {
+	path := filepath.Join(repoRoot, "config.d", "mcp.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read mcp config: %w", err)
+	}
+	var raw struct {
+		Servers map[string]struct {
+			Type    string   `yaml:"type"`
+			URL     string   `yaml:"url"`
+			Command []string `yaml:"command"`
+		} `yaml:"servers"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse mcp config: %w", err)
+	}
+	var entries []MCPServerConfig
+	for name, srv := range raw.Servers {
+		entries = append(entries, MCPServerConfig{
+			Name:     name,
+			Type:     srv.Type,
+			URL:      srv.URL,
+			Command:  srv.Command,
+		})
+	}
+	return entries, nil
+}
+
+// FindRepoRoot walks upward from start (or cwd when empty) for plugin files.
 func FindRepoRoot(start string) string {
 	dir := start
 	if dir == "" {
@@ -56,8 +96,10 @@ func FindRepoRoot(start string) string {
 		}
 	}
 	for {
-		if _, err := os.Stat(filepath.Join(dir, pluginRelPath)); err == nil {
-			return dir
+		for _, rel := range []string{opencodePluginRel, kiloPluginRel, cursorTemplateRel} {
+			if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
+				return dir
+			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -66,9 +108,11 @@ func FindRepoRoot(start string) string {
 		dir = parent
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		synced := filepath.Join(home, ".skillgrid", "repos", "skillgrid", pluginRelPath)
-		if _, err := os.Stat(synced); err == nil {
-			return filepath.Join(home, ".skillgrid", "repos", "skillgrid")
+		for _, rel := range []string{opencodePluginRel, kiloPluginRel, cursorTemplateRel} {
+			synced := filepath.Join(home, ".skillgrid", "repos", "skillgrid", rel)
+			if _, err := os.Stat(synced); err == nil {
+				return filepath.Join(home, ".skillgrid", "repos", "skillgrid")
+			}
 		}
 	}
 	return ""
@@ -138,6 +182,71 @@ func copyFirstWriteWins(src, dst string, dryRun bool) error {
 		return err
 	}
 	logging.Info("copied " + dst)
+	return nil
+}
+
+func backupConfigFile(home, agent, path string, dryRun bool) error {
+	if _, err := os.Stat(path); err != nil {
+		return nil
+	}
+	backupDir := filepath.Join(home, ".skillgrid", "backup", agent)
+	base := filepath.Base(path)
+	timestamp := time.Now().Format("2006-01-02-15:04")
+	bak := filepath.Join(backupDir, base+"-"+timestamp+".back")
+	if dryRun {
+		logging.Info("[dry-run] cp " + path + " " + bak)
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("backup read %s: %w", path, err)
+	}
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return fmt.Errorf("backup mkdir %s: %w", backupDir, err)
+	}
+	if err := os.WriteFile(bak, data, 0o644); err != nil {
+		return fmt.Errorf("backup write %s: %w", bak, err)
+	}
+	logging.Info("backed up " + path + " → " + bak)
+	return nil
+}
+
+// BackupAgentConfigs backs up the agent config files (kilo.jsonc/opencode.json,
+// AGENTS.md, cursor mcp.json) before install-mcp mutates them, so a failed or
+// unwanted install-mcp run can be reverted from ~/.skillgrid/backup/<agent>/.
+func BackupAgentConfigs(agents []string, dryRun bool) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	for _, agent := range agents {
+		var paths []string
+		switch agent {
+		case "opencode":
+			dir := filepath.Join(home, ".config", "opencode")
+			paths = []string{filepath.Join(dir, "opencode.jsonc"), filepath.Join(dir, "opencode.json")}
+		case "kilocode", "kilo":
+			dir := filepath.Join(home, ".config", "kilo")
+			paths = []string{
+				filepath.Join(dir, "kilo.jsonc"),
+				filepath.Join(dir, "opencode.json"),
+				filepath.Join(dir, "opencode.jsonc"),
+				filepath.Join(dir, "AGENTS.md"),
+			}
+		case "cursor":
+			paths = []string{filepath.Join(home, ".cursor", "mcp.json")}
+		default:
+			continue
+		}
+		for _, p := range paths {
+			if _, err := os.Stat(p); err != nil {
+				continue
+			}
+			if err := backupConfigFile(home, agent, p, dryRun); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
