@@ -10,7 +10,7 @@
 * BMAD
   * [X] `project-context` -> AGENTS.md and openspec/config.yaml
 * superpowers
-  * [-] `using-superpowers` like skill -> trigger `brainstorming`
+  * [X] `using-skillgrid` skill -> trigger workflow
   * [X] `brainstorming`
   * [x] `write-tasks`
   * validation

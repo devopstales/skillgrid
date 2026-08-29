@@ -123,6 +123,8 @@ sdd/<change-id>/archive-report
 
 | Workflow Stage | Canonical Artifact (OpenSpec) | Sub-Agent Scratch (.skillgrid/sdd/) | Mnemonic Topic |
 |---|---|---|---|
+| setup | — | — | — |
+| setup | `using-skillgrid` | Entry point, loads SDD workflow | — |
 | init | — | `testing-capabilities.yaml` | `sdd/<project>/testing-capabilities` |
 | explore | — | `context/phase-input.md`, `phase-status/explore-status.md` | `sdd/<change-id>/explore` |
 | propose | `openspec/changes/<id>/proposal.md` | `context/phase-input.md`, `phase-status/propose-status.md` | `sdd/<change-id>/proposal` |
@@ -135,8 +137,10 @@ sdd/<change-id>/archive-report
 
 ### Skill Dependency
 
+* setup - `using-skillgrid`
+  * loads SDD workflow
+  * delegates to `sdd-init`
 * init - `sdd-init`
-  * `using-skillgrid`
   * `project-context`
   * `mnemonic-memory`
   * `mnemonic-code-index`

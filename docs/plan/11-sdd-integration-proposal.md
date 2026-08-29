@@ -206,7 +206,7 @@ If `decision_needed_before_apply` is true, `sdd-apply` blocks until the orchestr
 
 | Skill | Purpose |
 |---|---|
-| `using-skillgrid` | Entry point, loads SDD workflow |
+| `using-skillgrid` | Entry point, loads SDD workflow (integrate content of `setup-matt-pocock-skills` and mode selector) |
 | `brainstorming` | Proposal and design artifact creation |
 | `write-tasks` | Task decomposition from specs |
 | `architectural-decision-records` | ADR creation |
@@ -254,6 +254,7 @@ init → explore → propose → design → spec → tasks → apply → verify 
 ### Sub-Agent Launch Pattern
 
 ```javascript
+// Entry point: using-skillgrid loads the SDD workflow
 // Orchestrator pattern
 const phase = nextPhase(statusEnvelope);
 const skill = sddSkills[phase];
