@@ -83,3 +83,17 @@
 - [x] 12-3 Update openspec-explore skill to reference `mem_search`
 - [x] 12-4 Update project-context skill to preserve mnemonic markers
 - [x] 12-5 Update spec-as-source skill to reference `mem_search`
+
+## Epic 13: Engram parity (v1.2)
+
+Port of the Engram plugin's capture and ownership contract into Mnemonic.
+
+- [x] 13-1 Migration 004: `prompts` table + FTS, `observations.source` column, `project_migrations` log
+- [x] 13-2 Memory service: `SavePrompt` (min/chars cap), `CapturePassive` (Key-Learnings + labelled-line extraction, dedup-by-hash), `SessionStartByClientID` (idempotent), `MigrateProjects` (cross-store ATTACH copy + re-tag), `LastObservationAt`, `SessionStartedAt`, `CompactionContext`
+- [x] 13-3 HTTP: `POST /prompts`, `POST /observations/passive`, `POST /projects/migrate`, `GET /context/compaction`, `GET /memory/last-save-at`, `GET /sessions/{id}`; `POST /sessions` accepts client id (idempotent); project read from query or body
+- [x] 13-4 MCP: register `mem_capture_passive` tool with handler + expected-list test
+- [x] 13-5 Plugin rewrite (`plugins/opencode/mnemonic.ts`, mirrored to `plugins/kilo/mnemonic.ts`): SDK-backed root resolution, fail-closed mem_* write hook, fail-open capture hooks, tombstone-invalidation, prompt capture with `<private>` strip, Task passive capture, debounced save nudge, compaction FIRST-ACTION rule
+- [x] 13-6 Protocol doc: add Privacy, Passive capture, After Compaction sections
+- [x] 13-7 Plugin test suite `plugins/{opencode,kilo}/mnemonic.test.mjs` (41 scenarios each) green under `node --test`
+- [x] 13-8 Engine tests: passive extraction, prompt truncation, idempotent client-id sessions, migration no-op, last-save-at, compaction context — all green
+- [x] 13-9 Go build + vet green; live HTTP smoke test of all new endpoints green

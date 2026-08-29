@@ -9,6 +9,21 @@ The system SHALL expose REST endpoints for memory, code, web cache, and graph op
 - **WHEN** `POST /observations`, `GET /search`, `GET /observations/recent` are called
 - **THEN** they behave equivalently to their MCP counterparts
 
+#### Scenario: Passive and prompt endpoints
+- **GIVEN** the HTTP server is running
+- **WHEN** `POST /observations/passive` and `POST /prompts` are called with `session_id` and a project
+- **THEN** the server extracts learnings from the passive text and stores the prompt, returning the stored id(s)
+
+#### Scenario: Project migration
+- **GIVEN** the HTTP server is running and a project id changed (repo rename, remote base-name change)
+- **WHEN** `POST /projects/migrate` is called with `old_project` and `new_project`
+- **THEN** rows tagged `old_project` are rolled into `new_project` and the rename is recorded for idempotency
+
+#### Scenario: Nudge state
+- **GIVEN** the HTTP server is running
+- **WHEN** `GET /memory/last-save-at` is called with a project
+- **THEN** the newest observation timestamp is returned (or empty) so the plugin can compute save-staleness
+
 #### Scenario: Code endpoints
 - **GIVEN** the HTTP server is running
 - **WHEN** `GET /code/status`, `POST /code/index`, `GET /code/search`, `GET /code/read` are called

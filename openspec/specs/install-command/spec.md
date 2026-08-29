@@ -1,4 +1,9 @@
-## ADDED Requirements
+# Install Command Specification
+
+## Purpose
+TBD — describe the `skillgrid install` command, flags, and pipeline ordering.
+
+## Requirements
 
 ### Requirement: Default install command
 
@@ -32,9 +37,10 @@ The install pipeline SHALL execute steps in the following order:
 3. Verify node + npm are on PATH
 4. Select agents (interactive or preset)
 5. Install selected agents via npm
-6. Configure MCP for selected agents
-7. Install global tools (skills, openspec)
-8. Copy repo `.agents/` → `~/.agents/`
+6. Install MCP packages from `config.d/tools.yaml`
+7. Configure MCP for selected agents from `config.d/mcp.yaml`
+8. Install global tools (skills, openspec, cucumber)
+9. Copy repo `.agents/` → `~/.agents/`
 
 #### Scenario: Directory structure created first
 - **GIVEN** `~/.skillgrid` does not exist
@@ -51,10 +57,15 @@ The install pipeline SHALL execute steps in the following order:
 - **WHEN** the check step runs
 - **THEN** a descriptive error is shown with the install script path and the run stops
 
-#### Scenario: MCP configured after agents installed
+#### Scenario: MCP packages installed before MCP configuration
 - **GIVEN** agents are selected and installed
 - **WHEN** the install pipeline runs
-- **THEN** MCP is configured for selected agents before global tools are installed
+- **THEN** MCP packages from `config.d/tools.yaml` are installed before MCP servers are configured
+
+#### Scenario: MCP configured after MCP packages installed
+- **GIVEN** MCP packages are installed
+- **WHEN** the install pipeline reaches the MCP configuration step
+- **THEN** MCP servers from `config.d/mcp.yaml` are merged into each selected agent's config
 
 #### Scenario: Agents installed before global tools
 - **GIVEN** agents are selected
@@ -86,12 +97,12 @@ The CLI SHALL support flags to skip optional pipeline steps.
 
 #### Scenario: Skip tools
 - **GIVEN** the user runs `skillgrid --skip-tools`
-- **WHEN** the pipeline runs
+- **WHEN** the tool install step runs
 - **THEN** the global tool install step is skipped
 
 #### Scenario: Skip agents copy
 - **GIVEN** the user runs `skillgrid --skip-agents`
-- **WHEN** the pipeline runs
+- **WHEN** the copy step runs
 - **THEN** the `.agents/` copy step is skipped
 
 ### Requirement: Verbose mode

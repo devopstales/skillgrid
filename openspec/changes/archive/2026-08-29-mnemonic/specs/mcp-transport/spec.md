@@ -12,7 +12,12 @@ The system SHALL provide `skillgrid mcp` as an MCP stdio server for agent tool c
 #### Scenario: All tools registered
 - **GIVEN** the MCP server is running
 - **WHEN** an agent requests the tool list
-- **THEN** `mem_*`, `code_*`, and `web_*` tools are advertised
+- **THEN** `mem_*`, `code_*`, and `web_*` tools are advertised, including `mem_capture_passive`
+
+#### Scenario: Passive capture tool
+- **GIVEN** the MCP server is running
+- **WHEN** an agent calls `mem_capture_passive` with a block of text and a `session_id`
+- **THEN** the server extracts learnings and returns the count of saved/skipped observations with stored ids
 
 #### Scenario: MCP tool dispatch
 - **GIVEN** an agent calls `mem_search` via MCP
@@ -40,5 +45,5 @@ The system SHALL provide `skillgrid serve` as an HTTP server for plugin hooks.
 
 #### Scenario: Context for compaction
 - **GIVEN** the HTTP server is running
-- **WHEN** `GET /context` is called
-- **THEN** recent session context is returned for compaction injection
+- **WHEN** `GET /context/compaction?project=&session_id=` is called
+- **THEN** the session's title/summary and the newest N observations are returned for compaction injection

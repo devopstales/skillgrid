@@ -20,6 +20,16 @@ exploration (`list_repos`, `check`, `rename`, `detect_changes`, `cypher`), memor
 - **WHEN** an agent requests the tool list
 - **THEN** `mem_*`, `code_*`, `web_*`, `graph_*`, exploration, memory-extension, PDG, and contract tools are all advertised (existing 17 + new 27)
 
+#### Scenario: MCP tool dispatch
+- **GIVEN** an agent calls `mem_search` via MCP
+- **WHEN** the tool is dispatched
+- **THEN** the service layer executes the search and returns results
+
+#### Scenario: Passive capture tool
+- **GIVEN** the MCP server is running
+- **WHEN** an agent calls `mem_capture_passive` with a block of text and a `session_id`
+- **THEN** the server extracts learnings and returns the count of saved/skipped observations with stored ids
+
 #### Scenario: New tool dispatch
 - **GIVEN** an agent calls a newly added tool via MCP (e.g., `graph_impact`, `rename`, `cypher`, `explain`, `route_map`, `mem_review`)
 - **WHEN** the tool is dispatched
@@ -45,6 +55,16 @@ memory/code/web routes plus the new `/graph/*` and `/memory/*` routes and the
 - **GIVEN** the HTTP server is running
 - **WHEN** `GET /health` is called
 - **THEN** `{"status":"ok","service":"skillgrid-memindex","version":"..."}` is returned
+
+#### Scenario: Session create
+- **GIVEN** the HTTP server is running
+- **WHEN** `POST /sessions` is called with a directory
+- **THEN** a session is created and the session ID returned
+
+#### Scenario: Context for compaction
+- **GIVEN** the HTTP server is running
+- **WHEN** `GET /context/compaction?project=&session_id=` is called
+- **THEN** the session's title/summary and the newest N observations are returned for compaction injection
 
 #### Scenario: Graph and memory routes
 - **GIVEN** the HTTP server is running

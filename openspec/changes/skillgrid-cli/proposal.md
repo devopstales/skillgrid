@@ -8,25 +8,25 @@ The `skillgrid-cli` is the primary installation method for Skillgrid, but its be
 - Describe all commands (`install`, `sync-repo`), flags, and their semantics
 - Document the install pipeline steps and their ordering
 - Document agent selection, tool installation, and config system
-- No code changes — this is a documentation-only change
+- Add MCP server configuration as part of the normal install pipeline
+- Implement MCP configuration during install for selected agents
 
 ## Capabilities
 
-This change documents the existing CLI. The capabilities below name the spec files
-describing each documented area, so the proposal and specs stay in 1:1 agreement:
+This change documents the existing CLI and implements MCP configuration during install. The capabilities below name the spec files describing each documented area, so the proposal and specs stay in 1:1 agreement:
 `install-command`, `sync-repo`, `agent-selection`, `tool-install`, `config-system`,
 `build`, `mcp-install`, `plugin-install`.
 
 ### New Capabilities
 
-None — this change documents existing behavior, it introduces no new capability.
+- `mcp-install`: MCP server configuration is performed automatically for selected agents during the normal install pipeline.
 
 ### Modified Capabilities
 
-None — documentation only; no spec-level behaviour changes.
+- `install-command`: The install pipeline now includes MCP configuration for selected agents.
 
 ## Impact
 
 - **Affected docs**: `openspec/changes/skillgrid-cli/` is the canonical CLI reference
-- **Affected code**: None (documents the implemented `skillgrid-cli/` in this repo)
-- **Users**: Operators and contributors gain a formal reference for CLI behavior
+- **Affected code**: `skillgrid-cli/internal/install/install.go` — MCP setup added to install pipeline
+- **Users**: Operators and contributors gain a formal reference for CLI behavior; MCP is now configured automatically during install

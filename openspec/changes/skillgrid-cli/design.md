@@ -13,9 +13,10 @@ The CLI is built with `task` (Taskfile.yml) and supports cross-compilation to li
 - Document the config system (Config struct, agents, tools)
 - Document error handling and dry-run behavior
 - Serve as canonical reference for operators and contributors
+- Implement MCP configuration as part of the normal install pipeline
 
 **Non-Goals:**
-- Changing CLI behavior
+- Changing CLI behavior beyond adding MCP configuration to install
 - Adding new commands or flags
 - Documenting MemIndex or editor plugin CLI commands (those are separate changes)
 
