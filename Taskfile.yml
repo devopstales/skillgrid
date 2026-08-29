@@ -32,6 +32,8 @@ tasks:
     cmds:
       - cd {{.MODULE_DIR}} && mkdir -p ../{{.OUT}}
       - cd {{.MODULE_DIR}} && go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}} {{.PKG}}
+      - rm -f ~/.local/bin/skillgrid
+      - cp dist/skillgrid ~/.local/bin/
 
   all:
     desc: Cross-build linux amd64+386 and darwin amd64+arm64.

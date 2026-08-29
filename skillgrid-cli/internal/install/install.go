@@ -9,8 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/setup"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/ui"
 )
+
+const installMcpPkg = "install-mcp"
 
 // Run executes the install flow in the order defined by the project spec:
 //  1. create ~/.skillgrid structure
@@ -18,8 +21,11 @@ import (
 //  3. verify node + npm are on PATH
 //  4. ask which agents to install (or use preset/--yes defaults)
 //  5. npm install -g each selected agent
-//  6. npm install -g for the shared tools
-//  7. override ~/.agents from the repo's .agents/
+//  6. npm install -g install-mcp (global CLI for MCP server installs)
+//  7. install-mcp install each MCP server from config.d/tools.yaml
+//  8. configure MCP for selected agents from config.d/mcp.yaml
+//  9. npm install -g for the remaining shared tools
+// 10. override ~/.agents from the repo's .agents/
 //
 // Any hard failure stops the run with a descriptive error; individual
 // non-fatal issues are reported but the run continues.
@@ -61,12 +67,32 @@ func Run(c *Config) error {
 		if err := installAgents(c); err != nil {
 			return err
 		}
+		// install-mcp must be installed before MCP servers so we can use it.
+		info("installing install-mcp CLI")
+		if err := installInstallMcp(c); err != nil {
+			return err
+		}
+		// Back up agent config before install-mcp mutates it, so it can be
+		// reverted if the install goes wrong (backup lands in ~/.skillgrid/backup/<agent>/).
+		if len(c.Agents) > 0 {
+			if err := setup.BackupAgentConfigs(c.Agents, c.DryRun); err != nil {
+				return fmt.Errorf("backup agent configs: %w", err)
+			}
+		}
+		info("installing MCP servers via install-mcp")
+		if err := installMCPServers(c); err != nil {
+			return err
+		}
+		info("configuring MCP for agents: " + strings.Join(c.Agents, ", "))
+		if err := setupAgents(c); err != nil {
+			return err
+		}
 	}
 
 	if c.SkipTools {
 		verb("skipping global tool install (--skip-tools)")
 	} else {
-		info("installing global tools (skills, openspec)")
+		info("installing remaining global tools (skills, openspec)")
 		if err := installTools(c); err != nil {
 			return err
 		}
@@ -207,6 +233,56 @@ func installAgents(c *Config) error {
 			Out("      npm install -g", pkg)
 			if err := run(c, "", "npm", "install", "-g", pkg); err != nil {
 				return fmt.Errorf("npm install -g %s: %w", pkg, err)
+			}
+		}
+	}
+	return nil
+}
+
+func setupAgents(c *Config) error {
+	repoRoot := setup.FindRepoRoot(c.RepoDir)
+	if repoRoot == "" {
+		repoRoot = c.RepoDir
+	}
+	mcpEntries, err := setup.LoadMCPConfig(repoRoot)
+	if err != nil {
+		return fmt.Errorf("load mcp config: %w", err)
+	}
+	for _, key := range c.Agents {
+		if err := setup.RunSetup(key, repoRoot, mcpEntries, c.DryRun); err != nil {
+			return fmt.Errorf("setup %s: %w", key, err)
+		}
+	}
+	return nil
+}
+
+// installInstallMcp npm installs the install-mcp CLI globally.
+func installInstallMcp(c *Config) error {
+	pkg := installMcpPkg
+	if c.DryRun {
+		Out("      [dry-run] npm install -g", pkg)
+		return nil
+	}
+	Out("      npm install -g", pkg)
+	return run(c, "", "npm", "install", "-g", pkg)
+}
+
+// installMCPServers installs MCP servers from config.d/tools.yaml
+// using the install-mcp CLI, one --client per selected agent.
+func installMCPServers(c *Config) error {
+	toolsCfg, err := LoadToolsConfig(c.RepoDir)
+	if err != nil {
+		return fmt.Errorf("load tools config: %w", err)
+	}
+	for _, pkg := range toolsCfg.MCP {
+		for _, agent := range c.Agents {
+			if c.DryRun {
+				Out("      [dry-run] install-mcp", pkg, "--client", agent, "-y")
+				continue
+			}
+			Out("      install-mcp", pkg, "--client", agent, "-y")
+			if err := run(c, "", "install-mcp", pkg, "--client", agent, "-y"); err != nil {
+				return fmt.Errorf("install-mcp %s --client %s: %w", pkg, agent, err)
 			}
 		}
 	}

@@ -188,15 +188,15 @@ Returns the sorted list of project IDs that have a store under the data director
 
 `skillgrid setup <agent>` installs Mnemonic integration for one of `opencode`,
 `kilocode`, or `cursor` (`kilo` is accepted as an alias for `kilocode`). It copies
-plugin templates from `skillgrid-cli/plugins/mnemonic/` into the agent's config
+plugin files from `plugins/<agent>/` in the repo into the agent's config
 directory and registers `skillgrid mcp` as the MCP server.
 
 ### OpenCode / Kilo
 
-- Copies `skillgrid-cli/plugins/mnemonic/opencode/mnemonic.ts` → `~/.config/opencode/plugins/mnemonic.ts`
-- Copies `skillgrid-cli/plugins/mnemonic/shared/http-client.ts` → `~/.config/opencode/shared/http-client.ts`
+- Copies `plugins/opencode/mnemonic.ts` → `~/.config/opencode/plugins/mnemonic.ts`
+- Copies `plugins/kilo/mnemonic.ts` → `~/.config/opencode/shared/http-client.ts`
 - Upserts `mcp.skillgrid-mnemonic` in `~/.config/opencode/opencode.jsonc` (or `kilo.jsonc` for Kilo)
-- For Kilo: writes the Memory Protocol (from `skillgrid-cli/plugins/mnemonic/shared/memory-protocol.md`)
+- For Kilo: writes the Memory Protocol (from `plugins/kilo/memory-protocol.md`)
   into `~/.config/kilo/AGENTS.md` between managed markers, and bridges shared files from
   OpenCode's config.
 - The OpenCode plugin reads `SKILLGRID_MNEMONIC_HTTP_URL` (default `http://127.0.0.1:7438`)
@@ -209,7 +209,7 @@ directory and registers `skillgrid mcp` as the MCP server.
 
 - Registers `skillgrid mcp` in `~/.cursor/mcp.json` under `mcpServers.skillgrid-mnemonic`
 - Writes `~/.cursor/rules/mnemonic.mdc` from the template at
-  `skillgrid-cli/plugins/mnemonic/cursor/mnemonic.mdc`, injecting the Memory Protocol
+  `plugins/cursor/mnemonic.mdc`, injecting the Memory Protocol
   in place of `{{MEMORY_PROTOCOL}}`.
 
 ---

@@ -195,7 +195,9 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
-		return
+		if rest0 != "install" && rest0 != "in" {
+			return
+		}
 	}
 
 	// Only run install when explicitly invoked with the "install" subcommand.
