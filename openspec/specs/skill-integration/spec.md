@@ -49,3 +49,20 @@ The spec-as-source skill SHALL instruct agents to search memory for related spec
 - **GIVEN** the spec-as-source skill is active
 - **WHEN** drafting or modifying a spec
 - **THEN** the agent is instructed to call `mem_search` for prior related specs and decisions
+
+### Requirement: Mnemonic references use the correct tool names
+
+Any mention of MEMORY tools in skill files SHALL use the actual tool names
+(`mem_search`, `mem_save`, `mem_context`, `mem_session_summary`) — not the
+legacy Engram tool name or invented variants — and SHALL be discoverable inside
+the skill files (grep-able) so a tool-linter can verify them.
+
+#### Scenario: Tool names exist in skill files
+- **GIVEN** the set of integrated skill files (brainstorming, openspec-apply-change, openspec-explore, project-context, spec-as-source)
+- **WHEN** the tool names in the files are scanned against the Mnemonic MCP tool list
+- **THEN** every `mem_*` token is a registered MCP tool (no invented names)
+
+#### Scenario: Tool references are actionable
+- **GIVEN** a skill file instructs `mem_search`
+- **WHEN** the agent reads the instruction
+- **THEN** the instruction includes a concrete query shape (a keyword list or topic) — not just "search memory" — so the agent can construct the first call without a second lookup

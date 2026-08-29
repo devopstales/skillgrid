@@ -132,3 +132,34 @@ The CLI SHALL support `--repo-url` and `--branch` to configure the source reposi
 - **GIVEN** the user runs `skillgrid --branch main`
 - **WHEN** the repo sync step runs
 - **THEN** the specified branch is checked out
+
+### Requirement: Exit codes
+
+The CLI SHALL use conventional exit codes so scripts/CI can branch on
+failure kind.
+
+| code | meaning                                  |
+|------|------------------------------------------|
+| `0`  | success                                  |
+| `1`  | hard failure (missing node, missing home, network clone fail, tool install fail) |
+| `2`  | usage error (unknown subcommand, missing/unknown flag, bad value) |
+
+#### Scenario: Success exits 0
+- **GIVEN** the install pipeline finishes without failure
+- **WHEN** the process exits
+- **THEN** the exit code is `0`
+
+#### Scenario: Missing node exits 1
+- **GIVEN** `node` is not on PATH
+- **WHEN** the install pipeline runs
+- **THEN** the process prints a descriptive error to stderr and exits with code `1`
+
+#### Scenario: Unknown subcommand exits 2
+- **GIVEN** the user runs `skillgrid frobnicate`
+- **WHEN** the subcommand is parsed
+- **THEN** the process exits with code `2` and the usage text is printed
+
+#### Scenario: Unknown flag exits 2
+- **GIVEN** the user runs `skillgrid install --frob`
+- **WHEN** the flag is parsed
+- **THEN** the process exits with code `2` and a message names the unknown flag

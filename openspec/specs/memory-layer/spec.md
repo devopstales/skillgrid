@@ -84,3 +84,34 @@ The system SHALL extract structured learnings from free text (assistant replies,
 - **GIVEN** a text block was already captured once
 - **WHEN** the same text is captured again
 - **THEN** no new rows are added (24h hash deduplication or topic_key upsert applies)
+
+### Requirement: Deduplication and size limits
+
+Observations and prompts SHALL respect an explicit 24-hour deduplication window
+for `(title, content, type)`, and user prompts SHALL be capped at a bounded
+length before storage.
+
+#### Scenario: 24-hour hash window
+- **GIVEN** an observation `(title=T, content=C, type=D)` was saved 1 hour ago
+- **WHEN** the same triple is saved again
+- **THEN** the existing row is updated in place (revision_count bumped) and no new row is created
+
+#### Scenario: Prompt is bounded
+- **GIVEN** the plugin POSTs a 5000-character prompt to the server
+- **WHEN** the server stores the prompt
+- **THEN** the stored `content` is at most 2000 characters and the remainder is dropped
+
+#### Scenario: Sub-minimum prompt is rejected
+- **GIVEN** the plugin POSTs a prompt shorter than 11 characters
+- **WHEN** the server processes the request
+- **THEN** the response is `202 Accepted` with `{"captured": false, "reason": "too-small"}` and no row is created
+
+### Requirement: Source provenance is preserved on upsert
+
+When a `mem_save` call updates an existing observation by `topic_key`, the new
+`source` field SHALL replace the previous value (not the first-time value).
+
+#### Scenario: Upset preserves latest source
+- **GIVEN** an observation exists with `source=agent`
+- **WHEN** `mem_capture_passive` updates the same row through `topic_key`
+- **THEN** the row's `source` reflects the latest write, not the first

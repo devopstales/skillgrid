@@ -60,3 +60,23 @@ The CLI SHALL support installing the following agents:
 - **GIVEN** cursor is selected
 - **WHEN** the agent install step runs
 - **THEN** no npm install is attempted (cursor has no npm package)
+
+### Requirement: Agent key validation
+
+The `--agents` flag and the interactive prompt SHALL only accept known agent
+keys and SHALL report unknown keys explicitly rather than silently skipping them.
+
+#### Scenario: Unknown agent key is reported on the CLI
+- **GIVEN** the user runs `skillgrid --agents opencode,zed`
+- **WHEN** the flag is parsed
+- **THEN** the command names the unknown key (`zed`) and lists the valid keys it accepts, instead of silently installing only `opencode`
+
+#### Scenario: Case-insensitive matching
+- **GIVEN** the user runs `skillgrid --agents OpenCode,Kilo`
+- **WHEN** the flag is parsed
+- **THEN** both are recognised as valid keys and selected
+
+#### Scenario: Whitespace in `--agents` is tolerated
+- **GIVEN** the user runs `skillgrid --agents " opencode, kilo "`
+- **WHEN** the flag is parsed
+- **THEN** the keys are trimmed and both selected

@@ -47,3 +47,31 @@ The system SHALL provide `web_cache_search` for FTS5 search over cached research
 - **GIVEN** `web_cache_search` is called with `fresh_only: true`
 - **WHEN** results are returned
 - **THEN** expired entries are excluded
+
+### Requirement: Per-source TTL defaults
+
+Different research sources SHALL expire on different schedules; the defaults
+SHALL be overridable via `config.d/indexing.yaml` under `web_ttl_days`.
+
+| source   | default TTL | override key |
+|----------|-------------|--------------|
+| `context7` | 30 days | `context7` |
+| `exa`      | 7 days  | `exa` |
+| `deepwiki` | 14 days | `deepwiki` |
+| `fetch`    | 7 days  | `fetch` |
+| `manual`   | never   | `manual` (0) |
+
+#### Scenario: context7 snapshot expires after 30 days
+- **GIVEN** a `context7` entry was fetched 31 days ago
+- **WHEN** `web_cache_lookup` is called for it
+- **THEN** the response carries `stale: true` (or a hint prompting re-fetch)
+
+#### Scenario: Manual entry never expires by definition
+- **GIVEN** a `manual` entry was saved 100 days ago
+- **WHEN** `web_cache_lookup` is called for it
+- **THEN** it is still reported fresh (no staleness flag)
+
+#### Scenario: User override wins
+- **GIVEN** `config.d/indexing.yaml` sets `web_ttl_days: { context7: 1 }`
+- **WHEN** a `context7` entry 2 days old is looked up
+- **THEN** it is reported stale (the repo override beats the built-in 30d default)

@@ -42,3 +42,24 @@ The system SHALL merge MCP server entries from `config.d/mcp.yaml` into each sel
 - **GIVEN** `skillgrid install` runs with an unknown agent key
 - **WHEN** the MCP configuration step runs
 - **THEN** a clear error is returned listing available agents
+
+### Requirement: MCP config backup and preservation
+
+MCP configuration SHALL back up each agent config file before mutating it, so
+that a failed or partial `install-mcp` run does not lose the user's existing
+MCP entries.
+
+#### Scenario: Config backed up before mutation
+- **GIVEN** `~/.config/opencode/opencode.json` contains existing MCP entries
+- **WHEN** `skillgrid install` reaches the MCP server configuration step
+- **THEN** a backup of the pre-mutation config is created before `install-mcp` runs, and the backup exists even if `install-mcp` fails midway
+
+#### Scenario: Existing entries are not lost on re-run
+- **GIVEN** `~/.config/opencode/opencode.json` has a user-added MCP entry `foo` with `enabled: false`
+- **WHEN** `skillgrid install` re-runs
+- **THEN** the `foo` entry survives the re-run (a first-write-wins merge, not a wholesale replace)
+
+#### Scenario: Adding a new server does not remove others
+- **GIVEN** `config.d/mcp.yaml` gains a new server entry in a new release
+- **WHEN** `skillgrid install` re-runs
+- **THEN** the new entry is added and no pre-existing MCP entry is removed

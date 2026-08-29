@@ -43,3 +43,17 @@ The CLI SHALL support `sync-repo PATH` to install from a local directory without
 - **GIVEN** the user runs `skillgrid --sync-repo /path --dry-run`
 - **WHEN** sync-repo runs
 - **THEN** planned copies are printed and no changes are written
+
+### Requirement: Destination safety
+
+The sync-repo command SHALL never write outside `~/.skillgrid/repos/` or `~/.agents/`, and SHALL refuse to run when the source and destination collapse into the same tree.
+
+#### Scenario: Source is destination parent
+- **GIVEN** the user runs `skillgrid sync-repo ~/.skillgrid` (i.e. the repo is already inside itself)
+- **WHEN** the destination is resolved
+- **THEN** the command detects the collision, prints a clear error, and exits with a non-zero code before writing anything
+
+#### Scenario: Symlink loops do not hang
+- **GIVEN** the source tree contains a symlink that points back into itself
+- **WHEN** the copy is executed
+- **THEN** the copy does not loop infinitely; it either follows symlinks once or skips them (determined by the copy algorithm) and finishes

@@ -52,3 +52,25 @@ The system SHALL provide `skillgrid serve` as an HTTP server for plugin hooks.
 - **GIVEN** the HTTP server is running
 - **WHEN** `GET /context/compaction?project=&session_id=` is called
 - **THEN** the session's title/summary and the newest N observations are returned for compaction injection
+
+### Requirement: Result encoding
+
+MCP tool results SHALL be encoded as standard MCP `CallToolResult` responses
+(`isError: false` on success, `isError: true` with a parseable error message
+on failure) and every success path SHALL return JSON (not plain text), so
+host agents can branch on `result.isError` uniformly.
+
+#### Scenario: Success path returns JSON
+- **GIVEN** a tool call succeeds (e.g. `mem_search` returns matches)
+- **WHEN** the dispatch encodes the result
+- **THEN** `isError` is false and the content payload contains a JSON document (not a free-form string) that the host agent can parse
+
+#### Scenario: Missing required argument reports a clear error
+- **GIVEN** the agent calls `mem_capture_passive` without `content`
+- **WHEN** the dispatch validates arguments
+- **THEN** `isError` is true and the error text names the missing argument and the tool name so the agent can self-correct
+
+#### Scenario: Unknown tool name reports "not found"
+- **GIVEN** the MCP client calls a tool name that is not registered
+- **WHEN** the dispatch runs
+- **THEN** the MCP server responds with a `CallToolResult` indicating the unknown tool (host-visible error), not a silent empty result

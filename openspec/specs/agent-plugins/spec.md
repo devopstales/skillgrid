@@ -1,7 +1,13 @@
 # agent-plugins Specification
 
 ## Purpose
-TBD - created by archiving change mnemonic. Update Purpose after archive.
+
+The agent plugin contract that the OpenCode/Kilo plugins and the Cursor `.mdc`
+rule must satisfy. The plugin is a thin TS layer that (a) injects the Memory
+Protocol into the system prompt, (b) captures user prompts and Task output
+server-side, (c) debounces save nudges, (d) injects compaction context, and
+(e) enforces a session-ownership contract (root vs sub-agent) so every
+attributable write is bound to the top-level session.
 
 ## Requirements
 
@@ -109,3 +115,29 @@ The system SHALL provide a Cursor `.mdc` rule for MCP + protocol guidance.
 - **GIVEN** `skillgrid setup cursor` runs
 - **WHEN** the setup completes
 - **THEN** `~/.cursor/mcp.json` contains the `skillgrid-memindex` MCP server entry
+
+### Requirement: Plugin runtime configuration via environment variables
+
+The plugin SHALL honour the following environment variables so the HTTP base URL,
+auth token, binary path, and nudge cooldown can be overridden without re-running
+`skillgrid setup`.
+
+- `SKILLGRID_MNEMONIC_HTTP_URL` — HTTP base (default `http://127.0.0.1:7438`)
+- `SKILLGRID_MNEMONIC_HTTP_TOKEN` — bearer for write routes
+- `SKILLGRID_MNEMONIC_BIN` — binary path spawned if `/health` is down (default `skillgrid`)
+- `SKILLGRID_MNEMONIC_NUDGE_COOLDOWN_SECS` — minimum gap between save nudges (default `900`)
+
+#### Scenario: Custom HTTP base is used
+- **GIVEN** the plugin loads with `SKILLGRID_MNEMONIC_HTTP_URL=http://127.0.0.1:9999`
+- **WHEN** the plugin POSTs to `/sessions`
+- **THEN** the request URL is `http://127.0.0.1:9999/sessions`
+
+#### Scenario: Bearer token is forwarded
+- **GIVEN** the plugin loads with `SKILLGRID_MNEMONIC_HTTP_TOKEN=s3cret`
+- **WHEN** the plugin POSTs to `/sessions`
+- **THEN** the `Authorization` header is `Bearer s3cret`
+
+#### Scenario: Nudge cooldown is honoured
+- **GIVEN** the plugin loads with `SKILLGRID_MNEMONIC_NUDGE_COOLDOWN_SECS=3600`
+- **WHEN** two system-prompt transforms fire 10 minutes apart
+- **THEN** the second transform does not append the save nudge (within the 3600s cooldown)

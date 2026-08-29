@@ -47,3 +47,24 @@ The system SHALL provide `code_search` for FTS5 search over indexed chunks.
 - **GIVEN** `code_status` is called
 - **WHEN** the tool executes
 - **THEN** file count, chunk count, last indexed time, and staleness hint are returned
+
+### Requirement: Indexing is config-driven
+
+The code indexer SHALL honour include/exclude globs, chunk window, and file-size
+cap from `config.d/indexing.yaml` (repo-local or `~/.skillgrid/config.d/`
+override, first match wins per key).
+
+#### Scenario: Defaults when no config present
+- **GIVEN** no `config.d/indexing.yaml` is found
+- **WHEN** indexing runs
+- **THEN** defaults apply: `chunk_lines` 80, `chunk_overlap` 10, `max_file_size_kb` 512, and the default include set (`.go`, `.ts`, `.tsx`, `.md`)
+
+#### Scenario: File size cap enforced
+- **GIVEN** `max_file_size_kb` is set to 512
+- **WHEN** the indexer reaches a 600KB file
+- **THEN** the file is skipped (counted in `files_skipped`) and not chunked
+
+#### Scenario: Chunk overlap preserved
+- **GIVEN** `chunk_lines` is 80 and `chunk_overlap` is 10
+- **WHEN** a file is split into chunks
+- **THEN** adjacent chunks share the last 10 lines so cross-chunk symbols remain searchable
