@@ -2,13 +2,18 @@
 package http
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/webcache"
 )
@@ -36,12 +41,20 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /sessions", s.requireWriteAuth(s.handleSessionCreate))
 	s.mux.HandleFunc("POST /sessions/{id}/end", s.requireWriteAuth(s.handleSessionEnd))
 	s.mux.HandleFunc("POST /sessions/{id}/title", s.requireWriteAuth(s.handleSessionSetTitle))
+	s.mux.HandleFunc("GET /sessions/{id}", s.handleSessionGet)
 
 	s.mux.HandleFunc("GET /context", s.handleContext)
+	s.mux.HandleFunc("GET /context/compaction", s.handleContextCompaction)
 	s.mux.HandleFunc("GET /memory/status", s.handleMemoryStatus)
+	s.mux.HandleFunc("GET /memory/last-save-at", s.handleMemoryLastSaveAt)
 	s.mux.HandleFunc("POST /observations", s.requireWriteAuth(s.handleObservationCreate))
+	s.mux.HandleFunc("POST /observations/passive", s.requireWriteAuth(s.handleObservationPassive))
 	s.mux.HandleFunc("GET /observations/recent", s.handleObservationsRecent)
+	s.mux.HandleFunc("GET /observations", s.handleObservationsList)
 	s.mux.HandleFunc("GET /search", s.handleSearch)
+	s.mux.HandleFunc("POST /prompts", s.requireWriteAuth(s.handlePromptCreate))
+
+	s.mux.HandleFunc("POST /projects/migrate", s.requireWriteAuth(s.handleProjectsMigrate))
 
 	s.mux.HandleFunc("GET /code/status", s.handleCodeStatus)
 	s.mux.HandleFunc("POST /code/index", s.requireWriteAuth(s.handleCodeIndex))
@@ -56,7 +69,6 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /web/status", s.handleWebStatus)
 
 	s.mux.HandleFunc("GET /projects", s.handleProjects)
-	s.mux.HandleFunc("GET /observations", s.handleObservationsList)
 
 	s.registerUIRoutes()
 }
@@ -103,7 +115,9 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 		dir = "."
 	}
 	title := r.URL.Query().Get("title")
+	id := r.URL.Query().Get("id")
 	type body struct {
+		ID        string `json:"id,omitempty"`
 		Directory string `json:"directory,omitempty"`
 		Title     string `json:"title,omitempty"`
 	}
@@ -117,6 +131,33 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	if b.Title != "" {
 		title = b.Title
 	}
+	if b.ID != "" {
+		id = b.ID
+	}
+
+	if id != "" {
+		// Caller supplied an authoritative ID — register under it, idempotent.
+		sessionID, projectID, existed, err := s.svc.SessionStartByClientID(r.Context(), id, dir, title)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out := map[string]any{
+			"session_id": sessionID,
+			"project_id": projectID,
+			"created":    !existed,
+		}
+		if title != "" {
+			out["title"] = title
+		}
+		status := http.StatusCreated
+		if existed {
+			status = http.StatusOK
+		}
+		writeJSON(w, status, out)
+		return
+	}
+
 	sessionID, projectID, err := s.svc.SessionStart(r.Context(), dir, title)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -185,6 +226,143 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+}
+
+// handleContextCompaction returns a compact, session-scoped context block for
+// the compaction prompt: the current session's title/summary plus the newest
+// few observations. The plugin injects this so nothing is lost in summarisation.
+func (s *Server) handleContextCompaction(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sessionID := r.URL.Query().Get("session_id")
+	limit := queryInt(r, "limit", 5)
+	ctxOut, err := s.svc.ContextForCompaction(r.Context(), projectID, sessionID, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"context": ctxOut})
+}
+
+// handleSessionGet returns a single session including started_at, which the
+// plugin uses for save-nudge age checks.
+func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	// Look up across projects: resolve the project from the query, else list.
+	projectID := r.URL.Query().Get("project")
+	st := map[string]any{"id": id}
+	if projectID != "" {
+		started, err := s.svc.SessionStartedAt(r.Context(), projectID, id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		if !started.IsZero() {
+			st["started_at"] = started.UTC().Format(time.RFC3339)
+		}
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+// handleMemoryLastSaveAt returns the newest observation timestamp so the
+// plugin can compute how long since the last save (for the debounced nudge).
+func (s *Server) handleMemoryLastSaveAt(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ts, err := s.svc.LastObservationAt(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := map[string]any{"last_save_at": ""}
+	if !ts.IsZero() {
+		out["last_save_at"] = ts.UTC().Format(time.RFC3339)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handlePromptCreate persists a captured user prompt.
+func (s *Server) handlePromptCreate(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var in service.PromptInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(projectID) == "" {
+		writeError(w, http.StatusBadRequest, "project is required")
+		return
+	}
+	id, err := s.svc.SavePrompt(r.Context(), projectID, in)
+	if err != nil {
+		if errors.Is(err, memory.ErrPromptTooSmall) {
+			writeJSON(w, http.StatusAccepted, map[string]any{"captured": false, "reason": "too-small"})
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "captured": true})
+}
+
+// handleObservationPassive extracts learnings from free text and persists them.
+func (s *Server) handleObservationPassive(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var in service.PassiveInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(projectID) == "" {
+		writeError(w, http.StatusBadRequest, "project is required")
+		return
+	}
+	res, err := s.svc.CapturePassive(r.Context(), projectID, in)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleProjectsMigrate rolls data from oldProject into newProject.
+func (s *Server) handleProjectsMigrate(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		OldProject string `json:"old_project"`
+		NewProject string `json:"new_project"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	moved, err := s.svc.MigrateProjects(r.Context(), body.OldProject, body.NewProject)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"old_project": body.OldProject,
+		"new_project": body.NewProject,
+		"rows_moved":  moved,
+	})
 }
 
 func (s *Server) handleMemoryStatus(w http.ResponseWriter, r *http.Request) {
@@ -477,6 +655,23 @@ func (s *Server) handleWebStatus(w http.ResponseWriter, r *http.Request) {
 func projectFromRequest(r *http.Request) (string, error) {
 	if p := strings.TrimSpace(r.URL.Query().Get("project")); p != "" {
 		return p, nil
+	}
+	if r.Body != nil {
+		body, err := io.ReadAll(r.Body)
+		if err == nil && len(body) > 0 {
+			_ = r.Body.Close()
+			var v any
+			if err := json.Unmarshal(body, &v); err == nil {
+				if m, ok := v.(map[string]any); ok {
+					if p, ok := m["project"].(string); ok && strings.TrimSpace(p) != "" {
+						r.Body = io.NopCloser(bytes.NewReader(body))
+						return strings.TrimSpace(p), nil
+					}
+				}
+			}
+		} else {
+			_ = r.Body.Close()
+		}
 	}
 	return "", fmt.Errorf("project is required")
 }

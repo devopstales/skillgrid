@@ -59,6 +59,14 @@ func Open(dataDir, projectID string) (*Store, error) {
 	return &Store{DB: db, path: dbPath}, nil
 }
 
+// Path returns the on-disk path of the SQLite file.
+func (s *Store) Path() string {
+	if s == nil {
+		return ""
+	}
+	return s.path
+}
+
 // Close releases the database handle.
 func (s *Store) Close() error {
 	if s == nil || s.DB == nil {

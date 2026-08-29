@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
@@ -171,6 +172,184 @@ func (s *Service) SessionSummary(ctx context.Context, projectID, sessionID, summ
 	}
 	defer cleanup()
 	return h.memory.SessionSummary(ctx, sessionID, summary)
+}
+
+// SessionStartByClientID registers a session under the caller's ID (idempotent).
+func (s *Service) SessionStartByClientID(ctx context.Context, sessionID, directory, title string) (id, projectID string, existed bool, err error) {
+	h, cleanup, err := s.openProjectForDirectory(directory)
+	if err != nil {
+		return "", "", false, err
+	}
+	defer cleanup()
+	id, projID, existed, err := h.memory.SessionStartByClientID(ctx, sessionID, directory, title)
+	if err != nil {
+		return "", "", false, err
+	}
+	return id, projID, existed, nil
+}
+
+// PromptInput is a captured user prompt.
+type PromptInput = memory.PromptInput
+
+// SavePrompt stores a captured user prompt.
+func (s *Service) SavePrompt(ctx context.Context, projectID string, in PromptInput) (int64, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return 0, err
+	}
+	defer cleanup()
+	return h.memory.SavePrompt(ctx, in)
+}
+
+// PassiveInput is free text for server-side learnings extraction.
+type PassiveInput = memory.PassiveInput
+
+// PassiveResult reports what the passive extractor found.
+type PassiveResult = memory.CapturePassiveResult
+
+// CapturePassive extracts learnings from raw text and persists them.
+func (s *Service) CapturePassive(ctx context.Context, projectID string, in PassiveInput) (PassiveResult, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return PassiveResult{}, err
+	}
+	defer cleanup()
+	return h.memory.CapturePassive(ctx, in)
+}
+
+// CompactionContext assembles session-scoped context for the compaction prompt.
+type CompactionContext = memory.CompactionContext
+
+// ContextForCompaction returns the compaction context.
+func (s *Service) ContextForCompaction(ctx context.Context, projectID, sessionID string, limit int) (CompactionContext, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return CompactionContext{}, err
+	}
+	defer cleanup()
+	return h.memory.CompactionContext(ctx, sessionID, limit)
+}
+
+// MigrateProjects rolls data recorded under oldProject into the newProject
+// store. In Mnemonic each project has its own SQLite file, so the data lives
+// in <oldProject>.sqlite while new writes go to <newProject>.sqlite. We open
+// the old store, ATTACH the new one, copy every row tagged oldProject across
+// (observations, sessions, web_cache, prompts, files), re-tag it as
+// newProject, and record the migration for idempotency.
+//
+// Idempotent: if no rows tagged oldProject remain, nothing is copied and we
+// just ensure the record exists. If the old store file is missing, this is a
+// clean no-op (0 moved, nil error).
+//
+// Called from the agent plugin on first run when the project id it computed
+// differs from one previously recorded in the data dir.
+func (s *Service) MigrateProjects(ctx context.Context, oldProject, newProject string) (int, error) {
+	oldProject = strings.TrimSpace(oldProject)
+	newProject = strings.TrimSpace(newProject)
+	if oldProject == "" || newProject == "" || oldProject == newProject {
+		return 0, nil
+	}
+
+	oldPath := filepath.Join(s.dataDir, oldProject+".sqlite")
+	if _, err := os.Stat(oldPath); err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil // nothing to migrate
+		}
+		return 0, err
+	}
+	// Ensure the destination store exists (and is migrated) before we attach.
+	newStore, err := store.Open(s.dataDir, newProject)
+	if err != nil {
+		return 0, fmt.Errorf("open destination store: %w", err)
+	}
+	defer newStore.Close()
+	oldStore, err := store.Open(s.dataDir, oldProject)
+	if err != nil {
+		return 0, fmt.Errorf("open source store: %w", err)
+	}
+	defer oldStore.Close()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	attachSQL := "ATTACH DATABASE ? AS newdb"
+	res, err := oldStore.DB.ExecContext(ctx, attachSQL, newStore.Path())
+	if err != nil {
+		return 0, fmt.Errorf("attach new store: %w", err)
+	}
+	defer func() {
+		_, _ = oldStore.DB.Exec("DETACH DATABASE newdb")
+	}()
+	_ = res
+
+	t := oldStore.DB
+
+	var total int
+	copied := []string{}
+	for _, table := range []string{"observations", "sessions", "web_cache", "prompts", "files"} {
+		var n int
+		err := t.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM `+table+` WHERE project = ? AND deleted_at IS NULL`,
+			oldProject).Scan(&n)
+		if err != nil || n == 0 {
+			continue
+		}
+		// INSERT OR IGNORE so re-runs do not fail on PK collisions.
+		res, err := t.ExecContext(ctx, `
+			INSERT OR IGNORE INTO newdb.`+table+`
+			SELECT * FROM `+table+` WHERE project = ? AND (deleted_at IS NULL OR deleted_at = '')`,
+			oldProject)
+		if err != nil {
+			if strings.Contains(err.Error(), "no such table") || strings.Contains(err.Error(), "duplicate column") || strings.Contains(err.Error(), "datatype mismatch") {
+				continue
+			}
+			return total, fmt.Errorf("copy %s: %w", table, err)
+		}
+		affected, _ := res.RowsAffected()
+		total += int(affected)
+		copied = append(copied, fmt.Sprintf("%s=%d", table, affected))
+		// Re-tag copied rows in the destination.
+		if _, err := t.ExecContext(ctx, `
+			UPDATE newdb.`+table+` SET project = ? WHERE project = ?`,
+			newProject, oldProject); err != nil {
+			if !strings.Contains(err.Error(), "no such table") {
+				return total, fmt.Errorf("retag %s: %w", table, err)
+			}
+		}
+	}
+
+	// Record the migration in the destination for idempotency.
+	if _, err := newStore.DB.ExecContext(ctx, `
+		INSERT INTO project_migrations (old_project, new_project, migrated_at)
+		VALUES (?, ?, ?)`,
+		oldProject, newProject, now); err != nil && !strings.Contains(err.Error(), "no such table") {
+		// ignore — best effort
+	}
+
+	return total, nil
+}
+
+// LastObservationAt returns the newest observation time for the project, if any.
+func (s *Service) LastObservationAt(ctx context.Context, projectID string) (time.Time, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer cleanup()
+	return h.memory.LastObservationAt(ctx)
+}
+
+// SessionStartedAt returns the started_at of a session (zero if missing).
+func (s *Service) SessionStartedAt(ctx context.Context, projectID, sessionID string) (time.Time, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer cleanup()
+	return h.memory.SessionStartedAt(ctx, sessionID)
+}
+
+// ListProjectsForMigration returns all project ids with a store file.
+func (s *Service) ListProjectsForMigration() ([]string, error) {
+	return s.ListProjects()
 }
 
 // SaveObservationInput holds fields for saving an observation (HTTP + MCP).

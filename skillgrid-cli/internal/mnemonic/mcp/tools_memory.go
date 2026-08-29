@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"os"
 	"regexp"
 	"strings"
@@ -25,6 +26,7 @@ func registerMemoryTools(s *server.MCPServer) {
 		{memSessionStartTool(), handleMemSessionStart},
 		{memSessionEndTool(), handleMemSessionEnd},
 		{memSessionSummaryTool(), handleMemSessionSummary},
+		{memCapturePassiveTool(), handleMemCapturePassive},
 		{memSessionSetTitleTool(), handleMemSessionSetTitle},
 		{memSuggestTopicKeyTool(), handleMemSuggestTopicKey},
 	}
@@ -98,6 +100,43 @@ func memSessionSetTitleTool() mcplib.Tool {
 		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("ID of the session to rename")),
 		mcplib.WithString("title", mcplib.Required(), mcplib.Description("New human-readable title, e.g. 'Skillgrid CLI dashboard status card updates'")),
 	)
+}
+
+func memCapturePassiveTool() mcplib.Tool {
+	return mcplib.NewTool("mem_capture_passive",
+		mcplib.WithDescription("Extract and save structured learnings from pasted text (e.g. a finished task transcript). The server recognises 'Key Learnings:' sections and labelled Lesson/Discovery lines and stores each as a passive observation. Idempotent — re-capturing the same text does not duplicate rows."),
+		mcplib.WithString("content", mcplib.Required(), mcplib.Description("Text to scan for extractable learnings (a '## Key Learnings:' section or numbered/bulleted items)")),
+		mcplib.WithString("session_id", mcplib.Description("Session to attribute the capture to (defaults to the current one)")),
+		mcplib.WithString("source", mcplib.Description("Provenance label, e.g. 'task-complete' (default 'passive')")),
+	)
+}
+
+func handleMemCapturePassive(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+
+	content, err := req.RequireString("content")
+	if err != nil {
+		return toolError(err)
+	}
+	sessionID := req.GetString("session_id", "")
+	if sessionID == "" {
+		return toolError(errors.New("session_id is required"))
+	}
+	source := req.GetString("source", "passive")
+
+	res, err := svc.CapturePassive(ctx, projectID, service.PassiveInput{
+		Content:   content,
+		SessionID: sessionID,
+		Source:    source,
+	})
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(res)
 }
 
 func memSuggestTopicKeyTool() mcplib.Tool {
