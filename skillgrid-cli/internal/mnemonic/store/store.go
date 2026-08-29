@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	_ "modernc.org/sqlite"
@@ -67,21 +68,62 @@ func (s *Store) Close() error {
 }
 
 func migrate(db *sql.DB) error {
+	// Ensure the migration bookkeeping table exists. Older databases that
+	// predate this table get it here; the schema_version row is the source
+	// of truth for how many migrations have been applied, and the
+	// migration:<name> rows track individual application so non-idempotent
+	// statements (e.g. ADD COLUMN) run exactly once.
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS index_meta (
+			key TEXT PRIMARY KEY,
+			schema_version INTEGER NOT NULL
+		)
+	`); err != nil {
+		return fmt.Errorf("create index_meta: %w", err)
+	}
 	entries, err := migrationsFS.ReadDir("migrations")
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)
 	}
+	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
 		}
-		sqlBytes, err := migrationsFS.ReadFile("migrations/" + entry.Name())
+		names = append(names, entry.Name())
+	}
+	sort.Strings(names)
+	var appliedCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM index_meta WHERE key LIKE 'migration:%'`).Scan(&appliedCount); err != nil {
+		return fmt.Errorf("count applied: %w", err)
+	}
+	for _, name := range names {
+		var done bool
+		if err := db.QueryRow(`SELECT COUNT(*) > 0 FROM index_meta WHERE key = ?`, "migration:"+name).Scan(&done); err != nil {
+			return fmt.Errorf("check %s: %w", name, err)
+		}
+		if done {
+			continue
+		}
+		sqlBytes, err := migrationsFS.ReadFile("migrations/" + name)
 		if err != nil {
-			return fmt.Errorf("read %s: %w", entry.Name(), err)
+			return fmt.Errorf("read %s: %w", name, err)
 		}
 		if _, err := db.Exec(string(sqlBytes)); err != nil {
-			return fmt.Errorf("exec %s: %w", entry.Name(), err)
+			return fmt.Errorf("exec %s: %w", name, err)
 		}
+		if _, err := db.Exec(`INSERT INTO index_meta (key, schema_version) VALUES (?, 1)`, "migration:"+name); err != nil {
+			return fmt.Errorf("record %s: %w", name, err)
+		}
+		appliedCount++
+	}
+	// Keep the legacy schema_version marker in sync with the total applied.
+	if _, err := db.Exec(`
+		INSERT INTO index_meta (key, schema_version) VALUES ('schema_version', ?)
+		ON CONFLICT(key) DO UPDATE SET schema_version = excluded.schema_version`,
+		appliedCount,
+	); err != nil {
+		return fmt.Errorf("record schema_version: %w", err)
 	}
 	return nil
 }

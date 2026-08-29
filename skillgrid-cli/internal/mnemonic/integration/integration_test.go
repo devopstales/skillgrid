@@ -14,8 +14,8 @@ import (
 	mnemonichttp "github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/http"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/mcp"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
-	mcplib "github.com/mark3labs/mcp-go/mcp"
 	mnemonicstore "github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	mcplib "github.com/mark3labs/mcp-go/mcp"
 )
 
 // TestMCPAndHTTPShareStore verifies the integration scenario: data written via

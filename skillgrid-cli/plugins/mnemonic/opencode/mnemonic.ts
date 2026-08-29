@@ -70,7 +70,7 @@ Call \`mem_save\` immediately after: a bug fix, an architecture/design decision,
 - content: **What** / **Why** / **Where** / **Learned** sections
 
 ## Session Protocol
-1. \`mem_session_start\` on open
+1. \`mem_session_start\` on open — pass \`title\` (short name of the session's goal, e.g. "Fix login race"). Shown in the dashboard session list.
 2. \`mem_save\` during work (dedups by hash within 24h, upserts by topic_key)
 3. \`mem_search\` before starting work that may overlap prior sessions
 4. \`mem_session_summary\` + \`mem_session_end\` before closing
@@ -147,7 +147,10 @@ export default async function MnemonicPlugin({
         const ctx = await req("GET", "/context?limit=5");
         if (ctx && Array.isArray(ctx.sessions) && ctx.sessions.length) {
           const lines = ctx.sessions
-            .map((s: any) => `- ${s.summary ?? s.id ?? "(no summary)"}`)
+            .map((s: any) => {
+              const label = s.title || s.summary?.split("\n")[0] || s.id || "(no title)";
+              return `- ${label}`;
+            })
             .join("\n");
           (output.context ??= []).push(
             "## Mnemonic: recent sessions\n" + lines,

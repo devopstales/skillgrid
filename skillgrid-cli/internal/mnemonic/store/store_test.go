@@ -100,8 +100,8 @@ func TestSchemaVersionMeta(t *testing.T) {
 	if err := st.DB.QueryRow(`SELECT schema_version FROM index_meta WHERE key = 'schema_version'`).Scan(&v); err != nil {
 		t.Fatalf("schema_version: %v", err)
 	}
-	if v != 1 {
-		t.Errorf("expected schema_version 1, got %d", v)
+	if v < 1 {
+		t.Errorf("expected schema_version >= 1, got %d", v)
 	}
 }
 
@@ -185,4 +185,3 @@ func TestDataDirCreated(t *testing.T) {
 		t.Errorf("expected created db file: %v", err)
 	}
 }
-

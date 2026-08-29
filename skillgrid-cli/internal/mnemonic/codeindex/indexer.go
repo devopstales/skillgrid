@@ -326,7 +326,7 @@ func loadExistingFiles(db *sql.DB) (map[string]existingFile, error) {
 }
 
 func upsertFile(tx *sql.Tx, file ScannedFile, indexedAt string) (int64, error) {
-	res, err := tx.Exec(
+	if _, err := tx.Exec(
 		`INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
 		 VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(path) DO UPDATE SET
@@ -335,17 +335,18 @@ func upsertFile(tx *sql.Tx, file ScannedFile, indexedAt string) (int64, error) {
 		   content_hash = excluded.content_hash,
 		   indexed_at = excluded.indexed_at`,
 		file.Path, file.MtimeNs, file.Size, file.Hash, indexedAt,
-	)
-	if err != nil {
+	); err != nil {
 		return 0, err
 	}
-	id, err := res.LastInsertId()
-	if err == nil && id > 0 {
-		return id, nil
-	}
+	// Resolve the rowid by path. LastInsertId is NOT reliable on the
+	// upsert UPDATE branch (modernc returns the last inserted rowid in the
+	// session, not the upserted row's rowid), so always re-look-up by the
+	// unique path. This is a local SQLite PK lookup — cost is negligible.
 	var fileID int64
-	err = tx.QueryRow(`SELECT id FROM files WHERE path = ?`, file.Path).Scan(&fileID)
-	return fileID, err
+	if err := tx.QueryRow(`SELECT id FROM files WHERE path = ?`, file.Path).Scan(&fileID); err != nil {
+		return 0, err
+	}
+	return fileID, nil
 }
 
 // Status reports aggregate index statistics.

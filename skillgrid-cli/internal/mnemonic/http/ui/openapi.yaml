@@ -1,0 +1,980 @@
+openapi: 3.0.3
+info:
+  title: Skillgrid Mnemonic HTTP API
+  description: |-
+    Persistent memory, code index, and web research cache for AI agents.
+
+    Write routes (POST) optionally require an `Authorization: Bearer <token>`
+    header when the server is started with `SKILLGRID_HTTP_TOKEN` set.
+    Most routes take a `project` query parameter naming the project store
+    (see `GET /projects` for available IDs).
+  version: "0.1.0"
+servers:
+  - url: /
+tags:
+  - name: health
+  - name: session
+  - name: memory
+  - name: code
+  - name: web
+  - name: ui
+paths:
+  /health:
+    get:
+      tags: [health]
+      operationId: health
+      summary: Health probe
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /projects:
+    get:
+      tags: [memory]
+      operationId: listProjects
+      summary: List project store IDs
+      responses:
+        "200":
+          description: Project IDs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [projects]
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      type: string
+  /sessions:
+    post:
+      tags: [session]
+      operationId: sessionCreate
+      summary: Create a workspace session
+      parameters:
+        - name: directory
+          in: query
+          required: false
+          description: Working directory for the session (defaults to `.`)
+          schema:
+            type: string
+        - name: title
+          in: query
+          required: false
+          description: Optional human-readable session name, shown in the web dashboard session list
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                directory:
+                  type: string
+                title:
+                  type: string
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionCreated"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /sessions/{id}/end:
+    post:
+      tags: [session]
+      operationId: sessionEnd
+      summary: End a session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                summary:
+                  type: string
+      responses:
+        "200":
+          description: Session ended
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id:
+                    type: string
+                  status:
+                    type: string
+        "500":
+          $ref: "#/components/responses/Internal"
+  /context:
+    get:
+      tags: [memory]
+      operationId: context
+      summary: Recent session context
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 5
+      responses:
+        "200":
+          description: Recent sessions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sessions"
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /memory/status:
+    get:
+      tags: [memory]
+      operationId: memoryStatus
+      summary: Memory store health stats
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Memory stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  observation_count:
+                    type: integer
+                  by_type:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  active_sessions:
+                    type: integer
+                  total_sessions:
+                    type: integer
+                  oldest_created:
+                    type: string
+                  newest_created:
+                    type: string
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /observations:
+    post:
+      tags: [memory]
+      operationId: observationCreate
+      summary: Save an observation
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ObservationInput"
+      responses:
+        "201":
+          description: Observation saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+    get:
+      tags: [memory]
+      operationId: observationsList
+      summary: List stored observations, newest first
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Observations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Observations"
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /observations/recent:
+    get:
+      tags: [memory]
+      operationId: observationsRecent
+      summary: Recent session context (alias of /context)
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 5
+      responses:
+        "200":
+          description: Recent sessions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sessions"
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /search:
+    get:
+      tags: [memory]
+      operationId: search
+      summary: Full-text search over observations
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: match_mode
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [any, all]
+            default: any
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Matching observations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Observations"
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /code/status:
+    get:
+      tags: [code]
+      operationId: codeStatus
+      summary: Code index status
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Index stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_count:
+                    type: integer
+                  chunk_count:
+                    type: integer
+                  last_indexed:
+                    type: string
+                  stale:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /code/index:
+    post:
+      tags: [code]
+      operationId: codeIndex
+      summary: Run incremental code indexing
+      parameters:
+        - name: dir
+          in: query
+          required: false
+          description: Directory to index (defaults to server CWD)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Index run stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files_indexed:
+                    type: integer
+                  files_skipped:
+                    type: integer
+                  files_deleted:
+                    type: integer
+                  chunks_added:
+                    type: integer
+        "500":
+          $ref: "#/components/responses/Internal"
+  /code/files:
+    get:
+      tags: [code]
+      operationId: codeFiles
+      summary: List indexed file paths
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File paths
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [files]
+                properties:
+                  files:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /code/search:
+    get:
+      tags: [code]
+      operationId: codeSearch
+      summary: Full-text search over indexed code
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Matching code chunks
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hits]
+                properties:
+                  hits:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CodeHit"
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /code/read:
+    get:
+      tags: [code]
+      operationId: codeRead
+      summary: Read indexed source for a path
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: start_line
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: end_line
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Indexed source
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  start_line:
+                    type: integer
+                  end_line:
+                    type: integer
+                  text:
+                    type: string
+        "400":
+          $ref: "#/components/responses/Bad"
+        "404":
+          description: File not indexed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPError"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /web/lookup:
+    get:
+      tags: [web]
+      operationId: webLookup
+      summary: Check web cache for a matching entry
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [context7, exa, deepwiki, fetch, manual]
+        - name: url
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: library_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: version_tag
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: repo_name
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: question
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sort_params
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: title
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: content_hash
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Lookup result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  fresh:
+                    type: boolean
+                  id:
+                    type: integer
+                    format: int64
+                  fetched_at:
+                    type: string
+                  expires_at:
+                    type: string
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /web/cache:
+    post:
+      tags: [web]
+      operationId: webCacheSave
+      summary: Persist a web research snapshot
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebSaveInput"
+      responses:
+        "201":
+          description: Snapshot saved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /web/search:
+    get:
+      tags: [web]
+      operationId: webSearch
+      summary: Full-text search over cached web snapshots
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: fresh_only
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["true", "false"]
+            default: "true"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Matching entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WebHit"
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /web/entry/{id}:
+    get:
+      tags: [web]
+      operationId: webEntry
+      summary: Full cached snapshot by ID (including content)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebEntry"
+        "404":
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPError"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /web/status:
+    get:
+      tags: [web]
+      operationId: webStatus
+      summary: Web cache health stats
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cache stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_entries:
+                    type: integer
+                  expired_entries:
+                    type: integer
+                  by_source:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  oldest_fetch:
+                    type: string
+                  newest_fetch:
+                    type: string
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /swagger-ui:
+    get:
+      tags: [ui]
+      operationId: swaggerUI
+      summary: Swagger UI (interactive API explorer)
+      responses:
+        "200":
+          description: HTML page
+          content:
+            text/html: {}
+  /openapi.yaml:
+    get:
+      tags: [ui]
+      operationId: openAPI
+      summary: This OpenAPI document
+      responses:
+        "200":
+          description: OpenAPI 3.0 YAML
+          content:
+            application/yaml: {}
+components:
+  responses:
+    Bad:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HTTPError"
+    Internal:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HTTPError"
+  schemas:
+    HTTPError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+        version:
+          type: string
+    SessionCreated:
+      type: object
+      required: [session_id, project_id]
+      properties:
+        session_id:
+          type: string
+        project_id:
+          type: string
+        title:
+          type: string
+          nullable: true
+    Sessions:
+      type: object
+      required: [sessions]
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+        project:
+          type: string
+        directory:
+          type: string
+        title:
+          type: string
+          nullable: true
+          description: Human-readable session name (optional); shown in the dashboard session list
+        started_at:
+          type: string
+        ended_at:
+          type: string
+        summary:
+          type: string
+        status:
+          type: string
+    Observations:
+      type: object
+      required: [observations]
+      properties:
+        observations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Observation"
+    Observation:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        session_id:
+          type: string
+        type:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        project:
+          type: string
+        scope:
+          type: string
+        topic_key:
+          type: string
+        normalized_hash:
+          type: string
+        revision_count:
+          type: integer
+        created_at:
+          type: string
+        updated_at:
+          type: string
+    ObservationInput:
+      type: object
+      required: [title, type, content, session_id]
+      properties:
+        title:
+          type: string
+        type:
+          type: string
+          enum: [decision, architecture, bugfix, pattern, config, discovery, learning, preference]
+        content:
+          type: string
+        scope:
+          type: string
+          enum: [project, user, global]
+        topic_key:
+          type: string
+        session_id:
+          type: string
+    CodeHit:
+      type: object
+      properties:
+        path:
+          type: string
+        start_line:
+          type: integer
+        end_line:
+          type: integer
+        snippet:
+          type: string
+        score:
+          type: number
+          format: double
+    WebSaveInput:
+      type: object
+      required: [source, content]
+      properties:
+        source:
+          type: string
+          enum: [context7, exa, deepwiki, fetch, manual]
+        url:
+          type: string
+        title:
+          type: string
+        query:
+          type: string
+        library_id:
+          type: string
+        version_tag:
+          type: string
+        repo_name:
+          type: string
+        question:
+          type: string
+        sort_params:
+          type: string
+        content:
+          type: string
+        metadata:
+          type: string
+        session_id:
+          type: string
+    WebEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        project:
+          type: string
+        source:
+          type: string
+        cache_key:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        query:
+          type: string
+        library_id:
+          type: string
+        version_tag:
+          type: string
+        content:
+          type: string
+        metadata_json:
+          type: string
+        content_hash:
+          type: string
+        fetched_at:
+          type: string
+        expires_at:
+          type: string
+        session_id:
+          type: string
+        created_at:
+          type: string
+    WebHit:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        source:
+          type: string
+        title:
+          type: string
+        query:
+          type: string
+        url:
+          type: string
+        library_id:
+          type: string
+        fetched_at:
+          type: string
+        expires_at:
+          type: string

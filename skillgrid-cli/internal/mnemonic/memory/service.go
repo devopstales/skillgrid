@@ -39,11 +39,12 @@ type SaveInput struct {
 	SessionID string
 }
 
-// Session is a workspace session with optional summary.
+// Session is a workspace session with optional title and summary.
 type Session struct {
 	ID        string `json:"id"`
 	Project   string `json:"project"`
 	Directory string `json:"directory"`
+	Title     string `json:"title,omitempty"`
 	StartedAt string `json:"started_at"`
 	EndedAt   string `json:"ended_at,omitempty"`
 	Summary   string `json:"summary,omitempty"`
@@ -64,6 +65,16 @@ type Observation struct {
 	RevisionCount  int    `json:"revision_count"`
 	CreatedAt      string `json:"created_at"`
 	UpdatedAt      string `json:"updated_at"`
+}
+
+// Status holds aggregate memory statistics.
+type Status struct {
+	ObservationCount int            `json:"observation_count"`
+	ByType           map[string]int `json:"by_type"`
+	ActiveSessions   int            `json:"active_sessions"`
+	TotalSessions    int            `json:"total_sessions"`
+	OldestCreated    string         `json:"oldest_created,omitempty"`
+	NewestCreated    string         `json:"newest_created,omitempty"`
 }
 
 // New creates a memory service for the given store and project ID.
@@ -184,6 +195,30 @@ func (s *Service) Search(ctx context.Context, query string, matchMode string, li
 	return scanObservations(rows)
 }
 
+// Recent returns stored observations, newest first, without FTS.
+func (s *Service) Recent(ctx context.Context, limit int) ([]Observation, error) {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return nil, errors.New("memory service not initialized")
+	}
+	if limit <= 0 {
+		limit = defaultSearchLimit
+	}
+	rows, err := s.store.DB.QueryContext(ctx, `
+		SELECT id, session_id, type, title, content, project, scope,
+		       topic_key, normalized_hash, revision_count, created_at, updated_at
+		FROM observations
+		WHERE deleted_at IS NULL AND project = ?
+		ORDER BY created_at DESC, id DESC
+		LIMIT ?`,
+		s.projectID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("recent observations: %w", err)
+	}
+	defer rows.Close()
+	return scanObservations(rows)
+}
+
 // Get returns a single observation by ID.
 func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	if s == nil || s.store == nil || s.store.DB == nil {
@@ -214,8 +249,10 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	return obs, nil
 }
 
-// SessionStart creates a new active session for directory.
-func (s *Service) SessionStart(ctx context.Context, directory string) (string, error) {
+// SessionStart creates a new active session for directory. title is the
+// user/agent-facing name of the session, shown in the web dashboard session
+// list (mem-sessions). An empty title leaves the cell unnamed.
+func (s *Service) SessionStart(ctx context.Context, directory, title string) (string, error) {
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return "", errors.New("memory service not initialized")
 	}
@@ -232,10 +269,14 @@ func (s *Service) SessionStart(ctx context.Context, directory string) (string, e
 	}
 	sessionID := uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339)
+	var titleNull sql.NullString
+	if t := strings.TrimSpace(title); t != "" {
+		titleNull = sql.NullString{String: t, Valid: true}
+	}
 	_, err = s.store.DB.ExecContext(ctx, `
-		INSERT INTO sessions (id, project, directory, started_at, status)
-		VALUES (?, ?, ?, ?, 'active')`,
-		sessionID, projectID, absDir, now,
+		INSERT INTO sessions (id, project, directory, title, started_at, status)
+		VALUES (?, ?, ?, ?, ?, 'active')`,
+		sessionID, projectID, absDir, titleNull, now,
 	)
 	if err != nil {
 		return "", fmt.Errorf("insert session: %w", err)
@@ -243,7 +284,88 @@ func (s *Service) SessionStart(ctx context.Context, directory string) (string, e
 	return sessionID, nil
 }
 
-// SessionSummary stores an end-of-session summary.
+// deriveSessionTitle extracts a human-readable title from a structured
+// end-of-session summary — the first non-header line after the "## Goal"
+// heading (the session's stated purpose). Falls back to the first non-header
+// content line in the summary. Returns "" when nothing suitable is found.
+func deriveSessionTitle(summary string) string {
+	lines := strings.Split(summary, "\n")
+	for i, l := range lines {
+		if strings.EqualFold(strings.TrimSpace(l), "## Goal") {
+			for _, next := range lines[i+1:] {
+				t := strings.TrimSpace(next)
+				if t == "" {
+					continue
+				}
+				if strings.HasPrefix(t, "##") {
+					break // reached the next section
+				}
+				if !strings.HasPrefix(t, "#") {
+					return t
+				}
+			}
+		}
+	}
+	for _, l := range lines {
+		t := strings.TrimSpace(l)
+		if t != "" && !strings.HasPrefix(t, "#") {
+			return t
+		}
+	}
+	return ""
+}
+
+// displayTitle returns the session's title for the web dashboard session list
+// (mem-sessions). Priority:
+//  1. the stored title (set by mem_session_start, mem_session_set_title, or
+//     by SessionSummary/SessionEnd deriving it from the "## Goal" line)
+//  2. the "## Goal" line of the summary (covers pre-title rows written by an
+//     older binary)
+//  3. the first non-header content line of the summary
+//  4. a traceable short ID (first 8 chars of the session UUID) so the row is
+//     never a vague placeholder — it lets you find the session in any store.
+func displayTitle(sessionID, title, summary string) string {
+	if t := strings.TrimSpace(title); t != "" {
+		return t
+	}
+	if d := deriveSessionTitle(summary); d != "" {
+		return d
+	}
+	id := strings.TrimSpace(sessionID)
+	if len(id) >= 8 {
+		return id[:8]
+	}
+	if id != "" {
+		return id
+	}
+	return "(no id)"
+}
+
+// SessionSetTitle renames a session (idempotent).
+func (s *Service) SessionSetTitle(ctx context.Context, sessionID, title string) error {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return errors.New("memory service not initialized")
+	}
+	res, err := s.store.DB.ExecContext(ctx, `
+		UPDATE sessions SET title = ? WHERE id = ? AND project = ?`,
+		title, sessionID, s.projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("update session title: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("session title rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	return nil
+}
+
+// SessionSummary stores an end-of-session summary, and when the session has no
+// explicit title, derives one from the summary's "## Goal" line and persists it
+// so the web dashboard (mem-sessions) shows a meaningful name.
 func (s *Service) SessionSummary(ctx context.Context, sessionID, summary string) error {
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return errors.New("memory service not initialized")
@@ -255,17 +377,34 @@ func (s *Service) SessionSummary(ctx context.Context, sessionID, summary string)
 		return errors.New("summary is required")
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE sessions SET summary = ?, ended_at = ?
-		WHERE id = ? AND project = ?`,
-		summary, now, sessionID, s.projectID,
-	)
-	if err != nil {
-		return fmt.Errorf("update session summary: %w", err)
+	title := deriveSessionTitle(summary)
+	if title != "" {
+		_, err := s.store.DB.ExecContext(ctx, `
+			UPDATE sessions
+			SET summary = ?, ended_at = ?,
+			    title = COALESCE(NULLIF(TRIM(title), ''), ?)
+			WHERE id = ? AND project = ?`,
+			summary, now, title, sessionID, s.projectID,
+		)
+		if err != nil {
+			return fmt.Errorf("update session summary: %w", err)
+		}
+	} else {
+		_, err := s.store.DB.ExecContext(ctx, `
+			UPDATE sessions SET summary = ?, ended_at = ?
+			WHERE id = ? AND project = ?`,
+			summary, now, sessionID, s.projectID,
+		)
+		if err != nil {
+			return fmt.Errorf("update session summary: %w", err)
+		}
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("session summary rows affected: %w", err)
+	var n int
+	if err := s.store.DB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sessions WHERE id = ? AND project = ?`,
+		sessionID, s.projectID,
+	).Scan(&n); err != nil {
+		return fmt.Errorf("session summary look-up: %w", err)
 	}
 	if n == 0 {
 		return fmt.Errorf("session %s not found", sessionID)
@@ -273,7 +412,8 @@ func (s *Service) SessionSummary(ctx context.Context, sessionID, summary string)
 	return nil
 }
 
-// SessionEnd ends a session with an optional summary.
+// SessionEnd ends a session with an optional summary. When a summary is given
+// and the session has no title, the title is derived from its "## Goal" line.
 func (s *Service) SessionEnd(ctx context.Context, sessionID, summary string) error {
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return errors.New("memory service not initialized")
@@ -285,11 +425,22 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID, summary string) err
 	var res sql.Result
 	var err error
 	if strings.TrimSpace(summary) != "" {
-		res, err = s.store.DB.ExecContext(ctx, `
-			UPDATE sessions SET summary = ?, ended_at = ?, status = 'ended'
-			WHERE id = ? AND project = ?`,
-			summary, now, sessionID, s.projectID,
-		)
+		title := deriveSessionTitle(summary)
+		if title != "" {
+			res, err = s.store.DB.ExecContext(ctx, `
+				UPDATE sessions
+				SET summary = ?, ended_at = ?, status = 'ended',
+				    title = COALESCE(NULLIF(TRIM(title), ''), ?)
+				WHERE id = ? AND project = ?`,
+				summary, now, title, sessionID, s.projectID,
+			)
+		} else {
+			res, err = s.store.DB.ExecContext(ctx, `
+				UPDATE sessions SET summary = ?, ended_at = ?, status = 'ended'
+				WHERE id = ? AND project = ?`,
+				summary, now, sessionID, s.projectID,
+			)
+		}
 	} else {
 		res, err = s.store.DB.ExecContext(ctx, `
 			UPDATE sessions SET ended_at = ?, status = 'ended'
@@ -310,7 +461,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID, summary string) err
 	return nil
 }
 
-// RecentContext returns the most recent sessions that have summaries.
+// RecentContext returns the most recent sessions that have a title or summary.
 func (s *Service) RecentContext(ctx context.Context, limit int) ([]Session, error) {
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return nil, errors.New("memory service not initialized")
@@ -319,9 +470,12 @@ func (s *Service) RecentContext(ctx context.Context, limit int) ([]Session, erro
 		limit = defaultContextLimit
 	}
 	rows, err := s.store.DB.QueryContext(ctx, `
-		SELECT id, project, directory, started_at, ended_at, summary, status
+		SELECT id, project, directory, title, started_at, ended_at, summary, status
 		FROM sessions
-		WHERE project = ? AND summary IS NOT NULL AND TRIM(summary) != ''
+		WHERE project = ? AND (
+			(title IS NOT NULL AND TRIM(title) != '')
+			OR (summary IS NOT NULL AND TRIM(summary) != '')
+		)
 		ORDER BY COALESCE(ended_at, started_at) DESC
 		LIMIT ?`,
 		s.projectID, limit,
@@ -331,6 +485,73 @@ func (s *Service) RecentContext(ctx context.Context, limit int) ([]Session, erro
 	}
 	defer rows.Close()
 	return scanSessions(rows)
+}
+
+// Status returns aggregate statistics for the project memory store.
+func (s *Service) Status(ctx context.Context) (Status, error) {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return Status{}, errors.New("memory service not initialized")
+	}
+	var st Status
+	st.ByType = make(map[string]int)
+	err := s.store.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM observations
+		WHERE project = ? AND deleted_at IS NULL`,
+		s.projectID,
+	).Scan(&st.ObservationCount)
+	if err != nil {
+		return Status{}, fmt.Errorf("count observations: %w", err)
+	}
+	err = s.store.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM sessions WHERE project = ? AND status = 'active'`,
+		s.projectID,
+	).Scan(&st.ActiveSessions)
+	if err != nil {
+		return Status{}, fmt.Errorf("count active sessions: %w", err)
+	}
+	err = s.store.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM sessions WHERE project = ?`,
+		s.projectID,
+	).Scan(&st.TotalSessions)
+	if err != nil {
+		return Status{}, fmt.Errorf("count sessions: %w", err)
+	}
+	rows, err := s.store.DB.QueryContext(ctx, `
+		SELECT type, COUNT(*) FROM observations
+		WHERE project = ? AND deleted_at IS NULL GROUP BY type`,
+		s.projectID,
+	)
+	if err != nil {
+		return Status{}, fmt.Errorf("count by type: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var typ string
+		var count int
+		if err := rows.Scan(&typ, &count); err != nil {
+			return Status{}, fmt.Errorf("scan type count: %w", err)
+		}
+		st.ByType[typ] = count
+	}
+	if err := rows.Err(); err != nil {
+		return Status{}, fmt.Errorf("iterate type counts: %w", err)
+	}
+	var oldest, newest sql.NullString
+	err = s.store.DB.QueryRowContext(ctx, `
+		SELECT MIN(created_at), MAX(created_at) FROM observations
+		WHERE project = ? AND deleted_at IS NULL`,
+		s.projectID,
+	).Scan(&oldest, &newest)
+	if err != nil {
+		return Status{}, fmt.Errorf("created range: %w", err)
+	}
+	if oldest.Valid {
+		st.OldestCreated = oldest.String
+	}
+	if newest.Valid {
+		st.NewestCreated = newest.String
+	}
+	return st, nil
 }
 
 var validTypes = map[string]struct{}{
@@ -412,12 +633,15 @@ func scanSessions(rows *sql.Rows) ([]Session, error) {
 	var out []Session
 	for rows.Next() {
 		var sess Session
-		var endedAt, summary sql.NullString
+		var title, endedAt, summary sql.NullString
 		if err := rows.Scan(
-			&sess.ID, &sess.Project, &sess.Directory, &sess.StartedAt,
+			&sess.ID, &sess.Project, &sess.Directory, &title, &sess.StartedAt,
 			&endedAt, &summary, &sess.Status,
 		); err != nil {
 			return nil, fmt.Errorf("scan session: %w", err)
+		}
+		if title.Valid {
+			sess.Title = title.String
 		}
 		if endedAt.Valid {
 			sess.EndedAt = endedAt.String
@@ -425,6 +649,11 @@ func scanSessions(rows *sql.Rows) ([]Session, error) {
 		if summary.Valid {
 			sess.Summary = summary.String
 		}
+		// Fill in a display title from the stored title, then the summary's
+		// "## Goal" line, then the last 8 chars of the session id — so the row
+		// in the web dashboard session list (mem-sessions) is always
+		// identifiable and never a vague placeholder.
+		sess.Title = displayTitle(sess.ID, sess.Title, sess.Summary)
 		out = append(out, sess)
 	}
 	if err := rows.Err(); err != nil {

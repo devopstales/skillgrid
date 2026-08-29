@@ -160,10 +160,4 @@ CREATE TRIGGER IF NOT EXISTS web_cache_fts_update AFTER UPDATE ON web_cache BEGI
     VALUES (new.id, new.title, new.content, new.query, new.url, new.source, new.library_id);
 END;
 
--- Meta
-CREATE TABLE IF NOT EXISTS index_meta (
-    key TEXT PRIMARY KEY,
-    schema_version INTEGER NOT NULL
-);
-
-INSERT OR IGNORE INTO index_meta (key, schema_version) VALUES ('schema_version', 1);
+-- Meta (migration bookkeeping is managed by store.migrate)

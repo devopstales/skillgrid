@@ -5,7 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
@@ -86,6 +91,59 @@ func TestContextEndpoint(t *testing.T) {
 	}
 	if _, ok := out["sessions"]; !ok {
 		t.Errorf("expected sessions key, got %v", out)
+	}
+}
+
+func TestSessionCreateWithTitle(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	// Pin a project id so the session is scoped deterministically.
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, ".skillgrid"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".skillgrid", "config.json"), []byte(`{"project":"titled"}`), 0o644); err != nil {
+		t.Fatalf("write cfg: %v", err)
+	}
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(oldwd)
+
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	rr, out := do(t, h, http.MethodPost, "/sessions?directory=.", map[string]any{
+		"title": "Skillgrid CLI dashboard status card updates",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	sessionID, _ := out["session_id"].(string)
+	if sessionID == "" {
+		t.Fatalf("expected session_id, got %v", out)
+	}
+	if out["title"] != "Skillgrid CLI dashboard status card updates" {
+		t.Errorf("expected title echoed, got %v", out["title"])
+	}
+	// The dashboard list (GET /context) must expose the title.
+	rr2, ctx := do(t, h, http.MethodGet, "/context?project=titled", nil)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr2.Code, rr2.Body.String())
+	}
+	sessions, ok := ctx["sessions"].([]any)
+	if !ok || len(sessions) != 1 {
+		t.Fatalf("expected 1 session in context, got %v", ctx["sessions"])
+	}
+	sess, ok := sessions[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected map session, got %T", sessions[0])
+	}
+	if sess["title"] != "Skillgrid CLI dashboard status card updates" {
+		t.Errorf("expected session title, got %v", sess["title"])
 	}
 }
 
@@ -209,6 +267,26 @@ func TestWebCacheSaveAndSearch(t *testing.T) {
 	}
 }
 
+func TestMemoryStatus(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	seedStore(t, dataDir)
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	rr, out := do(t, h, http.MethodGet, "/memory/status?project="+proj, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if c, ok := out["observation_count"].(float64); !ok || c != 1 {
+		t.Errorf("expected observation_count=1, got %v", out["observation_count"])
+	}
+	if byType, ok := out["by_type"].(map[string]any); !ok {
+		t.Errorf("expected by_type object, got %v", out["by_type"])
+	} else if decision, ok := byType["decision"].(float64); !ok || decision != 1 {
+		t.Errorf("expected by_type.decision=1, got %v", byType["decision"])
+	}
+}
+
 func TestWebStatus(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
@@ -220,6 +298,126 @@ func TestWebStatus(t *testing.T) {
 	}
 	if _, ok := out["total_entries"]; !ok {
 		t.Errorf("expected total_entries key, got %v", out)
+	}
+}
+
+func TestProjectsEndpoint(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	svc := service.New(dataDir)
+	if st, err := store.Open(dataDir, proj); err != nil {
+		t.Fatalf("seed: %v", err)
+	} else {
+		st.Close()
+	}
+	h := NewServer(svc).Handler()
+	rr, out := do(t, h, http.MethodGet, "/projects", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	projects, ok := out["projects"].([]any)
+	if !ok || len(projects) != 1 {
+		t.Fatalf("expected one project, got %v", out["projects"])
+	}
+}
+
+func TestObservationsListEndpoint(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	seedStore(t, dataDir)
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	rr, out := do(t, h, http.MethodGet, "/observations?project="+proj, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	obs, ok := out["observations"].([]any)
+	if !ok || len(obs) != 1 {
+		t.Fatalf("expected one observation, got %v", out["observations"])
+	}
+}
+
+func TestUIRoutes(t *testing.T) {
+	h := newHandler(t)
+	cases := []struct {
+		path   string
+		status int
+		prefix string
+	}{
+		{"/", http.StatusOK, "text/html"},
+		{"/app.js", http.StatusOK, "javascript"},
+		{"/openapi.yaml", http.StatusOK, "yaml"},
+		{"/swagger-ui", http.StatusOK, "text/html"},
+		{"/swagger-ui/swagger-ui.css", http.StatusOK, "text/css"},
+		{"/swagger-ui/swagger-ui-bundle.js", http.StatusOK, "javascript"},
+	}
+	for _, c := range cases {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, c.path, nil)
+		h.ServeHTTP(rr, req)
+		if rr.Code != c.status {
+			t.Errorf("%s: expected %d, got %d", c.path, c.status, rr.Code)
+			continue
+		}
+		ct := rr.Header().Get("Content-Type")
+		if !strings.Contains(ct, c.prefix) {
+			t.Errorf("%s: content type %q, want substring %q", c.path, ct, c.prefix)
+		}
+	}
+}
+
+func TestWebEntryEndpoint(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	svc := service.New(dataDir)
+	st, err := store.Open(dataDir, proj)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := st.DB.Exec(`INSERT INTO web_cache (project, source, cache_key, content, content_hash, created_at, fetched_at, expires_at) VALUES (?,?,?,?,?,?,?,?)`,
+		proj, "manual", "test-key", "cached body", "hash1", now, now, now)
+	if err != nil {
+		t.Fatalf("seed web: %v", err)
+	}
+	id, _ := res.LastInsertId()
+	st.Close()
+
+	h := NewServer(svc).Handler()
+	rr, out := do(t, h, http.MethodGet, "/web/entry/"+strconv.FormatInt(id, 10)+"?project="+proj, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if out["content"] != "cached body" {
+		t.Errorf("expected content, got %v", out["content"])
+	}
+
+	rr404, _ := do(t, h, http.MethodGet, "/web/entry/999999?project="+proj, nil)
+	if rr404.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for missing entry, got %d", rr404.Code)
+	}
+}
+
+func TestCodeFilesEndpoint(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	if st, err := store.Open(dataDir, proj); err != nil {
+		t.Fatalf("seed: %v", err)
+	} else {
+		if _, err := st.DB.Exec(`INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES ('src/main.go', 1, 12, 'h', '2026-01-01T00:00:00Z')`); err != nil {
+			t.Fatalf("seed file: %v", err)
+		}
+		st.Close()
+	}
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	rr, out := do(t, h, http.MethodGet, "/code/files?project="+proj, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	files, ok := out["files"].([]any)
+	if !ok || len(files) != 1 || files[0] != "src/main.go" {
+		t.Fatalf("expected src/main.go, got %v", out["files"])
 	}
 }
 

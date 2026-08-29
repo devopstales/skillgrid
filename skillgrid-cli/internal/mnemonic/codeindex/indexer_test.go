@@ -157,6 +157,49 @@ func TestDeleteRemovedFiles(t *testing.T) {
 	}
 }
 
+// TestUpsertFileResolvesCorrectID guards the bug where, on the ON CONFLICT DO
+// UPDATE branch, LastInsertId returns the rowid of the last *INSERT* in the
+// session (a modernc quirk) instead of the upserted row's rowid. If we
+// mistakenly used that value as file_id, the next INSERT INTO chunks would
+// fail with a FOREIGN KEY constraint violation (the "constraint failed: FOREIGN
+// KEY constraint failed" error in the issue report).
+func TestUpsertFileResolvesCorrectID(t *testing.T) {
+	idx, clean := newTestIndexer(t)
+	defer clean()
+	tx, err := idx.store.DB.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback()
+	now := "2026-01-01T00:00:00Z"
+	// File A (id 1) seeded first.
+	if _, err := tx.Exec(`INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES ('a.go', 1, 1, 'ha', ?)`, now); err != nil {
+		t.Fatalf("insert a: %v", err)
+	}
+	// File B (id 2) seeded second. The "last insert" rowid is now 2.
+	if _, err := tx.Exec(`INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES ('b.go', 1, 1, 'hb', ?)`, now); err != nil {
+		t.Fatalf("insert b: %v", err)
+	}
+	// Now upsert A — modernc's LastInsertId will return 2 (the last
+	// INSERT in the session) on the UPDATE branch. upsertFile must still
+	// resolve A's actual id (1).
+	up, err := upsertFile(tx, ScannedFile{Path: "a.go", MtimeNs: 1, Size: 1, Hash: "ha2"}, now)
+	if err != nil {
+		t.Fatalf("upsert a: %v", err)
+	}
+	if up != 1 {
+		t.Fatalf("upsertFile returned %d, want 1 (A's actual id)", up)
+	}
+	// And we must be able to insert a chunk referencing it (FK would fail
+	// if up were a phantom id).
+	if _, err := tx.Exec(`INSERT INTO chunks (file_id, start_line, end_line, text, content_hash) VALUES (?, 1, 1, 'chunk', 'h')`, up); err != nil {
+		t.Fatalf("chunk insert referencing upserted file id: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
 // TestStatus reports file/chunk counts and last-indexed timestamp.
 func TestStatus(t *testing.T) {
 	idx, clean := newTestIndexer(t)

@@ -35,21 +35,30 @@ func (s *Server) registerRoutes() {
 
 	s.mux.HandleFunc("POST /sessions", s.requireWriteAuth(s.handleSessionCreate))
 	s.mux.HandleFunc("POST /sessions/{id}/end", s.requireWriteAuth(s.handleSessionEnd))
+	s.mux.HandleFunc("POST /sessions/{id}/title", s.requireWriteAuth(s.handleSessionSetTitle))
 
 	s.mux.HandleFunc("GET /context", s.handleContext)
+	s.mux.HandleFunc("GET /memory/status", s.handleMemoryStatus)
 	s.mux.HandleFunc("POST /observations", s.requireWriteAuth(s.handleObservationCreate))
 	s.mux.HandleFunc("GET /observations/recent", s.handleObservationsRecent)
 	s.mux.HandleFunc("GET /search", s.handleSearch)
 
 	s.mux.HandleFunc("GET /code/status", s.handleCodeStatus)
 	s.mux.HandleFunc("POST /code/index", s.requireWriteAuth(s.handleCodeIndex))
+	s.mux.HandleFunc("GET /code/files", s.handleCodeFiles)
 	s.mux.HandleFunc("GET /code/search", s.handleCodeSearch)
 	s.mux.HandleFunc("GET /code/read", s.handleCodeRead)
 
 	s.mux.HandleFunc("GET /web/lookup", s.handleWebLookup)
 	s.mux.HandleFunc("POST /web/cache", s.requireWriteAuth(s.handleWebCacheSave))
 	s.mux.HandleFunc("GET /web/search", s.handleWebSearch)
+	s.mux.HandleFunc("GET /web/entry/{id}", s.handleWebEntry)
 	s.mux.HandleFunc("GET /web/status", s.handleWebStatus)
+
+	s.mux.HandleFunc("GET /projects", s.handleProjects)
+	s.mux.HandleFunc("GET /observations", s.handleObservationsList)
+
+	s.registerUIRoutes()
 }
 
 // Handler returns the root http.Handler.
@@ -93,15 +102,34 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	if dir == "" {
 		dir = "."
 	}
-	sessionID, projectID, err := s.svc.SessionStart(r.Context(), dir)
+	title := r.URL.Query().Get("title")
+	type body struct {
+		Directory string `json:"directory,omitempty"`
+		Title     string `json:"title,omitempty"`
+	}
+	var b body
+	if r.Body != nil {
+		_ = decodeJSON(r, &b)
+	}
+	if b.Directory != "" {
+		dir = b.Directory
+	}
+	if b.Title != "" {
+		title = b.Title
+	}
+	sessionID, projectID, err := s.svc.SessionStart(r.Context(), dir, title)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
+	out := map[string]any{
 		"session_id": sessionID,
 		"project_id": projectID,
-	})
+	}
+	if title != "" {
+		out["title"] = title
+	}
+	writeJSON(w, http.StatusCreated, out)
 }
 
 func (s *Server) handleSessionEnd(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +151,27 @@ func (s *Server) handleSessionEnd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"session_id": id, "status": "ended"})
 }
 
+func (s *Server) handleSessionSetTitle(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	projectID := r.URL.Query().Get("project")
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(body.Title) == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	if err := s.svc.SessionSetTitle(r.Context(), projectID, id, body.Title); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session_id": id, "title": body.Title})
+}
+
 func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	projectID, err := projectFromRequest(r)
 	if err != nil {
@@ -136,6 +185,20 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+}
+
+func (s *Server) handleMemoryStatus(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	st, err := s.svc.MemoryStatus(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
 }
 
 func (s *Server) handleObservationCreate(w http.ResponseWriter, r *http.Request) {
@@ -261,6 +324,20 @@ func (s *Server) handleCodeStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleCodeFiles(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	paths, err := s.svc.CodeFiles(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"files": paths})
+}
+
 func (s *Server) handleCodeSearch(w http.ResponseWriter, r *http.Request) {
 	projectID, err := projectFromRequest(r)
 	if err != nil {
@@ -338,6 +415,49 @@ func (s *Server) handleWebSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"entries": hits})
+}
+
+func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
+	ids, err := s.svc.ListProjects()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": ids})
+}
+
+func (s *Server) handleObservationsList(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	limit := queryInt(r, "limit", 50)
+	obs, err := s.svc.ObservationsRecent(r.Context(), projectID, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"observations": obs})
+}
+
+func (s *Server) handleWebEntry(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "id must be an integer")
+		return
+	}
+	entry, err := s.svc.WebGet(r.Context(), projectID, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, entry)
 }
 
 func (s *Server) handleWebStatus(w http.ResponseWriter, r *http.Request) {

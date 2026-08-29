@@ -18,6 +18,7 @@ func TestAllToolsRegistered(t *testing.T) {
 	want := []string{
 		"mem_save", "mem_search", "mem_context", "mem_get_observation",
 		"mem_session_start", "mem_session_end", "mem_session_summary",
+		"mem_session_set_title",
 		"mem_suggest_topic_key",
 		"code_status", "code_index", "code_search", "code_read",
 		"web_cache_lookup", "web_cache_save", "web_cache_search",

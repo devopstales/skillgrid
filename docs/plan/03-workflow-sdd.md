@@ -202,7 +202,7 @@ The following skills and structures are **untouched** by the SDD integration:
 
 | Skill | What It Does |
 |---|---|
-| `sdd-init` | Detects project stack, resolves SDD mode (`memory`/`filesystem`/`hybrid`/`none`), builds `.skillgrid/sdd/<project-name>/skill-registry.md`, persists testing capabilities to Mnemonic and `.skillgrid/sdd/` |
+| `sdd-init` | Detects project stack, resolves SDD mode (`memory`/`filesystem`/`hybrid`/`none`), builds `.skillgrid/skill-registry.md`, persists testing capabilities to Mnemonic and `.skillgrid/sdd/` |
 | `sdd-explore` | Indexes codebase via Mnemonic `code_*`, researches constraints, caches findings via Mnemonic `web_*`, produces exploration findings in `.skillgrid/sdd/<id>/phase-status/explore-status.md` |
 | `sdd-propose` | Reads existing OpenSpec context from `openspec/changes/`, creates `proposal.md` with intent, scope, capabilities, approach, risks, rollback; writes status to `.skillgrid/sdd/<id>/phase-status/propose-status.md` and Mnemonic |
 | `sdd-design` | Reads proposal from `openspec/changes/`, creates `design.md` with architecture, patterns, data flow, interfaces, ADRs; writes status to `.skillgrid/sdd/<id>/phase-status/design-status.md`; reuses `brainstorming` and `architectural-decision-records` |

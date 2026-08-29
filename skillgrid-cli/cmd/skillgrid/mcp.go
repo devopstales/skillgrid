@@ -54,6 +54,7 @@ func runServe(version string, args []string) {
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), "usage: skillgrid serve [flags]")
 		fmt.Fprintln(fs.Output(), "  Starts the Mnemonic HTTP API (default http://127.0.0.1:7438).")
+		fmt.Fprintln(fs.Output(), "  Opens the data viewer at / and Swagger UI at /swagger-ui.")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {

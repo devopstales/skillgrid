@@ -27,15 +27,15 @@ type Indexing struct {
 }
 
 type indexingFile struct {
-	Profile  string           `yaml:"profile"`
+	Profile  string          `yaml:"profile"`
 	Mnemonic mnemonicSection `yaml:"mnemonic"`
 }
 
 type mnemonicSection struct {
-	Include      []string         `yaml:"include"`
-	Exclude      []string         `yaml:"exclude"`
-	ChunkLines   int              `yaml:"chunk_lines"`
-	ChunkOverlap int              `yaml:"chunk_overlap"`
+	Include      []string        `yaml:"include"`
+	Exclude      []string        `yaml:"exclude"`
+	ChunkLines   int             `yaml:"chunk_lines"`
+	ChunkOverlap int             `yaml:"chunk_overlap"`
 	WebCache     webCacheSection `yaml:"web_cache"`
 }
 

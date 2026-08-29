@@ -35,7 +35,7 @@ Content body with structured sections:
 
 ## Session Protocol
 
-1. `mem_session_start` at session open (creates workspace session)
+1. `mem_session_start` at session open (creates workspace session). Pass `title` — a short human-readable name for what the session is about, e.g. `"Skillgrid CLI dashboard status card updates"`. It is shown in the web dashboard session list (`mem-sessions`).
 2. `mem_save` during work (dedups by hash within 24h, upserts by topic_key)
 3. `mem_session_summary` before closing
 4. `mem_session_end` to close

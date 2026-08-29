@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
@@ -85,6 +86,39 @@ func (s *Service) openProjectFromCWD() (*projectHandle, func(), error) {
 	return s.openProjectForDirectory(cwd)
 }
 
+// ListProjects returns the project IDs with a store in dataDir, sorted.
+func (s *Service) ListProjects() ([]string, error) {
+	entries, err := os.ReadDir(s.dataDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	var ids []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sqlite") {
+			continue
+		}
+		id := strings.TrimSuffix(e.Name(), ".sqlite")
+		if strings.TrimSpace(id) != "" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// ObservationsRecent returns stored observations, newest first.
+func (s *Service) ObservationsRecent(ctx context.Context, projectID string, limit int) ([]memory.Observation, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return h.memory.Recent(ctx, limit)
+}
+
 // ResolveProject returns the project ID for directory.
 func (s *Service) ResolveProject(directory string) (string, error) {
 	absDir, err := filepath.Abs(directory)
@@ -94,18 +128,29 @@ func (s *Service) ResolveProject(directory string) (string, error) {
 	return project.Resolve(absDir)
 }
 
-// SessionStart creates a workspace session for directory.
-func (s *Service) SessionStart(ctx context.Context, directory string) (sessionID, projectID string, err error) {
+// SessionStart creates a workspace session for directory. title is the
+// session name shown in the web dashboard (mem-sessions).
+func (s *Service) SessionStart(ctx context.Context, directory, title string) (sessionID, projectID string, err error) {
 	h, cleanup, err := s.openProjectForDirectory(directory)
 	if err != nil {
 		return "", "", err
 	}
 	defer cleanup()
-	sessionID, err = h.memory.SessionStart(ctx, directory)
+	sessionID, err = h.memory.SessionStart(ctx, directory, title)
 	if err != nil {
 		return "", "", err
 	}
 	return sessionID, h.projectID, nil
+}
+
+// SessionSetTitle renames a session so the dashboard session list shows it.
+func (s *Service) SessionSetTitle(ctx context.Context, projectID, sessionID, title string) error {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return h.memory.SessionSetTitle(ctx, sessionID, title)
 }
 
 // SessionEnd ends a session with optional summary.
@@ -217,6 +262,32 @@ func (s *Service) CodeSearch(ctx context.Context, projectID, query string, limit
 	return search.CodeSearch(h.store.DB, query, limit)
 }
 
+// CodeFiles returns all indexed file paths, sorted.
+func (s *Service) CodeFiles(ctx context.Context, projectID string) ([]string, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	rows, err := h.store.DB.QueryContext(ctx, `SELECT path FROM files ORDER BY path`)
+	if err != nil {
+		return nil, fmt.Errorf("list files: %w", err)
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		paths = append(paths, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return paths, nil
+}
+
 // ReadIndexedCode returns indexed source for path and optional line range.
 func (s *Service) ReadIndexedCode(ctx context.Context, projectID, path string, startLine, endLine int) (map[string]any, error) {
 	h, cleanup, err := s.openProject(projectID, ".")
@@ -282,6 +353,16 @@ func (s *Service) WebGet(ctx context.Context, projectID string, id int64) (webca
 	}
 	defer cleanup()
 	return h.web.Get(ctx, id)
+}
+
+// MemoryStatus returns memory store health stats.
+func (s *Service) MemoryStatus(ctx context.Context, projectID string) (memory.Status, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return memory.Status{}, err
+	}
+	defer cleanup()
+	return h.memory.Status(ctx)
 }
 
 // WebCacheStatus returns web cache health stats.

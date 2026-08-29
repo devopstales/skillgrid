@@ -3,6 +3,7 @@
 #   task              build the local platform binary into dist/
 #   task all          cross-build linux (amd64+386) and darwin (amd64+arm64)
 #   task test         go vet && go test in skillgrid-cli/
+#   task seed-test     run the Mnemonic all-stores seed integration tests
 #   task fmt          gofmt -w the module
 #   task clean        remove dist/
 #   task install      copy dist/skillgrid-linux-amd64 → ~/.skillgrid/bin/skillgrid
@@ -56,6 +57,11 @@ tasks:
     cmds:
       - cd {{.MODULE_DIR}} && go vet ./...
       - cd {{.MODULE_DIR}} && go test ./...
+
+  seed-test:
+    desc: Run the Mnemonic all-stores seed integration tests (memory + code index + web cache).
+    cmds:
+      - cd {{.MODULE_DIR}} && go test -v -run TestSeed ./internal/mnemonic/integration/
 
   fmt:
     desc: gofmt -w the whole module.

@@ -29,8 +29,13 @@ export class MnemonicClient {
     return r.json();
   }
 
-  async sessionStart(directory?: string): Promise<{ session_id: string; project_id: string }> {
-    const q = directory ? "?directory=" + encodeURIComponent(directory) : "";
+  async sessionStart(opts: { directory?: string; title?: string } = {}): Promise<{ session_id: string; project_id: string }> {
+    const q = opts.directory
+      ? "?directory=" + encodeURIComponent(opts.directory) +
+        (opts.title ? "&title=" + encodeURIComponent(opts.title) : "")
+      : opts.title
+        ? "?title=" + encodeURIComponent(opts.title)
+        : "";
     const r = await this.fetchFn(this.baseURL + "/sessions" + q, {
       method: "POST",
       headers: this.headers(),

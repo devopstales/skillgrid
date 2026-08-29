@@ -25,6 +25,7 @@ func registerMemoryTools(s *server.MCPServer) {
 		{memSessionStartTool(), handleMemSessionStart},
 		{memSessionEndTool(), handleMemSessionEnd},
 		{memSessionSummaryTool(), handleMemSessionSummary},
+		{memSessionSetTitleTool(), handleMemSessionSetTitle},
 		{memSuggestTopicKeyTool(), handleMemSuggestTopicKey},
 	}
 	for _, entry := range tools {
@@ -69,8 +70,9 @@ func memGetObservationTool() mcplib.Tool {
 
 func memSessionStartTool() mcplib.Tool {
 	return mcplib.NewTool("mem_session_start",
-		mcplib.WithDescription("Create a new workspace session. Required before mem_save in OpenCode plugin flows."),
+		mcplib.WithDescription("Create a new workspace session. Required before mem_save in OpenCode plugin flows. Optional `title` names the session — shown in the web dashboard session list."),
 		mcplib.WithString("directory", mcplib.Description("Workspace directory (defaults to cwd)")),
+		mcplib.WithString("title", mcplib.Description("Optional human-readable session name (e.g. 'Skillgrid CLI dashboard status card updates').")),
 	)
 }
 
@@ -87,6 +89,14 @@ func memSessionSummaryTool() mcplib.Tool {
 		mcplib.WithDescription("Persist structured end-of-session summary before closing."),
 		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Session ID")),
 		mcplib.WithString("summary", mcplib.Required(), mcplib.Description("Structured session summary (Goal, Discoveries, Accomplished, Next Steps, Relevant Files)")),
+	)
+}
+
+func memSessionSetTitleTool() mcplib.Tool {
+	return mcplib.NewTool("mem_session_set_title",
+		mcplib.WithDescription("Rename a session. The title is shown in the web dashboard session list (mem-sessions)."),
+		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("ID of the session to rename")),
+		mcplib.WithString("title", mcplib.Required(), mcplib.Description("New human-readable title, e.g. 'Skillgrid CLI dashboard status card updates'")),
 	)
 }
 
@@ -193,6 +203,27 @@ func handleMemGetObservation(ctx context.Context, req mcplib.CallToolRequest) (*
 	return JSONResult(observationDTO(obs))
 }
 
+func handleMemSessionSetTitle(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+
+	sessionID, err := req.RequireString("session_id")
+	if err != nil {
+		return toolError(err)
+	}
+	title, err := req.RequireString("title")
+	if err != nil {
+		return toolError(err)
+	}
+	if err := svc.SessionSetTitle(ctx, projectID, sessionID, title); err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{"session_id": sessionID, "title": title, "title_set": true})
+}
+
 func handleMemSessionStart(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 	dir := req.GetString("directory", "")
 	if dir == "" {
@@ -202,17 +233,22 @@ func handleMemSessionStart(ctx context.Context, req mcplib.CallToolRequest) (*mc
 			return toolError(err)
 		}
 	}
+	title := req.GetString("title", "")
 
 	svc, err := rootService()
 	if err != nil {
 		return toolError(err)
 	}
 
-	sessionID, _, err := svc.SessionStart(ctx, dir)
+	sessionID, _, err := svc.SessionStart(ctx, dir, title)
 	if err != nil {
 		return toolError(err)
 	}
-	return JSONResult(map[string]string{"session_id": sessionID})
+	out := map[string]string{"session_id": sessionID}
+	if title != "" {
+		out["title"] = title
+	}
+	return JSONResult(out)
 }
 
 func handleMemSessionEnd(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
