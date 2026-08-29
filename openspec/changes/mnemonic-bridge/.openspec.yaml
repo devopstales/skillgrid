@@ -1,0 +1,3 @@
+name: mnemonic-bridge
+version: "0.1.0"
+description: GitNexus × Mnemonic bridge — skills integration plus three net-new Mnemonic tools (change_summary, graph_stale signal, session_diff_summary). graph_search and graph_cypher ride on the in-flight mnemonic-graph and mnemonic-cypher changes.

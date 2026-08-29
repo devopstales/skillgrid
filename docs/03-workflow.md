@@ -5,7 +5,7 @@
 ## Skillgrid Workflows
 
 ```
-proposal -> design -> specs -> adr -> tasks -> apply -> acceptance -> ship 
+setup -> proposal -> design -> specs -> adr -> tasks -> apply -> acceptance -> ship
 ```
 
 ```bash

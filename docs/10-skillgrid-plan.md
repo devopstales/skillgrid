@@ -54,6 +54,7 @@ skills add gentleman-programming/engram --agent amp -g -s 'engram-testing-covera
 * engram
   * https://github.com/Gentleman-Programming/gentle-ai/issues/270
   * https://github.com/Gentleman-Programming/gentle-ai/pull/284/changes
+  * https://github.com/j0k3r-dev-rgl/sdd-engram-plugin
 * superpowers
 * mnemonic
 * skilgrid
@@ -69,6 +70,7 @@ skills add gentleman-programming/engram --agent amp -g -s 'engram-testing-covera
   * enforce openspec like backlogmd do
   * mnemonic like engram
   - For OpenSpec propose/apply/verify/archive workflows, use the local `openspec-git-discipline` skill to enforce proposal commits before apply and merge-before-archive discipline.
+* [ ] [gentleman-guardian-angel](https://github.com/Gentleman-Programming/gentleman-guardian-angel)
 
 ## Usage Data
 

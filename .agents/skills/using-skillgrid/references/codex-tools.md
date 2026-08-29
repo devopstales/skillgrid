@@ -8,7 +8,7 @@ multi_agent = true
 ```
 
 This enables the multi-agent tools that skills like
-`skillgrid:dispatching-parallel-agents` and `skillgrid:subagent-driven-development` use.
+`dispatching-parallel-agents` and `subagent-driven-development` use.
 Which tools you get depends on the multi-agent version your model
 preset selects (current presets run V2; older ones run V1). Trust your
 actual tool list over any table — including this one — when they
@@ -92,7 +92,7 @@ BRANCH=$(git branch --show-current)
 - `GIT_DIR != GIT_COMMON` → already in a linked worktree (skip creation)
 - `BRANCH` empty → detached HEAD (cannot branch/push/PR from sandbox)
 
-See `skillgrid:using-git-worktrees` Step 0 and `skillgrid:finishing-a-development-branch`
+See `using-git-worktrees` Step 0 and `finishing-a-development-branch`
 Step 1 for how each skill uses these signals.
 
 ## Codex App Finishing

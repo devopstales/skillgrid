@@ -9,9 +9,9 @@ description: Use when a user or project explicitly adopts OpenSpec spec-as-sourc
 
 Use OpenSpec `spec.md` files as the executable source of truth. When this skill is active, fenced-Gherkin authoring, acceptance-first task ordering, spec-first implementation, and BDD zone isolation are one workflow.
 
-**REQUIRED SUB-SKILL:** Use `skillgrid:gherkin-authoring` when drafting or modifying fenced Gherkin.
+**REQUIRED SUB-SKILL:** Use `gherkin-authoring` when drafting or modifying fenced Gherkin.
 
-**REQUIRED SUB-SKILL:** Use `skillgrid:acceptance-test-authoring` when configuring or modifying the acceptance runner, extractor, linting, step definitions, or page objects.
+**REQUIRED SUB-SKILL:** Use `acceptance-test-authoring` when configuring or modifying the acceptance runner, extractor, linting, step definitions, or page objects.
 
 ## Activation
 

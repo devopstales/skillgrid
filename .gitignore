@@ -18,3 +18,4 @@ install*.sh*
 # skillgrid-cli build artifacts (Taskfile at repo root builds into dist/)
 /dist/
 skillgrid-cli/dist/
+*gitnexus*
