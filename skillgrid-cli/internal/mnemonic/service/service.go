@@ -338,6 +338,111 @@ func (s *Service) LastObservationAt(ctx context.Context, projectID string) (time
 	return h.memory.LastObservationAt(ctx)
 }
 
+// RecordRelation stores a semantic link between two observations in the
+// given project (mem_judge / mem_compare).
+func (s *Service) RecordRelation(ctx context.Context, projectID string, srcID, dstID int64, relation, reason string, confidence *float64) (memory.Relation, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return memory.Relation{}, err
+	}
+	defer cleanup()
+	return h.memory.RecordRelation(ctx, srcID, dstID, relation, reason, confidence)
+}
+
+// RemoveRelation clears a live link between two observations (mem_judge
+// not_conflict verdict).
+func (s *Service) RemoveRelation(ctx context.Context, projectID string, srcID, dstID int64, relation string) (bool, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return false, err
+	}
+	defer cleanup()
+	return h.memory.RemoveRelation(ctx, srcID, dstID, relation)
+}
+
+// RelationsOf returns every live relation touching observation id.
+func (s *Service) RelationsOf(ctx context.Context, projectID string, id int64) ([]memory.Relation, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return h.memory.RelationsOf(ctx, id)
+}
+
+// RelationsBetween returns the live links between two specific observations.
+func (s *Service) RelationsBetween(ctx context.Context, projectID string, srcID, dstID int64) ([]memory.Relation, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return h.memory.RelationsBetween(ctx, srcID, dstID)
+}
+
+// MergeProjects consolidates data recorded under the source project name into
+// the canonical project, then records a project alias. Returns the number of
+// rows moved and the canonical name.
+//
+// Behaviour:
+//   - If source == canonical or either is blank, no-op (0, canonical).
+//   - If the source store file does not exist, no-op (0, canonical) — but the
+//     alias is still recorded so future writes to the source name land in the
+//     canonical store.
+//   - Otherwise: copies observations/sessions/web_cache/prompts/files rows
+//     tagged source into the canonical store (INSERT OR IGNORE so re-runs do
+//     not fail on PK collisions), re-tags them as canonical, and records the
+//     migration + alias (idempotent via unique primary key).
+func (s *Service) MergeProjects(ctx context.Context, source, canonical string) (int, string, error) {
+	source = strings.TrimSpace(source)
+	canonical = strings.TrimSpace(canonical)
+	if source == "" || canonical == "" || source == canonical {
+		return 0, canonical, nil
+	}
+
+	// Record the alias first so that future resolution always lands in the
+	// canonical store regardless of whether the copy below succeeds.
+	if err := s.recordProjectAlias(ctx, canonical, source); err != nil {
+		return 0, canonical, fmt.Errorf("record alias: %w", err)
+	}
+
+	// No data to move if the source store file is missing.
+	srcPath := filepath.Join(s.dataDir, source+".sqlite")
+	if _, err := os.Stat(srcPath); err != nil {
+		if os.IsNotExist(err) {
+			return 0, canonical, nil
+		}
+		return 0, canonical, err
+	}
+
+	moved, err := s.MigrateProjects(ctx, source, canonical)
+	if err != nil {
+		return 0, canonical, err
+	}
+	return moved, canonical, nil
+}
+
+// recordProjectAlias marks source as an alias of canonical in the canonical
+// store. Idempotent: re-merge keeps the first merge time.
+func (s *Service) recordProjectAlias(ctx context.Context, canonical, source string) error {
+	newStore, err := store.Open(s.dataDir, canonical)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "no such table") {
+			return nil // no canonical store yet — alias is implicit
+		}
+		return err
+	}
+	defer newStore.Close()
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err = newStore.DB.ExecContext(ctx, `
+		INSERT INTO project_aliases (alias, canonical, merged_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(alias) DO NOTHING`,
+		source, canonical, now,
+	)
+	return err
+}
+
 // SessionStartedAt returns the started_at of a session (zero if missing).
 func (s *Service) SessionStartedAt(ctx context.Context, projectID, sessionID string) (time.Time, error) {
 	h, cleanup, err := s.openProject(projectID, ".")

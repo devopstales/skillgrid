@@ -244,11 +244,12 @@ func TestE2EMemoryExtTools(t *testing.T) {
 		"session_id": sid,
 	})
 	time.Sleep(1100 * time.Millisecond)
-	_ = callTool(t, h, 11, "mem_save", map[string]any{
+	thirdRes := callTool(t, h, 11, "mem_save", map[string]any{
 		"title": "evt much later", "type": "learning",
 		"content": "**What** third entry **Why** e2e **Where** n/a **Learned** —",
 		"session_id": sid,
 	})
+	thirdID := extractID(t, thirdRes)
 
 	// mem_save_prompt
 	promptRes := callTool(t, h, 12, "mem_save_prompt", map[string]any{
@@ -339,6 +340,65 @@ func TestE2EMemoryExtTools(t *testing.T) {
 	after, _ := tl["after"].([]any)
 	if len(before)+len(after) < 1 {
 		t.Fatalf("expected at least one entry in timeline (before or after): %s", tl)
+	}
+
+	// mem_judge — record a conflicts_with verdict between anchor and the third
+	// entry, then confirm a second judge is an upsert (same id), then clear it
+	// with not_conflict.
+	j1 := parseToolJSON(t, callTool(t, h, 22, "mem_judge", map[string]any{
+		"src_id": anchorID, "dst_id": thirdID, "verdict": "conflicts_with",
+		"confidence": 0.8, "reason": "e2e",
+	}))
+	jid, _ := j1["id"].(float64)
+	if jid <= 0 {
+		t.Fatalf("expected a relation id from mem_judge: %s", j1)
+	}
+	if j1["verdict"] == "not_conflict" {
+		t.Fatalf("mem_judge should record conflicts_with, not clear: %s", j1)
+	}
+
+	// Re-judge the same pair — upsert keeps the same relation id.
+	j2 := parseToolJSON(t, callTool(t, h, 23, "mem_judge", map[string]any{
+		"src_id": anchorID, "dst_id": thirdID, "verdict": "conflicts_with",
+		"reason": "e2e revised",
+	}))
+	if j2id, _ := j2["id"].(float64); j2id != jid {
+		t.Fatalf("expected upsert to keep relation id %v, got %v: %s", jid, j2id, j2)
+	}
+
+	// mem_compare — persist a compatible relation in the other direction.
+	_ = parseToolJSON(t, callTool(t, h, 24, "mem_compare", map[string]any{
+		"src_id": thirdID, "dst_id": anchorID, "relation": "compatible",
+	}))
+
+	// not_conflict — clears the conflicts_with link, returns removed=true.
+	nc := parseToolJSON(t, callTool(t, h, 25, "mem_judge", map[string]any{
+		"src_id": anchorID, "dst_id": thirdID, "verdict": "not_conflict",
+	}))
+	if nc["removed"] != true {
+		t.Fatalf("expected not_conflict to report removed=true: %s", nc)
+	}
+
+	// mem_merge_projects — merge the live project into itself (no-op) returns a
+	// clean shape, and an identical source/canonical is a no-op.
+	projOut := parseToolJSON(t, callTool(t, h, 26, "mem_current_project", nil))
+	canon, _ := projOut["project"].(string)
+	mergeNoop := parseToolJSON(t, callTool(t, h, 27, "mem_merge_projects", map[string]any{
+		"source": canon, "canonical": canon,
+	}))
+	if mergeNoop["merged"] != false {
+		t.Fatalf("expected merged=false for identical source/canonical: %s", mergeNoop)
+	}
+	// Merge a non-existent source into canonical: alias recorded, 0 rows moved.
+	mergeNew := parseToolJSON(t, callTool(t, h, 28, "mem_merge_projects", map[string]any{
+		"source": "evt-legacy-alias-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+		"canonical": canon,
+	}))
+	if mergeNew["canonical"] != canon {
+		t.Fatalf("expected canonical echoed back: %s", mergeNew)
+	}
+	if _, ok := mergeNew["rows_moved"]; !ok {
+		t.Fatalf("expected rows_moved field: %s", mergeNew)
 	}
 
 	// mem_delete (soft)

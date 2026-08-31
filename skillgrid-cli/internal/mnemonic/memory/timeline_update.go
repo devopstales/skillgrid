@@ -85,7 +85,7 @@ func (s *Service) Update(ctx context.Context, id int64, in UpdateInput) error {
 	sets = append(sets, "updated_at = ?")
 	args = append(args, time.Now().UTC().Format(time.RFC3339), id, s.projectID)
 	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations SET `+strings.Join(sets, ", ") + `
+		UPDATE observations SET `+strings.Join(sets, ", ")+`
 		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
 		args...,
 	)
@@ -184,9 +184,9 @@ func (s *Service) Timeline(ctx context.Context, anchorID int64, window time.Dura
 
 func (s *Service) timelineSide(ctx context.Context, anchorID int64, anchorAt string, minutes, limit int, isBefore bool) ([]TimelineEntry, error) {
 	var (
-		order  string
-		where  string
-		label  string
+		order string
+		where string
+		label string
 	)
 	if isBefore {
 		label = "before"

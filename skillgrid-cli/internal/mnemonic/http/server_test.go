@@ -444,3 +444,184 @@ func TestAuthRequiredWhenTokenSet(t *testing.T) {
 		t.Errorf("expected to pass auth with correct token, got 401")
 	}
 }
+
+// ───────────────────────────── Memory extension routes (v1.3) ──────────────
+
+func seedSecond(t *testing.T, dataDir string) {
+	t.Helper()
+	st, err := store.Open(dataDir, proj)
+	if err != nil {
+		t.Fatalf("seed store 2: %v", err)
+	}
+	defer st.Close()
+	now := "2026-01-02T00:00:00Z"
+	if _, err := st.DB.Exec(`INSERT INTO observations (session_id, type, title, content, project, scope, normalized_hash, revision_count, created_at, updated_at) VALUES ('s1','pattern','obs-title-2','obs-body-2', ?, 'project','h2','0',?,?)`, proj, now, now); err != nil {
+		t.Fatalf("seed observation 2: %v", err)
+	}
+}
+
+func TestTimelineRoute(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	seedStore(t, dataDir)
+	seedSecond(t, dataDir)
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	rr, out := do(t, h, http.MethodGet, "/memory/timeline?project="+proj+"&id=1&window=1h", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, ok := out["anchor_id"]; !ok {
+		t.Errorf("expected anchor_id key, got %v", out)
+	}
+}
+
+func TestObservationUpdateRoute(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	seedStore(t, dataDir)
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	rr, out := do(t, h, http.MethodPatch, "/memory/observations/1?project="+proj, map[string]any{
+		"content": "updated content",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if out["updated"] != true {
+		t.Errorf("expected updated=true, got %v", out)
+	}
+}
+
+func TestObservationDeleteRoute(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	seedStore(t, dataDir)
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	rr, _ := do(t, h, http.MethodDelete, "/memory/observations/1?project="+proj, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestMemoryReviewsListRoute(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	seedStore(t, dataDir)
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	rr, out := do(t, h, http.MethodGet, "/memory/reviews?project="+proj, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, ok := out["due"]; !ok {
+		t.Errorf("expected due key, got %v", out)
+	}
+}
+
+func TestMemoryReviewMarkRoute(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	seedStore(t, dataDir)
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	rr, out := do(t, h, http.MethodPost, "/memory/reviews/1?project="+proj, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if out["marked_reviewed"] != true {
+		t.Errorf("expected marked_reviewed=true, got %v", out)
+	}
+}
+
+func TestRelationCreateAndListRoute(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	seedStore(t, dataDir)
+	seedSecond(t, dataDir)
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	// mem_judge shape (verdict key)
+	rr, out := do(t, h, http.MethodPost, "/memory/relations?project="+proj, map[string]any{
+		"src_id": 1, "dst_id": 2, "verdict": "conflicts_with", "reason": "e2e",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	// mem_compare shape (relation key) for the reverse direction
+	rr, out = do(t, h, http.MethodPost, "/memory/relations?project="+proj, map[string]any{
+		"src_id": 2, "dst_id": 1, "relation": "compatible",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	// RelationsOf
+	rr, out = do(t, h, http.MethodGet, "/relations/1?project="+proj, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, ok := out["relations"]; !ok {
+		t.Errorf("expected relations key, got %v", out)
+	}
+	// Remove the conflicts_with link (both directions).
+	rr, _ = doWithQuery(t, h, http.MethodDelete, "/memory/relations?project="+proj+"&src_id=1&dst_id=2&relation=conflicts_with", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestProjectsMergeRoute(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	seedStore(t, dataDir)
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	// Same-source-and-canonical is a no-op.
+	rr, out := do(t, h, http.MethodPost, "/projects/merge", map[string]any{
+		"source": "proj-a", "canonical": "proj-a",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if out["merged"] != false {
+		t.Errorf("expected merged=false, got %v", out)
+	}
+	// Distinct canonical+source — alias should be recorded even if 0 rows move.
+	rr, out = do(t, h, http.MethodPost, "/projects/merge", map[string]any{
+		"source": "proj-legacy", "canonical": "proj-a",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if out["alias_recorded"] != true {
+		t.Errorf("expected alias_recorded=true, got %v", out)
+	}
+}
+
+func TestMemoryDoctorRoute(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	seedStore(t, dataDir)
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+	rr, out := do(t, h, http.MethodGet, "/memory/doctor?project="+proj, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, ok := out["schema_version"]; !ok {
+		t.Errorf("expected schema_version key, got %v", out)
+	}
+}
+
+// doWithQuery mirrors `do` but always sends a body (for DELETE-with-body).
+func doWithQuery(t *testing.T, h http.Handler, method, target string, body any) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(method, target, nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	var out map[string]any
+	dec := json.NewDecoder(bytes.NewReader(rr.Body.Bytes()))
+	_ = dec.Decode(&out)
+	return rr, out
+}

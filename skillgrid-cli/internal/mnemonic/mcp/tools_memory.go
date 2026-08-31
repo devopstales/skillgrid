@@ -34,6 +34,9 @@ func registerMemoryTools(s *server.MCPServer) {
 		{memCurrentProjectTool(), handleMemCurrentProject},
 		{memDoctorTool(), handleMemDoctor},
 		{memReviewTool(), handleMemReview},
+		{memJudgeTool(), handleMemJudge},
+		{memCompareTool(), handleMemCompare},
+		{memMergeProjectsTool(), handleMemMergeProjects},
 		{memSessionStartTool(), handleMemSessionStart},
 		{memSessionEndTool(), handleMemSessionEnd},
 		{memSessionSummaryTool(), handleMemSessionSummary},
@@ -603,6 +606,159 @@ func handleMemReview(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 	default:
 		return toolError(fmt.Errorf("unknown action %q (valid: list, mark_reviewed)", action))
 	}
+}
+
+// ────────────────────────────── Mem: relations (judge/compare) ────────────
+
+const relationsHelp = "related | compatible | scoped | conflicts_with | supersedes | not_conflict"
+
+// memJudgeTool records a verdict for a pending memory conflict (Engram:
+// `mem_judge` — "Record a verdict for a pending memory conflict surfaced by
+// mem_save"). In Mnemonic the "conflict" is any pair of observations; the
+// verdict is stored as a typed semantic link.
+func memJudgeTool() mcplib.Tool {
+	return mcplib.NewTool("mem_judge",
+		mcplib.WithDescription("Record a verdict for a memory conflict between two observations. Verdicts: "+relationsHelp+". 'not_conflict' removes a previously-recorded conflicts_with link instead of adding one."),
+		mcplib.WithNumber("src_id", mcplib.Required(), mcplib.Description("Source observation ID")),
+		mcplib.WithNumber("dst_id", mcplib.Required(), mcplib.Description("Destination observation ID")),
+		mcplib.WithString("verdict", mcplib.Required(), mcplib.Description("Verdict: "+relationsHelp)),
+		mcplib.WithNumber("confidence", mcplib.Description("Optional 0.0-1.0 confidence in the verdict")),
+		mcplib.WithString("reason", mcplib.Description("Short justification (stored as reason on the link)")),
+	)
+}
+
+// memCompareTool records, clears, or inspects semantic relations between
+// observations (Engram: `mem_compare` — "Persist a semantic relation verdict
+// between two existing observations").
+//
+//   - src_id + dst_id + relation: record or clear a link.
+//   - src_id + dst_id, no relation: list the live links between the two.
+//   - src_id + dst_id + not_conflict: clear a conflicts_with link.
+func memCompareTool() mcplib.Tool {
+	return mcplib.NewTool("mem_compare",
+		mcplib.WithDescription("Record, clear, or inspect semantic relations between two existing observations. Relations: related | compatible | scoped | conflicts_with | supersedes. 'not_conflict' clears a conflicts_with link. Omit the relation to list current links between the pair."),
+		mcplib.WithNumber("src_id", mcplib.Required(), mcplib.Description("Source observation ID")),
+		mcplib.WithNumber("dst_id", mcplib.Required(), mcplib.Description("Destination observation ID")),
+		mcplib.WithString("relation", mcplib.Description("Relation to record or clear (omit to list)")),
+		mcplib.WithNumber("confidence", mcplib.Description("Optional 0.0-1.0 confidence")),
+		mcplib.WithString("reason", mcplib.Description("Optional justification")),
+	)
+}
+
+func handleMemJudge(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	return recordRelation(ctx, svc, projectID, req, "verdict")
+}
+
+func handleMemCompare(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	relation := strings.TrimSpace(req.GetString("relation", ""))
+	if relation == "" {
+		// List mode: return the live links between the two observations.
+		srcID, err := req.RequireFloat("src_id")
+		if err != nil {
+			return toolError(err)
+		}
+		dstID, err := req.RequireFloat("dst_id")
+		if err != nil {
+			return toolError(err)
+		}
+		rels, err := svc.RelationsBetween(ctx, projectID, int64(srcID), int64(dstID))
+		if err != nil {
+			return toolError(err)
+		}
+		return JSONResult(map[string]any{
+			"src_id":    int64(srcID),
+			"dst_id":    int64(dstID),
+			"relations": rels,
+			"count":     len(rels),
+		})
+	}
+	return recordRelation(ctx, svc, projectID, req, "relation")
+}
+
+// recordRelation is the shared implementation for mem_judge and mem_compare.
+// The only difference is the name of the verdict parameter.
+func recordRelation(ctx context.Context, svc *service.Service, projectID string, req mcplib.CallToolRequest, verdictParam string) (*mcplib.CallToolResult, error) {
+	srcID, err := req.RequireFloat("src_id")
+	if err != nil {
+		return toolError(err)
+	}
+	dstID, err := req.RequireFloat("dst_id")
+	if err != nil {
+		return toolError(err)
+	}
+	verdict := strings.TrimSpace(req.GetString(verdictParam, ""))
+	if verdict == "" {
+		return toolError(fmt.Errorf("%s is required (%s)", verdictParam, relationsHelp))
+	}
+	reason := req.GetString("reason", "")
+	confidence := req.GetFloat("confidence", 0)
+	var confPtr *float64
+	if confidence > 0 {
+		v := float64(confidence)
+		confPtr = &v
+	}
+
+	if strings.EqualFold(verdict, "not_conflict") {
+		removed, err := svc.RemoveRelation(ctx, projectID, int64(srcID), int64(dstID), "conflicts_with")
+		if err != nil {
+			return toolError(err)
+		}
+		return JSONResult(map[string]any{
+			"verdict": "not_conflict",
+			"removed": removed,
+			"src_id":  int64(srcID),
+			"dst_id":  int64(dstID),
+		})
+	}
+
+	rel, err := svc.RecordRelation(ctx, projectID, int64(srcID), int64(dstID), verdict, reason, confPtr)
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(rel)
+}
+func memMergeProjectsTool() mcplib.Tool {
+	return mcplib.NewTool("mem_merge_projects",
+		mcplib.WithDescription("Merge a source project name into the canonical name: copies rows tagged source into the canonical store (idempotent), re-tags them, and records the alias so future writes to the source name land in the canonical store. Admin tool — call only when the user has confirmed the merge."),
+		mcplib.WithString("source", mcplib.Required(), mcplib.Description("Project name to merge (the variant being retired)")),
+		mcplib.WithString("canonical", mcplib.Required(), mcplib.Description("Project name to merge into (the canonical name)")),
+	)
+}
+
+func handleMemMergeProjects(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, err := rootService()
+	if err != nil {
+		return toolError(err)
+	}
+	source := strings.TrimSpace(req.GetString("source", ""))
+	canonical := strings.TrimSpace(req.GetString("canonical", ""))
+	if source == "" || canonical == "" {
+		return toolError(errors.New("source and canonical project names are both required"))
+	}
+	if source == canonical {
+		return JSONResult(map[string]any{"merged": false, "reason": "source and canonical are identical", "rows_moved": 0, "canonical": canonical})
+	}
+	moved, canonicalResolved, err := svc.MergeProjects(ctx, source, canonical)
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{
+		"merged":         true,
+		"source":         source,
+		"canonical":      canonicalResolved,
+		"rows_moved":     moved,
+		"alias_recorded": true,
+	})
 }
 
 func openService() (*service.Service, string, func(), error) {

@@ -19,6 +19,7 @@ func TestAllToolsRegistered(t *testing.T) {
 		"mem_save", "mem_search", "mem_context", "mem_get_observation",
 		"mem_timeline", "mem_update", "mem_delete", "mem_stats", "mem_save_prompt",
 		"mem_current_project", "mem_doctor", "mem_review",
+		"mem_judge", "mem_compare", "mem_merge_projects",
 		"mem_session_start", "mem_session_end", "mem_session_summary",
 		"mem_session_set_title",
 		"mem_suggest_topic_key",

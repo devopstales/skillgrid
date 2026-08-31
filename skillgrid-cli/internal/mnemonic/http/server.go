@@ -54,7 +54,20 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /search", s.handleSearch)
 	s.mux.HandleFunc("POST /prompts", s.requireWriteAuth(s.handlePromptCreate))
 
+	s.mux.HandleFunc("GET /memory/timeline", s.handleMemoryTimeline)
+	s.mux.HandleFunc("PATCH /memory/observations/{id}", s.requireWriteAuth(s.handleObservationUpdate))
+	s.mux.HandleFunc("DELETE /memory/observations/{id}", s.requireWriteAuth(s.handleObservationDelete))
+	s.mux.HandleFunc("GET /memory/reviews", s.handleMemoryReviews)
+	s.mux.HandleFunc("POST /memory/reviews/{id}", s.requireWriteAuth(s.handleMemoryReviewMark))
+	s.mux.HandleFunc("POST /memory/relations", s.requireWriteAuth(s.handleRelationCreate))
+	s.mux.HandleFunc("DELETE /memory/relations", s.requireWriteAuth(s.handleRelationRemove))
+	s.mux.HandleFunc("GET /relations/{id}", s.handleRelationsOf)
+	s.mux.HandleFunc("GET /relations", s.handleRelationsBetween)
+	s.mux.HandleFunc("GET /memory/project", s.handleMemoryCurrentProject)
+	s.mux.HandleFunc("GET /memory/doctor", s.handleMemoryDoctor)
+
 	s.mux.HandleFunc("POST /projects/migrate", s.requireWriteAuth(s.handleProjectsMigrate))
+	s.mux.HandleFunc("POST /projects/merge", s.requireWriteAuth(s.handleProjectsMerge))
 
 	s.mux.HandleFunc("GET /code/status", s.handleCodeStatus)
 	s.mux.HandleFunc("POST /code/index", s.requireWriteAuth(s.handleCodeIndex))
@@ -363,6 +376,302 @@ func (s *Server) handleProjectsMigrate(w http.ResponseWriter, r *http.Request) {
 		"new_project": body.NewProject,
 		"rows_moved":  moved,
 	})
+}
+
+// handleProjectsMerge is the mem_merge_projects surface: same copy as
+// MigrateProjects, plus an alias record so future writes to the legacy name
+// land in the canonical store.
+func (s *Server) handleProjectsMerge(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Source    string `json:"source"`
+		Canonical string `json:"canonical"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(body.Source) == "" || strings.TrimSpace(body.Canonical) == "" {
+		writeError(w, http.StatusBadRequest, "source and canonical are required")
+		return
+	}
+	if body.Source == body.Canonical {
+		writeJSON(w, http.StatusOK, map[string]any{"merged": false, "reason": "source and canonical identical"})
+		return
+	}
+	moved, canonical, err := s.svc.MergeProjects(r.Context(), body.Source, body.Canonical)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"merged":         true,
+		"source":         body.Source,
+		"canonical":      canonical,
+		"rows_moved":     moved,
+		"alias_recorded": true,
+	})
+}
+
+// ───────────────────────────────── Memory extension routes ───────────────────
+
+func (s *Server) handleMemoryTimeline(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	idStr := r.URL.Query().Get("id")
+	if idStr == "" {
+		writeError(w, http.StatusBadRequest, "id query param is required")
+		return
+	}
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "id must be an integer")
+		return
+	}
+	window := parseWindow(r.URL.Query().Get("window"), 1*time.Hour)
+	limit := queryInt(r, "limit", 5)
+	tl, err := s.svc.ObservationTimeline(r.Context(), projectID, id, window, limit)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"anchor_id": id, "before": tl.Before, "after": tl.After})
+}
+
+func (s *Server) handleObservationUpdate(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "id must be an integer")
+		return
+	}
+	var in memory.UpdateInput
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.svc.UpdateObservation(r.Context(), projectID, id, in); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "updated": true})
+}
+
+func (s *Server) handleObservationDelete(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "id must be an integer")
+		return
+	}
+	hard := r.URL.Query().Get("hard") == "true"
+	if err := s.svc.DeleteObservation(r.Context(), projectID, id, hard); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true, "hard": hard})
+}
+
+func (s *Server) handleMemoryReviews(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	limit := queryInt(r, "limit", 20)
+	due, err := s.svc.ListReviews(r.Context(), projectID, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"due": due, "count": len(due)})
+}
+
+func (s *Server) handleMemoryReviewMark(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "id must be an integer")
+		return
+	}
+	ta, err := s.svc.MarkReviewReviewed(r.Context(), projectID, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "marked_reviewed": true, "review_after": ta})
+}
+
+// RelationBody is the shared body for mem_judge (verdict) / mem_compare
+// (relation). Accepts either key, since the two MCP tools name the same
+// field differently.
+type relationBody struct {
+	SrcID      int64    `json:"src_id"`
+	DstID      int64    `json:"dst_id"`
+	Verdict    string   `json:"verdict"`
+	Relation   string   `json:"relation"`
+	Reason     string   `json:"reason"`
+	Confidence *float64 `json:"confidence"`
+}
+
+func (b *relationBody) effectiveRelation() string {
+	if r := strings.TrimSpace(b.Verdict); r != "" {
+		return r
+	}
+	return strings.TrimSpace(b.Relation)
+}
+
+func (s *Server) handleRelationCreate(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var body relationBody
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	rel := body.effectiveRelation()
+	if rel == "" {
+		writeError(w, http.StatusBadRequest, "verdict or relation is required")
+		return
+	}
+	out, err := s.svc.RecordRelation(r.Context(), projectID, body.SrcID, body.DstID, rel, body.Reason, body.Confidence)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+
+func (s *Server) handleRelationRemove(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	srcID, err := strconv.ParseInt(q.Get("src_id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "src_id is required")
+		return
+	}
+	dstID, err := strconv.ParseInt(q.Get("dst_id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "dst_id is required")
+		return
+	}
+	rel := q.Get("relation")
+	if rel == "" {
+		writeError(w, http.StatusBadRequest, "relation is required")
+		return
+	}
+	removed, err := s.svc.RemoveRelation(r.Context(), projectID, srcID, dstID, rel)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "src_id": srcID, "dst_id": dstID})
+}
+
+func (s *Server) handleRelationsOf(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "id must be an integer")
+		return
+	}
+	rels, err := s.svc.RelationsOf(r.Context(), projectID, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "relations": rels, "count": len(rels)})
+}
+
+// handleRelationsBetween lists live links between two observations (the
+// mem_compare list mode over HTTP).
+func (s *Server) handleRelationsBetween(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	srcID, err := strconv.ParseInt(q.Get("src_id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "src_id is required")
+		return
+	}
+	dstID, err := strconv.ParseInt(q.Get("dst_id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "dst_id is required")
+		return
+	}
+	rels, err := s.svc.RelationsBetween(r.Context(), projectID, srcID, dstID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"src_id": srcID, "dst_id": dstID, "relations": rels, "count": len(rels)})
+}
+
+func (s *Server) handleMemoryCurrentProject(w http.ResponseWriter, r *http.Request) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	info, err := s.svc.CurrentProject(cwd)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) handleMemoryDoctor(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	out, err := s.svc.MemoryDoctor(r.Context(), projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func parseWindow(v string, def time.Duration) time.Duration {
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
 }
 
 func (s *Server) handleMemoryStatus(w http.ResponseWriter, r *http.Request) {

@@ -54,9 +54,11 @@ Embedded migrations (`store/migrations/*.sql`) create:
 | Table | Purpose |
 |---|---|
 | `sessions` | Workspace sessions (UUID, project, directory, status) |
-| `observations` | Memory entries (FTS5 `observations_fts` with Porter stemming). Includes `review_after` for the `mem_review` lifecycle (migration `005_review_cycle.sql`). |
+| `observations` | Memory entries (FTS5 `observations_fts` with Porter stemming). Includes `review_after` for the `mem_review` lifecycle (`005_review_cycle.sql`). |
 | `files` / `chunks` | Indexed source files (FTS5 `chunks_fts` with trigram tokenizer) |
 | `web_cache` | Cached web research snapshots (FTS5 `web_cache_fts` with Porter) |
+| `memory_relations` | Directional, typed semantic links between observations — the `mem_judge` / `mem_compare` verdict store (`006_relations_aliases.sql`). Soft-deleted. |
+| `project_aliases` | Retired project name → canonical name mapping for `mem_merge_projects` (`006_relations_aliases.sql`). |
 | `index_meta` | Schema version tracking |
 
 ## Indexing configuration
@@ -79,16 +81,16 @@ Web cache TTLs (defaults): `context7` 30d, `exa` 7d, `deepwiki` 14d, `fetch` 7d,
 
 ## MCP tools
 
-### 27 MCP tools (18 memory + 4 code + 5 web cache)
+### 30 MCP tools (21 memory + 4 code + 5 web cache)
 
-The `skillgrid mcp` stdio server advertises 27 tools across three domains —
+The `skillgrid mcp` stdio server advertises 30 tools across three domains —
 session memory, indexed-code search, and a web-research cache. All output is
 raw JSON (no leading prose) per the OCBI convention.
 
 #### Memory tools
 
 The memory surface mirrors Engram's MCP tool list. The tools are grouped by
-workflow intent: **save / recall / evolve / manage / diagnose**.
+workflow intent: **save / recall / evolve / manage / relate / diagnose**.
 
 **Save & recall**
 
@@ -124,6 +126,16 @@ Tool | What It Does
 --- | ---
 `mem_delete` | Delete an observation. Soft-delete by default (`deleted_at` set — excluded from search/context/timeline, still fetchable by ID); pass `hard=true` to remove the row permanently. |
 `mem_review` | `action="list"` (default) — returns observations whose `review_after` has passed. `action="mark_reviewed"` + `id` — advances the observation's review cycle by ~30 days. This is the local-only lifecycle hygiene loop. |
+`mem_merge_projects` | Admin tool. Merge a source project name into the canonical name: copies rows tagged `source` into the canonical store (idempotent), re-tags them, and records an alias so future writes to the source name land in the canonical store. |
+
+**Relate memories** (semantic links between observations in the same project)
+
+Tool | What It Does
+--- | ---
+`mem_judge` | Record a verdict for a memory conflict between two observations. Verdicts: `related` \| `compatible` \| `scoped` \| `conflicts_with` \| `supersedes` \| `not_conflict`. `not_conflict` clears a previously-recorded `conflicts_with` link instead of adding one. Optional `confidence` (0.0–1.0) and `reason`. |
+`mem_compare` | Record, clear, or inspect semantic relations between two observations. With `src_id` + `dst_id` + `relation` it records/clears a link; **omit `relation` to list** the current links between the pair. |
+
+> **Relation storage**: verdicts are directional typed links (`src → dst`) in the `memory_relations` table, scoped to the project store and soft-deleted. Re-judging the same `(src, dst, relation)` upserts in place.
 
 **Diagnose & orient** (never errors; recommended first calls)
 
@@ -137,7 +149,7 @@ Tool | What It Does
 >
 > **Progressive disclosure (3-layer pattern):** `mem_search` (compact hits) → `mem_timeline` (chronological neighbours) → `mem_get_observation` (full content). Don't dump the whole store — drill in.
 >
-> **Not yet in Mnemonic** (Engram parity pending the `mnemonic-graph` change): `mem_merge_projects` (admin/project-name consolidation) and `mem_judge` / `mem_compare` (graph-edge relationship verdicts). These require the `graph_nodes`/`graph_edges` tables and belong to the graph-layer change.
+> **Full Engram mirror complete**: all Memory tools in the Engram `ARCHITECTURE.md` MCP tool list are now implemented — save/recall (`mem_save`, `mem_save_prompt`, `mem_search`, `mem_context`, `mem_get_observation`, `mem_timeline`), evolve (`mem_update`, `mem_suggest_topic_key`, `mem_capture_passive`), lifecycle (`mem_delete`, `mem_review`, `mem_merge_projects`), relate (`mem_judge`, `mem_compare`), and diagnose (`mem_current_project`, `mem_stats`, `mem_doctor`). Graph-relationship verdicts that Engram stores as graph edges are held in Mnemonic's `memory_relations` table (soft-deleted, project-scoped).
 
 #### Code tools
 
@@ -189,11 +201,31 @@ GET /health
 |---|---|---|---|
 | `POST` | `/sessions` | `directory` query, `X-Workspace-Dir` header | Create a session for a workspace directory; returns `session_id` + `project_id`. |
 | `POST` | `/sessions/{id}/end` | `project` query, `{"summary": "..."}` body | End a session, optionally with a summary. |
+| `POST` | `/sessions/{id}/title` | `project` query, `{"title": "..."}` body | Rename a session (`mem_session_set_title`). |
+| `GET` | `/sessions/{id}` | `project` | Session detail. |
 | `GET` | `/context` | `project`, `limit` (default 5) | Recent session summaries for compaction recovery. |
+| `GET` | `/context/compaction` | `project`, `session`, limit | Session-scoped compaction context (session + recent observations). |
 | `POST` | `/observations` | `project` query, SaveObservationInput body | Save an observation. |
+| `POST` | `/observations/passive` | `project`, passive input body | Extract learnings from a pasted text block (`mem_capture_passive`). |
 | `GET` | `/observations/recent` | `project`, `limit` (default 5) | Recent observations. |
 | `GET` | `/observations` | `project`, `limit` (default 50) | All recent observations. |
+| `PATCH` | `/memory/observations/{id}` | `project`, `{"title"/"content"/"type"/"scope"/"topic_key"}` body | Update an observation — only non-empty fields apply (`mem_update`). |
+| `DELETE` | `/memory/observations/{id}` | `project`, optional `hard=true` query | Delete an observation. |
+| `GET` | `/memory/timeline` | `project`, `id`, optional `window` (e.g. `1h`), `limit` (default 5) | Chronological context around an observation. |
 | `GET` | `/search` | `project`, `query`, `match_mode`, `limit` | FTS search over observations. |
+| `POST` | `/prompts` | `project`, prompt input body | Record a user prompt (`mem_save_prompt`). |
+| `GET` | `/memory/reviews` | `project`, `limit` (default 20) | List observations due for local review. |
+| `POST` | `/memory/reviews/{id}` | `project` | Mark an observation reviewed; advances review cycle. |
+| `GET` | `/memory/project` | — | Resolved project ID + source + all known projects. |
+| `GET` | `/memory/status` | `project` | Per-project observation/session counts. |
+| `GET` | `/memory/last-save-at` | `project` | Timestamp of the newest observation. |
+| `GET` | `/memory/doctor` | `project` | Store health: schema version, FTS drift, WAL, disk size. |
+| `POST` | `/memory/relations` | `project`, `{"src_id":1,"dst_id":2,"verdict":"conflicts_with","reason":"..."}` body | Record a semantic link between observations (`mem_judge` / `mem_compare`). |
+| `DELETE` | `/memory/relations` | `project`, `src_id`, `dst_id`, `relation` | Clear a semantic link. |
+| `GET` | `/relations/{id}` | `project` | All live relations touching an observation. |
+| `GET` | `/relations` | `project`, `src_id`, `dst_id` | Live relations between two observations. |
+| `POST` | `/projects/merge` | `{"source":"old","canonical":"new"}` body | Merge a project variant into canonical name + record alias (`mem_merge_projects`). |
+| `POST` | `/projects/migrate` | `{"old_project":"...","new_project":"..."}` body | Copy rows between two project stores (no alias record). |
 
 ### Code
 
