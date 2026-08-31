@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -414,6 +415,174 @@ func (s *Service) RecentContext(ctx context.Context, projectID string, limit int
 	}
 	defer cleanup()
 	return h.memory.RecentContext(ctx, limit)
+}
+
+// UpdateObservation modifies an existing observation by ID. Only non-empty
+// fields in in are applied. Bumps updated_at; FTS trigger keeps the index
+// in sync.
+func (s *Service) UpdateObservation(ctx context.Context, projectID string, id int64, in memory.UpdateInput) error {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return h.memory.Update(ctx, id, in)
+}
+
+// DeleteObservation removes an observation. Soft-delete by default; hard
+// when hardDelete is true.
+func (s *Service) DeleteObservation(ctx context.Context, projectID string, id int64, hardDelete bool) error {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return h.memory.Delete(ctx, id, hardDelete)
+}
+
+// Timeline returns the progressive-disclosure window around an observation.
+func (s *Service) ObservationTimeline(ctx context.Context, projectID string, anchorID int64, window time.Duration, limit int) (memory.Timeline, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return memory.Timeline{}, err
+	}
+	defer cleanup()
+	return h.memory.Timeline(ctx, anchorID, window, limit)
+}
+
+// ListReviews returns observations due for review, oldest review_after first.
+func (s *Service) ListReviews(ctx context.Context, projectID string, limit int) ([]memory.ReviewDue, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return h.memory.ListReviews(ctx, limit)
+}
+
+// MarkReviewed advances an observation's review cycle.
+func (s *Service) MarkReviewReviewed(ctx context.Context, projectID string, id int64) (string, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	return h.memory.MarkReviewed(ctx, id)
+}
+
+// SetReviewAfter sets the review_after for an observation.
+func (s *Service) SetObservationReviewAfter(ctx context.Context, projectID string, id int64, reviewAfter string) error {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return h.memory.SetReviewAfter(ctx, id, reviewAfter)
+}
+
+// ProjectInfo describes the resolved project for cwd: id, source, all known projects.
+type ProjectInfo struct {
+	Project   string   `json:"project"`
+	Source    string   `json:"source"`
+	Directory string   `json:"directory"`
+	Projects  []string `json:"projects"`
+}
+
+// CurrentProject returns the resolved project for cwd along with all
+// available projects.
+func (s *Service) CurrentProject(directory string) (ProjectInfo, error) {
+	absDir, err := filepath.Abs(directory)
+	if err != nil {
+		return ProjectInfo{}, err
+	}
+	id, src, err := project.ResolveDetailed(absDir)
+	if err != nil {
+		return ProjectInfo{}, err
+	}
+	projects, err := s.ListProjects()
+	if err != nil {
+		return ProjectInfo{}, err
+	}
+	return ProjectInfo{Project: id, Source: string(src), Directory: absDir, Projects: projects}, nil
+}
+
+// MemoryDoctor describes mnemonic store health for a project.
+type MemoryDoctor struct {
+	SchemaVersion   int            `json:"schema_version"`
+	WALMode         string         `json:"wal_mode,omitempty"`
+	Observations    int            `json:"observations"`
+	ObservationsFTS int            `json:"observations_fts"`
+	Files           int            `json:"files"`
+	Chunks          int            `json:"chunks"`
+	ChunksFTS       int            `json:"chunks_fts"`
+	WebCache        int            `json:"web_cache"`
+	WebCacheFTS     int            `json:"web_cache_fts"`
+	Prompts         int            `json:"prompts"`
+	ByType          map[string]int `json:"by_type"`
+	DiskSizeBytes   int64          `json:"disk_size_bytes"`
+	FTSIntegrityOK  bool           `json:"fts_integrity_ok"`
+	FTSDrift        int            `json:"fts_drift"`
+}
+
+// MemoryDoctor runs read-only diagnostics: schema count, FTS row counts
+// and drift, WAL state, and on-disk size.
+func (s *Service) MemoryDoctor(ctx context.Context, projectID string) (MemoryDoctor, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return MemoryDoctor{}, err
+	}
+	defer cleanup()
+
+	out := MemoryDoctor{}
+	if err := h.store.DB.QueryRowContext(ctx, `SELECT schema_version FROM index_meta WHERE key='schema_version'`).Scan(&out.SchemaVersion); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return out, fmt.Errorf("schema_version: %w", err)
+		}
+	}
+	if err := h.store.DB.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&out.WALMode); err != nil {
+		return out, fmt.Errorf("journal_mode: %w", err)
+	}
+	byType := map[string]int{}
+	h.rowCount(ctx, "observations", &out.Observations)
+	h.rowCount(ctx, "files", &out.Files)
+	h.rowCount(ctx, "chunks", &out.Chunks)
+	h.rowCount(ctx, "web_cache", &out.WebCache)
+	h.rowCount(ctx, "prompts", &out.Prompts)
+
+	ftsObs, ftsChunks, ftsWeb := int64(0), int64(0), int64(0)
+	_ = h.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM observations_fts`).Scan(&ftsObs)
+	_ = h.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM chunks_fts`).Scan(&ftsChunks)
+	_ = h.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM web_cache_fts`).Scan(&ftsWeb)
+	out.ObservationsFTS = int(ftsObs)
+	out.ChunksFTS = int(ftsChunks)
+	out.WebCacheFTS = int(ftsWeb)
+
+	rows, err := h.store.DB.QueryContext(ctx, `
+		SELECT type, COUNT(*) FROM observations
+		WHERE project = ? AND deleted_at IS NULL GROUP BY type`, projectID)
+	if err == nil {
+		for rows.Next() {
+			var t string
+			var c int
+			if rows.Scan(&t, &c) == nil {
+				byType[t] = c
+			}
+		}
+		rows.Close()
+	}
+	out.ByType = byType
+
+	if info, err := os.Stat(h.store.Path()); err == nil {
+		out.DiskSizeBytes = info.Size()
+	}
+	out.FTSDrift = int(ftsObs) - out.Observations
+	out.FTSIntegrityOK = out.FTSDrift >= 0
+	return out, nil
+}
+
+// rowCount helper (keeps MemoryDoctor readable).
+func (h *projectHandle) rowCount(ctx context.Context, table string, out *int) {
+	_ = h.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(out)
 }
 
 // CodeStatus returns index stats and whether the index is stale.

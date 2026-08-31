@@ -49,12 +49,12 @@ dashes) and validated against path traversal (`..` is rejected).
 
 ### SQLite schema
 
-Embedded migrations (`store/migrations/001_initial.sql`) create:
+Embedded migrations (`store/migrations/*.sql`) create:
 
 | Table | Purpose |
 |---|---|
 | `sessions` | Workspace sessions (UUID, project, directory, status) |
-| `observations` | Memory entries (FTS5 `observations_fts` with Porter stemming) |
+| `observations` | Memory entries (FTS5 `observations_fts` with Porter stemming). Includes `review_after` for the `mem_review` lifecycle (migration `005_review_cycle.sql`). |
 | `files` / `chunks` | Indexed source files (FTS5 `chunks_fts` with trigram tokenizer) |
 | `web_cache` | Cached web research snapshots (FTS5 `web_cache_fts` with Porter) |
 | `index_meta` | Schema version tracking |
@@ -79,26 +79,67 @@ Web cache TTLs (defaults): `context7` 30d, `exa` 7d, `deepwiki` 14d, `fetch` 7d,
 
 ## MCP tools
 
-### 17 MCP tools (8 memory + 4 code + 5 web cache)
+### 27 MCP tools (18 memory + 4 code + 5 web cache)
 
-The `skillgrid mcp` stdio server advertises 17 tools across three domains —
+The `skillgrid mcp` stdio server advertises 27 tools across three domains —
 session memory, indexed-code search, and a web-research cache. All output is
 raw JSON (no leading prose) per the OCBI convention.
 
+#### Memory tools
+
+The memory surface mirrors Engram's MCP tool list. The tools are grouped by
+workflow intent: **save / recall / evolve / manage / diagnose**.
+
+**Save & recall**
+
 Tool | What It Does
 --- | ---
-`mem_save` | Save an observation to persistent memory. Deduplicates by content hash within 24h or upserts by `topic_key`. |
-`mem_search` | FTS5 full-text search over saved observations (match_mode: `any`/`all`, default 20 results). |
+`mem_save` | Save an observation to persistent memory. Deduplicates by content hash within 24h or upserts by `topic_key`. Best-effort captures the current prompt context when the plugin has fed it (via `mem_save_prompt`) unless `capture_prompt=false`. |
+`mem_save_prompt` | Record a raw user prompt so future sessions can recall what was asked. Prompts are trimmed (min ~11 chars) and bounded to 2 KB. |
+`mem_search` | FTS5 full-text search over saved observations (match_mode: `any`/`all`, default 20 results). Progressive-disclosure layer 1 — compact hits with IDs. |
 `mem_context` | Recent session summaries (default 5) — run this first for fast recall before a full search. |
-`mem_get_observation` | Fetch full untruncated observation content by ID. |
-`mem_session_start` | Create a workspace session for the current directory; returns `session_id`. Optional `title` names the session — shown in the web dashboard session list. |
+`mem_get_observation` | Fetch full untruncated observation content by ID. Progressive-disclosure layer 3. |
+`mem_timeline` | Chronological context around an observation — `before`/`after` windows (`window`, e.g. `30m`, `2h`). Progressive-disclosure layer 2, between `mem_search` and `mem_get_observation`. |
+
+**Evolve existing memories**
+
+Tool | What It Does
+--- | ---
+`mem_suggest_topic_key` | Suggest a stable `topic_key` for upserting an evolving topic. Call this *before* `mem_save` when unsure of the key. |
+`mem_update` | Update an observation in place — any of `title`, `content`, `type`, `scope`, `topic_key`. Only non-empty fields apply. Bumps `updated_at`; the FTS index and the 24h dedup hash re-sync. |
+`mem_capture_passive` | Extract structured learnings from a pasted text block (e.g. a finished task transcript). Server recognises `Key Learnings:` sections and labelled Lesson/Discovery lines; idempotent — re-capturing the same text does not duplicate rows. |
+
+**Session lifecycle** (driven by the agent plugin; also callable directly)
+
+Tool | What It Does
+--- | ---
+`mem_session_start` | Create a workspace session for a directory; returns `session_id`. Optional `title` names the session — shown in the web dashboard session list. |
 `mem_session_end` | End a session, optionally with a summary. |
 `mem_session_summary` | Persist a structured end-of-session summary (Goal / Discoveries / Accomplished / Next Steps / Relevant Files). |
-`mem_suggest_topic_key` | Suggest a stable `topic_key` for upserting an evolving topic. |
+`mem_session_set_title` | Rename a session after the fact (e.g. before closing, once the topic is known). |
+
+**Manage lifecycle**
+
+Tool | What It Does
+--- | ---
+`mem_delete` | Delete an observation. Soft-delete by default (`deleted_at` set — excluded from search/context/timeline, still fetchable by ID); pass `hard=true` to remove the row permanently. |
+`mem_review` | `action="list"` (default) — returns observations whose `review_after` has passed. `action="mark_reviewed"` + `id` — advances the observation's review cycle by ~30 days. This is the local-only lifecycle hygiene loop. |
+
+**Diagnose & orient** (never errors; recommended first calls)
+
+Tool | What It Does
+--- | ---
+`mem_current_project` | Detect the project from cwd and return the resolved ID, its **source** (`config` / `git-remote` / `directory-hash`), and the full list of known projects. Call this first to confirm you're writing to the right project. |
+`mem_stats` | Per-project statistics: observation count by type, active/total sessions, created-range. |
+`mem_doctor` | Read-only store health: schema version, WAL mode, FTS row counts and drift vs. the base tables, per-type counts, on-disk size. |
 
 > **Memory types:** `standing`, `preference`, `convention`, `decision`, `architecture`, `bugfix`, `pattern`, `config`, `correction`, `discovery`, `learning`, `lesson`, `session_log`.
+>
+> **Progressive disclosure (3-layer pattern):** `mem_search` (compact hits) → `mem_timeline` (chronological neighbours) → `mem_get_observation` (full content). Don't dump the whole store — drill in.
+>
+> **Not yet in Mnemonic** (Engram parity pending the `mnemonic-graph` change): `mem_merge_projects` (admin/project-name consolidation) and `mem_judge` / `mem_compare` (graph-edge relationship verdicts). These require the `graph_nodes`/`graph_edges` tables and belong to the graph-layer change.
 
-### Code tools
+#### Code tools
 
 Tool | What It Does
 --- | ---

@@ -3,9 +3,12 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -23,11 +26,19 @@ func registerMemoryTools(s *server.MCPServer) {
 		{memSearchTool(), handleMemSearch},
 		{memContextTool(), handleMemContext},
 		{memGetObservationTool(), handleMemGetObservation},
+		{memTimelineTool(), handleMemTimeline},
+		{memUpdateTool(), handleMemUpdate},
+		{memDeleteTool(), handleMemDelete},
+		{memStatsTool(), handleMemStats},
+		{memSavePromptTool(), handleMemSavePrompt},
+		{memCurrentProjectTool(), handleMemCurrentProject},
+		{memDoctorTool(), handleMemDoctor},
+		{memReviewTool(), handleMemReview},
 		{memSessionStartTool(), handleMemSessionStart},
 		{memSessionEndTool(), handleMemSessionEnd},
 		{memSessionSummaryTool(), handleMemSessionSummary},
-		{memCapturePassiveTool(), handleMemCapturePassive},
 		{memSessionSetTitleTool(), handleMemSessionSetTitle},
+		{memCapturePassiveTool(), handleMemCapturePassive},
 		{memSuggestTopicKeyTool(), handleMemSuggestTopicKey},
 	}
 	for _, entry := range tools {
@@ -337,6 +348,261 @@ func handleMemSuggestTopicKey(_ context.Context, req mcplib.CallToolRequest) (*m
 	}
 	key := suggestTopicKey(typ, req.GetString("title", ""), req.GetString("content", ""))
 	return JSONResult(map[string]string{"topic_key": key})
+}
+
+// ────────────────────────────── Mem: timeline ─────────────────────────────
+
+func memTimelineTool() mcplib.Tool {
+	return mcplib.NewTool("mem_timeline",
+		mcplib.WithDescription("Chronological context around a specific observation — 'what happened before and after' — the progressive-disclosure middle layer between mem_search (compact) and mem_get_observation (full content)."),
+		mcplib.WithNumber("id", mcplib.Required(), mcplib.Description("Anchor observation ID from mem_search or mem_get_observation")),
+		mcplib.WithString("window", mcplib.Description("Time window on each side (e.g. '30m', '2h'); default 1h")),
+		mcplib.WithNumber("limit", mcplib.Description("Max entries per direction; default 5")),
+	)
+}
+
+var durationRe = regexp.MustCompile(`^(\d+)\s*(s|m|h|d)$`)
+
+func parseTimelineWindow(s string) time.Duration {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return 1 * time.Hour
+	}
+	if m := durationRe.FindStringSubmatch(trimmed); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		switch m[2] {
+		case "s":
+			return time.Duration(n) * time.Second
+		case "m":
+			return time.Duration(n) * time.Minute
+		case "h":
+			return time.Duration(n) * time.Hour
+		case "d":
+			return time.Duration(n) * 24 * time.Hour
+		}
+	}
+	return 1 * time.Hour
+}
+
+func handleMemTimeline(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	id, err := req.RequireFloat("id")
+	if err != nil {
+		return toolError(err)
+	}
+	window := parseTimelineWindow(req.GetString("window", ""))
+	limit := int(req.GetFloat("limit", 5))
+
+	tl, err := svc.ObservationTimeline(ctx, projectID, int64(id), window, limit)
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{
+		"anchor_id": int64(id),
+		"before":    tl.Before,
+		"after":     tl.After,
+	})
+}
+
+// ────────────────────────────── Mem: update / delete ───────────────────────
+
+func memUpdateTool() mcplib.Tool {
+	return mcplib.NewTool("mem_update",
+		mcplib.WithDescription("Update an existing observation in place. Only non-empty fields are applied; omitted fields are unchanged. Bumps updated_at; FTS stays in sync."),
+		mcplib.WithNumber("id", mcplib.Required(), mcplib.Description("Observation ID")),
+		mcplib.WithString("title", mcplib.Description("New title (leave blank to keep)")),
+		mcplib.WithString("content", mcplib.Description("New content (leave blank to keep)")),
+		mcplib.WithString("type", mcplib.Description("New type (leave blank to keep)")),
+		mcplib.WithString("scope", mcplib.Description("New scope (leave blank to keep)")),
+		mcplib.WithString("topic_key", mcplib.Description("New topic_key (leave blank to keep)")),
+	)
+}
+
+func handleMemUpdate(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	id, err := req.RequireFloat("id")
+	if err != nil {
+		return toolError(err)
+	}
+	in := memory.UpdateInput{
+		Title:    req.GetString("title", ""),
+		Content:  req.GetString("content", ""),
+		Type:     req.GetString("type", ""),
+		Scope:    req.GetString("scope", ""),
+		TopicKey: req.GetString("topic_key", ""),
+	}
+	if err := svc.UpdateObservation(ctx, projectID, int64(id), in); err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{"id": int64(id), "updated": true})
+}
+
+func memDeleteTool() mcplib.Tool {
+	return mcplib.NewTool("mem_delete",
+		mcplib.WithDescription("Delete an observation. Soft-delete by default (deleted_at set — excluded from search/context/timeline, still recoverable); pass hard=true to remove the row permanently."),
+		mcplib.WithNumber("id", mcplib.Required(), mcplib.Description("Observation ID")),
+		mcplib.WithBoolean("hard", mcplib.Description("Hard-delete (default false)")),
+	)
+}
+
+func handleMemDelete(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	id, err := req.RequireFloat("id")
+	if err != nil {
+		return toolError(err)
+	}
+	hard := req.GetBool("hard", false)
+	if err := svc.DeleteObservation(ctx, projectID, int64(id), hard); err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{"id": int64(id), "deleted": true, "hard": hard})
+}
+
+// ────────────────────────────── Mem: stats / doctor / project ──────────────
+
+func memStatsTool() mcplib.Tool {
+	return mcplib.NewTool("mem_stats",
+		mcplib.WithDescription("Memory system statistics for the current project: observation count by type, active/total sessions, created-range."),
+	)
+}
+
+func handleMemStats(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	st, err := svc.MemoryStatus(ctx, projectID)
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(st)
+}
+
+func memSavePromptTool() mcplib.Tool {
+	return mcplib.NewTool("mem_save_prompt",
+		mcplib.WithDescription("Record a user prompt so future sessions can recall what was asked. Prompts are trimmed (min 11 chars) and bounded (max 2000 chars), and deduplicated within the same session."),
+		mcplib.WithString("content", mcplib.Required(), mcplib.Description("The user prompt to store")),
+		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Session ID to attribute the prompt to")),
+	)
+}
+
+func handleMemSavePrompt(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	content, err := req.RequireString("content")
+	if err != nil {
+		return toolError(err)
+	}
+	sessionID, err := req.RequireString("session_id")
+	if err != nil {
+		return toolError(err)
+	}
+	id, err := svc.SavePrompt(ctx, projectID, service.PromptInput{
+		SessionID: sessionID,
+		Content:   content,
+	})
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{"id": id, "saved": true})
+}
+
+func memCurrentProjectTool() mcplib.Tool {
+	return mcplib.NewTool("mem_current_project",
+		mcplib.WithDescription("Detect project from cwd — never errors, recommended first call. Returns the resolved project ID, the resolution source (config/git/fallback), and the list of all available projects."),
+	)
+}
+
+func handleMemCurrentProject(_ context.Context, _ mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, err := rootService()
+	if err != nil {
+		return toolError(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return toolError(err)
+	}
+	info, err := svc.CurrentProject(cwd)
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(info)
+}
+
+func memDoctorTool() mcplib.Tool {
+	return mcplib.NewTool("mem_doctor",
+		mcplib.WithDescription("Run read-only operational diagnostics: schema version, WAL state, FTS row counts and drift against the base tables, by-type counts, and disk size."),
+	)
+}
+
+func handleMemDoctor(ctx context.Context, _ mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	out, err := svc.MemoryDoctor(ctx, projectID)
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(out)
+}
+
+// ────────────────────────────── Mem: review cycle ──────────────────────────
+
+func memReviewTool() mcplib.Tool {
+	return mcplib.NewTool("mem_review",
+		mcplib.WithDescription("List observations due for local review (review_after <= now), or mark an observation reviewed to reset its review cycle. `action=list` (default) returns due entries; `action=mark_reviewed` with id advances the cycle."),
+		mcplib.WithString("action", mcplib.Description("list (default) or mark_reviewed")),
+		mcplib.WithNumber("id", mcplib.Description("Observation ID (required for mark_reviewed)")),
+		mcplib.WithNumber("limit", mcplib.Description("Max due entries to return (default 20)")),
+	)
+}
+
+func handleMemReview(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	action := req.GetString("action", "list")
+	switch action {
+	case "list":
+		limit := int(req.GetFloat("limit", 20))
+		due, err := svc.ListReviews(ctx, projectID, limit)
+		if err != nil {
+			return toolError(err)
+		}
+		return JSONResult(map[string]any{"due": due, "count": len(due)})
+	case "mark_reviewed":
+		id, err := req.RequireFloat("id")
+		if err != nil {
+			return toolError(err)
+		}
+		reviewAfter, err := svc.MarkReviewReviewed(ctx, projectID, int64(id))
+		if err != nil {
+			return toolError(err)
+		}
+		return JSONResult(map[string]any{"id": int64(id), "marked_reviewed": true, "review_after": reviewAfter})
+	default:
+		return toolError(fmt.Errorf("unknown action %q (valid: list, mark_reviewed)", action))
+	}
 }
 
 func openService() (*service.Service, string, func(), error) {

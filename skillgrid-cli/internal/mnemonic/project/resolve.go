@@ -17,17 +17,34 @@ import (
 
 // Resolve determines the project ID for cwd.
 func Resolve(cwd string) (string, error) {
+	id, _, err := ResolveDetailed(cwd)
+	return id, err
+}
+
+// ResolveSource is the source of a project ID (e.g. "config", "git", "fallback").
+type ResolveSource string
+
+const (
+	SourceConfig   ResolveSource = "config"
+	SourceGit      ResolveSource = "git-remote"
+	SourceFallback ResolveSource = "directory-hash"
+)
+
+// ResolveDetailed returns the project ID for cwd and its *source* (config,
+// git remote, or directory-hash fallback). Agents can surface this to the
+// user when they suspect a project-name collision.
+func ResolveDetailed(cwd string) (id string, src ResolveSource, err error) {
 	abs, err := filepath.Abs(cwd)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if id, ok := configProject(abs); ok {
-		return normalizeProjectID(id), nil
+		return normalizeProjectID(id), SourceConfig, nil
 	}
 	if id, ok := gitRemoteProject(abs); ok {
-		return normalizeProjectID(id), nil
+		return normalizeProjectID(id), SourceGit, nil
 	}
-	return fallbackProjectID(abs), nil
+	return fallbackProjectID(abs), SourceFallback, nil
 }
 
 func configProject(cwd string) (string, bool) {
