@@ -98,6 +98,12 @@
       "skillPath": ".agents/skills/spec-as-source/SKILL.md",
       "computedHash": "ed399cfdbbf10985699e3361e5f9e6e152b2f0840c25a91f9b6f029209851b22"
     },
+    "unlazy": {
+      "source": "Leonxlnx/unlazy",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "8234d985290cdec0e26f66123939232c62ed3d5494c459449b7273782db18b4e"
+    },
     "write-tasks": {
       "source": "superpowers",
       "sourceType": "github",
