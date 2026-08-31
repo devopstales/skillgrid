@@ -39,6 +39,15 @@ type SaveInput struct {
 	TopicKey  string
 	SessionID string
 	Source    string
+	// CapturePrompt, when true, best-effort links the most recent user prompt
+	// recorded for SessionID (via the prompts table) to this observation. When
+	// false, no prompt is linked. This mirrors Engram's capture_prompt switch.
+	CapturePrompt bool
+	// ProjectName, when non-empty, names the logical project this observation
+	// belongs to. It is validated against project_aliases: if the name has been
+	// recorded as an alias of a canonical project, the caller is expected to
+	// write to the canonical name instead. See ProjectDrift.
+	ProjectName string
 }
 
 // PassiveInput is a raw block of text (assistant reply, Task output, etc.)
@@ -76,6 +85,7 @@ type Observation struct {
 	Source         string `json:"source,omitempty"`
 	NormalizedHash string `json:"normalized_hash,omitempty"`
 	RevisionCount  int    `json:"revision_count"`
+	PromptID       *int64 `json:"prompt_id,omitempty"`
 	CreatedAt      string `json:"created_at"`
 	UpdatedAt      string `json:"updated_at"`
 }
@@ -166,13 +176,17 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 		}
 	}
 
+	var promptID sql.NullInt64
+	if in.CapturePrompt {
+		promptID = s.latestPromptForSession(ctx, in.SessionID)
+	}
 	res, err := s.store.DB.ExecContext(ctx, `
 		INSERT INTO observations (
 			session_id, type, title, content, project, scope, topic_key,
-			normalized_hash, revision_count, created_at, updated_at, source
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+			normalized_hash, revision_count, created_at, updated_at, source, prompt_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
 		in.SessionID, in.Type, in.Title, in.Content, s.projectID, in.Scope, nullString(in.TopicKey),
-		hash, now, now, source,
+		hash, now, now, source, nullableInt(promptID),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert observation: %w", err)
@@ -184,8 +198,43 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	return id, nil
 }
 
+// latestPromptForSession returns the most recent prompt recorded for the
+// session, or a NULL value when none exists. Best-effort: any error yields NULL
+// so that prompt linking never blocks the save.
+func (s *Service) latestPromptForSession(ctx context.Context, sessionID string) sql.NullInt64 {
+	if s == nil || s.store == nil || s.store.DB == nil || strings.TrimSpace(sessionID) == "" {
+		return sql.NullInt64{}
+	}
+	var pid int64
+	err := s.store.DB.QueryRowContext(ctx, `
+		SELECT id FROM prompts
+		WHERE session_id = ? AND project = ?
+		ORDER BY id DESC LIMIT 1`,
+		sessionID, s.projectID,
+	).Scan(&pid)
+	if err != nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: pid, Valid: true}
+}
+
+// nullableInt converts a NullInt64 to a value suitable for an ExecContext arg.
+func nullableInt(v sql.NullInt64) any {
+	if !v.Valid {
+		return nil
+	}
+	return v.Int64
+}
+
 // Search runs FTS over observations with matchMode "all" (AND) or "any" (OR).
+// scope, when non-empty, additionally restricts results to that visibility
+// scope (project|user|global).
 func (s *Service) Search(ctx context.Context, query string, matchMode string, limit int) ([]Observation, error) {
+	return s.SearchWithScope(ctx, query, matchMode, "", limit)
+}
+
+// SearchWithScope is like Search but accepts a scope filter ("" = any scope).
+func (s *Service) SearchWithScope(ctx context.Context, query, matchMode, scope string, limit int) ([]Observation, error) {
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return nil, errors.New("memory service not initialized")
 	}
@@ -196,15 +245,24 @@ func (s *Service) Search(ctx context.Context, query string, matchMode string, li
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
+	scopeClause := ""
+	var args []any
+	args = append(args, ftsQuery, s.projectID)
+	scope = strings.TrimSpace(scope)
+	if scope != "" {
+		scopeClause = " AND o.scope = ?"
+		args = append(args, scope)
+	}
+	args = append(args, limit)
 	rows, err := s.store.DB.QueryContext(ctx, `
 		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
-		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.created_at, o.updated_at
+		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
-		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?
+		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
 		ORDER BY bm25(observations_fts)
 		LIMIT ?`,
-		ftsQuery, s.projectID, limit,
+		args...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("search observations: %w", err)
@@ -222,8 +280,7 @@ func (s *Service) Recent(ctx context.Context, limit int) ([]Observation, error) 
 		limit = defaultSearchLimit
 	}
 	rows, err := s.store.DB.QueryContext(ctx, `
-		SELECT id, session_id, type, title, content, project, scope,
-		       topic_key, source, normalized_hash, revision_count, created_at, updated_at
+		SELECT `+obsSelectCols+`
 		FROM observations
 		WHERE deleted_at IS NULL AND project = ?
 		ORDER BY created_at DESC, id DESC
@@ -243,17 +300,17 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 		return Observation{}, errors.New("memory service not initialized")
 	}
 	row := s.store.DB.QueryRowContext(ctx, `
-		SELECT id, session_id, type, title, content, project, scope,
-		       topic_key, source, normalized_hash, revision_count, created_at, updated_at
+		SELECT `+obsSelectCols+`
 		FROM observations
 		WHERE id = ? AND deleted_at IS NULL AND project = ?`,
 		id, s.projectID,
 	)
 	var obs Observation
 	var topicKey sql.NullString
+	var promptID sql.NullInt64
 	err := row.Scan(
 		&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
-		&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &obs.CreatedAt, &obs.UpdatedAt,
+		&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -263,6 +320,10 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	}
 	if topicKey.Valid {
 		obs.TopicKey = topicKey.String
+	}
+	if promptID.Valid {
+		v := promptID.Int64
+		obs.PromptID = &v
 	}
 	return obs, nil
 }
@@ -721,9 +782,9 @@ var errNoLearnings = errors.New("no learnings extracted")
 
 // CapturePassiveResult reports what the passive extractor found and saved.
 type CapturePassiveResult struct {
-	Saved     int   `json:"saved"`
-	Skipped   int   `json:"skipped"`
-	Exhausted bool  `json:"exhausted"`
+	Saved     int     `json:"saved"`
+	Skipped   int     `json:"skipped"`
+	Exhausted bool    `json:"exhausted"`
 	IDs       []int64 `json:"ids,omitempty"`
 }
 
@@ -1048,11 +1109,11 @@ func (s *Service) SessionStartedAt(ctx context.Context, sessionID string) (time.
 // session's title + summary if any, plus the most recent observations for the
 // project. The plugin injects this into the compaction prompt.
 type CompactionContext struct {
-	SessionID     string     `json:"session_id"`
-	Title         string     `json:"title,omitempty"`
-	Summary       string     `json:"summary,omitempty"`
-	Observations  []string   `json:"observations,omitempty"`
-	GeneratedAt   string     `json:"generated_at"`
+	SessionID    string   `json:"session_id"`
+	Title        string   `json:"title,omitempty"`
+	Summary      string   `json:"summary,omitempty"`
+	Observations []string `json:"observations,omitempty"`
+	GeneratedAt  string   `json:"generated_at"`
 }
 
 // CompactionContext builds a compact, session-scoped context block for the
@@ -1154,19 +1215,30 @@ func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: true}
 }
 
+// obsSelectCols is the shared column list every observation SELECT uses, so that
+// the SELECT and the Scan in scanObservations cannot drift apart.
+const obsSelectCols = `
+	id, session_id, type, title, content, project, scope,
+	topic_key, source, normalized_hash, revision_count, prompt_id, created_at, updated_at`
+
 func scanObservations(rows *sql.Rows) ([]Observation, error) {
 	var out []Observation
 	for rows.Next() {
 		var obs Observation
 		var topicKey sql.NullString
+		var promptID sql.NullInt64
 		if err := rows.Scan(
 			&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
-			&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &obs.CreatedAt, &obs.UpdatedAt,
+			&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan observation: %w", err)
 		}
 		if topicKey.Valid {
 			obs.TopicKey = topicKey.String
+		}
+		if promptID.Valid {
+			v := promptID.Int64
+			obs.PromptID = &v
 		}
 		out = append(out, obs)
 	}

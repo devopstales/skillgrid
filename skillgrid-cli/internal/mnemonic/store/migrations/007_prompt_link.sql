@@ -1,0 +1,13 @@
+-- 007: prompt provenance link on observations.
+--
+-- When mem_save is called with capture_prompt=true (the default), the server
+-- best-effort attaches the most recent user prompt recorded for the same
+-- session (via mem_save_prompt / the prompts table) to the observation. This
+-- closes the Engram "capture_prompt" gap: the observation row then carries a
+-- prompt_id so a reader can recall *what was asked* alongside *what we
+-- concluded*, without reconstructing it from the session transcript.
+--
+-- prompt_id is intentionally NULLable and denormalised (a plain FK column, no
+-- ON DELETE) so that deleting a prompt never cascades to observations and so
+-- that older observations (saved before this migration) are simply unaffected.
+ALTER TABLE observations ADD COLUMN prompt_id INTEGER;

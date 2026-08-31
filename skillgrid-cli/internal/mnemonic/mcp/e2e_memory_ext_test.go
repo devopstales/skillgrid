@@ -40,8 +40,8 @@ func (r rpcRes) isError() bool { return r.Err != nil }
 // stdio. It is deliberately simple — no SDK, no pipe-pair acrobatics — so
 // the test exercises the *same* wire path a real agent does.
 type mcpHandle struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
 	scanner *bufio.Scanner
 	dataDir string
 }
@@ -233,20 +233,20 @@ func TestE2EMemoryExtTools(t *testing.T) {
 	// strictly ordered (SQLite uses `>` on created_at, which is second-precision).
 	anchor := callTool(t, h, 10, "mem_save", map[string]any{
 		"title": "evt anchor decision", "type": "decision",
-		"content": "**What** anchor for timeline **Why** e2e **Where** n/a **Learned** —",
+		"content":    "**What** anchor for timeline **Why** e2e **Where** n/a **Learned** —",
 		"session_id": sid,
 	})
 	anchorID := extractID(t, anchor)
 	time.Sleep(1100 * time.Millisecond)
 	_ = callTool(t, h, 11, "mem_save", map[string]any{
 		"title": "evt later topic", "type": "pattern",
-		"content": "**What** second entry **Why** e2e **Where** n/a **Learned** —",
+		"content":    "**What** second entry **Why** e2e **Where** n/a **Learned** —",
 		"session_id": sid,
 	})
 	time.Sleep(1100 * time.Millisecond)
 	thirdRes := callTool(t, h, 11, "mem_save", map[string]any{
 		"title": "evt much later", "type": "learning",
-		"content": "**What** third entry **Why** e2e **Where** n/a **Learned** —",
+		"content":    "**What** third entry **Why** e2e **Where** n/a **Learned** —",
 		"session_id": sid,
 	})
 	thirdID := extractID(t, thirdRes)
@@ -391,7 +391,7 @@ func TestE2EMemoryExtTools(t *testing.T) {
 	}
 	// Merge a non-existent source into canonical: alias recorded, 0 rows moved.
 	mergeNew := parseToolJSON(t, callTool(t, h, 28, "mem_merge_projects", map[string]any{
-		"source": "evt-legacy-alias-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+		"source":    "evt-legacy-alias-" + fmt.Sprintf("%d", time.Now().UnixNano()),
 		"canonical": canon,
 	}))
 	if mergeNew["canonical"] != canon {
@@ -432,4 +432,112 @@ func parseToolJSON(t *testing.T, res *rpcRes) map[string]any {
 		t.Fatalf("tool JSON: %v\n%s", err, text)
 	}
 	return out
+}
+
+// TestE2EEngramParityGaps exercises the three previously-missing Engram
+// capabilities:
+//
+//	A1 capture_prompt on mem_save (links the session's user prompt)
+//	D  explicit `project` param on mem_save / mem_search
+//	D  project-name drift warning when writing to a retired alias
+func TestE2EEngramParityGaps(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := startMCP(t, cwd)
+	sid := initSession(t, h, cwd)
+
+	// --- A1: capture_prompt ---
+	// Record a user prompt for this session, then save with capture_prompt=true.
+	p := parseToolJSON(t, callTool(t, h, 30, "mem_save_prompt", map[string]any{
+		"content":    "why did we pick sqlite over postgres for the mnemonic store",
+		"session_id": sid,
+	}))
+	pid, _ := p["id"].(float64)
+	if pid <= 0 {
+		t.Fatalf("expected a prompt id, got %s", p)
+	}
+
+	savedWith := callTool(t, h, 31, "mem_save", map[string]any{
+		"title": "evt capture prompt on", "type": "decision",
+		"content":    "**What** chosen sqlite **Why** local-first **Where** store **Learned** —",
+		"session_id": sid, "capture_prompt": true,
+	})
+	idOn := extractID(t, savedWith)
+
+	// Retrieve and confirm prompt_id is linked to the recorded prompt.
+	got := parseToolJSON(t, callTool(t, h, 32, "mem_get_observation", map[string]any{"id": idOn}))
+	gotPid, _ := got["prompt_id"].(float64)
+	if gotPid != pid {
+		t.Fatalf("expected prompt_id %v to be linked on capture, got %v: %s", pid, got["prompt_id"], got)
+	}
+
+	// capture_prompt=false should NOT link a prompt.
+	savedOff := callTool(t, h, 33, "mem_save", map[string]any{
+		"title": "evt capture prompt off", "type": "decision",
+		"content":    "**What** chosen sqlite **Why** local-first **Where** store **Learned** — off",
+		"session_id": sid, "capture_prompt": false,
+	})
+	idOff := extractID(t, savedOff)
+	gotOff := parseToolJSON(t, callTool(t, h, 34, "mem_get_observation", map[string]any{"id": idOff}))
+	if _, has := gotOff["prompt_id"]; has {
+		t.Fatalf("expected no prompt_id when capture_prompt=false, got %v: %s", gotOff["prompt_id"], gotOff)
+	}
+
+	// --- D: explicit project param + project-name drift warning ---
+	projInfo := parseToolJSON(t, callTool(t, h, 37, "mem_current_project", nil))
+	canonical, _ := projInfo["project"].(string)
+	if canonical == "" {
+		t.Fatalf("expected a canonical project from mem_current_project, got %s", projInfo)
+	}
+	legacy := "evt-legacy-alias-" + fmt.Sprintf("%d", time.Now().UnixNano())
+
+	// Merge a synthetic legacy alias into the CWD project. This records the
+	// alias in the canonical store and makes the explicit-project param
+	// meaningful: writing to `legacy` now produces a drift warning on the
+	// saved row.
+	mergeOut := parseToolJSON(t, callTool(t, h, 38, "mem_merge_projects", map[string]any{
+		"source": legacy, "canonical": canonical,
+	}))
+	if mergeOut["alias_recorded"] != true {
+		t.Fatalf("expected alias_recorded=true on merge, got %s", mergeOut)
+	}
+
+	// Save under the retired alias. The observation still lands in the CWD
+	// store (because sessions FK to the CWD project), but the *name* used in
+	// the write must trigger the drift warning.
+	driftSave := parseToolJSON(t, callTool(t, h, 39, "mem_save", map[string]any{
+		"title": "evt drift save", "type": "decision",
+		"content":    "legacy name save **What** x **Why** x **Where** x **Learned** —",
+		"session_id": sid, "project": legacy,
+	}))
+	drift, _ := driftSave["project_drift"].(map[string]any)
+	if drift == nil {
+		t.Fatalf("expected a project_drift warning when saving under retired alias %q, got %s", legacy, driftSave)
+	}
+	if gotCanon, _ := drift["canonical_name"].(string); gotCanon != canonical {
+		t.Fatalf("expected drift canonical_name %q, got %q: %s", canonical, drift["canonical_name"], drift)
+	}
+
+	// Search under the retired alias should also surface the drift warning.
+	driftSearch := parseToolJSON(t, callTool(t, h, 40, "mem_search", map[string]any{
+		"query": "evt drift save", "project": legacy,
+	}))
+	if _, ok := driftSearch["project_drift"]; !ok {
+		t.Fatalf("expected project_drift in scoped search, got %s", driftSearch)
+	}
+
+	// Search scoped explicitly to the canonical project should find the
+	// observation (regardless of the name the caller used for the write) and
+	// should NOT carry a project_drift warning.
+	scopeSearch := parseToolJSON(t, callTool(t, h, 41, "mem_search", map[string]any{
+		"query": "evt drift save", "project": canonical,
+	}))
+	if gotCanon, _ := scopeSearch["project"].(string); gotCanon != canonical {
+		t.Fatalf("expected scoped search under %q, got %v", canonical, scopeSearch["project"])
+	}
+	if _, hasDrift := scopeSearch["project_drift"]; hasDrift {
+		t.Fatalf("expected no drift warning when searching canonical name, got %v", scopeSearch["project_drift"])
+	}
 }

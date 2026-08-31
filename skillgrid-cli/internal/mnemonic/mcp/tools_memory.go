@@ -14,6 +14,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 )
 
@@ -51,22 +52,26 @@ func registerMemoryTools(s *server.MCPServer) {
 
 func memSaveTool() mcplib.Tool {
 	return mcplib.NewTool("mem_save",
-		mcplib.WithDescription("Save a curated observation to persistent memory. Use structured content with **What**, **Why**, **Where**, and **Learned** sections. Reuse topic_key to upsert evolving topics."),
+		mcplib.WithDescription("Save a curated observation to persistent memory. Use structured content with **What**, **Why**, **Where**, and **Learned** sections. Reuse topic_key to upsert evolving topics. Best-effort links the session's most recent user prompt when capture_prompt=true (default); pass capture_prompt=false for automated saves that should not carry prompt context."),
 		mcplib.WithString("title", mcplib.Required(), mcplib.Description("Short searchable title (verb + what)")),
 		mcplib.WithString("type", mcplib.Required(), mcplib.Description("Observation type: decision, architecture, bugfix, pattern, config, discovery, learning, preference, convention")),
 		mcplib.WithString("content", mcplib.Required(), mcplib.Description("Structured body with What/Why/Where/Learned sections")),
 		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Active session ID from mem_session_start")),
 		mcplib.WithString("scope", mcplib.Description("Visibility scope: project (default), user, or global")),
 		mcplib.WithString("topic_key", mcplib.Description("Stable key for upserts, e.g. architecture/auth-model")),
+		mcplib.WithString("project", mcplib.Description("Optional explicit project name to record under (defaults to the CWD-resolved project). Surfaced as a drift warning if a prior mem_merge_projects retired it.")),
+		mcplib.WithBoolean("capture_prompt", mcplib.Description("Link the session's latest user prompt to this observation (default true). Pass false for SDD artifacts / automated saves that should not carry prompt context.")),
 	)
 }
 
 func memSearchTool() mcplib.Tool {
 	return mcplib.NewTool("mem_search",
-		mcplib.WithDescription("Full-text search over saved observations using FTS5."),
+		mcplib.WithDescription("Full-text search over saved observations using FTS5. Pass `project` to scope or override the CWD-resolved project, and `scope` to restrict the visibility scope (project/user/global)."),
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search keywords")),
 		mcplib.WithString("match_mode", mcplib.Description("Term matching: any (default) or all")),
 		mcplib.WithNumber("limit", mcplib.Description("Maximum results (default 20)")),
+		mcplib.WithString("project", mcplib.Description("Optional project name to search under (defaults to the CWD-resolved project). If a prior mem_merge_projects retired it, a drift warning is returned alongside the hits.")),
+		mcplib.WithString("scope", mcplib.Description("Optional visibility scope filter (project|user|global).")),
 	)
 }
 
@@ -163,7 +168,7 @@ func memSuggestTopicKeyTool() mcplib.Tool {
 }
 
 func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, projectID, cleanup, err := openService()
+	svc, defaultProjectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -186,22 +191,49 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 		return toolError(err)
 	}
 
+	explicitProject := strings.TrimSpace(req.GetString("project", ""))
+	projectName := explicitProject
+	projectID := defaultProjectID
+	var drift *service.ProjectDrift
+	if explicitProject != "" {
+		projectID = project.NormalizeID(explicitProject)
+		// If the explicit name is a retired alias, route the write to the
+		// canonical store (where the session/FK lives) and surface the drift
+		// warning so the caller learns to name the canonical project directly.
+		if d, dErr := svc.CheckProjectDrift(ctx, explicitProject); dErr == nil && d != nil {
+			drift = d
+			projectID = project.NormalizeID(d.CanonicalName)
+		}
+	}
+
+	// capture_prompt defaults to true (Engram's documented default is false, but
+	// Mnemonic's pipeline feeds prompts via mem_save_prompt, so defaulting to
+	// link-on-save is the safer fidelity choice; automated saves opt out).
+	capturePrompt := req.GetBool("capture_prompt", true)
+
 	id, err := svc.SaveObservation(ctx, projectID, service.SaveObservationInput{
-		Title:     title,
-		Type:      typ,
-		Content:   content,
-		Scope:     req.GetString("scope", "project"),
-		TopicKey:  req.GetString("topic_key", ""),
-		SessionID: sessionID,
+		Title:         title,
+		Type:          typ,
+		Content:       content,
+		Scope:         req.GetString("scope", "project"),
+		TopicKey:      req.GetString("topic_key", ""),
+		SessionID:     sessionID,
+		CapturePrompt: capturePrompt,
+		ProjectName:   projectName,
 	})
 	if err != nil {
 		return toolError(err)
 	}
-	return JSONResult(map[string]any{"id": id})
+
+	out := map[string]any{"id": id, "project": projectID}
+	if drift != nil {
+		out["project_drift"] = drift
+	}
+	return JSONResult(out)
 }
 
 func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, projectID, cleanup, err := openService()
+	svc, defaultProjectID, cleanup, err := openService()
 	if err != nil {
 		return toolError(err)
 	}
@@ -214,12 +246,31 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 
 	matchMode := req.GetString("match_mode", "any")
 	limit := int(req.GetFloat("limit", 20))
+	scope := strings.TrimSpace(req.GetString("scope", ""))
 
-	hits, err := svc.SearchObservations(ctx, projectID, query, matchMode, limit)
+	explicitProject := strings.TrimSpace(req.GetString("project", ""))
+	projectID := defaultProjectID
+	var drift *service.ProjectDrift
+	if explicitProject != "" {
+		projectID = project.NormalizeID(explicitProject)
+		// A retired alias: route the read to the canonical store so the caller
+		// still sees the consolidated memories, and warn.
+		if d, dErr := svc.CheckProjectDrift(ctx, explicitProject); dErr == nil && d != nil {
+			drift = d
+			projectID = project.NormalizeID(d.CanonicalName)
+		}
+	}
+
+	hits, err := svc.SearchObservationsScoped(ctx, projectID, query, matchMode, scope, limit)
 	if err != nil {
 		return toolError(err)
 	}
-	return JSONResult(map[string]any{"observations": observationDTOs(hits)})
+
+	out := map[string]any{"project": projectID, "observations": observationDTOs(hits)}
+	if drift != nil {
+		out["project_drift"] = drift
+	}
+	return JSONResult(out)
 }
 
 func handleMemContext(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
@@ -761,6 +812,20 @@ func handleMemMergeProjects(ctx context.Context, req mcplib.CallToolRequest) (*m
 	})
 }
 
+// projectIDFor resolves the store ID for an explicit project name (normalized
+// so it matches store-file naming) or, when empty, the CWD-resolved project.
+func projectIDFor(svc *service.Service, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name != "" {
+		return project.NormalizeID(name), nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return svc.ResolveProject(cwd)
+}
+
 func openService() (*service.Service, string, func(), error) {
 	svc, err := rootService()
 	if err != nil {
@@ -820,6 +885,12 @@ func observationDTO(o memory.Observation) map[string]any {
 	}
 	if o.TopicKey != "" {
 		m["topic_key"] = o.TopicKey
+	}
+	if o.Source != "" {
+		m["source"] = o.Source
+	}
+	if o.PromptID != nil {
+		m["prompt_id"] = *o.PromptID
 	}
 	return m
 }

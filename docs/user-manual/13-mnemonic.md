@@ -54,11 +54,12 @@ Embedded migrations (`store/migrations/*.sql`) create:
 | Table | Purpose |
 |---|---|
 | `sessions` | Workspace sessions (UUID, project, directory, status) |
-| `observations` | Memory entries (FTS5 `observations_fts` with Porter stemming). Includes `review_after` for the `mem_review` lifecycle (`005_review_cycle.sql`). |
+| `observations` | Memory entries (FTS5 `observations_fts` with Porter stemming). Includes `review_after` for the `mem_review` lifecycle (`005_review_cycle.sql`), `prompt_id` for `capture_prompt` provenance (`007_prompt_link.sql`), and `source` for passive/agent provenance. |
 | `files` / `chunks` | Indexed source files (FTS5 `chunks_fts` with trigram tokenizer) |
 | `web_cache` | Cached web research snapshots (FTS5 `web_cache_fts` with Porter) |
 | `memory_relations` | Directional, typed semantic links between observations — the `mem_judge` / `mem_compare` verdict store (`006_relations_aliases.sql`). Soft-deleted. |
-| `project_aliases` | Retired project name → canonical name mapping for `mem_merge_projects` (`006_relations_aliases.sql`). |
+| `project_aliases` | Retired project name → canonical name mapping for `mem_merge_projects` + drift warnings (`006_relations_aliases.sql`). |
+| `prompts` | Recorded user prompts (via `mem_save_prompt`, `004_prompts_passive.sql`); linked to observations by `prompt_id` on `capture_prompt`. |
 | `index_meta` | Schema version tracking |
 
 ## Indexing configuration
@@ -96,9 +97,9 @@ workflow intent: **save / recall / evolve / manage / relate / diagnose**.
 
 Tool | What It Does
 --- | ---
-`mem_save` | Save an observation to persistent memory. Deduplicates by content hash within 24h or upserts by `topic_key`. Best-effort captures the current prompt context when the plugin has fed it (via `mem_save_prompt`) unless `capture_prompt=false`. |
-`mem_save_prompt` | Record a raw user prompt so future sessions can recall what was asked. Prompts are trimmed (min ~11 chars) and bounded to 2 KB. |
-`mem_search` | FTS5 full-text search over saved observations (match_mode: `any`/`all`, default 20 results). Progressive-disclosure layer 1 — compact hits with IDs. |
+`mem_save` | Save an observation to persistent memory. Deduplicates by content hash within 24h or upserts by `topic_key`. **`capture_prompt`** (bool, default `true`) best-effort links the session's most recent user prompt (recorded via `mem_save_prompt`) to the observation via `prompt_id` so a reader can recall *what was asked*; pass `capture_prompt=false` for automated saves that should not carry prompt context. **`project`** (optional) records under an explicit named project; if that name has been retired by `mem_merge_projects` the write routes to the canonical store and a `project_drift` warning is returned. |
+`mem_save_prompt` | Record a raw user prompt so future sessions can recall what was asked. Prompts are trimmed (min ~11 chars) and bounded to 2 KB. Feeds `capture_prompt` on the next `mem_save` in the same session. |
+`mem_search` | FTS5 full-text search over saved observations (match_mode: `any`/`all`, default 20 results; optional `scope` filter: `project`/`user`/`global`). Progressive-disclosure layer 1 — compact hits with IDs. **`project`** (optional) scopes/overrides the search; a retired alias routes to the canonical store with a `project_drift` warning. |
 `mem_context` | Recent session summaries (default 5) — run this first for fast recall before a full search. |
 `mem_get_observation` | Fetch full untruncated observation content by ID. Progressive-disclosure layer 3. |
 `mem_timeline` | Chronological context around an observation — `before`/`after` windows (`window`, e.g. `30m`, `2h`). Progressive-disclosure layer 2, between `mem_search` and `mem_get_observation`. |
@@ -126,7 +127,7 @@ Tool | What It Does
 --- | ---
 `mem_delete` | Delete an observation. Soft-delete by default (`deleted_at` set — excluded from search/context/timeline, still fetchable by ID); pass `hard=true` to remove the row permanently. |
 `mem_review` | `action="list"` (default) — returns observations whose `review_after` has passed. `action="mark_reviewed"` + `id` — advances the observation's review cycle by ~30 days. This is the local-only lifecycle hygiene loop. |
-`mem_merge_projects` | Admin tool. Merge a source project name into the canonical name: copies rows tagged `source` into the canonical store (idempotent), re-tags them, and records an alias so future writes to the source name land in the canonical store. |
+`mem_merge_projects` | Admin tool. Merge a source project name into the canonical name: copies rows tagged `source` into the canonical store (idempotent), re-tags them, and records an alias so future `mem_save`/`mem_search` calls naming `source` route to the canonical store and return a `project_drift` warning. |
 
 **Relate memories** (semantic links between observations in the same project)
 
@@ -136,6 +137,10 @@ Tool | What It Does
 `mem_compare` | Record, clear, or inspect semantic relations between two observations. With `src_id` + `dst_id` + `relation` it records/clears a link; **omit `relation` to list** the current links between the pair. |
 
 > **Relation storage**: verdicts are directional typed links (`src → dst`) in the `memory_relations` table, scoped to the project store and soft-deleted. Re-judging the same `(src, dst, relation)` upserts in place.
+>
+> **Prompt provenance (`capture_prompt`)**: with `capture_prompt=true` (default) a `mem_save` links the session's latest recorded prompt to the observation (`observations.prompt_id`). `mem_get_observation`/`mem_search`/`mem_timeline` echo `prompt_id` on any linked row. `capture_prompt=false` suppresses the link — use it for SDD phase artifacts and other automated saves that only need the *conclusion*, not the *framing question*.
+>
+> **Project scoping & drift**: `mem_save` and `mem_search` accept an explicit `project` name. Mnemonic already stores per named project (one SQLite file per project), so multi-checkout / monorepo scoping works. After a `mem_merge_projects` (source → canonical), any tool call that names the retired `source` **routes to the canonical store** and returns a `project_drift` object — `{project_name, canonical_name, merged_at}` — so an agent can see it wrote to a merged name and switch to the canonical one. The write is never rejected; the drift is advisory.
 
 **Diagnose & orient** (never errors; recommended first calls)
 
@@ -149,7 +154,7 @@ Tool | What It Does
 >
 > **Progressive disclosure (3-layer pattern):** `mem_search` (compact hits) → `mem_timeline` (chronological neighbours) → `mem_get_observation` (full content). Don't dump the whole store — drill in.
 >
-> **Full Engram mirror complete**: all Memory tools in the Engram `ARCHITECTURE.md` MCP tool list are now implemented — save/recall (`mem_save`, `mem_save_prompt`, `mem_search`, `mem_context`, `mem_get_observation`, `mem_timeline`), evolve (`mem_update`, `mem_suggest_topic_key`, `mem_capture_passive`), lifecycle (`mem_delete`, `mem_review`, `mem_merge_projects`), relate (`mem_judge`, `mem_compare`), and diagnose (`mem_current_project`, `mem_stats`, `mem_doctor`). Graph-relationship verdicts that Engram stores as graph edges are held in Mnemonic's `memory_relations` table (soft-deleted, project-scoped).
+> **Full Engram mirror complete**: every Memory tool and behavior in the Engram `ARCHITECTURE.md` MCP tool list is implemented — save/recall (`mem_save`, `mem_save_prompt`, `mem_search`, `mem_context`, `mem_get_observation`, `mem_timeline`), evolve (`mem_update`, `mem_suggest_topic_key`, `mem_capture_passive`), lifecycle (`mem_delete`, `mem_review`, `mem_merge_projects`), relate (`mem_judge`, `mem_compare`), and diagnose (`mem_current_project`, `mem_stats`, `mem_doctor`). Engram's `capture_prompt` switch, explicit `project` scoping, and project-name drift warning are all supported; graph-relationship verdicts that Engram stores as graph edges are held in Mnemonic's `memory_relations` table (soft-deleted, project-scoped).
 
 #### Code tools
 

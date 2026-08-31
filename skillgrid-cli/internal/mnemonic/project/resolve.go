@@ -93,6 +93,14 @@ func gitOutput(dir string, args ...string) (string, error) {
 
 var multiSep = regexp.MustCompile(`[-_]+`)
 
+// NormalizeID returns the canonical, filesystem-safe form of a project name
+// (lowercased, `[-_]+` collapsed to `-`, trimmed of leading/trailing dashes).
+// Use this when accepting an explicit project name from a caller so it matches
+// the store-file and row naming used by Resolve.
+func NormalizeID(id string) string {
+	return normalizeProjectID(id)
+}
+
 func normalizeProjectID(id string) string {
 	id = strings.ToLower(strings.TrimSpace(id))
 	id = multiSep.ReplaceAllString(id, "-")

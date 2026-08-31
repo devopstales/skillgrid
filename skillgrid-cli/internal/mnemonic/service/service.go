@@ -380,6 +380,92 @@ func (s *Service) RelationsBetween(ctx context.Context, projectID string, srcID,
 	return h.memory.RelationsBetween(ctx, srcID, dstID)
 }
 
+// ProjectDrift mirrors the memory package's drift report, for API consumers.
+type ProjectDrift = memory.ProjectDrift
+
+// CheckProjectDrift returns a drift report when projectName is a known alias
+// of a canonical project. It probes the store that most likely holds the
+// alias row (the canonical project's store, then the current CWD store, then
+// every known store) and does not modify state.
+func (s *Service) CheckProjectDrift(ctx context.Context, projectName string) (*ProjectDrift, error) {
+	name := strings.TrimSpace(projectName)
+	if name == "" {
+		return nil, nil
+	}
+	probe := func(storeID string) (*ProjectDrift, bool) {
+		if storeID == "" {
+			return nil, false
+		}
+		h, cleanup, err := s.openProject(storeID, ".")
+		if err != nil {
+			return nil, false
+		}
+		d, err := h.memory.CheckProjectDrift(ctx, name)
+		cleanup()
+		if err != nil {
+			return nil, false
+		}
+		if d != nil {
+			return d, true
+		}
+		return nil, false
+	}
+	// 1) The canonical project (if the alias points at one of our stores).
+	if canonical := s.canonicalForAlias(ctx, name); canonical != "" {
+		if d, ok := probe(canonical); ok {
+			return d, nil
+		}
+	}
+	// 2) The explicitly-named store (it may hold its own alias row).
+	if n := storeIDFor(name); n != "" {
+		if d, ok := probe(n); ok {
+			return d, nil
+		}
+	}
+	// 3) Current CWD store.
+	if cwd, err := os.Getwd(); err == nil {
+		if pid, err := s.ResolveProject(cwd); err == nil {
+			if d, ok := probe(pid); ok {
+				return d, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// storeIDFor normalizes a project name into its store ID (best-effort — no IO).
+func storeIDFor(name string) string {
+	n := strings.ToLower(strings.TrimSpace(name))
+	if n == "" {
+		return ""
+	}
+	return n
+}
+
+// canonicalForAlias scans existing stores for a project_aliases row naming
+// projectName as an alias, and returns the canonical name. Best-effort.
+func (s *Service) canonicalForAlias(ctx context.Context, alias string) string {
+	projects, err := s.ListProjects()
+	if err != nil {
+		return ""
+	}
+	for _, p := range projects {
+		h, cleanup, err := s.openProject(p, ".")
+		if err != nil {
+			continue
+		}
+		var canonical string
+		err = h.store.DB.QueryRowContext(ctx, `
+			SELECT canonical FROM project_aliases WHERE alias = ? LIMIT 1`, alias,
+		).Scan(&canonical)
+		cleanup()
+		if err == nil && canonical != "" {
+			return canonical
+		}
+	}
+	return ""
+}
+
 // MergeProjects consolidates data recorded under the source project name into
 // the canonical project, then records a project alias. Returns the number of
 // rows moved and the canonical name.
@@ -466,6 +552,13 @@ type SaveObservationInput struct {
 	Scope     string `json:"scope"`
 	TopicKey  string `json:"topic_key"`
 	SessionID string `json:"session_id"`
+	// CapturePrompt, when true, best-effort links the session's most recent
+	// user prompt to the observation (mem_save capture_prompt).
+	CapturePrompt bool `json:"capture_prompt"`
+	// ProjectName, when non-empty, names the logical project for the save. It
+	// is validated against project_aliases and a drift warning surfaced by the
+	// caller when the name has been retired by mem_merge_projects.
+	ProjectName string `json:"project_name"`
 }
 
 // SaveObservation stores an observation with scope normalization matching MCP mem_save.
@@ -483,23 +576,31 @@ func (s *Service) SaveObservation(ctx context.Context, projectID string, in Save
 		scope = "user"
 	}
 	return h.memory.Save(ctx, memory.SaveInput{
-		Title:     in.Title,
-		Type:      in.Type,
-		Content:   in.Content,
-		Scope:     scope,
-		TopicKey:  in.TopicKey,
-		SessionID: in.SessionID,
+		Title:         in.Title,
+		Type:          in.Type,
+		Content:       in.Content,
+		Scope:         scope,
+		TopicKey:      in.TopicKey,
+		SessionID:     in.SessionID,
+		CapturePrompt: in.CapturePrompt,
+		ProjectName:   in.ProjectName,
 	})
 }
 
-// SearchObservations runs FTS over observations.
+// SearchObservations runs FTS over observations (scope = any).
 func (s *Service) SearchObservations(ctx context.Context, projectID, query, matchMode string, limit int) ([]memory.Observation, error) {
+	return s.SearchObservationsScoped(ctx, projectID, query, matchMode, "", limit)
+}
+
+// SearchObservationsScoped runs FTS over observations, restricting to a
+// visibility scope when scope is non-empty (project|user|global).
+func (s *Service) SearchObservationsScoped(ctx context.Context, projectID, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
 	h, cleanup, err := s.openProject(projectID, ".")
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
-	return h.memory.Search(ctx, query, matchMode, limit)
+	return h.memory.SearchWithScope(ctx, query, matchMode, scope, limit)
 }
 
 // GetObservation returns a single observation by ID.
