@@ -30,15 +30,9 @@ Phase order is `propose → design → spec → tasks` — design runs **before*
 From the orchestrator:
 
 - **Change name** (kebab-case, e.g. `add-dark-mode`)
-- **Artifact store mode**: `hybrid` (default) | `openspec` | `engram-compat` | `none`
-  - `hybrid`: write `design.md` to `openspec/` **and** persist to Mnemonic
-  - `openspec`: filesystem only
-  - `engram-compat`: Mnemonic only; topic key `sdd/{change-name}/design`
-  - `none`: return only, write nothing
+- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `openspec/changes/{change-name}/design.md` **and** persists to Mnemonic under `sdd/{change-name}/design`. A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
 - Optional: **ticket/issue id** (for the eventual `sdd-apply` commit close-token per `_shared/conventions/commits.md`)
 - Optional: a `## Skills to load before work` block
-
-If no mode is specified, default to `hybrid`.
 
 ## Execution + Persistence Conventions
 
@@ -92,7 +86,7 @@ Read the applicability trigger list in [references/threat-matrix.md](references/
 
 ### Step 3: Write design.md
 
-**IF mode is `openspec` or `hybrid`:** create in the change folder:
+Create the file in the change folder (hybrid mode always writes it):
 
 ```
 openspec/changes/{change-name}/
@@ -100,8 +94,6 @@ openspec/changes/{change-name}/
 ├── design.md              ← you create this
 └── (specs/ comes later, from sdd-spec)
 ```
-
-**IF mode is `engram-compat` or `none`:** do NOT create `openspec/` directories. Compose the design in memory — you will persist it in Step 4.
 
 If a `design.md` already exists in the change folder, **READ it first and UPDATE it** — do not overwrite a prior design's valid content.
 
@@ -160,11 +152,14 @@ If a `design.md` already exists in the change folder, **READ it first and UPDATE
 
 ### Step 4: Persist Artifact
 
-**MANDATORY — do not skip.** Follow [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md).
+**MANDATORY — do not skip.** Follow [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md). Hybrid = BOTH writes:
 
-- **`hybrid`** (default) — write `openspec/changes/{change-name}/design.md` **and** save to Mnemonic:
+1. **Filesystem** — `openspec/changes/{change-name}/design.md` (already written in Step 3).
+2. **Mnemonic** — start one session, then save the same content:
 
   ```
+  sid = skillgrid-mnemonic_mem_session_start(title: "sdd/{change-name}/design")
+
   skillgrid-mnemonic_mem_save(
     title:      "sdd/{change-name}/design",
     topic_key:  "sdd/{change-name}/design",
@@ -175,11 +170,9 @@ If a `design.md` already exists in the change folder, **READ it first and UPDATE
   )
   ```
 
-- **`openspec`** — file only.
-- **`engram-compat`** — Mnemonic only, same save call.
-- **`none`** — return only; no file, no save.
+  `topic_key` upserts — re-running the phase replaces the observation in place, it does not duplicate. Mnemonic save notes: `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both.
 
-Start one session before the first save: `sid = skillgrid-mnemonic_mem_session_start(title: "sdd/{change-name}/design")`. `topic_key` upserts — re-running the phase replaces the observation in place, it does not duplicate.
+Do not branch on mode — `hybrid` is the only mode for this phase.
 
 Mnemonic save notes (from `mnemonic-memory.md`): `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both.
 
@@ -202,7 +195,7 @@ If any check fails, fix it before returning `success`. Return `partial` with the
 ```markdown
 ## Design Created
 **Change**: {change-name}
-**Location**: `openspec/changes/{change-name}/design.md` (hybrid/openspec) · Mnemonic `sdd/{change-name}/design` (hybrid/engram-compat) · inline (none)
+**Location**: `openspec/changes/{change-name}/design.md` · Mnemonic `sdd/{change-name}/design` (hybrid)
 
 **Status**: success | partial | blocked
 **Executive summary**: 1–3 sentences.

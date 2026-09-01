@@ -29,13 +29,7 @@ From the orchestrator:
 
 - **Change name** (kebab-case, e.g. `add-dark-mode`)
 - **Exploration analysis** (from `sdd-explore`) OR a direct user description
-- **Artifact store mode**: `hybrid` (default) | `openspec` | `engram-compat` | `none`
-  - `hybrid`: write to filesystem (`openspec/`) **and** Mnemonic
-  - `openspec`: write to filesystem only
-  - `engram-compat`: Mnemonic only; topic key `sdd/{change-name}/proposal`
-  - `none`: return only, write nothing
-
-If no mode is specified, default to `hybrid`.
+- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `openspec/changes/{change-name}/proposal.md` **and** persists to Mnemonic under `sdd/{change-name}/proposal`. A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
 
 ## Skill Loading
 
@@ -73,14 +67,12 @@ The reusable `questioning` skill implements the shared clarification primitive (
 
 ### Step 2: Create the Change Directory
 
-**IF mode is `openspec` or `hybrid`:**
+Create the change folder (hybrid mode always writes the file):
 
 ```
 openspec/changes/{change-name}/
 └── proposal.md
 ```
-
-**IF mode is `engram-compat` or `none`:** do NOT create `openspec/` directories. Skip this step.
 
 ### Step 3: Write proposal.md
 
@@ -168,7 +160,7 @@ skillgrid-mnemonic_mem_save(
 
 - Start a session once: `sid = skillgrid-mnemonic_mem_session_start(title: "sdd/{change-name}/proposal")`.
 - `topic_key` enables upsert — saving again updates in place; do not create near-duplicates.
-- For `engram-compat` mode, write to Mnemonic only (skip filesystem). For `none`, skip persistence entirely.
+- Hybrid is the only mode for this phase: do the filesystem write (Step 2/3) and the Mnemonic save; do not branch on `openspec` / `engram-compat` / `none`.
 
 ### Step 5: Return Summary
 
@@ -187,7 +179,7 @@ Return to the orchestrator:
 
 ## Rules
 
-- In `openspec` or `hybrid` mode, ALWAYS create `proposal.md`.
+- ALWAYS create `proposal.md` (hybrid mode — the only mode for this phase).
 - Every proposal MUST have a rollback plan.
 - Every proposal MUST have success criteria.
 - The **Capabilities** section is the contract with `sdd-spec` — always fill it. Research `openspec/specs/` for real capability names. If nothing changes at the spec level, write "None" under both sub-sections — do not leave template placeholders.

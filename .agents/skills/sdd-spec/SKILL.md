@@ -33,15 +33,9 @@ Phase order is `propose → design → spec → tasks`. Design runs **before** s
 From the orchestrator:
 
 - **Change name** (kebab-case)
-- **Artifact store mode**: `hybrid` (default) | `openspec` | `engram-compat` | `none`
-  - `hybrid`: write `specs/` files to `openspec/` **and** persist to Mnemonic
-  - `openspec`: filesystem only
-  - `engram-compat`: Mnemonic only; topic key `sdd/{change-name}/spec`
-  - `none`: return only, write nothing
+- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `specs/` files to `openspec/changes/{change-name}/` **and** persists to Mnemonic under `sdd/{change-name}/spec`. A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
 - Optional: **ticket/issue id** (carry-through to `sdd-apply`'s commit close-token per `_shared/conventions/commits.md`; spec itself does not use it)
 - Optional: a `## Skills to load before work` block
-
-If no mode is specified, default to `hybrid`.
 
 ## Execution + Persistence Conventions
 
@@ -50,7 +44,7 @@ Follow, on each save, rather than restating here:
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — Mnemonic save shape (`title == topic_key`, `scope: "project"`, active `session_id`; **no** `project:` parameter, **no** `capture_prompt` field; `mem_search` returns previews — always `mem_get_observation(id)` for full content).
 - [`../_shared/conventions/openspec.md`](../_shared/conventions/openspec.md) — change-folder layout, delta-spec section semantics, `rules.specs` from `openspec/config.yaml`.
 - [`../_shared/conventions/mnemonic-code-indexing.md`](../_shared/conventions/mnemonic-code-indexing.md) — the `code_*` ladder, used only when you want to *verify* a scenario has code to test against (optional; a spec is a WHAT-document and does not require it).
-- [`../sdd-design/references/threat-matrix.md`](../sdd-design/references/threat-matrix.md) — the boundary rows the design filled in; the applicable ones feed this phase's Required RED scenarios.
+- [`references/threat-matrix.md`](references/threat-matrix.md) — the boundary rows the design filled in; the applicable ones feed this phase's Required RED scenarios (local copy of `sdd-design`'s matrix for a self-contained skill).
 
 ## Skill Loading
 
@@ -107,11 +101,14 @@ Read the design's `## Threat Matrix`. For **each row marked `Applicable`**, ensu
 
 ### Step 5: Persist Artifact
 
-**MANDATORY — do not skip.** Follow [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md).
+**MANDATORY — do not skip.** Follow [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md). Hybrid = BOTH writes:
 
-- **`hybrid`** (default) — write each domain file `openspec/changes/{change-name}/specs/{domain}/spec.md` **and** one Mnemonic save:
+1. **Filesystem** — write each domain file `openspec/changes/{change-name}/specs/{domain}/spec.md`.
+2. **Mnemonic** — start one session, then one save per change (concatenate domains so a single `mem_get_observation` id retrieves the whole spec):
 
   ```
+  sid = skillgrid-mnemonic_mem_session_start(title: "sdd/{change-name}/spec")
+
   skillgrid-mnemonic_mem_save(
     title:      "sdd/{change-name}/spec",
     topic_key:  "sdd/{change-name}/spec",
@@ -122,13 +119,9 @@ Read the design's `## Threat Matrix`. For **each row marked `Applicable`**, ensu
   )
   ```
 
-  One observation per change (concatenate domains with `## {domain}` headers) keeps the pipeline consistent with `sdd/{change}/proposal` and `sdd/{change}/design` — a single `mem_get_observation` id retrieves the whole spec.
+  One observation per change (concatenated with `## {domain}` headers) keeps the pipeline consistent with `sdd/{change}/proposal` and `sdd/{change}/design`. `topic_key` upserts — re-running the phase replaces the observation in place. Mnemonic save notes: `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both.
 
-- **`openspec`** — files only.
-- **`engram-compat`** — Mnemonic only, same save.
-- **`none`** — return only; no files, no save.
-
-Start one session before the first save: `sid = skillgrid-mnemonic_mem_session_start(title: "sdd/{change-name}/spec")`. `topic_key` upserts — re-running the phase replaces the observation in place.
+Do not branch on mode — `hybrid` is the only mode for this phase.
 
 ### Step 6: Self-Check (no external validator binary)
 
@@ -199,6 +192,6 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - [references/delta-spec-format.md](references/delta-spec-format.md) — the ADDED/MODIFIED/REMOVED/RENAMED shape, the full-spec shape, the copy-full-then-edit workflow, and the RFC 2119 quick reference.
 - [`../sdd-design/SKILL.md`](../sdd-design/SKILL.md) — the upstream phase; its `## Threat Matrix` applicable rows feed Step 3.
 - [`../sdd-propose/SKILL.md`](../sdd-propose/SKILL.md) — the proposal's Capabilities section is the contract this phase maps against.
-- [`../sdd-design/references/threat-matrix.md`](../sdd-design/references/threat-matrix.md) — the boundary rows the design may have marked applicable.
+- [`references/threat-matrix.md`](references/threat-matrix.md) — the boundary rows the design may have marked applicable (local copy of `sdd-design`'s matrix).
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape, session protocol, recovery ladder.
 - [`../_shared/conventions/openspec.md`](../_shared/conventions/openspec.md) — change-folder layout and delta-spec section semantics.
