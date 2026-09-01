@@ -44,6 +44,9 @@ func registerMemoryTools(s *server.MCPServer) {
 		{memSessionSetTitleTool(), handleMemSessionSetTitle},
 		{memCapturePassiveTool(), handleMemCapturePassive},
 		{memSuggestTopicKeyTool(), handleMemSuggestTopicKey},
+		{memPinTool(), handleMemPin},
+		{memUnpinTool(), handleMemUnpin},
+		{memUnifyTool(), handleMemUnify},
 	}
 	for _, entry := range tools {
 		s.AddTool(entry.tool, entry.handler)
@@ -66,12 +69,13 @@ func memSaveTool() mcplib.Tool {
 
 func memSearchTool() mcplib.Tool {
 	return mcplib.NewTool("mem_search",
-		mcplib.WithDescription("Full-text search over saved observations using FTS5. Pass `project` to scope or override the CWD-resolved project, and `scope` to restrict the visibility scope (project/user/global)."),
+		mcplib.WithDescription("Full-text search over saved observations using FTS5. Pass `project` to scope or override the CWD-resolved project, and `scope` to restrict the visibility scope (project/user/global). Set `all_projects=true` to span every store — ranks are merged across projects so a parent directory can find memories saved under a child project."),
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search keywords")),
 		mcplib.WithString("match_mode", mcplib.Description("Term matching: any (default) or all")),
 		mcplib.WithNumber("limit", mcplib.Description("Maximum results (default 20)")),
 		mcplib.WithString("project", mcplib.Description("Optional project name to search under (defaults to the CWD-resolved project). If a prior mem_merge_projects retired it, a drift warning is returned alongside the hits.")),
 		mcplib.WithString("scope", mcplib.Description("Optional visibility scope filter (project|user|global).")),
+		mcplib.WithBoolean("all_projects", mcplib.Description("Span every project store and merge results by cross-project rank (default false). Useful when the CWD is a parent of several repositories or when you don't know which bucket the memory is in.")),
 	)
 }
 
@@ -247,6 +251,20 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 	matchMode := req.GetString("match_mode", "any")
 	limit := int(req.GetFloat("limit", 20))
 	scope := strings.TrimSpace(req.GetString("scope", ""))
+	allProjects := req.GetBool("all_projects", false)
+
+	if allProjects {
+		hits, err := svc.SearchAllProjects(ctx, query, matchMode, scope, limit)
+		if err != nil {
+			return toolError(err)
+		}
+		return JSONResult(map[string]any{
+			"project":      "all",
+			"all_projects": true,
+			"count":        len(hits),
+			"observations": observationDTOs(hits),
+		})
+	}
 
 	explicitProject := strings.TrimSpace(req.GetString("project", ""))
 	projectID := defaultProjectID
@@ -807,6 +825,91 @@ func handleMemMergeProjects(ctx context.Context, req mcplib.CallToolRequest) (*m
 		"merged":         true,
 		"source":         source,
 		"canonical":      canonicalResolved,
+		"rows_moved":     moved,
+		"alias_recorded": true,
+	})
+}
+
+// ────────────────────────────── Mem: pin / unpin / unify ──────────────────
+
+func memPinTool() mcplib.Tool {
+	return mcplib.NewTool("mem_pin",
+		mcplib.WithDescription("Pin an observation so it sorts ahead of everything else in mem_context and boosts mem_search ordering. Pinning is local to this device store (not synced); use it for 'sticky' memories you want to surface every session."),
+		mcplib.WithNumber("id", mcplib.Required(), mcplib.Description("Observation ID")),
+	)
+}
+
+func handleMemPin(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	id, err := req.RequireFloat("id")
+	if err != nil {
+		return toolError(err)
+	}
+	if err := svc.PinObservation(ctx, projectID, int64(id)); err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{"id": int64(id), "pinned": true})
+}
+
+func memUnpinTool() mcplib.Tool {
+	return mcplib.NewTool("mem_unpin",
+		mcplib.WithDescription("Unpin an observation, returning it to normal recency ordering in mem_context and mem_search."),
+		mcplib.WithNumber("id", mcplib.Required(), mcplib.Description("Observation ID")),
+	)
+}
+
+func handleMemUnpin(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, projectID, cleanup, err := openService()
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	id, err := req.RequireFloat("id")
+	if err != nil {
+		return toolError(err)
+	}
+	if err := svc.UnpinObservation(ctx, projectID, int64(id)); err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{"id": int64(id), "unpinned": true})
+}
+
+func memUnifyTool() mcplib.Tool {
+	return mcplib.NewTool("mem_unify",
+		mcplib.WithDescription("Consolidate one or more source project stores into a single canonical project: records each source as an alias and copies + re-tags its rows (idempotent). Use it to fold several directory-hash variants of the same repo into one bucket. Admin tool — call only when the user has confirmed the consolidation."),
+		mcplib.WithString("canonical", mcplib.Required(), mcplib.Description("Project name to consolidate into (the canonical name)")),
+		mcplib.WithString("sources", mcplib.Required(), mcplib.Description("Comma-separated project names to consolidate (the variants being retired)")),
+	)
+}
+
+func handleMemUnify(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, err := rootService()
+	if err != nil {
+		return toolError(err)
+	}
+	canonical := strings.TrimSpace(req.GetString("canonical", ""))
+	sourcesRaw := strings.TrimSpace(req.GetString("sources", ""))
+	if canonical == "" || sourcesRaw == "" {
+		return toolError(errors.New("canonical and sources are both required"))
+	}
+	var sources []string
+	for _, s := range strings.Split(sourcesRaw, ",") {
+		if t := strings.TrimSpace(s); t != "" {
+			sources = append(sources, t)
+		}
+	}
+	moved, err := svc.Unify(ctx, canonical, sources...)
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{
+		"unified":        true,
+		"canonical":      canonical,
+		"sources":        sources,
 		"rows_moved":     moved,
 		"alias_recorded": true,
 	})

@@ -24,6 +24,7 @@ func TestAllToolsRegistered(t *testing.T) {
 		"mem_session_set_title",
 		"mem_suggest_topic_key",
 		"mem_capture_passive",
+		"mem_pin", "mem_unpin", "mem_unify",
 		"code_status", "code_index", "code_search", "code_read",
 		"web_cache_lookup", "web_cache_save", "web_cache_search",
 		"web_cache_get", "web_cache_status",

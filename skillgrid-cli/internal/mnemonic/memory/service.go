@@ -88,6 +88,13 @@ type Observation struct {
 	PromptID       *int64 `json:"prompt_id,omitempty"`
 	CreatedAt      string `json:"created_at"`
 	UpdatedAt      string `json:"updated_at"`
+	// Pinned is a first-class, local-only "sticky" marker. When true the
+	// observation sorts ahead of everything else in mem_context and boosts
+	// mem_search ordering.
+	Pinned         bool   `json:"pinned,omitempty"`
+	DuplicateCount int    `json:"duplicate_count,omitempty"`
+	LastSeenAt     string `json:"last_seen_at,omitempty"`
+	ExpiresAt      string `json:"expires_at,omitempty"`
 }
 
 // Status holds aggregate memory statistics.
@@ -142,6 +149,7 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 		hash, s.projectID,
 	).Scan(&existingID)
 	if err == nil {
+		s.BumpDuplicate(ctx, existingID)
 		return existingID, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -157,14 +165,17 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 			s.projectID, in.Scope, in.TopicKey,
 		).Scan(&topicID)
 		if err == nil {
+			// last_seen_at mirrors Engram's last_seen_at semantics here: any
+			// save that matches an existing topic_key refreshes "last seen".
 			_, err = s.store.DB.ExecContext(ctx, `
 				UPDATE observations SET
 					source = ?,
 					session_id = ?, type = ?, title = ?, content = ?,
 					normalized_hash = ?, revision_count = revision_count + 1,
+					last_seen_at = ?,
 					updated_at = ?
 				WHERE id = ?`,
-				source, in.SessionID, in.Type, in.Title, in.Content, hash, now, topicID,
+				source, in.SessionID, in.Type, in.Title, in.Content, hash, now, now, topicID,
 			)
 			if err != nil {
 				return 0, fmt.Errorf("topic_key upsert: %w", err)
@@ -256,11 +267,13 @@ func (s *Service) SearchWithScope(ctx context.Context, query, matchMode, scope s
 	args = append(args, limit)
 	rows, err := s.store.DB.QueryContext(ctx, `
 		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
-		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at
+		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
+		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
-		ORDER BY bm25(observations_fts)
+		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
+		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
 		LIMIT ?`,
 		args...,
 	)
@@ -308,9 +321,12 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	var obs Observation
 	var topicKey sql.NullString
 	var promptID sql.NullInt64
+	var lastSeen, expires sql.NullString
+	var pinned, dups int
 	err := row.Scan(
 		&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
 		&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
+		&pinned, &dups, &lastSeen, &expires,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -324,6 +340,14 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	if promptID.Valid {
 		v := promptID.Int64
 		obs.PromptID = &v
+	}
+	obs.Pinned = pinned == 1
+	obs.DuplicateCount = dups
+	if lastSeen.Valid {
+		obs.LastSeenAt = lastSeen.String
+	}
+	if expires.Valid {
+		obs.ExpiresAt = expires.String
 	}
 	return obs, nil
 }
@@ -1219,7 +1243,8 @@ func nullString(s string) sql.NullString {
 // the SELECT and the Scan in scanObservations cannot drift apart.
 const obsSelectCols = `
 	id, session_id, type, title, content, project, scope,
-	topic_key, source, normalized_hash, revision_count, prompt_id, created_at, updated_at`
+	topic_key, source, normalized_hash, revision_count, prompt_id, created_at, updated_at,
+	COALESCE(pinned, 0), COALESCE(duplicate_count, 0), last_seen_at, expires_at`
 
 func scanObservations(rows *sql.Rows) ([]Observation, error) {
 	var out []Observation
@@ -1227,9 +1252,12 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
 		var obs Observation
 		var topicKey sql.NullString
 		var promptID sql.NullInt64
+		var lastSeen, expires sql.NullString
+		var pinned, dups int
 		if err := rows.Scan(
 			&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
 			&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
+			&pinned, &dups, &lastSeen, &expires,
 		); err != nil {
 			return nil, fmt.Errorf("scan observation: %w", err)
 		}
@@ -1239,6 +1267,14 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
 		if promptID.Valid {
 			v := promptID.Int64
 			obs.PromptID = &v
+		}
+		obs.Pinned = pinned == 1
+		obs.DuplicateCount = dups
+		if lastSeen.Valid {
+			obs.LastSeenAt = lastSeen.String
+		}
+		if expires.Valid {
+			obs.ExpiresAt = expires.String
 		}
 		out = append(out, obs)
 	}

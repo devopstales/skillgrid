@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,11 +74,16 @@ func (s *Service) openProjectForDirectory(directory string) (*projectHandle, fun
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve directory: %w", err)
 	}
-	projectID, err := project.Resolve(absDir)
-	if err != nil {
-		return nil, nil, fmt.Errorf("resolve project: %w", err)
+	res, _ := project.ResolveDetailed(absDir)
+	// Best-effort: fold any pre-identity directory-hash store for this path
+	// into the canonical identity bucket so prior memories are reachable and
+	// future alias-named writes route here. Idempotent and read-mostly.
+	if res.SeedID != "" && res.SeedID != res.ID && res.Source == project.SourceIdentity {
+		if _, _, err := s.MergeProjects(context.Background(), res.SeedID, res.ID); err == nil {
+			// recorded
+		}
 	}
-	return s.openProject(projectID, absDir)
+	return s.openProject(res.ID, absDir)
 }
 
 func (s *Service) openProjectFromCWD() (*projectHandle, func(), error) {
@@ -592,6 +598,56 @@ func (s *Service) SearchObservations(ctx context.Context, projectID, query, matc
 	return s.SearchObservationsScoped(ctx, projectID, query, matchMode, "", limit)
 }
 
+// SearchObservationsAll runs the same FTS query across every store in dataDir
+// and returns the union, ordered by global rank (each store returns its own
+// bm25-ranked list; the merged result interleaves by cross-store rank, so a
+// #1 hit in one store is never buried under #5 hits from another). Used by
+// mem_search all_projects=true so an agent at a parent directory can still
+// find memories stored under a child project's store.
+func (s *Service) SearchObservationsAll(ctx context.Context, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	projects, err := s.ListProjects()
+	if err != nil {
+		return nil, err
+	}
+	type ranked struct {
+		obs  memory.Observation
+		rank int // 0-based rank within a single store
+	}
+	seen := map[string]bool{}
+	var collected []ranked
+	for _, pid := range projects {
+		res, err := s.SearchObservationsScoped(ctx, pid, query, matchMode, scope, limit)
+		if err != nil {
+			continue
+		}
+		for i, o := range res {
+			key := strconv.FormatInt(o.ID, 10) + "/" + o.Project
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			collected = append(collected, ranked{obs: o, rank: i})
+		}
+	}
+	sort.SliceStable(collected, func(i, j int) bool {
+		if collected[i].rank != collected[j].rank {
+			return collected[i].rank < collected[j].rank
+		}
+		return collected[i].obs.UpdatedAt > collected[j].obs.UpdatedAt
+	})
+	out := make([]memory.Observation, 0, len(collected))
+	for _, r := range collected {
+		out = append(out, r.obs)
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 // SearchObservationsScoped runs FTS over observations, restricting to a
 // visibility scope when scope is non-empty (project|user|global).
 func (s *Service) SearchObservationsScoped(ctx context.Context, projectID, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
@@ -621,6 +677,141 @@ func (s *Service) RecentContext(ctx context.Context, projectID string, limit int
 	}
 	defer cleanup()
 	return h.memory.RecentContext(ctx, limit)
+}
+
+// SearchAllProjects runs the FTS query across every store in the data dir and
+// returns the unified, rank-merged result set. This is the backing for
+// mem_search(all_projects=true) and rescues memories stranded under a
+// directory-hash store for the same logical project.
+func (s *Service) SearchAllProjects(ctx context.Context, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+	return s.SearchObservationsAll(ctx, query, matchMode, scope, limit)
+}
+
+// BlendedSearch runs the FTS leg and, when a non-empty query vector is
+// supplied and embedding recall is enabled, the vector leg, merging the two
+// ranked lists with reciprocal rank fusion (P4). Passing an empty vector
+// returns the plain FTS result unchanged — FTS5 is the floor.
+func (s *Service) BlendedSearch(ctx context.Context, projectID, query, matchMode, scope string, queryVec []float32, limit int) ([]memory.Observation, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	vec := memory.Vector{Data: queryVec}
+	return h.memory.BlendedSearch(ctx, query, matchMode, scope, vec, limit)
+}
+
+// SetObservationEmbedding stores a precomputed embedding vector for an
+// observation (P4). blob is the little-endian float32 encoding.
+func (s *Service) SetObservationEmbedding(ctx context.Context, projectID string, id int64, blob []byte, model string) error {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return h.memory.SetEmbedding(ctx, id, blob, model)
+}
+
+// SearchAllProjectsInProjects runs the FTS query over a fixed set of project
+// store ids (the caller's explicit list) and merges results by rank. This is
+// used when the caller names specific stores to span rather than "all".
+func (s *Service) SearchAllProjectsInProjects(ctx context.Context, projectIDs []string, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	var collected []memory.Observation
+	for _, pid := range projectIDs {
+		res, err := s.SearchObservationsScoped(ctx, pid, query, matchMode, scope, limit)
+		if err != nil {
+			continue
+		}
+		collected = append(collected, res...)
+	}
+	// de-dup by (project, id)
+	seen := map[string]bool{}
+	out := make([]memory.Observation, 0, len(collected))
+	for _, o := range collected {
+		k := o.Project + "|" + strconv.FormatInt(o.ID, 10)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, o)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt > out[j].UpdatedAt })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// PinObservation marks an observation as pinned (mem_pin).
+func (s *Service) PinObservation(ctx context.Context, projectID string, id int64) error {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return h.memory.Pin(ctx, id)
+}
+
+// UnpinObservation clears the pinned flag (mem_unpin).
+func (s *Service) UnpinObservation(ctx context.Context, projectID string, id int64) error {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return h.memory.Unpin(ctx, id)
+}
+
+// TTLRetire soft-deletes expired observations for the project and returns how
+// many were retired. Backs mem_review(action=retire_expired) and any
+// maintenance path that wants a single sweep.
+func (s *Service) TTLRetire(ctx context.Context, projectID string) (int, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return 0, err
+	}
+	defer cleanup()
+	return h.memory.TTLRetire(ctx)
+}
+
+// TTLPending returns the count of observations that are past their expires_at
+// timestamp and have not been soft-deleted (diagnostic; feeds mem_doctor).
+func (s *Service) TTLPending(ctx context.Context, projectID string) (int, error) {
+	h, cleanup, err := s.openProject(projectID, ".")
+	if err != nil {
+		return 0, err
+	}
+	defer cleanup()
+	return h.memory.TTLSoftExpiry(ctx)
+}
+
+// Unify consolidates one or more source project stores into a single canonical
+// project. It is the admin-facing wrapper around MergeProjects for cases where
+// the caller wants to fold several names at once (e.g. three directory-hash
+// variants of the same repo). For each source it records the alias and
+// copies + re-tags rows, so a single mem_search(all_projects=false, project=
+// canonical) then returns the combined history.
+func (s *Service) Unify(ctx context.Context, canonical string, sources ...string) (int, error) {
+	canonical = strings.TrimSpace(canonical)
+	if canonical == "" {
+		return 0, fmt.Errorf("canonical project is required")
+	}
+	total := 0
+	for _, src := range sources {
+		src = strings.TrimSpace(src)
+		if src == "" || src == canonical {
+			continue
+		}
+		moved, _, err := s.MergeProjects(ctx, src, canonical)
+		if err != nil {
+			return total, err
+		}
+		total += moved
+	}
+	return total, nil
 }
 
 // UpdateObservation modifies an existing observation by ID. Only non-empty
@@ -686,12 +877,19 @@ func (s *Service) SetObservationReviewAfter(ctx context.Context, projectID strin
 	return h.memory.SetReviewAfter(ctx, id, reviewAfter)
 }
 
-// ProjectInfo describes the resolved project for cwd: id, source, all known projects.
+// ProjectInfo describes the resolved project for cwd: id, source, all known
+// projects, plus — when cwd is a parent of several git repositories — the
+// candidate list so the caller (typically the agent) can pick one and retry
+// the write with the chosen name.
 type ProjectInfo struct {
-	Project   string   `json:"project"`
-	Source    string   `json:"source"`
-	Directory string   `json:"directory"`
-	Projects  []string `json:"projects"`
+	Project           string   `json:"project"`
+	Source            string   `json:"source"`
+	Directory         string   `json:"directory"`
+	Projects          []string `json:"projects"`
+	Ambiguous         bool     `json:"ambiguous,omitempty"`
+	AvailableProjects []string `json:"available_projects,omitempty"`
+	Warning           string   `json:"warning,omitempty"`
+	SeedID            string   `json:"seed_id,omitempty"`
 }
 
 // CurrentProject returns the resolved project for cwd along with all
@@ -701,15 +899,31 @@ func (s *Service) CurrentProject(directory string) (ProjectInfo, error) {
 	if err != nil {
 		return ProjectInfo{}, err
 	}
-	id, src, err := project.ResolveDetailed(absDir)
-	if err != nil {
-		return ProjectInfo{}, err
-	}
+	res, resErr := project.ResolveDetailed(absDir)
 	projects, err := s.ListProjects()
 	if err != nil {
 		return ProjectInfo{}, err
 	}
-	return ProjectInfo{Project: id, Source: string(src), Directory: absDir, Projects: projects}, nil
+	out := ProjectInfo{
+		Project:   res.ID,
+		Source:    string(res.Source),
+		Directory: absDir,
+		Projects:  projects,
+	}
+	if resErr != nil {
+		var amb *project.AmbiguousProjectError
+		if errors.As(resErr, &amb) {
+			out.Ambiguous = true
+			out.AvailableProjects = res.Available
+		}
+	}
+	if res.Warning != "" {
+		out.Warning = res.Warning
+	}
+	if res.SeedID != "" {
+		out.SeedID = res.SeedID
+	}
+	return out, nil
 }
 
 // MemoryDoctor describes mnemonic store health for a project.

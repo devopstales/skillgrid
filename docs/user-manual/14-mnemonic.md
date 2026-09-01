@@ -38,14 +38,19 @@ scoped per project.
 
 ### Project resolution
 
-The project ID is resolved per working directory (`internal/mnemonic/project/resolve.go`):
+The project ID is resolved per working directory (`internal/mnemonic/project/resolve.go`), mirroring Engram's algorithm:
 
-1. Nearest `.skillgrid/config.json` with a `project` field — highest priority.
-2. Git remote `origin` URL — the repo basename (e.g. `my-org/my-repo` → `my-repo`).
-3. Fallback — `{basename}-{sha256(cwd)[:8]}`.
+1. `MNEMONIC_PROJECT` environment override — process-level pin (set to force a specific bucket).
+2. Nearest `.skillgrid/config.json` with a `project` field — bounded to the enclosing repo root (or cwd outside git) so an ancestor config can't claim an unrelated checkout.
+3. **Clone-private identity** (`.git/…/skillgrid-mnemonic-identity.json`) — created once from the `origin` remote name (else repo-root basename) and then reused on every call. This is what keeps the bucket **stable** across rename, re-clone, remote change, and linked worktrees.
+4. Exactly one git child under cwd → auto-promoted to that child (with a warning).
+5. Several git children under cwd → **ambiguous**: returns `available_projects` (the full candidate list) plus a fallback ID so nothing errors.
+6. Fallback — `{basename}-{sha256(cwd)[:8]}` for non-git directories.
 
 IDs are normalized (lowercased, `[-_]+` collapsed to `-`, trimmed of leading/trailing
 dashes) and validated against path traversal (`..` is rejected).
+
+> **Why the identity file lives in `.git/`:** it travels with the repository and is shared by linked worktrees via `git common-dir`, exactly like Engram's `engram-project-identity.json`. That's what makes a checkout's memory bucket permanent. The only caveat is a one-time write into the `.git` directory on first resolve of a repo.
 
 ### SQLite schema
 
@@ -99,7 +104,7 @@ Tool | What It Does
 --- | ---
 `mem_save` | Save an observation to persistent memory. Deduplicates by content hash within 24h or upserts by `topic_key`. **`capture_prompt`** (bool, default `true`) best-effort links the session's most recent user prompt (recorded via `mem_save_prompt`) to the observation via `prompt_id` so a reader can recall *what was asked*; pass `capture_prompt=false` for automated saves that should not carry prompt context. **`project`** (optional) records under an explicit named project; if that name has been retired by `mem_merge_projects` the write routes to the canonical store and a `project_drift` warning is returned. |
 `mem_save_prompt` | Record a raw user prompt so future sessions can recall what was asked. Prompts are trimmed (min ~11 chars) and bounded to 2 KB. Feeds `capture_prompt` on the next `mem_save` in the same session. |
-`mem_search` | FTS5 full-text search over saved observations (match_mode: `any`/`all`, default 20 results; optional `scope` filter: `project`/`user`/`global`). Progressive-disclosure layer 1 — compact hits with IDs. **`project`** (optional) scopes/overrides the search; a retired alias routes to the canonical store with a `project_drift` warning. |
+`mem_search` | FTS5 full-text search over saved observations (match_mode: `any`/`all`, default 20 results; optional `scope` filter: `project`/`user`/`global`). Pinned rows sort first; expired rows (past `expires_at`) are excluded. Progressive-disclosure layer 1 — compact hits with IDs. **`project`** (optional) scopes/overrides the search; a retired alias routes to the canonical store with a `project_drift` warning. **`all_projects=true`** spans every store and merges results by cross-project rank — use it from a parent directory or when unsure which bucket holds a memory. |
 `mem_context` | Recent session summaries (default 5) — run this first for fast recall before a full search. |
 `mem_get_observation` | Fetch full untruncated observation content by ID. Progressive-disclosure layer 3. |
 `mem_timeline` | Chronological context around an observation — `before`/`after` windows (`window`, e.g. `30m`, `2h`). Progressive-disclosure layer 2, between `mem_search` and `mem_get_observation`. |
@@ -126,8 +131,10 @@ Tool | What It Does
 Tool | What It Does
 --- | ---
 `mem_delete` | Delete an observation. Soft-delete by default (`deleted_at` set — excluded from search/context/timeline, still fetchable by ID); pass `hard=true` to remove the row permanently. |
+`mem_pin` / `mem_unpin` | Pin an observation so it sorts ahead of everything in `mem_context`/`mem_search` (local, not synced) — for "sticky" memories you want surfaced every session — or clear the pin. |
 `mem_review` | `action="list"` (default) — returns observations whose `review_after` has passed. `action="mark_reviewed"` + `id` — advances the observation's review cycle by ~30 days. This is the local-only lifecycle hygiene loop. |
 `mem_merge_projects` | Admin tool. Merge a source project name into the canonical name: copies rows tagged `source` into the canonical store (idempotent), re-tags them, and records an alias so future `mem_save`/`mem_search` calls naming `source` route to the canonical store and return a `project_drift` warning. |
+`mem_unify` | Admin tool. Like `mem_merge_projects` but folds **several** source variants into one canonical name in a single call (each recorded as an alias). Use it to consolidate a cluster of `{dir}-{hash}` buckets of the same repo. Call only after the user confirms. |
 
 **Relate memories** (semantic links between observations in the same project)
 
@@ -140,15 +147,26 @@ Tool | What It Does
 >
 > **Prompt provenance (`capture_prompt`)**: with `capture_prompt=true` (default) a `mem_save` links the session's latest recorded prompt to the observation (`observations.prompt_id`). `mem_get_observation`/`mem_search`/`mem_timeline` echo `prompt_id` on any linked row. `capture_prompt=false` suppresses the link — use it for SDD phase artifacts and other automated saves that only need the *conclusion*, not the *framing question*.
 >
-> **Project scoping & drift**: `mem_save` and `mem_search` accept an explicit `project` name. Mnemonic already stores per named project (one SQLite file per project), so multi-checkout / monorepo scoping works. After a `mem_merge_projects` (source → canonical), any tool call that names the retired `source` **routes to the canonical store** and returns a `project_drift` object — `{project_name, canonical_name, merged_at}` — so an agent can see it wrote to a merged name and switch to the canonical one. The write is never rejected; the drift is advisory.
+> **Project identity (stable, clone-private)**: Mnemonic resolves each git repository to a *clone-private identity* written once into `<.git>/…/skillgrid-mnemonic-identity.json`. That binding is created on first resolve from the `origin` remote name (else repo-root basename) and is then reused on **every** call — so renaming the checkout, `git remote set-url`, re-cloning, or linked worktrees all resolve to the **same** memory bucket. This is the same model Engram uses; it removes the earlier behaviour where moving a folder silently fragmented memory across opaque `{dir}-{hash}` buckets.
+>
+> **Ambiguity (parent of several repos)**: when cwd is a *parent* of several git repositories there is no safe single choice. `mem_current_project` returns `ambiguous:true` plus `available_projects` (the full candidate list, e.g. all 15 repos under a monorepo root) and a fallback ID so nothing errors. Callers can then retry a write with the chosen name (via the `project` argument) or set `MNEMONIC_PROJECT`.
+>
+> **Project scoping, drift & consolidation**: `mem_save`/`mem_search` accept an explicit `project` name. After a `mem_merge_projects` (or `mem_unify`), any call naming the retired `source` **routes to the canonical store** and returns a `project_drift` object — `{project_name, canonical_name, merged_at}`. `mem_unify` folds *several* variants at once (idempotent, records every alias). `mem_search(all_projects=true)` spans **every** store and merges results by cross-project rank, rescuing memories stranded under an old `{dir}-{hash}` bucket.
 
 **Diagnose & orient** (never errors; recommended first calls)
 
 Tool | What It Does
 --- | ---
-`mem_current_project` | Detect the project from cwd and return the resolved ID, its **source** (`config` / `git-remote` / `directory-hash`), and the full list of known projects. Call this first to confirm you're writing to the right project. |
+`mem_current_project` | Detect the project from cwd and return the resolved ID, its **source** (`config` / `identity` / `git-child` / `ambiguous` / `directory-hash`), the candidate list when ambiguous, and the full list of known projects. Call this first to confirm you're writing to the right project. |
 `mem_stats` | Per-project statistics: observation count by type, active/total sessions, created-range. |
 `mem_doctor` | Read-only store health: schema version, WAL mode, FTS row counts and drift vs. the base tables, per-type counts, on-disk size. |
+
+**Pin & consolidate**
+
+Tool | What It Does
+--- | ---
+`mem_pin` / `mem_unpin` | Pin an observation so it sorts ahead of everything in `mem_context` and boosts `mem_search` ordering (local, not synced), or clear the pin. For "sticky" memories you want surfaced every session. |
+`mem_unify` | Consolidate one or more source project stores into a canonical name: records each as an alias and copies + re-tags rows (idempotent). Admin tool — call only after the user confirms the consolidation (e.g. folding three `{dir}-{hash}` variants of one repo). |
 
 > **Memory types:** `standing`, `preference`, `convention`, `decision`, `architecture`, `bugfix`, `pattern`, `config`, `correction`, `discovery`, `learning`, `lesson`, `session_log`.
 >
