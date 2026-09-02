@@ -1,6 +1,11 @@
 ---
 name: sdd-init
 description: Initialize the Skillgrid SDD workspace — detect project_name, tech_stack, testing_capabilities, and issue_tracker from AGENTS.md/CLAUDE.md/GEMINI.md, docs/skillgrid/config.yaml, Mnemonic, git remote, and project files; validate with the user; then build the skill registry, agent config block (AGENTS.md/CLAUDE.md/GEMINI.md), the docs/skillgrid/ skeleton, Mnemonic observations, and Backlog.md if selected. Use when the user says sdd init, initialize sdd, or sets up SDD in a new project.
+license: MIT
+metadata:
+  author: devopstaès
+  version: "2.0"
+  part-of: skillgrid
 ---
 
 # SDD Init

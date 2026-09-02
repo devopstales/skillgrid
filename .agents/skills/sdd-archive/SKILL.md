@@ -5,9 +5,10 @@ disable-model-invocation: true
 user-invocable: false
 license: MIT
 metadata:
-  author: skillgrid
+  author: devopstaès
   version: "2.0"
   family: sdd
+  part-of: skillgrid
   phase-order: "tasks → apply → verify → archive"
   prev: [sdd-verify]
   next: []

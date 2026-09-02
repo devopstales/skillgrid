@@ -3,8 +3,9 @@ name: questioning
 description: "Stress-test a plan, decision, or idea branch by branch before implementation, using a design tree, frontier, and rounds with recommendations. Use when you need to clarify intent, the orchestrator delegates a clarification round (explore/propose/init), or a request must be classified before design."
 license: MIT
 metadata:
-  author: skillgrid
+  author: devopstaès
   version: "1.0"
+  part-of: skillgrid
 ---
 
 # questioning

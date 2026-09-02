@@ -3,6 +3,11 @@ name: _shared
 description: Shared Skillgrid SDD references consumed by sdd-* and issue-creation skills (issue tracker conventions, triage labels). Not invokable.
 disable-model-invocation: true
 user-invocable: false
+license: MIT
+metadata:
+  author: devopstaès
+  version: "1.0"
+  part-of: skillgrid
 ---
 
 ## Purpose
