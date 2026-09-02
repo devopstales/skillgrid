@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Pre-commit hook: run sdd-gate.sh on SDD changes when openspec/ changes are staged.
+
+set -uo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root" || exit 1
+
+staged_files="$(git diff --cached --name-only 2>/dev/null || true)"
+if [[ -z "$staged_files" ]]; then
+  exit 0
+fi
+
+change_dirs=()
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  if [[ "$f" == openspec/changes/* ]] || [[ "$f" == .openspec/changes/* ]]; then
+    dir="$(echo "$f" | cut -d'/' -f1-3)"
+    change_dirs+=("$dir")
+  fi
+done <<< "$staged_files"
+
+if [[ ${#change_dirs[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+unique_dirs=()
+for d in "${change_dirs[@]}"; do
+  found=false
+  for u in "${unique_dirs[@]+"${unique_dirs[@]}"}"; do
+    [[ "$u" == "$d" ]] && found=true && break
+  done
+  "$found" || unique_dirs+=("$d")
+done
+
+sdd_detect_phase() {
+  local change_name="$1"
+  local prefix="openspec/changes/${change_name}/"
+  local staged
+  staged="$(git diff --cached --name-only -- "${prefix}" 2>/dev/null || true)"
+  if echo "$staged" | grep -qE 'reviews/.*\.md$'; then
+    echo "review"
+  elif echo "$staged" | grep -qE 'verify-report\.md$'; then
+    echo "verify"
+  elif echo "$staged" | grep -qE 'tasks\.md$'; then
+    echo "apply"
+  elif echo "$staged" | grep -qE 'design\.md$'; then
+    echo "design"
+  elif echo "$staged" | grep -qE 'specs/.*/spec\.md$'; then
+    echo "spec"
+  elif echo "$staged" | grep -qE 'proposal\.md$'; then
+    echo "propose"
+  elif echo "$staged" | grep -qE 'ui-(wireframes|decisions)\.md$'; then
+    echo "design"
+  else
+    echo "tasks"
+  fi
+}
+
+errors=0
+for d in "${unique_dirs[@]}"; do
+  dir_name="$(basename "$d")"
+  [[ "$dir_name" == "archive" ]] && continue
+  phase="$(sdd_detect_phase "$dir_name")"
+  echo "[sdd-gate] Running gate for: ${d} (phase=${phase})" >&2
+
+  if ! "${repo_root}/.skillgrid/scripts/sdd-gate.sh" "$phase" --change "$dir_name" 2>&1; then
+    echo "" >&2
+    echo "=== sdd-gate PRE-COMMIT BLOCKED ===" >&2
+    echo "Phase: $phase | Change: $dir_name" >&2
+    echo "Fix gate failures before committing. Run manually:" >&2
+    echo "  .skillgrid/scripts/sdd-gate.sh $phase --change $dir_name" >&2
+    errors=1
+  fi
+done
+
+exit $errors
+
