@@ -19,7 +19,7 @@ Mnemonic (skillgrid) differs from Engram — adapt calls to this:
 Session setup (once per agent session, before first save):
 
 ```
-sid = mem_session_start(title: "sdd/{project}/{change or phase}")
+sid = mem_session_start(title: "sdd/<NNN-slug>/<phase>")
 ```
 
 Reuse `sid` for every `mem_save` in that session. `mem_save` requires `session_id` — a save without it fails.
@@ -29,12 +29,14 @@ Reuse `sid` for every `mem_save` in that session. `mem_save` requires `session_i
 ALL SDD artifacts persisted to Mnemonic MUST follow this deterministic naming:
 
 ```
-title:     sdd/{change-name}/{artifact-type}
-topic_key: sdd/{change-name}/{artifact-type}
+title:     sdd/<NNN-slug>/{artifact-type}
+topic_key: sdd/<NNN-slug>/{artifact-type}
 type:      architecture
 scope:     project
 session_id: {active sdd session}
 ```
+
+where `<NNN-slug>` is the three-digit change number + slug (e.g. `001-oauth-login`), reserved by `sdd-propose`.
 
 Project-level facts (no change scope) use:
 
@@ -50,16 +52,17 @@ title/topic_key: sdd-init/{project}     (init-time full project context)
 
 | Artifact Type | Produced By | `type` |
 |---|---|---|
-| `explore` | sdd-explore | architecture |
-| `proposal` | sdd-propose | architecture |
-| `design` | sdd-design | architecture |
-| `spec` | sdd-spec | architecture |
-| `tasks` | sdd-tasks | architecture |
+| `research` | sdd-explore | architecture |
+| `intent` | sdd-propose | architecture |
+| `plan` | sdd-design | architecture |
+| `tasks` (per step, concatenated) | sdd-tasks | architecture |
+| `spec` (per step `acceptance.feature`, concatenated) | sdd-spec | architecture |
 | `issue-creation` | sdd-issue-creation | config |
-| `apply-progress` | sdd-apply (one per batch) | architecture |
-| `verify-report` | sdd-verify | architecture |
-| `archive-report` | sdd-archive (lineage: all obs IDs) | architecture |
+| `apply-progress` (cumulative, per change) | sdd-apply (one per batch) | architecture |
+| `verification` (per step, concatenated) | sdd-verify | architecture |
+| `archive-report` (lineage: all obs IDs) | sdd-archive | architecture |
 | `state` | orchestrator (DAG state for recovery) | architecture |
+| `changelog` (NNN reservations + archives) | sdd-propose / sdd-archive | config |
 | `tech_stack` | sdd-init | config |
 | `issue_tracker` | sdd-init | config |
 | `testing-capabilities` | sdd-init | config |
@@ -74,11 +77,11 @@ mem_save(
   type: "architecture",
   scope: "project",
   session_id: {sid},
-  content: "change: {change-name}\nphase: {last-phase}\nartifact_store: hybrid\nartifacts:\n  proposal: true\n  specs: true\n  design: false\n  tasks: false\ntasks_progress:\n  completed: []\n  pending: []\nlast_updated: {ISO date}"
+  content: "change: <NNN-slug>\nphase: {last-phase}\nartifact_store: hybrid\nartifacts:\n  research: true\n  intent: true\n  plan: true\n  tasks: true\n  spec: true\n  verification: false\nsteps_progress:\n  01-migration: {n}/{n} [x]\n  02-api: {n}/{n}\nlast_updated: {ISO date}"
 )
 ```
 
-Recovery: `mem_search("sdd/{change-name}/state")` → `mem_get_observation(id)` → parse → restore state.
+Recovery: `mem_search("sdd/<NNN-slug>/state")` → `mem_get_observation(id)` → parse → restore state.
 
 ## Recovery Protocol (2 steps)
 
@@ -91,14 +94,14 @@ Search previews are always truncated; `mem_get_observation` is the only way to g
 
 ```
 STEP A — SEARCH (get IDs only):
-  mem_search(query: "sdd/{change-name}/proposal") → save ID
-  mem_search(query: "sdd/{change-name}/spec") → save ID
-  mem_search(query: "sdd/{change-name}/design") → save ID
+  mem_search(query: "sdd/<NNN-slug>/intent")   → save ID
+  mem_search(query: "sdd/<NNN-slug>/plan")     → save ID
+  mem_search(query: "sdd/<NNN-slug>/spec")     → save ID
 
 STEP B — RETRIEVE FULL CONTENT (mandatory):
-  mem_get_observation(id: {proposal_id})
+  mem_get_observation(id: {intent_id})
   mem_get_observation(id: {spec_id})
-  mem_get_observation(id: {design_id})
+  mem_get_observation(id: {plan_id})
 ```
 
 Loading project context:
@@ -127,16 +130,16 @@ mem_save(
 )
 ```
 
-Concrete example — saving a proposal for `add-dark-mode`:
+Concrete example — saving an intent for `001-oauth-login`:
 
 ```
 mem_save(
-  title: "sdd/add-dark-mode/proposal",
-  topic_key: "sdd/add-dark-mode/proposal",
+  title: "sdd/001-oauth-login/intent",
+  topic_key: "sdd/001-oauth-login/intent",
   type: "architecture",
   scope: "project",
   session_id: "ses-abc123",
-  content: "## Proposal\n\nAdd dark mode toggle..."
+  content: "## Intent\n\nAdd OAuth login for existing users..."
 )
 ```
 

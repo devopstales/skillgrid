@@ -28,13 +28,13 @@ FOR EACH TASK:
 │
 ├── 1. UNDERSTAND
 │   ├── Read the task description
-│   ├── Read relevant spec scenarios (these ARE your acceptance criteria)
-│   ├── Read the design decisions (these CONSTRAIN your approach)
+│   ├── Read relevant acceptance scenarios / Gherkin features (these ARE your acceptance criteria)
+│   ├── Read the plan decisions (these CONSTRAIN your approach)
 │   ├── Read existing code and test patterns (match the style)
 │   └── Determine test layer (see "Choosing Test Layer" below)
 │
 ├── 2. RED — Write a failing test FIRST
-│   ├── Write test(s) that describe the expected behavior from the spec
+│   ├── Write test(s) that describe the expected behavior from the acceptance scenarios
 │   ├── Prefer pure functions where possible (no side effects = easy to test)
 │   ├── The test MUST reference production code that does NOT exist yet
 │   │   (this guarantees failure — no need to execute to confirm)
@@ -55,7 +55,7 @@ FOR EACH TASK:
 │   ├── Add a second test case with DIFFERENT inputs/expected outputs
 │   ├── EXECUTE tests → if Fake It breaks (hardcoded no longer works):
 │   │   └── Generalize to real logic (this is the whole point)
-│   ├── Repeat until ALL spec scenarios for this task are covered
+│   ├── Repeat until ALL acceptance scenarios for this task are covered
 │   ├── Each triangulation pass: write test → run → fix implementation
 │   ├── MINIMUM: at least 2 test cases per behavior (happy path + one edge case)
 │   │   ├── One test with data that produces a NON-EMPTY/NON-TRIVIAL result
@@ -69,7 +69,7 @@ FOR EACH TASK:
 │   │   ├── The task is purely structural (config file, constant definition, type export)
 │   │   ├── There is literally ONE possible output (no branching, no logic)
 │   │   └── You explicitly note "Triangulation skipped: {reason}" in the evidence table
-│   └── GATE: All spec scenarios for this task must have tests before REFACTOR
+│   └── GATE: All acceptance scenarios for this task must have tests before REFACTOR
 │
 ├── 5. REFACTOR — Improve without changing behavior
 │   ├── Extract constants (eliminate magic numbers)
@@ -120,7 +120,7 @@ Detect the test runner from the cached testing capabilities:
 ```
 Read test command from:
 ├── Cached capabilities → test_runner.command (fastest — already detected)
-├── openspec/config.yaml → rules.apply.test_command (override)
+├── docs/skillgrid/config.yaml → rules.apply.test_command (override)
 └── Fallback: detect from package.json/pyproject.toml/go.mod
 
 When executing tests during TDD:
@@ -169,7 +169,7 @@ BEFORE touching production code:
 ├── 5. Run approval tests again → must STILL PASS
 │   ├── ✅ Passing → refactoring preserved behavior
 │   └── ❌ Failing → refactoring broke something, revert
-└── 6. If the spec says behavior should CHANGE:
+└── 6. If the acceptance says behavior should CHANGE:
     ├── Update the approval test to reflect NEW expected behavior
     ├── Run → test FAILS (RED — new behavior not implemented yet)
     └── Implement new behavior → GREEN
@@ -199,7 +199,7 @@ When Strict TDD Mode is active, your return summary MUST include this section:
 - **Safety Net**: Pre-existing tests run before modifying files. "N/A (new)" for new files.
 - **RED**: Test written first, referencing code that doesn't exist yet. Always "✅ Written".
 - **GREEN**: Tests executed and passing after minimal implementation. Must show execution result.
-- **TRIANGULATE**: Additional test cases added to force real logic. "➖ Single" if spec has only one scenario.
+- **TRIANGULATE**: Additional test cases added to force real logic. "➖ Single" if the step has only one scenario.
 - **REFACTOR**: Code improved with tests still passing. "➖ None needed" if code was already clean.
 
 ## Assertion Quality Rules (MANDATORY)
@@ -353,7 +353,7 @@ expect(screen.getByRole("button")).toBeDisabled();
 
 - NEVER write production code before writing its test — this is the ONE rule that cannot be broken
 - NEVER skip the GREEN execution gate — you MUST run tests and confirm they pass
-- NEVER skip triangulation when the spec defines multiple scenarios — hardcoded Fake It must be forced out
+- NEVER skip triangulation when the acceptance for the step defines multiple scenarios — hardcoded Fake It must be forced out
 - NEVER write trivial assertions (see Banned Assertion Patterns above) — they are WORSE than no test
 - ALWAYS verify that every assertion CALLS production code and asserts a SPECIFIC expected value
 - ALWAYS run the Safety Net before modifying existing files — protect what already works

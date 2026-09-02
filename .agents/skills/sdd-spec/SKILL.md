@@ -1,12 +1,17 @@
 ---
 name: sdd-spec
-description: "Write SDD delta or full specs (requirements + Given/When/Then scenarios) from the proposal and the design. Use after sdd-design, before sdd-tasks. Maps each capability in the proposal's Capabilities contract to a spec file, copies the ENTIRE existing requirement before editing it (MODIFIED is replace semantics), and turns every applicable threat-matrix row in the design into a spec scenario. Uses Mnemonic memory + code index; no external binaries."
+description: "Author per-step Gherkin acceptance features (Feature/Scenario, Given/When/Then) for each step in the step tree, from the intent and plan. Use after sdd-tasks (which creates the step folders) and before sdd-apply. Translates every per-step WHAT bullet in the plan and every applicable plan threat-matrix row into an observable scenario in that step's acceptance.feature. Uses Mnemonic memory + code index; no external binaries."
+disable-model-invocation: true
+user-invocable: false
+license: MIT
 metadata:
+  author: skillgrid
+  version: "2.0"
   family: sdd
-  phase-order: "propose → design → spec → tasks"
-  prev: [sdd-propose, sdd-design]
-  next: [sdd-tasks]
-  artifact: spec
+  phase-order: "init → explore → propose → design → tasks → spec → apply → verify → archive"
+  prev: [sdd-propose, sdd-design, sdd-tasks]
+  next: [sdd-apply]
+  artifact: acceptance (per step)
   delegate_only: true
 ---
 
@@ -21,19 +26,19 @@ Confirm your role before acting. You are the dedicated `sdd-spec` sub-agent **un
 
 ## Purpose
 
-You are the SPEC phase. You express **what the system must do** — requirements with RFC 2119 strength (`MUST`/`SHALL`/`SHOULD`/`MAY`) and Given/When/Then scenarios — for every capability the proposal and design named. A spec is a **WHAT** document: `design.md` already holds the **HOW** (architecture, data flow, file changes). If you see yourself writing "the handler calls `validate()` on line 42", you are in design territory, not spec.
+You are the SPEC phase. You express **what the system must do** — for each step in the step tree — as a Gherkin `acceptance.feature` file: one `Feature` per step and 3+ observable `Scenario` lines (Given/When/Then) covering a happy path, an edge case, and a failure state. An `acceptance.feature` is a **WHAT** document: `plan.md` already holds the **HOW** (architecture, data flow, impacted files). If you see yourself writing "the handler calls `validate()` on line 42", you are in plan territory, not spec.
 
-Phase order is `propose → design → spec → tasks`. Design runs **before** spec. Two consequences that drive this phase:
+Phase order is `propose → design → tasks → spec`. **You run after `sdd-tasks`** because `acceptance.feature` lives inside `steps/<NN-name>/` — the tree must exist. Two consequences that drive this phase:
 
-1. The design's **threat-matrix applicable rows are a spec input.** Every applicable row MUST appear as at least one scenario in some spec — that is where "a requirement" becomes "a testable requirement" one phase *earlier* than it would if you waited for `sdd-tasks`. A design carrying an applicable row that the spec does not reflect is a broken handoff; flag it in the envelope.
-2. The proposal's **Capabilities section is the contract with this phase.** It mechanically names which spec files to create (New → full spec) or update (Modified → delta spec). Do not infer domains.
+1. **The plan's per-step WHAT blocks are your primary input.** Each step in the plan has a "Step — What it delivers" block of 2–4 bullets. Your job is to turn those bullets (plus the intent's success criteria that map to that step) into concrete Given/When/Then scenarios in that step's `acceptance.feature`.
+2. **The plan's threat-matrix applicable rows are a spec input.** Every applicable row names an owning step; ensure at least one scenario in **that step's** `acceptance.feature` covers the row's planned RED test. A plan-applicable row that no step's feature covers is a handoff gap; flag it in the envelope.
 
 ## What You Receive
 
 From the orchestrator:
 
-- **Change name** (kebab-case)
-- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `specs/` files to `openspec/changes/{change-name}/` **and** persists to Mnemonic under `sdd/{change-name}/spec`. A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+- **Change id** — `<NNN-slug>` (e.g. `001-oauth-login`). The folder exists with `intent.md`, `plan.md`, and `steps/<NN-name>/tasks.md` for every step.
+- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes each `steps/<NN-name>/acceptance.feature` **and** persists to Mnemonic under `sdd/<NNN-slug>/spec` (a single concatenated observation). A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
 - Optional: **ticket/issue id** (carry-through to `sdd-apply`'s commit close-token per `_shared/conventions/commits.md`; spec itself does not use it)
 - Optional: a `## Skills to load before work` block
 
@@ -42,156 +47,180 @@ From the orchestrator:
 Follow, on each save, rather than restating here:
 
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — Mnemonic save shape (`title == topic_key`, `scope: "project"`, active `session_id`; **no** `project:` parameter, **no** `capture_prompt` field; `mem_search` returns previews — always `mem_get_observation(id)` for full content).
-- [`../_shared/conventions/openspec.md`](../_shared/conventions/openspec.md) — change-folder layout, delta-spec section semantics, `rules.specs` from `openspec/config.yaml`.
+- [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout, `acceptance.feature` placement, `rules.spec` from `docs/skillgrid/config.yaml`.
+- [`references/acceptance-format.md`](references/acceptance-format.md) — the Gherkin shape, tagging rules, and scenario count floor (1 happy + 1 edge + 1 failure per step), threat-row coverage rules, and traceability rules.
 - [`../_shared/conventions/mnemonic-code-indexing.md`](../_shared/conventions/mnemonic-code-indexing.md) — the `code_*` ladder, used only when you want to *verify* a scenario has code to test against (optional; a spec is a WHAT-document and does not require it).
-- [`references/threat-matrix.md`](references/threat-matrix.md) — the boundary rows the design filled in; the applicable ones feed this phase's Required RED scenarios (local copy of `sdd-design`'s matrix for a self-contained skill).
+- [`references/threat-matrix.md`](references/threat-matrix.md) — the boundary rows the plan filled in; the applicable ones feed this phase's per-step scenarios (local copy of `sdd-design`'s matrix for a self-contained skill).
 
 ## Skill Loading
 
 1. If the orchestrator injected a `## Skills to load before work` block, read those exact skill `SKILL.md` paths first.
 2. Otherwise recover inputs from Mnemonic (previews are not enough — always fetch full content):
-   - `skillgrid-mnemonic_mem_search(query: "sdd/{change-name}/proposal")` → `skillgrid-mnemonic_mem_get_observation(id)` — **required**; the **Capabilities** section is your primary contract.
-   - `skillgrid-mnemonic_mem_search(query: "sdd/{change-name}/design")` → `skillgrid-mnemonic_mem_get_observation(id)` — **required**; the design's threat-matrix applicable rows feed this phase.
+   - `skillgrid-mnemonic_mem_search(query: "sdd/<NNN-slug>/intent")` → `skillgrid-mnemonic_mem_get_observation(id)` — **required**; success criteria and Step Blueprint.
+   - `skillgrid-mnemonic_mem_search(query: "sdd/<NNN-slug>/plan")` → `skillgrid-mnemonic_mem_get_observation(id)` — **required**; per-step WHAT blocks and threat-matrix applicable rows.
+   - `skillgrid-mnemonic_mem_search(query: "sdd/<NNN-slug>/tasks")` → `skillgrid-mnemonic_mem_get_observation(id)` — **required**; the step tree and any step the tasks phase flagged.
    - `skillgrid-mnemonic_mem_search(query: "sdd-init/{project}")` → `..._mem_get_observation(id)` — detected project facts (stack, testing, tracker).
-3. Read `openspec/config.yaml` if present — `context:` and `rules.specs` bind this phase.
-4. For every **Modified** capability, read the existing main spec `openspec/specs/{domain}/spec.md` — you cannot write a correct MODIFIED block against a requirement you have not read. For every **New** capability, confirm that file does NOT yet exist (a "New" capability whose spec already exists is a proposal bug — flag in `risks`).
+3. Read the filesystem primary copies in the change folder: `docs/skillgrid/changes/<NNN-slug>/intent.md`, `plan.md`, and the `steps/` tree (list the NN folders and read each `tasks.md` — you must write one `acceptance.feature` into each folder).
+4. Read `docs/skillgrid/config.yaml` if present — `context:` and `rules.spec` bind this phase.
 
 ## What to Do
 
-### Step 1: Map Capabilities → Spec Files
+### Step 1: Walk the step tree
 
-Mechanically, no inference. From the proposal's **Capabilities** section:
+List the step folders in dependency order (NN ascending):
 
 ```
-FOR EACH entry under "New Capabilities":
-  → write openspec/changes/{change-name}/specs/<capability>/spec.md
-    AS A FULL SPEC (## Purpose + ## Requirements), not a delta.
-    Reason: there is no existing behavior to be a delta against.
-
-FOR EACH entry under "Modified Capabilities":
-  → read openspec/specs/<capability>/spec.md  (REQUIRED)
-  → write openspec/changes/{change-name}/specs/<capability>/spec.md
-    AS A DELTA SPEC (## ADDED / ## MODIFIED / ## REMOVED / ## RENAMED).
+ls docs/skillgrid/changes/<NNN-slug>/steps/
 ```
 
-Write **New** specs before **Modified** ones so ADDED blocks are unambiguous. If the proposal has **no** Capabilities section (older format), fall back to inferring from the proposal's **Affected Areas** — and note in the envelope `risks` that `sdd-propose` should have filled Capabilities.
+For every step folder you MUST produce exactly one `steps/<NN-name>/acceptance.feature`. If `sdd-tasks` created a step folder and you do not write an `acceptance.feature` into it, flag it in `risks` — that step will `blocked` at verify time because `sdd-verify` requires the file.
 
-### Step 2: Write the Specs
+### Step 2: Write each step's acceptance.feature
 
-**Full spec** (New capability) and **delta spec** (Modified capability) formats are in [`references/delta-spec-format.md`](references/delta-spec-format.md). The one rule that matters most:
+Follow the format in [`references/acceptance-format.md`](references/acceptance-format.md). The one rule that matters most:
 
-> **MODIFIED is REPLACE semantics, not PATCH semantics.**
-> Copy the **ENTIRE** existing requirement block — name, body, and **every scenario** — from `openspec/specs/{domain}/spec.md`, paste it under `## MODIFIED Requirements`, then edit the copy. `sdd-archive` replaces the main-spec requirement with your MODIFIED block byte-for-byte; any scenario you did not copy is **gone** the moment archive runs.
+> **An `acceptance.feature` is WHAT, not HOW.** No file paths, function names, or line numbers in Given/When/Then lines. `sdd-apply` writes the implementation; your scenarios are its acceptance contract.
 
-Requirements carry RFC 2119 keywords. Scenarios are Given/When/Then. Every requirement has at least one scenario, covering a happy path **and** an edge case (or failure state). Keep scenarios testable — someone should be able to write an automated test directly from one.
+Per step:
 
-### Step 3: Carry the Design's Applicable Threat Rows
+```gherkin
+# <NN>-<name> acceptance
+# Source: intent.md + plan.md (docs/skillgrid/changes/<NNN-slug>/)
 
-Read the design's `## Threat Matrix`. For **each row marked `Applicable`**, ensure at least one scenario in the spec set covers it. This is the point of design-before-spec: the design's "required RED tests" become concrete GIVEN/WHEN/THEN here, not later in `sdd-tasks`.
+Feature: <one-line capability for this step>
+  As a <role>
+  I want <capability>
+  So that <value>
 
-- If a spec covers a row, that is enough — do not force a dedicated `## Required RED tests` section.
-- If a design-applicable row has no covering scenario, add one under the domain it belongs to, or flag the gap in the envelope `risks` (do not silently drop it).
+  @happy @p0
+  Scenario: <happy path — from a plan WHAT bullet>
+    Given <precondition>
+    When  <action>
+    Then  <observable outcome>
+
+  @edge
+  Scenario: <edge case — from a plan WHAT bullet or an intent edge-criterion>
+    Given <precondition>
+    When  <action>
+    Then  <outcome at the boundary>
+
+  @failure @p1
+  Scenario: <failure / rejection / rollback — from WHAT or threat-row>
+    Given <precondition>
+    When  <action>
+    Then  <expected error / status / fallback>
+```
+
+Rules (from `acceptance-format.md`):
+- One `Feature` per file.
+- ≥ 3 scenarios per step: one `@happy`, one `@edge`, one `@failure`. Omitting one requires a `#` comment with the reason.
+- Tags `@happy` / `@edge` / `@failure` / `@p0` / `@p1` / `@security` are the selection contract for `sdd-verify`.
+- Scenario names unique within the file; `sdd-apply`'s test task and `sdd-verify`'s compliance table both reference them literally.
+- Write the `@happy` and `@edge` scenarios first (from the plan's WHAT bullets), then the `@failure` (from a threat-row if one maps to this step, else the WHAT edge/failure bullet).
+
+### Step 3: Carry the Plan's Applicable Threat Rows into Scenarios
+
+Read the plan's `## Threat Matrix`. For **each row marked `Applicable`**, the plan named an owning step. In **that step's** `acceptance.feature`, ensure at least one scenario covers the row's concrete case (GIVEN/WHEN/THEN matching the plan's expected safe/failure behavior).
+
+- If a scenario covers a row, that is enough — do not force a dedicated `# Required RED tests` section.
+- If a plan-applicable row has no covering scenario in its owning step, add one — or flag the gap in the envelope `risks` (do not silently drop it).
 - `N/A` rows need no scenario and no action.
 
-### Step 4: REMOVED and RENAMED Discipline
-
-- **REMOVED**: every block MUST include `(Reason: …)`. Include `(Migration: …)` (or `Migration: None`) when consumers, persisted data, docs, or tests are affected.
-- **RENAMED**: state both names in the heading — `### Requirement: {old} → {new}` — and include a `(Migration: …)` for references, tests, and docs that still point at the old name.
-- Adding **new** behavior alongside existing behavior → use `## ADDED`, not `## MODIFIED`.
-
-### Step 5: Persist Artifact
-
-**MANDATORY — do not skip.** Follow [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md). Hybrid = BOTH writes:
-
-1. **Filesystem** — write each domain file `openspec/changes/{change-name}/specs/{domain}/spec.md`.
-2. **Mnemonic** — start one session, then one save per change (concatenate domains so a single `mem_get_observation` id retrieves the whole spec):
-
-  ```
-  sid = skillgrid-mnemonic_mem_session_start(title: "sdd/{change-name}/spec")
-
-  skillgrid-mnemonic_mem_save(
-    title:      "sdd/{change-name}/spec",
-    topic_key:  "sdd/{change-name}/spec",
-    type:       "architecture",
-    scope:      "project",
-    session_id: "{sid}",
-    content:    "## {domain-1}\n\n…full spec…\n\n## {domain-2}\n\n…full spec…"
-  )
-  ```
-
-  One observation per change (concatenated with `## {domain}` headers) keeps the pipeline consistent with `sdd/{change}/proposal` and `sdd/{change}/design`. `topic_key` upserts — re-running the phase replaces the observation in place. Mnemonic save notes: `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both.
-
-Do not branch on mode — `hybrid` is the only mode for this phase.
-
-### Step 6: Self-Check (no external validator binary)
+### Step 4: Self-Check (no external validator binary)
 
 Before returning, confirm each — fix any failure before returning `success`, otherwise return `partial` with the failed item in `risks`:
 
-1. Every requirement has ≥ 1 scenario.
-2. Every RFC 2119 keyword in a requirement body is **uppercase** (`MUST`, `SHALL`, `SHOULD`, `MAY` — lowercase `must`/`should` is not a keyword).
-3. Every `## MODIFIED` block contains **all** scenarios from the existing main spec that the delta does not explicitly remove.
-4. Every `## REMOVED` block has a `(Reason: …)`.
-5. Every `## RENAMED` heading states `{old} → {new}` explicitly.
-6. Every applicable design threat-row has a covering scenario (Step 3).
-7. A "New" capability has no pre-existing main spec; a "Modified" capability's main spec exists and was read.
-8. Spec body is within the size budget.
+1. Every step folder under `steps/` has exactly one `acceptance.feature`.
+2. Every `acceptance.feature` has a `Feature:` and ≥ 3 `Scenario:` lines (`@happy`, `@edge`, `@failure`).
+3. Every `Scenario` line has Given, When, and at least one Then (Gherkin well-formed).
+4. Every plan per-step WHAT bullet is covered by ≥ 1 scenario in that step's file.
+5. Every applicable plan threat-row has a covering scenario in the owning step's file (Step 3).
+6. No scenario names a file path, function name, or line number (WHAT not HOW).
+7. Scenario names are unique within each file.
+8. Filesystem `steps/*` `acceptance.feature` set and the Mnemonic concatenated content are **consistent**.
 
-### Step 7: Return Envelope
+### Step 5: Persist Artifact (hybrid — MANDATORY, do not skip)
 
-**Your FINAL output MUST be text — not a tool call.** If you still need a `mem_save`, do it *before* this text (Step 5 already did). A trailing tool call buries the analysis in the tool result; returning text is what the orchestrator reads back.
+Follow [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md). Hybrid = BOTH writes:
+
+1. **Filesystem** — one `steps/<NN-name>/acceptance.feature` per step.
+2. **Mnemonic** — start one session, then one save per change (concatenate steps so a single `mem_get_observation` id retrieves the whole spec):
+
+```
+sid = skillgrid-mnemonic_mem_session_start(title: "sdd/<NNN-slug>/spec")
+
+skillgrid-mnemonic_mem_save(
+  title:      "sdd/<NNN-slug>/spec",
+  topic_key:  "sdd/<NNN-slug>/spec",
+  type:       "architecture",
+  scope:      "project",
+  session_id: "{sid}",
+  content:    "## Step 01-{name}\n\n{full 01 acceptance.feature}\n\n## Step 02-{name}\n\n{full 02 acceptance.feature}\n..."
+)
+```
+
+One observation per change (concatenated with `## Step {NN}-{name}` headers) keeps the pipeline consistent with `sdd/<NNN-slug>/intent` and `sdd/<NNN-slug>/plan`. `topic_key` upserts — re-running the phase replaces the observation in place. Mnemonic save notes: `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both.
+
+Do not branch on mode — `hybrid` is the only mode for this phase.
+
+### Step 6: Return Envelope
+
+**Your FINAL output MUST be text — not a tool call.** Do the `mem_save` (Step 5) *before* this text. A trailing tool call buries the analysis in the tool result; returning text is what the orchestrator reads back.
 
 ```markdown
-## Specs Created
-**Change**: {change-name}
+## Step Acceptance Created
+**Change**: {NNN-slug}
 **Status**: success | partial | blocked
 **Executive summary**: 1–3 sentences.
 
-**Specs written**
-| Domain | Type | Requirements (A/M/R) | Scenarios |
-|--------|------|----------------------|-----------|
-| {domain} | New | {n} | {n} |
-| {domain} | Delta | {a}/{m}/{r} | {n} |
+### Acceptance coverage
+| Step | Feature | Scenarios (H/E/F) | Threat rows covered |
+|---|---|---|---|
+| 01-{name} | {feature line} | {n}/{n}/{n} | {k applicable → k covered} |
+| 02-{name} | {feature line} | {n}/{n}/{n} | {k applicable → k covered} |
 
-**Coverage**: happy {covered|missing} · edge {covered|missing} · error {covered|missing}
-**Threat-matrix handoff**: {K applicable rows, all covered} | {list the gaps} | {not applicable}
+**Coverage**: happy {covered|missing} · edge {covered|missing} · failure {covered|missing}
+**Plan threat-matrix handoff**: {K applicable rows, all covered} | {list the gaps} | {not applicable}
 **Open questions**: {list, or "None"}
 **Skill resolution**: paths-injected | fallback-registry | none
 **Risks**: {list, or "None"}
-**Next**: sdd-tasks
+**Next**: sdd-apply
 ```
 
 Close the final message with a `## Key Learnings` section — 1–5 standalone factual sentences (≥ 20 chars each). Mnemonic passive capture picks these up (per `mnemonic-memory.md` § Session Close Protocol). Do not call `mem_session_summary` here — that is a top-level-agent concern; the orchestrator owns session close.
 
 ## Rules
 
-- Use Given/When/Then for every scenario; RFC 2119 for every requirement.
-- **NEW capability → full spec; MODIFIED capability → delta spec.** No exceptions.
-- **MODIFIED = copy the ENTIRE requirement block, then edit.** A partial MODIFIED block loses scenarios at archive time — this is the number-one spec defect.
-- Every requirement ≥ 1 scenario, covering a happy path and an edge case.
-- Spec is WHAT, not HOW — no file paths, line numbers, or function names in requirement text.
-- Every applicable design threat-row maps to a spec scenario (Step 3).
-- REMOVED requires `(Reason: …)`; RENAMED requires the `{old} → {new}` heading.
-- Apply any `rules.specs` from `openspec/config.yaml`.
-- **Size budget**: spec artifact body **under 650 words** (not counting scenario bodies). Prefer requirement tables over narrative. A scenario is 3–5 lines max.
-- No external binaries. Mnemonic (`mem_*`) and, if you choose, the code index (`code_*`) are the only knowledge sources. No `openspec-cli`, no `gentle-ai` spec validator, no grammar binary.
-- Return envelope per Step 7 — final action is text, not a tool call.
+- Use Gherkin `Feature`/`Scenario`/Given/When/Then for every step file.
+- **One `acceptance.feature` per step folder.** No exceptions.
+- Every scenario ≥ 1 Given, ≥ 1 When, ≥ 1 Then.
+- Every step ≥ 3 scenarios: happy, edge, failure. Omission requires a `#` comment with the reason.
+- Spec is WHAT, not HOW — no file paths, line numbers, function names, or internal symbols in Given/When/Then text.
+- Every applicable plan threat-row maps to a scenario in the **owning step** (Step 3).
+- Scenario names are unique within a file and referenceable literally by `sdd-apply` and `sdd-verify`.
+- Tags `@happy` / `@edge` / `@failure` / `@p0` / `@p1` / `@security` are the selection contract for `sdd-verify`'s test command.
+- Apply any `rules.spec` from `docs/skillgrid/config.yaml`.
+- **Size budget**: each step's `acceptance.feature` body **under 120 words** (not counting `#` comments or `Feature:` header lines). 3 scenarios × ~3 Given/When/Then lines × ~8 words = ~72 words typical.
+- No external binaries. Mnemonic (`mem_*`) and, if you choose, the code index (`code_*`) are the only knowledge sources. No `openspec-cli`, no grammar binary, no `gherkin-lint` binary.
+- Return envelope per Step 6 — final action is text, not a tool call.
 
 ## Gotchas
 
-- `mem_search` returns **300-char previews.** A preview of a 2000-char design or proposal loses most of it — always `mem_get_observation(id)`.
-- Writing a MODIFIED block with "the changed scenarios only" is the classic trap. `sdd-archive` does a replacement, not a merge — un-copied scenarios vanish on archive.
-- **Adding behavior without changing existing behavior → `## ADDED`, not `## MODIFIED`.** Reach for MODIFIED and you are likely to drop scenarios.
-- A "New" capability whose main spec already exists (or a "Modified" capability with none) is a proposal bug, not a spec bug — flag it in `risks` and let `sdd-propose` fix the Capabilities list.
+- `mem_search` returns **300-char previews.** A preview of a 2000-char plan loses most of its WHAT bullets — always `mem_get_observation(id)`.
+- **Writing an `acceptance.feature` with only the happy scenario is the classic v2 trap.** The step will `blocked` at verify time because the `@edge` / `@failure` coverage is missing. The floor is 3 scenarios per step — exception only with a `#` comment.
+- **Scenario names that name a WHAT bullet verbatim are a handoff gap for `sdd-apply`.** `sdd-apply`'s test task must reference a *concrete* scenario name — "write a test for the WHAT bullet 'as a user I can log in'" is not a name. Give each scenario a short, unique, stable name.
+- **A step without an `acceptance.feature` blocks that step at `sdd-verify` and the whole change at `sdd-archive`.** Do not skip a step folder on the theory that "it is trivial" — the trivial one is usually the one whose edge case breaks production.
 - **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`, `scope: "project"`, active `session_id`. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
-- The Mnemonic artifact is **one observation per change** (`sdd/{change}/spec`, domains concatenated) — consistent with the proposal and design saves. Do not split it into one observation per domain; recovery is one `mem_get_observation` id.
-- Design-before-spec means the design is already here. If `design.md` is missing, `sdd-design` is the phase to run next — do not write specs from a proposal alone, or you lose the threat-row handoff (Step 3).
+- The Mnemonic artifact is **one observation per change** (`sdd/<NNN-slug>/spec`, steps concatenated with `## Step {NN}-{name}` headers) — consistent with the intent and plan saves. Do not split it into one observation per step; recovery is one `mem_get_observation` id.
+- Design-before-spec means both the intent and the plan are already here. If either is missing, the correct phase to run is `sdd-design` (not this one) — do not write acceptance from an intent alone; you lose the per-step WHAT and the threat-row handoff (Step 3).
 - Do not commit from this phase. Spec is WHAT; `sdd-apply` commits the DO.
 
 ## References
 
-- [references/delta-spec-format.md](references/delta-spec-format.md) — the ADDED/MODIFIED/REMOVED/RENAMED shape, the full-spec shape, the copy-full-then-edit workflow, and the RFC 2119 quick reference.
-- [`../sdd-design/SKILL.md`](../sdd-design/SKILL.md) — the upstream phase; its `## Threat Matrix` applicable rows feed Step 3.
-- [`../sdd-propose/SKILL.md`](../sdd-propose/SKILL.md) — the proposal's Capabilities section is the contract this phase maps against.
-- [`references/threat-matrix.md`](references/threat-matrix.md) — the boundary rows the design may have marked applicable (local copy of `sdd-design`'s matrix).
+- [references/acceptance-format.md](references/acceptance-format.md) — the Gherkin shape, tagging, scenario-floor rule, threat-row coverage rules, and traceability.
+- [`../sdd-design/SKILL.md`](../sdd-design/SKILL.md) — upstream; its per-step WHAT blocks and `## Threat Matrix` applicable rows feed Steps 2–3.
+- [`../sdd-propose/SKILL.md`](../sdd-propose/SKILL.md) — the intent's **Step Blueprint** and **Success Criteria** (UAT) are the acceptance contract this phase translates into per-step scenarios.
+- [`../sdd-tasks/SKILL.md`](../sdd-tasks/SKILL.md) — upstream; it created the `steps/<NN-name>/` tree you fill.
+- [`references/threat-matrix.md`](references/threat-matrix.md) — the boundary rows the plan may have marked applicable (local copy of `sdd-design`'s matrix).
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape, session protocol, recovery ladder.
-- [`../_shared/conventions/openspec.md`](../_shared/conventions/openspec.md) — change-folder layout and delta-spec section semantics.
+- [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout, `acceptance.feature` placement, and `rules.spec`.

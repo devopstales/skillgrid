@@ -19,8 +19,8 @@ This directory stores shared reference documents consumed by real SDD skills. Do
   - [agent-config/block.md](agent-config/block.md) — the canonical `## Agent skills` payload + idempotent upsert sentinels (single source of truth)
   - [agent-config/agents.md](agent-config/agents.md) / [agent-config/claude.md](agent-config/claude.md) / [agent-config/gemini.md](agent-config/gemini.md) — per-target placement rules
 - `conventions/` — shared contract documents every SDD skill must honor:
-  - [conventions/openspec.md](conventions/openspec.md) — shared `openspec/` directory layout, artifact paths, and `config.yaml` reference.
-  - [conventions/mnemonic-memory.md](conventions/mnemonic-memory.md) — naming, write, recovery, and session-close rules for all Mnemonic memory saves (the common memory config for every sdd-* skill).
+   - [conventions/sdd-structure.md](conventions/sdd-structure.md) — the `docs/skillgrid/` directory layout (changes/archive, NNN-slug, per-step files), artifact paths, phase order, and `config.yaml` reference.
+   - [conventions/mnemonic-memory.md](conventions/mnemonic-memory.md) — naming, write, recovery, and session-close rules for all Mnemonic memory saves (the common memory config for every sdd-* skill).
   - [conventions/mnemonic-code-indexing.md](conventions/mnemonic-code-indexing.md) — the Mnemonic code-indexing ladder (`code_status` → `code_index` → `code_search` → `code_read`), config, and gotchas shared by every code-exploring skill (full schemas in the `mnemonic-code-index` skill).
   - [conventions/commits.md](conventions/commits.md) — commit message contract (conventional commits, no AI trailers, issue-tracker close token, multi-commit batches) shared by `sdd-apply`, `sdd-verify`, and any skill that commits.
 - `triage-labels.md` — the five canonical triage roles shared across trackers.

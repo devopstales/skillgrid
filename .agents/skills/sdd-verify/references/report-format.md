@@ -1,4 +1,6 @@
-# SDD Verify Report Format
+# SDD Verify Report Format (per step)
+
+Each step gets one `verification.md`. This template fills it.
 
 ## Compliance Statuses
 
@@ -7,16 +9,17 @@
 - ❌ `UNTESTED`: no covering test found.
 - ⚠️ `PARTIAL`: test passes but covers only part of the scenario.
 
-## Report Template
+## Report Template (per step)
 
 ~~~markdown
 ```yaml
 schema: skillgrid.verify-result/v1
+change: {NNN-slug}
+step: {NN-name}
 evidence_revision: sha256:{current-evidence-digest}
 verdict: pass
 blockers: 0
 critical_findings: 0
-requirements: {complete}/{actual-total}
 scenarios: {complete}/{actual-total}
 test_command: {exact command}
 test_exit_code: 0
@@ -26,16 +29,16 @@ build_exit_code: 0
 build_output_hash: sha256:{exact-output-digest}
 ```
 
-## Verification Report
+## Verification: {NNN-slug} — Step {NN-name}
 
-**Change**: {change-name}
-**Version**: {spec version or N/A}
+**Change**: {NNN-slug}
+**Step**: {NN-name}
 **Mode**: {Strict TDD | Standard}
 
 ### Completeness
 | Metric | Value |
 |--------|-------|
-| Tasks total | {N} |
+| Tasks total (this step) | {N} |
 | Tasks complete | {N} |
 | Tasks incomplete | {N} |
 
@@ -52,21 +55,21 @@ build_output_hash: sha256:{exact-output-digest}
 
 **Coverage**: {N}% / threshold: {N}% → ✅ Above / ⚠️ Below / ➖ Not available
 
-### Spec Compliance Matrix
-| Requirement | Scenario | Test | Result |
-|-------------|----------|------|--------|
-| {REQ-01} | {Scenario} | `{file} > {test}` | ✅ COMPLIANT |
-| {REQ-02} | {Scenario} | (none found) | ❌ UNTESTED |
+### Acceptance Compliance Matrix
+| Scenario (from acceptance.feature) | Tag | Test | Result |
+|-------------|-----|------|--------|
+| {Scenario name} | @happy | `{file} > {test}` | ✅ COMPLIANT |
+| {Scenario name} | @edge | (none found) | ❌ UNTESTED |
 
 **Compliance summary**: {N}/{total} scenarios compliant
 
 ### Correctness (Static Evidence)
-| Requirement | Status | Notes |
+| Acceptance scenario | Status | Notes |
 |------------|--------|-------|
-| {Req name} | ✅ Implemented | {brief note} |
+| {Scenario name} | ✅ Implemented | {brief note} |
 
-### Coherence (Design)
-| Decision | Followed? | Notes |
+### Coherence (Plan)
+| Plan decision (this step) | Followed? | Notes |
 |----------|-----------|-------|
 | {Decision} | ✅ Yes | |
 
@@ -80,13 +83,13 @@ build_output_hash: sha256:{exact-output-digest}
 {one-line reason}
 ~~~
 
-The YAML envelope MUST be the first non-empty content and contains every field exactly once. Counts come from the actual retrieved specs — never invent envelope totals. A valid `fail` is a legitimate, persistable verdict: it records what was checked and what failed. Human prose after the envelope never controls routing. Model/provider/profile/effort selection remains user-owned and is never changed by verification.
+The YAML envelope MUST be the first non-empty content and contains every field exactly once. Counts come from the actual retrieved acceptance scenarios for **this step** — never invent envelope totals. A valid `fail` is a legitimate, persistable verdict: it records what was checked and what failed. Human prose after the envelope never controls routing. Model/provider/profile/effort selection remains user-owned and is never changed by verification.
 
-Before persisting, build the complete report as exact candidate bytes and self-check it (the Skillgrid replacement for an external admission validator): every envelope field is present and non-contradictory, the `requirements` / `scenarios` totals match the actual counts you retrieved from the specs, and every `CRITICAL` finding is backed by a test file / command / exit code. If the self-check fails, fix the report before persisting rather than writing an inconsistent artifact; if you cannot fix it, return `partial` and leave the prior report untouched.
+Before persisting, build the complete report as exact candidate bytes and self-check it (the Skillgrid replacement for an external admission validator): every envelope field is present and non-contradictory, the `scenarios` total matches the actual count of scenarios in this step's `acceptance.feature`, and every `CRITICAL` finding is backed by a test file / command / exit code. If the self-check fails, fix the report before persisting rather than writing an inconsistent artifact; if you cannot fix it, return `partial` and leave the prior step report untouched.
 
 ## Blocked Preflight
 
-When preflight denies entry before any command runs (no test runner detectable, the change folder missing its tasks artifact, or the edit/verify scope unsafe), emit the normal `fail` envelope plus these recovery fields and do NOT run the declared test/build commands:
+When preflight denies entry before any command runs (no test runner detectable, the step folder missing its tasks/acceptance artifact, or the edit/verify scope unsafe), emit the normal `fail` envelope plus these recovery fields and do NOT run the declared test/build commands:
 
 ```yaml
 blocked_preflight: true

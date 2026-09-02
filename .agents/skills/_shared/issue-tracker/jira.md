@@ -31,4 +31,4 @@ Create a Jira issue with `jira issue create` (type per the project's issue workf
 
 ## issue-creation mapping
 
-The `issue-creation` skill maps `openspec/changes/<id>/tasks.md` items → one Jira issue per task, all under the change's parent Epic/Story (`-P <EPIC-KEY>`). Blocking relations: prefer a native issue link type (e.g. `Blocks`) where the instance defines one; otherwise a `Blocked by: <KEY>` line at the top of the issue body. Record every issue key back into `tasks.md` (and the Mnemonic `sdd/{change-name}/issue-creation` observation) for traceability.
+The `issue-creation` skill maps each step's `tasks.md` items (`docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/tasks.md`) → one Jira issue per task, all under the change's parent Epic/Story (`-P <EPIC-KEY>`). Blocking relations: prefer a native issue link type (e.g. `Blocks`) where the instance defines one; otherwise a `Blocked by: <KEY>` line at the top of the issue body. Record every issue key back into the step's `tasks.md` (and the Mnemonic `sdd/<NNN-slug>/issue-creation` observation) for traceability.

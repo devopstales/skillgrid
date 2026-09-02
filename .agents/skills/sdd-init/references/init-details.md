@@ -5,7 +5,7 @@
 ### project_name
 
 1. Existing `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` — explicit `project_name` or repo title.
-2. `openspec/config.yaml` `context:` or `project:` field.
+2. `docs/skillgrid/config.yaml` `context:` or `project:` field.
 3. Mnemonic `sdd-init/{project}` observation.
 4. `git remote -v` owner/repo — derive short repo name.
 5. Working directory basename (last resort, confirm with user).
@@ -80,21 +80,23 @@ Registry entry format:
 | foo | "Use when …" | ~/.agents/skills/foo/SKILL.md | user |
 ```
 
-## OpenSpec Skeleton
+## SDD Skeleton
 
-Create if `openspec/` is absent:
+Create if `docs/skillgrid/` is absent:
 
 ```
-openspec/
+docs/skillgrid/
 ├── config.yaml
-├── specs/
-└── changes/
-    └── archive/
+├── changes/
+└── archive/
 ```
+
+(No `NNN-slug/` change folders yet — those are created per-change by `sdd-propose`.)
 
 `config.yaml` — keep `context:` ≤ 10 lines:
 
 ```yaml
+schema: skillgrid-sdd/v1
 project: <project_name>
 context: >
   <one-line stack summary. One-line purpose. One-line constraints.>
@@ -104,9 +106,9 @@ testing:
   runner: <command>
   layers: [unit, integration]
   coverage: <command or null>
-  strict_tdd: true | false
+  tdd: true | false
 conventions:
-  artifacts_dir: openspec
+  artifacts_root: docs/skillgrid
   scratch_dir: .skillgrid/sdd
   registry: docs/agents/skill-registry.md
 ```
@@ -130,10 +132,10 @@ The full block (for reference — the shared file is authoritative):
 Skillgrid SDD is active in this repo. The workflow, registry, and tracker below are the source of truth for agent work here.
 
 ### Workflow
-`init → explore → propose → design → spec → tasks → issue-creation → apply → verify → archive`
+`init → explore → propose → design → tasks → spec → apply → verify → archive`
 
 - Skill registry (index of installed skills + triggers): `docs/agents/skill-registry.md`
-- Project facts (stack, testing, tracker, conventions): `openspec/config.yaml` and Mnemonic (`sdd/{project}/…`)
+- Project facts (stack, testing, tracker, conventions): `docs/skillgrid/config.yaml` and Mnemonic (`sdd/{project}/…`)
 - Triage labels: `docs/agents/issue-tracker.md` + the tracker's label map
 
 ### Issue tracker
@@ -178,7 +180,7 @@ If the `<!-- skillgrid-sdd:start/end -->` markers already exist in the target, r
 | Formatter    | ✅ / ❌   | {command or —} |
 ```
 
-Strict TDD resolution: explicit marker/config wins → test runner exists but no marker ⇒ `strict_tdd: true` → no runner ⇒ `strict_tdd: false`, explain unavailable.
+Strict TDD resolution: explicit marker/config wins → test runner exists but no marker ⇒ `tdd: true` → no runner ⇒ `tdd: false`, explain unavailable.
 
 ## Mnemonic Saves
 
@@ -244,4 +246,4 @@ next: "/sdd-explore <change-idea>"
 risks: []
 ```
 
-If `openspec/` pre-existed: `updated` lists touched files, `risks` notes what was preserved.
+If `docs/skillgrid/` pre-existed: `updated` lists touched files, `risks` notes what was preserved.

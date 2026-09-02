@@ -20,4 +20,4 @@ Read `.backlog/tasks/<ID>.md`. Duplicate-search first: `grep -ri "<keyword>" .ba
 
 ## issue-creation mapping
 
-The `issue-creation` skill maps `openspec/changes/<id>/tasks.md` items → one backlog ticket per task, with dependency notes referencing sibling task IDs.
+The `issue-creation` skill maps each step's `tasks.md` items (`docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/tasks.md`) → one backlog ticket per task, with dependency notes referencing sibling task IDs.

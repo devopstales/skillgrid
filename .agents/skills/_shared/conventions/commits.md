@@ -163,10 +163,10 @@ This reverts commit 2a91c4. The inlined path regressed on ARM64.
 
 ## SDD workflow integration
 
-- **The commit *is* the checkpoint.** After each SDD phase (`sdd-apply` batch, `sdd-verify`) completes cleanly, commit before moving on. The `sdd-apply` progress line in `tasks.md` and the commit SHA together form the recovery record — do not move to the next task until the commit exists and the `tasks.md` line is marked `[x]`.
-- **Before committing**: confirm the change is in the expected state per `sdd-verify` — tests pass, `verify-report.md` exists at `openspec/changes/<id>/verify-report.md`.
-- **Do not commit** work whose `verify-report.md` says anything but "pass."
-- **The commit message names *what* changed and *which ticket* it resolves.** The *why* and *how* live in the design doc and the PR description — not the commit.
+- **The commit *is* the checkpoint.** After each SDD step (`sdd-apply` batch) completes cleanly, commit before moving on. The `sdd-apply` progress line in `steps/<NN-name>/tasks.md` and the commit SHA together form the recovery record — do not move to the next task until the commit exists and the `tasks.md` line is marked `[x]`.
+- **Before committing**: confirm the change is in the expected state per `sdd-verify` — tests pass, the step's `verification.md` exists at `docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/verification.md` with verdict `PASS` or `PASS WITH WARNINGS`.
+- **Do not commit** work whose step `verification.md` says anything but "pass".
+- **The commit message names *what* changed and *which ticket* it resolves.** The *why* and *how* live in the plan (the step's `acceptance.feature` for the behavior contract) and the PR description — not the commit.
 - Archive the change with `sdd-archive` *after* the commit lands, not before.
 
 ## CLI / tool interactions

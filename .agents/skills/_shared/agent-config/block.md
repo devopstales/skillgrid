@@ -15,10 +15,10 @@ Copy exactly, fill the `{placeholders}`, wrap between the sentinels. Do not add 
 Skillgrid SDD is active in this repo. The workflow, registry, and tracker below are the source of truth for agent work here.
 
 ### Workflow
-`init → explore → propose → design → spec → tasks → issue-creation → apply → verify → archive`
+`init → explore → propose → design → tasks → spec → apply → verify → archive`
 
 - Skill registry (index of installed skills + triggers): `{registry}`
-- Project facts (stack, testing, tracker, conventions): `openspec/config.yaml` and Mnemonic (`sdd/{project}/…`)
+- Project facts (stack, testing, tracker, conventions): `docs/skillgrid/config.yaml` and Mnemonic (`sdd/{project}/…`)
 - Triage labels: `docs/agents/issue-tracker.md` + the tracker's label map
 
 ### Issue tracker

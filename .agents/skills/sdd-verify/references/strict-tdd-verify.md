@@ -28,8 +28,8 @@ Read apply-progress artifact:
 │   │
 │   ├── TRIANGULATE column:
 │   │   ├── If "✅ N cases" → verify N test cases exist in the test file
-│   │   ├── If "➖ Single" → verify spec truly has only one scenario for this task
-│   │   └── Flag: WARNING if spec has multiple scenarios but only 1 test case
+│   │   ├── If "➖ Single" → verify the step's acceptance truly has only one scenario for this task
+│   │   └── Flag: WARNING if the step's acceptance has multiple scenarios but only 1 test case
 │   │
 │   ├── SAFETY NET column:
 │   │   ├── If "✅ N/N" → existing tests were run before modification (good)
@@ -230,7 +230,7 @@ FOR EACH test file related to the change:
 │
 ├── Check triangulation quality:
 │   ├── Count distinct test cases per behavior
-│   ├── If only 1 test case exists for a behavior with multiple spec scenarios:
+│   ├── If only 1 test case exists for a behavior with multiple acceptance scenarios:
 │   │   └── Flag: WARNING — "Insufficient triangulation for {behavior}"
 │   ├── If all test cases assert the SAME type of value (e.g., all check empty arrays):
 │   │   └── Flag: WARNING — "No variance in test expectations — all assert empty/trivial"

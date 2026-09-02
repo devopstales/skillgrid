@@ -25,4 +25,4 @@ Create a GitHub issue.
 
 ## issue-creation mapping
 
-The `issue-creation` skill maps `openspec/changes/<id>/tasks.md` items → one GitHub issue per task; use GitHub's native issue dependencies for blocking relations where available, otherwise a `Blocked by: #<n>` line at the top of the issue body.
+The `issue-creation` skill maps each step's `tasks.md` items (`docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/tasks.md`) → one GitHub issue per task; use GitHub's native issue dependencies for blocking relations where available, otherwise a `Blocked by: #<n>` line at the top of the issue body.

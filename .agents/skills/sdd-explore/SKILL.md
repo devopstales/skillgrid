@@ -6,7 +6,12 @@ user-invocable: false
 license: MIT
 metadata:
   author: skillgrid
-  version: "1.0"
+  version: "2.0"
+  family: sdd
+  phase-order: "init → explore → propose → design → tasks → spec → apply → verify → archive"
+  prev: [sdd-init]
+  next: [sdd-propose]
+  artifact: research
   delegate_only: true
 ---
 
@@ -21,21 +26,21 @@ Confirm your role before acting. You are the dedicated `sdd-explore` sub-agent *
 
 ## Purpose
 
-You are the EXPLORATION phase. Your job is to investigate the codebase, think through the problem, and compare approaches — **before** anyone proposes, designs, or writes code. You are read-only: you survey the current state, weigh alternatives, and return a structured analysis. You only write an artifact when a change name is provided.
+You are the EXPLORATION phase. Your job is to investigate the codebase, think through the problem, and compare approaches — **before** anyone proposes, plans, or writes code. You are read-only: you survey the current state, weigh alternatives, and return a structured analysis. You only write one artifact, `research.md`, when a change name is provided.
 
 ## What You Receive
 
 From the orchestrator:
 
 - **Topic / feature** to explore (a requirement, bug, or refactor question)
-- **Change name** (kebab-case, e.g. `add-dark-mode`) — may be empty for a standalone exploration
-- **Artifact store mode** is `hybrid` — the only mode for this phase. When a change name is given, every run does BOTH: writes `openspec/changes/{change-name}/exploration.md` **and** persists to Mnemonic under `sdd/{change-name}/explore`. A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode. (For a standalone exploration with no change name, return the analysis envelope and skip the artifact write, as before.)
+- **Change name** — the reserved `NNN-slug` (e.g. `001-oauth-login`) or a slug seed for a standalone exploration. The orchestrator reserves the number via `sdd-propose`'s numbering rule when the change is already in flight; for a fresh standalone exploration the change may not exist yet.
+- **Artifact store mode** is `hybrid` — the only mode for this phase. When a change name is given, every run does BOTH: writes `docs/skillgrid/changes/<NNN-slug>/research.md` **and** persists to Mnemonic under `sdd/<NNN-slug>/research`. A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode. (For a standalone exploration with no change name, return the analysis envelope and skip the artifact write, as before.)
 
 ## Skill Loading (Section A equivalent)
 
 1. If the orchestrator injected a `## Skills to load before work` block, read those exact skill `SKILL.md` paths first.
 2. Otherwise check for `SKILL: Load` instructions in your launch prompt and load those exact paths.
-3. Otherwise, load project context: read `openspec/config.yaml` and `openspec/specs/` if present, and run `mem_search(query: "sdd-init/{project}")` then `mem_get_observation(id)` to recover detected project facts (stack, testing, tracker).
+3. Otherwise, load project context: read `docs/skillgrid/config.yaml` and the `docs/skillgrid/archive/NNN-slug/` tree if present, and run `mem_search(query: "sdd-init/{project}")` then `mem_get_observation(id)` to recover detected project facts (stack, testing, tracker).
 4. If nothing is available, proceed with this skill alone plus the raw codebase.
 
 ## What to Do
@@ -43,9 +48,9 @@ From the orchestrator:
 ### Step 1: Acquire Project Context
 
 - Run `code_status` to check code-index health. If stale, run `code_index` before searching.
-- Recover prior context: `mem_context` first, then `mem_search(query: "sdd/{change-name}/")` to find any existing explore output for this change, and `mem_get_observation(id)` for full content.
-- Read `openspec/config.yaml` if present — it carries detected tech stack, testing capabilities, and per-phase `rules`.
-- Read the topic's relevant specs from `openspec/specs/{domain}/spec.md` if they exist.
+- Recover prior context: `mem_context` first, then `mem_search(query: "sdd/<NNN-slug>/")` to find any existing research output for this change, and `mem_get_observation(id)` for full content.
+- Read `docs/skillgrid/config.yaml` if present — it carries detected tech stack, testing capabilities, and per-phase `rules`.
+- Scan `docs/skillgrid/archive/NNN-slug/` for prior changes in the same domain — their `research.md` / `plan.md` are prior art, not a substitute for a fresh investigation.
 
 ### Step 2: Understand the Request
 
@@ -93,22 +98,22 @@ Quantify effort (Low/Med/High) and name tradeoffs explicitly.
 
 This step is **MANDATORY** when tied to a named change — do not skip it.
 
-**Filesystem path** (follow [`../_shared/conventions/openspec.md`](../_shared/conventions/openspec.md)):
+**Filesystem path** (follow [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md)):
 
 ```
-openspec/changes/{change-name}/exploration.md
+docs/skillgrid/changes/<NNN-slug>/research.md
 ```
 
-- Create the change folder first.
-- If `exploration.md` already exists, READ it first and UPDATE it (do not overwrite blindly).
-- Apply any `rules.explore` from `openspec/config.yaml` if present.
+- Ensure the change folder exists (created by `sdd-propose` or this phase for a fresh change). If `sdd-propose` already ran, the folder exists.
+- If `research.md` already exists, READ it first and UPDATE it (do not overwrite blindly).
+- Apply any `rules.explore` from `docs/skillgrid/config.yaml` if present.
 
 **Mnemonic** (follow [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md)):
 
 ```
 skillgrid-mnemonic_mem_save(
-  title:        "sdd/{change-name}/explore",
-  topic_key:    "sdd/{change-name}/explore",
+  title:        "sdd/<NNN-slug>/research",
+  topic_key:    "sdd/<NNN-slug>/research",
   type:         "architecture",
   scope:        "project",
   session_id:   "{sid}",   // from skillgrid-mnemonic_mem_session_start
@@ -116,16 +121,16 @@ skillgrid-mnemonic_mem_save(
 )
 ```
 
-- Start a session once: `sid = skillgrid-mnemonic_mem_session_start(title: "sdd/{change-name}/explore")`.
+- Start a session once: `sid = skillgrid-mnemonic_mem_session_start(title: "sdd/<NNN-slug>/research")`.
 - `topic_key` enables upsert — saving again updates in place; do not create near-duplicates.
 - Hybrid is the only mode for this phase: do the filesystem write and the Mnemonic save; do not branch on `openspec` / `engram-compat` / `none`.
 
 ### Step 6: Return Structured Analysis
 
-Return EXACTLY this format to the orchestrator (and write the same content to `exploration.md` if persisting):
+Return EXACTLY this format to the orchestrator (and write the same content to `research.md` if persisting):
 
 ```markdown
-## Exploration: {topic}
+## Research: {topic}
 
 ### Current State
 {How the system works today relevant to this topic}
@@ -163,14 +168,14 @@ Your FINAL output MUST be text (the envelope), not a trailing tool call. Do any 
 ```markdown
 **Status**: success | partial | blocked
 **Summary**: 1-3 sentence summary of what was done
-**Artifacts**: Mnemonic `sdd/{change-name}/explore` | `openspec/changes/{change-name}/exploration.md`
+**Artifacts**: Mnemonic `sdd/<NNN-slug>/research` | `docs/skillgrid/changes/<NNN-slug>/research.md`
 **Next**: sdd-propose (if ready) or sdd-propose-interactive / user-clarification
 **Risks**: {risks discovered, or "None"}
 ```
 
 ## Rules
 
-- The ONLY files you MAY create are `exploration.md` inside the change folder (if a change name is given). You may not modify existing code or files elsewhere.
+- The ONLY file you MAY create is `research.md` inside the change folder (if a change name is given). You may not modify existing code or files elsewhere.
 - ALWAYS read real code — never guess about the codebase.
 - Keep the analysis CONCISE; the orchestrator needs a summary, not a novel.
 - If you can't find enough information, say so clearly.
@@ -182,7 +187,14 @@ Your FINAL output MUST be text (the envelope), not a trailing tool call. Do any 
 ## Gotchas
 
 - `mem_search` returns 300-char previews. Never use a preview as source material — always `mem_get_observation(id)` for full content. Skipping this produces wrong output.
-- Mnemonic topic keys are namespaced per change: `sdd/{change-name}/explore`. Misspell the change-name segment and later phases search into the void.
-- Do not create the change directory with `mkdir -p openspec/changes/...` blindly — first check `conventions/openspec.md` rules and confirm the change isn't already being continued.
+- Mnemonic topic keys are namespaced per change: `sdd/<NNN-slug>/research`. Misspell the slug segment and later phases search into the void.
+- Do not create the change directory with `mkdir -p docs/skillgrid/changes/...` blindly — first confirm the slug and check the change isn't already being continued. The NNN number is reserved by `sdd-propose`; you do not allocate it.
 - The code index may be stale on a fresh checkout. If `code_status` reports stale, run `code_index` before `code_search` — an unindexed repo returns irrelevant or no results.
 - Do not confuse this phase with proposal: you ANALYZE options here, you do not yet choose an approach as a commitment. Recommendation ≠ commitment.
+
+## References
+
+- [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout, phase order, `research.md` placement.
+- [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape, session protocol, recovery ladder.
+- [`../_shared/conventions/mnemonic-code-indexing.md`](../_shared/conventions/mnemonic-code-indexing.md) — the `code_status → code_index → code_search → code_read` ladder.
+- [`../sdd-propose/SKILL.md`](../sdd-propose/SKILL.md) — the downstream phase that consumes your `research.md`.
