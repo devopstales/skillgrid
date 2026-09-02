@@ -3,15 +3,14 @@ name: design-spike
 description: "Build a throwaway prototype to answer a design question — state machine, data shape, or UI look. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like before committing; not for production code or feature work."
 license: MIT
 metadata:
-  author: devopstaès
+  author: devopstales
   version: "1.0"
   part-of: skillgrid
-  adapted-from: "Matt Pocock `prototype` (MIT, Copyright (c) 2026 Matt Pocock)"
 ---
 
 # design-spike
 
-A prototype is **throwaway code that answers a question**. The question decides the shape. This copy is stitched into the Skillgrid skill grid; the source of truth is the upstream at the path in `metadata.adapted-from`, or `skills/engineering/prototype/SKILL.md` in the source repo.
+A prototype is **throwaway code that answers a question**. The question decides the shape.
 
 ## Pick a branch
 
@@ -78,7 +77,6 @@ The prototype folder itself does **not** live under `docs/skillgrid/changes/<NNN
 - [references/ui.md](references/ui.md) — multi-variant UI on one route with a floating switcher.
 - [mnemonic-memory.md](../_shared/conventions/mnemonic-memory.md) — save shape and `sdd/<NNN-slug>/…` topic keys.
 - [commits.md](../_shared/conventions/commits.md) — prototype-branch and decision commits.
-- Upstream: Matt Pocock `prototype`, `LOGIC.md`, `UI.md` skills (MIT) — `skills/engineering/prototype/`.
 
 ## Gotchas
 

@@ -5,7 +5,7 @@ disable-model-invocation: true
 user-invocable: false
 license: MIT
 metadata:
-  author: devopstaès
+  author: devopstales
   version: "2.0"
   family: sdd
   part-of: skillgrid

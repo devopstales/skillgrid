@@ -3,15 +3,14 @@ name: investigate
 description: "Investigate a question against high-trust primary sources and capture the findings as one cited Markdown file. Use when you need to research a topic, gather docs or API facts, compare library options, delegate the reading legwork to a background agent, or produce the upstream research for an SDD change."
 license: MIT
 metadata:
-  author: devopstaès
+  author: devopstales
   version: "1.0"
   part-of: skillgrid
-  adapted-from: "Matt Pocock `research` (MIT, Copyright (c) 2026 Matt Pocock)"
 ---
 
 # investigate
 
-Investigate a question against **primary sources** and capture the findings as a single cited Markdown file. The source of truth is the upstream material at the path in `metadata.adapted-from`; the file is also available from the source repo at `skills/engineering/research/SKILL.md`. This copy is stitched into the Skillgrid skill grid.
+Investigate a question against **primary sources** and capture the findings as a single cited Markdown file.
 
 ## When to use
 
@@ -93,4 +92,3 @@ Keep it terse. The file is a lookup, not a blog post.
 
 - [mnemonic-memory.md](../_shared/conventions/mnemonic-memory.md) — save shape, naming, session protocol.
 - [sdd-structure.md](../_shared/conventions/sdd-structure.md) — where `research.md` sits in the change folder.
-- Upstream: Matt Pocock `research` skill (MIT) — `skills/engineering/research/SKILL.md`.

@@ -3,7 +3,7 @@ name: creating-skills
 description: Create a new agent skill (a SKILL.md plus optional scripts/references) from a real task, domain expertise, or user request. Use when the user asks to make, write, scaffold, or refine a skill; when a repeating workflow, project convention, or repeated correction should become a skill; or when validating an existing skill's structure.
 license: MIT
 metadata:
-  author: devopstaès
+  author: devopstales
   version: "1.0"
   part-of: skillgrid
 ---

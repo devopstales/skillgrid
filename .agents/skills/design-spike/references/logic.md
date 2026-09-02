@@ -4,7 +4,6 @@ A single, self-contained HTML file (a **shareable demo**) that lets anyone drive
 
 Because it's one file with nothing to install, you can hand it to a non-developer (a designer, a PM, a domain expert) and let them feel the model for themselves. So it speaks their language, not the code's.
 
-Adapted from Matt Pocock's `prototype/LOGIC.md` (MIT).
 
 ## When this is the right shape
 

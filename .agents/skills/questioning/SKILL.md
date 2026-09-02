@@ -3,7 +3,7 @@ name: questioning
 description: "Stress-test a plan, decision, or idea branch by branch before implementation, using a design tree, frontier, and rounds with recommendations. Use when you need to clarify intent, the orchestrator delegates a clarification round (explore/propose/init), or a request must be classified before design."
 license: MIT
 metadata:
-  author: devopstaès
+  author: devopstales
   version: "1.0"
   part-of: skillgrid
 ---
@@ -16,8 +16,8 @@ metadata:
 
 It merges two proven techniques:
 
-- **Design tree + frontier + rounds** (Matt Pocock *grilling*): ask the whole frontier per round, ship every question with a recommendation, and separate *facts* (agent's job) from *decisions* (user's job).
-- **Classify + approval gate** (superpowers *brainstorming*): classify the request by complexity, enforce a hard "no implementation until approved" gate, and propose 2–3 approaches with trade-offs.
+- **Design tree + frontier + rounds**: ask the whole frontier per round, ship every question with a recommendation, and separate *facts* (agent's job) from *decisions* (user's job).
+- **Classify + approval gate**: classify the request by complexity, enforce a hard "no implementation until approved" gate, and propose 2–3 approaches with trade-offs.
 
 It is cross-cutting, not a pipeline phase. Phases invoke it:
 

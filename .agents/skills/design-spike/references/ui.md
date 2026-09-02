@@ -4,7 +4,6 @@ Generate **several radically different UI variations** on a single route, switch
 
 If the question is about logic/state rather than what something looks like, this is the wrong branch. Use [logic.md](logic.md).
 
-Adapted from Matt Pocock's `prototype/UI.md` (MIT).
 
 ## When this is the right shape
 
