@@ -1,8 +1,8 @@
-# ICEbreaker SDD Plan
+# skillgrid SDD Plan
 
 Spec Driven Development Workflow using `Markdown` structure as spec source and selectable (GitHub, GitLab, Jira, Backlog.md) ticketing system. `Backlog.md` is the default tracker. It uses `Mnemonic` for long-term memory and code indexing.
 
-## ICEbreaker SDD Workflow
+## skillgrid SDD Workflow
 
 ```
 init -> explore -> propose -> design -> tasks -> spec -> apply -> verify -> archive
