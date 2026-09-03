@@ -62,9 +62,16 @@ Conventions doc: `docs/agents/issue-tracker.md`. Triage labels: `_shared/triage-
 
 Registry at `docs/agents/skill-registry.md` is an **index** (index → exact path), not a summary. Sub-agents read the full `SKILL.md` from the path.
 
-Scan user skills in: `~/.agents/skills/`, `~/.config/kilo/skills/`, `~/.claude/skills/`, `~/.gemini/skills/`, `~/.cursor/skills/`, `~/.config/agents/skills/`.
+**Use the helper script** `scripts/extract_skills.js` for scanning:
 
-Scan project skills in: `{root}/.agents/skills/`, `{root}/.claude/skills/`, `{root}/.github/skills/`, `{root}/skills/`.
+```bash
+node .agents/skills/sdd-init/scripts/extract_skills.js --root "$(git rev-parse --show-toplevel)"
+```
+
+The script scans automatically:
+
+- **User skills**: `~/.agents/skills/`, `~/.config/kilo/skills/`, `~/.claude/skills/`, `~/.gemini/skills/`, `~/.cursor/skills/`, `~/.config/agents/skills/`
+- **Project skills**: `{root}/.agents/skills/`, `{root}/.claude/skills/`, `{root}/.github/skills/`, `{root}/skills/`
 
 Rules:
 - Skip `sdd-*`, `_shared`, `skill-registry` entries from the registry listing (they are workflow machinery, not project skills).

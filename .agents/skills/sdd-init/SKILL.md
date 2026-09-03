@@ -67,12 +67,21 @@ Resolution order: existing config (step 1 sources) → git remote match (GitHub/
 
 ### 4. Validate with the user
 
-Present a single summary table: project name, tech stack, testing capability table, issue tracker, and the list of artifacts that will be created/updated. One confirmation, then write. Adjust per user corrections and re-detect only the corrected facts.
+Present findings in a sequence of short confirmations (not a single bulk table) so the user can correct one fact at a time:
+
+1. **Project name** — "Project name is X (from git remote). Correct?"
+2. **Tech stack** — "Stack: Go 1.25.5 monorepo with skillgrid-cli/ module. Correct?"
+3. **Testing capabilities** — "Test runner: `go test ./...`. Layers: unit + integration. Correct?"
+4. **Issue tracker** — "Issue tracker: GitHub (gh CLI, repo devopstales/skillgrid). Correct?"
+5. **Agent config target** — "None of AGENTS.md/CLAUDE.md/GEMINI.md exists. Create AGENTS.md as primary? (recommended)"
+6. **Artifact plan** — "Will create AGENTS.md, docs/skillgrid/config.yaml, docs/agents/skill-registry.md, docs/agents/issue-tracker.md, docs/agents/triage-labels.md, and N Mnemonic observations. Proceed?"
+
+Adjust per user corrections and re-detect only the corrected facts. Then write.
 
 ### 5. Initialize persistence
 
 Create/update the artifacts:
-1. **Skill registry** at `docs/agents/skill-registry.md` — scan and index installed skills per the scan rules in [references/init-details.md](references/init-details.md). The registry is an index (paths + triggers), not a summary.
+1. **Skill registry** at `docs/agents/skill-registry.md` — scan and index installed skills using the helper script `scripts/extract_skills.js` (`node scripts/extract_skills.js --root <project-root>`), which handles all project- and user-level skill directories per the scan rules in [references/init-details.md](references/init-details.md). The registry is an index (paths + triggers), not a summary.
 2. **Agent config** — render the canonical `## Agent skills` block from [`../_shared/agent-config/block.md`](../_shared/agent-config/block.md) and write it per the target decision matrix in [`../_shared/agent-config/README.md`](../_shared/agent-config/README.md): primary = existing `AGENTS.md` → `CLAUDE.md` → `GEMINI.md` (else ask). Use the idempotent sentinel upsert; secondary targets get a one-line pointer only. Point at `docs/agents/issue-tracker.md`.
 3. **Issue tracker doc** — write `docs/agents/issue-tracker.md` from the matching seed template in `../_shared/issue-tracker/`:
    - [`../_shared/issue-tracker/backlogmd.md`](../_shared/issue-tracker/backlogmd.md) — Backlog.md (default)
