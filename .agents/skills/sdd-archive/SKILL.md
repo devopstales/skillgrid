@@ -34,7 +34,7 @@ Phase order is `init → explore → propose → design → tasks → spec → a
 1. **The archive is the audit trail.** A future reader consults it to learn what actually shipped and when. A stale or truncated record sends them to redo finished work — or to believe something is still pending when it already closed. Archival is therefore a **mechanical, verifiable** filesystem operation (see the Mechanical Copy Contract), not a model paraphrase.
 2. **You are the completion checkpoint.** Your gates — Verification (per step) and Task Completion (per step) — are the last chance to refuse to archive work that is not actually done. Both block with no silent override.
 
-**Note on the v2 model:** in the old v1 model, archive merged the change's delta specs into the main `openspec/specs/` tree. The v2 model has no main-specs tree — the acceptance contract lives **inside each step** (`steps/<NN-name>/acceptance.feature`) and the audit trail is the archived change folder itself. Archive in v2 is a **pure move with gates**, no cross-tree merge.
+**Note on the v2 model:** in the old v1 model, archive merged the change's delta specs into a main specs tree. The v2 model has no main-specs tree — the acceptance contract lives **inside each step** (`steps/<NN-name>/acceptance.feature`) and the audit trail is the archived change folder itself. Archive in v2 is a **pure move with gates**, no cross-tree merge.
 
 ## What You Receive
 
@@ -45,7 +45,7 @@ From the orchestrator:
 - **Explicit final-state facts for work completed after the step `verification.md` files were persisted** — e.g. "this step's verify warnings were fixed in later commits", "this dependency was resolved", "the final per-step test count is N" — whenever the orchestrator has them.
 - **Any explicit intentional-archive override text** from the user/orchestrator (e.g. an approved non-critical partial archive, or an approved stale-checkbox reconciliation).
 
-**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: performs the filesystem archive-folder move **and** persists the `archive-report` to Mnemonic under `sdd/<NNN-slug>/archive-report` (with the observation IDs of everything read, for traceability). A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: performs the filesystem archive-folder move **and** persists the `archive-report` to Mnemonic under `sdd/<NNN-slug>/archive-report` (with the observation IDs of everything read, for traceability).   Do not branch on the mode.
 
 ## Execution + Persistence Conventions
 
@@ -294,7 +294,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - The archive folder name is exactly `<NNN-slug>` — no date prefix, no slug collision with an existing archive entry. If the target exists, STOP and report.
 - The archive is an AUDIT TRAIL — never delete or modify archived changes.
 - If `docs/skillgrid/archive/` does not exist, create it.
-- **Hybrid is the only mode** — always do the filesystem move AND persist the archive report to Mnemonic; never branch on `openspec` / `engram-compat` / `none`.
+- **Hybrid is the only mode** — always do the filesystem move AND persist the archive report to Mnemonic.
 - No external binaries. Mnemonic (`mem_*`) and the project's shell (`cp` / `mv` / `git mv` / `diff`) are the only tools. No `gentle-ai` native dispatcher/receipt, no `sdd-phase-common.md`, no `sdd-status-contract.md`, no admission/attestation binary.
 - Apply any `rules.archive` from `docs/skillgrid/config.yaml`.
 - Return envelope per Step 6 — final action is text, not a tool call.
@@ -309,7 +309,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - **Do not write `archive-report.md` inside the change folder before the diff.** If you do, the diff will not be empty and the phase fails. The report is a Mnemonic artifact (Step 5), not a filesystem artifact in the archive folder.
 - **Intermediate snapshots lie about "pending".** `verification.md` "pending" or "blocked" lines are point-in-time. If the launch prompt or the repo shows the fix landed later, report the final state and cite where — do not carry the stale "pending" into the archive as if it were open.
 - **The Verification Gate is not overridable.** A FAIL in any step's `verification.md` is a hard block. A launch-prompt claim "we fixed it in a later commit" does not clear it — require a fresh passing `sdd-verify` run for that step.
-- **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`, `scope: "project"`, active `session_id`. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
+- **Mnemonic save rules**: `title == topic_key`, `scope: "project"`, active `session_id`. No `project:` parameter, no `capture_prompt` field. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
 - Record **every** observation ID you read into the archive report — the archive is the lineage endpoint. A later reader who cannot trace which intent/plan/spec/tasks/apply/verification observations this cycle used has lost the audit trail.
 - A `PASS WITH WARNINGS` verdict in a step is **archive-eligible** for that step; a `FAIL` (or any CRITICAL) is not. Do not let a warnings-only note be mistaken for a block, or a FAIL be waved through as "just warnings".
 

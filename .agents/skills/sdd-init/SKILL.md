@@ -21,7 +21,7 @@ Prompt-driven skill: explore, present findings, validate with the user, then wri
 - Memory is `hybrid` always: persist to both Mnemonic and filesystem.
 - Agent config targets are `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md`. Never create a second root config file — edit the primary that exists. If none exists, ask the user which to create (default suggestion `AGENTS.md`). Selection + payload rules live in `../_shared/agent-config/`.
 - If `docs/skillgrid/` already exists, report what is there and ask before updating it.
-- Ensure the workspace is a git work tree before writing persistence artifacts: `git rev-parse --is-inside-work-tree`, and `git init` only if it fails (respects monorepos — never nest a repo inside one).
+- Use git only to detect `project_name` and `issue_tracker`; do not force a git work tree or run `git init`.
 - Confirm the full findings summary with the user before writing any artifact.
 - Default issue tracker is **Backlog.md** unless the git remote or prior config says otherwise.
 
@@ -32,7 +32,7 @@ Prompt-driven skill: explore, present findings, validate with the user, then wri
 [ ] 2. Detect stack and testing capabilities from project files
 [ ] 3. Resolve project name and issue tracker from git remote + user
 [ ] 4. Validate findings with user
-[ ] 5. Initialize persistence (git init if needed, registry, agent config, docs/skillgrid/, Mnemonic, optional Backlog.md)
+[ ] 5. Initialize persistence (registry, agent config, docs/skillgrid/, Mnemonic, optional Backlog.md)
 [ ] 6. Return the initialization envelope
 ```
 
@@ -50,9 +50,11 @@ Check, in order, and record which source answered each fact:
 
 Inspect per the checklist in [references/init-details.md](references/init-details.md): stack manifests (`package.json`, `go.mod`, `pyproject.toml`, `Cargo.toml`, `requirements.txt`), CI config, lint/test/formatter config. Detect test runner, test layers (unit/integration/E2E), coverage tool, linter, type checker, formatter. Record exact commands.
 
-### 3. Resolve issue tracker
+### 3. Resolve project name and issue tracker
 
-Four options — propose one, the user confirms:
+Use git only for detection, not for creating a work tree. Run `git remote -v` / `.git/config` if a `.git` directory exists — this gives `project_name` candidate and tracker candidate (GitHub/GitLab). If no `.git` directory exists, skip git detection entirely and ask the user for `project_name` and tracker preference.
+
+Four tracker options — propose one, the user confirms:
 
 | Option | id | Signal / requirement |
 |---|---|---|
@@ -69,11 +71,7 @@ Present a single summary table: project name, tech stack, testing capability tab
 
 ### 5. Initialize persistence
 
-First, ensure the workspace is versioned — if it is not already a git work tree, initialize it before any artifact write. Run `git rev-parse --is-inside-work-tree`; only if that fails, run `git init`. Inside a monorepo the check already passes, so this never nests a repo. All artifacts below then land in a tracked repo.
-
-Then create/update, exactly as listed:
-
-0. **Git** — if not already a work tree, `git init` here (checked above, run before anything is written).
+Create/update the artifacts:
 1. **Skill registry** at `docs/agents/skill-registry.md` — scan and index installed skills per the scan rules in [references/init-details.md](references/init-details.md). The registry is an index (paths + triggers), not a summary.
 2. **Agent config** — render the canonical `## Agent skills` block from [`../_shared/agent-config/block.md`](../_shared/agent-config/block.md) and write it per the target decision matrix in [`../_shared/agent-config/README.md`](../_shared/agent-config/README.md): primary = existing `AGENTS.md` → `CLAUDE.md` → `GEMINI.md` (else ask). Use the idempotent sentinel upsert; secondary targets get a one-line pointer only. Point at `docs/agents/issue-tracker.md`.
 3. **Issue tracker doc** — write `docs/agents/issue-tracker.md` from the matching seed template in `../_shared/issue-tracker/`:
@@ -105,7 +103,6 @@ Then create/update, exactly as listed:
 - `docs/skillgrid/config.yaml` `context:` must stay under 10 lines — it is injected into every later phase.
 - Backlog.md storage lives under `.backlog/tasks/<ID>.md` (set via `backlog_directory: .backlog` in `backlog.config.yml`), not repo root `backlog/` — the plan's tree shows both, but config is authoritative.
 - Don't re-scan the world for a fact that AGENTS.md/CLAUDE.md/GEMINI.md already answers; source precedence exists to avoid double-writing conflicting facts.
-- `git init` is the first persistence action and stays conditional — skip it whenever `git rev-parse --is-inside-work-tree` already succeeds, or you will nest a repo inside a monorepo.
 - A git remote on `gitlab.com` means GitLab even if the user says "GitHub" — confirm, don't assume.
 
 ## References

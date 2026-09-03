@@ -2,19 +2,11 @@
 
 NOTE: Critical Mnemonic calls (`mem_search`, `mem_save`, `mem_get_observation`) are inlined directly in each skill's SKILL.md. This document is supplementary reference — sub-agents do NOT need to read it to function.
 
-Applies to every Skillgrid SDD skill. Memory mode is `hybrid` always: the same artifact goes to both Mnemonic and the filesystem (openspec / docs). Mnemonic is recovery working memory, not the audit trail.
+Applies to every Skillgrid SDD skill. Memory mode is `hybrid` always: the same artifact goes to both Mnemonic and the filesystem (`docs/skillgrid/changes/<NNN-slug>/`). Mnemonic is recovery working memory, not the audit trail.
 
 ## Mnemonic Tool Mapping
 
-Mnemonic (skillgrid) differs from Engram — adapt calls to this:
-
-| Engram convention | Mnemonic equivalent |
-|---|---|
-| `mem_save(..., project: X)` | no `project` param — `scope: "project"`, name goes in `topic_key` |
-| `capture_prompt: false` | **not a parameter** — omit; never pass unknown fields |
-| `mem_update(id, ...)` | upsert via same `topic_key`; or `mem_update` only if tool exposed |
-| `ENGRAM_PROJECT` / auto-detect | Mnemonic scopes to the workspace; pass `session_id` from `mem_session_start` |
-| `mem_review` lifecycle | `mem_session_set_title` for legibility in the dashboard; no lifecycle gating |
+Mnemonic (skillgrid) local conventions:
 
 Session setup (once per agent session, before first save):
 
@@ -143,7 +135,7 @@ mem_save(
 )
 ```
 
-Upserts: same `topic_key` + `scope` → UPDATE (overwrite), not INSERT. Previous content is lost — Mnemonic is working memory, not an audit trail. For iteration history, the filesystem copy (openspec / docs) is the source of truth. Reuse `topic_key` for evolving topics instead of creating near-duplicates; never mix different topics under one key.
+Upserts: same `topic_key` + `scope` → UPDATE (overwrite), not INSERT. Previous content is lost — Mnemonic is working memory, not an audit trail. For iteration history, the filesystem copy (`docs/skillgrid/changes/<NNN-slug>/`) is the source of truth. Reuse `topic_key` for evolving topics instead of creating near-duplicates; never mix different topics under one key.
 
 ## Session Close Protocol
 

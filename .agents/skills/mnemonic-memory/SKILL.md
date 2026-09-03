@@ -6,7 +6,7 @@ metadata:
   author: devopstales
   version: "1.1"
   part-of: skillgrid
-  notes: "Ported from engram-memory. Documents the Mnemonic MCP protocol used by skillgrid."
+   notes: "Documents the Mnemonic MCP protocol used by skillgrid."
 ---
 
 # Mnemonic Persistent Memory — Protocol

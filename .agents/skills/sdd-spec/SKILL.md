@@ -39,7 +39,7 @@ Phase order is `propose → design → tasks → spec`. **You run after `sdd-tas
 From the orchestrator:
 
 - **Change id** — `<NNN-slug>` (e.g. `001-oauth-login`). The folder exists with `intent.md`, `plan.md`, and `steps/<NN-name>/tasks.md` for every step.
-- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes each `steps/<NN-name>/acceptance.feature` **and** persists to Mnemonic under `sdd/<NNN-slug>/spec` (a single concatenated observation). A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes each `steps/<NN-name>/acceptance.feature` **and** persists to Mnemonic under `sdd/<NNN-slug>/spec` (a single concatenated observation).   Do not branch on the mode.
 - Optional: **ticket/issue id** (carry-through to `sdd-apply`'s commit close-token per `_shared/conventions/commits.md`; spec itself does not use it)
 - Optional: a `## Skills to load before work` block
 
@@ -215,7 +215,7 @@ Default to option 1 only when the human partner confirms the acceptance covers t
 - Tags `@happy` / `@edge` / `@failure` / `@p0` / `@p1` / `@security` are the selection contract for `sdd-verify`'s test command.
 - Apply any `rules.spec` from `docs/skillgrid/config.yaml`.
 - **Size budget**: each step's `acceptance.feature` body **under 120 words** (not counting `#` comments or `Feature:` header lines). 3 scenarios × ~3 Given/When/Then lines × ~8 words = ~72 words typical.
-- No external binaries. Mnemonic (`mem_*`) and, if you choose, the code index (`code_*`) are the only knowledge sources. No `openspec-cli`, no grammar binary, no `gherkin-lint` binary.
+- No external binaries. Mnemonic (`mem_*`) and, if you choose, the code index (`code_*`) are the only knowledge sources. No grammar binary, no `gherkin-lint` binary.
 - Return envelope per Step 6 — final action is text, not a tool call.
 
 ## Gotchas
@@ -224,7 +224,7 @@ Default to option 1 only when the human partner confirms the acceptance covers t
 - **Writing an `acceptance.feature` with only the happy scenario is the classic v2 trap.** The step will `blocked` at verify time because the `@edge` / `@failure` coverage is missing. The floor is 3 scenarios per step — exception only with a `#` comment.
 - **Scenario names that name a WHAT bullet verbatim are a handoff gap for `sdd-apply`.** `sdd-apply`'s test task must reference a *concrete* scenario name — "write a test for the WHAT bullet 'as a user I can log in'" is not a name. Give each scenario a short, unique, stable name.
 - **A step without an `acceptance.feature` blocks that step at `sdd-verify` and the whole change at `sdd-archive`.** Do not skip a step folder on the theory that "it is trivial" — the trivial one is usually the one whose edge case breaks production.
-- **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`, `scope: "project"`, active `session_id`. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
+- **Mnemonic save rules**: `title == topic_key`, `scope: "project"`, active `session_id`. No `project:` parameter, no `capture_prompt` field. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
 - The Mnemonic artifact is **one observation per change** (`sdd/<NNN-slug>/spec`, steps concatenated with `## Step {NN}-{name}` headers) — consistent with the intent and plan saves. Do not split it into one observation per step; recovery is one `mem_get_observation` id.
 - Design-before-spec means both the intent and the plan are already here. If either is missing, the correct phase to run is `sdd-design` (not this one) — do not write acceptance from an intent alone; you lose the per-step WHAT and the threat-row handoff (Step 3).
 - Do not commit from this phase. Spec is WHAT; `sdd-apply` commits the DO.

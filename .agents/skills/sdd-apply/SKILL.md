@@ -52,7 +52,7 @@ From the orchestrator:
 - Optional: **ticket/issue id** — the apply commit close-token per `_shared/conventions/commits.md`.
 - Optional: a `## Skills to load before work` block.
 
-**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: updates each assigned step's `steps/<NN-name>/tasks.md` with `[x]` marks **and** persists progress to Mnemonic under `sdd/<NNN-slug>/apply-progress` (upserting the tasks observation for the `[x]` state). A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: updates each assigned step's `steps/<NN-name>/tasks.md` with `[x]` marks **and** persists progress to Mnemonic under `sdd/<NNN-slug>/apply-progress` (upserting the tasks observation for the `[x]` state).   Do not branch on the mode.
 
 ## Execution + Persistence Conventions
 
@@ -375,7 +375,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - When applying `size:exception`, state it explicitly in apply-progress and the return summary.
 - Apply any `rules.apply` from `docs/skillgrid/config.yaml`.
 - If Strict TDD is resolved active, pass the module `../simple-execution/references/strict-tdd.md` to the chosen route (Step 5) and have it follow the cycle for every task it executes; its rules OVERRIDE any route's default per-task WRITE step.
-- **Hybrid is the only mode** — always mark each step's filesystem `tasks.md` AND persist to Mnemonic; never branch on `openspec` / `engram-compat` / `none`.
+- **Hybrid is the only mode** — always mark each step's filesystem `tasks.md` AND persist to Mnemonic.
 - No external binaries. Mnemonic (`mem_*`) and the code index (`code_*`) are the only knowledge sources; no `gentle-ai`, no `gentleman-ai`, no CLI status/validator binary.
 - Return envelope per Step 11 — final action is text, not a tool call.
 
@@ -388,7 +388,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - In Strict TDD, a GREEN that "passes trivially" (loop runs 0 times, setup doesn't reach the code path, component never renders) is not a GREEN. The `../simple-execution/references/strict-tdd.md` TRIANGULATE step is the gate that forces real logic — do not skip it because your first GREEN was green.
 - The TDD Cycle Evidence table and the Step Evidence table are **different artifacts with different roles**: TDD table is per-task RED/GREEN/TRIANGULATE/REFACTOR; Step Evidence is per-step focused-test/acceptance-coverage/runtime/rollback. `sdd-tasks` forecasts the change-level guard; `sdd-verify` checks both. Missing either = a partial apply.
 - **Workload guard ordering.** The Step 2 check comes BEFORE any code is written — implementing an above-budget slice only to discover the delivery-strategy decision wasn't resolved wastes a batch of work and complicates rollback.
-- **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`, `scope: "project"`, active `session_id`. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
+- **Mnemonic save rules**: `title == topic_key`, `scope: "project"`, active `session_id`. No `project:` parameter, no `capture_prompt` field. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
 - If you resolved Strict TDD as active and then hit a test-runner infrastructure failure mid-cycle, mark the row FAILED and return `partial` with the reason — do NOT fall back to Standard Mode for the same task (that hides a real test-infra defect and breaks the no-silent-fallback rule).
 - **Commits are checkpoints, not decoration.** If the repo has a commit policy and the step is green, commit before returning — the SHA + the `[x]` marks are the recovery record. An uncommitted slice that later gets compacted is an expensive re-run.
 

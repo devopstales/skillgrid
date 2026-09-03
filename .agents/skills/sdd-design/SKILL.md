@@ -36,7 +36,7 @@ You design the *shape* so `sdd-tasks` can break it into work and `sdd-spec` can 
 From the orchestrator:
 
 - **Change id** — `<NNN-slug>` (e.g. `001-oauth-login`). The folder already exists and holds `intent.md` (and usually `research.md`).
-- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `docs/skillgrid/changes/<NNN-slug>/plan.md` **and** persists to Mnemonic under `sdd/<NNN-slug>/plan`. A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `docs/skillgrid/changes/<NNN-slug>/plan.md` **and** persists to Mnemonic under `sdd/<NNN-slug>/plan`.   Do not branch on the mode.
 - Optional: **ticket/issue id** (for the eventual `sdd-apply` commit close-token per `_shared/conventions/commits.md`)
 - Optional: a `## Skills to load before work` block
 
@@ -270,7 +270,7 @@ Close your final message with a `## Key Learnings` section — 1–5 standalone 
 - `mem_search` returns **300-char previews**. Never use a preview as source material — `mem_get_observation(id)` is the only full-content path. Skipping this silently degrades the plan (a 300-char preview of a 2000-char intent loses most of it).
 - The **Step WHAT block is a new obligation in v2 of this skill.** In the old model, the spec layer carried WHAT. There is no more spec layer — if you do not write per-step WHAT here, `sdd-spec` has nothing to turn into Gherkin and `sdd-apply` has nothing to test against.
 - An applicability row marked `N/A` with a **vague** reason ("none", "out of scope") is a plan decision the reviewer cannot audit. Write the *boundary* you checked and why it is not in this change.
-- **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`. `scope: "project"`. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
+- **Mnemonic save rules**: `title == topic_key`, `scope: "project"`. No `project:` parameter, no `capture_prompt`. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
 - The registry lives at `docs/agents/skill-registry.md` (disk) *and* as a Mnemonic observation (`skill-registry`). Do not invent a third location.
 - If the code index is `stale: true`, run `code_index` before `code_search`. Searching a stale index finds last-session's code, not this change's.
 - **The `Impacted Files Map` Step column is the decomposition seam.** Every file MUST appear in exactly one step. A file with no step is a task with a hole; a file in two steps is a double-count in `sdd-apply`'s Work Unit Evidence.

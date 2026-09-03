@@ -42,7 +42,7 @@ From the orchestrator:
 - **Strict TDD mode** (`true` | `false`) — if the orchestrator declares `STRICT TDD MODE IS ACTIVE`, treat it as authoritative. If not provided, resolve it in Step 2.
 - Optional: a `## Skills to load before work` block.
 
-**Artifact store mode is `hybrid` — the only mode for this phase.** For each step verified, the run does BOTH: writes `steps/<NN-name>/verification.md` **and** persists that step's report to Mnemonic under `sdd/<NNN-slug>/verification` (a single concatenated observation of all steps verified this run). A mode token of `openspec` / `engram-compat` / `none` from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+**Artifact store mode is `hybrid` — the only mode for this phase.** For each step verified, the run does BOTH: writes `steps/<NN-name>/verification.md` **and** persists that step's report to Mnemonic under `sdd/<NNN-slug>/verification` (a single concatenated observation of all steps verified this run).   Do not branch on the mode.
 
 ## Execution + Persistence Conventions
 
@@ -259,7 +259,7 @@ Verification degrades per step as artifacts are missing — never invent a compa
 - Record the exact test/build commands, exit codes, and output per step.
 - Persist a `FAIL` report just like a `PASS` — a failed verdict is a result, not a reason to discard the artifact.
 - If Strict TDD is resolved active, load `references/strict-tdd-verify.md` and include its sections; if inactive, never load or reference it.
-- **Hybrid is the only mode** — always write each step's `verification.md` AND persist to Mnemonic; never branch on `openspec` / `engram-compat` / `none`.
+- **Hybrid is the only mode** — always write each step's `verification.md` AND persist to Mnemonic.
 - No external binaries. Mnemonic (`mem_*`), the code index (`code_*`), and the project's own test/build/coverage commands are the only tools; no `gentle-ai`, no `gentleman-ai`, no separate admission-attestation binary.
 - Model/provider/profile/effort selection stays user-owned; verification never changes them.
 - Return envelope per Step 10 — final action is text, not a tool call.
@@ -274,7 +274,7 @@ Verification degrades per step as artifacts are missing — never invent a compa
 - **Ghost loops are tests that always pass.** An assertion inside a `for` over empty results never runs — audit each with a non-empty companion; flag CRITICAL.
 - **Do not trust the apply-progress TDD table blindly.** Cross-reference each reported test file against existence (RED) and re-run it (GREEN) — a GREEN you did not re-execute is not a GREEN.
 - **A step's `Depends on` is a verify gate.** A later step whose predecessor is not PASS is `blocked (dependency)`, not PASS — verify in NN order.
-- **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`, `scope: "project"`, active `session_id`. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
+- **Mnemonic save rules**: `title == topic_key`, `scope: "project"`, active `session_id`. No `project:` parameter, no `capture_prompt` field. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
 - A `FAIL` verdict is **persisted**, not skipped. `sdd-archive` should not run while any step is `FAIL`, but the report must be on disk and in Mnemonic so the orchestrator can hand the user the exact evidence of what failed **in that step**.
 - If you resolved Strict TDD as active and then cannot run the TDD audit because the apply phase left no TDD Cycle Evidence table, flag CRITICAL (the protocol was not followed) — do not silently fall back to a Standard-verify report.
 
