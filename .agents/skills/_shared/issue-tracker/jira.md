@@ -2,6 +2,8 @@
 
 Issues and specs for this repo live as Jira issues. Use the `jira` CLI ([jira-cli](https://github.com/ankitpokhrel/jira-cli)) for all operations. Referenced by issue key (`PROJ-123`), not number.
 
+**Formatting** (epic vs task templates, title conventions, priority, multi-component split, Wiki-markup cheat sheet): see [jira-formatting.md](jira-formatting.md).
+
 ## Setup (first use in a project)
 
 - `jira init` — interactive wizard: cloud vs server, auth type (`basic` email+API token, `bearer` PAT, `mtls`), server URL, default project and board. Stored at `~/.config/jira-cli/.config.yml`.

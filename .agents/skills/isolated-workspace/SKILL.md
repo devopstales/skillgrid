@@ -130,7 +130,16 @@ Ready to implement <feature-name>.
 
 - **Only when the change needs it.** A chained/stacked PR strategy or a dirty shared branch makes an isolated worktree worthwhile; a small change does not. This is a judgment the skill supports, not a rule it imposes.
 - When you do isolate, record the workspace in Mnemonic so a resumed session finds it: `mem_save(title: "sdd/<NNN-slug>/workspace", topic_key: "sdd/<NNN-slug>/workspace", type: "config", scope: "project", content: "path: ...\nbranch: ...\nbaseline: <N> tests @ <sha7>")`.
-- At finish: `sdd-archive` or `executing-plans` handles merge and cleanup — this skill only **creates** the isolation (when appropriate) and proves the baseline.
+- At finish: `sdd-archive` or the execution route (`simple-execution` / `subagent-execution`) handles merge and cleanup — this skill only **creates** the isolation (when appropriate) and proves the baseline.
+
+## Finish mirror (hand off to `finishing-a-development-branch`)
+
+This skill is the **up-front** half of worktree lifecycle. The **close-out** half lives in `finishing-a-development-branch`. When the SDD change reaches the close-out step (all steps PASS, all `[x]` marks in place):
+
+- `finishing-a-development-branch` re-runs the env detection (`GIT_DIR` / `GIT_COMMON` / `WORKTREE_PATH` — capture **before** it changes directory for cleanup).
+- Cleanup ownership: worktrees under `.worktrees/` or `worktrees/` are *ours* to remove; everything else belongs to the host.
+- **Tests-on-the-integrated-tree** is mandatory, not ceremonial — a green run only proves the tree it ran on. The per-step `sdd-verify` runs were against the branch's tree, not the merged result.
+- Never `--force` on removal; never `discard` on anything but the typed word.
 
 ## Rules
 
@@ -150,5 +159,5 @@ Ready to implement <feature-name>.
 
 ## References
 
-- [../executing-plans/SKILL.md](../executing-plans/SKILL.md) — the controller that runs after this skill establishes the branch.
+- [../simple-execution/SKILL.md](../simple-execution/SKILL.md) / [../subagent-execution/SKILL.md](../subagent-execution/SKILL.md) — the execution routes that run after this skill establishes the branch and clean up at finish.
 - [../_shared/conventions/commits.md](../_shared/conventions/commits.md) — the commit contract the isolated branch's commits follow.

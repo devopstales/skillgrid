@@ -84,9 +84,56 @@ init -> explore -> propose -> design -> tasks -> spec -> apply -> verify -> arch
     * Mechanical shell move `docs/skillgrid/changes/<NNN-slug>/` → `docs/skillgrid/archive/<NNN-slug>/` (`git mv` or `mv`), mandatory `diff -r` readback (empty diff = pass)
     * Persist `archive-report` to Mnemonic `sdd/<NNN-slug>/archive-report` with observation IDs of every artifact read (lineage)
 
+### Workflow Paths
+
+```mermaid
+flowchart TD
+    Start([Change request]) --> Init
+
+    Init["init — sdd-init<br/>context + skeleton (config.yaml, changes/, Mnemonic)"]
+    Explore["explore — sdd-explore<br/>→ research.md"]
+    Propose["propose — sdd-propose<br/>reserve NNN → intent.md"]
+    Design["design — sdd-design<br/>→ plan.md"]
+    Tasks["tasks — sdd-tasks<br/>→ steps/NN/ + tasks.md"]
+    Spec["spec — sdd-spec<br/>→ acceptance.feature per step"]
+
+    Init --> Explore
+    Explore --> Propose
+    Propose --> Design
+    Design --> Tasks
+    Tasks --> Spec
+
+    subgraph PerStep["Per step — repeat until every step passes"]
+        Spec --> Apply["apply — sdd-apply<br/>TDD/BDD, tasks.md [x] + evidence"]
+        Apply --> Verify{"verify — sdd-verify<br/>verdict per step"}
+        Verify -- "FAIL" --> Apply
+    end
+
+    Verify -- "PASS / PASS WITH WARNINGS<br/>on every step" --> ArchiveGate{"archive gate"}
+    ArchiveGate -- "unchecked task or<br/>failing step" --> Apply
+    ArchiveGate -- "gate pass" --> Archived(["docs/skillgrid/archive/<NNN-slug>/"])
+
+    Q["questioning<br/>(clarification rounds)"]
+    R["Mnemonic recovery<br/>mem_search + mem_get_observation<br/>+ code-index ladder"]
+
+    Init -.-> Q
+    Explore -.-> Q
+    Propose -.-> Q
+    Explore -.-> R
+    Propose -.-> R
+    Design -.-> R
+    Apply -.-> R
+    Verify -.-> R
+```
+
+* Happy path: `init → explore → propose → design → tasks → spec → apply → verify → archive`.
+* Loop path: `verify` FAIL (or archive gate failure) sends work back to `apply` for the failing step — no renumbering of NN.
+* Side paths: `questioning` rounds during init/explore/propose; Mnemonic + code-index recovery at any phase (survives compaction via `state.yaml` + Mnemonic topic keys).
+
 ## File Structure
 
 ### Artifact File Structure
+
 
 ```bash
 .backlog/
@@ -122,7 +169,28 @@ docs/
     │               └── verification.md     # Per-step PASS/FAIL gate + execution evidence
     └── archive/                            # HISTORICAL RECORD
         └── <NNN-slug>/                     # Completed changes moved here after successful gates
+
+docs/
+└── skillgrid/
+    └── glossary/                           # SHARED VOCABULARY (governed by the `glossary` skill)
+        ├── business.md                     # domain / product / workflow / business terms
+        └── technical.md                    # architecture / implementation / platform / protocol terms
 ```
+
+### Companion Glossary References (always-on)
+
+Per the `glossary` skill, every change has two always-on companions next to the design-bearing artifacts:
+
+```
+docs/skillgrid/changes/<NNN-slug>/
+├── intent.md
+├── intent-glossary-reference.md           # ← always-on; lists business.md terms used in intent.md
+├── plan.md
+├── plan-glossary-reference.md             # ← always-on; lists technical.md terms used in plan.md
+└── steps/...
+```
+
+Other artifacts (`research.md`, `tasks.md`, `acceptance.feature`, `verification.md`) are not required to have companions, but may link to `plan-glossary-reference.md` when they introduce a new term.
 
 ### Notes
 

@@ -250,7 +250,7 @@ Verification degrades per step as artifacts are missing — never invent a compa
 ## Rules
 
 - ALWAYS read all available artifacts before judging — per step: acceptance, plan, tasks, and the apply evidence.
-- ALWAYS run the real test and build commands for each step; static analysis alone is never verification.
+- ALWAYS run the real test and build commands for each step; static analysis alone is never verification. This phase is the application of the `verification` Iron Law — no PASS claim without fresh execution evidence in the report.
 - An acceptance scenario is compliant **only** when a covering test passed at runtime.
 - Compare **acceptance first, plan second, task completion third — per step.**
 - One `verification.md` per step. A step without a verdict is not verified.
@@ -288,3 +288,6 @@ Verification degrades per step as artifacts are missing — never invent a compa
 - [`../sdd-design/SKILL.md`](../sdd-design/SKILL.md) — upstream; its per-step WHAT and decisions are what the plan-coherence table maps to.
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active session), recovery ladder.
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout; `verification.md` placement per step; `rules.verify`; the archive step that later consumes these reports.
+- [`../verification/SKILL.md`](../verification/SKILL.md) — the Iron Law this phase enforces: no completion claim without fresh execution evidence in the current report.
+- [`../tdd/SKILL.md`](../tdd/SKILL.md) — the TDD discipline audited in Step 6; the RED/GREEN/REFACTOR cycle whose evidence trail is the assertion-quality input.
+- [`../review-reception/SKILL.md`](../review-reception/SKILL.md) — when the verify-report surfaces findings, the receiving-side discipline: verify-first, push back with evidence, one at a time.

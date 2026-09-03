@@ -25,6 +25,13 @@ Confirm your role before acting. You are the dedicated `sdd-apply` sub-agent **u
 - **Sub-agent (primary)**: you were delegated here by the SDD orchestrator. Continue with the phase work below. Do not re-delegate. Do not call the `skill()` tool again.
 - **Orchestrator (skill() loaded this directly)**: STOP. Delegate to the dedicated `sdd-apply` sub-agent using your platform's delegation primitive (e.g. `task(...)`) instead of doing the work inline.
 
+> **For agentic workers:** `sdd-apply` is a **dispatcher**. It does not write code itself. At Step 5 it MUST route the assigned step to exactly one of two execution skills and follow that skill's loop instead of implementing inline:
+>
+> - **`subagent-execution`** (see [`../subagent-execution/SKILL.md`](../subagent-execution/SKILL.md)) — REQUIRED SUB-SKILL when the workload decision is `auto-chain` / `chained-PR` / `stacked-PR`, or the step has ≥ 4 independent tasks (recommended for these). Fresh implementer subagent per task, task-scoped review after each, bounded fix loop.
+> - **`simple-execution`** (see [`../simple-execution/SKILL.md`](../simple-execution/SKILL.md)) — REQUIRED SUB-SKILL when the step is small, tightly coupled, or the delivery shape is `single-pr` under budget. Inline loop, STRICT TDD if resolved active.
+>
+> Steps use the checkbox (`- [ ]`) syntax in `steps/<NN-name>/tasks.md` for tracking; whichever route is taken flips them `- [ ]` → `- [x]` **as they complete**, and records the Step Evidence rows this phase then persists (Step 7). The dispatch decision itself is recorded in the return envelope's `Workload / PR Boundary` block.
+
 ## Purpose
 
 You are the APPLY phase — the only phase that writes production code. You take the assigned step(s) from the step tree — each `docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/` with its `tasks.md`, `acceptance.feature`, and the plan's per-step WHAT — and implement them by writing real code, following the acceptance (WHAT) and the plan (HOW) strictly. You mark each task `[x]` in **that step's** `tasks.md` as it is completed and persist a cumulative `apply-progress` artifact that `sdd-verify` (per step) and `sdd-archive` rely on.
@@ -54,7 +61,7 @@ Follow, on each save, rather than restating here:
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`; **no** `project:` parameter, **no** `capture_prompt` field; `mem_search` returns previews — always `mem_get_observation(id)` for full content; upsert via same `topic_key`).
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout; each step's `steps/<NN-name>/tasks.md` is the live artifact you mark `[x]`; `acceptance.feature` is the step's acceptance contract; `rules.apply` from `docs/skillgrid/config.yaml`; the `state.yaml` DAG state.
 - [`../_shared/conventions/commits.md`](../_shared/conventions/commits.md) — the apply commit is a checkpoint: Conventional Commits, ticket close-token footer, no AI trailers, one logical change per commit.
-- [`references/strict-tdd.md`](references/strict-tdd.md) — the Strict TDD module (RED → GREEN → TRIANGULATE → REFACTOR), loaded ONLY when Step 4 resolves Strict TDD as active.
+- [`../simple-execution/references/strict-tdd.md`](../simple-execution/references/strict-tdd.md) — the Strict TDD module (RED → GREEN → TRIANGULATE → REFACTOR), loaded ONLY when Step 4 resolves Strict TDD as active. Owned by `simple-execution`; also honored by `subagent-execution` (its dispatch brief must carry this ref when Strict TDD is active).
 - [`../sdd-tasks/SKILL.md`](../sdd-tasks/SKILL.md) — upstream; it created the step tree and the change-level `Review Workload Forecast` you enforce in Step 2.
 
 ## Skill Loading
@@ -148,13 +155,15 @@ Read testing capabilities from:
 
 Resolve mode:
 ├── IF tdd: true AND a test runner exists
-│   └── STRICT TDD MODE → load and follow [references/strict-tdd.md](references/strict-tdd.md) INSTEAD of Step 5
+│   └── STRICT TDD MODE → the chosen route (Step 5) MUST follow
+│       [../simple-execution/references/strict-tdd.md](../simple-execution/references/strict-tdd.md)
+│       for every task it executes
 ├── IF tdd: false OR no test runner
-│   └── STANDARD MODE → use Step 5 (the strict-tdd.md module is never read, never processed)
-└── Cache the resolved mode for the return summary
+│   └── STANDARD MODE → the chosen route runs without it (strict-tdd.md is never read)
+└── Cache the resolved mode for the return summary and pass it to the route
 ```
 
-**Key principle**: if Strict TDD is **not** active, ZERO TDD instructions are loaded — do not read, process, or reason from `references/strict-tdd.md`.
+**Key principle**: if Strict TDD is **not** active, ZERO TDD instructions are loaded — do not read, process, or reason from `../simple-execution/references/strict-tdd.md`.
 
 **Hard gate (Strict TDD only)**: if Strict TDD is active, you MUST produce a **TDD Cycle Evidence** table in the apply-progress artifact — every task row carries RED (test written first) → GREEN (implementation passes) → TRIANGULATE → REFACTOR. A task completed without a test written first is marked FAILED in the table. `sdd-verify` rejects work whose TDD Evidence table is missing or incomplete. There is **no silent fallback**: if you resolved Strict TDD as active, you follow it or you report failure — you do not quietly drop to Standard Mode.
 
@@ -171,22 +180,36 @@ If the plan carries applicable threat-matrix cases in the assigned step, write a
 
 When all assigned steps finish, **return control to the parent orchestrator.** The executor never launches `sdd-verify`, a review/refutation pass, a correction actor, or a scoped validator on its own — the orchestrator decides the next phase. If only focused remediation of the just-applied step is needed, do it within this apply batch and fold the result into the Step Evidence before returning; do not start a separate verification cycle from inside apply.
 
-### Step 5: Implement Tasks (Standard Workflow, per step)
+### Step 5: Route the Step to an Execution Skill (DO NOT implement inline)
 
-Used when Strict TDD is **not** active (or between Strict-TDD tasks that are purely structural). For each assigned step, then each assigned task:
+`sdd-apply` does not write code. It routes each assigned step to exactly one of the two execution skills, then collects the Step Evidence rows that skill records. The chosen skill's loop rules OVERRIDE any inline step-local guidance in this file.
+
+Choose the route from the delivery decision (Step 2) and the step's shape:
 
 ```
 FOR EACH ASSIGNED STEP (in NN order, honoring Depends-on):
-  FOR EACH ASSIGNED TASK in steps/<NN-name>/tasks.md:
-  ├── Read the task description
-  ├── Read the relevant acceptance.feature scenario (this IS the acceptance criterion — match by scenario name)
-  ├── Read the relevant plan WHAT / decisions (these CONSTRAIN your approach)
-  ├── Read existing code patterns in the affected files (match project style)
-  ├── Write the code
-  ├── Run the smallest test/command that proves this task (record it for the Step Evidence)
-  ├── Mark the task complete — change `- [ ]` to `- [x]` in steps/<NN-name>/tasks.md IMMEDIATELY
-  └── Note any issues or deviations
+  CHOOSE ROUTE:
+  ├── Subagent (REQUIRED SUB-SKILL: use ../subagent-execution/SKILL.md):
+  │   any of — workload decision is auto-chain / chained-PR / stacked-PR;
+  │            the step has ≥ 4 independent tasks;
+  │            or the task set is too large for one inline context.
+  │   → follow subagent-execution: fresh implementer per task + task-scoped
+  │     review + bounded fix loop. It writes its own .skillgrid/sdd/<NNN-slug>/ ledger.
+  │
+  └── Inline (REQUIRED SUB-SKILL: use ../simple-execution/SKILL.md):
+      small, tightly-coupled step, or single-pr under the 400-line budget.
+      → follow simple-execution: per-task loop, STRICT TDD if Step 4 resolved
+        active (it owns references/strict-tdd.md).
+
+  RECORD (regardless of route):
+  ├── The flipped `- [ ]` → `- [x]` marks in steps/<NN-name>/tasks.md (both routes mark as they go)
+  ├── The Step Evidence rows (focused test, acceptance scenario, runtime, rollback)
+  └── Any deviations or blocked tasks
 ```
+
+The route you chose and its rationale go into the return envelope's `Workload / PR Boundary` block (Step 11). A step whose shape fits both routes may use either; record which, so `sdd-verify` and a resumed session know the evidence provenance.
+
+> The inline per-task loop previously written here now lives in **`simple-execution`**; the dispatch loop lives in **`subagent-execution`**. Keep only the routing + evidence-collection here.
 
 Keep each task completable in one sitting; match the project's actual patterns — if the codebase does it differently from what the task implies, follow the existing code (and note the deviation in the summary).
 
@@ -296,7 +319,7 @@ Before returning, confirm each — fix any failure before returning `success`, e
 | `path/to/file.ext` | Created | 01 |
 | `path/to/other.ext` | Modified | 02 |
 
-{IF Strict TDD Mode → include the TDD Cycle Evidence table from references/strict-tdd.md}
+{IF Strict TDD Mode → include the TDD Cycle Evidence table from ../simple-execution/references/strict-tdd.md}
 
 ### Step Evidence
 | Step | Focused test (cmd + result) | Acceptance scenarios (name → test → result) | Runtime harness (cmd + result) | Rollback boundary |
@@ -338,6 +361,9 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 
 - ALWAYS read the step's `acceptance.feature` before implementing — the scenarios are your acceptance criteria (match by scenario name).
 - ALWAYS follow the plan's decisions — do not freelance a different approach. Match the project's ACTUAL patterns where they differ from the task's implication (and note any deviation).
+- When the plan's `## Architecture Decisions` used the `codebase-design` vocabulary, the test you write MUST cross the same seam as the production caller (do not test past the interface). If you cannot test through the interface, the module is probably the wrong shape — re-shape before adding more tests (see `codebase-design` skill, § Designing for testability).
+- **High-risk change → request code review.** After the assigned step lands green, BEFORE returning to the orchestrator, fire `requesting-code-review` when ANY of: workload forecast says `400-line budget risk: High` / `Chained PRs recommended: Yes`; the plan's `## Threat Matrix` has any `Applicable` row; this is the last step before `sdd-archive`; the change touched any `_shared/conventions/*` file or a Mnemonic tool contract. Dispatch a fresh `general` sub-agent with the `references/code-reviewer.md` template; act on the verdict (Critical/Important/Minor) before proceeding.
+- **Parallel fan-out → dispatching-parallel-agents discipline.** When the assigned step has 2+ independent work items with no shared state, follow `dispatching-parallel-agents` to fan out: pre-allocate files per sub-agent, give each a unique Mnemonic `topic_key` (e.g. `sdd/<NNN-slug>/parallel/<domain>`), issue all dispatches in one response for true parallelism, then review and integrate.
 - ALWAYS consume or produce structured state (Step guard) before implementation — do not infer readiness from conversation alone.
 - STOP on `blocked` state and do not edit; STOP on an unsafe `actionContext` or an edit outside the allowed roots; STOP on an un-satisfied step dependency.
 - Mark tasks `[x]` in each step's `tasks.md` **as you go**, not in one batch at the end.
@@ -348,7 +374,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - When applying a chained/stacked PR slice, keep the batch autonomous: one deliverable scope, verification included, clear rollback boundary.
 - When applying `size:exception`, state it explicitly in apply-progress and the return summary.
 - Apply any `rules.apply` from `docs/skillgrid/config.yaml`.
-- If Strict TDD is resolved active, load `references/strict-tdd.md` and follow its cycle INSTEAD of Step 5; its rules OVERRIDE Step 5 entirely.
+- If Strict TDD is resolved active, pass the module `../simple-execution/references/strict-tdd.md` to the chosen route (Step 5) and have it follow the cycle for every task it executes; its rules OVERRIDE any route's default per-task WRITE step.
 - **Hybrid is the only mode** — always mark each step's filesystem `tasks.md` AND persist to Mnemonic; never branch on `openspec` / `engram-compat` / `none`.
 - No external binaries. Mnemonic (`mem_*`) and the code index (`code_*`) are the only knowledge sources; no `gentle-ai`, no `gentleman-ai`, no CLI status/validator binary.
 - Return envelope per Step 11 — final action is text, not a tool call.
@@ -359,7 +385,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - `mem_search` returns **300-char previews**. A preview of a 2000-char plan/spec loses most of it — always `mem_get_observation(id)` before you rely on it as an acceptance criterion or a constraint.
 - **The tasks observation upsert is separate from apply-progress.** Step 7 writes TWO Mnemonic saves — `sdd/<NNN-slug>/tasks` (the `[x]` state) and `sdd/<NNN-slug>/apply-progress` (the cumulative evidence). Missing either leaves the other stale. The step `tasks.md` files are the recovery copy for both; keep them consistent.
 - **Step dependencies are real.** A step's `Depends on:` naming an unfinished step means `blocked`, not "I'll just do both". Crossing an unverified dependency silently breaks `sdd-verify`'s per-step evidence chain.
-- In Strict TDD, a GREEN that "passes trivially" (loop runs 0 times, setup doesn't reach the code path, component never renders) is not a GREEN. The `references/strict-tdd.md` TRIANGULATE step is the gate that forces real logic — do not skip it because your first GREEN was green.
+- In Strict TDD, a GREEN that "passes trivially" (loop runs 0 times, setup doesn't reach the code path, component never renders) is not a GREEN. The `../simple-execution/references/strict-tdd.md` TRIANGULATE step is the gate that forces real logic — do not skip it because your first GREEN was green.
 - The TDD Cycle Evidence table and the Step Evidence table are **different artifacts with different roles**: TDD table is per-task RED/GREEN/TRIANGULATE/REFACTOR; Step Evidence is per-step focused-test/acceptance-coverage/runtime/rollback. `sdd-tasks` forecasts the change-level guard; `sdd-verify` checks both. Missing either = a partial apply.
 - **Workload guard ordering.** The Step 2 check comes BEFORE any code is written — implementing an above-budget slice only to discover the delivery-strategy decision wasn't resolved wastes a batch of work and complicates rollback.
 - **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`, `scope: "project"`, active `session_id`. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
@@ -368,8 +394,13 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 
 ## References
 
-- [references/strict-tdd.md](references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR cycle, test-layer selection, assertion-quality rules, approval-testing flow, TDD Cycle Evidence table. Load only when Step 4 resolves Strict TDD as active.
+- [`../simple-execution/SKILL.md`](../simple-execution/SKILL.md) — **REQUIRED SUB-SKILL (Step 5 inline route).** Owns the inline per-task loop and `references/strict-tdd.md`; that strict-TDD module is read by this route ONLY when Step 4 resolves Strict TDD as active.
+- [`../subagent-execution/SKILL.md`](../subagent-execution/SKILL.md) — **REQUIRED SUB-SKILL (Step 5 dispatch route).** Fresh implementer subagent per task + task-scoped review + bounded fix loop. Uses its own per-plan workspace at `.skillgrid/sdd/<NNN-slug>/` and honors the same strict-tdd module for its implementer briefs.
+- [../simple-execution/references/strict-tdd.md](../simple-execution/references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR cycle, test-layer selection, assertion-quality rules, approval-testing flow, TDD Cycle Evidence table. Passed to whichever route is chosen when Strict TDD is active.
 - [`../sdd-tasks/SKILL.md`](../sdd-tasks/SKILL.md) — upstream; it created the step tree, per-step `tasks.md`, and the change-level `Review Workload Forecast` you enforce in Step 2.
+- [`../tdd/SKILL.md`](../tdd/SKILL.md) — the RED-first discipline `../simple-execution/references/strict-tdd.md` enforces; the canonical description of the cycle when Strict TDD is not active.
+- [`../verification/SKILL.md`](../verification/SKILL.md) — before marking a step `[x]`, the evidence gate: fresh test run + output in the current message, not "from earlier."
+- [`../review-reception/SKILL.md`](../review-reception/SKILL.md) — the receiving-side discipline when a fix round returns findings: verify-first, one item at a time, test each.
 - [`../sdd-spec/SKILL.md`](../sdd-spec/SKILL.md) — upstream; its per-step `acceptance.feature` scenarios are your acceptance criteria in every task.
 - [`../sdd-design/SKILL.md`](../sdd-design/SKILL.md) — upstream; its decisions and per-step WHAT constrain your approach.
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active session), recovery ladder.

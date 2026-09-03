@@ -1,5 +1,5 @@
 ---
-name: executing-plans
+name: subagent-execution
 description: "Execute an implementation plan by dispatching a fresh implementer subagent per task, running a task-scoped spec+quality review after each (not a final pass), closing findings in a bounded fix loop, and keeping a per-plan work directory of briefs, reports, review packages, and a progress ledger that survives context loss. Use when there is an implementation plan to execute and the work should be delegated to fresh subagents with review between tasks, rather than done inline in a single context."
 license: MIT
 metadata:
@@ -8,7 +8,7 @@ metadata:
   part-of: skillgrid
 ---
 
-# executing-plans
+# subagent-execution
 
 Execute a plan by dispatching a fresh implementer subagent per task, a task-scoped review (spec compliance + code quality) after each, and a broad whole-branch review at the end.
 
@@ -64,7 +64,7 @@ After all tasks: broad whole-branch review, one fix wave if needed, then finish.
 
 ## Setup
 
-Every plan gets its own work directory of short-lived, git-ignored artifacts — task briefs, implementer reports, review packages, and the progress ledger. It lives under `.sdd/<NNN-slug>/` (see `scripts/sdd-workspace`). Run:
+Every plan gets its own work directory of short-lived, git-ignored artifacts — task briefs, implementer reports, review packages, and the progress ledger. It lives under `.skillgrid/sdd/<NNN-slug>/` (see `scripts/sdd-workspace`). Run:
 
 ```
 $(dirname of this skill)/scripts/sdd-workspace <PLAN_FILE>

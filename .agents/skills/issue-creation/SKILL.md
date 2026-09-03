@@ -1,6 +1,9 @@
 ---
 name: issue-creation
-description: "Create and triage GitHub issues from repository evidence. Trigger: issue creation, bug reports, feature requests, or issue approval."
+description: >
+  Create, triage, and publish issues to the repository's tracker — Jira, GitHub, GitLab, or Backlog.md.
+  Trigger: when the user asks to create an issue/epic/task/ticket, report a bug, file a feature request,
+  or map SDD tasks to tracker issues.
 license: MIT
 metadata:
   author: devopstales
@@ -10,141 +13,142 @@ metadata:
 
 # Issue Creation
 
-## When To Use
+Create and triage issues across **Jira, GitHub, GitLab, or Backlog.md**. Which one to use is repository policy, not this skill's choice — discover it first.
 
-Use this skill when creating, drafting, triaging, or approving an issue in the current GitHub repository.
+## Tracker Resolution
+
+Read the project's `docs/agents/issue-tracker.md` (written by `sdd-init`). It names one of:
+
+| Tracker | Reference | CLI |
+|---|---|---|
+| Jira | [`../_shared/issue-tracker/jira.md`](../_shared/issue-tracker/jira.md) | `jira` CLI |
+| GitHub | [`../_shared/issue-tracker/github.md`](../_shared/issue-tracker/github.md) | `gh` CLI |
+| GitLab | [`../_shared/issue-tracker/gitlab.md`](../_shared/issue-tracker/gitlab.md) | `glab` CLI |
+| Backlog.md | [`../_shared/issue-tracker/backlogmd.md`](../_shared/issue-tracker/backlogmd.md) | `backlog` CLI |
+
+Read the referenced file before publishing. It carries the tracker-specific CLI syntax, conventions, label vocabulary, and SDD→tracker mapping.
+
+If `docs/agents/issue-tracker.md` doesn't exist, ask which tracker the project uses (never guess), and run `sdd-init` to bootstrap the conventions.
 
 ## Core Rule
 
-Discover the repository's actual contribution workflow before proposing or publishing an issue. Templates, labels, approval gates, and Discussions support are repository policy, not universal GitHub behavior.
+Discover the repository's actual contribution workflow before proposing or publishing. Templates, labels, approval gates, and issue forms are **repository policy**, not universal behavior. A skill that invents labels or bypasses an approval gate is publishing noise.
 
-## Safe Discovery
+## Discovery (per tracker)
 
-Run read-only checks first:
+Run read-only checks first, per the tracker's reference file. Common checks:
 
-```bash
-gh auth status
-REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
-REPO_URL="$(gh repo view --json url -q .url)"
-HOST="${REPO_URL#*://}"
-HOST="${HOST%%/*}"
-gh repo view --json nameWithOwner,url,hasDiscussionsEnabled,hasIssuesEnabled,isBlankIssuesEnabled
-git ls-files CONTRIBUTING.md CONTRIBUTING.* .github/CONTRIBUTING.md .github/ISSUE_TEMPLATE
-gh api --hostname "$HOST" --paginate "repos/$REPO/labels?per_page=100" --jq '.[].name'
-```
+- **Auth**: `gh auth status` / `glab auth status` / `jira config` / `backlog status`.
+- **Repo/instance**: resolve from `git remote -v` or the tracker's config.
+- **Policy**: `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE/` (GitHub), issue form / issue templates (GitLab), project config (Jira), `backlog.config.yml` (Backlog).
+- **Labels**: only apply labels that exist and that repository policy permits the actor to use. Jira: `jira issue list` + `jira project` to discover. GitHub: `gh api "repos/$REPO/labels"`. GitLab: `glab api "projects/:id/labels"`. Backlog: `backlog.config.yml`.
+- **Templates**: GitHub `ISSUE_TEMPLATE/*.md|yml`; GitLab issue templates; Jira `issue_type` defaults; Backlog `backlog.config.yml` templates.
 
-Also inspect:
-
-- repository instructions such as `CONTRIBUTING.md` and `README.md`;
-- files under `.github/ISSUE_TEMPLATE`;
-- `.github/ISSUE_TEMPLATE/config.yml` when present;
-- issue forms, required fields, and labels declared by each template;
-- existing open and closed issues for duplicates and established wording.
-
-Stop and ask for repository context if authentication, repository resolution, verification that REPO and HOST are non-empty, required metadata is unavailable, hasIssuesEnabled is false, or policy discovery fails. Never continue from failed discovery into issue publication.
-
-A no-template fallback is allowed only when isBlankIssuesEnabled is explicitly true. Otherwise follow discovered contact links or stop and ask; never publish.
-
-After discovery and review, build optional label arguments using only labels that exist and repository policy permits the actor to apply:
-
-```bash
-LABEL_ARGS=()
-# Repeat for each reviewed, permitted discovered label.
-LABEL_ARGS+=(--label "$LABEL")
-```
-
-An empty array applies no label; do not invent labels.
+Stop and ask if authentication fails, the repository/instance is unresolvable, or policy discovery fails. Never continue from failed discovery into publication.
 
 ## Workflow
 
-1. Describe the problem or request in one sentence and derive a short search query.
-2. Search open and closed issues:
+1. **Classify the issue.** One sentence for what's being reported or requested. Decide: bug, feature, task, enhancement, or epic (Jira), or the tracker's issue type.
+2. **Duplicate-search first.** Per tracker:
+   - GitHub: `gh issue list --state all --search "$QUERY" --limit 1000`
+   - GitLab: `glab issue list --state opened --search "$QUERY"`
+   - Jira: `jira issue list -q 'project = PROJ AND summary ~ "<query>" AND resolution is empty'`
+   - Backlog: `grep -ri "$QUERY" .backlog/tasks/`
 
-   ```bash
-   gh issue list --repo "$HOST/$REPO" --state all --search "$QUERY" --limit 1000
-   ```
+   If something already covers this behavior, **comment** on the existing issue. Do not create a duplicate.
+3. **Split multi-component work** into separate issues (one per component: API, UI, SDK, or whatever the project uses). API before UI (dependency). Express blocking via the tracker's native links (GitHub issue dependencies, GitLab `blocked_by`, Jira `Blocks`, or a `Blocked by:` line at the top of each issue body).
+4. **Choose the right template** (or the project's template type) and fill it with evidence you already have. Missing facts → ask; never invent.
+5. **Privacy review** the body before publishing (table below).
+6. **Apply labels** only if the label exists and repository policy permits the actor to apply it.
+7. **Publish** via the tracker's CLI (see the reference file).
+8. **Record the issue key/number** back into any SDD `tasks.md` that this issue covers, and into the Mnemonic `sdd/<NNN-slug>/issue-creation` observation if the issue is part of a change.
 
-   If 1000 results are returned or completeness remains uncertain, narrow the search, use read-only API discovery, or stop and ask before publishing.
+## Work-Item Formatting
 
-3. If an issue already covers the same behavior, comment there instead of creating a duplicate.
-4. Choose a repository-provided template only when its purpose matches the report.
-5. Fill every required template field from known evidence. Ask for missing facts rather than inventing them.
-6. Apply labels only when they exist and repository guidance establishes who should apply them.
-7. Publish only after the title, body, target repository, and selected template or fallback have been reviewed, and the pre-submission privacy review below has passed.
+Every tracker has a per-tracker formatting reference next to its CLI file. It carries the initiative/epic template, the task/issue template, title conventions, priority guidelines, component-specific sections, and the multi-component split-by-component rule. Read the one for the resolved tracker:
+
+| Tracker | Formatting reference |
+|---|---|
+| Jira | [`../_shared/issue-tracker/jira-formatting.md`](../_shared/issue-tracker/jira-formatting.md) — Epic + Task; custom field IDs (`{{TEAM_FIELD}}`, `{{DESCR_FIELD}}`, `{{PROJECT_KEY}}`) are placeholders the project's `issue-tracker.md` fills in |
+| GitHub | [`../_shared/issue-tracker/github-formatting.md`](../_shared/issue-tracker/github-formatting.md) — Milestone/Tracking issue + Issue; blocking via native dependencies or `Blocked by: #N` |
+| GitLab | [`../_shared/issue-tracker/gitlab-formatting.md`](../_shared/issue-tracker/gitlab-formatting.md) — Epic/Tracking issue + Issue; blocking via `blocked_by` link or `Blocked by: !N` |
+| Backlog.md | [`../_shared/issue-tracker/backlogmd-formatting.md`](../_shared/issue-tracker/backlogmd-formatting.md) — Project/initiative file + Task file; blocking via frontmatter `Blocked by` / `Blocks` arrays |
+
+Shared across all four: split multi-component work into **one item per component** (API before UI), express blocking explicitly, only use labels/fields that exist in the project, and match the project's existing title convention.
 
 ## Pre-submission Privacy Review
 
-Pre-submission privacy review is mandatory. Scan every issue body immediately before `gh issue create`. The scan replaces — never deletes — environment-specific data with explicit placeholders so the reproduction still teaches:
+Mandatory for every tracker. Scan the body **immediately before publishing**. Replace environment-specific data with explicit placeholders — the reproduction must still teach what to fill in.
 
 | Category | Replace with | Example (before → after) |
-|----------|---------------|---------------------------|
-| Private project names | `<project-name>` | `my-private-project-b` → `<project-name>` |
-| Usernames | `<user>` | `C:\Users\my-real-username\go\bin` → `C:\Users\<user>\go\bin` |
+|---|---|---|
+| Private project names | `<project-name>` | `my-private-project` → `<project-name>` |
+| Usernames | `<user>` | `~/go/bin` where `~` resolves to a real user path → `/home/<user>/go/bin` |
 | Hostnames | `<hostname>` | `devbox-macbook.local` → `<hostname>` |
-| Home paths | `/home/<user>` or `C:\Users\<user>` | (covered above) |
 | API keys, tokens, passwords | `<token>` / `<password>` | `ghp_abc123...` → `<token>` |
-| Internal ports / hostnames | `<host>:<port>` | `10.0.0.42:5432` → `<host>:<port>` |
+| Internal ports / IPs | `<host>:<port>` | `10.0.0.42:5432` → `<host>:<port>` |
 
-Do NOT redact intentionally public identifiers: tool names (`gentle-ai`, `engram`, `go`, `node`, `python`), package names, public documentation URLs, generic example domains (`example.com`, `localhost`). Keep reproduction structure with placeholders — never redact an example into nothingness.
+Do NOT redact intentionally public identifiers: tool names, package names, public doc URLs, `example.com`, `localhost`.
 
-**Rule of thumb:** if the reader can run the reproduction step after you replace every identifier with its placeholder, the sanitization is correct. If a step becomes impossible (because the placeholder consumed a needed value), that step needs the value — and you should mark it `<value-required>` and explain in the body what the user should fill in.
+**Rule of thumb:** if the reader can run the reproduction after the replacement, sanitization is correct. If a step becomes impossible because the placeholder consumed a needed value, mark it `<value-required>` and add a note to the body saying what to fill in.
 
-## Template Paths
+## Labels and Approval
 
-Do not guess a template filename. If multiple templates could apply and repository guidance does not distinguish them, stop and ask which one to use.
+- Use only labels returned by discovery.
+- Follow contribution guidance for who may apply each label.
+- Wait when policy requires maintainer approval (GitHub: check `CONTRIBUTING.md` and existing issue templates; Jira: respect workflow transitions; GitLab: respect instance label permissions; Backlog: respect `backlog.config.yml`).
+- Do not invent a status or priority taxonomy when none is documented.
 
-- .yml and .yaml files are GitHub Issue Forms. Do not parse or render their schema. Open the web issue chooser and stop for human completion:
+## SDD Task → Issue Mapping
 
-  ```bash
-  gh issue create --repo "$HOST/$REPO" --web "${LABEL_ARGS[@]}"
-  ```
+When the trigger is "create issues for this SDD change," use the tracker's `issue-creation mapping` section (in its `_shared/issue-tracker/*.md` file) as the binding rule. Common shape:
 
-- .md files are Markdown templates. Read the matching template, complete it from known evidence into a reviewed BODY_FILE, then publish it:
-
-  ```bash
-  gh issue create --repo "$HOST/$REPO" --title "$TITLE" --body-file "$BODY_FILE" "${LABEL_ARGS[@]}"
-  ```
-
-## No-Template Fallback
-
-When the repository permits issue creation, provides no matching template, and isBlankIssuesEnabled is explicitly true, prepare a structured body with these sections:
-
-- problem or requested outcome;
-- reproduction or motivating example;
-- expected behavior;
-- actual behavior or current limitation;
-- environment and relevant evidence;
-- alternatives or workarounds, when applicable.
-
-Publish the reviewed fallback explicitly:
-
-```bash
-gh issue create --repo "$HOST/$REPO" --title "$TITLE" --body "$BODY" "${LABEL_ARGS[@]}"
-```
-
-If blank issues are not explicitly enabled, follow discovered contact links or stop and ask. Never publish a no-template fallback.
-
-## Labels And Approval
-
-Treat labels and approval gates as conditional:
-
-- use only labels returned by repository discovery;
-- follow contribution guidance for who may apply each label;
-- wait when repository policy requires maintainer approval before implementation;
-- do not invent a status or priority taxonomy when none is documented.
-
-## Questions And Discussions
-
-Use Discussions only when `hasDiscussionsEnabled` is true and repository guidance routes the question there. Otherwise follow documented support/contact links or ask the user where the question belongs. Never link to another repository's Discussions page.
+- One issue per `tasks.md` item under `docs/skillgrid/changes/<NNN-slug>/steps/*/`.
+- Blocking relations: tracker-native link types where available; otherwise a `Blocked by: <id>` line at the top of the body.
+- Record every issue key back into the step's `tasks.md` and the Mnemonic `sdd/<NNN-slug>/issue-creation` observation for traceability.
 
 ## Triage Decision
 
-Before approving or closing an issue, verify:
+Before approving, closing, or re-labelling any issue:
 
-- it describes a concrete bug or scoped improvement rather than an unsupported question;
-- it is not a duplicate;
-- the report contains enough evidence for an implementation decision;
-- the requested behavior is in repository scope;
-- labels and status changes follow the current repository's policy.
+- It describes a concrete bug or scoped improvement (not an unsupported question).
+- It is not a duplicate (searched above).
+- Report carries enough evidence for an implementation decision.
+- Requested behavior is in scope.
+- Labels and status changes follow the current repository's policy.
 
-If any point is uncertain, keep the issue in the repository's review state and request the smallest missing evidence.
+If any point is uncertain, keep the issue in the repository's current review state and request the smallest missing evidence.
+
+## Common Rationalizations
+
+| Excuse | Reality |
+|---|---|
+| "I'll just create a GitHub issue, it's the default" | The repository chose its tracker. Read `docs/agents/issue-tracker.md` first. |
+| "Labels don't matter, I'll add a generic one" | Inventing a label is publishing noise. Use discovered labels. |
+| "The Jira project key is probably the same as last time" | Different instances, different IDs. Read the project's `issue-tracker.md` or discover with `jira project`. |
+| "This bug is small, no need for a privacy review" | The privacy review takes 10 seconds and prevents a leak. |
+| "I'll combine API + UI into one task, it's simpler" | Multi-component tasks block both teams. Split per component; link with `Blocked by:`. |
+| "Templates are ceremony" | Templates encode the project's required fields and approval gates. Skipping them = publishing an unapproved issue. |
+| "The duplicate might be stale, I'll create a new one anyway" | Comment on the existing one with fresh evidence; if it's really stale, close the old and re-open with a reference. |
+| "I'll publish and fix labels later" | Labels are discoverability. Apply them at publish time or not at all. |
+
+## Red Flags
+
+- Publishing before reading `docs/agents/issue-tracker.md`.
+- Invoking `gh` / `glab` / `jira` / `backlog` without an auth check in the current context.
+- Applying a label that was not returned by discovery.
+- A body containing a username, private hostname, or token that isn't a placeholder.
+- A "duplicate" search that returned 1000+ results and was not narrowed.
+- One issue covering multiple components with no `Blocked by:` relation expressed.
+
+## References
+
+- [`../_shared/issue-tracker/jira.md`](../_shared/issue-tracker/jira.md) — Jira CLI conventions and SDD mapping.
+- [`../_shared/issue-tracker/jira-formatting.md`](../_shared/issue-tracker/jira-formatting.md) — Jira epic + task templates, title conventions, priority, component split.
+- [`../_shared/issue-tracker/github.md`](../_shared/issue-tracker/github.md) — GitHub CLI conventions and SDD mapping.
+- [`../_shared/issue-tracker/github-formatting.md`](../_shared/issue-tracker/github-formatting.md) — GitHub milestone/issue templates, labels, blocking links.
+- [`../_shared/issue-tracker/gitlab.md`](../_shared/issue-tracker/gitlab.md) — GitLab CLI conventions and SDD mapping.
+- [`../_shared/issue-tracker/gitlab-formatting.md`](../_shared/issue-tracker/gitlab-formatting.md) — GitLab epic/issue templates, labels, `blocked_by` links.
+- [`../_shared/issue-tracker/backlogmd.md`](../_shared/issue-tracker/backlogmd.md) — Backlog.md conventions and SDD mapping.
+- [`../_shared/issue-tracker/backlogmd-formatting.md`](../_shared/issue-tracker/backlogmd-formatting.md) — Backlog.md project/task file templates, frontmatter schema, blocking arrays.
+- [`../_shared/triage-labels.md`](../_shared/triage-labels.md) — shared triage role vocabulary.

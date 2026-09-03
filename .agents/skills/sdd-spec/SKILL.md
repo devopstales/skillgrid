@@ -190,6 +190,19 @@ Do not branch on mode — `hybrid` is the only mode for this phase.
 
 Close the final message with a `## Key Learnings` section — 1–5 standalone factual sentences (≥ 20 chars each). Mnemonic passive capture picks these up (per `mnemonic-memory.md` § Session Close Protocol). Do not call `mem_session_summary` here — that is a top-level-agent concern; the orchestrator owns session close.
 
+## Execution Handoff (present after the acceptance is written)
+
+This is the last planning skill before implementation. End by asking your human partner to choose the next move. Present the choice concisely and wait for a decision — do not auto-advance into implementation.
+
+> **For agentic workers:** REQUIRED SUB-SKILL — present exactly these two options and let your human partner pick:
+>
+> 1. **Implement this plan** — `sdd-apply` (the dispatcher) → use **`subagent-execution`** (recommended: fresh subagent per task with a review gate) or **`simple-execution`** (inline) to implement the step tree task-by-task. Steps use the checkbox (`- [ ]`) syntax in `steps/<NN-name>/tasks.md` for tracking; `sdd-verify` then gates each step.
+> 2. **Propose a new idea** — if the step tree or its acceptance isn't what you actually want, go back to **`sdd-propose`** (optionally via the `questioning` skill to clarify intent) before any code is written.
+>
+> Which one?
+
+Default to option 1 only when the human partner confirms the acceptance covers the real requirement. Any doubt → option 2. Either way, record the chosen path in the `Next:` line of the return envelope (update it to `sdd-apply` or `sdd-propose` depending on the answer) and in the `## Key Learnings` so a resumed session knows the handoff state.
+
 ## Rules
 
 - Use Gherkin `Feature`/`Scenario`/Given/When/Then for every step file.

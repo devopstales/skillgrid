@@ -2,6 +2,8 @@
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
+**Formatting** (milestone/tracking-issue templates, title conventions, label conventions, multi-component split, blocking links): see [github-formatting.md](github-formatting.md).
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.

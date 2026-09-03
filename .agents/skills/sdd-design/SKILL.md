@@ -58,6 +58,8 @@ This skill does not restate them. Follow, on each save:
    - `skillgrid-mnemonic_mem_search(query: "skill-registry")` → `skillgrid-mnemonic_mem_get_observation(id)` — the skill index; if missing, fall back to the disk file `docs/agents/skill-registry.md`.
 3. Read `docs/skillgrid/config.yaml` if present — `context:` and `rules.plan` bind this phase.
 4. Read prior related changes from `docs/skillgrid/archive/NNN-slug/` (their `plan.md` / intent.md) where this plan must not contradict established behavior — the plan is a *delta*, not greenfield.
+5. Load the `codebase-design` skill when the change introduces or restructures modules — its vocabulary (Module / Interface / Implementation / Seam / Adapter / Depth / Leverage / Locality) is mandatory in the `## Architecture Decisions` and `## Impacted Files Map` sections below.
+6. Load the `glossary` skill before writing `plan.md` — run a close-term check for every new term you introduce and write `plan-glossary-reference.md` next to `plan.md` in the same change folder (always-on companion).
 
 ## What to Do
 
@@ -119,6 +121,20 @@ docs/skillgrid/changes/<NNN-slug>/
 
 If a `plan.md` already exists in the change folder, **READ it first and UPDATE it** — do not overwrite a prior plan's valid content.
 
+#### Companion glossary reference (always-on)
+
+Per the `glossary` skill, also write `plan-glossary-reference.md` in the same change folder. Format:
+
+```markdown
+# Glossary Reference
+
+| Term | Source Glossary | Context |
+| --- | --- | --- |
+| <Term> | `docs/skillgrid/glossary/technical.md` | <Short context for how the plan uses this term.> |
+```
+
+If no glossary terms are used, write `No glossary terms referenced.` on one line. Do not copy definitions into the companion file.
+
 #### Plan document format
 
 ```markdown
@@ -129,7 +145,10 @@ If a `plan.md` already exists in the change folder, **READ it first and UPDATE i
 
 ## Architecture Decisions
 
+Use the `codebase-design` vocabulary: each Decision block names the **Module** and its **Interface**, places the **Seam**, names the **Adapter** (when a seam is real — at least two concrete adapters), and assesses **Depth** (is the interface small relative to the behaviour it exposes?). Apply the deletion test, the test-surface rule, and the seam discipline from the `codebase-design` skill.
+
 ### Decision: {title}
+**Module / Interface / Seam / Adapter / Depth**: {one line each — vocabulary comes from codebase-design}
 **Choice**: {what we chose}
 **Alternatives considered**: {what we rejected, briefly}
 **Rationale**: {why this over the others}

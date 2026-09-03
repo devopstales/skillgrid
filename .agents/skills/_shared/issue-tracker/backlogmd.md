@@ -2,6 +2,8 @@
 
 Issues and specs for this repo live as markdown files managed by the `backlog` CLI. Storage: `.backlog/tasks/<ID>.md` (configured via `backlog_directory: .backlog` in `backlog.config.yml`).
 
+**Formatting** (project/initiative and task file templates, frontmatter schema, `Blocked by` / `Blocks` arrays, component split, file placement rules): see [backlogmd-formatting.md](backlogmd-formatting.md).
+
 ## Conventions
 
 - One file per ticket: `.backlog/tasks/<ID>.md`, ID assigned by the backlog CLI.

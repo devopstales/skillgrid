@@ -48,7 +48,24 @@ From the orchestrator:
 
 ## What to Do
 
-### Step 0: Shape the Intent (interactive mode only)
+### Step 0: Classify the Request (path ratchet — mandatory)
+
+Before any question round or artifact write, classify the change and announce the path. This prevents scope drift and the "too simple to need a design" trap. The classification is **structural, not subjective** — "I understand this kind of app" is not the criterion; "is there an existing flow in the repo to change" is.
+
+- **Spike** — a feasibility question ("can we…", "is it possible…", "quick and dirty is fine"). Output is an answer, not code. Recommend the user run this as a `design-spike` skill throwaway, not a full SDD change. Path ratchet: if a spike's findings imply a real change, classify again — a new project / new subsystem is never bounded.
+- **Bounded** — a well-scoped change to code that already exists in this repo. **Bounded measures the repo, not your familiarity.** A new project has no existing flow to read — it is architectural. Bounded: present a short design in chat (a few sentences), get explicit approval, then run a *single* SDD change with one `01-` step (no full Step Blueprint, no per-step `acceptance.feature`).
+- **Architectural** — new projects, new subsystems, or changes that restructure how components fit together. Run the full SDD pipeline: `sdd-explore` → `sdd-propose` (Step Blueprint + UAT criteria) → `sdd-design` → `sdd-tasks` → `sdd-spec` → `sdd-apply` → `sdd-verify` → `sdd-archive`.
+
+**Path ratchet — one-way only.** When in doubt between two paths, take the heavier one. Hidden complexity discovered mid-task **upgrades** the path: stop, say so, and step up. Nothing downgrades mid-task. Examples:
+- "Bounded, but exploring the code revealed two subsystems that need new contracts" → upgrade to architectural.
+- "Spike, but the prototype became load-bearing" → upgrade to bounded or architectural (a new request, classify fresh).
+- "Architectural, but the user clarified the scope is one repo, one module" → stay architectural (steps still go through tasks/spec/apply).
+
+**Anti-pattern: "too simple to need approval."** Every path ends with the user approving the intent before implementation. A todo list, a single-function utility, a config change — the design may be two sentences in chat, but you MUST present it and get approval. What scales with simplicity is the **artifact**, never the **approval gate**.
+
+**Announce the classification** before proceeding, so the user can override. If the orchestrator/agent is already inside a delegated `sdd-propose` run, embed the classification as the first line of the result envelope's `Summary`.
+
+### Step 0.5: Shape the Intent (interactive mode only)
 
 In interactive SDD mode, do not let the executor silently decide if the input is "clear enough." Run an **intent question round** before finalizing — focus on business/product, **not** harness mechanics (test commands, PR shape, line budgets):
 
@@ -148,6 +165,24 @@ Measurable, user-observable outcomes. These become the acceptance contract `sdd-
 ```
 
 If an `intent.md` already exists in the change folder, READ it first and UPDATE it — do not overwrite blindly.
+
+#### Companion glossary reference (always-on)
+
+Per the `glossary` skill, also write `intent-glossary-reference.md` in the same change folder. Format:
+
+```markdown
+# Glossary Reference
+
+| Term | Source Glossary | Context |
+| --- | --- | --- |
+| <Term> | `docs/skillgrid/glossary/business.md` | <Short context for how the intent uses this term.> |
+```
+
+If no glossary terms are used, write `No glossary terms referenced.` on one line. Do not copy definitions into the companion file.
+
+### Step 3.5: Close-Term Check (interactive mode)
+
+Before finalizing, run the `glossary` skill's close-term check on any business or technical term that is project-specific, overloaded, ambiguous, or repeated. In interactive mode this blocks the user with the standard close-term question; in automatic mode the result envelope surfaces the choice. Do not invent a new term when a close match already exists in `docs/skillgrid/glossary/business.md` or `docs/skillgrid/glossary/technical.md`.
 
 ### Step 4: Persist Artifact
 
