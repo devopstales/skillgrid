@@ -103,8 +103,11 @@ flowchart TD
     Design --> Tasks
     Tasks --> Spec
 
+    Spec --> UserSelect{"User Select"}
+    UserSelect --> Apply["apply — sdd-apply<br/>TDD/BDD, tasks.md [x] + evidence"]
+    UserSelect --> Propose
+
     subgraph PerStep["Per step — repeat until every step passes"]
-        Spec --> Apply["apply — sdd-apply<br/>TDD/BDD, tasks.md [x] + evidence"]
         Apply --> Verify{"verify — sdd-verify<br/>verdict per step"}
         Verify -- "FAIL" --> Apply
     end
