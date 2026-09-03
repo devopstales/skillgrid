@@ -25,6 +25,7 @@ const installMcpPkg = "install-mcp"
 //  7. install-mcp install each MCP server from config.d/tools.yaml
 //  8. configure MCP for selected agents from config.d/mcp.yaml
 //  9. npm install -g for the remaining shared tools
+//
 // 10. override ~/.agents from the repo's .agents/
 //
 // Any hard failure stops the run with a descriptive error; individual
@@ -92,7 +93,7 @@ func Run(c *Config) error {
 	if c.SkipTools {
 		verb("skipping global tool install (--skip-tools)")
 	} else {
-		info("installing remaining global tools (skills, cucumber)")
+		info("installing remaining global tools (skills, cucumber, backlog.md)")
 		if err := installTools(c); err != nil {
 			return err
 		}

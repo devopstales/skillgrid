@@ -76,6 +76,7 @@ func GlobalTools() []Tool {
 	return []Tool{
 		{Name: "skills", NPM: "skills"},
 		{Name: "cucumber", NPM: "@cucumber/cucumber"},
+		{Name: "backlog.md", NPM: "backlog.md"},
 	}
 }
 

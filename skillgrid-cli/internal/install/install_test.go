@@ -25,12 +25,13 @@ func TestAvailableAgents(t *testing.T) {
 
 func TestGlobalTools(t *testing.T) {
 	got := GlobalTools()
-	if len(got) != 2 {
-		t.Fatalf("want 2 global tools, got %d", len(got))
+	if len(got) != 3 {
+		t.Fatalf("want 3 global tools, got %d", len(got))
 	}
 	want := map[string]string{
-		"skills":   "skills",
-		"cucumber": "@cucumber/cucumber",
+		"skills":     "skills",
+		"cucumber":   "@cucumber/cucumber",
+		"backlog.md": "backlog.md",
 	}
 	for _, tl := range got {
 		if want[tl.Name] != tl.NPM {
