@@ -75,7 +75,6 @@ type Tool struct {
 func GlobalTools() []Tool {
 	return []Tool{
 		{Name: "skills", NPM: "skills"},
-		{Name: "openspec", NPM: "@fission-ai/openspec@latest"},
 		{Name: "cucumber", NPM: "@cucumber/cucumber"},
 	}
 }

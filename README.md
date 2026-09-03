@@ -1,6 +1,6 @@
 # AISkillGrid
 
-A **configuration hub** for opinionated AI-assisted development: reusable **skills**, **slash commands**, merged **MCP server** definitions, and an **install CLI** that copies normalized settings into your application repo. The workflow uses **OpenSpec**-style change management (specs under `openspec/`, `openspec` CLI) and spec-driven development skills together with production-oriented practices (testing, security, documentation).
+A **configuration hub** for opinionated AI-assisted development: reusable **skills**, **slash commands**, merged **MCP server** definitions, and an **install CLI** that copies normalized settings into your application repo. The workflow uses **OpenSpec**-style change management (specs under `openspec/`) and spec-driven development skills together with production-oriented practices (testing, security, documentation).
 
 ---
 
@@ -10,7 +10,7 @@ The `skillgrid` CLI installs the hub into this machine. It creates
 `~/.skillgrid/`, copies the repo into `~/.skillgrid/repos/skillgrid`,
 verifies Node is available, lets you pick which agent (Kilo, OpenCode,
 Cursor) to install, runs `npm install -g` for the chosen agents and the
-shared tools (`skills`, `openspec`), and copies the hub's `.agents/`
+shared tools (`skills`, `cucumber`), and copies the hub's `.agents/`
 into `~/.agents/`.
 
 ```

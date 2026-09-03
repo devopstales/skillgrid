@@ -25,12 +25,11 @@ func TestAvailableAgents(t *testing.T) {
 
 func TestGlobalTools(t *testing.T) {
 	got := GlobalTools()
-	if len(got) != 3 {
-		t.Fatalf("want 3 global tools, got %d", len(got))
+	if len(got) != 2 {
+		t.Fatalf("want 2 global tools, got %d", len(got))
 	}
 	want := map[string]string{
 		"skills":   "skills",
-		"openspec": "@fission-ai/openspec@latest",
 		"cucumber": "@cucumber/cucumber",
 	}
 	for _, tl := range got {

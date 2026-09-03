@@ -92,7 +92,7 @@ func Run(c *Config) error {
 	if c.SkipTools {
 		verb("skipping global tool install (--skip-tools)")
 	} else {
-		info("installing remaining global tools (skills, openspec)")
+		info("installing remaining global tools (skills, cucumber)")
 		if err := installTools(c); err != nil {
 			return err
 		}

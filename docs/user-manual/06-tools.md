@@ -2,7 +2,6 @@
 
 ## Selected
 
-* [X] openspec
 * [X] skills
 * [X] @cucumber/cucumber
 * mcp-installer

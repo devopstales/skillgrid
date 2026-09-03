@@ -5,7 +5,7 @@
 ## What you get
 
 1. **Managed home** at `~/.skillgrid/` (`SKILLGRID_MNEMONIC_DATA_DIR` overrides the data dir). Binaries, cloned hub, config, and state live there.
-2. **Tools** — `skills` CLI (npm), `openspec` CLI (npm), and the `skillgrid` binary itself.
+2. **Tools** — `skills` CLI (npm), `cucumber` (npm), and the `skillgrid` binary itself.
 3. **Skills** — installed through the managed `skills` CLI, from configured sources.
 4. **MCP** — `skillgrid mcp` stdio server exposes `mem_*`, `code_*`, and `web_*` tools to agents.
 5. **Rules** — files from the hub `.agents/` copied into `~/.agents/`.

@@ -42,8 +42,7 @@ stderr so stdout stays clean for scripts.
    `config.d/tools.yaml` (`mcp:` section).
 7. **Configure MCP** — merge all servers from `config.d/mcp.yaml` into each
    selected agent's config file.
-8. **Install global tools** — `npm install -g skills`, `npm install -g @fission-ai/openspec@latest`,
-   and `npm install -g @cucumber/cucumber`.
+8. **Install global tools** — `npm install -g skills` and `npm install -g @cucumber/cucumber`.
 9. **Copy `.agents/`** — the repo's `.agents/` directory is copied to `~/.agents/`.
 
 ### Available agents
@@ -59,7 +58,6 @@ stderr so stdout stays clean for scripts.
 | Name | npm package |
 |---|---|
 | `skills` | `skills` |
-| `openspec` | `@fission-ai/openspec@latest` |
 | `cucumber` | `@cucumber/cucumber` |
 
 ## Flags
