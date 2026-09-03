@@ -1,0 +1,17 @@
+project_name: "skillgrid"
+default_status: "needs-triage"
+statuses: ["needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "in-progress", "done", "blocked", "wontfix"]
+labels: []
+date_format: yyyy-mm-dd
+max_column_width: 20
+default_editor: "nano"
+auto_open_browser: true
+default_port: 6420
+remote_operations: true
+auto_commit: false
+filesystem_only: false
+zero_padded_ids: 3
+bypass_git_hooks: false
+check_active_branches: true
+active_branch_days: 30
+task_prefix: "task"

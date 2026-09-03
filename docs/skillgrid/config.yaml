@@ -1,0 +1,17 @@
+schema: skillgrid-sdd/v1
+project: skillgrid
+context: >-
+  Go 1.25.5 monorepo: `skillgrid-cli/` (Go binary) installs the AI-assisted
+  development hub onto a machine, wiring OpenCode, Kilo, and Cursor with
+  Mnemonic persistent memory, code indexing, and web research caching.
+  Constraints: Go 1.22+ to build; Node/npm on PATH at install time.
+issue_tracker: backlogmd
+testing:
+  runner: go test ./...
+  layers: [unit, integration]
+  coverage: null
+  tdd: false
+conventions:
+  artifacts_root: docs/skillgrid
+  scratch_dir: .skillgrid/sdd
+  registry: docs/agents/skill-registry.md
