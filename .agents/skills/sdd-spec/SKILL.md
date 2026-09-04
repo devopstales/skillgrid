@@ -39,7 +39,7 @@ Phase order is `propose → design → tasks → spec`. **You run after `sdd-tas
 From the orchestrator:
 
 - **Change id** — `<NNN-slug>` (e.g. `001-oauth-login`). The folder exists with `intent.md`, `plan.md`, and `steps/<NN-name>/tasks.md` for every step.
-- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes each `steps/<NN-name>/acceptance.feature` **and** persists to Mnemonic under `sdd/<NNN-slug>/spec` (a single concatenated observation).   Do not branch on the mode.
+- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes each `steps/<NN-name>/acceptance.feature` **and** persists to Mnemonic under `sdd/<NNN-slug>/spec` (a single concatenated observation). The filesystem write and the Mnemonic save are each their own obligations — the Mnemonic save does not stand in for the file.   Do not branch on the mode.
 - Optional: **ticket/issue id** (carry-through to `sdd-apply`'s commit close-token per `_shared/conventions/commits.md`; spec itself does not use it)
 - Optional: a `## Skills to load before work` block
 
@@ -162,7 +162,7 @@ skillgrid-mnemonic_mem_save(
 
 One observation per change (concatenated with `## Step {NN}-{name}` headers) keeps the pipeline consistent with `sdd/<NNN-slug>/intent` and `sdd/<NNN-slug>/plan`. `topic_key` upserts — re-running the phase replaces the observation in place. Mnemonic save notes: `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both.
 
-Do not branch on mode — `hybrid` is the only mode for this phase.
+Do not branch on mode — `hybrid` is the only mode for this phase. The file must actually exist on disk at `docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/acceptance.feature` — a Mnemonic save without the file is incomplete.
 
 ### Step 6: Return Envelope
 

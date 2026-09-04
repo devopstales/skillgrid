@@ -45,7 +45,7 @@ From the orchestrator:
 - **Explicit final-state facts for work completed after the step `verification.md` files were persisted** — e.g. "this step's verify warnings were fixed in later commits", "this dependency was resolved", "the final per-step test count is N" — whenever the orchestrator has them.
 - **Any explicit intentional-archive override text** from the user/orchestrator (e.g. an approved non-critical partial archive, or an approved stale-checkbox reconciliation).
 
-**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: performs the filesystem archive-folder move **and** persists the `archive-report` to Mnemonic under `sdd/<NNN-slug>/archive-report` (with the observation IDs of everything read, for traceability).   Do not branch on the mode.
+**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: performs the filesystem archive-folder move **and** persists the `archive-report` to Mnemonic under `sdd/<NNN-slug>/archive-report` (with the observation IDs of everything read, for traceability). The filesystem write and the Mnemonic save are each their own obligations — the Mnemonic save does not stand in for the file.   Do not branch on the mode.
 
 ## Execution + Persistence Conventions
 

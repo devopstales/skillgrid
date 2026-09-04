@@ -35,7 +35,7 @@ From the orchestrator:
 
 - **Topic / feature** to explore (a requirement, bug, or refactor question)
 - **Change name** — the reserved `NNN-slug` (e.g. `001-oauth-login`) or a slug seed for a standalone exploration. The orchestrator reserves the number via `sdd-propose`'s numbering rule when the change is already in flight; for a fresh standalone exploration the change may not exist yet.
-- **Artifact store mode** is `hybrid` — the only mode for this phase. When a change name is given, every run does BOTH: writes `docs/skillgrid/changes/<NNN-slug>/research.md` **and** persists to Mnemonic under `sdd/<NNN-slug>/research`.   Do not branch on the mode. (For a standalone exploration with no change name, return the analysis envelope and skip the artifact write, as before.)
+- **Artifact store mode** is `hybrid` — the only mode for this phase. When a change name is given, every run does BOTH: writes `docs/skillgrid/changes/<NNN-slug>/research.md` **and** persists to Mnemonic under `sdd/<NNN-slug>/research`. The filesystem write and the Mnemonic save are each their own obligations — the Mnemonic save does not stand in for the file.   Do not branch on the mode. (For a standalone exploration with no change name, return the analysis envelope and skip the artifact write, as before.)
 
 ## Skill Loading (Section A equivalent)
 
@@ -124,7 +124,7 @@ skillgrid-mnemonic_mem_save(
 
 - Start a session once: `sid = skillgrid-mnemonic_mem_session_start(title: "sdd/<NNN-slug>/research")`.
 - `topic_key` enables upsert — saving again updates in place; do not create near-duplicates.
-- Hybrid is the only mode for this phase: do the filesystem write and the Mnemonic save.
+- Hybrid is the only mode for this phase: do the filesystem write and the Mnemonic save. The file must actually exist on disk at `docs/skillgrid/changes/<NNN-slug>/research.md` — a Mnemonic save without the file is incomplete.
 
 ### Step 6: Return Structured Analysis
 

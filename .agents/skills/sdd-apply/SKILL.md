@@ -52,7 +52,7 @@ From the orchestrator:
 - Optional: **ticket/issue id** — the apply commit close-token per `_shared/conventions/commits.md`.
 - Optional: a `## Skills to load before work` block.
 
-**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: updates each assigned step's `steps/<NN-name>/tasks.md` with `[x]` marks **and** persists progress to Mnemonic under `sdd/<NNN-slug>/apply-progress` (upserting the tasks observation for the `[x]` state).   Do not branch on the mode.
+**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: updates each assigned step's `steps/<NN-name>/tasks.md` with `[x]` marks **and** persists progress to Mnemonic under `sdd/<NNN-slug>/apply-progress` (upserting the tasks observation for the `[x]` state). The filesystem write and the Mnemonic save are each their own obligations — the Mnemonic save does not stand in for the file.   Do not branch on the mode.
 
 ## Execution + Persistence Conventions
 
@@ -264,6 +264,8 @@ skillgrid-mnemonic_mem_save(
 ```
 
 Mnemonic save notes: `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both. `topic_key` upserts — saving `sdd/<NNN-slug>/tasks` again replaces it in place (that is how the `[x]` marks propagate to memory).
+
+The file must actually exist on disk at `docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/tasks.md` — a Mnemonic save without the file is incomplete.
 
 ### Step 8: Merge Protocol
 

@@ -42,7 +42,7 @@ From the orchestrator:
 - **Strict TDD mode** (`true` | `false`) — if the orchestrator declares `STRICT TDD MODE IS ACTIVE`, treat it as authoritative. If not provided, resolve it in Step 2.
 - Optional: a `## Skills to load before work` block.
 
-**Artifact store mode is `hybrid` — the only mode for this phase.** For each step verified, the run does BOTH: writes `steps/<NN-name>/verification.md` **and** persists that step's report to Mnemonic under `sdd/<NNN-slug>/verification` (a single concatenated observation of all steps verified this run).   Do not branch on the mode.
+**Artifact store mode is `hybrid` — the only mode for this phase.** For each step verified, the run does BOTH: writes `steps/<NN-name>/verification.md` **and** persists that step's report to Mnemonic under `sdd/<NNN-slug>/verification` (a single concatenated observation of all steps verified this run). The filesystem write and the Mnemonic save are each their own obligations — the Mnemonic save does not stand in for the file.   Do not branch on the mode.
 
 ## Execution + Persistence Conventions
 
@@ -194,6 +194,8 @@ skillgrid-mnemonic_mem_save(
 ```
 
 Mnemonic save notes: `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both. `topic_key` upserts — re-running verify replaces the observation in place. A `FAIL` verdict is a **valid, persistable** result — persist it, do not discard a failed report.
+
+The file must actually exist on disk at `docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/verification.md` — a Mnemonic save without the file is incomplete.
 
 ### Step 10: Return Envelope
 

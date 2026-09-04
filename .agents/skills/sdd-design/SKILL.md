@@ -36,7 +36,7 @@ You design the *shape* so `sdd-tasks` can break it into work and `sdd-spec` can 
 From the orchestrator:
 
 - **Change id** — `<NNN-slug>` (e.g. `001-oauth-login`). The folder already exists and holds `intent.md` (and usually `research.md`).
-- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `docs/skillgrid/changes/<NNN-slug>/plan.md` **and** persists to Mnemonic under `sdd/<NNN-slug>/plan`.   Do not branch on the mode.
+- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `docs/skillgrid/changes/<NNN-slug>/plan.md` **and** persists to Mnemonic under `sdd/<NNN-slug>/plan`. The filesystem write and the Mnemonic save are each their own obligations — the Mnemonic save does not stand in for the file.   Do not branch on the mode.
 - Optional: **ticket/issue id** (for the eventual `sdd-apply` commit close-token per `_shared/conventions/commits.md`)
 - Optional: a `## Skills to load before work` block
 
@@ -211,7 +211,7 @@ skillgrid-mnemonic_mem_save(
 
 `topic_key` upserts — re-running the phase replaces the observation in place, it does not duplicate. Mnemonic save notes: `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both.
 
-Do not branch on mode — `hybrid` is the only mode for this phase.
+Do not branch on mode — `hybrid` is the only mode for this phase. The file must actually exist on disk at `docs/skillgrid/changes/<NNN-slug>/plan.md` — a Mnemonic save without the file is incomplete.
 
 ### Step 6: Self-Check (no external validator binary)
 

@@ -43,7 +43,7 @@ From the orchestrator:
 - Optional: **ticket/issue id** (carry-through to `sdd-apply`'s commit close-token per `_shared/conventions/commits.md`; tasks itself does not use it)
 - Optional: a `## Skills to load before work` block
 
-**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: creates the `steps/<NN-name>/` folders and writes each `steps/<NN-name>/tasks.md`, **and** persists to Mnemonic under `sdd/<NNN-slug>/tasks` (a single concatenated observation). There is no filesystem-only or memory-only mode here; hybrid is the only mode. Do not branch your behavior on the mode.
+**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: creates the `steps/<NN-name>/` folders and writes each `steps/<NN-name>/tasks.md`, **and** persists to Mnemonic under `sdd/<NNN-slug>/tasks` (a single concatenated observation). The filesystem write and the Mnemonic save are each their own obligations — the Mnemonic save does not stand in for the file. There is no filesystem-only or memory-only mode here; hybrid is the only mode. Do not branch your behavior on the mode.
 
 ## Vertical Slice Contract
 
@@ -245,6 +245,8 @@ skillgrid-mnemonic_mem_save(
 ```
 
 `topic_key` upserts — re-running the phase replaces the observation in place, not duplicates. Mnemonic save notes: `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both.
+
+The file must actually exist on disk at `docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/tasks.md` — a Mnemonic save without the file is incomplete.
 
 ### Step 7: Return Envelope
 

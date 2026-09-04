@@ -37,7 +37,7 @@ From the orchestrator:
 
 - **Change slug** (kebab-case, e.g. `oauth-login`) — the NNN number may be assigned by the orchestrator or left to you to reserve.
 - **Research analysis** (from `sdd-explore`) OR a direct user description.
-- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `docs/skillgrid/changes/<NNN-slug>/intent.md` **and** persists to Mnemonic under `sdd/<NNN-slug>/intent`.   Do not branch on the mode.
+- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `docs/skillgrid/changes/<NNN-slug>/intent.md` **and** persists to Mnemonic under `sdd/<NNN-slug>/intent`. The filesystem write and the Mnemonic save are each their own obligations — the Mnemonic save does not stand in for the file.   Do not branch on the mode.
 
 ## Skill Loading
 
@@ -224,7 +224,7 @@ skillgrid-mnemonic_mem_save(
 ```
 
 - `topic_key` enables upsert — saving again updates in place; do not create near-duplicates.
-- Hybrid is the only mode for this phase: do the filesystem write (Step 3) and the Mnemonic saves.
+- Hybrid is the only mode for this phase: do the filesystem write (Step 3) and the Mnemonic saves. The file must actually exist on disk at `docs/skillgrid/changes/<NNN-slug>/intent.md` — a Mnemonic save without the file is incomplete.
 
 ### Step 5: Return Summary
 
