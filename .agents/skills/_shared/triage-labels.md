@@ -1,6 +1,6 @@
 # Triage Labels
 
-The five canonical triage roles. Each role maps to a label string in the active tracker; the tracker's `docs/agents/issue-tracker.md` (or `backlog.config.yml` for Backlog.md) records the actual strings.
+The five canonical triage roles. Each role maps to a label string in the active tracker; the tracker's `docs/skillgrid/agents/issue-tracker.md` (or `backlog.config.yml` for Backlog.md) records the actual strings.
 
 | role | default label |
 |---|---|

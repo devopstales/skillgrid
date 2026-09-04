@@ -57,7 +57,7 @@ Skillgrid's Mnemonic is a single-agent memory engine (observations, code index, 
 | `internal/mnemonic/mcp/server.go` | Modified | Register `registerTeamsTools(s)` |
 | `internal/mnemonic/http/server.go` | Modified | Add team/task/message/review routes |
 | `internal/mnemonic/service/` | New file | Filesystem content-plane helpers (atomic write + SQL insert) |
-| `docs/skillgrid/glossary/` | Modified | Add domain terms (task, team member, review, inbox) |
+| `docs/skillgrid/agents/glossary/` | Modified | Add domain terms (task, team member, review, inbox) |
 
 ## Risks
 | Risk | Likelihood | Mitigation |

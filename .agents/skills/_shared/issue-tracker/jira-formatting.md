@@ -2,7 +2,7 @@
 
 Shared formatting conventions for Jira epics and tasks. Consumed by the `issue-creation` skill when the resolved tracker is Jira (see `jira.md` for CLI conventions).
 
-**Field IDs are instance-specific.** The placeholders below (`{{TEAM_FIELD}}`, `{{DESCR_FIELD}}`, `{{PROJECT_KEY}}`) stand for the instance's custom fields and project key — read them from the project's `docs/agents/issue-tracker.md` (written by `sdd-init`) or discover them with `jira issue view <existing-key>`. Never hardcode IDs from another instance.
+**Field IDs are instance-specific.** The placeholders below (`{{TEAM_FIELD}}`, `{{DESCR_FIELD}}`, `{{PROJECT_KEY}}`) stand for the instance's custom fields and project key — read them from the project's `docs/skillgrid/agents/issue-tracker.md` (written by `sdd-init`) or discover them with `jira issue view <existing-key>`. Never hardcode IDs from another instance.
 
 ## Choosing Epic vs Task
 

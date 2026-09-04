@@ -8,7 +8,7 @@ Issues and specs for this repo live as Jira issues. Use the `jira` CLI ([jira-cl
 
 - `jira init` — interactive wizard: cloud vs server, auth type (`basic` email+API token, `bearer` PAT, `mtls`), server URL, default project and board. Stored at `~/.config/jira-cli/.config.yml`.
 - Multiple Jira instances: use `--config <file>` or `JIRA_CONFIG_FILE`; verify the right one with `jira config`.
-- Project key (e.g. `PROJ`) must be recorded in `docs/agents/issue-tracker.md` — skills never guess it.
+- Project key (e.g. `PROJ`) must be recorded in `docs/skillgrid/agents/issue-tracker.md` — skills never guess it.
 - Auth order: `JIRA_API_TOKEN` env → `.netrc` → OS keyring.
 
 ## Conventions

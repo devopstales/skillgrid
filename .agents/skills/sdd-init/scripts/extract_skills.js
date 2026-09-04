@@ -4,7 +4,7 @@
  *
  * Scans configured skill directories (project-level and user-level), extracts
  * the frontmatter `description` (trigger text) from each SKILL.md, and emits
- * a markdown table suitable for `docs/agents/skill-registry.md`.
+ * a markdown table suitable for `docs/skillgrid/agents/skill-registry.md`.
  *
  * Called by the sdd-init skill as:
  *   node .agents/skills/sdd-init/scripts/extract_skills.js [--root <project-root>]
