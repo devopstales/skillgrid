@@ -2,11 +2,13 @@
 
 Spec Driven Development Workflow using `Markdown` structure as spec source and selectable (GitHub, GitLab, Jira, Backlog.md) ticketing system. `Backlog.md` is the default tracker. It uses `Mnemonic` for long-term memory and code indexing.
 
-## skillgrid SDD Workflow
+## skillgrid SDD Workflow (v3)
 
 ```
-init -> explore -> propose -> design -> tasks -> spec -> apply -> verify -> archive
+init → explore → propose → spec → apply → verify → archive
 ```
+
+**Entry skill:** `use-skillgrid` (`.agents/skills/use-skillgrid/SKILL.md`) — no platform hook. Uninitialized (`docs/skillgrid/config.yaml` missing) → `sdd-init`; else → `sdd-explore` then down the pipeline; user gate after `sdd-spec` before apply.
 
 * init:
     * `sdd-init`
@@ -18,13 +20,13 @@ init -> explore -> propose -> design -> tasks -> spec -> apply -> verify -> arch
         * Detect test runner, test layers, coverage, linter, type checker, and formatter - determine `testing_capabilities`
         * Validate findings with user
         * Initialize persistence:
-            * Build skill registry at `docs/agents/skill-registry.md`
+            * Build skill registry at `docs/skillgrid/agents/skill-registry.md`
             * Agent config `AGENTS.md` or `CLAUDE.md`
-            * `docs/skillgrid/` skeleton: `config.yaml`, `changes/`, `archive/`
+            * `docs/skillgrid/` skeleton: `config.yaml`, `agents/`, `changes/`, `archive/`
             * Write Mnemonic observations
             * If `backlogmd` selected, initialize it too
 * explore:
-    * `sdd-explore` investiage
+    * `sdd-explore` investigate
         * Read `docs/skillgrid/config.yaml` for project context (rules, context)
         * Recover Mnemonic context: `mem_search("sdd-init/{project}")` + `mem_get_observation`, `mem_search("sdd/<NNN-slug>/")`
         * Use code-index ladder: `code_status -> code_index -> code_search -> code_read`
@@ -33,54 +35,39 @@ init -> explore -> propose -> design -> tasks -> spec -> apply -> verify -> arch
         * Persist artifact: `docs/skillgrid/changes/<NNN-slug>/research.md` + Mnemonic `sdd/<NNN-slug>/research` (`topic_key` upsert)
         * Return structured envelope (status, summary, artifacts, next, risks)
 * propose:
-    * `sdd-propose` shape
+    * `sdd-propose` — absorbs former `sdd-design` (one phase: WHY + HOW)
         * **Reserve the NNN change number** (scan `docs/skillgrid/changes/` + `archive/` + Mnemonic `sdd/{project}/changelog`, take `max+1`, zero-pad to 3 digits)
         * Recover context: `mem_search("sdd/<NNN-slug>/research")` + `mem_get_observation`, `sdd-init/{project}`, `docs/skillgrid/config.yaml`
         * Interactive only: intent question round (business/product, not delivery mechanics)
-        * Write `intent.md`: Business Problem, Target Users, Business Rules, Success Criteria (UAT-level), Scope, **Step Blueprint** (contract with sdd-tasks), Affected Areas, Risks, Rollback, Dependencies
-        * Persist: `docs/skillgrid/changes/<NNN-slug>/intent.md` + Mnemonic `sdd/<NNN-slug>/intent` (`topic_key` upsert)
+        * Read actual code via code-index ladder: `code_status -> code_index -> code_search -> code_read`
+        * Write **`change.md`** by instantiating `.agents/skills/_shared/templates/template-change.md` (fill placeholders; do not invent a parallel outline): Business Problem, Target Users, Business Rules, Success Criteria, Scope, Rollback, **Step Blueprint**, Technical Approach, Architecture Decisions, Data Flow, **Impacted Files Map (Step column)**, Per-step WHAT, Threat Matrix, Migration/Open Questions, Glossary footer
+        * Persist: `docs/skillgrid/changes/<NNN-slug>/change.md` + Mnemonic `sdd/<NNN-slug>/change` (`topic_key` upsert)
         * Append NNN reservation to `sdd/{project}/changelog` (Mnemonic)
-        * Enforce <500 words; every intent has rollback plan + success criteria
-* design:
-    * `sdd-design` architect
-        * Recover context: `mem_search("sdd/<NNN-slug>/intent")` + `mem_get_observation` (required — Step Blueprint is the contract), `sdd/<NNN-slug>/research` (required), `sdd-init/{project}`, `docs/skillgrid/config.yaml`, `docs/skillgrid/archive/NNN-slug/plan.md` (prior art)
-        * Read actual code via code-index ladder: `code_status -> code_index -> code_search -> code_read` (no external binaries)
-        * **Per-step WHAT** block for every intent Step Blueprint entry (user-observable behavior; becomes the spec's Gherkin scenarios)
-        * Applicability-driven threat matrix: mark each row `Applicable` or `N/A: reason`; applicable rows carry the owning step — plan → tasks → spec
-        * Write `plan.md`: Technical Approach, Architecture Decisions (Choice/Alternatives/Rationale), Data Flow, **Impacted Files Map (with a Step column)**, Step WHAT, Mnemonic Integration, Threat Matrix, Migration/Rollout, Open Questions
-        * Persist: `docs/skillgrid/changes/<NNN-slug>/plan.md` + Mnemonic `sdd/<NNN-slug>/plan` (`topic_key` upsert)
-        * Enforce <850 words; each applicable threat row names its owning step and propagates to tasks then spec
-* tasks:
-    * `sdd-tasks` decompose — runs BEFORE spec (the step tree must exist before acceptance is written)
-        * **Own the step tree and NN numbering**: create `docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/` for every intent Step Blueprint entry
-        * Inherit the plan's per-step threat rows into per-step RED tasks (before their production tasks)
-        * Assign every file in the plan's Impacted Files map to exactly one step; encode inter-step deps as `Depends on:` notes
-        * Write each step's `tasks.md` (punch-list + four change-level guard lines in step 01)
-        * Persist: `steps/<NN-name>/tasks.md` per step + Mnemonic `sdd/<NNN-slug>/tasks` (concatenated by step)
+        * Every change has rollback plan + success criteria; each applicable threat row names its owning step
 * spec:
-    * `sdd-spec` — per-step Gherkin acceptance
-        * For **every** step folder (created by sdd-tasks), write `steps/<NN-name>/acceptance.feature`
-        * One `Feature` + ≥ 3 `Scenarios` (`@happy` `@edge` `@failure`); scenario names unique and referenceable
-        * Every plan per-step WHAT bullet → a scenario; every applicable threat-row → a scenario in its owning step
-        * Persist: each `steps/<NN-name>/acceptance.feature` + Mnemonic `sdd/<NNN-slug>/spec` (concatenated by step)
+    * `sdd-spec` — absorbs former `sdd-tasks` (one phase: punch-lists + Gherkin)
+        * **Own NN numbering**: for every Step Blueprint entry, allocate `NN-<name>`
+        * Write **`tasks.md`** by instantiating `.agents/skills/_shared/templates/template-tasks.md`: `## State` + Step map + one `## NN-<name>` section per step (Goal, Files, Interfaces, Tasks, Verification stub)
+        * Inherit applicable threat rows as `[RED]` tasks before production tasks; assign every Impacted Files row to exactly one step
+        * Write **`acceptance.feature`** by instantiating `.agents/skills/_shared/templates/template-acceptance.feature`: one change-level file; one `Feature` per step tagged `@step-NN`; ≥1 `@happy` + `@edge` + `@failure`; every per-step WHAT bullet and applicable threat row → a scenario
+        * Persist: `tasks.md` + `acceptance.feature` + Mnemonic `sdd/<NNN-slug>/tasks` and `sdd/<NNN-slug>/spec` (or single concatenated `…/spec` covering both)
 * apply:
     * git-worktree
     * execute-task (per assigned step / task)
     * subagent-driven-development
     * TDD (Strict TDD or Standard per `docs/skillgrid/config.yaml` → `rules.apply.tdd`)
-    * BDD (per step's `acceptance.feature` scenarios)
+    * BDD (scenarios tagged `@step-NN` in `acceptance.feature`)
     * unlazy
-    * Mark each `steps/<NN-name>/tasks.md` task `[x]` as it completes
-    * Produce a per-step evidence table (focused test, acceptance coverage, runtime harness, rollback boundary)
+    * Mark each `tasks.md` checkbox `[x]` as it completes; bump `## State`
+    * Produce evidence into the step's upcoming verify slot (focused test, acceptance coverage, runtime harness, rollback boundary)
     * Persist cumulative apply-progress to Mnemonic `sdd/<NNN-slug>/apply-progress`
 * verify:
-    * **Per step**: write `steps/<NN-name>/verification.md` with verdict `PASS | PASS WITH WARNINGS | FAIL`
-    * Gate: every scenario in that step's `acceptance.feature` maps to a passing test run at runtime
-    * Strict TDD mode adds TDD Compliance, Assertion Quality, Test Layer, Changed-File Coverage, Quality Metrics sections
+    * For **every** `## NN-<name>` in `tasks.md`, fill `### Verification` with verdict `PASS | PASS WITH WARNINGS | FAIL`
+    * Gate: every scenario tagged `@step-NN` maps to a passing test run at runtime
+    * Strict TDD mode adds TDD Compliance, Assertion Quality, Test Layer, Changed-File Coverage, Quality Metrics under Evidence
     * Persist concatenated per-step reports to Mnemonic `sdd/<NNN-slug>/verification`
 * archive:
-    * **No cross-tree merge** (v2 model has no main-specs root; the acceptance contract lives in each step)
-    * Gate on every step's `verification.md` verdict being `PASS` or `PASS WITH WARNINGS`; gate on every step's `tasks.md` having no unchecked tasks
+    * Gate on every step's Verification verdict being `PASS` or `PASS WITH WARNINGS`; gate on no unchecked tasks in `tasks.md`
     * Mechanical shell move `docs/skillgrid/changes/<NNN-slug>/` → `docs/skillgrid/archive/<NNN-slug>/` (`git mv` or `mv`), mandatory `diff -r` readback (empty diff = pass)
     * Persist `archive-report` to Mnemonic `sdd/<NNN-slug>/archive-report` with observation IDs of every artifact read (lineage)
 
@@ -92,23 +79,20 @@ flowchart TD
 
     Init["init — sdd-init<br/>context + skeleton (config.yaml, changes/, Mnemonic)"]
     Explore["explore — sdd-explore<br/>→ research.md"]
-    Propose["propose — sdd-propose<br/>reserve NNN → intent.md"]
-    Design["design — sdd-design<br/>→ plan.md"]
-    Tasks["tasks — sdd-tasks<br/>→ steps/NN/ + tasks.md"]
-    Spec["spec — sdd-spec<br/>→ acceptance.feature per step"]
+    Propose["propose — sdd-propose<br/>reserve NNN → change.md"]
+    Spec["spec — sdd-spec<br/>→ tasks.md + acceptance.feature"]
 
     Init --> Explore
+    Init --> Propose
     Explore --> Propose
-    Propose --> Design
-    Design --> Tasks
-    Tasks --> Spec
+    Propose --> Spec
 
     Spec --> UserSelect{"User Select"}
-    UserSelect --> Apply["apply — sdd-apply<br/>TDD/BDD, tasks.md [x] + evidence"]
+    UserSelect --> Apply["apply — sdd-apply<br/>TDD/BDD, tasks.md [x] + State"]
     UserSelect --> Propose
 
     subgraph PerStep["Per step — repeat until every step passes"]
-        Apply --> Verify{"verify — sdd-verify<br/>verdict per step"}
+        Apply --> Verify{"verify — sdd-verify<br/>verdicts in tasks.md"}
         Verify -- "FAIL" --> Apply
     end
 
@@ -124,19 +108,19 @@ flowchart TD
     Propose -.-> Q
     Explore -.-> R
     Propose -.-> R
-    Design -.-> R
+    Spec -.-> R
     Apply -.-> R
     Verify -.-> R
 ```
 
-* Happy path: `init → explore → propose → design → tasks → spec → apply → verify → archive`.
+* Happy path: `init → explore → propose → spec → apply → verify → archive`.
 * Loop path: `verify` FAIL (or archive gate failure) sends work back to `apply` for the failing step — no renumbering of NN.
-* Side paths: `questioning` rounds during init/explore/propose; Mnemonic + code-index recovery at any phase (survives compaction via `state.yaml` + Mnemonic topic keys).
+* Side paths: `questioning` rounds during init/explore/propose; Mnemonic + code-index recovery at any phase (survives compaction via `tasks.md` `## State` + Mnemonic topic keys).
+* Retired phases: standalone `design` (`sdd-design`) and `tasks` (`sdd-tasks`) — folded into `propose` and `spec` respectively.
 
 ## File Structure
 
 ### Artifact File Structure
-
 
 ```bash
 .backlog/
@@ -152,60 +136,43 @@ flowchart TD
 ├── config.yml
 ├── readme.md
 docs/
-├── agents/
-│   ├── skill-registry.md
-│   ├── issue-tracker.md
-│   └── domain.md
-docs/
 └── skillgrid/
     ├── config.yaml                 # stack, context, rules per phase
-    ├── changes/                            # Active development branch/context
-    │   └── <NNN-slug>/                   # Specific change context (e.g., 001-oauth-login)
-    │       ├── intent.md                   # WHY & WHAT: Business goals & High-level UAT criteria
-    │       ├── research.md                 # SPIKE & FINDINGS: API investigation & discovery notes
-    │       ├── plan.md                     # HOW: Architecture decisions & impacted files map + per-step WHAT
-    │       ├── state.yaml                  # DAG state (survives compaction)
-    │       └── steps/                      # SUBTASKS: Broken down sequential execution phases
-    │           └── <NN>-<step-name>/       # Isolated step (e.g., 01-db-migration)
-    │               ├── tasks.md            # Execution punch-list for the AI agent
-    │               ├── acceptance.feature  # End-to-End User Acceptance Test (Gherkin/BDD style)
-    │               └── verification.md     # Per-step PASS/FAIL gate + execution evidence
-    └── archive/                            # HISTORICAL RECORD
-        └── <NNN-slug>/                     # Completed changes moved here after successful gates
-
-docs/
-└── skillgrid/
-    └── glossary/                           # SHARED VOCABULARY (governed by the `glossary` skill)
-        ├── business.md                     # domain / product / workflow / business terms
-        └── technical.md                    # architecture / implementation / platform / protocol terms
+    ├── agents/                     # Agent registry, tracker, shared vocabulary
+    │   ├── skill-registry.md
+    │   ├── issue-tracker.md
+    │   ├── triage-labels.md
+    │   └── glossary/               # SHARED VOCABULARY (glossary skill)
+    │       ├── business.md
+    │       └── technical.md
+    ├── changes/                    # Active development branch/context
+    │   └── <NNN-slug>/             # Specific change context (e.g., 001-oauth-login)
+    │       ├── research.md         # SPIKE & FINDINGS
+    │       ├── change.md           # WHY + HOW (intent+design merged); glossary inline
+    │       ├── tasks.md            # State + all steps + verification slots
+    │       ├── acceptance.feature  # All Features tagged @step-NN
+    │       └── interview.md        # Optional questioning artifact
+    └── archive/                    # HISTORICAL RECORD
+        └── <NNN-slug>/             # Completed changes moved here after successful gates
 ```
 
-### Companion Glossary References (always-on)
+### Glossary (folded into main files)
 
-Per the `glossary` skill, every change has two always-on companions next to the design-bearing artifacts:
-
-```
-docs/skillgrid/changes/<NNN-slug>/
-├── intent.md
-├── intent-glossary-reference.md           # ← always-on; lists business.md terms used in intent.md
-├── plan.md
-├── plan-glossary-reference.md             # ← always-on; lists technical.md terms used in plan.md
-└── steps/...
-```
-
-Other artifacts (`research.md`, `tasks.md`, `acceptance.feature`, `verification.md`) are not required to have companions, but may link to `plan-glossary-reference.md` when they introduce a new term.
+No companion `*-glossary-reference.md` files. When authoring `change.md` (or other artifacts), reuse or add terms in `docs/skillgrid/agents/glossary/{business,technical}.md` and define first-use inline or via a short `## Glossary` footer in the main file.
 
 ### Notes
 
 * NNN = 3-digit zero-padded change number, reserved by `sdd-propose`. Never reused.
-* NN = 2-digit zero-padded step number within a change, allocated by `sdd-tasks`. Never renumbered after creation.
-* Per-step files: `tasks.md` (sdd-tasks → sdd-apply marks `[x]`), `acceptance.feature` (sdd-spec), `verification.md` (sdd-verify). All three live in the same `steps/<NN-name>/` folder.
-* Archive in v2 is a **pure move** of the entire change folder — there is no "merge into main specs" step because there is no main-specs tree in the new layout.
+* NN = 2-digit zero-padded step number within a change, allocated by `sdd-spec`. Never renumbered after creation.
+* Change-level files: `tasks.md` (spec → apply marks `[x]` → verify fills verdicts), `acceptance.feature` (spec). No `steps/` tree.
+* Templates: `.agents/skills/_shared/templates/template-{change,tasks}.md` + `template-acceptance.feature` — mandatory source outline for generation (see `templates/README.md`).
+* Archive is a **pure move** of the entire change folder — there is no "merge into main specs" step.
+* Pre-v3 changes (`intent.md` + `plan.md` + `steps/<NN>/…`) remain valid history; new work uses v3 only.
 
 ### Sub-Agent Scratch Structure
 
 ```bash
-.ICEbreaker/sdd/
+.skillgrid/sdd/
 └── <change-id>/
     ├── context/
     │   └── phase-input.md
@@ -213,9 +180,7 @@ Other artifacts (`research.md`, `tasks.md`, `acceptance.feature`, `verification.
     │   ├── init-status.md
     │   ├── explore-status.md
     │   ├── propose-status.md
-    │   ├── design-status.md
     │   ├── spec-status.md
-    │   ├── tasks-status.md
     │   ├── apply-status.md
     │   ├── verify-status.md
     │   └── archive-status.md
@@ -240,15 +205,13 @@ sdd/{project}/issue_tracker
 sdd/{project}/testing-capabilities
 sdd/{project}/changelog
 sdd/<NNN-slug>/research
-sdd/<NNN-slug>/intent
-sdd/<NNN-slug>/plan
-sdd/<NNN-slug>/tasks        (per step, concatenated)
-sdd/<NNN-slug>/spec         (per step acceptance.feature, concatenated)
+sdd/<NNN-slug>/change          (replaces intent + plan)
+sdd/<NNN-slug>/tasks           (tasks.md contents)
+sdd/<NNN-slug>/spec            (acceptance.feature; may also cover tasks)
 sdd/<NNN-slug>/issue-creation
 sdd/<NNN-slug>/apply-progress
-sdd/<NNN-slug>/verification (per step, concatenated)
+sdd/<NNN-slug>/verification    (verdicts from tasks.md)
 sdd/<NNN-slug>/archive-report
-sdd/<NNN-slug>/state
 ```
 
 ## Ticketing
@@ -260,71 +223,6 @@ sdd/<NNN-slug>/state
 * Backlog.md storage: `.backlog/tasks/<ID>.md` (set `backlog_directory: .backlog` in `backlog.config.yml`)
 * `issue-creation` skill maps tasks → tracker issues; duplicate-search first
 
+## Skill update backlog
 
-commit-convention
-conventions into AGENTS.md as rules.
-
-
-tree-sitter-cli
-engram-compat
-openspec
-gitnexus
-
-
-```
-               /\
-              /  \
-          .--/\--/\--.
-         /  /  \/  \  \
-        /  /   /\   \  \
-   .---/  /   /  \   \  \---.
-  /   /  /   / /\ \   \  \   \
- /   /  /___/ /  \ \___\  \   \
-/   /  /____\/____\/____\  \   \
-\   \  \    /\    /\    /  /   /
- \   \  \  /  \  /  \  /  /   /
-  \   \  \/____\/____\/  /   /
-   '---\  \   \  /   /  /---'
-        \  \   \/   /  /
-         \  \  /\  /  /
-          '--\/--\/--'
-              \  /
-               \/
-```
-
-```
-               /\
-              /  \
-             / /\ \
-         _  / /  \ \  _
-        / \/ /    \ \/ \
-       /  / /      \ \  \
-      /  / /   /\   \ \  \
-     /  / /   /  \   \ \  \
-    /  / /___/ /\ \___\ \  \
-    \  \ \___\ \/ /___/ /  /
-     \  \ \   \  /   / /  /
-      \  \ \   \/   / /  /
-       \  \/        \/  /
-        \_/ \      / \_/
-            \ \  / /
-             \ \/ /
-              \  /
-               \/
-```
-
-```
- ____  _  _ _    _     ____ ____  _ ____  
-/ ___|| |/ / |  | |   / ___|  _ \| |  _ \ 
-\___ \| ' /| |  | |  | |  _| |_) | | | | |
- ___) | . \| |__| |__| |_| |  _ <| | |_| |
-|____/|_|\_\____|_____\____|_| \_\_|____/ 
-
-
-   _____ __ __ ____ _     _     ______ ____  ____ ____ 
-  / ___// //_//  _// /    / /    / ____// __ \/  _// __ \
-  \__ \/ ,<   / / / /    / /    / / __ / /_/ // / / / / /
- ___/ / /| |_/ /_/ /___ / /___ / /_/ // _, _/_/ /_/ /_/ / 
-/____/_/ |_|/___//_____//_____/ \____//_/ |_|/___//_____/  
-
-```
+v3 skill pass complete. Entry skill **`use-skillgrid`** added (agent-invoked; no hook). Legacy change folders `001`–`006` remain on pre-v3 layout until explicitly migrated.

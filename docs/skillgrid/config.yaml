@@ -14,4 +14,28 @@ testing:
 conventions:
   artifacts_root: docs/skillgrid
   scratch_dir: .skillgrid/sdd
-  registry: docs/agents/skill-registry.md
+  registry: docs/skillgrid/agents/skill-registry.md
+rules:
+  explore: []
+  propose:
+    - Include rollback plan for risky changes
+    - Include success criteria (measurable)
+    - Document architecture decisions with rationale (Choice/Alternatives/Rationale)
+    - Carry the threat matrix applicable rows forward into per-step WHAT
+  spec:
+    - Own NN allocation; one ## section per Step Blueprint entry in tasks.md
+    - Group tasks by step; keep each task completable in one sitting
+    - One change-level acceptance.feature with @step-NN Features
+    - Cover a happy path and at least one edge + failure per step
+  apply:
+    guidelines:
+      - Follow existing code patterns
+      - Mark tasks [x] as you go (in tasks.md)
+    tdd: false
+    test_command: ""
+  verify:
+    test_command: ""
+    build_command: ""
+    coverage_threshold: 0
+  archive:
+    - Require every step in tasks.md to have PASS or PASS WITH WARNINGS before move
