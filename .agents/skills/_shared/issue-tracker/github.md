@@ -28,3 +28,7 @@ Create a GitHub issue.
 ## issue-creation mapping
 
 The `issue-creation` skill maps each step's `tasks.md` items (`docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/tasks.md`) → one GitHub issue per task; use GitHub's native issue dependencies for blocking relations where available, otherwise a `Blocked by: #<n>` line at the top of the issue body.
+
+## force_ticket_creation
+
+When `force_ticket_creation` is `true`, the `issue-creation` skill MUST be invoked to create the ticket for the `plan.md` and `tasks.md` artifacts at the `sdd-design` and `sdd-spec` phases.

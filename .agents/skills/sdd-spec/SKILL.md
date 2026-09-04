@@ -42,6 +42,7 @@ From the orchestrator:
 - **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes each `steps/<NN-name>/acceptance.feature` **and** persists to Mnemonic under `sdd/<NNN-slug>/spec` (a single concatenated observation). The filesystem write and the Mnemonic save are each their own obligations — the Mnemonic save does not stand in for the file.   Do not branch on the mode.
 - Optional: **ticket/issue id** (carry-through to `sdd-apply`'s commit close-token per `_shared/conventions/commits.md`; spec itself does not use it)
 - Optional: a `## Skills to load before work` block
+- `force_ticket_creation` is `true`: the `issue-creation` skill MUST be invoked to create the ticket for the `tasks.md` artifact.
 
 ## Execution + Persistence Conventions
 

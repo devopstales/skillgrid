@@ -23,3 +23,7 @@ Read `.backlog/tasks/<ID>.md`. Duplicate-search first: `grep -ri "<keyword>" .ba
 ## issue-creation mapping
 
 The `issue-creation` skill maps each step's `tasks.md` items (`docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/tasks.md`) → one backlog ticket per task, with dependency notes referencing sibling task IDs.
+
+## force_ticket_creation
+
+When `force_ticket_creation` is `true`, the `issue-creation` skill MUST be invoked to create the ticket for the `plan.md` and `tasks.md` artifacts at the `sdd-design` and `sdd-spec` phases.

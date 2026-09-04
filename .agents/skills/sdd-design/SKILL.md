@@ -39,6 +39,7 @@ From the orchestrator:
 - **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `docs/skillgrid/changes/<NNN-slug>/plan.md` **and** persists to Mnemonic under `sdd/<NNN-slug>/plan`. The filesystem write and the Mnemonic save are each their own obligations — the Mnemonic save does not stand in for the file.   Do not branch on the mode.
 - Optional: **ticket/issue id** (for the eventual `sdd-apply` commit close-token per `_shared/conventions/commits.md`)
 - Optional: a `## Skills to load before work` block
+- `force_ticket_creation` is `true`: the `issue-creation` skill MUST be invoked to create the ticket for the `plan.md` artifact.
 
 ## Execution + Persistence Conventions
 

@@ -19,6 +19,7 @@ Prompt-driven skill: explore, present findings, validate with the user, then wri
 - Detect before writing. Every fact (project name, stack, testing, tracker) must come from a detected source or an explicit user answer.
 - Source precedence for `project_name`, `tech_stack`, `testing_capabilities`, `issue_tracker`: **AGENTS.md/CLAUDE.md/GEMINI.md → docs/skillgrid/config.yaml → Mnemonic → git repo → project files**. First source that answers wins; later sources fill gaps.
 - Memory is `hybrid` always: persist to both Mnemonic and filesystem.
+- `force_ticket_creation` is a project setting: when `true`, the `issue-creation` skill MUST be invoked to create the ticket for the `plan.md` and `tasks.md` artifacts at the `sdd-design` and `sdd-spec` phases.
 - Agent config targets are `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md`. Never create a second root config file — edit the primary that exists. If none exists, ask the user which to create (default suggestion `AGENTS.md`). Selection + payload rules live in `../_shared/agent-config/`.
 - If `docs/skillgrid/` already exists, report what is there and ask before updating it.
 - Use git only to detect `project_name` and `issue_tracker`; do not force a git work tree or run `git init`.
