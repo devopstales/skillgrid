@@ -63,6 +63,21 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun b
 		return err
 	}
 
+	tuiJsonPath := filepath.Join(kiloDir, "tui.json")
+	if err := ensureConfigFile(tuiJsonPath, dryRun); err != nil {
+		return err
+	}
+	logoDst := filepath.Join(kiloDir, "tui-plugins", "skillgrid-logo.tsx")
+	if err := copyFromRepo(repoRoot, kiloLogoRel, logoDst, dryRun); err != nil {
+		return err
+	}
+	if err := setJSON(tuiJsonPath, "theme", "tokyonight", dryRun); err != nil {
+		return err
+	}
+	if err := appendJSONArrayUnique(tuiJsonPath, "plugin", logoDst, dryRun); err != nil {
+		return err
+	}
+
 	opencodeDir := filepath.Join(home, ".config", "opencode")
 	bridges := []struct{ src, dst string }{
 		{

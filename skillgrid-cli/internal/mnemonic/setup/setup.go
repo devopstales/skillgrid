@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"gopkg.in/yaml.v3"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/logging"
@@ -19,6 +21,8 @@ const (
 	opencodePluginRel = "plugins/opencode/mnemonic.ts"
 	kiloPluginRel     = "plugins/kilo/mnemonic.ts"
 	cursorTemplateRel = "plugins/cursor/mnemonic.mdc"
+	opencodeLogoRel   = "plugins/opencode/skillgrid-logo.tsx"
+	kiloLogoRel       = "plugins/kilo/skillgrid-logo.tsx"
 
 	kiloBeginMarker = "<!-- BEGIN SKILLGRID MNEMONIC — managed by skillgrid setup kilocode -->"
 	kiloEndMarker   = "<!-- END SKILLGRID MNEMONIC -->"
@@ -303,4 +307,60 @@ func upsertMarkerBlock(content, begin, end, body string) string {
 		return content + "\n" + block + "\n"
 	}
 	return block + "\n"
+}
+
+// upsertOpenCodeMCP writes a server entry into the "mcp" object of an
+// opencode-style JSONC config (kilo.jsonc). Entries are keyed by the server
+// name from the YAML config; existing entries of the same name are replaced.
+func upsertOpenCodeMCP(cfgPath string, entry MCPServerConfig, dryRun bool) error {
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read config %s: %w", cfgPath, err)
+	}
+	value := map[string]interface{}{}
+	switch entry.Type {
+	case "remote":
+		value["type"] = "remote"
+		value["url"] = entry.URL
+		value["enabled"] = true
+	default:
+		value["type"] = "local"
+		value["command"] = entry.Command
+		value["enabled"] = true
+	}
+	updated, err := sjson.Set(string(data), "mcp."+entry.Name, value)
+	if err != nil {
+		return fmt.Errorf("set mcp.%s: %w", entry.Name, err)
+	}
+	if dryRun {
+		logging.Info("[dry-run] set mcp." + entry.Name + " in " + cfgPath)
+		return nil
+	}
+	return os.WriteFile(cfgPath, []byte(updated), 0o644)
+}
+
+// appendPluginPath appends path to a "plugin" array in the given JSONC config,
+// skipping the write when the value is already present. Used by the kilo
+// installer to register the mnemonic plugin under the user's home.
+func appendPluginPath(cfgPath, path string, dryRun bool) error {
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read config %s: %w", cfgPath, err)
+	}
+	arr := gjson.Get(string(data), "plugin").Array()
+	for _, v := range arr {
+		if v.Str == path {
+			return nil
+		}
+	}
+	arr = append(arr, gjson.Result{Str: path})
+	updated, err := sjson.Set(string(data), "plugin", arr)
+	if err != nil {
+		return fmt.Errorf("set plugin: %w", err)
+	}
+	if dryRun {
+		logging.Info("[dry-run] append " + path + " to plugin[] in " + cfgPath)
+		return nil
+	}
+	return os.WriteFile(cfgPath, []byte(updated), 0o644)
 }

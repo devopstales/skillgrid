@@ -106,6 +106,8 @@ func TestSetupAgentsIntegration(t *testing.T) {
 		"plugins/opencode/memory-protocol.md",
 		"plugins/kilo/memory-protocol.md",
 		"plugins/cursor/mnemonic.mdc",
+		"plugins/opencode/skillgrid-logo.tsx",
+		"plugins/kilo/skillgrid-logo.tsx",
 		"config.d/mcp.yaml",
 	}
 	for _, f := range files {
