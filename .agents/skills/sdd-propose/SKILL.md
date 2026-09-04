@@ -1,18 +1,18 @@
 ---
 name: sdd-propose
-description: "Create an SDD change intent (WHY & WHAT: business goals, UAT criteria, step blueprint) from a research analysis, and reserve the three-digit change number. Use when the orchestrator needs an intent.md before design/tasks phases."
+description: "Create the SDD change.md (WHY + HOW: Goal/DoD, Step Blueprint, architecture, threat matrix) from research, reserve NNN, instantiate template-change.md. Absorbs former sdd-design. Use after sdd-explore and before sdd-spec."
 disable-model-invocation: true
 user-invocable: false
 license: MIT
 metadata:
   author: devopstales
-  version: "2.0"
+  version: "3.0"
   family: sdd
   part-of: skillgrid
-  phase-order: "init → explore → propose → design → tasks → spec → apply → verify → archive"
+  phase-order: "init → explore → propose → spec → apply → verify → archive"
   prev: [sdd-explore]
-  next: [sdd-design]
-  artifact: intent
+  next: [sdd-spec]
+  artifact: change
   delegate_only: true
 ---
 
@@ -27,242 +27,127 @@ Confirm your role before acting. You are the dedicated `sdd-propose` sub-agent *
 
 ## Purpose
 
-You are the INTENT phase. Your job is to take the research analysis (from `sdd-explore`) — or direct user input — and produce a structured `intent.md` inside the reserved change folder. You capture **WHY** we are doing this and **WHAT** success looks like at the user level, plus the **step blueprint**: the coarse, sequential steps this change will decompose into. You shape business goals, UAT criteria, scope, risks, and rollback before anyone plans, decomposes, or implements.
+You are the PROPOSE phase (v3): **WHY + HOW in one artifact**. You reserve `NNN`, write **`change.md`** by instantiating [`../_shared/templates/template-change.md`](../_shared/templates/template-change.md), and persist hybrid to Mnemonic `sdd/<NNN-slug>/change`.
 
-You also own **change-number reservation**: you choose the next free `NNN` and name the change folder before any artifact is written.
+This skill **absorbs former `sdd-design`**. Do not call `sdd-design` (retired stub).
+
+Layout contract: [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md).
 
 ## What You Receive
 
-From the orchestrator:
+- **Change slug** (kebab-case) — NNN may be supplied or reserved here.
+- **Research** from `sdd-explore` OR direct user description.
+- **Artifact store mode** is `hybrid` only: write `docs/skillgrid/changes/<NNN-slug>/change.md` **and** Mnemonic `sdd/<NNN-slug>/change`.
+- Optional: ticket id; `## Skills to load before work`.
+- `force_ticket_creation` true → invoke `issue-creation` for the `change.md` artifact.
 
-- **Change slug** (kebab-case, e.g. `oauth-login`) — the NNN number may be assigned by the orchestrator or left to you to reserve.
-- **Research analysis** (from `sdd-explore`) OR a direct user description.
-- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `docs/skillgrid/changes/<NNN-slug>/intent.md` **and** persists to Mnemonic under `sdd/<NNN-slug>/intent`. The filesystem write and the Mnemonic save are each their own obligations — the Mnemonic save does not stand in for the file.   Do not branch on the mode.
+## Conventions
+
+- [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md)
+- [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — `rules.propose`
+- [`../_shared/conventions/mnemonic-code-indexing.md`](../_shared/conventions/mnemonic-code-indexing.md)
+- [`../_shared/templates/template-change.md`](../_shared/templates/template-change.md) — **mandatory outline**
+- [`references/threat-matrix.md`](references/threat-matrix.md)
 
 ## Skill Loading
 
-1. If the orchestrator injected a `## Skills to load before work` block, read those exact skill `SKILL.md` paths first.
-2. Otherwise, recover context: `mem_search(query: "sdd/<NNN-slug>/research")` + `mem_get_observation(id)`, then `mem_search(query: "sdd-init/{project}")` + `mem_get_observation(id)` for detected project facts (stack, testing, tracker).
-3. Read `docs/skillgrid/config.yaml` if present — it carries `rules` (including `rules.intent`).
-4. Read prior related changes from `docs/skillgrid/archive/NNN-slug/` when the slug or domain overlaps — their `intent.md` / `plan.md` are prior art.
+1. Injected skills block first, else recover: `sdd/<NNN-slug>/research`, `sdd-init/{project}`, `skill-registry` (fallback `docs/skillgrid/agents/skill-registry.md`).
+2. Read `docs/skillgrid/config.yaml` → `rules.propose` (legacy alias: `rules.intent` / `rules.plan` if present).
+3. Prior art: `docs/skillgrid/archive/<NNN-slug>/change.md` (legacy read-only: `plan.md` / `intent.md`).
+4. Load `codebase-design` when restructuring modules.
+5. Load `glossary` — fold terms into `change.md` `## Glossary`; upsert `docs/skillgrid/agents/glossary/{business,technical}.md`. **No companion `*-glossary-reference.md`.**
 
 ## What to Do
 
-### Step 0: Classify the Request (path ratchet — mandatory)
+### Step 0: Classify (path ratchet)
 
-Before any question round or artifact write, classify the change and announce the path. This prevents scope drift and the "too simple to need a design" trap. The classification is **structural, not subjective** — "I understand this kind of app" is not the criterion; "is there an existing flow in the repo to change" is.
+- **Spike** → recommend `design-spike`, not a full change.
+- **Bounded** → existing flow in repo; short design in chat; approval; single `01-` step OK.
+- **Architectural** → full pipeline: explore → **propose** → **spec** → apply → verify → archive.
 
-- **Spike** — a feasibility question ("can we…", "is it possible…", "quick and dirty is fine"). Output is an answer, not code. Recommend the user run this as a `design-spike` skill throwaway, not a full SDD change. Path ratchet: if a spike's findings imply a real change, classify again — a new project / new subsystem is never bounded.
-- **Bounded** — a well-scoped change to code that already exists in this repo. **Bounded measures the repo, not your familiarity.** A new project has no existing flow to read — it is architectural. Bounded: present a short design in chat (a few sentences), get explicit approval, then run a *single* SDD change with one `01-` step (no full Step Blueprint, no per-step `acceptance.feature`).
-- **Architectural** — new projects, new subsystems, or changes that restructure how components fit together. Run the full SDD pipeline: `sdd-explore` → `sdd-propose` (Step Blueprint + UAT criteria) → `sdd-design` → `sdd-tasks` → `sdd-spec` → `sdd-apply` → `sdd-verify` → `sdd-archive`.
+Announce classification. Every path ends with user approval of the change before apply.
 
-**Path ratchet — one-way only.** When in doubt between two paths, take the heavier one. Hidden complexity discovered mid-task **upgrades** the path: stop, say so, and step up. Nothing downgrades mid-task. Examples:
-- "Bounded, but exploring the code revealed two subsystems that need new contracts" → upgrade to architectural.
-- "Spike, but the prototype became load-bearing" → upgrade to bounded or architectural (a new request, classify fresh).
-- "Architectural, but the user clarified the scope is one repo, one module" → stay architectural (steps still go through tasks/spec/apply).
+### Step 0.5: Question round (interactive)
 
-**Anti-pattern: "too simple to need approval."** Every path ends with the user approving the intent before implementation. A todo list, a single-function utility, a config change — the design may be two sentences in chat, but you MUST present it and get approval. What scales with simplicity is the **artifact**, never the **approval gate**.
+Business/product only (not harness). Prefer `questioning` skill. Cover problem, users, rules, outcome, gap, impact, edges, decision gaps, non-goals, risk.
 
-**Announce the classification** before proceeding, so the user can override. If the orchestrator/agent is already inside a delegated `sdd-propose` run, embed the classification as the first line of the result envelope's `Summary`.
+### Step 1: Reserve NNN
 
-### Step 0.5: Shape the Intent (interactive mode only)
+Scan `docs/skillgrid/changes/`, `archive/`, Mnemonic `sdd/{project}/changelog`. `max+1`, zero-pad 3. Id = `<NNN>-<slug>`. Append changelog line.
 
-In interactive SDD mode, do not let the executor silently decide if the input is "clear enough." Run an **intent question round** before finalizing — focus on business/product, **not** harness mechanics (test commands, PR shape, line budgets):
+### Step 2: Read code (code-index ladder)
 
-1. **Business problem** — pain, opportunity, or cost that justifies this change now
-2. **Target users & situations** — who is affected, in which workflow, urgency
-3. **Business rules** — policies, permissions, thresholds, compliance/domain invariants
-4. **User-observable outcome** — what should feel/work/possible after
-5. **Current-state gap** — what is wrong, missing, or inconsistent today
-6. **Implications & impact** — teams, data, UX, support/operational processes
-7. **Edge cases** — empty states, partial data, failures, migrations, conflicting needs
-8. **Decision gaps** — unknowns that make the intent ambiguous or over-broad
-9. **Scope boundaries & non-goals** — what's in the first slice vs deferred
-10. **Business risk / tradeoff** — downside that matters if the direction is wrong
+`code_status` → `code_index` if stale → `code_search` → `code_read` for every symbol/module you will touch. Never plan from prose alone.
 
-Prefer 3–5 concrete questions per round. After answers, summarize resulting assumptions and ask: *correct anything, or another round?*
+### Step 3: Write change.md from template
 
-The reusable `questioning` skill implements the shared clarification primitive (classify + design tree, frontier, rounds, recommendations, approval gate); invoke it when you need a deeper requirement-stress session before writing the intent. If you cannot ask the user directly, embed a `## Intent question round` section in the result with the questions and assumptions needing review.
+1. **READ** [`../_shared/templates/template-change.md`](../_shared/templates/template-change.md).
+2. Copy outline verbatim; fill placeholders. Do not invent a parallel structure.
+3. Write `docs/skillgrid/changes/<NNN-slug>/change.md`.
+4. If file exists, READ then UPDATE.
 
-### Step 1: Reserve the Change Number
+Required content (template sections):
 
-This phase **owns the NNN number**. Resolve the next free one before creating the folder:
+- STATUS, Goal / Architecture / Tech header
+- Goal, Out of scope / Non-Goals, Definition of Done
+- Problem, users, rules, in scope, risks & rollback
+- Error handling, Testing strategy
+- Step Blueprint (NN + primary package)
+- Technical approach, Architecture decisions (Choice/Alternatives/Rationale + codebase-design vocabulary)
+- Data flow, File layout (optional), Impacted files map (Step column)
+- Per-step WHAT (Goal / Out of scope / DoD + WHAT bullets)
+- Threat matrix ([references/threat-matrix.md](references/threat-matrix.md) — Applicable → owning step)
+- Migration, open questions, Glossary footer, author self-review
 
-1. If the orchestrator supplied a number, use it — but still verify it is free.
-2. Otherwise, scan existing numbers:
-   - `ls docs/skillgrid/changes/ | grep -Eo '^([0-9]{3})' | sort -n | tail -1`
-   - `ls docs/skillgrid/archive/ | grep -Eo '^([0-9]{3})' | sort -n | tail -1`
-   - `mem_search(query: "sdd/{project}/changelog")` → `mem_get_observation(id)` for any archived entries not yet reflected on disk.
-3. Take `max + 1`, zero-pad to 3 digits. If no changes exist, use `001`.
-4. The full change id is `<NNN>-<slug>` (e.g. `001-oauth-login`). If the slug already collides (same NNN with a different slug), bump NNN until the pair is free.
+**Threat rows:** Applicable → must propagate to `sdd-spec` as `[RED]` tasks + `@step-NN` scenarios.
 
-Record the reservation in Mnemonic `sdd/{project}/changelog` as a one-line entry: `<NNN>-<slug>: <intent-title> (reserved by sdd-propose, {ISO date})`. This observation is extended, not replaced — each reservation is its own line; recover the full history with `mem_get_observation(id)`.
+### Step 4: Glossary close-term
 
-### Step 2: Create the Change Directory
+Run glossary close-term check. Upsert glossary files. Fill `## Glossary` in `change.md`. No companion reference files.
 
-Create the change folder (hybrid mode always writes the file):
+### Step 5: Persist (hybrid, mandatory)
 
 ```
-docs/skillgrid/changes/<NNN-slug>/
-└── intent.md
+sid = mem_session_start(title: "sdd/<NNN-slug>/change")
+mem_save(title/topic_key: "sdd/<NNN-slug>/change", type: architecture, scope: project, session_id: sid, content: full change.md)
+# append sdd/{project}/changelog reservation line
 ```
 
-### Step 3: Write intent.md
+File must exist on disk.
+
+### Step 6: Return envelope
 
 ```markdown
-# Intent: {NNN-slug — Change Title}
-
-## Business Problem
-{What problem are we solving? Why now? Be specific about the user need or tech debt.}
-
-## Target Users & Situations
-- {Who is affected, in which workflow, with what urgency}
-- {Second persona/situation if any}
-
-## Business Rules
-- {Policy / permission / threshold / domain invariant this change must respect}
-- {Second rule if any}
-
-## Success Criteria (UAT-level)
-Measurable, user-observable outcomes. These become the acceptance contract `sdd-spec` will translate into per-step Gherkin scenarios:
-
-- [ ] {User can ... / system must ... — observable, not implementation-shaped}
-- [ ] {Second criterion}
-- [ ] {Edge / failure behavior the user can observe}
-
-## Scope
-
-### In Scope
-- {Concrete deliverable 1}
-- {Concrete deliverable 2}
-
-### Out of Scope
-- {What we are explicitly NOT doing}
-- {Related future work, deferred}
-
-## Step Blueprint
-> CONTRACT with the sdd-tasks phase: these names tell tasks exactly which step folders to create under `steps/`. Use `<NN>-<step-name>` kebab-case IDs (NN = 2-digit sequential, step-name = verb-noun slug). Leave empty if the change is a single step.
-
-- `01-<step-slug>`: {one-line goal for this step}
-- `02-<step-slug>`: {one-line goal}
-- `03-<step-slug>`: {one-line goal}
-
-## Affected Areas
-| Area | Impact | Description |
-|------|--------|-------------|
-| `path/to/area` | New / Modified / Removed | {What changes} |
-
-## Risks
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| {Risk description} | Low / Med / High | {How we mitigate} |
-
-## Rollback Plan
-{How to revert if something goes wrong. Be specific.}
-
-## Dependencies
-- {External dependency or prerequisite, if any}
-```
-
-If an `intent.md` already exists in the change folder, READ it first and UPDATE it — do not overwrite blindly.
-
-#### Companion glossary reference (always-on)
-
-Per the `glossary` skill, also write `intent-glossary-reference.md` in the same change folder. Format:
-
-```markdown
-# Glossary Reference
-
-| Term | Source Glossary | Context |
-| --- | --- | --- |
-| <Term> | `docs/skillgrid/glossary/business.md` | <Short context for how the intent uses this term.> |
-```
-
-If no glossary terms are used, write `No glossary terms referenced.` on one line. Do not copy definitions into the companion file.
-
-### Step 3.5: Close-Term Check (interactive mode)
-
-Before finalizing, run the `glossary` skill's close-term check on any business or technical term that is project-specific, overloaded, ambiguous, or repeated. In interactive mode this blocks the user with the standard close-term question; in automatic mode the result envelope surfaces the choice. Do not invent a new term when a close match already exists in `docs/skillgrid/glossary/business.md` or `docs/skillgrid/glossary/technical.md`.
-
-### Step 4: Persist Artifact
-
-This step is **MANDATORY** — do not skip it.
-
-**Filesystem path** (follow [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md)):
-
-```
-docs/skillgrid/changes/<NNN-slug>/intent.md
-```
-
-- Always create the change folder before writing (Step 1 reserved the NNN; create the folder here).
-- If the file already exists, READ then UPDATE (merge, preserve valid prior content).
-
-**Mnemonic** (follow [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md)):
-
-```
-sid = skillgrid-mnemonic_mem_session_start(title: "sdd/<NNN-slug>/intent")
-
-skillgrid-mnemonic_mem_save(
-  title:        "sdd/<NNN-slug>/intent",
-  topic_key:    "sdd/<NNN-slug>/intent",
-  type:         "architecture",
-  scope:        "project",
-  session_id:   "{sid}",
-  content:      "{full markdown content}"
-)
-
-# Append the reservation line to the project changelog (upsert the whole history)
-changelog = mem_get_observation( mem_search("sdd/{project}/changelog").id )  # if exists
-skillgrid-mnemonic_mem_save(
-  title:        "sdd/{project}/changelog",
-  topic_key:    "sdd/{project}/changelog",
-  type:         "config",
-  scope:        "project",
-  session_id:   "{sid}",
-  content:      "{existing changelog}\n{NNN}-{slug}: {intent title} (reserved by sdd-propose, {ISO date})"
-)
-```
-
-- `topic_key` enables upsert — saving again updates in place; do not create near-duplicates.
-- Hybrid is the only mode for this phase: do the filesystem write (Step 3) and the Mnemonic saves. The file must actually exist on disk at `docs/skillgrid/changes/<NNN-slug>/intent.md` — a Mnemonic save without the file is incomplete.
-
-### Step 5: Return Summary
-
-Return to the orchestrator:
-
-```markdown
-## Intention Set
-**Change**: {NNN-slug} (number reserved by this run)
-**Location**: `docs/skillgrid/changes/<NNN-slug>/intent.md` | Mnemonic `sdd/<NNN-slug>/intent`
-
+## Change Proposed
+**Change**: {NNN-slug}
+**Location**: docs/skillgrid/changes/<NNN-slug>/change.md · Mnemonic sdd/<NNN-slug>/change
 **Status**: success | partial | blocked
-**Summary**: 1-2 sentence summary of the intent
-**Business problem**: {one-line business problem}
-**Scope**: {N in, M out}
-**Step blueprint**: {N steps planned: 01-…, 02-…, …}
-**Risk Level**: Low / Medium / High
-**Changelog**: appended `sdd/{project}/changelog` (observation {id})
-**Next**: sdd-design
+**Summary**: …
+**Step blueprint**: {N steps}
+**Threat rows**: {K applicable}
+**Risk Level**: Low | Medium | High
+**Next**: sdd-spec
 ```
 
 ## Rules
 
-- ALWAYS create `intent.md` (hybrid mode — the only mode for this phase).
-- ALWAYS reserve the change number before creating the folder (Step 1).
-- Every intent MUST have a rollback plan.
-- Every intent MUST have measurable success criteria — these become the acceptance contract.
-- The **Step Blueprint** is the contract with `sdd-tasks` — always fill it. If nothing decomposes into more than one step, write a single `01-…` entry; do not leave it as a template placeholder.
-- Use concrete file paths in **Affected Areas** when possible.
-- Apply any `rules.intent` from `docs/skillgrid/config.yaml`.
-- **Size budget**: the intent artifact MUST be under 500 words. Use bullets and tables over prose.
-- Recovery: `mem_search` returns 300-char previews only — always `mem_get_observation(id)` for full content before relying on it.
-- At session end: call `mem_session_summary` then `mem_session_end`.
+- ALWAYS instantiate `template-change.md`; ALWAYS reserve NNN before folder create.
+- EVERY change has Goal, Out of scope/Non-Goals, Definition of Done, rollback, Testing strategy, Error handling.
+- Step Blueprint is the contract with `sdd-spec` — never leave as empty placeholder.
+- Apply `rules.propose` from config.yaml.
+- No companion glossary files.
+- Recovery: always `mem_get_observation` after `mem_search`.
 
 ## Gotchas
 
-- `mem_search` returns 300-char previews. Never use a preview as source material — always call `mem_get_observation(id)` for full content.
-- The **Step Blueprint** is what drives `sdd-tasks` step allocation. Leaving it as a template placeholder leaves `sdd-tasks` guessing the step count — that is a handoff gap, not a task defect.
-- "Out of Scope" is as important as "In Scope" — it prevents scope creep in later phases.
-- In interactive mode, the question round must stay on business/product questions, not delivery mechanics. The user is the domain expert, not the delivery configurator.
-- If a prior `intent.md` exists and you UPDATE it, preserve any content the user hand-approved in earlier rounds — only revise the sections the new input affects.
-- **NNN reservation is idempotent per slug pair.** If `001-oauth-login` already exists in `changes/` or `archive/`, the next NNN must be used — do not collide. Check both folders and the Mnemonic changelog before reserving.
+- Former `sdd-design` is retired — do not write `plan.md` or `intent.md`.
+- Legacy archive may still have `intent.md`/`plan.md`; new work uses `change.md` only.
+- Step Blueprint drives NN allocation in `sdd-spec`; leaving it blank is a handoff gap.
+
+## References
+
+- [`../_shared/templates/template-change.md`](../_shared/templates/template-change.md)
+- [`references/threat-matrix.md`](references/threat-matrix.md)
+- [`../sdd-spec/SKILL.md`](../sdd-spec/SKILL.md) — next
+- [`../codebase-design/SKILL.md`](../codebase-design/SKILL.md)
+- [`../glossary/SKILL.md`](../glossary/SKILL.md)

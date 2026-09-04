@@ -244,8 +244,8 @@ No exceptions without your human partner's permission.
 
 ## Integration with SDD
 
-Every implementation task in `sdd-tasks` MUST be written RED-first: the task
-carries its failing test before the production-code step. `sdd-apply`
-enforces the RED/GREEN/REFACTOR cycle per work unit and records the TDD Cycle
-Evidence table. `sdd-verify` audits assertion quality on the completed work —
-a test that asserts nothing is a defect the reviewer should flag.
+Every implementation task authored by `sdd-spec` in `tasks.md` MUST be written
+RED-first: the task carries its failing test before the production-code step.
+`sdd-apply` runs the RED/GREEN/REFACTOR micro-cycle per work unit and records
+the TDD Cycle Evidence table. `sdd-verify` audits assertion quality on the
+completed work — a test that asserts nothing is a defect the reviewer should flag.

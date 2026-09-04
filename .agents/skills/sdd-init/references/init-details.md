@@ -38,7 +38,7 @@ Format per the Testing Capabilities template below.
 ### issue_tracker
 
 1. `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` `## Agent skills → Issue tracker` line (or `<!-- skillgrid-sdd:start/end -->` block).
-2. `docs/agents/issue-tracker.md` existing content.
+2. `docs/skillgrid/agents/issue-tracker.md` existing content.
 3. Mnemonic `sdd/{project}/issue_tracker`.
 4. Git remote host: GitHub → `gh`, GitLab → `glab`, other → default **Backlog.md**.
 5. Jira → `jira` CLI ([jira-cli](https://github.com/ankitpokhrel/jira-cli)): detected when `jira config` resolves an instance + project key (from `jira init`), or the user names an instance + key. Project key is mandatory — capture it.
@@ -56,11 +56,11 @@ Tracker identifiers: github=gh, gitlab=glab, jira=jira, backlogmd=backlog.
 
 Seed templates live in `../_shared/issue-tracker/` (`backlogmd.md`, `github.md`, `gitlab.md`, `jira.md`).
 
-Conventions doc: `docs/agents/issue-tracker.md`. Triage labels: `_shared/triage-labels.md`. `issue-creation` skill maps tasks → tracker issues with duplicate-search first.
+Conventions doc: `docs/skillgrid/agents/issue-tracker.md`. Triage labels: `_shared/triage-labels.md`. `issue-creation` skill maps tasks → tracker issues with duplicate-search first.
 
 ## Skill Registry Scan Rules
 
-Registry at `docs/agents/skill-registry.md` is an **index** (index → exact path), not a summary. Sub-agents read the full `SKILL.md` from the path.
+Registry at `docs/skillgrid/agents/skill-registry.md` is an **index** (index → exact path), not a summary. Sub-agents read the full `SKILL.md` from the path.
 
 **Use the helper script** `scripts/extract_skills.js` for scanning:
 
@@ -94,6 +94,13 @@ Create if `docs/skillgrid/` is absent:
 ```
 docs/skillgrid/
 ├── config.yaml
+├── agents/
+│   ├── skill-registry.md
+│   ├── issue-tracker.md
+│   ├── triage-labels.md
+│   └── glossary/
+│       ├── business.md
+│       └── technical.md
 ├── changes/
 └── archive/
 ```
@@ -117,7 +124,19 @@ testing:
 conventions:
   artifacts_root: docs/skillgrid
   scratch_dir: .skillgrid/sdd
-  registry: docs/agents/skill-registry.md
+  registry: docs/skillgrid/agents/skill-registry.md
+rules:
+  explore: []
+  propose:
+    - Include rollback plan for risky changes
+    - Include success criteria (measurable)
+    - Document architecture decisions with rationale (Choice/Alternatives/Rationale)
+    - Carry the threat matrix applicable rows forward into per-step WHAT
+  spec:
+    - Own NN allocation; one ## section per Step Blueprint entry in tasks.md
+    - Group tasks by step; keep each task completable in one sitting
+    - One change-level acceptance.feature with @step-NN Features
+    - Cover a happy path and at least one edge + failure per step
 ```
 
 ## Agent Config Block
@@ -139,14 +158,14 @@ The full block (for reference — the shared file is authoritative):
 Skillgrid SDD is active in this repo. The workflow, registry, and tracker below are the source of truth for agent work here.
 
 ### Workflow
-`init → explore → propose → design → tasks → spec → apply → verify → archive`
+`init → explore → propose → spec → apply → verify → archive`
 
-- Skill registry (index of installed skills + triggers): `docs/agents/skill-registry.md`
+- Skill registry (index of installed skills + triggers): `docs/skillgrid/agents/skill-registry.md`
 - Project facts (stack, testing, tracker, conventions): `docs/skillgrid/config.yaml` and Mnemonic (`sdd/{project}/…`)
-- Triage labels: `docs/agents/issue-tracker.md` + the tracker's label map
+- Triage labels: `docs/skillgrid/agents/issue-tracker.md` + the tracker's label map
 
 ### Issue tracker
-{one-line tracker summary — see block.md placeholder table}. See `docs/agents/issue-tracker.md`.
+{one-line tracker summary — see block.md placeholder table}. See `docs/skillgrid/agents/issue-tracker.md`.
 <!-- skillgrid-sdd:end -->
 ```
 

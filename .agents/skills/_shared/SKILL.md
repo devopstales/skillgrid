@@ -14,7 +14,7 @@ metadata:
 
 This directory stores shared reference documents consumed by real SDD skills. Do not invoke it as a skill.
 
-- `issue-tracker/` — per-tracker CLI convention templates written to `docs/agents/issue-tracker.md` by `sdd-init` and consumed by `issue-creation`:
+- `issue-tracker/` — per-tracker CLI convention templates written to `docs/skillgrid/agents/issue-tracker.md` by `sdd-init` and consumed by `issue-creation`:
   - [issue-tracker/backlogmd.md](issue-tracker/backlogmd.md) — Backlog.md (default tracker)
   - [issue-tracker/backlogmd-formatting.md](issue-tracker/backlogmd-formatting.md) — Backlog.md project + task file templates, frontmatter schema, blocking arrays
   - [issue-tracker/github.md](issue-tracker/github.md) — GitHub (`gh`)
@@ -33,3 +33,8 @@ This directory stores shared reference documents consumed by real SDD skills. Do
   - [conventions/mnemonic-code-indexing.md](conventions/mnemonic-code-indexing.md) — the Mnemonic code-indexing ladder (`code_status` → `code_index` → `code_search` → `code_read`), config, and gotchas shared by every code-exploring skill (full schemas in the `mnemonic-code-index` skill).
   - [conventions/commits.md](conventions/commits.md) — commit message contract (conventional commits, no AI trailers, issue-tracker close token, multi-commit batches) shared by `sdd-apply`, `sdd-verify`, and any skill that commits.
 - `triage-labels.md` — the five canonical triage roles shared across trackers.
+- `templates/` — canonical blanks for SDD v3 change artifacts (instantiate; do not freestyle):
+  - [templates/README.md](templates/README.md) — naming, destinations, usage rules
+  - [templates/template-change.md](templates/template-change.md) — → `change.md` (`sdd-propose`)
+  - [templates/template-tasks.md](templates/template-tasks.md) — → `tasks.md` (`sdd-spec`)
+  - [templates/template-acceptance.feature](templates/template-acceptance.feature) — → `acceptance.feature` (`sdd-spec`)

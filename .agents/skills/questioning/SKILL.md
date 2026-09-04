@@ -23,7 +23,7 @@ It is cross-cutting, not a pipeline phase. Phases invoke it:
 
 - `sdd-init` — to clarify project facts / tracker choice
 - `sdd-explore` — to resolve ambiguous requirements before reading code
-- `sdd-propose` (Step 0 shaping) — to resolve business rules before writing the intent
+- `sdd-propose` (Step 0 shaping) — to resolve business rules before writing `change.md`
 
 ## Hard Gate
 

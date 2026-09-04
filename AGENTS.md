@@ -8,11 +8,13 @@ This file is the cross-agent standard config for all AI agents (Kilo, OpenCode, 
 Skillgrid SDD is active in this repo. The workflow, registry, and tracker below are the source of truth for agent work here.
 
 ### Workflow
-`init → explore → propose → design → tasks → spec → apply → verify → archive`
+`init → explore → propose → spec → apply → verify → archive`
 
-- Skill registry (index of installed skills + triggers): `docs/agents/skill-registry.md`
+Entry: invoke **`use-skillgrid`** for change work (uninitialized → `sdd-init`; else → `sdd-explore` then down the pipeline). No platform hook required.
+
+- Skill registry (index of installed skills + triggers): `docs/skillgrid/agents/skill-registry.md`
 - Project facts (stack, testing, tracker, conventions): `docs/skillgrid/config.yaml` and Mnemonic (`sdd/skillgrid/…`)
-- Triage labels: `docs/agents/issue-tracker.md` + the tracker's label map
+- Triage labels: `docs/skillgrid/agents/issue-tracker.md` + the tracker's label map
 
 ### Issue tracker
 Issues: Backlog.md tickets under `.backlog/tasks/` (backlog CLI).
@@ -31,7 +33,7 @@ and is accessed via `skillgrid mcp` (MCP) or the `skillgrid index` CLI. See
 Project conventions are declared in `.agents/skills/_shared/`:
 
 - [Mnemonic Memory Protocol](.agents/skills/_shared/conventions/mnemonic-memory.md) — persistent memory, session lifecycle, when to save.
-- [SDD Structure](.agents/skills/_shared/conventions/sdd-structure.md) — changes/archive layout, NNN-slug numbering, per-step files.
+- [SDD Structure](.agents/skills/_shared/conventions/sdd-structure.md) — changes/archive layout, NNN-slug numbering, `change.md` / `tasks.md` / `acceptance.feature`.
 
 <!-- BACKLOG.MD GUIDELINES START -->
 <!-- backlog.md-instructions-version: 1.51.0 -->

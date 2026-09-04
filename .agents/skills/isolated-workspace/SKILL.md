@@ -83,7 +83,7 @@ git worktree add "$path" -b "$BRANCH_NAME"
 cd "$path"
 ```
 
-For an SDD change, name the branch after the change so the isolation is traceable: e.g. `feat/<NNN-slug>` or the chain-strategy branch from the `Review Workload Forecast` in `sdd-tasks`.
+For an SDD change, name the branch after the change so the isolation is traceable: e.g. `feat/<NNN-slug>` or the chain-strategy branch from the `Review Workload Forecast` in `tasks.md`.
 
 **Sandbox fallback:** if `git worktree add` fails with a permission error, tell the user the sandbox blocked worktree creation and you will work in the current directory instead; then run setup and the baseline in place.
 
@@ -134,11 +134,11 @@ Ready to implement <feature-name>.
 
 ## Finish mirror (hand off to `finishing-a-development-branch`)
 
-This skill is the **up-front** half of worktree lifecycle. The **close-out** half lives in `finishing-a-development-branch`. When the SDD change reaches the close-out step (all steps PASS, all `[x]` marks in place):
+This skill is the **up-front** half of worktree lifecycle. The **close-out** half lives in `finishing-a-development-branch`. When the SDD change reaches the close-out step (all `### Verification` verdicts in `tasks.md` are PASS or PASS WITH WARNINGS, all `[x]` marks in place):
 
 - `finishing-a-development-branch` re-runs the env detection (`GIT_DIR` / `GIT_COMMON` / `WORKTREE_PATH` — capture **before** it changes directory for cleanup).
 - Cleanup ownership: worktrees under `.worktrees/` or `worktrees/` are *ours* to remove; everything else belongs to the host.
-- **Tests-on-the-integrated-tree** is mandatory, not ceremonial — a green run only proves the tree it ran on. The per-step `sdd-verify` runs were against the branch's tree, not the merged result.
+- **Tests-on-the-integrated-tree** is mandatory, not ceremonial — a green run only proves the tree it ran on. The `sdd-verify` runs (verdicts in `tasks.md`) were against the branch's tree, not the merged result.
 - Never `--force` on removal; never `discard` on anything but the typed word.
 
 ## Rules

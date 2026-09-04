@@ -9,7 +9,7 @@ metadata:
   version: "2.0"
   family: sdd
   part-of: skillgrid
-  phase-order: "init → explore → propose → design → tasks → spec → apply → verify → archive"
+  phase-order: "init → explore → propose → spec → apply → verify → archive"
   prev: [sdd-init]
   next: [sdd-propose]
   artifact: research
@@ -51,7 +51,7 @@ From the orchestrator:
 - Run `code_status` to check code-index health. If stale, run `code_index` before searching.
 - Recover prior context: `mem_context` first, then `mem_search(query: "sdd/<NNN-slug>/")` to find any existing research output for this change, and `mem_get_observation(id)` for full content.
 - Read `docs/skillgrid/config.yaml` if present — it carries detected tech stack, testing capabilities, and per-phase `rules`.
-- Scan `docs/skillgrid/archive/NNN-slug/` for prior changes in the same domain — their `research.md` / `plan.md` are prior art, not a substitute for a fresh investigation.
+- Scan `docs/skillgrid/archive/NNN-slug/` for prior changes in the same domain — their `research.md` / `change.md` (legacy `plan.md` is OK) are prior art, not a substitute for a fresh investigation.
 
 ### Step 2: Understand the Request
 

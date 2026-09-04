@@ -34,9 +34,9 @@ The two branches produce very different artifacts, so getting this wrong wastes 
 
 A prototype is a **spike for a pending decision**, not a change of its own. It produces a *validated answer* that lands in an existing SDD artifact:
 
-- **Before `sdd-propose`** — prototype to resolve an open question the intent should own (e.g. "is this state model even feasible?"). The answer goes into the intent's step blueprint or a `## Decisions` section.
-- **Before or during `sdd-design`** — prototype to resolve an architecture question that the plan must answer (e.g. "does this reducer shape actually handle the illegal transition?"). The answer goes into the plan's Architecture Decisions (Choice/Alternatives/Rationale).
-- **Not during `sdd-apply`** — by the time you are applying, the plan is committed; a "prototype" during apply is just production code, so it is not a prototype. Stop and surface to the user that this needs to go back through design.
+- **Before `sdd-propose`** — prototype to resolve an open question `change.md` should own (e.g. "is this state model even feasible?"). The answer goes into the Step Blueprint or a `## Decisions` section of `change.md`.
+- **During `sdd-propose`** — prototype to resolve an architecture question that `change.md` must answer (e.g. "does this reducer shape actually handle the illegal transition?"). The answer goes into Architecture Decisions (Choice/Alternatives/Rationale).
+- **Not during `sdd-apply`** — by the time you are applying, `change.md` is committed; a "prototype" during apply is just production code, so it is not a prototype. Stop and surface to the user that this needs to go back through propose.
 
 The prototype folder itself does **not** live under `docs/skillgrid/changes/<NNN-slug>/`; it lives next to the code it's answering. The *answer* does.
 
@@ -44,7 +44,7 @@ The prototype folder itself does **not** live under `docs/skillgrid/changes/<NNN
 
 1. **Fold the validated decision into the real code** (or into the SDD artifact that owns it, per [Where it fits](#where-it-fits-in-sdd)).
 2. **Commit the prototype to a throwaway branch**, out of `main`, so it stays re-runnable as a primary source. Name the branch `prototype/<NNN-slug>/<branch-keyword>` if tied to an SDD change, else `prototype/<topic>`.
-3. **Leave a context pointer** to that branch on the implementing issue (Backlog.md ticket, GitHub PR, or — for an SDD change — the owning step's `tasks.md` or the plan's Decisions section).
+3. **Leave a context pointer** to that branch on the implementing issue (Backlog.md ticket, GitHub PR, or — for an SDD change — the owning step section in `tasks.md` or the Architecture Decisions section of `change.md`).
 4. **Capture the answer** in the SDD artifact and, when the change is in flight, persist a Mnemonic observation:
 
    ```
@@ -61,7 +61,7 @@ The prototype folder itself does **not** live under `docs/skillgrid/changes/<NNN
      **Verdict**   <one sentence: what was validated / rejected>
      **Branch**    prototype/<NNN-slug>/<branch-keyword>
      **Branch files** <paths in the branch>
-     **Landed in** <intent.md §X / plan.md §Architecture Decisions / <issue id>>
+     **Landed in** <change.md §Architecture Decisions / <issue id>>
      **Date**      <ISO>
      """
    )

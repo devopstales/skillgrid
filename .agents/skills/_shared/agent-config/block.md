@@ -15,11 +15,13 @@ Copy exactly, fill the `{placeholders}`, wrap between the sentinels. Do not add 
 Skillgrid SDD is active in this repo. The workflow, registry, and tracker below are the source of truth for agent work here.
 
 ### Workflow
-`init → explore → propose → design → tasks → spec → apply → verify → archive`
+`init → explore → propose → spec → apply → verify → archive`
+
+Entry: invoke **`use-skillgrid`** for change work (uninitialized → `sdd-init`; else → `sdd-explore` then down the pipeline). No platform hook required.
 
 - Skill registry (index of installed skills + triggers): `{registry}`
 - Project facts (stack, testing, tracker, conventions): `docs/skillgrid/config.yaml` and Mnemonic (`sdd/{project}/…`)
-- Triage labels: `docs/agents/issue-tracker.md` + the tracker's label map
+- Triage labels: `docs/skillgrid/agents/issue-tracker.md` + the tracker's label map
 
 ### Issue tracker
 {tracker-line}
@@ -31,8 +33,8 @@ Skillgrid SDD is active in this repo. The workflow, registry, and tracker below 
 | placeholder | default | fill from |
 |---|---|---|
 | `{project}` | — | detected `project_name` (Mnemonic `sdd/{project}/project_name`) |
-| `{registry}` | `docs/agents/skill-registry.md` | sdd-init step 5.1 — fixed |
-| `{tracker-doc}` | `docs/agents/issue-tracker.md` | sdd-init step 5.3 — fixed |
+| `{registry}` | `docs/skillgrid/agents/skill-registry.md` | sdd-init step 5.1 — fixed |
+| `{tracker-doc}` | `docs/skillgrid/agents/issue-tracker.md` | sdd-init step 5.3 — fixed |
 | `{tracker-line}` | — | one-line tracker summary, chosen per active tracker |
 
 `{tracker-line}` — pick the active tracker (identifiers from `init → tracker`):

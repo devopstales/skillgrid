@@ -84,7 +84,7 @@ Keep it terse. The file is a lookup, not a blog post.
 
 - `mem_search` returns 300-char previews. Never treat a preview as the full finding — always `mem_get_observation(id)` for the stored artifact.
 - Mnemonic topic keys are namespaced per change: `sdd/<NNN-slug>/research`. Misspell the slug segment and `sdd-propose` searches into the void.
-- A "research" file that includes the agent's opinion is not research. Opinions go to `intent.md` (sdd-propose) or `plan.md` (sdd-design), not here.
+- A "research" file that includes the agent's opinion is not research. Opinions go to `change.md` (`sdd-propose`), not here.
 - If the repo already keeps notes under a specific path, do not create a second one — match the existing convention exactly.
 - At session end: `mem_session_summary` then `mem_session_end`.
 

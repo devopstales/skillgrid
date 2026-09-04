@@ -17,9 +17,9 @@ Dispatch a code-reviewer sub-agent to catch issues before they cascade. The revi
 ## When to Request Review in skillgrid
 
 **Mandatory (high-risk signals — any one triggers a review):**
-- The change's `Review Workload Forecast` in `01-…/tasks.md` says `400-line budget risk: High` or `Chained PRs recommended: Yes`
-- The plan's `## Threat Matrix` has any `Applicable` row
-- This is the **last step before `sdd-archive`** (per-step `sdd-verify` already passed; this is the second lens)
+- The change's `Review Workload Forecast` in `tasks.md` says `400-line budget risk: High` or `Chained PRs recommended: Yes`
+- The `change.md` `## Threat Matrix` has any `Applicable` row
+- This is the **last step before `sdd-archive`** (`### Verification` in `tasks.md` already passed; this is the second lens)
 - The change touches any `_shared/conventions/*` file or any Mnemonic tool contract
 
 **Optional but valuable:**
@@ -52,7 +52,7 @@ Before dispatching, the orchestrator injects **pre-resolved compact rules** from
 Use the `general` sub-agent type. Fill the template at [references/code-reviewer.md](references/code-reviewer.md) with the placeholders:
 
 - `{DESCRIPTION}` — brief summary of what was built
-- `{PLAN_OR_REQUIREMENTS}` — the path to the plan or the per-step WHAT block
+- `{PLAN_OR_REQUIREMENTS}` — the path to `change.md` or the per-step WHAT block inside it
 - `{BASE_SHA}` / `{HEAD_SHA}` — the git range
 - `## Project Standards (auto-resolved)` — the compact rules block
 
@@ -75,7 +75,7 @@ The reviewer **does not dispatch further sub-agents**. If the diff is too large 
 
 ```text
 [Just completed Step 02 of change 001-oauth-login]
-[Plan said: "Implement refresh-token rotation atomically"]
+[change.md said: "Implement refresh-token rotation atomically"]
 [Workload forecast: 400-line budget risk: High — CHAIN trigger]
 
 → requesting-code-review fires (high-risk signal)
@@ -85,7 +85,7 @@ HEAD_SHA=$(git rev-parse HEAD)      # = step 02 end
 
 [Dispatch general-purpose sub-agent with code-reviewer.md template]
   DESCRIPTION: Step 02 — refresh-token rotation in internal/auth/refresh.go
-  PLAN_OR_REQUIREMENTS: docs/skillgrid/changes/001-oauth-login/plan.md (Step 02 WHAT block)
+  PLAN_OR_REQUIREMENTS: docs/skillgrid/changes/001-oauth-login/change.md (Step 02 WHAT block)
   BASE_SHA: a7981ec
   HEAD_SHA: 3df7661
   ## Project Standards (auto-resolved)
@@ -126,8 +126,8 @@ HEAD_SHA=$(git rev-parse HEAD)      # = step 02 end
 
 ## Integration with skillgrid
 
-- **`sdd-apply`** fires this skill automatically when the change-level `Review Workload Forecast` in `01-…/tasks.md` has any high-risk signal, OR when the assigned step carries an applicable threat-matrix row, OR when it is the last step before `sdd-archive`.
-- **`sdd-verify`** (per-step) is the *first* lens (acceptance-test driven). `requesting-code-review` is the *second* lens (plan/quality driven). Both run; the order is `sdd-verify` first, then this skill on the high-risk subset.
+- **`sdd-apply`** fires this skill automatically when the change-level `Review Workload Forecast` in `tasks.md` has any high-risk signal, OR when the assigned step carries an applicable threat-matrix row, OR when it is the last step before `sdd-archive`.
+- **`sdd-verify`** (fills `### Verification` in `tasks.md`) is the *first* lens (acceptance-test driven). `requesting-code-review` is the *second* lens (`change.md`/quality driven). Both run; the order is `sdd-verify` first, then this skill on the high-risk subset.
 - **`isolated-workspace`** is the up-front workspace-prep step; this skill runs at the close, not the start.
 
 ## References

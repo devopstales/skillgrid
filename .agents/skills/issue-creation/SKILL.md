@@ -17,7 +17,7 @@ Create and triage issues across **Jira, GitHub, GitLab, or Backlog.md**. Which o
 
 ## Tracker Resolution
 
-Read the project's `docs/agents/issue-tracker.md` (written by `sdd-init`). It names one of:
+Read the project's `docs/skillgrid/agents/issue-tracker.md` (written by `sdd-init`). It names one of:
 
 | Tracker | Reference | CLI |
 |---|---|---|
@@ -28,7 +28,7 @@ Read the project's `docs/agents/issue-tracker.md` (written by `sdd-init`). It na
 
 Read the referenced file before publishing. It carries the tracker-specific CLI syntax, conventions, label vocabulary, and SDD→tracker mapping.
 
-If `docs/agents/issue-tracker.md` doesn't exist, ask which tracker the project uses (never guess), and run `sdd-init` to bootstrap the conventions.
+If `docs/skillgrid/agents/issue-tracker.md` doesn't exist, ask which tracker the project uses (never guess), and run `sdd-init` to bootstrap the conventions.
 
 ## Core Rule
 
@@ -103,9 +103,9 @@ Do NOT redact intentionally public identifiers: tool names, package names, publi
 
 When the trigger is "create issues for this SDD change," use the tracker's `issue-creation mapping` section (in its `_shared/issue-tracker/*.md` file) as the binding rule. Common shape:
 
-- One issue per `tasks.md` item under `docs/skillgrid/changes/<NNN-slug>/steps/*/`.
+- One issue per task item under each `## NN-<name>` section of change-level `docs/skillgrid/changes/<NNN-slug>/tasks.md`.
 - Blocking relations: tracker-native link types where available; otherwise a `Blocked by: <id>` line at the top of the body.
-- Record every issue key back into the step's `tasks.md` and the Mnemonic `sdd/<NNN-slug>/issue-creation` observation for traceability.
+- Record every issue key back into that change-level `tasks.md` and the Mnemonic `sdd/<NNN-slug>/issue-creation` observation for traceability.
 
 ## Triage Decision
 
@@ -123,7 +123,7 @@ If any point is uncertain, keep the issue in the repository's current review sta
 
 | Excuse | Reality |
 |---|---|
-| "I'll just create a GitHub issue, it's the default" | The repository chose its tracker. Read `docs/agents/issue-tracker.md` first. |
+| "I'll just create a GitHub issue, it's the default" | The repository chose its tracker. Read `docs/skillgrid/agents/issue-tracker.md` first. |
 | "Labels don't matter, I'll add a generic one" | Inventing a label is publishing noise. Use discovered labels. |
 | "The Jira project key is probably the same as last time" | Different instances, different IDs. Read the project's `issue-tracker.md` or discover with `jira project`. |
 | "This bug is small, no need for a privacy review" | The privacy review takes 10 seconds and prevents a leak. |
@@ -134,7 +134,7 @@ If any point is uncertain, keep the issue in the repository's current review sta
 
 ## Red Flags
 
-- Publishing before reading `docs/agents/issue-tracker.md`.
+- Publishing before reading `docs/skillgrid/agents/issue-tracker.md`.
 - Invoking `gh` / `glab` / `jira` / `backlog` without an auth check in the current context.
 - Applying a label that was not returned by discovery.
 - A body containing a username, private hostname, or token that isn't a placeholder.

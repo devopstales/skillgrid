@@ -37,11 +37,11 @@ Inline per-task execution. One task at a time, in THIS context. Not delegation.
 ## The inline task loop
 
 ```
-FOR each assigned task in steps/<NN-name>/tasks.md (in NN.{i} order):
+FOR each assigned task in the matching `## NN-<name>` section of change-level `tasks.md` (in NN.{i} order):
   1. READ
      ├── Task description
-     ├── The matching acceptance.feature scenario (this IS the acceptance criterion)
-     ├── The plan's WHAT / decisions for this task (approach constraints)
+     ├── The matching `@step-NN` scenarios in change-level `acceptance.feature` (this IS the acceptance criterion)
+     ├── The `change.md` WHAT / decisions for this task (approach constraints)
      └── The target files, confirmed via code index (code_status → code_search → code_read)
 
   2. WRITE
@@ -54,7 +54,7 @@ FOR each assigned task in steps/<NN-name>/tasks.md (in NN.{i} order):
      └── The smallest command that proves this task, capture: exit code + key lines
 
   4. MARK
-     └── Change `- [ ]` → `- [x]` in the step's tasks.md IMMEDIATELY (as you go)
+     └── Change `- [ ]` → `- [x]` in change-level `tasks.md` IMMEDIATELY (as you go)
 
   5. RECORD
      └── Append one row to the Step Evidence table:
@@ -75,7 +75,7 @@ Load it only when Strict TDD is active. Its RED → GREEN → TRIANGULATE → RE
 
 ## Marking progress
 
-- Update each assigned step's `steps/<NN-name>/tasks.md` **as you go**, not in one batch at the end.
+- Update each assigned `## NN-<name>` section in change-level `tasks.md` **as you go**, not in one batch at the end.
 - The `tasks.md` file is the recovery record — a session that compacts mid-task recovers from the `[x]` state, not from chat memory.
 - Never rewrite a completed line. Append new lines. Preserve prior batches' state verbatim (per `sdd-apply` Step 8 Merge Protocol).
 
@@ -122,5 +122,5 @@ After each task complete, capture these rows — they feed the Step Evidence tab
 - [`../verification/SKILL.md`](../verification/SKILL.md) — before marking any task `[x]`, the evidence gate: fresh test run + output in the current message.
 - [`../review-reception/SKILL.md`](../review-reception/SKILL.md) — how to receive findings if a review pass surfaces them (from `sdd-verify` or `judgment-day`).
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape, session close, recovery ladder.
-- [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout, step numbering, artifact paths.
+- [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout, step sections in `tasks.md`, artifact paths.
 - [`../_shared/conventions/commits.md`](../_shared/conventions/commits.md) — commit contract for the apply commit.

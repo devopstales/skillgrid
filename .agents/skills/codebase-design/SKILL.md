@@ -66,4 +66,4 @@ Good interfaces make testing natural:
 
 ## Use in skillgrid
 
-This vocabulary is mandatory in `sdd-design` when writing the **Architecture Decisions** section of `plan.md` and the **Impacted Files Map**. It is also a TDD check during `sdd-apply`: "if you can't test through the interface, the module is probably the wrong shape" (re-shape before adding more tests). See the wiring notes in `.agents/skills/sdd-design/SKILL.md` and `.agents/skills/sdd-apply/SKILL.md`.
+This vocabulary is mandatory in `sdd-propose` when writing the **Architecture Decisions** section of `change.md` and the **Impacted Files Map**. It is also a TDD check during `sdd-apply`: "if you can't test through the interface, the module is probably the wrong shape" (re-shape before adding more tests). See the wiring notes in `.agents/skills/sdd-propose/SKILL.md` and `.agents/skills/sdd-apply/SKILL.md`.

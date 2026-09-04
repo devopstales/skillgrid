@@ -10,7 +10,7 @@ metadata:
 
 # SDD Init
 
-First phase of the Skillgrid SDD workflow: `init → explore → propose → design → tasks → spec → apply → verify → archive`. Bootstrap the SDD context so every later phase has known project facts and a working issue tracker.
+First phase of the Skillgrid SDD workflow: `init → explore → propose → spec → apply → verify → archive`. Bootstrap the SDD context so every later phase has known project facts and a working issue tracker.
 
 Prompt-driven skill: explore, present findings, validate with the user, then write. Never guess — detect the real stack.
 
@@ -19,7 +19,7 @@ Prompt-driven skill: explore, present findings, validate with the user, then wri
 - Detect before writing. Every fact (project name, stack, testing, tracker) must come from a detected source or an explicit user answer.
 - Source precedence for `project_name`, `tech_stack`, `testing_capabilities`, `issue_tracker`: **AGENTS.md/CLAUDE.md/GEMINI.md → docs/skillgrid/config.yaml → Mnemonic → git repo → project files**. First source that answers wins; later sources fill gaps.
 - Memory is `hybrid` always: persist to both Mnemonic and filesystem.
-- `force_ticket_creation` is a project setting: when `true`, the `issue-creation` skill MUST be invoked to create the ticket for the `plan.md` and `tasks.md` artifacts at the `sdd-design` and `sdd-spec` phases.
+- `force_ticket_creation` is a project setting: when `true`, the `issue-creation` skill MUST be invoked to create the ticket for the `change.md` and `tasks.md` artifacts at the `sdd-propose` and `sdd-spec` phases.
 - Agent config targets are `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md`. Never create a second root config file — edit the primary that exists. If none exists, ask the user which to create (default suggestion `AGENTS.md`). Selection + payload rules live in `../_shared/agent-config/`.
 - If `docs/skillgrid/` already exists, report what is there and ask before updating it.
 - Use git only to detect `project_name` and `issue_tracker`; do not force a git work tree or run `git init`.
@@ -45,7 +45,7 @@ Check, in order, and record which source answered each fact:
 - `docs/skillgrid/config.yaml` — same four facts; note existing `docs/skillgrid/` layout (changes/, archive/, NNN-slug folders).
 - Mnemonic — `mem_search` for `sdd/{project}/issue_tracker`, `sdd/{project}/testing-capabilities`, `sdd-init/{project}`. Use `mem_context` first for recent sessions.
 - `git remote -v` / `.git/config` — is this a git repo? Which host (GitHub, GitLab, other)? Gives `project_name` candidate and tracker candidate.
-- `docs/agents/skill-registry.md` and `docs/agents/issue-tracker.md` — prior sdd-init output.
+- `docs/skillgrid/agents/skill-registry.md` and `docs/skillgrid/agents/issue-tracker.md` — prior sdd-init output.
 
 ### 2. Detect stack and testing capabilities
 
@@ -75,22 +75,22 @@ Present findings in a sequence of short confirmations (not a single bulk table) 
 3. **Testing capabilities** — "Test runner: `go test ./...`. Layers: unit + integration. Correct?"
 4. **Issue tracker** — "Issue tracker: GitHub (gh CLI, repo devopstales/skillgrid). Correct?"
 5. **Agent config target** — "None of AGENTS.md/CLAUDE.md/GEMINI.md exists. Create AGENTS.md as primary? (recommended)"
-6. **Artifact plan** — "Will create AGENTS.md, docs/skillgrid/config.yaml, docs/agents/skill-registry.md, docs/agents/issue-tracker.md, docs/agents/triage-labels.md, and N Mnemonic observations. Proceed?"
+6. **Artifact plan** — "Will create AGENTS.md, docs/skillgrid/config.yaml, docs/skillgrid/agents/skill-registry.md, docs/skillgrid/agents/issue-tracker.md, docs/skillgrid/agents/triage-labels.md, and N Mnemonic observations. Proceed?"
 
 Adjust per user corrections and re-detect only the corrected facts. Then write.
 
 ### 5. Initialize persistence
 
 Create/update the artifacts:
-1. **Skill registry** at `docs/agents/skill-registry.md` — scan and index installed skills using the helper script `scripts/extract_skills.js` (`node scripts/extract_skills.js --root <project-root>`), which handles all project- and user-level skill directories per the scan rules in [references/init-details.md](references/init-details.md). The registry is an index (paths + triggers), not a summary.
-2. **Agent config** — render the canonical `## Agent skills` block from [`../_shared/agent-config/block.md`](../_shared/agent-config/block.md) and write it per the target decision matrix in [`../_shared/agent-config/README.md`](../_shared/agent-config/README.md): primary = existing `AGENTS.md` → `CLAUDE.md` → `GEMINI.md` (else ask). Use the idempotent sentinel upsert; secondary targets get a one-line pointer only. Point at `docs/agents/issue-tracker.md`.
-3. **Issue tracker doc** — write `docs/agents/issue-tracker.md` from the matching seed template in `../_shared/issue-tracker/`:
+1. **Skill registry** at `docs/skillgrid/agents/skill-registry.md` — scan and index installed skills using the helper script `scripts/extract_skills.js` (`node scripts/extract_skills.js --root <project-root>`), which handles all project- and user-level skill directories per the scan rules in [references/init-details.md](references/init-details.md). The registry is an index (paths + triggers), not a summary.
+2. **Agent config** — render the canonical `## Agent skills` block from [`../_shared/agent-config/block.md`](../_shared/agent-config/block.md) and write it per the target decision matrix in [`../_shared/agent-config/README.md`](../_shared/agent-config/README.md): primary = existing `AGENTS.md` → `CLAUDE.md` → `GEMINI.md` (else ask). Use the idempotent sentinel upsert; secondary targets get a one-line pointer only. Point at `docs/skillgrid/agents/issue-tracker.md`.
+3. **Issue tracker doc** — write `docs/skillgrid/agents/issue-tracker.md` from the matching seed template in `../_shared/issue-tracker/`:
    - [`../_shared/issue-tracker/backlogmd.md`](../_shared/issue-tracker/backlogmd.md) — Backlog.md (default)
    - [`../_shared/issue-tracker/github.md`](../_shared/issue-tracker/github.md) — GitHub
    - [`../_shared/issue-tracker/gitlab.md`](../_shared/issue-tracker/gitlab.md) — GitLab
    - [`../_shared/issue-tracker/jira.md`](../_shared/issue-tracker/jira.md) — Jira
    Triage role vocabulary: `../_shared/triage-labels.md`.
-4. **SDD skeleton** if absent: `docs/skillgrid/config.yaml`, `docs/skillgrid/changes/`, `docs/skillgrid/archive/`. Config format in [references/init-details.md](references/init-details.md).
+4. **SDD skeleton** if absent: `docs/skillgrid/config.yaml`, `docs/skillgrid/agents/` (skill-registry, issue-tracker, glossary stubs), `docs/skillgrid/changes/`, `docs/skillgrid/archive/`. Config format in [references/init-details.md](references/init-details.md).
 5. **Mnemonic observations** — per the shared memory config in [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) (start a `mem_session_start` session first; `scope: project`):
    - `sdd-init/{project}` (type `architecture`) — detected project context.
    - `sdd-init/{project}/project_name` (type `config`) — detected project name.
@@ -100,7 +100,7 @@ Create/update the artifacts:
    - `skill-registry` (type `config`) — registry index.
 6. **Backlog.md** — only when selected: initialize via the backlog CLI, then scaffold support files:
    - Run: `backlog init "<project-name>" --integration-mode cli --backlog-dir .backlog --config-location folder --zero-padded-ids 3`
-   - Creates `config.yml` with `backlog_directory: .backlog`, `.backlog/tasks/`, and seed docs (`docs/agents/issue-tracker.md` already written at step 3).
+   - Creates `config.yml` with `backlog_directory: .backlog`, `.backlog/tasks/`, and seed docs (`docs/skillgrid/agents/issue-tracker.md` already written at step 3).
    - Verify with `backlog status` (no uncommitted work should exist after init).
 
 ### 6. Return the envelope
@@ -119,5 +119,5 @@ Create/update the artifacts:
 
 - [references/init-details.md](references/init-details.md) — detection checklists, registry scan rules, SDD skeleton, Mnemonic saves, output envelope.
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — common Mnemonic memory config: naming, upserts, 2-step recovery, session protocol.
-- [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — the SDD layout (changes/archive, NNN-slug, steps, per-step files) the skeleton seeds.
+- [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — the SDD layout (agents/, changes/archive, NNN-slug, change.md / tasks.md / acceptance.feature) the skeleton seeds.
 - `../_shared/issue-tracker/` + `../_shared/triage-labels.md` — tracker templates and label vocabulary consumed by `sdd-init` and `issue-creation`.
