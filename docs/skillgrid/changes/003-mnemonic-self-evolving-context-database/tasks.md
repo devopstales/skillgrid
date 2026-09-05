@@ -1,6 +1,6 @@
 # Tasks: 003-mnemonic-self-evolving-context-database
 
-> **STATUS:** `in-progress` (2026-09-05) — 0/5 steps PASS — revised after questioning
+> **STATUS:** `in-progress` (2026-09-05) — 2/5 steps tasks complete (verify PENDING)
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-driven-development (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax.
 
@@ -77,10 +77,10 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 ## State
 
 ```yaml
-phase: spec          # spec | apply | verify | archive
-current_step: 01-schema-extensions
+phase: apply          # spec | apply | verify | archive
+current_step: 03-semantic-retrieval
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-05T16:14:00+02:00
+updated: 2026-09-05T16:40:00+02:00
 ```
 
 ## Step map
@@ -130,9 +130,9 @@ This step is done only when:
 
 **Files:**
 - Create: `skillgrid-cli/internal/mnemonic/store/migrations/010_tiered_context.sql`
-- Modify: `docs/skillgrid/agents/glossary/technical.md` (apply-time)
-- Modify: `docs/skillgrid/agents/glossary/business.md` (apply-time)
-- Test: `skillgrid-cli/internal/mnemonic/store/` (migration / open tests)
+- Modify: `docs/skillgrid/glossary/technical.md` (apply-time; canonical path — not `agents/glossary/`)
+- Modify: `docs/skillgrid/glossary/business.md` (apply-time)
+- Test: `skillgrid-cli/internal/mnemonic/store/tier_schema_test.go`
 
 **Interfaces:**
 - Consumes: none
@@ -140,12 +140,12 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 01.1 `[AFK]` Create `010_tiered_context.sql` with `tiered_contents`, `long_term_memories`, `retrieval_trails`, `path_embeddings` (leave `009_*` for 001)
-- [ ] 01.2 `[AFK]` Add Tiered Storage / Semantic Search / Retrieval Trail terms to `docs/skillgrid/agents/glossary/technical.md`
-- [ ] 01.3 `[AFK]` Add Long-term Memory to `docs/skillgrid/agents/glossary/business.md`
-- [ ] 01.4 `[AFK]` Cover Scenario: `Store open adds tables without rewriting rows` — `Run: go test ./skillgrid-cli/internal/mnemonic/store/ -run 'Schema|Migrate|Open|Tier' -count=1` — Expected: PASS
-- [ ] 01.5 `[AFK]` Cover Scenario: `Upgrade from schema 008 is idempotent` — `Run: go test ./skillgrid-cli/internal/mnemonic/store/ -run 'Idempotent|008|010' -count=1` — Expected: PASS
-- [ ] 01.6 `[AFK]` Cover Scenario: `Failed migration leaves prior data intact` — `Run: go test ./skillgrid-cli/internal/mnemonic/store/ -run 'MigrationFail|Rollback|Intact' -count=1` — Expected: PASS
+- [x] 01.1 `[AFK]` Create `010_tiered_context.sql` with `tiered_contents`, `long_term_memories`, `retrieval_trails`, `path_embeddings` (009 already used by tool_name; this change uses `010_*`)
+- [x] 01.2 `[AFK]` Add Tiered Storage / Semantic Search / Retrieval Trail terms to `docs/skillgrid/glossary/technical.md` (refined existing rows)
+- [x] 01.3 `[AFK]` Add Long-term Memory to `docs/skillgrid/glossary/business.md` (refined existing row)
+- [x] 01.4 `[AFK]` Cover Scenario: `Store open adds tables without rewriting rows` — `Run: go test ./internal/mnemonic/store/ -run 'StoreOpenAddsTierTables' -count=1` — Expected: PASS
+- [x] 01.5 `[AFK]` Cover Scenario: `Upgrade from schema 008 is idempotent` — `Run: go test ./internal/mnemonic/store/ -run 'UpgradeFrom008IdempotentTo010' -count=1` — Expected: PASS
+- [x] 01.6 `[AFK]` Cover Scenario: `Failed migration leaves prior data intact` — `Run: go test ./internal/mnemonic/store/ -run 'MigrationFailLeavesPriorDataIntact' -count=1` — Expected: PASS
 
 ### Verification
 
@@ -155,11 +155,11 @@ Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/store/ -count=1` | PASS | | |
-| Acceptance `@step-01` / `@p0` | BDD / mapped store tests for `@step-01` | PASS | | |
-| Runtime harness | store open on fixture DB | PASS | | |
-| Rollback boundary | failed migrate leaves prior rows | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./internal/mnemonic/store/ -count=1` | PASS | PASS (apply) | full package green 2026-09-05 |
+| Acceptance `@step-01` / `@p0` | `go test ./internal/mnemonic/store/ -run 'StoreOpenAdds|UpgradeFrom008|MigrationFail' -count=1` | PASS | PASS (apply) | mapped in tier_schema_test.go |
+| Runtime harness | store open on fixture DB | PASS | PASS (apply) | TempDir Open in tests |
+| Rollback boundary | failed migrate leaves prior rows | PASS | PASS (apply) | TestMigrationFailLeavesPriorDataIntact |
+| Global Constraints | — | held | held | additive 010 only; no FTS/code rewrite |
 
 ### Commit
 
@@ -205,13 +205,13 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 02.1 `[AFK]` Create `summarizer.go` with `Summarizer` interface + stub/heuristic adapters (`Abstract`, `Overview`)
-- [ ] 02.2 `[AFK]` Create `tiered.go` to generate/read L0 (`.abstract`) / L1 (`.overview`) / L2 and register paths in `tiered_contents`
-- [ ] 02.3 `[AFK]` Create `hook.go` implementing non-blocking `ContentWriteHook.AfterContentWrite` (does not await summarization)
-- [ ] 02.4 `[AFK]` Create `migrate.go` with `runMigrate` / `--tier` backfill of L0/L1 from existing L2
-- [ ] 02.5 `[AFK]` Cover Scenario: `Content write yields sidecars without blocking` via test harness calling the seam — `Run: go test ./skillgrid-cli/internal/mnemonic/tiered/ -run 'Write|Hook|Sidecar|NonBlocking' -count=1` — Expected: PASS
-- [ ] 02.6 `[AFK]` Cover Scenario: `Tier migrate backfills without changing full detail` — `Run: go test ./skillgrid-cli/cmd/skillgrid/ ./skillgrid-cli/internal/mnemonic/tiered/ -run 'Migrate|Tier|Backfill' -count=1` — Expected: PASS
-- [ ] 02.7 `[AFK]` Cover Scenario: `Summarizer failure preserves full detail` — `Run: go test ./skillgrid-cli/internal/mnemonic/tiered/ -run 'SummarizerFail|Preserve' -count=1` — Expected: PASS
+- [x] 02.1 `[AFK]` Create `summarizer.go` with `Summarizer` interface + stub/heuristic adapters (`Abstract`, `Overview`)
+- [x] 02.2 `[AFK]` Create `tiered.go` to generate/read L0 (`.abstract`) / L1 (`.overview`) / L2 and register paths in `tiered_contents`
+- [x] 02.3 `[AFK]` Create `hook.go` implementing non-blocking `ContentWriteHook.AfterContentWrite` (does not await summarization)
+- [x] 02.4 `[AFK]` Create `migrate.go` with `runMigrate` / `--tier` backfill of L0/L1 from existing L2
+- [x] 02.5 `[AFK]` Cover Scenario: `Content write yields sidecars without blocking` via test harness calling the seam — `Run: go test ./internal/mnemonic/tiered/ -run 'WriteHookSidecarNonBlocking' -count=1` — Expected: PASS
+- [x] 02.6 `[AFK]` Cover Scenario: `Tier migrate backfills without changing full detail` — `Run: go test ./internal/mnemonic/tiered/ ./cmd/skillgrid/ -run 'MigrateTier' -count=1` — Expected: PASS
+- [x] 02.7 `[AFK]` Cover Scenario: `Summarizer failure preserves full detail` — `Run: go test ./internal/mnemonic/tiered/ -run 'SummarizerFailPreserve' -count=1` — Expected: PASS
 
 ### Verification
 
@@ -221,11 +221,11 @@ Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/tiered/ -count=1` | PASS | | |
-| Acceptance `@step-02` / `@p0` | BDD / mapped tiered tests for `@step-02` | PASS | | |
-| Runtime harness | `skillgrid migrate --tier` on fixture | PASS | | |
-| Rollback boundary | summarizer fail leaves L2 | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./internal/mnemonic/tiered/ -count=1` | PASS | PASS (apply) | 2026-09-05 |
+| Acceptance `@step-02` / `@p0` | `go test ./internal/mnemonic/tiered/ ./cmd/skillgrid/ -run 'WriteHook|MigrateTier|SummarizerFail' -count=1` | PASS | PASS (apply) | |
+| Runtime harness | `skillgrid migrate --tier` on fixture | PASS | PASS (apply) | TestMigrateTierCLIBackfill |
+| Rollback boundary | summarizer fail leaves L2 | PASS | PASS (apply) | TestSummarizerFailPreserve |
+| Global Constraints | — | held | held | non-blocking hook; no L2 rewrite |
 
 ### Commit
 
