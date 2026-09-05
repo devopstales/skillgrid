@@ -444,7 +444,7 @@ See `qa-plan.md` beside this file.
 ## Archive gate checklist
 
 - [ ] Change-level **Definition of Done** fully checked
-- [ ] No unchecked `- [ ]` under any `### Tasks`
+- [x] No unchecked `- [ ]` under any `### Tasks`
 - [x] Every step Verdict is `PASS` or `PASS WITH WARNINGS`
 - [x] No Global Constraint violated
 - [ ] `## State` status is `done` and phase is `archive` (set by verify/archive)
