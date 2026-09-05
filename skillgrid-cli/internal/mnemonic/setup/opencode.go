@@ -78,18 +78,34 @@ func appendJSONArrayUnique(jsonPath, key, value string, dryRun bool) error {
 		return fmt.Errorf("read config %s: %w", jsonPath, err)
 	}
 	arr := gjson.Parse(string(data)).Get(key).Array()
+	strs := make([]string, 0, len(arr)+1)
 	exists := false
 	for _, v := range arr {
-		if v.Str == value {
-			exists = true
-			break
+		s := jsonArrayString(v)
+		if s == "" {
+			continue
 		}
+		if s == value {
+			exists = true
+		}
+		strs = append(strs, s)
 	}
 	if exists {
+		// Rewrite if the on-disk array still has non-string entries (legacy bug).
+		if arrayNeedsRewrite(arr, strs) {
+			updated, err := sjson.Set(string(data), key, strs)
+			if err != nil {
+				return fmt.Errorf("append %s: %w", key, err)
+			}
+			if dryRun {
+				return nil
+			}
+			return os.WriteFile(jsonPath, []byte(updated), 0o644)
+		}
 		return nil
 	}
-	newArr := append(arr, gjson.Result{Str: value})
-	updated, err := sjson.Set(string(data), key, newArr)
+	strs = append(strs, value)
+	updated, err := sjson.Set(string(data), key, strs)
 	if err != nil {
 		return fmt.Errorf("append %s: %w", key, err)
 	}
@@ -97,4 +113,31 @@ func appendJSONArrayUnique(jsonPath, key, value string, dryRun bool) error {
 		return nil
 	}
 	return os.WriteFile(jsonPath, []byte(updated), 0o644)
+}
+
+// jsonArrayString returns a plugin path from a JSON array element.
+// Plain strings are preferred; object form with a "Str" field is the legacy
+// marshal of gjson.Result (Type/Raw/Str/…) and is recovered for healing.
+func jsonArrayString(v gjson.Result) string {
+	if v.Type == gjson.String {
+		return v.Str
+	}
+	if v.IsObject() {
+		if s := v.Get("Str").Str; s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func arrayNeedsRewrite(raw []gjson.Result, strs []string) bool {
+	if len(raw) != len(strs) {
+		return true
+	}
+	for _, v := range raw {
+		if v.Type != gjson.String {
+			return true
+		}
+	}
+	return false
 }

@@ -348,13 +348,34 @@ func appendPluginPath(cfgPath, path string, dryRun bool) error {
 		return fmt.Errorf("read config %s: %w", cfgPath, err)
 	}
 	arr := gjson.Get(string(data), "plugin").Array()
+	strs := make([]string, 0, len(arr)+1)
+	exists := false
 	for _, v := range arr {
-		if v.Str == path {
-			return nil
+		s := jsonArrayString(v)
+		if s == "" {
+			continue
 		}
+		if s == path {
+			exists = true
+		}
+		strs = append(strs, s)
 	}
-	arr = append(arr, gjson.Result{Str: path})
-	updated, err := sjson.Set(string(data), "plugin", arr)
+	if exists {
+		if arrayNeedsRewrite(arr, strs) {
+			updated, err := sjson.Set(string(data), "plugin", strs)
+			if err != nil {
+				return fmt.Errorf("set plugin: %w", err)
+			}
+			if dryRun {
+				logging.Info("[dry-run] heal plugin[] in " + cfgPath)
+				return nil
+			}
+			return os.WriteFile(cfgPath, []byte(updated), 0o644)
+		}
+		return nil
+	}
+	strs = append(strs, path)
+	updated, err := sjson.Set(string(data), "plugin", strs)
 	if err != nil {
 		return fmt.Errorf("set plugin: %w", err)
 	}
