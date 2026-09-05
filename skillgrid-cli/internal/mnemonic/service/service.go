@@ -15,6 +15,7 @@ import (
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/files"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
@@ -47,8 +48,10 @@ func DefaultDataDir() (string, error) {
 type projectHandle struct {
 	store     *store.Store
 	projectID string
+	root      string // workspace directory for ContentPlane (.skillgrid/files)
 	memory    *memory.Service
 	web       *webcache.Service
+	content   *files.ContentPlane
 }
 
 func (s *Service) openProject(projectID, configRoot string) (*projectHandle, func(), error) {
@@ -59,12 +62,18 @@ func (s *Service) openProject(projectID, configRoot string) (*projectHandle, fun
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg := config.Load(configRoot)
+	root := configRoot
+	if abs, absErr := filepath.Abs(configRoot); absErr == nil {
+		root = abs
+	}
+	cfg := config.Load(root)
 	h := &projectHandle{
 		store:     st,
 		projectID: projectID,
+		root:      root,
 		memory:    memory.New(st, projectID),
 		web:       webcache.New(st, projectID, cfg.WebCache),
+		content:   files.NewContentPlane(root),
 	}
 	return h, func() { st.Close() }, nil
 }

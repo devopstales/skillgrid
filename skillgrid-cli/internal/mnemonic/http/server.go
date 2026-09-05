@@ -83,6 +83,7 @@ func (s *Server) registerRoutes() {
 
 	s.mux.HandleFunc("GET /projects", s.handleProjects)
 
+	s.registerTeamsRoutes()
 	s.registerUIRoutes()
 }
 

@@ -21,10 +21,11 @@ func Start() error {
 	registerMemoryTools(s)
 	registerCodeTools(s)
 	registerWebTools(s)
+	registerTeamsTools(s)
 	return server.ServeStdio(s)
 }
 
-// Server is an MCP server instance with all mem_*/code_*/web_* tools
+// Server is an MCP server instance with all mem_*/code_*/web_*/team_* tools
 // registered, ready to be served over stdio.
 type Server = server.MCPServer
 
@@ -34,5 +35,6 @@ func NewServer() *Server {
 	registerMemoryTools(s)
 	registerCodeTools(s)
 	registerWebTools(s)
+	registerTeamsTools(s)
 	return s
 }
