@@ -68,6 +68,11 @@ const bindingVersion = 1
 // be inferred safely. Callers can errors.Is to detect the case without casting.
 var ErrAmbiguousProject = errors.New("ambiguous project: multiple git repositories found in cwd")
 
+// ErrIdentityBinding reports that the clone-private identity file could not be
+// written into the git common-dir. Callers must not invent a seed or path-hash
+// id as if binding succeeded.
+var ErrIdentityBinding = errors.New("mnemonic identity binding could not be written")
+
 // AmbiguousProjectError carries the candidate list so agents can prompt the
 // user to pick one.
 type AmbiguousProjectError struct {
@@ -182,8 +187,8 @@ func ResolveDetailed(cwd string) (Resolution, error) {
 
 	// 2. Clone-private identity binding in the git common dir — survives move,
 	// re-clone, remote change, and shared across linked worktrees.
-	if res, ok := identityBinding(abs); ok {
-		return res, nil
+	if res, ok, err := identityBinding(abs); ok {
+		return res, err
 	}
 
 	// 3. Exactly one git child repo — auto-promote.
@@ -227,20 +232,20 @@ func ResolveDetailed(cwd string) (Resolution, error) {
 
 // identityBinding reads (or creates on first call) the clone-private identity
 // binding in the git common dir of abs. Returns ok=false when abs (or any
-// ancestor) is not a git repo or the binding cannot be established.
-func identityBinding(path string) (Resolution, bool) {
+// ancestor) is not a git repo. When the binding cannot be written, ok=true and
+// err wraps ErrIdentityBinding — callers must abort, not invent a seed id.
+func identityBinding(path string) (Resolution, bool, error) {
 	commonDir := gitCommonDir(path)
 	if commonDir == "" {
-		return Resolution{}, false
+		return Resolution{}, false, nil
 	}
 	if res, ok := readBinding(commonDir); ok {
-		return res, true
+		return res, true, nil
 	}
 
 	// First time we see this repo — seed from the git remote origin, or the
 	// repo-root basename when there is no origin (local-only checkouts).
 	seed := ""
-	src := SourceIdentity
 	if remote := gitRemoteOrigin(path); remote != "" {
 		if name := repoNameFromRemote(remote); name != "" {
 			seed = normalizeProjectID(name)
@@ -260,17 +265,13 @@ func identityBinding(path string) (Resolution, bool) {
 
 	id, err := writeBinding(commonDir, seed)
 	if err != nil {
-		// Best-effort path: when we cannot write the binding (no write
-		// permission into .git, read-only FS, etc.) fall back to the seed so
-		// the caller still gets a usable project ID. The next call retries
-		// the write.
-		return Resolution{ID: seed, Source: src, Path: path}, true
+		return Resolution{Path: path}, true, fmt.Errorf("%w: %v", ErrIdentityBinding, err)
 	}
 
 	// Seed id for the service layer to alias any pre-existing store under a
 	// legacy directory-hash key if the caller cares about continuity.
 	legacy := fallbackProjectID(path)
-	return Resolution{ID: id, Source: src, Path: path, SeedID: legacy}, true
+	return Resolution{ID: id, Source: SourceIdentity, Path: path, SeedID: legacy}, true, nil
 }
 
 // Binding is the on-disk identity file format (version 1).

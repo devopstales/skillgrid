@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +26,37 @@ func remoteCmd(t *testing.T, dir string, args ...string) {
 	out, err := exec.Command("git", full...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v: %s", full, err, out)
+	}
+}
+
+// TestBindingWriteFailureAborts guards interview D2: when the identity file
+// cannot be written into the git common-dir, resolution must abort — never
+// pretend seed-without-binding succeeded.
+func TestBindingWriteFailureAborts(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	remoteCmd(t, dir, "remote", "add", "origin", "git@github.com:acme/unwritable.git")
+
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.Chmod(gitDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) })
+
+	res, err := resolveInDir(dir)
+	if err == nil {
+		t.Fatalf("expected binding write abort, got id=%q src=%q", res.ID, res.Source)
+	}
+	if !errors.Is(err, ErrIdentityBinding) {
+		t.Fatalf("err=%v want errors.Is(..., ErrIdentityBinding)", err)
+	}
+	// Must not look like a successful identity bind under a seed name.
+	if res.Source == SourceIdentity && res.ID == "unwritable" && err == nil {
+		t.Fatalf("seed-without-binding must not succeed")
+	}
+	bindingPath := filepath.Join(gitDir, identityFilename)
+	if _, statErr := os.Stat(bindingPath); statErr == nil {
+		t.Fatalf("binding file must not exist after failed write: %s", bindingPath)
 	}
 }
 
