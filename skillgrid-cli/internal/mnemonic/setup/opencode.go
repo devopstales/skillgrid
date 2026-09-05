@@ -9,8 +9,8 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// SetupOpenCode applies the OpenCode TUI changes: tokyonight theme and the
-// skillgrid-logo TUI plugin.
+// SetupOpenCode registers MCP from mcp.yaml, copies the mnemonic plugin, and
+// applies the skillgrid-logo TUI plugin with tokyonight theme.
 func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun bool) error {
 	if repoRoot == "" {
 		return fmt.Errorf("repo root not found (run from skillgrid checkout or sync repo)")
@@ -23,6 +23,11 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun b
 	}
 	if err := backupConfigFile(home, "opencode", cfgPath, dryRun); err != nil {
 		return err
+	}
+	for _, entry := range mcpEntries {
+		if err := upsertOpenCodeMCP(cfgPath, entry, dryRun); err != nil {
+			return err
+		}
 	}
 	pluginDst := filepath.Join(opencodeDir, "plugins", "mnemonic.ts")
 	sharedDst := filepath.Join(opencodeDir, "shared", "http-client.ts")

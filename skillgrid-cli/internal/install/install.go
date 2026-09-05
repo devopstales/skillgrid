@@ -20,13 +20,11 @@ const installMcpPkg = "install-mcp"
 //  2. sync the skillgrid repository (clone or pull)
 //  3. verify node + npm are on PATH
 //  4. ask which agents to install (or use preset/--yes defaults)
-//  5. npm install -g each selected agent
-//  6. npm install -g install-mcp (global CLI for MCP server installs)
-//  7. install-mcp install each MCP server from config.d/tools.yaml
-//  8. configure MCP for selected agents from config.d/mcp.yaml
-//  9. npm install -g for the remaining shared tools
-//
-// 10. override ~/.agents from the repo's .agents/
+//  5. npm install -g each selected agent (skip if binary already on PATH)
+//  6. npm install -g install-mcp, then npm install -g each MCP package from tools.yaml
+//  7. configure selected agents (plugins + mcp.yaml merge) — sole writer of agent MCP config
+//  8. npm install -g for the remaining shared tools
+//  9. override ~/.agents from the repo's .agents/
 //
 // Any hard failure stops the run with a descriptive error; individual
 // non-fatal issues are reported but the run continues.
@@ -68,23 +66,20 @@ func Run(c *Config) error {
 		if err := installAgents(c); err != nil {
 			return err
 		}
-		// install-mcp must be installed before MCP servers so we can use it.
-		info("installing install-mcp CLI")
+		// install-mcp CLI + MCP server packages (binaries on PATH). Agent MCP
+		// config is written only by setupAgents from config.d/mcp.yaml — do not
+		// also run install-mcp --client (that duplicated client config).
+		info("installing mcp CLI")
 		if err := installInstallMcp(c); err != nil {
 			return err
 		}
-		// Back up agent config before install-mcp mutates it, so it can be
-		// reverted if the install goes wrong (backup lands in ~/.skillgrid/backup/<agent>/).
-		if len(c.Agents) > 0 {
-			if err := setup.BackupAgentConfigs(c.Agents, c.DryRun); err != nil {
-				return fmt.Errorf("backup agent configs: %w", err)
-			}
-		}
-		info("installing MCP servers via install-mcp")
 		if err := installMCPServers(c); err != nil {
 			return err
 		}
-		info("configuring MCP for agents: " + strings.Join(c.Agents, ", "))
+		if err := setup.BackupAgentConfigs(c.Agents, c.DryRun); err != nil {
+			return fmt.Errorf("backup agent configs: %w", err)
+		}
+		info("configuring agents: " + strings.Join(c.Agents, ", "))
 		if err := setupAgents(c); err != nil {
 			return err
 		}
@@ -226,18 +221,42 @@ func installAgents(c *Config) error {
 			if a.Key != key || a.NPM == "" {
 				continue
 			}
-			pkg := a.NPM
+			if a.Bin != "" {
+				if _, err := exec.LookPath(a.Bin); err == nil {
+					Out("      skip", a.NPM, "(already installed)")
+					continue
+				}
+			}
+			args := npmInstallGlobalArgs(a.NPM)
 			if c.DryRun {
-				Out("      [dry-run] npm install -g", pkg)
+				Out(append([]any{"      [dry-run] npm"}, toAny(args)...)...)
 				continue
 			}
-			Out("      npm install -g", pkg)
-			if err := run(c, "", "npm", "install", "-g", pkg); err != nil {
-				return fmt.Errorf("npm install -g %s: %w", pkg, err)
+			Out(append([]any{"      npm"}, toAny(args)...)...)
+			if err := run(c, "", "npm", args...); err != nil {
+				return fmt.Errorf("npm %s: %w", strings.Join(args, " "), err)
 			}
 		}
 	}
 	return nil
+}
+
+// npmInstallGlobalArgs builds `npm install -g …` args. OpenCode needs
+// --allow-scripts=opencode-ai or postinstall (native binary) is skipped.
+func npmInstallGlobalArgs(pkg string) []string {
+	args := []string{"install", "-g"}
+	if pkg == "opencode-ai" {
+		args = append(args, "--allow-scripts=opencode-ai")
+	}
+	return append(args, pkg)
+}
+
+func toAny(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, s := range ss {
+		out[i] = s
+	}
+	return out
 }
 
 func setupAgents(c *Config) error {
@@ -257,8 +276,12 @@ func setupAgents(c *Config) error {
 	return nil
 }
 
-// installInstallMcp npm installs the install-mcp CLI globally.
+// installInstallMcp npm installs the install-mcp CLI globally (skipped if on PATH).
 func installInstallMcp(c *Config) error {
+	if _, err := exec.LookPath(installMcpPkg); err == nil {
+		Out("      skip", installMcpPkg, "(already installed)")
+		return nil
+	}
 	pkg := installMcpPkg
 	if c.DryRun {
 		Out("      [dry-run] npm install -g", pkg)
@@ -268,26 +291,45 @@ func installInstallMcp(c *Config) error {
 	return run(c, "", "npm", "install", "-g", pkg)
 }
 
-// installMCPServers installs MCP servers from config.d/tools.yaml
-// using the install-mcp CLI, one --client per selected agent.
+// installMCPServers npm-installs MCP server packages from config.d/tools.yaml
+// once (not per agent). Client registration is left to setupAgents + mcp.yaml.
 func installMCPServers(c *Config) error {
 	toolsCfg, err := LoadToolsConfig(c.RepoDir)
 	if err != nil {
 		return fmt.Errorf("load tools config: %w", err)
 	}
+	globalNPM := map[string]bool{}
+	for _, t := range GlobalTools() {
+		globalNPM[t.NPM] = true
+	}
 	for _, pkg := range toolsCfg.MCP {
-		for _, agent := range c.Agents {
-			if c.DryRun {
-				Out("      [dry-run] install-mcp", pkg, "--client", agent, "-y")
-				continue
-			}
-			Out("      install-mcp", pkg, "--client", agent, "-y")
-			if err := run(c, "", "install-mcp", pkg, "--client", agent, "-y"); err != nil {
-				return fmt.Errorf("install-mcp %s --client %s: %w", pkg, agent, err)
-			}
+		npmPkg := normalizeNPMPackage(pkg)
+		if globalNPM[npmPkg] {
+			VerboseOut(c, "skip MCP pkg "+npmPkg+" (also a global tool)")
+			continue
+		}
+		if c.DryRun {
+			Out("      [dry-run] npm install -g", npmPkg)
+			continue
+		}
+		Out("      npm install -g", npmPkg)
+		if err := run(c, "", "npm", "install", "-g", npmPkg); err != nil {
+			return fmt.Errorf("npm install -g %s: %w", npmPkg, err)
 		}
 	}
 	return nil
+}
+
+// normalizeNPMPackage maps tools.yaml entries to npm install targets.
+// GitHub-style owner/repo (no @scope) becomes github:owner/repo.
+func normalizeNPMPackage(pkg string) string {
+	if strings.HasPrefix(pkg, "@") {
+		return pkg
+	}
+	if strings.Count(pkg, "/") == 1 && !strings.HasPrefix(pkg, "github:") {
+		return "github:" + pkg
+	}
+	return pkg
 }
 
 func installTools(c *Config) error {

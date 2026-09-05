@@ -216,8 +216,8 @@ func backupConfigFile(home, agent, path string, dryRun bool) error {
 }
 
 // BackupAgentConfigs backs up the agent config files (kilo.jsonc/opencode.json,
-// AGENTS.md, cursor mcp.json) before install-mcp mutates them, so a failed or
-// unwanted install-mcp run can be reverted from ~/.skillgrid/backup/<agent>/.
+// AGENTS.md, cursor mcp.json) before setup mutates them, so a failed or
+// unwanted install run can be reverted from ~/.skillgrid/backup/<agent>/.
 func BackupAgentConfigs(agents []string, dryRun bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {

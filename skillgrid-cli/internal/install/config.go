@@ -52,15 +52,16 @@ type Agent struct {
 	Key  string
 	Name string
 	NPM  string
+	Bin  string // PATH binary; empty means no npm CLI (e.g. Cursor app)
 	Hint string
 }
 
 // AvailableAgents returns the installable agents (first cut: opencode, kilo, cursor).
 func AvailableAgents() []Agent {
 	return []Agent{
-		{Key: "opencode", Name: "OpenCode", NPM: "opencode-ai", Hint: "npm: opencode-ai"},
-		{Key: "kilo", Name: "Kilo", NPM: "@kilocode/cli", Hint: "npm: @kilocode/cli"},
-		{Key: "cursor", Name: "Cursor", NPM: "", Hint: "app-side only"},
+		{Key: "opencode", Name: "OpenCode", NPM: "opencode-ai", Bin: "opencode", Hint: "npm: opencode-ai"},
+		{Key: "kilo", Name: "Kilo", NPM: "@kilocode/cli", Bin: "kilo", Hint: "npm: @kilocode/cli"},
+		{Key: "cursor", Name: "Cursor", NPM: "", Bin: "", Hint: "app-side only"},
 	}
 }
 
@@ -71,7 +72,7 @@ type Tool struct {
 
 // GlobalTools returns the global npm tools installed regardless of agent selection.
 // install-mcp is excluded here because it is installed separately via installInstallMcp()
-// before MCP servers, so it never reaches installTools().
+// before MCP server packages, so it never reaches installTools().
 func GlobalTools() []Tool {
 	return []Tool{
 		{Name: "skills", NPM: "skills"},

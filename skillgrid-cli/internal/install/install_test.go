@@ -3,6 +3,7 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -11,14 +12,47 @@ func TestAvailableAgents(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("want 3 agents, got %d", len(got))
 	}
-	want := map[string]string{
-		"opencode": "opencode-ai",
-		"kilo":     "@kilocode/cli",
-		"cursor":   "",
+	want := map[string]struct{ npm, bin string }{
+		"opencode": {"opencode-ai", "opencode"},
+		"kilo":     {"@kilocode/cli", "kilo"},
+		"cursor":   {"", ""},
 	}
 	for _, a := range got {
-		if want[a.Key] != a.NPM {
-			t.Errorf("agent %q npm=%q, want %q", a.Key, a.NPM, want[a.Key])
+		w := want[a.Key]
+		if w.npm != a.NPM || w.bin != a.Bin {
+			t.Errorf("agent %q npm=%q bin=%q, want npm=%q bin=%q", a.Key, a.NPM, a.Bin, w.npm, w.bin)
+		}
+	}
+}
+
+func TestNpmInstallGlobalArgs(t *testing.T) {
+	got := npmInstallGlobalArgs("opencode-ai")
+	want := []string{"install", "-g", "--allow-scripts=opencode-ai", "opencode-ai"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+	got = npmInstallGlobalArgs("@kilocode/cli")
+	want = []string{"install", "-g", "@kilocode/cli"}
+	if len(got) != len(want) || got[2] != want[2] {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestNormalizeNPMPackage(t *testing.T) {
+	cases := map[string]string{
+		"@upstash/context7-mcp":      "@upstash/context7-mcp",
+		"vercel-labs/agent-browser":  "github:vercel-labs/agent-browser",
+		"github:foo/bar":             "github:foo/bar",
+		"@playwright/mcp@latest":     "@playwright/mcp@latest",
+	}
+	for in, want := range cases {
+		if got := normalizeNPMPackage(in); got != want {
+			t.Errorf("normalizeNPMPackage(%q)=%q, want %q", in, got, want)
 		}
 	}
 }
@@ -155,6 +189,17 @@ func TestSetupAgentsIntegration(t *testing.T) {
 		if _, err := os.Stat(p); err != nil {
 			t.Errorf("missing expected config %s: %v", p, err)
 		}
+	}
+
+	opencodeCfg, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.jsonc"))
+	if err != nil {
+		t.Fatalf("read opencode config: %v", err)
+	}
+	if !strings.Contains(string(opencodeCfg), "skillgrid-mnemonic") {
+		t.Errorf("opencode config missing skillgrid-mnemonic MCP: %s", opencodeCfg)
+	}
+	if !strings.Contains(string(opencodeCfg), "context7") {
+		t.Errorf("opencode config missing context7 MCP: %s", opencodeCfg)
 	}
 
 	backupBase := filepath.Join(home, ".skillgrid", "backup")
