@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -66,6 +67,33 @@ func (s *Service) Pinned(ctx context.Context, id int64) (bool, error) {
 		return false, fmt.Errorf("pinned flag: %w", err)
 	}
 	return pinned == 1, nil
+}
+
+// SetExpiresAt sets the observation's expires_at timestamp. value must be
+// RFC3339 (or empty to clear). Malformed timestamps are rejected so callers
+// never persist an unparseable TTL that breaks soft-exclude filters.
+func (s *Service) SetExpiresAt(ctx context.Context, id int64, value string) error {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return errors.New("memory service not initialized")
+	}
+	value = strings.TrimSpace(value)
+	if value != "" {
+		if _, err := time.Parse(time.RFC3339, value); err != nil {
+			return fmt.Errorf("invalid expires_at: %w", err)
+		}
+	}
+	res, err := s.store.DB.ExecContext(ctx, `
+		UPDATE observations SET expires_at = ?
+		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		nullString(value), id, s.projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("set expires_at: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("observation %d not found", id)
+	}
+	return nil
 }
 
 // BumpDuplicate records that a save matched an existing observation's

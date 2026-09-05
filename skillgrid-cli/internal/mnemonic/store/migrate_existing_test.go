@@ -46,7 +46,7 @@ func TestMigration08AppliesToExistingStores(t *testing.T) {
 	}
 
 	// Every new column present.
-	for _, col := range []string{"pinned", "expires_at", "duplicate_count", "last_seen_at", "embedding", "embedding_model", "embedding_created_at"} {
+	for _, col := range []string{"pinned", "expires_at", "duplicate_count", "last_seen_at", "embedding", "embedding_model", "embedding_created_at", "tool_name"} {
 		var n int
 		if err := st.DB.QueryRow("SELECT COUNT(*) FROM pragma_table_info('observations') WHERE name=?", col).Scan(&n); err != nil {
 			t.Fatalf("pragma: %v", err)

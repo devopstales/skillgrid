@@ -64,6 +64,7 @@ func memSaveTool() mcplib.Tool {
 		mcplib.WithString("topic_key", mcplib.Description("Stable key for upserts, e.g. architecture/auth-model")),
 		mcplib.WithString("project", mcplib.Description("Optional explicit project name to record under (defaults to the CWD-resolved project). Surfaced as a drift warning if a prior mem_merge_projects retired it.")),
 		mcplib.WithBoolean("capture_prompt", mcplib.Description("Link the session's latest user prompt to this observation (default true). Pass false for SDD artifacts / automated saves that should not carry prompt context.")),
+		mcplib.WithString("tool_name", mcplib.Description("Optional provenance for which tool produced the save (e.g. mem_save).")),
 	)
 }
 
@@ -224,6 +225,7 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 		SessionID:     sessionID,
 		CapturePrompt: capturePrompt,
 		ProjectName:   projectName,
+		ToolName:      req.GetString("tool_name", ""),
 	})
 	if err != nil {
 		return toolError(err)

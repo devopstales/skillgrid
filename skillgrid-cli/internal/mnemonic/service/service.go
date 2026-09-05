@@ -304,21 +304,34 @@ func (s *Service) MigrateProjects(ctx context.Context, oldProject, newProject st
 
 	t := oldStore.DB
 
+	// Bulk copy across attached DBs must disable FK checks: sessions must land
+	// before observations, and OR IGNORE / schema drift can otherwise leave
+	// dangling session_id references mid-copy.
+	if _, err := t.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
+		return 0, fmt.Errorf("disable foreign_keys: %w", err)
+	}
+	defer func() { _, _ = t.Exec(`PRAGMA foreign_keys=ON`) }()
+
 	var total int
 	copied := []string{}
-	for _, table := range []string{"observations", "sessions", "web_cache", "prompts", "files"} {
+	// sessions first: observations.session_id REFERENCES sessions(id).
+	// sessions/prompts have no deleted_at column — do not filter on it.
+	for _, table := range []string{"sessions", "prompts", "observations", "web_cache", "files"} {
+		hasDeletedAt := table == "observations" || table == "web_cache" || table == "files"
+		countSQL := `SELECT COUNT(*) FROM ` + table + ` WHERE project = ?`
+		if hasDeletedAt {
+			countSQL += ` AND deleted_at IS NULL`
+		}
 		var n int
-		err := t.QueryRowContext(ctx, `
-			SELECT COUNT(*) FROM `+table+` WHERE project = ? AND deleted_at IS NULL`,
-			oldProject).Scan(&n)
+		err := t.QueryRowContext(ctx, countSQL, oldProject).Scan(&n)
 		if err != nil || n == 0 {
 			continue
 		}
-		// INSERT OR IGNORE so re-runs do not fail on PK collisions.
-		res, err := t.ExecContext(ctx, `
-			INSERT OR IGNORE INTO newdb.`+table+`
-			SELECT * FROM `+table+` WHERE project = ? AND (deleted_at IS NULL OR deleted_at = '')`,
-			oldProject)
+		insertSQL := `INSERT OR IGNORE INTO newdb.` + table + ` SELECT * FROM ` + table + ` WHERE project = ?`
+		if hasDeletedAt {
+			insertSQL += ` AND (deleted_at IS NULL OR deleted_at = '')`
+		}
+		res, err := t.ExecContext(ctx, insertSQL, oldProject)
 		if err != nil {
 			if strings.Contains(err.Error(), "no such table") || strings.Contains(err.Error(), "duplicate column") || strings.Contains(err.Error(), "datatype mismatch") {
 				continue
@@ -580,6 +593,8 @@ type SaveObservationInput struct {
 	// is validated against project_aliases and a drift warning surfaced by the
 	// caller when the name has been retired by mem_merge_projects.
 	ProjectName string `json:"project_name"`
+	// ToolName is optional provenance for which tool produced the save.
+	ToolName string `json:"tool_name"`
 }
 
 // SaveObservation stores an observation with scope normalization matching MCP mem_save.
@@ -605,6 +620,7 @@ func (s *Service) SaveObservation(ctx context.Context, projectID string, in Save
 		SessionID:     in.SessionID,
 		CapturePrompt: in.CapturePrompt,
 		ProjectName:   in.ProjectName,
+		ToolName:      in.ToolName,
 	})
 }
 
