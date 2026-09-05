@@ -1,12 +1,12 @@
 # Tasks: 003-mnemonic-self-evolving-context-database
 
-> **STATUS:** `in-progress` (2026-09-04) — 0/5 steps PASS
+> **STATUS:** `in-progress` (2026-09-05) — 0/5 steps PASS — revised after questioning
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-driven-development (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Upgrade Mnemonic from flat full-token loads to tiered L0/L1/L2 storage, semantic retrieval, explicit session compaction, and trail observability — without rewriting Go MCP + SQLite+FS.
 
-**Architecture:** Keep Go MCP + SQLite+FS; add deep `tiered` module + content-write seam, Pure Go `Embedder` behind `MNEMONIC_EMBED`, L1-default retrieval with trails, and explicit `mnemonic_commit`. See `change.md` decisions. SQL at `010_*` (leave `009_*` for 001).
+**Architecture:** Keep Go MCP + SQLite+FS; add deep `tiered` module + content-write seam (wired from `mnemonic_commit`), Pure Go `Embedder` behind `MNEMONIC_EMBED` (no CGO), separate L1 `semantic_search` with corpus filter (default LTM), and explicit async-tier `mnemonic_commit`. See `change.md` + `interview.md`. SQL at `010_*`.
 
 **Tech Stack:** Go (`skillgrid-cli`), SQLite (`modernc.org/sqlite`), MCP (`mcp-go`), FS sidecars (`.abstract` / `.overview`), optional Pure Go embeddings behind `MNEMONIC_EMBED`.
 
@@ -24,11 +24,15 @@ Agents get overview-first recall with full detail on demand, operators can inspe
 
 - OpenCode plugin integration
 - Python embedding service (Option B)
+- CGO / onnxruntime (or other native) local embedders
 - Rewriting FTS5, the code index, or the web research cache
 - Cloud sync
 - Auto-commit on every session end (only explicit `mnemonic_commit`; auto only as a future 001 completion hook)
-- Tiering every `mem_save` (only team-task briefs/outputs + tier-eligible content-write seam)
+- Tiering every `mem_save`
+- Live external content-write producers this change — seam ready; producers are `mnemonic_commit` + `migrate --tier` only
+- Merging `semantic_search` into `mem_search`
 - Hard UAT token-% targets (behavioral UAT only)
+- Chained PRs (one PR for this change)
 
 ## Definition of Done
 
@@ -46,15 +50,18 @@ Change is done only when **all** of the following are true:
 
 Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every step inherits these — do not restate per step.
 
-- No OpenCode plugin; no Python embedding service; no cloud sync
+- No OpenCode plugin; no Python embedding service; no CGO/onnxruntime embedder; no cloud sync
 - Do not rewrite FTS5, the code index, or the web research cache
 - Do not auto-commit on every session end; do not tier every `mem_save`
+- No live external content writers this change (seam via commit + migrate only)
+- Keep `semantic_search` separate from `mem_search`
 - No hard UAT token-% targets (behavioral UAT only)
 - Modules only; keep Go MCP + SQLite+FS hybrid
-- Pure Go embeddings (Option A); feature-flagged; local preferred
+- Pure Go embeddings (Option A); feature-flagged; local preferred; optional remote HTTP
 - Additive SQL only; leave `009_*` for 001; this change uses `010_*`
 - Default search returns L1; L2 only via `load_full_details`
-- Auto-tiering must not block writes
+- `semantic_search` corpus filter defaults to LTM-only; optional all `tiered_contents`
+- Auto-tiering must not block writes; commit success does not await tiers
 - Migration fails mid-way → `abort`; prior observations/FTS/code index remain readable
 - Summarizer failure during tier generation → `warn+continue`; L2 intact; failure logged
 - Embedder unavailable / `MNEMONIC_EMBED` off → `warn+continue`; title/L0 fallback; trail still recorded
@@ -63,6 +70,7 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 - Empty retrieval trails store → `warn+continue`; empty list, not error
 - Unknown trail id → `abort` (not-found)
 - Content-write hook / background tiering → `warn+continue`; never block L2 write
+- Ship as one PR (per-step commits still OK on the branch)
 
 ---
 
@@ -72,7 +80,7 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 phase: spec          # spec | apply | verify | archive
 current_step: 01-schema-extensions
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-04T22:10:00+02:00
+updated: 2026-09-05T16:14:00+02:00
 ```
 
 ## Step map
@@ -91,8 +99,8 @@ updated: 2026-09-04T22:10:00+02:00
 |-------|-------|
 | Estimated changed lines (change) | ~1600–2200 |
 | 400-line budget risk | High |
-| Chained PRs recommended | Yes |
-| Delivery strategy | ask-on-risk |
+| Chained PRs recommended | No |
+| Delivery strategy | single PR (per-step commits on branch) |
 
 ---
 
@@ -163,13 +171,14 @@ When step DoD is met: `feat(mnemonic): add 010 tiered context schema`
 
 ### Goal
 
-L0/L1/L2 filesystem layout, tiered module, `migrate --tier`, and non-blocking content-write hooks.
+L0/L1/L2 filesystem layout, tiered module, `migrate --tier`, and non-blocking content-write seam (product wire in step 04).
 
 ### Out of scope / Non-Goals
 
 - Semantic search / load tools (step 03)
-- `mnemonic_commit` (step 04)
+- `mnemonic_commit` product wire (step 04)
 - Trail CLI (step 05)
+- Live external writers
 
 ### Definition of Done
 
@@ -200,7 +209,7 @@ This step is done only when:
 - [ ] 02.2 `[AFK]` Create `tiered.go` to generate/read L0 (`.abstract`) / L1 (`.overview`) / L2 and register paths in `tiered_contents`
 - [ ] 02.3 `[AFK]` Create `hook.go` implementing non-blocking `ContentWriteHook.AfterContentWrite` (does not await summarization)
 - [ ] 02.4 `[AFK]` Create `migrate.go` with `runMigrate` / `--tier` backfill of L0/L1 from existing L2
-- [ ] 02.5 `[AFK]` Cover Scenario: `Content write yields sidecars without blocking` — `Run: go test ./skillgrid-cli/internal/mnemonic/tiered/ -run 'Write|Hook|Sidecar|NonBlocking' -count=1` — Expected: PASS
+- [ ] 02.5 `[AFK]` Cover Scenario: `Content write yields sidecars without blocking` via test harness calling the seam — `Run: go test ./skillgrid-cli/internal/mnemonic/tiered/ -run 'Write|Hook|Sidecar|NonBlocking' -count=1` — Expected: PASS
 - [ ] 02.6 `[AFK]` Cover Scenario: `Tier migrate backfills without changing full detail` — `Run: go test ./skillgrid-cli/cmd/skillgrid/ ./skillgrid-cli/internal/mnemonic/tiered/ -run 'Migrate|Tier|Backfill' -count=1` — Expected: PASS
 - [ ] 02.7 `[AFK]` Cover Scenario: `Summarizer failure preserves full detail` — `Run: go test ./skillgrid-cli/internal/mnemonic/tiered/ -run 'SummarizerFail|Preserve' -count=1` — Expected: PASS
 
@@ -257,7 +266,7 @@ This step is done only when:
 
 **Interfaces:**
 - Consumes: tiered paths + `path_embeddings` / `retrieval_trails` from 01–02; shared Vector helpers from 002 via `memory/embedding.go`
-- Produces: `Embedder` (`Embed`, `Model`); `semantic_search` → `{results:[{overview,abstract,full_path}], trail_id}`; `load_full_details{path}` → `{content}`
+- Produces: `Embedder` (`Embed`, `Model`) Pure Go only; `semantic_search` → `{results:[{overview,abstract,full_path}], trail_id}` with corpus filter (`ltm` default | `all`); `load_full_details{path}` → `{content}`
 
 ### Tasks
 
@@ -273,12 +282,14 @@ This step is done only when:
   - [ ] 03.2.c Minimal implementation
   - [ ] 03.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/service/ -run 'LoadFullDetails|L2' -count=1` — Expected: PASS
   - [ ] 03.2.e Commit — `feat(mnemonic): load L2 only via load_full_details`
-- [ ] 03.3 `[AFK]` Create `embedder.go` (`Embedder` + local/remote adapters; `MNEMONIC_EMBED` flag; pick local library or hash stub)
+- [ ] 03.3 `[AFK]` Create `embedder.go` (`Embedder` + Pure Go local and/or stub + optional remote HTTP; `MNEMONIC_EMBED`; no CGO/onnxruntime)
 - [ ] 03.4 `[AFK]` Modify `memory/embedding.go` to share Vector/blob/cosine helpers with the embedder
-- [ ] 03.5 `[AFK]` Modify `service/service.go` for ranked L1 search, `load_full_details`, and retrieval-trail persistence
+- [ ] 03.5 `[AFK]` Modify `service/service.go` for ranked L1 search with corpus filter (default LTM), `load_full_details`, and retrieval-trail persistence
 - [ ] 03.6 `[AFK]` Create `tools_retrieval.go` with `semantic_search` and `load_full_details` handlers (JSON-only); make 03.1–03.2 pass
 - [ ] 03.7 `[AFK]` Cover Scenario: `Embeddings off falls back with trail` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'EmbedOff|Fallback|Trail' -count=1` — Expected: PASS
 - [ ] 03.8 `[AFK]` Cover Scenario: `Unknown path rejects full-detail load` — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/service/ -run 'UnknownPath|NotFound' -count=1` — Expected: PASS
+- [ ] 03.9 `[AFK]` Cover Scenario: `Default corpus is long-term memory only` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Corpus|LTM|Filter' -count=1` — Expected: PASS
+- [ ] 03.10 `[AFK]` Cover Scenario: `Widened corpus includes all tiered paths` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Corpus|AllTiered|Filter' -count=1` — Expected: PASS
 
 ### Verification
 
@@ -331,8 +342,8 @@ This step is done only when:
 - Test: `skillgrid-cli/internal/mnemonic/mcp/` / `service/`
 
 **Interfaces:**
-- Consumes: tiered Generate/Read from 02; retrieval registration path from 03
-- Produces: `mnemonic_commit{task_id?,lessons_learned?,title?}` → `{memory_id,paths}`; existing `mem_save` still registered
+- Consumes: tiered Generate/Read + ContentWriteHook from 02; retrieval registration path from 03
+- Produces: `mnemonic_commit{…}` → `{memory_id,paths}` with L2 durable on success and async L0/L1 via seam; existing `mem_save` still registered
 
 ### Tasks
 
@@ -342,12 +353,13 @@ This step is done only when:
   - [ ] 04.1.c Minimal implementation
   - [ ] 04.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'MemSave|Registered|Additive' -count=1` — Expected: PASS
   - [ ] 04.1.e Commit — `test(mnemonic): assert mem_save remains registered with new tools`
-- [ ] 04.2 `[AFK]` Create `compaction.go` for explicit commit → `long_term_memories` with L0/L1/L2 + optional source link
+- [ ] 04.2 `[AFK]` Create `compaction.go` for explicit commit → `long_term_memories` with durable L2 + optional source link; invoke `ContentWriteHook` without awaiting tiers
 - [ ] 04.3 `[AFK]` Create `tools_compaction.go` with `mnemonic_commit` (`task_id?`, `lessons_learned?`, `title?` → `{memory_id,paths}`)
 - [ ] 04.4 `[AFK]` Modify `server.go` to register retrieval + compaction tools; make 04.1 pass (no auto-commit on session end)
 - [ ] 04.5 `[AFK]` Cover Scenario: `Explicit commit persists tiered long-term memory` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'MnemonicCommit|LongTerm' -count=1` — Expected: PASS
 - [ ] 04.6 `[AFK]` Cover Scenario: `Session end does not auto-commit` — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/service/ -run 'NoAutoCommit|SessionEnd' -count=1` — Expected: PASS
 - [ ] 04.7 `[AFK]` Cover Scenario: `Missing sources reject without partial write` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'MissingSources|Partial' -count=1` — Expected: PASS
+- [ ] 04.8 `[AFK]` Cover Scenario: `Commit succeeds without waiting for tiers` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'CommitAsync|NoAwaitTier' -count=1` — Expected: PASS
 
 ### Verification
 

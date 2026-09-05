@@ -1,6 +1,6 @@
 # Source: docs/skillgrid/changes/003-mnemonic-self-evolving-context-database/change.md
 # Template: .agents/skills/_shared/templates/template-acceptance.feature
-# Trace: change.md ## Goal + ## Definition of Done; tasks.md @step-NN verify lines.
+# Trace: change.md ## Goal + ## Definition of Done; tasks.md @step-NN verify lines; interview.md D1–D8.
 # Mapping: @p0 scenarios ↔ change.md DoD / Testing strategy; @p1 = important failure paths.
 # One Feature per step; tag each Feature with @step-NN matching tasks.md.
 # Threat: Mnemonic tool surface — L1-default search (03); mem_save remains registered (04).
@@ -39,7 +39,7 @@ Feature: Tiered L0 L1 L2 storage
 
   @happy @p0
   Scenario: Content write yields sidecars without blocking
-    Given a tier-eligible full-detail content write
+    Given a tier-eligible full-detail content write through the content-write seam
     When the write completes
     Then abstract and overview sidecars appear with path columns
     And the full-detail write is not blocked waiting for summarization
@@ -77,6 +77,18 @@ Feature: Overview-first semantic retrieval
     When the agent loads full details for that path
     Then the full markdown is returned
 
+  @happy @p0
+  Scenario: Default corpus is long-term memory only
+    Given long-term memories and other tiered paths that are not long-term memories
+    When an agent runs semantic search with the default corpus
+    Then results include only long-term memory paths
+
+  @edge
+  Scenario: Widened corpus includes all tiered paths
+    Given long-term memories and other registered tiered paths
+    When an agent runs semantic search with the all-tiered corpus filter
+    Then results may include both long-term memory and other tiered paths
+
   @edge
   Scenario: Embeddings off falls back with trail
     Given embeddings are disabled or empty
@@ -100,8 +112,16 @@ Feature: Explicit long-term memory commit
   Scenario: Explicit commit persists tiered long-term memory
     Given sources ready with an optional source link
     When the agent calls mnemonic commit
-    Then long-term memory stores abstract, overview, and full detail
+    Then long-term memory stores full detail durably
+    And abstract and overview sidecars are generated without blocking the commit
     And the optional source link is preserved
+
+  @happy @p0
+  Scenario: Commit succeeds without waiting for tiers
+    Given sources ready and a slow or deferred summarizer
+    When the agent calls mnemonic commit
+    Then commit success returns before tiers finish
+    And a later summarizer failure does not undo the durable full detail
 
   @edge
   Scenario: Session end does not auto-commit
