@@ -1,6 +1,6 @@
 # Tasks: 002-mnemonic-identity-and-parity
 
-> **STATUS:** `in-progress` (2026-09-05) — apply batch complete · hand to `sdd-verify` · **gap-close** (interview D1–D6)
+> **STATUS:** `in-progress` (2026-09-05) — verify round 1: **01 PASS WITH WARNINGS** · **02–04 FAIL** · re-enter apply
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-driven-development (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax. **Do not rebuild shipped behaviour** — implement `[GAP]` deltas; `[VERIFY]` only needs PASS evidence.
 
@@ -67,11 +67,12 @@ Change is done only when **all** of the following are true:
 ## State
 
 ```yaml
-phase: apply         # spec | apply | verify | archive
-current_step: 04-embedding-recall
-status: in_progress  # in_progress | blocked | done — apply batch complete; hand to sdd-verify
-updated: 2026-09-05T14:30:00+02:00
-delivery: single-pr  # resolved ask-on-risk for step-01 gap batch
+phase: apply         # verify found gaps → re-enter apply
+current_step: 02-cross-store-recall
+status: in_progress
+updated: 2026-09-05T14:45:00+02:00
+delivery: single-pr
+verify_round: 1
 ```
 
 ## Step map
@@ -152,18 +153,38 @@ This step is done only when:
 - [x] 01.8 `[VERIFY]` `MNEMONIC_PROJECT` selects among candidates — Scenario: `MNEMONIC_PROJECT selects among candidates` — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'Override|MNEMONIC_PROJECT' -count=1` — Expected: PASS
 - [x] 01.9 `[VERIFY]` `store.Open` idempotent under remapped id — Scenario: `Store open is idempotent under remapped id` — `Run: go test ./skillgrid-cli/internal/mnemonic/store/ -run 'Open|Idempotent' -count=1` — Expected: PASS
 - [x] 01.10 `[AFK]` Glossary terms for identity / ambiguity abort semantics if drifted — `Run: true` — Expected: PASS
+- [ ] 01.11 `[GAP]` Explicit dual-cwd remapped-id `store.Open` idempotence fixture — Scenario: `Store open is idempotent under remapped id` — `Run: go test ./skillgrid-cli/internal/mnemonic/store/ ./skillgrid-cli/internal/mnemonic/service/ -run 'Remap|Idempotent|Open' -count=1` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS WITH WARNINGS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/project/ ./skillgrid-cli/internal/mnemonic/store/ ./skillgrid-cli/internal/mnemonic/service/ -count=1` | PASS | PASS (apply) | Binding abort + ambiguous open refuse + worktree + SeedID alias |
-| Acceptance `@step-01` / `@p0` | `go test ./skillgrid-cli/internal/mnemonic/project/ ./skillgrid-cli/internal/mnemonic/service/ -count=1` | PASS | PASS (apply) | Gaps 01.1–01.2 + VERIFY 01.3–01.9 |
-| Global Constraints | — | held | held (apply) | Verdict owned by sdd-verify |
+| Focused test | `go test ./internal/mnemonic/project/ ./internal/mnemonic/service/ ./internal/mnemonic/store/ -count=1` | PASS | PASS exit 0 | sha256:0acc95fe…bad1287 (2026-09-05 verify) |
+| Acceptance `@step-01` | scenario matrix below | 10/10 covered | 9 COMPLIANT · 1 PARTIAL | |
+| Global Constraints | — | held | held | binding abort + ambiguous write refuse |
+
+Acceptance compliance (`@step-01`):
+
+| Scenario | Status | Covering test |
+|----------|--------|---------------|
+| Project binds to its clone | ✅ COMPLIANT | `TestIdentityStableAcrossRemoteChange` |
+| Worktree and main checkout share project id | ✅ COMPLIANT | `TestWorktreeAndMainShareProjectID` |
+| Remote change and sibling path keep project id | ✅ COMPLIANT | `TestIdentityStableAcrossRemoteChange` + `TestIdentityStableAcrossLocalRename` |
+| Single child auto-promotes | ✅ COMPLIANT | `TestChildAutoPromotion` |
+| Multi-repo parent returns AvailableProjects | ✅ COMPLIANT | `TestAmbiguityWithMultipleChildRepos` + `TestOpenForCWDRefusesAmbiguousParent` |
+| Config walk stops at repository root | ✅ COMPLIANT | `TestConfigBoundedToEnclosingRepo` |
+| Prior keys alias to canonical id | ✅ COMPLIANT | `TestOpenForDirectorySeedsAliasFromLegacyID` |
+| MNEMONIC_PROJECT selects among candidates | ✅ COMPLIANT | `TestProcessOverrideWinsOverEverything` + `TestOpenForDirectoryHonoursMNEMONIC_PROJECT` |
+| Store open is idempotent under remapped id | ⚠️ PARTIAL | `store.TestOpenCreates*` prove Open; no two-cwd→same-id fixture |
+| Binding write failure does not fall through to path-hash | ✅ COMPLIANT | `TestBindingWriteFailureAborts` |
+
+**CRITICAL:** none  
+**WARNING:** remapped-id Open idempotence lacks an explicit dual-cwd fixture (01.11)  
+**SUGGESTION:** none
 
 ### Commit
 
@@ -210,18 +231,37 @@ This step is done only when:
 - [x] 02.4 `[VERIFY]` Fragmented stores one logical index — Scenario: `Fragmented stores are one logical index` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Unify|Alias' -count=1` — Expected: PASS
 - [x] 02.5 `[VERIFY]` Missing / empty → empty merged result — Scenario: `Missing data yields no result` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Empty|Missing' -count=1` — Expected: PASS
 - [x] 02.6 `[VERIFY]` HTTP cross-store / unify write auth — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -count=1` — Expected: PASS
+- [ ] 02.7 `[GAP]` `[RED]` Runtime test: `mem_search(all_projects=true)` merges two seeded stores — Scenario: `all_projects search merges two stores` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'AllProjects|CrossStore|SearchAll' -count=1` — Expected: PASS
+- [ ] 02.8 `[GAP]` Runtime test: recall spans every store under data dir — Scenario: `Recall spans every store` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'SearchAll|CrossStore' -count=1` — Expected: PASS
+- [ ] 02.9 `[GAP]` `[RED]` Runtime test: `mem_unify` idempotent on already-unified keys — Scenario: `mem_unify is idempotent on already-unified keys` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Unify' -count=1` — Expected: PASS
+- [ ] 02.10 `[GAP]` Runtime test: empty/missing stores → empty merged result — Scenario: `Missing data yields no result` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Empty|Missing|SearchAll' -count=1` — Expected: PASS
+- [ ] 02.11 `[GAP]` Runtime test: fragmented stores via aliases are one logical index — Scenario: `Fragmented stores are one logical index` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Unify|Alias|Fragment' -count=1` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `FAIL`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/http/ -count=1` | PASS | PASS (apply) | verify-only; no code gaps |
-| Acceptance `@step-02` / `@p0` | same | PASS | PASS (apply) | package + mcp e2e green |
-| Global Constraints | — | held | held (apply) | Verdict owned by sdd-verify |
+| Focused test | `go test ./internal/mnemonic/service/ ./internal/mnemonic/mcp/ ./internal/mnemonic/http/ -count=1` | PASS | PASS exit 0 | sha256:bd5a6db8…c6df15 — packages green but acceptance gaps |
+| Acceptance `@step-02` | scenario matrix | 5/5 COMPLIANT | 0 COMPLIANT · 1 PARTIAL · 4 UNTESTED | CRITICAL |
+| Global Constraints | — | held | held | |
+
+Acceptance compliance (`@step-02`):
+
+| Scenario | Status | Covering test |
+|----------|--------|---------------|
+| Recall spans every store | ❌ UNTESTED | no `SearchAllProjects` / all-store fixture |
+| all_projects search merges two stores | ❌ UNTESTED | tool wired; no runtime merge test |
+| Fragmented stores are one logical index | ⚠️ PARTIAL | SeedID alias + `TestProjectsMergeRoute`; not unify path |
+| mem_unify is idempotent on already-unified keys | ❌ UNTESTED | `mem_unify` registered only (`TestAllToolsRegistered`) |
+| Missing data yields no result | ❌ UNTESTED | no empty-merge fixture |
+
+**CRITICAL:** 4 UNTESTED acceptance scenarios (02.7–02.10); fragmented index only PARTIAL (02.11)  
+**WARNING:** apply marked VERIFY `[x]` on `-run` patterns that matched zero tests  
+**SUGGESTION:** none
 
 ### Commit
 
@@ -267,18 +307,35 @@ This step is done only when:
 - [x] 03.5 `[VERIFY]` Invalid lifecycle rejected — Scenario: `Invalid lifecycle state is rejected` — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Invalid|Reject' -count=1` — Expected: PASS
 - [x] 03.6 `[VERIFY]` `tool_name` provenance on save — Scenario: `tool_name provenance is stored on save` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/memory/ -run 'ToolName|Provenance' -count=1` — Expected: PASS
 - [x] 03.7 `[VERIFY]` Lifecycle HTTP write auth if exposed — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -count=1` — Expected: PASS
+- [ ] 03.8 `[GAP]` Implement + test `tool_name` provenance on save (column missing from migration 008) — Scenario: `tool_name provenance is stored on save` — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'ToolName|Provenance' -count=1` — Expected: PASS
+- [ ] 03.9 `[GAP]` Runtime test: invalid pin id / malformed expires_at → structured validation error — Scenario: `Invalid lifecycle state is rejected` — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Invalid|Reject|Pin' -count=1` — Expected: PASS
+- [ ] 03.10 `[GAP]` Pin/unpin affect context ordering (not only flags) — Scenario: `Pin and unpin reorder context` — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'Pin|Context|Order' -count=1` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `FAIL`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/memory/ ./skillgrid-cli/internal/mnemonic/store/ -count=1` | PASS | PASS (apply) | Pin/TTL/identity_features + store migrations |
-| Acceptance `@step-03` / `@p0` | `go test ./skillgrid-cli/internal/mnemonic/memory/ ./skillgrid-cli/internal/mnemonic/mcp/ -count=1` | PASS | PASS (apply) | verify-only |
-| Global Constraints | — | held | held (apply) | Verdict owned by sdd-verify |
+| Focused test | `go test ./internal/mnemonic/memory/ ./internal/mnemonic/store/ ./internal/mnemonic/mcp/ -count=1` | PASS | PASS exit 0 | sha256:046e2bae…e2b11b4 |
+| Acceptance `@step-03` | scenario matrix | 5/5 COMPLIANT | 1 COMPLIANT · 2 PARTIAL · 2 UNTESTED | CRITICAL |
+| Global Constraints | — | held | **violated intent** | `tool_name` in WHAT but absent from schema/code |
+
+Acceptance compliance (`@step-03`):
+
+| Scenario | Status | Covering test |
+|----------|--------|---------------|
+| Lifecycle columns are honoured | ⚠️ PARTIAL | pin/dup/ttl tests exist separately; no single ordering fixture |
+| Pin and unpin reorder context | ⚠️ PARTIAL | `TestPinUnpin` toggles flag only — no context order assert |
+| Expired entries are soft-excluded | ✅ COMPLIANT | `TestTTLSoftExpiryAndRetire` (+ search SQL filter) |
+| tool_name provenance is stored on save | ❌ UNTESTED | **no `tool_name` in codebase or migration 008** |
+| Invalid lifecycle state is rejected | ❌ UNTESTED | no bad-pin / bad-expires fixture |
+
+**CRITICAL:** `tool_name` unimplemented (03.8); invalid lifecycle UNTESTED (03.9)  
+**WARNING:** pin/context ordering PARTIAL (03.10)  
+**SUGGESTION:** none
 
 ### Commit
 
@@ -323,19 +380,35 @@ This step is done only when:
 - [x] 04.3 `[VERIFY]` Keyword-only when vectors absent — Scenario: `Keyword-only fallback when vectors are absent` — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'Fallback|NoVector|RRF' -count=1` — Expected: PASS
 - [x] 04.4 `[VERIFY]` Missing embedder degrades — Scenario: `Missing embedder degrades to keyword-only` — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'Embed|Degrad' -count=1` — Expected: PASS
 - [x] 04.5 `[VERIFY]` Disabled flag no vector path — Scenario: `Disabled flag yields no vector recall` — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'EmbedOff|FTSOnly|Embed' -count=1` — Expected: PASS
+- [ ] 04.6 `[GAP]` Runtime test: `MNEMONIC_EMBED=1` fuses FTS+vector ranking end-to-end — Scenario: `Flag on fuses vector and keyword results` — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'Embed|RRF|Fusion|Blended' -count=1` — Expected: PASS
+- [ ] 04.7 `[GAP]` Runtime test: missing embedder with flag on degrades to FTS-only (no 500) — Scenario: `Missing embedder degrades to keyword-only` — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'Embed|Degrad|Fallback' -count=1` — Expected: PASS
+- [ ] 04.8 `[GAP]` Runtime test: flag off skips vector path — Scenario: `Disabled flag yields no vector recall` — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'EmbedOff|FTSOnly|Embed' -count=1` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `FAIL`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/memory/ ./skillgrid-cli/internal/mnemonic/mcp/ -count=1` | PASS | PASS (apply) | Cosine/RRF/BlendedSearchFallback |
-| Acceptance `@step-04` / `@p0` | same | PASS | PASS (apply) | verify-only |
-| Full suite | `go test ./...` (module root) | PASS | (deferred to sdd-verify) | |
-| Global Constraints | — | held | held (apply) | Verdict owned by sdd-verify |
+| Focused test | `go test ./internal/mnemonic/memory/ -run 'Cosine\|RRF\|Blended\|Embed\|SetEmbedding' -count=1` | PASS | PASS exit 0 | sha256:3f2ccb5e…094ea6a |
+| Acceptance `@step-04` | scenario matrix | 5/5 COMPLIANT | 1 COMPLIANT · 2 PARTIAL · 2 UNTESTED | CRITICAL |
+| Global Constraints | — | held | held | FTS5 floor intact in BlendedSearch fallback |
+
+Acceptance compliance (`@step-04`):
+
+| Scenario | Status | Covering test |
+|----------|--------|---------------|
+| Vector recall is available behind the flag | ⚠️ PARTIAL | `TestSetEmbeddingRoundTrip` + `TestCosineAndRRF` (no flag gate) |
+| Flag on fuses vector and keyword results | ⚠️ PARTIAL | RRF unit math only — no `MNEMONIC_EMBED=1` search fixture |
+| Keyword-only fallback when vectors are absent | ✅ COMPLIANT | `TestBlendedSearchFallbackToFTS` |
+| Missing embedder degrades to keyword-only | ❌ UNTESTED | no unavailable-embedder fixture |
+| Disabled flag yields no vector recall | ❌ UNTESTED | no EmbedOff / flag-unset path test |
+
+**CRITICAL:** missing embedder + disabled-flag scenarios UNTESTED (04.7–04.8); fusion under flag only PARTIAL (04.6)  
+**WARNING:** apply VERIFY `[x]` on zero-match `-run` patterns  
+**SUGGESTION:** none
 
 ### Commit
 
