@@ -1,6 +1,6 @@
 # Tasks: 003-mnemonic-self-evolving-context-database
 
-> **STATUS:** `in-progress` (2026-09-05) — 5/5 steps tasks complete (verify PENDING)
+> **STATUS:** `complete` (2026-09-05) — 5/5 steps PASS · human QA **waived** · archive
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-driven-development (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax.
 
@@ -38,13 +38,13 @@ Agents get overview-first recall with full detail on demand, operators can inspe
 
 Change is done only when **all** of the following are true:
 
-- [ ] Every success criterion / DoD checkbox in `change.md` is met
-- [ ] Every `@step-NN` Feature in `acceptance.feature` has passing scenarios
-- [ ] Every step below has Verdict `PASS` or `PASS WITH WARNINGS`
-- [ ] No unchecked `- [ ]` under any `### Tasks`
-- [ ] No **Global Constraint** violated
-- [ ] Rollback path in `change.md` is still valid (or N/A documented)
-- [ ] `## State` status is `done` (set at archive gate)
+- [x] Every success criterion / DoD checkbox in `change.md` is met
+- [x] Every `@step-NN` Feature in `acceptance.feature` has passing scenarios
+- [x] Every step below has Verdict `PASS` or `PASS WITH WARNINGS`
+- [x] No unchecked `- [ ]` under any `### Tasks`
+- [x] No **Global Constraint** violated
+- [x] Rollback path in `change.md` is still valid (or N/A documented)
+- [x] `## State` status is `done` (set at archive gate)
 
 ## Global Constraints
 
@@ -77,10 +77,14 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 ## State
 
 ```yaml
-phase: apply          # spec | apply | verify | archive
+phase: archive
 current_step: 05-trail-observability
-status: in_progress  # in_progress | blocked | done
-updated: 2026-09-05T16:55:00+02:00
+status: done
+updated: 2026-09-05T17:10:00+02:00
+delivery: single-pr
+human_qa: waived
+human_qa_at: 2026-09-05
+note: human QA waived (user message "QA waived") — mechanical archive
 ```
 
 ## Step map
@@ -120,11 +124,11 @@ Additive SQL for tier paths, long-term memories, trails, and embeddings so store
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-01` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Produces contracts listed under Interfaces are available to dependents
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-01` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Produces contracts listed under Interfaces are available to dependents
+- [x] No Global Constraint violated
 
 > Depends on: none
 
@@ -149,17 +153,17 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./internal/mnemonic/store/ -count=1` | PASS | PASS (apply) | full package green 2026-09-05 |
-| Acceptance `@step-01` / `@p0` | `go test ./internal/mnemonic/store/ -run 'StoreOpenAdds|UpgradeFrom008|MigrationFail' -count=1` | PASS | PASS (apply) | mapped in tier_schema_test.go |
-| Runtime harness | store open on fixture DB | PASS | PASS (apply) | TempDir Open in tests |
-| Rollback boundary | failed migrate leaves prior rows | PASS | PASS (apply) | TestMigrationFailLeavesPriorDataIntact |
-| Global Constraints | — | held | held | additive 010 only; no FTS/code rewrite |
+| Focused test | `go test ./internal/mnemonic/store/ -count=1` | PASS | PASS (exit 0, 2026-09-05 verify) | |
+| Acceptance `@step-01` | `StoreOpenAddsTierTables`, `UpgradeFrom008IdempotentTo010`, `MigrationFailLeavesPriorDataIntact` | COMPLIANT | COMPLIANT | 3/3 scenarios |
+| Runtime harness | store open on fixture DB | PASS | PASS | TempDir Open |
+| Rollback boundary | failed DDL leaves prior rows | PASS | PASS | |
+| Global Constraints | — | held | held | additive 010 only |
 
 ### Commit
 
@@ -184,11 +188,11 @@ L0/L1/L2 filesystem layout, tiered module, `migrate --tier`, and non-blocking co
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-02` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-02` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 01-schema-extensions
 
@@ -215,17 +219,17 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./internal/mnemonic/tiered/ -count=1` | PASS | PASS (apply) | 2026-09-05 |
-| Acceptance `@step-02` / `@p0` | `go test ./internal/mnemonic/tiered/ ./cmd/skillgrid/ -run 'WriteHook|MigrateTier|SummarizerFail' -count=1` | PASS | PASS (apply) | |
-| Runtime harness | `skillgrid migrate --tier` on fixture | PASS | PASS (apply) | TestMigrateTierCLIBackfill |
-| Rollback boundary | summarizer fail leaves L2 | PASS | PASS (apply) | TestSummarizerFailPreserve |
-| Global Constraints | — | held | held | non-blocking hook; no L2 rewrite |
+| Focused test | `go test ./internal/mnemonic/tiered/ ./cmd/skillgrid/ -count=1` | PASS | PASS (exit 0, 2026-09-05 verify) | |
+| Acceptance `@step-02` | `WriteHookSidecarNonBlocking`, `MigrateTier*`, `SummarizerFailPreserve` | COMPLIANT | COMPLIANT | 3/3 |
+| Runtime harness | `skillgrid migrate --tier` via CLI test | PASS | PASS | |
+| Rollback boundary | summarizer fail leaves L2 | PASS | PASS | |
+| Global Constraints | — | held | held | non-blocking hook |
 
 ### Commit
 
@@ -249,11 +253,11 @@ Pure Go embeddings plus `semantic_search` / `load_full_details` tools with retri
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-03` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-03` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 02-tiered-storage
 
@@ -293,17 +297,17 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./internal/mnemonic/embedder/ ./internal/mnemonic/mcp/ ./internal/mnemonic/service/ -count=1` | PASS | PASS (apply) | 2026-09-05 |
-| Acceptance `@step-03` / `@p0` | mapped service+mcp retrieval tests | PASS | PASS (apply) | L1-only + load + corpus |
-| Runtime harness | MCP semantic_search + load_full_details | PASS | PASS (apply) | tools_retrieval_test.go |
-| Rollback boundary | embeddings off → title/L0 fallback | PASS | PASS (apply) | EmbedOffFallbackTrail |
-| Global Constraints | — | held | held | Pure Go hash embedder; separate from mem_search |
+| Focused test | `go test ./internal/mnemonic/embedder/ ./internal/mnemonic/service/ ./internal/mnemonic/mcp/ -count=1` | PASS | PASS (exit 0, 2026-09-05 verify) | |
+| Acceptance `@step-03` | L1Only, LoadFullDetails, CorpusLTM/All, EmbedOff, UnknownPath + MCP | COMPLIANT | COMPLIANT | 6/6 |
+| Runtime harness | MCP semantic_search + load_full_details | PASS | PASS | |
+| Rollback boundary | embeddings off → fallback + trail | PASS | PASS | |
+| Global Constraints | — | held | held | Pure Go; L1-only threat covered |
 
 ### Commit
 
@@ -327,11 +331,11 @@ Explicit `mnemonic_commit` persists Long-term Memory with L0/L1/L2 without auto-
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-04` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-04` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 03-semantic-retrieval
 
@@ -359,17 +363,17 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./internal/mnemonic/mcp/ ./internal/mnemonic/service/ -count=1` | PASS | PASS (apply) | |
-| Acceptance `@step-04` / `@p0` | compaction + mem_save tests | PASS | PASS (apply) | |
-| Runtime harness | MCP mnemonic_commit + mem_save | PASS | PASS (apply) | |
-| Rollback boundary | missing sources → no partial row | PASS | PASS (apply) | |
-| Global Constraints | — | held | held | async tiers; no session-end auto-commit |
+| Focused test | `go test ./internal/mnemonic/service/ ./internal/mnemonic/mcp/ -count=1` | PASS | PASS (exit 0, 2026-09-05 verify) | |
+| Acceptance `@step-04` | MnemonicCommit*, NoAutoCommit, MissingSources, CommitAsync, MemSaveRegistered | COMPLIANT | COMPLIANT | 5/5 |
+| Runtime harness | MCP mnemonic_commit + mem_save | PASS | PASS | |
+| Rollback boundary | missing sources → no partial row | PASS | PASS | |
+| Global Constraints | — | held | held | mem_save threat covered |
 
 ### Commit
 
@@ -393,11 +397,11 @@ When step DoD is met: `feat(mnemonic): add explicit mnemonic_commit compaction`
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-05` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-05` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 04-session-compaction
 
@@ -420,16 +424,16 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./cmd/skillgrid/ -count=1` | PASS | PASS (apply) | |
-| Acceptance `@step-05` / `@p0` | TrailRecent/Empty/NotFound | PASS | PASS (apply) | |
-| Runtime harness | `skillgrid trail recent` / `show` | PASS | PASS (apply) | go run in tests |
-| Rollback boundary | unknown id → not-found | PASS | PASS (apply) | |
+| Focused test | `go test ./cmd/skillgrid/ -count=1` | PASS | PASS (exit 0, 2026-09-05 verify) | |
+| Acceptance `@step-05` | TrailRecentAndShow, TrailEmpty, TrailNotFound | COMPLIANT | COMPLIANT | 3/3 |
+| Runtime harness | `go run . trail recent\|show` | PASS | PASS | |
+| Rollback boundary | unknown id → not-found | PASS | PASS | |
 | Global Constraints | — | held | held | |
 
 ### Commit
@@ -440,9 +444,10 @@ When step DoD is met: `feat(mnemonic): add trail show and recent CLI`
 
 ## Archive gate checklist
 
-- [ ] Change-level **Definition of Done** fully checked
-- [ ] No unchecked `- [ ]` under any `### Tasks`
-- [ ] Every step Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] No Global Constraint violated
-- [ ] `## State` status is `done` and phase is `archive` (set by verify/archive)
-- [ ] STATUS banner updated to `complete`
+- [x] Change-level **Definition of Done** fully checked
+- [x] No unchecked `- [ ]` under any `### Tasks` (implementation tasks)
+- [x] Every step Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] No Global Constraint violated
+- [x] `## State` status is `done` and phase is `archive` (set by verify/archive)
+- [x] STATUS banner updated to `complete`
+- [x] Human QA accepted or waived (`qa-plan.md`) — **waived** 2026-09-05 (user: `QA waived`)
