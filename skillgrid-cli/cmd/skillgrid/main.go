@@ -52,6 +52,7 @@ func main() {
 		fmt.Fprintln(w, `  index         Incremental code indexing`)
 		fmt.Fprintln(w, `  setup         Install agent plugins (opencode|kilocode|cursor)`)
 		fmt.Fprintln(w, `  migrate       Backfill mnemonic tier sidecars (--tier)`)
+		fmt.Fprintln(w, `  trail         Inspect retrieval trails (recent|show)`)
 		fmt.Fprintln(w, `  help          Show this help`)
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, `Flags (install):`)
@@ -125,6 +126,9 @@ func main() {
 		return
 	case "migrate":
 		runMigrate(version, rest[1:])
+		return
+	case "trail":
+		runTrail(version, rest[1:])
 		return
 	case "sync-repo":
 		syncPath := ""
