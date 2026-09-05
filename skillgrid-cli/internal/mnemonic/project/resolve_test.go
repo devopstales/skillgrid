@@ -112,6 +112,36 @@ func resolveInDir(dir string) (Resolution, error) {
 	return res, err
 }
 
+// TestWorktreeAndMainShareProjectID covers linked worktrees sharing the
+// common-dir identity file (acceptance: Worktree and main checkout share project id).
+func TestWorktreeAndMainShareProjectID(t *testing.T) {
+	main := t.TempDir()
+	initGitRepo(t, main)
+	remoteCmd(t, main, "remote", "add", "origin", "git@github.com:acme/shared-wt.git")
+
+	mainRes, err := resolveInDir(main)
+	if err != nil {
+		t.Fatalf("main resolve: %v", err)
+	}
+
+	wt := filepath.Join(filepath.Dir(main), "shared-wt-linked")
+	remoteCmd(t, main, "worktree", "add", "--detach", wt)
+	t.Cleanup(func() {
+		_ = exec.Command("git", "-C", main, "worktree", "remove", "--force", wt).Run()
+	})
+
+	wtRes, err := resolveInDir(wt)
+	if err != nil {
+		t.Fatalf("worktree resolve: %v", err)
+	}
+	if wtRes.ID != mainRes.ID {
+		t.Fatalf("worktree id=%q main id=%q — want identical", wtRes.ID, mainRes.ID)
+	}
+	if wtRes.Source != SourceIdentity || mainRes.Source != SourceIdentity {
+		t.Fatalf("sources main=%q wt=%q want identity", mainRes.Source, wtRes.Source)
+	}
+}
+
 func TestAmbiguityWithMultipleChildRepos(t *testing.T) {
 	parent := t.TempDir()
 	// Three child repos under parent.

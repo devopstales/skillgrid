@@ -138,20 +138,20 @@ This step is done only when:
   - [x] 01.1.c Minimal implementation — remove soft seed fallback on `writeBinding` error
   - [x] 01.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'Binding|WriteFail|Permission' -count=1` — Expected: PASS
   - [x] 01.1.e Commit — `fix(mnemonic): abort when identity binding cannot be written`
-- [ ] 01.2 `[GAP]` `[RED]` Ambiguous parent never opens/creates a store under directory-hash fallback (threat: git repository selection) — Scenario: `Multi-repo parent returns AvailableProjects`
-  - [ ] 01.2.a Write failing test (OpenForCWD / write path from multi-repo parent)
-  - [ ] 01.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Ambiguous|AvailableProjects|OpenForCWD' -count=1` — Expected: FAIL
-  - [ ] 01.2.c Minimal implementation — hard-abort writes; require `MNEMONIC_PROJECT` / explicit `project=`
-  - [ ] 01.2.d Run to confirm pass — same Run — Expected: PASS
-  - [ ] 01.2.e Commit — `fix(mnemonic): refuse store open under ambiguous directory-hash fallback`
-- [ ] 01.3 `[VERIFY]` Worktree and main checkout share project id — Scenario: `Worktree and main checkout share project id` — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'Worktree|CommonDir|Identity' -count=1` — Expected: PASS
-- [ ] 01.4 `[VERIFY]` Remote-change and sibling path keep project id — Scenario: `Remote change and sibling path keep project id` — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'Remote|Sibling|Stable' -count=1` — Expected: PASS
-- [ ] 01.5 `[VERIFY]` Single child auto-promotes; multi-repo returns ambiguity — Scenario: `Single child auto-promotes` — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'AutoPromote|Ambiguous' -count=1` — Expected: PASS
-- [ ] 01.6 `[VERIFY]` Config walk stops at repository root — Scenario: `Config walk stops at repository root` — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'Config|Bound' -count=1` — Expected: PASS
-- [ ] 01.7 `[VERIFY]` Prior keys alias / SeedID silent merge to canonical — Scenario: `Prior keys alias to canonical id` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/project/ -run 'Alias|Seed|Merge' -count=1` — Expected: PASS
-- [ ] 01.8 `[VERIFY]` `MNEMONIC_PROJECT` selects among candidates — Scenario: `MNEMONIC_PROJECT selects among candidates` — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'Override|MNEMONIC_PROJECT' -count=1` — Expected: PASS
-- [ ] 01.9 `[VERIFY]` `store.Open` idempotent under remapped id — Scenario: `Store open is idempotent under remapped id` — `Run: go test ./skillgrid-cli/internal/mnemonic/store/ -run 'Open|Idempotent' -count=1` — Expected: PASS
-- [ ] 01.10 `[AFK]` Glossary terms for identity / ambiguity abort semantics if drifted — `Run: true` — Expected: PASS
+- [x] 01.2 `[GAP]` `[RED]` Ambiguous parent never opens/creates a store under directory-hash fallback (threat: git repository selection) — Scenario: `Multi-repo parent returns AvailableProjects`
+  - [x] 01.2.a Write failing test (OpenForCWD / write path from multi-repo parent)
+  - [x] 01.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Ambiguous|AvailableProjects|OpenForCWD' -count=1` — Expected: FAIL
+  - [x] 01.2.c Minimal implementation — hard-abort writes; require `MNEMONIC_PROJECT` / explicit `project=`
+  - [x] 01.2.d Run to confirm pass — same Run — Expected: PASS
+  - [x] 01.2.e Commit — `fix(mnemonic): refuse store open under ambiguous directory-hash fallback`
+- [x] 01.3 `[VERIFY]` Worktree and main checkout share project id — Scenario: `Worktree and main checkout share project id` — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'Worktree|CommonDir|Identity' -count=1` — Expected: PASS
+- [x] 01.4 `[VERIFY]` Remote-change and sibling path keep project id — Scenario: `Remote change and sibling path keep project id` — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'Remote|Sibling|Stable' -count=1` — Expected: PASS
+- [x] 01.5 `[VERIFY]` Single child auto-promotes; multi-repo returns ambiguity — Scenario: `Single child auto-promotes` — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'AutoPromote|Ambiguous' -count=1` — Expected: PASS
+- [x] 01.6 `[VERIFY]` Config walk stops at repository root — Scenario: `Config walk stops at repository root` — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'Config|Bound' -count=1` — Expected: PASS
+- [x] 01.7 `[VERIFY]` Prior keys alias / SeedID silent merge to canonical — Scenario: `Prior keys alias to canonical id` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/project/ -run 'Alias|Seed|Merge' -count=1` — Expected: PASS
+- [x] 01.8 `[VERIFY]` `MNEMONIC_PROJECT` selects among candidates — Scenario: `MNEMONIC_PROJECT selects among candidates` — `Run: go test ./skillgrid-cli/internal/mnemonic/project/ -run 'Override|MNEMONIC_PROJECT' -count=1` — Expected: PASS
+- [x] 01.9 `[VERIFY]` `store.Open` idempotent under remapped id — Scenario: `Store open is idempotent under remapped id` — `Run: go test ./skillgrid-cli/internal/mnemonic/store/ -run 'Open|Idempotent' -count=1` — Expected: PASS
+- [x] 01.10 `[AFK]` Glossary terms for identity / ambiguity abort semantics if drifted — `Run: true` — Expected: PASS
 
 ### Verification
 
@@ -161,9 +161,9 @@ Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/project/ ./skillgrid-cli/internal/mnemonic/store/ -count=1` | PASS | | |
-| Acceptance `@step-01` / `@p0` | `go test ./skillgrid-cli/internal/mnemonic/project/ ./skillgrid-cli/internal/mnemonic/service/ -count=1` | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/project/ ./skillgrid-cli/internal/mnemonic/store/ ./skillgrid-cli/internal/mnemonic/service/ -count=1` | PASS | PASS (apply) | Binding abort + ambiguous open refuse + worktree + SeedID alias |
+| Acceptance `@step-01` / `@p0` | `go test ./skillgrid-cli/internal/mnemonic/project/ ./skillgrid-cli/internal/mnemonic/service/ -count=1` | PASS | PASS (apply) | Gaps 01.1–01.2 + VERIFY 01.3–01.9 |
+| Global Constraints | — | held | held (apply) | Verdict owned by sdd-verify |
 
 ### Commit
 

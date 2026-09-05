@@ -83,7 +83,13 @@ func (s *Service) openProjectForDirectory(directory string) (*projectHandle, fun
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve directory: %w", err)
 	}
-	res, _ := project.ResolveDetailed(absDir)
+	res, resErr := project.ResolveDetailed(absDir)
+	if resErr != nil {
+		// Hard abort for writes: never open/create under an ambiguous
+		// directory-hash fallback (or other resolve failures such as binding
+		// write errors). Recover via MNEMONIC_PROJECT or explicit project=.
+		return nil, nil, fmt.Errorf("resolve project: %w", resErr)
+	}
 	// Best-effort: fold any pre-identity directory-hash store for this path
 	// into the canonical identity bucket so prior memories are reachable and
 	// future alias-named writes route here. Idempotent and read-mostly.
