@@ -7,12 +7,7 @@ servers:
   deepwiki:
     type: remote
     url: https://mcp.deepwiki.com/mcp
-  engram:
-    type: local
-    command:
-      - engram
-      - mcp
-  skillgrid-mnemonic:
+  mnemonic:
     type: local
     command:
       - skillgrid
