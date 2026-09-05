@@ -4,15 +4,15 @@
 >
 > **For agentic workers:** REQUIRED: follow `.agents/skills/_shared/conventions/sdd-structure.md`. This file is WHY + HOW (former intent + plan). Spec phase instantiates `tasks.md` + `acceptance.feature` from the Step Blueprint and per-step WHAT below.
 >
-> **Migration note:** Question round already satisfied by legacy `intent.md` / `plan.md` / `docs/plan/02-mnemonic-identity-and-parity.md` plus user approval ("do it"). This `change.md` folds those answers; do not re-interview.
+> **Migration note:** Legacy intent/plan folded earlier. **2026-09-05 revise:** user-gate `questioning` (`interview.md`) reframed this change as **gap-close** — most Blueprint behaviour already lands in tree; apply closes abort semantics + proves acceptance (D1–D6).
 
 **Goal:** Give Mnemonic a stable, clone-private project identity and Engram-parity recall (cross-store, lifecycle, optional embeddings) so memories stop scattering across invisible stores.
 
-**Architecture:** Project resolution in `skillgrid-cli/internal/mnemonic/project` becomes the sole identity seam (clone binding, child auto-promote, ambiguity, bounded config). Store open stays idempotent under the canonical id. Service + memory packages own alias unification, lifecycle columns, and optional embedding fusion; MCP/HTTP adapters expose the new contracts without changing the existing `mem_save` shape.
+**Architecture:** Project resolution in `skillgrid-cli/internal/mnemonic/project` is the sole identity seam. **Gap-close:** harden abort paths (binding write fail; ambiguous parent never opens a directory-hash store) while verifying shipped cross-store / lifecycle / embedding parity. Store open stays idempotent under the canonical id; silent SeedID→canonical `MergeProjects` on bind remains.
 
 **Tech stack:** Go (`skillgrid-cli`), SQLite (`modernc.org/sqlite`), MCP (`mcp-go`), HTTP mux with bearer-token auth on writes; optional embedder behind `MNEMONIC_EMBED`.
 
-**Research:** none (legacy intent/plan + `docs/plan/02-mnemonic-identity-and-parity.md`)
+**Research:** `docs/plan/02-mnemonic-identity-and-parity.md` (legacy); revise grill: `interview.md`
 
 **Ticket:** `none`
 
@@ -87,8 +87,8 @@ Mnemonic's project identity is path-bound, not repo-bound: memories scatter acro
 
 | Failure | Behavior | Notes |
 |---------|----------|-------|
-| Ambiguous parent cwd (>1 child repo) | `abort` (return `ErrAmbiguousProject` + `AvailableProjects`) | Caller / agent must pick via `MNEMONIC_PROJECT` or user selection; never invent a silent directory-hash write target |
-| Identity binding write fails (permissions on common-dir) | `abort` with clear error | Do not fall through to unstable path-hash as if binding succeeded |
+| Ambiguous parent cwd (>1 child repo) | `abort` (return `ErrAmbiguousProject` + `AvailableProjects`) | **Hard abort for writes / store open** — never create or open a store under the directory-hash fallback ID; recover via `MNEMONIC_PROJECT` or explicit `project=` (interview D4) |
+| Identity binding write fails (permissions on common-dir) | `abort` with clear error | Do **not** fall through to seed / path-hash as if binding succeeded (interview D2); remove soft seed-without-binding |
 | Store open under remapped id | `warn+continue` if alias seed needed | Idempotent open; seed alias when prior store exists |
 | Cross-store search with empty / missing stores | `warn+continue` | Return empty merged result, not hard failure |
 | Invalid lifecycle state (bad pin id, malformed `expires_at`) | `abort` | Reject with validation error; do not corrupt row |
@@ -119,7 +119,11 @@ Contract for `sdd-spec`. Do not renumber after `tasks.md` exists. Per-step Out o
 
 ## Technical approach
 
-Fix unstable, fragmented project identity and close Engram feature gaps in four vertical slices. Step 01 makes resolution bind once into `$(git common-dir)/skillgrid-mnemonic-identity.json`, auto-promote a single child, return ambiguity with candidates for many children, bound config walks to the repo root, and seed aliases from prior keys. Step 02 opens every store under `~/.skillgrid/mnemonic/` for merged recall and exposes `mem_unify`. Step 03 adds additive lifecycle columns and pin/review behaviour. Step 04 adds optional embedding columns and reciprocal-rank fusion when `MNEMONIC_EMBED=1`. MCP and HTTP adapters follow existing patterns; FTS5 stays the default floor.
+**Gap-close (interview D1):** Most of steps 01–04 already exist under `skillgrid-cli/internal/mnemonic/`. Apply does **not** rebuild greenfield — it closes semantic gaps and records verify-shipped evidence against `acceptance.feature`.
+
+**Step 01 deltas:** Identity binding already writes `$(git common-dir)/skillgrid-mnemonic-identity.json`. Align code to abort on bind write failure (no seed-without-binding). Ambiguous multi-repo parent already returns `AvailableProjects`; ensure write paths (`OpenForCWD`, session start, save) never open/create under the directory-hash fallback — require `MNEMONIC_PROJECT` / explicit `project=`. Keep SeedID + silent `MergeProjects` on bind (D6).
+
+**Steps 02–04:** Verify shipped `all_projects` / `mem_unify`, lifecycle pin/expiry/`tool_name`, and `MNEMONIC_EMBED` RRF; fix only acceptance failures. FTS5 remains the floor; MCP/HTTP patterns unchanged.
 
 ## Architecture decisions
 
@@ -133,9 +137,30 @@ Fix unstable, fragmented project identity and close Engram feature gaps in four 
 ### Decision: Child auto-promote and bounded ambiguity
 
 **Module / Interface / Seam / Adapter / Depth:** Module = parent-cwd resolution; Interface = `AvailableProjects` + `ErrAmbiguousProject`; Seam = child-repo scan; Adapter = scan + promote; Depth = replaces opaque directory-hash fallback at parent dirs
-**Choice:** Exactly one child repo auto-promotes (soft warning); more than one returns ambiguity with the candidate list; `MNEMONIC_PROJECT` recovers
-**Alternatives considered:** Blind directory-hash fallback (`{basename}-{hash8}`)
-**Rationale:** Removes the opaque fallback and surfaces candidates agents can present to users
+**Choice:** Exactly one child repo auto-promotes (soft warning); more than one returns ambiguity with the candidate list; **writes hard-abort** (no store under fallback ID); `MNEMONIC_PROJECT` / explicit `project=` recover (interview D4)
+**Alternatives considered:** Blind directory-hash fallback writes; read-ok/write-abort split
+**Rationale:** Removes silent stranding under parent-cwd hashes; one rule for all write paths
+
+### Decision: Gap-close posture (not greenfield rebuild)
+
+**Module / Interface / Seam / Adapter / Depth:** Module = change delivery; Seam = `tasks.md` punch-list
+**Choice:** Rewrite tasks as gap + verify-shipped evidence; implement only deltas (interview D1/D5)
+**Alternatives considered:** Greenfield re-apply of every checkbox; archive-as-done + follow-up only
+**Rationale:** Code already covers most Blueprint behaviour; honest apply focuses review on abort semantics and acceptance proof
+
+### Decision: Binding write failure aborts
+
+**Module / Interface / Seam / Adapter / Depth:** Seam = `identityBinding` write into git common-dir
+**Choice:** Abort with clear error when the binding cannot be written; never pretend seed-without-binding succeeded (interview D2)
+**Alternatives considered:** Soft seed fallback (current code); abort only when writable required
+**Rationale:** Soft fallback recreates unstable identity under permission failures — the failure class this change exists to kill
+
+### Decision: Silent SeedID auto-merge on bind
+
+**Module / Interface / Seam / Adapter / Depth:** Seam = service open after identity bind; Interface = `MergeProjects` / `mem_unify`
+**Choice:** Keep silent `MergeProjects(SeedID → canonical)` on first bind; keep `mem_unify` for manual repairs (interview D6)
+**Alternatives considered:** Remove auto-merge; alias-only without row copy
+**Rationale:** Preserves Engram-parity continuity for pre-binding stores without requiring an admin step on every clone
 
 ### Decision: Bounded config walk
 
@@ -249,11 +274,12 @@ Observable behavior each step must deliver (feeds Gherkin). Not implementation H
 
 - The resolver binds the project to its clone and never re-derives the id from mutable git state after binding
 - Exactly one child repo auto-promotes with a soft warning; more than one returns ambiguity with `AvailableProjects`
+- Binding write failure aborts (no seed-without-binding); ambiguous parent never opens/creates a store under the directory-hash fallback
 - Config walk stops at the enclosing repo root (or cwd outside git)
-- Aliases are seeded so prior directory-hash / remote keys route to the new canonical id
+- Aliases are seeded so prior directory-hash / remote keys route to the new canonical id; silent SeedID merge on bind remains
 - `MNEMONIC_PROJECT` can select among ambiguous candidates
 - `store.Open` remains idempotent when two cwds map to one id
-- **Threat (git repository selection):** worktree vs main checkout share binding via common-dir; adversarial `git -C` / absolute vs relative cwd still resolve under the same authority rules
+- **Threat (git repository selection):** worktree vs main checkout share binding via common-dir; adversarial `git -C` / absolute vs relative cwd still resolve under the same authority rules; ambiguous parent does not write a fallback bucket
 
 ### Step 02 — `cross-store-recall`
 
@@ -296,7 +322,7 @@ Mark each row `Applicable` or `N/A: reason`. Applicable rows name an owning step
 | Boundary / threat | Applicable? | Owning step | Planned RED coverage |
 |-------------------|-------------|-------------|----------------------|
 | Documentation-like paths | N/A: change does not classify or execute documentation-like paths | — | — |
-| Git repository selection | Applicable | 01 | Given a linked worktree vs main checkout of the same clone, resolution yields the same project id; given `git -C` / absolute sibling path after remote-change, id remains stable; given a multi-repo parent cwd, ambiguity returns `AvailableProjects` and does not silently write to a directory-hash bucket |
+| Git repository selection | Applicable | 01 | Worktree vs main share id; remote/sibling stable; multi-repo parent returns `AvailableProjects` and **does not open/create** a directory-hash store; binding write failure aborts (no seed-without-binding) |
 | Commit state | N/A: no commit / index automation in this change | — | — |
 | Push state | N/A: no push / refspec automation | — | — |
 | PR commands | N/A: no PR command composition | — | — |
@@ -315,7 +341,7 @@ Mark each row `Applicable` or `N/A: reason`. Applicable rows name an owning step
 
 ## Open questions
 
-- None — identity-file location decided (git common-dir, Engram parity); question round closed by legacy artifacts + user approval.
+- None — closed 2026-09-05 via `interview.md` (D1–D6): gap-close; binding write abort; keep 01–04; hard abort ambiguous writes; rewrite tasks as gap+verify; keep silent SeedID auto-merge.
 
 ## Glossary
 

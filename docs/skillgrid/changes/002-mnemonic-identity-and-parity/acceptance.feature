@@ -35,8 +35,8 @@ Feature: Clone-private identity binding
   @edge
   Scenario: Multi-repo parent returns AvailableProjects
     Given a parent directory with more than one child git repository
-    When the project is resolved from that parent
-    Then the result is ambiguous with AvailableProjects and no silent directory-hash store is written
+    When a write or store-open is attempted from that parent without MNEMONIC_PROJECT or an explicit project
+    Then the result is ambiguous with AvailableProjects and no store is opened or created under a directory-hash fallback id
 
   @edge
   Scenario: Config walk stops at repository root
@@ -48,13 +48,13 @@ Feature: Clone-private identity binding
   Scenario: Prior keys alias to canonical id
     Given a prior directory-hash or remote-key store for the same clone
     When a new binding is created
-    Then prior keys route to the new canonical id via aliases
+    Then prior keys route to the new canonical id via aliases and silent seed merge
 
   @edge
   Scenario: MNEMONIC_PROJECT selects among candidates
     Given an ambiguous parent with AvailableProjects
     When MNEMONIC_PROJECT names one of the candidates
-    Then resolution uses that selected project id
+    Then resolution uses that selected project id and writes may proceed under it
 
   @edge
   Scenario: Store open is idempotent under remapped id
@@ -66,7 +66,7 @@ Feature: Clone-private identity binding
   Scenario: Binding write failure does not fall through to path-hash
     Given the identity binding cannot be written because of permissions on the git common-dir
     When the project is resolved
-    Then resolution aborts with a clear error and does not invent an unstable path-hash id
+    Then resolution aborts with a clear error and does not invent an unstable seed or path-hash id as if binding succeeded
 
 @step-02
 Feature: Cross-store recall and alias unification
