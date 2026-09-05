@@ -21,7 +21,7 @@ Layout: [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-s
 - **Every** step MUST declare `Depends on: <NN or none>` (kanban DAG for parallel apply).
 - Applicable threat rows from `change.md` → `[RED]` tasks **before** production `[AFK]` tasks.
 - Missing/ambiguous requirements → prefer revise via `sdd-propose` / `questioning`, not invent.
-- `force_ticket_creation` → `issue-creation` for `tasks.md`.
+- `force_ticket_creation` → `issue-creation` for `tasks.md`; Backlog tickets must pass the **Backlog completeness gate** (type, references, DoD, Implementation Plan) — no thin stubs.
 - Hybrid: disk + Mnemonic `sdd/<NNN-slug>/tasks` and `sdd/<NNN-slug>/spec`.
 
 ## Workflow

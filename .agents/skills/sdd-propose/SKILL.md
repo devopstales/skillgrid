@@ -24,7 +24,7 @@ Layout: [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-s
 - List `Research:` and `Prototype:` header paths when those artifacts exist.
 - No production code. No default ADR write under `docs/adr/`.
 - Hybrid: disk + Mnemonic `sdd/<NNN-slug>/change`.
-- `force_ticket_creation` → invoke `issue-creation` for the change artifact.
+- `force_ticket_creation` → invoke `issue-creation` for the change artifact; Backlog tickets must pass the **Backlog completeness gate** (type, references, DoD, Implementation Plan) — no thin stubs.
 
 ## Workflow
 

@@ -2,6 +2,14 @@ project_name: "skillgrid"
 default_status: "needs-triage"
 statuses: ["needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "in-progress", "done", "blocked", "wontfix"]
 labels: []
+types: ["feature", "bug", "enhancement", "refactor", "docs", "chore"]
+priorities: ["high", "medium", "low"]
+definition_of_done:
+  - Tests pass (`go test ./...` for touched packages)
+  - Lint and formatting pass
+  - Edge cases covered
+  - No new warnings introduced
+  - Spec/docs updated if behavior changes
 date_format: yyyy-mm-dd
 max_column_width: 20
 default_editor: "nano"

@@ -7,7 +7,7 @@ description: >
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
 ---
 
@@ -58,10 +58,31 @@ Stop and ask if authentication fails, the repository/instance is unresolvable, o
    If something already covers this behavior, **comment** on the existing issue. Do not create a duplicate.
 3. **Split multi-component work** into separate issues (one per component: API, UI, SDK, or whatever the project uses). API before UI (dependency). Express blocking via the tracker's native links (GitHub issue dependencies, GitLab `blocked_by`, Jira `Blocks`, or a `Blocked by:` line at the top of each issue body).
 4. **Choose the right template** (or the project's template type) and fill it with evidence you already have. Missing facts → ask; never invent.
-5. **Privacy review** the body before publishing (table below).
-6. **Apply labels** only if the label exists and repository policy permits the actor to apply it.
-7. **Publish** via the tracker's CLI (see the reference file).
-8. **Record the issue key/number** back into any SDD `tasks.md` that this issue covers, and into the Mnemonic `sdd/<NNN-slug>/issue-creation` observation if the issue is part of a change.
+5. **Fill required tracker fields** — for Backlog.md see **Backlog completeness gate** below. Other trackers: every template section that the project's form marks required.
+6. **Privacy review** the body before publishing (table below).
+7. **Apply labels** only if the label exists and repository policy permits the actor to apply it.
+8. **Publish** via the tracker's CLI (see the reference file).
+9. **Verify** published fields (Backlog: `backlog task view <ID> --plain` or read the task file). Incomplete → edit immediately.
+10. **Record the issue key/number** back into any SDD `tasks.md` that this issue covers, and into the Mnemonic `sdd/<NNN-slug>/issue-creation` observation if the issue is part of a change.
+
+## Backlog completeness gate
+
+When the resolved tracker is Backlog.md, a ticket is **not published** until all four are present:
+
+| Field | Frontmatter / body | Fail signal |
+|---|---|---|
+| **Type** | `type:` | blank / missing |
+| **References** | `references:` (non-empty) | empty list |
+| **Definition of Done** | `## Definition of Done` + `<!-- DOD:BEGIN -->` items | "No Definition of Done items defined" |
+| **Implementation Plan** | `## Implementation Plan` + `<!-- SECTION:PLAN:BEGIN -->` | missing or empty |
+
+Also require Description (Current/Expected), Acceptance Criteria, and `priority:`.
+
+**SDD / `force_ticket_creation`:** seed References to `change.md` / `tasks.md` / `acceptance.feature`; seed Plan from the Step Blueprint; seed DoD from project defaults + change-level DoD. Thin one-line description stubs are **forbidden**.
+
+**CLI crash:** filesystem fallback under `.backlog/tasks/` is allowed only if it still satisfies this gate (see `_shared/issue-tracker/backlogmd.md`).
+
+Read `_shared/issue-tracker/backlogmd.md` before every Backlog create.
 
 ## Work-Item Formatting
 
@@ -129,6 +150,10 @@ If any point is uncertain, keep the issue in the repository's current review sta
 | "This bug is small, no need for a privacy review" | The privacy review takes 10 seconds and prevents a leak. |
 | "I'll combine API + UI into one task, it's simpler" | Multi-component tasks block both teams. Split per component; link with `Blocked by:`. |
 | "Templates are ceremony" | Templates encode the project's required fields and approval gates. Skipping them = publishing an unapproved issue. |
+| "Type is in the title as [FEATURE]" | Title tag ≠ frontmatter `type:`. Set `--type` / `type:` every time. |
+| "DoD defaults will fill themselves" | Only if `definition_of_done` is configured **and** create didn't use `--no-dod-defaults`. Verify the view output. |
+| "Implementation Plan comes later on pickup" | Seed a plan at create (SDD Blueprint steps or research→implement→verify). Deepen on pickup; never leave the section empty. |
+| "CLI crashed, so a thin stub is fine" | Filesystem fallback must still include type, references, DoD, and plan. |
 | "The duplicate might be stale, I'll create a new one anyway" | Comment on the existing one with fresh evidence; if it's really stale, close the old and re-open with a reference. |
 | "I'll publish and fix labels later" | Labels are discoverability. Apply them at publish time or not at all. |
 
@@ -140,6 +165,8 @@ If any point is uncertain, keep the issue in the repository's current review sta
 - A body containing a username, private hostname, or token that isn't a placeholder.
 - A "duplicate" search that returned 1000+ results and was not narrowed.
 - One issue covering multiple components with no `Blocked by:` relation expressed.
+- Backlog task missing `type:`, empty `references:`, empty DoD, or empty Implementation Plan.
+- Ending the turn after `force_ticket_creation` with a description-only stub.
 
 ## References
 

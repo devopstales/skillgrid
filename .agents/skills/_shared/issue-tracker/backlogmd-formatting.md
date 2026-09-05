@@ -68,16 +68,24 @@ Every child task lists its project and blocking relations in its file.
 
 ## Task File Template
 
-Location: `.backlog/tasks/<ID>.md` (ID assigned by the `backlog` CLI).
+Location: `.backlog/tasks/<ID>.md` (ID assigned by the `backlog` CLI). Prefer `backlog task create` / `edit`; use this shape for verification and filesystem fallback.
 
 ```markdown
 ---
-Title: [TYPE] {Brief description} ({COMPONENT})
-Status: needs-triage
-Labels: [feature, ui]
-Blocked by: []
-Blocks: []
-Related: [TASK-M]
+id: TASK-NNN
+title: '[FEATURE] Brief description (COMPONENT)'
+status: needs-triage
+assignee: []
+created_date: 'YYYY-MM-DD'
+labels: []
+dependencies: []
+priority: medium
+type: feature
+references:
+  - docs/skillgrid/changes/<NNN-slug>/change.md
+  - path/or/url/related
+documentation:
+  - docs/skillgrid/changes/<NNN-slug>/change.md
 ---
 
 ## Description
@@ -94,8 +102,29 @@ Related: [TASK-M]
 
 ## Acceptance Criteria
 
-- [ ] {Specific, testable requirement}
-- [ ] {Another requirement}
+<!-- AC:BEGIN -->
+- [ ] #1 {Specific, testable requirement}
+- [ ] #2 {Another requirement}
+<!-- AC:END -->
+
+## Definition of Done
+
+<!-- DOD:BEGIN -->
+- [ ] #1 Tests pass (`go test ./...` for touched packages)
+- [ ] #2 Lint and formatting pass
+- [ ] #3 Edge cases covered
+- [ ] #4 No new warnings introduced
+- [ ] #5 Spec/docs updated if behavior changes
+- [ ] #6 {Task-specific DoD item}
+<!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. {Research / confirm deps}
+2. {Follow change.md Step Blueprint or concrete implement steps}
+3. {Verify with tests; mark AC/DoD}
+<!-- SECTION:PLAN:END -->
 
 ## Technical Notes
 
@@ -103,11 +132,6 @@ Related: [TASK-M]
   - `{file path 1}`
   - `{file path 2}`
 - {Implementation hints}
-
-## Testing
-
-- [ ] {Test case 1}
-- [ ] {Test case 2}
 
 ## Priority
 
@@ -126,18 +150,21 @@ Format: `[TYPE] Brief description (COMPONENT)` where `[TYPE]` ∈ `{BUG, FEATURE
 - `[FEATURE] Add dark mode toggle (UI)`
 - `[REFACTOR] Migrate E2E tests to Page Object Model (UI)`
 
-Match the project's existing style if it differs.
+Match the project's existing style if it differs. Title `[TYPE]` is **not** a substitute for frontmatter `type:` — both are required.
 
 ### Frontmatter fields
 
-| Field | Notes |
-|---|---|
-| `Title` | `[TYPE] description (COMPONENT)` |
-| `Status` | one of: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`, `in-progress`, `done`, `blocked` (see `_shared/triage-labels.md`) |
-| `Labels` | YAML array; project-defined + component names |
-| `Blocked by` | YAML array of task IDs |
-| `Blocks` | YAML array of task IDs |
-| `Related` | YAML array of task IDs (loose links) |
+| Field | Required | Notes |
+|---|---|---|
+| `id` / `title` / `status` | yes | Canonical Backlog.md fields |
+| `type` | **yes** | One of project `types:` (e.g. `feature`, `bug`). Never omit. |
+| `references` | **yes** | Non-empty list of paths/URLs an agent needs. SDD tickets: always include `change.md` (+ `tasks.md` / `acceptance.feature` as relevant). |
+| `documentation` | recommended | Design/spec docs for context |
+| `priority` | yes | One of project `priorities:` |
+| `labels` | when configured | YAML array; project-defined + component names |
+| `dependencies` | when blocked | YAML array of task IDs (`TASK-N`) |
+
+Legacy `Blocked by` / `Blocks` / `Related` arrays in older templates map to `dependencies` / comments — prefer CLI `--dep` so metadata stays consistent.
 
 ## Labels
 
@@ -149,13 +176,13 @@ Apply both a **type** and a **component** label (when the project's `backlog.con
 
 Only use labels declared in `backlog.config.yml`.
 
-## Priorities (no native field)
+## Priorities
 
-Backlog.md has no native priority field. Put a `## Priority` section in the body (preferred) — one of {Critical, High, Medium, Low} plus a one-line justification:
+Set frontmatter `priority:` from project `priorities:` (CLI `--priority`). Optionally keep a `## Priority` body section with a one-line justification:
 
 | Priority | Criteria |
 |---|---|
-| **Critical** | Production down, data loss, security vulnerability |
+| **Critical** / **high** | Production down, data loss, security vulnerability |
 | **High** | Blocks users, no workaround, affects paid features |
 | **Medium** | Has workaround, affects subset of users |
 | **Low** | Nice to have, cosmetic, internal tooling |
@@ -175,34 +202,39 @@ When work touches multiple components, create **one task file per component** �
 
 ## Checklist before publishing
 
-1. Title follows the project's `[TYPE] description (COMPONENT)` convention.
-2. Frontmatter is valid YAML with `Title`, `Status`, `Labels` at minimum.
-3. Description has Current/Expected State (tasks) or Overview (projects).
-4. Acceptance Criteria are specific and testable.
-5. Technical Notes include file paths.
-6. Testing section covers happy path + edge cases.
-7. Priority has a one-line justification.
-8. Multi-component work is split into separate task files.
-9. `Blocked by` / `Blocks` / `Related` frontmatter lists sibling IDs.
+**Hard fail** (do not report published until fixed):
+
+1. Frontmatter `type:` set to a configured type.
+2. Frontmatter `references:` non-empty (SDD → change artifacts).
+3. `## Definition of Done` with `<!-- DOD:BEGIN -->` items (not empty / "No Definition of Done").
+4. `## Implementation Plan` with `<!-- SECTION:PLAN:BEGIN -->` non-empty steps.
+
+**Also required:**
+
+5. Title follows `[TYPE] description (COMPONENT)`.
+6. Description has Current/Expected State.
+7. Acceptance Criteria specific and testable (`<!-- AC:BEGIN -->`).
+8. `priority:` set; optional body justification.
+9. Multi-component work split into separate task files with `dependencies:`.
+10. Post-create: `backlog task view <ID> --plain` (or file read) confirms 1–4.
 
 ## Creating via `backlog` CLI
 
-Worked example (placeholders):
-
 ```bash
-# Create the task — ID is assigned and printed
-backlog new --title "[FEATURE] Findings filters - provider and account (UI)" \
-  --frontmatter-file task-frontmatter.yml \
-  --body-file task-body.md
+backlog task create '[FEATURE] Findings filters - provider and account (UI)' \
+  --type feature \
+  --priority medium \
+  -d $'Current State:\n- …\n\nExpected State:\n- …' \
+  --ac 'Filters apply to provider and account' \
+  --dod 'Tests pass' \
+  --ref docs/skillgrid/changes/<NNN-slug>/change.md \
+  --plan $'1. Research filter API\n2. Implement\n3. Verify tests'
 
-# Add blocking relation
-backlog add-blocked-by <NEW_ID> TASK-3
-
-# Discover sibling IDs
-backlog list --status ready-for-agent
+backlog task edit TASK-N --dep TASK-M   # blocking
+backlog task view TASK-N --plain        # verify required fields
 ```
 
-If the project has templates in `backlog.config.yml`, pass `--template <name>`.
+If the project has templates in config, pass `--template <name>`. On CLI crash, write the **complete** template above under `.backlog/tasks/` (filesystem fallback) — still with type / references / DoD / plan.
 
 ## File placement rules
 
@@ -210,7 +242,7 @@ If the project has templates in `backlog.config.yml`, pass `--template <name>`.
 - Completed: move (or copy) to `.backlog/completed/<ID>.md`
 - Archived: `.backlog/archive/<ID>.md`
 
-Do not hand-edit files outside these directories — the CLI tracks IDs and moves.
+Prefer the CLI so IDs and metadata stay consistent. Filesystem fallback is allowed only when the CLI is broken, and must still satisfy the required-field gate.
 
 ## Markdown rendering notes
 

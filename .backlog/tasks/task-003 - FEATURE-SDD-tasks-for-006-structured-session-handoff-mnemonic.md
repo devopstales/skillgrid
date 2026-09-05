@@ -4,10 +4,20 @@ title: '[FEATURE] SDD tasks punch-list for 006-structured-session-handoff (mnemo
 status: ready-for-agent
 assignee: []
 created_date: '2026-09-04'
+updated_date: '2026-09-05'
 labels: []
 dependencies:
   - TASK-002
 priority: medium
+type: feature
+references:
+  - docs/skillgrid/changes/006-structured-session-handoff/tasks.md
+  - docs/skillgrid/changes/006-structured-session-handoff/change.md
+  - docs/skillgrid/changes/006-structured-session-handoff/acceptance.feature
+  - docs/skillgrid/changes/006-structured-session-handoff/steps/
+documentation:
+  - docs/skillgrid/changes/006-structured-session-handoff/change.md
+  - .agents/skills/_shared/conventions/sdd-structure.md
 ---
 
 ## Description
@@ -32,6 +42,28 @@ Track the SDD **tasks.md** punch-lists for change **006-structured-session-hando
 - [ ] #4 Soft-after 003 L0 paths; `.cleave/` gitignored; `go test ./...` passes for touched packages
 <!-- AC:END -->
 
+## Definition of Done
+
+<!-- DOD:BEGIN -->
+- [ ] #1 Tests pass (`go test ./...` for touched packages)
+- [ ] #2 Lint and formatting pass
+- [ ] #3 Edge cases covered
+- [ ] #4 No new warnings introduced
+- [ ] #5 Spec/docs updated if behavior changes
+- [ ] #6 Every step `tasks.md` Verdict is PASS or PASS WITH WARNINGS
+- [ ] #7 Apply order 01 → 02 → 03 → 04 (05 after 02) respected
+<!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Gate on TASK-002 plan readiness and human Implement vs Revise decision.
+2. On Implement: run `sdd-apply` per step folders `01-relay-schema` → `02-handoff-resume` → `03-status-compact` → `04-session-cli`; `05-handoff-watchdog` after 02.
+3. Check off punch-list items in each `steps/*/tasks.md` as Verdict PASS; keep Engram `sdd/006-structured-session-handoff/tasks` in sync.
+4. Ensure RED threat scenarios for MCP session tools (02, 03) land before production tool code.
+5. Close when all step checkboxes + change DoD are green; archive with TASK-002.
+<!-- SECTION:PLAN:END -->
+
 ## Technical Notes
 
 - Steps: `01-relay-schema`, `02-handoff-resume`, `03-status-compact`, `04-session-cli`, `05-handoff-watchdog`
@@ -48,3 +80,4 @@ Medium–High after 003 paths; orthogonal to 004/005.
 <!-- Conversation appends here. -->
 
 - 2026-09-04: Created for `force_ticket_creation` on sdd-spec (tasks.md artifact). `backlog` CLI SIGTRAPs on this host (Bun arch mismatch); ticket written as filesystem task file matching TASK-001/002 frontmatter. Duplicate-search: TASK-002 covers plan only; no prior tasks-punch-list ticket for 006.
+- 2026-09-05: Filled missing `type`, `references`, Definition of Done, and Implementation Plan via filesystem fallback (CLI still SIGILL on edit).
