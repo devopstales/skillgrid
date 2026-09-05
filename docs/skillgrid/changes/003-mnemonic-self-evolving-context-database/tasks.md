@@ -1,6 +1,6 @@
 # Tasks: 003-mnemonic-self-evolving-context-database
 
-> **STATUS:** `in-progress` (2026-09-05) — 3/5 steps tasks complete (verify PENDING)
+> **STATUS:** `in-progress` (2026-09-05) — 5/5 steps tasks complete (verify PENDING)
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-driven-development (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax.
 
@@ -78,9 +78,9 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 
 ```yaml
 phase: apply          # spec | apply | verify | archive
-current_step: 04-session-compaction
+current_step: 05-trail-observability
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-05T16:50:00+02:00
+updated: 2026-09-05T16:55:00+02:00
 ```
 
 ## Step map
@@ -347,19 +347,15 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 04.1 `[RED]` Mnemonic tool surface: after registering new tools, existing `mem_save` remains registered and callable — Scenario: `Existing memory save remains registered`
-  - [ ] 04.1.a Write failing test
-  - [ ] 04.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'MemSave|Registered|Additive' -count=1` — Expected: FAIL
-  - [ ] 04.1.c Minimal implementation
-  - [ ] 04.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'MemSave|Registered|Additive' -count=1` — Expected: PASS
-  - [ ] 04.1.e Commit — `test(mnemonic): assert mem_save remains registered with new tools`
-- [ ] 04.2 `[AFK]` Create `compaction.go` for explicit commit → `long_term_memories` with durable L2 + optional source link; invoke `ContentWriteHook` without awaiting tiers
-- [ ] 04.3 `[AFK]` Create `tools_compaction.go` with `mnemonic_commit` (`task_id?`, `lessons_learned?`, `title?` → `{memory_id,paths}`)
-- [ ] 04.4 `[AFK]` Modify `server.go` to register retrieval + compaction tools; make 04.1 pass (no auto-commit on session end)
-- [ ] 04.5 `[AFK]` Cover Scenario: `Explicit commit persists tiered long-term memory` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'MnemonicCommit|LongTerm' -count=1` — Expected: PASS
-- [ ] 04.6 `[AFK]` Cover Scenario: `Session end does not auto-commit` — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/service/ -run 'NoAutoCommit|SessionEnd' -count=1` — Expected: PASS
-- [ ] 04.7 `[AFK]` Cover Scenario: `Missing sources reject without partial write` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'MissingSources|Partial' -count=1` — Expected: PASS
-- [ ] 04.8 `[AFK]` Cover Scenario: `Commit succeeds without waiting for tiers` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'CommitAsync|NoAwaitTier' -count=1` — Expected: PASS
+- [x] 04.1 `[RED]` Mnemonic tool surface: after registering new tools, existing `mem_save` remains registered and callable — Scenario: `Existing memory save remains registered`
+  - [x] 04.1.a–e `TestMemSaveRemainsRegisteredAdditive` PASS
+- [x] 04.2 `[AFK]` Create `compaction.go` for explicit commit → `long_term_memories` with durable L2 + optional source link; async tiers after store release
+- [x] 04.3 `[AFK]` Create `tools_compaction.go` with `mnemonic_commit`
+- [x] 04.4 `[AFK]` Modify `server.go` to register compaction tools; no auto-commit on session end
+- [x] 04.5 `[AFK]` Cover Scenario: `Explicit commit persists tiered long-term memory` — PASS
+- [x] 04.6 `[AFK]` Cover Scenario: `Session end does not auto-commit` — PASS
+- [x] 04.7 `[AFK]` Cover Scenario: `Missing sources reject without partial write` — PASS
+- [x] 04.8 `[AFK]` Cover Scenario: `Commit succeeds without waiting for tiers` — PASS
 
 ### Verification
 
@@ -369,11 +365,11 @@ Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/service/ -count=1` | PASS | | |
-| Acceptance `@step-04` / `@p0` | BDD / mapped compaction tests for `@step-04` | PASS | | |
-| Runtime harness | MCP mnemonic_commit + mem_save still callable | PASS | | |
-| Rollback boundary | missing sources → no partial row | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./internal/mnemonic/mcp/ ./internal/mnemonic/service/ -count=1` | PASS | PASS (apply) | |
+| Acceptance `@step-04` / `@p0` | compaction + mem_save tests | PASS | PASS (apply) | |
+| Runtime harness | MCP mnemonic_commit + mem_save | PASS | PASS (apply) | |
+| Rollback boundary | missing sources → no partial row | PASS | PASS (apply) | |
+| Global Constraints | — | held | held | async tiers; no session-end auto-commit |
 
 ### Commit
 
@@ -416,11 +412,11 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 05.1 `[AFK]` Create `trail.go` with `trail recent` and `trail show <id>` reading `retrieval_trails` (query, directories, files, result path)
-- [ ] 05.2 `[AFK]` Modify `main.go` to dispatch `migrate` and `trail` subcommands
-- [ ] 05.3 `[AFK]` Cover Scenario: `Trail recent and show expose query paths` — `Run: go test ./skillgrid-cli/cmd/skillgrid/ -run 'TrailRecent|TrailShow' -count=1` — Expected: PASS
-- [ ] 05.4 `[AFK]` Cover Scenario: `Empty store lists nothing without error` — `Run: go test ./skillgrid-cli/cmd/skillgrid/ -run 'TrailEmpty' -count=1` — Expected: PASS
-- [ ] 05.5 `[AFK]` Cover Scenario: `Unknown trail id is not found` — `Run: go test ./skillgrid-cli/cmd/skillgrid/ -run 'TrailNotFound|Unknown' -count=1` — Expected: PASS
+- [x] 05.1 `[AFK]` Create `trail.go` with `trail recent` and `trail show <id>` reading `retrieval_trails`
+- [x] 05.2 `[AFK]` Modify `main.go` to dispatch `migrate` and `trail` subcommands
+- [x] 05.3 `[AFK]` Cover Scenario: `Trail recent and show expose query paths` — PASS
+- [x] 05.4 `[AFK]` Cover Scenario: `Empty store lists nothing without error` — PASS
+- [x] 05.5 `[AFK]` Cover Scenario: `Unknown trail id is not found` — PASS
 
 ### Verification
 
@@ -430,11 +426,11 @@ Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/cmd/skillgrid/ -count=1` | PASS | | |
-| Acceptance `@step-05` / `@p0` | BDD / mapped trail tests for `@step-05` | PASS | | |
-| Runtime harness | `skillgrid trail recent` / `show` | PASS | | |
-| Rollback boundary | unknown id → not-found | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./cmd/skillgrid/ -count=1` | PASS | PASS (apply) | |
+| Acceptance `@step-05` / `@p0` | TrailRecent/Empty/NotFound | PASS | PASS (apply) | |
+| Runtime harness | `skillgrid trail recent` / `show` | PASS | PASS (apply) | go run in tests |
+| Rollback boundary | unknown id → not-found | PASS | PASS (apply) | |
+| Global Constraints | — | held | held | |
 
 ### Commit
 

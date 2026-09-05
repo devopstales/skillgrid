@@ -31,6 +31,7 @@ func TestAllToolsRegistered(t *testing.T) {
 		"team_spawn_task", "agent_pull_next_task", "agent_read_task",
 		"agent_submit_output", "agent_submit_review", "agent_mark_done",
 		"semantic_search", "load_full_details",
+		"mnemonic_commit",
 	}
 	if len(tools) != len(want) {
 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)
