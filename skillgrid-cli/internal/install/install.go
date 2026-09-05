@@ -241,12 +241,13 @@ func installAgents(c *Config) error {
 	return nil
 }
 
-// npmInstallGlobalArgs builds `npm install -g …` args. OpenCode needs
-// --allow-scripts=opencode-ai or postinstall (native binary) is skipped.
+// npmInstallGlobalArgs builds `npm install -g …` args. Packages with native
+// postinstalls need --allow-scripts=<name> or npm skips the script.
 func npmInstallGlobalArgs(pkg string) []string {
 	args := []string{"install", "-g"}
-	if pkg == "opencode-ai" {
-		args = append(args, "--allow-scripts=opencode-ai")
+	switch pkg {
+	case "opencode-ai", "agent-browser":
+		args = append(args, "--allow-scripts="+pkg)
 	}
 	return append(args, pkg)
 }
@@ -308,13 +309,14 @@ func installMCPServers(c *Config) error {
 			VerboseOut(c, "skip MCP pkg "+npmPkg+" (also a global tool)")
 			continue
 		}
+		args := npmInstallGlobalArgs(npmPkg)
 		if c.DryRun {
-			Out("      [dry-run] npm install -g", npmPkg)
+			Out(append([]any{"      [dry-run] npm"}, toAny(args)...)...)
 			continue
 		}
-		Out("      npm install -g", npmPkg)
-		if err := run(c, "", "npm", "install", "-g", npmPkg); err != nil {
-			return fmt.Errorf("npm install -g %s: %w", npmPkg, err)
+		Out(append([]any{"      npm"}, toAny(args)...)...)
+		if err := run(c, "", "npm", args...); err != nil {
+			return fmt.Errorf("npm %s: %w", strings.Join(args, " "), err)
 		}
 	}
 	return nil

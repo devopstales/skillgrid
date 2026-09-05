@@ -7,5 +7,5 @@ mcp:
   - "@playwright/mcp@latest"
   - "@playwright/cli@latest"
   - "@cucumber/cucumber"
-  - "vercel-labs/agent-browser"
+  - "agent-browser"
   - "@safedep/gryph"

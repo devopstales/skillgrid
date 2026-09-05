@@ -26,20 +26,24 @@ func TestAvailableAgents(t *testing.T) {
 }
 
 func TestNpmInstallGlobalArgs(t *testing.T) {
-	got := npmInstallGlobalArgs("opencode-ai")
-	want := []string{"install", "-g", "--allow-scripts=opencode-ai", "opencode-ai"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
+	cases := []struct {
+		pkg  string
+		want []string
+	}{
+		{"opencode-ai", []string{"install", "-g", "--allow-scripts=opencode-ai", "opencode-ai"}},
+		{"agent-browser", []string{"install", "-g", "--allow-scripts=agent-browser", "agent-browser"}},
+		{"@kilocode/cli", []string{"install", "-g", "@kilocode/cli"}},
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v, want %v", got, want)
+	for _, tc := range cases {
+		got := npmInstallGlobalArgs(tc.pkg)
+		if len(got) != len(tc.want) {
+			t.Fatalf("%s: got %v, want %v", tc.pkg, got, tc.want)
 		}
-	}
-	got = npmInstallGlobalArgs("@kilocode/cli")
-	want = []string{"install", "-g", "@kilocode/cli"}
-	if len(got) != len(want) || got[2] != want[2] {
-		t.Fatalf("got %v, want %v", got, want)
+		for i := range tc.want {
+			if got[i] != tc.want[i] {
+				t.Fatalf("%s: got %v, want %v", tc.pkg, got, tc.want)
+			}
+		}
 	}
 }
 
