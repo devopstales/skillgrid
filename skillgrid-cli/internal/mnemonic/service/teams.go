@@ -128,11 +128,17 @@ func (s *Service) PullNextTask(ctx context.Context, directory, memberID string) 
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := tx.Exec(`
+	res, err := tx.Exec(`
 		UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ? AND status = ?`,
 		taskStatusInProgress, memberID, now, view.ID, taskStatusPending,
-	); err != nil {
+	)
+	if err != nil {
 		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	if n != 1 {
+		// Lost the race to another claimer (or task left pending queue).
+		return nil, ErrNoPendingTasks
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -244,6 +250,8 @@ func (s *Service) SubmitReview(ctx context.Context, p SubmitReviewParams) error 
 		filename = "code_review.md"
 	}
 	reviewID := uuid.New().String()
+	// Unique content key so a second same-type review does not overwrite prior comments.
+	filename = reviewID + "_" + filename
 	now := time.Now().UTC().Format(time.RFC3339)
 	passed := 0
 	if p.Passed {

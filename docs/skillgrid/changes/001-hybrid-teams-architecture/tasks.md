@@ -66,10 +66,10 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 ## State
 
 ```yaml
-phase: apply         # spec | apply | verify | archive
+phase: verify        # spec | apply | verify | archive
 current_step: 05-tests
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-05T12:36:00+02:00
+updated: 2026-09-05T12:45:00+02:00
 ```
 
 ## Step map
@@ -143,17 +143,17 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/store/ ./skillgrid-cli/internal/mnemonic/files/` | PASS | PASS (apply) | exit 0 |
-| Acceptance `@step-01` / `@p0` | Map scenarios in `acceptance.feature` `@step-01` | PASS | covered by store+files tests | verify owns verdict |
-| Runtime harness | store open with existing observations | PASS | PASS (apply) | TestTeamsSchema* |
-| Rollback boundary | SQL fail after FS write leaves no orphan | PASS | PASS (apply) | TestContentPlaneWriteRollbackOnSQLFail |
-| Global Constraints | — | held | held (apply) | no 010_*; no tiers |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/store/ ./skillgrid-cli/internal/mnemonic/files/` | PASS | PASS (verify 2026-09-05) | exit 0 |
+| Acceptance `@step-01` | 4 scenarios | COMPLIANT | 4/4 | TeamsSchema*; ContentPlane* |
+| Runtime harness | store open with existing observations | PASS | PASS | |
+| Rollback boundary | SQL fail after FS write leaves no orphan | PASS | PASS | |
+| Global Constraints | — | held | held | |
 
 ### Commit
 
@@ -205,20 +205,23 @@ This step is done only when:
 - [x] 02.3 `[AFK]` Output → review_spec; review sets passed; mark done → done + task_results — Scenario: Output review done advance status — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Submit|MarkDone|Status'` — Expected: PASS
 - [x] 02.4 `[AFK]` Empty pull fails clearly — Scenario: Empty pull fails clearly — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Pull.*Empty|EmptyPull'` — Expected: PASS
 - [x] 02.5 `[AFK]` Wire teams via `openProject` / project handle in `service.go` as needed — `Run: go test ./skillgrid-cli/internal/mnemonic/service/` — Expected: PASS
+- [x] 02.6 `[RED]` (verify review) Concurrent pull claims must check RowsAffected — only one winner; loser retries or `ErrNoPendingTasks` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Pull|Concurrent|RowsAffected'` — Expected: PASS
+- [x] 02.7 `[RED]` (verify review) SubmitReview content path unique per review (e.g. include review id) so same-type re-review does not overwrite prior comments — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'SubmitReview|ReviewPath'` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Spawn|Pull|Submit|MarkDone'` | PASS | PASS (apply) | |
-| Acceptance `@step-02` / `@p0` | Map scenarios in `acceptance.feature` `@step-02` | PASS | covered | verify owns verdict |
-| Runtime harness | spawn → pull → read → submit → review → done | PASS | PASS (apply) | TestSubmitOutputReviewMarkDone* |
-| Rollback boundary | ContentPlane rollback still held | PASS | PASS (apply) | files package |
-| Global Constraints | — | held | held (apply) | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Spawn|Pull|Submit|MarkDone'` | PASS | PASS (verify 2026-09-05) | exit 0 |
+| Acceptance `@step-02` / `@p0` | Map scenarios in `acceptance.feature` `@step-02` | PASS | 4/4 COMPLIANT | |
+| Runtime harness | spawn → pull → read → submit → review → done | PASS | PASS (verify) | |
+| Rollback boundary | ContentPlane rollback still held | PASS | PASS (verify) | |
+| Global Constraints | — | held | held | |
+| Code review fixes | 02.6 RowsAffected; 02.7 unique review path | PASS | PASS | TestPullRowsAffected*; TestSubmitReviewUniquePath* |
 
 ### Commit
 
@@ -280,17 +283,17 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TestAllToolsRegistered|BadSpawn|Teams'` | PASS | PASS (apply) | |
-| Acceptance `@step-03` / `@p0` | Map scenarios in `acceptance.feature` `@step-03` | PASS | covered | verify owns verdict |
-| Runtime harness | list tools; spawn→pull→read→submit | PASS | PASS (apply) | |
-| Rollback boundary | bad spawn leaves no orphan | PASS | PASS (apply) | TestBadSpawn* |
-| Global Constraints | — | held | held (apply) | no inbox tools |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TestAllToolsRegistered|BadSpawn|Teams'` | PASS | PASS (verify 2026-09-05) | package ok |
+| Acceptance `@step-03` | 5 scenarios | COMPLIANT | 5/5 | |
+| Runtime harness | list tools; spawn→pull→read→submit | PASS | PASS | |
+| Rollback boundary | bad spawn leaves no orphan | PASS | PASS | |
+| Global Constraints | — | held | held | no inbox tools |
 
 ### Commit
 
@@ -342,17 +345,17 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams'` | PASS | PASS (apply) | |
-| Acceptance `@step-04` / `@p0` | Map scenarios in `acceptance.feature` `@step-04` | PASS | covered | verify owns verdict |
-| Runtime harness | POST with/without bearer; GET without bearer | PASS | PASS (apply) | |
-| Rollback boundary | no `/memory/reviews` collision | PASS | PASS (apply) | TestTeamsPathsDistinct* |
-| Global Constraints | — | held | held (apply) | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams'` | PASS | PASS (verify 2026-09-05) | |
+| Acceptance `@step-04` | 3 scenarios | COMPLIANT | 3/3 | |
+| Runtime harness | POST with/without bearer; GET without bearer | PASS | PASS | |
+| Rollback boundary | no `/memory/reviews` collision | PASS | PASS | |
+| Global Constraints | — | held | held | |
 
 ### Commit
 
@@ -412,17 +415,17 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/http/` | PASS | PASS (apply) | |
-| Acceptance `@step-05` / `@p0` | Map scenarios in `acceptance.feature` `@step-05` | PASS | covered | verify owns verdict |
-| Runtime harness | `go test ./skillgrid-cli/...` | PASS | pending full suite | run at commit |
-| Rollback boundary | FS+SQL rollback fixtures | PASS | PASS (apply) | files + BadSpawn |
-| Global Constraints | — | held | held (apply) | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/http/` | PASS | PASS (verify 2026-09-05) | |
+| Acceptance `@step-05` / `@p0` | Map scenarios in `acceptance.feature` `@step-05` | PASS | 3/3 COMPLIANT | |
+| Runtime harness | `go test ./skillgrid-cli/...` | PASS | PASS (verify) FULL exit 0 | |
+| Rollback boundary | FS+SQL rollback fixtures | PASS | PASS | Atomicity + BadSpawn |
+| Global Constraints | — | held | held | |
 
 ### Commit
 
@@ -430,11 +433,20 @@ When step DoD is met: `test(mnemonic): hybrid teams coverage suite`
 
 ---
 
+## QA plan
+
+See `qa-plan.md` beside this file.
+
+**Human QA status:** open (not accepted / not waived)
+
+---
+
 ## Archive gate checklist
 
 - [ ] Change-level **Definition of Done** fully checked
 - [ ] No unchecked `- [ ]` under any `### Tasks`
-- [ ] Every step Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] No Global Constraint violated
+- [x] Every step Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] No Global Constraint violated
 - [ ] `## State` status is `done` and phase is `archive` (set by verify/archive)
 - [ ] STATUS banner updated to `complete`
+- [ ] Human QA accepted or waived

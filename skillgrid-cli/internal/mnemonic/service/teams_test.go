@@ -155,6 +155,84 @@ func TestEmptyPullFailsClearly(t *testing.T) {
 	}
 }
 
+func TestPullRowsAffectedRejectsLostClaim(t *testing.T) {
+	svc, ws := newTeamsTestService(t)
+	id, err := svc.SpawnTask(context.Background(), SpawnTaskParams{
+		Directory: ws, Title: "one", Brief: "b", Priority: 1,
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	first, err := svc.PullNextTask(context.Background(), ws, "agent-a")
+	if err != nil {
+		t.Fatalf("first pull: %v", err)
+	}
+	if first.ID != id {
+		t.Fatalf("claimed %q want %q", first.ID, id)
+	}
+	// Simulate lost race: another claimer already owns the only pending task.
+	_, err = svc.PullNextTask(context.Background(), ws, "agent-b")
+	if !errors.Is(err, ErrNoPendingTasks) {
+		t.Fatalf("second pull want ErrNoPendingTasks, got %v", err)
+	}
+}
+
+func TestSubmitReviewUniquePathPerReview(t *testing.T) {
+	svc, ws := newTeamsTestService(t)
+	id, err := svc.SpawnTask(context.Background(), SpawnTaskParams{
+		Directory: ws, Title: "rev", Brief: "b", Priority: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SubmitReview(context.Background(), SubmitReviewParams{
+		Directory: ws, TaskID: id, ReviewerID: "r1",
+		ReviewType: "spec_compliance", Passed: false, Comments: "first",
+	}); err != nil {
+		t.Fatalf("review1: %v", err)
+	}
+	if err := svc.SubmitReview(context.Background(), SubmitReviewParams{
+		Directory: ws, TaskID: id, ReviewerID: "r2",
+		ReviewType: "spec_compliance", Passed: true, Comments: "second",
+	}); err != nil {
+		t.Fatalf("review2: %v", err)
+	}
+	h, cleanup, err := svc.openTeamsHandle(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	rows, err := h.store.DB.Query(`SELECT comments_path FROM reviews WHERE task_id = ? ORDER BY created_at`, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, p)
+	}
+	if len(paths) != 2 {
+		t.Fatalf("want 2 review paths, got %v", paths)
+	}
+	if paths[0] == paths[1] {
+		t.Fatalf("review paths must be unique, both %q", paths[0])
+	}
+	for i, p := range paths {
+		body, err := h.content.Read(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		want := []string{"first", "second"}[i]
+		if string(body) != want {
+			t.Errorf("path %s content %q want %q", p, body, want)
+		}
+	}
+}
+
 // TestTeamsAtomicity ensures FS-first write + SQL failure leaves no orphan (via ContentPlane).
 func TestTeamsAtomicity(t *testing.T) {
 	svc, ws := newTeamsTestService(t)
