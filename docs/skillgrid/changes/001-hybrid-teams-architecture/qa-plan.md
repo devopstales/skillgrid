@@ -28,3 +28,7 @@ Human gate after agent verify. Waive only with explicit note; otherwise exercise
 ## Waive
 
 Reply `waive QA` with reason, or `QA accepted` after exercising the plan.
+
+## Result
+
+**Accepted** 2026-09-05 — user message: `QA accepted`

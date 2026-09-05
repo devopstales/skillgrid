@@ -1,6 +1,6 @@
 # Tasks: 001-hybrid-teams-architecture
 
-> **STATUS:** `in-progress` (2026-09-05) — 5/5 steps implemented (verify pending)
+> **STATUS:** `complete` (2026-09-05) — archived after verify + human QA accepted
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-driven-development (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax.
 
@@ -34,13 +34,13 @@ Orchestrators and sub-agents can spawn, pull, read, submit, review, and mark don
 
 Change is done only when **all** of the following are true:
 
-- [ ] Every success criterion / DoD checkbox in `change.md` is met
-- [ ] Every `@step-NN` Feature in `acceptance.feature` has passing scenarios
-- [ ] Every step below has Verdict `PASS` or `PASS WITH WARNINGS`
-- [ ] No unchecked `- [ ]` under any `### Tasks`
-- [ ] No **Global Constraint** violated
-- [ ] Rollback path in `change.md` is still valid (or N/A documented)
-- [ ] `## State` status is `done` (set at archive gate)
+- [x] Every success criterion / DoD checkbox in `change.md` is met
+- [x] Every `@step-NN` Feature in `acceptance.feature` has passing scenarios
+- [x] Every step below has Verdict `PASS` or `PASS WITH WARNINGS`
+- [x] No unchecked `- [ ]` under any `### Tasks`
+- [x] No **Global Constraint** violated
+- [x] Rollback path in `change.md` is still valid (or N/A documented)
+- [x] `## State` status is `done` (set at archive gate)
 
 ## Global Constraints
 
@@ -66,10 +66,10 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 ## State
 
 ```yaml
-phase: verify        # spec | apply | verify | archive
+phase: archive       # spec | apply | verify | archive
 current_step: 05-tests
-status: in_progress  # in_progress | blocked | done
-updated: 2026-09-05T12:45:00+02:00
+status: done         # in_progress | blocked | done
+updated: 2026-09-05T13:18:00+02:00
 ```
 
 ## Step map
@@ -437,16 +437,16 @@ When step DoD is met: `test(mnemonic): hybrid teams coverage suite`
 
 See `qa-plan.md` beside this file.
 
-**Human QA status:** open (not accepted / not waived)
+**Human QA status:** accepted (2026-09-05) — user: "QA accepted"
 
 ---
 
 ## Archive gate checklist
 
-- [ ] Change-level **Definition of Done** fully checked
+- [x] Change-level **Definition of Done** fully checked
 - [x] No unchecked `- [ ]` under any `### Tasks`
 - [x] Every step Verdict is `PASS` or `PASS WITH WARNINGS`
 - [x] No Global Constraint violated
-- [ ] `## State` status is `done` and phase is `archive` (set by verify/archive)
-- [ ] STATUS banner updated to `complete`
-- [ ] Human QA accepted or waived
+- [x] `## State` status is `done` and phase is `archive` (set by verify/archive)
+- [x] STATUS banner updated to `complete`
+- [x] Human QA accepted or waived
