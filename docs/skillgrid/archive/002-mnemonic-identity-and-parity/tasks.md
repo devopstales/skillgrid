@@ -1,6 +1,6 @@
 # Tasks: 002-mnemonic-identity-and-parity
 
-> **STATUS:** `in-progress` (2026-09-05) — apply batch 2 (verify gaps) complete · hand to `sdd-verify`
+> **STATUS:** `complete` (2026-09-05) — verify round 2 PASS · human QA **accepted** · archive
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-driven-development (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax. **Do not rebuild shipped behaviour** — implement `[GAP]` deltas; `[VERIFY]` only needs PASS evidence.
 
@@ -34,13 +34,13 @@ Agents and any Mnemonic consumer get a stable, repo-bound project identity and E
 
 Change is done only when **all** of the following are true:
 
-- [ ] Every success criterion / DoD checkbox in `change.md` is met
-- [ ] Every `@step-NN` Feature in `acceptance.feature` has passing scenarios
-- [ ] Every step below has Verdict `PASS` or `PASS WITH WARNINGS`
-- [ ] No unchecked `- [ ]` under any `### Tasks`
-- [ ] No **Global Constraint** violated
-- [ ] Rollback path in `change.md` is still valid (or N/A documented)
-- [ ] `## State` status is `done` (set at archive gate)
+- [x] Every success criterion / DoD checkbox in `change.md` is met
+- [x] Every `@step-NN` Feature in `acceptance.feature` has passing scenarios
+- [x] Every step below has Verdict `PASS` or `PASS WITH WARNINGS`
+- [x] No unchecked `- [ ]` under any `### Tasks`
+- [x] No **Global Constraint** violated
+- [x] Rollback path in `change.md` is still valid (or N/A documented)
+- [x] `## State` status is `done` (set at archive gate)
 
 ## Global Constraints
 
@@ -67,14 +67,16 @@ Change is done only when **all** of the following are true:
 ## State
 
 ```yaml
-phase: apply
+phase: archive
 current_step: 04-embedding-recall
-status: in_progress
-updated: 2026-09-05T15:05:00+02:00
+status: done
+updated: 2026-09-05T15:22:39+02:00
 delivery: single-pr
-verify_round: 1
+verify_round: 2
 apply_batch: 2-verify-gaps
-note: gap tasks closed — hand to sdd-verify (do not invent Verification PASS)
+human_qa: accepted
+human_qa_at: 2026-09-05T15:22:00+02:00
+note: human QA accepted — mechanical archive
 ```
 
 ## Step map
@@ -113,11 +115,11 @@ Close identity abort gaps and prove clone-private binding, ambiguity, bounded co
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-01` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Produces contracts listed under Interfaces are available to dependents
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-01` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Produces contracts listed under Interfaces are available to dependents
+- [x] No Global Constraint violated
 
 > Depends on: none
 
@@ -159,14 +161,31 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING` (re-verify after apply batch 2)
+```yaml
+schema: skillgrid.verify-result/v1
+change: 002-mnemonic-identity-and-parity
+step: 01-identity-binding
+evidence_revision: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+verdict: pass
+blockers: 0
+critical_findings: 0
+scenarios: 10/10
+test_command: go test ./internal/mnemonic/project/ ./internal/mnemonic/service/ ./internal/mnemonic/store/ ./internal/mnemonic/memory/ ./internal/mnemonic/mcp/ ./internal/mnemonic/http/ -count=1
+test_exit_code: 0
+test_output_hash: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+build_command: (included in go test packages)
+build_exit_code: 0
+build_output_hash: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+```
+
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./internal/mnemonic/project/ ./internal/mnemonic/service/ ./internal/mnemonic/store/ -count=1` | PASS | PASS exit 0 | sha256:0acc95fe…bad1287 (2026-09-05 verify) |
-| Acceptance `@step-01` | scenario matrix below | 10/10 covered | 9 COMPLIANT · 1 PARTIAL | |
+| Focused suite | `go test ./internal/mnemonic/project/ ./internal/mnemonic/service/ ./internal/mnemonic/store/ ./internal/mnemonic/memory/ ./internal/mnemonic/mcp/ ./internal/mnemonic/http/ -count=1` | PASS | PASS exit 0 | sha256:2ba3f7f3…b4bf3a (verify round 2, 2026-09-05T15:18+02) |
+| Acceptance `@step-01` | scenario matrix | 10/10 COMPLIANT | 10/10 COMPLIANT | |
 | Global Constraints | — | held | held | binding abort + ambiguous write refuse |
 
 Acceptance compliance (`@step-01`):
@@ -181,11 +200,11 @@ Acceptance compliance (`@step-01`):
 | Config walk stops at repository root | ✅ COMPLIANT | `TestConfigBoundedToEnclosingRepo` |
 | Prior keys alias to canonical id | ✅ COMPLIANT | `TestOpenForDirectorySeedsAliasFromLegacyID` |
 | MNEMONIC_PROJECT selects among candidates | ✅ COMPLIANT | `TestProcessOverrideWinsOverEverything` + `TestOpenForDirectoryHonoursMNEMONIC_PROJECT` |
-| Store open is idempotent under remapped id | ⚠️ PARTIAL | `store.TestOpenCreates*` prove Open; no two-cwd→same-id fixture |
+| Store open is idempotent under remapped id | ✅ COMPLIANT | `TestOpenForDirectoryIdempotentAcrossWorktrees` |
 | Binding write failure does not fall through to path-hash | ✅ COMPLIANT | `TestBindingWriteFailureAborts` |
 
 **CRITICAL:** none  
-**WARNING:** remapped-id Open idempotence lacks an explicit dual-cwd fixture (01.11)  
+**WARNING:** none  
 **SUGGESTION:** none
 
 ### Commit
@@ -209,11 +228,11 @@ Prove cross-store recall and alias unification; fix only acceptance/RED gaps.
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-02` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-02` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 01-identity-binding
 
@@ -241,29 +260,46 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING` (re-verify after apply batch 2)
+```yaml
+schema: skillgrid.verify-result/v1
+change: 002-mnemonic-identity-and-parity
+step: 02-cross-store-recall
+evidence_revision: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+verdict: pass
+blockers: 0
+critical_findings: 0
+scenarios: 5/5
+test_command: go test ./internal/mnemonic/service/ ./internal/mnemonic/mcp/ ./internal/mnemonic/http/ -count=1
+test_exit_code: 0
+test_output_hash: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+build_command: (included in go test packages)
+build_exit_code: 0
+build_output_hash: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+```
+
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./internal/mnemonic/service/ ./internal/mnemonic/mcp/ ./internal/mnemonic/http/ -count=1` | PASS | PASS exit 0 | sha256:bd5a6db8…c6df15 — packages green but acceptance gaps |
-| Acceptance `@step-02` | scenario matrix | 5/5 COMPLIANT | 0 COMPLIANT · 1 PARTIAL · 4 UNTESTED | CRITICAL |
-| Global Constraints | — | held | held | |
+| Focused suite | `go test ./internal/mnemonic/service/ ./internal/mnemonic/mcp/ ./internal/mnemonic/http/ -count=1` (via full mnemonic suite) | PASS | PASS exit 0 | sha256:2ba3f7f3…b4bf3a |
+| Acceptance `@step-02` | scenario matrix | 5/5 COMPLIANT | 5/5 COMPLIANT | |
+| Global Constraints | — | held | held | empty merge warn+continue |
 
 Acceptance compliance (`@step-02`):
 
 | Scenario | Status | Covering test |
 |----------|--------|---------------|
-| Recall spans every store | ❌ UNTESTED | no `SearchAllProjects` / all-store fixture |
-| all_projects search merges two stores | ❌ UNTESTED | tool wired; no runtime merge test |
-| Fragmented stores are one logical index | ⚠️ PARTIAL | SeedID alias + `TestProjectsMergeRoute`; not unify path |
-| mem_unify is idempotent on already-unified keys | ❌ UNTESTED | `mem_unify` registered only (`TestAllToolsRegistered`) |
-| Missing data yields no result | ❌ UNTESTED | no empty-merge fixture |
+| Recall spans every store | ✅ COMPLIANT | `TestSearchAllProjectsSpansEveryStore` |
+| all_projects search merges two stores | ✅ COMPLIANT | `TestSearchAllProjectsMergesTwoStores` |
+| Fragmented stores are one logical index | ✅ COMPLIANT | `TestUnifyFragmentedStoresOneLogicalIndex` |
+| mem_unify is idempotent on already-unified keys | ✅ COMPLIANT | `TestUnifyIdempotent` |
+| Missing data yields no result | ✅ COMPLIANT | `TestSearchAllProjectsEmptyDir` |
 
-**CRITICAL:** 4 UNTESTED acceptance scenarios (02.7–02.10); fragmented index only PARTIAL (02.11)  
-**WARNING:** apply marked VERIFY `[x]` on `-run` patterns that matched zero tests  
-**SUGGESTION:** none
+**CRITICAL:** none  
+**WARNING:** none  
+**SUGGESTION:** HTTP `TestProjectsMergeRoute` covers merge auth surface; MCP `all_projects` wiring covered by `TestE2EEngramParityGaps` / tool registration
 
 ### Commit
 
@@ -285,11 +321,11 @@ Prove observation lifecycle parity; fix only acceptance/RED gaps.
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-03` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-03` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 02-cross-store-recall
 
@@ -315,29 +351,46 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING` (re-verify after apply batch 2)
+```yaml
+schema: skillgrid.verify-result/v1
+change: 002-mnemonic-identity-and-parity
+step: 03-lifecycle-parity
+evidence_revision: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+verdict: pass
+blockers: 0
+critical_findings: 0
+scenarios: 5/5
+test_command: go test ./internal/mnemonic/memory/ ./internal/mnemonic/store/ ./internal/mnemonic/mcp/ -count=1
+test_exit_code: 0
+test_output_hash: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+build_command: (included in go test packages)
+build_exit_code: 0
+build_output_hash: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+```
+
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./internal/mnemonic/memory/ ./internal/mnemonic/store/ ./internal/mnemonic/mcp/ -count=1` | PASS | PASS exit 0 | sha256:046e2bae…e2b11b4 |
-| Acceptance `@step-03` | scenario matrix | 5/5 COMPLIANT | 1 COMPLIANT · 2 PARTIAL · 2 UNTESTED | CRITICAL |
-| Global Constraints | — | held | **violated intent** | `tool_name` in WHAT but absent from schema/code |
+| Focused suite | `go test ./internal/mnemonic/memory/ ./internal/mnemonic/store/ ./internal/mnemonic/mcp/ -count=1` (via full mnemonic suite) | PASS | PASS exit 0 | sha256:2ba3f7f3…b4bf3a |
+| Acceptance `@step-03` | scenario matrix | 5/5 COMPLIANT | 5/5 COMPLIANT | migration 009 `tool_name` |
+| Global Constraints | — | held | held | invalid lifecycle abort |
 
 Acceptance compliance (`@step-03`):
 
 | Scenario | Status | Covering test |
 |----------|--------|---------------|
-| Lifecycle columns are honoured | ⚠️ PARTIAL | pin/dup/ttl tests exist separately; no single ordering fixture |
-| Pin and unpin reorder context | ⚠️ PARTIAL | `TestPinUnpin` toggles flag only — no context order assert |
-| Expired entries are soft-excluded | ✅ COMPLIANT | `TestTTLSoftExpiryAndRetire` (+ search SQL filter) |
-| tool_name provenance is stored on save | ❌ UNTESTED | **no `tool_name` in codebase or migration 008** |
-| Invalid lifecycle state is rejected | ❌ UNTESTED | no bad-pin / bad-expires fixture |
+| Lifecycle columns are honoured | ✅ COMPLIANT | `TestPinUnpin` + `TestDuplicateBumpOnResave` + `TestTTLSoftExpiryAndRetire` + `TestPinReordersSearchContext` |
+| Pin and unpin reorder context | ✅ COMPLIANT | `TestPinReordersSearchContext` (pin boost asserted; unpin exercised) |
+| Expired entries are soft-excluded | ✅ COMPLIANT | `TestTTLSoftExpiryAndRetire` |
+| tool_name provenance is stored on save | ✅ COMPLIANT | `TestToolNameProvenanceStoredOnSave` |
+| Invalid lifecycle state is rejected | ✅ COMPLIANT | `TestInvalidPinRejected` + `TestMalformedExpiresAtRejected` |
 
-**CRITICAL:** `tool_name` unimplemented (03.8); invalid lifecycle UNTESTED (03.9)  
-**WARNING:** pin/context ordering PARTIAL (03.10)  
-**SUGGESTION:** none
+**CRITICAL:** none  
+**WARNING:** none  
+**SUGGESTION:** `TestPinReordersSearchContext` does not re-assert post-unpin ranking; optional follow-up assert
 
 ### Commit
 
@@ -360,11 +413,11 @@ Prove optional embedding recall fused with FTS5; fix only acceptance/RED gaps.
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-04` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-04` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 03-lifecycle-parity
 
@@ -388,29 +441,46 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING` (re-verify after apply batch 2)
+```yaml
+schema: skillgrid.verify-result/v1
+change: 002-mnemonic-identity-and-parity
+step: 04-embedding-recall
+evidence_revision: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+verdict: pass
+blockers: 0
+critical_findings: 0
+scenarios: 5/5
+test_command: go test ./internal/mnemonic/memory/ -run 'Cosine|RRF|Blended|Embed|SetEmbedding|Missing|Disabled' -count=1
+test_exit_code: 0
+test_output_hash: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+build_command: (included in go test packages)
+build_exit_code: 0
+build_output_hash: sha256:2ba3f7f3aa314192867838e89eb8e13c9c45a55714475c6634f25a6edcb4bf3a
+```
+
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./internal/mnemonic/memory/ -run 'Cosine\|RRF\|Blended\|Embed\|SetEmbedding' -count=1` | PASS | PASS exit 0 | sha256:3f2ccb5e…094ea6a |
-| Acceptance `@step-04` | scenario matrix | 5/5 COMPLIANT | 1 COMPLIANT · 2 PARTIAL · 2 UNTESTED | CRITICAL |
-| Global Constraints | — | held | held | FTS5 floor intact in BlendedSearch fallback |
+| Focused suite | full `./internal/mnemonic/...` packages (round 2) | PASS | PASS exit 0 | sha256:2ba3f7f3…b4bf3a |
+| Acceptance `@step-04` | scenario matrix | 5/5 COMPLIANT | 5/5 COMPLIANT | |
+| Global Constraints | — | held | held | FTS5 floor; EmbedOff ignores vector leg |
 
 Acceptance compliance (`@step-04`):
 
 | Scenario | Status | Covering test |
 |----------|--------|---------------|
-| Vector recall is available behind the flag | ⚠️ PARTIAL | `TestSetEmbeddingRoundTrip` + `TestCosineAndRRF` (no flag gate) |
-| Flag on fuses vector and keyword results | ⚠️ PARTIAL | RRF unit math only — no `MNEMONIC_EMBED=1` search fixture |
+| Vector recall is available behind the flag | ✅ COMPLIANT | `TestBlendedSearchFusesWhenEmbedOn` + `TestCosineAndRRF` |
+| Flag on fuses vector and keyword results | ✅ COMPLIANT | `TestBlendedSearchFusesWhenEmbedOn` |
 | Keyword-only fallback when vectors are absent | ✅ COMPLIANT | `TestBlendedSearchFallbackToFTS` |
-| Missing embedder degrades to keyword-only | ❌ UNTESTED | no unavailable-embedder fixture |
-| Disabled flag yields no vector recall | ❌ UNTESTED | no EmbedOff / flag-unset path test |
+| Missing embedder degrades to keyword-only | ✅ COMPLIANT | `TestMissingEmbedderDegradesToKeywordOnly` (flag on + empty vector leg → FTS, no hard fail) |
+| Disabled flag yields no vector recall | ✅ COMPLIANT | `TestDisabledFlagYieldsNoVectorRecall` |
 
-**CRITICAL:** missing embedder + disabled-flag scenarios UNTESTED (04.7–04.8); fusion under flag only PARTIAL (04.6)  
-**WARNING:** apply VERIFY `[x]` on zero-match `-run` patterns  
-**SUGGESTION:** none
+**CRITICAL:** none  
+**WARNING:** none  
+**SUGGESTION:** degrade fixture exercises empty vector-leg path, not a live HTTP embedder client failure
 
 ### Commit
 
@@ -420,10 +490,10 @@ When step DoD is met (only if gaps fixed): `fix(mnemonic): embedding recall acce
 
 ## Archive gate checklist
 
-- [ ] Change-level **Definition of Done** fully checked
-- [ ] No unchecked `- [ ]` under any `### Tasks`
-- [ ] Every step Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] No Global Constraint violated
-- [ ] `## State` status is `done` and phase is `archive` (set by verify/archive)
-- [ ] STATUS banner updated to `complete`
-- [ ] Interview D1–D6 reflected in shipped behaviour
+- [x] Change-level **Definition of Done** fully checked
+- [x] No unchecked `- [ ]` under any `### Tasks`
+- [x] Every step Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] No Global Constraint violated
+- [x] `## State` status is `done` and phase is `archive` (set by verify/archive)
+- [x] STATUS banner updated to `complete`
+- [x] Interview D1–D6 reflected in shipped behaviour

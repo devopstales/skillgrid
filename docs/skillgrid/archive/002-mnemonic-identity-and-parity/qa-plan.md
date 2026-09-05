@@ -1,7 +1,7 @@
 # QA plan: 002-mnemonic-identity-and-parity
 
-> Agent verify round 1 (2026-09-05). Human gate required before archive.
-> Agent gate: **01 PASS WITH WARNINGS** · **02–04 FAIL** (acceptance gaps) → re-enter `sdd-apply`.
+> Agent verify round 2 (2026-09-05). Human gate: **accepted** 2026-09-05 (chat).
+> Agent gate: **01–04 PASS** (25/25 acceptance scenarios COMPLIANT; suite exit 0).
 
 ## Purpose
 
@@ -21,15 +21,16 @@ No special accounts. Optional: `MNEMONIC_EMBED=1` only if an embedder endpoint i
 
 1. From repo root, `mem_session_start` + `mem_save` + `mem_search` land in one stable project id.
 2. Linked worktree of the same clone resolves the same project id (`mem_current_project`).
-3. With two project stores seeded, `mem_search(all_projects=true)` returns hits from both (after apply closes 02.x gaps).
-4. `mem_pin` / `mem_unpin` change what `mem_context` surfaces first.
+3. With two project stores seeded, `mem_search(all_projects=true)` returns hits from both.
+4. `mem_pin` / `mem_unpin` change what `mem_context` / search surfaces first.
+5. Save with tool provenance and confirm `tool_name` is stored/returned.
 
 ## Edge / failure
 
-1. **Ambiguous parent:** cwd=`/data/git/AI` (or similar) → session/save **aborts** with `AvailableProjects`; no new `*-########.sqlite` under `~/.skillgrid/mnemonic/`. Recover with `MNEMONIC_PROJECT=<candidate>`.
+1. **Ambiguous parent:** cwd=`/data/git/AI` (or similar) → session/save **aborts** with `AvailableProjects`; no new `*-########.sqlite` under `~/.skillgrid/mnemonic/`. Recover with `MNEMONIC_PROJECT=<candidate>` or `directory=` / `project=`.
 2. **Binding write fail:** if `.git` is not writable, resolve aborts (no seed-without-binding). Prefer a disposable test repo with `chmod a-w .git`.
-3. **`tool_name`:** after apply implements it, save with provenance and confirm it is stored/returned.
-4. **`MNEMONIC_EMBED`:** flag off → keyword-only; flag on without embedder → degrade without hard failure.
+3. **`MNEMONIC_EMBED`:** flag off → keyword-only; flag on without embedder → degrade without hard failure.
+4. **Unify:** `mem_unify` on already-unified keys succeeds without server error.
 
 ## Pass / fail / waive
 
@@ -43,6 +44,9 @@ No special accounts. Optional: `MNEMONIC_EMBED=1` only if an embedder endpoint i
 
 Do **not** archive until:
 
-1. Every step Verdict is `PASS` or `PASS WITH WARNINGS`
-2. No open `- [ ]` under `### Tasks`
-3. This QA plan is **accepted** or **explicitly waived** by a human
+1. Every step Verdict is `PASS` or `PASS WITH WARNINGS` ✅ (agent round 2)
+2. No open `- [ ]` under `### Tasks` ✅
+3. This QA plan is **accepted** or **explicitly waived** by a human ✅ **accepted** 2026-09-05 (chat)
+4. Optional: judgment-day / code review for Applicable threat rows (recommended before merge) — deferred
+
+**Human response:** `QA accepted` (2026-09-05).
