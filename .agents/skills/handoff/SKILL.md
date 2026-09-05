@@ -1,36 +1,35 @@
 ---
 name: handoff
-description: Compact the current conversation into a handoff document for another agent to pick up. Use when ending a session, switching agents, or the user asks for a handoff / summary / context transfer.
-argument-hint: "What will the next session focus on?"
+description: Peel an out-of-scope problem that appeared mid-work into a compact brief for a subagent or separate session. Use when a side issue must leave the current change context clean — not for closing SDD, archive, or session end.
+argument-hint: "What out-of-scope problem should the brief cover?"
 ---
 
-Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save to the OS temporary directory (e.g. `/tmp` on Linux/macOS, `%TEMP%` on Windows), NOT the current workspace.
+# handoff
+
+Peel a **side problem** out of the current change so this context stays on-scope. The brief feeds a **subagent** or a separate session — not archive, not session close (those use `sdd-archive` + `mnemonic-memory`).
+
+Save to OS temp (`/tmp` on Linux/macOS, `%TEMP%` on Windows). **Never** under `docs/skillgrid/changes/` or the workspace change folder.
 
 ## Required sections
 
-1. **Context** — What was the goal, what was accomplished, and what remains.
-2. **Current state** — Exact branch, commit, worktree, or session state if relevant.
-3. **Key decisions** — Architecture choices, tradeoffs accepted, conventions established.
-4. **Artifacts** — Reference existing artifacts by path/URL instead of duplicating content:
-   - SDD specs/plans: `docs/skillgrid/changes/<NNN-slug>/`
-   - Issues: GitHub/Jira URLs
-   - Code: relative paths from repo root
-5. **Suggested skills** — Name which skills the next agent should load via the Skill tool. Prioritise:
-   - `mnemonic-memory` (always active, but remind them to call `mem_session_start` first)
-   - Domain skills matching the next work (`sdd-apply`, `verification`, `tdd`, etc.)
-   - Process skills if the next step is exploratory (`investigate`, `brainstorming`, `questioning`)
-6. **Next steps** — Concrete, ordered actions for the next session.
-7. **Gotchas** — Non-obvious gotchas, environment quirks, or things that broke.
+1. **Context** — The spun-off problem only: what appeared mid-work, why it is out of scope for the current change, and what the receiver must understand to start.
+2. **Current state** — Branch, commit, worktree, or session details relevant to the spun-off work.
+3. **Key decisions** — Constraints already fixed that the receiver must obey (not the parent change's full history).
+4. **Artifacts** — Link paths/URLs; do not duplicate content:
+   - Parent change (orientation only): `docs/skillgrid/changes/<NNN-slug>/`
+   - Issues, code paths, research the receiver needs
+5. **Suggested skills** — Skills the receiver should load (e.g. `investigate`, `debugging`, `design-spike`, `issue-creation`). If starting fresh: `mnemonic-memory` + `mem_session_start`.
+6. **Next steps** — Concrete ordered actions for the **spun-off** problem only.
+7. **Gotchas** — Non-obvious traps that would waste the receiver's time.
 
 ## Rules
 
-- **Do not duplicate** content already captured in specs, plans, ADRs, issues, commits, or diffs. Reference them by path or URL.
-- **Redact secrets**: API keys, passwords, tokens, PII. If unsure, redact.
-- **Tailor to arguments**: If the user passed arguments, treat them as the next session's focus and weight the doc accordingly.
-- **Be concise**: A handoff is a jump rope, not a history book. Prefer bullet points over prose.
+- Stay on the **out-of-scope problem** — do not dump the parent session history.
+- Do not duplicate specs, plans, ADRs, issues, or diffs — reference them.
+- Redact secrets (API keys, tokens, PII).
+- Be concise; prefer bullets.
+- After writing the brief, resume the parent change without the side thread.
 
-## Mnemonic integration
+## Mnemonic
 
-If the conversation produced memory-worthy findings:
-- Remind the next agent to call `mem_context` and `mem_search` before asking the user to repeat context.
-- If you just made a decision or fixed a bug, call `mem_save` now so it persists across sessions.
+If peeling surfaced findings the **parent** change should keep, `mem_save` them on the parent session before dispatching. The receiver starts its own session and reads the temp brief.

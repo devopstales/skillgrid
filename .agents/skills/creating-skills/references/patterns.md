@@ -1,6 +1,22 @@
 # Patterns for effective skill content
 
-Reusable techniques for structuring skill bodies. Use the ones that fit the task; not every pattern applies.
+Reusable techniques for structuring skill bodies. Use the ones that fit the task; not every pattern applies. For the full quality rubric (trigger, structure, steering, pruning), see [`checklist.md`](checklist.md).
+
+## Leading words (steering)
+
+Pack desired behavior into a short phrase the agent will echo in thinking and output. Repeat it; prefer pretrained terms over long essays.
+
+```markdown
+## Approach
+
+Deliver each change as a **vertical slice** — one thin path through UI → API → data that works end-to-end — before widening.
+```
+
+Weak leading words (`be thorough`) are often no-ops. Strengthen the word or deletion-test the sentence.
+
+## Increase leg work (skill split)
+
+When the agent rushes past a step because a later goal is visible, split into a focused skill that only exposes the current phase (e.g. clarifying questions skill → then planning skill). Hide the future goal until the current skill completes.
 
 ## Gotchas section (highest value)
 
@@ -107,3 +123,7 @@ If the agent independently reinvents the same logic across runs (chart building,
   ```
 
 Most skills have a mix — calibrate each section independently.
+
+## Deletion test (pruning)
+
+For each paragraph or bullet: remove it and re-run a representative task. If behavior is unchanged, keep it deleted — it was a no-op. Prefer deleting whole sentences over trimming filler words while leaving a hollow instruction.

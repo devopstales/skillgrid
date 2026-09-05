@@ -12,16 +12,17 @@ Copy exactly, fill the `{placeholders}`, wrap between the sentinels. Do not add 
 <!-- skillgrid-sdd:start -->
 ## Agent skills
 
-Skillgrid SDD is active in this repo. The workflow, registry, and tracker below are the source of truth for agent work here.
+Skillgrid SDD is active in this repo. The workflow and tracker below are the source of truth for agent work here.
 
 ### Workflow
-`init → explore → propose → spec → apply → verify → archive`
+`onboard → propose → spec → apply ⇄ verify → archive`
 
-Entry: invoke **`use-skillgrid`** for change work (uninitialized → `sdd-init`; else → `sdd-explore` then down the pipeline). No platform hook required.
+Entry: invoke **`use-skillgrid`** for change work (uninitialized → `sdd-onboard`/`sdd-init`; else optional explore/`design-spike` → propose → spec → **user gate** → apply ⇄ verify → archive). No platform hook required.
 
-- Skill registry (index of installed skills + triggers): `{registry}`
 - Project facts (stack, testing, tracker, conventions): `docs/skillgrid/config.yaml` and Mnemonic (`sdd/{project}/…`)
+- Glossary: `docs/skillgrid/glossary/`
 - Triage labels: `docs/skillgrid/agents/issue-tracker.md` + the tracker's label map
+- Skill registry (optional; never a workflow gate): `{registry}`
 
 ### Issue tracker
 {tracker-line}

@@ -44,3 +44,7 @@
 
 * Skills:
   * `~/.claude/skills/`
+
+#### Bugs
+
+* skillgrid mem command

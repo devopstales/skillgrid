@@ -4,7 +4,8 @@ Load this only when the plan touches at least one of: routing, shell commands, s
 
 Mark every row `Applicable` or explicit `N/A: reason`. Do not invent tests for `N/A` rows. Do not mark a row `N/A` on a guess — name the boundary you checked and why it is out of this change's scope.
 
-**Applicable rows are plan requirements.** They MUST propagate to `sdd-tasks` unchanged as RED-test tasks and to `sdd-spec` unchanged as a scenario in the owning step's `acceptance.feature`. An explicit `N/A` row requires no test and no scenario but MUST carry a reason a reviewer can challenge later.
+**Applicable rows are plan requirements.** They MUST propagate into `sdd-spec` as RED-test tasks in `tasks.md` and as scenarios in the owning step's `acceptance.feature`. An explicit `N/A` row requires no test and no scenario but MUST carry a reason a reviewer can challenge later.
+
 
 ## Core boundaries
 
@@ -28,5 +29,5 @@ These two rows are specific to this project's memory + conventions architecture.
 ## How to use this in a plan
 
 - Include the applicable rows (and only the applicable rows) in the plan's `## Threat Matrix` section, with the `Applicable / N/A: reason` column filled.
-- Every applicable row must have a `Planned RED test` entry concrete enough to become a task in `sdd-tasks` and a scenario in `sdd-spec` without guessing. "A test for the edge case" is not a test. "Given `git -C` to a worktree, expect the command to fail with `not a git repository` before touching the index" is a test.
-- **The handoff chain is plan → tasks → spec.** The plan names each applicable row's RED test and the owning step; **`sdd-tasks` turns each one into a RED-test task ordered before its production task in that step's `tasks.md`**; **`sdd-spec` turns each one into a scenario in the owning step's `acceptance.feature`**. A plan that loses an applicable row at any boundary was not a plan — it was a sketch.
+- Every applicable row must have a `Planned RED test` entry concrete enough to become a task in `tasks.md` and a scenario in `acceptance.feature` without guessing. "A test for the edge case" is not a test. "Given `git -C` to a worktree, expect the command to fail with `not a git repository` before touching the index" is a test.
+- **The handoff chain is change.md → sdd-spec (`tasks.md` + `acceptance.feature`).** The change names each applicable row's RED test and the owning step; **`sdd-spec` turns each into a RED-test task ordered before its production task and a scenario in the owning step's Feature**. A change that loses an applicable row at any boundary was not a plan — it was a sketch.

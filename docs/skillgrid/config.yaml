@@ -14,7 +14,7 @@ testing:
 conventions:
   artifacts_root: docs/skillgrid
   scratch_dir: .skillgrid/sdd
-  registry: docs/skillgrid/agents/skill-registry.md
+  registry: docs/skillgrid/agents/skill-registry.md  # optional; never a workflow gate
 rules:
   explore: []
   propose:

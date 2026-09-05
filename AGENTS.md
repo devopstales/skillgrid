@@ -5,15 +5,16 @@ This file is the cross-agent standard config for all AI agents (Kilo, OpenCode, 
 <!-- skillgrid-sdd:start -->
 ## Agent skills
 
-Skillgrid SDD is active in this repo. The workflow, registry, and tracker below are the source of truth for agent work here.
+Skillgrid SDD is active in this repo. The workflow and tracker below are the source of truth for agent work here.
 
 ### Workflow
-`init → explore → propose → spec → apply → verify → archive`
+`onboard → propose → spec → apply ⇄ verify → archive`
 
-Entry: invoke **`use-skillgrid`** for change work (uninitialized → `sdd-init`; else → `sdd-explore` then down the pipeline). No platform hook required.
+Entry: invoke **`use-skillgrid`** for change work (uninitialized → `sdd-onboard` / `sdd-init`; else optional explore/`design-spike` → `sdd-propose` → `sdd-spec` → user gate → apply ⇄ verify → archive). No platform hook required.
 
-- Skill registry (index of installed skills + triggers): `docs/skillgrid/agents/skill-registry.md`
 - Project facts (stack, testing, tracker, conventions): `docs/skillgrid/config.yaml` and Mnemonic (`sdd/skillgrid/…`)
+- Glossary: `docs/skillgrid/glossary/`
+- Skill registry (optional generated index): `docs/skillgrid/agents/skill-registry.md` — never a workflow gate
 - Triage labels: `docs/skillgrid/agents/issue-tracker.md` + the tracker's label map
 
 ### Issue tracker

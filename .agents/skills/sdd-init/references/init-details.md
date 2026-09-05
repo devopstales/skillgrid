@@ -58,9 +58,9 @@ Seed templates live in `../_shared/issue-tracker/` (`backlogmd.md`, `github.md`,
 
 Conventions doc: `docs/skillgrid/agents/issue-tracker.md`. Triage labels: `_shared/triage-labels.md`. `issue-creation` skill maps tasks → tracker issues with duplicate-search first.
 
-## Skill Registry Scan Rules
+## Skill Registry Scan Rules (optional)
 
-Registry at `docs/skillgrid/agents/skill-registry.md` is an **index** (index → exact path), not a summary. Sub-agents read the full `SKILL.md` from the path.
+Registry at `docs/skillgrid/agents/skill-registry.md` is an **optional** index (index → exact path), not a summary and never an init gate. Generate on demand; sub-agents read the full `SKILL.md` from the path.
 
 **Use the helper script** `scripts/extract_skills.js` for scanning:
 
@@ -95,17 +95,18 @@ Create if `docs/skillgrid/` is absent:
 docs/skillgrid/
 ├── config.yaml
 ├── agents/
-│   ├── skill-registry.md
 │   ├── issue-tracker.md
 │   ├── triage-labels.md
-│   └── glossary/
-│       ├── business.md
-│       └── technical.md
+│   └── skill-registry.md   # OPTIONAL — generate on demand; never an init gate
+├── glossary/               # sibling of agents/ (not nested)
+│   ├── business.md
+│   └── technical.md
 ├── changes/
 └── archive/
 ```
 
 (No `NNN-slug/` change folders yet — those are created per-change by `sdd-propose`.)
+`skill-registry.md` is optional. Skip it or run `scripts/extract_skills.js` later — do not block init on it.
 
 `config.yaml` — keep `context:` ≤ 10 lines:
 
@@ -158,11 +159,12 @@ The full block (for reference — the shared file is authoritative):
 Skillgrid SDD is active in this repo. The workflow, registry, and tracker below are the source of truth for agent work here.
 
 ### Workflow
-`init → explore → propose → spec → apply → verify → archive`
+`onboard → propose → spec → apply ⇄ verify → archive` (optional explore / design-spike before locking change.md)
 
-- Skill registry (index of installed skills + triggers): `docs/skillgrid/agents/skill-registry.md`
 - Project facts (stack, testing, tracker, conventions): `docs/skillgrid/config.yaml` and Mnemonic (`sdd/{project}/…`)
+- Glossary: `docs/skillgrid/glossary/`
 - Triage labels: `docs/skillgrid/agents/issue-tracker.md` + the tracker's label map
+- Skill registry (optional index): `docs/skillgrid/agents/skill-registry.md`
 
 ### Issue tracker
 {one-line tracker summary — see block.md placeholder table}. See `docs/skillgrid/agents/issue-tracker.md`.
@@ -268,7 +270,7 @@ artifacts:
   mnemonic: [topic_key → observation id…]
 validations:
   confirmed_by_user: true
-next: "/sdd-explore <change-idea>"
+next: "use-skillgrid → sdd-propose (or idle if onboard-only)"
 risks: []
 ```
 

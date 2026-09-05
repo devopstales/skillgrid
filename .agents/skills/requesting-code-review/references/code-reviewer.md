@@ -82,7 +82,7 @@ Subagent (general-purpose):
     - Commit hygiene per `_shared/conventions/commits.md`: Conventional Commits subject, no AI trailers, one logical change per commit.
 
     **Glossary discipline (skillgrid-specific):**
-    - Does the diff introduce new domain or technical terms not in `docs/skillgrid/agents/glossary/{business,technical}.md`? If so, the change should have added a glossary reference. Flag as Minor.
+    - Does the diff introduce new domain or technical terms not in `docs/skillgrid/glossary/{business,technical}.md`? If so, the change should have added a glossary reference. Flag as Minor.
     - Vocabulary drift: same concept called two different names? Flag as Important.
 
     ## Calibration

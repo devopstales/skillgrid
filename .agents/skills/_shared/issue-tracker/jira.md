@@ -37,4 +37,4 @@ The `issue-creation` skill maps each step's `tasks.md` items (`docs/skillgrid/ch
 
 ## force_ticket_creation
 
-When `force_ticket_creation` is `true`, the `issue-creation` skill MUST be invoked to create the ticket for the `plan.md` and `tasks.md` artifacts at the `sdd-design` and `sdd-spec` phases.
+When `force_ticket_creation` is `true`, the `issue-creation` skill MUST be invoked to create the ticket for the `change.md` and `tasks.md` artifacts at the `sdd-propose` and `sdd-spec` phases.

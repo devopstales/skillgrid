@@ -1,27 +1,28 @@
 ---
 name: design-spike
-description: "Build a throwaway prototype to answer a design question — state machine, data shape, or UI look. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like before committing; not for production code or feature work."
+description: "Optional throwaway prototype before locking change.md — taste/UI, architecture, or external smoke. Use when orchestrator/propose needs a concrete answer first; commit marked PROTOTYPE; list path as Prototype: in change.md. Not production; not during sdd-apply."
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
 ---
 
 # design-spike
 
-A prototype is **throwaway code that answers a question**. The question decides the shape.
+A prototype is **throwaway code that answers a question**. The question decides the shape. Optional **before** locking `change.md` — never production work during apply.
 
 ## Pick a branch
 
 Identify which question is being answered, using the user's prompt, the surrounding code, or by asking if the user is around:
 
-- **"Does this logic / state model feel right?"** → [logic.md](references/logic.md). Build a single shareable HTML file (free-play buttons plus tabbed guided walkthroughs) that pushes the state machine through cases that are hard to reason about on paper, and that a non-developer can drive.
-- **"What should this look like?"** → [ui.md](references/ui.md). Generate several radically different UI variations on a single route, switchable via a URL search param and a floating bottom bar.
+- **"Does this logic / state model / arch shape feel right?"** → [logic.md](references/logic.md). Build a single shareable HTML file (free-play buttons plus tabbed guided walkthroughs) that pushes the state machine through cases that are hard to reason about on paper, and that a non-developer can drive.
+- **"What should this look like?"** (taste / UI) → [ui.md](references/ui.md). Generate several radically different UI variations on a single route, switchable via a URL search param and a floating bottom bar.
+- **"Does this external API / unknown shape even work?"** (external smoke) — smallest runnable call or harness against the real dependency; print raw responses; no product UI. Still throwaway and marked PROTOTYPE.
 
-The two branches produce very different artifacts, so getting this wrong wastes the whole prototype. If the question is genuinely ambiguous and the user isn't reachable, default to whichever branch better matches the surrounding code (a backend module → logic; a page or component → UI) and state the assumption at the top of the prototype.
+These branches produce different artifacts, so getting this wrong wastes the whole prototype. If the question is ambiguous and the user isn't reachable, default to whichever branch better matches the surrounding code (backend → logic; page/component → UI; third-party API → external smoke) and state the assumption at the top of the prototype.
 
-## Rules that apply to both
+## Rules that apply to all branches
 
 1. **Throwaway from day one, and clearly marked as such.** Locate the prototype code close to where it will actually be used (next to the module or page it's prototyping for) so context is obvious, but name it so a casual reader can see it's a prototype, not production. For throwaway UI routes, obey whatever routing convention the project already uses; don't invent a new top-level structure.
 2. **Trivial to run.** A UI prototype starts from one command in the project's task runner: `pnpm <name>`, `python <path>`, `bun <path>`, etc. A logic demo is a single HTML file the user double-clicks. Either way, no thinking required to start it.
@@ -32,20 +33,19 @@ The two branches produce very different artifacts, so getting this wrong wastes 
 
 ## Where it fits in SDD
 
-A prototype is a **spike for a pending decision**, not a change of its own. It produces a *validated answer* that lands in an existing SDD artifact:
+Optional **before locking `change.md`** (orchestrator / propose pre-gate). Typical triggers: taste/UI uncertainty, architecture shape, external smoke.
 
-- **Before `sdd-propose`** — prototype to resolve an open question `change.md` should own (e.g. "is this state model even feasible?"). The answer goes into the Step Blueprint or a `## Decisions` section of `change.md`.
-- **During `sdd-propose`** — prototype to resolve an architecture question that `change.md` must answer (e.g. "does this reducer shape actually handle the illegal transition?"). The answer goes into Architecture Decisions (Choice/Alternatives/Rationale).
-- **Not during `sdd-apply`** — by the time you are applying, `change.md` is committed; a "prototype" during apply is just production code, so it is not a prototype. Stop and surface to the user that this needs to go back through propose.
+- **Before / while shaping `change.md`** — answer the open question; fold Choice/Alternatives/Rationale (or Step Blueprint) into `change.md`; list the path as `Prototype: <path>`.
+- **Not during `sdd-apply`** — apply is production against a locked change. A "prototype" mid-apply is production code. Stop; send the work back through propose (and re-spike if needed).
 
-The prototype folder itself does **not** live under `docs/skillgrid/changes/<NNN-slug>/`; it lives next to the code it's answering. The *answer* does.
+The prototype itself does **not** live under `docs/skillgrid/changes/<NNN-slug>/`; it lives next to the code it's answering. The *answer* and the `Prototype:` pointer live in `change.md`.
 
 ## Capture (when done)
 
-1. **Fold the validated decision into the real code** (or into the SDD artifact that owns it, per [Where it fits](#where-it-fits-in-sdd)).
-2. **Commit the prototype to a throwaway branch**, out of `main`, so it stays re-runnable as a primary source. Name the branch `prototype/<NNN-slug>/<branch-keyword>` if tied to an SDD change, else `prototype/<topic>`.
-3. **Leave a context pointer** to that branch on the implementing issue (Backlog.md ticket, GitHub PR, or — for an SDD change — the owning step section in `tasks.md` or the Architecture Decisions section of `change.md`).
-4. **Capture the answer** in the SDD artifact and, when the change is in flight, persist a Mnemonic observation:
+1. **Fold the validated decision** into `change.md` (Architecture Decisions / Step Blueprint).
+2. **Commit marked PROTOTYPE** is OK — subject or body must say `PROTOTYPE` so nobody mistakes it for production. Prefer a throwaway branch `prototype/<NNN-slug>/<keyword>` (or `prototype/<topic>`); keep it re-runnable.
+3. **List the path in `change.md`**: `Prototype: <relative-path>` (and `Research:` when explore ran). Context pointer only — do not paste the prototype into the change folder.
+4. **Capture the answer** in Mnemonic when a change is in flight:
 
    ```
    mem_save(
@@ -59,17 +59,16 @@ The prototype folder itself does **not** live under `docs/skillgrid/changes/<NNN
 
      **Question**  <the exact question this prototype settled>
      **Verdict**   <one sentence: what was validated / rejected>
+     **Path**      <Prototype: path>
      **Branch**    prototype/<NNN-slug>/<branch-keyword>
-     **Branch files** <paths in the branch>
-     **Landed in** <change.md §Architecture Decisions / <issue id>>
+     **Landed in** <change.md §Architecture Decisions>
      **Date**      <ISO>
      """
    )
    ```
 
-   This is the recovery point — a future `mem_search("sdd/<NNN-slug>/prototype")` finds the branch, the verdict, and where it landed, even after the branch is deleted.
-5. **Record the commit chain** per the shared commit convention ([commits.md](../_shared/conventions/commits.md)): the prototype branch's commits are checkpoint commits with the question in the subject; the decision landing in `main` is a `feat:` or `decision:` that references the prototype branch in the footer (`Refs: prototype/<NNN-slug>/<branch-keyword>`).
-6. **Main branch keeps only the validated decision.** The prototype does not merge into `main`.
+5. **Commit chain** per ([commits.md](../_shared/conventions/commits.md)): PROTOTYPE checkpoint commits answer the question; the decision that lands in production is a separate `feat:` / `docs:` that references the prototype (`Refs: Prototype: <path>` or branch name).
+6. **Do not merge the throwaway prototype as production.** Only the validated decision promotes.
 
 ## References
 
@@ -80,9 +79,11 @@ The prototype folder itself does **not** live under `docs/skillgrid/changes/<NNN
 
 ## Gotchas
 
-- A prototype that adds tests, DB migrations, abstractions, or "while we're at it" production work is not a prototype. Stop and switch to `sdd-apply`.
+- Spiking during `sdd-apply` is not a prototype — return to propose.
+- Missing `Prototype:` in `change.md` after a kept spike leaves apply blind.
+- A prototype that adds tests, DB migrations, abstractions, or "while we're at it" production work is not a prototype.
 - Variants that differ only in colour or copy are wallpaper, not a UI prototype. Real disagreement = different structure.
-- Do not promote the throwaway HTML shell or variant components into `main`. The decision is the only thing that promotes; the artifact stays on the throwaway branch.
-- If the question turned out to be "no, that model doesn't work," the **verdict is still the answer**. Record the rejection in the same Mnemonic shape — a rejected prototype is a valid primary source too.
-- `mem_search` returns 300-char previews only; always `mem_get_observation(id)` to read the full answer before citing it.
+- Do not promote the throwaway HTML shell or variant components as production. The decision is the only thing that promotes.
+- If the question turned out to be "no, that model doesn't work," the **verdict is still the answer**. Record the rejection the same way.
+- `mem_search` returns 300-char previews only; always `mem_get_observation(id)` before citing.
 - At session end: `mem_session_summary` then `mem_session_end`.

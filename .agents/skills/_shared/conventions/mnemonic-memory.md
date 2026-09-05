@@ -46,8 +46,8 @@ title/topic_key: sdd-init/{project}     (init-time full project context)
 |---|---|---|
 | `research` | sdd-explore | architecture |
 | `intent` | sdd-propose | architecture |
-| `plan` | sdd-design | architecture |
-| `tasks` (per step, concatenated) | sdd-tasks | architecture |
+| `change` | sdd-propose | architecture |
+| `tasks` | sdd-spec | architecture |
 | `spec` (per step `acceptance.feature`, concatenated) | sdd-spec | architecture |
 | `issue-creation` | sdd-issue-creation | config |
 | `apply-progress` (cumulative, per change) | sdd-apply (one per batch) | architecture |

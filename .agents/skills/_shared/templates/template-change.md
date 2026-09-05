@@ -12,6 +12,8 @@
 
 **Research:** `docs/skillgrid/changes/<NNN-slug>/research.md` (if present) | none
 
+**Prototype:** `<path to PROTOTYPE spike>` (if present) | none
+
 **Ticket:** `<tracker-id or none>`
 
 **Depends on:** <other NNN-slugs or none>
@@ -177,7 +179,7 @@ Mark each row `Applicable` or `N/A: reason`. Applicable rows name an owning step
 |------|------------|---------------|
 | **Term** | One-sentence definition | business \| technical |
 
-<!-- Fold new terms here; also upsert docs/skillgrid/agents/glossary/{business,technical}.md. No companion *-glossary-reference.md. -->
+<!-- Fold new terms here; also upsert docs/skillgrid/glossary/{business,technical}.md. No companion *-glossary-reference.md. -->
 
 ## Author self-review
 
