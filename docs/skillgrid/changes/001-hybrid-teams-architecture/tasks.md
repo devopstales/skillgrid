@@ -1,6 +1,6 @@
 # Tasks: 001-hybrid-teams-architecture
 
-> **STATUS:** `in-progress` (2026-09-04) — 0/5 steps PASS
+> **STATUS:** `in-progress` (2026-09-05) — 5/5 steps implemented (verify pending)
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-driven-development (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax.
 
@@ -67,9 +67,9 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 
 ```yaml
 phase: apply         # spec | apply | verify | archive
-current_step: 01-schema
+current_step: 05-tests
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-05T12:20:00+02:00
+updated: 2026-09-05T12:36:00+02:00
 ```
 
 ## Step map
@@ -195,16 +195,16 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 02.1 `[RED]` Spawn returns pending task id — Scenario: Spawn returns pending task id
-  - [ ] 02.1.a Write failing test
-  - [ ] 02.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'SpawnTask'` — Expected: FAIL
-  - [ ] 02.1.c Minimal implementation — `SpawnTask` (brief via ContentPlane → SQL `pending`, return id)
-  - [ ] 02.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'SpawnTask'` — Expected: PASS
-  - [ ] 02.1.e Commit — `feat(mnemonic): spawn team task on service facade`
-- [ ] 02.2 `[AFK]` Pull claims top priority; read returns brief — Scenario: Pull claims top priority with brief — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Pull|ReadTask'` — Expected: PASS
-- [ ] 02.3 `[AFK]` Output → review_spec; review sets passed; mark done → done + task_results — Scenario: Output review done advance status — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Submit|MarkDone|Status'` — Expected: PASS
-- [ ] 02.4 `[AFK]` Empty pull fails clearly — Scenario: Empty pull fails clearly — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Pull.*Empty|EmptyPull'` — Expected: PASS
-- [ ] 02.5 `[AFK]` Wire teams via `openProject` / project handle in `service.go` as needed — `Run: go test ./skillgrid-cli/internal/mnemonic/service/` — Expected: PASS
+- [x] 02.1 `[RED]` Spawn returns pending task id — Scenario: Spawn returns pending task id
+  - [x] 02.1.a Write failing test
+  - [x] 02.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'SpawnTask'` — Expected: FAIL
+  - [x] 02.1.c Minimal implementation — `SpawnTask` (brief via ContentPlane → SQL `pending`, return id)
+  - [x] 02.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'SpawnTask'` — Expected: PASS
+  - [x] 02.1.e Commit — `feat(mnemonic): spawn team task on service facade`
+- [x] 02.2 `[AFK]` Pull claims top priority; read returns brief — Scenario: Pull claims top priority with brief — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Pull|ReadTask'` — Expected: PASS
+- [x] 02.3 `[AFK]` Output → review_spec; review sets passed; mark done → done + task_results — Scenario: Output review done advance status — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Submit|MarkDone|Status'` — Expected: PASS
+- [x] 02.4 `[AFK]` Empty pull fails clearly — Scenario: Empty pull fails clearly — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Pull.*Empty|EmptyPull'` — Expected: PASS
+- [x] 02.5 `[AFK]` Wire teams via `openProject` / project handle in `service.go` as needed — `Run: go test ./skillgrid-cli/internal/mnemonic/service/` — Expected: PASS
 
 ### Verification
 
@@ -214,11 +214,11 @@ Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Spawn|Pull|Submit|MarkDone'` | PASS | | |
-| Acceptance `@step-02` / `@p0` | Map scenarios in `acceptance.feature` `@step-02` | PASS | | |
-| Runtime harness | spawn → pull → read → submit → review → done | PASS | | |
-| Rollback boundary | ContentPlane rollback still held | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Spawn|Pull|Submit|MarkDone'` | PASS | PASS (apply) | |
+| Acceptance `@step-02` / `@p0` | Map scenarios in `acceptance.feature` `@step-02` | PASS | covered | verify owns verdict |
+| Runtime harness | spawn → pull → read → submit → review → done | PASS | PASS (apply) | TestSubmitOutputReviewMarkDone* |
+| Rollback boundary | ContentPlane rollback still held | PASS | PASS (apply) | files package |
+| Global Constraints | — | held | held (apply) | |
 
 ### Commit
 
@@ -262,21 +262,21 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 03.1 `[RED]` (threat: Mnemonic tool surface) Six team tools registered; inbox absent — Scenario: Six team tools are registered
-  - [ ] 03.1.a Write failing test — update `TestAllToolsRegistered` want list with the six names
-  - [ ] 03.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TestAllToolsRegistered'` — Expected: FAIL
-  - [ ] 03.1.c Minimal implementation — create `tools_teams.go` with six `s.AddTool` handlers; call `registerTeamsTools(s)` from `server.go`
-  - [ ] 03.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TestAllToolsRegistered'` — Expected: PASS
-  - [ ] 03.1.e Commit — `feat(mnemonic): register six teams MCP tools`
-- [ ] 03.2 `[RED]` (threat: Mnemonic tool surface) Bad spawn → structured tool error not panic — Scenario: Bad spawn errors without orphan state
-  - [ ] 03.2.a Write failing test
-  - [ ] 03.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'BadSpawn|Spawn.*Invalid'` — Expected: FAIL
-  - [ ] 03.2.c Minimal implementation — validate args; return tool error result
-  - [ ] 03.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'BadSpawn|Spawn.*Invalid'` — Expected: PASS
-  - [ ] 03.2.e Commit — `fix(mnemonic): structured error on bad team spawn`
-- [ ] 03.3 `[AFK]` Spawn pull read submit stay consistent — Scenario: Spawn pull read submit stay consistent — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Teams|Spawn|Pull'` — Expected: PASS
-- [ ] 03.4 `[AFK]` Unknown id or empty queue errors without panic — Scenario: Unknown id or empty queue errors — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Unknown|Empty'` — Expected: PASS
-- [ ] 03.5 `[AFK]` mem/code/web tool names unchanged — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TestAllToolsRegistered'` — Expected: PASS
+- [x] 03.1 `[RED]` (threat: Mnemonic tool surface) Six team tools registered; inbox absent — Scenario: Six team tools are registered
+  - [x] 03.1.a Write failing test — update `TestAllToolsRegistered` want list with the six names
+  - [x] 03.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TestAllToolsRegistered'` — Expected: FAIL
+  - [x] 03.1.c Minimal implementation — create `tools_teams.go` with six `s.AddTool` handlers; call `registerTeamsTools(s)` from `server.go`
+  - [x] 03.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TestAllToolsRegistered'` — Expected: PASS
+  - [x] 03.1.e Commit — `feat(mnemonic): register six teams MCP tools`
+- [x] 03.2 `[RED]` (threat: Mnemonic tool surface) Bad spawn → structured tool error not panic — Scenario: Bad spawn errors without orphan state
+  - [x] 03.2.a Write failing test
+  - [x] 03.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'BadSpawn|Spawn.*Invalid'` — Expected: FAIL
+  - [x] 03.2.c Minimal implementation — validate args; return tool error result
+  - [x] 03.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'BadSpawn|Spawn.*Invalid'` — Expected: PASS
+  - [x] 03.2.e Commit — `fix(mnemonic): structured error on bad team spawn`
+- [x] 03.3 `[AFK]` Spawn pull read submit stay consistent — Scenario: Spawn pull read submit stay consistent — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Teams|Spawn|Pull'` — Expected: PASS
+- [x] 03.4 `[AFK]` Unknown id or empty queue errors without panic — Scenario: Unknown id or empty queue errors — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Unknown|Empty'` — Expected: PASS
+- [x] 03.5 `[AFK]` mem/code/web tool names unchanged — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TestAllToolsRegistered'` — Expected: PASS
 
 ### Verification
 
@@ -286,11 +286,11 @@ Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TestAllToolsRegistered|BadSpawn|Teams'` | PASS | | |
-| Acceptance `@step-03` / `@p0` | Map scenarios in `acceptance.feature` `@step-03` | PASS | | |
-| Runtime harness | list tools; spawn→pull→read→submit | PASS | | |
-| Rollback boundary | bad spawn leaves no orphan | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TestAllToolsRegistered|BadSpawn|Teams'` | PASS | PASS (apply) | |
+| Acceptance `@step-03` / `@p0` | Map scenarios in `acceptance.feature` `@step-03` | PASS | covered | verify owns verdict |
+| Runtime harness | list tools; spawn→pull→read→submit | PASS | PASS (apply) | |
+| Rollback boundary | bad spawn leaves no orphan | PASS | PASS (apply) | TestBadSpawn* |
+| Global Constraints | — | held | held (apply) | no inbox tools |
 
 ### Commit
 
@@ -331,14 +331,14 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 04.1 `[RED]` Authenticated write under teams path succeeds — Scenario: Authenticated write under teams path succeeds
-  - [ ] 04.1.a Write failing test
-  - [ ] 04.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams.*Auth|TeamsWrite'` — Expected: FAIL
-  - [ ] 04.1.c Minimal implementation — add `/teams/…` CRUD; wrap writes with `requireWriteAuth`; leave GETs open
-  - [ ] 04.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams.*Auth|TeamsWrite'` — Expected: PASS
-  - [ ] 04.1.e Commit — `feat(mnemonic): add teams HTTP routes`
-- [ ] 04.2 `[AFK]` GETs stay open; teams paths distinct from memory reviews — Scenario: Gets stay open and teams paths stay distinct — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams|Reviews'` — Expected: PASS
-- [ ] 04.3 `[AFK]` Unauthenticated write returns 401 — Scenario: Unauthenticated write returns 401 — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams.*401|Unauth'` — Expected: PASS
+- [x] 04.1 `[RED]` Authenticated write under teams path succeeds — Scenario: Authenticated write under teams path succeeds
+  - [x] 04.1.a Write failing test
+  - [x] 04.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams.*Auth|TeamsWrite'` — Expected: FAIL
+  - [x] 04.1.c Minimal implementation — add `/teams/…` CRUD; wrap writes with `requireWriteAuth`; leave GETs open
+  - [x] 04.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams.*Auth|TeamsWrite'` — Expected: PASS
+  - [x] 04.1.e Commit — `feat(mnemonic): add teams HTTP routes`
+- [x] 04.2 `[AFK]` GETs stay open; teams paths distinct from memory reviews — Scenario: Gets stay open and teams paths stay distinct — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams|Reviews'` — Expected: PASS
+- [x] 04.3 `[AFK]` Unauthenticated write returns 401 — Scenario: Unauthenticated write returns 401 — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams.*401|Unauth'` — Expected: PASS
 
 ### Verification
 
@@ -348,11 +348,11 @@ Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams'` | PASS | | |
-| Acceptance `@step-04` / `@p0` | Map scenarios in `acceptance.feature` `@step-04` | PASS | | |
-| Runtime harness | POST with/without bearer; GET without bearer | PASS | | |
-| Rollback boundary | no `/memory/reviews` collision | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams'` | PASS | PASS (apply) | |
+| Acceptance `@step-04` / `@p0` | Map scenarios in `acceptance.feature` `@step-04` | PASS | covered | verify owns verdict |
+| Runtime harness | POST with/without bearer; GET without bearer | PASS | PASS (apply) | |
+| Rollback boundary | no `/memory/reviews` collision | PASS | PASS (apply) | TestTeamsPathsDistinct* |
+| Global Constraints | — | held | held (apply) | |
 
 ### Commit
 
@@ -394,21 +394,21 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 05.1 `[RED]` (threat: Mnemonic tool surface) Registry/dispatch includes six names; bad spawn tool error — Scenario: Registry has six team tools and keeps memory and code tools
-  - [ ] 05.1.a Write failing test in `tools_teams_test.go`
-  - [ ] 05.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TeamsTools|Dispatch'` — Expected: FAIL
-  - [ ] 05.1.c Minimal implementation — dispatch + FS/SQL parity coverage so assertion holds
-  - [ ] 05.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TeamsTools|Dispatch'` — Expected: PASS
-  - [ ] 05.1.e Commit — `test(mnemonic): cover teams MCP dispatch`
-- [ ] 05.2 `[RED]` (threat: Mnemonic tool surface) Atomicity + bad spawn structured error fixtures — Scenario: Tests assert rollback and bad spawn structured error
-  - [ ] 05.2.a Write failing test in `teams_test.go` / `tools_teams_test.go`
-  - [ ] 05.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Rollback|BadSpawn|Atomicity'` — Expected: FAIL
-  - [ ] 05.2.c Minimal implementation — complete fixture coverage
-  - [ ] 05.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Rollback|BadSpawn|Atomicity'` — Expected: PASS
-  - [ ] 05.2.e Commit — `test(mnemonic): cover teams atomicity and bad spawn`
-- [ ] 05.3 `[AFK]` Service tests: pull priority + status transitions — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Pull|Status|Teams'` — Expected: PASS
-- [ ] 05.4 `[AFK]` HTTP teams_test: 401 without bearer; open GET — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams'` — Expected: PASS
-- [ ] 05.5 `[AFK]` Full suite covers facade, MCP, HTTP — Scenario: Suite covers facade MCP and HTTP teams behavior — `Run: go test ./skillgrid-cli/...` — Expected: PASS
+- [x] 05.1 `[RED]` (threat: Mnemonic tool surface) Registry/dispatch includes six names; bad spawn tool error — Scenario: Registry has six team tools and keeps memory and code tools
+  - [x] 05.1.a Write failing test in `tools_teams_test.go`
+  - [x] 05.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TeamsTools|Dispatch'` — Expected: FAIL
+  - [x] 05.1.c Minimal implementation — dispatch + FS/SQL parity coverage so assertion holds
+  - [x] 05.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ -run 'TeamsTools|Dispatch'` — Expected: PASS
+  - [x] 05.1.e Commit — `test(mnemonic): cover teams MCP dispatch`
+- [x] 05.2 `[RED]` (threat: Mnemonic tool surface) Atomicity + bad spawn structured error fixtures — Scenario: Tests assert rollback and bad spawn structured error
+  - [x] 05.2.a Write failing test in `teams_test.go` / `tools_teams_test.go`
+  - [x] 05.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Rollback|BadSpawn|Atomicity'` — Expected: FAIL
+  - [x] 05.2.c Minimal implementation — complete fixture coverage
+  - [x] 05.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Rollback|BadSpawn|Atomicity'` — Expected: PASS
+  - [x] 05.2.e Commit — `test(mnemonic): cover teams atomicity and bad spawn`
+- [x] 05.3 `[AFK]` Service tests: pull priority + status transitions — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ -run 'Pull|Status|Teams'` — Expected: PASS
+- [x] 05.4 `[AFK]` HTTP teams_test: 401 without bearer; open GET — `Run: go test ./skillgrid-cli/internal/mnemonic/http/ -run 'Teams'` — Expected: PASS
+- [x] 05.5 `[AFK]` Full suite covers facade, MCP, HTTP — Scenario: Suite covers facade MCP and HTTP teams behavior — `Run: go test ./skillgrid-cli/...` — Expected: PASS
 
 ### Verification
 
@@ -418,11 +418,11 @@ Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/http/` | PASS | | |
-| Acceptance `@step-05` / `@p0` | Map scenarios in `acceptance.feature` `@step-05` | PASS | | |
-| Runtime harness | `go test ./skillgrid-cli/...` | PASS | | |
-| Rollback boundary | FS+SQL rollback fixtures | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/http/` | PASS | PASS (apply) | |
+| Acceptance `@step-05` / `@p0` | Map scenarios in `acceptance.feature` `@step-05` | PASS | covered | verify owns verdict |
+| Runtime harness | `go test ./skillgrid-cli/...` | PASS | pending full suite | run at commit |
+| Rollback boundary | FS+SQL rollback fixtures | PASS | PASS (apply) | files + BadSpawn |
+| Global Constraints | — | held | held (apply) | |
 
 ### Commit
 
