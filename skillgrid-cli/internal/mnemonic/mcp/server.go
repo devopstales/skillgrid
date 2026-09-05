@@ -22,6 +22,7 @@ func Start() error {
 	registerCodeTools(s)
 	registerWebTools(s)
 	registerTeamsTools(s)
+	registerRetrievalTools(s)
 	return server.ServeStdio(s)
 }
 
@@ -36,5 +37,6 @@ func NewServer() *Server {
 	registerCodeTools(s)
 	registerWebTools(s)
 	registerTeamsTools(s)
+	registerRetrievalTools(s)
 	return s
 }

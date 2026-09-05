@@ -22,8 +22,9 @@ func EmbeddingEnabled() bool {
 // Vector is an in-memory float32 vector.
 type Vector struct{ Data []float32 }
 
-// EncodeVector serialises a vector to the little-endian float32 blob layout
-// used by the `embedding` BLOB column.
+// EncodeVector / DecodeVector / CosineSimilarity / ReciprocalRankFusion are the
+// shared vector helpers reused by observation BlendedSearch (002) and the
+// Pure Go path embedder (003). Keep blob layout stable across both.
 func EncodeVector(v Vector) []byte {
 	buf := make([]byte, len(v.Data)*4)
 	for i, f := range v.Data {

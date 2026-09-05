@@ -1,6 +1,6 @@
 # Tasks: 003-mnemonic-self-evolving-context-database
 
-> **STATUS:** `in-progress` (2026-09-05) — 2/5 steps tasks complete (verify PENDING)
+> **STATUS:** `in-progress` (2026-09-05) — 3/5 steps tasks complete (verify PENDING)
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-driven-development (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax.
 
@@ -78,9 +78,9 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 
 ```yaml
 phase: apply          # spec | apply | verify | archive
-current_step: 03-semantic-retrieval
+current_step: 04-session-compaction
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-05T16:40:00+02:00
+updated: 2026-09-05T16:50:00+02:00
 ```
 
 ## Step map
@@ -270,26 +270,26 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 03.1 `[RED]` Mnemonic tool surface: `semantic_search` response body is L1-only (overview + abstract; no L2 markdown body) — Scenario: `Semantic search returns ranked overviews only`
-  - [ ] 03.1.a Write failing test
-  - [ ] 03.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/service/ -run 'SemanticSearch|L1Only|Overview' -count=1` — Expected: FAIL
-  - [ ] 03.1.c Minimal implementation
-  - [ ] 03.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/service/ -run 'SemanticSearch|L1Only|Overview' -count=1` — Expected: PASS
-  - [ ] 03.1.e Commit — `feat(mnemonic): return L1-only semantic_search results`
-- [ ] 03.2 `[RED]` Mnemonic tool surface: L2 content reachable only via `load_full_details{path}` — Scenario: `Explicit load returns full markdown`
-  - [ ] 03.2.a Write failing test
-  - [ ] 03.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/service/ -run 'LoadFullDetails|L2' -count=1` — Expected: FAIL
-  - [ ] 03.2.c Minimal implementation
-  - [ ] 03.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/service/ -run 'LoadFullDetails|L2' -count=1` — Expected: PASS
-  - [ ] 03.2.e Commit — `feat(mnemonic): load L2 only via load_full_details`
-- [ ] 03.3 `[AFK]` Create `embedder.go` (`Embedder` + Pure Go local and/or stub + optional remote HTTP; `MNEMONIC_EMBED`; no CGO/onnxruntime)
-- [ ] 03.4 `[AFK]` Modify `memory/embedding.go` to share Vector/blob/cosine helpers with the embedder
-- [ ] 03.5 `[AFK]` Modify `service/service.go` for ranked L1 search with corpus filter (default LTM), `load_full_details`, and retrieval-trail persistence
-- [ ] 03.6 `[AFK]` Create `tools_retrieval.go` with `semantic_search` and `load_full_details` handlers (JSON-only); make 03.1–03.2 pass
-- [ ] 03.7 `[AFK]` Cover Scenario: `Embeddings off falls back with trail` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'EmbedOff|Fallback|Trail' -count=1` — Expected: PASS
-- [ ] 03.8 `[AFK]` Cover Scenario: `Unknown path rejects full-detail load` — `Run: go test ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/service/ -run 'UnknownPath|NotFound' -count=1` — Expected: PASS
-- [ ] 03.9 `[AFK]` Cover Scenario: `Default corpus is long-term memory only` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Corpus|LTM|Filter' -count=1` — Expected: PASS
-- [ ] 03.10 `[AFK]` Cover Scenario: `Widened corpus includes all tiered paths` — `Run: go test ./skillgrid-cli/internal/mnemonic/service/ ./skillgrid-cli/internal/mnemonic/mcp/ -run 'Corpus|AllTiered|Filter' -count=1` — Expected: PASS
+- [x] 03.1 `[RED]` Mnemonic tool surface: `semantic_search` response body is L1-only (overview + abstract; no L2 markdown body) — Scenario: `Semantic search returns ranked overviews only`
+  - [x] 03.1.a Write failing test
+  - [x] 03.1.b Run to confirm fail — Expected: FAIL (pre-impl)
+  - [x] 03.1.c Minimal implementation
+  - [x] 03.1.d Run to confirm pass — `Run: go test ./internal/mnemonic/service/ ./internal/mnemonic/mcp/ -run 'SemanticSearchL1Only|SemanticSearchMCPOverview' -count=1` — Expected: PASS
+  - [x] 03.1.e Commit — included in step-03 commit
+- [x] 03.2 `[RED]` Mnemonic tool surface: L2 content reachable only via `load_full_details{path}` — Scenario: `Explicit load returns full markdown`
+  - [x] 03.2.a Write failing test
+  - [x] 03.2.b Run to confirm fail — Expected: FAIL (pre-impl)
+  - [x] 03.2.c Minimal implementation
+  - [x] 03.2.d Run to confirm pass — `Run: go test ./internal/mnemonic/service/ ./internal/mnemonic/mcp/ -run 'LoadFullDetails' -count=1` — Expected: PASS
+  - [x] 03.2.e Commit — included in step-03 commit
+- [x] 03.3 `[AFK]` Create `embedder.go` (`Embedder` + Pure Go HashEmbedder; `MNEMONIC_EMBED`; no CGO/onnxruntime)
+- [x] 03.4 `[AFK]` Modify `memory/embedding.go` to document shared Vector/blob/cosine helpers with the embedder
+- [x] 03.5 `[AFK]` Modify `service/retrieval.go` for ranked L1 search with corpus filter (default LTM), `load_full_details`, and retrieval-trail persistence
+- [x] 03.6 `[AFK]` Create `tools_retrieval.go` with `semantic_search` and `load_full_details` handlers (JSON-only); make 03.1–03.2 pass
+- [x] 03.7 `[AFK]` Cover Scenario: `Embeddings off falls back with trail` — `Run: go test ./internal/mnemonic/service/ -run 'EmbedOffFallbackTrail' -count=1` — Expected: PASS
+- [x] 03.8 `[AFK]` Cover Scenario: `Unknown path rejects full-detail load` — `Run: go test ./internal/mnemonic/service/ -run 'UnknownPathNotFound' -count=1` — Expected: PASS
+- [x] 03.9 `[AFK]` Cover Scenario: `Default corpus is long-term memory only` — `Run: go test ./internal/mnemonic/service/ -run 'CorpusLTMFilter' -count=1` — Expected: PASS
+- [x] 03.10 `[AFK]` Cover Scenario: `Widened corpus includes all tiered paths` — `Run: go test ./internal/mnemonic/service/ -run 'CorpusAllTierFilter' -count=1` — Expected: PASS
 
 ### Verification
 
@@ -299,11 +299,11 @@ Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/embedder/ ./skillgrid-cli/internal/mnemonic/mcp/ ./skillgrid-cli/internal/mnemonic/service/ -count=1` | PASS | | |
-| Acceptance `@step-03` / `@p0` | BDD / mapped retrieval tests for `@step-03` | PASS | | |
-| Runtime harness | MCP semantic_search + load_full_details | PASS | | |
-| Rollback boundary | embeddings off → title/L0 fallback | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./internal/mnemonic/embedder/ ./internal/mnemonic/mcp/ ./internal/mnemonic/service/ -count=1` | PASS | PASS (apply) | 2026-09-05 |
+| Acceptance `@step-03` / `@p0` | mapped service+mcp retrieval tests | PASS | PASS (apply) | L1-only + load + corpus |
+| Runtime harness | MCP semantic_search + load_full_details | PASS | PASS (apply) | tools_retrieval_test.go |
+| Rollback boundary | embeddings off → title/L0 fallback | PASS | PASS (apply) | EmbedOffFallbackTrail |
+| Global Constraints | — | held | held | Pure Go hash embedder; separate from mem_search |
 
 ### Commit
 
