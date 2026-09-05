@@ -26,7 +26,7 @@ Inline per-task execution. One task at a time, in THIS context. Not delegation.
 
 - A single small task (1–2 files, clear spec).
 - A tightly coupled group of tasks where a fresh subagent per task adds overhead.
-- Workload decision is `single-pr` (no chaining), under the 400-line budget.
+- Workload decision is `single-pr` (no chaining), under the 400-line budget — still **commit each step separately** when DoD is met.
 - The orchestrator explicitly chose the inline path (see `sdd-apply` Step 5).
 
 **Do NOT use when:**
@@ -37,28 +37,34 @@ Inline per-task execution. One task at a time, in THIS context. Not delegation.
 ## The inline task loop
 
 ```
-FOR each assigned task in the matching `## NN-<name>` section of change-level `tasks.md` (in NN.{i} order):
-  1. READ
-     ├── Task description
-     ├── The matching `@step-NN` scenarios in change-level `acceptance.feature` (this IS the acceptance criterion)
-     ├── The `change.md` WHAT / decisions for this task (approach constraints)
-     └── The target files, confirmed via code index (code_status → code_search → code_read)
+FOR each assigned `## NN-<name>` step (in NN order):
+  FOR each assigned task in that section (in NN.{i} order):
+    1. READ
+       ├── Task description
+       ├── The matching `@step-NN` scenarios in change-level `acceptance.feature` (this IS the acceptance criterion)
+       ├── The `change.md` WHAT / decisions for this task (approach constraints)
+       └── The target files, confirmed via code index (code_status → code_search → code_read)
 
-  2. WRITE
-     ├── (Strict TDD only) RED:  write the failing test for the next behavior FIRST
-     ├── (Strict TDD only) GREEN: minimal code to pass
-     ├── (Strict TDD only) TRIANGULATE: two independent assertions proving the behavior
-     └── (Strict TDD only) REFACTOR: extract, rename, clean — keep green
+    2. WRITE
+       ├── (Strict TDD only) RED:  write the failing test for the next behavior FIRST
+       ├── (Strict TDD only) GREEN: minimal code to pass
+       ├── (Strict TDD only) TRIANGULATE: two independent assertions proving the behavior
+       └── (Strict TDD only) REFACTOR: extract, rename, clean — keep green
 
-  3. RUN
-     └── The smallest command that proves this task, capture: exit code + key lines
+    3. RUN
+       └── The smallest command that proves this task, capture: exit code + key lines
 
-  4. MARK
-     └── Change `- [ ]` → `- [x]` in change-level `tasks.md` IMMEDIATELY (as you go)
+    4. MARK
+       └── Change `- [ ]` → `- [x]` in change-level `tasks.md` IMMEDIATELY (as you go)
 
-  5. RECORD
-     └── Append one row to the Step Evidence table:
-        | Task | Focused test (cmd + result) | Acceptance scenario → test → result | Runtime | Rollback |
+    5. RECORD
+       └── Append one row to the Step Evidence table:
+          | Task | Focused test (cmd + result) | Acceptance scenario → test → result | Runtime | Rollback |
+
+  6. COMMIT (end of step — mandatory)
+     └── When step DoD is met, commit per `### Commit` / `work-unit-commits`
+         BEFORE starting the next `## NN-<name>`.
+         `single-pr` does not skip or merge this — one PR may hold many step commits.
 ```
 
 Keep each task completable in one sitting. If a task needs more than one sitting, the step decomposition was wrong — flag it, do not silently split.
@@ -105,6 +111,7 @@ After each task complete, capture these rows — they feed the Step Evidence tab
 | "Let me skip the code-index check, I know the file path" | A task that cites a file it has not read is a task with a hole. Confirm via `code_search` + `code_read`. |
 | "I'll run the full suite to be safe" | The focused test is the proof. Run the full suite at the step boundary, not per task — per-task full runs cost time and bury the specific signal. |
 | "I'll do task 5 first, it's easier" | The task loop is ordered. Reordering breaks the ledger and the evidence chain. |
+| "single-pr — I'll commit everything at the end" | Delivery strategy is PR count, not commit count. Commit each step when DoD is met. |
 
 ## Integration with SDD
 
@@ -123,4 +130,5 @@ After each task complete, capture these rows — they feed the Step Evidence tab
 - [`../review-reception/SKILL.md`](../review-reception/SKILL.md) — how to receive findings if a review pass surfaces them (from `sdd-verify` or `judgment-day`).
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape, session close, recovery ladder.
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout, step sections in `tasks.md`, artifact paths.
-- [`../_shared/conventions/commits.md`](../_shared/conventions/commits.md) — commit contract for the apply commit.
+- [`../_shared/conventions/commits.md`](../_shared/conventions/commits.md) — commit contract; one checkpoint (or work-unit series) per completed step.
+- [`../work-unit-commits/SKILL.md`](../work-unit-commits/SKILL.md) — how to split commits; `single-pr` still means per-step commits.

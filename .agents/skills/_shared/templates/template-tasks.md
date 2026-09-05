@@ -73,6 +73,7 @@ updated: <ISO-8601>
 | 400-line budget risk | Low \| Medium \| High |
 | Chained PRs recommended | Yes \| No |
 | Delivery strategy | ask-on-risk \| auto-chain \| single-pr \| exception-ok |
+<!-- single-pr = one PR for the change; each ## NN step still commits separately when DoD is met (see work-unit-commits / commits.md). -->
 
 ---
 
@@ -138,6 +139,7 @@ Evidence:
 ### Commit
 
 When step DoD is met: `feat(<scope>): <step goal one-liner>`
+<!-- Mandatory per step. Delivery strategy `single-pr` still requires this commit before the next ## NN step. -->
 
 ---
 
@@ -199,6 +201,7 @@ Evidence:
 ### Commit
 
 When step DoD is met: `feat(<scope>): <step goal one-liner>`
+<!-- Mandatory per step. Delivery strategy `single-pr` still requires this commit before the next ## NN step. -->
 
 ---
 

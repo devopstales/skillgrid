@@ -21,6 +21,7 @@ Commit by **work unit**, not by file type. Typical caller: `sdd-apply`.
 | Docs with change | User-visible docs land with the feature they explain. |
 | Reviewable alone | After this commit alone, the repo should still make sense. |
 | Message tells why | Conventional Commits; outcome, not a file list. |
+| Per step always | Each SDD `## NN-<name>` step gets its own commit(s) when DoD is met — **even if** `Delivery strategy` is `single-pr`. One PR may contain many step commits; never collapse steps into one mega-commit. |
 
 Shared contract: [`_shared/conventions/commits.md`](../_shared/conventions/commits.md).
 
@@ -37,8 +38,10 @@ Shared contract: [`_shared/conventions/commits.md`](../_shared/conventions/commi
 |------|--------|
 | `add models` then `add tests` | `feat(auth): add token validation and tests` |
 | `update docs` alone for a feature | Docs in the same commit as the feature |
+| One commit for steps 01–05 because `single-pr` | One commit (or work-unit series) **per** step; still one PR |
 
 ## Gotchas
 
 - Do not layer `models` → `services` → `tests` when none works alone.
 - A red or half-done commit is not a checkpoint — finish the unit first.
+- `single-pr` / "ship as one PR" controls **PR count only** — not whether steps may share a commit.

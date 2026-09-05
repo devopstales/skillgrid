@@ -47,7 +47,7 @@ Read: `change.md`, `tasks.md` (`## NN-<name>`), `acceptance.feature` (`@step-NN`
 
 - Review workload High / chained / unresolved `ask-on-risk` → STOP until delivery path resolved (`auto-chain` | `exception-ok` | explicit `size:exception`).
 - Prefer **`isolated-workspace`** for non-trivial branches.
-- Commits: **`work-unit-commits`** / [`../_shared/conventions/commits.md`](../_shared/conventions/commits.md) — checkpoint when green.
+- Commits: **`work-unit-commits`** / [`../_shared/conventions/commits.md`](../_shared/conventions/commits.md) — checkpoint when green. **Per step always**, even under `single-pr` (one PR ≠ one commit).
 
 ### 3. Route execution (do not freestyle inline)
 

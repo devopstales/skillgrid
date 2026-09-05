@@ -163,15 +163,16 @@ This reverts commit 2a91c4. The inlined path regressed on ARM64.
 
 ## SDD workflow integration
 
-- **The commit *is* the checkpoint.** After each SDD step (`sdd-apply` batch) completes cleanly, commit before moving on. The `sdd-apply` progress line in `steps/<NN-name>/tasks.md` and the commit SHA together form the recovery record — do not move to the next task until the commit exists and the `tasks.md` line is marked `[x]`.
-- **Before committing**: confirm the change is in the expected state per `sdd-verify` — tests pass, the step's `verification.md` exists at `docs/skillgrid/changes/<NNN-slug>/steps/<NN-name>/verification.md` with verdict `PASS` or `PASS WITH WARNINGS`.
-- **Do not commit** work whose step `verification.md` says anything but "pass".
+- **The commit *is* the checkpoint.** After each SDD **step** (`## NN-<name>` in change-level `tasks.md`) completes cleanly, commit before moving on. The step's `### Commit` line + the commit SHA together form the recovery record — do not start the next step until the prior step's commit exists and its tasks are marked `[x]`.
+- **`single-pr` is a delivery mode, not a commit mode.** Shipping multiple steps in one PR does **not** authorize one mega-commit. Commit each step separately **always** — including under `Delivery strategy: single-pr`. PR count ≠ commit count.
+- **Before committing**: confirm the change is in the expected state per `sdd-verify` — tests pass; the step's `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS` (or the step DoD otherwise allows the planned commit).
+- **Do not commit** work whose step Verification says FAIL (or anything but pass / pass-with-warnings).
 - **The commit message names *what* changed and *which ticket* it resolves.** The *why* and *how* live in the plan (the step's `acceptance.feature` for the behavior contract) and the PR description — not the commit.
-- Archive the change with `sdd-archive` *after* the commit lands, not before.
+- Archive the change with `sdd-archive` *after* the commits land, not before.
 
 ## CLI / tool interactions
 
 - **`skillgrid install`** installs a `commit-msg` hook that strips `Co-authored-by` and other AI trailers. It is a safety net, not a policy.
 - **`git commit`** reads `COMMIT_EDITMSG` from the repo if a template is configured. Templates are per-repo — check before overriding.
-- **`git rebase -i`** to squash a stack of small commits into logical checkpoints before pushing. Do this *before* PR review, not during.
+- **`git rebase -i`** may squash *within* a step (fixup/WIP noise into that step's checkpoint) before pushing. Do **not** squash distinct SDD steps into one commit to "simplify" a `single-pr` delivery — those step boundaries are the recovery map. Squash *before* PR review, not during.
 - **Superpowers subagent-driven-development** records the pre-dispatch `BASE` per task and the completion SHAs in its ledger. Reconstruct checkpoints with `git log <base>..<head>`. The `scripts/review-package PLAN_FILE BASE HEAD` script emits the commit list + stat + full diff for a reviewer — use BASE, never `HEAD~1`, which silently truncates multi-commit tasks.
