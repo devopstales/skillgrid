@@ -51,6 +51,7 @@ func main() {
 		fmt.Fprintln(w, `  serve         Run the Mnemonic HTTP API (default :7438)`)
 		fmt.Fprintln(w, `  index         Incremental code indexing`)
 		fmt.Fprintln(w, `  setup         Install agent plugins (opencode|kilocode|cursor)`)
+		fmt.Fprintln(w, `  migrate       Backfill mnemonic tier sidecars (--tier)`)
 		fmt.Fprintln(w, `  help          Show this help`)
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, `Flags (install):`)
@@ -121,6 +122,9 @@ func main() {
 		return
 	case "setup":
 		runSetup(version, rest[1:])
+		return
+	case "migrate":
+		runMigrate(version, rest[1:])
 		return
 	case "sync-repo":
 		syncPath := ""
