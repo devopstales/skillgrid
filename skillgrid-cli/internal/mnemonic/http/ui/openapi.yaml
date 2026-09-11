@@ -736,6 +736,435 @@ paths:
           $ref: "#/components/responses/Bad"
         "500":
           $ref: "#/components/responses/Internal"
+  # ── Memory (009 P4) — observation control panel + 013 governance ──────
+  /observations/{id}:
+    get:
+      tags: [memory]
+      operationId: observationGet
+      summary: One observation, full untruncated content
+      description: |-
+        Open read for the P4 detail pane. Same shape as mem_get_observation;
+        404 for an unknown id.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Observation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Observation"
+              example:
+                id: 12
+                type: decision
+                title: Chose SQLite for the store
+                content: "Decided to use SQLite …"
+                owner: paladm
+                visibility: private
+                status: active
+                revision_count: 2
+                retrieval_usage: 3
+                pinned: true
+        "404":
+          $ref: "#/components/responses/Bad"
+  /memory/observations/{id}/pin:
+    post:
+      tags: [memory]
+      operationId: observationPin
+      summary: Pin an observation (sticky, idempotent, write-gated)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pinned
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, pinned]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  pinned:
+                    type: boolean
+              example:
+                id: 12
+                pinned: true
+        "401":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
+  /memory/observations/{id}/unpin:
+    post:
+      tags: [memory]
+      operationId: observationUnpin
+      summary: Unpin an observation (idempotent, write-gated)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Unpinned
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, pinned]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  pinned:
+                    type: boolean
+              example:
+                id: 12
+                pinned: false
+        "401":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
+  /memory/observations/{id}/share:
+    post:
+      tags: [memory]
+      operationId: observationShare
+      summary: Widen an observation's visibility (013 governance, idempotent, write-gated)
+      description: |-
+        `restricted` accepts an ACL `grants` list of grantee names. Unknown
+        visibility → 400 (visibility unchanged).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [visibility]
+              properties:
+                visibility:
+                  type: string
+                  enum: [private, team, restricted, agent]
+                grants:
+                  type: array
+                  items:
+                    type: string
+            example:
+              visibility: restricted
+              grants: [agent-bob]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, visibility]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  visibility:
+                    type: string
+              example:
+                id: 12
+                visibility: restricted
+        "400":
+          $ref: "#/components/responses/Bad"
+        "401":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
+  /memory/observations/{id}/status:
+    post:
+      tags: [memory]
+      operationId: observationStatus
+      summary: Set an observation's lifecycle status (write-gated)
+      description: Unknown status → 400.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [active, superseded, archived]
+            example:
+              status: superseded
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  status:
+                    type: string
+              example:
+                id: 12
+                status: superseded
+        "400":
+          $ref: "#/components/responses/Bad"
+        "401":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
+  /memory/observations/{id}/governance:
+    get:
+      tags: [memory]
+      operationId: observationGovernance
+      summary: Governed-asset view (owner, version history, ACL, usage)
+      description: |-
+        Open read behind the P4 governance widgets. Versions is the
+        append-only history (the live content is the latest revision; prior
+        content is recoverable here after an in-place edit).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Governance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Governance"
+              example:
+                id: 12
+                owner: paladm
+                visibility: restricted
+                status: active
+                revision_count: 2
+                retrieval_usage: 3
+                versions:
+                  - revision: 1
+                    content: "old content"
+                    created_at: "2026-01-01T00:00:00Z"
+                  - revision: 2
+                    content: "current content"
+                    created_at: "2026-01-02T00:00:00Z"
+                grants:
+                  - grantee: agent-bob
+                    grant_type: read
+        "404":
+          $ref: "#/components/responses/Bad"
+  /memory/observations/{id}:
+    patch:
+      tags: [memory]
+      operationId: observationUpdate
+      summary: Edit an observation in place (write-gated; appends a 013 version)
+      description: |-
+        Accepts content and optionally title/type/topic_key/scope. A content
+        edit appends a new revision server-side; the prior content is
+        recoverable via GET /memory/observations/{id}/governance.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                title:
+                  type: string
+                type:
+                  type: string
+                topic_key:
+                  type: string
+                scope:
+                  type: string
+            example:
+              content: "revised content"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, updated]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  updated:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/Bad"
+        "401":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
+    delete:
+      tags: [memory]
+      operationId: observationDelete
+      summary: Delete an observation (soft by default; ?hard=true for hard, write-gated)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: hard
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, deleted]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  deleted:
+                    type: boolean
+                  hard:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
+  /relations/{id}:
+    get:
+      tags: [memory]
+      operationId: relationsOf
+      summary: Relations touching an observation (the P4 drill-down)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Relation list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, relations, count]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  relations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Relation"
+                  count:
+                    type: integer
+              example:
+                id: 12
+                count: 1
+                relations:
+                  - id: 3
+                    src_obs_id: 12
+                    dst_obs_id: 30
+                    relation: extracted
+                    confidence: 0.9
+                    reason: "derived from the session"
+                    created_at: "2026-01-02T00:00:00Z"
+        "404":
+          $ref: "#/components/responses/Bad"
   /tracker/config:
     get:
       tags: [tracker]
@@ -1229,10 +1658,109 @@ components:
           type: string
         revision_count:
           type: integer
+        owner:
+          type: string
+          description: Governing identity (013 step 01); absent when unset
+        visibility:
+          type: string
+          description: 013 visibility (private by default)
+          enum: [private, team, restricted, agent]
+        status:
+          type: string
+          description: 013 lifecycle status
+          enum: [active, superseded, archived]
+        retrieval_usage:
+          type: integer
+          description: How often this observation was retrieved
+        prompt_id:
+          type: integer
+          format: int64
+          nullable: true
+        pinned:
+          type: boolean
+          description: Local "sticky" marker; pinned observations sort first
+        duplicate_count:
+          type: integer
+        last_seen_at:
+          type: string
+        expires_at:
+          type: string
+        tool_name:
+          type: string
         created_at:
           type: string
         updated_at:
           type: string
+    Relation:
+      type: object
+      required: [id, src_obs_id, dst_obs_id, relation, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        src_obs_id:
+          type: integer
+          format: int64
+        dst_obs_id:
+          type: integer
+          format: int64
+        relation:
+          type: string
+          description: Relation type (extracted, inferred, relates_to, supports, conflicts_with)
+        confidence:
+          type: number
+          format: double
+          description: 0..1 confidence; absent when unscored
+        reason:
+          type: string
+        created_at:
+          type: string
+    Governance:
+      type: object
+      required: [id, owner, visibility, status, revision_count, retrieval_usage, versions]
+      properties:
+        id:
+          type: integer
+          format: int64
+        owner:
+          type: string
+        visibility:
+          type: string
+          enum: [private, team, restricted, agent]
+        status:
+          type: string
+          enum: [active, superseded, archived]
+        revision_count:
+          type: integer
+        retrieval_usage:
+          type: integer
+        versions:
+          type: array
+          description: Append-only content history; the latest revision is the live content
+          items:
+            type: object
+            required: [revision, content, created_at]
+            properties:
+              revision:
+                type: integer
+              content:
+                type: string
+              created_at:
+                type: string
+        grants:
+          type: array
+          description: ACL grants (restricted/agent visibility)
+          items:
+            type: object
+            required: [grantee, grant_type]
+            properties:
+              grantee:
+                type: string
+              grant_type:
+                type: string
+        restricted_no_grants:
+          type: boolean
+          description: True when visibility is restricted and no ACL grants exist (owner-only)
     ObservationInput:
       type: object
       required: [title, type, content, session_id]

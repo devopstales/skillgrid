@@ -94,12 +94,23 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /observations/passive", s.requireWriteAuth(s.handleObservationPassive))
 	s.mux.HandleFunc("GET /observations/recent", s.handleObservationsRecent)
 	s.mux.HandleFunc("GET /observations", s.handleObservationsList)
+	// P4 Memory entry: open read of a single observation (full content, same
+	// shape as mem_get_observation).
+	s.mux.HandleFunc("GET /observations/{id}", s.handleObservationGet)
 	s.mux.HandleFunc("GET /search", s.handleSearch)
 	s.mux.HandleFunc("POST /prompts", s.requireWriteAuth(s.handlePromptCreate))
 
 	s.mux.HandleFunc("GET /memory/timeline", s.handleMemoryTimeline)
 	s.mux.HandleFunc("PATCH /memory/observations/{id}", s.requireWriteAuth(s.handleObservationUpdate))
 	s.mux.HandleFunc("DELETE /memory/observations/{id}", s.requireWriteAuth(s.handleObservationDelete))
+	// P4 Memory entry: pin/unpin are write-gated (idempotent); governance
+	// mutations (share/status) + the governed-asset view (governance) are
+	// write-gated too, except the governance read which is open.
+	s.mux.HandleFunc("POST /memory/observations/{id}/pin", s.requireWriteAuth(s.handleObservationPin))
+	s.mux.HandleFunc("POST /memory/observations/{id}/unpin", s.requireWriteAuth(s.handleObservationUnpin))
+	s.mux.HandleFunc("POST /memory/observations/{id}/share", s.requireWriteAuth(s.handleObservationShare))
+	s.mux.HandleFunc("POST /memory/observations/{id}/status", s.requireWriteAuth(s.handleObservationStatus))
+	s.mux.HandleFunc("GET /memory/observations/{id}/governance", s.handleObservationGovernance)
 	s.mux.HandleFunc("GET /memory/reviews", s.handleMemoryReviews)
 	s.mux.HandleFunc("POST /memory/reviews/{id}", s.requireWriteAuth(s.handleMemoryReviewMark))
 	s.mux.HandleFunc("POST /memory/relations", s.requireWriteAuth(s.handleRelationCreate))
@@ -601,6 +612,192 @@ func (s *Server) handleObservationDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true, "hard": hard})
+}
+
+// obsIDFromPath parses the {id} path segment; 400 on a non-integer id.
+func obsIDFromPath(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "id must be an integer")
+		return 0, false
+	}
+	return id, true
+}
+
+// handleObservationGet is the open read of a single observation (P4 Memory
+// detail pane). Returns the full, untruncated observation in the same shape as
+// mem_get_observation; 404 for an unknown id.
+func (s *Server) handleObservationGet(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	id, ok := obsIDFromPath(w, r)
+	if !ok {
+		return
+	}
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	defer cleanup()
+	obs, err := h.Memory().Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, obs)
+}
+
+// handleObservationPin / handleObservationUnpin toggle the local "sticky"
+// marker. Both are idempotent (pin an already-pinned / unpin a non-pinned
+// observation returns 200, service-level behavior preserved).
+func (s *Server) handleObservationPin(w http.ResponseWriter, r *http.Request) {
+	s.handleObservationPinUnpin(w, r, true)
+}
+
+func (s *Server) handleObservationUnpin(w http.ResponseWriter, r *http.Request) {
+	s.handleObservationPinUnpin(w, r, false)
+}
+
+func (s *Server) handleObservationPinUnpin(w http.ResponseWriter, r *http.Request, pin bool) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	id, ok := obsIDFromPath(w, r)
+	if !ok {
+		return
+	}
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	defer cleanup()
+	var (
+		e error
+		m *memory.Service = h.Memory()
+	)
+	if pin {
+		e = m.Pin(r.Context(), id)
+	} else {
+		e = m.Unpin(r.Context(), id)
+	}
+	if e != nil {
+		writeError(w, http.StatusNotFound, e.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "pinned": pin})
+}
+
+// shareBody is the body for POST /memory/observations/{id}/share.
+type shareBody struct {
+	Visibility string   `json:"visibility"`
+	Grants     []string `json:"grants,omitempty"`
+}
+
+// handleObservationShare widens an observation's visibility (013 governance).
+// Idempotent; an unknown visibility target → 400, leaving visibility unchanged.
+func (s *Server) handleObservationShare(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	id, ok := obsIDFromPath(w, r)
+	if !ok {
+		return
+	}
+	var in shareBody
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	defer cleanup()
+	if err := h.Memory().Share(r.Context(), id, memory.ShareInput{Visibility: in.Visibility, Grants: in.Grants}); err != nil {
+		if strings.Contains(err.Error(), "invalid share target") {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "visibility": in.Visibility})
+}
+
+// statusBody is the body for POST /memory/observations/{id}/status.
+type statusBody struct {
+	Status string `json:"status"`
+}
+
+// handleObservationStatus sets an observation's lifecycle status explicitly
+// (active|superseded|archived). Unknown status → 400.
+func (s *Server) handleObservationStatus(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	id, ok := obsIDFromPath(w, r)
+	if !ok {
+		return
+	}
+	var in statusBody
+	if err := decodeJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	defer cleanup()
+	if err := h.Memory().SetStatus(r.Context(), id, in.Status); err != nil {
+		if strings.Contains(err.Error(), "invalid status") {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": in.Status})
+}
+
+// handleObservationGovernance is the open read of the governed-asset view
+// (owner, append-only version history, status, retrieval usage, visibility,
+// ACL grants). This is the data behind the P4 governance widgets.
+func (s *Server) handleObservationGovernance(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	id, ok := obsIDFromPath(w, r)
+	if !ok {
+		return
+	}
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	defer cleanup()
+	g, err := h.Memory().Governance(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, g)
 }
 
 func (s *Server) handleMemoryReviews(w http.ResponseWriter, r *http.Request) {

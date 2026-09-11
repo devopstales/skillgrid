@@ -1,6 +1,6 @@
 # Tasks: 009-web-admin-dashboard
 
-> **STATUS:** `in-progress` (2026-09-11) — 3/6 steps PASS (01-dashboard-shell, 02-tracker-tab, 03-docs-viewer)
+> **STATUS:** `in-progress` (2026-09-11) — 4/6 steps PASS (01-dashboard-shell, 02-tracker-tab, 03-docs-viewer, 04-memory-tab)
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-execution (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax.
 >
@@ -84,7 +84,7 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 
 ```yaml
 phase: spec
-current_step: 04-memory-tab
+current_step: 05-code-tab
 status: in_progress
 updated: 2026-09-11T00:00:00Z
 ```
@@ -385,14 +385,14 @@ The Memory menu entry is a control panel (browser + governance over 013 data), b
 
 This step is done only when:
 
-- [ ] Observation detail + pin/unpin endpoints covered by integration tests
-- [ ] Memory search/detail/actions + governance views work in-browser (placeholders when 013 absent)
-- [ ] `openapi.yaml` documents the memory routes
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-04` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step already PASS / PASS WITH WARNINGS (01; 013 is a soft dep — its absence is a forward-compat state, not a block)
-- [ ] No Global Constraint violated
+- [x] Observation detail + pin/unpin endpoints covered by integration tests
+- [x] Memory search/detail/actions + governance views work in-browser (placeholders when 013 absent)
+- [x] `openapi.yaml` documents the memory routes
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-04` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step already PASS / PASS WITH WARNINGS (01; 013 is a soft dep — its absence is a forward-compat state, not a block)
+- [x] No Global Constraint violated
 
 > Depends on: 01-dashboard-shell, (soft: 013-mnemonic-layered-memory-governance)
 
@@ -409,69 +409,72 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 04.1 `[RED]` Threat: Authz — pin/unpin write-gated, read routes open
-  - [ ] 04.1.a Write failing test: with `SKILLGRID_HTTP_TOKEN` set, `POST /memory/observations/{id}/pin` without token → 401; with token → 200. `GET /observations/{id}` without token → 200 (open read).
-  - [ ] 04.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_Authz` — Expected: FAIL
-  - [ ] 04.1.c Minimal implementation: add `POST /memory/observations/{id}/pin` and `POST /memory/observations/{id}/unpin` routes with `requireWriteAuth`; add `GET /observations/{id}` route open (via `memory.Get`).
-  - [ ] 04.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_Authz` — Expected: PASS
-  - [ ] 04.1.e Commit — `feat(http): observation detail + pin/unpin routes with authz`
-- [ ] 04.2 `[RED]` GET /observations/{id} returns full untruncated content; 404 for unknown id
-  - [ ] 04.2.a Write failing test: save an observation, `GET /observations/{id}` returns the full content (same shape as `mem_get_observation`); unknown id → 404.
-  - [ ] 04.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_ObservationDetail` — Expected: FAIL
-  - [ ] 04.2.c Minimal implementation: wire `memory.Get` to the handler.
-  - [ ] 04.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_ObservationDetail` — Expected: PASS
-  - [ ] 04.2.e Commit — `feat(http): GET /observations/{id} returns full content`
-- [ ] 04.3 `[AFK]` Pin/unpin idempotent and reflected in GET /observations ordering — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_PinUnpin` — Expected: PASS
-- [ ] 04.4 `[AFK]` Memory menu entry: search box (debounced), results list, click → detail pane — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_MemorySearch` — Expected: PASS
-- [ ] 04.5 `[AFK]` Memory menu entry: pin/unpin + soft-delete actions with confirmation — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_MemoryActions` — Expected: PASS
-- [ ] 04.6 `[AFK]` Memory menu entry: relation drill-down with confidence badges — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_Relations` — Expected: PASS
-- [ ] 04.7 `[AFK]` Memory menu entry: query-first with suggested prompts (empty state) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_SuggestedPrompts` — Expected: PASS
-- [ ] 04.8 `[AFK]` Show-numbers table twin on every data widget (baseline interaction) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_ShowNumbers` — Expected: PASS
-- [ ] 04.9 `[AFK]` Web-cache view preserved (moved into Memory sub-section) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_WebCache` — Expected: PASS
-- [ ] 04.10 `[RED]` Threat: Governance mutation / soft-dep — write-gated edit/share/status
-  - [ ] 04.10.a Write failing test: with `SKILLGRID_HTTP_TOKEN` set, the in-place edit / explicit share / status-change calls without a token receive 401; with token → 200.
-  - [ ] 04.10.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_GovernanceWriteGated` — Expected: FAIL
-  - [ ] 04.10.c Minimal implementation: governance mutation handlers in `app.js` attach the bearer token (existing write-auth path).
-  - [ ] 04.10.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_GovernanceWriteGated` — Expected: PASS
-  - [ ] 04.10.e Commit — `feat(ui): governance edit/share/status are write-gated`
-- [ ] 04.11 `[RED]` Threat: Governance mutation — in-place edit appends a 013 version (re-readable, not overwritten)
-  - [ ] 04.11.a Write failing test: edit an L1–L3 atom; re-fetch → new content current AND prior content recoverable in version history.
-  - [ ] 04.11.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_EditAppendsVersion` — Expected: FAIL
-  - [ ] 04.11.c Minimal implementation: in-place edit calls the 013 version-appending update; detail pane renders version history.
-  - [ ] 04.11.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_EditAppendsVersion` — Expected: PASS
-  - [ ] 04.11.e Commit — `feat(ui): in-place edit appends a recoverable 013 version`
-- [ ] 04.12 `[RED]` Threat: Governance mutation — share idempotent + 400 on unknown target
-  - [ ] 04.12.a Write failing test: share to a valid visibility → 200 and idempotent re-share; share to unknown target → 400.
-  - [ ] 04.12.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_Share` — Expected: FAIL
-  - [ ] 04.12.c Minimal implementation: explicit share control calls `mem_share` (write-gated); render 400 reason for unknown targets.
-  - [ ] 04.12.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_Share` — Expected: PASS
-  - [ ] 04.12.e Commit — `feat(ui): explicit share (idempotent, 400 on unknown target)`
-- [ ] 04.13 `[RED]` Threat: soft-dep — with 013 absent, every governance/layer view renders a forward-compat placeholder; the entry stays interactive
-  - [ ] 04.13.a Write failing test: against a pre-013 store, asset library / drill-down / share / edit / status / loadout render labeled collapsed placeholders + flat view; search/detail/actions stay interactive; a missing 013 field kills that widget only.
-  - [ ] 04.13.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_ForwardCompatPlaceholder` — Expected: FAIL
-  - [ ] 04.13.c Minimal implementation: detect absent 013 fields; render placeholder + flat view; keep entry interactive.
-  - [ ] 04.13.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_ForwardCompatPlaceholder` — Expected: PASS
-  - [ ] 04.13.e Commit — `feat(ui): forward-compat placeholder when 013 absent`
-- [ ] 04.14 `[AFK]` Asset library (owner, version count, status, usage, visibility badge) with search + table twin — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_AssetLibrary` — Expected: PASS
-- [ ] 04.15 `[AFK]` Layer drill-down — L0→L1→L2→L3 chain with per-layer provenance, lazy-loaded per layer; distilled atoms link back to L0 — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_LayerDrilldown` — Expected: PASS
-- [ ] 04.16 `[AFK]` Explicit share control + ACL editor for `restricted` (explicit click, never default) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_ShareControl` — Expected: PASS
-- [ ] 04.17 `[AFK]` Review/status visible and changeable (`active`/`superseded`/`archived`) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_ReviewStatus` — Expected: PASS
-- [ ] 04.18 `[AFK]` Read-only agent loadout panel (visibility=`agent` bindings) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_Loadout` — Expected: PASS
-- [ ] 04.19 `[AFK]` openapi.yaml documents the memory routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_OpenAPI` — Expected: PASS
+- [x] 04.1 `[RED]` Threat: Authz — pin/unpin write-gated, read routes open
+  - [x] 04.1.a Write failing test: with `SKILLGRID_HTTP_TOKEN` set, `POST /memory/observations/{id}/pin` without token → 401; with token → 200. `GET /observations/{id}` without token → 200 (open read).
+  - [x] 04.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_Authz` — Expected: FAIL
+  - [x] 04.1.c Minimal implementation: add `POST /memory/observations/{id}/pin` and `POST /memory/observations/{id}/unpin` routes with `requireWriteAuth`; add `GET /observations/{id}` route open (via `memory.Get`).
+  - [x] 04.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_Authz` — Expected: PASS
+  - [x] 04.1.e Commit — `feat(http): observation detail + pin/unpin routes with authz`
+- [x] 04.2 `[RED]` GET /observations/{id} returns full untruncated content; 404 for unknown id
+  - [x] 04.2.a Write failing test: save an observation, `GET /observations/{id}` returns the full content (same shape as `mem_get_observation`); unknown id → 404.
+  - [x] 04.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_ObservationDetail` — Expected: FAIL
+  - [x] 04.2.c Minimal implementation: wire `memory.Get` to the handler.
+  - [x] 04.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_ObservationDetail` — Expected: PASS
+  - [x] 04.2.e Commit — `feat(http): GET /observations/{id} returns full content`
+- [x] 04.3 `[AFK]` Pin/unpin idempotent and reflected in GET /observations ordering — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_PinUnpin` — Expected: PASS
+- [x] 04.4 `[AFK]` Memory menu entry: search box (debounced), results list, click → detail pane — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_MemorySearch` — Expected: PASS
+- [x] 04.5 `[AFK]` Memory menu entry: pin/unpin + soft-delete actions with confirmation — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_MemoryActions` — Expected: PASS
+- [x] 04.6 `[AFK]` Memory menu entry: relation drill-down with confidence badges — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_Relations` — Expected: PASS
+- [x] 04.7 `[AFK]` Memory menu entry: query-first with suggested prompts (empty state) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_SuggestedPrompts` — Expected: PASS
+- [x] 04.8 `[AFK]` Show-numbers table twin on every data widget (baseline interaction) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_ShowNumbers` — Expected: PASS
+- [x] 04.9 `[AFK]` Web-cache view preserved (moved into Memory sub-section) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_WebCache` — Expected: PASS
+- [x] 04.10 `[RED]` Threat: Governance mutation / soft-dep — write-gated edit/share/status
+  - [x] 04.10.a Write failing test: with `SKILLGRID_HTTP_TOKEN` set, the in-place edit / explicit share / status-change calls without a token receive 401; with token → 200.
+  - [x] 04.10.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_GovernanceWriteGated` — Expected: FAIL
+  - [x] 04.10.c Minimal implementation: governance mutation handlers in `app.js` attach the bearer token (existing write-auth path).
+  - [x] 04.10.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_GovernanceWriteGated` — Expected: PASS
+  - [x] 04.10.e Commit — `feat(ui): governance edit/share/status are write-gated`
+- [x] 04.11 `[RED]` Threat: Governance mutation — in-place edit appends a 013 version (re-readable, not overwritten)
+  - [x] 04.11.a Write failing test: edit an L1–L3 atom; re-fetch → new content current AND prior content recoverable in version history.
+  - [x] 04.11.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_EditAppendsVersion` — Expected: FAIL
+  - [x] 04.11.c Minimal implementation: in-place edit calls the 013 version-appending update; detail pane renders version history.
+  - [x] 04.11.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_EditAppendsVersion` — Expected: PASS
+  - [x] 04.11.e Commit — `feat(ui): in-place edit appends a recoverable 013 version`
+- [x] 04.12 `[RED]` Threat: Governance mutation — share idempotent + 400 on unknown target
+  - [x] 04.12.a Write failing test: share to a valid visibility → 200 and idempotent re-share; share to unknown target → 400.
+  - [x] 04.12.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_Share` — Expected: FAIL
+  - [x] 04.12.c Minimal implementation: explicit share control calls `mem_share` (write-gated); render 400 reason for unknown targets.
+  - [x] 04.12.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_Share` — Expected: PASS
+  - [x] 04.12.e Commit — `feat(ui): explicit share (idempotent, 400 on unknown target)`
+- [x] 04.13 `[RED]` Threat: soft-dep — with 013 absent, every governance/layer view renders a forward-compat placeholder; the entry stays interactive
+  - [x] 04.13.a Write failing test: against a pre-013 store, asset library / drill-down / share / edit / status / loadout render labeled collapsed placeholders + flat view; search/detail/actions stay interactive; a missing 013 field kills that widget only.
+  - [x] 04.13.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_ForwardCompatPlaceholder` — Expected: FAIL
+  - [x] 04.13.c Minimal implementation: detect absent 013 fields; render placeholder + flat view; keep entry interactive.
+  - [x] 04.13.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_ForwardCompatPlaceholder` — Expected: PASS
+  - [x] 04.13.e Commit — `feat(ui): forward-compat placeholder when 013 absent`
+- [x] 04.14 `[AFK]` Asset library (owner, version count, status, usage, visibility badge) with search + table twin — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_AssetLibrary` — Expected: PASS
+- [x] 04.15 `[AFK]` Layer drill-down — L0→L1→L2→L3 chain with per-layer provenance, lazy-loaded per layer; distilled atoms link back to L0 — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_LayerDrilldown` — Expected: PASS
+- [x] 04.16 `[AFK]` Explicit share control + ACL editor for `restricted` (explicit click, never default) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_ShareControl` — Expected: PASS
+- [x] 04.17 `[AFK]` Review/status visible and changeable (`active`/`superseded`/`archived`) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_ReviewStatus` — Expected: PASS
+- [x] 04.18 `[AFK]` Read-only agent loadout panel (visibility=`agent` bindings) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_Loadout` — Expected: PASS
+- [x] 04.19 `[AFK]` openapi.yaml documents the memory routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_OpenAPI` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_` | PASS | | |
-| Acceptance `@step-04` / `@p0` | manual smoke: `skillgrid serve` + browser — search/detail/actions + governance round-trips (or placeholders on pre-013) | PASS | | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` | PASS | | |
-| Rollback boundary | `git revert` + `go test ./...` | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test (backend) | `go test ./skillgrid-cli/internal/mnemonic/integration/... -run TestStep04_` | PASS | PASS (6/6, 2026-09-11) | `step04_test.go`: Authz, ObservationDetail, PinUnpin, GovernanceWriteGated, Share, EditAppendsVersion — RED→GREEN (routes 404/405 before, 200/400/401 after) |
+| Focused test (UI) | `go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep04_` | PASS | PASS (16/16, 2026-09-11) | `memory_ui_test.go`: MemorySearch, MemoryActions, Relations, SuggestedPrompts, ShowNumbers, WebCache, GovernanceWriteGated, EditAppendsVersion, Share, ForwardCompatPlaceholder, AssetLibrary, LayerDrilldown, ShareControl, ReviewStatus, Loadout, OpenAPI |
+| Acceptance `@step-04` / `@p0` | manual smoke: `skillgrid serve` + headless Chromium — search→detail→actions + governance (013 step-01 present) + L0–L3/loadout placeholders | PASS | PASS (2026-09-11) | Live: search "e" → 8 `.mem-item` rows; detail pane full content (mdToHtml); Pin/Edit/Delete/Share/Status controls present; show-numbers toggle; layer-drill-down + agent-loadout render labeled placeholders; no page errors. Fixed a `memUrl` double-`?` bug (paths with their own query string 400'd "project is required") |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + `go build ./...` | PASS | PASS (2026-09-11) | full http pkg + integration TestStep04 green; `node --check app.js` clean; `gofmt` clean |
+| Rollback boundary | `git revert` + `go test ./...` | PASS | N/A (additive) | new `memory_ui_test.go` + `step04_test.go` + additive server routes + app.js/app.css/index.html/openapi; revert restores P3 shell |
+| Global Constraints | — | held | held | 013 soft-dep honored: step-01 governance renders real data (owner/visibility/status/usage/version/share all landed), L0–L3 layering + agent loadout render forward-compat placeholders; per-widget isolation (a failed widget shows its own placeholder, entry stays interactive); vanilla UI, no CDN; MCP surface untouched |
+
+Note on 013: change 013 (mnemonic-layered-memory-governance) step-01 is **present** in this repo (the data model has owner/visibility/status/retrieval_usage/pinned + `observation_versions`/`acl_grants`; `memory.Service` has `Share`/`AppendVersion`/`SetStatus`/`Governance`; MCP has `mem_share`/`mem_governance`/`mem_pin`). So P4 renders the real governance widgets (asset library, share, in-place edit + version history, review/status) and reserves forward-compat placeholders only for the not-yet-landed L0→L3 layering + agent loadout. P4 added only thin HTTP routes over the existing service methods — no change to 013's data model.
 
 ### Commit
 

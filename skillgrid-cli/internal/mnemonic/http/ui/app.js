@@ -7,12 +7,11 @@
 const $ = (s) => document.querySelector(s);
 
 const STUBS = {
-  memory: { phase: "P4", title: "Memory", body: "Search, observation detail, pin/unpin/delete, plus governance views." },
   code: { phase: "P5", title: "Code", body: "Index status, freshness banner, BM25 search with source view." },
   sessions: { phase: "P6", title: "Sessions", body: "Session list with titles, recent context, and summaries." },
 };
 
-const LIVE = ["welcome", "tracker", "docs"];
+const LIVE = ["welcome", "tracker", "docs", "memory"];
 
 const ROUTES = ["welcome", "tracker", "docs", "memory", "code", "sessions", "swagger"];
 
@@ -105,6 +104,15 @@ function render() {
     stub.hidden = false;
     stub.hidden = false;
     renderDocs(stub);
+    return;
+  }
+  if (route === "memory") {
+    stub.hidden = false;
+    // Defer to a microtask so the initial load runs AFTER the top-level
+    // memory consts (MEM_VISIBILITIES/…) are initialized — renderMemory's
+    // synchronous prefix would otherwise throw a TDZ ReferenceError.
+    Promise.resolve().then(() => renderMemory(stub));
+    ensureProjects();
     return;
   }
 }
@@ -902,4 +910,633 @@ function mdToHtml(md) {
     out.push(`<p>${buf.map(mdInline).join("<br>")}</p>`);
   }
   return out.join("\n");
+}
+
+/* Memory entry (P4) — a control panel over Mnemonic observations: a
+ * master-detail split (search/results on the left, a governance detail
+ * pane on the right). Mirrors the tracker entry's structure (async entry,
+ * state object, per-widget render fns, bind fns) and reuses the .trk-*
+ * visual language. Every governance widget is isolated: a failed/absent
+ * 013 field kills that widget only, never the search or the pane. */
+const MEM_VISIBILITIES = ["private", "team", "restricted", "agent"];
+const MEM_STATUSES = ["active", "superseded", "archived"];
+const MEM_WEB_SOURCES = ["context7", "exa", "deepwiki", "fetch", "manual"];
+
+let mem = {
+  query: "", results: [], recent: null, current: null, governance: null,
+  webQuery: "", web: null, webStatus: null,
+  view: "search", // "search" | "web"
+  showNumbers: {},
+  _timer: null,
+};
+
+function memToken() {
+  // Write routes are gated by SKILLGRID_HTTP_TOKEN; the dashboard carries the
+  // bearer token in localStorage (set in Settings, P5+). Absent → no header,
+  // which the server accepts when no token is configured.
+  return localStorage.getItem("sgmn-token") || "";
+}
+
+function memWriteHeaders() {
+  const h = { Accept: "application/json", "Content-Type": "application/json" };
+  if (memToken()) h["Authorization"] = "Bearer " + memToken();
+  return h;
+}
+
+// memWrite is the token-attaching fetch for write-gated memory routes
+// (pin/unpin/share/status/PATCH/DELETE). Mirrors trackerFetch: parses the
+// body, throws an Error with .status on !ok so callers can surface 400/401.
+async function memWrite(url, opts) {
+  const o = Object.assign({ method: "POST" }, opts || {});
+  o.headers = Object.assign(memWriteHeaders(), o.headers || {});
+  const r = await fetch(url, o);
+  const text = await r.text();
+  let body = null;
+  try { body = JSON.parse(text); } catch { body = { error: text }; }
+  if (!r.ok) {
+    const err = new Error((body && body.error) || `${r.status} ${r.statusText}`);
+    err.status = r.status;
+    throw err;
+  }
+  return body;
+}
+
+// memUrl appends the project param to a memory route (the project var is the
+// selected store, same source the tracker reads via ensureProjects). The path
+// may already carry its own query string (e.g. /search?query=…&limit=…), so
+// use & when one is present — a second ? would 400 ("project is required").
+function memUrl(path) {
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}project=${encodeURIComponent(project || "")}`;
+}
+
+async function renderMemory(box) {
+  box.innerHTML =
+    `<div class="mem-page"><header class="mem-head"><h1>Memory</h1>` +
+    `<p class="muted">Search observations, open the detail pane, and run the 013 governance controls (pin, share, status, in-place edit).</p></header>` +
+    `<div class="mem-top">` +
+    `<div class="mem-viewtabs" role="group" aria-label="Memory view">` +
+    `<button type="button" data-memview="search" class="mem-view-tab${mem.view === "search" ? " active" : ""}">Observations</button>` +
+    `<button type="button" data-memview="web" class="mem-view-tab${mem.view === "web" ? " active" : ""}">Web cache</button>` +
+    `</div>` +
+    `<p class="mem-source" id="mem-source"></p>` +
+    `</div>` +
+    `<div class="mem-body" id="mem-body"><div class="mem-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading memory…</div></div></div>`;
+  const body = box.querySelector("#mem-body");
+  body.querySelectorAll(".mem-view-tab").forEach((b) =>
+    b.addEventListener("click", () => { mem.view = b.dataset.memview; renderMemory(box); }));
+  if (mem.view === "web") { memRenderWeb(box); return; }
+  memRenderMain(box);
+}
+
+async function memRenderMain(box) {
+  const body = box.querySelector("#mem-body");
+  const currentId = mem.current ? mem.current.id : null;
+  body.innerHTML =
+    `<div class="mem-grid">` +
+    `<section class="mem-search-col" aria-label="Search">` +
+    `<div class="mem-search-wrap">` +
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>` +
+    `<input type="search" id="mem-q" value="${esc(mem.query)}" placeholder="Search observations by title, type, content..." aria-label="Search observations"></div>` +
+    `<div class="mem-colhead"><span id="mem-count">0</span>` +
+    `<button type="button" id="mem-raw-toggle" class="mem-numbtn" aria-pressed="false">show numbers</button></div>` +
+    `<div id="mem-results" class="mem-results"></div>` +
+    `<pre class="mem-raw" id="mem-raw" hidden></pre>` +
+    `</section>` +
+    `<section class="mem-detail" id="mem-detail" aria-label="Detail">` +
+    (currentId ? `<div class="mem-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading detail…</div>` : memEmpty()) +
+    `</section>` +
+    `</div>`;
+  const q = body.querySelector("#mem-q");
+  q.addEventListener("input", () => {
+    mem.query = q.value;
+    if (mem._timer) clearTimeout(mem._timer);
+    mem._timer = setTimeout(() => memLoad(box), 300);
+  });
+  body.querySelector("#mem-raw-toggle").addEventListener("click", () =>
+    showNumbers(body.querySelector("#mem-results"),
+      () => ({ observations: mem.results, recent: mem.recent }),
+      body.querySelector("#mem-raw"), body.querySelector("#mem-raw-toggle")));
+  // Seed the results: cached recent list when the query is empty, else search.
+  await memLoad(box);
+  if (currentId) memOpenDetail(box, currentId);
+}
+
+// memLoad refetches the left column (search if a query is set, otherwise the
+// recent list) and re-renders the rows. A search failure is an isolated
+// widget error in the results box — the detail pane stays interactive.
+async function memLoad(box) {
+  const results = (box && box.querySelector("#mem-results")) || document.querySelector("#mem-results");
+  const count = (box && box.querySelector("#mem-count")) || document.querySelector("#mem-count");
+  if (!results) return;
+  try {
+    if (mem.query.trim()) {
+      const data = await api(memUrl(`/search?query=${encodeURIComponent(mem.query.trim())}&match_mode=any&limit=20`));
+      mem.results = data.observations || [];
+    } else {
+      let recent = mem.recent;
+      if (!recent) {
+        const data = await api(memUrl("/observations?limit=50"));
+        recent = data.observations || [];
+        mem.recent = recent;
+      }
+      mem.results = recent;
+    }
+    results.innerHTML = memResultsHtml();
+    if (count) count.textContent = String(mem.results.length);
+    memBindResults(box);
+  } catch (e) {
+    results.innerHTML =
+      `<div class="trk-empty-state"><p class="trk-empty-title">Search failed</p>` +
+      `<p class="muted">${esc(e.message)}</p></div>`;
+    if (count) count.textContent = "–";
+  }
+}
+
+function memResultsHtml() {
+  if (!mem.results.length) {
+    if (mem.query.trim()) {
+      return `<div class="trk-empty-state"><p class="trk-empty-title">No observations match ${esc(mem.query.trim())}</p>` +
+        `<p class="muted">Try a different term, or clear the search to see recent memory.</p></div>`;
+    }
+    return memEmpty();
+  }
+  return `<div class="mem-list" id="mem-list">${mem.results.map(memRow).join("")}</div>`;
+}
+
+// memRow is one results row (the asset-library twin): id, title, type badge,
+// visibility badge, status, owner, retrieval-usage, and a pinned marker.
+function memRow(o) {
+  const type = o.type || "—";
+  const vis = o.visibility || "private";
+  const status = o.status || "active";
+  const pinned = o.pinned ? `<span class="mem-pin" title="Pinned" aria-label="Pinned">📌</span>` : "";
+  const usage = o.retrieval_usage ? `<span class="mem-usage" title="Retrieval usage">↻ ${esc(o.retrieval_usage)}</span>` : "";
+  const owner = o.owner ? `<span class="mem-owner" title="Owner">${esc(o.owner)}</span>` : "";
+  const revs = o.revision_count ? `<span class="mem-revs" title="Revisions">v${esc(o.revision_count)}</span>` : "";
+  return `<div class="mem-item" data-id="${esc(o.id)}" role="button" tabindex="0">` +
+    `<span class="mem-item-id">${pinned}<span class="mem-mono">${esc(o.id)}</span></span>` +
+    `<span class="mem-item-title">${esc(o.title || "(untitled)")}</span>` +
+    `<span class="mem-item-badges">` +
+    `<span class="mem-badge mem-type-${esc(type)}">${esc(type)}</span>` +
+    `<span class="mem-badge mem-vis-${esc(vis)}">${esc(vis)}</span>` +
+    `<span class="mem-badge mem-status-${esc(status)}">${esc(status)}</span>` +
+    `</span>` +
+    `<span class="mem-item-foot">${owner}${usage}${revs}</span>` +
+    `</div>`;
+}
+
+function memEmpty() {
+  const prompts = memSuggestedPromptsHtml();
+  return `<div class="mem-empty">` +
+    `<p class="trk-empty-title">Nothing selected</p>` +
+    `<p class="muted">Search above, or start from a recent session prompt.</p>` +
+    prompts +
+    `</div>`;
+}
+
+// memSuggestedPromptsHtml turns recent session prompts (GET /context) into
+// clickable chips that fill the search box — so the empty state is never blank.
+function memSuggestedPromptsHtml() {
+  const sessions = (typeof memContextCache !== "undefined" && memContextCache) || [];
+  const chips = sessions
+    .filter((s) => (s.title || s.summary || "").trim())
+    .slice(0, 8)
+    .map((s) => {
+      const label = (s.title || s.summary || "").trim().split("\n")[0].slice(0, 60);
+      return `<button type="button" class="mem-prompt-chip" data-prompt="${esc(label)}">${esc(label)}</button>`;
+    }).join("");
+  if (!chips) return `<p class="muted mem-no-prompts">No recent session prompts yet.</p>`;
+  return `<div class="mem-prompts"><span class="mem-prompts-label">Suggested prompts</span><div class="mem-prompt-list">${chips}</div></div>`;
+}
+
+let memContextCache = [];
+async function memLoadContext(box) {
+  try {
+    const data = await api(memUrl("/context?limit=10"));
+    memContextCache = data.sessions || [];
+  } catch {
+    memContextCache = [];
+  }
+  // Re-render only if the empty-state prompt list is on screen.
+  const empty = (box && box.querySelector("#mem-detail")) || document.querySelector("#mem-detail");
+  if (empty && !mem.current) empty.innerHTML = memEmpty();
+  memBindPrompts(box);
+}
+
+function memBindResults(box) {
+  const scope = box || document;
+  scope.querySelectorAll("#mem-results .mem-item").forEach((el) => {
+    el.addEventListener("click", () => memOpenDetail(scope, el.dataset.id));
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        memOpenDetail(scope, el.dataset.id);
+      }
+    });
+  });
+  memBindPrompts(scope);
+}
+
+function memBindPrompts(box) {
+  const scope = box || document;
+  scope.querySelectorAll(".mem-prompt-chip").forEach((el) =>
+    el.addEventListener("click", () => {
+      const q = scope.querySelector("#mem-q");
+      if (q) q.value = el.dataset.prompt || "";
+      mem.query = q ? q.value : el.dataset.prompt;
+      memLoad(scope);
+      if (q) q.focus();
+    }));
+}
+
+async function memOpenDetail(box, id) {
+  const detail = (box && box.querySelector("#mem-detail")) || document.querySelector("#mem-detail");
+  if (!detail) return;
+  detail.innerHTML = `<div class="mem-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading ${esc(id)}…</div>`;
+  let o;
+  try {
+    o = await api(memUrl(`/observations/${encodeURIComponent(id)}`));
+  } catch (e) {
+    // 404/500: an error message in the pane, dashboard stays interactive.
+    detail.innerHTML =
+      `<div class="mem-detail-error"><p class="trk-empty-title">Could not load observation ${esc(id)}</p>` +
+      `<p class="muted">${esc(e.message)}</p>` +
+      `<button type="button" class="mem-back" data-back>← Back to results</button></div>`;
+    detail.querySelector("[data-back]").addEventListener("click", () => { mem.current = null; memRenderMain(box || document); });
+    return;
+  }
+  mem.current = o;
+  detail.innerHTML = memDetailHtml(o);
+  memBindDetail(box, o);
+  memLoadGovernance(box, o.id);
+  memLoadRelations(box, o.id);
+}
+
+function memDetailHtml(o) {
+  const vis = o.visibility || "private";
+  const status = o.status || "active";
+  const type = o.type || "—";
+  return `<div class="mem-detail-card">` +
+    `<header class="mem-detail-head">` +
+    `<span class="mem-panel-id"><span class="mem-mono">${esc(o.id)}</span>` +
+    `<span class="mem-badge mem-type-${esc(type)}">${esc(type)}</span>` +
+    `<span class="mem-badge mem-vis-${esc(vis)}">${esc(vis)}</span>` +
+    `<span class="mem-badge mem-status-${esc(status)}">${esc(status)}</span>` +
+    (o.pinned ? `<span class="mem-pin" title="Pinned">📌</span>` : "") +
+    `</span>` +
+    `<span class="mem-detail-actions">` +
+    `<span class="muted" id="mem-msg"></span>` +
+    `<button type="button" class="btn" id="mem-pin">${o.pinned ? "Unpin" : "Pin"}</button>` +
+    `<button type="button" class="btn" id="mem-edit">Edit</button>` +
+    `<button type="button" class="btn mem-danger" id="mem-delete">Delete</button>` +
+    `</span></header>` +
+    `<div class="mem-detail-main">` +
+    `<h2>${esc(o.title || "(untitled)")}</h2>` +
+    `<div class="mem-content">${o.content ? mdToHtml(o.content) : `<p class="muted">No content.</p>`}</div>` +
+    `<div id="mem-edit-area" hidden>` +
+    `<textarea id="mem-edit-text" class="mem-edit-text" aria-label="Edit content" rows="8"></textarea>` +
+    `<div class="mem-edit-actions"><button type="button" class="btn" id="mem-save">Save</button>` +
+    `<button type="button" class="mem-back" id="mem-cancel-edit">Cancel</button></div>` +
+    `</div>` +
+    `<dl class="mem-dl">` +
+    (o.session_id ? `<dt>Session</dt><dd class="mem-mono">${esc(o.session_id)}</dd>` : "") +
+    (o.scope ? `<dt>Scope</dt><dd>${esc(o.scope)}</dd>` : "") +
+    (o.topic_key ? `<dt>Topic key</dt><dd class="mem-mono">${esc(o.topic_key)}</dd>` : "") +
+    `<dt>Created</dt><dd>${esc(o.created_at || "—")}</dd>` +
+    `<dt>Updated</dt><dd>${esc(o.updated_at || "—")}</dd>` +
+    `</dl>` +
+    `</div>` +
+    `<aside class="mem-side">` +
+    `<div id="mem-gov"><div class="mem-loading" role="status"><span class="spinner" aria-hidden="true"></span>governance…</div></div>` +
+    `<div id="mem-rels"><div class="mem-loading" role="status"><span class="spinner" aria-hidden="true"></span>relations…</div></div>` +
+    `</aside>` +
+    `</div>`;
+}
+
+function memBindDetail(box, o) {
+  const scope = box || document;
+  const detail = scope.querySelector("#mem-detail");
+  const msg = () => detail.querySelector("#mem-msg");
+  const setMsg = (t) => { const m = msg(); if (m) m.textContent = t; };
+  const pin = detail.querySelector("#mem-pin");
+  if (pin) pin.addEventListener("click", async () => {
+    const on = !o.pinned;
+    try {
+      const verb = on ? "/pin" : "/unpin";
+      const url = memUrl(`/memory/observations/${encodeURIComponent(o.id)}${verb}`);
+      await memWrite(url, { method: "POST" });
+      o.pinned = on;
+      setMsg(on ? "Pinned" : "Unpinned");
+      memRenderMain(scope);      // refresh results (pinned flag)
+      memOpenDetail(scope, o.id); // re-fetch the detail
+    } catch (e) {
+      setMsg(`Failed: ${e.message}`);
+    }
+  });
+  const del = detail.querySelector("#mem-delete");
+  if (del) del.addEventListener("click", async () => {
+    if (!confirm(`Delete observation ${o.id}? This is a soft delete.`)) return;
+    try {
+      await memWrite(memUrl(`/memory/observations/${encodeURIComponent(o.id)}`), { method: "DELETE" });
+      mem.current = null;
+      mem.recent = null;
+      memRenderMain(scope);
+    } catch (e) {
+      setMsg(`Failed: ${e.message}`);
+    }
+  });
+  // In-place edit (04.11): a textarea pre-filled with the content; Save calls
+  // PATCH which appends a 013 version server-side (prior content → governance).
+  const edit = detail.querySelector("#mem-edit");
+  const area = detail.querySelector("#mem-edit-area");
+  const ta = detail.querySelector("#mem-edit-text");
+  if (edit && ta) edit.addEventListener("click", () => {
+    ta.value = o.content || "";
+    area.hidden = false;
+    detail.querySelector(".mem-content").style.display = "none";
+    ta.focus();
+  });
+  const cancel = detail.querySelector("#mem-cancel-edit");
+  if (cancel) cancel.addEventListener("click", () => {
+    area.hidden = true;
+    detail.querySelector(".mem-content").style.display = "";
+  });
+  const save = detail.querySelector("#mem-save");
+  if (save) save.addEventListener("click", async () => {
+    try {
+      await memWrite(memUrl(`/memory/observations/${encodeURIComponent(o.id)}`), {
+        method: "PATCH",
+        body: JSON.stringify({ content: ta.value }),
+      });
+      mem.recent = null;
+      memRenderMain(scope);      // new content is current + version history refreshes
+      memOpenDetail(scope, o.id);
+    } catch (e) {
+      setMsg(`Failed: ${e.message}`);
+    }
+  });
+  memBindGovernance(scope, o);
+}
+
+// ── Governance (013) widgets — each isolated; a failure shows a placeholder
+//    in that widget only. ────────────────────────────────────────────────
+async function memLoadGovernance(box, id) {
+  const gov = (box && box.querySelector("#mem-gov")) || document.querySelector("#mem-gov");
+  if (!gov) return;
+  let g;
+  try {
+    g = await api(memUrl(`/memory/observations/${encodeURIComponent(id)}/governance`));
+  } catch (e) {
+    gov.innerHTML = memPlaceholder("Governance", `unavailable — ${e.message}`);
+    return;
+  }
+  mem.governance = g;
+  gov.innerHTML = memGovernanceHtml(g, id) +
+    `<button type="button" class="mem-numbtn" id="mem-gov-raw">show numbers</button><pre class="mem-raw" id="mem-gov-raw" hidden></pre>`;
+  gov.querySelector("#mem-gov-raw").textContent = JSON.stringify(g, null, 2);
+  showNumbers(gov, () => g, gov.querySelector("#mem-gov-raw"), gov.querySelector("#mem-gov-raw"));
+  memBindGovernance(box, mem.current || { id, visibility: g.visibility, status: g.status });
+}
+
+function memGovernanceHtml(g, id) {
+  const versions = (g.versions || []).slice().reverse();
+  const grants = g.grants || [];
+  return `<div class="mem-gov-card">` +
+    `<h3>Governance</h3>` +
+    `<dl class="mem-dl">` +
+    `<dt>Owner</dt><dd>${esc(g.owner || "—")}</dd>` +
+    `<dt>Status</dt><dd><span class="mem-badge mem-status-${esc(g.status || "active")}">${esc(g.status || "active")}</span></dd>` +
+    `<dt>Revisions</dt><dd>${esc(g.revision_count ?? 0)}</dd>` +
+    `<dt>Retrieval usage</dt><dd>${esc(g.retrieval_usage ?? 0)}</dd>` +
+    (g.restricted_no_grants ? `<dt>ACL</dt><dd class="muted">restricted, owner-only</dd>` : "") +
+    `</dl>` +
+    `<div class="mem-share">` +
+    `<label for="mem-visibility">Visibility</label>` +
+    `<div class="mem-share-row">` +
+    `<select id="mem-visibility" class="project-select" aria-label="Visibility">` +
+    MEM_VISIBILITIES.map((v) => `<option value="${v}"${v === (g.visibility || "private") ? " selected" : ""}>${v}</option>`).join("") +
+    `</select>` +
+    `<button type="button" class="btn" id="mem-share-btn">Share</button>` +
+    `</div>` +
+    (g.visibility === "restricted" ? "" : "") +
+    `<div id="mem-grants" class="mem-grants">${grants.length ? `<span class="muted">Grants: ${grants.map((x) => `<span class="trk-chip">${esc(x.grantee)}${x.grant_type ? ` (${esc(x.grant_type)})` : ""}</span>`).join(" ")}</span>` : `<span class="muted">No ACL grants.</span>`}` +
+    `<input type="text" id="mem-grantee" class="mem-grantee" placeholder="grantee (for restricted)" aria-label="Grantee" hidden>` +
+    `</div>` +
+    `<div class="mem-status-ctrl">` +
+    `<label for="mem-status">Lifecycle status</label>` +
+    `<div class="mem-share-row">` +
+    `<select id="mem-status" class="project-select" aria-label="Status">` +
+    MEM_STATUSES.map((s) => `<option value="${s}"${s === (g.status || "active") ? " selected" : ""}>${s}</option>`).join("") +
+    `</select>` +
+    `<button type="button" class="btn" id="mem-status-btn">Set</button>` +
+    `</div></div>` +
+    `<div class="mem-versions"><h4>Version history</h4>` +
+    (versions.length
+      ? `<ol class="mem-version-list">${versions.map((v) =>
+          `<li class="mem-version"><span class="mem-mono">v${esc(v.revision)}</span>` +
+          `<span class="muted">${esc((v.created_at || "").slice(0, 10))}</span>` +
+          `<span class="mem-version-preview">${esc((v.content || "").replace(/\s+/g, " ").slice(0, 80))}</span></li>`).join("")}</ol>`
+      : `<p class="muted">No prior versions.</p>`) +
+    `</div>` +
+    memPlaceholder("Layer drill-down", "013 L0 → L1 → L2 → L3 layered memory — available when 013 lands; flat pre-013 view shown in the detail pane.") +
+    memPlaceholder("Agent loadout", "Read-only view of visibility=agent bindings — available when 013 lands.") +
+    `</div>`;
+}
+
+function memBindGovernance(box, o) {
+  const scope = box || document;
+  const gov = scope.querySelector("#mem-gov");
+  if (!gov) return;
+  const share = gov.querySelector("#mem-share-btn");
+  const visSel = gov.querySelector("#mem-visibility");
+  const grantee = gov.querySelector("#mem-grantee");
+  // The grantee (ACL) editor is shown for a restricted observation.
+  if (grantee && visSel) grantee.hidden = visSel.value !== "restricted";
+  if (share) share.addEventListener("click", async () => {
+    const visibility = visSel.value;
+    // Explicit click required — never a default. Confirm before changing.
+    if (!confirm(`Change visibility to "${visibility}"?`)) return;
+    const grants = [];
+    if (visibility === "restricted" && grantee && grantee.value.trim()) {
+      grants.push(grantee.value.trim());
+    }
+    try {
+      const res = await memWrite(memUrl(`/memory/observations/${encodeURIComponent(o.id)}/share`), {
+        method: "POST",
+        body: JSON.stringify({ visibility, grants }),
+      });
+      o.visibility = res.visibility || visibility;
+      memLoadGovernance(scope, o.id);
+      memRenderMain(scope); // refresh the results visibility badge
+    } catch (e) {
+      // 400 for an unknown visibility target — render the reason inline.
+      const card = gov.querySelector(".mem-share");
+      if (card) card.insertAdjacentHTML("beforeend", `<p class="mem-share-error">${esc(e.message)}</p>`);
+    }
+  });
+  if (visSel) visSel.addEventListener("change", () => {
+    if (grantee) grantee.hidden = visSel.value !== "restricted";
+  });
+  const setBtn = gov.querySelector("#mem-status-btn");
+  const statusSel = gov.querySelector("#mem-status");
+  if (setBtn) setBtn.addEventListener("click", async () => {
+    try {
+      const res = await memWrite(memUrl(`/memory/observations/${encodeURIComponent(o.id)}/status`), {
+        method: "POST",
+        body: JSON.stringify({ status: statusSel.value }),
+      });
+      o.status = res.status || statusSel.value;
+      memLoadGovernance(scope, o.id);
+      memRenderMain(scope);
+    } catch (e) {
+      const card = gov.querySelector(".mem-status-ctrl");
+      if (card) card.insertAdjacentHTML("beforeend", `<p class="mem-share-error">${esc(e.message)}</p>`);
+    }
+  });
+}
+
+// ── Relations drill-down (04.x) ─────────────────────────────────────────
+async function memLoadRelations(box, id) {
+  const rels = (box && box.querySelector("#mem-rels")) || document.querySelector("#mem-rels");
+  if (!rels) return;
+  let data;
+  try {
+    data = await api(memUrl(`/relations/${encodeURIComponent(id)}`));
+  } catch (e) {
+    rels.innerHTML = memPlaceholder("Relations", `unavailable — ${e.message}`);
+    return;
+  }
+  const list = data.relations || [];
+  rels.innerHTML = `<div class="mem-rels-card"><h3>Relations</h3>` +
+    (list.length
+      ? `<ul class="mem-rel-list">${list.map(memRelRow).join("")}</ul>`
+      : `<p class="muted">No relations.</p>`) +
+    `<button type="button" class="mem-numbtn" id="mem-rel-raw">show numbers</button><pre class="mem-raw" id="mem-rel-raw" hidden></pre>` +
+    `</div>`;
+  rels.querySelector("#mem-rel-raw").textContent = JSON.stringify(data, null, 2);
+  showNumbers(rels, () => data, rels.querySelector("#mem-rel-raw"), rels.querySelector("#mem-rel-raw"));
+  rels.querySelectorAll(".mem-rel").forEach((el) =>
+    el.addEventListener("click", () => {
+      const target = el.dataset.other;
+      if (target) memOpenDetail(box, target);
+    }));
+}
+
+function memRelRow(r) {
+  // Confidence badge: e.g. EXTRACTED 0.9. The relation string is the type.
+  const conf = (r.confidence !== undefined && r.confidence !== null) ? Number(r.confidence) : null;
+  const confBadge = conf !== null
+    ? `<span class="mem-conf" title="Confidence">${conf.toFixed(2)}</span>` : "";
+  const selfId = mem.current ? String(mem.current.id) : "";
+  const other = String(r.src_obs_id) === selfId ? r.dst_obs_id : r.src_obs_id;
+  const dir = String(r.src_obs_id) === selfId ? "→" : "←";
+  return `<li><button type="button" class="mem-rel" data-other="${esc(other)}">` +
+    `<span class="mem-badge mem-rel-type">${esc(r.relation || "related")}</span>` +
+    confBadge +
+    `<span class="mem-mono mem-rel-other">${dir} ${esc(other)}</span>` +
+    (r.reason ? `<span class="muted mem-rel-reason">${esc(r.reason)}</span>` : "") +
+    `</button></li>`;
+}
+
+// ── Web-cache sub-section (04.9) — the old viewer, moved into Memory. ──────
+async function memRenderWeb(box) {
+  const body = box.querySelector("#mem-body");
+  body.innerHTML =
+    `<div class="mem-web">` +
+    `<div class="mem-search-wrap">` +
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>` +
+    `<input type="search" id="mem-web-q" value="${esc(mem.webQuery)}" placeholder="Search cached web research..." aria-label="Search web cache"></div>` +
+    `<div class="mem-colhead"><span id="mem-web-status"></span>` +
+    `<select id="mem-web-src" class="project-select" aria-label="Web source">` +
+    `<option value="">all sources</option>` +
+    MEM_WEB_SOURCES.map((s) => `<option value="${s}">${s}</option>`).join("") +
+    `</select>` +
+    `<button type="button" id="mem-web-raw-toggle" class="mem-numbtn" aria-pressed="false">show numbers</button></div>` +
+    `<div id="mem-web-results" class="mem-results"></div>` +
+    `<pre class="mem-raw" id="mem-web-raw" hidden></pre>` +
+    `</div>`;
+  const q = body.querySelector("#mem-web-q");
+  let timer = null;
+  q.addEventListener("input", () => {
+    mem.webQuery = q.value;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => memLoadWeb(box), 300);
+  });
+  body.querySelector("#mem-web-src").addEventListener("change", () => memLoadWeb(box));
+  body.querySelector("#mem-web-raw-toggle").addEventListener("click", () =>
+    showNumbers(body.querySelector("#mem-web-results"),
+      () => ({ entries: mem.web && mem.web.entries, status: mem.webStatus }),
+      body.querySelector("#mem-web-raw"), body.querySelector("#mem-web-raw-toggle")));
+  memLoadWeb(box);
+}
+
+async function memLoadWeb(box) {
+  const results = (box && box.querySelector("#mem-web-results")) || document.querySelector("#mem-web-results");
+  const status = (box && box.querySelector("#mem-web-status")) || document.querySelector("#mem-web-status");
+  const src = (box && box.querySelector("#mem-web-src")) || document.querySelector("#mem-web-src");
+  // Status is a side channel; its failure must not kill the search widget.
+  (async () => {
+    try {
+      const st = await api(memUrl("/web/status"));
+      mem.webStatus = st;
+      if (status) status.textContent = `${st.total_entries ?? 0} entries cached`;
+    } catch {
+      if (status) status.textContent = "";
+    }
+  })();
+  const q = (mem.webQuery || "").trim();
+  const source = src ? (src.value || "") : "";
+  const qs = `query=${encodeURIComponent(q)}&limit=20${source ? `&source=${encodeURIComponent(source)}` : ""}`;
+  try {
+    const data = await api(memUrl(`/web/search?${qs}`));
+    mem.web = data;
+    const entries = data.entries || [];
+    results.innerHTML = entries.length
+      ? `<div class="mem-web-list">${entries.map(memWebRow).join("")}</div>`
+      : `<div class="trk-empty-state"><p class="trk-empty-title">No cached web entries${q ? ` for ${esc(q)}` : ""}</p></div>`;
+  } catch (e) {
+    results.innerHTML =
+      `<div class="trk-empty-state"><p class="trk-empty-title">Web cache search failed</p>` +
+      `<p class="muted">${esc(e.message)}</p></div>`;
+  }
+}
+
+function memWebRow(e) {
+  return `<div class="mem-web-item">` +
+    `<span class="mem-web-id"><span class="mem-mono">${esc(e.id)}</span>` +
+    (e.source ? `<span class="mem-badge mem-type-${esc(e.source)}">${esc(e.source)}</span>` : "") +
+    `</span>` +
+    `<span class="mem-web-title">${esc(e.title || e.url || "(untitled)")}</span>` +
+    (e.url ? `<span class="mem-web-url mem-mono">${esc(e.url)}</span>` : "") +
+    (e.fetched_at ? `<span class="muted mem-mono">${esc((e.fetched_at || "").slice(0, 10))}</span>` : "") +
+    `</div>`;
+}
+
+// ── Show-numbers / raw-JSON toggle (04.x) ────────────────────────────────
+// showNumbers appends a "show numbers" toggle that reveals the widget's raw
+// JSON in a <pre class="mem-raw">. getData() is called lazily on toggle so the
+// <pre> always reflects current widget state.
+function showNumbers(container, getData, pre, btn) {
+  if (!pre) return;
+  pre.textContent = JSON.stringify(getData(), null, 2);
+  if (btn) {
+    btn.setAttribute("aria-pressed", String(mem.showNumbers[btn.id] || false));
+    btn.onclick = () => {
+      pre.hidden = !pre.hidden;
+      mem.showNumbers[btn.id] = !pre.hidden;
+      btn.setAttribute("aria-pressed", String(!pre.hidden));
+      btn.textContent = pre.hidden ? "show numbers" : "hide numbers";
+      if (!pre.hidden) pre.textContent = JSON.stringify(getData(), null, 2);
+    };
+  }
+}
+
+// memPlaceholder renders a labeled, collapsed box for a 013 feature that has
+// not landed yet (forward-compat: layer drill-down, agent loadout).
+function memPlaceholder(label, detail) {
+  return `<details class="mem-placeholder">` +
+    `<summary>${esc(label)} <span class="muted mem-placeholder-avail">not available yet</span></summary>` +
+    `<p class="muted">${esc(detail || "Available in a later 013 step.")}</p>` +
+    `</details>`;
 }
