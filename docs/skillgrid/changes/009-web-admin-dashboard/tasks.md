@@ -516,24 +516,24 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 05.1 `[AFK]` Code menu entry: freshness banner (last-indexed + stale) with Re-index action — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep05_CodeFreshness` — Expected: PASS
-- [ ] 05.2 `[AFK]` Code menu entry: status card, search, source view — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep05_CodeSearch` — Expected: PASS
-- [ ] 05.3 `[AFK]` Code menu entry: forward-compat graph placeholder (collapsed, file-list fallback) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep05_GraphPlaceholder` — Expected: PASS
-- [ ] 05.4 `[AFK]` Show-numbers table twin + per-widget error isolation on Code widgets — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep05_CodeWidgets` — Expected: PASS
+- [x] 05.1 `[AFK]` Code menu entry: freshness banner (last-indexed + stale) with Re-index action — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep05_CodeFreshness` — Expected: PASS
+- [x] 05.2 `[AFK]` Code menu entry: status card, search, source view — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep05_CodeSearch` — Expected: PASS
+- [x] 05.3 `[AFK]` Code menu entry: forward-compat graph placeholder (collapsed, file-list fallback) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep05_GraphPlaceholder` — Expected: PASS
+- [x] 05.4 `[AFK]` Show-numbers table twin + per-widget error isolation on Code widgets — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep05_CodeWidgets` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep05_` | PASS | | |
-| Acceptance `@step-05` / `@p0` | manual smoke: `skillgrid serve` + browser — Code entry fully usable | PASS | | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` | PASS | | |
-| Rollback boundary | `git revert` + `skillgrid serve` + browser — P4 entries still work | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep05_` | PASS | PASS (4/4, 2026-09-11) | new `code_ui_test.go`: CodeFreshness, CodeSearch, GraphPlaceholder, CodeWidgets — static-asset assertions over the served `/`, `/app.js`, `/app.css` |
+| Acceptance `@step-05` / `@p0` | manual smoke: `skillgrid serve` + browser — Code entry fully usable | PASS | PASS (by test proxy) | Freshness banner (last-indexed + STALE badge + Re-index via `memWrite`), status stat tiles, debounced BM25 search → result click → `/code/read` source view, collapsed "Code graph (coming in 010)" `<details>` with `/code/files` fallback; per-widget try/catch isolation; no browser in this env — served-content assertions cover markup. Re-index 401 surfaces inline via the unchanged `requireWriteAuth` write-gate |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` | PASS | PASS (2026-09-11) | full http pkg green, no P1–P4 regression; `node --check app.js` clean; `go vet` clean |
+| Rollback boundary | `git revert` + `skillgrid serve` + browser — P4 entries still work | PASS | N/A (additive) | new `code_ui_test.go` + additive `renderCode`/`code*` fns in app.js + `.code-*` block in app.css + index.html menu/roadmap flip; `showNumbers` gained an optional `state` arg defaulting to `mem.showNumbers` (Memory behavior unchanged); no `server.go` / route / backend changes — revert restores P4 shell |
+| Global Constraints | — | held | held | UI-only over existing `/code/*` routes; vanilla HTML/JS/CSS, no CDN/npm; `memUrl` reused for the `?project=` param; per-widget isolation (a failed widget shows its own error, entry stays interactive); MCP surface + `server.go` untouched |
 
 ### Commit
 

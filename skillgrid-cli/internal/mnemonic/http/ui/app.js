@@ -7,11 +7,10 @@
 const $ = (s) => document.querySelector(s);
 
 const STUBS = {
-  code: { phase: "P5", title: "Code", body: "Index status, freshness banner, BM25 search with source view." },
   sessions: { phase: "P6", title: "Sessions", body: "Session list with titles, recent context, and summaries." },
 };
 
-const LIVE = ["welcome", "tracker", "docs", "memory"];
+const LIVE = ["welcome", "tracker", "docs", "memory", "code"];
 
 const ROUTES = ["welcome", "tracker", "docs", "memory", "code", "sessions", "swagger"];
 
@@ -112,6 +111,15 @@ function render() {
     // memory consts (MEM_VISIBILITIES/…) are initialized — renderMemory's
     // synchronous prefix would otherwise throw a TDZ ReferenceError.
     Promise.resolve().then(() => renderMemory(stub));
+    ensureProjects();
+    return;
+  }
+  if (route === "code") {
+    stub.hidden = false;
+    // Defer to a microtask so the initial load runs AFTER the top-level
+    // `code` state object is initialized — renderCode's synchronous prefix
+    // would otherwise throw a TDZ ReferenceError (same recurring bug as memory).
+    Promise.resolve().then(() => renderCode(stub));
     ensureProjects();
     return;
   }
@@ -1526,15 +1534,18 @@ function memWebRow(e) {
 // ── Show-numbers / raw-JSON toggle (04.x) ────────────────────────────────
 // showNumbers appends a "show numbers" toggle that reveals the widget's raw
 // JSON in a <pre class="mem-raw">. getData() is called lazily on toggle so the
-// <pre> always reflects current widget state.
-function showNumbers(container, getData, pre, btn) {
+// <pre> always reflects current widget state. The state map (default
+// mem.showNumbers) tracks the toggle per button id; the Code entry passes
+// code.showNumbers so its toggle is independent of the Memory one.
+function showNumbers(container, getData, pre, btn, state) {
   if (!pre) return;
+  const store = state || mem.showNumbers;
   pre.textContent = JSON.stringify(getData(), null, 2);
   if (btn) {
-    btn.setAttribute("aria-pressed", String(mem.showNumbers[btn.id] || false));
+    btn.setAttribute("aria-pressed", String(store[btn.id] || false));
     btn.onclick = () => {
       pre.hidden = !pre.hidden;
-      mem.showNumbers[btn.id] = !pre.hidden;
+      store[btn.id] = !pre.hidden;
       btn.setAttribute("aria-pressed", String(!pre.hidden));
       btn.textContent = pre.hidden ? "show numbers" : "hide numbers";
       if (!pre.hidden) pre.textContent = JSON.stringify(getData(), null, 2);
@@ -1549,4 +1560,239 @@ function memPlaceholder(label, detail) {
     `<summary>${esc(label)} <span class="muted mem-placeholder-avail">not available yet</span></summary>` +
     `<p class="muted">${esc(detail || "Available in a later 013 step.")}</p>` +
     `</details>`;
+}
+
+/* Code entry (P5) — UI-only over the existing /code/* routes (status,
+ * search, read, index, files). No new backend. Mirrors the Memory entry:
+ * an async renderCode with a state object, per-widget fetch fns that isolate
+ * their failures (a failed widget shows an error inside its own container,
+ * the rest of the dashboard stays interactive), a debounced search, a source
+ * view opened from a result click, a freshness banner with a write-gated
+ * Re-index, and a forward-compat graph placeholder (collapsed, file-list
+ * fallback). Reuses memUrl (project param), memWrite (bearer), api, esc,
+ * showNumbers, and the .trk-empty-state error idiom. */
+let code = {
+  query: "", hits: [], status: null, files: null, source: null,
+  showNumbers: {},
+  _timer: null,
+};
+
+async function renderCode(box) {
+  // Project-scoped routes require ?project=; ensure a store is selected before
+  // the first fetch (same guard as renderMemory — this entry is microtask-deferred).
+  await ensureProjects();
+  box.innerHTML =
+    `<div class="code-page"><header class="code-head"><h1>Code</h1>` +
+    `<p class="muted">Code-index health, BM25 search, and source view over the existing /code/* routes.</p></header>` +
+    `<div class="code-banner" id="code-banner">` +
+    `<span class="code-banner-label" id="code-last-indexed">Last indexed: —</span>` +
+    `<span class="code-banner-actions">` +
+    `<span class="code-stale-badge" id="code-stale" hidden>STALE</span>` +
+    `<span class="code-msg" id="code-msg"></span>` +
+    `<button type="button" class="code-btn" id="code-reindex">Re-index</button>` +
+    `</span></div>` +
+    `<div class="code-status" id="code-status"></div>` +
+    `<div class="code-body" id="code-body"><div class="code-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading code index…</div></div>` +
+    `<div class="code-graph" id="code-graph"></div></div>`;
+  const body = box.querySelector("#code-body");
+  body.innerHTML =
+    `<div class="code-grid">` +
+    `<section class="code-search-col" aria-label="Search">` +
+    `<div class="code-search-wrap">` +
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>` +
+    `<input type="search" id="code-q" value="${esc(code.query)}" placeholder="Search indexed code by symbol, path, or content..." aria-label="Search code"></div>` +
+    `<div class="code-colhead"><span id="code-count">0</span>` +
+    `<button type="button" id="code-raw-toggle" class="mem-numbtn" aria-pressed="false">show numbers</button></div>` +
+    `<div id="code-results" class="code-results"></div>` +
+    `<pre class="code-raw" id="code-raw" hidden></pre>` +
+    `</section>` +
+    `<section class="code-source" id="code-source" aria-label="Source view">` +
+    codeSourcePlaceholder() +
+    `</section>` +
+    `</div>`;
+  const q = body.querySelector("#code-q");
+  q.addEventListener("input", () => {
+    code.query = q.value;
+    if (code._timer) clearTimeout(code._timer);
+    code._timer = setTimeout(() => codeLoadSearch(box), 300);
+  });
+  body.querySelector("#code-raw-toggle").addEventListener("click", () =>
+    showNumbers(body.querySelector("#code-results"),
+      () => ({ hits: code.hits, status: code.status }),
+      body.querySelector("#code-raw"), body.querySelector("#code-raw-toggle"),
+      code.showNumbers));
+  box.querySelector("#code-reindex").addEventListener("click", () => codeReindex(box));
+  codeLoadStatus(box);
+  codeLoadSearch(box);
+  codeLoadGraph(box);
+}
+
+// codeLoadStatus renders the freshness banner + status card. Isolated: a fetch
+// failure leaves the banner visible (degraded) with an inline error instead of
+// a blank page, and does not touch the search/source widgets.
+async function codeLoadStatus(box) {
+  const lastEl = (box && box.querySelector("#code-last-indexed")) || document.querySelector("#code-last-indexed");
+  const staleEl = (box && box.querySelector("#code-stale")) || document.querySelector("#code-stale");
+  const statusEl = (box && box.querySelector("#code-status")) || document.querySelector("#code-status");
+  try {
+    const s = await api(memUrl("/code/status"));
+    code.status = s;
+    if (lastEl) lastEl.textContent = "Last indexed: " + (s.last_indexed || "—");
+    if (staleEl) staleEl.hidden = !s.stale;
+    if (statusEl) statusEl.innerHTML =
+      `<div class="code-stat-tiles">` +
+      `<div class="code-stat-tile"><span class="code-stat-num">${esc(s.file_count ?? 0)}</span><span class="code-stat-label">files indexed</span></div>` +
+      `<div class="code-stat-tile"><span class="code-stat-num">${esc(s.chunk_count ?? 0)}</span><span class="code-stat-label">chunks</span></div>` +
+      `</div>`;
+  } catch (e) {
+    if (lastEl) lastEl.textContent = "Last indexed: — (unavailable)";
+    if (staleEl) staleEl.hidden = true;
+    if (statusEl) statusEl.innerHTML =
+      `<div class="code-error"><span class="code-error-title">Status unavailable</span>` +
+      `<span class="muted">${esc(e.message)}</span></div>`;
+  }
+}
+
+// codeLoadSearch renders the results list. Isolated: a 500/404 lands in the
+// results box ("Search failed"), the banner + source + other entries stay up.
+async function codeLoadSearch(box) {
+  const results = (box && box.querySelector("#code-results")) || document.querySelector("#code-results");
+  const count = (box && box.querySelector("#code-count")) || document.querySelector("#code-count");
+  if (!results) return;
+  if (!code.query.trim()) {
+    code.hits = [];
+    results.innerHTML =
+      `<div class="trk-empty-state"><p class="trk-empty-title">Search the index</p>` +
+      `<p class="muted">Type a symbol, path, or term to find indexed code. Click a result to open the source view.</p></div>`;
+    if (count) count.textContent = "0";
+    return;
+  }
+  results.innerHTML = `<div class="code-loading" role="status"><span class="spinner" aria-hidden="true"></span>Searching…</div>`;
+  try {
+    const data = await api(memUrl(`/code/search?query=${encodeURIComponent(code.query.trim())}&limit=20`));
+    code.hits = data.hits || [];
+    results.innerHTML = codeResultsHtml();
+    if (count) count.textContent = String(code.hits.length);
+    codeBindResults(box);
+  } catch (e) {
+    results.innerHTML =
+      `<div class="trk-empty-state"><p class="trk-empty-title">Search failed</p>` +
+      `<p class="muted">${esc(e.message)}</p></div>`;
+    if (count) count.textContent = "–";
+  }
+}
+
+function codeResultsHtml() {
+  if (!code.hits.length) {
+    return `<div class="trk-empty-state"><p class="trk-empty-title">No code matches ${esc(code.query.trim())}</p>` +
+      `<p class="muted">Try a different symbol, path, or term.</p></div>`;
+  }
+  return `<div class="code-list" id="code-list">${code.hits.map(codeHitRow).join("")}</div>`;
+}
+
+// codeHitRow is one result: path, line range, snippet, score. Clicking opens
+// the source view for that span (05.2).
+function codeHitRow(h, i) {
+  const range = h.start_line === h.end_line
+    ? `L${h.start_line}` : `L${h.start_line}–L${h.end_line}`;
+  return `<div class="code-hit" data-path="${esc(h.path)}" data-start="${h.start_line}" data-end="${h.end_line}" data-idx="${i}" role="button" tabindex="0">` +
+    `<span class="code-hit-path">${esc(h.path)}</span>` +
+    `<span class="code-hit-meta"><span class="code-hit-range">${range}</span>` +
+    `<span class="code-hit-score" title="Relevance score">${Number(h.score).toFixed(2)}</span></span>` +
+    `<span class="code-hit-snippet">${esc((h.snippet || "").replace(/\s+/g, " ").slice(0, 160))}</span>` +
+    `</div>`;
+}
+
+function codeBindResults(box) {
+  const scope = box || document;
+  scope.querySelectorAll("#code-results .code-hit").forEach((el) => {
+    const open = () => codeOpenSource(scope, el.dataset.path, Number(el.dataset.start), Number(el.dataset.end));
+    el.addEventListener("click", open);
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+    });
+  });
+}
+
+function codeSourcePlaceholder() {
+  return `<div class="code-empty"><p class="trk-empty-title">No source selected</p>` +
+    `<p class="muted">Search and click a result to view the code here.</p></div>`;
+}
+
+// codeOpenSource fetches /code/read for the clicked span and renders the code
+// in the source pane (05.2). Isolated: a 404/unknown-file shows an in-pane
+// error, never a blank pane.
+async function codeOpenSource(box, path, start, end) {
+  const src = (box && box.querySelector("#code-source")) || document.querySelector("#code-source");
+  if (!src) return;
+  src.innerHTML = `<div class="code-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading ${esc(path)}…</div>`;
+  let d;
+  try {
+    d = await api(memUrl(`/code/read?path=${encodeURIComponent(path)}&start_line=${start}&end_line=${end}`));
+  } catch (e) {
+    src.innerHTML =
+      `<div class="code-error"><span class="code-error-title">Could not read ${esc(path)}</span>` +
+      `<span class="muted">${esc(e.message)}</span></div>`;
+    return;
+  }
+  code.source = d;
+  const range = d.start_line === d.end_line ? `L${d.start_line}` : `L${d.start_line}–L${d.end_line}`;
+  src.innerHTML =
+    `<div class="code-source-card">` +
+    `<header class="code-source-head"><span class="code-hit-path">${esc(d.path)}</span><span class="code-hit-range">${range}</span></header>` +
+    `<pre class="code-pre"><code>${esc(d.text)}</code></pre>` +
+    `</div>`;
+}
+
+// codeReindex triggers POST /code/index (write-gated). On success it re-fetches
+// status + files so the banner/status/file list refresh. On 401 (token set, no
+// bearer) or any error it surfaces an inline message in the banner — no crash.
+async function codeReindex(box) {
+  const msgEl = (box && box.querySelector("#code-msg")) || document.querySelector("#code-msg");
+  const btn = (box && box.querySelector("#code-reindex")) || document.querySelector("#code-reindex");
+  const setMsg = (t) => { if (msgEl) msgEl.textContent = t; };
+  if (btn) { btn.disabled = true; setMsg("Re-indexing…"); }
+  try {
+    await memWrite(memUrl("/code/index"), { method: "POST" });
+    setMsg("Re-indexed");
+    code.files = null;
+    code.status = null;
+    codeLoadStatus(box);
+    codeLoadGraph(box);
+    if (code.query.trim()) codeLoadSearch(box);
+  } catch (e) {
+    const note = e.status === 401 ? " Re-index requires the dashboard token (Settings)." : "";
+    setMsg(`Re-index failed: ${e.message}.${note}`);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// codeLoadGraph renders the forward-compat graph placeholder (05.3). Always a
+// collapsed <details>; when expanded it shows the /code/files list as the
+// fallback. Isolated: a file-list fetch failure shows an error in the panel.
+function codeLoadGraph(box) {
+  const graph = (box && box.querySelector("#code-graph")) || document.querySelector("#code-graph");
+  if (!graph) return;
+  graph.innerHTML =
+    `<details class="code-graph-placeholder">` +
+    `<summary>Code graph (coming in 010) <span class="muted mem-placeholder-avail">file-list fallback</span></summary>` +
+    `<p class="muted">The graph canvas lands in change 010. Until then, this shows the indexed file list.</p>` +
+    `<ul class="code-file-list" id="code-file-list"><li class="muted">Loading file list…</li></ul>` +
+    `</details>`;
+  codeLoadFiles(box);
+}
+
+async function codeLoadFiles(box) {
+  const list = (box && box.querySelector("#code-file-list")) || document.querySelector("#code-file-list");
+  if (!list) return;
+  try {
+    const data = await api(memUrl("/code/files"));
+    code.files = data.files || [];
+    list.innerHTML = code.files.length
+      ? code.files.map((f) => `<li class="code-file-item">${esc(f)}</li>`).join("")
+      : `<li class="muted">No files indexed yet — run Re-index.</li>`;
+  } catch (e) {
+    list.innerHTML = `<li class="code-error-title">File list unavailable</li><li class="muted">${esc(e.message)}</li>`;
+  }
 }
