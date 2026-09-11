@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
@@ -706,12 +708,66 @@ type SaveObservationInput struct {
 	ToolName string `json:"tool_name"`
 }
 
+// envSearchParallel is the rollback boundary for the parallel cross-store
+// search (change 014, step 03): setting it to "0" forces the sequential
+// loop, so a concurrency regression can be rolled back at runtime without a
+// code deploy. Unset (or any other value) keeps the parallel path active.
+const envSearchParallel = "SKILLGRID_SEARCH_PARALLEL"
+
+// searchParallelEnabled reports whether the parallel cross-store search path
+// is active (opt-out via SKILLGRID_SEARCH_PARALLEL=0).
+func searchParallelEnabled() bool {
+	return os.Getenv(envSearchParallel) != "0"
+}
+
+// semaphoreAcquireTimeout bounds how long a store search may wait for a
+// semaphore slot (change 014, step 03): if the connection pool is exhausted
+// and the slot stays held for this long, the store is skipped with a warning
+// instead of blocking the whole search indefinitely.
+const semaphoreAcquireTimeout = 5 * time.Second
+
+// searchStoreLatency is a test-only artificial per-store latency (nanoseconds)
+// so the parallel-vs-sequential timing assertion is stable on CI. Production
+// leaves it at zero.
+var searchStoreLatency atomic.Int64
+
+// scopedSearchFunc is the per-store search body of SearchObservationsAll.
+// Production wires it to Service.SearchObservationsScoped; tests may replace
+// it to track concurrent goroutines (change 014, step 03). Guarded by
+// scopedSearchMu (written by tests before the search, read per store).
+var scopedSearchMu sync.Mutex
+var scopedSearchFunc func(s *Service, ctx context.Context, projectID, query, matchMode, scope string, limit int) ([]memory.Observation, error)
+
+// scopedSearch is the per-store search body of SearchObservationsAll. By
+// default it is Service.SearchObservationsScoped; tests may swap
+// scopedSearchFunc (e.g. to track concurrent goroutines). The test-only
+// latency is applied on top so timing assertions stay stable on CI.
+func scopedSearch(s *Service, ctx context.Context, projectID, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+	scopedSearchMu.Lock()
+	fn := scopedSearchFunc
+	scopedSearchMu.Unlock()
+	if d := searchStoreLatency.Load(); d > 0 {
+		time.Sleep(time.Duration(d))
+	}
+	if fn == nil {
+		return s.SearchObservationsScoped(ctx, projectID, query, matchMode, scope, limit)
+	}
+	return fn(s, ctx, projectID, query, matchMode, scope, limit)
+}
+
 // SearchObservationsAll runs the same FTS query across every store in dataDir
 // and returns the union, ordered by global rank (each store returns its own
 // bm25-ranked list; the merged result interleaves by cross-store rank, so a
 // #1 hit in one store is never buried under #5 hits from another). Used by
 // mem_search all_projects=true so an agent at a parent directory can still
 // find memories stored under a child project's store.
+//
+// Concurrency (change 014, step 03): each store is searched in its own
+// goroutine, bounded by a semaphore of size min(len(stores), NumCPU) with a
+// 5s acquire timeout. A store that fails (missing file, busy lock, or
+// semaphore timeout) is skipped with a warning and contributes no results —
+// the rest of the merge is unaffected. Set SKILLGRID_SEARCH_PARALLEL=0 to
+// force the sequential loop (rollback boundary).
 func (s *Service) SearchObservationsAll(ctx context.Context, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
 	if limit <= 0 {
 		limit = 20
@@ -720,40 +776,139 @@ func (s *Service) SearchObservationsAll(ctx context.Context, query, matchMode, s
 	if err != nil {
 		return nil, err
 	}
-	type ranked struct {
-		obs  memory.Observation
-		rank int // 0-based rank within a single store
+	if len(projects) == 0 {
+		return []memory.Observation{}, nil
 	}
-	seen := map[string]bool{}
-	var collected []ranked
+	if !searchParallelEnabled() {
+		return s.searchObservationsAllSequential(ctx, projects, query, matchMode, scope, limit)
+	}
+	return s.searchObservationsAllParallel(ctx, projects, query, matchMode, scope, limit)
+}
+
+// searchObservationsAllSequential is the rollback-boundary path (SKILLGRID_
+// SEARCH_PARALLEL=0): one store after another, missing stores skipped.
+func (s *Service) searchObservationsAllSequential(ctx context.Context, projects []string, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+	var collected []storeRanked
 	for _, pid := range projects {
-		res, err := s.SearchObservationsScoped(ctx, pid, query, matchMode, scope, limit)
+		if ctx.Err() != nil {
+			break
+		}
+		res, err := scopedSearch(s, ctx, pid, query, matchMode, scope, limit)
 		if err != nil {
+			warnFunc("parallel search: skipping store %s: %v", pid, err)
 			continue
 		}
-		for i, o := range res {
-			key := strconv.FormatInt(o.ID, 10) + "/" + o.Project
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			collected = append(collected, ranked{obs: o, rank: i})
-		}
+		collected = append(collected, rankHits(res)...)
 	}
-	sort.SliceStable(collected, func(i, j int) bool {
-		if collected[i].rank != collected[j].rank {
-			return collected[i].rank < collected[j].rank
-		}
-		return collected[i].obs.UpdatedAt > collected[j].obs.UpdatedAt
-	})
-	out := make([]memory.Observation, 0, len(collected))
+	return mergeRanked(collected, limit), nil
+}
+
+// searchObservationsAllParallel searches every store concurrently, bounded by
+// a buffered-channel semaphore of size min(len(stores), NumCPU). Each
+// goroutine acquires a slot (5s timeout — pool exhausted → skip with warning)
+// before searching, and releases it after. Per-store results land on a
+// buffered channel; the merge dedups on id/project and stable-sorts by
+// (rank, UpdatedAt), so the output is deterministic given identical
+// per-store results regardless of goroutine completion order.
+func (s *Service) searchObservationsAllParallel(ctx context.Context, projects []string, query, matchMode, scope string, limit int) ([]memory.Observation, error) {
+	workers := len(projects)
+	if n := runtime.NumCPU(); workers > n {
+		workers = n
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	sem := make(chan struct{}, workers)
+	results := make(chan []storeRanked, len(projects))
+	var wg sync.WaitGroup
+	for _, pid := range projects {
+		wg.Add(1)
+		go func(pid string) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			case <-time.After(semaphoreAcquireTimeout):
+				warnFunc("parallel search: skipping store %s: semaphore acquire timed out after %v", pid, semaphoreAcquireTimeout)
+				return
+			}
+			defer func() { <-sem }()
+			res, err := scopedSearch(s, ctx, pid, query, matchMode, scope, limit)
+			if err != nil {
+				warnFunc("parallel search: skipping store %s: %v", pid, err)
+				return
+			}
+			select {
+			case results <- rankHits(res):
+			case <-ctx.Done():
+			}
+		}(pid)
+	}
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+	var collected []storeRanked
+	for res := range results {
+		collected = append(collected, res...)
+	}
+	return mergeRanked(collected, limit), nil
+}
+
+// storeRanked is one merged hit: the observation plus its 0-based rank within
+// its own store.
+type storeRanked struct {
+	obs  memory.Observation
+	rank int
+}
+
+// rankHits tags each hit of one store's ranked result with its position.
+func rankHits(res []memory.Observation) []storeRanked {
+	out := make([]storeRanked, 0, len(res))
+	for i, o := range res {
+		out = append(out, storeRanked{obs: o, rank: i})
+	}
+	return out
+}
+
+// mergeRanked dedups on id/project (first occurrence wins — deterministic,
+// since the per-store result order is stable for the same inputs) and
+// stable-sorts by (rank, UpdatedAt desc). The stable sort makes the merged
+// output independent of goroutine completion order.
+func mergeRanked(collected []storeRanked, limit int) []memory.Observation {
+	seen := map[string]bool{}
+	deduped := collected[:0]
 	for _, r := range collected {
+		key := strconv.FormatInt(r.obs.ID, 10) + "/" + r.obs.Project
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		deduped = append(deduped, r)
+	}
+	sort.SliceStable(deduped, func(i, j int) bool {
+		if deduped[i].rank != deduped[j].rank {
+			return deduped[i].rank < deduped[j].rank
+		}
+		return deduped[i].obs.UpdatedAt > deduped[j].obs.UpdatedAt
+	})
+	out := make([]memory.Observation, 0, len(deduped))
+	for _, r := range deduped {
 		out = append(out, r.obs)
 	}
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	return out, nil
+	return out
+}
+
+// warnFunc is the warning sink for the parallel search (change 014, step 03).
+// Tests may replace it to capture warnings; production mirrors the service's
+// existing stderr "warn:" convention. Guarded by warnMu.
+var warnMu sync.Mutex
+var warnFunc = func(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "warn: "+format+"\n", args...)
 }
 
 // SearchObservationsScoped runs FTS over observations, restricting to a
