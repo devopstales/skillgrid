@@ -21,26 +21,34 @@ func TestStep02_TrackerUI(t *testing.T) {
 	mustContain(t, js,
 		"renderTracker", "TRK_PROVIDERS", "TRK_COLUMNS",
 		"trk-switcher", "trk-q", "trk-prio", "trk-board", "trk-card",
-		"trk-prio-badge", "trk-dialog", "trk-panel", "trk-desc",
+		"trk-prio-badge", "trk-modal", "trk-desc",
 		"To Do", "In Progress", "Blocked", "Done",
 		"/tracker/config?provider=", "?provider=",
-		"Move to",
+		// Backlog.md-parity features: drag-and-drop board + All list view +
+		// centered detail modal with a markdown description.
+		"draggable", "dragstart", "dragover", "data-drop", "trkMove",
+		"trk-view-btn", "trk-list", "trk-row", "trkStats", "mdToHtml",
 	)
 	if strings.Contains(js, "tracker: { phase:") {
 		t.Error("tracker must be removed from STUBS once live")
 	}
 	_, css := getUI(t, h, "/app.css")
-	mustContain(t, css, ".trk-switcher", ".trk-board", ".trk-card", ".trk-panel", ".trk-prio-badge", ".trk-dialog")
+	mustContain(t, css,
+		".trk-switcher", ".trk-board", ".trk-card", ".trk-prio-badge",
+		".trk-modal", ".trk-dragging", ".trk-dropover", ".trk-list",
+		".trk-row", ".trk-stats", ".trk-view-btn",
+	)
 }
 
 // 02.11 [AFK] Tracker degraded states + per-widget error isolation ship in P2.
 func TestStep02_TrackerDegraded(t *testing.T) {
 	h := newHandler(t)
 	_, js := getUI(t, h, "/app.js")
-	// Not-connected + load-failed empty states; Esc/backdrop close the dialog.
+	// Not-connected + load-failed empty states; Esc/backdrop close the dialog;
+	// move-failure surfaces a toast without losing the board.
 	mustContain(t, js,
 		"is not connected", "Failed to load tasks",
-		"Escape", "data-close",
+		"Escape", "data-close", "trk-toast",
 	)
 }
 

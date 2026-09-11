@@ -17,7 +17,9 @@ func (s *Server) registerUIRoutes() {
 	s.mux.HandleFunc("GET /swagger-ui/{file...}", s.handleSwaggerAsset)
 	// Path-routed menu entries serve the same shell (client router renders the
 	// entry from location.pathname). Exact patterns coexist with the API
-	// routes (/tracker vs /tracker/config, etc.).
+	// routes (/tracker vs /tracker/config, etc.). /swagger-ui is a separate
+	// route (handleSwaggerUI → shell) so Swagger mounts inside #content with
+	// the sidebar visible.
 	for _, page := range []string{"/welcome", "/tracker", "/docs", "/memory", "/code", "/sessions"} {
 		s.mux.HandleFunc("GET "+page, s.handleShellPage)
 		s.mux.HandleFunc("GET "+page+"/", s.handleShellPage)
@@ -50,23 +52,12 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 	w.Write(spec)
 }
 
+// handleSwaggerUI serves the dashboard shell at /swagger-ui so the sidebar and
+// topbar stay visible; the client router mounts Swagger UI inside #content on
+// the "swagger" route (loadSwagger in app.js injects the bundle scripts). The
+// bundle assets still resolve via the /swagger-ui/{file} routes below.
 func (s *Server) handleSwaggerUI(w http.ResponseWriter, r *http.Request) {
-	page, err := uiFS.ReadFile("ui/swagger/index.html")
-	if err != nil {
-		http.Error(w, "swagger ui missing from binary", http.StatusInternalServerError)
-		return
-	}
-	html := string(page)
-	// The dist bundle references favicons that don't ship with us.
-	html = strings.ReplaceAll(html, `href="./favicon-32x32.png"`, `href="/favicon.png"`)
-	html = strings.ReplaceAll(html, `href="./favicon-16x16.png"`, `href="/favicon.png"`)
-	// The dist bundle uses ./-relative asset URLs, but the page is served at
-	// /swagger-ui (no trailing slash), so ./x resolves to /x at the root and
-	// 404s. Rewrite to the /swagger-ui/{file} asset routes below.
-	html = strings.ReplaceAll(html, `"./`, `"/swagger-ui/`)
-	html = strings.ReplaceAll(html, `"index.css"`, `"/swagger-ui/index.css"`)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(html))
+	s.handleShellPage(w, r)
 }
 
 func (s *Server) handleSwaggerAsset(w http.ResponseWriter, r *http.Request) {

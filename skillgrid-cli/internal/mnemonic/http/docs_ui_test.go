@@ -25,7 +25,12 @@ func TestStep03_DocsUI(t *testing.T) {
 		"doc-list", "doc-row", "doc-view", "doc-md",
 		"change.md", "tasks.md",
 		"Back to changes",
+		"mdToHtml", // rendered markdown view, not plain text
 	)
+	// The docs viewer must render markdown (not dump raw text into a <pre>).
+	if !strings.Contains(js, `mdToHtml(d.change_md)`) || !strings.Contains(js, `mdToHtml(d.tasks_md)`) {
+		t.Error("docs viewer must render change.md/tasks.md as markdown via mdToHtml")
+	}
 	if strings.Contains(js, "docs: { phase:") {
 		t.Error("docs must be removed from STUBS once live")
 	}

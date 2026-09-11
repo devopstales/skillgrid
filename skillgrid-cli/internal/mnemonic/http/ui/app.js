@@ -14,14 +14,32 @@ const STUBS = {
 
 const LIVE = ["welcome", "tracker", "docs"];
 
-const ROUTES = ["welcome", "tracker", "docs", "memory", "code", "sessions"];
+const ROUTES = ["welcome", "tracker", "docs", "memory", "code", "sessions", "swagger"];
 
 let project = localStorage.getItem("sgmn-project") || "";
 let projectsLoaded = false;
 
 function currentRoute() {
   const seg = location.pathname.replace(/\/+$/, "").split("/").pop() || "welcome";
+  if (seg === "swagger-ui") return "swagger";
   return ROUTES.includes(seg) ? seg : "welcome";
+}
+
+/* Swagger UI is embedded in the main-col content area (sidebar stays
+ * visible). The bundle scripts are injected once on the swagger route;
+ * SwaggerUIBundle mounts into #swagger-ui inside the injected node. */
+let swaggerLoaded = false;
+function loadSwagger(box) {
+  if (!box.querySelector("#swagger-ui")) {
+    box.innerHTML = `<div id="swagger-ui"></div>`;
+  }
+  if (swaggerLoaded) return;
+  swaggerLoaded = true;
+  ["swagger-ui-bundle.js", "swagger-ui-standalone-preset.js", "swagger-initializer.js"].forEach((f) => {
+    const s = document.createElement("script");
+    s.src = `/swagger-ui/${f}`;
+    document.head.appendChild(s);
+  });
 }
 
 function esc(s) {
@@ -48,15 +66,24 @@ function render() {
   $("#crumb-current").textContent = route;
   const welcome = $("#view-welcome");
   const stub = $("#view-stub");
+  const swagger = $("#view-swagger");
+  // Hide every view first; each branch shows only its own. Without this, the
+  // Swagger mount lingers at the end of other entries after a visit.
+  welcome.hidden = true;
+  stub.hidden = true;
+  swagger.hidden = true;
+  if (route === "swagger") {
+    swagger.hidden = false;
+    loadSwagger(swagger);
+    return;
+  }
   if (route === "welcome") {
     welcome.hidden = false;
-    stub.hidden = true;
     return;
   }
   // Future entries progressively go live in P3–P6; until then, stubs.
   if (!LIVE.includes(route)) {
     const info = STUBS[route];
-    welcome.hidden = true;
     stub.hidden = false;
     stub.innerHTML =
       `<div class="stub-card"><span class="phase-id next">${esc(info.phase)}</span>` +
@@ -65,15 +92,17 @@ function render() {
     return;
   }
   if (route === "tracker") {
-    welcome.hidden = true;
     stub.hidden = false;
-    renderTracker(stub);
+    // Defer to a microtask so the initial load runs AFTER the top-level
+    // tracker consts (TRK_PROVIDERS/…) are initialized — renderTracker's
+    // synchronous prefix would otherwise throw a TDZ ReferenceError.
+    Promise.resolve().then(() => renderTracker(stub));
     // Project context matters only on data entries; load it lazily here.
     ensureProjects();
     return;
   }
   if (route === "docs") {
-    welcome.hidden = true;
+    stub.hidden = false;
     stub.hidden = false;
     renderDocs(stub);
     return;
@@ -145,8 +174,31 @@ const TRK_COLUMNS = [
   { id: "done", label: "Done" },
 ];
 const TRK_PRIORITIES = ["all", "critical", "high", "medium", "low"];
+const TRK_VIEWS = ["board", "list"];
 
-let trk = { provider: "backlogmd", query: "", priority: "all", config: null, tasks: [], connected: {} };
+let trk = {
+  provider: "backlogmd", query: "", priority: "all",
+  config: null, tasks: [], connected: {},
+  view: "board", drag: null,
+};
+
+// boardStatus maps a provider-native status to its canonical board column so a
+// drop can be reverse-mapped back to a provider status (the POST body).
+function boardStatus(colId, statuses) {
+  if (!statuses || !statuses.length) return colId;
+  for (const s of statuses) {
+    if (boardFor(s) === colId) return s;
+  }
+  return { in_progress: "In Progress", done: "Done", blocked: "Blocked", todo: "To Do" }[colId] || colId;
+}
+
+function boardFor(status) {
+  const s = String(status || "").toLowerCase();
+  if (s.includes("block")) return "blocked";
+  if (s.includes("progress") || s.includes("doing") || s.includes("review") || s.includes("active")) return "in_progress";
+  if (s.includes("done") || s.includes("close") || s.includes("complete") || s.includes("fix")) return "done";
+  return "todo";
+}
 
 function trkInitials(name) {
   const parts = String(name || "").replace(/^@/, "").split(/[.\-_ ]+/).filter(Boolean);
@@ -189,20 +241,11 @@ function trkQuery() {
   const p = (q.get("provider") || "").toLowerCase();
   const alias = { "backlog.md": "backlogmd", backlog: "backlogmd", gh: "github", glab: "gitlab" };
   const provider = TRK_PROVIDERS.some((x) => x.id === p) ? p : (alias[p] || "");
-  return { provider, task: q.get("task") || "" };
+  const view = TRK_VIEWS.includes(q.get("view")) ? q.get("view") : "";
+  return { provider, task: q.get("task") || "", view };
 }
 
 async function renderTracker(box) {
-  const init = trkQuery();
-  if (init.provider) {
-    trk.provider = init.provider;
-    trk.config = null;
-    trk.tasks = [];
-  }
-  box.innerHTML =
-    `<div class="trk-page"><header class="trk-head"><h1>Tracker</h1>` +
-    `<p class="muted">Normalized tasks across your ticketing systems. Switch providers to view each source on one board.</p></header>` +
-    `<div id="trk-body"><div class="trk-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading tracker…</div></div></div>`;
   // Probe every provider's config once so the switcher shows real
   // connected states (cheap reads; failures render as not-connected).
   const probes = await Promise.all(TRK_PROVIDERS.map(async (p) => {
@@ -215,11 +258,33 @@ async function renderTracker(box) {
     }
   }));
   void probes;
-  await trkLoad(box, init.task);
+  // trkLoad self-detects a fresh render (empty #trk-body) and reads the
+  // initial provider/view/task state from the URL, so no state is threaded here.
+  await trkLoad(box, null);
 }
 
-async function trkLoad(box, openTaskId) {
-  const body = box.querySelector("#trk-body");
+async function trkLoad(box, openTaskId, opts) {
+  const keep = !!(opts && opts.keep);
+  let body = box.querySelector("#trk-body");
+  // Self-detect a fresh render: on the very first trkLoad the #trk-body is
+  // still empty (renderTracker hasn't filled it), so (re)read the initial
+  // state from the URL and lay down the skeleton. Subsequent loads (provider /
+  // view / refresh / post-move) operate on the already-mounted board.
+  if (!body) {
+    const init = trkQuery();
+    if (init.provider) {
+      trk.provider = init.provider;
+      trk.config = null;
+      trk.tasks = [];
+    }
+    if (init.view) trk.view = init.view;
+    openTaskId = openTaskId || init.task || null;
+    box.innerHTML =
+      `<div class="trk-page"><header class="trk-head"><h1>Tracker</h1>` +
+      `<p class="muted">A visual board for your ticketing system. Drag tasks to change status, or click one for details.</p></header>` +
+      `<div id="trk-body"><div class="trk-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading tracker…</div></div></div>`;
+    body = box.querySelector("#trk-body");
+  }
   const meta = TRK_PROVIDERS.find((p) => p.id === trk.provider);
   const switcher = TRK_PROVIDERS.map((p) => {
     const active = p.id === trk.provider;
@@ -227,10 +292,14 @@ async function trkLoad(box, openTaskId) {
     return `<button type="button" role="tab" aria-selected="${active}" data-provider="${p.id}"` +
       ` class="trk-sw${active ? " active" : ""}">${esc(p.label)}${dot}</button>`;
   }).join("");
+  const viewTabs = TRK_VIEWS.map((v) =>
+    `<button type="button" data-view="${v}" aria-pressed="${trk.view === v}" class="trk-view-btn${trk.view === v ? " active" : ""}">${v === "board" ? "Board" : "All"}</button>`).join("");
   let main;
   if (trk.connected[trk.provider] === false && !trk.config) {
     main = `<div class="trk-empty-state"><p class="trk-empty-title">${esc(meta.label)} is not connected</p>` +
       `<p class="muted">Configure the ${esc(meta.label)} adapter: ${esc(meta.source)}.</p></div>`;
+  } else if (keep) {
+    main = box.querySelector("#trk-main") ? box.querySelector("#trk-main").innerHTML : "";
   } else {
     try {
       const [cfg, data] = await Promise.all([
@@ -239,7 +308,7 @@ async function trkLoad(box, openTaskId) {
       ]);
       trk.config = cfg;
       trk.tasks = data.tasks || [];
-      main = trkBoard();
+      main = trkMain();
     } catch (e) {
       main = `<div class="trk-empty-state"><p class="trk-empty-title">Failed to load tasks</p>` +
         `<p class="muted">${esc(e.message)}</p></div>`;
@@ -250,11 +319,17 @@ async function trkLoad(box, openTaskId) {
     `<p class="trk-source">${esc(meta.source)}</p></div>` +
     `<div class="trk-filters"><div class="trk-search-wrap">` +
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>` +
-    `<input type="search" id="trk-q" value="${esc(trk.query)}" placeholder="Filter by title, id or label..." aria-label="Filter tasks"></div>` +
+    `<input type="search" id="trk-q" value="${esc(trk.query)}" placeholder="Filter by title, id, label or assignee..." aria-label="Filter tasks"></div>` +
     `<div class="trk-prio" role="group" aria-label="Priority filter">` +
     TRK_PRIORITIES.map((p) => `<button type="button" data-prio="${p}" aria-pressed="${trk.priority === p}"` +
       ` class="trk-prio-btn${trk.priority === p ? " active" : ""}">${p}</button>`).join("") +
-    `</div></div><div id="trk-board-wrap">${main}</div><div id="trk-overlay"></div>`;
+    `</div>` +
+    `<div class="trk-viewswitch" role="group" aria-label="View">` +
+    `<button type="button" id="trk-refresh" class="trk-refresh" title="Refresh" aria-label="Refresh">⟳</button>` +
+    `<span class="trk-viewtabs">${viewTabs}</span></div>` +
+    `</div>` +
+    `<div class="trk-stats" id="trk-stats"></div>` +
+    `<div id="trk-main">${main}</div><div id="trk-overlay"></div>`;
   body.querySelectorAll(".trk-sw").forEach((b) => b.addEventListener("click", () => {
     trk.provider = b.dataset.provider;
     trk.config = null;
@@ -262,11 +337,15 @@ async function trkLoad(box, openTaskId) {
     trkSyncUrl(null);
     renderTracker(box);
   }));
+  body.querySelectorAll(".trk-view-btn").forEach((b) => b.addEventListener("click", () => {
+    trk.view = b.dataset.view;
+    trkSyncUrl(null);
+    trkRenderMain(box);
+  }));
   const q = body.querySelector("#trk-q");
   q.addEventListener("input", () => {
     trk.query = q.value;
-    body.querySelector("#trk-board-wrap").innerHTML = trkBoard();
-    trkBindCards(body, box);
+    trkRenderMain(box);
   });
   body.querySelectorAll(".trk-prio-btn").forEach((b) => b.addEventListener("click", () => {
     trk.priority = b.dataset.prio;
@@ -275,14 +354,45 @@ async function trkLoad(box, openTaskId) {
       x.classList.toggle("active", on);
       x.setAttribute("aria-pressed", String(on));
     });
-    body.querySelector("#trk-board-wrap").innerHTML = trkBoard();
-    trkBindCards(body, box);
+    trkRenderMain(box);
   }));
-  trkBindCards(body, box);
+  body.querySelector("#trk-refresh").addEventListener("click", () => {
+    trk.config = null;
+    trkLoad(box, null);
+  });
+  trkRenderMain(box);
   if (openTaskId) {
     const match = trk.tasks.find((t) => t.id === openTaskId);
     if (match) trkOpenDetail(box, match);
   }
+}
+
+// trkRenderMain (re)draws the board or list from cached tasks — used by the
+// search/priority/view filters without a network round trip.
+function trkRenderMain(box) {
+  const main = box.querySelector("#trk-main");
+  const stats = box.querySelector("#trk-stats");
+  if (!main) return;
+  if (trk.connected[trk.provider] === false && !trk.config) {
+    // not-connected state already rendered in trkLoad; nothing to redraw.
+    return;
+  }
+  main.innerHTML = trkMain();
+  if (stats) stats.innerHTML = trkStats();
+  trkBindMain(box);
+}
+
+function trkMain() {
+  return trk.view === "list" ? trkList() : trkBoard();
+}
+
+function trkStats() {
+  const tasks = trkFiltered();
+  const by = (b) => tasks.filter((t) => (t.board || "todo") === b).length;
+  const total = trk.tasks.length;
+  return TRK_COLUMNS.map((c) =>
+    `<span class="trk-stat"><span class="trk-stat-dot st-${c.id}" aria-hidden="true"></span>${by(c.id)} <span class="trk-stat-label">${esc(c.label)}</span></span>`
+  ).join("") + `<span class="trk-stat trk-stat-total"><span class="trk-stat-dot st-total"></span>${total} <span class="trk-stat-label">total</span></span>`;
 }
 
 function trkFiltered() {
@@ -292,50 +402,150 @@ function trkFiltered() {
     if (!q) return true;
     return (t.title || "").toLowerCase().includes(q) ||
       (t.id || "").toLowerCase().includes(q) ||
-      (t.labels || []).some((l) => l.toLowerCase().includes(q));
+      (t.labels || []).some((l) => l.toLowerCase().includes(q)) ||
+      (t.assignees || []).some((a) => String(a).toLowerCase().includes(q));
   });
 }
 
 function trkBoard() {
   const tasks = trkFiltered();
-  return `<div class="trk-board">` + TRK_COLUMNS.map((col) => {
+  return `<div class="trk-board" id="trk-board">` + TRK_COLUMNS.map((col) => {
     const cards = tasks.filter((t) => (t.board || "todo") === col.id).map(trkCard).join("");
-    return `<section class="trk-col" aria-label="${esc(col.label)}">` +
+    return `<section class="trk-col" data-col="${col.id}" aria-label="${esc(col.label)}">` +
       `<header><h2>${esc(col.label)}</h2><span class="trk-col-count">${tasks.filter((t) => (t.board || "todo") === col.id).length}</span></header>` +
-      `<div class="trk-col-body">` + (cards || `<p class="trk-col-empty">empty</p>`) + `</div></section>`;
+      `<div class="trk-col-body" data-drop="${col.id}">` + (cards || `<p class="trk-col-empty">drop tasks here</p>`) + `</div></section>`;
   }).join("") + `</div>`;
+}
+
+function trkList() {
+  const tasks = trkFiltered();
+  if (!tasks.length) return `<div class="trk-empty-state"><p class="trk-empty-title">No tasks match the current filters</p></div>`;
+  return `<div class="trk-list" id="trk-list">` + tasks.map(trkRow).join("") + `</div>`;
+}
+
+function trkRow(t) {
+  const dots = { todo: "trk-dot-todo", in_progress: "trk-dot-prog", blocked: "trk-dot-block", done: "trk-dot-done" };
+  const dot = dots[t.board] || dots.todo;
+  const pri = (t.priority || "").toLowerCase();
+  const badge = pri ? `<span class="trk-prio-badge pri-${esc(pri)}">${esc(t.priority)}</span>` : "";
+  const labels = (t.labels || []).slice(0, 3).map((l) => `<span class="trk-chip">${esc(l)}</span>`).join("");
+  const who = (t.assignees && t.assignees.length) ? `<span class="trk-avatar" title="${esc(t.assignees.join(", "))}">${esc(trkInitials(t.assignees[0]))}</span>` : "";
+  const rel = trkRelative(t.updated_at);
+  return `<div class="trk-row" data-id="${esc(t.id)}" role="button" tabindex="0">` +
+    `<span class="trk-row-id"><span class="trk-dot ${dot}" aria-hidden="true"></span>${esc(t.id)}</span>` +
+    `<span class="trk-row-title">${esc(t.title)}</span>` +
+    (badge ? `<span class="trk-row-pri">${badge}</span>` : "") +
+    (labels ? `<span class="trk-row-labels">${labels}</span>` : "") +
+    `<span class="trk-row-foot">${who}${rel ? `<span class="trk-rel">${esc(rel)}</span>` : ""}</span>` +
+    `</div>`;
 }
 
 function trkCard(t) {
   const labels = (t.labels || []).map((l) => `<span class="trk-chip">${esc(l)}</span>`).join("");
   const pri = (t.priority || "").toLowerCase();
   const badge = pri ? `<span class="trk-prio-badge pri-${esc(pri)}">${esc(t.priority)}</span>` : "";
+  const ac = (t.ac_total && (t.ac_completed !== undefined && t.ac_completed !== null))
+    ? `<span class="trk-ac" title="${t.ac_completed}/${t.ac_total} acceptance criteria">✓ ${t.ac_completed}/${t.ac_total}</span>` : "";
   const who = (t.assignees && t.assignees.length)
     ? `<span class="trk-avatar" title="${esc(t.assignees.join(", "))}">${esc(trkInitials(t.assignees[0]))}</span>`
     : `<span class="trk-unassigned">unassigned</span>`;
   const docs = (t.doc_refs && t.doc_refs.length)
     ? `<span class="trk-docrefs" title="${t.doc_refs.length} linked document(s)">▤ ${t.doc_refs.length}</span>` : "";
   const rel = trkRelative(t.updated_at);
-  return `<button type="button" class="trk-card" data-id="${esc(t.id)}">` +
+  return `<button type="button" class="trk-card" draggable="true" data-id="${esc(t.id)}" data-board="${esc(t.board || "todo")}">` +
     `<span class="trk-card-top"><span class="trk-card-id">${esc(t.id)}</span>${badge}</span>` +
     `<span class="trk-card-title">${esc(t.title)}</span>` +
     (labels ? `<span class="trk-labels">${labels}</span>` : "") +
-    `<span class="trk-card-foot"><span class="trk-foot-left">${who}${docs}</span>` +
+    `<span class="trk-card-foot"><span class="trk-foot-left">${who}${ac}${docs}</span>` +
     (rel ? `<span class="trk-rel">${esc(rel)}</span>` : "") + `</span></button>`;
 }
 
-function trkBindCards(body, box) {
+function trkBindMain(box) {
+  const body = box.querySelector("#trk-body");
+  // Board cards: open on click, move on drag-and-drop.
   body.querySelectorAll(".trk-card").forEach((el) => {
     el.addEventListener("click", () => {
       const match = trk.tasks.find((t) => t.id === el.dataset.id);
       if (match) trkOpenDetail(box, match);
     });
+    el.addEventListener("dragstart", (e) => {
+      trk.drag = { id: el.dataset.id, from: el.dataset.board };
+      el.classList.add("trk-dragging");
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", el.dataset.id); } catch { /* IE-less */ }
+    });
+    el.addEventListener("dragend", (e) => {
+      e.target.classList.remove("trk-dragging");
+      trk.drag = null;
+      trkClearDrop(box);
+    });
   });
+  // Columns: drop targets.
+  body.querySelectorAll("[data-drop]").forEach((zone) => {
+    zone.addEventListener("dragover", (e) => {
+      if (!trk.drag) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      zone.classList.add("trk-dropover");
+    });
+    zone.addEventListener("dragleave", () => zone.classList.remove("trk-dropover"));
+    zone.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      zone.classList.remove("trk-dropover");
+      const id = trk.drag ? trk.drag.id : (e.dataTransfer.getData("text/plain") || "");
+      const target = zone.dataset.drop;
+      const from = trk.drag ? trk.drag.from : null;
+      trk.drag = null;
+      if (!id || !target || target === from) return;
+      await trkMove(box, id, target);
+    });
+  });
+  // List rows: open on click / Enter.
+  body.querySelectorAll(".trk-row").forEach((el) => {
+    el.addEventListener("click", () => {
+      const match = trk.tasks.find((t) => t.id === el.dataset.id);
+      if (match) trkOpenDetail(box, match);
+    });
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        const match = trk.tasks.find((t) => t.id === el.dataset.id);
+        if (match) trkOpenDetail(box, match);
+      }
+    });
+  });
+}
+
+function trkClearDrop(box) {
+  box.querySelectorAll("[data-drop]").forEach((z) => z.classList.remove("trk-dropover"));
+}
+
+// trkMove changes a task's status via the provider-compatible status endpoint,
+// then refetches the board (the provider is the source of truth for the new
+// status/label, which may differ from a naive column map).
+async function trkMove(box, id, targetCol) {
+  const statuses = (trk.config && trk.config.statuses) || [];
+  const status = boardStatus(targetCol, statuses);
+  try {
+    await trackerFetch(`/tracker/tasks/${encodeURIComponent(id)}/status?provider=${encodeURIComponent(trk.provider)}`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    });
+    trk.config = null;
+    await trkLoad(box, null, { keep: true });
+  } catch (e) {
+    const ov = box.querySelector("#trk-overlay");
+    if (ov) {
+      ov.innerHTML = `<div class="trk-toast" role="alert">Failed to move: ${esc(e.message)}</div>`;
+      setTimeout(() => { if (ov.firstChild) ov.firstChild.remove(); }, 3500);
+    }
+  }
 }
 
 function trkSyncUrl(taskId) {
   const q = new URLSearchParams(location.search);
   q.set("provider", trk.provider);
+  q.set("view", trk.view);
   if (taskId) q.set("task", taskId);
   else q.delete("task");
   history.replaceState(null, "", `${location.pathname}?${q.toString()}`);
@@ -360,28 +570,40 @@ async function trkOpenDetail(box, seed) {
   const labels = (it.labels || []).map((l) => `<span class="trk-chip">${esc(l)}</span>`).join("");
   const docs = (it.doc_refs || []).map((d) =>
     `<li><span class="trk-docref">▤ ${trkDocLink(d)}</span></li>`).join("");
+  const ac = (it.ac_total && (it.ac_completed !== undefined && it.ac_completed !== null))
+    ? `<div class="trk-ac-card"><span class="trk-ac-label">Acceptance</span><span class="trk-ac-val">✓ ${it.ac_completed}/${it.ac_total}</span></div>` : "";
+  const dates = `<div class="trk-dates"><span><strong>Created:</strong> ${esc(it.created_at || "—")}</span>` +
+    `<span><strong>Updated:</strong> ${esc(it.updated_at || "—")}</span></div>`;
   overlay.innerHTML =
-    `<div class="trk-dialog" role="dialog" aria-modal="true" aria-label="Task detail">` +
+    `<div class="trk-modal" role="dialog" aria-modal="true" aria-label="Task detail">` +
     `<button type="button" class="trk-backdrop" aria-label="Close details" data-close></button>` +
-    `<aside class="trk-panel"><header>` +
-    `<span class="trk-panel-id"><span class="trk-dot ${dot}" aria-hidden="true"></span><span class="trk-mono">${esc(it.id)}</span></span>` +
-    `<span><button type="button" class="trk-iconbtn" data-close aria-label="Close">✕</button></span></header>` +
-    `<div class="trk-panel-body"><h2>${esc(it.title)}</h2>` +
+    `<div class="trk-modal-card">` +
+    `<header class="trk-modal-head">` +
+    `<span class="trk-panel-id"><span class="trk-dot ${dot}" aria-hidden="true"></span><span class="trk-mono">${esc(it.id)}</span>` +
+    (pri ? `<span class="trk-prio-badge pri-${esc(pri)}">${esc(it.priority)}</span>` : "") + `</span>` +
+    `<span class="trk-modal-actions"><span class="muted" id="trk-msg"></span>` +
+    `<button type="button" class="btn" id="trk-apply" type="button">Apply</button>` +
+    `<select id="trk-status" class="project-select" aria-label="Move to status">` +
+    statuses.map((s) => `<option value="${esc(s)}"${s === it.status ? " selected" : ""}>${esc(s)}</option>`).join("") +
+    `</select>` +
+    `<button type="button" class="trk-iconbtn" data-close aria-label="Close">✕</button></span>` +
+    `</header>` +
+    `<div class="trk-modal-grid">` +
+    `<div class="trk-modal-main"><h2>${esc(it.title)}</h2>` +
+    (it.description ? `<div class="trk-desc">${mdToHtml(it.description)}</div>` : `<p class="muted trk-no-desc">No description.</p>`) +
+    (docs ? `<h3>Linked documents</h3><ul class="trk-docs">${docs}</ul>` : "") +
+    `</div>` +
+    `<aside class="trk-modal-side">` +
     `<dl class="trk-dl">` +
     `<dt>Status</dt><dd><span class="trk-dot ${dot}" aria-hidden="true"></span>${esc(it.status)}</dd>` +
-    (it.priority ? `<dt>Priority</dt><dd><span class="trk-prio-badge pri-${esc(pri)}">${esc(it.priority)}</span></dd>` : "") +
+    (it.type ? `<dt>Type</dt><dd>${esc(it.type)}</dd>` : "") +
     `<dt>Assignee</dt><dd>${who}</dd>` +
     (labels ? `<dt>Labels</dt><dd><span class="trk-labels">${labels}</span></dd>` : "") +
-    `<dt>Move to…</dt><dd><span class="trk-move"><select id="trk-status" class="project-select">` +
-    statuses.map((s) => `<option value="${esc(s)}"${s === it.status ? " selected" : ""}>${esc(s)}</option>`).join("") +
-    `</select> <button class="btn" id="trk-apply" type="button">Apply</button> <span class="muted" id="trk-msg"></span></span></dd>` +
     `</dl>` +
-    (it.description ? `<h3>Description</h3><pre class="trk-desc">${esc(it.description)}</pre>` : "") +
-    (docs ? `<h3>Linked documents</h3><ul class="trk-docs">${docs}</ul>` : "") +
-    `</div><footer><span class="trk-mono">` +
-    (it.created_at ? `created ${esc(trkRelative(it.created_at))} · ` : "") +
-    (it.updated_at ? `updated ${esc(trkRelative(it.updated_at))}` : "") +
-    `</span></footer></aside></div>`;
+    ac + dates +
+    `</aside>` +
+    `</div>` +
+    `</div></div>`;
   const close = () => {
     overlay.innerHTML = "";
     trkSyncUrl(null);
@@ -394,7 +616,14 @@ async function trkOpenDetail(box, seed) {
       history.pushState(null, "", `/docs?change=${encodeURIComponent(a.dataset.docchange)}`);
       render();
     }));
-  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const onKey = (e) => {
+    if (e.key === "Escape") close();
+    // Cmd/Ctrl+S saves the selected status (matches the Backlog.md modal).
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      overlay.querySelector("#trk-apply").click();
+    }
+  };
   document.addEventListener("keydown", onKey);
   overlay.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", close));
   overlay.querySelector("#trk-apply").addEventListener("click", async () => {
@@ -523,8 +752,8 @@ async function docOpen(box, name) {
     `<span class="doc-status st-${docStatusClass(d.status)}">${esc(d.status || "unknown")}</span>` +
     `<span class="doc-view-links">${links}</span>` +
     `</header>` +
-    `<section class="doc-file"><h3>change.md</h3><pre class="doc-md">${esc(d.change_md)}</pre></section>` +
-    (d.tasks_md ? `<section class="doc-file"><h3>tasks.md</h3><pre class="doc-md">${esc(d.tasks_md)}</pre></section>` : "") +
+    `<section class="doc-file"><h3>change.md</h3><div class="doc-md">${mdToHtml(d.change_md)}</div></section>` +
+    (d.tasks_md ? `<section class="doc-file"><h3>tasks.md</h3><div class="doc-md">${mdToHtml(d.tasks_md)}</div></section>` : "") +
     `</div>`;
   body.querySelector("[data-back]").addEventListener("click", (ev) => {
     ev.preventDefault();
@@ -545,5 +774,132 @@ async function docOpen(box, name) {
 function trkDocLink(ref) {
   const m = String(ref).match(/changes\/([a-z0-9][a-z0-9-]*)/);
   if (!m) return esc(ref);
-  return `<a href="/docs?change=${encodeURIComponent(m[1])}" data-docchange="${esc(m[1])}">${esc(ref)}</a>`;
+  return `<a href="/docs?change=${encodeURIComponent(m[1])}">${esc(ref)}</a>`;
+}
+
+/* Minimal, dependency-free CommonMark-ish renderer for the Docs entry.
+ * No CDN / no external lib (the binary must work offline). Supports:
+ * fenced code blocks, headings, GFM tables, blockquote (incl. the
+ * `> **STATUS:**` header line), hr, task lists (- [ ] / - [x]), ul/ol,
+ * paragraphs, and inline bold/italic/strikethrough/code/link. Raw HTML is
+ * escaped first (docs are trusted repo files, never executed). */
+function mdInline(t) {
+  t = esc(t);
+  const code = [];
+  t = t.replace(/`([^`]+)`/g, (_, c) => { code.push(c); return `\u0000${code.length - 1}\u0000`; });
+  t = t.replace(/\*\*\*([^*]+)\*\*\*/g, "<strong><em>$1</em></strong>");
+  t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  t = t.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  t = t.replace(/~~([^~]+)~~/g, "<del>$1</del>");
+  t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,
+    (_, label, href) => `<a href="${href}">${label}</a>`);
+  t = t.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${code[+i]}</code>`);
+  return t;
+}
+
+function mdTable(rows) {
+  const cell = (row) => row.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+  const header = cell(rows[0]);
+  const aligns = rows.length > 1 ? cell(rows[1]).map((s) => {
+    const l = s.startsWith(":"), r = s.endsWith(":");
+    return l && r ? "center" : r ? "right" : l ? "left" : "";
+  }) : [];
+  const body = rows.slice(2);
+  const attr = (a) => a ? ` style="text-align:${a}"` : "";
+  const thead = "<tr>" + header.map((h, i) =>
+    `<th${attr(aligns[i])}>${mdInline(h)}</th>`).join("") + "</tr>";
+  const tbody = body.map((r) => "<tr>" +
+    cell(r).map((c, i) => `<td${attr(aligns[i])}>${mdInline(c)}</td>`).join("") +
+    "</tr>").join("");
+  return `<table><thead>${thead}</thead>${tbody ? `<tbody>${tbody}</tbody>` : ""}</table>`;
+}
+
+function mdToHtml(md) {
+  const lines = String(md || "").replace(/\r\n?/g, "\n").split("\n");
+  const out = [];
+  let i = 0;
+  const isBlank = (s) => /^\s*$/.test(s);
+  const isTableSep = (s) => /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(s) && s.includes("-");
+  const isHead = (s) => /^\s{0,3}#{1,6}\s+/.test(s);
+  const isQuote = (s) => /^\s{0,3}>/.test(s);
+  const isFence = (s) => /^\s{0,3}```/.test(s) || /^\s{0,3}~~~/.test(s);
+  const isUl = (s) => /^\s{0,3}[-*+]\s+/.test(s);
+  const isOl = (s) => /^\s{0,3}\d+[.)]\s+/.test(s);
+  const isHr = (s) => /^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(s);
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isBlank(line)) { i++; continue; }
+    if (isFence(line)) {
+      const fence = line.trim().slice(0, 3);
+      const lang = line.trim().slice(3).trim();
+      const buf = [];
+      i++;
+      while (i < lines.length && !lines[i].trimStart().startsWith(fence)) {
+        buf.push(lines[i]);
+        i++;
+      }
+      i++; // skip closing fence
+      const langCls = lang ? ` class="language-${esc(lang)}"` : "";
+      out.push(`<pre><code${langCls}>${esc(buf.join("\n"))}</code></pre>`);
+      continue;
+    }
+    if (isHead(line)) {
+      const m = line.match(/^\s{0,3}(#{1,6})\s+(.*)$/);
+      const level = m[1].length;
+      const text = m[2].replace(/\s+#+\s*$/, "");
+      out.push(`<h${level}>${mdInline(text)}</h${level}>`);
+      i++;
+      continue;
+    }
+    if (isHr(line)) { out.push("<hr>"); i++; continue; }
+    if (isQuote(line)) {
+      const buf = [];
+      while (i < lines.length && (isQuote(lines[i]) || (!isBlank(lines[i]) && buf.length))) {
+        if (isBlank(lines[i])) break;
+        buf.push(lines[i].replace(/^\s{0,3}>\s?/, ""));
+        i++;
+      }
+      out.push(`<blockquote>${mdToHtml(buf.join("\n"))}</blockquote>`);
+      continue;
+    }
+    if (line.includes("|") && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      const rows = [line, lines[i + 1]];
+      i += 2;
+      while (i < lines.length && lines[i].includes("|") && !isBlank(lines[i])) {
+        rows.push(lines[i]);
+        i++;
+      }
+      out.push(mdTable(rows));
+      continue;
+    }
+    if (isUl(line) || isOl(line)) {
+      const ordered = isOl(line);
+      const items = [];
+      while (i < lines.length && (ordered ? isOl(lines[i]) : isUl(lines[i]))) {
+        let text = lines[i].replace(ordered ? /^\s{0,3}\d+[.)]\s+/ : /^\s{0,3}[-*+]\s+/, "");
+        const task = text.match(/^\[([ xX])\]\s+(.*)$/);
+        if (task) {
+          const done = task[1].toLowerCase() === "x";
+          items.push(`<li class="task${done ? " done" : ""}"><span class="task-box">${done ? "✓" : ""}</span> ${mdInline(task[2])}</li>`);
+        } else {
+          items.push(`<li>${mdInline(text)}</li>`);
+        }
+        i++;
+      }
+      const tag = ordered ? "ol" : "ul";
+      out.push(`<${tag}>${items.join("")}</${tag}>`);
+      continue;
+    }
+    const buf = [line];
+    i++;
+    while (i < lines.length) {
+      const l = lines[i];
+      if (isBlank(l) || isHead(l) || isFence(l) || isQuote(l) || isUl(l) || isOl(l) || isHr(l)) break;
+      buf.push(l);
+      i++;
+    }
+    out.push(`<p>${buf.map(mdInline).join("<br>")}</p>`);
+  }
+  return out.join("\n");
 }
