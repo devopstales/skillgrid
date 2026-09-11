@@ -24,6 +24,32 @@ import (
 // additive and does not re-read as a lifecycle state.
 const dreamStatus = "consolidated"
 
+// dreamSynthesisSource is the source tag on an observation produced by
+// synthesize(), so a reader can tell a derived higher-tier summary apart from
+// a live observation.
+const dreamSynthesisSource = "synthesis"
+
+// DreamTierL2 is the maturity tier of a synthesized cross-session summary
+// (one level above the L0/L1 session summaries that are its input).
+const DreamTierL2 = "L2"
+
+// Memory is a lower-tier record synthesize() lifts. For session summaries the
+// SessionID is the source session (the provenance the L2 record references);
+// for a generic observation it is that observation's session_id.
+type Memory struct {
+	SessionID string `json:"session_id"`
+	Content   string `json:"content"`
+}
+
+// Summary is the higher-tier record synthesize() creates.
+type Summary struct {
+	ID          int64    `json:"id"`
+	Tier        string   `json:"tier"`
+	Content     string   `json:"content"`
+	SourceCount int      `json:"source_count"`
+	SessionIDs  []string `json:"session_ids"`
+}
+
 // DreamLLM is the pluggable LLM seam for the dream's consolidate/synthesize
 // phases (014 step 12). It mirrors the ExtractionLLM / layer.LLM seam pattern
 // from step 05: a tiny interface a backend implements, with NO CGo LLM client
@@ -184,6 +210,82 @@ func (de *DreamExecutor) markConsolidated(ctx context.Context, ids []int64) erro
 		}
 	}
 	return nil
+}
+
+// synthesize lifts a set of lower-tier (L0/L1) session summaries into a single
+// higher-tier (L2) summary (014 step 12.2). It stores the summary as a NEW
+// observation with tier = DreamTierL2 and records the source sessions in its
+// content (the provenance link) and in the returned Summary.SessionIDs.
+func (de *DreamExecutor) synthesize(ctx context.Context, memories []Memory) (Summary, error) {
+	var out Summary
+	if de == nil || de.svc == nil || de.svc.DB() == nil {
+		return out, fmt.Errorf("dream executor not initialized")
+	}
+	if len(memories) == 0 {
+		return out, fmt.Errorf("synthesize: at least one memory is required")
+	}
+	contents := make([]string, 0, len(memories))
+	sessions := make([]string, 0, len(memories))
+	for _, m := range memories {
+		contents = append(contents, m.Content)
+		sessions = append(sessions, m.SessionID)
+	}
+	body, err := de.synthesizeBody(ctx, contents)
+	if err != nil {
+		return out, err
+	}
+	body = body + "\n" + dreamSourceSessions(sessions)
+	title := "L2 synthesis: " + dreamShortID(sessions[0])
+	id, err := de.svc.Save(ctx, SaveInput{
+		Title:     title,
+		Type:      "learning",
+		Content:   body,
+		Scope:     "project",
+		SessionID: sessions[0],
+		TopicKey:  "dream/L2/" + dreamShortID(sessions[0]),
+		Source:    dreamSynthesisSource,
+	})
+	if err != nil {
+		return out, fmt.Errorf("save synthesis: %w", err)
+	}
+	out.ID = id
+	out.Tier = DreamTierL2
+	out.Content = body
+	out.SessionIDs = sessions
+	out.SourceCount = len(memories)
+	return out, nil
+}
+
+// synthesizeBody produces the higher-tier summary body. With an LLM it asks the
+// seam; without one (or on error) it is the deterministic lossless join of the
+// lower-tier summaries.
+func (de *DreamExecutor) synthesizeBody(ctx context.Context, contents []string) (string, error) {
+	if de.llm != nil {
+		if merged, err := de.llm.SynthesizePrompt(ctx, contents); err == nil {
+			if m := strings.TrimSpace(merged); m != "" {
+				return m + "\n", nil
+			}
+		}
+	}
+	return dreamJoin("Lower-tier summaries", contents), nil
+}
+
+// dreamSourceSessions renders the provenance line that ties a synthesized L2
+// record back to its source sessions.
+func dreamSourceSessions(sessions []string) string {
+	return "Source sessions: " + strings.Join(sessions, ", ")
+}
+
+// dreamShortID is a short, stable identifier (first 8 chars) used in titles.
+func dreamShortID(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 8 {
+		return s[:8]
+	}
+	if s == "" {
+		return "no-session"
+	}
+	return s
 }
 
 // dreamJoin builds the deterministic lossless body for a group: a header line
