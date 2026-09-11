@@ -467,24 +467,24 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 05.1 `[RED]` ExtractWithLLM calls LLM and returns structured learnings
-  - [ ] 05.1.a Write failing test (`TestExtractWithLLM`): provide a mock LLM that returns structured JSON learnings; call `ExtractWithLLM(ctx, text)`; verify it returns parsed learnings matching the `shapePassiveItem` format; verify the LLM is called with the input text
-  - [ ] 05.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestExtractWithLLM'` — Expected: FAIL
-  - [ ] 05.1.c Minimal implementation — create `extraction.go` with `ExtractWithLLM(ctx context.Context, text string) ([]PassiveItem, error)`; call the LLM backend (reuse `layer.Distill` or a new extraction endpoint); parse the JSON response into `PassiveItem` structs using `shapePassiveItem` / `shapePassiveContent`
-  - [ ] 05.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestExtractWithLLM'` — Expected: PASS
-  - [ ] 05.1.e Commit — `feat(mnemonic): add LLM-backed passive extraction`
-- [ ] 05.2 `[RED]` LLM extraction failure falls back to regex extraction
-  - [ ] 05.2.a Write failing test (`TestCapturePassiveLLMFailureFallsBackToRegex`): mock the LLM to return an error; call `CapturePassive` with text containing known regex-extractable learnings; verify the regex fallback (`extractLearnings`) is called and returns the same results as the regex-only path; verify no error is propagated to the caller
-  - [ ] 05.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestCapturePassiveLLMFailureFallsBackToRegex'` — Expected: FAIL
-  - [ ] 05.2.c Minimal implementation — modify `CapturePassive` to try `ExtractWithLLM` first; on error, log a warning and fall back to `extractLearnings` regex; ensure the regex path is always available (no LLM dependency); results are parsed with the same `shapePassiveItem` / `shapePassiveContent` functions
-  - [ ] 05.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestCapturePassiveLLMFailureFallsBackToRegex'` — Expected: PASS
-  - [ ] 05.2.e Commit — `feat(mnemonic): add regex fallback for LLM extraction failure`
-- [ ] 05.3 `[AFK]` Extraction results are identical quality or better than regex-only
-  - [ ] 05.3.a Write failing test (`TestExtractionQualityLLMVsRegex`): provide a text with nuanced learnings that regex misses (free-form text, multi-clause sentences); compare LLM extraction results vs regex results; verify LLM extracts at least all items regex extracts plus additional nuanced items; verify no duplicate items in the combined result set
-  - [ ] 05.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestExtractionQualityLLMVsRegex'` — Expected: FAIL
-  - [ ] 05.3.c Minimal implementation — refine the LLM prompt in `ExtractWithLLM` to capture nuanced learnings; deduplicate results (by content hash) when combining LLM and regex outputs; ensure the LLM is opt-in (config `mnemonic.extraction.llm: true`); default to regex when not enabled
-  - [ ] 05.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestExtractionQualityLLMVsRegex'` — Expected: PASS
-  - [ ] 05.3.e Commit — `feat(mnemonic): improve LLM extraction quality and dedup`
+- [x] 05.1 `[RED]` ExtractWithLLM calls LLM and returns structured learnings
+  - [x] 05.1.a Write failing test (`TestExtractWithLLM`): provide a mock LLM that returns structured JSON learnings; call `ExtractWithLLM(ctx, text)`; verify it returns parsed learnings matching the `shapePassiveItem` format; verify the LLM is called with the input text
+  - [x] 05.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestExtractWithLLM'` — Expected: FAIL
+  - [x] 05.1.c Minimal implementation — create `extraction.go` with `ExtractWithLLM(ctx context.Context, text string) ([]PassiveItem, error)`; call the LLM backend (reuse `layer.Distill` or a new extraction endpoint); parse the JSON response into `PassiveItem` structs using `shapePassiveItem` / `shapePassiveContent`
+  - [x] 05.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestExtractWithLLM'` — Expected: PASS
+  - [x] 05.1.e Commit — `feat(mnemonic): add LLM-backed passive extraction`
+- [x] 05.2 `[RED]` LLM extraction failure falls back to regex extraction
+  - [x] 05.2.a Write failing test (`TestCapturePassiveLLMFailureFallsBackToRegex`): mock the LLM to return an error; call `CapturePassive` with text containing known regex-extractable learnings; verify the regex fallback (`extractLearnings`) is called and returns the same results as the regex-only path; verify no error is propagated to the caller
+  - [x] 05.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestCapturePassiveLLMFailureFallsBackToRegex'` — Expected: FAIL
+  - [x] 05.2.c Minimal implementation — modify `CapturePassive` to try `ExtractWithLLM` first; on error, log a warning and fall back to `extractLearnings` regex; ensure the regex path is always available (no LLM dependency); results are parsed with the same `shapePassiveItem` / `shapePassiveContent` functions
+  - [x] 05.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestCapturePassiveLLMFailureFallsBackToRegex'` — Expected: PASS
+  - [x] 05.2.e Commit — `feat(mnemonic): add regex fallback for LLM extraction failure`
+- [x] 05.3 `[AFK]` Extraction results are identical quality or better than regex-only
+  - [x] 05.3.a Write failing test (`TestExtractionQualityLLMVsRegex`): provide a text with nuanced learnings that regex misses (free-form text, multi-clause sentences); compare LLM extraction results vs regex results; verify LLM extracts at least all items regex extracts plus additional nuanced items; verify no duplicate items in the combined result set
+  - [x] 05.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestExtractionQualityLLMVsRegex'` — Expected: FAIL
+  - [x] 05.3.c Minimal implementation — refine the LLM prompt in `ExtractWithLLM` to capture nuanced learnings; deduplicate results (by content hash) when combining LLM and regex outputs; ensure the LLM is opt-in (config `mnemonic.extraction.llm: true`); default to regex when not enabled
+  - [x] 05.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestExtractionQualityLLMVsRegex'` — Expected: PASS
+  - [x] 05.3.e Commit — `feat(mnemonic): improve LLM extraction quality and dedup`
 
 ### Verification
 
