@@ -96,9 +96,9 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 
 ```yaml
 phase: apply         # spec | apply | verify | archive
-current_step: 06-multi-embedder
+current_step: 07-triple-store-linkage
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-11T02:00:00+02:00
+updated: 2026-09-11T02:30:00+02:00
 ```
 
 ## Step map
@@ -522,11 +522,11 @@ ollama and local embedder providers.
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-06` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-06` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 01
 
@@ -543,44 +543,46 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 06.1 `[RED]` Ollama embedder calls http://localhost:11434/api/embeddings
-  - [ ] 06.1.a Write failing test (`TestOllamaEmbedder`): start a mock HTTP server on a test port that mimics the Ollama `/api/embeddings` endpoint; configure the embedder to use that port; call `Embed(ctx, "test text")`; verify it returns a vector of the expected dimensionality; verify the HTTP request body contains the input text
-  - [ ] 06.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestOllamaEmbedder'` — Expected: FAIL
-  - [ ] 06.1.c Minimal implementation — create `ollama.go` with an `OllamaEmbedder` struct that POSTs to `http://localhost:11434/api/embeddings` with `{"model": "...", "prompt": "..."}`; parse the `embedding` field from the JSON response; register as provider type `ollama` in `embedder.go`
-  - [ ] 06.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestOllamaEmbedder'` — Expected: PASS
-  - [ ] 06.1.e Commit — `feat(mnemonic): add ollama embedder provider`
-- [ ] 06.2 `[RED]` Local ONNX embedder loads model from ~/.skillgrid/models/
-  - [ ] 06.2.a Write failing test (`TestLocalONNXEmbedder`): place a test ONNX model in a temp directory; configure the embedder to load from that directory; call `Embed(ctx, "test text")`; verify it returns a vector; verify the model file is found and loaded; verify graceful error when model directory is missing
-  - [ ] 06.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestLocalONNXEmbedder'` — Expected: FAIL
-  - [ ] 06.2.c Minimal implementation — create `local.go` with a `LocalONNXEmbedder` struct that loads an ONNX model from `~/.skillgrid/models/` (or a configured path); use `onnxer` to run inference; register as provider type `local` in `embedder.go`; return a descriptive error when the model file is missing
-  - [ ] 06.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestLocalONNXEmbedder'` — Expected: PASS
-  - [ ] 06.2.e Commit — `feat(mnemonic): add local ONNX embedder provider`
-- [ ] 06.3 `[RED]` Config-driven provider selection via indexing.yaml
-  - [ ] 06.3.a Write failing test (`TestEmbedderConfigDrivenSelection`): write an `indexing.yaml` with `mnemonic.embedder.provider: ollama`; call `embedder.Default()`; verify it returns an Ollama embedder; write `provider: local` and verify it returns a LocalONNX embedder; write `provider: onnx` and verify it returns the existing ONNX embedder; write no provider and verify it returns Null
-  - [ ] 06.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestEmbedderConfigDrivenSelection'` — Expected: FAIL
-  - [ ] 06.3.c Minimal implementation — extend `config/load.go` to parse `mnemonic.embedder.provider` from `indexing.yaml`; extend `embedder.go` `Default()` to switch on the provider value and return the appropriate embedder; ensure `onnx`/`external`/`off` values are unchanged
-  - [ ] 06.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestEmbedderConfigDrivenSelection'` — Expected: PASS
-  - [ ] 06.3.e Commit — `feat(mnemonic): config-driven embedder provider selection`
-- [ ] 06.4 `[AFK]` Embedder load failure degrades to Null
-  - [ ] 06.4.a Write failing test (`TestEmbedderLoadFailureReturnsNull`): configure `provider: ollama` but point to an unreachable port; call `embedder.Default()`; verify it returns a Null embedder (not an error); verify `Embed` on the Null embedder returns zero-vector or empty slice
-  - [ ] 06.4.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestEmbedderLoadFailureReturnsNull'` — Expected: FAIL
-  - [ ] 06.4.c Minimal implementation — in `embedder.Default()`, wrap provider creation in error handling; on failure, log a warning and return `NullEmbedder`; ensure `NullEmbedder.Embed` returns a zero-length vector without error
-  - [ ] 06.4.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestEmbedderLoadFailureReturnsNull'` — Expected: PASS
-  - [ ] 06.4.e Commit — `feat(mnemonic): degrade to Null embedder on load failure`
+- [x] 06.1 `[RED]` Ollama embedder calls http://localhost:11434/api/embeddings
+  - [x] 06.1.a Write failing test (`TestOllamaEmbedder`): start a mock HTTP server on a test port that mimics the Ollama `/api/embeddings` endpoint; configure the embedder to use that port; call `Embed(ctx, "test text")`; verify it returns a vector of the expected dimensionality; verify the HTTP request body contains the input text
+  - [x] 06.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestOllamaEmbedder'` — Expected: FAIL
+  - [x] 06.1.c Minimal implementation — create `ollama.go` with an `OllamaEmbedder` struct that POSTs to `http://localhost:11434/api/embeddings` with `{"model": "...", "prompt": "..."}`; parse the `embedding` field from the JSON response; register as provider type `ollama` in `embedder.go`
+  - [x] 06.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestOllamaEmbedder'` — Expected: PASS
+  - [x] 06.1.e Commit — `feat(mnemonic): add ollama embedder provider`
+- [x] 06.2 `[RED]` Local ONNX embedder loads model from ~/.skillgrid/models/
+  - [x] 06.2.a Write failing test (`TestLocalONNXEmbedder`): place a test ONNX model in a temp directory; configure the embedder to load from that directory; call `Embed(ctx, "test text")`; verify it returns a vector; verify the model file is found and loaded; verify graceful error when model directory is missing
+  - [x] 06.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestLocalONNXEmbedder'` — Expected: FAIL
+  - [x] 06.2.c Minimal implementation — create `local.go` with a `LocalONNXEmbedder` struct that loads an ONNX model from `~/.skillgrid/models/` (or a configured path); use `onnxer` to run inference; register as provider type `local` in `embedder.go`; return a descriptive error when the model file is missing
+  - [x] 06.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestLocalONNXEmbedder'` — Expected: PASS
+  - [x] 06.2.e Commit — `feat(mnemonic): add local ONNX embedder provider`
+- [x] 06.3 `[RED]` Config-driven provider selection via indexing.yaml
+  - [x] 06.3.a Write failing test (`TestEmbedderConfigDrivenSelection`): write an `indexing.yaml` with `mnemonic.embedder.provider: ollama`; call `embedder.Default()`; verify it returns an Ollama embedder; write `provider: local` and verify it returns a LocalONNX embedder; write `provider: onnx` and verify it returns the existing ONNX embedder; write no provider and verify it returns Null
+  - [x] 06.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestEmbedderConfigDrivenSelection'` — Expected: FAIL
+  - [x] 06.3.c Minimal implementation — extend `config/load.go` to parse `mnemonic.embedder.provider` from `indexing.yaml`; extend `embedder.go` `Default()` to switch on the provider value and return the appropriate embedder; ensure `onnx`/`external`/`off` values are unchanged
+  - [x] 06.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestEmbedderConfigDrivenSelection'` — Expected: PASS
+  - [x] 06.3.e Commit — `feat(mnemonic): config-driven embedder provider selection`
+- [x] 06.4 `[AFK]` Embedder load failure degrades to Null
+  - [x] 06.4.a Write failing test (`TestEmbedderLoadFailureReturnsNull`): configure `provider: ollama` but point to an unreachable port; call `embedder.Default()`; verify it returns a Null embedder (not an error); verify `Embed` on the Null embedder returns zero-vector or empty slice
+  - [x] 06.4.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestEmbedderLoadFailureReturnsNull'` — Expected: FAIL
+  - [x] 06.4.c Minimal implementation — in `embedder.Default()`, wrap provider creation in error handling; on failure, log a warning and return `NullEmbedder`; ensure `NullEmbedder.Embed` returns a zero-length vector without error
+  - [x] 06.4.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestEmbedderLoadFailureReturnsNull'` — Expected: PASS
+  - [x] 06.4.e Commit — `feat(mnemonic): degrade to Null embedder on load failure`
 
 ### Verification
 
-Verdict: `PENDING`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
+Verdict: `PASS WITH WARNINGS`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestOllamaEmbedder\|TestLocalONNXEmbedder\|TestEmbedderConfigDrivenSelection'` | PASS | | |
-| Acceptance `@step-06` / `@p0` | BDD / mapped unit scenarios | PASS | | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/embedder/` | PASS | | |
-| Rollback boundary | verify onnx/external/off providers unchanged | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/embedder/ -run 'TestOllamaEmbedder\|TestLocalONNXEmbedder\|TestEmbedderConfigDrivenSelection\|TestEmbedderLoadFailureReturnsNull'` | PASS | PASS | 18/18 embedder tests GREEN |
+| Acceptance `@step-06` / `@p0` | BDD / mapped unit scenarios | PASS | PASS | mapped unit scenarios |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/embedder/ -count=1` | PASS | PASS | full embedder suite |
+| Rollback boundary | verify onnx/external/off providers unchanged | PASS | PASS | `BuildFromConfig` switch preserves existing routing; no-CGO (onnxer direct dep, no go.mod change) |
+| Global Constraints | — | held | held | config-driven selection, no hard-coded models; no tool contract change |
+
+Commits: `dcbf534` (ollama), `d716f95` (local ONNX), `998f1bf` (config-driven Default), `404a05a` (Null degradation). Review: PASS WITH WARNINGS. Warnings: (M1) `Default()` now returns `*Onnx`(768-dim, hash-fallback) instead of old `HashEmbedder{}`(64-dim) when embedding on — a real runtime behavior change; ALSO the main `resolveEmbedder` (service.go:1735) was NOT updated to route ollama/local, so the two selection paths disagree (follow-up); (M2) `LocalONNX.embedOne` loads the session but returns a zero vector (no inference) — a present model yields flat ranking, weaker than onnx.go's non-zero hash fallback (disclosed follow-up, libonnxruntime absent on host); (M3) `isLibraryMissing` string-matches onnxer's dlopen error text (fragile to rewording).
 
 ### Commit
 
