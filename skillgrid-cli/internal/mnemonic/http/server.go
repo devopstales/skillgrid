@@ -85,6 +85,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /sessions/{id}/end", s.requireWriteAuth(s.handleSessionEnd))
 	s.mux.HandleFunc("POST /sessions/{id}/title", s.requireWriteAuth(s.handleSessionSetTitle))
 	s.mux.HandleFunc("GET /sessions/{id}", s.handleSessionGet)
+	// P6 Sessions entry: open list read + per-session summary read.
+	s.mux.HandleFunc("GET /sessions", s.handleSessionList)
+	s.mux.HandleFunc("GET /sessions/{id}/summary", s.handleSessionSummary)
 
 	s.mux.HandleFunc("GET /context", s.handleContext)
 	s.mux.HandleFunc("GET /context/compaction", s.handleContextCompaction)
@@ -378,6 +381,94 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, st)
+}
+
+// handleSessionList returns every session for the project (id, title,
+// started_at, status), newest first — the data behind the P6 Sessions entry
+// list. Open read: ?project= convention like /context.
+//
+// The path-routed dashboard shell ALSO serves GET /sessions (handleShellPage,
+// ui.go) so a browser reload on the Sessions entry renders the SPA. The two
+// coexist by Accept: an HTML request (no ?project=, Accept: text/html) falls
+// through to the shell page; the dashboard fetch (Accept: application/json,
+// ?project=) gets the JSON list.
+func (s *Server) handleSessionList(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("project") == "" &&
+		strings.Contains(r.Header.Get("Accept"), "text/html") {
+		s.handleShellPage(w, r)
+		return
+	}
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer cleanup()
+	rows, err := h.Store().DB.QueryContext(r.Context(), `
+		SELECT id, COALESCE(NULLIF(TRIM(title), ''), ''), started_at, status
+		FROM sessions WHERE project = ? ORDER BY started_at DESC`, projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list sessions: "+err.Error())
+		return
+	}
+	defer rows.Close()
+	sessions := []map[string]any{}
+	for rows.Next() {
+		var id, title, startedAt, status string
+		if err := rows.Scan(&id, &title, &startedAt, &status); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		sessions = append(sessions, map[string]any{
+			"id":         id,
+			"title":      title,
+			"started_at": startedAt,
+			"status":     status,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+}
+
+// handleSessionSummary returns one session's stored summary (markdown),
+// status, and ended_at for the P6 summary pane; 404 for an unknown session.
+func (s *Server) handleSessionSummary(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	defer cleanup()
+	var summary, status, endedAt string
+	err = h.Store().DB.QueryRowContext(r.Context(),
+		`SELECT COALESCE(summary, ''), COALESCE(status, ''), COALESCE(ended_at, '')
+		 FROM sessions WHERE project = ? AND id = ?`,
+		projectID, id,
+	).Scan(&summary, &status, &endedAt)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session not found: "+id)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":       id,
+		"summary":  summary,
+		"status":   status,
+		"ended_at": endedAt,
+	})
 }
 
 // handleMemoryLastSaveAt returns the newest observation timestamp so the

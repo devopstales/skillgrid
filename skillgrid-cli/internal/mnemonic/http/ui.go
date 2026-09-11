@@ -19,8 +19,10 @@ func (s *Server) registerUIRoutes() {
 	// entry from location.pathname). Exact patterns coexist with the API
 	// routes (/tracker vs /tracker/config, etc.). /swagger-ui is a separate
 	// route (handleSwaggerUI → shell) so Swagger mounts inside #content with
-	// the sidebar visible.
-	for _, page := range []string{"/welcome", "/tracker", "/docs", "/memory", "/code", "/sessions"} {
+	// the sidebar visible. /sessions is NOT here: the P6 session-list API
+	// (GET /sessions, server.go) owns that exact pattern and falls back to
+	// this shell page for HTML requests without ?project= (SPA reload).
+	for _, page := range []string{"/welcome", "/tracker", "/docs", "/memory", "/code"} {
 		s.mux.HandleFunc("GET "+page, s.handleShellPage)
 		s.mux.HandleFunc("GET "+page+"/", s.handleShellPage)
 	}
