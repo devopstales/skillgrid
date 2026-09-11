@@ -45,7 +45,7 @@ From the orchestrator:
 - Optional: **ticket/issue id** — the apply commit close-token per `_shared/conventions/commits.md`.
 - Optional: a `## Skills to load before work` block.
 
-**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: updates `docs/skillgrid/changes/{change-name}/tasks.md` with `[x]` marks **and** persists progress to Mnemonic under `sdd/{change-name}/apply-progress` (upserting the tasks observation for the `[x]` state). Any store-mode token from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+**Artifact store mode is `hybrid` — preferred (degraded modes allowed, see `../_shared/conventions/hybrid-degradation.md`).** Every run does BOTH: updates `docs/skillgrid/changes/{change-name}/tasks.md` with `[x]` marks **and** persists progress to Mnemonic under `sdd/{change-name}/apply-progress` (upserting the tasks observation for the `[x]` state). Any store-mode token from the orchestrator is honored as `hybrid` here. Degrade explicitly with a `Degraded:` envelope line instead of failing silently.
 
 ## Execution + Persistence Conventions
 
@@ -54,7 +54,7 @@ Follow, on each save, rather than restating here:
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`; **no** `project:` parameter, **no** `capture_prompt` field; `mem_search` returns previews — always `mem_get_observation(id)` for full content; upsert via same `topic_key`).
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout; `tasks.md` is the live artifact you mark `[x]`; `rules.apply` from `docs/skillgrid/config.yaml`; the `state.yaml` DAG state.
 - [`../_shared/conventions/commits.md`](../_shared/conventions/commits.md) — the apply commit is a checkpoint: Conventional Commits, ticket close-token footer, no AI trailers, one logical change per commit.
-- [`references/strict-tdd.md`](references/strict-tdd.md) — the Strict TDD module (RED → GREEN → TRIANGULATE → REFACTOR), loaded ONLY when Step 3 resolves Strict TDD as active.
+- [`../_shared/references/strict-tdd.md`](../_shared/references/strict-tdd.md) — the Strict TDD module (RED → GREEN → TRIANGULATE → REFACTOR), loaded ONLY when Step 3 resolves Strict TDD as active.
 - [`../sdd-tasks/SKILL.md`](../sdd-tasks/SKILL.md) — upstream; its `Review Workload Forecast` and the work-unit rows are the guard you enforce in Step 2a.
 
 ## Skill Loading
@@ -146,13 +146,13 @@ Read testing capabilities from:
 
 Resolve mode:
 ├── IF strict_tdd: true AND a test runner exists
-│   └── STRICT TDD MODE → load and follow [references/strict-tdd.md](references/strict-tdd.md) INSTEAD of Step 5
+│   └── STRICT TDD MODE → load and follow [references/strict-tdd.md](../_shared/references/strict-tdd.md) INSTEAD of Step 5
 ├── IF strict_tdd: false OR no test runner
 │   └── STANDARD MODE → use Step 5 (the strict-tdd.md module is never read, never processed)
 └── Cache the resolved mode for the return summary
 ```
 
-**Key principle**: if Strict TDD is **not** active, ZERO TDD instructions are loaded — do not read, process, or reason from `references/strict-tdd.md`.
+**Key principle**: if Strict TDD is **not** active, ZERO TDD instructions are loaded — do not read, process, or reason from `../_shared/references/strict-tdd.md`.
 
 **Hard gate (Strict TDD only)**: if Strict TDD is active, you MUST produce a **TDD Cycle Evidence** table in the apply-progress artifact — every task row carries RED (test written first) → GREEN (implementation passes) → TRIANGULATE → REFACTOR. A task completed without a test written first is marked FAILED in the table. `sdd-verify` rejects work whose TDD Evidence table is missing or incomplete. There is **no silent fallback**: if you resolved Strict TDD as active, you follow it or you report failure — you do not quietly drop to Standard Mode.
 
@@ -286,7 +286,7 @@ Before returning, confirm each — fix any failure before returning `success`, e
 | `path/to/file.ext` | Created | {brief description} |
 | `path/to/other.ext` | Modified | {brief description} |
 
-{IF Strict TDD Mode → include the TDD Cycle Evidence table from references/strict-tdd.md}
+{IF Strict TDD Mode → include the TDD Cycle Evidence table from ../_shared/references/strict-tdd.md}
 
 ### Work Unit Evidence
 | Unit | Focused test (cmd + result) | Runtime harness (cmd + result) | Rollback boundary |
@@ -338,8 +338,8 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - When applying a chained/stacked PR slice, keep the batch autonomous: one deliverable scope, verification included, clear rollback boundary.
 - When applying `size:exception`, state it explicitly in apply-progress and the return summary.
 - Apply any `rules.apply` from `docs/skillgrid/config.yaml`.
-- If Strict TDD is resolved active, load `references/strict-tdd.md` and follow its cycle INSTEAD of Step 5; its rules OVERRIDE Step 5 entirely.
-- **Hybrid is the only mode** — always mark the filesystem `tasks.md` AND persist to Mnemonic; never branch on the mode.
+- If Strict TDD is resolved active, load `../_shared/references/strict-tdd.md` and follow its cycle INSTEAD of Step 5; its rules OVERRIDE Step 5 entirely.
+- **Hybrid is preferred** — always mark the filesystem `tasks.md` AND persist to Mnemonic; degraded modes allowed only per `../_shared/conventions/hybrid-degradation.md` with a `Degraded:` envelope line.
 - No external binaries. Mnemonic (`mem_*`) and the code index (`code_*`) are the only knowledge sources; no `gentle-ai`, no `gentleman-ai`, no `sdd-phase-common.md`, no CLI status/validator binary.
 - Return envelope per Step 11 — final action is text, not a tool call.
 
@@ -348,7 +348,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - **Merging prior progress is load-bearing.** Mnemonic is working memory — an upsert of `apply-progress` without first reading the prior observation silently drops every earlier batch's completed state. `sdd-verify` and `sdd-archive` will then look at a partial picture.
 - `mem_search` returns **300-char previews**. A preview of a 2000-char design/spec loses most of it — always `mem_get_observation(id)` before you rely on it as an acceptance criterion or a constraint.
 - **The tasks observation upsert is separate from apply-progress.** Step 7 writes TWO Mnemonic saves — `sdd/{change-name}/tasks` (the `[x]` state) and `sdd/{change-name}/apply-progress` (the cumulative evidence). Missing either leaves the other stale. The filesystem `tasks.md` is the recovery copy for both; keep them byte-consistent.
-- In Strict TDD, a GREEN that "passes trivially" (loop runs 0 times, setup doesn't reach the code path, component never renders) is not a GREEN. The `references/strict-tdd.md` TRIANGULATE step is the gate that forces real logic — do not skip it because your first GREEN was green.
+- In Strict TDD, a GREEN that "passes trivially" (loop runs 0 times, setup doesn't reach the code path, component never renders) is not a GREEN. The `../_shared/references/strict-tdd.md` TRIANGULATE step is the gate that forces real logic — do not skip it because your first GREEN was green.
 - The TDD Cycle Evidence table and the Work Unit Evidence table are **different artifacts with different roles**: TDD table is per-task RED/GREEN/TRIANGULATE/REFACTOR; Work Unit Evidence is per-unit focused-test/runtime-harness/rollback. `sdd-tasks` forecasts the latter; `sdd-verify` checks both. Missing either = a partial apply.
 - **Workload guard ordering.** The Step 2 check comes BEFORE any code is written — implementing an above-budget slice only to discover the delivery-strategy decision wasn't resolved wastes a batch of work and complicates rollback.
 - **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`, `scope: "project"`, active `session_id`. (See `conventions/mnemonic-memory.md` § Mnemonic Tool Mapping.)
@@ -357,7 +357,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 
 ## References
 
-- [references/strict-tdd.md](references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR cycle, test-layer selection, assertion-quality rules, approval-testing flow, TDD Cycle Evidence table. Load only when Step 4 resolves Strict TDD as active.
+- [references/strict-tdd.md](../_shared/references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR cycle, test-layer selection, assertion-quality rules, approval-testing flow, TDD Cycle Evidence table. Load only when Step 4 resolves Strict TDD as active.
 - [`../sdd-tasks/SKILL.md`](../sdd-tasks/SKILL.md) — upstream; its `Review Workload Forecast`, chain strategy, and work-unit rows are the guard you enforce in Step 2.
 - [`../sdd-spec/SKILL.md`](../sdd-spec/SKILL.md) — upstream; its scenarios are your acceptance criteria in every task.
 - [`../sdd-design/SKILL.md`](../sdd-design/SKILL.md) — upstream; its decisions constrain your approach.

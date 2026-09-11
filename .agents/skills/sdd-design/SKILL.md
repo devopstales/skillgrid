@@ -34,7 +34,7 @@ Phase order is `propose → design → spec → tasks` — design runs **before*
 From the orchestrator:
 
 - **Change name** (kebab-case, e.g. `add-dark-mode`)
-- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `docs/skillgrid/changes/{change-name}/design.md` **and** persists to Mnemonic under `sdd/{change-name}/design`. Any store-mode token from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+- **Artifact store mode** is `hybrid` — preferred (degraded modes allowed, see `../_shared/conventions/hybrid-degradation.md`). Every run does BOTH: writes `docs/skillgrid/changes/{change-name}/design.md` **and** persists to Mnemonic under `sdd/{change-name}/design`. Any store-mode token from the orchestrator is honored as `hybrid` here. Degrade explicitly with a `Degraded:` envelope line instead of failing silently.
 - Optional: **ticket/issue id** (for the eventual `sdd-apply` commit close-token per `_shared/conventions/commits.md`)
 - Optional: a `## Skills to load before work` block
 
@@ -81,7 +81,7 @@ Confirm before designing: entry points, module boundaries, existing patterns, de
 
 ### Step 2: Applicability-Driven Threat Matrix
 
-Read the applicability trigger list in [references/threat-matrix.md](references/threat-matrix.md). It lists the boundaries where a design can silently break (routing, shell/subprocess, VCS/PR automation, executable-file classification, process integration — **plus** skillgrid-specific rows: a new/modified Mnemonic tool contract, and a change to any `_shared/conventions/*` file).
+Read the applicability trigger list in [references/threat-matrix.md](../_shared/references/threat-matrix.md). It lists the boundaries where a design can silently break (routing, shell/subprocess, VCS/PR automation, executable-file classification, process integration — **plus** skillgrid-specific rows: a new/modified Mnemonic tool contract, and a change to any `_shared/conventions/*` file).
 
 - If **any** row is applicable, include the full matrix in `design.md`, mark each row `Applicable` or explicit `N/A: reason`, and name the expected safe behavior, failure behavior, and the planned RED test for every applicable row.
 - If **none** apply (a pure ref, doc, or additive-feature change away from every listed boundary), record the matrix as not applicable in one line — do not manufacture `N/A` rows.
@@ -145,7 +145,7 @@ If a `design.md` already exists in the change folder, **READ it first and UPDATE
 | E2E | {what} | {how} |
 
 ## Threat Matrix
-{Applicability matrix from references/threat-matrix.md — every row marked Applicable or N/A:reason — or the single line "N/A — no routing, shell, subprocess, VCS/PR, executable-classification, process-integration, Mnemonic-tool-contract, or shared-convention boundary."}
+{Applicability matrix from ../_shared/references/threat-matrix.md — every row marked Applicable or N/A:reason — or the single line "N/A — no routing, shell, subprocess, VCS/PR, executable-classification, process-integration, Mnemonic-tool-contract, or shared-convention boundary."}
 
 ## Migration / Rollout
 {Data migration, feature flags, phased rollout — or "No migration required."}
@@ -176,7 +176,7 @@ If a `design.md` already exists in the change folder, **READ it first and UPDATE
 
   `topic_key` upserts — re-running the phase replaces the observation in place, it does not duplicate. Mnemonic save notes: `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both.
 
-Do not branch on mode — `hybrid` is the only mode for this phase.
+`hybrid` is preferred — degrade explicitly per `../_shared/conventions/hybrid-degradation.md` with a `Degraded:` envelope line.
 
 Mnemonic save notes (from `mnemonic-memory.md`): `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both.
 
@@ -243,7 +243,7 @@ Close your final message with a `## Key Learnings` section — 1–5 standalone 
 
 ## References
 
-- [references/threat-matrix.md](references/threat-matrix.md) — applicability-driven threat matrix; load when the design touches routing, shell/subprocess, VCS/PR automation, executable-file classification, process integration, **or** Mnemonic tool contracts, **or** any `_shared/conventions/*` file.
+- [references/threat-matrix.md](../_shared/references/threat-matrix.md) — applicability-driven threat matrix; load when the design touches routing, shell/subprocess, VCS/PR automation, executable-file classification, process integration, **or** Mnemonic tool contracts, **or** any `_shared/conventions/*` file.
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape, session protocol, recovery ladder.
 - [`../_shared/conventions/mnemonic-code-indexing.md`](../_shared/conventions/mnemonic-code-indexing.md) — the `code_status → code_index → code_search → code_read` ladder.
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout and phase order (`propose → design → spec → tasks`).

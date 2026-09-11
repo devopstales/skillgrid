@@ -50,11 +50,11 @@ Check, in order, and record which source answered each fact:
 - `docs/skillgrid/config.yaml` — same four facts; note existing `docs/skillgrid/` layout.
 - Mnemonic — `mem_search` for `sdd/{project}/issue_tracker`, `sdd/{project}/testing-capabilities`, `sdd-init/{project}`. Use `mem_context` first for recent sessions.
 - `git remote -v` / `.git/config` — is this a git repo? Which host (GitHub, GitLab, other)? Gives `project_name` candidate and tracker candidate.
-- `docs/agents/skill-registry.md` and `docs/agents/issue-tracker.md` — prior sdd-init output.
+- `docs/skillgrid/agents/skill-registry.md` and `docs/skillgrid/agents/issue-tracker.md` — prior sdd-init output.
 
 ### 2. Detect stack and testing capabilities
 
-Inspect per the checklist in [references/init-details.md](references/init-details.md): stack manifests (`package.json`, `go.mod`, `pyproject.toml`, `Cargo.toml`, `requirements.txt`), CI config, lint/test/formatter config. Detect test runner, test layers (unit/integration/E2E), coverage tool, linter, type checker, formatter. Record exact commands.
+Inspect per the checklist in [references/init-details.md](../sdd-onboard/references/init-details.md): stack manifests (`package.json`, `go.mod`, `pyproject.toml`, `Cargo.toml`, `requirements.txt`), CI config, lint/test/formatter config. Detect test runner, test layers (unit/integration/E2E), coverage tool, linter, type checker, formatter. Record exact commands.
 
 ### 3. Resolve issue tracker
 
@@ -80,15 +80,15 @@ First, ensure the workspace is versioned — if it is not already a git work tre
 Then create/update, exactly as listed:
 
 0. **Git** — if not already a work tree, `git init` here (checked above, run before anything is written).
-1. **Skill registry** at `docs/agents/skill-registry.md` — scan and index installed skills per the scan rules in [references/init-details.md](references/init-details.md). The registry is an index (paths + triggers), not a summary.
-2. **Agent config** — render the canonical `## Agent skills` block from [`../_shared/agent-config/block.md`](../_shared/agent-config/block.md) and write it per the target decision matrix in [`../_shared/agent-config/README.md`](../_shared/agent-config/README.md): primary = existing `AGENTS.md` → `CLAUDE.md` → `GEMINI.md` (else ask). Use the idempotent sentinel upsert; secondary targets get a one-line pointer only. Point at `docs/agents/issue-tracker.md`.
-3. **Issue tracker doc** — write `docs/agents/issue-tracker.md` from the matching seed template in `../_shared/issue-tracker/`:
+1. **Skill registry** at `docs/skillgrid/agents/skill-registry.md` — scan and index installed skills per the scan rules in [references/init-details.md](../sdd-onboard/references/init-details.md). The registry is an index (paths + triggers), not a summary.
+2. **Agent config** — render the canonical `## Agent skills` block from [`../_shared/agent-config/block.md`](../_shared/agent-config/block.md) and write it per the target decision matrix in [`../_shared/agent-config/README.md`](../_shared/agent-config/README.md): primary = existing `AGENTS.md` → `CLAUDE.md` → `GEMINI.md` (else ask). Use the idempotent sentinel upsert; secondary targets get a one-line pointer only. Point at `docs/skillgrid/agents/issue-tracker.md`.
+3. **Issue tracker doc** — write `docs/skillgrid/agents/issue-tracker.md` from the matching seed template in `../_shared/issue-tracker/`:
    - [`../_shared/issue-tracker/backlogmd.md`](../_shared/issue-tracker/backlogmd.md) — Backlog.md (default)
    - [`../_shared/issue-tracker/github.md`](../_shared/issue-tracker/github.md) — GitHub
    - [`../_shared/issue-tracker/gitlab.md`](../_shared/issue-tracker/gitlab.md) — GitLab
    - [`../_shared/issue-tracker/jira.md`](../_shared/issue-tracker/jira.md) — Jira
    Triage role vocabulary: `../_shared/triage-labels.md`.
-4. **Skillgrid skeleton** if absent: `docs/skillgrid/config.yaml`, `docs/skillgrid/specs/`, `docs/skillgrid/archive/`. Config format in [references/init-details.md](references/init-details.md).
+4. **Skillgrid skeleton** if absent: `docs/skillgrid/config.yaml`, `docs/skillgrid/specs/`, `docs/skillgrid/archive/`. Config format in [references/init-details.md](../sdd-onboard/references/init-details.md).
 5. **Mnemonic observations** — per the shared memory config in [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) (start a `mem_session_start` session first; `scope: project`):
    - `sdd-init/{project}` (type `architecture`) — detected project context.
    - `sdd-init/{project}/project_name` (type `config`) — detected project name.
@@ -98,12 +98,12 @@ Then create/update, exactly as listed:
    - `skill-registry` (type `config`) — registry index.
 6. **Backlog.md** — only when selected: initialize via the backlog CLI, then scaffold support files:
    - Run: `backlog init "<project-name>" --integration-mode cli --backlog-dir .backlog --config-location folder --zero-padded-ids 3`
-   - Creates `config.yml` with `backlog_directory: .backlog`, `.backlog/tasks/`, and seed docs (`docs/agents/issue-tracker.md` already written at step 3).
+   - Creates `config.yml` with `backlog_directory: .backlog`, `.backlog/tasks/`, and seed docs (`docs/skillgrid/agents/issue-tracker.md` already written at step 3).
    - Verify with `backlog status` (no uncommitted work should exist after init).
 
 ### 6. Return the envelope
 
-`status` · `project` · `tech_stack` · `testing_capabilities` table · `issue_tracker` · `artifacts` created/updated (paths + Mnemonic observation ids) · `validations` applied by user · `risks`/limitations · `next` step (`/sdd-explore`). Full skeleton in [references/init-details.md](references/init-details.md).
+`status` · `project` · `tech_stack` · `testing_capabilities` table · `issue_tracker` · `artifacts` created/updated (paths + Mnemonic observation ids) · `validations` applied by user · `risks`/limitations · `next` step (`/sdd-explore`). Full skeleton in [references/init-details.md](../sdd-onboard/references/init-details.md).
 
 ## Gotchas
 
@@ -116,6 +116,6 @@ Then create/update, exactly as listed:
 
 ## References
 
-- [references/init-details.md](references/init-details.md) — detection checklists, registry scan rules, skillgrid skeleton, Mnemonic saves, output envelope.
+- [references/init-details.md](../sdd-onboard/references/init-details.md) — detection checklists, registry scan rules, skillgrid skeleton, Mnemonic saves, output envelope.
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — common Mnemonic memory config: naming, upserts, 2-step recovery, session protocol.
 - `../_shared/issue-tracker/` + `../_shared/triage-labels.md` — tracker templates and label vocabulary consumed by `sdd-init` and `issue-creation`.

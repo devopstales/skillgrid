@@ -73,7 +73,7 @@ Keep each task completable in one sitting. If a task needs more than one sitting
 
 If the change's testing resolution is `strict_tdd: true` (resolved by `sdd-apply` Step 4) AND a test runner exists, the STRICT TDD module **overrides** the task loop for the WRITE step:
 
-[`references/strict-tdd.md`](references/strict-tdd.md)
+[`references/strict-tdd.md`](../_shared/references/strict-tdd.md)
 
 Load it only when Strict TDD is active. Its RED → GREEN → TRIANGULATE → REFACTOR cycle and the TDD Cycle Evidence table are the gate. If Strict TDD **is not active**, do NOT read it — zero TDD instructions should be loaded, and the plain loop above is the whole task.
 
@@ -122,7 +122,7 @@ After each task complete, capture these rows — they feed the Step Evidence tab
 
 ## References
 
-- [`references/strict-tdd.md`](references/strict-tdd.md) — the Strict TDD module (RED → GREEN → TRIANGULATE → REFACTOR, TDD Cycle Evidence table, assertion-quality rules, test-layer selection). Load only when `strict_tdd` is active.
+- [`references/strict-tdd.md`](../_shared/references/strict-tdd.md) — the Strict TDD module (RED → GREEN → TRIANGULATE → REFACTOR, TDD Cycle Evidence table, assertion-quality rules, test-layer selection). Load only when `strict_tdd` is active.
 - [`../sdd-apply/SKILL.md`](../sdd-apply/SKILL.md) — the dispatcher that routes here (Step 5).
 - [`../subagent-execution/SKILL.md`](../subagent-execution/SKILL.md) — the alternate route when the workload decision / step shape requires dispatch.
 - [`../tdd/SKILL.md`](../tdd/SKILL.md) — the general TDD discipline (applies when Strict TDD is not active).

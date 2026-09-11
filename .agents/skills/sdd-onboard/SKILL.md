@@ -11,7 +11,7 @@ metadata:
 
 # SDD Onboard
 
-Stage orchestrator for Skillgrid bootstrap. Run helpers in **safe order**. Does **not** implement product changes, write `change.md`, or start propose/apply.
+Stage orchestrator for Skillgrid bootstrap. Run helpers in **safe order**. Does **not** implement product changes, write `proposal.md`, or start propose/apply.
 
 Layout: [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md).
 

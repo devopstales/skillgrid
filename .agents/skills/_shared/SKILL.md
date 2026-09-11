@@ -28,4 +28,10 @@ This directory stores shared reference documents consumed by real SDD skills. Do
   - [conventions/mnemonic-memory.md](conventions/mnemonic-memory.md) — naming, write, recovery, and session-close rules for all Mnemonic memory saves (the common memory config for every sdd-* skill).
   - [conventions/mnemonic-code-indexing.md](conventions/mnemonic-code-indexing.md) — the Mnemonic code-indexing ladder (`code_status` → `code_index` → `code_search` → `code_read`), config, and gotchas shared by every code-exploring skill (full schemas in the `mnemonic-code-index` skill).
   - [conventions/commits.md](conventions/commits.md) — commit message contract (conventional commits, no AI trailers, issue-tracker close token, multi-commit batches) shared by `sdd-apply`, `sdd-verify`, and any skill that commits.
+  - [conventions/fast-track.md](conventions/fast-track.md) — trivial/small waiver policy (what may skip design/spec, waiver record, verify/archive handling).
+  - [conventions/hybrid-degradation.md](conventions/hybrid-degradation.md) — degraded store modes and the load-bearing `Degraded:` envelope line.
+- `references/` — canonical single-source references (skills link here, never fork):
+  - [references/threat-matrix.md](references/threat-matrix.md) — applicability-driven threat matrix.
+  - [references/strict-tdd.md](references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR module.
+  - [references/delta-spec-format.md](references/delta-spec-format.md) — ADDED/MODIFIED/REMOVED/RENAMED + RFC 2119.
 - `triage-labels.md` — the five canonical triage roles shared across trackers.

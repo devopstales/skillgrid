@@ -35,7 +35,7 @@ From the orchestrator:
 
 - **Change name** (kebab-case, e.g. `add-dark-mode`)
 - **Exploration analysis** (from `sdd-explore`) OR a direct user description
-- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `docs/skillgrid/changes/{change-name}/proposal.md` **and** persists to Mnemonic under `sdd/{change-name}/proposal`. Any store-mode token from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+- **Artifact store mode** is `hybrid` — preferred (degraded modes allowed, see `../_shared/conventions/hybrid-degradation.md`). Every run does BOTH: writes `docs/skillgrid/changes/{change-name}/proposal.md` **and** persists to Mnemonic under `sdd/{change-name}/proposal`. Any store-mode token from the orchestrator is honored as `hybrid` here. Degrade explicitly with a `Degraded:` envelope line instead of failing silently.
 
 ## Skill Loading
 
@@ -127,6 +127,9 @@ docs/skillgrid/changes/{change-name}/
 ## Classification
 {`trivial | standard | risky` per `../_shared/conventions/task-classification.md`. Optional for trivial — one line suffices.}
 
+## Fast-Track Waiver
+{Only for `trivial`/`small` per `../_shared/conventions/fast-track.md`: Class, Skips, Reason, Approved by. Omit this section for standard/risky changes — no waiver, full pipeline.}
+
 ## Verification floor
 {`L1–L4` per `../_shared/conventions/verification-ladder.md` (trivial→L1 or omit, standard→L2, risky→L3/L4).}
 
@@ -189,7 +192,7 @@ skillgrid-mnemonic_mem_save(
 
 - Start a session once: `sid = skillgrid-mnemonic_mem_session_start(title: "sdd/{change-name}/proposal")`.
 - `topic_key` enables upsert — saving again updates in place; do not create near-duplicates.
-- Hybrid is the only mode for this phase: do the filesystem write (Step 2/3) and the Mnemonic save; do not branch on the mode.
+- Hybrid is preferred: do the filesystem write (Step 2/3) and the Mnemonic save; declare any degraded store in the envelope.
 
 ### Step 5: Return Summary
 
@@ -212,12 +215,12 @@ Return to the orchestrator:
 
 ## Rules
 
-- ALWAYS create `proposal.md` (hybrid mode — the only mode for this phase).
+- ALWAYS create `proposal.md` (hybrid mode — preferred (degraded modes allowed, see `../_shared/conventions/hybrid-degradation.md`)).
 - Every proposal MUST have a rollback plan.
 - Every proposal MUST have success criteria.
 - The **Capabilities** section is the contract with `sdd-spec` — always fill it. Research `docs/skillgrid/specs/` for real capability names. If nothing changes at the spec level, write "None" under both sub-sections — do not leave template placeholders.
 - Use concrete file paths in **Affected Areas** when possible.
-- Choose the narrowest viable change; tie-break lighter for local edits, stricter if blast radius or uncertainty is material (`../_shared/conventions/task-classification.md`).
+- Choose the narrowest viable change; tie-break lighter for local edits, stricter if blast radius or uncertainty is material (`../_shared/conventions/task-classification.md`). For `trivial`/`small`, record the `## Fast-Track Waiver` (see `../_shared/conventions/fast-track.md`) — downstream phases honor it, never re-derive it.
 - Minimum secure design: no extra configurability, fallback paths, or optional insecure modes unless explicitly required (`../_shared/conventions/trust-boundaries.md`).
 - Label assumptions `Verified / Inferred / Unknown`; never present inference as fact.
 - Intent only in propose; engineering decisions belong to design/spec — flag divergence instead of silently deciding.

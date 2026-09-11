@@ -41,7 +41,7 @@ From the orchestrator:
 - Optional: **ticket/issue id** (carry-through to `sdd-apply`'s commit close-token per `_shared/conventions/commits.md`; tasks itself does not use it)
 - Optional: a `## Skills to load before work` block
 
-**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: writes `docs/skillgrid/changes/{change-name}/tasks.md` **and** persists to Mnemonic under `sdd/{change-name}/tasks`. There is no filesystem-only or memory-only mode here; any store-mode token from the orchestrator is honored as `hybrid` for this phase. Do not branch your behavior on the mode.
+**Artifact store mode is `hybrid` — preferred (degraded modes allowed, see `../_shared/conventions/hybrid-degradation.md`).** Every run does BOTH: writes `docs/skillgrid/changes/{change-name}/tasks.md` **and** persists to Mnemonic under `sdd/{change-name}/tasks`. Degraded `filesystem-only`/`memory-only` modes are allowed per `../_shared/conventions/hybrid-degradation.md`; any store-mode token from the orchestrator is honored as `hybrid` for this phase. Degrade explicitly with a `Degraded:` envelope line instead of failing silently.
 
 ## Execution + Persistence Conventions
 
@@ -50,7 +50,7 @@ Follow, on each save, rather than restating here:
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — Mnemonic save shape (`title == topic_key`, `scope: "project"`, active `session_id`; **no** `project:` parameter, **no** `capture_prompt` field; `mem_search` returns previews — always `mem_get_observation(id)` for full content).
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout, `rules.tasks` from `docs/skillgrid/config.yaml`, and that `tasks.md` is later updated by `sdd-apply` (marks `[x]`).
 - [`../_shared/conventions/mnemonic-code-indexing.md`](../_shared/conventions/mnemonic-code-indexing.md) — the `code_*` ladder, used when a task's concrete file path needs to be confirmed against real code (see Step 2).
-- [`references/threat-matrix.md`](references/threat-matrix.md) — the boundary rows the design filled in; the **applicable** ones feed this phase's RED-test tasks (local copy of `sdd-design`'s matrix for a self-contained skill).
+- [`references/threat-matrix.md`](../_shared/references/threat-matrix.md) — the boundary rows the design filled in; the **applicable** ones feed this phase's RED-test tasks (canonical shared copy).
 
 ## Skill Loading
 
@@ -309,8 +309,9 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - Apply any `rules.tasks` from `docs/skillgrid/config.yaml`.
 - **Size budget**: the tasks artifact MUST be **under 530 words**. Each task: 1–2 lines max. Checklist format, not paragraphs.
 - **Review workload guard**: ALWAYS include the forecast with the four plain-text guard lines. If likely above 400 changed lines, recommend chained PRs and honor the received delivery strategy for whether a decision/exception is needed before apply.
+- **Fast-track**: with a waiver recorded in `proposal.md` (`trivial`/`small` per `../_shared/conventions/fast-track.md`), a light `tasks.md` (fewer phases, 1–3 tasks) is allowed — the four guard lines stay byte-identical.
 - **Work-unit evidence**: every suggested work unit names a Focused test command, a Runtime harness (or explicit `N/A` + reason), and a Rollback boundary.
-- **Hybrid is the only mode** — always write the filesystem file AND save to Mnemonic; never branch on the mode for this phase.
+- **Hybrid is preferred** — always write the filesystem file AND save to Mnemonic; degraded modes allowed only per `../_shared/conventions/hybrid-degradation.md` with a `Degraded:` envelope line.
 - No external binaries. Mnemonic (`mem_*`) and the code index (`code_*`) are the only knowledge sources; no `gentle-ai`, no `gentleman-ai`, no `sdd-phase-common.md`, no CLI validator.
 - Return envelope per Step 6 — final action is text, not a tool call.
 
@@ -332,7 +333,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - [`../sdd-design/SKILL.md`](../sdd-design/SKILL.md) — upstream; its `## Threat Matrix` applicable rows feed Step 1.
 - [`../sdd-spec/SKILL.md`](../sdd-spec/SKILL.md) — upstream; its scenarios are the testing-task contract.
 - [`../sdd-propose/SKILL.md`](../sdd-propose/SKILL.md) — upstream; its scope/approach bounds what these tasks should cover.
-- [`references/threat-matrix.md`](references/threat-matrix.md) — the boundary rows the design may have marked applicable (local copy of `sdd-design`'s matrix).
+- [`references/threat-matrix.md`](../_shared/references/threat-matrix.md) — the boundary rows the design may have marked applicable (canonical shared copy).
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape, session protocol, recovery ladder.
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout, `rules.tasks`, and that `sdd-apply` updates this `tasks.md`.
 - [`../_shared/conventions/mnemonic-code-indexing.md`](../_shared/conventions/mnemonic-code-indexing.md) — the `code_status → code_index → code_search → code_read` ladder for confirming real file paths.

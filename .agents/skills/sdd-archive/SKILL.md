@@ -43,7 +43,7 @@ From the orchestrator:
 - **Explicit final-state facts for work completed after the intermediate artifacts were persisted** — e.g. "these verify warnings were fixed in later commits", "this blocker was resolved", "the final test count is N" — whenever the orchestrator has them.
 - **Any explicit intentional-archive override text** from the user/orchestrator (e.g. an approved non-critical partial archive, or an approved stale-checkbox reconciliation).
 
-**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: performs the filesystem spec-sync + archive-folder move **and** persists the `archive-report` to Mnemonic under `sdd/{change-name}/archive-report` (with the observation IDs of everything read, for traceability). Any store-mode token from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+**Artifact store mode is `hybrid` — preferred (degraded modes allowed, see `../_shared/conventions/hybrid-degradation.md`).** Every run does BOTH: performs the filesystem spec-sync + archive-folder move **and** persists the `archive-report` to Mnemonic under `sdd/{change-name}/archive-report` (with the observation IDs of everything read, for traceability). Any store-mode token from the orchestrator is honored as `hybrid` here. Degrade explicitly with a `Degraded:` envelope line instead of failing silently.
 
 ## Execution + Persistence Conventions
 
@@ -51,7 +51,7 @@ Follow, on each save, rather than restating here:
 
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`; **no** `project:` parameter, **no** `capture_prompt` field; `mem_search` returns previews — always `mem_get_observation(id)` for full content).
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — the archive layout (`docs/skillgrid/archive/YYYY-MM-DD-{change-name}/`), `rules.archive` from `docs/skillgrid/config.yaml`, and the rule that the archive is an audit trail to never delete or modify.
-- [references/delta-spec-format.md](references/delta-spec-format.md) — the ADDED / MODIFIED / REMOVED / RENAMED merge semantics (local copy of `sdd-spec`'s reference) that govern how you apply the delta to the main spec without dropping un-mentioned requirements.
+- [references/delta-spec-format.md](../_shared/references/delta-spec-format.md) — the ADDED / MODIFIED / REMOVED / RENAMED merge semantics (canonical shared copy) that govern how you apply the delta to the main spec without dropping un-mentioned requirements.
 
 ## Final-State Authority
 
@@ -123,7 +123,7 @@ The archived audit trail MUST NOT contain stale unchecked tasks for completed wo
 
 - Incomplete implementation tasks block archive unless they are stale checkboxes with apply-progress/verify-report proof of completion and an explicit reconciliation instruction.
 - CRITICAL issues in `verify-report` always block archive — no override.
-- Missing proposal/spec/design artifacts should be reported; archive may continue **only** on an explicit intentional partial-archive choice from the user, with the archive report recording exactly what was missing.
+- Missing proposal/spec/design artifacts should be reported; archive may continue **only** on an explicit intentional partial-archive choice from the user, or a fast-track waiver recorded in `proposal.md` (per `../_shared/conventions/fast-track.md`) — with the archive report recording exactly what was missing and why.
 - `sdd-archive` does not own normal task completion — it may only perform the exceptional mechanical reconciliation above, with proof.
 
 ## Mechanical Copy Contract (MANDATORY)
@@ -164,7 +164,7 @@ If any gate fails, **STOP and return `blocked`** with the failing gate named and
 
 ### Step 3: Sync Delta Specs to Main Specs
 
-For each delta spec in `docs/skillgrid/changes/{change-name}/specs/{domain}/spec.md`, apply it to the main spec per the semantics in [references/delta-spec-format.md](references/delta-spec-format.md):
+For each delta spec in `docs/skillgrid/changes/{change-name}/specs/{domain}/spec.md`, apply it to the main spec per the semantics in [references/delta-spec-format.md](../_shared/references/delta-spec-format.md):
 
 **If the main spec exists** (`docs/skillgrid/specs/{domain}/spec.md`):
 
@@ -173,7 +173,7 @@ For each delta spec in `docs/skillgrid/changes/{change-name}/specs/{domain}/spec
    ```
    FOR EACH SECTION in delta spec:
    ├── ADDED Requirements   → Append the new `### Requirement:` block to the main spec
-   ├── MODIFIED Requirements → REPLACE the matching requirement in the main spec, block-for-block (name + body + all scenarios), per references/delta-spec-format.md
+   ├── MODIFIED Requirements → REPLACE the matching requirement in the main spec, block-for-block (name + body + all scenarios), per ../_shared/references/delta-spec-format.md
    ├── REMOVED Requirements  → Delete the matching requirement after confirming it carries (Reason: …) and (Migration: …) where consumers/data are affected
    └── RENAMED Requirements  → Rename the requirement (explicit `{old} → {new}` heading), preserving scenarios unless the delta also modifies them
    ```
@@ -337,7 +337,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - If a merge would be destructive, WARN and name exactly what is being removed before proceeding.
 - The archive is an AUDIT TRAIL — never delete or modify archived changes.
 - If `docs/skillgrid/archive/` does not exist, create it.
-- **Hybrid is the only mode** — always do the filesystem merge + move AND persist the archive report to Mnemonic; never branch on the mode.
+- **Hybrid is preferred** — always do the filesystem merge + move AND persist the archive report to Mnemonic; degraded modes allowed only per `../_shared/conventions/hybrid-degradation.md` with a `Degraded:` envelope line (archive move itself still requires shell).
 - No external binaries. Mnemonic (`mem_*`) and the project's shell (`cp` / `mv` / `git mv` / `diff`) are the only tools. No `gentle-ai` native dispatcher/receipt, no `sdd-phase-common.md`, no `sdd-status-contract.md`, no admission/attestation binary.
 - Apply any `rules.archive` from `docs/skillgrid/config.yaml`.
 - Return envelope per Step 7 — final action is text, not a tool call.
@@ -358,7 +358,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 
 ## References
 
-- [references/delta-spec-format.md](references/delta-spec-format.md) — the ADDED / MODIFIED / REMOVED / RENAMED merge semantics (local copy of `sdd-spec`'s reference) that govern how each delta section is applied to the main spec.
+- [references/delta-spec-format.md](../_shared/references/delta-spec-format.md) — the ADDED / MODIFIED / REMOVED / RENAMED merge semantics (canonical shared copy) that govern how each delta section is applied to the main spec.
 - [`../sdd-verify/SKILL.md`](../sdd-verify/SKILL.md) — upstream; its `verify-report` verdict drives the Verification Gate.
 - [`../sdd-apply/SKILL.md`](../sdd-apply/SKILL.md) — upstream; its `apply-progress` and marked `tasks.md` drive the Task Completion Gate and the stale-checkbox reconciliation proofs.
 - [`../sdd-spec/SKILL.md`](../sdd-spec/SKILL.md) — upstream; its delta specs are what you merge into the main specs.

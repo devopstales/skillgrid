@@ -37,7 +37,7 @@ Phase order is `propose → design → spec → tasks`. Design runs **before** s
 From the orchestrator:
 
 - **Change name** (kebab-case)
-- **Artifact store mode** is `hybrid` — the only mode for this phase. Every run does BOTH: writes `specs/` files to `docs/skillgrid/changes/{change-name}/` **and** persists to Mnemonic under `sdd/{change-name}/spec`. Any store-mode token from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+- **Artifact store mode** is `hybrid` — preferred (degraded modes allowed, see `../_shared/conventions/hybrid-degradation.md`). Every run does BOTH: writes `specs/` files to `docs/skillgrid/changes/{change-name}/` **and** persists to Mnemonic under `sdd/{change-name}/spec`. Any store-mode token from the orchestrator is honored as `hybrid` here. Degrade explicitly with a `Degraded:` envelope line instead of failing silently.
 - Optional: **ticket/issue id** (carry-through to `sdd-apply`'s commit close-token per `_shared/conventions/commits.md`; spec itself does not use it)
 - Optional: a `## Skills to load before work` block
 
@@ -48,7 +48,7 @@ Follow, on each save, rather than restating here:
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — Mnemonic save shape (`title == topic_key`, `scope: "project"`, active `session_id`; **no** `project:` parameter, **no** `capture_prompt` field; `mem_search` returns previews — always `mem_get_observation(id)` for full content).
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout, delta-spec section semantics, `rules.specs` from `docs/skillgrid/config.yaml`.
 - [`../_shared/conventions/mnemonic-code-indexing.md`](../_shared/conventions/mnemonic-code-indexing.md) — the `code_*` ladder, used only when you want to *verify* a scenario has code to test against (optional; a spec is a WHAT-document and does not require it).
-- [`references/threat-matrix.md`](references/threat-matrix.md) — the boundary rows the design filled in; the applicable ones feed this phase's Required RED scenarios (local copy of `sdd-design`'s matrix for a self-contained skill).
+- [`references/threat-matrix.md`](../_shared/references/threat-matrix.md) — the boundary rows the design filled in; the applicable ones feed this phase's Required RED scenarios (canonical shared copy).
 
 ## Skill Loading
 
@@ -82,7 +82,7 @@ Write **New** specs before **Modified** ones so ADDED blocks are unambiguous. If
 
 ### Step 2: Write the Specs
 
-**Full spec** (New capability) and **delta spec** (Modified capability) formats are in [`references/delta-spec-format.md`](references/delta-spec-format.md). The one rule that matters most:
+**Full spec** (New capability) and **delta spec** (Modified capability) formats are in [`references/delta-spec-format.md`](../_shared/references/delta-spec-format.md). The one rule that matters most:
 
 > **MODIFIED is REPLACE semantics, not PATCH semantics.**
 > Copy the **ENTIRE** existing requirement block — name, body, and **every scenario** — from `docs/skillgrid/specs/{domain}/spec.md`, paste it under `## MODIFIED Requirements`, then edit the copy. `sdd-archive` replaces the main-spec requirement with your MODIFIED block byte-for-byte; any scenario you did not copy is **gone** the moment archive runs.
@@ -125,7 +125,7 @@ Read the design's `## Threat Matrix`. For **each row marked `Applicable`**, ensu
 
   One observation per change (concatenated with `## {domain}` headers) keeps the pipeline consistent with `sdd/{change}/proposal` and `sdd/{change}/design`. `topic_key` upserts — re-running the phase replaces the observation in place. Mnemonic save notes: `title == topic_key` exactly; `scope: "project"`; pass the active `session_id`; there is **no** `project:` parameter and **no** `capture_prompt` field in the Mnemonic schema — omit both.
 
-Do not branch on mode — `hybrid` is the only mode for this phase.
+`hybrid` is preferred — degrade explicitly per `../_shared/conventions/hybrid-degradation.md` with a `Degraded:` envelope line.
 
 ### Step 6: Self-Check (no external validator binary)
 
@@ -193,9 +193,9 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 
 ## References
 
-- [references/delta-spec-format.md](references/delta-spec-format.md) — the ADDED/MODIFIED/REMOVED/RENAMED shape, the full-spec shape, the copy-full-then-edit workflow, and the RFC 2119 quick reference.
+- [references/delta-spec-format.md](../_shared/references/delta-spec-format.md) — the ADDED/MODIFIED/REMOVED/RENAMED shape, the full-spec shape, the copy-full-then-edit workflow, and the RFC 2119 quick reference.
 - [`../sdd-design/SKILL.md`](../sdd-design/SKILL.md) — the upstream phase; its `## Threat Matrix` applicable rows feed Step 3.
 - [`../sdd-propose/SKILL.md`](../sdd-propose/SKILL.md) — the proposal's Capabilities section is the contract this phase maps against.
-- [`references/threat-matrix.md`](references/threat-matrix.md) — the boundary rows the design may have marked applicable (local copy of `sdd-design`'s matrix).
+- [`references/threat-matrix.md`](../_shared/references/threat-matrix.md) — the boundary rows the design may have marked applicable (canonical shared copy).
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape, session protocol, recovery ladder.
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout and delta-spec section semantics.

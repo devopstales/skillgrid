@@ -1,6 +1,6 @@
 ---
 name: design-spike
-description: "Optional throwaway prototype before locking change.md — taste/UI, architecture, or external smoke. Use when orchestrator/propose needs a concrete answer first; commit marked PROTOTYPE; list path as Prototype: in change.md. Not production; not during sdd-apply."
+description: "Optional throwaway prototype before locking proposal.md — taste/UI, architecture, or external smoke. Use when orchestrator/propose needs a concrete answer first; commit marked PROTOTYPE; list path as Prototype: in proposal.md. Not production; not during sdd-apply."
 license: MIT
 metadata:
   author: devopstales
@@ -10,7 +10,7 @@ metadata:
 
 # design-spike
 
-A prototype is **throwaway code that answers a question**. The question decides the shape. Optional **before** locking `change.md` — never production work during apply.
+A prototype is **throwaway code that answers a question**. The question decides the shape. Optional **before** locking `proposal.md` — never production work during apply.
 
 ## Pick a branch
 
@@ -33,9 +33,9 @@ These branches produce different artifacts, so getting this wrong wastes the who
 
 ## Where it fits in SDD
 
-Optional **before locking `change.md`** (orchestrator / propose pre-gate). Typical triggers: taste/UI uncertainty, architecture shape, external smoke.
+Optional **before locking `proposal.md`** (orchestrator / propose pre-gate). Typical triggers: taste/UI uncertainty, architecture shape, external smoke.
 
-- **Before / while shaping `change.md`** — answer the open question; fold Choice/Alternatives/Rationale (or Step Blueprint) into `change.md`; list the path as `Prototype: <path>`.
+- **Before / while shaping `proposal.md`** — answer the open question; fold Choice/Alternatives/Rationale into `proposal.md`; list the path as `Prototype: <path>`.
 - **Not during `sdd-apply`** — apply is production against a locked change. A "prototype" mid-apply is production code. Stop; send the work back through propose (and re-spike if needed).
 
 The prototype itself does **not** live under `docs/skillgrid/changes/<NNN-slug>/`; it lives next to the code it's answering. The *answer* and the `Prototype:` pointer live in `change.md`.

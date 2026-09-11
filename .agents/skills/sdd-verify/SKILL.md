@@ -42,7 +42,7 @@ From the orchestrator:
 - **Strict TDD mode** (`true` | `false`) — if the orchestrator declares `STRICT TDD MODE IS ACTIVE`, treat it as authoritative. If not provided, resolve it in Step 3.
 - Optional: a `## Skills to load before work` block.
 
-**Artifact store mode is `hybrid` — the only mode for this phase.** Every run does BOTH: writes `docs/skillgrid/changes/{change-name}/verify-report.md` **and** persists the same report to Mnemonic under `sdd/{change-name}/verify-report`. Any store-mode token from the orchestrator is honored as `hybrid` here. Do not branch on the mode.
+**Artifact store mode is `hybrid` — preferred (degraded modes allowed, see `../_shared/conventions/hybrid-degradation.md`).** Every run does BOTH: writes `docs/skillgrid/changes/{change-name}/verify-report.md` **and** persists the same report to Mnemonic under `sdd/{change-name}/verify-report`. Any store-mode token from the orchestrator is honored as `hybrid` here. Degrade explicitly with a `Degraded:` envelope line instead of failing silently.
 
 ## Execution + Persistence Conventions
 
@@ -50,7 +50,7 @@ Follow, on each save, rather than restating here:
 
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`; **no** `project:` parameter, **no** `capture_prompt` field; `mem_search` returns previews — always `mem_get_observation(id)` for full content).
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — change-folder layout; `verify-report.md` lives in the change folder; `rules.verify` from `docs/skillgrid/config.yaml`; the archive step later merges this into `docs/skillgrid/specs/`.
-- [references/strict-tdd.md](references/strict-tdd.md) — the apply-phase TDD cycle and assertion-quality rules you audit in Step 5 (local copy for a self-contained verify skill).
+- [references/strict-tdd.md](../_shared/references/strict-tdd.md) — the apply-phase TDD cycle and assertion-quality rules you audit in Step 5 (canonical shared copy).
 - [`references/report-format.md`](references/report-format.md) — the verify-report template, compliance statuses, and the self-check you run before persisting.
 - [`references/strict-tdd-verify.md`](references/strict-tdd-verify.md) — the Strict TDD verify module; loaded **only** when Step 3 resolves Strict TDD as active.
 
@@ -246,12 +246,13 @@ Verification degrades as artifacts are missing — never invent a comparison you
 - **Tasks + specs + design (+ proposal)**: verify completeness, correctness, and coherence — the full matrix.
 - **Any unchecked task**: always CRITICAL, even when other artifacts are missing and the rest is warnings-only. Unchecked tasks block a clean PASS regardless of what else looks fine.
 - **Design missing**: skip design coherence and record it in Skipped Dimensions.
+- **Fast-track waiver** (recorded in `proposal.md` per `../_shared/conventions/fast-track.md`): missing design/spec artifacts are WARNING, not CRITICAL — **iff** the waiver exists and no blocked-from-fast-track condition holds (Applicable threat row, High budget risk, new trust boundary, migration). Otherwise the normal rules above apply.
 - **No runner**: report it in Evidence as a preflight block (see `references/report-format.md`) with the declared commands noted as not-executed — do not substitute source inspection for the missing runtime evidence.
 
 ## Rules
 
 - ALWAYS read all available artifacts before judging — specs, design, tasks, and the apply evidence.
-- ALWAYS run the real test and build commands; static analysis alone is never verification. This phase is the application of the `verification-before-completion` Iron Law — no PASS claim without fresh execution evidence in the report.
+- ALWAYS run the real test and build commands; static analysis alone is never verification. This phase is the application of the `verification` Iron Law (see `../verification/SKILL.md`) — no PASS claim without fresh execution evidence in the report.
 - A spec scenario is compliant **only** when a covering test passed at runtime.
 - Compare **specs first, design second, task completion third**.
 - Do NOT fix issues — report them for the orchestrator/user. Your verdict never triggers a repair.
@@ -259,7 +260,7 @@ Verification degrades as artifacts are missing — never invent a comparison you
 - Record the exact test/build commands, exit codes, and output in the envelope.
 - Persist a `fail` report just like a `pass` — a failed verdict is a result, not a reason to discard the artifact.
 - If Strict TDD is resolved active, load `references/strict-tdd-verify.md` and include its sections; if inactive, never load or reference it.
-- **Hybrid is the only mode** — always write the filesystem `verify-report.md` AND persist to Mnemonic; never branch on the mode.
+- **Hybrid is preferred** — always write the filesystem `verify-report.md` AND persist to Mnemonic; degraded modes allowed only per `../_shared/conventions/hybrid-degradation.md` with a `Degraded:` envelope line.
 - No external binaries. Mnemonic (`mem_*`), the code index (`code_*`), and the project's own test/build/coverage commands are the only tools; no `gentle-ai sdd-verify-validate`, no `gentleman-ai`, no `sdd-phase-common.md` dispatcher, no separate admission-attestation binary.
 - Model/provider/profile/effort selection stays user-owned; verification never changes them.
 - Return envelope per Step 9 — final action is text, not a tool call.
@@ -281,10 +282,10 @@ Verification degrades as artifacts are missing — never invent a comparison you
 
 - [references/report-format.md](references/report-format.md) — the verify-report template, the YAML envelope, compliance statuses, the pre-persistence self-check, and the blocked-preflight recovery shape.
 - [references/strict-tdd-verify.md](references/strict-tdd-verify.md) — the Strict TDD verify module (TDD Compliance audit, Assertion Quality audit, Test Layer Distribution, Changed-File Coverage, Quality Metrics, and its report-template extension). Load only when Step 1 resolves Strict TDD as active.
-- [references/strict-tdd.md](references/strict-tdd.md) — the apply-phase TDD cycle + assertion rules you are checking against in Step 5.
-- [`../verification-before-completion/SKILL.md`](../verification-before-completion/SKILL.md) — the Iron Law this phase enforces: no completion claim without fresh execution evidence in the current report.
-- [`../test-driven-development/SKILL.md`](../test-driven-development/SKILL.md) — the TDD discipline being audited in Step 5; the RED/GREEN/REFACTOR cycle whose evidence trail is the assertion-quality input.
-- [`../receiving-code-review/SKILL.md`](../receiving-code-review/SKILL.md) — when the verify-report surfaces CRITICAL/WARNING findings, the fix path on the receiving side (verify-first, push back with evidence, one at a time).
+- [references/strict-tdd.md](../_shared/references/strict-tdd.md) — the apply-phase TDD cycle + assertion rules you are checking against in Step 5.
+- [`../verification/SKILL.md`](../verification/SKILL.md) — the Iron Law this phase enforces: no completion claim without fresh execution evidence in the current report.
+- [`../tdd/SKILL.md`](../tdd/SKILL.md) — the TDD discipline being audited in Step 5; the RED/GREEN/REFACTOR cycle whose evidence trail is the assertion-quality input.
+- [`../review-reception/SKILL.md`](../review-reception/SKILL.md) — when the verify-report surfaces CRITICAL/WARNING findings, the fix path on the receiving side (verify-first, push back with evidence, one at a time).
 - [`../sdd-apply/SKILL.md`](../sdd-apply/SKILL.md) — upstream; its apply-progress artifact (incl. the TDD Cycle Evidence table and Work Unit Evidence) is the primary thing this phase audits.
 - [`../sdd-spec/SKILL.md`](../sdd-spec/SKILL.md) — upstream; its scenarios are what the compliance matrix maps to.
 - [`../sdd-design/SKILL.md`](../sdd-design/SKILL.md) — upstream; its decisions are what the design-coherence table maps to.

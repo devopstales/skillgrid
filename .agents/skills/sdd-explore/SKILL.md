@@ -35,7 +35,7 @@ From the orchestrator:
 
 - **Topic / feature** to explore (a requirement, bug, or refactor question)
 - **Change name** (kebab-case, e.g. `add-dark-mode`) — may be empty for a standalone exploration
-- **Artifact store mode** is `hybrid` — the only mode for this phase. When a change name is given, every run does BOTH: writes `docs/skillgrid/changes/{change-name}/exploration.md` **and** persists to Mnemonic under `sdd/{change-name}/explore`. Any store-mode token from the orchestrator is honored as `hybrid` here. Do not branch on the mode. (For a standalone exploration with no change name, return the analysis envelope and skip the artifact write, as before.)
+- **Artifact store mode** is `hybrid` — preferred (degraded modes allowed, see `../_shared/conventions/hybrid-degradation.md`). When a change name is given, every run does BOTH: writes `docs/skillgrid/changes/{change-name}/exploration.md` **and** persists to Mnemonic under `sdd/{change-name}/explore`. Any store-mode token from the orchestrator is honored as `hybrid` here. Degrade explicitly with a `Degraded:` envelope line instead of failing silently. (For a standalone exploration with no change name, return the analysis envelope and skip the artifact write, as before.)
 
 ## Skill Loading (Section A equivalent)
 
@@ -124,7 +124,7 @@ skillgrid-mnemonic_mem_save(
 
 - Start a session once: `sid = skillgrid-mnemonic_mem_session_start(title: "sdd/{change-name}/explore")`.
 - `topic_key` enables upsert — saving again updates in place; do not create near-duplicates.
-- Hybrid is the only mode for this phase: do the filesystem write and the Mnemonic save; do not branch on the mode.
+- Hybrid is preferred: do the filesystem write and the Mnemonic save; degrade explicitly with a `Degraded:` envelope line instead of failing silently.
 
 ### Step 6: Return Structured Analysis
 

@@ -9,8 +9,8 @@ issue_tracker: backlogmd
 testing:
   runner: go test ./...
   layers: [unit, integration]
-  coverage: null
-  tdd: false
+  coverage: null # no enforced minimum; verify reports changed-file coverage informationally when a tool exists
+  tdd: false # default mode is Standard; Strict-TDD branches in sdd-apply/sdd-verify are opt-in via rules.apply.tdd below
 conventions:
   artifacts_root: docs/skillgrid
   scratch_dir: .skillgrid/sdd
@@ -21,17 +21,19 @@ rules:
     - Include rollback plan for risky changes
     - Include success criteria (measurable)
     - Document architecture decisions with rationale (Choice/Alternatives/Rationale)
-    - Carry the threat matrix applicable rows forward into per-step WHAT
+    - Carry applicable threat-matrix rows forward into spec scenarios + tasks RED-test tasks
     - Classify change (trivial | standard | risky; trivial may be one line) with verification floor L1-L4
     - Name trust boundaries + stop-and-ask security assumptions, or one line when none
     - Minimum secure design; label assumptions Verified / Inferred / Unknown
     - State falsifiable hypothesis (right + wrong conditions) with thinnest MVP and door check
     - Intent only in propose; engineering decisions belong to design/spec
   spec:
-    - Own NN allocation; one ## section per Step Blueprint entry in tasks.md
-    - Group tasks by step; keep each task completable in one sitting
-    - One change-level acceptance.feature with @step-NN Features
-    - Cover a happy path and at least one edge + failure per step
+    - Map proposal Capabilities mechanically: New capability → full spec; Modified → delta spec (ADDED/MODIFIED/REMOVED/RENAMED)
+    - MODIFIED is replace semantics: copy the ENTIRE requirement block, then edit (un-copied scenarios vanish at archive)
+    - Requirements carry RFC 2119 keywords (uppercase); every requirement has Given/When/Then scenarios
+    - Cover a happy path and at least one edge + failure per requirement
+    - Every applicable design threat-matrix row gets a covering scenario (or a flagged gap)
+    - REMOVED requires (Reason:) + (Migration:) where affected; RENAMED requires the {old} → {new} heading
   apply:
     guidelines:
       - Follow existing code patterns
@@ -41,7 +43,39 @@ rules:
   verify:
     test_command: "go test ./..."
     build_command: ""
-    coverage_threshold: 80
+    coverage_threshold: 80 # advisory only (WARNING at worst, never blocking); applied only when a coverage tool is available
+  fast_track:
+    # Policy source of truth; behavior defined in _shared/conventions/fast-track.md.
+    # standard/risky changes always run the full pipeline; only trivial/small may waive.
+    enabled: true
+    classes:
+      trivial:
+        criteria:
+          - "single concern, ≤3 files, no behavior change (typo, copy, single-line config, pure rename)"
+          - "no migration, no new dependency, no trust-boundary change"
+        skips: [design, spec]          # no design.md, no specs/ delta files
+        tasks: light                   # sdd-tasks: 1–3 tasks, forecast still required
+        proposal: one-line             # Classification: trivial suffices
+      small:
+        criteria:
+          - "single file or single concern, no new capability, no migration"
+          - "≤10 files, 400-line budget risk Low"
+        skips: [design, spec]          # no design.md, no specs/ delta files
+        tasks: light                   # fewer phases, 1–2 lines per task
+        proposal: full                 # full proposal.md still required
+    waiver:
+      required: true
+      recorded_in: proposal.md         # ## Fast-Track Waiver: Class, Skips, Reason, Approved by
+      carried_to: [tasks.md, verify-report, archive-report]
+    blocked_when:                      # any hit → full pipeline mandatory
+      - "any design threat-matrix row Applicable"
+      - "400-line budget risk High"
+      - "new trust boundary or migration"
+      - "multi-domain spec impact"
+    gates:
+      user_gate: true                  # gate after sdd-tasks still mandatory, never auto-apply
+      verify: advisory-on-missing      # missing design/spec → WARNING (not CRITICAL) iff waiver valid
+      archive: intentional-partial     # recorded in Overrides / Final-State Notes
   review:
     - Owner: sdd-review (optional; orchestrator proposes after verify passes, runs only on human approval; waiver recorded)
     - Fire requesting-code-review on high-risk signals (400-line risk High, chained PRs, applicable threat row, last step before archive)

@@ -70,7 +70,7 @@ mem_context(limit: 5)                          # fast: recent session summaries
 → if empty: mem_search(query: "<phase keywords>") → mem_get_observation(id)  # previews are truncated; get_observation is the only full-content path
 ```
 
-SDD naming (when working a change `<NNN-slug>`): `title` == `topic_key` == `sdd/<NNN-slug>/<artifact>` (`research|intent|change|tasks|spec|apply-progress|verification|archive-report|state`), `type: architecture`, `scope: project`. Same `topic_key` + `scope` → UPDATE, not INSERT.
+SDD naming (when working a change `{change-name}`): `title` == `topic_key` == `sdd/{change-name}/<artifact>` (`explore|proposal|design|spec|tasks|apply-progress|verify-report|archive-report`), `type: architecture`, `scope: project`. Same `topic_key` + `scope` → UPDATE, not INSERT.
 
 ### Step 3 — Recall before doing (mandatory before new work)
 
