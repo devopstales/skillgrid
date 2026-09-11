@@ -376,12 +376,15 @@ func PersistResolvedEdges(db *sql.DB, root string, edges []LSPResolvedEdge) (int
 		toID, toName := symbolByName(db, e.Callee)
 		conf := "LSP_RESOLVED"
 		// The callee may be a method on a receiver; target by callee name.
+		// valid_from records when the LSP tier observed the relationship
+		// (014 step 10 temporal edges); on conflict the existing row's
+		// observation time is kept (first observation wins).
 		_, err := db.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
-			VALUES ('calls', ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
+			VALUES ('calls', ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
 			  confidence = 'LSP_RESOLVED'`,
-			fromID, fileID, toID, toName, "", conf, e.Line)
+			fromID, fileID, toID, toName, "", conf, e.Line, time.Now().Unix())
 		if err == nil {
 			written++
 		}

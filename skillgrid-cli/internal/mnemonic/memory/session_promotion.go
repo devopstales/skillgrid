@@ -200,11 +200,12 @@ func (s *Service) promoteSessionToGraph(ctx context.Context, sessionID, summary 
 		// source line; 0 is a real value the codeindex indexer never writes
 		// for its edges, so there is no collision risk).
 		if _, err := db.ExecContext(ctx, `
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
-			VALUES (?, ?, ?, ?, ?, ?, 'EXTRACTED', 0)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
+			VALUES (?, ?, ?, ?, ?, ?, 'EXTRACTED', 0, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line)
 			DO UPDATE SET confidence = excluded.confidence`,
 			sessionNodeEdgeKind, symbolID, fileID, obsID, "obs:"+label, "observation:"+label,
+			time.Now().Unix(),
 		); err != nil {
 			return 0, fmt.Errorf("upsert promotes edge: %w", err)
 		}

@@ -427,16 +427,20 @@ func runMemGraph(svc *service.Service, projID string, limit int) {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+	// count reflects the FULL result set, computed before the --limit
+	// truncation, so it always matches the sum of the per-status totals
+	// (the truncated list is `edges`; review F3, 014 step 10).
 	counts := map[string]int{"active": 0, "expired": 0, "pending": 0}
 	for _, e := range edges {
 		counts[e.Status]++
 	}
+	count := len(edges)
 	if limit > 0 && len(edges) > limit {
 		edges = edges[:limit]
 	}
 	out := map[string]any{
 		"project": projID,
-		"count":   len(edges),
+		"count":   count,
 		"total":   counts,
 		"edges":   edges,
 	}

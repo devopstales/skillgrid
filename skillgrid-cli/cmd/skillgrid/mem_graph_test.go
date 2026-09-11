@@ -89,3 +89,32 @@ func TestMemGraphTemporalStatus(t *testing.T) {
 		}
 	}
 }
+
+// TestMemGraphCountIgnoresLimit is the review F3 guard: with --limit below
+// the edge count, `count` still reflects the FULL result set (3) and matches
+// the per-status totals — only the `edges` array is truncated.
+func TestMemGraphCountIgnoresLimit(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-graph-limit"
+	seedGraphProject(t, dataDir, project)
+
+	out := runMemCLI(t, dataDir, "graph", "--project", project, "--dir", dataDir, "--limit", "2")
+
+	// count = full set (3), per-status totals unchanged.
+	if !strings.Contains(out, `"count": 3`) {
+		t.Fatalf("mem graph --limit 2 must still report count 3 (full set): %s", out)
+	}
+	for _, st := range []string{`"active": 1`, `"expired": 1`, `"pending": 1`} {
+		if !strings.Contains(out, st) {
+			t.Fatalf("mem graph --limit 2 must keep per-status totals: %s: %s", st, out)
+		}
+	}
+	// But only 2 edges are shown (the limit truncates the list, not count).
+	if !strings.Contains(out, `"edges": [`) {
+		t.Fatalf("mem graph must include the edges array: %s", out)
+	}
+	shown := strings.Count(out, `"ValidFrom"`)
+	if shown != 2 {
+		t.Fatalf("--limit 2 must show exactly 2 edges, got %d", shown)
+	}
+}

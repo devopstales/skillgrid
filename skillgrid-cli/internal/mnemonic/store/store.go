@@ -283,6 +283,13 @@ func (s *Store) releasePooled() error {
 	return nil
 }
 
+// Migrate applies every embedded migration to db (idempotent, tracked in
+// index_meta). Exported for test fixtures that need the real schema on a
+// raw *sql.DB with a multi-connection pool (see graph package tests).
+func Migrate(db *sql.DB) error {
+	return migrate(db)
+}
+
 func migrate(db *sql.DB) error {
 	// Ensure the migration bookkeeping table exists. Older databases that
 	// predate this table get it here; the schema_version row is the source

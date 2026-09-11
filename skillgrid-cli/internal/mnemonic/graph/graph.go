@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"time"
 )
 
 // Confidence labels (mirrored from extract for the graph layer).
@@ -131,18 +132,25 @@ func loadSymbolsByName(ctx context.Context, db *sql.DB, name string) ([]Symbol, 
 	return out, rows.Err()
 }
 
-// fetchEdges loads every edge touching the symbol, resolving both endpoints.
+// fetchEdges loads every CURRENT edge touching the symbol, resolving both
+// endpoints. It applies the temporal filter (014 step 10, change
+// 014-mnemonic-performance): expired edges (valid_to <= now) and pending
+// edges (valid_from > now) are hidden from traversal, so the code_*
+// neighbor/explain/path tools see only active relationships. Backfilled
+// pre-migration rows (valid_from = 0) pass the filter and stay visible.
 // Edges whose name-only endpoint resolves to multiple symbols are emitted
 // once per candidate with Confidence AMBIGUOUS (never a silent drop). Edges
 // whose endpoint name resolves to nothing keep their ToName for the
 // "where the graph stops" answer.
 func fetchEdges(ctx context.Context, db *sql.DB, sym Symbol) ([]Edge, error) {
+	now := time.Now().Unix()
 	rows, err := db.QueryContext(ctx, `
 		SELECT e.id, e.kind, e.from_id, e.to_name, e.to_id, e.target_path,
 		       e.confidence, e.line
 		FROM edges e
-		WHERE e.from_id = ? OR e.to_id = ?
-		ORDER BY e.id`, sym.ID, sym.ID)
+		WHERE (e.from_id = ? OR e.to_id = ?)
+		  AND e.valid_from <= ? AND (e.valid_to IS NULL OR e.valid_to > ?)
+		ORDER BY e.id`, sym.ID, sym.ID, now, now)
 	if err != nil {
 		return nil, err
 	}

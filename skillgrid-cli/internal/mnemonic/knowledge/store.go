@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"time"
 )
 
 // Store is the knowledge pass's persistence seam: it upserts knowledge nodes
@@ -73,12 +74,15 @@ func (s *Store) SaveDoc(ctx context.Context, path string, doc *DocResult) (int, 
 		if !ok {
 			continue // unresolvable doc reference → dropped (not fabricated)
 		}
+		// valid_from records when the doc link was observed (014 step 10
+		// temporal edges); on conflict the existing row's observation time
+		// is kept (first observation wins).
 		if _, err := s.db.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
-			VALUES ('references', ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
+			VALUES ('references', ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
 			  confidence = excluded.confidence`,
-			nodeID, fileIDFor(s.db, path), toID, target, target, link.Confidence, link.Line); err != nil {
+			nodeID, fileIDFor(s.db, path), toID, target, target, link.Confidence, link.Line, time.Now().Unix()); err != nil {
 			return stored, fmt.Errorf("upsert doc reference %s: %w", link.Target, err)
 		}
 		stored++
@@ -181,12 +185,15 @@ func (s *Store) SaveConfig(ctx context.Context, path string, cfg *ConfigResult) 
 			// rather than guessing.
 			conf = ConfidenceAmbiguous
 		}
+		// valid_from records when the config reference was observed (014
+		// step 10 temporal edges); on conflict the existing row's
+		// observation time is kept (first observation wins).
 		if _, err := s.db.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
-			VALUES ('configures', ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
+			VALUES ('configures', ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
 			  confidence = excluded.confidence`,
-			nodeID, fileIDFor(s.db, path), toID, ref.Value, "", conf, ref.Line); err != nil {
+			nodeID, fileIDFor(s.db, path), toID, ref.Value, "", conf, ref.Line, time.Now().Unix()); err != nil {
 			return stored, fmt.Errorf("upsert config reference %s: %w", ref.Value, err)
 		}
 		stored++
@@ -248,23 +255,29 @@ func (s *Store) SaveSchema(ctx context.Context, path string, res *SQLResult) (in
 				// The accessed table is not in the schema (defined elsewhere or
 				// not indexed) — the access is still recorded as a name-only
 				// edge (to_name the table, to_id null), EXTRACTED.
+				// valid_from records when the access was observed (014 step
+				// 10 temporal edges); on conflict the existing row's
+				// observation time is kept (first observation wins).
 				if _, err := s.db.Exec(`
-					INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
-					VALUES (?, ?, ?, NULL, ?, ?, ?, ?)
+					INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
+					VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)
 					ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
 					  confidence = excluded.confidence`,
-					a.Op, fromID, fileID, a.Table, "", a.Confidence, a.Line); err != nil {
+					a.Op, fromID, fileID, a.Table, "", a.Confidence, a.Line, time.Now().Unix()); err != nil {
 					return stored, err
 				}
 				stored++
 				continue
 			}
+			// valid_from records when the access was observed (014 step 10
+			// temporal edges); on conflict the existing row's observation
+			// time is kept (first observation wins).
 			if _, err := s.db.Exec(`
-				INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+				INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
 				  confidence = excluded.confidence`,
-				a.Op, fromID, fileID, tn, a.Table, "", a.Confidence, a.Line); err != nil {
+				a.Op, fromID, fileID, tn, a.Table, "", a.Confidence, a.Line, time.Now().Unix()); err != nil {
 				return stored, err
 			}
 			stored++
