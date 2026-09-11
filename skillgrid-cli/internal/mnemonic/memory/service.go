@@ -386,7 +386,44 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("last insert id: %w", err)
 	}
+	// Triple-store linkage (014 step 07): best-effort bind the observation to
+	// the codeindex symbol of its source file (observations.graph_ref). A
+	// missing file or symbol leaves graph_ref NULL — the linkage is advisory
+	// and must never fail the save.
+	if ref := s.graphRefForSource(ctx, source); ref.Valid {
+		if _, err := s.store.DB.ExecContext(ctx, `
+			UPDATE observations SET graph_ref = ? WHERE id = ?`, ref.Int64, id); err != nil {
+			return 0, fmt.Errorf("set graph_ref: %w", err)
+		}
+	}
 	return id, nil
+}
+
+// graphRefForSource resolves the codeindex symbol id for an observation's
+// source file: files.path (matched by absolute path or relative suffix) ->
+// the file's first symbol by start line. Returns a NULL value when the file
+// is not indexed, has no symbols, or the lookup fails — graph_ref is
+// best-effort (014 step 07) and must never block a save.
+func (s *Service) graphRefForSource(ctx context.Context, source string) sql.NullInt64 {
+	source = strings.TrimSpace(source)
+	if s == nil || s.store == nil || s.store.DB == nil || source == "" {
+		return sql.NullInt64{}
+	}
+	var ref sql.NullInt64
+	err := s.store.DB.QueryRowContext(ctx, `
+		SELECT (SELECT id FROM symbols
+			WHERE file_id = f.id
+			ORDER BY start_line, id
+			LIMIT 1)
+		FROM files f
+		WHERE f.path = ? OR f.path LIKE '%' || ?
+		LIMIT 1`,
+		filepath.Clean(source), source,
+	).Scan(&ref)
+	if err != nil {
+		return sql.NullInt64{}
+	}
+	return ref
 }
 
 // latestPromptForSession returns the most recent prompt recorded for the
