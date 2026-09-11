@@ -4,6 +4,7 @@ title: Plan 012-skill-pi-coding-agent.md
 status: needs-triage
 assignee: []
 created_date: '2026-09-08 17:53'
+updated_date: '2026-09-11 15:30'
 labels: []
 dependencies: []
 references:

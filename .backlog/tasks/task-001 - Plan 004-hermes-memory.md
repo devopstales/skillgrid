@@ -4,11 +4,9 @@ title: '[FEATURE] SDD plan for 004-hermes-memory (mnemonic)'
 status: ready-for-agent
 assignee: []
 created_date: '2026-09-04'
-updated_date: '2026-09-05'
+updated_date: '2026-09-11 15:17'
 labels: []
 dependencies: []
-priority: medium
-type: feature
 references:
   - docs/skillgrid/changes/004-hermes-memory/change.md
   - docs/skillgrid/changes/004-hermes-memory/tasks.md
@@ -18,6 +16,8 @@ references:
 documentation:
   - docs/skillgrid/changes/004-hermes-memory/change.md
   - .agents/skills/_shared/conventions/sdd-structure.md
+priority: medium
+type: feature
 ---
 
 ## Description
