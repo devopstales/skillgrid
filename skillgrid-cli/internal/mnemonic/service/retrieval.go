@@ -236,6 +236,19 @@ func (s *Service) budgetedRetrievalHits(ctx context.Context, root, projectID, re
 	if p, ok := s.budgetOverrideFor(projectID); ok {
 		mem.SetBudget(p)
 	}
+	// Self-improvement feedback loop (014 step 08): the mem_* read paths
+	// (mem_context / mem_timeline) also honor the mnemonic.improve opt-in so
+	// the re-rank is consistent across every search surface. Disabled by
+	// default (byte-identical to pre-improve).
+	impr := cfg.Improvement
+	mem.SetImprove(memory.ImproveConfig{
+		Enabled:   impr.Enabled,
+		Threshold: impr.Threshold,
+		MaxUsage:  impr.MaxUsage,
+		BoostRate: impr.BoostRate,
+		DecayRate: impr.DecayRate,
+		Cooldown:  impr.Cooldown,
+	})
 	hits, err := mem.SearchOwnerScopedRetrieveFTS(mem.Budget().Bound(ctx), readerOwner, mode, query, matchMode, limit)
 	if err != nil {
 		return memory.BudgetResult{}, err

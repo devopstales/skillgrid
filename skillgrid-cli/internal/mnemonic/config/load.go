@@ -4,6 +4,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -66,6 +67,20 @@ type Extraction struct {
 	LLM bool
 }
 
+// Improvement is the mnemonic.improve section (014 step 08): the
+// self-improvement feedback loop (retrieval-usage boost/decay re-ranking in
+// mem_search). OPT-IN: Enabled defaults to false so the default search
+// behavior is byte-identical to the pre-improve SQL ordering. The rates are
+// tunable; zero fields fall back to the memory package defaults.
+type Improvement struct {
+	Enabled   bool
+	Threshold int
+	MaxUsage  int
+	BoostRate float64
+	DecayRate float64
+	Cooldown  time.Duration
+}
+
 // Indexing holds code index settings from indexing.yaml mnemonic section.
 type Indexing struct {
 	Include      []string
@@ -84,6 +99,9 @@ type Indexing struct {
 	// Extraction is the mnemonic.extraction section (014 step 05): LLM passive
 	// extraction is opt-in (LLM defaults to false → regex floor).
 	Extraction Extraction
+	// Improvement is the mnemonic.improve section (014 step 08): the
+	// self-improvement feedback loop. OPT-IN (Enabled defaults to false).
+	Improvement Improvement
 }
 
 type indexingFile struct {
@@ -109,6 +127,9 @@ type mnemonicSection struct {
 	// Extraction is the mnemonic.extraction section (014 step 05): the LLM
 	// passive-extraction opt-in switch.
 	Extraction extractionSection `yaml:"extraction"`
+	// Improvement is the mnemonic.improve section (014 step 08): the
+	// self-improvement feedback loop opt-in + tunable rates.
+	Improvement improvementSection `yaml:"improve"`
 }
 
 type retrievalBudgetSection struct {
@@ -122,6 +143,18 @@ type retrievalBudgetSection struct {
 // unless an operator opts into the LLM pass.
 type extractionSection struct {
 	LLM bool `yaml:"llm"`
+}
+
+// improvementSection is the mnemonic.improve section (014 step 08). Enabled
+// defaults to false: the self-improvement feedback loop is opt-in, so the
+// default search behavior is byte-identical to the pre-improve SQL ordering.
+type improvementSection struct {
+	Enabled   bool   `yaml:"enabled"`
+	Threshold int    `yaml:"threshold"`
+	MaxUsage  int    `yaml:"max_usage"`
+	BoostRate string `yaml:"boost_rate"`
+	DecayRate string `yaml:"decay_rate"`
+	Cooldown  string `yaml:"cooldown"` // Go duration string, e.g. "60s"
 }
 
 type embedderSection struct {
@@ -273,6 +306,30 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	// Extraction (014 step 05): the LLM opt-in switch. The section has no
 	// non-zero default, so the YAML value applies as-is (absent → false).
 	out.Extraction = Extraction{LLM: section.Extraction.LLM}
+	// Improvement (014 step 08): the self-improvement feedback loop. OPT-IN —
+	// Enabled defaults to false (absent → byte-identical search). Zero rate
+	// fields fall back to the memory package defaults in SetImprove.
+	out.Improvement = mergeImprovement(section.Improvement)
+	return out
+}
+
+// mergeImprovement maps the mnemonic.improve YAML section to the Improvement
+// struct. Enabled is applied as-is (absent → false = opt-in off). Rate fields
+// are parsed as floats/durations; a missing or malformed value leaves the
+// field zero so SetImprove applies its default.
+func mergeImprovement(section improvementSection) Improvement {
+	out := Improvement{Enabled: section.Enabled, Threshold: section.Threshold, MaxUsage: section.MaxUsage}
+	if f, err := strconv.ParseFloat(section.BoostRate, 64); err == nil && f > 0 {
+		out.BoostRate = f
+	}
+	if f, err := strconv.ParseFloat(section.DecayRate, 64); err == nil && f > 0 {
+		out.DecayRate = f
+	}
+	if section.Cooldown != "" {
+		if d, err := time.ParseDuration(section.Cooldown); err == nil && d > 0 {
+			out.Cooldown = d
+		}
+	}
 	return out
 }
 

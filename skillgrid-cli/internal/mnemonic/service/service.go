@@ -312,6 +312,20 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 	// without further config. When the key is false (the default) the pass
 	// stays off and capture is exactly the regex-only behavior.
 	mem.EnableExtractionLLM(cfg.Extraction.LLM)
+	// Self-improvement feedback loop (014 step 08): route the mnemonic.improve
+	// config key to the memory service. OPT-IN — Enabled defaults to false, so
+	// a config without the section keeps the exact pre-improve search ordering
+	// (improve() is a no-op). Zero rate fields fall back to the memory package
+	// defaults inside SetImprove.
+	impr := cfg.Improvement
+	mem.SetImprove(memory.ImproveConfig{
+		Enabled:   impr.Enabled,
+		Threshold: impr.Threshold,
+		MaxUsage:  impr.MaxUsage,
+		BoostRate: impr.BoostRate,
+		DecayRate: impr.DecayRate,
+		Cooldown:  impr.Cooldown,
+	})
 	h := &ProjectHandle{
 		store:          st,
 		projectID:      projectID,

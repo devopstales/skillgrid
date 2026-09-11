@@ -192,6 +192,127 @@ func ids(obs []Observation) []int64 {
 	return out
 }
 
+// TestImproveDisabledNoRegression covers @step-08 (Scenarios:
+// improve-is-opt-in / does-not-regress-when-disabled): with the
+// mnemonic.improve config absent (Enabled=false, the default), mem_search
+// returns the exact pre-improve SQL ordering — no boost, no decay — and the
+// config loader defaults the section off. The loop is also gated by a
+// cooldown: consecutive searches within the window are not re-ranked again.
+func TestImproveDisabledNoRegression(t *testing.T) {
+	fx := newOwnerFixture(t, "improve-disabled")
+	ctx := context.Background()
+
+	// No SetImprove call → the zero-value cfg is disabled (the opt-in
+	// default, matching a config file without the mnemonic.improve section).
+	cfg := fx.svc.ImproveConfig()
+	if cfg.Enabled {
+		t.Fatalf("improve() must be disabled by default (opt-in), got Enabled=true")
+	}
+
+	// Mixed usage: a hot doc (100), a mid doc (10), a cold fresh doc (0).
+	// The cold doc matches the most query tokens so the SQL ranking is
+	// [cold, hot, mid] — the OPPOSITE of the boosted order [hot, mid, cold].
+	seedImproveObs(t, fx, "disablalpha cold fresh", "disablalpha disablalpha disablalpha filler body one", fx.ownerA, 0, 1*time.Hour)
+	seedImproveObs(t, fx, "disablbeta hot used", "disablbeta filler body two", fx.ownerA, 100, 1*time.Hour)
+	seedImproveObs(t, fx, "disablgamma mid used", "disablgamma filler body three", fx.ownerA, 10, 1*time.Hour)
+
+	// Disabled: the search must return the raw SQL order, untouched.
+	hits, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent",
+		"disablalpha disablbeta disablgamma", "any", "", 10)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(hits) != 3 {
+		t.Fatalf("expected 3 hits, got %d", len(hits))
+	}
+	usageOrder := make([]int, len(hits))
+	for i, h := range hits {
+		usageOrder[i] = h.RetrievalUsage
+	}
+	// The SQL ranking (cold first by token match) must be preserved verbatim:
+	// no boost/decay may reorder it while disabled.
+	wantSQL := []int{0, 100, 10}
+	if !slices.Equal(usageOrder, wantSQL) {
+		t.Fatalf("disabled improve() must keep the pre-improve SQL order: got %v, want %v", usageOrder, wantSQL)
+	}
+
+	// Re-enabling the loop (the config opt-in) must change the order — proof
+	// the disabled path skipped the re-rank entirely.
+	fx.svc.SetImprove(ImproveConfig{
+		Enabled:     true,
+		Threshold:   5,
+		MaxUsage:    50,
+		BoostRate:   0.1,
+		DecayRate:   0.25,
+		Cooldown:    time.Nanosecond,
+		Now:         func() time.Time { return time.Now().UTC() },
+	})
+	enabled, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent",
+		"disablalpha disablbeta disablgamma", "any", "", 10)
+	if err != nil {
+		t.Fatalf("search (enabled): %v", err)
+	}
+	if slices.Equal(ids(hits), ids(enabled)) {
+		t.Fatalf("enabled improve() must re-rank differently from the disabled SQL order")
+	}
+	if len(enabled) != 3 || enabled[0].RetrievalUsage != 101 {
+		t.Fatalf("enabled improve() must boost the high-usage doc first, got %+v", usageOrders(enabled))
+	}
+
+	// Cooldown: a fresh service (clean usage counters) with a long cooldown —
+	// the first search re-ranks (boosted), the second (within the window)
+	// must NOT re-rank again and returns the raw SQL order.
+	fx2 := newOwnerFixture(t, "improve-cooldown")
+	seedImproveObs(t, fx2, "disablalpha cold fresh", "disablalpha disablalpha disablalpha filler body one", fx2.ownerA, 0, 1*time.Hour)
+	seedImproveObs(t, fx2, "disablbeta hot used", "disablbeta filler body two", fx2.ownerA, 100, 1*time.Hour)
+	seedImproveObs(t, fx2, "disablgamma mid used", "disablgamma filler body three", fx2.ownerA, 10, 1*time.Hour)
+	fx2.svc.SetImprove(ImproveConfig{
+		Enabled:     true,
+		Threshold:   5,
+		MaxUsage:    50,
+		BoostRate:   0.1,
+		DecayRate:   0.25,
+		Cooldown:    time.Hour,
+		Now:         func() time.Time { return time.Now().UTC() },
+	})
+	first, err := fx2.svc.SearchOwnerScoped(ctx, fx2.ownerA, "agent",
+		"disablalpha disablbeta disablgamma", "any", "", 10)
+	if err != nil {
+		t.Fatalf("search (cooldown 1st): %v", err)
+	}
+	second, err := fx2.svc.SearchOwnerScoped(ctx, fx2.ownerA, "agent",
+		"disablalpha disablbeta disablgamma", "any", "", 10)
+	if err != nil {
+		t.Fatalf("search (cooldown 2nd): %v", err)
+	}
+	// The second search is inside the cooldown window → returned as the raw
+	// SQL order (cold doc first by token match), so it differs from the
+	// boosted first search (hot doc first).
+	if slices.Equal(ids(first), ids(second)) {
+		t.Fatalf("second search within the cooldown must not re-rank (got identical order %v)", ids(first))
+	}
+	// The first search is boosted (hot doc first). Its values are the
+	// pre-bump usage (the bump happens after the re-rank): 100 > 10 > 0.
+	if first[0].RetrievalUsage != 100 {
+		t.Fatalf("first search must be boosted (hot doc first), got %+v", usageOrders(first))
+	}
+	// The second search is within the cooldown → raw SQL order (cold doc
+	// first by token match), values bumped once by the first search: cold=1.
+	if second[0].RetrievalUsage != 1 {
+		t.Fatalf("second search within cooldown must be the raw SQL order (cold doc first), got %+v", usageOrders(second))
+	}
+}
+
+// usageOrders returns the retrieval-usage values in slice order (for error
+// messages).
+func usageOrders(obs []Observation) []int {
+	out := make([]int, len(obs))
+	for i, o := range obs {
+		out[i] = o.RetrievalUsage
+	}
+	return out
+}
+
 // rawSQLSearch runs the same FTS query as SearchOwnerScoped but WITHOUT the
 // retrieval-usage bump, so tests can capture the pre-improve SQL ranking with
 // usage values untouched (the decay check needs usage=0 to be meaningful).
