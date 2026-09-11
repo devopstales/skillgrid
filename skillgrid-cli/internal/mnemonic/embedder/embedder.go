@@ -12,6 +12,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 )
 
@@ -93,11 +94,32 @@ func hashEmbed(dim int, prefix, text string) (memory.Vector, error) {
 }
 
 // Default returns the process embedder when MNEMONIC_EMBED is on, else nil.
+// With embedding enabled it selects the provider from the project's
+// indexing.yaml (config.Load("."), 06.3); a load failure degrades to the
+// Null Adapter instead of failing (06.4). Callers keep their nil/zero-length
+// checks: nil (embedding off) and Null (degraded) both skip the vector leg.
 func Default() Embedder {
 	if !memory.EmbeddingEnabled() {
 		return nil
 	}
-	return HashEmbedder{}
+	return buildDefaultFromConfig(config.Load("."))
+}
+
+// buildDefaultFromConfig is the config-driven selection used by Default; it
+// takes an already-loaded config so tests and callers with a config root can
+// reuse it.
+func buildDefaultFromConfig(cfg config.Indexing) Embedder {
+	ec := cfg.Embedder
+	return BuildFromConfig(EmbedderConfig{
+		Provider:  ec.Provider,
+		Dimension: ec.Dimension,
+		Indexing:  AsymParams{Instructions: ec.Indexing.Instructions, InputType: ec.Indexing.InputType, MaxTokens: ec.Indexing.MaxTokens},
+		Query:     AsymParams{Instructions: ec.Query.Instructions, InputType: ec.Query.InputType, MaxTokens: ec.Query.MaxTokens},
+		BaseURL:   ec.BaseURL,
+		Model:     ec.Model,
+		APIKey:    ec.APIKey,
+		ModelDir:  ec.ModelDir,
+	})
 }
 
 func tokenize(text string) []string {

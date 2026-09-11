@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -89,3 +90,31 @@ func TestLocalONNXEmbedderMissing(t *testing.T) {
 
 // ctx0 is a package-level background context for load-path tests.
 var ctx0 = context.Background()
+
+// onnxRuntimeAvailable reports whether the onnxer shared library can be
+// dlopen'd on this host.
+func onnxRuntimeAvailable() bool {
+	return onnxRuntimeAvailableOnce()
+}
+
+var (
+	rtOnce     sync.Once
+	rtAvailable bool
+)
+
+func onnxRuntimeAvailableOnce() bool {
+	rtOnce.Do(func() {
+		d, err := os.MkdirTemp("", "onnxrt-probe")
+		if err != nil {
+			return
+		}
+		defer os.RemoveAll(d)
+		// An empty model file still gets dlopen'd first: a library error
+		// means the runtime is absent; a model-parse error means present.
+		_ = os.WriteFile(filepath.Join(d, "probe.onnx"), []byte{0}, 0o644)
+		l := NewLocal(LocalConfig{ModelDir: d, Model: "probe", Dimension: 1})
+		_, err = l.loadSession()
+		rtAvailable = err != nil && !errors.Is(err, ErrRuntimeUnavailable)
+	})
+	return rtAvailable
+}

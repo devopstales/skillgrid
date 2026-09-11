@@ -49,6 +49,13 @@ func NewOllama(cfg OllamaConfig) *Ollama {
 	}
 }
 
+// Verify performs a round-trip probe against the Ollama server (used at
+// selection time so an unreachable server degrades to Null at load, 06.4).
+func (o *Ollama) Verify(ctx context.Context) error {
+	_, err := o.embed(ctx, "skillgrid embedder probe")
+	return err
+}
+
 func (o *Ollama) Model() string { return o.cfg.Model }
 
 func (o *Ollama) Dimension() int { return o.cfg.Dimension }

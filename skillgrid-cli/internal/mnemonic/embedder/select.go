@@ -44,17 +44,25 @@ type EmbedderConfig struct {
 //   - "onnx"     → Onnx (existing behavior: hash fallback when model absent)
 //   - "external" → External (existing behavior)
 //   - "off", ""  → Null (no vector leg)
+//
+// Known providers are verified at selection time (ollama probe, local model
+// load); "onnx" and "external" keep their existing lazy construction and
+// never fail at selection.
 func BuildFromConfig(cfg EmbedderConfig) Embedder {
 	switch cfg.Provider {
 	case ProviderOff, "":
 		return NewNull()
 	case ProviderOllama:
 		return degradeOnError("ollama", func() (Embedder, error) {
-			return NewOllama(OllamaConfig{
+			o := NewOllama(OllamaConfig{
 				BaseURL:   cfg.BaseURL,
 				Model:     cfg.Model,
 				Dimension: cfg.Dimension,
-			}), nil
+			})
+			if err := o.Verify(loadCtx); err != nil {
+				return nil, err
+			}
+			return o, nil
 		})
 	case ProviderLocal:
 		return degradeOnError("local", func() (Embedder, error) {

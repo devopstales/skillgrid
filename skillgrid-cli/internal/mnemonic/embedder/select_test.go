@@ -29,8 +29,10 @@ func writeIndexing(t *testing.T, embedderYAML string) string {
 // TestEmbedderConfigDrivenSelection (06.3): indexing.yaml selects the
 // provider; BuildFromConfig returns the matching embedder type.
 func TestEmbedderConfigDrivenSelection(t *testing.T) {
-	// ollama → *Ollama
-	dir := writeIndexing(t, "  embedder:\n    provider: ollama\n    model: test-model\n    dimension: 32\n")
+	// ollama → *Ollama (a mock server is required because selection probes
+	// the endpoint; an unreachable one degrades to Null — 06.4)
+	srv := newOllamaMock(t, 32)
+	dir := writeIndexing(t, "  embedder:\n    provider: ollama\n    base_url: "+srv.URL+"\n    model: test-model\n    dimension: 32\n")
 	cfg := config.Load(dir)
 	if cfg.Embedder.Provider != "ollama" {
 		t.Fatalf("config provider=%q, want ollama", cfg.Embedder.Provider)

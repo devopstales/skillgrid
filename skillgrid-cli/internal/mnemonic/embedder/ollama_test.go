@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -16,24 +17,13 @@ import (
 func TestOllamaEmbedder(t *testing.T) {
 	const wantDim = 12
 
-	var gotPath, gotContentType string
-	var gotBody map[string]any
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		gotContentType = r.Header.Get("Content-Type")
-		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &gotBody)
-		emb := make([]float32, wantDim)
-		for i := range emb {
-			emb[i] = float32(i + 1) / float32(wantDim)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"model":    "nomic-embed-code",
-			"embedding": emb,
-		})
-	}))
+	var (
+		mu              sync.Mutex
+		gotPath         string
+		gotContentType  string
+		gotBody         map[string]any
+	)
+	srv := newOllamaMockServer(wantDim, &gotPath, &gotContentType, &gotBody, &mu)
 	defer srv.Close()
 
 	o := NewOllama(OllamaConfig{
@@ -83,6 +73,42 @@ func TestOllamaEmbedder(t *testing.T) {
 	if gotBody["prompt"] != "test text" {
 		t.Fatalf("body.prompt=%v, want the input text", gotBody["prompt"])
 	}
+}
+
+// newOllamaMockServer returns an httptest server mimicking Ollama's
+// /api/embeddings: it records path/headers/body and replies with a
+// deterministic wantDim-dimensional vector for any prompt (the selection
+// probe included).
+func newOllamaMockServer(wantDim int, path, contentType *string, body *map[string]any, mu *sync.Mutex) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		*path = r.URL.Path
+		*contentType = r.Header.Get("Content-Type")
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, body)
+		mu.Unlock()
+		emb := make([]float32, wantDim)
+		for i := range emb {
+			emb[i] = float32(i + 1) / float32(wantDim)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model":     "nomic-embed-code",
+			"embedding": emb,
+		})
+	}))
+}
+
+// newOllamaMock returns a plain mock (no request recording) for the
+// selection test.
+func newOllamaMock(t *testing.T, dim int) *httptest.Server {
+	t.Helper()
+	var path, ctype string
+	var body map[string]any
+	var mu sync.Mutex
+	srv := newOllamaMockServer(dim, &path, &ctype, &body, &mu)
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 // TestOllamaEmbedError (06.1): an HTTP error response surfaces as an error.
