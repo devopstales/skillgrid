@@ -22,6 +22,8 @@ skillgrid-cli/out/
 .gitworktree/
 .skillgrid
 
+skillgrid-ui/
+
 # Session Relay cleave bundle (006 step 02): PROGRESS/KNOWLEDGE/NEXT_PROMPT
 # scratch written at handoff time — gitignored by default (like 003 L0).
 .skillgrid/.cleave/
