@@ -1622,8 +1622,13 @@ async function renderCode(box) {
       body.querySelector("#code-raw"), body.querySelector("#code-raw-toggle"),
       code.showNumbers));
   box.querySelector("#code-reindex").addEventListener("click", () => codeReindex(box));
-  codeLoadStatus(box);
-  codeLoadSearch(box);
+  // Await the loads so they start only AFTER ensureProjects() above has resolved
+  // and set `project`. Without this, a fresh visit (no saved project) fires
+  // /code/status?project= → 400 → the banner degrades to "0 files". The load
+  // fns are isolated (their own try/catch), so awaiting is safe — they never
+  // reject, they render their own error state.
+  await codeLoadStatus(box);
+  await codeLoadSearch(box);
   codeLoadGraph(box);
 }
 
