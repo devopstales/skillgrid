@@ -140,6 +140,13 @@ func (s *Service) effectiveTTL() time.Duration {
 	return defaultMemoryTTL
 }
 
+// EffectiveTTL returns the active default soft expiry (the mnemonic.ttl
+// override or defaultMemoryTTL). Exposed for tests that position observation
+// ages relative to the TTL (014 step 08 decay).
+func (s *Service) EffectiveTTL() time.Duration {
+	return s.effectiveTTL()
+}
+
 // SaveInput holds fields for a new or updated observation.
 type SaveInput struct {
 	Title     string
