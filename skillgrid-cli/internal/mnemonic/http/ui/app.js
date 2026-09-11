@@ -1064,7 +1064,12 @@ function memResultsHtml() {
       return `<div class="trk-empty-state"><p class="trk-empty-title">No observations match ${esc(mem.query.trim())}</p>` +
         `<p class="muted">Try a different term, or clear the search to see recent memory.</p></div>`;
     }
-    return memEmpty();
+    // No query + no results: the selected project has no recent observations.
+    // Distinct from the detail pane's "Nothing selected" — point at the project
+    // switcher so an empty store doesn't look like a broken board.
+    const proj = project ? esc(project) : "(none)";
+    return `<div class="trk-empty-state"><p class="trk-empty-title">No memory in ${proj}</p>` +
+      `<p class="muted">This project has no recent observations. Switch projects in the selector above, or search for a specific term.</p></div>`;
   }
   return `<div class="mem-list" id="mem-list">${mem.results.map(memRow).join("")}</div>`;
 }
