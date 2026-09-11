@@ -301,6 +301,10 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 		Chars:     rb.Chars,
 		TimeoutNs: rb.TimeoutNs,
 	})
+	// TTL default (014 step 04): route the mnemonic.ttl config key to the
+	// memory service so saves that omit expires_at are stamped with the
+	// operator-configured expiry (DefaultMemoryTTL fallback when unset).
+	mem.SetTTL(cfg.TTL)
 	h := &ProjectHandle{
 		store:          st,
 		projectID:      projectID,
