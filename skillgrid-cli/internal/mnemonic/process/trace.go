@@ -272,7 +272,7 @@ type callNeighbor struct {
 // Deterministic by edge id.
 func callNeighbors(db *sql.DB, symbolID int64) ([]callNeighbor, error) {
 	rows, err := db.Query(`
-		SELECT e.to_id, e.kind, e.confidence, e.line, s.name, s.kind
+		SELECT e.to_id, e.kind, e.confidence, e.line, COALESCE(s.name,''), COALESCE(s.kind,'')
 		FROM edges e
 		LEFT JOIN symbols s ON s.id = e.to_id
 		WHERE e.from_id = ? AND e.kind IN ('calls','imports','references')
