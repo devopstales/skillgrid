@@ -6,11 +6,9 @@
  * Welcome entry. */
 const $ = (s) => document.querySelector(s);
 
-const STUBS = {
-  sessions: { phase: "P6", title: "Sessions", body: "Session list with titles, recent context, and summaries." },
-};
+const STUBS = {};
 
-const LIVE = ["welcome", "tracker", "docs", "memory", "code"];
+const LIVE = ["welcome", "tracker", "docs", "memory", "code", "sessions"];
 
 const ROUTES = ["welcome", "tracker", "docs", "memory", "code", "sessions", "swagger"];
 
@@ -120,6 +118,14 @@ function render() {
     // `code` state object is initialized — renderCode's synchronous prefix
     // would otherwise throw a TDZ ReferenceError (same recurring bug as memory).
     Promise.resolve().then(() => renderCode(stub));
+    ensureProjects();
+    return;
+  }
+  if (route === "sessions") {
+    stub.hidden = false;
+    // Defer to a microtask so the initial load runs AFTER the top-level
+    // `sessions` state object is initialized (TDZ, same recurring bug).
+    Promise.resolve().then(() => renderSessions(stub));
     ensureProjects();
     return;
   }
@@ -1804,5 +1810,154 @@ async function codeLoadFiles(box) {
       : `<li class="muted">No files indexed yet — run Re-index.</li>`;
   } catch (e) {
     list.innerHTML = `<li class="code-error-title">File list unavailable</li><li class="muted">${esc(e.message)}</li>`;
+  }
+}
+
+/* Sessions entry (P6) — master-detail over the session store: the session
+ * list (GET /sessions: title, started_at, status) on the left, a recent
+ * context strip (GET /context) below it, and the clicked session's summary
+ * rendered as markdown (GET /sessions/{id}/summary) in the right pane.
+ * Mirrors the Memory/Code entries: async renderSessions, a state object,
+ * per-widget fetch fns that isolate their own failures (a 404 renders an
+ * in-pane error, never a blank pane), and the shared showNumbers twin. */
+let sessions = {
+  current: null,
+  list: null,
+  context: null,
+  showNumbers: {},
+};
+
+async function renderSessions(box) {
+  await ensureProjects();
+  box.innerHTML =
+    `<div class="sess-page"><header class="sess-head"><h1>Sessions</h1>` +
+    `<p class="muted">Workspace sessions with titles, recent context, and end-of-session summaries.</p></header>` +
+    `<div class="sess-grid">` +
+    `<section class="sess-list-col" aria-label="Sessions">` +
+    `<div class="sess-colhead"><span id="sess-count">0</span>` +
+    `<button type="button" id="sess-raw-toggle" class="mem-numbtn" aria-pressed="false">show numbers</button></div>` +
+    `<div id="sess-list" class="sess-list"><div class="code-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading sessions…</div></div>` +
+    `<pre class="code-raw" id="sess-raw" hidden></pre>` +
+    `</section>` +
+    `<section class="sess-detail" aria-label="Summary">` +
+    `<div id="sess-summary" class="sess-summary">` +
+    `<div class="code-empty"><p class="trk-empty-title">No session selected</p>` +
+    `<p class="muted">Click a session on the left to read its end-of-session summary here.</p></div>` +
+    `</div>` +
+    `<div class="sess-context" id="sess-context"></div>` +
+    `</section>` +
+    `</div></div>`;
+  box.querySelector("#sess-raw-toggle").addEventListener("click", () =>
+    showNumbers(box.querySelector("#sess-list"),
+      () => ({ list: sessions.list, context: sessions.context }),
+      box.querySelector("#sess-raw"), box.querySelector("#sess-raw-toggle"),
+      sessions.showNumbers));
+  await sessLoadList(box);
+  await sessLoadContext(box);
+}
+
+// sessLoadList renders the session rows. Isolated: a fetch failure lands in
+// the list ("Sessions unavailable") instead of a blank pane.
+async function sessLoadList(box) {
+  const list = (box && box.querySelector("#sess-list")) || document.querySelector("#sess-list");
+  const count = (box && box.querySelector("#sess-count")) || document.querySelector("#sess-count");
+  if (!list) return;
+  try {
+    const data = await api(memUrl("/sessions"));
+    sessions.list = data.sessions || [];
+    count.textContent = String(sessions.list.length);
+    if (!sessions.list.length) {
+      list.innerHTML =
+        `<div class="trk-empty-state"><p class="trk-empty-title">No sessions yet</p>` +
+        `<p class="muted">Sessions appear here when agents start working in this project.</p></div>`;
+      return;
+    }
+    list.innerHTML = `<div class="sess-rows" id="sess-rows">${sessions.list.map(sessRowHtml).join("")}</div>`;
+    sessBindList(box);
+  } catch (e) {
+    list.innerHTML =
+      `<div class="trk-empty-state"><p class="trk-empty-title">Sessions unavailable</p>` +
+      `<p class="muted">${esc(e.message)}</p></div>`;
+    count.textContent = "–";
+  }
+}
+
+// sessRowHtml is one session row: title (fallback: short id), started_at,
+// and a status badge.
+function sessRowHtml(s) {
+  const title = (s.title || "").trim() || (s.id || "").slice(0, 8);
+  const active = s.status === "active";
+  return `<div class="sess-item" data-id="${esc(s.id)}" role="button" tabindex="0">` +
+    `<span class="sess-item-title">${esc(title)}</span>` +
+    `<span class="sess-item-meta"><span class="sess-item-date">${esc(s.started_at || "")}</span>` +
+    `<span class="sess-status-badge${active ? " active" : ""}">${esc(s.status || "")}</span></span>` +
+    `</div>`;
+}
+
+function sessBindList(box) {
+  const scope = box || document;
+  scope.querySelectorAll("#sess-rows .sess-item").forEach((el) => {
+    const open = () => sessOpenSummary(scope, el.dataset.id);
+    el.addEventListener("click", open);
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+    });
+  });
+}
+
+// sessOpenSummary fetches /sessions/{id}/summary and renders the markdown in
+// the detail pane. Isolated: a 404/unknown session shows an in-pane error
+// (never a blank pane).
+async function sessOpenSummary(box, id) {
+  const pane = (box && box.querySelector("#sess-summary")) || document.querySelector("#sess-summary");
+  if (!pane) return;
+  pane.innerHTML = `<div class="code-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading summary…</div>`;
+  let d;
+  try {
+    d = await api(memUrl(`/sessions/${encodeURIComponent(id)}/summary`));
+  } catch (e) {
+    pane.innerHTML =
+      `<div class="code-error"><span class="code-error-title">Could not load session summary</span>` +
+      `<p class="muted">${esc(e.message)} — the session is unknown to this project or has no summary.</p>` +
+      `</div>`;
+    return;
+  }
+  sessions.current = d;
+  const summary = (d.summary || "").trim();
+  pane.innerHTML =
+    `<div class="sess-summary-card">` +
+    `<header class="sess-summary-head">` +
+    `<span class="sess-status-badge${d.status === "active" ? " active" : ""}">${esc(d.status || "")}</span>` +
+    `<span class="sess-item-date">${esc(d.id || "")}</span>` +
+    `</header>` +
+    `<div class="sess-md">${summary ? mdToHtml(summary) : `<p class="muted">No summary recorded for this session.</p>`}</div>` +
+    `</div>`;
+}
+
+// sessLoadContext renders the recent-context strip (GET /context): the most
+// recent session titles/summaries as a clickable jump list. Isolated: a
+// failure renders its own error row, not a blank section.
+async function sessLoadContext(box) {
+  const el = (box && box.querySelector("#sess-context")) || document.querySelector("#sess-context");
+  if (!el) return;
+  el.innerHTML = `<p class="sess-context-label">Recent context</p>` +
+    `<div class="code-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading context…</div>`;
+  try {
+    const data = await api(memUrl("/context?limit=10"));
+    sessions.context = data.sessions || [];
+    const rows = sessions.context
+      .filter((s) => (s.title || s.summary || "").trim())
+      .map((s) => {
+        const label = (s.title || s.summary || "").trim().split("\n")[0].slice(0, 80);
+        return `<button type="button" class="sess-context-row" data-id="${esc(s.id)}">${esc(label)}</button>`;
+      }).join("");
+    el.innerHTML = `<p class="sess-context-label">Recent context</p>` +
+      (rows || `<p class="muted">No recent context yet.</p>`);
+    const scope = box || document;
+    scope.querySelectorAll("#sess-context .sess-context-row").forEach((b) =>
+      b.addEventListener("click", () => sessOpenSummary(scope, b.dataset.id)));
+  } catch (e) {
+    el.innerHTML = `<p class="sess-context-label">Recent context</p>` +
+      `<p class="code-error-title">Context unavailable</p><p class="muted">${esc(e.message)}</p>`;
   }
 }

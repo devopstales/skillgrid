@@ -810,3 +810,45 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 .code-file-list li { padding: 0.125rem 0; border-bottom: 1px solid var(--border); }
 .code-file-list li:last-child { border-bottom: none; }
 .code-file-item { color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Sessions entry (P6) ─────────────────────────────────────────────────── */
+.sess-page { display: flex; flex-direction: column; gap: 1rem; padding: 1rem; }
+@media (min-width: 48rem) { .sess-page { padding: 1.5rem; } }
+.sess-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+@media (min-width: 64rem) { .sess-grid { grid-template-columns: minmax(20rem, 30rem) 1fr; } }
+.sess-list-col { display: flex; flex-direction: column; gap: 0.5rem; }
+.sess-colhead { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted-foreground); }
+.sess-list { display: flex; flex-direction: column; gap: 0.375rem; }
+.sess-rows { display: flex; flex-direction: column; gap: 0.375rem; }
+.sess-item {
+  display: flex; flex-direction: column; gap: 0.25rem;
+  padding: 0.5rem 0.625rem; border: 1px solid var(--border); border-radius: 0.5rem;
+  cursor: pointer; transition: border-color 120ms ease, background 120ms ease;
+}
+.sess-item:hover { border-color: color-mix(in oklch, var(--primary) 40%, transparent); background: var(--sidebar-accent); }
+.sess-item:focus-visible { outline: 2px solid var(--ring); }
+.sess-item-title { font-size: 0.875rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess-item-meta { display: flex; align-items: center; gap: 0.5rem; }
+.sess-item-date { font-family: var(--font-mono); font-size: 0.625rem; color: var(--muted-foreground); }
+.sess-status-badge {
+  font-family: var(--font-mono); font-size: 0.625rem; padding: 0.0625rem 0.375rem;
+  border-radius: 999px; border: 1px solid var(--border); color: var(--muted-foreground);
+}
+.sess-status-badge.active { color: var(--primary); border-color: color-mix(in oklch, var(--primary) 45%, transparent); }
+.sess-detail { display: flex; flex-direction: column; gap: 1rem; }
+.sess-summary { display: flex; flex-direction: column; }
+.sess-summary-card { border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.sess-summary-head { display: flex; align-items: center; gap: 0.5rem; }
+.sess-md { font-size: 0.8125rem; line-height: 1.5; overflow-wrap: break-word; }
+.sess-md h1, .sess-md h2, .sess-md h3 { margin: 0.75rem 0 0.375rem; font-size: 0.9375rem; }
+.sess-md h1:first-child, .sess-md h2:first-child { margin-top: 0; }
+.sess-md pre { background: var(--muted); border-radius: 0.375rem; padding: 0.5rem 0.625rem; overflow-x: auto; font-size: 0.75rem; }
+.sess-md code { font-family: var(--font-mono); }
+.sess-context { border-top: 1px solid var(--border); padding-top: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.sess-context-label { font-family: var(--font-mono); font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); margin: 0; }
+.sess-context-row {
+  text-align: left; background: none; border: none; border-bottom: 1px solid var(--border);
+  padding: 0.3125rem 0.25rem; font-size: 0.75rem; color: var(--foreground); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sess-context-row:hover { background: var(--sidebar-accent); }

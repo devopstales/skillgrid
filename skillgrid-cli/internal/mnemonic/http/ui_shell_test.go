@@ -49,7 +49,7 @@ func TestStep01_Shell(t *testing.T) {
 		t.Error("shell must use path routing, found hash-route hrefs")
 	}
 	// Every menu path serves the same shell (client router picks the entry).
-	for _, target := range []string{"/welcome", "/tracker", "/docs", "/memory", "/code", "/sessions"} {
+	for _, target := range []string{"/welcome", "/tracker", "/docs", "/memory", "/code"} {
 		code, page := getUI(t, h, target)
 		if code != http.StatusOK {
 			t.Errorf("expected %s 200, got %d", target, code)
@@ -61,6 +61,19 @@ func TestStep01_Shell(t *testing.T) {
 		if strings.Contains(page, "#/") {
 			t.Errorf("%s shell must use path routing", target)
 		}
+	}
+	// P6: /sessions is now the session-list API (server.go). An HTML request
+	// without ?project= (a browser reload on the Sessions entry) still gets the
+	// shell via the API's shell fallback.
+	req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
+	req.Header.Set("Accept", "text/html")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	page, _ := io.ReadAll(rr.Result().Body)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected /sessions (HTML reload) 200, got %d", rr.Code)
+	} else if !strings.Contains(string(page), `id="menu"`) {
+		t.Errorf("/sessions HTML reload must serve the dashboard shell")
 	}
 	if code, js := getUI(t, h, "/app.js"); code != http.StatusOK || !strings.Contains(js, "currentRoute") {
 		t.Errorf("expected /app.js router, got %d", code)
@@ -96,16 +109,21 @@ func TestStep01_Welcome(t *testing.T) {
 	}
 }
 
-// TestStep01_Stubs: future entries render as labeled disabled stubs.
+// TestStep01_Stubs: P1 shipped P3–P6 as labeled disabled stubs; by P6 every
+// entry is live, so the shell carries no stub tags or aria-disabled links and
+// the stub view node remains (unused) while STUBS is empty.
 func TestStep01_Stubs(t *testing.T) {
 	h := newHandler(t)
 	_, body := getUI(t, h, "/")
-	mustContain(t, body,
-		`aria-disabled="true"`, "stub-tag", ">P2<", ">P3<", ">P4<", ">P5<", ">P6<",
-		`id="view-stub"`,
-	)
+	if strings.Contains(body, "stub-tag") || strings.Contains(body, `aria-disabled="true"`) {
+		t.Errorf("all entries are live after P6: no stub tags or aria-disabled links may remain: %s", body)
+	}
+	mustContain(t, body, `id="view-stub"`)
 	_, js := getUI(t, h, "/app.js")
 	mustContain(t, js, "STUBS", "Coming in")
+	if strings.Contains(js, "phase:") {
+		t.Errorf("STUBS must be empty after P6, found a stub phase entry")
+	}
 }
 
 // TestStep01_SwaggerLink: swagger-ui + openapi serve from the menu links.

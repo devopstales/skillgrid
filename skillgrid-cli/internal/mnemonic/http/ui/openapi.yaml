@@ -51,6 +51,38 @@ paths:
                     items:
                       type: string
   /sessions:
+    get:
+      tags: [session]
+      operationId: sessionList
+      summary: List sessions for a project
+      description: Open read for the P6 Sessions entry list. Returns every session for the project (id, title, started_at, status), newest first. The path-routed dashboard shell also serves this URL for HTML requests without ?project=.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+              example:
+                sessions:
+                  - id: "3f2c9a1e-8b4d-4a6f-9c2e-1d5b7a9f0e3c"
+                    title: "step06 probe"
+                    started_at: "2026-09-11T12:00:00Z"
+                    status: "active"
+                  - id: "9b8c7d6e-5f4a-3b2c-1d0e-f0e1d2c3b4a5"
+                    title: "step06 second"
+                    started_at: "2026-09-11T11:00:00Z"
+                    status: "ended"
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
     post:
       tags: [session]
       operationId: sessionCreate
@@ -86,6 +118,44 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionCreated"
+              example:
+                session_id: "3f2c9a1e-8b4d-4a6f-9c2e-1d5b7a9f0e3c"
+                project_id: "skillgrid-v2"
+                created: true
+                title: "step06 probe"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /sessions/{id}/summary:
+    get:
+      tags: [session]
+      operationId: sessionSummary
+      summary: Get a session's stored summary (markdown)
+      description: Open read for the P6 Sessions entry summary pane. Returns the session's summary, status, and ended_at; 404 for an unknown session id.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: project
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionSummary"
+              example:
+                id: "3f2c9a1e-8b4d-4a6f-9c2e-1d5b7a9f0e3c"
+                summary: "## Goal\nWrap up the auth token rotation flow.\n\n## Key Learnings:\n1. Rotate atomically"
+                status: "ended"
+                ended_at: "2026-09-11T12:00:00Z"
+        "404":
+          $ref: "#/components/responses/Bad"
         "500":
           $ref: "#/components/responses/Internal"
   /sessions/{id}/end:
@@ -1605,6 +1675,46 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Session"
+    SessionList:
+      type: object
+      required: [sessions]
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionListItem"
+    SessionListItem:
+      type: object
+      required: [id, started_at, status]
+      properties:
+        id:
+          type: string
+          description: Session UUID
+        title:
+          type: string
+          description: Session name; empty when the session was never named
+        started_at:
+          type: string
+          description: RFC3339 start time
+        status:
+          type: string
+          enum: [active, ended]
+    SessionSummary:
+      type: object
+      required: [id, summary, status, ended_at]
+      properties:
+        id:
+          type: string
+          description: Session UUID
+        summary:
+          type: string
+          description: End-of-session summary (markdown, rendered by the UI)
+        status:
+          type: string
+          enum: [active, ended]
+        ended_at:
+          type: string
+          description: RFC3339 end time; empty while the session is active
     Session:
       type: object
       properties:
