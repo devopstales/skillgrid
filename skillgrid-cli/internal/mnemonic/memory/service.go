@@ -65,6 +65,14 @@ type Service struct {
 	// is only tried when this is true; otherwise CapturePassive stays on the
 	// deterministic regex floor.
 	extractionLLMEnabled bool
+	// improveCfg is the opt-in self-improvement feedback loop (014, step 08):
+	// retrieval-usage boost/decay re-ranking applied in-memory before search
+	// results are returned. The zero-value cfg is disabled (Enabled false),
+	// so a Service built directly (unit tests, no config) keeps the exact
+	// pre-improve SQL ordering. Set via SetImprove from the mnemonic.improve
+	// config key; improveLast is the cooldown anchor.
+	improveCfg  ImproveConfig
+	improveLast time.Time
 }
 
 // SetDistillHookProvider attaches the owning handle (which carries the opt-in
@@ -565,7 +573,10 @@ func (s *Service) SearchOwnerScoped(ctx context.Context, readerOwner, readerAgen
 	for _, o := range out {
 		s.BumpRetrievalUsage(ctx, o.ID)
 	}
-	return out, nil
+	// Self-improvement feedback loop (014 step 08): opt-in in-memory
+	// re-rank by retrieval usage before the results go out. A no-op
+	// (byte-identical order) when the mnemonic.improve config is off.
+	return s.improve(ctx, out), nil
 }
 
 // Recent returns stored observations, newest first, without FTS.
