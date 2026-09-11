@@ -77,6 +77,8 @@ func runMem(version string, args []string) {
 		runMemContext(svc, projID, limit, items, chars, timeout)
 	case "timeline":
 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
+	case "expire":
+		runMemExpire(svc, dataDir)
 	case "help", "-h", "--help":
 		printMemUsage()
 	default:
@@ -87,19 +89,21 @@ func runMem(version string, args []string) {
 }
 
 func printMemUsage() {
-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline> [args]
+	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|expire> [args]
 
   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
   governance <id>                 governed-asset view (mem_governance)
   share <id> --target-visibility team|restricted|agent [--grants a,b]
-                                  widen visibility (mem_share)
+                                   widen visibility (mem_share)
   search <query> [--mode trigram|prefix|phrase|all] [--limit N] [--reader-owner X]
-                 [--item N] [--char N] [--timeout 3s]
-                                   budgeted FTS search (mem_search; default mode = phrase OR)
+                  [--item N] [--char N] [--timeout 3s]
+                                    budgeted FTS search (mem_search; default mode = phrase OR)
   context [--limit N] [--item N] [--char N] [--timeout 3s]
-                                  recent session summaries (mem_context)
+                                   recent session summaries (mem_context)
   timeline <id> [--window 1h] [--limit N] [--item N] [--char N] [--timeout 3s]
-                                  chronological context (mem_timeline)
+                                   chronological context (mem_timeline)
+  expire                          retire expired observations across all projects
+                                   (TTL sweep; best-effort, exit 0 on missing stores)
 
 Flags:
   --project ID    project bucket (defaults to CWD-resolved)
@@ -375,6 +379,28 @@ func runMemTimeline(svc *service.Service, projID string, pos []string, window st
 		out["truncated"] = true
 		out["truncation_reason"] = reason
 	}
+	printJSON(out)
+}
+
+// runMemExpire is the CLI for the TTL sweep (014 step 04, `mem expire`): it
+// retires expired observations across every project under the data dir and
+// prints the per-project retirement counts. It is best-effort — RunTTLExpiry
+// skips missing/corrupt stores — and always exits 0 on a successful sweep, so
+// a scheduled cron job never fails over an uncreated store. It ignores
+// --project (it is a cross-project sweep).
+func runMemExpire(svc *service.Service, dataDir string) {
+	_ = dataDir // the service already owns the data dir it was opened with
+	counts, err := svc.RunTTLExpiry(hCtx())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	out := map[string]any{"retired": counts}
+	total := 0
+	for _, n := range counts {
+		total += n
+	}
+	out["total"] = total
 	printJSON(out)
 }
 

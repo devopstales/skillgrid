@@ -1753,6 +1753,42 @@ func (s *Service) Open(projectID string) (*ProjectHandle, func(), error) {
 	return s.openProject(projectID, ".")
 }
 
+// RunTTLExpiry sweeps every project store under the data dir, soft-deleting
+// (retiring) each observation past its expires_at. It is best-effort: a missing
+// or corrupt store is skipped with a zero count, and an empty data dir is a
+// clean no-op, so the method never fails a sweep over an uncreated store
+// (014 step 04, backing `mem expire`). It returns the per-project retirement
+// counts keyed by project id.
+func (s *Service) RunTTLExpiry(ctx context.Context) (map[string]int, error) {
+	if s == nil {
+		return map[string]int{}, fmt.Errorf("service not initialized")
+	}
+	projects, err := s.ListProjects()
+	if err != nil {
+		// A data dir that does not exist yet is an empty sweep, not an error.
+		if os.IsNotExist(err) {
+			return map[string]int{}, nil
+		}
+		return nil, err
+	}
+	counts := make(map[string]int, len(projects))
+	for _, pid := range projects {
+		h, cleanup, oerr := s.openProject(pid, ".")
+		if oerr != nil {
+			// Best-effort: skip a store that cannot be opened (missing/corrupt).
+			counts[pid] = 0
+			continue
+		}
+		n, rerr := h.Memory().TTLRetire(ctx)
+		if rerr != nil {
+			n = 0
+		}
+		counts[pid] = n
+		cleanup()
+	}
+	return counts, nil
+}
+
 // OpenForCWD opens project-scoped services from the current working directory.
 func (s *Service) OpenForCWD() (*ProjectHandle, func(), error) {
 	return s.openProjectFromCWD()
