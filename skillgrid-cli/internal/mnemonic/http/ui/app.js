@@ -1,16 +1,38 @@
 "use strict";
+/* Dashboard shell router (P1). Path-routed menu entries (/welcome, /tracker,
+ * …); the server serves the same shell for each path. The Welcome entry is
+ * fully static (zero fetches). Data entries land in P2–P6; until then they
+ * render as labeled disabled stubs. Project list loads lazily — never on the
+ * Welcome entry. */
 const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-let project = localStorage.getItem("sgmn-project") || "";
 
-function pill(kind, text) {
-  return `<span class="pill ${kind}">${esc(text)}</span>`;
+const STUBS = {
+  docs: { phase: "P3", title: "Docs", body: "Change list with change.md / tasks.md viewer, linked both ways to tracker items." },
+  memory: { phase: "P4", title: "Memory", body: "Search, observation detail, pin/unpin/delete, plus governance views." },
+  code: { phase: "P5", title: "Code", body: "Index status, freshness banner, BM25 search with source view." },
+  sessions: { phase: "P6", title: "Sessions", body: "Session list with titles, recent context, and summaries." },
+};
+
+const LIVE = ["welcome", "tracker"];
+
+const ROUTES = ["welcome", "tracker", "docs", "memory", "code", "sessions"];
+
+let project = localStorage.getItem("sgmn-project") || "";
+let projectsLoaded = false;
+
+function currentRoute() {
+  const seg = location.pathname.replace(/\/+$/, "").split("/").pop() || "welcome";
+  return ROUTES.includes(seg) ? seg : "welcome";
 }
-function projectQS() {
-  return project ? "?project=" + encodeURIComponent(project) : "";
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
 }
-async function api(url, opts) {
-  const r = await fetch(url, { headers: { "Content-Type": "application/json" }, ...opts });
+
+async function api(url) {
+  const r = await fetch(url, { headers: { Accept: "application/json" } });
   const text = await r.text();
   let body = null;
   try { body = JSON.parse(text); } catch { body = text; }
@@ -18,232 +40,384 @@ async function api(url, opts) {
   return body;
 }
 
-function setTab(name) {
-  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
-  ["mem", "code", "web"].forEach((t) => $("#tab-" + t).classList.toggle("hidden", t !== name));
+function render() {
+  const route = currentRoute();
+  document.querySelectorAll("#menu .nav-link[data-route]").forEach((a) => {
+    if (a.dataset.route === route) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  $("#crumb-current").textContent = route;
+  const welcome = $("#view-welcome");
+  const stub = $("#view-stub");
+  if (route === "welcome") {
+    welcome.hidden = false;
+    stub.hidden = true;
+    return;
+  }
+  // Future entries progressively go live in P3–P6; until then, stubs.
+  if (!LIVE.includes(route)) {
+    const info = STUBS[route];
+    welcome.hidden = true;
+    stub.hidden = false;
+    stub.innerHTML =
+      `<div class="stub-card"><span class="phase-id next">${esc(info.phase)}</span>` +
+      `<h2>${esc(info.title)}</h2><p>${esc(info.body)}</p>` +
+      `<p>Coming in ${esc(info.phase)} — not built yet.</p></div>`;
+    return;
+  }
+  if (route === "tracker") {
+    welcome.hidden = true;
+    stub.hidden = false;
+    renderTracker(stub);
+    // Project context matters only on data entries; load it lazily here.
+    ensureProjects();
+    return;
+  }
 }
-document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
-$("#reload").addEventListener("click", loadAll);
 
-async function loadProjects() {
-  const box = $("#project");
-  let ids = [];
+async function ensureProjects() {
+  if (projectsLoaded) return;
   try {
     const r = await api("/projects");
-    ids = r.projects || [];
-  } catch (e) {
-    $("#proj-error").textContent = "Failed to list projects: " + e.message;
-    $("#proj-error").classList.remove("hidden");
-    return;
+    const ids = r.projects || [];
+    const box = $("#project");
+    box.innerHTML = "";
+    if (!ids.length) {
+      const o = document.createElement("option");
+      o.textContent = "(no project stores found)";
+      box.appendChild(o);
+    } else {
+      for (const id of ids) {
+        const o = document.createElement("option");
+        o.value = id;
+        o.textContent = id;
+        if (id === project) o.selected = true;
+        box.appendChild(o);
+      }
+      if (!project || !ids.includes(project)) {
+        project = ids[0];
+        localStorage.setItem("sgmn-project", project);
+      }
+      box.value = project;
+    }
+    box.hidden = false;
+    projectsLoaded = true;
+  } catch {
+    /* shell stays usable without the project list; retry on next entry */
   }
-  $("#proj-error").classList.add("hidden");
-  box.innerHTML = "";
-  if (!ids.length) {
-    const o = document.createElement("option");
-    o.textContent = "(no project stores found — save an observation first)";
-    box.appendChild(o);
-    return;
-  }
-  for (const id of ids) {
-    const o = document.createElement("option");
-    o.value = id; o.textContent = id;
-    if (id === project) o.selected = true;
-    box.appendChild(o);
-  }
-  if (!project) project = ids[0];
-  box.value = project;
-  localStorage.setItem("sgmn-project", project);
 }
+
 $("#project").addEventListener("change", (e) => {
   project = e.target.value;
   localStorage.setItem("sgmn-project", project);
-  loadAll();
 });
 
-async function loadStatus() {
-  const box = $("#status-cards");
-  if (!project) { box.innerHTML = '<div class="card"><div class="muted">Pick a project to load status.</div></div>'; return; }
-  const [health, mem, code, web] = await Promise.all([
-    api("/health"),
-    api("/memory/status" + projectQS()),
-    api("/code/status" + projectQS()),
-    api("/web/status" + projectQS()),
-  ]);
-  const memPill = mem.observation_count > 0 ? pill("ok", mem.observation_count + " obs") : pill("warn", "empty");
-  const codePill = code.stale ? pill("warn", "stale") : pill("ok", "fresh");
-  const webPill = web.expired_entries > 0 ? pill("warn", web.expired_entries + " expired") : pill("ok", "no expired");
-  const byType = Object.entries(mem.by_type || {}).map(([k, v]) => `<span class="badge">${esc(k)} ${v}</span>`).join("");
-  const bySource = Object.entries(web.by_source || {}).map(([k, v]) => `<span class="badge">${esc(k)} ${v}</span>`).join("");
-  box.innerHTML = `
-    <div class="card"><div class="k">Memory ${memPill}</div><div class="v">${mem.observation_count}<sub> observations</sub></div><div>${byType || '<span class="muted">none</span>'}</div><div class="muted">${mem.active_sessions}<sub> active</sub> / ${mem.total_sessions}<sub> sessions</sub> · ${esc(mem.newest_created || "no saves")}</div></div>
-    <div class="card"><div class="k">Code index ${codePill}</div><div class="v">${code.file_count}<sub> files</sub> / ${code.chunk_count}<sub> chunks</sub></div><div class="muted">${esc(code.last_indexed || "never indexed")}</div></div>
-    <div class="card"><div class="k">Web cache ${webPill}</div><div class="v">${web.total_entries}<sub> entries</sub></div><div>${bySource || '<span class="muted">empty</span>'}</div><div class="muted">${esc(web.oldest_fetch || "—")} … ${esc(web.newest_fetch || "—")}</div></div>`;
-  $("#health-info").textContent = health.service + " v" + health.version;
-}
-
-async function loadMem() {
-  if (!project) return;
-  const box = $("#mem-sessions");
-  try {
-    const r = await api("/context?limit=10&project=" + encodeURIComponent(project));
-    const rows = (r.sessions || []).map((s) => {
-      const label = s.title || (s.summary ? s.summary.split("\n")[0] : "(unnamed)");
-      return `
-      <div class="row" title="${esc(s.title || label)}"><span class="t">${esc(label)}</span>
-      <span class="m">${esc(s.started_at)} · ${esc(s.status)}</span></div>`;
-    }).join("");
-    box.innerHTML = rows ? '<div class="list">' + rows + "</div>" : '<div class="list"><div class="empty">No sessions yet.</div></div>';
-    await renderOBSList([]);
-  } catch (e) { box.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
-}
-
-async function renderOBSList(items) {
-  const box = $("#mem-list");
-  if (!items.length) { box.innerHTML = '<div class="list"><div class="empty">No observations. Use mem_save / POST /observations to add one.</div></div>'; return; }
-  box.innerHTML = '<div class="list">' + items.map((o) => `
-    <div class="row" data-id="${o.id}">
-      <span class="t">${pill("dim", o.type)} ${esc(o.title)}</span>
-      <span class="m">${o.topic_key ? esc(o.topic_key) + " · " : ""}${esc(o.created_at)}</span>
-    </div>`).join("") + "</div>";
-  box.querySelectorAll(".row").forEach((el) => el.addEventListener("click", () => showObs(el.dataset.id)));
-}
-
-async function showObs(id) {
-  try {
-    const o = await api("/observations?limit=500" + projectQS());
-    const obs = (o.observations || []).find((x) => x.id == id);
-    if (!obs) throw new Error("observation not in recent list");
-    const d = $("#mem-detail");
-    d.innerHTML = `
-      <div class="muted">${pill("dim", obs.type)} ${obs.scope ? pill("dim", obs.scope) : ""} ${obs.topic_key ? pill("dim", obs.topic_key) : ""} r${obs.revision_count}</div>
-      <div class="muted" style="margin:6px 0">${esc(obs.title)} · ${esc(obs.created_at)} → ${esc(obs.updated_at)}</div>
-      <pre>${esc(obs.content)}</pre>`;
-    d.classList.remove("hidden");
-  } catch (e) { $("#mem-detail").innerHTML = `<div class="error">${esc(e.message)}</div>`; $("#mem-detail").classList.remove("hidden"); }
-}
-
-$("#mem-search-btn").addEventListener("click", async () => {
-  const q = $("#mem-search").value.trim();
-  if (!q) return;
-  try {
-    const r = await api("/search?project=" + encodeURIComponent(project) + "&query=" + encodeURIComponent(q));
-    $("#mem-detail").classList.add("hidden");
-    await renderOBSList(r.observations || []);
-  } catch (e) { $("#mem-list").innerHTML = `<div class="error">${esc(e.message)}</div>`; }
+document.querySelectorAll("#menu .nav-link[data-route]").forEach((a) => {
+  a.addEventListener("click", (e) => {
+    e.preventDefault();
+    history.pushState(null, "", a.getAttribute("href"));
+    render();
+  });
 });
-$("#mem-reset").addEventListener("click", () => { $("#mem-search").value = ""; $("#mem-detail").classList.add("hidden"); loadMem(); });
-["#mem-search", "#code-q", "#web-q"].forEach((s) => $(s).addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    if (s === "#mem-search") $("#mem-search-btn").click();
-    if (s === "#code-q") $("#code-search").click();
-    if (s === "#web-q") $("#web-search").click();
+window.addEventListener("popstate", render);
+render();
+
+
+/* Tracker entry (P2) — vanilla port of the skillgrid-ui BacklogView:
+ * provider switcher, search + priority filter, fixed 4-column board,
+ * rich cards, slide-over detail. Backend normalizes every provider into one
+ * DTO with a canonical `board` column (demo: STATUS_COLUMNS). */
+const TRK_PROVIDERS = [
+  { id: "backlogmd", label: "Backlog.md", source: "Local backlog CLI (--json list/view, text config)" },
+  { id: "jira", label: "Jira", source: "jira CLI (JQL list, view, move)" },
+  { id: "gitlab", label: "GitLab", source: "glab CLI (JSON list/view, close/reopen)" },
+  { id: "github", label: "GitHub", source: "gh CLI (JSON list/view, close/reopen)" },
+];
+const TRK_COLUMNS = [
+  { id: "todo", label: "To Do" },
+  { id: "in_progress", label: "In Progress" },
+  { id: "blocked", label: "Blocked" },
+  { id: "done", label: "Done" },
+];
+const TRK_PRIORITIES = ["all", "critical", "high", "medium", "low"];
+
+let trk = { provider: "backlogmd", query: "", priority: "all", config: null, tasks: [], connected: {} };
+
+function trkInitials(name) {
+  const parts = String(name || "").replace(/^@/, "").split(/[.\-_ ]+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return String(name || "").replace(/^@/, "").slice(0, 2).toUpperCase();
+}
+
+function trkRelative(iso) {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diff = Math.max(0, Date.now() - then);
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
+
+async function trkFetch(path) {
+  const r = await fetch(path, { headers: { Accept: "application/json" } });
+  const text = await r.text();
+  let body = null;
+  try { body = JSON.parse(text); } catch { body = { error: text }; }
+  if (!r.ok) {
+    const err = new Error((body && body.error) || `${r.status} ${r.statusText}`);
+    err.status = r.status;
+    err.provider = body && body.provider;
+    throw err;
   }
-}));
+  return body;
+}
 
-async function loadCodeFiles() {
-  if (!project) return;
-  try {
-    const r = await api("/code/files?project=" + encodeURIComponent(project));
-    const inp = $("#code-paths");
-    const list = r.files || [];
-    if (!list.length) { inp.setAttribute("placeholder", "no indexed files — run skillgrid index"); return; }
-    inp.addEventListener("input", function autocomplete() {
-      const v = inp.value.toLowerCase();
-      const d = document.createElement("datalist");
-      inp.removeAttribute("list");
-      const filtered = v ? list.filter((p) => p.toLowerCase().includes(v)).slice(0, 50) : list.slice(0, 50);
-      d.id = "paths-list";
-      filtered.forEach((p) => { const o = document.createElement("option"); o.value = p; d.appendChild(o); });
-      if (!document.getElementById("paths-list")) document.body.appendChild(d);
-      else document.getElementById("paths-list").replaceWith(d);
-      inp.setAttribute("list", "paths-list");
+function trkQuery() {
+  const q = new URLSearchParams(location.search);
+  const p = (q.get("provider") || "").toLowerCase();
+  const alias = { "backlog.md": "backlogmd", backlog: "backlogmd", gh: "github", glab: "gitlab" };
+  const provider = TRK_PROVIDERS.some((x) => x.id === p) ? p : (alias[p] || "");
+  return { provider, task: q.get("task") || "" };
+}
+
+async function renderTracker(box) {
+  const init = trkQuery();
+  if (init.provider) {
+    trk.provider = init.provider;
+    trk.config = null;
+    trk.tasks = [];
+  }
+  box.innerHTML =
+    `<div class="trk-page"><header class="trk-head"><h1>Tracker</h1>` +
+    `<p class="muted">Normalized tasks across your ticketing systems. Switch providers to view each source on one board.</p></header>` +
+    `<div id="trk-body"><div class="trk-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading tracker…</div></div></div>`;
+  // Probe every provider's config once so the switcher shows real
+  // connected states (cheap reads; failures render as not-connected).
+  const probes = await Promise.all(TRK_PROVIDERS.map(async (p) => {
+    if (trk.connected[p.id] !== undefined) return;
+    try {
+      await trkFetch(`/tracker/config?provider=${encodeURIComponent(p.id)}`);
+      trk.connected[p.id] = true;
+    } catch {
+      trk.connected[p.id] = false;
+    }
+  }));
+  void probes;
+  await trkLoad(box, init.task);
+}
+
+async function trkLoad(box, openTaskId) {
+  const body = box.querySelector("#trk-body");
+  const meta = TRK_PROVIDERS.find((p) => p.id === trk.provider);
+  const switcher = TRK_PROVIDERS.map((p) => {
+    const active = p.id === trk.provider;
+    const dot = trk.connected[p.id] === false ? `<span class="trk-conn-dot" title="Not connected" aria-label="Not connected"></span>` : "";
+    return `<button type="button" role="tab" aria-selected="${active}" data-provider="${p.id}"` +
+      ` class="trk-sw${active ? " active" : ""}">${esc(p.label)}${dot}</button>`;
+  }).join("");
+  let main;
+  if (trk.connected[trk.provider] === false && !trk.config) {
+    main = `<div class="trk-empty-state"><p class="trk-empty-title">${esc(meta.label)} is not connected</p>` +
+      `<p class="muted">Configure the ${esc(meta.label)} adapter: ${esc(meta.source)}.</p></div>`;
+  } else {
+    try {
+      const [cfg, data] = await Promise.all([
+        trk.config || trkFetch(`/tracker/config?provider=${encodeURIComponent(trk.provider)}`),
+        trkFetch(`/tracker/tasks?provider=${encodeURIComponent(trk.provider)}`),
+      ]);
+      trk.config = cfg;
+      trk.tasks = data.tasks || [];
+      main = trkBoard();
+    } catch (e) {
+      main = `<div class="trk-empty-state"><p class="trk-empty-title">Failed to load tasks</p>` +
+        `<p class="muted">${esc(e.message)}</p></div>`;
+    }
+  }
+  body.innerHTML =
+    `<div class="trk-top"><div class="trk-switcher" role="tablist" aria-label="Ticketing provider">${switcher}</div>` +
+    `<p class="trk-source">${esc(meta.source)}</p></div>` +
+    `<div class="trk-filters"><div class="trk-search-wrap">` +
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>` +
+    `<input type="search" id="trk-q" value="${esc(trk.query)}" placeholder="Filter by title, id or label..." aria-label="Filter tasks"></div>` +
+    `<div class="trk-prio" role="group" aria-label="Priority filter">` +
+    TRK_PRIORITIES.map((p) => `<button type="button" data-prio="${p}" aria-pressed="${trk.priority === p}"` +
+      ` class="trk-prio-btn${trk.priority === p ? " active" : ""}">${p}</button>`).join("") +
+    `</div></div><div id="trk-board-wrap">${main}</div><div id="trk-overlay"></div>`;
+  body.querySelectorAll(".trk-sw").forEach((b) => b.addEventListener("click", () => {
+    trk.provider = b.dataset.provider;
+    trk.config = null;
+    trk.tasks = [];
+    trkSyncUrl(null);
+    renderTracker(box);
+  }));
+  const q = body.querySelector("#trk-q");
+  q.addEventListener("input", () => {
+    trk.query = q.value;
+    body.querySelector("#trk-board-wrap").innerHTML = trkBoard();
+    trkBindCards(body, box);
+  });
+  body.querySelectorAll(".trk-prio-btn").forEach((b) => b.addEventListener("click", () => {
+    trk.priority = b.dataset.prio;
+    body.querySelectorAll(".trk-prio-btn").forEach((x) => {
+      const on = x === b;
+      x.classList.toggle("active", on);
+      x.setAttribute("aria-pressed", String(on));
     });
-  } catch (e) { /* ignore */ }
+    body.querySelector("#trk-board-wrap").innerHTML = trkBoard();
+    trkBindCards(body, box);
+  }));
+  trkBindCards(body, box);
+  if (openTaskId) {
+    const match = trk.tasks.find((t) => t.id === openTaskId);
+    if (match) trkOpenDetail(box, match);
+  }
 }
 
-$("#code-search").addEventListener("click", async () => {
-  const q = $("#code-q").value.trim();
-  if (!q) return;
-  const box = $("#code-hits");
-  box.innerHTML = '<div class="list"><div class="empty">Searching…</div></div>';
-  try {
-    const r = await api("/code/search?project=" + encodeURIComponent(project) + "&query=" + encodeURIComponent(q));
-    const hits = r.hits || [];
-    if (!hits.length) { box.innerHTML = '<div class="list"><div class="empty">No matches.</div></div>'; return; }
-    box.innerHTML = '<div class="list">' + hits.map((h) => `
-      <div class="row" data-path="${esc(h.path)}" data-start="${h.start_line}" data-end="${h.end_line}">
-        <span class="t"><span style="font-family:var(--mono);font-size:13px">${esc(h.path)}:${h.start_line}–${h.end_line}</span></span>
-        <span class="m">${esc(h.snippet).slice(0, 80)}</span></div>`).join("") + "</div>";
-    box.querySelectorAll(".row").forEach((el) => el.addEventListener("click", () => readCode(el.dataset.path, el.dataset.start, el.dataset.end)));
-  } catch (e) { box.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
-});
-
-async function readCode(path, start, end) {
-  const box = $("#code-detail");
-  box.innerHTML = '<div class="muted" style="margin:8px 0">Loading…</div>';
-  try {
-    let url = "/code/read?project=" + encodeURIComponent(project) + "&path=" + encodeURIComponent(path);
-    if (start) url += "&start_line=" + start;
-    if (end) url += "&end_line=" + end;
-    const r = await api(url);
-    box.innerHTML = `
-      <div class="muted" style="margin:8px 0">${esc(r.path)}:${r.start_line}–${r.end_line}</div>
-      <pre>${esc(r.text)}</pre>`;
-  } catch (e) { box.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
+function trkFiltered() {
+  const q = trk.query.trim().toLowerCase();
+  return trk.tasks.filter((t) => {
+    if (trk.priority !== "all" && (t.priority || "").toLowerCase() !== trk.priority) return false;
+    if (!q) return true;
+    return (t.title || "").toLowerCase().includes(q) ||
+      (t.id || "").toLowerCase().includes(q) ||
+      (t.labels || []).some((l) => l.toLowerCase().includes(q));
+  });
 }
 
-$("#code-read").addEventListener("click", async () => {
-  const path = $("#code-paths").value.trim();
-  if (!path) return;
-  const lines = $("#code-lines").value.trim();
-  let start = "", end = "";
-  const m = lines.match(/^(\d+)?\s*[:\-]\s*(\d+)?$/);
-  if (m) { start = m[1] || ""; end = m[2] || ""; }
-  if (start && !end) end = start;
-  $("#code-paths").value = path;
-  await readCode(path, start, end);
-});
-
-$("#web-search").addEventListener("click", async () => {
-  const q = $("#web-q").value.trim();
-  if (!q) return;
-  const box = $("#web-hits");
-  let url = "/web/search?project=" + encodeURIComponent(project) + "&query=" + encodeURIComponent(q);
-  const src = $("#web-source").value;
-  if (src) url += "&source=" + encodeURIComponent(src);
-  url += "&fresh_only=" + (!$("#web-stale").checked);
-  box.innerHTML = '<div class="list"><div class="empty">Searching…</div></div>';
-  try {
-    const r = await api(url);
-    const hits = r.entries || [];
-    if (!hits.length) { box.innerHTML = '<div class="list"><div class="empty">No cached entries match.</div></div>'; return; }
-    box.innerHTML = '<div class="list">' + hits.map((h) => `
-      <div class="row" data-id="${h.id}">
-        <span class="t">${pill("dim", h.source)} ${esc(h.title || h.url || h.library_id || ("entry " + h.id))}</span>
-        <span class="m">${esc(h.fetched_at)}${h.expires_at ? " → " + esc(h.expires_at) : ""}</span></div>`).join("") + "</div>";
-    box.querySelectorAll(".row").forEach((el) => el.addEventListener("click", () => showWeb(el.dataset.id)));
-  } catch (e) { box.innerHTML = `<div class="error">${esc(e.message)}</div>`; }
-});
-
-async function showWeb(id) {
-  const box = $("#web-detail");
-  box.innerHTML = '<div class="muted" style="margin:8px 0">Loading snapshot…</div>';
-  try {
-    const e = await api("/web/entry/" + encodeURIComponent(id) + "?project=" + encodeURIComponent(project));
-    const fresh = e.expires_at && new Date(e.expires_at).getTime() > Date.now();
-    box.innerHTML = `
-      <div class="muted" style="margin:8px 0">${pill("dim", e.source)} ${fresh ? pill("ok", "fresh") : pill("warn", "stale")} ${e.url ? '· <a href="' + esc(e.url) + '" target="_blank" rel="noopener">' + esc(e.url) + "</a>" : ""}</div>
-      ${e.title ? '<div class="muted" style="margin:6px 0">' + esc(e.title) + " · fetched " + esc(e.fetched_at) + "</div>" : ""}
-      <pre>${esc(e.content || "(no content stored)")}</pre>`;
-  } catch (err) { box.innerHTML = `<div class="error">${esc(err.message)}</div>`; }
+function trkBoard() {
+  const tasks = trkFiltered();
+  return `<div class="trk-board">` + TRK_COLUMNS.map((col) => {
+    const cards = tasks.filter((t) => (t.board || "todo") === col.id).map(trkCard).join("");
+    return `<section class="trk-col" aria-label="${esc(col.label)}">` +
+      `<header><h2>${esc(col.label)}</h2><span class="trk-col-count">${tasks.filter((t) => (t.board || "todo") === col.id).length}</span></header>` +
+      `<div class="trk-col-body">` + (cards || `<p class="trk-col-empty">empty</p>`) + `</div></section>`;
+  }).join("") + `</div>`;
 }
 
-async function loadAll() {
-  if (!project) return;
-  await Promise.allSettled([loadStatus(), loadMem(), loadCodeFiles()]);
+function trkCard(t) {
+  const labels = (t.labels || []).map((l) => `<span class="trk-chip">${esc(l)}</span>`).join("");
+  const pri = (t.priority || "").toLowerCase();
+  const badge = pri ? `<span class="trk-prio-badge pri-${esc(pri)}">${esc(t.priority)}</span>` : "";
+  const who = (t.assignees && t.assignees.length)
+    ? `<span class="trk-avatar" title="${esc(t.assignees.join(", "))}">${esc(trkInitials(t.assignees[0]))}</span>`
+    : `<span class="trk-unassigned">unassigned</span>`;
+  const docs = (t.doc_refs && t.doc_refs.length)
+    ? `<span class="trk-docrefs" title="${t.doc_refs.length} linked document(s)">▤ ${t.doc_refs.length}</span>` : "";
+  const rel = trkRelative(t.updated_at);
+  return `<button type="button" class="trk-card" data-id="${esc(t.id)}">` +
+    `<span class="trk-card-top"><span class="trk-card-id">${esc(t.id)}</span>${badge}</span>` +
+    `<span class="trk-card-title">${esc(t.title)}</span>` +
+    (labels ? `<span class="trk-labels">${labels}</span>` : "") +
+    `<span class="trk-card-foot"><span class="trk-foot-left">${who}${docs}</span>` +
+    (rel ? `<span class="trk-rel">${esc(rel)}</span>` : "") + `</span></button>`;
 }
 
-(async () => {
-  await loadProjects();
-  if (project) loadAll();
-})();
+function trkBindCards(body, box) {
+  body.querySelectorAll(".trk-card").forEach((el) => {
+    el.addEventListener("click", () => {
+      const match = trk.tasks.find((t) => t.id === el.dataset.id);
+      if (match) trkOpenDetail(box, match);
+    });
+  });
+}
+
+function trkSyncUrl(taskId) {
+  const q = new URLSearchParams(location.search);
+  q.set("provider", trk.provider);
+  if (taskId) q.set("task", taskId);
+  else q.delete("task");
+  history.replaceState(null, "", `${location.pathname}?${q.toString()}`);
+}
+
+async function trkOpenDetail(box, seed) {
+  const overlay = box.querySelector("#trk-overlay");
+  trkSyncUrl(seed.id);
+  // Fetch the full item (description, doc refs); fall back to the seed row.
+  let it = seed;
+  try {
+    it = await trkFetch(`/tracker/tasks/${encodeURIComponent(seed.id)}?provider=${encodeURIComponent(trk.provider)}`);
+  } catch { /* seed row stays */ }
+  const cfg = trk.config || {};
+  const statuses = cfg.statuses && cfg.statuses.length ? cfg.statuses : [it.status];
+  const dots = { todo: "trk-dot-todo", in_progress: "trk-dot-prog", blocked: "trk-dot-block", done: "trk-dot-done" };
+  const dot = dots[it.board] || dots.todo;
+  const pri = (it.priority || "").toLowerCase();
+  const who = (it.assignees && it.assignees.length)
+    ? `<span class="trk-avatar">${esc(trkInitials(it.assignees[0]))}</span><span class="trk-mono">${esc(it.assignees.join(", "))}</span>`
+    : `<span class="trk-unassigned">unassigned</span>`;
+  const labels = (it.labels || []).map((l) => `<span class="trk-chip">${esc(l)}</span>`).join("");
+  const docs = (it.doc_refs || []).map((d) => {
+    const m = String(d).match(/changes\/([a-z0-9][a-z0-9-]*)/);
+    const inner = m ? `<a href="/docs?change=${encodeURIComponent(m[1])}">${esc(d)}</a>` : esc(d);
+    return `<li><span class="trk-docref">▤ ${inner}</span></li>`;
+  }).join("");
+  overlay.innerHTML =
+    `<div class="trk-dialog" role="dialog" aria-modal="true" aria-label="Task detail">` +
+    `<button type="button" class="trk-backdrop" aria-label="Close details" data-close></button>` +
+    `<aside class="trk-panel"><header>` +
+    `<span class="trk-panel-id"><span class="trk-dot ${dot}" aria-hidden="true"></span><span class="trk-mono">${esc(it.id)}</span></span>` +
+    `<span><button type="button" class="trk-iconbtn" data-close aria-label="Close">✕</button></span></header>` +
+    `<div class="trk-panel-body"><h2>${esc(it.title)}</h2>` +
+    `<dl class="trk-dl">` +
+    `<dt>Status</dt><dd><span class="trk-dot ${dot}" aria-hidden="true"></span>${esc(it.status)}</dd>` +
+    (it.priority ? `<dt>Priority</dt><dd><span class="trk-prio-badge pri-${esc(pri)}">${esc(it.priority)}</span></dd>` : "") +
+    `<dt>Assignee</dt><dd>${who}</dd>` +
+    (labels ? `<dt>Labels</dt><dd><span class="trk-labels">${labels}</span></dd>` : "") +
+    `<dt>Move to…</dt><dd><span class="trk-move"><select id="trk-status" class="project-select">` +
+    statuses.map((s) => `<option value="${esc(s)}"${s === it.status ? " selected" : ""}>${esc(s)}</option>`).join("") +
+    `</select> <button class="btn" id="trk-apply" type="button">Apply</button> <span class="muted" id="trk-msg"></span></span></dd>` +
+    `</dl>` +
+    (it.description ? `<h3>Description</h3><pre class="trk-desc">${esc(it.description)}</pre>` : "") +
+    (docs ? `<h3>Linked documents</h3><ul class="trk-docs">${docs}</ul>` : "") +
+    `</div><footer><span class="trk-mono">` +
+    (it.created_at ? `created ${esc(trkRelative(it.created_at))} · ` : "") +
+    (it.updated_at ? `updated ${esc(trkRelative(it.updated_at))}` : "") +
+    `</span></footer></aside></div>`;
+  const close = () => {
+    overlay.innerHTML = "";
+    trkSyncUrl(null);
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  overlay.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", close));
+  overlay.querySelector("#trk-apply").addEventListener("click", async () => {
+    const msg = overlay.querySelector("#trk-msg");
+    msg.textContent = "Saving…";
+    try {
+      const updated = await trackerFetch(`/tracker/tasks/${encodeURIComponent(it.id)}/status?provider=${encodeURIComponent(trk.provider)}`, {
+        method: "POST",
+        body: JSON.stringify({ status: overlay.querySelector("#trk-status").value }),
+      });
+      msg.textContent = `Now: ${updated.status}`;
+      trk.config = null;
+      await trkLoad(box, null);
+    } catch (e) {
+      msg.textContent = `Failed: ${e.message}`;
+    }
+  });
+}
+
+async function trackerFetch(url, opts) {
+  const r = await fetch(url, {
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    ...opts,
+  });
+  const text = await r.text();
+  let body = null;
+  try { body = JSON.parse(text); } catch { body = { error: text }; }
+  if (!r.ok) {
+    const err = new Error((body && body.error) || `${r.status} ${r.statusText}`);
+    err.status = r.status;
+    err.provider = body && body.provider;
+    throw err;
+  }
+  return body;
+}

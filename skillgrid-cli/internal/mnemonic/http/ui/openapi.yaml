@@ -17,6 +17,7 @@ tags:
   - name: memory
   - name: code
   - name: web
+  - name: tracker
   - name: ui
 paths:
   /health:
@@ -735,6 +736,202 @@ paths:
           $ref: "#/components/responses/Bad"
         "500":
           $ref: "#/components/responses/Internal"
+  /tracker/config:
+    get:
+      tags: [tracker]
+      operationId: trackerConfig
+      summary: Active tracker provider with its statuses, types, and priorities
+      description: |-
+        Resolved from SKILLGRID_TRACKER, docs/skillgrid/agents/issue-tracker.md,
+        then config.yaml (default backlogmd). 501 when unresolvable, 503 when the
+        provider CLI is missing, 502 on CLI failure.
+      responses:
+        "200":
+          description: Provider config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerConfig"
+              example:
+                provider: backlogmd
+                statuses: [needs-triage, ready-for-agent, done]
+                types: [feature, bug, chore]
+                priorities: [high, medium, low]
+                schema_version: "1"
+        "501":
+          $ref: "#/components/responses/Bad"
+        "502":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Internal"
+  /tracker/tasks:
+    get:
+      tags: [tracker]
+      operationId: trackerList
+      summary: List tracker items as normalized DTOs
+      responses:
+        "200":
+          description: Normalized item list with provider name
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tasks, provider]
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TrackerItem"
+                  provider:
+                    type: string
+              example:
+                provider: backlogmd
+                tasks:
+                  - id: TASK-001
+                    title: Fix login
+                    status: needs-triage
+                    type: feature
+                    priority: high
+                    ac_completed: 1
+                    ac_total: 4
+                    is_ready: true
+                    provider: backlogmd
+        "501":
+          $ref: "#/components/responses/Bad"
+        "502":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Internal"
+  /tracker/tasks/{id}:
+    get:
+      tags: [tracker]
+      operationId: trackerGet
+      summary: One tracker item as a normalized DTO
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Normalized item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerItem"
+        "404":
+          $ref: "#/components/responses/Bad"
+        "501":
+          $ref: "#/components/responses/Bad"
+        "502":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Internal"
+    post:
+      tags: [tracker]
+      operationId: trackerSetStatus
+      summary: Change an item's status (provider-native, write-gated)
+      description: |-
+        Backlog.md runs `task edit -s`; GitHub/GitLab close/reopen; Jira runs
+        `issue move`. Requires the bearer token when SKILLGRID_HTTP_TOKEN is set.
+        400 on a status outside the provider set, 501 where the provider has no
+        equivalent transition.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+            example:
+              status: ready-for-agent
+      responses:
+        "200":
+          description: Updated normalized item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerItem"
+        "400":
+          $ref: "#/components/responses/Bad"
+        "401":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
+        "501":
+          $ref: "#/components/responses/Bad"
+        "502":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Internal"
+  /backlog/config:
+    get:
+      tags: [tracker]
+      operationId: backlogConfigAlias
+      summary: Alias of GET /tracker/config on Backlog.md repos (else 501)
+      responses:
+        "200":
+          description: Provider config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerConfig"
+        "501":
+          $ref: "#/components/responses/Bad"
+  /backlog/tasks:
+    get:
+      tags: [tracker]
+      operationId: backlogListAlias
+      summary: Alias of GET /tracker/tasks on Backlog.md repos (else 501)
+      responses:
+        "200":
+          description: Normalized item list with provider name
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tasks, provider]
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TrackerItem"
+                  provider:
+                    type: string
+        "501":
+          $ref: "#/components/responses/Bad"
+  /backlog/tasks/{id}:
+    get:
+      tags: [tracker]
+      operationId: backlogGetAlias
+      summary: Alias of GET /tracker/tasks/{id} on Backlog.md repos (else 501)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Normalized item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerItem"
+        "404":
+          $ref: "#/components/responses/Bad"
+        "501":
+          $ref: "#/components/responses/Bad"
   /swagger-ui:
     get:
       tags: [ui]
@@ -775,6 +972,83 @@ components:
       required: [error]
       properties:
         error:
+          type: string
+    TrackerItem:
+      type: object
+      required: [id, title, status, board, provider]
+      properties:
+        id:
+          type: string
+          description: Provider-native identifier (TASK-001, 12, PROJ-1)
+        title:
+          type: string
+        status:
+          type: string
+          description: Provider-native status
+        status_detail:
+          type: string
+        description:
+          type: string
+          description: Item body (Backlog.md description, GitHub body, GitLab description)
+        board:
+          type: string
+          description: Canonical kanban column (todo|in_progress|blocked|done) for one consistent board
+          enum: [todo, in_progress, blocked, done]
+        type:
+          type: string
+        priority:
+          type: string
+        assignees:
+          type: array
+          items:
+            type: string
+        labels:
+          type: array
+          items:
+            type: string
+        doc_refs:
+          type: array
+          description: Linked document paths (used by the Docs entry)
+          items:
+            type: string
+        ac_completed:
+          type: integer
+        ac_total:
+          type: integer
+        is_ready:
+          type: boolean
+          nullable: true
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        provider:
+          type: string
+    TrackerConfig:
+      type: object
+      required: [provider, statuses]
+      properties:
+        provider:
+          type: string
+        statuses:
+          type: array
+          items:
+            type: string
+        types:
+          type: array
+          items:
+            type: string
+        priorities:
+          type: array
+          items:
+            type: string
+        version:
+          type: string
+        schema_version:
+          type: string
+        repo:
+          type: string
+        project_key:
           type: string
     Health:
       type: object

@@ -41,12 +41,12 @@
 
 | # | Pattern | Source | 009 step | Implementation |
 |---|---------|--------|----------|----------------|
-| 1 | Show-numbers table twin | codegraph | 03, 04 | Every data widget has a "show numbers" toggle → raw JSON/table. Baseline for all tabs. |
-| 2 | Per-widget error isolation | codegraph | 03, 04 (promoted in 04) | Each widget owns its fetch + error render; a 5xx kills the widget, not the tab/page. |
-| 3 | Freshness/completeness banner | graphify + codegraph | 03 (Code), 04 (Backlog) | Code tab: last-indexed + stale as top banner with re-index action. Backlog tab: CLI version + schemaVersion banner; unknown schema → warning. |
-| 4 | Query-first + suggested prompts | graphify | 03 (Memory) | Empty state shows recent session prompts (from `GET /context`) as clickable suggestions, not blank "no results". |
-| 5 | Relation drill-down with confidence badges | graphify | 03 (Memory) | Observation detail lists relations via `GET /relations/{id}`; confidence badges (EXTRACTED/INFERRED/AMBIGUOUS); click → navigate to related observation. |
-| 6 | Forward-compat graph placeholder | GitNexus + graphify | 03 (Code) | Collapsed "Code graph (coming in 010)" panel; file-list fallback; mount point for graph canvas when 005/008 edge data lands. |
+| 1 | Show-numbers table twin | codegraph | 01 (helper), applied 02–06 | Every data widget has a "show numbers" toggle → raw JSON/table. Baseline for all menu entries. |
+| 2 | Per-widget error isolation | codegraph | 01 (shell), promoted in 02 | Each widget owns its fetch + error render; a 5xx kills the widget, not the entry/page. |
+| 3 | Freshness/completeness banner | graphify + codegraph | 05 (Code), 02 (Tracker) | Code entry: last-indexed + stale as top banner with re-index action. Tracker entry: provider + version banner; unknown Backlog.md schema → warning. |
+| 4 | Query-first + suggested prompts | graphify | 04 (Memory) | Empty state shows recent session prompts (from `GET /context`) as clickable suggestions, not blank "no results". |
+| 5 | Relation drill-down with confidence badges | graphify | 04 (Memory) | Observation detail lists relations via `GET /relations/{id}`; confidence badges (EXTRACTED/INFERRED/AMBIGUOUS); click → navigate to related observation. |
+| 6 | Forward-compat graph placeholder | GitNexus + graphify | 05 (Code) | Collapsed "Code graph (coming in 010)" panel; file-list fallback; mount point for graph canvas when 005/008 edge data lands. |
 
 ## Patterns deferred to follow-up (010 or later)
 
