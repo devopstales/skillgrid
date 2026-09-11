@@ -96,9 +96,9 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 
 ```yaml
 phase: apply         # spec | apply | verify | archive
-current_step: 05-llm-extraction
+current_step: 06-multi-embedder
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-11T01:30:00+02:00
+updated: 2026-09-11T02:00:00+02:00
 ```
 
 ## Step map
@@ -488,17 +488,19 @@ This step is done only when:
 
 ### Verification
 
-Verdict: `PENDING`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
+Verdict: `PASS WITH WARNINGS`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestExtractWithLLM\|TestCapturePassiveLLMFailureFallsBackToRegex'` | PASS | | |
-| Acceptance `@step-05` / `@p0` | BDD / mapped unit scenarios | PASS | | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/memory/` | PASS | | |
-| Rollback boundary | verify regex-only path works when LLM is disabled | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestExtractWithLLM\|TestCapturePassiveLLMFailureFallsBackToRegex\|TestExtractionQualityLLMVsRegex'` | PASS | PASS | 5 step-05 tests GREEN |
+| Acceptance `@step-05` / `@p0` | BDD / mapped unit scenarios | PASS | PASS | mapped unit scenarios |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/memory/ -count=1` | PASS | PASS | full memory suite |
+| Rollback boundary | verify regex-only path works when LLM is disabled | PASS | PASS | byte-for-byte regex-only when `mnemonic.extraction.llm`=false or seam nil (`&&` gate service.go:1117) |
+| Global Constraints | — | held | held | LLM opt-in, regex always available; no tool contract change; no CGo (ExtractionLLM seam) |
+
+Commits: `431d3a0` (ExtractWithLLM + ExtractionLLM seam), `a2a946a` (regex fallback in CapturePassive), `5673b58` (dedup + config + openProject wiring). Review: PASS WITH WARNINGS. Warnings (forward-looking gaps, not regressions): (M1) `dedupePassiveItems`/`passiveItemHash` are dead in production — CapturePassive REPLACES rawItems with llmItems on success (not combine); no-dup-rows achieved by downstream `seen[title\|type]`; (M2) no production `ExtractionLLM` attached yet — `openProject` calls `EnableExtractionLLM` but never `SetExtractionLLM`, so the opt-in is inert end-to-end until a later step wires a backend; (m3) LLM `type` hint parsed then discarded (reclassified by keyword in shapePassiveItem).
 
 ### Commit
 
