@@ -305,6 +305,13 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 	// memory service so saves that omit expires_at are stamped with the
 	// operator-configured expiry (DefaultMemoryTTL fallback when unset).
 	mem.SetTTL(cfg.TTL)
+	// LLM passive extraction (014 step 05): the opt-in switch from the
+	// mnemonic.extraction.llm config key. No LLM backend is attached to the
+	// service yet, so the switch arms the pass but CapturePassive still runs
+	// the regex floor (the seam is nil); attaching a backend later enables it
+	// without further config. When the key is false (the default) the pass
+	// stays off and capture is exactly the regex-only behavior.
+	mem.EnableExtractionLLM(cfg.Extraction.LLM)
 	h := &ProjectHandle{
 		store:          st,
 		projectID:      projectID,

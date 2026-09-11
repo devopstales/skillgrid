@@ -33,7 +33,7 @@ type ExtractionLLM interface {
 // strict JSON response so the parse is deterministic.
 const extractionPrompt = `You are extracting structured learnings from a block of session text.
 Return ONLY a JSON object: {"learnings": [{"text": "<one learning>", "type": "<decision|bugfix|architecture|pattern|config|preference|discovery|learning|lesson>"}]}.
-Capture every learning the text contains, including nuanced ones in free-form prose (implied decisions, subtle gotchas, multi-clause findings). Do not invent content that is not present in the text.
+One entry per learning. If a learning is written in a structured section, quote its item VERBATIM. For a nuanced learning in free-form prose, consolidate the relevant sentences into a single complete sentence. Do not invent content that is not present in the text.
 Text:
 `
 
@@ -72,7 +72,9 @@ func ExtractWithLLM(ctx context.Context, text string, llm ExtractionLLM) ([]Pass
 		if body == "" {
 			continue
 		}
-		items = append(items, PassiveItem{Text: body, Heading: "llm"})
+		// No Heading: an LLM item identical in text to a regex item must shape
+		// (and content-hash) identically so dedupePassiveItems merges it.
+		items = append(items, PassiveItem{Text: body})
 	}
 	if len(items) == 0 {
 		return nil, fmt.Errorf("extraction LLM returned no learnings")
@@ -80,19 +82,57 @@ func ExtractWithLLM(ctx context.Context, text string, llm ExtractionLLM) ([]Pass
 	return items, nil
 }
 
+// passiveItemHash is the content hash of an item's normalized text — the
+// dedup key for combining LLM and regex extraction outputs (014, step 05.3).
+// It normalizes the text (case, punctuation, whitespace) and caps the length
+// so a near-duplicate item the LLM and the regex both produce (identical or
+// only lightly reworded) hashes to the same key, while a genuinely new
+// learning hashes differently.
+func passiveItemHash(item PassiveItem, title, typ string) string {
+	norm := extractDedupKey(item.Text)
+	sum := sha256.Sum256([]byte(norm))
+	return hex.EncodeToString(sum[:])
+}
+
+// extractDedupKey normalizes item text into a stable dedup fingerprint:
+// lowercased, punctuation stripped, whitespace collapsed, length-capped so a
+// trailing fragment difference does not split one learning into two keys.
+func extractDedupKey(text string) string {
+	var b strings.Builder
+	prevSpace := true
+	for _, r := range strings.ToLower(text) {
+		switch {
+		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevSpace = false
+		case r == ' ' || r == '\t' || r == '\n':
+			if !prevSpace && b.Len() > 0 {
+				b.WriteRune(' ')
+				prevSpace = true
+			}
+		default:
+			// punctuation → boundary
+			prevSpace = true
+		}
+	}
+	key := strings.TrimRight(b.String(), " ")
+	if len(key) > 90 {
+		key = key[:90]
+	}
+	return key
+}
+
 // dedupePassiveItems merges LLM and regex extraction outputs into one
-// de-duplicated set (014, step 05.3). Items are keyed by a content hash of
-// their shaped (title, content, type) so an item the LLM and the regex both
-// produce (even worded slightly differently) is stored once. The LLM's order
-// is preserved first, then any regex-only items.
+// de-duplicated set (014, step 05.3). Items are keyed by their content hash
+// (passiveItemHash) so an item both passes produce is stored once. The LLM's
+// order is preserved first, then any regex-only items.
 func dedupePassiveItems(primary, secondary []PassiveItem) []PassiveItem {
 	seen := make(map[string]bool, len(primary)+len(secondary))
 	out := make([]PassiveItem, 0, len(primary)+len(secondary))
 	for _, group := range [][]PassiveItem{primary, secondary} {
 		for _, item := range group {
 			title, typ := shapePassiveItem(item)
-			key := sha256.Sum256([]byte(title + "\x00" + shapePassiveContent(item, title, typ) + "\x00" + typ))
-			k := hex.EncodeToString(key[:])
+			k := passiveItemHash(item, title, typ)
 			if seen[k] {
 				continue
 			}

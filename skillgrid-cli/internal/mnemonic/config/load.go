@@ -57,6 +57,13 @@ type RetrievalBudget struct {
 // override it via the mnemonic.ttl config key.
 const DefaultMemoryTTL = 7 * 24 * time.Hour
 
+// Extraction is the mnemonic.extraction section (014 step 05). The LLM
+// passive-extraction pass is OPT-IN: LLM defaults to false so passive capture
+// stays on the deterministic regex floor unless an operator enables it.
+type Extraction struct {
+	LLM bool
+}
+
 // Indexing holds code index settings from indexing.yaml mnemonic section.
 type Indexing struct {
 	Include      []string
@@ -72,6 +79,9 @@ type Indexing struct {
 	// TTL is the default observation soft expiry (mnemonic.ttl, 014 step 04).
 	// Zero means "use DefaultMemoryTTL".
 	TTL time.Duration
+	// Extraction is the mnemonic.extraction section (014 step 05): LLM passive
+	// extraction is opt-in (LLM defaults to false → regex floor).
+	Extraction Extraction
 }
 
 type indexingFile struct {
@@ -94,12 +104,22 @@ type mnemonicSection struct {
 	// "168h" or "7d" is not supported — use hours/seconds. Zero/empty keeps
 	// the DefaultMemoryTTL fallback.
 	TTL string `yaml:"ttl"`
+	// Extraction is the mnemonic.extraction section (014 step 05): the LLM
+	// passive-extraction opt-in switch.
+	Extraction extractionSection `yaml:"extraction"`
 }
 
 type retrievalBudgetSection struct {
 	Items     int    `yaml:"items"`
 	Chars     int    `yaml:"chars"`
 	Timeout   string `yaml:"timeout"` // Go duration string, e.g. "3s"
+}
+
+// extractionSection is the mnemonic.extraction section (014 step 05). LLM
+// defaults to false: passive capture stays on the deterministic regex floor
+// unless an operator opts into the LLM pass.
+type extractionSection struct {
+	LLM bool `yaml:"llm"`
 }
 
 type embedderSection struct {
@@ -247,6 +267,9 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 			out.TTL = d
 		}
 	}
+	// Extraction (014 step 05): the LLM opt-in switch. The section has no
+	// non-zero default, so the YAML value applies as-is (absent → false).
+	out.Extraction = Extraction{LLM: section.Extraction.LLM}
 	return out
 }
 
