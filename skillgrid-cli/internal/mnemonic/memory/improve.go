@@ -57,7 +57,9 @@ type ImproveConfig struct {
 	// (default 0.25).
 	DecayRate float64
 	// Cooldown is the minimum interval between re-rankings on the same
-	// service (default improveDefaultCooldown). Zero/negative → the default.
+	// service (default improveDefaultCooldown when zero). A sub-millisecond
+	// value (e.g. time.Nanosecond) effectively disables the gating for a
+	// process — used by tests that issue back-to-back searches.
 	Cooldown time.Duration
 	// Now is the clock seam for tests (default time.Now). The age of an
 	// observation is now - created_at.
