@@ -55,6 +55,16 @@ type Service struct {
 	// expires_at. Zero means "use defaultMemoryTTL". The service layer sets it
 	// from the mnemonic.ttl config key via SetTTL.
 	ttl time.Duration
+	// extractionLLM is the optional LLM seam for passive extraction (014,
+	// step 05). Nil = the LLM is not configured, so CapturePassive goes
+	// straight to the regex floor (the default-off behavior). Set via
+	// SetExtractionLLM.
+	extractionLLM ExtractionLLM
+	// extractionLLMEnabled is the opt-in switch for the LLM extraction pass
+	// (config mnemonic.extraction.llm). Even when a seam is attached, the LLM
+	// is only tried when this is true; otherwise CapturePassive stays on the
+	// deterministic regex floor.
+	extractionLLMEnabled bool
 }
 
 // SetDistillHookProvider attaches the owning handle (which carries the opt-in
@@ -90,6 +100,26 @@ func (s *Service) SetBudget(cfg BudgetConfig) {
 func (s *Service) SetTTL(d time.Duration) {
 	if s != nil && d > 0 {
 		s.ttl = d
+	}
+}
+
+// SetExtractionLLM attaches the optional LLM seam for passive extraction
+// (014, step 05). It does not enable the pass by itself — EnableExtractionLLM
+// is the opt-in switch (config mnemonic.extraction.llm), so a seam present but
+// unenabled keeps CapturePassive on the deterministic regex floor.
+func (s *Service) SetExtractionLLM(llm ExtractionLLM) {
+	if s != nil {
+		s.extractionLLM = llm
+	}
+}
+
+// EnableExtractionLLM toggles the opt-in LLM extraction pass. When true (and a
+// seam is attached) CapturePassive tries the LLM first and falls back to the
+// regex floor on any LLM error; when false (the default) CapturePassive
+// behaves exactly as before — regex-only.
+func (s *Service) EnableExtractionLLM(on bool) {
+	if s != nil {
+		s.extractionLLMEnabled = on
 	}
 }
 
@@ -1078,7 +1108,21 @@ func (s *Service) CapturePassive(ctx context.Context, in PassiveInput) (CaptureP
 		return CapturePassiveResult{Exhausted: true}, nil
 	}
 
+	// Extraction (014, step 05): the LLM pass is OPT-IN. When enabled and a
+	// seam is attached, try it first; on any LLM error (or a parse with no
+	// learnings) fall back to the deterministic regex floor so the caller
+	// never sees an LLM failure. When disabled (the default) this is exactly
+	// the pre-05 regex-only behavior.
 	rawItems := extractLearnings(text)
+	if s.extractionLLMEnabled && s.extractionLLM != nil {
+		if llmItems, lerr := ExtractWithLLM(ctx, text, s.extractionLLM); lerr == nil {
+			rawItems = llmItems
+		} else {
+			// Best-effort warning: the regex floor still runs below, so no
+			// error is propagated to the caller.
+			fmt.Fprintf(logWriter(), "mnemonic: passive extraction LLM failed, falling back to regex: %v\n", lerr)
+		}
+	}
 	if len(rawItems) == 0 {
 		return CapturePassiveResult{Exhausted: true}, nil
 	}

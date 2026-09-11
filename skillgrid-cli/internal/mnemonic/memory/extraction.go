@@ -6,8 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 )
+
+// logWriter is the sink for passive-extraction warnings (the LLM-failure
+// fallback notice). stdout keeps it visible without pulling a logging
+// dependency into this package; tests do not assert on it.
+func logWriter() io.Writer { return os.Stderr }
 
 // ExtractionLLM is the pluggable LLM seam for passive extraction (014,
 // step 05). It mirrors the process.LLM / layer.LLM seam pattern: a small
