@@ -7,13 +7,12 @@
 const $ = (s) => document.querySelector(s);
 
 const STUBS = {
-  docs: { phase: "P3", title: "Docs", body: "Change list with change.md / tasks.md viewer, linked both ways to tracker items." },
   memory: { phase: "P4", title: "Memory", body: "Search, observation detail, pin/unpin/delete, plus governance views." },
   code: { phase: "P5", title: "Code", body: "Index status, freshness banner, BM25 search with source view." },
   sessions: { phase: "P6", title: "Sessions", body: "Session list with titles, recent context, and summaries." },
 };
 
-const LIVE = ["welcome", "tracker"];
+const LIVE = ["welcome", "tracker", "docs"];
 
 const ROUTES = ["welcome", "tracker", "docs", "memory", "code", "sessions"];
 
@@ -71,6 +70,12 @@ function render() {
     renderTracker(stub);
     // Project context matters only on data entries; load it lazily here.
     ensureProjects();
+    return;
+  }
+  if (route === "docs") {
+    welcome.hidden = true;
+    stub.hidden = false;
+    renderDocs(stub);
     return;
   }
 }
@@ -353,11 +358,8 @@ async function trkOpenDetail(box, seed) {
     ? `<span class="trk-avatar">${esc(trkInitials(it.assignees[0]))}</span><span class="trk-mono">${esc(it.assignees.join(", "))}</span>`
     : `<span class="trk-unassigned">unassigned</span>`;
   const labels = (it.labels || []).map((l) => `<span class="trk-chip">${esc(l)}</span>`).join("");
-  const docs = (it.doc_refs || []).map((d) => {
-    const m = String(d).match(/changes\/([a-z0-9][a-z0-9-]*)/);
-    const inner = m ? `<a href="/docs?change=${encodeURIComponent(m[1])}">${esc(d)}</a>` : esc(d);
-    return `<li><span class="trk-docref">▤ ${inner}</span></li>`;
-  }).join("");
+  const docs = (it.doc_refs || []).map((d) =>
+    `<li><span class="trk-docref">▤ ${trkDocLink(d)}</span></li>`).join("");
   overlay.innerHTML =
     `<div class="trk-dialog" role="dialog" aria-modal="true" aria-label="Task detail">` +
     `<button type="button" class="trk-backdrop" aria-label="Close details" data-close></button>` +
@@ -385,6 +387,13 @@ async function trkOpenDetail(box, seed) {
     trkSyncUrl(null);
     document.removeEventListener("keydown", onKey);
   };
+  overlay.querySelectorAll("a[data-docchange]").forEach((a) =>
+    a.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      close();
+      history.pushState(null, "", `/docs?change=${encodeURIComponent(a.dataset.docchange)}`);
+      render();
+    }));
   const onKey = (e) => { if (e.key === "Escape") close(); };
   document.addEventListener("keydown", onKey);
   overlay.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", close));
@@ -420,4 +429,121 @@ async function trackerFetch(url, opts) {
     throw err;
   }
   return body;
+}
+
+/* Docs entry (P3) — SDD change list + change.md/tasks.md viewer with
+ * two-way tracker links: docs → tracker via the change's Ticket: id,
+ * tracker detail → docs via the item's change-path doc refs. */
+let docList = [];
+
+function docQuery() {
+  return new URLSearchParams(location.search).get("change") || "";
+}
+
+function docStripTicket(raw) {
+  return String(raw || "")
+    .replace(/^[\s`*(]+/, "").replace(/[\s`)!]+$/, "")
+    .replace(/\s*\(.+$/, "").trim();
+}
+
+function docStatusClass(status) {
+  const s = (status || "").toLowerCase();
+  if (s === "done" || s === "archived" || s === "complete") return "done";
+  if (s.includes("progress") || s === "in-progress") return "prog";
+  return "other";
+}
+
+function docSyncUrl(name) {
+  const q = new URLSearchParams(location.search);
+  if (name) q.set("change", name);
+  else q.delete("change");
+  const qs = q.toString();
+  history.replaceState(null, "", `${location.pathname}${qs ? "?" + qs : ""}`);
+}
+
+async function renderDocs(box) {
+  box.innerHTML =
+    `<div class="doc-page"><header class="doc-head"><h1>Docs</h1>` +
+    `<p class="muted">SDD change documents — change.md and tasks.md — sandboxed to docs/skillgrid, read-only.</p></header>` +
+    `<div id="doc-body"><div class="doc-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading changes…</div></div></div>`;
+  const body = box.querySelector("#doc-body");
+  let changes;
+  try {
+    const data = await api("/docs/changes");
+    changes = data.changes || [];
+  } catch (e) {
+    body.innerHTML =
+      `<div class="trk-empty-state"><p class="trk-empty-title">Failed to load changes</p>` +
+      `<p class="muted">${esc(e.message)}</p></div>`;
+    return;
+  }
+  docList = changes;
+  const rows = changes.map((c) =>
+    `<li><button type="button" class="doc-row" data-name="${esc(c.name)}">` +
+    `<span class="doc-row-name">${esc(c.name)}</span>` +
+    `<span class="doc-status st-${docStatusClass(c.status)}">${esc(c.status || "unknown")}</span>` +
+    (c.ticket ? `<span class="doc-ticket" title="Open in Tracker">${esc(docStripTicket(c.ticket))}</span>` : "") +
+    `</button></li>`).join("");
+  body.innerHTML =
+    `<ul class="doc-list">${rows || `<li class="doc-empty">No changes found.</li>`}</ul>`;
+  body.querySelectorAll(".doc-row").forEach((el) =>
+    el.addEventListener("click", () => docOpen(box, el.dataset.name)));
+  const init = docQuery();
+  if (init) docOpen(box, init);
+}
+
+async function docOpen(box, name) {
+  const body = box.querySelector("#doc-body");
+  docSyncUrl(name);
+  body.innerHTML = `<div class="doc-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading ${esc(name)}…</div>`;
+  let d;
+  try {
+    d = await api(`/docs/changes/${encodeURIComponent(name)}`);
+  } catch (e) {
+    body.innerHTML =
+      `<div class="trk-empty-state"><p class="trk-empty-title">Failed to load ${esc(name)}</p>` +
+      `<p class="muted">${esc(e.message)}</p><p><a class="doc-back" href="/docs" data-back>← Back to changes</a></p></div>`;
+    body.querySelector("[data-back]")?.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      history.pushState(null, "", "/docs");
+      renderDocs(box);
+    });
+    return;
+  }
+  const ticket = d.ticket ? docStripTicket(d.ticket) : "";
+  const provider = trk.provider;
+  const links = ticket
+    ? `<a class="doc-open-ticket btn" data-ticket="${esc(ticket)}">Open tracker item</a>`
+    : `<span class="muted doc-no-ticket">No tracker ticket</span>`;
+  body.innerHTML =
+    `<div class="doc-view">` +
+    `<header class="doc-view-head">` +
+    `<button type="button" class="doc-back" data-back>← Back to changes</button>` +
+    `<h2>${esc(name)}</h2>` +
+    `<span class="doc-status st-${docStatusClass(d.status)}">${esc(d.status || "unknown")}</span>` +
+    `<span class="doc-view-links">${links}</span>` +
+    `</header>` +
+    `<section class="doc-file"><h3>change.md</h3><pre class="doc-md">${esc(d.change_md)}</pre></section>` +
+    (d.tasks_md ? `<section class="doc-file"><h3>tasks.md</h3><pre class="doc-md">${esc(d.tasks_md)}</pre></section>` : "") +
+    `</div>`;
+  body.querySelector("[data-back]").addEventListener("click", (ev) => {
+    ev.preventDefault();
+    history.pushState(null, "", "/docs");
+    docSyncUrl("");
+    renderDocs(box);
+  });
+  body.querySelector("[data-ticket]")?.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    const q = new URLSearchParams({ provider, task: ev.currentTarget.dataset.ticket });
+    history.pushState(null, "", `/tracker?${q.toString()}`);
+    render();
+  });
+}
+
+/* Tracker detail → SDD docs (03.4): doc refs that point at a change path
+ * link back into the Docs entry. */
+function trkDocLink(ref) {
+  const m = String(ref).match(/changes\/([a-z0-9][a-z0-9-]*)/);
+  if (!m) return esc(ref);
+  return `<a href="/docs?change=${encodeURIComponent(m[1])}" data-docchange="${esc(m[1])}">${esc(ref)}</a>`;
 }

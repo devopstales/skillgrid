@@ -386,3 +386,28 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 .trk-panel footer { border-top: 1px solid var(--border); padding: 0.625rem 1rem; }
 .trk-panel footer .trk-mono { font-size: 0.625rem; color: var(--muted-foreground); }
 .trk-move { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+/* ── Docs entry (P3) ──────────────────────────────────────────────────── */
+.doc-page { max-width: 64rem; }
+.doc-head { margin-bottom: 1rem; }
+.doc-loading { display: flex; align-items: center; gap: 0.5rem; color: var(--muted-foreground); }
+.doc-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 0.5rem; overflow: hidden; }
+.doc-row { display: flex; align-items: center; gap: 0.75rem; width: 100%; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--border); padding: 0.625rem 1rem; cursor: pointer; color: var(--foreground); font: inherit; }
+.doc-list .doc-row:last-child { border-bottom: none; }
+.doc-row:hover { background: var(--muted); }
+.doc-row-name { font-family: var(--font-mono); font-size: 0.8125rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-status { font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.125rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-foreground); }
+.doc-status.st-done { color: var(--ok, #4ade80); border-color: currentColor; }
+.doc-status.st-prog { color: var(--info, #60a5fa); border-color: currentColor; }
+.doc-ticket { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--muted-foreground); }
+.doc-empty { padding: 1rem; color: var(--muted-foreground); font-size: 0.8125rem; }
+.doc-view { display: flex; flex-direction: column; gap: 1rem; }
+.doc-view-head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.doc-view-head h2 { margin: 0; font-family: var(--font-mono); font-size: 1rem; }
+.doc-view-links { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
+.doc-back { background: transparent; border: none; color: var(--muted-foreground); cursor: pointer; font: inherit; font-size: 0.8125rem; padding: 0; }
+.doc-back:hover { color: var(--foreground); }
+.doc-no-ticket { font-size: 0.75rem; }
+.doc-open-ticket { font-size: 0.8125rem; }
+.doc-file h3 { margin: 0 0 0.375rem; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); }
+.doc-md { background: var(--muted); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.875rem 1rem; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 32rem; overflow: auto; margin: 0; }

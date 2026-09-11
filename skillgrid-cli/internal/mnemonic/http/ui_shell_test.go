@@ -75,7 +75,7 @@ func TestStep01_Welcome(t *testing.T) {
 	h := newHandler(t)
 	_, body := getUI(t, h, "/")
 	mustContain(t, body,
-		`id="view-welcome"`, "phase 1 online", "Skillgrid Dashboard",
+		`id="view-welcome"`, "phase 3 online", "Skillgrid Dashboard",
 		`href="/swagger-ui"`, `href="/openapi.yaml"`,
 		"Roadmap", "Dashboard shell + Swagger UI",
 		"Tracker (Backlog.md, Jira, GitLab, GitHub)",

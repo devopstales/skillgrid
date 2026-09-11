@@ -932,6 +932,71 @@ paths:
           $ref: "#/components/responses/Bad"
         "501":
           $ref: "#/components/responses/Bad"
+  /docs/changes:
+    get:
+      tags: [docs]
+      operationId: docsList
+      summary: List SDD changes (name, status, ticket id)
+      description: |-
+        Read-only view of docs/skillgrid/changes and docs/skillgrid/archive.
+        The ticket id is parsed from each change.md `Ticket:` line (backticks
+        and annotations stripped by the UI, not here).
+      responses:
+        "200":
+          description: Change list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [changes]
+                properties:
+                  changes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DocChange"
+              example:
+                changes:
+                  - name: 009-web-admin-dashboard
+                    status: in-progress
+                    ticket: TASK-001
+                  - name: 004-hermes-memory
+                    status: draft
+                    ticket: "task-001"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /docs/changes/{name}:
+    get:
+      tags: [docs]
+      operationId: docsGet
+      summary: One change's change.md + tasks.md text
+      description: |-
+        Sandboxed to the two docs roots: names with `..`, absolute paths, or
+        escapes return 400; unknown names return 404. Read-only — files are
+        served as text, never executed.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 009-web-admin-dashboard
+      responses:
+        "200":
+          description: Change documents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocChangeDetail"
+              example:
+                name: 009-web-admin-dashboard
+                status: in-progress
+                ticket: TASK-001
+                change_md: "# Change: 009-web-admin-dashboard\n\n**Ticket:** TASK-001\n"
+                tasks_md: "# Tasks: 009-web-admin-dashboard\n"
+        "400":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
   /swagger-ui:
     get:
       tags: [ui]
@@ -973,6 +1038,39 @@ components:
       properties:
         error:
           type: string
+    DocChange:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+          description: Change directory name (NNN-slug)
+          example: 009-web-admin-dashboard
+        status:
+          type: string
+          description: Parsed from the change.md `STATUS:` line (lowercased); "unknown" when absent
+          example: in-progress
+        ticket:
+          type: string
+          description: Parsed from the change.md `Ticket:` line; absent when the change has no ticket
+          example: TASK-001
+    DocChangeDetail:
+      type: object
+      required: [name, status, change_md]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+        ticket:
+          type: string
+          description: Absent when the change has no `Ticket:` line (the UI renders no tracker link, not an error)
+        change_md:
+          type: string
+          description: Full change.md text
+        tasks_md:
+          type: string
+          description: Full tasks.md text; absent when the change has no tasks.md
     TrackerItem:
       type: object
       required: [id, title, status, board, provider]

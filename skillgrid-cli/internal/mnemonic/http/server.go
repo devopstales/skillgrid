@@ -18,6 +18,7 @@ import (
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/http/docs"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
@@ -40,6 +41,16 @@ func NewServer(svc *service.Service) *Server {
 	s.registerRoutes()
 	return s
 }
+
+// docsCwd is the directory the docs bridge sandboxes reads against. Overridable
+// in tests; defaults to the server process's working directory (the repo
+// root, matching the tracker bridge's doc/config reads).
+var docsCwd = func() string {
+	if v := strings.TrimSpace(os.Getenv("SKILLGRID_DOCS_CWD")); v != "" {
+		return v
+	}
+	return "."
+}()
 
 // openHandleFor opens a single Project Handle for a resolved project id
 // (config root "."), mirroring the MCP single-open lifecycle: each request
@@ -117,7 +128,17 @@ func (s *Server) registerRoutes() {
 
 	s.registerTeamsRoutes()
 	s.registerTrackerRoutes()
+	s.registerDocsRoutes()
 	s.registerUIRoutes()
+}
+
+// registerDocsRoutes mounts the read-only SDD docs bridge on the two routes
+// it owns (GET /docs/changes, GET /docs/changes/{name}). The GET /docs shell
+// page is registered separately by registerUIRoutes (exact pattern, no
+// conflict with these literal routes).
+func (s *Server) registerDocsRoutes() {
+	s.mux.Handle("GET /docs/changes", docs.NewList(docsCwd))
+	s.mux.Handle("GET /docs/changes/{name}", docs.NewDetail(docsCwd))
 }
 
 // Handler returns the root http.Handler.

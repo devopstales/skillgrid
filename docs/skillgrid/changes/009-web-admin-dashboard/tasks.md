@@ -1,6 +1,6 @@
 # Tasks: 009-web-admin-dashboard
 
-> **STATUS:** `in-progress` (2026-09-11) — 2/6 steps PASS (01-dashboard-shell, 02-tracker-tab)
+> **STATUS:** `in-progress` (2026-09-11) — 3/6 steps PASS (01-dashboard-shell, 02-tracker-tab, 03-docs-viewer)
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-execution (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax.
 >
@@ -84,7 +84,7 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 
 ```yaml
 phase: spec
-current_step: 03-docs-viewer
+current_step: 04-memory-tab
 status: in_progress
 updated: 2026-09-11T00:00:00Z
 ```
@@ -309,14 +309,14 @@ The Docs menu entry renders SDD docs with two-way tracker links: read-only `docs
 
 This step is done only when:
 
-- [ ] Traversal attempts are blocked with tests (RED)
-- [ ] Change list + file viewer + both link directions work in-browser
-- [ ] `openapi.yaml` documents the docs routes
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-03` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on steps already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] Traversal attempts are blocked with tests (RED)
+- [x] Change list + file viewer + both link directions work in-browser
+- [x] `openapi.yaml` documents the docs routes
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-03` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on steps already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 01-dashboard-shell, 02-tracker-tab (link target must exist)
 
@@ -334,30 +334,32 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 03.1 `[RED]` Threat: path traversal — `..`, absolute paths, unknown names blocked
-  - [ ] 03.1.a Write failing test: `GET /docs/changes/../secret`, `/docs/changes//etc/passwd`, `/docs/changes/nope` → 400/404; happy name returns change.md + tasks.md text + ticket id.
-  - [ ] 03.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_Traversal` — Expected: FAIL
-  - [ ] 03.1.c Minimal implementation: clean + prefix-check every name against the two roots; read-only; render as text, never execute.
-  - [ ] 03.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_Traversal` — Expected: PASS
-  - [ ] 03.1.e Commit — `feat(docs): sandboxed change readers`
-- [ ] 03.2 `[AFK]` `GET /docs/changes` returns the change list (name, status, ticket id) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_List` — Expected: PASS
-- [ ] 03.3 `[AFK]` Docs menu entry: change list → click → change.md + tasks.md view — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_DocsUI` — Expected: PASS
-- [ ] 03.4 `[AFK]` Two-way tracker links: docs → Tracker item via `Ticket:`; Tracker detail → Docs via referenced change path — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_Links` — Expected: PASS
-- [ ] 03.5 `[AFK]` openapi.yaml documents the docs routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_OpenAPI` — Expected: PASS
+- [x] 03.1 `[RED]` Threat: path traversal — `..`, absolute paths, unknown names blocked
+  - [x] 03.1.a Write failing test: `GET /docs/changes/../secret`, `/docs/changes//etc/passwd`, `/docs/changes/nope` → 400/404; happy name returns change.md + tasks.md text + ticket id.
+  - [x] 03.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_Traversal` — Expected: FAIL
+  - [x] 03.1.c Minimal implementation: clean + prefix-check every name against the two roots; read-only; render as text, never execute.
+  - [x] 03.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_Traversal` — Expected: PASS
+  - [x] 03.1.e Commit — `feat(docs): sandboxed change readers`
+- [x] 03.2 `[AFK]` `GET /docs/changes` returns the change list (name, status, ticket id) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_List` — Expected: PASS
+- [x] 03.3 `[AFK]` Docs menu entry: change list → click → change.md + tasks.md view — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_DocsUI` — Expected: PASS
+- [x] 03.4 `[AFK]` Two-way tracker links: docs → Tracker item via `Ticket:`; Tracker detail → Docs via referenced change path — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_Links` — Expected: PASS
+- [x] 03.5 `[AFK]` openapi.yaml documents the docs routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_OpenAPI` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/http/docs/...` | PASS | | |
-| Acceptance `@step-03` / `@p0` | manual smoke: `skillgrid serve` + browser — list, file view, both link directions | PASS | | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` | PASS | | |
-| Rollback boundary | `git revert` + `go test ./...` | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./internal/mnemonic/http/docs/...` | PASS | PASS | `TestStep03_Traversal` (RED→GREEN) + `TestStep03_List` green |
+| Acceptance `@step-03` / `@p0` | manual smoke: `skillgrid serve` + browser — list, file view, both link directions | PASS | PASS | Live server: `/docs/changes` lists 14 changes (deduped), `/docs/changes/012-…` returns change.md+tasks.md+`TASK-006`, `/docs` still serves the shell, unknown → 404, dot-segment → 307-then-404 (no leak) |
+| Runtime harness | `go test ./internal/mnemonic/http/...` | PASS | PASS | http 9.6s, docs, tracker all ok |
+| Rollback boundary | `git revert` + `go test ./...` | PASS | N/A (commit boundary) | Revert `feat(docs): viewer + Docs menu entry (P3)` restores P2 state; http/docs + UI revert cleanly |
+| Global Constraints | — | held | held | No npm/build; read-only sandbox; vanilla JS; OpenAPI extended as it lands |
+
+Note on traversal: Go 1.22 `ServeMux` cleans dot-segment paths (`/docs/changes/../x`) with a 307 redirect *before* a mounted handler sees them, so the guard's 400 is exercised at the unit level (raw path via the package handler) and is defense-in-depth in production — every dot-segment form cleans to a path outside the two sandbox roots (→ 404), so no file outside `docs/skillgrid/{changes,archive}` is ever read.
 
 ### Commit
 
