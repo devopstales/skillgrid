@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory/layer"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
@@ -77,6 +78,8 @@ func runMem(version string, args []string) {
 		runMemContext(svc, projID, limit, items, chars, timeout)
 	case "timeline":
 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
+	case "graph":
+		runMemGraph(svc, projID, limit)
 	case "expire":
 		runMemExpire(svc, dataDir)
 	case "help", "-h", "--help":
@@ -89,7 +92,7 @@ func runMem(version string, args []string) {
 }
 
 func printMemUsage() {
-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|expire> [args]
+	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|expire> [args]
 
   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
   governance <id>                 governed-asset view (mem_governance)
@@ -101,7 +104,9 @@ func printMemUsage() {
   context [--limit N] [--item N] [--char N] [--timeout 3s]
                                    recent session summaries (mem_context)
   timeline <id> [--window 1h] [--limit N] [--item N] [--char N] [--timeout 3s]
-                                   chronological context (mem_timeline)
+                                    chronological context (mem_timeline)
+  graph [--limit N]                 temporal status of codeindex graph edges
+                                    (valid_from, valid_to, active/expired/pending)
   expire                          retire expired observations across all projects
                                    (TTL sweep; best-effort, exit 0 on missing stores)
 
@@ -401,6 +406,40 @@ func runMemExpire(svc *service.Service, dataDir string) {
 		total += n
 	}
 	out["total"] = total
+	printJSON(out)
+}
+
+// runMemGraph is the CLI for the temporal graph view (014 step 10, `mem graph`):
+// it lists the project's codeindex graph edges with their temporal status
+// (valid_from, valid_to, and a computed active/expired/pending label). It reads
+// the unfiltered history set (QueryEdgesWithHistory) so every edge is visible
+// with its status — the current-state filter is the concern of graph traversal,
+// not this diagnostic. It is read-only and never mutates the index.
+func runMemGraph(svc *service.Service, projID string, limit int) {
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	edges, err := codeindex.QueryEdgesWithHistory(h.Store())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	counts := map[string]int{"active": 0, "expired": 0, "pending": 0}
+	for _, e := range edges {
+		counts[e.Status]++
+	}
+	if limit > 0 && len(edges) > limit {
+		edges = edges[:limit]
+	}
+	out := map[string]any{
+		"project": projID,
+		"count":   len(edges),
+		"total":   counts,
+		"edges":   edges,
+	}
 	printJSON(out)
 }
 
