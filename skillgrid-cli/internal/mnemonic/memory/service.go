@@ -73,6 +73,11 @@ type Service struct {
 	// config key; improveLast is the cooldown anchor.
 	improveCfg  ImproveConfig
 	improveLast time.Time
+	// promotionCfg tunes the L0/L1 session -> L2/L3 graph auto-promotion
+	// (014, step 09). The zero value is always-on with the production
+	// defaults; MinLength is tunable from the mnemonic.promotion config
+	// (MinSections is fixed at the default). Set via SetPromotion.
+	promotionCfg PromotionConfig
 }
 
 // SetDistillHookProvider attaches the owning handle (which carries the opt-in
@@ -100,6 +105,23 @@ func (s *Service) SetBudget(cfg BudgetConfig) {
 	if s != nil {
 		s.budget = NewBudget(cfg)
 	}
+}
+
+// SetPromotion configures the session-to-graph promotion threshold (014,
+// step 09). The service layer calls it from the mnemonic.promotion config
+// key; a non-positive MinLength falls back to the production default.
+func (s *Service) SetPromotion(cfg PromotionConfig) {
+	if s == nil {
+		return
+	}
+	def := defaultPromotionConfig()
+	if cfg.MinLength <= 0 {
+		cfg.MinLength = def.MinLength
+	}
+	if cfg.MinSections <= 0 {
+		cfg.MinSections = def.MinSections
+	}
+	s.promotionCfg = cfg
 }
 
 // SetTTL overrides the default soft expiry (014 step 04) stamped on saves that
@@ -891,6 +913,10 @@ func (s *Service) SessionSummary(ctx context.Context, sessionID, summary string)
 
 // SessionEnd ends a session with an optional summary. When a summary is given
 // and the session has no title, the title is derived from its "## Goal" line.
+// The session-to-graph auto-promotion (014, step 09) runs HERE (after the
+// sessions row update, before the distill hook) so the promoted node is
+// durable the moment the close returns — see PromoteSession for the ordering
+// rationale and the quality threshold.
 func (s *Service) SessionEnd(ctx context.Context, sessionID, summary string) error {
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return errors.New("memory service not initialized")
@@ -934,6 +960,18 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID, summary string) err
 	}
 	if n == 0 {
 		return fmt.Errorf("session %s not found", sessionID)
+	}
+	// Session-to-graph auto-promotion (014, step 09): a close summary that
+	// meets the quality threshold is promoted to a permanent graph node
+	// SYNCHRONOUSLY here, BEFORE the distill hook — the node must be durable
+	// the moment SessionEnd returns (next-session reads see it), while the
+	// distill hook stays detached/async and best-effort (it re-derives L1
+	// layers from the same L0 summary, so it does not depend on the node).
+	// Promotion is best-effort internally: a failure never fails the close.
+	if s.promotionMeetsThreshold(summary) {
+		if _, perr := s.promoteSessionToGraph(ctx, sessionID, summary); perr != nil {
+			fmt.Printf("[mnemonic] session %s: graph promotion failed (best-effort): %v\n", sessionID, perr)
+		}
 	}
 	// Session-close distillation hook (change 013, step 02). Opt-in: nil by
 	// default, so it is a no-op unless distillation is enabled (the hook is read
