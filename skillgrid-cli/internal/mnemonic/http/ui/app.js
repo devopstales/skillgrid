@@ -160,6 +160,11 @@ async function ensureProjects() {
 $("#project").addEventListener("change", (e) => {
   project = e.target.value;
   localStorage.setItem("sgmn-project", project);
+  // Re-render the active entry so it refetches against the new store. Without
+  // this, switching projects updates the variable but the Code/Memory/Docs
+  // views keep showing the previous store's data (the stale "0 files" bug).
+  // render() is a no-op for the welcome/swagger routes.
+  render();
 });
 
 document.querySelectorAll("#menu .nav-link[data-route]").forEach((a) => {
