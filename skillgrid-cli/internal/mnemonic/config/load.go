@@ -81,6 +81,16 @@ type Improvement struct {
 	Cooldown  time.Duration
 }
 
+// Promotion is the mnemonic.promotion section (014 step 09): the quality
+// threshold for the session-close graph promotion. Zero fields fall back to
+// the memory package defaults (MinLength 100 runes, MinSections 1 heading).
+// The promotion itself is always on when a summary meets the threshold; the
+// config only tunes the bar.
+type Promotion struct {
+	MinLength   int
+	MinSections int
+}
+
 // Indexing holds code index settings from indexing.yaml mnemonic section.
 type Indexing struct {
 	Include      []string
@@ -102,6 +112,9 @@ type Indexing struct {
 	// Improvement is the mnemonic.improve section (014 step 08): the
 	// self-improvement feedback loop. OPT-IN (Enabled defaults to false).
 	Improvement Improvement
+	// Promotion is the mnemonic.promotion section (014 step 09): the
+	// session-close graph promotion quality threshold.
+	Promotion Promotion
 }
 
 type indexingFile struct {
@@ -130,6 +143,9 @@ type mnemonicSection struct {
 	// Improvement is the mnemonic.improve section (014 step 08): the
 	// self-improvement feedback loop opt-in + tunable rates.
 	Improvement improvementSection `yaml:"improve"`
+	// Promotion is the mnemonic.promotion section (014 step 09): the
+	// session-close graph promotion quality threshold.
+	Promotion promotionSection `yaml:"promotion"`
 }
 
 type retrievalBudgetSection struct {
@@ -310,6 +326,9 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	// Enabled defaults to false (absent → byte-identical search). Zero rate
 	// fields fall back to the memory package defaults in SetImprove.
 	out.Improvement = mergeImprovement(section.Improvement)
+	// Promotion (014 step 09): the session-close graph promotion threshold.
+	// Zero fields fall back to the memory package defaults in SetPromotion.
+	out.Promotion = mergePromotion(section.Promotion)
 	return out
 }
 
@@ -331,6 +350,19 @@ func mergeImprovement(section improvementSection) Improvement {
 		}
 	}
 	return out
+}
+
+// promotionSection is the mnemonic.promotion section (014 step 09). Zero
+// fields fall back to the memory package defaults in SetPromotion.
+type promotionSection struct {
+	MinLength   int `yaml:"min_length"`
+	MinSections int `yaml:"min_sections"`
+}
+
+// mergePromotion maps the mnemonic.promotion YAML section to the Promotion
+// struct. Zero fields are left zero so SetPromotion applies its defaults.
+func mergePromotion(section promotionSection) Promotion {
+	return Promotion{MinLength: section.MinLength, MinSections: section.MinSections}
 }
 
 // mergeRetrievalBudget merges the mnemonic.retrieval_budget section over the

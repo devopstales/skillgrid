@@ -326,6 +326,15 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 		DecayRate: impr.DecayRate,
 		Cooldown:  impr.Cooldown,
 	})
+	// Session-to-graph promotion threshold (014 step 09): route the
+	// mnemonic.promotion config key to the memory service. The promotion
+	// itself is always on when a summary meets the threshold; the config
+	// only tunes the bar. Zero fields fall back to the memory package
+	// defaults inside SetPromotion.
+	mem.SetPromotion(memory.PromotionConfig{
+		MinLength:   cfg.Promotion.MinLength,
+		MinSections: cfg.Promotion.MinSections,
+	})
 	h := &ProjectHandle{
 		store:          st,
 		projectID:      projectID,
