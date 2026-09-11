@@ -987,11 +987,12 @@ func (s *txRouteStore) StoreReferencesEdges(fileID int64, nodes []route.RouteNod
 			conf = route.ConfidenceExtracted
 		}
 		if _, err := s.tx.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
-			VALUES ('references', ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
+			VALUES ('references', ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
-			  confidence = excluded.confidence`,
-			routeID, fileID, n.HandlerSymbol, n.HandlerName, n.PathPattern, conf, n.Line,
+			  confidence = excluded.confidence,
+			  valid_from = excluded.valid_from`,
+			routeID, fileID, n.HandlerSymbol, n.HandlerName, n.PathPattern, conf, n.Line, time.Now().Unix(),
 		); err != nil {
 			return stored, fmt.Errorf("upsert references edge %s: %w", n.HandlerName, err)
 		}
@@ -1025,11 +1026,12 @@ func (s *txRouteStore) StoreNavigatesEdges(fileID int64, navs []route.Navigation
 			continue // no sending function → unresolved, not fabricated
 		}
 		if _, err := s.tx.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
-			VALUES ('navigates', ?, ?, NULL, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
+			VALUES ('navigates', ?, ?, NULL, ?, ?, ?, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
-			  confidence = excluded.confidence`,
-			src, fileID, n.ToName, n.ToName, n.Confidence, n.Line,
+			  confidence = excluded.confidence,
+			  valid_from = excluded.valid_from`,
+			src, fileID, n.ToName, n.ToName, n.Confidence, n.Line, time.Now().Unix(),
 		); err != nil {
 			return stored, fmt.Errorf("upsert navigates edge %s (from_id=%d file_id=%d): %w", n.ToName, src, fileID, err)
 		}
@@ -1164,11 +1166,12 @@ func writeFileGraph(tx *sql.Tx, fileID int64, syms []extract.Symbol, edges []ext
 			}
 		}
 		if _, err := tx.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
-			  confidence = excluded.confidence`,
-			e.Kind, fromID, fileID, toID, e.ToName, e.TargetPath, e.Confidence, e.Line,
+			  confidence = excluded.confidence,
+			  valid_from = excluded.valid_from`,
+			e.Kind, fromID, fileID, toID, e.ToName, e.TargetPath, e.Confidence, e.Line, time.Now().Unix(),
 		); err != nil {
 			return 0, fmt.Errorf("upsert edge %s: %w", e.Kind, err)
 		}
