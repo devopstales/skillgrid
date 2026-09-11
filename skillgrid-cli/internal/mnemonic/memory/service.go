@@ -22,6 +22,10 @@ import (
 const (
 	defaultSearchLimit  = 20
 	defaultContextLimit = 5
+	// defaultMemoryTTL is the soft expiry stamped on every observation when the
+	// caller does not supply one (014 step 04). The service layer can override
+	// it from the mnemonic.ttl config key via SetTTL.
+	defaultMemoryTTL = 7 * 24 * time.Hour
 )
 
 // Service provides save and search over project-scoped observations.
@@ -47,6 +51,10 @@ type Service struct {
 	// in unit tests still enforces the default caps. The service layer tunes it
 	// from config (mnemonic.retrieval_budget) via SetBudget.
 	budget *Budget
+	// ttl is the default soft expiry (014 step 04) stamped on saves that omit
+	// expires_at. Zero means "use defaultMemoryTTL". The service layer sets it
+	// from the mnemonic.ttl config key via SetTTL.
+	ttl time.Duration
 }
 
 // SetDistillHookProvider attaches the owning handle (which carries the opt-in
@@ -76,6 +84,24 @@ func (s *Service) SetBudget(cfg BudgetConfig) {
 	}
 }
 
+// SetTTL overrides the default soft expiry (014 step 04) stamped on saves that
+// omit expires_at. The service layer calls it from the mnemonic.ttl config key;
+// a non-positive value falls back to defaultMemoryTTL.
+func (s *Service) SetTTL(d time.Duration) {
+	if s != nil && d > 0 {
+		s.ttl = d
+	}
+}
+
+// effectiveTTL returns the active default soft expiry, falling back to
+// defaultMemoryTTL when no positive override was set.
+func (s *Service) effectiveTTL() time.Duration {
+	if s != nil && s.ttl > 0 {
+		return s.ttl
+	}
+	return defaultMemoryTTL
+}
+
 // SaveInput holds fields for a new or updated observation.
 type SaveInput struct {
 	Title     string
@@ -101,6 +127,11 @@ type SaveInput struct {
 	// an owner (private-by-default governance, change 013 step 01). Empty
 	// falls back to the session identity so the asset is never unowned.
 	Owner string
+	// ExpiresAt is an optional RFC3339 expiry. When non-empty it is preserved
+	// unchanged; when empty, Save() auto-stamps it to now + the configured TTL
+	// (mnemonic.ttl, default 7 days) so every observation carries a soft
+	// expiry (014 step 04).
+	ExpiresAt string
 }
 
 // PassiveInput is a raw block of text (assistant reply, Task output, etc.)
@@ -299,14 +330,24 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	if in.CapturePrompt {
 		promptID = s.latestPromptForSession(ctx, in.SessionID)
 	}
+	// TTL default (014 step 04): when the caller supplies no explicit expires_at,
+	// stamp one to now + the configured default (mnemonic.ttl, 7d). An explicit
+	// value is preserved unchanged (validated so we never persist an
+	// unparseable TTL that breaks the soft-exclude filters).
+	expiresAt := strings.TrimSpace(in.ExpiresAt)
+	if expiresAt == "" {
+		expiresAt = time.Now().UTC().Add(s.effectiveTTL()).Format(time.RFC3339)
+	} else if _, err := time.Parse(time.RFC3339, expiresAt); err != nil {
+		return 0, fmt.Errorf("invalid expires_at: %w", err)
+	}
 	res, err := s.store.DB.ExecContext(ctx, `
 		INSERT INTO observations (
 			session_id, type, title, content, project, scope, topic_key,
 			normalized_hash, revision_count, created_at, updated_at, source, prompt_id, tool_name,
-			owner, visibility, status, retrieval_usage
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0)`,
+			owner, visibility, status, retrieval_usage, expires_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?)`,
 		in.SessionID, in.Type, in.Title, in.Content, s.projectID, in.Scope, nullString(in.TopicKey),
-		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner,
+		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert observation: %w", err)

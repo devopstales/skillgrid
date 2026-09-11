@@ -52,6 +52,11 @@ type RetrievalBudget struct {
 	TimeoutNs int64
 }
 
+// DefaultMemoryTTL is the default soft expiry stamped on every saved
+// observation when the caller does not supply one (014 step 04). Operators can
+// override it via the mnemonic.ttl config key.
+const DefaultMemoryTTL = 7 * 24 * time.Hour
+
 // Indexing holds code index settings from indexing.yaml mnemonic section.
 type Indexing struct {
 	Include      []string
@@ -64,6 +69,9 @@ type Indexing struct {
 	// RetrievalBudget is the tunable mem_* read budget (change 013, step 03).
 	// Zero fields fall back to the memory package defaults.
 	RetrievalBudget RetrievalBudget
+	// TTL is the default observation soft expiry (mnemonic.ttl, 014 step 04).
+	// Zero means "use DefaultMemoryTTL".
+	TTL time.Duration
 }
 
 type indexingFile struct {
@@ -82,6 +90,10 @@ type mnemonicSection struct {
 	// RetrievalBudget is the mnemonic.retrieval_budget section (change 013,
 	// step 03): item/char/timeout caps for every mem_* read path.
 	RetrievalBudget retrievalBudgetSection `yaml:"retrieval_budget"`
+	// TTL is the mnemonic.ttl key (014 step 04): a Go duration string, e.g.
+	// "168h" or "7d" is not supported — use hours/seconds. Zero/empty keeps
+	// the DefaultMemoryTTL fallback.
+	TTL string `yaml:"ttl"`
 }
 
 type retrievalBudgetSection struct {
@@ -155,6 +167,7 @@ func DefaultIndexing() Indexing {
 		MaxFileSize:  MaxFileSizeDefault,
 		WebCache:     DefaultWebCache(),
 		Embedder:     DefaultEmbedder(),
+		TTL:          DefaultMemoryTTL,
 	}
 }
 
@@ -227,6 +240,13 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	out.WebCache = mergeWebCache(defaults.WebCache, section.WebCache)
 	out.Embedder = mergeEmbedder(defaults.Embedder, section.Embedder)
 	out.RetrievalBudget = mergeRetrievalBudget(defaults.RetrievalBudget, section.RetrievalBudget)
+	// TTL (014 step 04): a mnemonic.ttl duration overrides the default; a blank
+	// or malformed value keeps the fallback so a bad key never disables expiry.
+	if section.TTL != "" {
+		if d, err := time.ParseDuration(section.TTL); err == nil && d > 0 {
+			out.TTL = d
+		}
+	}
 	return out
 }
 
