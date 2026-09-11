@@ -30,10 +30,12 @@ type EmbedderConfig struct {
 	Dimension int
 	Indexing  EmbedderParams
 	Query     EmbedderParams
-	// External-only.
+	// External / ollama-only.
 	BaseURL string
 	Model   string
 	APIKey  string
+	// Local-only: directory holding <Model>.onnx (default ~/.skillgrid/models/).
+	ModelDir string
 }
 
 // EmbedderParams is one side (corpus or query) of the asymmetric embedder.
@@ -130,6 +132,7 @@ type embedderSection struct {
 	BaseURL   string         `yaml:"base_url"`
 	Model     string         `yaml:"model"`
 	APIKey    string         `yaml:"api_key"`
+	ModelDir  string         `yaml:"model_dir"` // local provider only
 }
 
 type embedderParams struct {
@@ -308,6 +311,9 @@ func mergeEmbedder(defaults EmbedderConfig, section embedderSection) EmbedderCon
 	}
 	if section.APIKey != "" {
 		out.APIKey = section.APIKey
+	}
+	if section.ModelDir != "" {
+		out.ModelDir = section.ModelDir
 	}
 	if section.Indexing.Instructions != "" || section.Indexing.InputType != "" || section.Indexing.MaxTokens > 0 {
 		out.Indexing = EmbedderParams{

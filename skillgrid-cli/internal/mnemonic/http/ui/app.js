@@ -971,6 +971,11 @@ function memUrl(path) {
 }
 
 async function renderMemory(box) {
+  // Ensure a project is selected before any project-scoped fetch. The memory
+  // routes require ?project=, and this entry is deferred to a microtask (TDZ),
+  // so without this the first visit fires ?project= empty → 400 → blank board.
+  // Idempotent: returns immediately once the project list has loaded.
+  await ensureProjects();
   box.innerHTML =
     `<div class="mem-page"><header class="mem-head"><h1>Memory</h1>` +
     `<p class="muted">Search observations, open the detail pane, and run the 013 governance controls (pin, share, status, in-place edit).</p></header>` +
