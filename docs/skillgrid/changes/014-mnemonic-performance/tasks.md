@@ -96,9 +96,9 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 
 ```yaml
 phase: apply         # spec | apply | verify | archive
-current_step: 08-improve-loop
+current_step: 09-session-promotion
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-11T03:00:00+02:00
+updated: 2026-09-11T03:30:00+02:00
 ```
 
 ## Step map
@@ -683,11 +683,11 @@ Self-improvement feedback loop via retrieval usage.
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-08` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-08` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 07
 
@@ -700,38 +700,40 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 08.1 `[RED]` High-usage observations are boosted in mem_search ordering
-  - [ ] 08.1.a Write failing test (`TestImproveBoostsHighUsageObservations`): create 3 observations — one with `retrieval_usage=100`, one with `retrieval_usage=10`, one with `retrieval_usage=0`; call `improve()`; run `mem_search` for a query matching all three; verify the high-usage observation ranks first
-  - [ ] 08.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveBoostsHighUsageObservations'` — Expected: FAIL
-  - [ ] 08.1.c Minimal implementation — add `improve()` method on Service that reads `retrieval_usage` from all observations; compute a boost factor for observations with `retrieval_usage > threshold`; apply the boost in `mem_search` ordering (in-memory re-rank before returning results); make boost/decay rates configurable via `mnemonic.improve` config key; disable by default (opt-in)
-  - [ ] 08.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveBoostsHighUsageObservations'` — Expected: PASS
-  - [ ] 08.1.e Commit — `feat(mnemonic): improve() boosts high-usage observations in search`
-- [ ] 08.2 `[RED]` Never-accessed observations decay in rank over time
-  - [ ] 08.2.a Write failing test (`TestImproveDecaysNeverAccessed`): create 2 observations — one with `retrieval_usage=0` and age > TTL, one with `retrieval_usage=5`; call `improve()`; verify the never-accessed observation ranks below the accessed one; verify decay is proportional to age
-  - [ ] 08.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveDecaysNeverAccessed'` — Expected: FAIL
-  - [ ] 08.2.c Minimal implementation — in `improve()`, compute a decay factor for observations with `retrieval_usage == 0` and age > TTL; reduce their rank score proportionally to age; ensure `improve()` is called before `SearchOwnerScoped` (transparent to callers)
-  - [ ] 08.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveDecaysNeverAccessed'` — Expected: PASS
-  - [ ] 08.2.e Commit — `feat(mnemonic): improve() decays never-accessed observations`
-- [ ] 08.3 `[AFK]` improve() is opt-in and does not regress when disabled
-  - [ ] 08.3.a Write failing test (`TestImproveDisabledNoRegression`): disable `mnemonic.improve` via config; run `mem_search` with mixed retrieval_usage observations; verify results are ordered by the default ranking (no boost/decay applied); verify the search returns the same results as pre-improve() behavior
-  - [ ] 08.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveDisabledNoRegression'` — Expected: FAIL
-  - [ ] 08.3.c Minimal implementation — gate `improve()` behind the `mnemonic.improve` config flag (default `false`); when disabled, skip the boost/decay computation entirely; add a cooldown period to prevent excessive re-weighting on consecutive searches
-  - [ ] 08.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveDisabledNoRegression'` — Expected: PASS
-  - [ ] 08.3.e Commit — `feat(mnemonic): make improve() opt-in with cooldown`
+- [x] 08.1 `[RED]` High-usage observations are boosted in mem_search ordering
+  - [x] 08.1.a Write failing test (`TestImproveBoostsHighUsageObservations`): create 3 observations — one with `retrieval_usage=100`, one with `retrieval_usage=10`, one with `retrieval_usage=0`; call `improve()`; run `mem_search` for a query matching all three; verify the high-usage observation ranks first
+  - [x] 08.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveBoostsHighUsageObservations'` — Expected: FAIL
+  - [x] 08.1.c Minimal implementation — add `improve()` method on Service that reads `retrieval_usage` from all observations; compute a boost factor for observations with `retrieval_usage > threshold`; apply the boost in `mem_search` ordering (in-memory re-rank before returning results); make boost/decay rates configurable via `mnemonic.improve` config key; disable by default (opt-in)
+  - [x] 08.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveBoostsHighUsageObservations'` — Expected: PASS
+  - [x] 08.1.e Commit — `feat(mnemonic): improve() boosts high-usage observations in search`
+- [x] 08.2 `[RED]` Never-accessed observations decay in rank over time
+  - [x] 08.2.a Write failing test (`TestImproveDecaysNeverAccessed`): create 2 observations — one with `retrieval_usage=0` and age > TTL, one with `retrieval_usage=5`; call `improve()`; verify the never-accessed observation ranks below the accessed one; verify decay is proportional to age
+  - [x] 08.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveDecaysNeverAccessed'` — Expected: FAIL
+  - [x] 08.2.c Minimal implementation — in `improve()`, compute a decay factor for observations with `retrieval_usage == 0` and age > TTL; reduce their rank score proportionally to age; ensure `improve()` is called before `SearchOwnerScoped` (transparent to callers)
+  - [x] 08.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveDecaysNeverAccessed'` — Expected: PASS
+  - [x] 08.2.e Commit — `feat(mnemonic): improve() decays never-accessed observations`
+- [x] 08.3 `[AFK]` improve() is opt-in and does not regress when disabled
+  - [x] 08.3.a Write failing test (`TestImproveDisabledNoRegression`): disable `mnemonic.improve` via config; run `mem_search` with mixed retrieval_usage observations; verify results are ordered by the default ranking (no boost/decay applied); verify the search returns the same results as pre-improve() behavior
+  - [x] 08.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveDisabledNoRegression'` — Expected: FAIL
+  - [x] 08.3.c Minimal implementation — gate `improve()` behind the `mnemonic.improve` config flag (default `false`); when disabled, skip the boost/decay computation entirely; add a cooldown period to prevent excessive re-weighting on consecutive searches
+  - [x] 08.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveDisabledNoRegression'` — Expected: PASS
+  - [x] 08.3.e Commit — `feat(mnemonic): make improve() opt-in with cooldown`
 
 ### Verification
 
-Verdict: `PENDING`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
+Verdict: `PASS WITH WARNINGS`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveBoostsHighUsageObservations\|TestImproveDecaysNeverAccessed'` | PASS | | |
-| Acceptance `@step-08` / `@p0` | BDD / mapped unit scenarios | PASS | | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/memory/` | PASS | | |
-| Rollback boundary | verify improve() disabled by default | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImproveBoostsHighUsageObservations\|TestImproveDecaysNeverAccessed\|TestImproveDisabledNoRegression'` | PASS | PASS | 3 step-08 tests GREEN |
+| Acceptance `@step-08` / `@p0` | BDD / mapped unit scenarios | PASS | PASS | mapped unit scenarios |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/memory/ -count=1` | PASS | PASS | full memory suite |
+| Rollback boundary | verify improve() disabled by default | PASS | PASS | byte-identical when disabled (gate improve.go:134 returns input unchanged) |
+| Global Constraints | — | held | held | opt-in via mnemonic.improve; in-memory re-rank (SQL ORDER BY untouched); no tool contract change |
+
+Commits: `536c08f` (boost), `bc0a9fc` (decay), `69ced40` (opt-in + cooldown). Review: PASS WITH WARNINGS. Warnings: (M1) `SetImprove` wired in retrieval.go:239-252 but the fact-mode leg (`rrfFallbackOwnerScopedFTS`→`BlendedSearch`, retrieve.go:233) never routes through `improve()` — dead hook; comment claims "consistent across every search surface" but it isn't (fix before archive); (m2) scoped diff omits the two wiring files (service/service.go, service/retrieval.go); (m3) improve.go has comment-only working-tree drift. Verified: boost monotonic + capped + threshold-gated; decay only usage==0 && age>TTL, proportional to age-TTL; cooldown per-service, first search not blocked; config struct with sane defaults + malformed→default; sort.SliceStable tie-break preserves SQL rank.
 
 ### Commit
 
