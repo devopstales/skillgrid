@@ -43,6 +43,8 @@ func runMem(version string, args []string) {
 		window   string
 		visibility string
 		grants   string
+		exportFile string
+		skipEmb  bool
 	)
 	fs.StringVar(&dataDir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
 	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
@@ -56,6 +58,8 @@ func runMem(version string, args []string) {
 	fs.StringVar(&window, "window", "", "timeline: time window each side (e.g. 1h)")
 	fs.StringVar(&visibility, "target-visibility", "", "share: team|restricted|agent")
 	fs.StringVar(&grants, "grants", "", "share: comma-separated grantee list")
+	fs.StringVar(&exportFile, "file", "", "export: write the bundle to this file (default: stdout)")
+	fs.BoolVar(&skipEmb, "skip-embeddings", false, "export: omit embedding data for a smaller payload")
 	var searchMode string
 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
 	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
@@ -82,6 +86,8 @@ func runMem(version string, args []string) {
 		runMemGraph(svc, projID, limit)
 	case "expire":
 		runMemExpire(svc, dataDir)
+	case "export":
+		runMemExport(svc, projID, exportFile, skipEmb)
 	case "help", "-h", "--help":
 		printMemUsage()
 	default:
@@ -92,7 +98,7 @@ func runMem(version string, args []string) {
 }
 
 func printMemUsage() {
-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|expire> [args]
+	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|expire|export> [args]
 
   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
   governance <id>                 governed-asset view (mem_governance)
@@ -109,6 +115,9 @@ func printMemUsage() {
                                     (valid_from, valid_to, active/expired/pending)
   expire                          retire expired observations across all projects
                                    (TTL sweep; best-effort, exit 0 on missing stores)
+  export [--file out.json] [--skip-embeddings]
+                                   portable COGX JSON export of observations +
+                                   graph edges + embeddings (stdout by default)
 
 Flags:
   --project ID    project bucket (defaults to CWD-resolved)
@@ -407,6 +416,55 @@ func runMemExpire(svc *service.Service, dataDir string) {
 	}
 	out["total"] = total
 	printJSON(out)
+}
+
+// runMemExport is the CLI for the portable COGX export (014 step 11,
+// `mem export`): it streams the project bundle (observations + graph edges +
+// symbol embeddings) as JSON to stdout, or to --file when set.
+// --skip-embeddings drops the embedding vectors for a smaller payload.
+// The bundle is written through a json.Encoder on the target writer, so the
+// output is streamed incrementally rather than marshaled into one large
+// []byte (the encoding step is the streaming boundary; the bundle itself is
+// still assembled row-by-row, one record per store row).
+func runMemExport(svc *service.Service, projID, file string, skipEmbeddings bool) {
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+
+	var w *os.File
+	if file != "" {
+		w, err = os.Create(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: create %s: %v\n", file, err)
+			os.Exit(1)
+		}
+		defer w.Close()
+	} else {
+		w = os.Stdout
+	}
+
+	bundle, err := h.Memory().ExportProject(hCtx())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	if skipEmbeddings {
+		bundle.Embeddings = bundle.Embeddings[:0]
+		for i := range bundle.Observations {
+			bundle.Observations[i].Embeddings = nil
+		}
+	}
+	if err := memory.WriteBundle(hCtx(), bundle, w); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	if file != "" {
+		fmt.Fprintf(os.Stderr, "exported %d observations, %d edges, %d embeddings to %s\n",
+			len(bundle.Observations), len(bundle.GraphEdges), len(bundle.Embeddings), file)
+	}
 }
 
 // runMemGraph is the CLI for the temporal graph view (014 step 10, `mem graph`):

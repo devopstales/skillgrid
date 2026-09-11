@@ -19,39 +19,44 @@ import (
 // to include. It returns the symbol IDs in insertion order.
 func seedGraphForExport(t *testing.T, db *sql.DB) []int64 {
 	t.Helper()
-	var fileID int64
-	if err := db.QueryRow(`
-		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
-		VALUES ('/tmp/export.go', 1, 100, 'h-export', '2026-01-01T00:00:00Z')
-		RETURNING id`).Scan(&fileID); err != nil {
+	// Explicit ids (100/200/300) so the seed is deterministic regardless of
+	// the store's existing rowids — the observations table in this store
+	// already owns rowids 1..N, so a plain INSERT would make the symbol ids
+	// depend on prior test state.
+	fileID, symA, symB, symC := int64(500), int64(100), int64(200), int64(300)
+	if _, err := db.Exec(`
+		INSERT INTO files (id, path, mtime_ns, size, content_hash, indexed_at)
+		VALUES (?, '/tmp/export.go', 1, 100, 'h-export', '2026-01-01T00:00:00Z')`, fileID); err != nil {
 		t.Fatalf("insert file: %v", err)
 	}
-	var ids []int64
-	for i, name := range []string{"expAlpha", "expBeta", "expGamma"} {
-		var id int64
-		if err := db.QueryRow(`
-			INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
-			VALUES (?, ?, ?, 'function', 'go', 'func '+?+'()', ?, ?, 'ch-exp-'+?+'-'+? , ?)
-			RETURNING id`,
-			fileID, name, name, name, i*10+1, i*10+9, "ch-exp-"+name, "uid-exp-"+name, name).Scan(&id); err != nil {
-			t.Fatalf("insert symbol %s: %v", name, err)
+	syms := []struct {
+		id   int64
+		name string
+	}{
+		{symA, "expAlpha"}, {symB, "expBeta"}, {symC, "expGamma"},
+	}
+	for i, s := range syms {
+		if _, err := db.Exec(`
+			INSERT INTO symbols (id, file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
+			VALUES (?, ?, ?, ?, 'function', 'go', 'func '+?+'()', ?, ?, 'ch-exp-'+?+'-'+? , ?)`,
+			s.id, fileID, s.name, s.name, s.name, i*10+1, i*10+9, "ch-exp-"+s.name, "uid-exp-"+s.name, s.name); err != nil {
+			t.Fatalf("insert symbol %s: %v", s.name, err)
 		}
-		ids = append(ids, id)
 	}
 	now := time.Now().Unix()
 	if _, err := db.Exec(`
 		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from, valid_to)
 		VALUES ('calls', ?, ?, ?, 'expBeta', '/tmp/export.go', 'EXTRACTED', 1, ?, NULL),
 		       ('references', ?, ?, NULL, 'someLib', NULL, 'EXTRACTED', 2, ?, ?)`,
-		ids[0], fileID, ids[1], now-1000,
-		ids[1], fileID, now-500, now-10); err != nil {
+		symA, fileID, symB, now-1000,
+		symB, fileID, now-500, now-10); err != nil {
 		t.Fatalf("insert edges: %v", err)
 	}
 	vectors := [][]byte{
-		float32VectorBytes(4, 0.1, 0.2, 0.3, 0.4),
-		float32VectorBytes(8, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2),
+		float32VectorBytes(0.1, 0.2, 0.3, 0.4),
+		float32VectorBytes(0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2),
 	}
-	for i, symID := range []int64{ids[0], ids[2]} {
+	for i, symID := range []int64{symA, symC} {
 		if _, err := db.Exec(`
 			INSERT INTO embeddings (symbol_id, model, dim, vector, updated_at)
 			VALUES (?, 'export-model-v1', ?, ?, '2026-01-02T00:00:00Z')`,
@@ -59,7 +64,7 @@ func seedGraphForExport(t *testing.T, db *sql.DB) []int64 {
 			t.Fatalf("insert embedding %d: %v", symID, err)
 		}
 	}
-	return ids
+	return []int64{symA, symB, symC}
 }
 
 // openExportTestStore opens a store over a temp data dir and returns a
@@ -187,8 +192,13 @@ func TestExportProjectStructure(t *testing.T) {
 	if !strings.Contains(linked.Content, "indexed symbol") {
 		t.Errorf("linked observation content = %q", linked.Content)
 	}
+	if linked.GraphRef == nil {
+		t.Fatalf("linked observation has no graph_ref, want symbol %d", symIDs[0])
+	}
 	if linked.Embeddings == nil {
-		t.Errorf("linked observation has nil embeddings (should reference the symbol bridge)")
+		t.Errorf("linked observation has nil embeddings (graph_ref=%d; should reference the symbol bridge)", *linked.GraphRef)
+	} else if linked.Embeddings["vector"] == "" {
+		t.Errorf("linked observation embedding vector is empty (graph_ref=%d)", *linked.GraphRef)
 	} else {
 		raw, err := base64.StdEncoding.DecodeString(linked.Embeddings["vector"])
 		if err != nil {

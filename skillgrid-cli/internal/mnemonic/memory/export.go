@@ -83,8 +83,11 @@ func (s *Service) ExportProject(ctx context.Context) (*ExportBundle, error) {
 		ExportedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 
-	// Observations: every live row for this project, plus the base64 embedding
-	// for its graph_ref symbol (the triple-store cross-link, step 07).
+	// Observations: every live row for this project. The embedding for each
+	// graph_ref symbol is fetched in a SEPARATE pass (below) — the store's
+	// pool is single-connection (SetMaxOpenConns(1)), so a nested per-row
+	// query while the outer rows are still open would deadlock (the same
+	// re-entrancy class graph.temporal_test documents).
 	rows, err := db.QueryContext(ctx, `
 		SELECT o.id, o.type, o.content, o.title, o.session_id, o.project, o.scope,
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id,
@@ -97,7 +100,7 @@ func (s *Service) ExportProject(ctx context.Context) (*ExportBundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("export observations: %w", err)
 	}
-	defer rows.Close()
+	obsByRef := make(map[int64]int)
 	for rows.Next() {
 		var (
 			rec           ExportRecord
@@ -121,6 +124,7 @@ func (s *Service) ExportProject(ctx context.Context) (*ExportBundle, error) {
 			&createdAt, &updatedAt, &pinned, &dups, &lastSeen, &expires, &toolName,
 			&owner, &visibility, &status, &usage, &graphRef,
 		); err != nil {
+			rows.Close()
 			return nil, fmt.Errorf("scan export observation: %w", err)
 		}
 		rec.Metadata = map[string]string{
@@ -143,23 +147,51 @@ func (s *Service) ExportProject(ctx context.Context) (*ExportBundle, error) {
 			"last_seen_at":    nullStringOrEmpty(lastSeen),
 			"expires_at":      nullStringOrEmpty(expires),
 		}
+		bundle.Observations = append(bundle.Observations, rec)
 		if graphRef.Valid {
-			rec.GraphRef = &graphRef.Int64
-			// The observation's embedding is the bridge table row for its
-			// graph_ref symbol (step 07). Best-effort: a missing bridge row
-			// simply leaves the embeddings map empty.
-			var blob []byte
-			if err := db.QueryRowContext(ctx,
-				`SELECT vector FROM embeddings WHERE symbol_id = ?`, graphRef.Int64).Scan(&blob); err == nil && len(blob) > 0 {
-				rec.Embeddings = map[string]string{
-					"vector": base64.StdEncoding.EncodeToString(blob),
+			bundle.Observations[len(bundle.Observations)-1].GraphRef = &graphRef.Int64
+			obsByRef[graphRef.Int64] = len(bundle.Observations) - 1
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("iterate export observations: %w", err)
+	}
+	rows.Close()
+
+	// Embeddings: every symbol bridge row, vector base64-encoded. Fetched in a
+	// separate pass so the single-connection pool is never re-entered, and used
+	// to both populate bundle.Embeddings and attach the per-observation
+	// embedding for each graph_ref (step 07 cross-link).
+	if len(obsByRef) > 0 {
+		embRows, err := db.QueryContext(ctx, `
+			SELECT symbol_id, model, dim, vector, updated_at
+			FROM embeddings ORDER BY symbol_id`)
+		if err != nil {
+			return nil, fmt.Errorf("export embeddings: %w", err)
+		}
+		defer embRows.Close()
+		for embRows.Next() {
+			var (
+				rec  EmbeddingRecord
+				blob []byte
+			)
+			if err := embRows.Scan(&rec.SymbolID, &rec.Model, &rec.Dim, &blob, &rec.UpdatedAt); err != nil {
+				return nil, fmt.Errorf("scan export embedding: %w", err)
+			}
+			rec.Vector = base64.StdEncoding.EncodeToString(blob)
+			bundle.Embeddings = append(bundle.Embeddings, rec)
+			// Attach to the observation bound to this symbol (best-effort; an
+			// observation with no graph_ref gets no per-record embedding).
+			if idx, ok := obsByRef[rec.SymbolID]; ok {
+				bundle.Observations[idx].Embeddings = map[string]string{
+					"vector": rec.Vector,
 				}
 			}
 		}
-		bundle.Observations = append(bundle.Observations, rec)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate export observations: %w", err)
+		if err := embRows.Err(); err != nil {
+			return nil, fmt.Errorf("iterate export embeddings: %w", err)
+		}
 	}
 
 	// Graph edges: the full history set (temporal window included, step 10).
@@ -214,29 +246,6 @@ func (s *Service) ExportProject(ctx context.Context) (*ExportBundle, error) {
 	if err := edgeRows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate export edges: %w", err)
 	}
-
-	// Embeddings: every symbol bridge row, vector base64-encoded.
-	embRows, err := db.QueryContext(ctx, `
-		SELECT symbol_id, model, dim, vector, updated_at
-		FROM embeddings ORDER BY symbol_id`)
-	if err != nil {
-		return nil, fmt.Errorf("export embeddings: %w", err)
-	}
-	defer embRows.Close()
-	for embRows.Next() {
-		var (
-			rec  EmbeddingRecord
-			blob []byte
-		)
-		if err := embRows.Scan(&rec.SymbolID, &rec.Model, &rec.Dim, &blob, &rec.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan export embedding: %w", err)
-		}
-		rec.Vector = base64.StdEncoding.EncodeToString(blob)
-		bundle.Embeddings = append(bundle.Embeddings, rec)
-	}
-	if err := embRows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate export embeddings: %w", err)
-	}
 	return bundle, nil
 }
 
@@ -251,6 +260,14 @@ func (s *Service) WriteExport(ctx context.Context, w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	return WriteBundle(ctx, bundle, w)
+}
+
+// WriteBundle encodes a bundle to w through a streaming json.Encoder. The
+// encoder writes incrementally (flushing per-Encode) instead of marshaling
+// the whole structure into one []byte first — the streaming boundary for
+// large stores. ctx is accepted for API symmetry with the read paths.
+func WriteBundle(_ context.Context, bundle *ExportBundle, w io.Writer) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(bundle)
