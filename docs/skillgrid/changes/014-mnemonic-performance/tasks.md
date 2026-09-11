@@ -96,9 +96,9 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 
 ```yaml
 phase: apply         # spec | apply | verify | archive
-current_step: 10-temporal-graph
+current_step: 11-portable-export
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-11T04:00:00+02:00
+updated: 2026-09-11T04:30:00+02:00
 ```
 
 ## Step map
@@ -827,11 +827,11 @@ Temporal knowledge graph edges with valid_from/to.
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-10` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-10` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 07
 
@@ -845,38 +845,40 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 10.1 `[RED]` Edges have valid_from set to current time when relationship is observed
-  - [ ] 10.1.a Write failing test (`TestEdgeValidFromSetOnCreate`): create a symbol relationship (edge); verify the edge has `valid_from` set to approximately the current UNIX timestamp; verify `valid_to` is NULL (active); verify the edge is visible in normal queries
-  - [ ] 10.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/codeindex/ -run 'TestEdgeValidFromSetOnCreate'` — Expected: FAIL
-  - [ ] 10.1.c Minimal implementation — add `valid_from` (INTEGER, UNIX timestamp) and `valid_to` (INTEGER, nullable, NULL = active) columns to the `edges` table via migration; set `valid_from` to `time.Now().Unix()` when a new edge is created; default `valid_to` to NULL
-  - [ ] 10.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/codeindex/ -run 'TestEdgeValidFromSetOnCreate'` — Expected: PASS
-  - [ ] 10.1.e Commit — `feat(mnemonic): add valid_from/valid_to to graph edges`
-- [ ] 10.2 `[RED]` Expired edges are hidden from queries but preserved for history
-  - [ ] 10.2.a Write failing test (`TestExpiredEdgesHiddenFromQueries`): create an edge with `valid_to` in the past (expired); create another edge with `valid_to` as NULL (active); run a normal edge query; verify only the active edge is returned; run a history query; verify both edges are returned
-  - [ ] 10.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/codeindex/ -run 'TestExpiredEdgesHiddenFromQueries'` — Expected: FAIL
-  - [ ] 10.2.c Minimal implementation — add a query filter: `WHERE valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)` with `? = time.Now().Unix()`; add a separate `QueryEdgesWithHistory` method that returns all edges including expired; verify the logic handles `valid_from <= now` correctly
-  - [ ] 10.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/codeindex/ -run 'TestExpiredEdgesHiddenFromQueries'` — Expected: PASS
-  - [ ] 10.2.e Commit — `feat(mnemonic): hide expired edges from queries, preserve for history`
-- [ ] 10.3 `[AFK]` mem graph CLI shows temporal status of edges
-  - [ ] 10.3.a Write failing test (`TestMemGraphTemporalStatus`): create edges with various temporal states (active, expired, future valid_from); invoke `mem graph` CLI; verify the output shows temporal status (active/expired) for each edge; verify the CLI includes `valid_from` and `valid_to` in the output
-  - [ ] 10.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/cmd/skillgrid/ -run 'TestMemGraphTemporalStatus'` — Expected: FAIL
-  - [ ] 10.3.c Minimal implementation — extend the `mem graph` CLI subcommand to include temporal status in the output; display `valid_from`, `valid_to`, and a computed status (`active` / `expired` / `pending`) for each edge
-  - [ ] 10.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/cmd/skillgrid/ -run 'TestMemGraphTemporalStatus'` — Expected: PASS
-  - [ ] 10.3.e Commit — `feat(mnemonic): show temporal status in mem graph CLI`
+- [x] 10.1 `[RED]` Edges have valid_from set to current time when relationship is observed
+  - [x] 10.1.a Write failing test (`TestEdgeValidFromSetOnCreate`): create a symbol relationship (edge); verify the edge has `valid_from` set to approximately the current UNIX timestamp; verify `valid_to` is NULL (active); verify the edge is visible in normal queries
+  - [x] 10.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/codeindex/ -run 'TestEdgeValidFromSetOnCreate'` — Expected: FAIL
+  - [x] 10.1.c Minimal implementation — add `valid_from` (INTEGER, UNIX timestamp) and `valid_to` (INTEGER, nullable, NULL = active) columns to the `edges` table via migration; set `valid_from` to `time.Now().Unix()` when a new edge is created; default `valid_to` to NULL
+  - [x] 10.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/codeindex/ -run 'TestEdgeValidFromSetOnCreate'` — Expected: PASS
+  - [x] 10.1.e Commit — `feat(mnemonic): add valid_from/valid_to to graph edges`
+- [x] 10.2 `[RED]` Expired edges are hidden from queries but preserved for history
+  - [x] 10.2.a Write failing test (`TestExpiredEdgesHiddenFromQueries`): create an edge with `valid_to` in the past (expired); create another edge with `valid_to` as NULL (active); run a normal edge query; verify only the active edge is returned; run a history query; verify both edges are returned
+  - [x] 10.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/codeindex/ -run 'TestExpiredEdgesHiddenFromQueries'` — Expected: FAIL
+  - [x] 10.2.c Minimal implementation — add a query filter: `WHERE valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)` with `? = time.Now().Unix()`; add a separate `QueryEdgesWithHistory` method that returns all edges including expired; verify the logic handles `valid_from <= now` correctly
+  - [x] 10.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/codeindex/ -run 'TestExpiredEdgesHiddenFromQueries'` — Expected: PASS
+  - [x] 10.2.e Commit — `feat(mnemonic): hide expired edges from queries, preserve for history`
+- [x] 10.3 `[AFK]` mem graph CLI shows temporal status of edges
+  - [x] 10.3.a Write failing test (`TestMemGraphTemporalStatus`): create edges with various temporal states (active, expired, future valid_from); invoke `mem graph` CLI; verify the output shows temporal status (active/expired) for each edge; verify the CLI includes `valid_from` and `valid_to` in the output
+  - [x] 10.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/cmd/skillgrid/ -run 'TestMemGraphTemporalStatus'` — Expected: FAIL
+  - [x] 10.3.c Minimal implementation — extend the `mem graph` CLI subcommand to include temporal status in the output; display `valid_from`, `valid_to`, and a computed status (`active` / `expired` / `pending`) for each edge
+  - [x] 10.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/cmd/skillgrid/ -run 'TestMemGraphTemporalStatus'` — Expected: PASS
+  - [x] 10.3.e Commit — `feat(mnemonic): show temporal status in mem graph CLI`
 
 ### Verification
 
-Verdict: `PENDING`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
+Verdict: `PASS`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/codeindex/ -run 'TestEdgeValidFromSetOnCreate\|TestExpiredEdgesHiddenFromQueries'` | PASS | | |
-| Acceptance `@step-10` / `@p0` | BDD / mapped unit scenarios | PASS | | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/codeindex/` | PASS | | |
-| Rollback boundary | verify existing edges work with valid_to=NULL default | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/codeindex/ -run 'TestEdgeValidFromSetOnCreate\|TestExpiredEdgesHiddenFromQueries\|TestBackfilledEdgesRemainActive'` + `go test ./skillgrid-cli/internal/mnemonic/graph/ -run 'TestFetchEdgesHidesExpiredEdges\|TestBackfilledEdgesVisibleInTraversal\|TestPromotedSessionEdgesCarryValidFrom'` | PASS | PASS | 6 step-10 tests GREEN (-race) |
+| Acceptance `@step-10` / `@p0` | BDD / mapped unit scenarios | PASS | PASS | mapped unit scenarios |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/codeindex/... ./skillgrid-cli/internal/mnemonic/graph/ -count=1 -race` | PASS | PASS | codeindex 117s, graph 11.7s, -race clean |
+| Rollback boundary | verify existing edges work with valid_to=NULL default | PASS | PASS | backfill valid_from=0 (always active, 0<=now); valid_to NULL (active) |
+| Global Constraints | — | held | held | purely additive (023 migration); fetchEdges filter wired (fix round); no tool contract change; no CGO |
+
+Commits: `91c973f` (temporal edges + QueryEdges/WithHistory), `fe33d39` (mem graph CLI), `4b7cf3f` (fix round: fetchEdges filter + valid_from on pdg/knowledge/session_promotion INSERTs + count-before-limit). Review: NEEDS FIXES → PASS (F1/F2/F3 resolved). F1: fetchEdges (graph/graph.go:145, the live traversal behind code_get_callers/code_explain/code_path) now has the temporal filter; TestFetchEdgesHidesExpiredEdges is real RED. F2: valid_from=time.Now().Unix() on pdg/lsp.go, knowledge/store.go (4 sites), session_promotion.go. F3: count computed before --limit. NIT (non-blocking): TestPromotedSessionEdgesCarryValidFrom inserts via old shape (guards default-0, doesn't exercise the fixed production INSERT).
 
 ### Commit
 
