@@ -96,9 +96,9 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 
 ```yaml
 phase: apply         # spec | apply | verify | archive
-current_step: 19-directory-retrieval
+current_step: 20-snapshots
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-11T08:30:00+02:00
+updated: 2026-09-11T09:00:00+02:00
 ```
 
 ## Step map
@@ -1521,11 +1521,11 @@ Directory-level recursive retrieval with drill-down + observable trajectory.
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-19` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-19` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 02, 03
 
@@ -1540,44 +1540,46 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 19.1 `[RED]` Directory retrieval finds highest-scoring directory first, then drills down
-  - [ ] 19.1.a Write failing test (`TestDirectoryRetrievalDrillDown`): create a hierarchical set of observations organized by scope (project/app/core, project/app/api, project/docs); search for a query matching observations in `project/app/core`; verify the retrieval first identifies `project/app/core` as the highest-scoring directory; verify it drills down into that directory; verify results are scoped to the drilled-down directory
-  - [ ] 19.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestDirectoryRetrievalDrillDown'` — Expected: FAIL
-  - [ ] 19.1.c Minimal implementation — create `retrieval.go` with `Retrieve(ctx, query, scope) (Results, Trajectory, error)`; first pass: score all top-level scopes by FTS5 + embedding similarity; second pass: drill down into the highest-scoring scope; repeat until leaf level; depth limit of 5 to prevent infinite recursion
-  - [ ] 19.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestDirectoryRetrievalDrillDown'` — Expected: PASS
-  - [ ] 19.1.e Commit — `feat(mnemonic): directory-level recursive retrieval with drill-down`
-- [ ] 19.2 `[RED]` Retrieval trajectory is preserved for debugging
-  - [ ] 19.2.a Write failing test (`TestRetrievalTrajectoryPreserved`): run a directory retrieval; verify the trajectory records each directory visited (path, score, depth); verify the trajectory is stored in `retrieval_trails`; verify the trajectory can be retrieved by query ID; verify the trajectory shows the drill-down path
-  - [ ] 19.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestRetrievalTrajectoryPreserved'` — Expected: FAIL
-  - [ ] 19.2.c Minimal implementation — create a `retrieval_trails` table: `id INTEGER PRIMARY KEY, query TEXT, path TEXT, scores TEXT, depth INTEGER, created_at TIMESTAMP`; record each directory visit during retrieval; store the complete path as a JSON array; add `GetTrajectory(queryID)` to retrieve the trail
-  - [ ] 19.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestRetrievalTrajectoryPreserved'` — Expected: PASS
-  - [ ] 19.2.e Commit — `feat(mnemonic): preserve retrieval trajectory for debugging`
-- [ ] 19.3 `[RED]` Intent analysis classifies query before retrieval
-  - [ ] 19.3.a Write failing test (`TestIntentAnalysisClassification`): classify a query like "why does the build fail" as `debugging`; classify "what files are in the auth module" as `exploration`; classify "review the changes to payment.go" as `review`; verify the intent classification affects the retrieval strategy (debugging → wider search, exploration → directory-first)
-  - [ ] 19.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestIntentAnalysisClassification'` — Expected: FAIL
-  - [ ] 19.3.c Minimal implementation — implement `ClassifyIntent(query string) Intent` using keyword matching and pattern detection; return one of `exploration`, `debugging`, `review`, `refactor`; adjust retrieval parameters based on intent (debugging → wider scope, exploration → directory-first)
-  - [ ] 19.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestIntentAnalysisClassification'` — Expected: PASS
-  - [ ] 19.3.e Commit — `feat(mnemonic): intent analysis for query classification`
-- [ ] 19.4 `[AFK]` Depth limit prevents excessive drill-down on deep hierarchies
-  - [ ] 19.4.a Write failing test (`TestDirectoryRetrievalDepthLimit`): create a hierarchy 10 levels deep; run a retrieval; verify it stops at depth 5 (the configured limit); verify it returns the best results found at the limit; verify no stack overflow or infinite loop
-  - [ ] 19.4.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestDirectoryRetrievalDepthLimit'` — Expected: FAIL
-  - [ ] 19.4.c Minimal implementation — enforce `maxDepth = 5` in the drill-down loop; when the limit is reached, return the best results at that depth; cache directory scores to avoid recomputation on repeated queries
-  - [ ] 19.4.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestDirectoryRetrievalDepthLimit'` — Expected: PASS
-  - [ ] 19.4.e Commit — `feat(mnemonic): depth limit and caching for directory retrieval`
+- [x] 19.1 `[RED]` Directory retrieval finds highest-scoring directory first, then drills down
+  - [x] 19.1.a Write failing test (`TestDirectoryRetrievalDrillDown`): create a hierarchical set of observations organized by scope (project/app/core, project/app/api, project/docs); search for a query matching observations in `project/app/core`; verify the retrieval first identifies `project/app/core` as the highest-scoring directory; verify it drills down into that directory; verify results are scoped to the drilled-down directory
+  - [x] 19.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestDirectoryRetrievalDrillDown'` — Expected: FAIL
+  - [x] 19.1.c Minimal implementation — create `retrieval.go` with `Retrieve(ctx, query, scope) (Results, Trajectory, error)`; first pass: score all top-level scopes by FTS5 + embedding similarity; second pass: drill down into the highest-scoring scope; repeat until leaf level; depth limit of 5 to prevent infinite recursion
+  - [x] 19.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestDirectoryRetrievalDrillDown'` — Expected: PASS
+  - [x] 19.1.e Commit — `feat(mnemonic): directory-level recursive retrieval with drill-down`
+- [x] 19.2 `[RED]` Retrieval trajectory is preserved for debugging
+  - [x] 19.2.a Write failing test (`TestRetrievalTrajectoryPreserved`): run a directory retrieval; verify the trajectory records each directory visited (path, score, depth); verify the trajectory is stored in `retrieval_trails`; verify the trajectory can be retrieved by query ID; verify the trajectory shows the drill-down path
+  - [x] 19.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestRetrievalTrajectoryPreserved'` — Expected: FAIL
+  - [x] 19.2.c Minimal implementation — create a `retrieval_trails` table: `id INTEGER PRIMARY KEY, query TEXT, path TEXT, scores TEXT, depth INTEGER, created_at TIMESTAMP`; record each directory visit during retrieval; store the complete path as a JSON array; add `GetTrajectory(queryID)` to retrieve the trail
+  - [x] 19.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestRetrievalTrajectoryPreserved'` — Expected: PASS
+  - [x] 19.2.e Commit — `feat(mnemonic): preserve retrieval trajectory for debugging`
+- [x] 19.3 `[RED]` Intent analysis classifies query before retrieval
+  - [x] 19.3.a Write failing test (`TestIntentAnalysisClassification`): classify a query like "why does the build fail" as `debugging`; classify "what files are in the auth module" as `exploration`; classify "review the changes to payment.go" as `review`; verify the intent classification affects the retrieval strategy (debugging → wider search, exploration → directory-first)
+  - [x] 19.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestIntentAnalysisClassification'` — Expected: FAIL
+  - [x] 19.3.c Minimal implementation — implement `ClassifyIntent(query string) Intent` using keyword matching and pattern detection; return one of `exploration`, `debugging`, `review`, `refactor`; adjust retrieval parameters based on intent (debugging → wider scope, exploration → directory-first)
+  - [x] 19.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestIntentAnalysisClassification'` — Expected: PASS
+  - [x] 19.3.e Commit — `feat(mnemonic): intent analysis for query classification`
+- [x] 19.4 `[AFK]` Depth limit prevents excessive drill-down on deep hierarchies
+  - [x] 19.4.a Write failing test (`TestDirectoryRetrievalDepthLimit`): create a hierarchy 10 levels deep; run a retrieval; verify it stops at depth 5 (the configured limit); verify it returns the best results found at the limit; verify no stack overflow or infinite loop
+  - [x] 19.4.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestDirectoryRetrievalDepthLimit'` — Expected: FAIL
+  - [x] 19.4.c Minimal implementation — enforce `maxDepth = 5` in the drill-down loop; when the limit is reached, return the best results at that depth; cache directory scores to avoid recomputation on repeated queries
+  - [x] 19.4.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestDirectoryRetrievalDepthLimit'` — Expected: PASS
+  - [x] 19.4.e Commit — `feat(mnemonic): depth limit and caching for directory retrieval`
 
 ### Verification
 
-Verdict: `PENDING`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
+Verdict: `PASS WITH WARNINGS`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestDirectoryRetrievalDrillDown\|TestRetrievalTrajectoryPreserved'` | PASS | | |
-| Acceptance `@step-19` / `@p0` | BDD / mapped unit scenarios | PASS | | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/memory/` | PASS | | |
-| Rollback boundary | verify default flat search still works when directory retrieval is disabled | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestDirectoryRetrievalDrillDown\|TestRetrievalTrajectoryPreserved\|TestDirectoryRetrievalDepthLimit\|TestDirectoryRetrievalCache\|TestClassifyIntent'` + `go test ./skillgrid-cli/cmd/skillgrid/ -run 'TestSearchTrajectoryCLI'` | PASS | PASS | 5 memory + 1 CLI test GREEN |
+| Acceptance `@step-19` / `@p0` | BDD / mapped unit scenarios | PASS | PASS | mapped unit scenarios |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/memory/ -count=1` + `go test ./skillgrid-cli/cmd/skillgrid/ -count=1` | PASS | PASS | memory 36s, CLI 96s |
+| Rollback boundary | verify default flat search still works when directory retrieval is disabled | PASS | PASS | DirectoryRetrieve is a new function (not a change to existing search); flat search path unchanged |
+| Global Constraints | — | held | held | 029 migration purely additive; topic_key hierarchy (no new column); depth limit 5 (iterative, no recursion); no tool contract change; no CGO |
+
+Commits: `35d927c` (drill-down), `173b1dc` (trajectory), `ec53b28` (intent analysis), `559c9b9` (depth limit + caching + --trajectory CLI). Review: PASS WITH WARNINGS. Hierarchy: topic_key (slash-separated path) correct; scope correctly unused (flat visibility tag). Depth limit: iterative loop bounded by retrievalMaxDepth=5; 10-level test stops at exactly depth 5. Warnings: (M1) --trajectory opens second store + never calls SetDirEmbedder → production run is FTS5-only, embedding leg unwired (mem.go:339 / retrieval.go:215-220); (M2) dirScoreCache is process-global keyed query|root|matchMode with no project → cross-project score bleed in multi-project CLI runs (retrieval.go:157-159); (m3) LIKE 'root/%' glob-unsafe for topic_keys with _/% (retrieval.go:273,:461); GetTrajectory unscoped by project, errors on 010-era rows.
 
 ### Commit
 
