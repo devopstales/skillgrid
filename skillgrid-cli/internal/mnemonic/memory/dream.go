@@ -133,6 +133,12 @@ type DreamExecutor struct {
 	// now is the clock seam (default time.Now) used for recency/importance and
 	// the lock TTL; tests pin it to make age deterministic.
 	now func() time.Time
+	// failOnLLMError, when true, turns an LLM seam error in the
+	// consolidate/synthesize phases into a hard error instead of the
+	// deterministic fallback (014 step 12.5). The default (false) keeps the
+	// no-LLM/LLM-error floor lossless; a distillation that must not silently
+	// fall back (so a mid-dream failure is surfaced for rollback) sets this.
+	failOnLLMError bool
 }
 
 // NewDreamExecutor builds a DreamExecutor bound to the service's store and
@@ -298,13 +304,17 @@ func (de *DreamExecutor) synthesize(ctx context.Context, memories []Memory) (Sum
 
 // synthesizeBody produces the higher-tier summary body. With an LLM it asks the
 // seam; without one (or on error) it is the deterministic lossless join of the
-// lower-tier summaries.
+// lower-tier summaries. In failOnLLMError mode a seam error is returned as a
+// hard error (no fallback) so a mid-dream failure is surfaced for rollback.
 func (de *DreamExecutor) synthesizeBody(ctx context.Context, contents []string) (string, error) {
 	if de.llm != nil {
-		if merged, err := de.llm.SynthesizePrompt(ctx, contents); err == nil {
-			if m := strings.TrimSpace(merged); m != "" {
-				return m + "\n", nil
+		merged, err := de.llm.SynthesizePrompt(ctx, contents)
+		if err != nil {
+			if de.failOnLLMError {
+				return "", fmt.Errorf("synthesize LLM: %w", err)
 			}
+		} else if m := strings.TrimSpace(merged); m != "" {
+			return m + "\n", nil
 		}
 	}
 	return dreamJoin("Lower-tier summaries", contents), nil
