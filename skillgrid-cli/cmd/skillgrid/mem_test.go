@@ -218,3 +218,130 @@ func TestMemCLIBadArgs(t *testing.T) {
 		t.Fatalf("mem share with bad visibility should fail, got: %s", out)
 	}
 }
+
+// TestMemGraphRiskCLI is 23.4 [AFK]: `mem graph --risk` lists high-risk hub
+// files sorted by risk_score, filtered by a configurable --threshold.
+func TestMemGraphRiskCLI(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-risk"
+	st, err := store.Open(dataDir, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	mem := memory.New(st, project)
+	ctx := context.Background()
+	if _, err := st.DB.Exec(`
+		INSERT INTO sessions (id, project, directory, started_at, status)
+		VALUES ('s1', ?, '/tmp', '2026-01-01T00:00:00Z', 'active')`, project); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	// 9 files: hub.go imported by 5 (hub_score 5/9 ≈ 0.556 > 0.5),
+	// leaf.go + leaf2.go + leaf3.go non-hub.
+	seedRiskCLIFile(t, st, "hub.go")
+	for i := 0; i < 5; i++ {
+		seedRiskCLIImporter(t, st, "rk"+string(rune('a'+i))+".go")
+	}
+	seedRiskCLIFile(t, st, "leaf.go")
+	seedRiskCLIFile(t, st, "leaf2.go")
+	seedRiskCLIFile(t, st, "leaf3.go")
+	if _, err := mem.IdentifyHubFiles(ctx); err != nil {
+		t.Fatalf("IdentifyHubFiles: %v", err)
+	}
+	// Hub observation (risk ≈ 0.556, above default threshold 0.5).
+	if _, err := mem.Save(ctx, memory.SaveInput{
+		SessionID: "s1", Type: "decision", Title: "hub obs",
+		Content: "about hub.go", Source: "hub.go",
+	}); err != nil {
+		t.Fatalf("save hub obs: %v", err)
+	}
+	// Leaf observation (risk 0, below threshold).
+	if _, err := mem.Save(ctx, memory.SaveInput{
+		SessionID: "s1", Type: "decision", Title: "leaf obs",
+		Content: "about leaf.go", Source: "leaf.go",
+	}); err != nil {
+		t.Fatalf("save leaf obs: %v", err)
+	}
+	if err := mem.RecomputeRiskScores(ctx); err != nil {
+		t.Fatalf("RecomputeRiskScores: %v", err)
+	}
+
+	// Default threshold (0.5): only the hub observation is shown.
+	out := runMemCLI(t, dataDir, "graph", "--risk", "--project", project, "--dir", dataDir)
+	if !strings.Contains(out, "hub obs") {
+		t.Fatalf("mem graph --risk missing hub observation: %s", out)
+	}
+	if strings.Contains(out, "leaf obs") {
+		t.Fatalf("mem graph --risk should not show the leaf observation (risk 0 < 0.5): %s", out)
+	}
+	if !strings.Contains(out, `"threshold"`) {
+		t.Fatalf("mem graph --risk missing threshold field: %s", out)
+	}
+
+	// --threshold 0: both observations are shown.
+	out = runMemCLI(t, dataDir, "graph", "--risk", "--threshold", "0", "--project", project, "--dir", dataDir)
+	if !strings.Contains(out, "hub obs") || !strings.Contains(out, "leaf obs") {
+		t.Fatalf("mem graph --risk --threshold 0 should show both: %s", out)
+	}
+
+	// --threshold 1: nothing is shown (all risk scores < 1).
+	out = runMemCLI(t, dataDir, "graph", "--risk", "--threshold", "1", "--project", project, "--dir", dataDir)
+	if !strings.Contains(out, `"count": 0`) {
+		t.Fatalf("mem graph --risk --threshold 1 should show zero entries: %s", out)
+	}
+}
+
+// seedRiskCLIFile plants a file + package symbol in the CLI test store.
+func seedRiskCLIFile(t *testing.T, st *store.Store, path string) int64 {
+	t.Helper()
+	var fileID int64
+	if err := st.DB.QueryRow(`
+		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
+		VALUES (?, 1, 100, ?, '2026-01-01T00:00:00Z')
+		RETURNING id`, path, "h-"+path).Scan(&fileID); err != nil {
+		t.Fatalf("insert file %s: %v", path, err)
+	}
+	var symID int64
+	uid := "uid-cli-" + path
+	if err := st.DB.QueryRow(`
+		INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid)
+		VALUES (?, ?, 'package', 1, 1, ?, ?)
+		RETURNING id`, fileID, path, "ch-cli-"+path, uid).Scan(&symID); err != nil {
+		t.Fatalf("insert symbol %s: %v", path, err)
+	}
+	return symID
+}
+
+// seedRiskCLIImporter plants an importing file + symbol + imports edge.
+// The hub symbol id is looked up as the symbol of the file named "hub.go".
+func seedRiskCLIImporter(t *testing.T, st *store.Store, path string) {
+	t.Helper()
+	var hubSymID int64
+	if err := st.DB.QueryRow(`
+		SELECT s.id FROM symbols s
+		JOIN files f ON f.id = s.file_id
+		WHERE f.path = 'hub.go' LIMIT 1`).Scan(&hubSymID); err != nil {
+		t.Fatalf("lookup hub symbol: %v", err)
+	}
+	var fileID int64
+	if err := st.DB.QueryRow(`
+		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
+		VALUES (?, 1, 100, ?, '2026-01-01T00:00:00Z')
+		RETURNING id`, path, "h-"+path).Scan(&fileID); err != nil {
+		t.Fatalf("insert importer %s: %v", path, err)
+	}
+	var symID int64
+	uid := "uid-cliimp-" + path
+	if err := st.DB.QueryRow(`
+		INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid)
+		VALUES (?, ?, 'package', 1, 1, ?, ?)
+		RETURNING id`, fileID, path, "ch-cliimp-"+path, uid).Scan(&symID); err != nil {
+		t.Fatalf("insert importer symbol %s: %v", path, err)
+	}
+	if _, err := st.DB.Exec(`
+		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
+		VALUES ('imports', ?, ?, ?, ?, ?, 'EXTRACTED', 1, 0)`,
+		symID, fileID, hubSymID, path, path); err != nil {
+		t.Fatalf("insert imports edge %s: %v", path, err)
+	}
+}

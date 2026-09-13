@@ -72,10 +72,14 @@ func runMem(version string, args []string) {
 		handoffJSON  bool
 		handoffDir   string
 		envelopeFlag bool
+		riskFlag     bool
+		riskThreshold float64
 	)
 	fs.BoolVar(&handoffJSON, "json", false, "handoff: print the full handoff JSON to stdout")
 	fs.StringVar(&handoffDir, "handoff-dir", "", "handoff: directory to write handoff.latest.json (default: the project's mnemonic data dir)")
 	fs.BoolVar(&envelopeFlag, "envelope", false, "context: print the full context envelope JSON (014 step 22.4)")
+	fs.BoolVar(&riskFlag, "risk", false, "graph: show high-risk hub files instead of edge timeline (014 step 23.4)")
+	fs.Float64Var(&riskThreshold, "threshold", -1, "graph --risk: minimum risk_score to display (default 0.5; 0 = show all)")
 	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
 		os.Exit(2)
 	}
@@ -97,7 +101,11 @@ func runMem(version string, args []string) {
 	case "timeline":
 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
 	case "graph":
-		runMemGraph(svc, projID, limit)
+		if riskFlag {
+			runMemGraphRisk(svc, projID, riskThreshold, limit)
+		} else {
+			runMemGraph(svc, projID, limit)
+		}
  	case "relations":
  		runMemRelations(svc, projID, pos, minConf)
  	case "provenance":
@@ -142,7 +150,9 @@ func printMemUsage() {
   timeline <id> [--window 1h] [--limit N] [--item N] [--char N] [--timeout 3s]
                                     chronological context (mem_timeline)
   graph [--limit N]                 temporal status of codeindex graph edges
-                                     (valid_from, valid_to, active/expired/pending)
+                                      (valid_from, valid_to, active/expired/pending)
+  graph --risk [--threshold 0.5] [--limit N]
+                                      high-risk hub files by risk_score (014 step 23.4)
   relations <observation_id> [--min-confidence 0.5]
                                       typed @relation edges (outgoing + incoming)
                                       between observations, with relation type,
@@ -604,6 +614,42 @@ func runMemGraph(svc *service.Service, projID string, limit int) {
 		"count":   count,
 		"total":   counts,
 		"edges":   edges,
+	}
+	printJSON(out)
+}
+
+// runMemGraphRisk is the CLI for the high-risk hub file view (014 step 23.4,
+// `mem graph --risk`): it recomputes risk scores (hub pass + risk stamp),
+// then lists the project's observations sorted by risk_score DESC, filtered
+// to risk_score >= --threshold (default 0.5). Each entry shows the
+// observation id, title, referenced file path, risk score, and the file's
+// dependent count.
+func runMemGraphRisk(svc *service.Service, projID string, threshold float64, limit int) {
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	ctx := hCtx()
+	mem := h.Memory()
+	if err := mem.RecomputeRiskScores(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	entries, err := mem.RiskReport(ctx, memory.RiskOptions{
+		Threshold: threshold,
+		Limit:     limit,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	out := map[string]any{
+		"project":   projID,
+		"threshold": threshold,
+		"count":     len(entries),
+		"entries":   entries,
 	}
 	printJSON(out)
 }

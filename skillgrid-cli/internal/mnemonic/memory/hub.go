@@ -415,7 +415,7 @@ func (s *Service) RiskReport(ctx context.Context, opts RiskOptions) ([]RiskEntry
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return nil, fmt.Errorf("memory service not initialized")
 	}
-	if opts.Threshold <= 0 {
+	if opts.Threshold < 0 {
 		opts.Threshold = DefaultRiskThreshold
 	}
 	q := `
