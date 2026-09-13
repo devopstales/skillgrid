@@ -10,6 +10,14 @@ import (
 // returned ids are always distinct.
 func seedObservation(t *testing.T, svc *Service, title, content string) int64 {
 	t.Helper()
+	// The observations table has a FK on session_id; guarantee the session
+	// exists (idempotent) before the first save in this store.
+	if _, err := svc.store.DB.Exec(`
+		INSERT OR IGNORE INTO sessions (id, project, directory, started_at, status, title, summary)
+		VALUES ('sess-rel', ?, '/tmp', '2026-01-01T00:00:00Z', 'ended', 'rel session', 'rel session summary')`,
+		svc.projectID); err != nil {
+		t.Fatalf("ensure session: %v", err)
+	}
 	id, err := svc.Save(context.Background(), SaveInput{
 		SessionID: "sess-rel",
 		Type:      "decision",
