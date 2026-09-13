@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -25,36 +26,40 @@ const defaultSnapshotRetention = 10
 // (deleted_at) so a restore brings a deleted row back exactly. The pointer
 // fields store SQL NULLs (a NULL round-trips as a NULL on restore).
 type SnapshotRow struct {
-	ID             int64
-	SessionID      string
-	Type           string
-	Title          string
-	Content        string
-	Project        string
-	Scope          string
-	TopicKey       *string
-	Source         *string
-	NormalizedHash string
-	RevisionCount  int
-	PromptID       *int64
-	CreatedAt      string
-	UpdatedAt      string
-	Pinned         int
-	DuplicateCount int
-	LastSeenAt     *string
-	ExpiresAt      *string
-	ToolName       *string
-	Owner          *string
-	Visibility     *string
-	Status         *string
-	RetrievalUsage int
-	ImportanceScore *float64
-	RecencyDecay   *float64
-	MaturityTier   *string
-	Provenance     *string
-	MemoryType     *string
-	GraphRef       *int64
-	DeletedAt      *string
+	ID               int64
+	SessionID        string
+	Type             string
+	Title            string
+	Content          string
+	Project          string
+	Scope            string
+	TopicKey         *string
+	Source           *string
+	NormalizedHash   string
+	RevisionCount    int
+	PromptID         *int64
+	CreatedAt        string
+	UpdatedAt        string
+	Pinned           int
+	DuplicateCount   int
+	LastSeenAt       *string
+	ExpiresAt        *string
+	ToolName         *string
+	Owner            *string
+	Visibility       *string
+	Status           *string
+	RetrievalUsage   int
+	ImportanceScore  *float64
+	RecencyDecay     *float64
+	MaturityTier     *string
+	Provenance       *string
+	MemoryType       *string
+	GraphRef         *int64
+	DeletedAt        *string
+	ReviewAfter      *string
+	Embedding        []byte
+	EmbeddingModel   *string
+	EmbeddingCreated *string
 }
 
 // SnapshotInfo is one row of the ListSnapshots output (014 step 20.4): the
@@ -96,7 +101,7 @@ const snapshotCols = `
 	pinned, duplicate_count, last_seen_at, expires_at, tool_name,
 	owner, visibility, status, retrieval_usage,
 	importance_score, recency_decay, maturity_tier, provenance, memory_type,
-	graph_ref, deleted_at`
+	graph_ref, deleted_at, review_after, embedding, embedding_model, embedding_created_at`
 
 // snapshotSelectCols is the snapshot read: snapshotCols (including soft-
 // deleted rows — a snapshot is a faithful point-in-time view) ordered by id so
@@ -146,10 +151,10 @@ func (s *Service) Snapshot(ctx context.Context) (int64, error) {
 	}
 	// Auto-prune (014 step 20.3): keep only the configured number of most
 	// recent snapshots. Best-effort — a prune failure must never fail the
-	// capture (the snapshot is already durable).
-	if perr := s.pruneSnapshots(ctx, s.snapshotRetention()); perr != nil {
-		// best-effort: the snapshot row is committed; log and move on
-		_ = perr
+	// capture (the snapshot row is already durable); it is logged so a
+	// storage-bloat guard cannot fail silently.
+	if perr := s.PruneSnapshots(ctx, s.snapshotRetention()); perr != nil {
+		slog.Warn("snapshot auto-prune failed", "project", s.projectID, "keep", s.snapshotRetention(), "err", perr)
 	}
 	return id, nil
 }
@@ -173,7 +178,8 @@ func (s *Service) readSnapshotRows(ctx context.Context) ([]SnapshotRow, error) {
 			&r.CreatedAt, &r.UpdatedAt, &r.Pinned, &r.DuplicateCount, &r.LastSeenAt,
 			&r.ExpiresAt, &r.ToolName, &r.Owner, &r.Visibility, &r.Status, &r.RetrievalUsage,
 			&r.ImportanceScore, &r.RecencyDecay, &r.MaturityTier, &r.Provenance, &r.MemoryType,
-			&r.GraphRef, &r.DeletedAt,
+			&r.GraphRef, &r.DeletedAt, &r.ReviewAfter, &r.Embedding, &r.EmbeddingModel,
+			&r.EmbeddingCreated,
 		); err != nil {
 			return nil, fmt.Errorf("snapshot scan: %w", err)
 		}
@@ -191,24 +197,34 @@ func sha256Hex(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// txHandle is the narrow "an in-transaction write target" the restore loop
+// programs against: RestoreSnapshot runs on a pool-wide BEGIN IMMEDIATE (see
+// there), so the handle is the pooled *sql.DB itself — with MaxOpenConns(1)
+// every statement lands on the in-transaction connection. *sql.DB satisfies
+// it, so the existing *sql.DB call sites keep working unchanged.
+type txHandle interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 // restoreRowFn runs one snapshot row's upsert on the restore transaction. It
 // is the seam TestSnapshotRestoreAtomic swaps in a failing executor through
 // (mirroring the distillRollbackExec pattern): a restore is only safe if every
 // row's write commits or rolls back TOGETHER. The default (restoreRowDefault)
 // runs the statement on the tx, so the whole restore is one atomic commit.
-type restoreRowFn func(ctx context.Context, tx *sql.Tx, row *SnapshotRow) error
+type restoreRowFn func(ctx context.Context, tx txHandle, row *SnapshotRow) error
 
 // restoreRowDefault is the default restore-row executor: it upserts one row on
 // the restore transaction (a soft-deleted row is brought back by the explicit
 // deleted_at value, an existing row is overwritten exactly).
-func restoreRowDefault(ctx context.Context, tx *sql.Tx, row *SnapshotRow) error {
+func restoreRowDefault(ctx context.Context, tx txHandle, row *SnapshotRow) error {
 	if _, err := tx.ExecContext(ctx, restoreUpsertSQL,
 		row.ID, row.SessionID, row.Type, row.Title, row.Content, row.Project, row.Scope,
 		row.TopicKey, row.Source, row.NormalizedHash, row.RevisionCount, row.PromptID,
 		row.CreatedAt, row.UpdatedAt, row.Pinned, row.DuplicateCount, row.LastSeenAt,
 		row.ExpiresAt, row.ToolName, row.Owner, row.Visibility, row.Status, row.RetrievalUsage,
 		row.ImportanceScore, row.RecencyDecay, row.MaturityTier, row.Provenance, row.MemoryType,
-		row.GraphRef, row.DeletedAt,
+		row.GraphRef, row.DeletedAt, row.ReviewAfter, blobOrNULL(row.Embedding),
+		row.EmbeddingModel, row.EmbeddingCreated,
 	); err != nil {
 		return err
 	}
@@ -225,10 +241,11 @@ const restoreUpsertSQL = `
 		pinned, duplicate_count, last_seen_at, expires_at, tool_name,
 		owner, visibility, status, retrieval_usage,
 		importance_score, recency_decay, maturity_tier, provenance, memory_type,
-		graph_ref, deleted_at
+		graph_ref, deleted_at, review_after, embedding, embedding_model,
+		embedding_created_at
 	) VALUES (
 		?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-		?, ?, ?, ?, ?, ?, ?
+		?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 	)
 	ON CONFLICT(id) DO UPDATE SET
 		session_id      = excluded.session_id,
@@ -259,7 +276,11 @@ const restoreUpsertSQL = `
 		provenance     = excluded.provenance,
 		memory_type    = excluded.memory_type,
 		graph_ref      = excluded.graph_ref,
-		deleted_at      = excluded.deleted_at`
+		deleted_at      = excluded.deleted_at,
+		review_after      = excluded.review_after,
+		embedding         = excluded.embedding,
+		embedding_model   = excluded.embedding_model,
+		embedding_created_at = excluded.embedding_created_at`
 
 // RestoreSnapshot deserializes snapshotID and replaces the project's current
 // observations state with it (014 step 20.1). The whole restore is ONE
@@ -298,14 +319,23 @@ func (s *Service) RestoreSnapshot(ctx context.Context, snapshotID int64) error {
 		return fmt.Errorf("deserialize snapshot %d: %w", snapshotID, err)
 	}
 
-	tx, err := s.store.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin restore tx: %w", err)
+	// BEGIN IMMEDIATE (014 step 20.2): the restore acquires the write lock at
+	// BEGIN, so a concurrent writer blocks until the restore commits instead
+	// of interleaving with the per-row upserts. The store's primary handle is
+	// opened with a bare DSN (BEGIN DEFERRED), so the transaction is opened
+	// explicitly here and driven through the same pooled connection (the
+	// handle is MaxOpenConns(1), so every ExecContext below lands on this
+	// in-transaction connection). A failure anywhere rolls the whole restore
+	// back — committed atomically, never half-restored.
+	if _, err := s.store.DB.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return fmt.Errorf("begin immediate restore: %w", err)
 	}
 	committed := false
 	defer func() {
 		if !committed {
-			_ = tx.Rollback()
+			if _, rbErr := s.store.DB.ExecContext(ctx, `ROLLBACK`); rbErr != nil {
+				slog.Warn("snapshot restore rollback failed", "project", s.projectID, "err", rbErr)
+			}
 		}
 	}()
 
@@ -313,7 +343,7 @@ func (s *Service) RestoreSnapshot(ctx context.Context, snapshotID int64) error {
 	fn := s.restoreRowFnFn()
 	keep := make([]int64, 0, len(rows))
 	for i := range rows {
-		if err := fn(ctx, tx, &rows[i]); err != nil {
+		if err := fn(ctx, s.store.DB, &rows[i]); err != nil {
 			return fmt.Errorf("restore observation %d: %w", rows[i].ID, err)
 		}
 		keep = append(keep, rows[i].ID)
@@ -322,7 +352,7 @@ func (s *Service) RestoreSnapshot(ctx context.Context, snapshotID int64) error {
 	// 2. Remove any observation created after the capture (its id is not in the
 	//    snapshot) — the orphan sweep, inside the same tx. An empty snapshot
 	//    deletes every project row (a faithful empty restore).
-	if err := sweepOrphanRows(ctx, tx, s.projectID, keep); err != nil {
+	if err := sweepOrphanRows(ctx, s.store.DB, s.projectID, keep); err != nil {
 		return err
 	}
 
@@ -330,11 +360,11 @@ func (s *Service) RestoreSnapshot(ctx context.Context, snapshotID int64) error {
 	//    out of sync (the triggers only fire on the statements they observe, and
 	//    an ON CONFLICT upsert that changes no FTS columns fires no trigger).
 	//    A full rebuild is idempotent and cheap relative to the restore.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO observations_fts(observations_fts) VALUES('rebuild')`); err != nil {
+	if _, err := s.store.DB.ExecContext(ctx, `INSERT INTO observations_fts(observations_fts) VALUES('rebuild')`); err != nil {
 		return fmt.Errorf("rebuild fts after restore: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if _, err := s.store.DB.ExecContext(ctx, `COMMIT`); err != nil {
 		return fmt.Errorf("commit restore: %w", err)
 	}
 	committed = true
@@ -356,7 +386,7 @@ func (s *Service) restoreRowFnFn() restoreRowFn {
 // sweepOrphanRows hard-deletes the project's observations whose id is not in
 // keep (the captured snapshot's ids). An empty keep set deletes every project
 // row (a faithful empty restore).
-func sweepOrphanRows(ctx context.Context, tx *sql.Tx, projectID string, keep []int64) error {
+func sweepOrphanRows(ctx context.Context, tx txHandle, projectID string, keep []int64) error {
 	q := `DELETE FROM observations WHERE project = ?`
 	args := []any{projectID}
 	if len(keep) > 0 {
@@ -400,13 +430,6 @@ func (s *Service) PruneSnapshots(ctx context.Context, keep int) error {
 	return nil
 }
 
-// pruneSnapshots is the internal auto-prune call (best-effort) used by
-// Snapshot after each capture. It swallows nothing — the error is returned so
-// the caller can decide (Snapshot treats it as best-effort).
-func (s *Service) pruneSnapshots(ctx context.Context, keep int) error {
-	return s.PruneSnapshots(ctx, keep)
-}
-
 // ListSnapshots returns the project's snapshots newest-first (014 step 20.4),
 // each with its id, integrity hash, and capture timestamp. It is the read path
 // behind `mem snapshot list`.
@@ -447,13 +470,12 @@ func (s *Service) ListSnapshots(ctx context.Context) ([]SnapshotInfo, error) {
 // fails with SQLITE_BUSY.
 const rowLockTimeout = 5000 // milliseconds
 
-// rowLockDsnSuffix appends the row-lock pragmas to a sqlite DSN: _txlock=
-// immediate so db.BeginTx runs BEGIN IMMEDIATE (acquiring the write lock
-// immediately, serializing concurrent writes on the same row). busy_timeout is
-// applied via PRAGMA (the DSN only carries the begin-mode; the timeout is set
-// explicitly on open). The %26 is the URL-encoded '&' — the modernc.org driver
-// parses the DSN as a query string, so a literal '&' would be read as a
-// filename separator.
+// rowLockDsnSuffix appends the row-lock DSN parameter to a sqlite DSN:
+// _txlock=immediate so db.BeginTx runs BEGIN IMMEDIATE (acquiring the write
+// lock immediately, serializing concurrent writes on the same row). It is a
+// single parameter, so no URL-encoding is needed (a multi-parameter DSN would
+// need %26 for the '&' — the driver parses the DSN as a query string). The
+// busy_timeout is not a DSN parameter; it is applied via PRAGMA on open.
 const rowLockDsnSuffix = `?_txlock=immediate`
 
 // UpdateRow updates one observation's content under row-level locking (014
@@ -461,19 +483,35 @@ const rowLockDsnSuffix = `?_txlock=immediate`
 // acquires the write lock at BEGIN and concurrent writes to the same row are
 // serialized by the WAL write lock (the second writer blocks, up to the
 // 5-second busy_timeout, until the first commits). It returns the rows
-// affected (0 when the observation is absent or soft-deleted).
+// affected (0 when the observation is absent or soft-deleted), and the time
+// its BEGIN IMMEDIATE returned (the write-lock acquisition moment, 014 step
+// 20.2) so the concurrency test can prove the second writer blocked until the
+// first committed.
 //
 // It is a method on *Service (rather than a free function) so the concurrency
 // test can drive BOTH writers through the same code path: the first via the
 // store handle, the second via the row-lock handle — both are *sql.DB on the
 // same file, and both run BEGIN IMMEDIATE.
-func (s *Service) UpdateRow(ctx context.Context, db *sql.DB, id int64, content string) (int64, error) {
+func (s *Service) UpdateRow(ctx context.Context, db *sql.DB, id int64, content string) (int64, time.Time, error) {
 	if db == nil {
-		return 0, errSnapshotUninit
+		return 0, time.Time{}, errSnapshotUninit
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("begin row-lock tx: %w", err)
+		return 0, time.Time{}, fmt.Errorf("begin row-lock tx: %w", err)
+	}
+	// Record the lock-acquisition moment (BEGIN IMMEDIATE returned): the
+	// concurrency test uses it to prove the second writer blocked until the
+	// first writer's COMMIT (014 step 20.2).
+	acq := time.Now()
+	// rowLockHold (test-only seam, 014 step 20.2): called WITH the write lock
+	// held, after BEGIN returns and before the UPDATE. The concurrency test
+	// uses it to make writer A hold the lock long enough that writer B is
+	// already waiting on BEGIN when A commits — so the blocking is provable
+	// (otherwise both microsecond UPDATEs can complete before the second
+	// writer even starts). nil in production.
+	if s.rowLockHold != nil {
+		s.rowLockHold()
 	}
 	committed := false
 	defer func() {
@@ -483,24 +521,24 @@ func (s *Service) UpdateRow(ctx context.Context, db *sql.DB, id int64, content s
 	}()
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := tx.ExecContext(ctx, `
-		UPDATE observations
+	UPDATE observations
 		SET content = ?, updated_at = ?,
 		    revision_count = COALESCE(revision_count, 0) + 1
 		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
 		content, now, id, s.projectID,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("row-lock update: %w", err)
+		return 0, acq, fmt.Errorf("row-lock update: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return 0, fmt.Errorf("row-lock rows affected: %w", err)
+		return 0, acq, fmt.Errorf("row-lock rows affected: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit row-lock tx: %w", err)
+		return 0, acq, fmt.Errorf("commit row-lock tx: %w", err)
 	}
 	committed = true
-	return n, nil
+	return n, acq, nil
 }
 
 // errSnapshotUninit is the sentinel for a not-initialized snapshot service.

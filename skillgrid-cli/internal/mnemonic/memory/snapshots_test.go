@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -137,6 +139,92 @@ func TestSnapshotCreatePointInTime(t *testing.T) {
 	}
 }
 
+// TestSnapshotPreservesEmbeddingsAndReviewAfter covers the column-completeness
+// gap the point-in-time test cannot see (F1): a snapshot must round-trip the
+// embedding triplet (embedding BLOB, embedding_model, embedding_created_at)
+// AND the review-cycle column (review_after) — a restore that drops any of
+// them silently zeroes live data on every restore.
+func TestSnapshotPreservesEmbeddingsAndReviewAfter(t *testing.T) {
+	_, svc := newTestStore(t, "snapshotembed")
+	ctx := context.Background()
+	sid := newSession(t, svc)
+	id, err := svc.Save(ctx, SaveInput{
+		Title:     "embedded baseline",
+		Type:      "decision",
+		Content:   "baseline content for embedding round-trip",
+		SessionID: sid,
+		Scope:     "project",
+	})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// Seed an embedding (BLOB + model + created_at) and a review schedule.
+	emb := EncodeVector(Vector{Data: []float32{0.1, -0.2, 0.3, 1.0}})
+	if err := svc.SetEmbedding(ctx, id, emb, "test-embedder/v1"); err != nil {
+		t.Fatalf("set embedding: %v", err)
+	}
+	if err := svc.SetReviewAfter(ctx, id, "2027-01-15 12:00:00"); err != nil {
+		t.Fatalf("set review_after: %v", err)
+	}
+	var preEmb []byte
+	var preModel, preEmbCreated, preReview string
+	if err := svc.store.DB.QueryRowContext(ctx,
+		`SELECT embedding, embedding_model, embedding_created_at, review_after FROM observations WHERE id = ?`, id,
+	).Scan(&preEmb, &preModel, &preEmbCreated, &preReview); err != nil {
+		t.Fatalf("read pre-snapshot embedding state: %v", err)
+	}
+	if len(preEmb) == 0 || preModel == "" || preEmbCreated == "" || preReview == "" {
+		t.Fatalf("pre-snapshot state incomplete: embLen=%d model=%q created=%q review=%q",
+			len(preEmb), preModel, preEmbCreated, preReview)
+	}
+
+	// Capture the point-in-time state WITH the embedding + review schedule.
+	snapID, err := svc.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+
+	// Modify content and clear the embedding + review schedule (the restore
+	// must bring the captured values back — a dropped column restores as NULL
+	// and the post-restore values would be empty).
+	if err := svc.Update(ctx, id, UpdateInput{Content: "modified after snapshot"}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if err := svc.SetEmbedding(ctx, id, nil, ""); err != nil {
+		t.Fatalf("clear embedding: %v", err)
+	}
+	if err := svc.SetReviewAfter(ctx, id, ""); err != nil {
+		t.Fatalf("clear review_after: %v", err)
+	}
+
+	// Restore to the captured state.
+	if err := svc.RestoreSnapshot(ctx, snapID); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	// The embedding triplet and the review schedule survive the round trip.
+	var postEmb []byte
+	var postModel, postEmbCreated, postReview string
+	if err := svc.store.DB.QueryRowContext(ctx,
+		`SELECT embedding, embedding_model, embedding_created_at, review_after FROM observations WHERE id = ?`, id,
+	).Scan(&postEmb, &postModel, &postEmbCreated, &postReview); err != nil {
+		t.Fatalf("read post-restore embedding state: %v", err)
+	}
+	if !bytes.Equal(postEmb, preEmb) {
+		t.Fatalf("restored embedding mismatch: got %d bytes, want %d bytes (zeroed on restore)", len(postEmb), len(preEmb))
+	}
+	if postModel != preModel {
+		t.Fatalf("restored embedding_model=%q want %q (zeroed on restore)", postModel, preModel)
+	}
+	if postEmbCreated != preEmbCreated {
+		t.Fatalf("restored embedding_created_at=%q want %q (zeroed on restore)", postEmbCreated, preEmbCreated)
+	}
+	if postReview != preReview {
+		t.Fatalf("restored review_after=%q want %q (zeroed on restore)", postReview, preReview)
+	}
+}
+
 // TestSnapshotRestoreAtomic proves the restore is one transaction: a failure
 // partway through the restore leaves the store in its PRE-restore state (never
 // half-restored). The seam restoreRowFn lets the test fail the 2nd row's write.
@@ -159,7 +247,7 @@ func TestSnapshotRestoreAtomic(t *testing.T) {
 	}
 
 	// Fail the 2nd row's write: the whole restore must roll back atomically.
-	svc.restoreRowFn = func(ctx context.Context, tx *sql.Tx, row *SnapshotRow) error {
+	svc.restoreRowFn = func(ctx context.Context, tx txHandle, row *SnapshotRow) error {
 		if row.ID == ids[1] {
 			return sql.ErrConnDone
 		}
@@ -184,9 +272,17 @@ func TestSnapshotRestoreAtomic(t *testing.T) {
 
 // TestRowLevelLockingConcurrentWrites covers 20.2: two concurrent writers
 // update the SAME observation. SQLite's write lock serializes them — one
-// completes, the other blocks until the first commits — and the final state is
-// exactly one of the two writes (never a mix). The lock is released after the
-// transaction, so a subsequent write succeeds.
+// completes, the other BLOCKS on the write lock until the first commits — and
+// the final state is exactly one of the two writes (never a mix). The lock is
+// released after the transaction, so a subsequent write succeeds.
+//
+// The blocking property is proven with timestamps: UpdateRow returns the time
+// its BEGIN IMMEDIATE returned (the write-lock acquisition moment). Writer A's
+// acquire is the acq it returns (its write is now committed); writer B's acq
+// is captured the same way. The assertion is that the LATER-acquired writer's
+// BEGIN returned at or after the earlier writer's COMMIT — i.e. the second
+// write blocked until the first completed. Without real serialization the two
+// BEGINs would both return before either commits and the assertion fails.
 func TestRowLevelLockingConcurrentWrites(t *testing.T) {
 	_, svc := newTestStore(t, "snapshotrowlock")
 	ctx := context.Background()
@@ -202,38 +298,84 @@ func TestRowLevelLockingConcurrentWrites(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	// Open a second connection to the same file: a true second writer with its
-	// own SQLite handle. Two handles on the same file contend for the WAL
-	// write lock — this is the concurrency the row-level locking serializes.
+	// Open two independent connections to the same file: true second and third
+	// writers, each with its own SQLite handle on the row-lock DSN (BEGIN
+	// IMMEDIATE). Two handles on the same file contend for the WAL write lock
+	// — this is the concurrency the row-level locking serializes.
 	secondDB := openRawSQLDB(t, svc.store.Path())
-	defer secondDB.Close()
+	firstDB := openRawSQLDB(t, svc.store.Path())
 
 	writeA := "writer A content"
 	writeB := "writer B content"
-	start := make(chan struct{})
-	type outcome struct {
-		err error
+	// Writer A holds the write lock (via the rowLockHold seam, A-only) until
+	// writer B has reached its BEGIN IMMEDIATE and is waiting on the lock. B's
+	// BEGIN cannot return until A's COMMIT releases the lock, so B's
+	// acquisition is strictly after A's commit — the "second blocks until first
+	// completes" property, made provable (without the hold, both microsecond
+	// UPDATEs can finish before the second writer even starts).
+	var (
+		coordMu   sync.Mutex
+		coordCond = sync.NewCond(&coordMu)
+		bAtBegin  bool
+		inA       bool
+	)
+	svc.rowLockHold = func() {
+		coordMu.Lock()
+		if inA {
+			for !bAtBegin {
+				coordCond.Wait() // wait until B is at its BEGIN
+			}
+			// B is now blocked on the lock; A commits and releases it.
+		}
+		coordMu.Unlock()
 	}
-	resA := make(chan outcome, 1)
-	resB := make(chan outcome, 1)
+	type outcome struct {
+		err    error
+		acq    time.Time // when THIS writer's BEGIN IMMEDIATE returned
+		commit time.Time // when THIS writer's UpdateRow returned (COMMIT done)
+	}
+	runWriter := func(db *sql.DB, content string, isB bool) chan outcome {
+		ch := make(chan outcome, 1)
+		go func() {
+			if isB {
+				coordMu.Lock()
+				bAtBegin = true
+				coordCond.Broadcast() // release A's hold so A commits
+				coordMu.Unlock()
+			} else {
+				coordMu.Lock()
+				inA = true
+				coordMu.Unlock()
+			}
+			_, acq, err := svc.UpdateRow(ctx, db, id, content)
+			ch <- outcome{err: err, acq: acq, commit: time.Now()}
+		}()
+		return ch
+	}
+	resA := runWriter(firstDB, writeA, false) // A first (grabs + holds the lock)
+	resB := runWriter(secondDB, writeB, true) // B second (blocks on the lock)
 
-	go func() {
-		_, err := svc.UpdateRow(ctx, svc.store.DB, id, writeA)
-		resA <- outcome{err: err}
-	}()
-	go func() {
-		_, err := svc.UpdateRow(ctx, secondDB, id, writeB)
-		resB <- outcome{err: err}
-	}()
-
-	close(start)
 	a := <-resA
 	b := <-resB
+	secondDB.Close()
 	if a.err != nil {
 		t.Fatalf("writer A: %v", a.err)
 	}
 	if b.err != nil {
 		t.Fatalf("writer B: %v", b.err)
+	}
+
+	// The second write blocked until the first completed: the LATER-acquired
+	// writer's BEGIN IMMEDIATE returned at or after the earlier writer's
+	// COMMIT. If the writes overlapped (no serialization), the later BEGIN
+	// would have returned before the earlier writer finished.
+	first, second := a, b
+	if b.acq.Before(a.acq) {
+		first, second = b, a
+	}
+	if second.acq.Before(first.commit) {
+		t.Fatalf("writers overlapped (no blocking): first committed %s, second acquired the write lock %s (earlier) — the second write did not block until the first completed",
+			first.commit.Format(time.RFC3339Nano), second.acq.Format(time.RFC3339Nano))
 	}
 
 	// No corruption: the final content is exactly one of the two writes.
@@ -248,7 +390,7 @@ func TestRowLevelLockingConcurrentWrites(t *testing.T) {
 	// The lock is released after the transaction: a follow-up write succeeds
 	// promptly (no 5-second busy-timeout stall).
 	deadline := time.Now().Add(3 * time.Second)
-	if _, err := svc.UpdateRow(ctx, svc.store.DB, id, "writer C after lock release"); err != nil {
+	if _, _, err := svc.UpdateRow(ctx, svc.store.DB, id, "writer C after lock release"); err != nil {
 		t.Fatalf("write after lock release: %v", err)
 	}
 	if time.Now().After(deadline) {

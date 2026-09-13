@@ -120,6 +120,12 @@ type Service struct {
 	// restoreMu guards the restoreRowFn seam (read by the restore loop, written
 	// by tests before a restore).
 	restoreMu sync.Mutex
+	// rowLockHold is a test-only seam called by UpdateRow WITH the write lock
+	// held (after BEGIN IMMEDIATE returns, before the UPDATE). The concurrency
+	// test uses it to make writer A hold the lock until writer B is already
+	// waiting on BEGIN — so the "second blocks until first completes" property
+	// is provable (014 step 20.2). nil in production (no-op).
+	rowLockHold func()
 }
 
 // SetDistillHookProvider attaches the owning handle (which carries the opt-in
