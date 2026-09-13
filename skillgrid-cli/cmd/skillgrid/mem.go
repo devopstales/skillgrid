@@ -45,6 +45,7 @@ func runMem(version string, args []string) {
 		grants   string
 		exportFile string
 		skipEmb  bool
+		minConf  float64
 	)
 	fs.StringVar(&dataDir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
 	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
@@ -60,6 +61,7 @@ func runMem(version string, args []string) {
 	fs.StringVar(&grants, "grants", "", "share: comma-separated grantee list")
 	fs.StringVar(&exportFile, "file", "", "export: write the bundle to this file (default: stdout)")
 	fs.BoolVar(&skipEmb, "skip-embeddings", false, "export: omit embedding data for a smaller payload")
+	fs.Float64Var(&minConf, "min-confidence", 0.0, "relations: minimum edge confidence (0.0..1.0; 0.0 = all)")
 	var searchMode string
 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
 	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
@@ -84,6 +86,8 @@ func runMem(version string, args []string) {
 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
 	case "graph":
 		runMemGraph(svc, projID, limit)
+	case "relations":
+		runMemRelations(svc, projID, pos, minConf)
 	case "expire":
 		runMemExpire(svc, dataDir)
 	case "export":
@@ -98,7 +102,7 @@ func runMem(version string, args []string) {
 }
 
 func printMemUsage() {
-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|expire|export> [args]
+	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|expire|export> [args]
 
   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
   governance <id>                 governed-asset view (mem_governance)
@@ -112,7 +116,11 @@ func printMemUsage() {
   timeline <id> [--window 1h] [--limit N] [--item N] [--char N] [--timeout 3s]
                                     chronological context (mem_timeline)
   graph [--limit N]                 temporal status of codeindex graph edges
-                                    (valid_from, valid_to, active/expired/pending)
+                                     (valid_from, valid_to, active/expired/pending)
+  relations <observation_id> [--min-confidence 0.5]
+                                     typed @relation edges (outgoing + incoming)
+                                     between observations, with relation type,
+                                     confidence, and direction
   expire                          retire expired observations across all projects
                                    (TTL sweep; best-effort, exit 0 on missing stores)
   export [--file out.json] [--skip-embeddings]
@@ -501,6 +509,83 @@ func runMemGraph(svc *service.Service, projID string, limit int) {
 		"count":   count,
 		"total":   counts,
 		"edges":   edges,
+	}
+	printJSON(out)
+}
+
+// runMemRelations is the CLI for typed @relation edges (014 step 14,
+// `mem relations <observation_id>`): it lists every observation_relations
+// edge touching the given observation — both outgoing (the obs is the source)
+// and incoming (the obs is the target) — with the relation type, confidence,
+// and a direction label. --min-confidence applies a floor (default 0.0 = all).
+// A missing observation id is a clear error; an observation with no relations
+// prints an empty list (graceful).
+func runMemRelations(svc *service.Service, projID string, pos []string, minConf float64) {
+	if len(pos) < 1 {
+		fmt.Fprintln(os.Stderr, "error: mem relations requires an observation id")
+		os.Exit(2)
+	}
+	id, err := strconv.ParseInt(pos[0], 10, 64)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: invalid observation id")
+		os.Exit(2)
+	}
+	if minConf < 0.0 || minConf > 1.0 {
+		fmt.Fprintf(os.Stderr, "error: --min-confidence %v out of range (0.0..1.0)\n", minConf)
+		os.Exit(2)
+	}
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	ctx := hCtx()
+
+	// A missing observation id (no live observation with this id in the
+	// project) is a clear error, matching the other mem subcommands.
+	if _, ok := h.Memory().ObsTitle(ctx, id); !ok {
+		fmt.Fprintf(os.Stderr, "error: observation %d not found in this project\n", id)
+		os.Exit(1)
+	}
+
+	rels, err := h.Memory().GetRelations(ctx, id, minConf)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	type relationOut struct {
+		Direction    string  `json:"direction"`
+		RelationType string  `json:"relation_type"`
+		Confidence   float64 `json:"confidence"`
+		OtherID      int64   `json:"other_id"`
+		OtherTitle   string  `json:"other_title,omitempty"`
+	}
+	// Ensure a nil slice marshals as [] (empty list) rather than null.
+	outs := make([]relationOut, 0, len(rels))
+	for _, r := range rels {
+		dir := "outgoing"
+		other := r.TargetID
+		if r.SourceID != id {
+			dir = "incoming"
+			other = r.SourceID
+		}
+		o := relationOut{
+			Direction:    dir,
+			RelationType: r.RelationType,
+			Confidence:   r.Confidence,
+			OtherID:      other,
+		}
+		if title, ok := h.Memory().ObsTitle(ctx, other); ok {
+			o.OtherTitle = title
+		}
+		outs = append(outs, o)
+	}
+	out := map[string]any{
+		"observation_id": id,
+		"min_confidence": minConf,
+		"count":          len(outs),
+		"relations":      outs,
 	}
 	printJSON(out)
 }
