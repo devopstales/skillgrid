@@ -199,6 +199,27 @@ func (s *Service) BudgetedRetrievalAsRoot(ctx context.Context, projectID, config
 	return s.budgetedRetrievalHits(ctx, root, projectID, readerOwner, mode, query, "", limit)
 }
 
+// DirectoryRetrieval is the service-level seam for the CLI `mem search
+// --trajectory` flag (014 step 19): it opens the project's memory store and
+// runs the directory-level recursive retrieval (hierarchical drill-down +
+// trajectory), returning the results + trajectory. It is a pure read path —
+// it never mutates observations (the trail insert is the sole write).
+func (s *Service) DirectoryRetrieval(ctx context.Context, projectID, configRoot, query string, limit int) (*memory.RetrieveDirResult, error) {
+	root := configRoot
+	if root == "" {
+		root = "."
+	}
+	if abs, absErr := filepath.Abs(root); absErr == nil {
+		root = abs
+	}
+	h, cleanup, err := s.openProject(projectID, root)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return h.Memory().DirectoryRetrieve(ctx, memory.RetrieveDirOptions{Query: query, Limit: limit})
+}
+
 // BudgetedRetrievalAsRootFTS is BudgetedRetrievalAsRoot with an FTS match
 // mode for the L1/L0 fact leg (change 014, step 02): "trigram" / "prefix"
 // reshape the FTS query (buildFTSQuery); an empty matchMode is the existing

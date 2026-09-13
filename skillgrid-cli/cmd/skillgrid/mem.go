@@ -47,6 +47,7 @@ func runMem(version string, args []string) {
 		skipEmb  bool
 		minConf  float64
 		memType  string
+		trajectory bool
 	)
 	fs.StringVar(&dataDir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
 	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
@@ -66,6 +67,7 @@ func runMem(version string, args []string) {
 	fs.StringVar(&memType, "type", "", "list: filter by fine-grained memory_type (014 step 18; one of the 9 typed categories)")
 	var searchMode string
 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
+	fs.BoolVar(&trajectory, "trajectory", false, "search: also run the directory retrieval and print its drill-down trajectory (014 step 19)")
 	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
 		os.Exit(2)
 	}
@@ -81,7 +83,7 @@ func runMem(version string, args []string) {
 	case "share":
 		runMemShare(svc, projID, pos, visibility, grants)
 	case "search":
-		runMemSearch(svc, projID, dataDir, pos, owner, agent, limit, items, chars, timeout, searchMode)
+		runMemSearch(svc, projID, dataDir, pos, owner, agent, limit, items, chars, timeout, searchMode, trajectory)
 	case "context":
 		runMemContext(svc, projID, limit, items, chars, timeout)
 	case "timeline":
@@ -119,8 +121,10 @@ func printMemUsage() {
   share <id> --target-visibility team|restricted|agent [--grants a,b]
                                    widen visibility (mem_share)
   search <query> [--mode trigram|prefix|phrase|all] [--limit N] [--reader-owner X]
-                  [--item N] [--char N] [--timeout 3s]
-                                    budgeted FTS search (mem_search; default mode = phrase OR)
+                   [--item N] [--char N] [--timeout 3s] [--trajectory]
+                                     budgeted FTS search (mem_search; default mode = phrase OR);
+                                     --trajectory also prints the directory
+                                     retrieval drill-down path (014 step 19)
   context [--limit N] [--item N] [--char N] [--timeout 3s]
                                    recent session summaries (mem_context)
   timeline <id> [--window 1h] [--limit N] [--item N] [--char N] [--timeout 3s]
@@ -284,7 +288,7 @@ func runMemShare(svc *service.Service, projID string, pos []string, visibility, 
 	printJSON(map[string]any{"id": id, "shared": true, "visibility": visibility})
 }
 
-func runMemSearch(svc *service.Service, projID, dataDir string, pos []string, owner, agent string, limit, items, chars int, timeout string, searchMode string) {
+func runMemSearch(svc *service.Service, projID, dataDir string, pos []string, owner, agent string, limit, items, chars int, timeout string, searchMode string, trajectory bool) {
 	if len(pos) < 1 {
 		fmt.Fprintln(os.Stderr, "error: mem search requires a query")
 		os.Exit(2)
@@ -326,6 +330,18 @@ func runMemSearch(svc *service.Service, projID, dataDir string, pos []string, ow
 	if res.Truncated {
 		out["truncated"] = true
 		out["truncation_reason"] = res.Reason
+	}
+	if trajectory {
+		// --trajectory (014 step 19): additionally run the directory retrieval
+		// and print the drill-down path (query_id + the trajectory steps with
+		// their scores/depths) alongside the flat-search results. The flat
+		// search result above is unchanged — this is a pure diagnostic add-on.
+		dirRes, dErr := svc.DirectoryRetrieval(hCtx(), projID, dataDir, query, limit)
+		if dErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: directory retrieval: %v\n", dErr)
+		} else {
+			out["trajectory"] = dirRes
+		}
 	}
 	printJSON(out)
 }
