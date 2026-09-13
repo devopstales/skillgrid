@@ -317,7 +317,7 @@ func (s *Service) RecomputeImportance(ctx context.Context) error {
 	return nil
 }
 
-// observedImportance returns the importance factor used by the query-time
+// observedImportance returns the importance score used by the query-time
 // re-rank (014 step 13.3): the stored importance_score when it is populated,
 // otherwise a compute-on-the-fly fallback from retrieval_usage + created_at
 // (pre-025 rows or a stamp failure).
@@ -331,6 +331,19 @@ func (s *Service) observedImportance(o Observation, now time.Time) float64 {
 	}
 	return ComputeImportanceScore(o.RetrievalUsage, age, s.effectiveImportance().DecayRate)
 }
+
+// improve re-ranks an already-SQL-ranked search result set by retrieval
+// usage (014 step 08, self-improvement feedback loop). Step 13.3 replaced it
+// in SearchOwnerScoped with importanceRerank (importance_score instead of
+// binary retrieval_usage); it is kept for direct callers and the step-08
+// tests. It is the in-memory re-rank the brief requires: the SQL ORDER BY
+// (pinned, bm25) is untouched, and when improve is disabled (the default) it
+// returns the input unchanged, so default search is byte-identical to
+// pre-improve.
+//
+// A nil/empty input is returned as-is. The cooldown (per service) prevents
+// excessive re-weighting on consecutive searches: within the cooldown window
+// the input is returned unchanged.
 
 // importanceRerank applies the AKL importance boost to an already-SQL-ranked
 // search result set (014 step 13.3). It is the in-memory re-rank the brief

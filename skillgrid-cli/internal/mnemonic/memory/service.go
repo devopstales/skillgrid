@@ -623,10 +623,13 @@ func (s *Service) SearchOwnerScoped(ctx context.Context, readerOwner, readerAgen
 	for _, o := range out {
 		s.BumpRetrievalUsage(ctx, o.ID)
 	}
-	// Self-improvement feedback loop (014 step 08): opt-in in-memory
-	// re-rank by retrieval usage before the results go out. A no-op
-	// (byte-identical order) when the mnemonic.improve config is off.
-	return s.improve(ctx, out), nil
+	// AKL importance scoring (014 step 13.3): opt-in in-memory re-rank by
+	// importance_score — a multiplicative boost on the base relevance
+	// (normalized to 0..1 against the result-set max). It replaces the
+	// step-08 binary retrieval-usage boost/decay re-rank; the improve()
+	// opt-in gate (mnemonic.improve.enabled) is shared, so with the config
+	// off the raw SQL order is returned byte-identical.
+	return s.importanceRerank(ctx, out), nil
 }
 
 // Recent returns stored observations, newest first, without FTS.
