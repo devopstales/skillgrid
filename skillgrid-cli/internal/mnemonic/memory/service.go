@@ -100,6 +100,10 @@ type Service struct {
 	// importance. Production code never sets it (default -1 = unset).
 	// Guarded by testRawImportanceMu (importance.go).
 	TestRawImportance float64
+	// dirEmb is the optional embedding seam for directory retrieval scoring
+	// (014, step 19). Nil = FTS5-only directory scoring (the default). Set via
+	// SetDirEmbedder from the config-driven embedder.
+	dirEmb interface{ EmbedQuery(ctx context.Context, text string) (Vector, error) }
 }
 
 // SetDistillHookProvider attaches the owning handle (which carries the opt-in

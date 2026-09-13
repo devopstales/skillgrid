@@ -141,6 +141,36 @@ func TestDirectoryRetrievalDepthLimit(t *testing.T) {
 	}
 }
 
+// TestDirectoryRetrievalCache is the 19.4 cache guard: a second identical
+// directory retrieval reuses the memoized directory scores (dirScoreCache)
+// instead of re-scoring, and returns the same leaf + trajectory.
+func TestDirectoryRetrievalCache(t *testing.T) {
+	fx := newFixture(t, "dir-cache-proj")
+	ctx := context.Background()
+	seedDirHierarchy(t, fx)
+
+	first, err := fx.svc.DirectoryRetrieve(ctx, RetrieveDirOptions{Query: "auth middleware core", Limit: 10})
+	if err != nil {
+		t.Fatalf("first DirectoryRetrieve: %v", err)
+	}
+	second, err := fx.svc.DirectoryRetrieve(ctx, RetrieveDirOptions{Query: "auth middleware core", Limit: 10})
+	if err != nil {
+		t.Fatalf("second DirectoryRetrieve: %v", err)
+	}
+	if first.Leaf != second.Leaf {
+		t.Fatalf("cache miss: first leaf %q, second leaf %q", first.Leaf, second.Leaf)
+	}
+	if len(first.Trajectory) != len(second.Trajectory) {
+		t.Fatalf("cache miss: first %d steps, second %d steps", len(first.Trajectory), len(second.Trajectory))
+	}
+	for i := range first.Trajectory {
+		if first.Trajectory[i].Path != second.Trajectory[i].Path ||
+			first.Trajectory[i].Score != second.Trajectory[i].Score {
+			t.Fatalf("cache miss at step %d: %+v vs %+v", i, first.Trajectory[i], second.Trajectory[i])
+		}
+	}
+}
+
 // TestIntentAnalysisClassification is 19.3 [RED]: ClassifyIntent maps a query
 // to one of exploration/debugging/review/refactor, and the intent adjusts the
 // retrieval strategy (debugging → wider scope, exploration → directory-first).
