@@ -78,6 +78,13 @@ type Service struct {
 	// defaults; MinLength is tunable from the mnemonic.promotion config
 	// (MinSections is fixed at the default). Set via SetPromotion.
 	promotionCfg PromotionConfig
+	// importanceCfg tunes AKL importance scoring + recency decay (014,
+	// step 13): the per-day decay rate and the maturity-tier thresholds,
+	// configurable via the mnemonic.importance config section. The zero
+	// value means "use defaults" (SetImportance/effectiveImportance fill
+	// in the 0.05/day decay and 7/30/14-day thresholds). Set via
+	// SetImportance from the mnemonic.importance config key.
+	importanceCfg ImportanceConfig
 }
 
 // SetDistillHookProvider attaches the owning handle (which carries the opt-in
@@ -255,6 +262,13 @@ type Observation struct {
 	LastSeenAt     string `json:"last_seen_at,omitempty"`
 	ExpiresAt      string `json:"expires_at,omitempty"`
 	ToolName       string `json:"tool_name,omitempty"`
+	// ImportanceScore, RecencyDecay, MaturityTier are the AKL importance
+	// columns (014 step 13). Additive + omitempty: pre-025 rows (or a row
+	// whose stamping failed) leave them unset, so the JSON contract is
+	// unchanged for existing consumers.
+	ImportanceScore sql.NullFloat64 `json:"importance_score,omitempty"`
+	RecencyDecay    sql.NullFloat64 `json:"recency_decay,omitempty"`
+	MaturityTier    string          `json:"maturity_tier,omitempty"`
 }
 
 // Status holds aggregate memory statistics.
@@ -411,8 +425,9 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 		INSERT INTO observations (
 			session_id, type, title, content, project, scope, topic_key,
 			normalized_hash, revision_count, created_at, updated_at, source, prompt_id, tool_name,
-			owner, visibility, status, retrieval_usage, expires_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?)`,
+			owner, visibility, status, retrieval_usage, expires_at,
+			importance_score, recency_decay, maturity_tier
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?, 0, 1, 'fresh')`,
 		in.SessionID, in.Type, in.Title, in.Content, s.projectID, in.Scope, nullString(in.TopicKey),
 		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt),
 	)
@@ -423,6 +438,10 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("last insert id: %w", err)
 	}
+	// AKL importance (014 step 13): stamp the importance_score /
+	// recency_decay / maturity_tier columns on save (a 0-usage, age-0 row
+	// scores 0 * exp(0) = 0, tier fresh). Best-effort internally.
+	s.stampImportance(ctx, id, 0, now)
 	// Triple-store linkage (014 step 07): best-effort bind the observation to
 	// the codeindex symbol of its source file (observations.graph_ref). A
 	// missing file or symbol leaves graph_ref NULL — the linkage is advisory
@@ -523,12 +542,13 @@ func (s *Service) SearchWithScope(ctx context.Context, query, matchMode, scope s
 		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
-		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0)
+		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
+		       o.importance_score, o.recency_decay, o.maturity_tier
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
-		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
-		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
+ 		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
+ 		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
 		LIMIT ?`,
 		args...,
 	)
@@ -581,7 +601,8 @@ func (s *Service) SearchOwnerScoped(ctx context.Context, readerOwner, readerAgen
 		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
-		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0)
+		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
+		       o.importance_score, o.recency_decay, o.maturity_tier
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
@@ -645,12 +666,14 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	var obs Observation
 	var topicKey sql.NullString
 	var promptID sql.NullInt64
-	var lastSeen, expires, toolName, owner sql.NullString
+	var lastSeen, expires, toolName, owner, tier sql.NullString
 	var pinned, dups, usage int
+	var score, decay sql.NullFloat64
 	err := row.Scan(
 		&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
 		&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 		&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
+		&score, &decay, &tier,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -658,6 +681,7 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 		}
 		return Observation{}, fmt.Errorf("get observation: %w", err)
 	}
+	obs.setImportanceColumns(score, decay, tier)
 	if topicKey.Valid {
 		obs.TopicKey = topicKey.String
 	}
@@ -679,6 +703,9 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	}
 	if owner.Valid {
 		obs.Owner = owner.String
+	}
+	if tier.Valid {
+		obs.MaturityTier = tier.String
 	}
 	return obs, nil
 }
@@ -1710,7 +1737,8 @@ const obsSelectCols = `
 	id, session_id, type, title, content, project, scope,
 	topic_key, source, normalized_hash, revision_count, prompt_id, created_at, updated_at,
 	COALESCE(pinned, 0), COALESCE(duplicate_count, 0), last_seen_at, expires_at, tool_name,
-	owner, COALESCE(visibility, 'private'), COALESCE(status, 'active'), COALESCE(retrieval_usage, 0)`
+	owner, COALESCE(visibility, 'private'), COALESCE(status, 'active'), COALESCE(retrieval_usage, 0),
+	importance_score, recency_decay, maturity_tier`
 
 func scanObservations(rows *sql.Rows) ([]Observation, error) {
 	var out []Observation
@@ -1718,15 +1746,18 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
 		var obs Observation
 		var topicKey sql.NullString
 		var promptID sql.NullInt64
-		var lastSeen, expires, toolName, owner sql.NullString
+		var lastSeen, expires, toolName, owner, tier sql.NullString
 		var pinned, dups, usage int
+		var score, decay sql.NullFloat64
 		if err := rows.Scan(
 			&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
 			&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 			&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
+			&score, &decay, &tier,
 		); err != nil {
 			return nil, fmt.Errorf("scan observation: %w", err)
 		}
+		obs.setImportanceColumns(score, decay, tier)
 		if topicKey.Valid {
 			obs.TopicKey = topicKey.String
 		}

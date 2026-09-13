@@ -53,6 +53,9 @@ func seedImproveObs(t *testing.T, fx *ownerFixture, title, body, owner string, u
 	if err != nil {
 		t.Fatalf("seed last insert id %q: %v", title, err)
 	}
+	// Stamp the importance columns like Save() would (014 step 13), so the
+	// query-time re-rank reads the same stored values production sees.
+	fx.svc.stampImportance(context.Background(), id, usage, created)
 	return id
 }
 
@@ -323,11 +326,12 @@ func rawSQLSearch(ctx context.Context, fx *ownerFixture, query string) ([]Observ
 		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
-		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0)
+		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
+		       o.importance_score, o.recency_decay, o.maturity_tier
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?
-		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
+ 		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
 		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
 		LIMIT 10`,
 		ftsQuery, fx.svc.ProjectID(),
