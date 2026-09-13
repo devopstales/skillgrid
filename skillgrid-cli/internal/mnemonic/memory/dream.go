@@ -33,6 +33,46 @@ const dreamSynthesisSource = "synthesis"
 // (one level above the L0/L1 session summaries that are its input).
 const DreamTierL2 = "L2"
 
+// PrunedResult reports what prune() removed.
+type PrunedResult struct {
+	Pruned int    `json:"pruned"`
+	IDs    []int64 `json:"ids"`
+}
+
+// dreamTypeWeights are the on-the-fly importance weights for the prune phase
+// (014 step 12.3). importance = wUsage*usageNorm + wRecency*recency +
+// wType*typeWeight, clamped to [0,1]. usageNorm is min(retrieval_usage, 50)/50
+// (the same cap the step-08 improve loop uses, so one hot observation cannot
+// outrank the recency/type terms). wType weights durable knowledge types
+// (decision, architecture, convention, config) higher than transient ones, so a
+// never-retrieved architectural decision survives a fresh-but-never-retrieved
+// learning. No importance_score / maturity_tier column is added — the score is
+// computed on-the-fly from existing columns (the brief's preferred option).
+//
+// The weights (wUsage=0.6, wRecency=0.37, wType=0.2) are chosen so that at a
+// 0.5 threshold: a fresh never-retrieved non-durable note scores 0.45 (pruned),
+// while the least-valued keeper — a fresh non-durable note retrieved even once
+// (usage 5) — scores 0.51 (kept) and a fresh never-retrieved durable note
+// scores 0.55 (kept). Usage dominates, durability breaks the tie at equal
+// usage, and age (via the recency grace window) only ever lowers the score.
+const (
+	wUsage      = 0.6
+	wRecency    = 0.37
+	wType       = 0.2
+	typeWeightDurable = 0.9
+	typeWeightDefault = 0.4
+)
+
+// durableTypes are the observation types the prune phase weights as durable
+// (they carry the higher typeWeight). This is the on-the-fly stand-in for a
+// maturity tier: durable knowledge resists pruning more than transient notes.
+var durableTypes = map[string]bool{
+	"decision":     true,
+	"architecture": true,
+	"convention":   true,
+	"config":       true,
+}
+
 // Memory is a lower-tier record synthesize() lifts. For session summaries the
 // SessionID is the source session (the provenance the L2 record references);
 // for a generic observation it is that observation's session_id.
@@ -274,6 +314,109 @@ func (de *DreamExecutor) synthesizeBody(ctx context.Context, contents []string) 
 // record back to its source sessions.
 func dreamSourceSessions(sessions []string) string {
 	return "Source sessions: " + strings.Join(sessions, ", ")
+}
+
+// prune soft-deletes observations whose on-the-fly importance score is below
+// threshold (014 step 12.3). It loads the live rows of the project, scores each
+// with importance(), and soft-deletes the ones below the threshold. It never
+// touches a row that is already deleted, and returns the count and the ids it
+// pruned. Maturity tier is not a stored column, so the tier condition is
+// expressed through the durable-type weight (durable types are harder to
+// prune) — see the weights above.
+func (de *DreamExecutor) prune(ctx context.Context, threshold float64) (PrunedResult, error) {
+	res := PrunedResult{}
+	if de == nil || de.svc == nil || de.svc.DB() == nil {
+		return res, fmt.Errorf("dream executor not initialized")
+	}
+	rows, err := de.svc.DB().QueryContext(ctx, `
+		SELECT id, type, created_at, COALESCE(retrieval_usage, 0)
+		FROM observations
+		WHERE project = ? AND deleted_at IS NULL`,
+		de.svc.ProjectID())
+	if err != nil {
+		return res, fmt.Errorf("prune query: %w", err)
+	}
+	defer rows.Close()
+	var toPrune []int64
+	for rows.Next() {
+		var id int64
+		var typ, created string
+		var usage int
+		if err := rows.Scan(&id, &typ, &created, &usage); err != nil {
+			return res, fmt.Errorf("prune scan: %w", err)
+		}
+		if de.importance(typ, created, usage) < threshold {
+			toPrune = append(toPrune, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return res, fmt.Errorf("prune iterate: %w", err)
+	}
+	now := de.now().UTC().Format(time.RFC3339)
+	for _, id := range toPrune {
+		if _, err := de.svc.DB().ExecContext(ctx, `
+			UPDATE observations SET deleted_at = ?
+			WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+			now, id, de.svc.ProjectID()); err != nil {
+			return res, fmt.Errorf("soft-delete %d: %w", id, err)
+		}
+		res.Pruned++
+		res.IDs = append(res.IDs, id)
+	}
+	return res, nil
+}
+
+// importance is the on-the-fly AKL-style importance score used by prune (014
+// step 12.3). It is computed from existing columns — no new schema:
+//
+//	usageNorm = min(retrieval_usage, 50) / 50               (0..1)
+//	age       = now - created_at
+//	recency   = 1 when age <= 30d (fresh, no penalty); max(0, 1 - age/30d)
+//	            once past the 30-day grace window (decays to 0 at 60d)
+//	typeWeight = 0.9 durable types, else 0.4
+//	importance = clamp(0.6*usageNorm + 0.37*recency + 0.2*typeWeight, 0, 1)
+//
+// The recency term is a GATED age penalty, not a raw freshness boost: a row
+// younger than the 30-day grace window keeps full recency (1.0) regardless of
+// its usage, so a fresh row is scored on usage + durability alone — fresh
+// content is given a minimum age before age can drag it below the threshold
+// (per the brief's "importance + a minimum age"). Only once a row is old does
+// recency decay, dragging a never-retrieved, non-durable old note below the
+// threshold (a 60d old one scores 0 + 0 + 0.08 = 0.08). Durable types and
+// retrieval usage keep their rows above the line at any age.
+const pruneGraceWindow = 30 * 24 * time.Hour
+
+func (de *DreamExecutor) importance(typ, createdAt string, usage int) float64 {
+	usageNorm := 0.0
+	if usage > 0 {
+		usageNorm = float64(usage) / 50.0
+		if usageNorm > 1.0 {
+			usageNorm = 1.0
+		}
+	}
+	recency := 1.0
+	if t, err := parseObsTimestamp(createdAt); err == nil && !t.IsZero() {
+		age := de.now().Sub(t)
+		if age > pruneGraceWindow {
+			r := 1.0 - age.Hours()/24.0/30.0
+			if r < 0 {
+				r = 0
+			}
+			recency = r
+		}
+	}
+	typeWeight := typeWeightDefault
+	if durableTypes[typ] {
+		typeWeight = typeWeightDurable
+	}
+	s := wUsage*usageNorm + wRecency*recency + wType*typeWeight
+	if s < 0 {
+		s = 0
+	}
+	if s > 1 {
+		s = 1
+	}
+	return s
 }
 
 // dreamShortID is a short, stable identifier (first 8 chars) used in titles.
