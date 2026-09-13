@@ -132,3 +132,46 @@ func TestImportanceConfigurableDecay(t *testing.T) {
 		t.Fatalf("malformed importance.decay must fall back to the default, got %v", got.Importance.DecayRate)
 	}
 }
+
+// TestFederatedConfigWeights covers 014 step 16 (config side): the
+// mnemonic.federated section defaults to the 0.5/0.5 balance, parses explicit
+// weights from YAML, and falls back to the defaults on a malformed value.
+func TestFederatedConfigWeights(t *testing.T) {
+	dir := t.TempDir()
+
+	// No config file at all → the 0.5/0.5 production default.
+	if got := Load(dir); got.Federated != DefaultFederated() {
+		t.Fatalf("default: federated weights must be 0.5/0.5, got %+v", got.Federated)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Absent section → still the default.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); got.Federated != DefaultFederated() {
+		t.Fatalf("absent section: federated weights must be 0.5/0.5, got %+v", got.Federated)
+	}
+
+	// Explicit weights.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  federated:\n    rank_weight: \"0.8\"\n    importance_weight: \"0.2\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Load(dir)
+	if got.Federated.RankWeight != 0.8 || got.Federated.ImportanceWeight != 0.2 {
+		t.Fatalf("federated weights: got rank=%.2f importance=%.2f, want 0.8/0.2", got.Federated.RankWeight, got.Federated.ImportanceWeight)
+	}
+
+	// Malformed weight → falls back to the 0.5/0.5 default.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  federated:\n    rank_weight: \"not-a-number\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); got.Federated != DefaultFederated() {
+		t.Fatalf("malfederated weight must fall back to the 0.5/0.5 default, got %+v", got.Federated)
+	}
+}

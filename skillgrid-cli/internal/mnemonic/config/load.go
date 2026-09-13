@@ -103,6 +103,22 @@ type Importance struct {
 	TierThresholds TierThresholdsConfig
 }
 
+// Federated is the mnemonic.federated section (014 step 16): the merge
+// weights for the federated cross-store query. The composite score is
+// rank_weight*(1/(1+rank)) + importance_weight*(importance/max_importance);
+// zero (or malformed/negative) weights fall back to the defaults below (0.5 /
+// 0.5), so an absent section keeps the production balance.
+type Federated struct {
+	RankWeight       float64
+	ImportanceWeight float64
+}
+
+// DefaultFederated is the 014 step 16 default: rank and importance carry
+// equal weight in the federated composite score.
+func DefaultFederated() Federated {
+	return Federated{RankWeight: 0.5, ImportanceWeight: 0.5}
+}
+
 // TierThresholdsConfig is the mnemonic.importance.tier_thresholds section
 // (014 step 13.4): the maturity-tier age cutoffs, in days. Zero fields fall
 // back to the memory package defaults (MatureAgeDays 7, ArchivalAgeDays 30,
@@ -140,6 +156,9 @@ type Indexing struct {
 	// Importance is the mnemonic.importance section (014 step 13): the AKL
 	// importance scoring decay rate + maturity-tier thresholds.
 	Importance Importance
+	// Federated is the mnemonic.federated section (014 step 16): the merge
+	// weights for the federated cross-store query composite score.
+	Federated Federated
 }
 
 type indexingFile struct {
@@ -174,6 +193,9 @@ type mnemonicSection struct {
 	// Importance is the mnemonic.importance section (014 step 13): the AKL
 	// importance scoring decay rate + maturity-tier thresholds.
 	Importance importanceSection `yaml:"importance"`
+	// Federated is the mnemonic.federated section (014 step 16): the merge
+	// weights for the federated cross-store query composite score.
+	Federated federatedSection `yaml:"federated"`
 }
 
 type retrievalBudgetSection struct {
@@ -268,6 +290,7 @@ func DefaultIndexing() Indexing {
 		WebCache:     DefaultWebCache(),
 		Embedder:     DefaultEmbedder(),
 		TTL:          DefaultMemoryTTL,
+		Federated:    DefaultFederated(),
 	}
 }
 
@@ -362,6 +385,25 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	// defaults in SetImportance, so a malformed section never changes the
 	// production scoring.
 	out.Importance = mergeImportance(section.Importance)
+	// Federated (014 step 16): the federated merge weights. Malformed or
+	// non-positive values fall back to the 0.5/0.5 defaults, so a bad key
+	// never skews the composite.
+	out.Federated = mergeFederated(section.Federated)
+	return out
+}
+
+// mergeFederated maps the mnemonic.federated YAML section (014 step 16) to the
+// Federated struct. Weights are float strings (YAML mirrors the importance
+// section's pattern); absent or malformed values are left zero so the
+// DefaultFederated fallback applies.
+func mergeFederated(section federatedSection) Federated {
+	out := DefaultFederated()
+	if f, err := strconv.ParseFloat(section.RankWeight, 64); err == nil && f > 0 {
+		out.RankWeight = f
+	}
+	if f, err := strconv.ParseFloat(section.ImportanceWeight, 64); err == nil && f > 0 {
+		out.ImportanceWeight = f
+	}
 	return out
 }
 
@@ -417,6 +459,13 @@ type promotionSection struct {
 type importanceSection struct {
 	DecayRate      string                 `yaml:"decay"`
 	TierThresholds tierThresholdsSection  `yaml:"tier_thresholds"`
+}
+
+// federatedSection is the mnemonic.federated section (014 step 16). Weights
+// are parsed as floats (absent/malformed → the 0.5/0.5 defaults).
+type federatedSection struct {
+	RankWeight       string `yaml:"rank_weight"`
+	ImportanceWeight string `yaml:"importance_weight"`
 }
 
 // tierThresholdsSection is the mnemonic.importance.tier_thresholds section

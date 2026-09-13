@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -67,6 +66,38 @@ type Service struct {
 	// of truth). Guarded by budgetMu (set before reads, read at read time).
 	budgetMu        sync.Mutex
 	budgetOverrides map[string]memory.BudgetConfig
+	// federatedMu guards federatedWeights (014 step 16): set before searches
+	// by tests via SetFederatedWeights; read per search by federatedCfg.
+	// Production leaves it at the zero value → config.DefaultFederated
+	// (0.5/0.5); the mnemonic.federated YAML section is loaded through the
+	// same config path as the other mnemonic.* sections and honored via the
+	// zero-fallback in federatedWeights.
+	federatedMu      sync.Mutex
+	federatedWeights FederatedConfig
+}
+
+// federatedCfg returns the active federated merge weights: the test/CLI
+// override when set, else the config defaults (0.5/0.5).
+func (s *Service) federatedCfg() FederatedConfig {
+	if s == nil {
+		return FederatedConfig{}
+	}
+	s.federatedMu.Lock()
+	cfg := s.federatedWeights
+	s.federatedMu.Unlock()
+	return cfg
+}
+
+// SetFederatedWeights overrides the federated merge weights (014 step 16).
+// Tests use it to pin deterministic weights; the CLI could route a flag. A
+// zero value restores the config defaults.
+func (s *Service) SetFederatedWeights(cfg FederatedConfig) {
+	if s == nil {
+		return
+	}
+	s.federatedMu.Lock()
+	s.federatedWeights = cfg
+	s.federatedMu.Unlock()
 }
 
 // SetBudgetOverride sets a per-project read-budget override (change 013,
@@ -848,7 +879,7 @@ func (s *Service) searchObservationsAllSequential(ctx context.Context, projects 
 		}
 		collected = append(collected, rankHits(res)...)
 	}
-	return mergeRanked(collected, limit), nil
+	return mergeRanked(collected, limit, s.federatedCfg()), nil
 }
 
 // searchObservationsAllParallel searches every store concurrently, bounded by
@@ -901,7 +932,7 @@ func (s *Service) searchObservationsAllParallel(ctx context.Context, projects []
 	for res := range results {
 		collected = append(collected, res...)
 	}
-	return mergeRanked(collected, limit), nil
+	return mergeRanked(collected, limit, s.federatedCfg()), nil
 }
 
 // storeRanked is one merged hit: the observation plus its 0-based rank within
@@ -920,29 +951,149 @@ func rankHits(res []memory.Observation) []storeRanked {
 	return out
 }
 
-// mergeRanked dedups on id/project (first occurrence wins — deterministic,
-// since the per-store result order is stable for the same inputs) and
-// stable-sorts by (rank, UpdatedAt desc). The stable sort makes the merged
-// output independent of goroutine completion order.
-func mergeRanked(collected []storeRanked, limit int) []memory.Observation {
-	seen := map[string]bool{}
-	deduped := collected[:0]
-	for _, r := range collected {
-		key := strconv.FormatInt(r.obs.ID, 10) + "/" + r.obs.Project
-		if seen[key] {
+// FederatedConfig holds the merge weights for the federated cross-store
+// query (014 step 16). Zero or negative fields fall back to the defaults in
+// config.DefaultFederated (0.5/0.5).
+type FederatedConfig struct {
+	RankWeight       float64
+	ImportanceWeight float64
+}
+
+// federatedWeights returns the active federated merge weights, falling back
+// to the config package defaults for missing or non-positive fields.
+func federatedWeights(cfg FederatedConfig) FederatedConfig {
+	def := config.DefaultFederated()
+	if cfg.RankWeight <= 0 {
+		cfg.RankWeight = def.RankWeight
+	}
+	if cfg.ImportanceWeight <= 0 {
+		cfg.ImportanceWeight = def.ImportanceWeight
+	}
+	return cfg
+}
+
+// federatedComposite is the federated merge's composite score (014 step 16):
+//
+//	composite = rank_weight * (1/(1+rank)) + importance_weight * (importance / maxImportance)
+//
+// rank is the hit's 0-based position within its own store's bm25 ranking
+// (lower = better); it decays hyperbolically so a #1 hit contributes
+// rank_weight and each deeper hit strictly less. importance is the
+// observation's LOCAL per-project importance score (014 step 13, the
+// importance_score column, with the compute-on-the-fly fallback for
+// zero-usage rows); it is normalized by maxImportance — the maximum
+// importance across the whole merged result set — so both terms live in
+// (0, 1] and the weights directly express the rank-vs-importance trade-off.
+// HIGHER composite ranks first. When no observation has a positive
+// importance score the importance term is 0 for every hit and the merge
+// degrades to pure cross-store rank order (byte-identical to step 03).
+func federatedComposite(rank int, importance, maxImportance float64, cfg FederatedConfig) float64 {
+	cfg = federatedWeights(cfg)
+	rankTerm := cfg.RankWeight / (1 + float64(rank))
+	impTerm := 0.0
+	if maxImportance > 0 && importance > 0 {
+		impTerm = cfg.ImportanceWeight * (importance / maxImportance)
+	}
+	return rankTerm + impTerm
+}
+
+// observedImportanceOf returns the importance score used by the federated
+// merge for one observation (014 step 16): the stored importance_score when
+// it is populated and positive (step 13 stamps it on save), otherwise the
+// compute-on-the-fly AKL score from retrieval_usage + created_at (the same
+// fallback the step-13 query-time re-rank uses, with the production 0.05/day
+// decay — the merge is weight-only and must not depend on a per-store config
+// load).
+func observedImportanceOf(o memory.Observation) float64 {
+	if o.ImportanceScore.Valid && o.ImportanceScore.Float64 > 0 {
+		return o.ImportanceScore.Float64
+	}
+	age := time.Duration(0)
+	if ts, err := time.Parse(time.RFC3339, o.CreatedAt); err == nil && !ts.IsZero() {
+		age = time.Since(ts)
+	}
+	return memory.ComputeImportanceScore(o.RetrievalUsage, age, 0.05)
+}
+
+// mergeRanked is the federated merge (014 step 16): it dedups the same
+// observation emitted into the merge more than once and stable-sorts by
+// composite score DESCENDING, where the composite combines the cross-store
+// rank and the per-observation importance (see federatedComposite). Ties
+// (equal composite) break on UpdatedAt desc, then ID desc, so the output is
+// deterministic regardless of goroutine completion order.
+//
+// Dedup key choice (16.2): the observation ID + project — the same identity
+// key the step-03 merge used (ID/Project). The brief frames 16.2 as "the same
+// observation (same ID) in two different stores," but each store is an
+// independent project with its own autoincrement ID space, so a bare numeric
+// ID is ambiguous across stores: two DISTINCT observations can share an ID
+// (the step-03 rollback test seeds identical content in two stores, both ID 1,
+// and expects BOTH to survive). Keying on ID+project preserves that contract
+// while still collapsing a true duplicate (the same observation emitted twice
+// into the merge), keeping the higher-composite copy.
+func mergeRanked(collected []storeRanked, limit int, cfg FederatedConfig) []memory.Observation {
+	cfg = federatedWeights(cfg)
+	// First pass: collect the per-observation importance and the result-set
+	// max (the normalization anchor).
+	maxImportance := 0.0
+	importances := make([]float64, len(collected))
+	for i, r := range collected {
+		imp := observedImportanceOf(r.obs)
+		importances[i] = imp
+		if imp > maxImportance {
+			maxImportance = imp
+		}
+	}
+	// Second pass: composite score + dedup. The dedup key (16.2) is the
+	// observation identity — ID + project, the same key the step-03 merge
+	// used (ID/Project). It is kept so two DISTINCT observations that happen
+	// to share content and an autoincrement ID across two stores (each store
+	// has its own ID space) are NOT collapsed. The "higher composite wins"
+	// rule applies when the same observation (same ID in the same project) is
+	// emitted more than once into the merge — a store re-emitting a result,
+	// or a genuinely replicated row — keeping the higher-composite copy and
+	// dropping the duplicate (deterministic tie-breaks on UpdatedAt desc,
+	// then ID desc).
+	type scored struct {
+		obs       memory.Observation
+		composite float64
+	}
+	type dedupKey struct {
+		id      int64
+		project string
+	}
+	byID := map[dedupKey]int{} // obs identity -> index in `best`
+	best := make([]scored, 0, len(collected))
+	for i, r := range collected {
+		composite := federatedComposite(r.rank, importances[i], maxImportance, cfg)
+		key := dedupKey{id: r.obs.ID, project: r.obs.Project}
+		if idx, ok := byID[key]; ok {
+			// Same observation (same ID in the same project) seen again —
+			// keep the higher-composite copy; deterministic tie-breaks on
+			// UpdatedAt desc, then ID desc.
+			cur := best[idx]
+			if composite > cur.composite ||
+				(composite == cur.composite &&
+					(r.obs.UpdatedAt > cur.obs.UpdatedAt ||
+						(r.obs.UpdatedAt == cur.obs.UpdatedAt && r.obs.ID > cur.obs.ID))) {
+				best[idx] = scored{obs: r.obs, composite: composite}
+			}
 			continue
 		}
-		seen[key] = true
-		deduped = append(deduped, r)
+		byID[key] = len(best)
+		best = append(best, scored{obs: r.obs, composite: composite})
 	}
-	sort.SliceStable(deduped, func(i, j int) bool {
-		if deduped[i].rank != deduped[j].rank {
-			return deduped[i].rank < deduped[j].rank
+	sort.SliceStable(best, func(i, j int) bool {
+		if best[i].composite != best[j].composite {
+			return best[i].composite > best[j].composite
 		}
-		return deduped[i].obs.UpdatedAt > deduped[j].obs.UpdatedAt
+		if best[i].obs.UpdatedAt != best[j].obs.UpdatedAt {
+			return best[i].obs.UpdatedAt > best[j].obs.UpdatedAt
+		}
+		return best[i].obs.ID > best[j].obs.ID
 	})
-	out := make([]memory.Observation, 0, len(deduped))
-	for _, r := range deduped {
+	out := make([]memory.Observation, 0, len(best))
+	for _, r := range best {
 		out = append(out, r.obs)
 	}
 	if len(out) > limit {

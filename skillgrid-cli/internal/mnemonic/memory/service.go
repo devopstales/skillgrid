@@ -85,6 +85,12 @@ type Service struct {
 	// in the 0.05/day decay and 7/30/14-day thresholds). Set via
 	// SetImportance from the mnemonic.importance config key.
 	importanceCfg ImportanceConfig
+	// TestRawImportance is a test-only seam (014 step 16): when >= 0,
+	// stampImportance stores this value as the importance_score instead of
+	// computing it, so federated-query tests can seed arbitrary per-observation
+	// importance. Production code never sets it (default -1 = unset).
+	// Guarded by testRawImportanceMu (importance.go).
+	TestRawImportance float64
 }
 
 // SetDistillHookProvider attaches the owning handle (which carries the opt-in
@@ -292,7 +298,7 @@ type Status struct {
 
 // New creates a memory service for the given store and project ID.
 func New(st *store.Store, projectID string) *Service {
-	return &Service{store: st, projectID: projectID}
+	return &Service{store: st, projectID: projectID, TestRawImportance: -1}
 }
 
 // DB returns the underlying *sql.DB. It is exposed so an additive layer that

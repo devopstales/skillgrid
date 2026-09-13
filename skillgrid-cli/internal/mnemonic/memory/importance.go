@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -236,6 +237,10 @@ func (s *Service) effectiveImportance() ImportanceConfig {
 	return cfg
 }
 
+// testRawImportanceMu guards TestRawImportance (written by tests before a
+// save, read by stampImportance during that same save).
+var testRawImportanceMu sync.Mutex
+
 // stampImportance computes and persists the importance columns for one
 // observation (014 step 13.1). It is called from Save() and from
 // RecomputeImportance(). The maturity tier is MONOTONIC: the stored tier is
@@ -251,6 +256,15 @@ func (s *Service) stampImportance(ctx context.Context, id int64, retrievalUsage 
 	}
 	age := cfg.Now().Sub(created)
 	score := ComputeImportanceScore(retrievalUsage, age, cfg.DecayRate)
+	// Test-only seam (014 step 16): a non-negative TestRawImportance overrides
+	// the computed score so federated-query tests can seed arbitrary per-
+	// observation importance scores. Production leaves it at -1 (unset).
+	testRawImportanceMu.Lock()
+	raw := s.TestRawImportance
+	testRawImportanceMu.Unlock()
+	if raw >= 0 {
+		score = raw
+	}
 	decay := recencyFactor(age, cfg.DecayRate)
 	tier := ComputeMaturityTierWithThresholds(age, retrievalUsage, cfg.Thresholds)
 
