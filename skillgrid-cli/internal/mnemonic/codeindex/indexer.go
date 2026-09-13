@@ -503,6 +503,15 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	if err != nil {
 		return stats, fmt.Errorf("open pass db: %w", err)
 	}
+	// Re-register the pool with passDB BEFORE swapping idx.store.DB: the close
+	// above left the pool entry pointing at the now-closed old *sql.DB, so any
+	// other live handle for this store (which cached the old DB at Open) would
+	// fail with "database is closed". RebindPassDB atomically swaps the pool's
+	// DB pointer to passDB (keeping the old entry's live refs) and is a no-op
+	// when the store owns its DB outright (cache disabled).
+	if err := idx.store.RebindPassDB(passDB); err != nil {
+		return stats, fmt.Errorf("rebind pass db: %w", err)
+	}
 	idx.store.DB = passDB
 	// Knowledge-graph passes (03.8): run the community + process + knowledge
 	// passes at index time so code_processes / code_communities / code_docs /

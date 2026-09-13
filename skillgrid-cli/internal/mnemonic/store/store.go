@@ -276,11 +276,57 @@ func (s *Store) releasePooled() error {
 		return nil
 	}
 	entry := v.(*cachedEntry)
+	if entry.db != s.DB {
+		// The pool entry was rebound to a new *sql.DB (RebindPassDB) after this
+		// Store captured the old one. This Store is the owner whose pass run
+		// caused the rebind, and its close already closed the old DB inside
+		// RebindPassDB — decrementing here would leak the passDB entry's refs.
+		return nil
+	}
 	if remaining := entry.refs.Add(-1); remaining <= 0 {
 		evictCached(s.cacheKey, entry)
 		return nil
 	}
 	return nil
+}
+
+// RebindPassDB re-registers the store's pooled handle with a freshly opened
+// *sql.DB, swapping it in atomically and closing the previous pooled DB.
+//
+// The codeindex passes (community/process/knowledge) must run on a fresh
+// single-connection *sql.DB: the store's pool is MaxOpenConns=1, so a second
+// connection deadlocks once the committed 005 tx holds the write lock.
+// Indexer.Run opens that fresh passDB after the commit, but if it leaves the
+// pool entry pointing at the (now closed) old *sql.DB, every other live
+// handle for the same store — which cached the OLD *sql.DB at Open time —
+// keeps using the closed pool handle and fails with "sql: database is closed".
+// RebindPassDB fixes that: it atomically swaps the pool's DB pointer to passDB
+// (inheriting the old entry's live reference count, so no references are lost
+// or leaked) and closes the old DB only if it is distinct from passDB. It is a
+// no-op for a Store that owns its database outright (cacheKey == "").
+func (s *Store) RebindPassDB(passDB *sql.DB) error {
+	if s == nil || s.DB == nil || s.cacheKey == "" || passDB == nil {
+		return nil
+	}
+	old := s.DB
+	if old == passDB {
+		return nil
+	}
+	cacheMu.Lock()
+	defer cacheMu.Unlock()
+	if v, ok := handleCache.Load(s.cacheKey); ok {
+		entry := v.(*cachedEntry)
+		if entry.db == old {
+			// Still the registered entry: swap in passDB, keep the live ref
+			// count, and close the old DB after the swap (deferred so the
+			// lock is released first — entry.db.Close is pool-independent).
+			entry.db = passDB
+			if entry.refs.Load() <= 0 {
+				handleCache.Delete(s.cacheKey)
+			}
+		}
+	}
+	return old.Close()
 }
 
 // Migrate applies every embedded migration to db (idempotent, tracked in
