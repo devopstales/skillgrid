@@ -86,8 +86,10 @@ func runMem(version string, args []string) {
 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
 	case "graph":
 		runMemGraph(svc, projID, limit)
-	case "relations":
-		runMemRelations(svc, projID, pos, minConf)
+ 	case "relations":
+ 		runMemRelations(svc, projID, pos, minConf)
+ 	case "provenance":
+ 		runMemProvenance(svc, projID, pos)
 	case "expire":
 		runMemExpire(svc, dataDir)
 	case "export":
@@ -102,7 +104,7 @@ func runMem(version string, args []string) {
 }
 
 func printMemUsage() {
-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|expire|export> [args]
+	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|expire|export> [args]
 
   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
   governance <id>                 governed-asset view (mem_governance)
@@ -118,9 +120,12 @@ func printMemUsage() {
   graph [--limit N]                 temporal status of codeindex graph edges
                                      (valid_from, valid_to, active/expired/pending)
   relations <observation_id> [--min-confidence 0.5]
-                                     typed @relation edges (outgoing + incoming)
-                                     between observations, with relation type,
-                                     confidence, and direction
+                                      typed @relation edges (outgoing + incoming)
+                                      between observations, with relation type,
+                                      confidence, and direction
+  provenance <observation_id>          curation chain of an observation
+                                       (session_id, curate_command, source_files,
+                                       llm_reasoning); clear message when unset
   expire                          retire expired observations across all projects
                                    (TTL sweep; best-effort, exit 0 on missing stores)
   export [--file out.json] [--skip-embeddings]
@@ -588,6 +593,55 @@ func runMemRelations(svc *service.Service, projID string, pos []string, minConf 
 		"relations":      outs,
 	}
 	printJSON(out)
+}
+
+// runMemProvenance is the CLI for the curation chain (014 step 15,
+// `mem provenance <observation_id>`): it prints the provenance JSON stored on
+// the observation — the session, command, source files, and LLM reasoning
+// that produced it — as a readable structured chain (pretty-printed JSON with
+// the four snake_case labels). A missing observation id is a clear error; an
+// observation that never had provenance prints a clear "no provenance"
+// message (exit 0).
+func runMemProvenance(svc *service.Service, projID string, pos []string) {
+	if len(pos) < 1 {
+		fmt.Fprintln(os.Stderr, "error: mem provenance requires an observation id")
+		os.Exit(2)
+	}
+	id, err := strconv.ParseInt(pos[0], 10, 64)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error: invalid observation id")
+		os.Exit(2)
+	}
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	ctx := hCtx()
+
+	// A missing observation id (no live observation with this id in the
+	// project) is a clear error, matching the other mem subcommands.
+	if _, ok := h.Memory().ObsTitle(ctx, id); !ok {
+		fmt.Fprintf(os.Stderr, "error: observation %d not found in this project\n", id)
+		os.Exit(1)
+	}
+	p, err := h.Memory().Provenance(ctx, id)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	if p == nil {
+		printJSON(map[string]any{
+			"observation_id": id,
+			"provenance":     "no provenance recorded for this observation",
+		})
+		return
+	}
+	printJSON(map[string]any{
+		"observation_id": id,
+		"provenance":     p,
+	})
 }
 
 func looksLikeSession(s string) bool {
