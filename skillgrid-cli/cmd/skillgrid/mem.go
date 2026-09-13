@@ -46,6 +46,7 @@ func runMem(version string, args []string) {
 		exportFile string
 		skipEmb  bool
 		minConf  float64
+		memType  string
 	)
 	fs.StringVar(&dataDir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
 	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
@@ -62,6 +63,7 @@ func runMem(version string, args []string) {
 	fs.StringVar(&exportFile, "file", "", "export: write the bundle to this file (default: stdout)")
 	fs.BoolVar(&skipEmb, "skip-embeddings", false, "export: omit embedding data for a smaller payload")
 	fs.Float64Var(&minConf, "min-confidence", 0.0, "relations: minimum edge confidence (0.0..1.0; 0.0 = all)")
+	fs.StringVar(&memType, "type", "", "list: filter by fine-grained memory_type (014 step 18; one of the 9 typed categories)")
 	var searchMode string
 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
 	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
@@ -90,6 +92,10 @@ func runMem(version string, args []string) {
  		runMemRelations(svc, projID, pos, minConf)
  	case "provenance":
  		runMemProvenance(svc, projID, pos)
+	case "list":
+		runMemList(svc, projID, limit, memType)
+	case "memory-type":
+		runMemMemoryType()
 	case "expire":
 		runMemExpire(svc, dataDir)
 	case "export":
@@ -106,7 +112,7 @@ func runMem(version string, args []string) {
 }
 
 func printMemUsage() {
-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|expire|export|distill> [args]
+	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|list|memory-type|expire|export|distill> [args]
 
   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
   governance <id>                 governed-asset view (mem_governance)
@@ -125,10 +131,17 @@ func printMemUsage() {
                                       typed @relation edges (outgoing + incoming)
                                       between observations, with relation type,
                                       confidence, and direction
-  provenance <observation_id>          curation chain of an observation
-                                       (session_id, curate_command, source_files,
-                                       llm_reasoning); clear message when unset
-  expire                          retire expired observations across all projects
+   provenance <observation_id>          curation chain of an observation
+                                        (session_id, curate_command, source_files,
+                                        llm_reasoning); clear message when unset
+   list [--type <category>] [--limit N]
+                                       recent observations, optionally filtered
+                                       to one fine-grained memory_type (014 step
+                                       18); --type one of: profile preferences
+                                       entities events identity soul cases
+                                       trajectories experiences
+   memory-type                       list the 9 valid memory_type categories
+   expire                          retire expired observations across all projects
                                    (TTL sweep; best-effort, exit 0 on missing stores)
    export [--file out.json] [--skip-embeddings]
                                     portable COGX JSON export of observations +
@@ -646,6 +659,57 @@ func runMemProvenance(svc *service.Service, projID string, pos []string) {
 	printJSON(map[string]any{
 		"observation_id": id,
 		"provenance":     p,
+	})
+}
+
+// runMemList is the CLI for `mem list` (014 step 18.1): it lists recent
+// observations, optionally filtered to a single fine-grained memory_type via
+// --type (one of the 9 typed categories). Without --type it lists all recent
+// observations (unfiltered); with --type it lists ONLY observations of that
+// type (the `mem list --type preferences` contract). It is read-only.
+func runMemList(svc *service.Service, projID string, limit int, memType string) {
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	if limit <= 0 {
+		limit = 20
+	}
+	var (
+		obs []memory.Observation
+		lerr error
+	)
+	if mt := strings.TrimSpace(memType); mt != "" {
+		obs, lerr = h.Memory().RecentWithType(hCtx(), mt, limit)
+	} else {
+		obs, lerr = h.Memory().Recent(hCtx(), limit)
+	}
+	if lerr != nil {
+		fmt.Fprintln(os.Stderr, "error:", lerr)
+		os.Exit(1)
+	}
+	out := map[string]any{
+		"project":      projID,
+		"memory_type":  strings.TrimSpace(memType),
+		"observations": obs,
+		"count":        len(obs),
+	}
+	printJSON(out)
+}
+
+// runMemMemoryType is the CLI for `mem memory-type` (014 step 18.1): it prints
+// the 9 valid fine-grained memory_type categories so a caller can discover the
+// allowed --type values for `mem list`. It is a pure help command (no store is
+// opened).
+func runMemMemoryType() {
+	printJSON(map[string]any{
+		"valid_categories": []string{
+			"profile", "preferences", "entities", "events", "identity",
+			"soul", "cases", "trajectories", "experiences",
+		},
+		"note": "use `mem list --type <category>` to filter observations by fine-grained type",
 	})
 }
 

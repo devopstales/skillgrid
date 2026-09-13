@@ -65,6 +65,15 @@ type Service struct {
 	// is only tried when this is true; otherwise CapturePassive stays on the
 	// deterministic regex floor.
 	extractionLLMEnabled bool
+	// dedupLLM is the optional LLM seam for the pre-write semantic-dedup check
+	// (014, step 18.2). Nil = the LLM is not configured, so Save() falls back
+	// to the deterministic hash dedup (the default-off behavior). Set via
+	// SetDedupLLM.
+	dedupLLM DedupLLM
+	// dedupLLMEnabled is the opt-in switch for the LLM dedup pass (config
+	// mnemonic.dedup.llm). Even when a seam is attached, the LLM is only tried
+	// when this is true; otherwise Save() stays on the hash fallback.
+	dedupLLMEnabled bool
 	// improveCfg is the opt-in self-improvement feedback loop (014, step 08):
 	// retrieval-usage boost/decay re-ranking applied in-memory before search
 	// results are returned. The zero-value cfg is disabled (Enabled false),
@@ -166,6 +175,26 @@ func (s *Service) EnableExtractionLLM(on bool) {
 	}
 }
 
+// SetDedupLLM attaches the optional LLM seam for the pre-write semantic-dedup
+// check (014, step 18.2). It does not enable the pass by itself — EnableDedupLLM
+// is the opt-in switch (config mnemonic.dedup.llm), so a seam present but
+// unenabled keeps Save() on the deterministic hash dedup fallback.
+func (s *Service) SetDedupLLM(llm DedupLLM) {
+	if s != nil {
+		s.dedupLLM = llm
+	}
+}
+
+// EnableDedupLLM toggles the opt-in LLM dedup pass. When true (and a seam is
+// attached) Save() runs the LLM semantic-dedup pre-write check and merges into
+// an existing observation on a duplicate verdict; when false (the default)
+// Save() uses only the deterministic hash dedup.
+func (s *Service) EnableDedupLLM(on bool) {
+	if s != nil {
+		s.dedupLLMEnabled = on
+	}
+}
+
 // effectiveTTL returns the active default soft expiry, falling back to
 // defaultMemoryTTL when no positive override was set.
 func (s *Service) effectiveTTL() time.Duration {
@@ -218,6 +247,14 @@ type SaveInput struct {
 	// established on the INITIAL save — the update path preserves any stored
 	// provenance (immutable once set).
 	Provenance *Provenance
+	// MemoryType is the optional fine-grained typed category (014 step 18):
+	// one of the 9 MemoryType constants (profile, preferences, entities,
+	// events, identity, soul, cases, trajectories, experiences). It is a
+	// SEPARATE, finer categorization from the coarse `type` column; they
+	// coexist. Empty leaves the memory_type column NULL (not typed, no
+	// validation). When set, it must be one of the 9 — an unknown value is
+	// rejected with a clear error before any write.
+	MemoryType string
 }
 
 // PassiveInput is a raw block of text (assistant reply, Task output, etc.)
@@ -283,7 +320,11 @@ type Observation struct {
 	MaturityTier    string          `json:"maturity_tier,omitempty"`
 	// Provenance is the curation chain recorded at save time (014 step 15).
 	// Nil = no provenance was set (the pre-027 contract is unchanged).
-	Provenance *Provenance `json:"provenance,omitempty"`
+	Provenance *Provenance
+	// MemoryType is the fine-grained typed category recorded at save time
+	// (014 step 18). Empty = the row was not given a type (pre-028 rows read
+	// back empty — the pre-028 contract is unchanged). Additive + omitempty.
+	MemoryType string `json:"memory_type,omitempty"`
 }
 
 // Status holds aggregate memory statistics.
@@ -342,6 +383,15 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	if !IsValidType(in.Type) {
 		return 0, fmt.Errorf("invalid type %q (allowed: standing, preference, convention, decision, architecture, bugfix, pattern, config, correction, discovery, learning, lesson, session_log)", in.Type)
 	}
+	// Typed memory category (014 step 18): when a fine-grained memory_type is
+	// supplied it must be one of the 9 valid categories. Empty is allowed
+	// (the column stays NULL — not typed, no validation). A set-but-unknown
+	// value is rejected before any write so the store never holds an invalid
+	// category.
+	memoryType := strings.ToLower(strings.TrimSpace(in.MemoryType))
+	if in.MemoryType != "" && !IsValidMemoryType(in.MemoryType) {
+		return 0, fmt.Errorf("invalid memory_type %q (allowed: profile, preferences, entities, events, identity, soul, cases, trajectories, experiences)", in.MemoryType)
+	}
 
 	source := in.Source
 	if source == "" {
@@ -381,6 +431,18 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("dedup lookup: %w", err)
+	}
+
+	// LLM semantic dedup (014 step 18.2): OPT-IN pre-write check. The hash
+	// dedup above already catches exact (normalized) duplicates; this catches
+	// semantic near-duplicates the hash misses. When the LLM pass is armed and
+	// it flags the new content as a duplicate, the save is MERGED into the
+	// existing observation (bump duplicate_count, no new row) and returns that
+	// id. When the LLM is disabled, absent, or errors, runDedupCheck returns 0
+	// and the save proceeds exactly as before (the hash path is the fallback).
+	if mergeInto, _ := s.runDedupCheck(ctx, in.Content); mergeInto > 0 {
+		s.BumpDuplicate(ctx, mergeInto)
+		return mergeInto, nil
 	}
 
 	if in.TopicKey != "" {
@@ -453,10 +515,10 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 			session_id, type, title, content, project, scope, topic_key,
 			normalized_hash, revision_count, created_at, updated_at, source, prompt_id, tool_name,
 			owner, visibility, status, retrieval_usage, expires_at,
-			importance_score, recency_decay, maturity_tier, provenance
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?, 0, 1, 'fresh', ?)`,
+			importance_score, recency_decay, maturity_tier, provenance, memory_type
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?, 0, 1, 'fresh', ?, ?)`,
 		in.SessionID, in.Type, in.Title, in.Content, s.projectID, in.Scope, nullString(in.TopicKey),
-		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt), provenanceJSON,
+		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt), provenanceJSON, nullString(memoryType),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert observation: %w", err)
@@ -570,7 +632,7 @@ func (s *Service) SearchWithScope(ctx context.Context, query, matchMode, scope s
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance
+		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
@@ -629,7 +691,7 @@ func (s *Service) SearchOwnerScoped(ctx context.Context, readerOwner, readerAgen
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance
+		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
@@ -681,6 +743,41 @@ func (s *Service) Recent(ctx context.Context, limit int) ([]Observation, error) 
 	return scanObservations(rows)
 }
 
+// RecentWithType is like Recent but restricted to observations whose fine
+// granularity memory_type matches the given one of the 9 typed categories
+// (014 step 18). This is the read path behind `mem list --type <category>`.
+// It returns only typed rows matching the category; untyped (NULL) and
+// differently-typed rows are excluded. The category is validated (a bad value
+// yields a clear error rather than a silent empty list).
+func (s *Service) RecentWithType(ctx context.Context, memoryType string, limit int) ([]Observation, error) {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return nil, errors.New("memory service not initialized")
+	}
+	memoryType = strings.ToLower(strings.TrimSpace(memoryType))
+	if memoryType == "" {
+		return nil, errors.New("memory_type filter is required")
+	}
+	if !IsValidMemoryType(memoryType) {
+		return nil, fmt.Errorf("invalid memory_type %q (allowed: profile, preferences, entities, events, identity, soul, cases, trajectories, experiences)", memoryType)
+	}
+	if limit <= 0 {
+		limit = defaultSearchLimit
+	}
+	rows, err := s.store.DB.QueryContext(ctx, `
+		SELECT `+obsSelectCols+`
+		FROM observations
+		WHERE deleted_at IS NULL AND project = ? AND memory_type = ?
+		ORDER BY created_at DESC, id DESC
+		LIMIT ?`,
+		s.projectID, memoryType, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("recent typed observations: %w", err)
+	}
+	defer rows.Close()
+	return scanObservations(rows)
+}
+
 // Get returns a single observation by ID.
 func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	if s == nil || s.store == nil || s.store.DB == nil {
@@ -695,20 +792,23 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	var obs Observation
 	var topicKey sql.NullString
 	var promptID sql.NullInt64
-	var lastSeen, expires, toolName, owner, tier, prov sql.NullString
+	var lastSeen, expires, toolName, owner, tier, prov, memType sql.NullString
 	var pinned, dups, usage int
 	var score, decay sql.NullFloat64
 	err := row.Scan(
 		&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
 		&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 		&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
-		&score, &decay, &tier, &prov,
+		&score, &decay, &tier, &prov, &memType,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Observation{}, fmt.Errorf("observation %d not found", id)
 		}
 		return Observation{}, fmt.Errorf("get observation: %w", err)
+	}
+	if memType.Valid {
+		obs.MemoryType = memType.String
 	}
 	obs.setImportanceColumns(score, decay, tier)
 	if p, ok, perr := parseProvenanceColumn(prov); perr != nil {
@@ -1638,6 +1738,51 @@ var validTypes = map[string]struct{}{
 	"session_log":  {},
 }
 
+// ── Typed memory categories (014 step 18) ──────────────────────────────────
+//
+// The 9 fine-grained typed categories. These are a SEPARATE, finer
+// categorization from the coarse observation `type` column (learning,
+// decision, bug, session_log, ...); they coexist. An observation may carry a
+// coarse type, a fine memory_type, both, or neither (memory_type NULL).
+//
+// Named constants so call sites (the mem CLI, the async extractor, tests)
+// reference the canonical spellings rather than raw string literals.
+
+const (
+	MemoryTypeProfile       = "profile"
+	MemoryTypePreferences   = "preferences"
+	MemoryTypeEntities      = "entities"
+	MemoryTypeEvents        = "events"
+	MemoryTypeIdentity      = "identity"
+	MemoryTypeSoul          = "soul"
+	MemoryTypeCases         = "cases"
+	MemoryTypeTrajectories  = "trajectories"
+	MemoryTypeExperiences   = "experiences"
+)
+
+// memoryTypes is the lookup set of the 9 valid fine-grained categories. It is
+// the single source of truth for validation (IsValidMemoryType) and for the
+// `mem memory-type` CLI help.
+var memoryTypes = map[string]struct{}{
+	MemoryTypeProfile:      {},
+	MemoryTypePreferences:  {},
+	MemoryTypeEntities:     {},
+	MemoryTypeEvents:       {},
+	MemoryTypeIdentity:     {},
+	MemoryTypeSoul:         {},
+	MemoryTypeCases:        {},
+	MemoryTypeTrajectories: {},
+	MemoryTypeExperiences:  {},
+}
+
+// IsValidMemoryType reports whether mt is one of the 9 fine-grained typed
+// categories. Empty (not typed) is NOT valid here — use it to validate a
+// supplied value, not to test "is this observation typed". Case-insensitive.
+func IsValidMemoryType(mt string) bool {
+	_, ok := memoryTypes[strings.ToLower(strings.TrimSpace(mt))]
+	return ok
+}
+
 // validMatchModes are the accepted FTS match modes: "" (default phrase OR),
 // "any" (alias of the default OR), "all" (AND-joined phrases), "trigram"
 // (3-char substring OR-union), and "prefix" (wildcard prefix per term).
@@ -1772,7 +1917,7 @@ const obsSelectCols = `
 	topic_key, source, normalized_hash, revision_count, prompt_id, created_at, updated_at,
 	COALESCE(pinned, 0), COALESCE(duplicate_count, 0), last_seen_at, expires_at, tool_name,
 	owner, COALESCE(visibility, 'private'), COALESCE(status, 'active'), COALESCE(retrieval_usage, 0),
-	importance_score, recency_decay, maturity_tier, provenance`
+	importance_score, recency_decay, maturity_tier, provenance, memory_type`
 
 func scanObservations(rows *sql.Rows) ([]Observation, error) {
 	var out []Observation
@@ -1780,16 +1925,19 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
 		var obs Observation
 		var topicKey sql.NullString
 		var promptID sql.NullInt64
-		var lastSeen, expires, toolName, owner, tier, prov sql.NullString
+		var lastSeen, expires, toolName, owner, tier, prov, memType sql.NullString
 		var pinned, dups, usage int
 		var score, decay sql.NullFloat64
 		if err := rows.Scan(
 			&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
 			&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 			&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
-			&score, &decay, &tier, &prov,
+			&score, &decay, &tier, &prov, &memType,
 		); err != nil {
 			return nil, fmt.Errorf("scan observation: %w", err)
+		}
+		if memType.Valid {
+			obs.MemoryType = memType.String
 		}
 		obs.setImportanceColumns(score, decay, tier)
 		if p, ok, perr := parseProvenanceColumn(prov); perr != nil {

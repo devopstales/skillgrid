@@ -27,7 +27,7 @@ func (s *Service) CrossLinkQuery(ctx context.Context, observationID int64) ([]Ob
 			o2.topic_key, o2.source, o2.normalized_hash, o2.revision_count, o2.prompt_id, o2.created_at, o2.updated_at,
 			COALESCE(o2.pinned, 0), COALESCE(o2.duplicate_count, 0), o2.last_seen_at, o2.expires_at, o2.tool_name,
 			o2.owner, COALESCE(o2.visibility, 'private'), COALESCE(o2.status, 'active'), COALESCE(o2.retrieval_usage, 0),
-			o2.importance_score, o2.recency_decay, o2.maturity_tier, o2.provenance
+			o2.importance_score, o2.recency_decay, o2.maturity_tier, o2.provenance, o2.memory_type
 		FROM observations o
 		JOIN observations o2 ON o2.graph_ref = o.graph_ref
 		WHERE o.id = ? AND o.graph_ref IS NOT NULL
