@@ -69,11 +69,13 @@ func runMem(version string, args []string) {
 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
 	fs.BoolVar(&trajectory, "trajectory", false, "search: also run the directory retrieval and print its drill-down trajectory (014 step 19)")
 	var (
-		handoffJSON bool
-		handoffDir  string
+		handoffJSON  bool
+		handoffDir   string
+		envelopeFlag bool
 	)
 	fs.BoolVar(&handoffJSON, "json", false, "handoff: print the full handoff JSON to stdout")
 	fs.StringVar(&handoffDir, "handoff-dir", "", "handoff: directory to write handoff.latest.json (default: the project's mnemonic data dir)")
+	fs.BoolVar(&envelopeFlag, "envelope", false, "context: print the full context envelope JSON (014 step 22.4)")
 	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
 		os.Exit(2)
 	}
@@ -91,7 +93,7 @@ func runMem(version string, args []string) {
 	case "search":
 		runMemSearch(svc, projID, dataDir, pos, owner, agent, limit, items, chars, timeout, searchMode, trajectory)
 	case "context":
-		runMemContext(svc, projID, limit, items, chars, timeout)
+		runMemContext(svc, projID, dataDir, limit, items, chars, timeout, envelopeFlag)
 	case "timeline":
 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
 	case "graph":
@@ -370,17 +372,47 @@ func runMemSearch(svc *service.Service, projID, dataDir string, pos []string, ow
 	printJSON(out)
 }
 
-func runMemContext(svc *service.Service, projID string, limit, items, chars int, timeout string) {
-	if limit <= 0 {
-		limit = 5
-	}
-	cfg := memBudgetOpts(items, chars, timeout)
+// runMemContext is the CLI for `mem context` (change 013 step 03, 014 step 22.4).
+// By default it prints a human-readable summary of recent session summaries
+// (the budgeted read path, honoring --item/--char/--timeout). With --envelope
+// it prints the full universal context envelope JSON (22.3) — project metadata,
+// working set, intent, matched skills, and handoff refs — via
+// memory.Service.GenerateContextEnvelope.
+func runMemContext(svc *service.Service, projID, dataDir string, limit, items, chars int, timeout string, envelope bool) {
 	h, cleanup, err := svc.Open(projID)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 	defer cleanup()
+
+	if envelope {
+		// --envelope (014 step 22.4): generate the full context envelope JSON.
+		// The working set is session-scoped in-memory state; a fresh CLI
+		// process has no prior edits, so it starts empty (the envelope still
+		// carries the project metadata, intent, matched skills, handoff refs).
+		// The intent defaults to exploration (no query passed to the CLI).
+		ws := memory.NewWorkingSet("")
+		intent := memory.ClassifyWorkIntent("")
+		env, err := h.Memory().GenerateContextEnvelope(hCtx(), ws, intent, dataDir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		raw, err := env.MarshalJSON()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		os.Stdout.Write(raw)
+		fmt.Fprintln(os.Stdout)
+		return
+	}
+
+	if limit <= 0 {
+		limit = 5
+	}
+	cfg := memBudgetOpts(items, chars, timeout)
 	// Budget (013 step 03): the context read honors --item/--char/--timeout.
 	h.Memory().SetBudget(memoryBudget(cfg))
 	b := h.Memory().Budget()
