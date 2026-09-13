@@ -91,6 +91,28 @@ type Promotion struct {
 	MinSections int
 }
 
+// Importance is the mnemonic.importance section (014 step 13): the AKL
+// importance scoring + recency decay. DecayRate is the per-day exponential
+// decay (default 0.05/day — a 30-day-old observation with 100 retrievals
+// scores ≈22.3); the TierThresholds are the maturity-tier age cutoffs in
+// days (default 7/30/14). Zero fields fall back to the memory package
+// defaults in SetImportance, so a malformed or absent section keeps the
+// production behavior.
+type Importance struct {
+	DecayRate      float64
+	TierThresholds TierThresholdsConfig
+}
+
+// TierThresholdsConfig is the mnemonic.importance.tier_thresholds section
+// (014 step 13.4): the maturity-tier age cutoffs, in days. Zero fields fall
+// back to the memory package defaults (MatureAgeDays 7, ArchivalAgeDays 30,
+// UnusedArchivalDays 14).
+type TierThresholdsConfig struct {
+	MatureAgeDays    int
+	ArchivalAgeDays  int
+	UnusedArchivalDays int
+}
+
 // Indexing holds code index settings from indexing.yaml mnemonic section.
 type Indexing struct {
 	Include      []string
@@ -115,6 +137,9 @@ type Indexing struct {
 	// Promotion is the mnemonic.promotion section (014 step 09): the
 	// session-close graph promotion quality threshold.
 	Promotion Promotion
+	// Importance is the mnemonic.importance section (014 step 13): the AKL
+	// importance scoring decay rate + maturity-tier thresholds.
+	Importance Importance
 }
 
 type indexingFile struct {
@@ -146,6 +171,9 @@ type mnemonicSection struct {
 	// Promotion is the mnemonic.promotion section (014 step 09): the
 	// session-close graph promotion quality threshold.
 	Promotion promotionSection `yaml:"promotion"`
+	// Importance is the mnemonic.importance section (014 step 13): the AKL
+	// importance scoring decay rate + maturity-tier thresholds.
+	Importance importanceSection `yaml:"importance"`
 }
 
 type retrievalBudgetSection struct {
@@ -329,6 +357,29 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	// Promotion (014 step 09): the session-close graph promotion threshold.
 	// Zero fields fall back to the memory package defaults in SetPromotion.
 	out.Promotion = mergePromotion(section.Promotion)
+	// Importance (014 step 13): the AKL importance scoring decay rate + tier
+	// thresholds. Zero/malformed fields fall back to the memory package
+	// defaults in SetImportance, so a malformed section never changes the
+	// production scoring.
+	out.Importance = mergeImportance(section.Importance)
+	return out
+}
+
+// mergeImportance maps the mnemonic.importance YAML section (014 step 13) to
+// the Importance struct. The decay rate is a float string; absent or
+// malformed values are left zero so SetImportance applies the 0.05/day
+// default. Negative values are rejected the same way (the default applies).
+func mergeImportance(section importanceSection) Importance {
+	out := Importance{
+		TierThresholds: TierThresholdsConfig{
+			MatureAgeDays:    section.TierThresholds.MatureAgeDays,
+			ArchivalAgeDays:  section.TierThresholds.ArchivalAgeDays,
+			UnusedArchivalDays: section.TierThresholds.UnusedArchivalDays,
+		},
+	}
+	if f, err := strconv.ParseFloat(section.DecayRate, 64); err == nil && f > 0 {
+		out.DecayRate = f
+	}
 	return out
 }
 
@@ -357,6 +408,23 @@ func mergeImprovement(section improvementSection) Improvement {
 type promotionSection struct {
 	MinLength   int `yaml:"min_length"`
 	MinSections int `yaml:"min_sections"`
+}
+
+// importanceSection is the mnemonic.importance section (014 step 13). The
+// decay rate is parsed as a float (absent/malformed → 0, so SetImportance
+// applies the 0.05/day default); the tier thresholds are day counts (absent
+// → 0, so SetImportance applies the 7/30/14-day defaults).
+type importanceSection struct {
+	DecayRate      string                 `yaml:"decay"`
+	TierThresholds tierThresholdsSection  `yaml:"tier_thresholds"`
+}
+
+// tierThresholdsSection is the mnemonic.importance.tier_thresholds section
+// (014 step 13.4): maturity-tier age cutoffs, in days.
+type tierThresholdsSection struct {
+	MatureAgeDays    int `yaml:"mature_age_days"`
+	ArchivalAgeDays  int `yaml:"archival_age_days"`
+	UnusedArchivalDays int `yaml:"unused_archival_days"`
 }
 
 // mergePromotion maps the mnemonic.promotion YAML section to the Promotion

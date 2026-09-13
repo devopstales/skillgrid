@@ -81,3 +81,54 @@ func TestImprovementConfigDefaultOff(t *testing.T) {
 		t.Fatalf("improve.cooldown: got %v, want 30s", got.Improvement.Cooldown)
 	}
 }
+
+// TestImportanceConfigurableDecay covers 014 step 13.4 (config side): the
+// mnemonic.importance.decay key defaults to 0.05/day, parses from the YAML
+// section, falls back to the default on a malformed value, and the
+// mnemonic.importance.tier_thresholds key tunes the tier cutoffs.
+func TestImportanceConfigurableDecay(t *testing.T) {
+	dir := t.TempDir()
+
+	// No config file at all → default decay 0.05/day + 7/30/14-day
+	// thresholds (the documented production defaults).
+	got := Load(dir)
+	if got.Importance.DecayRate != 0 {
+		t.Fatalf("default: importance.decay must be unset (0 → memory default), got %v", got.Importance.DecayRate)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Absent section → still the default.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); got.Importance.DecayRate != 0 {
+		t.Fatalf("absent section: importance.decay must be unset, got %v", got.Importance.DecayRate)
+	}
+
+	// Explicit decay + thresholds.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  importance:\n    decay: \"0.2\"\n    tier_thresholds:\n      mature_age_days: 3\n      archival_age_days: 21\n      unused_archival_days: 10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if got.Importance.DecayRate != 0.2 {
+		t.Fatalf("importance.decay: got %v, want 0.2", got.Importance.DecayRate)
+	}
+	if got.Importance.TierThresholds.MatureAgeDays != 3 ||
+		got.Importance.TierThresholds.ArchivalAgeDays != 21 ||
+		got.Importance.TierThresholds.UnusedArchivalDays != 10 {
+		t.Fatalf("importance.tier_thresholds: got %+v, want 3/21/10", got.Importance.TierThresholds)
+	}
+
+	// Malformed decay → falls back to the default (unset → memory 0.05).
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  importance:\n    decay: \"not-a-number\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); got.Importance.DecayRate != 0 {
+		t.Fatalf("malformed importance.decay must fall back to the default, got %v", got.Importance.DecayRate)
+	}
+}

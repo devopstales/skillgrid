@@ -335,6 +335,20 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 		MinLength:   cfg.Promotion.MinLength,
 		MinSections: cfg.Promotion.MinSections,
 	})
+	// AKL importance scoring (014 step 13): route the mnemonic.importance
+	// config key (decay rate + tier thresholds) to the memory service. Zero
+	// fields fall back to the memory package defaults inside SetImportance
+	// (0.05/day decay, 7/30/14-day tier thresholds), so a config without the
+	// section keeps the production scoring.
+	imp := cfg.Importance
+	mem.SetImportance(memory.ImportanceConfig{
+		DecayRate: imp.DecayRate,
+		Thresholds: memory.TierThresholds{
+			MatureAgeDays:    imp.TierThresholds.MatureAgeDays,
+			ArchivalAgeDays:  imp.TierThresholds.ArchivalAgeDays,
+			UnusedArchivalDays: imp.TierThresholds.UnusedArchivalDays,
+		},
+	})
 	h := &ProjectHandle{
 		store:          st,
 		projectID:      projectID,

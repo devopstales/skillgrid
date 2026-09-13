@@ -249,6 +249,18 @@ func (s *Service) budgetedRetrievalHits(ctx context.Context, root, projectID, re
 		DecayRate: impr.DecayRate,
 		Cooldown:  impr.Cooldown,
 	})
+	// AKL importance scoring (014 step 13): the mem_* read paths honor the
+	// mnemonic.importance decay rate + tier thresholds (zero fields fall
+	// back to the memory package defaults inside SetImportance).
+	imp := cfg.Importance
+	mem.SetImportance(memory.ImportanceConfig{
+		DecayRate: imp.DecayRate,
+		Thresholds: memory.TierThresholds{
+			MatureAgeDays:    imp.TierThresholds.MatureAgeDays,
+			ArchivalAgeDays:  imp.TierThresholds.ArchivalAgeDays,
+			UnusedArchivalDays: imp.TierThresholds.UnusedArchivalDays,
+		},
+	})
 	hits, err := mem.SearchOwnerScopedRetrieveFTS(mem.Budget().Bound(ctx), readerOwner, mode, query, matchMode, limit)
 	if err != nil {
 		return memory.BudgetResult{}, err
