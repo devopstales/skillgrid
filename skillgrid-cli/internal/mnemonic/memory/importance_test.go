@@ -354,4 +354,24 @@ func TestImportanceConfigurableDecay(t *testing.T) {
 	if got := ComputeMaturityTierWithThresholds(15*24*time.Hour, 0, custom); got != "archival" {
 		t.Fatalf("custom thresholds: 15d unused must be archival, got %q", got)
 	}
+
+	// SetImportance wiring: an explicit config is honored, and a zero-value
+	// call reverts to the defaults (the malformed/absent-config fallback).
+	fx := newOwnerFixture(t, "imp-cfg")
+	fx.svc.SetImportance(ImportanceConfig{})
+	if got := fx.svc.ImportanceConfig(); got.DecayRate != 0.05 {
+		t.Fatalf("SetImportance(zero) must apply the 0.05/day default, got %v", got.DecayRate)
+	}
+	fx.svc.SetImportance(ImportanceConfig{DecayRate: 0.2,
+		Thresholds: TierThresholds{MatureAgeDays: 3, ArchivalAgeDays: 21, UnusedArchivalDays: 10}})
+	got := fx.svc.ImportanceConfig()
+	if got.DecayRate != 0.2 || got.Thresholds.MatureAgeDays != 3 ||
+		got.Thresholds.ArchivalAgeDays != 21 || got.Thresholds.UnusedArchivalDays != 10 {
+		t.Fatalf("SetImportance must honor the explicit config, got %+v", got)
+	}
+	// A negative decay (malformed) falls back to the default.
+	fx.svc.SetImportance(ImportanceConfig{DecayRate: -1})
+	if got := fx.svc.ImportanceConfig(); got.DecayRate != 0.05 {
+		t.Fatalf("negative decay must fall back to the 0.05/day default, got %v", got.DecayRate)
+	}
 }
