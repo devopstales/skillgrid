@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -104,6 +105,21 @@ type Service struct {
 	// (014, step 19). Nil = FTS5-only directory scoring (the default). Set via
 	// SetDirEmbedder from the config-driven embedder.
 	dirEmb interface{ EmbedQuery(ctx context.Context, text string) (Vector, error) }
+	// snapshotRetentionCfg is the auto-prune retention for store snapshots
+	// (014, step 20.3): after each Snapshot(), all but the keep-most-recent
+	// snapshots of the project are deleted. Zero = defaultSnapshotRetention
+	// (10). Set via SetSnapshotRetention from the mnemonic.snapshot.retention
+	// config key. (The method snapshotRetention() returns the effective value.)
+	snapshotRetentionCfg int
+	// restoreRowFn is the per-row write seam for RestoreSnapshot (014 step 20):
+	// it runs one row's upsert on the restore transaction. The default
+	// (restoreRowDefault) runs the statement on the tx; a test swaps in a
+	// failing executor to prove a mid-restore crash rolls the whole restore
+	// back (atomicity). Guarded by restoreMu (snapshots.go).
+	restoreRowFn restoreRowFn
+	// restoreMu guards the restoreRowFn seam (read by the restore loop, written
+	// by tests before a restore).
+	restoreMu sync.Mutex
 }
 
 // SetDistillHookProvider attaches the owning handle (which carries the opt-in
@@ -343,7 +359,16 @@ type Status struct {
 
 // New creates a memory service for the given store and project ID.
 func New(st *store.Store, projectID string) *Service {
-	return &Service{store: st, projectID: projectID, TestRawImportance: -1}
+	return &Service{
+		store:              st,
+		projectID:          projectID,
+		TestRawImportance:  -1,
+		// Snapshot auto-prune defaults (014 step 20.3): keep the last 10. The
+		// service layer can override it from mnemonic.snapshot.retention via
+		// SetSnapshotRetention.
+		snapshotRetentionCfg: defaultSnapshotRetention,
+		restoreRowFn:         restoreRowDefault,
+	}
 }
 
 // DB returns the underlying *sql.DB. It is exposed so an additive layer that

@@ -104,6 +104,8 @@ func runMem(version string, args []string) {
 		runMemExport(svc, projID, exportFile, skipEmb)
 	case "distill":
 		runMemDistill(svc, projID, pos)
+	case "snapshot":
+		runMemSnapshot(svc, projID, pos)
 	case "help", "-h", "--help":
 		printMemUsage()
 	default:
@@ -114,7 +116,7 @@ func runMem(version string, args []string) {
 }
 
 func printMemUsage() {
-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|list|memory-type|expire|export|distill> [args]
+	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|list|memory-type|expire|export|distill|snapshot> [args]
 
   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
   governance <id>                 governed-asset view (mem_governance)
@@ -150,9 +152,16 @@ func printMemUsage() {
    export [--file out.json] [--skip-embeddings]
                                     portable COGX JSON export of observations +
                                     graph edges + embeddings (stdout by default)
-   distill status                   show the project's distillation lock
-                                    (project_id, locked_at, locked_by; or
-                                    "no active locks" when free)
+    distill status                   show the project's distillation lock
+                                     (project_id, locked_at, locked_by; or
+                                     "no active locks" when free)
+    snapshot create                  capture a point-in-time snapshot of the
+                                     project's observations (multi-version;
+                                     returns the snapshot id)
+    snapshot restore <id>            roll the project back to the captured
+                                     state of snapshot <id> (atomic)
+    snapshot list                    list the project's snapshots,
+                                     newest-first (id, state_hash, created_at)
 
 Flags:
   --project ID    project bucket (defaults to CWD-resolved)
@@ -778,6 +787,84 @@ func runMemDistill(svc *service.Service, projID string, pos []string) {
 `)
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown distill subcommand %q\n", sub)
+		os.Exit(2)
+	}
+}
+
+// runMemSnapshot is the CLI for store snapshots (014 step 20.4): `mem snapshot
+// create` captures a point-in-time view of the project's observations
+// (multi-version; returns the snapshot id); `mem snapshot restore <id>` rolls
+// the project back to that captured state (atomic); `mem snapshot list` lists
+// the project's snapshots newest-first (id, state_hash, created_at). It routes
+// through the same memory.Service seams the store uses (Snapshot,
+// RestoreSnapshot, ListSnapshots).
+func runMemSnapshot(svc *service.Service, projID string, pos []string) {
+	sub := ""
+	if len(pos) >= 1 {
+		sub = pos[0]
+	}
+	switch sub {
+	case "create":
+		h, cleanup, err := svc.Open(projID)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		defer cleanup()
+		id, err := h.Memory().Snapshot(hCtx())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		printJSON(map[string]any{
+			"project":   projID,
+			"snapshot":  id,
+			"created":   true,
+		})
+	case "restore":
+		if len(pos) < 2 {
+			fmt.Fprintln(os.Stderr, "error: mem snapshot restore requires a snapshot id")
+			os.Exit(2)
+		}
+		id, err := strconv.ParseInt(pos[1], 10, 64)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error: invalid snapshot id")
+			os.Exit(2)
+		}
+		h, cleanup, err := svc.Open(projID)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		defer cleanup()
+		if err := h.Memory().RestoreSnapshot(hCtx(), id); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		printJSON(map[string]any{
+			"project":  projID,
+			"snapshot": id,
+			"restored": true,
+		})
+	case "list", "":
+		h, cleanup, err := svc.Open(projID)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		defer cleanup()
+		snaps, err := h.Memory().ListSnapshots(hCtx())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		printJSON(map[string]any{
+			"project":    projID,
+			"count":      len(snaps),
+			"snapshots":  snaps,
+		})
+	default:
+		fmt.Fprintf(os.Stderr, "error: unknown snapshot subcommand %q\n", sub)
 		os.Exit(2)
 	}
 }

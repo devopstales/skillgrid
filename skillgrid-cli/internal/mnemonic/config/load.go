@@ -159,6 +159,11 @@ type Indexing struct {
 	// Federated is the mnemonic.federated section (014 step 16): the merge
 	// weights for the federated cross-store query composite score.
 	Federated Federated
+	// SnapshotRetention is the mnemonic.snapshot.retention key (014 step
+	// 20.3): the auto-prune retention for store snapshots (how many most
+	// recent snapshots to keep after each capture). Zero means "use the
+	// memory package default" (10).
+	SnapshotRetention int
 }
 
 type indexingFile struct {
@@ -196,6 +201,10 @@ type mnemonicSection struct {
 	// Federated is the mnemonic.federated section (014 step 16): the merge
 	// weights for the federated cross-store query composite score.
 	Federated federatedSection `yaml:"federated"`
+	// Snapshot is the mnemonic.snapshot section (014 step 20.3): the auto-
+	// prune retention for store snapshots (how many most recent snapshots to
+	// keep after each capture).
+	Snapshot snapshotSection `yaml:"snapshot"`
 }
 
 type retrievalBudgetSection struct {
@@ -389,6 +398,9 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	// non-positive values fall back to the 0.5/0.5 defaults, so a bad key
 	// never skews the composite.
 	out.Federated = mergeFederated(section.Federated)
+	// Snapshot retention (014 step 20.3): a non-positive value is left zero so
+	// SetSnapshotRetention applies the memory package default (10).
+	out.SnapshotRetention = section.Snapshot.Retention
 	return out
 }
 
@@ -466,6 +478,15 @@ type importanceSection struct {
 type federatedSection struct {
 	RankWeight       string `yaml:"rank_weight"`
 	ImportanceWeight string `yaml:"importance_weight"`
+}
+
+// snapshotSection is the mnemonic.snapshot section (014 step 20.3): the auto-
+// prune retention for store snapshots (Retention = how many most recent
+// snapshots to keep after each capture). Zero means "use the memory package
+// default" (10) — SetSnapshotRetention falls back to defaultSnapshotRetention
+// when the value is non-positive.
+type snapshotSection struct {
+	Retention int `yaml:"retention"`
 }
 
 // tierThresholdsSection is the mnemonic.importance.tier_thresholds section

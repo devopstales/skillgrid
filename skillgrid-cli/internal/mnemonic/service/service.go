@@ -380,6 +380,12 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 			UnusedArchivalDays: imp.TierThresholds.UnusedArchivalDays,
 		},
 	})
+	// Snapshot auto-prune retention (014 step 20.3): route the
+	// mnemonic.snapshot.retention config key to the memory service. A zero
+	// value falls back to the memory package default (10) inside
+	// SetSnapshotRetention, so a config without the key keeps the production
+	// retention.
+	mem.SetSnapshotRetention(cfg.SnapshotRetention)
 	h := &ProjectHandle{
 		store:          st,
 		projectID:      projectID,
