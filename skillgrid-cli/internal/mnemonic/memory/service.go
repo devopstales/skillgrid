@@ -125,7 +125,9 @@ type Service struct {
 	// dirEmb is the optional embedding seam for directory retrieval scoring
 	// (014, step 19). Nil = FTS5-only directory scoring (the default). Set via
 	// SetDirEmbedder from the config-driven embedder.
-	dirEmb interface{ EmbedQuery(ctx context.Context, text string) (Vector, error) }
+	dirEmb interface {
+		EmbedQuery(ctx context.Context, text string) (Vector, error)
+	}
 	// snapshotRetentionCfg is the auto-prune retention for store snapshots
 	// (014, step 20.3): after each Snapshot(), all but the keep-most-recent
 	// snapshots of the project are deleted. Zero = defaultSnapshotRetention
@@ -387,9 +389,9 @@ type Status struct {
 // New creates a memory service for the given store and project ID.
 func New(st *store.Store, projectID string) *Service {
 	return &Service{
-		store:              st,
-		projectID:          projectID,
-		TestRawImportance:  -1,
+		store:             st,
+		projectID:         projectID,
+		TestRawImportance: -1,
 		// Snapshot auto-prune defaults (014 step 20.3): keep the last 10. The
 		// service layer can override it from mnemonic.snapshot.retention via
 		// SetSnapshotRetention.
@@ -1805,16 +1807,16 @@ var validTypes = map[string]struct{}{
 // reference the canonical spellings rather than raw string literals.
 
 const (
-	MemoryTypeProfile       = "profile"
-	MemoryTypePreferences   = "preferences"
-	MemoryTypeEntities      = "entities"
-	MemoryTypeEvents        = "events"
-	MemoryTypeIdentity      = "identity"
-	MemoryTypeSoul          = "soul"
-	MemoryTypeCases         = "cases"
-	MemoryTypeTrajectories  = "trajectories"
-	MemoryTypeExperiences   = "experiences"
-	MemoryTypeSkill         = "skill"
+	MemoryTypeProfile      = "profile"
+	MemoryTypePreferences  = "preferences"
+	MemoryTypeEntities     = "entities"
+	MemoryTypeEvents       = "events"
+	MemoryTypeIdentity     = "identity"
+	MemoryTypeSoul         = "soul"
+	MemoryTypeCases        = "cases"
+	MemoryTypeTrajectories = "trajectories"
+	MemoryTypeExperiences  = "experiences"
+	MemoryTypeSkill        = "skill"
 )
 
 // memoryTypes is the lookup set of the 10 valid fine-grained categories. It is

@@ -375,8 +375,8 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 	mem.SetImportance(memory.ImportanceConfig{
 		DecayRate: imp.DecayRate,
 		Thresholds: memory.TierThresholds{
-			MatureAgeDays:    imp.TierThresholds.MatureAgeDays,
-			ArchivalAgeDays:  imp.TierThresholds.ArchivalAgeDays,
+			MatureAgeDays:      imp.TierThresholds.MatureAgeDays,
+			ArchivalAgeDays:    imp.TierThresholds.ArchivalAgeDays,
 			UnusedArchivalDays: imp.TierThresholds.UnusedArchivalDays,
 		},
 	})

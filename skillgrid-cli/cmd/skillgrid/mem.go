@@ -33,25 +33,25 @@ func runMem(version string, args []string) {
 	fs := flag.NewFlagSet("mem", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var (
-		dataDir  string
-		project  string
-		limit    int
-		items    int
-		chars    int
-		timeout  string
-		target   string
-		owner    string
-		agent    string
-		window   string
+		dataDir    string
+		project    string
+		limit      int
+		items      int
+		chars      int
+		timeout    string
+		target     string
+		owner      string
+		agent      string
+		window     string
 		visibility string
-		grants   string
+		grants     string
 		exportFile string
-		skipEmb  bool
-		minConf  float64
-		memType  string
+		skipEmb    bool
+		minConf    float64
+		memType    string
 		trajectory bool
-		hookQuery string
-		hookFile  string
+		hookQuery  string
+		hookFile   string
 	)
 	fs.StringVar(&dataDir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
 	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
@@ -75,10 +75,10 @@ func runMem(version string, args []string) {
 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
 	fs.BoolVar(&trajectory, "trajectory", false, "search: also run the directory retrieval and print its drill-down trajectory (014 step 19)")
 	var (
-		handoffJSON  bool
-		handoffDir   string
-		envelopeFlag bool
-		riskFlag     bool
+		handoffJSON   bool
+		handoffDir    string
+		envelopeFlag  bool
+		riskFlag      bool
 		riskThreshold float64
 	)
 	fs.BoolVar(&handoffJSON, "json", false, "handoff: print the full handoff JSON to stdout")
@@ -112,10 +112,10 @@ func runMem(version string, args []string) {
 		} else {
 			runMemGraph(svc, projID, limit)
 		}
- 	case "relations":
- 		runMemRelations(svc, projID, pos, minConf)
- 	case "provenance":
- 		runMemProvenance(svc, projID, pos)
+	case "relations":
+		runMemRelations(svc, projID, pos, minConf)
+	case "provenance":
+		runMemProvenance(svc, projID, pos)
 	case "list":
 		runMemList(svc, projID, limit, memType)
 	case "memory-type":
@@ -806,7 +806,7 @@ func runMemList(svc *service.Service, projID string, limit int, memType string) 
 		limit = 20
 	}
 	var (
-		obs []memory.Observation
+		obs  []memory.Observation
 		lerr error
 	)
 	if mt := strings.TrimSpace(memType); mt != "" {
@@ -874,7 +874,7 @@ func runMemDistill(svc *service.Service, projID string, pos []string) {
 		}
 		out := map[string]any{
 			"project": projID,
-			"status":  map[string]any{
+			"status": map[string]any{
 				"project_id": status.ProjectID,
 				"locked_at":  status.LockedAt,
 				"locked_by":  status.LockedBy,
@@ -930,10 +930,10 @@ func runMemSkills(svc *service.Service, projID string, pos []string) {
 			})
 		}
 		printJSON(map[string]any{
-			"project":      projID,
-			"memory_type":  "skill",
-			"skills":       skills,
-			"count":        len(skills),
+			"project":     projID,
+			"memory_type": "skill",
+			"skills":      skills,
+			"count":       len(skills),
 		})
 	case "add":
 		if len(pos) < 4 {
@@ -1013,7 +1013,7 @@ func runMemHook(svc *service.Service, projID string, pos []string, query, hookFi
 			"project": projID,
 			"enabled": enabled,
 			"timeout": timeout.String(),
-			"hooks": []string{"session-start", "pre-edit", "prompt-submit", "session-stop"},
+			"hooks":   []string{"session-start", "pre-edit", "prompt-submit", "session-stop"},
 		})
 	case "run":
 		hookType := ""
@@ -1035,9 +1035,9 @@ func runMemHook(svc *service.Service, projID string, pos []string, query, hookFi
 			os.Exit(1)
 		}
 		printJSON(map[string]any{
-			"project":  projID,
-			"hook":     hookType,
-			"result":   res,
+			"project": projID,
+			"hook":    hookType,
+			"result":  res,
 		})
 	case "help", "-h", "--help":
 		fmt.Fprint(os.Stderr, `usage: skillgrid mem hook <list|run>
@@ -1096,9 +1096,9 @@ func runMemSnapshot(svc *service.Service, projID string, pos []string) {
 			os.Exit(1)
 		}
 		printJSON(map[string]any{
-			"project":   projID,
-			"snapshot":  id,
-			"created":   true,
+			"project":  projID,
+			"snapshot": id,
+			"created":  true,
 		})
 	case "restore":
 		if len(pos) < 2 {
@@ -1138,9 +1138,9 @@ func runMemSnapshot(svc *service.Service, projID string, pos []string) {
 			os.Exit(1)
 		}
 		printJSON(map[string]any{
-			"project":    projID,
-			"count":      len(snaps),
-			"snapshots":  snaps,
+			"project":   projID,
+			"count":     len(snaps),
+			"snapshots": snaps,
 		})
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown snapshot subcommand %q\n", sub)
@@ -1192,7 +1192,7 @@ func runMemHandoff(svc *service.Service, projID, dataDir string, asJSON bool, ha
 		"project":      projID,
 		"path":         memory.HandoffPath(outDir),
 		"generated_at": artifact.GeneratedAt,
-		"prefix":       map[string]any{
+		"prefix": map[string]any{
 			"file_count": artifact.Prefix.FileCount,
 			"hub_files":  len(artifact.Prefix.HubFiles),
 		},

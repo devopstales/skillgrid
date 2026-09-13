@@ -59,13 +59,13 @@ const skillMatchLimit = 100
 // (Markdown content), the classified intent it applies to, and its language
 // tag ("" = any-language).
 type Skill struct {
-	ID         int64  `json:"id"`
-	Title      string `json:"title"`
-	Content    string `json:"content"`
-	Intent     string `json:"intent"`
-	Language   string `json:"language,omitempty"`
-	TopicKey   string `json:"topic_key,omitempty"`
-	Relevance  float64 `json:"relevance,omitempty"`
+	ID        int64   `json:"id"`
+	Title     string  `json:"title"`
+	Content   string  `json:"content"`
+	Intent    string  `json:"intent"`
+	Language  string  `json:"language,omitempty"`
+	TopicKey  string  `json:"topic_key,omitempty"`
+	Relevance float64 `json:"relevance,omitempty"`
 }
 
 // skillParts splits a skill topic_key into (intent, lang). A non-skill key
@@ -229,10 +229,10 @@ func extLanguage(path string) string {
 
 // Hook types (24.2).
 const (
-	HookSessionStart  = "session-start"
-	HookPreEdit       = "pre-edit"
-	HookPromptSubmit  = "prompt-submit"
-	HookSessionStop   = "session-stop"
+	HookSessionStart = "session-start"
+	HookPreEdit      = "pre-edit"
+	HookPromptSubmit = "prompt-submit"
+	HookSessionStop  = "session-stop"
 )
 
 // DefaultHookTimeout is the per-hook execution budget (014 step 24.3). A
@@ -512,6 +512,6 @@ func (s *Service) hookSessionStop(ctx context.Context, payload HookPayload) (Hoo
 // so a nil receiver's accessors are safe and the pattern matches the
 // package-level seams elsewhere in this file's family.
 var (
-	hooksMu  sync.Mutex
+	hooksMu   sync.Mutex
 	distillMu sync.Mutex
 )

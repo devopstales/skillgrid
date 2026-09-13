@@ -134,8 +134,8 @@ type Hooks struct {
 // back to the memory package defaults (MatureAgeDays 7, ArchivalAgeDays 30,
 // UnusedArchivalDays 14).
 type TierThresholdsConfig struct {
-	MatureAgeDays    int
-	ArchivalAgeDays  int
+	MatureAgeDays      int
+	ArchivalAgeDays    int
 	UnusedArchivalDays int
 }
 
@@ -224,9 +224,9 @@ type mnemonicSection struct {
 }
 
 type retrievalBudgetSection struct {
-	Items     int    `yaml:"items"`
-	Chars     int    `yaml:"chars"`
-	Timeout   string `yaml:"timeout"` // Go duration string, e.g. "3s"
+	Items   int    `yaml:"items"`
+	Chars   int    `yaml:"chars"`
+	Timeout string `yaml:"timeout"` // Go duration string, e.g. "3s"
 }
 
 // extractionSection is the mnemonic.extraction section (014 step 05). LLM
@@ -459,8 +459,8 @@ func mergeFederated(section federatedSection) Federated {
 func mergeImportance(section importanceSection) Importance {
 	out := Importance{
 		TierThresholds: TierThresholdsConfig{
-			MatureAgeDays:    section.TierThresholds.MatureAgeDays,
-			ArchivalAgeDays:  section.TierThresholds.ArchivalAgeDays,
+			MatureAgeDays:      section.TierThresholds.MatureAgeDays,
+			ArchivalAgeDays:    section.TierThresholds.ArchivalAgeDays,
 			UnusedArchivalDays: section.TierThresholds.UnusedArchivalDays,
 		},
 	}
@@ -502,8 +502,8 @@ type promotionSection struct {
 // applies the 0.05/day default); the tier thresholds are day counts (absent
 // → 0, so SetImportance applies the 7/30/14-day defaults).
 type importanceSection struct {
-	DecayRate      string                 `yaml:"decay"`
-	TierThresholds tierThresholdsSection  `yaml:"tier_thresholds"`
+	DecayRate      string                `yaml:"decay"`
+	TierThresholds tierThresholdsSection `yaml:"tier_thresholds"`
 }
 
 // federatedSection is the mnemonic.federated section (014 step 16). Weights
@@ -534,8 +534,8 @@ type hooksSection struct {
 // tierThresholdsSection is the mnemonic.importance.tier_thresholds section
 // (014 step 13.4): maturity-tier age cutoffs, in days.
 type tierThresholdsSection struct {
-	MatureAgeDays    int `yaml:"mature_age_days"`
-	ArchivalAgeDays  int `yaml:"archival_age_days"`
+	MatureAgeDays      int `yaml:"mature_age_days"`
+	ArchivalAgeDays    int `yaml:"archival_age_days"`
 	UnusedArchivalDays int `yaml:"unused_archival_days"`
 }
 
