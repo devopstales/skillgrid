@@ -119,6 +119,16 @@ func DefaultFederated() Federated {
 	return Federated{RankWeight: 0.5, ImportanceWeight: 0.5}
 }
 
+// Hooks is the mnemonic.hooks section (014 step 24): the lifecycle hooks
+// (session-start / pre-edit / prompt-submit / session-stop). OPT-IN: Enabled
+// defaults to false so no hook runs unless an operator enables it. Timeout is
+// the per-hook execution budget (default 30s); zero falls back to the memory
+// package default (DefaultHookTimeout) inside SetHooks.
+type Hooks struct {
+	Enabled bool
+	Timeout time.Duration
+}
+
 // TierThresholdsConfig is the mnemonic.importance.tier_thresholds section
 // (014 step 13.4): the maturity-tier age cutoffs, in days. Zero fields fall
 // back to the memory package defaults (MatureAgeDays 7, ArchivalAgeDays 30,
@@ -164,6 +174,9 @@ type Indexing struct {
 	// recent snapshots to keep after each capture). Zero means "use the
 	// memory package default" (10).
 	SnapshotRetention int
+	// Hooks is the mnemonic.hooks section (014 step 24): the lifecycle hooks
+	// opt-in switch + per-hook timeout.
+	Hooks Hooks
 }
 
 type indexingFile struct {
@@ -205,6 +218,9 @@ type mnemonicSection struct {
 	// prune retention for store snapshots (how many most recent snapshots to
 	// keep after each capture).
 	Snapshot snapshotSection `yaml:"snapshot"`
+	// Hooks is the mnemonic.hooks section (014 step 24): the lifecycle hooks
+	// opt-in switch + per-hook timeout (a Go duration string, e.g. "30s").
+	Hooks hooksSection `yaml:"hooks"`
 }
 
 type retrievalBudgetSection struct {
@@ -401,6 +417,23 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	// Snapshot retention (014 step 20.3): a non-positive value is left zero so
 	// SetSnapshotRetention applies the memory package default (10).
 	out.SnapshotRetention = section.Snapshot.Retention
+	// Hooks (014 step 24): the opt-in switch applies as-is (absent → false =
+	// hooks off). A blank or malformed timeout is left zero so SetHooks
+	// applies the memory package default (30s).
+	out.Hooks = mergeHooks(section.Hooks)
+	return out
+}
+
+// mergeHooks maps the mnemonic.hooks YAML section (014 step 24) to the Hooks
+// struct. Enabled is applied as-is (absent → false, hooks opt-in off). A
+// non-positive parsed timeout is left zero so SetHooks applies its default.
+func mergeHooks(section hooksSection) Hooks {
+	out := Hooks{Enabled: section.Enabled}
+	if section.Timeout != "" {
+		if d, err := time.ParseDuration(section.Timeout); err == nil && d > 0 {
+			out.Timeout = d
+		}
+	}
 	return out
 }
 
@@ -487,6 +520,15 @@ type federatedSection struct {
 // when the value is non-positive.
 type snapshotSection struct {
 	Retention int `yaml:"retention"`
+}
+
+// hooksSection is the mnemonic.hooks section (014 step 24): the lifecycle
+// hooks opt-in switch (Enabled defaults to false) + per-hook timeout (a Go
+// duration string, e.g. "30s"; blank/malformed keeps the memory package
+// default of 30s).
+type hooksSection struct {
+	Enabled bool   `yaml:"enabled"`
+	Timeout string `yaml:"timeout"`
 }
 
 // tierThresholdsSection is the mnemonic.importance.tier_thresholds section

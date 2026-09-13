@@ -386,6 +386,15 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 	// SetSnapshotRetention, so a config without the key keeps the production
 	// retention.
 	mem.SetSnapshotRetention(cfg.SnapshotRetention)
+	// Lifecycle hooks (014 step 24): route the mnemonic.hooks config key to the
+	// memory service. OPT-IN — Enabled defaults to false, so a config without
+	// the section keeps hooks off (RunHook returns HooksDisabledError). A
+	// non-positive Timeout falls back to the memory package default (30s)
+	// inside SetHooks.
+	mem.SetHooks(memory.HooksConfig{
+		Enabled: cfg.Hooks.Enabled,
+		Timeout: cfg.Hooks.Timeout,
+	})
 	h := &ProjectHandle{
 		store:          st,
 		projectID:      projectID,

@@ -101,6 +101,21 @@ type Service struct {
 	// fall back to the MinHubImporters / HighImpactDependents defaults
 	// (effectiveHubCfg). Set via SetHub from the mnemonic.hub config key.
 	hubCfg hubConfig
+	// hooksEnabled / hooksTimeout are the lifecycle hooks opt-in switch and
+	// per-hook budget (014, step 24.3). Enabled defaults to false (no hook
+	// runs); a non-positive timeout falls back to DefaultHookTimeout. Set via
+	// SetHooks from the mnemonic.hooks config key; guarded by hooksMu
+	// (skills.go).
+	hooksEnabled bool
+	hooksTimeout time.Duration
+	// hookFns is the per-hook-type work seam (a test replaces one hook's work
+	// to exercise the timeout deterministically). Guarded by hooksMu.
+	hookFns map[string]hookFunc
+	// distillRunner is the injectable session-close distillation seam (014,
+	// step 24.2): the service layer wires the real layer.Distill at open
+	// time. Nil = session-stop reports distilled = false (a no-op). Guarded
+	// by distillMu (skills.go).
+	distillRunner distillRunner
 	// TestRawImportance is a test-only seam (014 step 16): when >= 0,
 	// stampImportance stores this value as the importance_score instead of
 	// computing it, so federated-query tests can seed arbitrary per-observation
@@ -280,11 +295,11 @@ type SaveInput struct {
 	// provenance (immutable once set).
 	Provenance *Provenance
 	// MemoryType is the optional fine-grained typed category (014 step 18):
-	// one of the 9 MemoryType constants (profile, preferences, entities,
-	// events, identity, soul, cases, trajectories, experiences). It is a
-	// SEPARATE, finer categorization from the coarse `type` column; they
+	// one of the 10 MemoryType constants (profile, preferences, entities,
+	// events, identity, soul, cases, trajectories, experiences, skill). It is
+	// a SEPARATE, finer categorization from the coarse `type` column; they
 	// coexist. Empty leaves the memory_type column NULL (not typed, no
-	// validation). When set, it must be one of the 9 — an unknown value is
+	// validation). When set, it must be one of the 10 — an unknown value is
 	// rejected with a clear error before any write.
 	MemoryType string
 }
@@ -425,13 +440,13 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 		return 0, fmt.Errorf("invalid type %q (allowed: standing, preference, convention, decision, architecture, bugfix, pattern, config, correction, discovery, learning, lesson, session_log)", in.Type)
 	}
 	// Typed memory category (014 step 18): when a fine-grained memory_type is
-	// supplied it must be one of the 9 valid categories. Empty is allowed
+	// supplied it must be one of the 10 valid categories. Empty is allowed
 	// (the column stays NULL — not typed, no validation). A set-but-unknown
 	// value is rejected before any write so the store never holds an invalid
 	// category.
 	memoryType := strings.ToLower(strings.TrimSpace(in.MemoryType))
 	if in.MemoryType != "" && !IsValidMemoryType(in.MemoryType) {
-		return 0, fmt.Errorf("invalid memory_type %q (allowed: profile, preferences, entities, events, identity, soul, cases, trajectories, experiences)", in.MemoryType)
+		return 0, fmt.Errorf("invalid memory_type %q (allowed: profile, preferences, entities, events, identity, soul, cases, trajectories, experiences, skill)", in.MemoryType)
 	}
 
 	source := in.Source
@@ -785,7 +800,7 @@ func (s *Service) Recent(ctx context.Context, limit int) ([]Observation, error) 
 }
 
 // RecentWithType is like Recent but restricted to observations whose fine
-// granularity memory_type matches the given one of the 9 typed categories
+// granularity memory_type matches the given one of the 10 typed categories
 // (014 step 18). This is the read path behind `mem list --type <category>`.
 // It returns only typed rows matching the category; untyped (NULL) and
 // differently-typed rows are excluded. The category is validated (a bad value
@@ -799,7 +814,7 @@ func (s *Service) RecentWithType(ctx context.Context, memoryType string, limit i
 		return nil, errors.New("memory_type filter is required")
 	}
 	if !IsValidMemoryType(memoryType) {
-		return nil, fmt.Errorf("invalid memory_type %q (allowed: profile, preferences, entities, events, identity, soul, cases, trajectories, experiences)", memoryType)
+		return nil, fmt.Errorf("invalid memory_type %q (allowed: profile, preferences, entities, events, identity, soul, cases, trajectories, experiences, skill)", memoryType)
 	}
 	if limit <= 0 {
 		limit = defaultSearchLimit
@@ -1781,7 +1796,7 @@ var validTypes = map[string]struct{}{
 
 // ── Typed memory categories (014 step 18) ──────────────────────────────────
 //
-// The 9 fine-grained typed categories. These are a SEPARATE, finer
+// The 10 fine-grained typed categories. These are a SEPARATE, finer
 // categorization from the coarse observation `type` column (learning,
 // decision, bug, session_log, ...); they coexist. An observation may carry a
 // coarse type, a fine memory_type, both, or neither (memory_type NULL).
@@ -1799,11 +1814,13 @@ const (
 	MemoryTypeCases         = "cases"
 	MemoryTypeTrajectories  = "trajectories"
 	MemoryTypeExperiences   = "experiences"
+	MemoryTypeSkill         = "skill"
 )
 
-// memoryTypes is the lookup set of the 9 valid fine-grained categories. It is
+// memoryTypes is the lookup set of the 10 valid fine-grained categories. It is
 // the single source of truth for validation (IsValidMemoryType) and for the
-// `mem memory-type` CLI help.
+// `mem memory-type` CLI help. skill (014 step 24) is the 10th: a skill is an
+// observation whose body is Markdown skill content, matched by intent.
 var memoryTypes = map[string]struct{}{
 	MemoryTypeProfile:      {},
 	MemoryTypePreferences:  {},
@@ -1814,9 +1831,10 @@ var memoryTypes = map[string]struct{}{
 	MemoryTypeCases:        {},
 	MemoryTypeTrajectories: {},
 	MemoryTypeExperiences:  {},
+	MemoryTypeSkill:        {},
 }
 
-// IsValidMemoryType reports whether mt is one of the 9 fine-grained typed
+// IsValidMemoryType reports whether mt is one of the 10 fine-grained typed
 // categories. Empty (not typed) is NOT valid here — use it to validate a
 // supplied value, not to test "is this observation typed". Case-insensitive.
 func IsValidMemoryType(mt string) bool {
