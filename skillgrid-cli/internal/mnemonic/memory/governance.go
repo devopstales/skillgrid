@@ -400,9 +400,9 @@ func (s *Service) SearchOwner(ctx context.Context, readerOwner, query, matchMode
 	rows, err := s.store.DB.QueryContext(ctx, `
 		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
-		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
+		   COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier
+		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.project = ? AND o.deleted_at IS NULL
@@ -446,9 +446,9 @@ func (s *Service) AdminCrossOwnerList(ctx context.Context, adminOwner string) ([
 	rows, err := s.store.DB.QueryContext(ctx, `
 		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
-		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
+		   COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier
+		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance
 		FROM observations o
 		WHERE o.deleted_at IS NULL AND o.project = ?
 		  AND (o.owner = ? OR COALESCE(o.visibility, 'private') != 'private')

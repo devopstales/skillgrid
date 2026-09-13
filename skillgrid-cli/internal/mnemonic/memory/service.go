@@ -206,6 +206,12 @@ type SaveInput struct {
 	// (mnemonic.ttl, default 7 days) so every observation carries a soft
 	// expiry (014 step 04).
 	ExpiresAt string
+	// Provenance is the optional curation chain (014 step 15): the session,
+	// command, source files, and LLM reasoning that produced this
+	// observation. Nil leaves the provenance column NULL. It can only be
+	// established on the INITIAL save — the update path preserves any stored
+	// provenance (immutable once set).
+	Provenance *Provenance
 }
 
 // PassiveInput is a raw block of text (assistant reply, Task output, etc.)
@@ -269,6 +275,9 @@ type Observation struct {
 	ImportanceScore sql.NullFloat64 `json:"importance_score,omitempty"`
 	RecencyDecay    sql.NullFloat64 `json:"recency_decay,omitempty"`
 	MaturityTier    string          `json:"maturity_tier,omitempty"`
+	// Provenance is the curation chain recorded at save time (014 step 15).
+	// Nil = no provenance was set (the pre-027 contract is unchanged).
+	Provenance *Provenance `json:"provenance,omitempty"`
 }
 
 // Status holds aggregate memory statistics.
@@ -421,15 +430,27 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	} else if _, err := time.Parse(time.RFC3339, expiresAt); err != nil {
 		return 0, fmt.Errorf("invalid expires_at: %w", err)
 	}
+	// Provenance (014 step 15): serialize the curation chain to JSON on the
+	// initial save. Nil input leaves the column NULL (no provenance). A
+	// marshal failure is a hard error — a provenance chain that cannot be
+	// serialized is a bug, not a best-effort footnote.
+	var provenanceJSON sql.NullString
+	if in.Provenance != nil {
+		b, merr := in.Provenance.MarshalJSON()
+		if merr != nil {
+			return 0, fmt.Errorf("serialize provenance: %w", merr)
+		}
+		provenanceJSON = sql.NullString{String: string(b), Valid: true}
+	}
 	res, err := s.store.DB.ExecContext(ctx, `
 		INSERT INTO observations (
 			session_id, type, title, content, project, scope, topic_key,
 			normalized_hash, revision_count, created_at, updated_at, source, prompt_id, tool_name,
 			owner, visibility, status, retrieval_usage, expires_at,
-			importance_score, recency_decay, maturity_tier
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?, 0, 1, 'fresh')`,
+			importance_score, recency_decay, maturity_tier, provenance
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?, 0, 1, 'fresh', ?)`,
 		in.SessionID, in.Type, in.Title, in.Content, s.projectID, in.Scope, nullString(in.TopicKey),
-		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt),
+		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt), provenanceJSON,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert observation: %w", err)
@@ -669,14 +690,14 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	var obs Observation
 	var topicKey sql.NullString
 	var promptID sql.NullInt64
-	var lastSeen, expires, toolName, owner, tier sql.NullString
+	var lastSeen, expires, toolName, owner, tier, prov sql.NullString
 	var pinned, dups, usage int
 	var score, decay sql.NullFloat64
 	err := row.Scan(
 		&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
 		&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 		&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
-		&score, &decay, &tier,
+		&score, &decay, &tier, &prov,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -685,6 +706,11 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 		return Observation{}, fmt.Errorf("get observation: %w", err)
 	}
 	obs.setImportanceColumns(score, decay, tier)
+	if p, ok, perr := parseProvenanceColumn(prov); perr != nil {
+		return Observation{}, fmt.Errorf("get observation: %w", perr)
+	} else if ok {
+		obs.Provenance = p
+	}
 	if topicKey.Valid {
 		obs.TopicKey = topicKey.String
 	}
@@ -1741,7 +1767,7 @@ const obsSelectCols = `
 	topic_key, source, normalized_hash, revision_count, prompt_id, created_at, updated_at,
 	COALESCE(pinned, 0), COALESCE(duplicate_count, 0), last_seen_at, expires_at, tool_name,
 	owner, COALESCE(visibility, 'private'), COALESCE(status, 'active'), COALESCE(retrieval_usage, 0),
-	importance_score, recency_decay, maturity_tier`
+	importance_score, recency_decay, maturity_tier, provenance`
 
 func scanObservations(rows *sql.Rows) ([]Observation, error) {
 	var out []Observation
@@ -1749,18 +1775,23 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
 		var obs Observation
 		var topicKey sql.NullString
 		var promptID sql.NullInt64
-		var lastSeen, expires, toolName, owner, tier sql.NullString
+		var lastSeen, expires, toolName, owner, tier, prov sql.NullString
 		var pinned, dups, usage int
 		var score, decay sql.NullFloat64
 		if err := rows.Scan(
 			&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
 			&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 			&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
-			&score, &decay, &tier,
+			&score, &decay, &tier, &prov,
 		); err != nil {
 			return nil, fmt.Errorf("scan observation: %w", err)
 		}
 		obs.setImportanceColumns(score, decay, tier)
+		if p, ok, perr := parseProvenanceColumn(prov); perr != nil {
+			return nil, fmt.Errorf("scan observation: %w", perr)
+		} else if ok {
+			obs.Provenance = p
+		}
 		if topicKey.Valid {
 			obs.TopicKey = topicKey.String
 		}
