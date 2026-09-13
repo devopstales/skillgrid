@@ -95,6 +95,12 @@ type Service struct {
 	// in the 0.05/day decay and 7/30/14-day thresholds). Set via
 	// SetImportance from the mnemonic.importance config key.
 	importanceCfg ImportanceConfig
+	// hubCfg tunes hub identification + impact classification (014,
+	// step 23): the minimum importers for a hub and the dependent count
+	// that escalates a hub change from medium to high impact. Zero fields
+	// fall back to the MinHubImporters / HighImpactDependents defaults
+	// (effectiveHubCfg). Set via SetHub from the mnemonic.hub config key.
+	hubCfg hubConfig
 	// TestRawImportance is a test-only seam (014 step 16): when >= 0,
 	// stampImportance stores this value as the importance_score instead of
 	// computing it, so federated-query tests can seed arbitrary per-observation
