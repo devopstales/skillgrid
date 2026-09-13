@@ -11,6 +11,7 @@ import (
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memfs"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory/layer"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
@@ -134,6 +135,8 @@ func runMem(version string, args []string) {
 		runMemHook(svc, projID, pos, hookQuery, hookFile)
 	case "handoff":
 		runMemHandoff(svc, projID, dataDir, handoffJSON, handoffDir)
+	case "fs":
+		runMemFS(svc, projID, pos)
 	case "help", "-h", "--help":
 		printMemUsage()
 	default:
@@ -144,7 +147,7 @@ func runMem(version string, args []string) {
 }
 
 func printMemUsage() {
-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|list|memory-type|expire|export|distill|snapshot> [args]
+	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|list|memory-type|expire|export|distill|snapshot|skills|fs> [args]
 
   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
   governance <id>                 governed-asset view (mem_governance)
@@ -192,11 +195,15 @@ func printMemUsage() {
                                      state of snapshot <id> (atomic)
     snapshot list                    list the project's snapshots,
                                       newest-first (id, state_hash, created_at)
-    handoff [--json] [--handoff-dir DIR]
-                                      generate the prefix+delta handoff artifact
-                                      (stable prefix + dynamic delta); prints a
-                                      summary and writes handoff.latest.json
-                                      (default: the data dir; --json = full JSON)
+     handoff [--json] [--handoff-dir DIR]
+                                       generate the prefix+delta handoff artifact
+                                       (stable prefix + dynamic delta); prints a
+                                       summary and writes handoff.latest.json
+                                       (default: the data dir; --json = full JSON)
+     fs ls <scope>                    list observations in a scope
+                                       (e.g. project/A/preferences, user/B/)
+     fs tree <scope>                  hierarchical tree view of a scope
+     fs find <pattern> [scope]        glob pattern search across observations
 
 Flags:
   --project ID    project bucket (defaults to CWD-resolved)
@@ -1230,6 +1237,86 @@ func reorderMemArgs(args []string) []string {
 		pos = append(pos, a)
 	}
 	return append(flags, pos...)
+}
+
+// runMemFS handles the `mem fs` subcommand group (014 step 25): ls, tree, find.
+func runMemFS(svc *service.Service, projID string, pos []string) {
+	sub := ""
+	if len(pos) >= 1 {
+		sub = pos[0]
+	}
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	fs := memfs.New(h.Store(), projID)
+	ctx := context.Background()
+	switch sub {
+	case "ls":
+		if len(pos) < 2 {
+			fmt.Fprintln(os.Stderr, "error: mem fs ls requires <scope>")
+			os.Exit(2)
+		}
+		scope := strings.Join(pos[1:], " ")
+		obs, lerr := fs.List(ctx, scope)
+		if lerr != nil {
+			fmt.Fprintln(os.Stderr, "error:", lerr)
+			os.Exit(1)
+		}
+		printJSON(map[string]any{
+			"project":      projID,
+			"scope":        scope,
+			"observations": obs,
+			"count":        len(obs),
+		})
+	case "tree":
+		if len(pos) < 2 {
+			fmt.Fprintln(os.Stderr, "error: mem fs tree requires <scope>")
+			os.Exit(2)
+		}
+		scope := strings.Join(pos[1:], " ")
+		tree, terr := fs.Tree(ctx, scope)
+		if terr != nil {
+			fmt.Fprintln(os.Stderr, "error:", terr)
+			os.Exit(1)
+		}
+		fmt.Print(tree)
+	case "find":
+		if len(pos) < 2 {
+			fmt.Fprintln(os.Stderr, "error: mem fs find requires <pattern> [scope]")
+			os.Exit(2)
+		}
+		pattern := pos[1]
+		scope := ""
+		if len(pos) >= 3 {
+			scope = strings.Join(pos[2:], " ")
+		}
+		obs, ferr := fs.Find(ctx, pattern, scope)
+		if ferr != nil {
+			fmt.Fprintln(os.Stderr, "error:", ferr)
+			os.Exit(1)
+		}
+		printJSON(map[string]any{
+			"project":      projID,
+			"pattern":      pattern,
+			"scope":        scope,
+			"observations": obs,
+			"count":        len(obs),
+		})
+	case "help", "-h", "--help", "":
+		fmt.Fprint(os.Stderr, `usage: skillgrid mem fs <ls|tree|find> [args]
+
+  ls <scope>               list observations in a scope
+                           (e.g. project/A/preferences, user/B/)
+  tree <scope>             hierarchical tree view of a scope
+  find <pattern> [scope]   glob pattern search (* and ? supported)
+`)
+	default:
+		fmt.Fprintf(os.Stderr, "error: unknown mem fs subcommand %q\n", sub)
+		os.Exit(2)
+	}
 }
 
 func printJSON(v any) {
