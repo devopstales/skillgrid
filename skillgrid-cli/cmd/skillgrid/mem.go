@@ -68,6 +68,12 @@ func runMem(version string, args []string) {
 	var searchMode string
 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
 	fs.BoolVar(&trajectory, "trajectory", false, "search: also run the directory retrieval and print its drill-down trajectory (014 step 19)")
+	var (
+		handoffJSON bool
+		handoffDir  string
+	)
+	fs.BoolVar(&handoffJSON, "json", false, "handoff: print the full handoff JSON to stdout")
+	fs.StringVar(&handoffDir, "handoff-dir", "", "handoff: directory to write handoff.latest.json (default: the project's mnemonic data dir)")
 	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
 		os.Exit(2)
 	}
@@ -106,6 +112,8 @@ func runMem(version string, args []string) {
 		runMemDistill(svc, projID, pos)
 	case "snapshot":
 		runMemSnapshot(svc, projID, pos)
+	case "handoff":
+		runMemHandoff(svc, projID, dataDir, handoffJSON, handoffDir)
 	case "help", "-h", "--help":
 		printMemUsage()
 	default:
@@ -161,11 +169,18 @@ func printMemUsage() {
     snapshot restore <id>            roll the project back to the captured
                                      state of snapshot <id> (atomic)
     snapshot list                    list the project's snapshots,
-                                     newest-first (id, state_hash, created_at)
+                                      newest-first (id, state_hash, created_at)
+    handoff [--json] [--handoff-dir DIR]
+                                      generate the prefix+delta handoff artifact
+                                      (stable prefix + dynamic delta); prints a
+                                      summary and writes handoff.latest.json
+                                      (default: the data dir; --json = full JSON)
 
 Flags:
   --project ID    project bucket (defaults to CWD-resolved)
   --dir DATA_DIR  mnemonic data directory
+  --json          handoff: print the full handoff JSON
+  --handoff-dir D handoff: directory to write handoff.latest.json
 `)
 }
 
@@ -867,6 +882,63 @@ func runMemSnapshot(svc *service.Service, projID string, pos []string) {
 		fmt.Fprintf(os.Stderr, "error: unknown snapshot subcommand %q\n", sub)
 		os.Exit(2)
 	}
+}
+
+// runMemHandoff is the CLI for `mem handoff` (014 step 21): it generates the
+// prefix+delta handoff artifact for the project and writes it to
+// handoff.latest.json under the data dir (or --handoff-dir). By default it
+// prints a human-readable summary; --json prints the full handoff JSON. The
+// repo root is the CWD (the project the agent is working in).
+func runMemHandoff(svc *service.Service, projID, dataDir string, asJSON bool, handoffDir string) {
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	outDir := handoffDir
+	if outDir == "" {
+		if dataDir != "" {
+			outDir = dataDir
+		} else if d, derr := service.DefaultDataDir(); derr == nil {
+			outDir = d
+		} else {
+			outDir = "."
+		}
+	}
+	artifact, err := h.Memory().GenerateHandoff(hCtx(), cwd)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	if asJSON {
+		printJSON(artifact)
+		return
+	}
+	if err := h.Memory().SaveHandoff(hCtx(), cwd, outDir); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	printJSON(map[string]any{
+		"project":      projID,
+		"path":         memory.HandoffPath(outDir),
+		"generated_at": artifact.GeneratedAt,
+		"prefix":       map[string]any{
+			"file_count": artifact.Prefix.FileCount,
+			"hub_files":  len(artifact.Prefix.HubFiles),
+		},
+		"delta": map[string]any{
+			"changed_files": len(artifact.Delta.ChangedFiles),
+			"risk_files":    artifact.Delta.RiskFiles,
+			"recent_events": len(artifact.Delta.RecentEvents),
+			"working_set":   artifact.Delta.WorkingSet.Summary,
+		},
+	})
 }
 
 func looksLikeSession(s string) bool {
