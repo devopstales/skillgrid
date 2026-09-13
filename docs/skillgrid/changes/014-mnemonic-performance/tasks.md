@@ -96,9 +96,9 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
 
 ```yaml
 phase: apply         # spec | apply | verify | archive
-current_step: 13-importance-scoring
+current_step: 14-explicit-relations
 status: in_progress  # in_progress | blocked | done
-updated: 2026-09-11T05:30:00+02:00
+updated: 2026-09-11T06:00:00+02:00
 ```
 
 ## Step map
@@ -1060,11 +1060,11 @@ AKL importance scoring + recency decay in improve() and query ranking.
 
 This step is done only when:
 
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@step-13` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on step(s) already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@step-13` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on step(s) already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 08
 
@@ -1079,44 +1079,46 @@ This step is done only when:
 
 ### Tasks
 
-- [ ] 13.1 `[RED]` importance_score is computed from retrieval_count × recency_factor
-  - [ ] 13.1.a Write failing test (`TestImportanceScoreComputation`): create observations with varying `retrieval_usage` (0, 5, 50, 100) and varying ages (1 day, 7 days, 30 days); call the importance scorer; verify importance_score increases with retrieval_count; verify older observations have lower scores (exponential decay); verify the formula is `retrieval_count * exp(-decay_rate * age_days)`
-  - [ ] 13.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceScoreComputation'` — Expected: FAIL
-  - [ ] 13.1.c Minimal implementation — create `importance.go` with `ComputeImportanceScore(retrievalCount int, age time.Duration, decayRate float64) float64` using exponential decay; add `importance_score` (FLOAT), `maturity_tier` (TEXT enum), `recency_decay` (FLOAT) columns to observations via migration; populate on save and on periodic recompute
-  - [ ] 13.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceScoreComputation'` — Expected: PASS
-  - [ ] 13.1.e Commit — `feat(mnemonic): AKL importance score with exponential recency decay`
-- [ ] 13.2 `[RED]` maturity_tier transitions from fresh → mature → archival based on age + retrieval
-  - [ ] 13.2.a Write failing test (`TestMaturityTierTransitions`): create a new observation (age 0) → verify tier is `fresh`; age it to 7 days with 10 retrievals → verify tier is `mature`; age it to 30 days with 0 retrievals → verify tier is `archival`; verify transitions are monotonic (no downgrade)
-  - [ ] 13.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestMaturityTierTransitions'` — Expected: FAIL
-  - [ ] 13.2.c Minimal implementation — implement `ComputeMaturityTier(age time.Duration, retrievalCount int) string` with thresholds: `fresh` (age < 7d), `mature` (age >= 7d AND retrievalCount > 0), `archival` (age >= 30d OR retrievalCount == 0 AND age > 14d); store the tier on the observation
-  - [ ] 13.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestMaturityTierTransitions'` — Expected: PASS
-  - [ ] 13.2.e Commit — `feat(mnemonic): maturity tier computation (fresh/mature/archival)`
-- [ ] 13.3 `[RED]` mem_search applies importance score as query-time ranking boost
-  - [ ] 13.3.a Write failing test (`TestImportanceScoreQueryRanking`): create 3 observations matching a query — one with high importance (score 9.5), one medium (5.0), one low (0.5); run `mem_search`; verify the high-importance observation ranks first; verify the importance score is applied as a multiplicative boost on top of the base relevance score
-  - [ ] 13.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceScoreQueryRanking'` — Expected: FAIL
-  - [ ] 13.3.c Minimal implementation — in `SearchOwnerScoped`, after computing base relevance scores, multiply by a normalized importance factor (`importance_score / max_importance`); make the decay rate configurable via `mnemonic.importance.decay` config key; `improve()` uses importance score instead of binary retrieval_usage
-  - [ ] 13.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceScoreQueryRanking'` — Expected: PASS
-  - [ ] 13.3.e Commit — `feat(mnemonic): importance score as query-time ranking boost`
-- [ ] 13.4 `[AFK]` Configurable decay rate and thresholds
-  - [ ] 13.4.a Write failing test (`TestImportanceConfigurableDecay`): set `mnemonic.importance.decay` to a high value; verify older observations lose importance faster; set it to a low value; verify older observations retain importance longer; verify default decay rate is reasonable
-  - [ ] 13.4.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceConfigurableDecay'` — Expected: FAIL
-  - [ ] 13.4.c Minimal implementation — read `mnemonic.importance.decay` from config (default 0.05 per day); pass it to `ComputeImportanceScore`; make tier thresholds configurable via `mnemonic.importance.tier_thresholds`
-  - [ ] 13.4.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceConfigurableDecay'` — Expected: PASS
-  - [ ] 13.4.e Commit — `feat(mnemonic): configurable importance decay rate and tier thresholds`
+- [x] 13.1 `[RED]` importance_score is computed from retrieval_count × recency_factor
+  - [x] 13.1.a Write failing test (`TestImportanceScoreComputation`): create observations with varying `retrieval_usage` (0, 5, 50, 100) and varying ages (1 day, 7 days, 30 days); call the importance scorer; verify importance_score increases with retrieval_count; verify older observations have lower scores (exponential decay); verify the formula is `retrieval_count * exp(-decay_rate * age_days)`
+  - [x] 13.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceScoreComputation'` — Expected: FAIL
+  - [x] 13.1.c Minimal implementation — create `importance.go` with `ComputeImportanceScore(retrievalCount int, age time.Duration, decayRate float64) float64` using exponential decay; add `importance_score` (FLOAT), `maturity_tier` (TEXT enum), `recency_decay` (FLOAT) columns to observations via migration; populate on save and on periodic recompute
+  - [x] 13.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceScoreComputation'` — Expected: PASS
+  - [x] 13.1.e Commit — `feat(mnemonic): AKL importance score with exponential recency decay`
+- [x] 13.2 `[RED]` maturity_tier transitions from fresh → mature → archival based on age + retrieval
+  - [x] 13.2.a Write failing test (`TestMaturityTierTransitions`): create a new observation (age 0) → verify tier is `fresh`; age it to 7 days with 10 retrievals → verify tier is `mature`; age it to 30 days with 0 retrievals → verify tier is `archival`; verify transitions are monotonic (no downgrade)
+  - [x] 13.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestMaturityTierTransitions'` — Expected: FAIL
+  - [x] 13.2.c Minimal implementation — implement `ComputeMaturityTier(age time.Duration, retrievalCount int) string` with thresholds: `fresh` (age < 7d), `mature` (age >= 7d AND retrievalCount > 0), `archival` (age >= 30d OR retrievalCount == 0 AND age > 14d); store the tier on the observation
+  - [x] 13.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestMaturityTierTransitions'` — Expected: PASS
+  - [x] 13.2.e Commit — `feat(mnemonic): maturity tier computation (fresh/mature/archival)`
+- [x] 13.3 `[RED]` mem_search applies importance score as query-time ranking boost
+  - [x] 13.3.a Write failing test (`TestImportanceScoreQueryRanking`): create 3 observations matching a query — one with high importance (score 9.5), one medium (5.0), one low (0.5); run `mem_search`; verify the high-importance observation ranks first; verify the importance score is applied as a multiplicative boost on top of the base relevance score
+  - [x] 13.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceScoreQueryRanking'` — Expected: FAIL
+  - [x] 13.3.c Minimal implementation — in `SearchOwnerScoped`, after computing base relevance scores, multiply by a normalized importance factor (`importance_score / max_importance`); make the decay rate configurable via `mnemonic.importance.decay` config key; `improve()` uses importance score instead of binary retrieval_usage
+  - [x] 13.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceScoreQueryRanking'` — Expected: PASS
+  - [x] 13.3.e Commit — `feat(mnemonic): importance score as query-time ranking boost`
+- [x] 13.4 `[AFK]` Configurable decay rate and thresholds
+  - [x] 13.4.a Write failing test (`TestImportanceConfigurableDecay`): set `mnemonic.importance.decay` to a high value; verify older observations lose importance faster; set it to a low value; verify older observations retain importance longer; verify default decay rate is reasonable
+  - [x] 13.4.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceConfigurableDecay'` — Expected: FAIL
+  - [x] 13.4.c Minimal implementation — read `mnemonic.importance.decay` from config (default 0.05 per day); pass it to `ComputeImportanceScore`; make tier thresholds configurable via `mnemonic.importance.tier_thresholds`
+  - [x] 13.4.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceConfigurableDecay'` — Expected: PASS
+  - [x] 13.4.e Commit — `feat(mnemonic): configurable importance decay rate and tier thresholds`
 
 ### Verification
 
-Verdict: `PENDING`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
+Verdict: `PASS WITH WARNINGS`  <!-- PASS | PASS WITH WARNINGS | FAIL -->
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceScoreComputation\|TestMaturityTierTransitions\|TestImportanceScoreQueryRanking'` | PASS | | |
-| Acceptance `@step-13` / `@p0` | BDD / mapped unit scenarios | PASS | | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/memory/` | PASS | | |
-| Rollback boundary | verify importance scoring does not break default search ordering | PASS | | |
-| Global Constraints | — | held | | |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/memory/ -run 'TestImportanceScoreComputation\|TestMaturityTierTransitions\|TestImportanceScoreQueryRanking\|TestImportanceConfigurableDecay'` | PASS | PASS | 4 step-13 tests GREEN |
+| Acceptance `@step-13` / `@p0` | BDD / mapped unit scenarios | PASS | PASS | mapped unit scenarios |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/memory/ -count=1` | PASS | PASS | full memory + config + store suites |
+| Rollback boundary | verify importance scoring does not break default search ordering | PASS | PASS | boost is multiplicative + improve()-gated + in-memory; default search (improve off) unchanged |
+| Global Constraints | — | held | held | 025 migration purely additive; math correct (retrieval*exp(-decay*age_days), age clamped, 0→0); monotonic tier (stored=max(prev,computed)); no tool contract change; no CGO |
+
+Commits: `6907109` (importance score + 025 migration), `0cc759f` (query-time boost), `1bfe24e` (configurable decay + thresholds), `9cf5967` (decay behavior test + SetImportance wiring). Review: PASS WITH WARNINGS. Warnings: (m1) step-08 improve() still uses binary retrieval_usage internally — the brief's "improve() uses importance_score" is realized by call-site replacement, not re-pointing the function; (m2) SetImportance called in both project-open and per-read paths (redundant, mirrors step-08); (m3) idx_obs_importance index created but not yet queried (future prune/dream use).
 
 ### Commit
 
