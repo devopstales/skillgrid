@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory/layer"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
@@ -48,6 +50,8 @@ func runMem(version string, args []string) {
 		minConf  float64
 		memType  string
 		trajectory bool
+		hookQuery string
+		hookFile  string
 	)
 	fs.StringVar(&dataDir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
 	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
@@ -64,7 +68,9 @@ func runMem(version string, args []string) {
 	fs.StringVar(&exportFile, "file", "", "export: write the bundle to this file (default: stdout)")
 	fs.BoolVar(&skipEmb, "skip-embeddings", false, "export: omit embedding data for a smaller payload")
 	fs.Float64Var(&minConf, "min-confidence", 0.0, "relations: minimum edge confidence (0.0..1.0; 0.0 = all)")
-	fs.StringVar(&memType, "type", "", "list: filter by fine-grained memory_type (014 step 18; one of the 9 typed categories)")
+	fs.StringVar(&memType, "type", "", "list: filter by fine-grained memory_type (014 step 18; one of the 10 typed categories)")
+	fs.StringVar(&hookQuery, "query", "", "hook run: the query to classify / retrieve on (prompt-submit, session-start)")
+	fs.StringVar(&hookFile, "hook-file", "", "hook run: the target file (pre-edit risk analysis)")
 	var searchMode string
 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
 	fs.BoolVar(&trajectory, "trajectory", false, "search: also run the directory retrieval and print its drill-down trajectory (014 step 19)")
@@ -122,6 +128,10 @@ func runMem(version string, args []string) {
 		runMemDistill(svc, projID, pos)
 	case "snapshot":
 		runMemSnapshot(svc, projID, pos)
+	case "skills":
+		runMemSkills(svc, projID, pos)
+	case "hook":
+		runMemHook(svc, projID, pos, hookQuery, hookFile)
 	case "handoff":
 		runMemHandoff(svc, projID, dataDir, handoffJSON, handoffDir)
 	case "help", "-h", "--help":
@@ -882,6 +892,182 @@ func runMemDistill(svc *service.Service, projID string, pos []string) {
 		fmt.Fprintf(os.Stderr, "error: unknown distill subcommand %q\n", sub)
 		os.Exit(2)
 	}
+}
+
+// runMemSkills is the CLI for `mem skills` (014 step 24.4): `mem skills list`
+// lists the project's skills (observations with memory_type=skill) and
+// `mem skills add <intent> <name> <content>` creates one (topic_key
+// skill/<intent>/<lang>, lang defaulting to "" = any-language).
+func runMemSkills(svc *service.Service, projID string, pos []string) {
+	sub := ""
+	if len(pos) >= 1 {
+		sub = pos[0]
+	}
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	mem := h.Memory()
+	ctx := context.Background()
+	switch sub {
+	case "list", "":
+		obs, lerr := mem.RecentWithType(ctx, memory.MemoryTypeSkill, 100)
+		if lerr != nil {
+			fmt.Fprintln(os.Stderr, "error:", lerr)
+			os.Exit(1)
+		}
+		skills := make([]map[string]any, 0, len(obs))
+		for _, o := range obs {
+			skills = append(skills, map[string]any{
+				"id":        o.ID,
+				"title":     o.Title,
+				"intent":    skillIntentFromTopic(o.TopicKey),
+				"language":  skillLangFromTopic(o.TopicKey),
+				"topic_key": o.TopicKey,
+				"content":   o.Content,
+			})
+		}
+		printJSON(map[string]any{
+			"project":      projID,
+			"memory_type":  "skill",
+			"skills":       skills,
+			"count":        len(skills),
+		})
+	case "add":
+		if len(pos) < 4 {
+			fmt.Fprintln(os.Stderr, "error: mem skills add requires <intent> <name> <content>")
+			os.Exit(2)
+		}
+		intent := strings.ToLower(strings.TrimSpace(pos[1]))
+		name := strings.TrimSpace(pos[2])
+		content := strings.TrimSpace(pos[3])
+		if intent == "" || name == "" || content == "" {
+			fmt.Fprintln(os.Stderr, "error: intent, name, and content must be non-empty")
+			os.Exit(2)
+		}
+		sid, sErr := mem.SessionStart(ctx, ".", "mem-skills-add")
+		if sErr != nil {
+			fmt.Fprintln(os.Stderr, "error:", sErr)
+			os.Exit(1)
+		}
+		lang := ""
+		if len(pos) >= 5 {
+			lang = strings.ToLower(strings.TrimSpace(pos[4]))
+		}
+		id, aerr := mem.Save(ctx, memory.SaveInput{
+			SessionID:  sid,
+			Type:       "learning",
+			Title:      name,
+			Content:    content,
+			MemoryType: memory.MemoryTypeSkill,
+			TopicKey:   "skill/" + intent + "/" + lang,
+		})
+		if aerr != nil {
+			fmt.Fprintln(os.Stderr, "error:", aerr)
+			os.Exit(1)
+		}
+		printJSON(map[string]any{
+			"project": projID,
+			"created": true,
+			"skill":   map[string]any{"id": id, "title": name, "intent": intent, "language": lang},
+		})
+	case "help", "-h", "--help":
+		fmt.Fprint(os.Stderr, `usage: skillgrid mem skills <list|add>
+
+  list                          list the project's skills (memory_type=skill)
+  add <intent> <name> <content> [lang]
+                                create a skill (topic_key skill/<intent>/<lang>)
+`)
+	default:
+		fmt.Fprintf(os.Stderr, "error: unknown skills subcommand %q\n", sub)
+		os.Exit(2)
+	}
+}
+
+// runMemHook is the CLI for `mem hook` (014 step 24.4): `mem hook list` shows
+// the 4 configured hook types + the project's enabled state; `mem hook run
+// <type> [--file F] [--query Q]` executes one hook and prints its result.
+func runMemHook(svc *service.Service, projID string, pos []string, query, hookFile string) {
+	sub := ""
+	if len(pos) >= 1 {
+		sub = pos[0]
+	}
+	h, cleanup, err := svc.Open(projID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	mem := h.Memory()
+	ctx := context.Background()
+	switch sub {
+	case "list", "":
+		enabled := false
+		timeout := mem.HookTimeout()
+		if root, rErr := os.Getwd(); rErr == nil {
+			enabled = config.Load(root).Hooks.Enabled
+		}
+		printJSON(map[string]any{
+			"project": projID,
+			"enabled": enabled,
+			"timeout": timeout.String(),
+			"hooks": []string{"session-start", "pre-edit", "prompt-submit", "session-stop"},
+		})
+	case "run":
+		hookType := ""
+		if len(pos) >= 2 {
+			hookType = pos[1]
+		}
+		file := hookFile
+		// Ensure the opt-in switch is on so the hook actually runs (the CLI
+		// is the explicit "run this hook" surface; a config without the section
+		// still runs when invoked directly).
+		mem.SetHooks(memory.HooksConfig{Enabled: true})
+		res, rerr := mem.RunHook(ctx, hookType, memory.HookPayload{File: file, Query: query})
+		if rerr != nil {
+			if memory.IsHooksDisabled(rerr) {
+				printJSON(map[string]any{"project": projID, "hook": hookType, "hooks_disabled": true})
+				return
+			}
+			fmt.Fprintln(os.Stderr, "error:", rerr)
+			os.Exit(1)
+		}
+		printJSON(map[string]any{
+			"project":  projID,
+			"hook":     hookType,
+			"result":   res,
+		})
+	case "help", "-h", "--help":
+		fmt.Fprint(os.Stderr, `usage: skillgrid mem hook <list|run>
+
+  list                            show the configured hooks + enabled state
+  run <type> [--file F] [--query Q]
+                                  run a hook (session-start|pre-edit|prompt-submit|session-stop)
+`)
+	default:
+		fmt.Fprintf(os.Stderr, "error: unknown hook subcommand %q\n", sub)
+		os.Exit(2)
+	}
+}
+
+// skillIntentFromTopic / skillLangFromTopic parse a skill topic_key
+// (skill/<intent>/<lang>) for the CLI listing. A non-skill key yields "".
+func skillIntentFromTopic(topicKey string) string {
+	segs := strings.Split(strings.TrimPrefix(topicKey, "skill/"), "/")
+	if len(segs) >= 1 && segs[0] != "" {
+		return segs[0]
+	}
+	return ""
+}
+
+func skillLangFromTopic(topicKey string) string {
+	segs := strings.Split(strings.TrimPrefix(topicKey, "skill/"), "/")
+	if len(segs) >= 2 {
+		return segs[1]
+	}
+	return ""
 }
 
 // runMemSnapshot is the CLI for store snapshots (014 step 20.4): `mem snapshot
