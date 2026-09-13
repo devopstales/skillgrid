@@ -94,6 +94,8 @@ func runMem(version string, args []string) {
 		runMemExpire(svc, dataDir)
 	case "export":
 		runMemExport(svc, projID, exportFile, skipEmb)
+	case "distill":
+		runMemDistill(svc, projID, pos)
 	case "help", "-h", "--help":
 		printMemUsage()
 	default:
@@ -104,7 +106,7 @@ func runMem(version string, args []string) {
 }
 
 func printMemUsage() {
-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|expire|export> [args]
+	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|expire|export|distill> [args]
 
   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
   governance <id>                 governed-asset view (mem_governance)
@@ -128,9 +130,12 @@ func printMemUsage() {
                                        llm_reasoning); clear message when unset
   expire                          retire expired observations across all projects
                                    (TTL sweep; best-effort, exit 0 on missing stores)
-  export [--file out.json] [--skip-embeddings]
-                                   portable COGX JSON export of observations +
-                                   graph edges + embeddings (stdout by default)
+   export [--file out.json] [--skip-embeddings]
+                                    portable COGX JSON export of observations +
+                                    graph edges + embeddings (stdout by default)
+   distill status                   show the project's distillation lock
+                                    (project_id, locked_at, locked_by; or
+                                    "no active locks" when free)
 
 Flags:
   --project ID    project bucket (defaults to CWD-resolved)
@@ -642,6 +647,59 @@ func runMemProvenance(svc *service.Service, projID string, pos []string) {
 		"observation_id": id,
 		"provenance":     p,
 	})
+}
+
+// runMemDistill is the CLI for the distillation lock status (014 step 17.4,
+// `mem distill status`): it shows the project's per-project distillation lock —
+// the project_id, locked_at, and locked_by when a lock is held — or "no active
+// locks" when the project is not locked. It is read-only: it never acquires or
+// releases a lock, so it is safe to run while a distillation is in flight.
+func runMemDistill(svc *service.Service, projID string, pos []string) {
+	sub := ""
+	if len(pos) >= 1 {
+		sub = pos[0]
+	}
+	switch sub {
+	case "status":
+		h, cleanup, err := svc.Open(projID)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		defer cleanup()
+		locks := memory.NewDistillLockService(h.Memory().DB())
+		status, err := locks.DistillLockStatus(hCtx(), projID)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		if !status.Held && status.LockedAt == "" {
+			printJSON(map[string]any{
+				"project": projID,
+				"status":  "no active locks",
+			})
+			return
+		}
+		out := map[string]any{
+			"project": projID,
+			"status":  map[string]any{
+				"project_id": status.ProjectID,
+				"locked_at":  status.LockedAt,
+				"locked_by":  status.LockedBy,
+				"held":       status.Held,
+			},
+		}
+		printJSON(out)
+	case "", "help", "-h", "--help":
+		fmt.Fprint(os.Stderr, `usage: skillgrid mem distill <status>
+
+  status    show the project's distillation lock (held: project_id, locked_at,
+            locked_by; or "no active locks" when free)
+`)
+	default:
+		fmt.Fprintf(os.Stderr, "error: unknown distill subcommand %q\n", sub)
+		os.Exit(2)
+	}
 }
 
 func looksLikeSession(s string) bool {

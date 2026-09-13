@@ -3,6 +3,8 @@ package memory
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
 )
 
 // DistillLockService is the per-project distillation lock exposed under its
@@ -14,6 +16,7 @@ import (
 // row-per-project semantics, the TTL boundary, and the auto-release on
 // staleness.
 type DistillLockService struct {
+	db    *sql.DB
 	inner *DreamLockService
 }
 
@@ -22,7 +25,7 @@ type DistillLockService struct {
 // exists). It delegates to NewDreamLockService so both constructors share the
 // same clock seam default and the same row schema.
 func NewDistillLockService(db *sql.DB) *DistillLockService {
-	return &DistillLockService{inner: NewDreamLockService(db)}
+	return &DistillLockService{db: db, inner: NewDreamLockService(db)}
 }
 
 // Acquire takes the distillation lock for projectID, owned by holder. It
@@ -52,6 +55,59 @@ func (l *DistillLockService) IsLocked(ctx context.Context, projectID string) (bo
 		return false, errDistillLockUninit
 	}
 	return l.inner.IsLocked(ctx, projectID)
+}
+
+// AsDreamLock exposes the underlying *DreamLockService. Step 12's DreamRollback
+// (dream_rollback.go) releases the lock through this type, so a distill rollback
+// hands it the same *DreamLockService its Acquire/Release delegate to — the
+// DistillLockService and DreamLockService are the same lock (same rows, same
+// TTL), so the release lands on the row Acquire created.
+func (l *DistillLockService) AsDreamLock() *DreamLockService {
+	if l == nil {
+		return nil
+	}
+	return l.inner
+}
+
+// DistillLockStatus is one row of the `mem distill status` report: a project's
+// lock state as of the read (014 step 17.4). Held is true when a FRESH (non-
+// stale) lock is present; LockedAt/LockedBy are the raw row values (present when
+// a row exists, whether fresh or stale — a stale lock is still visible, just not
+// "held").
+type DistillLockStatus struct {
+	ProjectID string `json:"project_id"`
+	LockedAt  string `json:"locked_at,omitempty"`
+	LockedBy  string `json:"locked_by,omitempty"`
+	Held      bool   `json:"held"`
+}
+
+// DistillLockStatus reads the project's distillation lock row (014 step 17.4).
+// It is a read-only diagnostic for `mem distill status`: it reports the lock's
+// project_id, locked_at, and locked_by, and whether the lock is currently HELD
+// (fresh, not past the 5-minute TTL). It never acquires or releases a lock.
+func (l *DistillLockService) DistillLockStatus(ctx context.Context, projectID string) (DistillLockStatus, error) {
+	if l == nil || l.db == nil {
+		return DistillLockStatus{}, errDistillLockUninit
+	}
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return DistillLockStatus{}, fmt.Errorf("project_id is required")
+	}
+	var lockedAt, lockedBy string
+	err := l.db.QueryRowContext(ctx, `
+		SELECT locked_at, locked_by FROM distill_lock WHERE project_id = ?`,
+		projectID).Scan(&lockedAt, &lockedBy)
+	if err == sql.ErrNoRows {
+		return DistillLockStatus{ProjectID: projectID, Held: false}, nil
+	}
+	if err != nil {
+		return DistillLockStatus{}, fmt.Errorf("distill lock status %q: %w", projectID, err)
+	}
+	held, err := l.inner.IsLocked(ctx, projectID)
+	if err != nil {
+		return DistillLockStatus{}, err
+	}
+	return DistillLockStatus{ProjectID: projectID, LockedAt: lockedAt, LockedBy: lockedBy, Held: held}, nil
 }
 
 var errDistillLockUninit = newDistillLockUninitError()
