@@ -253,7 +253,13 @@ func (s *Service) rrfFallbackOwnerScopedFTS(ctx context.Context, readerOwner, qu
 			visible = append(visible, o)
 		}
 	}
-	return layerHitsFromObservations(visible, limit), nil
+	// Self-improvement feedback loop (014 step 08 M1): the fact-mode leg must
+	// re-rank through the same improve() hook SearchOwnerScoped uses, so the
+	// opt-in is consistent across every search surface. It applies to the full
+	// pre-truncate slice (the leg fetched limit*3), and is a no-op when improve
+	// is disabled (the default) or unwired (nil improveCfg → returns input
+	// unchanged), so the byte-identity property holds.
+	return layerHitsFromObservations(s.improve(ctx, visible), limit), nil
 }
 
 // layerHitsFromObservations maps in-list observations (from the RRF leg) into

@@ -119,6 +119,69 @@ func TestImproveBoostsHighUsageObservations(t *testing.T) {
 	}
 }
 
+// TestImproveWiredIntoFactModeLeg covers 014 step 08 M1: the fact-mode search
+// leg (SearchOwnerScopedRetrieveFTS → rrfFallbackOwnerScopedFTS → BlendedSearch)
+// must pass its ranked slice through improve(), agreeing with the
+// SearchOwnerScoped wiring. Pre-fix the leg returned the raw BlendedSearch
+// order and the SetImprove hook had zero effect on fact-mode ordering.
+//
+// Three observations match one token "asset"; bm25 ranks them [cold, hot, mid]
+// (the cold doc's body repeats the token). With improve() enabled the leg must
+// re-rank by retrieval usage so the hot doc leads — proof the re-rank is wired
+// into the fact-mode leg, not just SearchOwnerScoped.
+func TestImproveWiredIntoFactModeLeg(t *testing.T) {
+	fx := newImproveFixture(t, "improve-factleg")
+	ctx := context.Background()
+
+	// cold usage=0, hot usage=100, mid usage=10. All match "asset".
+	coldID := seedImproveObs(t, fx, "factcold cold asset", "factcold factcold factcold filler body one", fx.ownerA, 0, 1*time.Hour)
+	hotID := seedImproveObs(t, fx, "fakthot hot asset", "fakthot filler body two", fx.ownerA, 100, 1*time.Hour)
+	midID := seedImproveObs(t, fx, "factmid mid asset", "factmid filler body three", fx.ownerA, 10, 1*time.Hour)
+
+	// Capture the raw SQL bm25 ranking (no usage bump) — this is the order the
+	// fact-mode leg returns when improve() is NOT wired (pre-fix). The cold doc
+	// matches the most query tokens, so it leads: [cold, hot, mid], NOT
+	// usage-desc.
+	raw, err := rawSQLSearch(ctx, fx, "factcold fakthot factmid")
+	if err != nil {
+		t.Fatalf("raw SQL search: %v", err)
+	}
+	if len(raw) != 3 {
+		t.Fatalf("expected 3 raw hits, got %d", len(raw))
+	}
+	rawIDs := ids(raw)
+	rawUsage := usageOrders(raw)
+	if slices.Equal(rawUsage, []int{100, 10, 0}) {
+		t.Fatalf("test setup broken: raw order is already usage-desc (%v); "+
+			"pick tokens so the pre-improve order differs from the boosted order", rawUsage)
+	}
+
+	// Run the fact-mode leg with improve() ENABLED (the fixture config,
+	// Cooldown=1ns so the anchor set by rawSQLSearch is irrelevant — rawSQLSearch
+	// does not call improve() and leaves improveLast zero).
+	hits, err := fx.svc.SearchOwnerScopedRetrieveFTS(ctx, fx.ownerA, "fact", "factcold fakthot factmid", "any", 10)
+	if err != nil {
+		t.Fatalf("fact-mode search: %v", err)
+	}
+	if len(hits) != 3 {
+		t.Fatalf("expected 3 fact-mode hits, got %d", len(hits))
+	}
+	gotIDs := make([]int64, len(hits))
+	for i, h := range hits {
+		gotIDs[i] = h.TargetID
+	}
+	// The leg must re-rank by retrieval usage: hot(100) > mid(10) > cold(0).
+	wantIDs := []int64{hotID, midID, coldID}
+	if !slices.Equal(gotIDs, wantIDs) {
+		t.Fatalf("fact-mode leg must re-rank by retrieval usage desc via improve(): raw %v, got %v, want %v",
+			rawIDs, gotIDs, wantIDs)
+	}
+	// And it must differ from the raw SQL order — proof improve() actually ran.
+	if slices.Equal(gotIDs, rawIDs) {
+		t.Fatalf("fact-mode leg returned the raw SQL order; improve() was not applied: %v", gotIDs)
+	}
+}
+
 // TestImproveDecaysNeverAccessed covers @step-08 (Scenario:
 // never-accessed-observations-decay): an observation that has never been
 // retrieved (retrieval_usage=0) and is older than the TTL decays in rank —
