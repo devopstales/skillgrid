@@ -1933,30 +1933,31 @@ func resetWarmCache() {
 	warmMu.Unlock()
 }
 
-// resolveEmbedder builds the process embedder from config. An empty/nil
-// embedder means "off" — the FTS+signals floor applies.
+// resolveEmbedder builds the process embedder from config by delegating to
+// embedder.BuildFromConfig (014 step 06 M1). BuildFromConfig is the single
+// config-driven selector that also routes the ollama and local providers, so
+// the runtime selection path (this function) and the process default
+// (embedder.Default) agree: a config provider of ollama/local resolves the
+// matching embedder here too, instead of silently degrading to *Onnx.
+//
+// BuildFromConfig degrades a provider that fails to load to the Null Adapter
+// (06.4) — a non-nil embedder with a zero-length vector — and returns Null for
+// off/""/unknown providers. Callers keep their nil checks (a nil embedder
+// still means the FTS+signals floor), and the nil-or-zero-length gate already
+// skips the vector leg for both nil and Null, so the off path degrades to the
+// FTS+signals floor exactly as before.
 func resolveEmbedder(configRoot string) embedder.Embedder {
 	cfg := config.Load(configRoot)
-	switch cfg.Embedder.Provider {
-	case "external":
-		return embedder.NewExternal(embedder.ExternalConfig{
-			BaseURL:   cfg.Embedder.BaseURL,
-			Model:     cfg.Embedder.Model,
-			APIKey:    cfg.Embedder.APIKey,
-			Dimension: cfg.Embedder.Dimension,
-			Indexing:  toAsym(cfg.Embedder.Indexing),
-			Query:     toAsym(cfg.Embedder.Query),
-		})
-	case "off", "":
-		return nil
-	default: // "onnx" is the default
-		return embedder.NewOnnx(embedder.OnnxConfig{
-			Model:     cfg.Embedder.Model,
-			Dimension: cfg.Embedder.Dimension,
-			Indexing:  toAsym(cfg.Embedder.Indexing),
-			Query:     toAsym(cfg.Embedder.Query),
-		})
-	}
+	return embedder.BuildFromConfig(embedder.EmbedderConfig{
+		Provider:  cfg.Embedder.Provider,
+		Dimension: cfg.Embedder.Dimension,
+		Indexing:  toAsym(cfg.Embedder.Indexing),
+		Query:     toAsym(cfg.Embedder.Query),
+		BaseURL:   cfg.Embedder.BaseURL,
+		Model:     cfg.Embedder.Model,
+		APIKey:    cfg.Embedder.APIKey,
+		ModelDir:  cfg.Embedder.ModelDir,
+	})
 }
 
 // Open opens a ProjectHandle for an explicit project id (config root ".").
