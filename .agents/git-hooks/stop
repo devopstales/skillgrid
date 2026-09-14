@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# stop — agent harness hook (Stop event). Runs the project test gate before the
+# agent may end its turn. The harness feeds session JSON on stdin; we consume
+# and discard it. This is an AGENT hook, not a git hook — install with
+# install-hooks.sh --with-stop. CLI-ready: skillgrid-cli rebinds it later.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# drain stdin so the harness doesn't see a broken pipe
+cat > /dev/null 2>&1 || true
+exec bash "$SCRIPT_DIR/../hooks/stop-tests.sh"

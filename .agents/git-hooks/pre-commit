@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# pre-commit — thin shim over checkpoint-state.sh guard.
+# Lives in .agents/git-hooks/ (the hook entrypoints); the implementation lives
+# in .agents/hooks/. CLI-ready: skillgrid-cli rebinds this shim to its binary.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec bash "$SCRIPT_DIR/../hooks/checkpoint-state.sh" guard

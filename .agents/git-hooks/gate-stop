@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# gate-stop — agent harness hook (Stop event). Blocks the agent from ending its
+# turn while a G<n> in the change's acceptance.feature is unmet or a happy-path
+# requirement is missing its gate (fresh --reverify evidence). Allows when all
+# are met, or only abandoned (emits a HANDOFF note). Loop-guard releases after
+# 6 no-progress blocks. AGENT hook, not a git hook — install with
+# install-hooks.sh --with-stop. CLI-ready: skillgrid-cli rebinds it later.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Do NOT drain stdin: gate-stop.sh reads the harness JSON to extract session_id
+# (for the loop-guard key) and is a no-op if stdin is absent.
+exec bash "$SCRIPT_DIR/../hooks/gate-stop.sh"
