@@ -29,6 +29,7 @@ A good contribution names the behavior it fixes or improves and shows the before
 - **Relative links.** Every `../` link in a skill must resolve. Verify before committing.
 - **Zone rule (BDD).** Commit `.skillgrid/specs/` changes before the code that satisfies them — never both in one commit. The `precommit-zone-guard` blocks mixed commits.
 - **Test pyramid.** `qa` picks the highest test layer that fits each behavior and guards against duplicate coverage. Don't add a test at a higher layer when a cheaper layer covers the same behavior — see [`.agents/skills/qa/references/test-strategy.md`](.agents/skills/qa/references/test-strategy.md).
+- **Review lens contract.** Each `parallel-code-review/reviewers/*.md` lens promises a specific output shape (a JSON array with required keys, or a structured block). The **single source of truth** for that contract is the `LENS_CONTRACTS` table in [`scripts/check-lens-contract.sh`](scripts/check-lens-contract.sh). Change a lens's output shape and you MUST update the matching row — `check-lens-contract.sh` fails otherwise. A stale contract is a broken guarantee.
 
 ## Layout
 
@@ -49,6 +50,7 @@ CI runs two checks; run them locally before opening a PR:
 ```bash
 ./scripts/sync-ide-assets.sh --check   # canonical prompts/agents intact, IDE mirrors in sync
 ./scripts/test-hooks.sh                # guard hooks against throwaway repos
+./scripts/check-lens-contract.sh       # review lens output contract (drift check)
 ```
 
-`test-hooks.sh` needs `git` and `awk` only. Add a case there when you change a hook — a hook with no test is an unproven guarantee.
+`test-hooks.sh` needs `git` and `awk` only. Add a case there when you change a hook — a hook with no test is an unproven guarantee. `check-lens-contract.sh` needs `grep` and `bash` only; add a `LENS_CONTRACTS` row when you add or change a review lens — a lens with no contract row is an unproven guarantee.

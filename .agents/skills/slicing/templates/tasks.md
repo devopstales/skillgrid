@@ -42,6 +42,11 @@ Chain strategy: {stacked-to-main | feature-branch-chain | size-exception | pendi
 - **Size:** ~<lines> (S <500 / M 500-1500 / L >1500)
 - **Blocks:** TICKET-03, TICKET-05
 - **Blocked by:** none
+<!-- Optional execution contract (omit for routine, reversible tickets — absent = default behavior):
+- **Precondition:** <one line, read-only checkable: file exists / env set / health ping>
+- **Reversibility:** <reversible | costly | one-way>   # one-way inserts a human checkpoint before this ticket
+- **Fails-when:** <output/exit-code that means the verify command failed>
+-->
 
 ### TICKET-02 — <title>
 

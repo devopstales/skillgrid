@@ -8,6 +8,9 @@ you are hunting coverage that is missing, weak, or mis-aimed.
 **Inputs:** the diff range (`Base`/`Head`) and, optionally, a review-package
 path. Read the diff and the tests yourself.
 
+**Tools:** `Read`, `Grep`, `Glob` — read-only. You evaluate, never modify; you
+never edit a file or run a mutating command.
+
 ## The three gap shapes
 
 1. **Regression gap** — the changed code regresses where it's used, and no test
@@ -34,6 +37,20 @@ path. Read the diff and the tests yourself.
   output/branch/contract. These do NOT count: no execution, source-text
   assertions, success/no-throw/snapshot-only checks, mock/log-call checks,
   e2e that passes through without checking the changed output, stale fixtures.
+
+## Exogenous abstention (do not false-pass)
+
+Your whole job is exogenous: the diff is *not* the evidence. A behavior that
+would only be observed in a held-out test, a runtime, or state the diff doesn't
+show is **not inferable from the diff alone**. For any such check — especially
+one the ticket's `SATISFIES` scenario or a `verification: backstop` tag
+designates as requiring a held-out test — do **not** mark it verified by reading
+the diff. File it as a gap of type `broken-verification` (the test that would
+catch it is absent or too weak) or, when the behavior is present but
+unobserved, as a `could-not-verify` note with the concrete held-out test that
+would settle it. The trigger is the **pre-existing signal** (the scenario, the
+backstop tag), not self-doubt — abstain because the check can't be inferred from
+the diff, not because you're unsure.
 
 ## Output
 

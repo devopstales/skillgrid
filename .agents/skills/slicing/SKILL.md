@@ -127,9 +127,35 @@ Independent tickets within a wave run in parallel worktrees. A ticket in a later
 2. Fill in:
    - Epic summary (2-3 lines from the blueprint)
     - Each ticket: title, scope, acceptance criteria, `SATISFIES` (scenario — BDD is always on), files, size, blocks, blocked by
-    - Dependency graph (mermaid)
-    - Execution order (waves, acceptance-first)
+   - Dependency graph (mermaid)
+   - Execution order (waves, acceptance-first)
 3. Save to `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`
+
+### Ticket Execution Contract (optional fields)
+
+Each ticket MAY carry three optional, back-compat fields. **Absent = today's
+behavior** — a ticket with none of them executes exactly as before. When present,
+`skillgrid:subagent-execution` enforces them:
+
+- **`Precondition:`** — one line of *read-only, checkable* prose on what must be
+  true **before** the ticket starts (a file exists, an env var is set, a health
+  ping passes). The executor asserts it (no code changes) and, if unmet, halts
+  with a checkpoint instead of doing partial work. Write it as a check the
+  executor can run, not a vibe.
+- **`Reversibility: reversible | costly | one-way`** — how expensive undo is.
+  `one-way` inserts a **human checkpoint before** the ticket (it feeds the
+  existing "four things stop you" rule; declaring it makes the stop a signal,
+  not a judgment call). `costly` is advisory; `reversible` (or absent) is the
+  default.
+- **`Fails-when:`** — for every runnable verify command, the output that
+  constitutes **failure**. A verify command with no `Fails-when` can't be judged
+  pass/fail — name the exit code, the assertion, or the output substring that
+  means "it failed." Extends the existing rule that a `Given/When/Then` with no
+  falsifiable `Then` is rejected; this applies to the verify command itself.
+
+Use `one-way` and `Precondition:` on migration, trust-boundary, and destructive
+tickets. Leave them off for routine, reversible work — the back-compat default
+is the point.
 4. Commit per skillgrid:work-unit-commits — conventional subject, a `[skillgrid-context]` block, then `checkpoint-state.sh snapshot`. Wave commits (between execution waves) carry the same block so a resumed session knows which wave is done and which is next.
 
 ### Step 6: Hand Off

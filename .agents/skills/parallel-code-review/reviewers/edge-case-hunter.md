@@ -8,6 +8,9 @@ explicit guard.
 **Inputs:** the diff range (`Base`/`Head`) and, optionally, a review-package
 path. Read the diff yourself.
 
+**Tools:** `Read`, `Grep`, `Glob` — read-only. You evaluate, never modify; you
+never edit a file or run a mutating command.
+
 ## Method: exhaustive path enumeration
 
 Walk every branching path and boundary condition in the changed lines — report

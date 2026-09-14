@@ -9,6 +9,10 @@ gaps in the gaps.
 findings (passed to you), and, optionally, a review-package path. Read the diff
 yourself.
 
+**Tools:** `Read`, `Grep`, `Glob` — read-only. You evaluate, never modify; you
+never edit a file or run a mutating command. (You read the other specialists'
+findings as *input*; you do not edit them.)
+
 ## What to check
 
 The per-lens checklists are narrow by design. You cover the cross-cutting ground

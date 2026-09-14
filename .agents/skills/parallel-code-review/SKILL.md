@@ -138,10 +138,13 @@ confirm the cited location matches.)
 | `low` | Real, cosmetic or negligible |
 | `false` | You checked; the bad outcome does not happen here. Say what disproves it. |
 | `maybe-false` | You couldn't tell. Say what would settle it. |
+| `could-not-verify` | The check is **not inferable from the diff alone** — it needs a held-out test, a runtime, or state the diff doesn't show. Never a confident pass. Emit the concrete "write a held-out test" action that would settle it. |
 
 **Reject** (drop) any entry that is `false`; any `low` whose fix adds more
 complexity than the harm it removes; or any entry whose only fix is to edit the
-spec under review.
+spec under review. `could-not-verify` entries are **never dropped** — they route
+to a human look / held-out test, because a silent pass on a check you couldn't
+infer is the failure mode this skill exists to catch.
 
 ### Step 4: Route into the fix loop
 
@@ -179,3 +182,4 @@ before the verdict. Never present a "clean review" when a lens didn't complete.
 - Merge two findings just because they share a file or a fix
 - Skip the red team on a high-risk diff because "the others looked fine"
 - Re-grade a verified verification-gap finding — trust its filed evidence, confirm the location
+- Confidently pass a check you can't infer from the diff — route it to `could-not-verify` and name the held-out test that would settle it

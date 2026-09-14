@@ -54,6 +54,15 @@ that tasks exist. Three categories:
 Every item must be verifiable. If you can't state a truth, artifact, or link
 for a spec requirement, the requirement is ambiguous — go back to the spec.
 
+Tag a Must-Have truth **`backstop`** when it cannot be confirmed by reading the
+diff alone — it needs a held-out test, a runtime, or state the diff doesn't
+show (a behavior only observable through a real integration, a timing property,
+a cross-component contract). `backstop` truths get a concrete held-out test in
+the plan, and they are the spec-time signal that `skillgrid:parallel-code-review`
+consumes: its verification-gap lens abstains (routes to `could-not-verify`
+rather than a confident pass) on a check a `backstop` truth designates as
+exogenous. Omit the tag for truths a plain diff read settles.
+
 ## Hypothesis
 
 Every blueprint MUST open with a falsifiable hypothesis:

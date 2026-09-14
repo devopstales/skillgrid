@@ -219,6 +219,25 @@ Before reading implementation files or dispatching any task, confirm readiness:
 
 **Edit roots are bounded.** If the blueprint or `tasks.md` names specific directories/files as the change's affected areas, edit only under them. If a needed edit is outside, STOP and report the unsafe path. Never edit files outside the change's affected areas without a ruling.
 
+### Execution Contract Check (optional ticket fields)
+
+Before dispatching a ticket, read its optional contract fields (see
+`skillgrid:slicing` → Ticket Execution Contract). All three are optional —
+absent means the ticket runs under the default rules above, unchanged.
+
+- **`Precondition:`** assert it with **read-only** checks only (file exists, env
+  var set, health ping) before any code is written. Unmet → **STOP with a
+  checkpoint** and name the unmet precondition; do partial work. A precondition
+  you can't check read-only was written wrong — ledger it and re-check.
+- **`Reversibility: one-way`** is a declared stop signal: it folds into the
+  "four things stop you" rule (an irreversible operation). The ticket now *names*
+  why it stops — surface the checkpoint explicitly instead of relying on
+  judgment. `costly`/`reversible`/absent change nothing.
+- **`Fails-when:`** the verify command's failure signature. When a ticket's
+  runnable verify has a `Fails-when`, a green pass is only green if the output
+  does **not** match it. A verify command that can be neither passed nor failed
+  (no `Fails-when`, no falsifiable `Then`) is not verification — flag it.
+
 ### Delivery Guard
 
 Before dispatching the first ticket, read `tasks.md` for the four plain-text guard lines from the `## Delivery Strategy` section:
