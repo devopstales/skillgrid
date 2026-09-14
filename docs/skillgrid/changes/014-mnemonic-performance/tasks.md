@@ -2157,3 +2157,15 @@ When step DoD is met: `feat(mnemonic): full unit + integration coverage for all 
 - [ ] No Global Constraint violated
 - [ ] `## State` status is `done` and phase is `archive` (set by verify/archive)
 - [ ] STATUS banner updated to `complete`
+
+---
+
+### Archive-gate follow-ups (06/08/09 M1s) — FIXED
+
+| Finding | Fix | Commit |
+|---------|-----|--------|
+| 06 M1: `resolveEmbedder` not migrated to `BuildFromConfig` | Delegates to `embedder.BuildFromConfig` (single selection path) | `1e263ee` |
+| 08 M1: `improve()` dead hook on fact-mode leg | `s.improve(ctx, visible)` on full pre-truncate slice in `rrfFallbackOwnerScopedFTS` | `ea2d893` |
+| 09 M1: idempotency content-keyed, not session-keyed | Dedup on `(project, type='session_log', title)`; `UPDATE content` in place | `788d7be` |
+
+All 3 verified: memory `-race` PASS, embedder PASS, 6 baselines PASS. No schema changes.
