@@ -319,3 +319,102 @@ func promotionEdgeCount(t *testing.T, db *sql.DB, nodeID int64) int {
 	}
 	return n
 }
+
+// promotionSummaryChanged is a SECOND close summary that also clears the
+// quality threshold (>= 100 runes, >= 1 "## " heading) but differs from
+// promotionSummary — the "re-derivation" case where the L0 summary is refreshed
+// between two SessionEnd calls (014 step 09 M1).
+const promotionSummaryChanged = `## Goal
+Document the refresh-token rotation race and the atomic rotation fix.
+
+## Key Learnings:
+1. Rotating JWT refresh tokens must be atomic to avoid races
+2. bcrypt cost=12 is the balance chosen for the auth server
+`
+
+// TestSessionEndIdempotentPromotionChangedSummary covers 014 step 09 M1:
+// re-triggering SessionEnd for the same session with a CHANGED summary must
+// reuse the existing node observation (updating its content in place) rather
+// than inserting a second one. Pre-fix the dedup was content-keyed, so a
+// changed summary missed the dedup and created a second node.
+func TestSessionEndIdempotentPromotionChangedSummary(t *testing.T) {
+	fx := newFixture(t, "mem-promo")
+	ctx := context.Background()
+	db := fx.st.DB
+
+	// Two session observations the node will link to (excluded from the node's
+	// own row by sessionObservationIDs' title filter).
+	if _, err := fx.svc.Save(ctx, SaveInput{
+		SessionID: fx.sessID,
+		Type:      "decision",
+		Title:     "Chose atomic rotation",
+		Content:   "refresh tokens must rotate atomically",
+	}); err != nil {
+		t.Fatalf("save A: %v", err)
+	}
+	if _, err := fx.svc.Save(ctx, SaveInput{
+		SessionID: fx.sessID,
+		Type:      "discovery",
+		Title:     "Found the race",
+		Content:   "the refresh path raced on concurrent swaps",
+	}); err != nil {
+		t.Fatalf("save B: %v", err)
+	}
+
+	// 1) Promote with summary X (clears the threshold).
+	if err := fx.svc.PromoteSession(ctx, fx.sessID, promotionSummary); err != nil {
+		t.Fatalf("first end (summary A): %v", err)
+	}
+	obsID := promotionObservationID(t, db, fx.sessID)
+	if obsID == 0 {
+		t.Fatalf("expected a promoted node after the first end")
+	}
+	var contentA string
+	if err := db.QueryRow(
+		`SELECT content FROM observations WHERE id = ?`, obsID,
+	).Scan(&contentA); err != nil {
+		t.Fatalf("read node content A: %v", err)
+	}
+	if contentA != promotionSummary {
+		t.Fatalf("node content must be the first summary, got %q", contentA)
+	}
+
+	// 2) Promote AGAIN with a DIFFERENT summary Y (also clears the threshold).
+	if err := fx.svc.PromoteSession(ctx, fx.sessID, promotionSummaryChanged); err != nil {
+		t.Fatalf("second end (summary B): %v", err)
+	}
+
+	// 3) Exactly ONE node observation must exist (no second node created).
+	var nodeCount int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM observations
+		 WHERE project = 'mem-promo' AND type = 'session_log'
+		   AND title = ?`,
+		"[session "+fx.sessID+"] Session summary",
+	).Scan(&nodeCount); err != nil {
+		t.Fatalf("count node observations: %v", err)
+	}
+	if nodeCount != 1 {
+		t.Fatalf("changed-summary re-trigger must not duplicate the node observation, got %d", nodeCount)
+	}
+
+	// 4) The existing node is reused (same id) and its content is refreshed to
+	// the new summary (the FTS update trigger reindexes it).
+	var contentB string
+	if err := db.QueryRow(
+		`SELECT content FROM observations WHERE id = ?`, obsID,
+	).Scan(&contentB); err != nil {
+		t.Fatalf("read node content B: %v", err)
+	}
+	if contentB != promotionSummaryChanged {
+		t.Fatalf("node content must be refreshed to the new summary, got %q", contentB)
+	}
+	if got := promotionObservationID(t, db, fx.sessID); got != obsID {
+		t.Fatalf("re-trigger must reuse the existing node observation (got %d, want %d)", got, obsID)
+	}
+
+	// 5) The node still links to both session observations (no duplicate edges).
+	if n := promotionNodeCount(t, db, fx.sessID); n != 1 {
+		t.Fatalf("changed-summary re-trigger must keep exactly 1 graph symbol, got %d", n)
+	}
+}

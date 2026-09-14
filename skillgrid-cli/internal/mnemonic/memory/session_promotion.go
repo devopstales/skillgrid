@@ -102,8 +102,9 @@ func (s *Service) promotionMeetsThreshold(summary string) bool {
 // and does not fail the close.
 //
 // Idempotency: re-triggering SessionEnd for the same session finds the
-// existing node (dedup on observations (project, type, title, content)) and
-// reuses it; the 'promotes' edges are upserted, so no duplicates accumulate.
+// existing node (dedup on observations (project, type, title) — session-keyed,
+// so a changed summary refreshes the node in place rather than duplicating it)
+// and reuses it; the 'promotes' edges are upserted, so no duplicates accumulate.
 func (s *Service) PromoteSession(ctx context.Context, sessionID, summary string) error {
 	if err := s.SessionEnd(ctx, sessionID, summary); err != nil {
 		return err
@@ -236,24 +237,31 @@ func (s *Service) sessionPseudoFileID(ctx context.Context, sessionID, now string
 }
 
 // upsertPromotedObservation inserts the node observation, or — when a node
-// with the same (project, type, title, content) already exists — updates the
-// existing row in place (refreshing last_seen_at/updated_at) and returns its
-// id. Direct SQL (not Save) so the 24h normalized-hash dedup cannot collapse
-// the node into an unrelated recent observation.
+// already exists for the same session — updates the existing row in place and
+// returns its id. Direct SQL (not Save) so the 24h normalized-hash dedup cannot
+// collapse the node into an unrelated recent observation.
+//
+// The dedup is SESSION-keyed (project, type='session_log', title), NOT
+// content-keyed (014 step 09 M1): the session summary can CHANGE between two
+// SessionEnd calls (a re-derivation with a refreshed L0 summary), and a
+// content-keyed dedup would miss and insert a SECOND node observation. Keying
+// on the session-stable title (which encodes the session id) makes promotion
+// idempotent per session regardless of content, and the UPDATE refreshes the
+// content so the FTS update trigger reindexes the node with the latest summary.
 func (s *Service) upsertPromotedObservation(ctx context.Context, sessionID, title, content, now string) (int64, error) {
 	db := s.store.DB
 	var existingID int64
 	err := db.QueryRowContext(ctx, `
 		SELECT id FROM observations
-		WHERE project = ? AND type = 'session_log' AND title = ? AND content = ?
+		WHERE project = ? AND type = 'session_log' AND title = ?
 		  AND deleted_at IS NULL
 		ORDER BY id LIMIT 1`,
-		s.projectID, title, content,
+		s.projectID, title,
 	).Scan(&existingID)
 	if err == nil {
 		if _, err := db.ExecContext(ctx, `
-			UPDATE observations SET last_seen_at = ?, updated_at = ? WHERE id = ?`,
-			now, now, existingID); err != nil {
+			UPDATE observations SET content = ?, last_seen_at = ?, updated_at = ? WHERE id = ?`,
+			content, now, now, existingID); err != nil {
 			return 0, fmt.Errorf("touch promoted observation: %w", err)
 		}
 		return existingID, nil
