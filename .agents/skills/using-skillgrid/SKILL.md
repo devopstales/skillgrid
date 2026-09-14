@@ -80,7 +80,7 @@ Do not auto-execute. The user must confirm the slice before execution begins.
 
 ## Skill Priority
 
-When multiple skills apply, process skills come first — they set the approach, then implementation skills (frontend-design, etc.) carry it out. skillgrid:brainstorming and skillgrid:structured-debugging are skillgrid's most common process skills, but the rule holds for any of them.
+When multiple skills apply, process skills come first — they set the approach, then implementation skills (e.g. skillgrid:test-driven-development) carry it out. skillgrid:brainstorming and skillgrid:structured-debugging are skillgrid's most common process skills, but the rule holds for any of them.
 
 - "Let's build X" → skillgrid:brainstorming first, then implementation skills.
 - "Fix this bug" → skillgrid:structured-debugging first, then domain skills.

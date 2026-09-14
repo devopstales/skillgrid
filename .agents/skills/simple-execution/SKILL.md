@@ -59,8 +59,8 @@ After the QA gate passes:
 ### Step 3: Complete Development
 
 After all tasks complete and verified:
-- Announce: "I'm using the skillgrid:finishing-a-development-branch skill to complete this work."
-- **REQUIRED SUB-SKILL:** Use skillgrid:finishing-a-development-branch
+- Announce: "I'm using the skillgrid:ship skill to integrate and close this change."
+- **REQUIRED SUB-SKILL:** Use skillgrid:ship
 - Follow that skill to verify tests, present options, execute choice
 
 ## When to Stop and Ask for Help

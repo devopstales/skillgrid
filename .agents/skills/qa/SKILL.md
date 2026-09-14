@@ -1,6 +1,6 @@
 ---
 name: qa
-description: Use after all implementation tasks are complete and before the final code review or merge — produces a test plan with layer selection, runs goal-backward verification, a verification-gap audit, a traceability check, a TDD evidence audit, a test quality audit, a security audit, and a code-quality gate, and renders a four-state quality gate (PASS / CONCERNS / FAIL / WAIVED) with configurable thresholds from config.yaml.
+description: "Use when a change is ready for the quality gate, after all implementation tasks and before the final review or merge — runs the test suite, verification-gap and TDD-evidence audits, and renders the four-state gate (PASS / CONCERNS / FAIL / WAIVED)."
 # based on BMAD:bmad-testarch-trace + BMAD:test-levels-framework + gsd-core:gsd-verifier + gsd-core:TESTING-STANDARDS + gstack:cso + superpowers:verification-before-completion
 ---
 

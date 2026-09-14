@@ -6,11 +6,8 @@ description: >
   sizing, when-to-commit, the [skillgrid-context] commit block, the git-hook
   safety guards, and the .skillgrid/sdd/checkpoint.json resume handle. Fully
   active by default during simple-execution and subagent-execution.
-  # based on gstack (WIP context block + snapshot), gsd-core (commit guards),
-  # addyosmani (atomic sizing), gentleman-ai/branch-pr (conventional format),
-  # DeL-TaiseiOzaki/claude-code-orchestra (checkpointing) + orchestkit
-  # (checkpoint-resume)
 ---
+# based on gstack (WIP context block + snapshot), gsd-core (commit guards), addyosmani (atomic sizing), gentleman-ai/branch-pr (conventional format), DeL-TaiseiOzaki/claude-code-orchestra (checkpointing) + orchestkit (checkpoint-resume)
 
 # Work-Unit Commits
 
@@ -110,8 +107,10 @@ together and move as a unit.
 Install once per repo (idempotent) via the installer:
 
 ```bash
-bash scripts/install-hooks.sh
+bash <install-root>/scripts/install-hooks.sh
 ```
+
+The installer ships at the skillgrid repo root, not in this skill's directory. `<install-root>` is `~/.skillgrid/repos/skillgrid/` when installed (or the dev checkout root, e.g. `git/ai-test/skillgrid-skills/`, when running from source).
 
 It writes per-repo shims into the repo's *active* hooks dir (honoring an
 existing `core.hooksPath`, e.g. a global `~/.aiskillgrid/git-hooks`) and points
@@ -175,7 +174,7 @@ Resume rules (full decision tree in `references/state-schema.md`):
   `<short>` `<subject>`."; finish `git status` remainder first.
 - File's `branch` differs → ask which branch to work on; don't guess.
 - `remaining` empty + tests green → unit done; move to the next task or
-  `skillgrid:finishing-a-development-branch`.
+  `skillgrid:ship`.
 
 A human-readable view can be written from `templates/checkpoint.md` when a
 handoff is wanted, but the JSON is the source of truth.

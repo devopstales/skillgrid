@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+description: "Use before any creative work — creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
 # based on superpowers:brainstorming
 ---
 
@@ -229,7 +229,7 @@ digraph brainstorming {
 
 **Terminal states are path-bound.** New Project / New Function: the
 ONLY skill you invoke after brainstorming is skillgrid:writing-blueprints — never
-frontend-design, mcp-builder, or any other implementation skill.
+or any other implementation skill.
 Bounded: after approval, implementation proceeds directly through the
 normal development workflow; no plan document. Spike: the terminal
 state is a reported recommendation.
@@ -319,7 +319,7 @@ works.
   integration), update those too — only when they exist AND the feature
   actually changes them.
   - (User preferences for spec location override this default)
-- Use elements-of-style:writing-clearly-and-concisely skill if available
+- If a writing-clarity skill is available, use it for the design document
 - Commit the design document (and any updated global docs) to git
 
 **Spec Self-Review:**

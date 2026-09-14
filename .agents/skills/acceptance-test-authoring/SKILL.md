@@ -1,3 +1,8 @@
+---
+name: acceptance-test-authoring
+description: "Use when authoring BDD acceptance tests from a requirement, before implementation. Derives the acceptance.feature scenarios from intent."
+---
+
 # Acceptance Test Authoring
 
 # based on intent-driven-template:acceptance-test-authoring

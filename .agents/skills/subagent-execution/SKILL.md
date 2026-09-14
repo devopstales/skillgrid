@@ -1,6 +1,6 @@
 ---
 name: subagent-execution
-description: Use when executing implementation plans with independent tasks in the current session
+description: Use when executing implementation plans — independent or coupled tasks — in the current session
 # based on superpowers:subagent-driven-development
 ---
 
@@ -101,7 +101,7 @@ digraph process {
     "Dispatch final two-axis review (Standards + Spec, parallel)" [shape=box];
     "Final findings? ONE fix dispatch, one scoped re-review, adjudicate residuals" [shape=box];
     "Final review clean: delete this plan's workspace" [shape=box];
-    "Use skillgrid:finishing-a-development-branch" [shape=box style=filled fillcolor=lightgreen];
+    "Use skillgrid:ship" [shape=box style=filled fillcolor=lightgreen];
 
     "Setup: worktree, ledger check, read plan, pre-flight review" -> "Dispatch implementer subagent (./implementer-prompt.md)";
     "Dispatch implementer subagent (./implementer-prompt.md)" -> "Implementer asks questions?";
@@ -130,7 +130,7 @@ digraph process {
     "More tasks remain?" -> "Dispatch final two-axis review (Standards + Spec, parallel)" [label="no"];
     "Dispatch final two-axis review (Standards + Spec, parallel)" -> "Final findings? ONE fix dispatch, one scoped re-review, adjudicate residuals";
     "Final findings? ONE fix dispatch, one scoped re-review, adjudicate residuals" -> "Final review clean: delete this plan's workspace";
-    "Final review clean: delete this plan's workspace" -> "Use skillgrid:finishing-a-development-branch";
+    "Final review clean: delete this plan's workspace" -> "Use skillgrid:ship";
 }
 ```
 
@@ -610,7 +610,7 @@ Adjudicate any residual findings as in the task loop's breaker: park with
 rulings, or rule on the load-bearing ones and ledger what you decided. Only
 the four classes above stop you here. There is no second fix wave —
 residual load-bearing findings surface to your human partner when
-finishing-a-development-branch presents the options.
+ship presents the options.
 
 Per-task fix loops follow `skillgrid:receiving-code-review` triage rules
 (fix now / defer / human look / noise) applied through the ledger's
@@ -632,7 +632,7 @@ delete this plan's workspace (`rm -rf <workspace>`) — the git history is
 the record now. Sibling directories belong to other plans; leave them
 alone.
 
-Use skillgrid:finishing-a-development-branch.
+Use skillgrid:ship.
 
 ## Common Rationalizations
 
@@ -714,5 +714,5 @@ Final reviewer: All requirements met. Deferred minors triaged: none block merge.
 
 [Delete this plan's workspace — the record now lives in git]
 
-Done! Using skillgrid:finishing-a-development-branch.
+Done! Using skillgrid:ship.
 ```

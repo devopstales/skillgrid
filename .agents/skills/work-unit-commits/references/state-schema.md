@@ -78,7 +78,7 @@ A fresh session starts with `checkpoint-state.sh restore`:
    `<branch>` (last commit `<short>`). Start fresh on `<current branch>` or
    switch back to `<branch>`?" Do not guess.
 4. **`remaining` is empty and tests are green** → the unit is done; proceed to
-   the next task or `skillgrid:finishing-a-development-branch`.
+    the next task or `skillgrid:ship`.
 
 ## When to snapshot
 

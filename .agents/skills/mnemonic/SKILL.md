@@ -1,3 +1,8 @@
+---
+name: mnemonic
+description: "Use when persisting, recalling, or structuring project memory, code orientation, or web research via the mnemonic MCP tools."
+---
+
 # based on skillgrid-v2:mnemonic
 
 # /mnemonic

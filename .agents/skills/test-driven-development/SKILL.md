@@ -45,7 +45,9 @@ Write code before the test? Delete it. Start over.
 
 Implement fresh from tests. Period.
 
-## Red-Green-Refactor
+## Red-Green-Triangulate-Refactor
+
+The canonical cycle (RED → GREEN → TRIANGULATE → REFACTOR) lives in [`../_shared/references/strict-tdd.md`](../_shared/references/strict-tdd.md); this skill is its executable form. TRIANGULATE is not optional for P0 behaviors.
 
 ```dot
 digraph tdd_cycle {
@@ -54,6 +56,8 @@ digraph tdd_cycle {
     verify_red [label="Verify fails\ncorrectly", shape=diamond];
     green [label="GREEN\nMinimal code", shape=box, style=filled, fillcolor="#ccffcc"];
     verify_green [label="Verify passes\nAll green", shape=diamond];
+    triangulate [label="TRIANGULATE\n2nd test, diff inputs", shape=box, style=filled, fillcolor="#ffe6cc"];
+    verify_tri [label="Both pass", shape=diamond];
     refactor [label="REFACTOR\nClean up", shape=box, style=filled, fillcolor="#ccccff"];
     next [label="Next", shape=ellipse];
 
@@ -61,10 +65,14 @@ digraph tdd_cycle {
     verify_red -> green [label="yes"];
     verify_red -> red [label="wrong\nfailure"];
     green -> verify_green;
-    verify_green -> refactor [label="yes"];
+    verify_green -> triangulate [label="yes"];
     verify_green -> green [label="no"];
+    triangulate -> verify_tri;
+    verify_tri -> refactor [label="yes"];
+    verify_tri -> triangulate [label="no - add\nanother input"];
     refactor -> verify_green [label="stay\ngreen"];
-    verify_green -> next;
+    next;
+    verify_tri -> next [label="skip (non-P0)\nrecord reason"];
     next -> red;
 }
 ```
@@ -184,6 +192,14 @@ Confirm:
 **Test fails?** Fix code, not test.
 
 **Other tests fail?** Fix now.
+
+### TRIANGULATE - Second Test, Different Inputs
+
+**Required for P0 behaviors** (see [strict-tdd.md](../_shared/references/strict-tdd.md)). Add a second test that exercises the **same behavior with different inputs**, then run both. Both MUST pass.
+
+This catches trivial implementations — `return 42` passes a single test but breaks on a second input. If the second test fails, your first implementation was a coincidence; fix the code, not the test.
+
+Skip only with a compelling reason recorded in the test plan.
 
 ### REFACTOR - Clean Up
 
