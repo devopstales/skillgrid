@@ -41,11 +41,12 @@ func TestStep06_Sessions(t *testing.T) {
 		t.Error("sessions entry must not be aria-disabled once live")
 	}
 	mustContain(t, body, `data-route="sessions"`, `href="/sessions"`)
-	// Roadmap: P6 flipped to live, no longer todo.
+	// The Welcome page is a 6-entry nav grid (roadmap removed once all live);
+	// the sessions card links the entry and no P6 "todo" marker remains.
+	mustContain(t, body, "all entries live")
 	if containsAll(body, `phase-id todo">P6`) {
-		t.Error("roadmap P6 must no longer be todo once live")
+		t.Error("P6 must no longer be marked todo once live")
 	}
-	mustContain(t, body, `phase-id live">P6`)
 	_, js := getUI(t, h, "/app.js")
 	// Entry is live: STUBS empty, LIVE includes sessions, render() routes it.
 	mustContain(t, js,

@@ -1,6 +1,20 @@
 /* Skillgrid dashboard shell — vanilla port of the skillgrid-ui demo design.
  * Dark dev-tool theme (same oklch tokens as the demo's globals.css),
  * sidebar + topbar shell, no build step, no external assets. */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/geist.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/geist-mono.woff2") format("woff2");
+}
 :root {
   color-scheme: dark;
   --background: oklch(0.155 0.012 255);
@@ -16,7 +30,21 @@
   --border: oklch(1 0 0 / 9%);
   --input: oklch(1 0 0 / 12%);
   --ring: oklch(0.72 0.13 195);
+  --accent: oklch(0.27 0.03 200);
+  --accent-foreground: oklch(0.95 0.006 255);
+  --destructive: oklch(0.62 0.2 25);
+  /* Canonical 5-color chart palette (mirrors the skillgrid-ui demo globals). */
+  --chart-1: oklch(0.72 0.13 195);
+  --chart-2: oklch(0.7 0.15 145);
+  --chart-3: oklch(0.75 0.15 85);
+  --chart-4: oklch(0.68 0.16 25);
+  --chart-5: oklch(0.66 0.16 300);
+  /* Radius scale (sm/md/lg/xl) derived from the base --radius. */
   --radius: 0.5rem;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
   --sidebar: oklch(0.135 0.012 255);
   --sidebar-foreground: oklch(0.9 0.006 255);
   --sidebar-primary: oklch(0.72 0.13 195);
@@ -24,8 +52,17 @@
   --sidebar-accent: oklch(0.24 0.014 255);
   --sidebar-accent-foreground: oklch(0.95 0.006 255);
   --sidebar-border: oklch(1 0 0 / 8%);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sidebar-ring: oklch(0.72 0.13 195);
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Semantic status / priority palette — single source, mapped onto the
+   * canonical chart colors so the whole app shares one palette. */
+  --ok: var(--chart-2);          /* done / success (green) */
+  --warn: var(--chart-3);        /* blocked / high / stale (amber) */
+  --danger: var(--destructive);  /* error / critical (red) */
+  --accent-alt: var(--chart-5);  /* agent visibility (purple) */
+  --shadow: oklch(0 0 0 / 55%);      /* modal / elevated surface */
+  --shadow-soft: oklch(0 0 0 / 40%); /* toast / subtle elevation */
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -36,9 +73,87 @@ body {
   line-height: 1.5;
   background: var(--background);
   color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+/* Motion: subtle, consistent transitions on every interactive element, plus a
+ * physical press. transform/opacity only (GPU-friendly). Reduced-motion users
+ * get none of it. */
+button, a, .nav-link, .trk-card, .mem-item, .code-hit, .sess-item, .doc-row,
+.mem-rel, .mem-web-item, .trk-row, .trk-sw, .trk-view-btn, .mem-view-tab,
+.trk-prio-btn, .code-btn, .mem-numbtn, .trk-refresh, .trk-iconbtn,
+.doc-back, .mem-back, .sess-context-row, .wcard, .project-select,
+.trk-search-wrap input, .mem-search-wrap input, .code-search-wrap input,
+input[type="search"], .mem-edit-text, .mem-grantee {
+  transition: background 140ms ease, border-color 140ms ease,
+    color 140ms ease, transform 90ms ease, box-shadow 140ms ease,
+    opacity 140ms ease, outline-color 140ms ease;
+}
+button:active, a:active, .trk-card:active, .mem-item:active, .code-hit:active,
+.sess-item:active, .doc-row:active, .mem-rel:active, .trk-row:active {
+  transform: scale(0.985);
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Entry motion — staggered fade + rise on route mount (the demo's tw-animate
+ * animate-in). transform/opacity only (GPU). Off under prefers-reduced-motion. */
+@keyframes sg-rise {
+  from { opacity: 0; transform: translateY(0.375rem); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.sgs-enter > * { animation: sg-rise 320ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.sgs-enter > *:nth-child(1) { animation-delay: 0ms; }
+.sgs-enter > *:nth-child(2) { animation-delay: 40ms; }
+.sgs-enter > *:nth-child(3) { animation-delay: 80ms; }
+.sgs-enter > *:nth-child(4) { animation-delay: 120ms; }
+.sgs-enter > *:nth-child(5) { animation-delay: 160ms; }
+.sgs-enter > *:nth-child(6) { animation-delay: 200ms; }
+/* group-hover chevron slide (demo: group-hover:translate-x-0.5). */
+.group-chevron { transition: transform 140ms ease; }
+.group:hover .group-chevron, .group:focus-within .group-chevron { transform: translateX(0.125rem); }
+
+/* Button system — mirrors the skillgrid-ui shadcn button: shared base +
+ * variants. Press = translateY(1px); focus = ring-3 (the demo's ring-ring/50).
+ * The ad-hoc entry buttons (.code-btn, .trk-refresh) adopt this base. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 0.375rem; white-space: nowrap; select-none;
+  font: inherit; font-size: 0.8125rem; font-weight: 500;
+  border: 1px solid transparent; border-radius: var(--radius-md);
+  padding: 0.375rem 0.75rem; cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease,
+    color 140ms ease, transform 90ms ease, box-shadow 140ms ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+.btn svg { width: 1rem; height: 1rem; flex-shrink: 0; }
+/* variants */
+.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn-primary:hover { background: color-mix(in oklch, var(--primary) 80%, var(--foreground) 8%); }
+.btn-secondary { background: var(--secondary); color: var(--secondary-foreground); }
+.btn-secondary:hover { background: color-mix(in oklch, var(--secondary) 80%, var(--foreground) 6%); }
+.btn-ghost { background: transparent; color: var(--muted-foreground); }
+.btn-ghost:hover { background: var(--muted); color: var(--foreground); }
+.btn-destructive { background: color-mix(in oklch, var(--destructive) 12%, transparent); color: var(--destructive); }
+.btn-destructive:hover { background: color-mix(in oklch, var(--destructive) 22%, transparent); }
+.btn-icon { padding: 0.375rem; }
+.btn-sm { font-size: 0.75rem; padding: 0.25rem 0.625rem; border-radius: var(--radius-sm); }
 
 .shell { display: flex; height: 100svh; overflow: hidden; }
 
@@ -211,8 +326,8 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 .stub-card p { color: var(--muted-foreground); }
 .stub-card .phase-id { margin-bottom: 0.75rem; }
 .error {
-  background: color-mix(in oklch, #e05c5c 15%, transparent);
-  border: 1px solid #e05c5c; border-radius: 0.5rem;
+  background: color-mix(in oklch, var(--danger) 15%, transparent);
+  border: 1px solid var(--danger); border-radius: 0.5rem;
   padding: 0.625rem 0.875rem; margin-bottom: 0.75rem;
 }
 
@@ -231,7 +346,7 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 /* Tracker entry (P2) — vanilla port of the demo BacklogView */
 .trk-page { display: flex; flex-direction: column; gap: 1rem; padding: 1rem; }
 @media (min-width: 48rem) { .trk-page { padding: 1.5rem; } }
-.trk-head h1 { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -0.01em; }
+.trk-head h1 { margin: 0; font-size: 1.5rem; font-weight: 650; letter-spacing: -0.025em; }
 .trk-head p { margin: 0.25rem 0 0; font-size: 0.875rem; }
 .trk-top { display: flex; flex-direction: column; gap: 0.75rem; }
 @media (min-width: 64rem) { .trk-top { flex-direction: row; align-items: center; justify-content: space-between; } }
@@ -324,8 +439,8 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
   font-family: var(--font-mono); font-size: 0.625rem; font-weight: 500;
   text-transform: uppercase; letter-spacing: 0.05em;
 }
-.pri-critical { background: color-mix(in oklch, #e05c5c 15%, transparent); color: #e05c5c; border-color: color-mix(in oklch, #e05c5c 30%, transparent); }
-.pri-high { background: color-mix(in oklch, #d9a441 15%, transparent); color: #d9a441; border-color: color-mix(in oklch, #d9a441 30%, transparent); }
+.pri-critical { background: color-mix(in oklch, var(--danger) 15%, transparent); color: var(--danger); border-color: color-mix(in oklch, var(--danger) 30%, transparent); }
+.pri-high { background: color-mix(in oklch, var(--warn) 15%, transparent); color: var(--warn); border-color: color-mix(in oklch, var(--warn) 30%, transparent); }
 .pri-medium { background: color-mix(in oklch, var(--primary) 15%, transparent); color: var(--primary); border-color: color-mix(in oklch, var(--primary) 30%, transparent); }
 .pri-low { background: var(--muted); color: var(--muted-foreground); }
 .trk-card-title { font-size: 0.875rem; font-weight: 500; line-height: 1.35; }
@@ -366,8 +481,8 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 .trk-stat-dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; }
 .trk-stat-dot.st-todo { background: var(--muted-foreground); }
 .trk-stat-dot.st-in_progress { background: var(--primary); }
-.trk-stat-dot.st-blocked { background: #e05c5c; }
-.trk-stat-dot.st-done { background: #3fb96f; }
+.trk-stat-dot.st-blocked { background: var(--danger); }
+.trk-stat-dot.st-done { background: var(--ok); }
 .trk-stat-dot.st-total { background: var(--muted-foreground); opacity: 0.5; }
 .trk-viewswitch { display: flex; align-items: center; gap: 0.5rem; }
 .trk-refresh {
@@ -409,7 +524,7 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 .trk-modal-card {
   position: relative; display: flex; flex-direction: column; width: 100%; max-width: 60rem;
   max-height: 90vh; border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--card); box-shadow: 0 0 2.5rem rgba(0, 0, 0, 0.55); overflow: hidden;
+  background: var(--card); box-shadow: 0 1.5rem 2.5rem -0.5rem var(--shadow); overflow: hidden;
 }
 .trk-modal-head {
   display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;
@@ -421,8 +536,8 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 .trk-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 999px; flex-shrink: 0; }
 .trk-dot-todo { background: var(--muted-foreground); }
 .trk-dot-prog { background: var(--primary); }
-.trk-dot-block { background: #e05c5c; }
-.trk-dot-done { background: #3fb96f; }
+.trk-dot-block { background: var(--danger); }
+.trk-dot-done { background: var(--ok); }
 .trk-iconbtn {
   border: none; background: none; border-radius: 0.375rem;
   padding: 0.375rem 0.5rem; color: var(--muted-foreground); cursor: pointer; font-size: 0.875rem;
@@ -457,7 +572,7 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 .trk-toast {
   position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
   background: var(--secondary); border: 1px solid var(--border); border-radius: 0.375rem;
-  padding: 0.5rem 1rem; font-size: 0.8125rem; box-shadow: 0 0 1rem rgba(0, 0, 0, 0.4);
+  padding: 0.5rem 1rem; font-size: 0.8125rem; box-shadow: 0 0.5rem 1rem -0.25rem var(--shadow-soft);
 }
 
 /* ── Docs entry (P3) ──────────────────────────────────────────────────── */
@@ -470,8 +585,8 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 .doc-row:hover { background: var(--muted); }
 .doc-row-name { font-family: var(--font-mono); font-size: 0.8125rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-status { font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.125rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-foreground); }
-.doc-status.st-done { color: var(--ok, #4ade80); border-color: currentColor; }
-.doc-status.st-prog { color: var(--info, #60a5fa); border-color: currentColor; }
+.doc-status.st-done { color: var(--ok); border-color: currentColor; }
+.doc-status.st-prog { color: var(--primary); border-color: currentColor; }
 .doc-ticket { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--muted-foreground); }
 .doc-empty { padding: 1rem; color: var(--muted-foreground); font-size: 0.8125rem; }
 .doc-view { display: flex; flex-direction: column; gap: 1rem; }
@@ -512,7 +627,7 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 /* ── Memory entry (P4) — control panel: master-detail + governance ───────── */
 .mem-page { display: flex; flex-direction: column; gap: 1rem; padding: 1rem; }
 @media (min-width: 48rem) { .mem-page { padding: 1.5rem; } }
-.mem-head h1 { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -0.01em; }
+.mem-head h1 { margin: 0; font-size: 1.5rem; font-weight: 650; letter-spacing: -0.025em; }
 .mem-head p { margin: 0.25rem 0 0; font-size: 0.875rem; }
 .mem-top { display: flex; flex-direction: column; gap: 0.5rem; }
 @media (min-width: 48rem) { .mem-top { flex-direction: row; align-items: center; justify-content: space-between; } }
@@ -580,10 +695,10 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 }
 .mem-vis-private { background: var(--muted); color: var(--muted-foreground); }
 .mem-vis-team { background: color-mix(in oklch, var(--primary) 15%, transparent); color: var(--primary); border-color: color-mix(in oklch, var(--primary) 30%, transparent); }
-.mem-vis-restricted { background: color-mix(in oklch, #d9a441 15%, transparent); color: #d9a441; border-color: color-mix(in oklch, #d9a441 30%, transparent); }
-.mem-vis-agent { background: color-mix(in oklch, #a879f5 15%, transparent); color: #a879f5; border-color: color-mix(in oklch, #a879f5 30%, transparent); }
-.mem-status-active { background: color-mix(in oklch, #3fb96f 15%, transparent); color: #3fb96f; border-color: color-mix(in oklch, #3fb96f 30%, transparent); }
-.mem-status-superseded { background: color-mix(in oklch, #d9a441 15%, transparent); color: #d9a441; border-color: color-mix(in oklch, #d9a441 30%, transparent); }
+.mem-vis-restricted { background: color-mix(in oklch, var(--warn) 15%, transparent); color: var(--warn); border-color: color-mix(in oklch, var(--warn) 30%, transparent); }
+.mem-vis-agent { background: color-mix(in oklch, var(--accent-alt) 15%, transparent); color: var(--accent-alt); border-color: color-mix(in oklch, var(--accent-alt) 30%, transparent); }
+.mem-status-active { background: color-mix(in oklch, var(--ok) 15%, transparent); color: var(--ok); border-color: color-mix(in oklch, var(--ok) 30%, transparent); }
+.mem-status-superseded { background: color-mix(in oklch, var(--warn) 15%, transparent); color: var(--warn); border-color: color-mix(in oklch, var(--warn) 30%, transparent); }
 .mem-status-archived { background: var(--muted); color: var(--muted-foreground); }
 .mem-rel-type { background: var(--secondary); color: var(--secondary-foreground); }
 .mem-type-decision, .mem-type-architecture, .mem-type-bugfix, .mem-type-pattern, .mem-type-config, .mem-type-discovery, .mem-type-learning, .mem-type-preference { background: var(--secondary); color: var(--secondary-foreground); }
@@ -621,7 +736,7 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 .mem-detail-error .muted { max-width: 22rem; }
 .mem-back { background: transparent; border: none; color: var(--muted-foreground); cursor: pointer; font: inherit; font-size: 0.8125rem; padding: 0; }
 .mem-back:hover { color: var(--foreground); }
-.mem-danger { color: #e05c5c; }
+.mem-danger { color: var(--danger); }
 
 /* Governance card + share/status controls. */
 .mem-gov-card, .mem-rels-card { display: flex; flex-direction: column; gap: 0.75rem; }
@@ -634,7 +749,7 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 .mem-share-row .project-select { flex: 1; max-width: none; }
 .mem-grants { font-size: 0.75rem; display: flex; flex-direction: column; gap: 0.375rem; }
 .mem-grantee { background: color-mix(in oklch, var(--input) 40%, transparent); border: 1px solid var(--border); border-radius: 0.375rem; font: inherit; font-size: 0.75rem; color: var(--foreground); padding: 0.25rem 0.5rem; }
-.mem-share-error { margin: 0; font-size: 0.6875rem; color: #e05c5c; }
+.mem-share-error { margin: 0; font-size: 0.6875rem; color: var(--danger); }
 .mem-status-ctrl { display: flex; flex-direction: column; gap: 0.375rem; }
 .mem-versions { display: flex; flex-direction: column; gap: 0.375rem; }
 .mem-version-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.375rem; }
@@ -694,7 +809,7 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 /* Code entry (P5) — UI-only over the /code/* routes. Mirrors the .mem-* block. */
 .code-page { display: flex; flex-direction: column; gap: 1rem; padding: 1rem; }
 @media (min-width: 48rem) { .code-page { padding: 1.5rem; } }
-.code-head h1 { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -0.01em; }
+.code-head h1 { margin: 0; font-size: 1.5rem; font-weight: 650; letter-spacing: -0.025em; }
 .code-head p { margin: 0.25rem 0 0; font-size: 0.875rem; }
 
 /* Freshness banner — always visible; degrades inline on a status failure. */
@@ -708,18 +823,22 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 .code-banner-actions { display: flex; align-items: center; gap: 0.625rem; flex-wrap: wrap; }
 .code-stale-badge {
   font-family: var(--font-mono); font-size: 0.625rem; font-weight: 600; letter-spacing: 0.05em;
-  background: color-mix(in oklch, #d9a441 18%, transparent); color: #d9a441;
-  border: 1px solid color-mix(in oklch, #d9a441 40%, transparent);
+  background: color-mix(in oklch, var(--warn) 18%, transparent); color: var(--warn);
+  border: 1px solid color-mix(in oklch, var(--warn) 40%, transparent);
   border-radius: 999px; padding: 0.125rem 0.5rem;
 }
 .code-msg { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--muted-foreground); }
-.code-btn {
-  font: inherit; font-size: 0.75rem; cursor: pointer;
-  border: 1px solid var(--border); border-radius: 0.375rem;
+.code-btn { /* .btn base + secondary variant (Re-index action) */
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem;
+  font: inherit; font-size: 0.75rem; font-weight: 500; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
   background: var(--secondary); color: var(--secondary-foreground);
   padding: 0.375rem 0.75rem;
+  transition: background 140ms ease, border-color 140ms ease, transform 90ms ease, box-shadow 140ms ease;
 }
-.code-btn:hover { background: color-mix(in oklch, var(--secondary) 80%, var(--foreground) 5%); }
+.code-btn:hover { background: color-mix(in oklch, var(--secondary) 80%, var(--foreground) 6%); }
+.code-btn:active { transform: translateY(1px); }
+.code-btn:focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent); }
 .code-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Status card — small stat tiles. */
@@ -736,10 +855,10 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 /* Per-widget error idiom (shared by status/source/graph failures). */
 .code-error {
   display: flex; flex-direction: column; gap: 0.25rem;
-  border: 1px solid color-mix(in oklch, #e05c5c 40%, transparent); border-radius: var(--radius);
-  background: color-mix(in oklch, #e05c5c 8%, transparent); padding: 0.625rem 0.875rem;
+  border: 1px solid color-mix(in oklch, var(--danger) 40%, transparent); border-radius: var(--radius);
+  background: color-mix(in oklch, var(--danger) 8%, transparent); padding: 0.625rem 0.875rem;
 }
-.code-error-title { font-size: 0.8125rem; font-weight: 500; color: #e05c5c; }
+.code-error-title { font-size: 0.8125rem; font-weight: 500; color: var(--danger); }
 .code-error .muted { margin: 0; font-size: 0.75rem; }
 
 /* Search + source grid (mirrors .mem-grid). */
@@ -814,6 +933,8 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
 /* ── Sessions entry (P6) ─────────────────────────────────────────────────── */
 .sess-page { display: flex; flex-direction: column; gap: 1rem; padding: 1rem; }
 @media (min-width: 48rem) { .sess-page { padding: 1.5rem; } }
+.sess-head h1 { margin: 0; font-size: 1.5rem; font-weight: 650; letter-spacing: -0.025em; }
+.sess-head p { margin: 0.25rem 0 0; font-size: 0.875rem; }
 .sess-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
 @media (min-width: 64rem) { .sess-grid { grid-template-columns: minmax(20rem, 30rem) 1fr; } }
 .sess-list-col { display: flex; flex-direction: column; gap: 0.5rem; }

@@ -53,6 +53,16 @@ async function api(url) {
   return body;
 }
 
+// enter() staggers the children of a freshly-mounted entry (the demo's
+// tw-animate cascade). Re-adding the class after a forced reflow re-triggers
+// the keyframes on every navigation. No-op under prefers-reduced-motion
+// (CSS zeroes the duration), so it's safe to always call.
+function enter(box) {
+  box.classList.remove("sgs-enter");
+  void box.offsetWidth; // reflow so the animation restarts
+  box.classList.add("sgs-enter");
+}
+
 function render() {
   const route = currentRoute();
   document.querySelectorAll("#menu .nav-link[data-route]").forEach((a) => {
@@ -75,6 +85,7 @@ function render() {
   }
   if (route === "welcome") {
     welcome.hidden = false;
+    enter(welcome);
     return;
   }
   // Future entries progressively go live in P3–P6; until then, stubs.
@@ -309,8 +320,9 @@ async function trkLoad(box, openTaskId, opts) {
     box.innerHTML =
       `<div class="trk-page"><header class="trk-head"><h1>Tracker</h1>` +
       `<p class="muted">A visual board for your ticketing system. Drag tasks to change status, or click one for details.</p></header>` +
-      `<div id="trk-body"><div class="trk-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading tracker…</div></div></div>`;
+       `<div id="trk-body"><div class="trk-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading tracker…</div></div></div>`;
     body = box.querySelector("#trk-body");
+    enter(box);
   }
   const meta = TRK_PROVIDERS.find((p) => p.id === trk.provider);
   const switcher = TRK_PROVIDERS.map((p) => {
@@ -721,7 +733,8 @@ async function renderDocs(box) {
   box.innerHTML =
     `<div class="doc-page"><header class="doc-head"><h1>Docs</h1>` +
     `<p class="muted">SDD change documents — change.md and tasks.md — sandboxed to docs/skillgrid, read-only.</p></header>` +
-    `<div id="doc-body"><div class="doc-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading changes…</div></div></div>`;
+       `<div id="doc-body"><div class="doc-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading changes…</div></div></div>`;
+  enter(box);
   const body = box.querySelector("#doc-body");
   let changes;
   try {
@@ -1005,7 +1018,8 @@ async function renderMemory(box) {
     `</div>` +
     `<p class="mem-source" id="mem-source"></p>` +
     `</div>` +
-    `<div class="mem-body" id="mem-body"><div class="mem-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading memory…</div></div></div>`;
+       `<div class="mem-body" id="mem-body"><div class="mem-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading memory…</div></div></div>`;
+  enter(box);
   const body = box.querySelector("#mem-body");
   body.querySelectorAll(".mem-view-tab").forEach((b) =>
     b.addEventListener("click", () => { mem.view = b.dataset.memview; renderMemory(box); }));
@@ -1603,8 +1617,9 @@ async function renderCode(box) {
     `<button type="button" class="code-btn" id="code-reindex">Re-index</button>` +
     `</span></div>` +
     `<div class="code-status" id="code-status"></div>` +
-    `<div class="code-body" id="code-body"><div class="code-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading code index…</div></div>` +
-    `<div class="code-graph" id="code-graph"></div></div>`;
+       `<div class="code-body" id="code-body"><div class="code-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading code index…</div></div>` +
+       `<div class="code-graph" id="code-graph"></div></div>`;
+  enter(box);
   const body = box.querySelector("#code-body");
   body.innerHTML =
     `<div class="code-grid">` +
@@ -1844,9 +1859,10 @@ async function renderSessions(box) {
     `<div class="code-empty"><p class="trk-empty-title">No session selected</p>` +
     `<p class="muted">Click a session on the left to read its end-of-session summary here.</p></div>` +
     `</div>` +
-    `<div class="sess-context" id="sess-context"></div>` +
-    `</section>` +
-    `</div></div>`;
+       `<div class="sess-context" id="sess-context"></div>` +
+       `</section>` +
+       `</div></div>`;
+  enter(box);
   box.querySelector("#sess-raw-toggle").addEventListener("click", () =>
     showNumbers(box.querySelector("#sess-list"),
       () => ({ list: sessions.list, context: sessions.context }),

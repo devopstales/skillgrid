@@ -223,6 +223,31 @@ For `feature-branch-chain`, name the intended base boundary per work unit: PR #1
 
 Put the forecast near the top of the artifact so the user sees it before implementation starts. Do not bury it in prose.
 
+### Step 3.5: Write GATES.md (completion ledger)
+
+Write a completion ledger next to the scratch workspace so `sdd-verify` can execute it:
+
+```
+.skillgrid/sdd/{change-name}/GATES.md
+```
+
+Resolve the scratch dir via `scripts/sdd-workspace docs/skillgrid/changes/{change-name}/tasks.md` if available; otherwise `.skillgrid/sdd/{change-name}/` (git-ignored, created if missing). It is execution state with evidence — NOT a committed spec artifact; do not copy it into the change folder.
+
+Format follows the unlazy gate ledger (see [`../unlazy/templates/gates-leaf.md`](../unlazy/templates/gates-leaf.md) and [`../unlazy/references/gates.md`](../unlazy/references/gates.md)). Authoring rules for this phase:
+
+- **One gate per phase or per work unit** — `G1`…`Gn`, one observable outcome each (the phase's deliverable), NOT one gate per scenario and NOT one per task.
+- **Derive from `acceptance.feature` / spec scenarios where present** (or the spec's DoD): the gate's `CHECK:` script must exercise that phase's @p0 scenarios. A gate whose script does not test its declared outcome is an oracle that cannot fail — `sdd-verify` treats that as a gate-authoring gap.
+- Every runnable gate gets indented `CHECK:` + `EXPECT:`; `EXPECT:` is a success-only marker the script prints after all its assertions pass (e.g. `go test ./internal/store -run TestStoreNN -count=1` wrapped so it exits non-zero on any failure and prints `store NN verification passed` only on full pass). No command can decide the outcome → manual gate (no `CHECK:`/`EXPECT:`, evidence recorded by verify).
+- Prefer the project's own test command or a small repo-owned Node script; do not assume `grep`/`tail`/`tr` exist.
+- If a required outcome is genuinely impossible within the task, keep the gate and add `ABANDON: G<n> <reason>` — surface it in the envelope `risks`, never silently drop it.
+- Lint before persisting and fix every error:
+
+```
+node .agents/skills/unlazy/scripts/gate-lint.mjs .skillgrid/sdd/{change-name}/GATES.md
+```
+
+Fast-track (trivial/small with waiver): skip GATES.md entirely — the light `tasks.md` is the contract.
+
 ### Step 4: Self-Check (no external validator binary)
 
 In place of an admission validator, before you persist confirm each — fix any failure before returning `success`, else return `partial` with the failed item in `risks`:
@@ -235,6 +260,7 @@ In place of an admission validator, before you persist confirm each — fix any 
 6. If risk is High / above 400 lines, `Chained PRs recommended: Yes` AND every suggested work unit names a focused test command, a runtime harness (or `N/A + reason`), and a rollback boundary.
 7. Word count within the **Size Budget** (Rules).
 8. Filesystem `tasks.md` and the Mnemonic content are the **same content**.
+9. If GATES.md was written (not fast-track): lint passed with **zero errors**, one gate per phase/work unit, every runnable gate has `CHECK:` + `EXPECT:`, and no gate id duplicates.
 
 ### Step 5: Persist Artifact (hybrid — MANDATORY, do not skip)
 
@@ -311,6 +337,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - **Review workload guard**: ALWAYS include the forecast with the four plain-text guard lines. If likely above 400 changed lines, recommend chained PRs and honor the received delivery strategy for whether a decision/exception is needed before apply.
 - **Fast-track**: with a waiver recorded in `proposal.md` (`trivial`/`small` per `../_shared/conventions/fast-track.md`), a light `tasks.md` (fewer phases, 1–3 tasks) is allowed — the four guard lines stay byte-identical.
 - **Work-unit evidence**: every suggested work unit names a Focused test command, a Runtime harness (or explicit `N/A` + reason), and a Rollback boundary.
+- **Completion ledger**: `GATES.md` (one gate per phase/work unit, unlazy ledger format) is written to the scratch workspace (`.skillgrid/sdd/{change-name}/GATES.md`) and lint-clean before return. The feature file stays the behavior contract; the ledger is how `sdd-verify` proves completion. Skipped on fast-track.
 - **Hybrid is preferred** — always write the filesystem file AND save to Mnemonic; degraded modes allowed only per `../_shared/conventions/hybrid-degradation.md` with a `Degraded:` envelope line.
 - No external binaries. Mnemonic (`mem_*`) and the code index (`code_*`) are the only knowledge sources; no `gentle-ai`, no `gentleman-ai`, no `sdd-phase-common.md`, no CLI validator.
 - Return envelope per Step 6 — final action is text, not a tool call.
@@ -327,6 +354,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - **Hybrid writes both, or it is half a save.** A `tasks.md` on disk with no Mnemonic save (or vice versa) breaks recovery — the filesystem survives branch switches, Mnemonic survives `/clear`; you need both.
 - If the code index is `stale: true`, run `code_index` before `code_search`. A task citing a file you confirmed on a stale index is a task with a hole.
 - Do not commit from this phase. Tasks is the plan; `sdd-apply` commits the DO. Commit conventions live in `_shared/conventions/commits.md` and the close-token footer applies to the apply commit, not this phase.
+- **GATES.md is scratch, not spec.** It lives in the git-ignored scratch workspace with evidence that mutates as checks run — copying it into the change folder turns execution state into a committed artifact.
 
 ## References
 

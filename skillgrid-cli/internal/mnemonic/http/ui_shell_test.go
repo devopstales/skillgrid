@@ -83,17 +83,23 @@ func TestStep01_Shell(t *testing.T) {
 	}
 }
 
-// TestStep01_Welcome: static Welcome page with roadmap + swagger links, zero fetches.
+// TestStep01_Welcome: static Welcome page — a 6-entry navigation grid (all
+// dashboard routes) with zero fetches. Refreshed from the P1 "roadmap + 2
+// swagger cards" layout once all entries are live.
 func TestStep01_Welcome(t *testing.T) {
 	h := newHandler(t)
 	_, body := getUI(t, h, "/")
 	mustContain(t, body,
-		`id="view-welcome"`, "phase 3 online", "Skillgrid Dashboard",
-		`href="/swagger-ui"`, `href="/openapi.yaml"`,
-		"Roadmap", "Dashboard shell + Swagger UI",
-		"Tracker (Backlog.md, Jira, GitLab, GitHub)",
-		"Documents (change.md, tasks.md)", "Memory", "Code index", "Sessions",
+		`id="view-welcome"`, "all entries live", "Skillgrid Dashboard",
+		`href="/memory"`, `href="/tracker"`, `href="/code"`,
+		`href="/sessions"`, `href="/docs"`, `href="/swagger-ui"`,
 	)
+	// The stale P1 copy must be gone (roadmap + "phase 3 online" + placeholder card).
+	for _, stale := range []string{"phase 3 online", "Roadmap", "later phases", "More dashboards"} {
+		if strings.Contains(body, stale) {
+			t.Errorf("welcome must not contain stale P1 copy %q", stale)
+		}
+	}
 	// Welcome content is static HTML: the router must not fetch on /welcome.
 	_, js := getUI(t, h, "/app.js")
 	renderIdx := strings.Index(js, "function render()")
