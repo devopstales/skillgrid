@@ -38,6 +38,15 @@ effort. If the `mnemonic` block is enabled, check `web_cache_lookup` before
 fetching and `web_cache_save` after, and `mem_save` the findings under
 `skillgrid/{YYYY-MM-DD-<topic>}/research` so later sessions recover them.
 
+**Reverify before you cite a cache hit** (same rule as skillgrid:research): a
+cache entry is a TTL window, not a verification. Each researcher re-checks a
+cached URL before citing it (re-pull or a `HEAD` stability check) and records
+the access date; the verifier does the same when it lands on a cached source.
+A material change re-reads the page and re-scores the claim; a 404/move drops
+the citation. The source's freshness bar applies to the cache as much as to the
+origin — a cached page older than the bar for that claim class is stale by
+construction.
+
 ## Epistemics (inherited from skillgrid:research)
 
 1. **Never conclude from training data alone** — evidence retrieved this run, or

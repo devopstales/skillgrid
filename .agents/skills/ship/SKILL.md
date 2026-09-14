@@ -1,16 +1,17 @@
 ---
 name: ship
-description: "Use when a change has passed qa and review and you need to integrate it to its base branch and close its change folder. The integration + archive-move step of the tail (qa → review → ship → reflect): verify tests on the integrated tree, merge / open a PR / keep the branch, then mechanically move the change folder to .skillgrid/archive/. No release mechanics, no docs check. No external binaries."
+description: "Use when a change has passed qa and review and you need to integrate it to its base branch and close its change folder. The integration + archive-move step of the tail (qa → review → ship → reflect)."
 ---
 
 # Ship
 
 **Announce at start:** "I'm using the skillgrid:ship skill to integrate and close this change."
 
-You are the **INTEGRATION + ARCHIVE-MOVE** phase — the close-out step after `qa` and `review`, before the terminal `reflect`. You do exactly two things:
+You are the **INTEGRATION + ARCHIVE-MOVE** phase — the close-out step after `qa` and `review`, before the terminal `reflect`. You do three things:
 
 1. **Integrate the work** to its base branch (merge / PR / keep) — proven green on the *integrated* tree.
 2. **Close the change folder** — move `.skillgrid/specs/YYYY-MM-DD-<topic>/` to `.skillgrid/archive/YYYY-MM-DD-<topic>/` with a mechanical, verifiable move.
+3. **Render a ship decision** — a GO / NO-GO synthesis of the gates plus a mandatory rollback plan. The integration and the move are mechanical; the decision is the artifact the next human reads.
 
 **Iron law:**
 
@@ -53,9 +54,9 @@ Before any integration or move:
 
 ### Review Gate (advisory — never blocks on its own)
 
-- No review verdict in `tasks.md` → record `review-waived`, proceed.
+- No review verdict in `tasks.md` → record `review-waived`; **Step 9 runs the fan-out** on the diff to obtain one before rendering the GO/NO-GO (skip only if the change is trivial).
 - Verdict `BACK-TO-APPLY` with unresolved items → surface as a WARNING, proceed (the human accepted this state).
-- Verdict `REVIEW-PASS` → proceed.
+- Verdict `REVIEW-PASS` → proceed (reuse; Step 9 does not re-review).
 
 If a hard gate fails, **STOP and return `blocked`** with the failing gate named. Do not integrate, do not move.
 
@@ -261,7 +262,34 @@ mem_save(
 
 > If `mnemonic.enabled` is `false`, the in-repo `ship-report.md` is the sole record — skip this step (degrade explicitly, never fail silently).
 
-### Step 9: Return Envelope
+### Step 9: Render the Ship Decision
+
+The integration and the move are mechanical; the **decision** is the artifact. Synthesize the gates into a single **GO / NO-GO**, and write the **rollback plan** — both go into `ship-report.md` (before the move) and the Return Envelope.
+
+**Gather the review signal first.** If the change is **non-trivial** and the review gate above recorded `review-waived` (no prior `parallel-code-review` verdict in `tasks.md`), run **skillgrid:parallel-code-review** on the diff now, before rendering the verdict — the ship decision should rest on a fresh fan-out, not an absence of one. Its output (`REVIEW-PASS` / `BACK-TO-APPLY` + Critical/Warn counts) feeds Verdict rules 2 and 3. Two cases skip the fan-out:
+
+- **Trivial change** (≤ 2 files, < 50 lines, and touches no auth / payments / data migration / config) → no fan-out; the decision rests on the QA gate + a one-line rollback. This is the explicit **skip threshold**.
+- **Prior verdict exists** (`REVIEW-PASS` or an accepted `BACK-TO-APPLY` already in `tasks.md`) → reuse it; don't re-review.
+
+Fan-out selection, per-file lenses, and the red-team pass all follow `parallel-code-review/SKILL.md` — ship does not re-implement them. Record the fan-out result in `tasks.md` so the verdict below cites a real signal.
+
+**Verdict rules (apply in order; the first that matches wins):**
+
+1. **QA `FAIL`, or an unresolved CRITICAL** → **NO-GO**. Nothing downstream overrides a hard gate.
+2. **Any Critical review finding** → **NO-GO**, unless the human explicitly accepted the risk (record the acceptance).
+3. **QA `CONCERNS` or a `BACK-TO-APPLY` review verdict** → **NO-GO** by default; the human can override to GO. Record the override and what was accepted.
+4. **Everything else (QA `PASS`/`WAIVED`, review clean or waived)** → **GO**, with the rollback plan attached.
+
+**Rollback plan (mandatory before any GO).** Name the trigger conditions and the procedure:
+
+- **Merge already landed** → `git revert <merge-commit> -m 1` (or `git reset --hard <pre-merge> ` only if nothing else has landed on the base). Verify tests green after the revert.
+- **PR open, not merged** → close the PR; the branch stays until the work lands or is re-based.
+- **Branch kept** → the branch is the rollback (it never left the repo).
+- **Folder already moved to `archive/`** → the move is the *last* step, so a NO-GO discovered before the move leaves it untouched. A NO-GO discovered *after* the move is corrected in the next change's `reflect`, not by un-archiving.
+
+If the change is **trivial** (≤ 2 files, < 50 lines, and touches no auth / payments / data migration / config), the rollback plan may be one line: "revert the single commit." The full plan is required otherwise.
+
+### Step 10: Return Envelope
 
 **Your FINAL output MUST be text — not a tool call.** Do the `mem_save` (Step 8) *before* this text.
 
@@ -273,6 +301,11 @@ mem_save(
 **Integration**: {merged to {base} @ {commit} | PR {url} | kept branch {name}}
 **Archived**: `.skillgrid/archive/YYYY-MM-DD-<topic>/` · Mnemonic `skillgrid/YYYY-MM-DD-<topic>/ship-report`
 **Status**: success | blocked
+
+### Ship Decision
+**Verdict**: {GO | NO-GO}
+**Basis**: {QA {verdict} + review {verdict} + {human override, if any}}
+**Rollback plan**: {trigger → procedure, per the verdict's integration state}
 
 ### Gates
 | Gate | Result |

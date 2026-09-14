@@ -1,6 +1,6 @@
 ---
 name: reflect
-description: "Use when a change has been shipped (folder moved to .skillgrid/archive/) and you need to close the cycle: run a sourced retrospective (Decisions / Lessons / Patterns / Surprises + acceptance verdict), record the final-state archive report, and close the session. The terminal phase (qa → review → ship → reflect). Read-only over the archive; writes retrospective.md + archive-report.md + Mnemonic. No external binaries."
+description: "Use when a change has been shipped (folder moved to .skillgrid/archive/) and you need to close the cycle with a sourced retrospective and the final-state archive report. The terminal phase (qa → review → ship → reflect)."
 ---
 
 # Reflect

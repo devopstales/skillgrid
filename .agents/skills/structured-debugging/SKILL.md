@@ -39,6 +39,14 @@ re-investigate what you already ruled out.
   (skillgrid:architectural-decision-records); if it is a bug, the TDD Evidence
   in the fix commit is the durable record. The state file itself can go.
 
+**Competing-hypothesis debugging:** when several *mutually exclusive* root
+causes fit the symptoms and a single pass would settle on the first plausible
+one and stop, this is a **team investigation**, not a fan-out — spawn teammates
+that message each other to disprove the other theories, and converge only when
+two can disprove the rest. A subagent fan-out reports independently and its
+reports never meet, so it can't rule theories out. See the verdict-vs-
+investigation distinction in skillgrid:using-skillgrid (Orchestration).
+
 ## When to Use
 
 Use for ANY technical issue:

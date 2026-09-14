@@ -22,6 +22,14 @@
 
 **Verdict:** <REVIEW-PASS | waived | BACK-TO-APPLY (unresolved: list)>
 
+## Ship Decision
+
+**Verdict:** <GO | NO-GO>
+**Basis:** <QA <verdict> + review <verdict> + <human override, if any>>
+**Rollback plan:**
+- <trigger condition> → <procedure, e.g. `git revert <merge-commit> -m 1`>
+- <…>
+
 ## Integration Test Evidence
 
 **Command:** `<testing.runner>`

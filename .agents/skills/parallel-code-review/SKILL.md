@@ -44,11 +44,25 @@ HEAD_SHA=$(git rev-parse HEAD)
 git diff --stat $BASE_SHA..$HEAD_SHA
 ```
 
-Capture the changed-line count. This drives specialist selection:
+Capture the changed-line count **and the file types touched**. This drives
+specialist selection:
 
 - **< 50 changed lines** → run only Standards + Spec (the two-axis set). The
   other specialists are skipped; say so.
-- **≥ 50 changed lines, or high-risk** → run all six specialists.
+- **≥ 50 changed lines, or high-risk** → run the core five: Standards, Spec,
+  Edge cases, Verification gaps, Security.
+- **Accessibility** — add it when the diff touches **UI** (markup, components,
+  styles, or interactive elements: buttons, links, forms, inputs, navigation,
+  modals, focus handling).
+- **Performance** — add it when the diff touches **data access, request
+  handling, rendering, or hot paths** (queries, loops over collections, async
+  work, caching, network calls, bundle/build, per-request or per-render paths).
+- **Red team** — always last (it reads the other specialists' merged findings).
+
+A small diff that *does* touch UI or data access still earns the Accessibility
+or Performance specialist on top of Standards + Spec — the line-count floor
+gates the *core* five, not the domain specialists. Say which specialists you ran
+and why, including any you skipped for lack of surface.
 
 If the diff is empty, stop — there is nothing to review.
 
@@ -60,14 +74,16 @@ others. Use a `general-purpose` subagent per specialist. Each specialist's
 prompt is the template in this skill's `reviewers/` directory (or, for
 Standards/Spec, the shared templates):
 
-| Specialist | Template | Lens |
-|------------|----------|------|
-| Standards | [../requesting-code-review/code-reviewer.md](../requesting-code-review/code-reviewer.md) | glossary, in-force ADRs, smell baseline |
-| Spec | [../requesting-code-review/spec-reviewer.md](../requesting-code-review/spec-reviewer.md) | per-scenario BDD, missing/partial, scope creep |
-| Edge cases | [reviewers/edge-case-hunter.md](reviewers/edge-case-hunter.md) | unhandled branches, boundaries, deletion regressions |
-| Verification gaps | [reviewers/verification-gap.md](reviewers/verification-gap.md) | does verification actually catch a break? |
-| Security | [reviewers/security.md](reviewers/security.md) | injection, authz, exposure, secrets, dep risk |
-| Red team | [reviewers/red-team.md](reviewers/red-team.md) | what the others missed (runs last) |
+| Specialist | Template | Lens | Selected when |
+|------------|----------|------|---------------|
+| Standards | [../requesting-code-review/code-reviewer.md](../requesting-code-review/code-reviewer.md) | glossary, in-force ADRs, smell baseline | always (core) |
+| Spec | [../requesting-code-review/spec-reviewer.md](../requesting-code-review/spec-reviewer.md) | per-scenario BDD, missing/partial, scope creep | always (core) |
+| Edge cases | [reviewers/edge-case-hunter.md](reviewers/edge-case-hunter.md) | unhandled branches, boundaries, deletion regressions | core five |
+| Verification gaps | [reviewers/verification-gap.md](reviewers/verification-gap.md) | does verification actually catch a break? | core five |
+| Security | [reviewers/security.md](reviewers/security.md) | injection, authz, exposure, secrets, dep risk | core five |
+| Accessibility | [reviewers/accessibility.md](reviewers/accessibility.md) | keyboard, semantics, forms, ARIA, contrast | diff touches UI |
+| Performance | [reviewers/performance.md](reviewers/performance.md) | N+1, hot paths, network, caching, rendering | diff touches data/render |
+| Red team | [reviewers/red-team.md](reviewers/red-team.md) | what the others missed | always, runs last |
 
 Give every specialist: the diff range (`$BASE_SHA..$HEAD_SHA`), the review
 package path if one exists (e.g. from `skillgrid:subagent-execution`'s
@@ -75,8 +91,8 @@ package path if one exists (e.g. from `skillgrid:subagent-execution`'s
 `acceptance.feature` and blueprint) for the Spec specialist. The diff is
 passed as a **path**, not inlined text — each specialist reads it.
 
-**Red team runs last:** dispatch it after the other five return, and hand it
-their merged findings so it hunts for what they missed, not what they found.
+**Red team runs last:** dispatch it after the other specialists return, and hand
+it their merged findings so it hunts for what they missed, not what they found.
 
 **Each specialist returns machine-parseable findings** (JSON, per the template)
 so the triage step can normalize them uniformly. A specialist that finds nothing

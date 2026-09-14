@@ -17,6 +17,22 @@ Strict TDD produces both naturally: a test written first and watched
 failing against real code has already proven it can fail, and only earns
 a mock when the real dependency proves slow or external.
 
+## Structure: Arrange → Act → Assert
+
+A test body has three regions, in order:
+
+- **Arrange** — set up the test data and preconditions (inputs, fixtures,
+  doubles).
+- **Act** — perform the single action under test.
+- **Assert** — verify the outcome.
+
+One action per test; if you need a second verb, it is a second test. Keep the
+regions visually distinct (a blank line or comment between them) so the Act is
+obvious at a glance — an assertion before the action, or setup tangled into the
+assertion, is the most common way a test stops catching the break it was meant
+to name. This is a layout discipline on top of Principle 1 (name the break) and
+Principle 2 (exercise the real thing), not a substitute for either.
+
 ## Principle 1: Name the Break
 
 Before writing the test body, answer: **what production change should

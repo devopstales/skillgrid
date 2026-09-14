@@ -101,6 +101,18 @@ Parses a change's `#### Gates` blocks and reports each `G<n>`'s state. A gate is
 | `SKILLGRID_GATE_TIMEOUT` | Per-CHECK timeout for `--reverify` (default 120s) |
 | `SKILLGRID_GATE_MAX_BLOCKS` | Stop-hook no-progress release threshold (default 6) |
 
+## Agent tool hooks (beyond git + Stop)
+
+The two kinds above run at **commit** time and at **turn end**. Harnesses also expose **PreToolUse / PostToolUse** hooks that wrap individual tool calls. They are the right home for *intercepting and reshaping tool I/O* — not just gating — and they follow the same "a rule asks; a hook guarantees" contract.
+
+Three idioms worth knowing (all graceful: a missing dependency or malformed input degrades to `exit 0`, letting the tool call through):
+
+- **Read-only cache via `exit 2` + stderr.** A PreToolUse hook that wants to *replace* a tool's result (e.g. serve a cached `WebFetch` body instead of re-fetching) writes the body to **stderr** and **exits 2** — the harness then delivers that text in place of the tool output. This is how a `sha256(url)`-keyed cache, revalidated with `ETag`/`Last-Modified` (`304` only, no TTL), can cut repeated research fetches to zero. A PostToolUse pair stores the body + validators after each real fetch.
+- **Graceful degradation is the default.** Check dependencies up front (`command -v jq || exit 0`); on any parse failure, log a warning and let the call through. A hook that cannot do its job must never block the session it is supposed to protect.
+- **Hide, don't lose, model-facing noise.** A hook pair can swap large or vendor blocks for a `BLOCK_<hash>` placeholder on Read, expand the model's edits back onto the real content after Edit/Write, and restore the true file on Stop — so the model never re-reads or re-edits the hidden block, yet nothing is lost.
+
+Skillgrid's current hooks are git + Stop; these are the patterns to reach for when you add a PreToolUse/PostToolUse hook (e.g. a tool-agnostic research cache to complement the in-skill `mnemonic` web cache).
+
 ## Next step
 
 [Memory and indexing](05-memory-and-indexing.md)

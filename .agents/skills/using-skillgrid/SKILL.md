@@ -85,6 +85,43 @@ When multiple skills apply, process skills come first — they set the approach,
 - "Let's build X" → skillgrid:brainstorming first, then implementation skills.
 - "Fix this bug" → skillgrid:structured-debugging first, then domain skills.
 
+## Orchestration Anti-Patterns
+
+The router is a **persona**, not a skill that calls other skills. These failure modes mean STOP — you've turned routing into extra work:
+
+| Anti-pattern | Why it's wrong | Do this instead |
+|---|---|---|
+| **Router persona** — the main agent keeps routing *and* does the work itself, so every task re-runs the full pipeline for trivial work. | The router should dispatch, not execute. Doing both doubles context and slows the obvious cases. | Route to the skill, then **step back**. For trivial work, fast-track (the Router's light path), don't run the whole pipeline. |
+| **Persona calls persona** — a skill (e.g. `ship`) invokes another *router-level* skill as if it were a tool, nesting orchestration. | Routers set approach; they are not called by other routers. Nesting them creates re-entry loops and duplicated decisions. | Routers call **implementation** skills only. `ship` may fan out to `parallel-code-review` (implementation) but never re-enters `using-skillgrid` or `brainstorming`. |
+| **Depth > 1** — a subagent spawns a subagent that spawns a subagent. | Each hop re-reads context and adds a coordination surface; beyond one level the cost exceeds the benefit. | **Max dispatch depth is 1.** The orchestrator dispatches workers; workers do not dispatch. |
+| **Paraphrasing hop** — the orchestrator re-summarizes a subagent's result before passing it on, losing fidelity. | The worker's output is already structured; re-narrating it adds loss and tokens. | Pass the worker's **Return Envelope** through verbatim; synthesize only at the final decision (e.g. `ship`'s GO/NO-GO). |
+| **Orchestrator that edits** — the coordinating agent goes back and edits code between dispatches. | Mixing coordination with edits breaks the clean "dispatch → collect → decide" loop and muddies who owns the change. | The orchestrator collects verdicts and renders decisions; it edits only to wire up what workers produced. |
+
+Depth rule of thumb: **orchestrator → worker** is the only sanctioned hop. Anything deeper is a signal the task should be sliced differently, not nested further.
+
+**Choosing a pattern — walk this before dispatching:**
+
+```
+Is the work one perspective on one artifact?
+├── Yes → Direct invocation (a single skill). Stop.
+└── No  → Will the same composition repeat?
+         ├── No  → Ad-hoc, single skill. Stop.
+         └── Yes → Are the sub-tasks independent?
+                  ├── No  → Sequential pipeline, user-driven between steps.
+                  └── Yes → Parallel fan-out with a merge step in the main context.
+                           If the merge would not fit in the main context, fall back to a single skill.
+```
+
+**Verdict vs investigation — pick the right primitive:**
+
+| | **Fan-out (subagents)** | **Teams (teammates that message each other)** |
+|---|---|---|
+| Sub-agents see | The same diff, different lenses | A shared task list *and* each other's findings |
+| Output | Independent reports → one merge (a **verdict** on a known artifact) | Adversarial debate → **consensus** (an **investigation** among competing hypotheses) |
+| Use for | `parallel-code-review`, `ship`'s GO/NO-GO | `structured-debugging` when a single agent would pick the first plausible theory and stop |
+
+A fan-out produces a *verdict on something you already have*; a team produces a *root cause among things you don't yet know*. Do not wrap a team-style investigation in a fan-out — subagents can't challenge each other, and the debate is what makes it work.
+
 ## Red Flags
 
 These thoughts mean STOP—you're rationalizing:

@@ -105,6 +105,13 @@ Subagent (general-purpose):
     - **Middle Man**: a class/function that mostly just delegates onward. → cut it, call the real target direct.
     - **Refused Bequest**: a subclass/impl that ignores most of what it inherits. → drop the inheritance, use composition.
 
+    **Dependency discipline** (when the diff adds a package):
+    - Does the existing stack or stdlib already solve this?
+    - Is it actively maintained, free of known critical/high vulns, and
+      license-compatible?
+    - Every dependency is a liability — prefer what's already there. Flag a
+      new dep that a smaller/existing option would replace.
+
     ## Calibration
 
     Categorize issues by actual severity. Not everything is Critical.
@@ -133,6 +140,18 @@ Subagent (general-purpose):
     - What's wrong (name the smell or cite the standard)
     - Why it matters
     - How to fix (if not obvious)
+
+    **Label the action so the author knows required vs optional:**
+
+    | Prefix | Meaning | Author action |
+    |--------|---------|---------------|
+    | *(none)* | Required | Must address before merge |
+    | `Critical:` | Blocks merge | Security, data loss, broken functionality |
+    | `Optional:` / `Consider:` | Suggestion | Worth weighing, not required |
+    | `FYI` | Informational | No action — context for the future |
+
+    An unlabeled issue is a *required* one. Never label an optional nit
+    as required — it makes the author over-spend on polish.
 
     ### Assessment
 

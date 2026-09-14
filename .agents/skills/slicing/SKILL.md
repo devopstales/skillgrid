@@ -61,6 +61,15 @@ Slice the work into tickets using these rules:
 - By concern: two independent behaviors become two tickets
 - By slim end-to-end: strip out secondary features, ship the core path first
 
+**Order by risk when it matters.** The *first* ticket should de-risk the
+change. Two named strategies, applied on top of vertical slicing:
+- **Risk-first:** slice the riskiest / most-uncertain piece first (the novel
+  integration, the unproven API, the migration). If it fails, you learn before
+  investing in the dependent slices.
+- **Contract-first:** when two sides (e.g. backend + frontend) would otherwise
+  block each other, slice 0 is a frozen API contract (types / OpenAPI); each
+  side then slices against it independently and integrates last.
+
 **Wide refactors are the exception.** A single mechanical change with huge blast radius (e.g., rename a column across 40 files) can't be a tracer bullet. Sequence it as:
 1. Expand ticket (add the new thing alongside the old)
 2. Migrate tickets (move batches, each blocked by expand)

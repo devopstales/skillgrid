@@ -22,6 +22,15 @@ Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root`
 is enabled, check `web_cache_lookup` for the query before fetching and
 `web_cache_save` after, so repeated research is deduplicated.
 
+**Reverify before you cite a cache hit.** A cache entry is a TTL window, not a
+verification — it can serve content that has gone stale within that window.
+Before citing a cached page (or an `exa`/`webfetch` snapshot), re-check the URL:
+a `webfetch` re-pull (or a `HEAD` for a stability check) and record the access
+date. If the page has materially changed, re-read it and mark the claim's
+confidence accordingly; if it 404s or moved, drop the citation and find the
+current owner. A cache hit is a starting point, never the evidence itself — the
+evidence is what you verify *this run*.
+
 ## Epistemics (two standing rules)
 
 1. **Never conclude from training data alone.** What you already know proposes
