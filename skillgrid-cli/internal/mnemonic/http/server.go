@@ -143,13 +143,10 @@ func (s *Server) registerRoutes() {
 	s.registerTeamsRoutes()
 	s.registerTrackerRoutes()
 	s.registerDocsRoutes()
-	s.registerUIRoutes()
 }
 
 // registerDocsRoutes mounts the read-only SDD docs bridge on the two routes
-// it owns (GET /docs/changes, GET /docs/changes/{name}). The GET /docs shell
-// page is registered separately by registerUIRoutes (exact pattern, no
-// conflict with these literal routes).
+// it owns (GET /docs/changes, GET /docs/changes/{name}).
 func (s *Server) registerDocsRoutes() {
 	s.mux.Handle("GET /docs/changes", docs.NewList(docsCwd))
 	s.mux.Handle("GET /docs/changes/{name}", docs.NewDetail(docsCwd))
@@ -384,20 +381,9 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSessionList returns every session for the project (id, title,
-// started_at, status), newest first — the data behind the P6 Sessions entry
-// list. Open read: ?project= convention like /context.
-//
-// The path-routed dashboard shell ALSO serves GET /sessions (handleShellPage,
-// ui.go) so a browser reload on the Sessions entry renders the SPA. The two
-// coexist by Accept: an HTML request (no ?project=, Accept: text/html) falls
-// through to the shell page; the dashboard fetch (Accept: application/json,
-// ?project=) gets the JSON list.
+// started_at, status), newest first. Open read: ?project= convention like
+// /context.
 func (s *Server) handleSessionList(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("project") == "" &&
-		strings.Contains(r.Header.Get("Accept"), "text/html") {
-		s.handleShellPage(w, r)
-		return
-	}
 	projectID, err := projectFromRequest(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

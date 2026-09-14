@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -334,35 +333,6 @@ func TestObservationsListEndpoint(t *testing.T) {
 	obs, ok := out["observations"].([]any)
 	if !ok || len(obs) != 1 {
 		t.Fatalf("expected one observation, got %v", out["observations"])
-	}
-}
-
-func TestUIRoutes(t *testing.T) {
-	h := newHandler(t)
-	cases := []struct {
-		path   string
-		status int
-		prefix string
-	}{
-		{"/", http.StatusOK, "text/html"},
-		{"/app.js", http.StatusOK, "javascript"},
-		{"/openapi.yaml", http.StatusOK, "yaml"},
-		{"/swagger-ui", http.StatusOK, "text/html"},
-		{"/swagger-ui/swagger-ui.css", http.StatusOK, "text/css"},
-		{"/swagger-ui/swagger-ui-bundle.js", http.StatusOK, "javascript"},
-	}
-	for _, c := range cases {
-		rr := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, c.path, nil)
-		h.ServeHTTP(rr, req)
-		if rr.Code != c.status {
-			t.Errorf("%s: expected %d, got %d", c.path, c.status, rr.Code)
-			continue
-		}
-		ct := rr.Header().Get("Content-Type")
-		if !strings.Contains(ct, c.prefix) {
-			t.Errorf("%s: content type %q, want substring %q", c.path, ct, c.prefix)
-		}
 	}
 }
 
