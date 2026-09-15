@@ -34,8 +34,8 @@ func TestLayerTools(t *testing.T) {
 	}
 
 	// Tool surface grows additively: 77 (75 baseline + 2 governance) + 1 layers + 2 session + 2 status/compact = 82.
-	if len(tools) != 82 {
-		t.Errorf("expected 82 tools (77 + 1 mem_layers + 2 session + 2 status/compact), got %d", len(tools))
+	if len(tools) != 83 {
+		t.Errorf("expected 83 tools (77 + 1 mem_layers + 2 session + 2 status/compact), got %d", len(tools))
 	}
 
 	// Existing 005 mem_* tools keep their names + required params unchanged.

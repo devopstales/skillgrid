@@ -836,8 +836,13 @@ func (idx *Indexer) extractFile(file ScannedFile) ([]extract.Symbol, []extract.E
 // (the index continues). The per-file 005 symbols (just upserted above) are
 // the source of truth for handler resolution (same-file first).
 func (idx *Indexer) extractRoutes(ctx context.Context, tx *sql.Tx, fileID int64, file ScannedFile) ([]string, error) {
-	// Only attempt route extraction for file types a framework recognizes.
-	if route.ExtractFile(file.Path, nil).Framework == "" {
+	// Source-aware candidate check: run the extractor on the file's contents
+	// and skip files that yield neither routes nor navigations. A file-type
+	// check alone (ExtractFile(path, nil)) would make EVERY .go file a
+	// candidate once the nethttp handler is registered (its dispatch is
+	// extension-based), so the extraction itself is the filter.
+	fr := route.ExtractFile(file.Path, file.Contents)
+	if len(fr.Routes) == 0 && len(fr.Navigates) == 0 {
 		return nil, nil
 	}
 	st := &txRouteStore{tx: tx, fileID: fileID}
@@ -854,11 +859,11 @@ func (idx *Indexer) extractRoutes(ctx context.Context, tx *sql.Tx, fileID int64,
 // ResolveHandler (same-file first, then a unique global match). fileSyms is
 // loaded lazily on first use (the 005 symbols are already upserted in the tx).
 type txRouteStore struct {
-	tx        *sql.Tx
-	fileID    int64
-	fileSyms  []route.FileSymbol
-	loaded    bool
-	uuids     []string
+	tx       *sql.Tx
+	fileID   int64
+	fileSyms []route.FileSymbol
+	loaded   bool
+	uuids    []string
 }
 
 // routeUIDs returns the UIDs of route nodes stored by this store (for the
@@ -922,8 +927,25 @@ func (s *txRouteStore) StoreRouteNode(node route.RouteNode) (int64, error) {
 	if err := s.tx.QueryRow(`SELECT id FROM symbols WHERE uid = ?`, node.UID).Scan(&id); err != nil {
 		return 0, err
 	}
+	if err := s.writeSymbolSegments(node.Name); err != nil {
+		return 0, err
+	}
 	s.uuids = append(s.uuids, node.UID)
 	return id, nil
+}
+
+// writeSymbolSegments fills the symbol_segments reverse index in target-state
+// for one symbol name: drop the name's prior segments, then re-insert.
+func (s *txRouteStore) writeSymbolSegments(name string) error {
+	if _, err := s.tx.Exec(`DELETE FROM symbol_segments WHERE symbol_name = ?`, name); err != nil {
+		return err
+	}
+	for _, seg := range nameSegments(name) {
+		if _, err := s.tx.Exec(`INSERT OR IGNORE INTO symbol_segments (segment, symbol_name) VALUES (?, ?)`, seg, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *txRouteStore) StoreRouteMeta(fileID, symbolID int64, node route.RouteNode) error {
@@ -937,35 +959,34 @@ func (s *txRouteStore) StoreRouteMeta(fileID, symbolID int64, node route.RouteNo
 	return err
 }
 
-func (s *txRouteStore) ResolveHandler(fileID int64, name string) (int64, string, string) {
+func (s *txRouteStore) ResolveHandler(fileID int64, name string) (int64, string, string, int) {
 	// 1) Same-file match: a handler defined in the same file is an explicit
-	// reference (EXTRACTED) and wins over any global guess.
+	// reference (EXTRACTED) and wins over any global guess. The global match
+	// count is still reported (candidates) even when the same-file match wins.
+	var global int
+	_ = s.tx.QueryRow(`SELECT COUNT(*) FROM symbols WHERE name = ?`, name).Scan(&global)
 	if err := s.loadFileSyms(); err != nil {
-		return 0, "", ""
+		return 0, "", "", global
 	}
 	for _, fs := range s.fileSyms {
 		if fs.Name == name {
-			return fs.ID, fs.UID, route.ConfidenceExtracted
+			return fs.ID, fs.UID, route.ConfidenceExtracted, global
 		}
 	}
 	// 2) Name-only match: no same-file / explicit handler, but a unique global
 	// symbol by this name. This is a best-effort name guess → AMBIGUOUS
 	// (stored, low-confidence). Multiple or zero global matches are unresolvable
-	// → dropped (drop-not-guess).
+	// → dropped (drop-not-guess); the match count is reported either way so a
+	// dropped ref can log it.
 	var id int64
 	var uid string
-	var matches int
-	err := s.tx.QueryRow(`SELECT COUNT(*) FROM symbols WHERE name = ?`, name).Scan(&matches)
-	if err != nil {
-		return 0, "", ""
-	}
-	if matches != 1 {
-		return 0, "", ""
+	if global != 1 {
+		return 0, "", "", global
 	}
 	if err := s.tx.QueryRow(`SELECT id, uid FROM symbols WHERE name = ? LIMIT 1`, name).Scan(&id, &uid); err != nil {
-		return 0, "", ""
+		return 0, "", "", global
 	}
-	return id, uid, route.ConfidenceAmbiguous
+	return id, uid, route.ConfidenceAmbiguous, global
 }
 
 func (s *txRouteStore) StoreReferencesEdges(fileID int64, nodes []route.RouteNode, _ int64) (int, error) {
@@ -1057,6 +1078,27 @@ func (s *txRouteStore) StoreRouteDrops(fileID int64, dropped int) error {
 	return err
 }
 
+func (s *txRouteStore) StoreUnresolvedRefs(fileID int64, refs []route.DroppedRef, now string) error {
+	// Target-state: this file's prior unresolved rows are replaced (a ref that
+	// now resolves drops out of the table).
+	if _, err := s.tx.Exec(`DELETE FROM unresolved_refs WHERE file_id = ?`, fileID); err != nil {
+		return err
+	}
+	for _, r := range refs {
+		if _, err := s.tx.Exec(`
+			INSERT INTO unresolved_refs (file_id, reference_name, reference_kind, line, candidates, status, first_seen_at, last_seen_at)
+			VALUES (?, ?, ?, ?, ?, 'failed', ?, ?)
+			ON CONFLICT(file_id, reference_name, reference_kind, line) DO UPDATE SET
+			  candidates = excluded.candidates,
+			  last_seen_at = excluded.last_seen_at`,
+			fileID, r.Name, r.Kind, r.Line, r.Candidates, now, now,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // fileFirstSymbol caches the first (lowest id) symbol of a file for the
 // duration of a writeFileGraph call, used as a default edge source. It is a
 // process-global keyed by file id (not by store), so a prior test in the same
@@ -1124,6 +1166,19 @@ func writeFileGraph(tx *sql.Tx, fileID int64, syms []extract.Symbol, edges []ext
 	rr.Close()
 	if err := rr.Err(); err != nil {
 		return 0, err
+	}
+	// Symbol segment vocabulary (target-state): drop this file's current
+	// symbol names' segments, then re-insert. Route nodes are handled in
+	// StoreRouteNode (they upsert after this pass).
+	if _, err := tx.Exec(`DELETE FROM symbol_segments WHERE symbol_name IN (SELECT name FROM symbols WHERE file_id = ?)`, fileID); err != nil {
+		return 0, err
+	}
+	for _, s := range syms {
+		for _, seg := range nameSegments(s.Name) {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO symbol_segments (segment, symbol_name) VALUES (?, ?)`, seg, s.Name); err != nil {
+				return 0, err
+			}
+		}
 	}
 	// Also resolve cross-file target UIDs (a call to a symbol in another file
 	// that is already indexed).

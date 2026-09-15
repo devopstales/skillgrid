@@ -76,8 +76,8 @@ func TestAffectedTools(t *testing.T) {
 
 	// The tool surface grows additively: 71 baseline + 2 affected/rename +
 	// 1 code_pdg_query + 1 code_taint + 2 governance + 1 mem_layers + 2 session = 80.
-	if len(tools) != 82 {
-		t.Errorf("expected 82 tools (71 baseline + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers + 2 session + 2 status/compact), got %d", len(tools))
+	if len(tools) != 83 {
+		t.Errorf("expected 83 tools (71 baseline + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers + 2 session + 2 status/compact), got %d", len(tools))
 	}
 
 	// code_affected runs the traversal (changed -> affected test files).

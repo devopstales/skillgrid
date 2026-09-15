@@ -30,6 +30,7 @@ var menuCodeTools = []string{
 	"code_path", "code_explain",
 	"code_communities", "code_god_nodes", "code_explain_community",
 	"code_processes", "code_process",
+	"code_unresolved_refs",
 }
 
 // exploreInitializeGuidance is injected at MCP initialize (server

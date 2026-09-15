@@ -5,21 +5,22 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // RouteNode is one route node to be upserted into the 005 symbols table.
 type RouteNode struct {
-	Name          string
-	UID           string
-	PathPattern   string
-	Method        string
-	Framework     string
-	Language      string
-	Line          int
-	ContentHash   string
-	HandlerName   string
-	HandlerSymbol int64 // 0 when the handler could not be resolved
-	HandlerUID    string
+	Name            string
+	UID             string
+	PathPattern     string
+	Method          string
+	Framework       string
+	Language        string
+	Line            int
+	ContentHash     string
+	HandlerName     string
+	HandlerSymbol   int64 // 0 when the handler could not be resolved
+	HandlerUID      string
 	HandlerExplicit bool
 	// HandlerConfidence is the Confidence Label for the route->handler
 	// references edge: EXTRACTED for a same-file/explicit handler, AMBIGUOUS
@@ -65,6 +66,16 @@ type Built struct {
 	Navs       []NavigationNode
 	Dropped    int
 	DropSample string
+	Drops      []DroppedRef
+}
+
+// DroppedRef is one unresolved reference dropped at extraction, logged for
+// the unresolved_refs table (never stored as an edge).
+type DroppedRef struct {
+	Name       string
+	Kind       string // "route_handler" | "navigation"
+	Line       int
+	Candidates int // global symbols matched by name
 }
 
 // Store is the narrow persistence surface the indexer uses to persist route
@@ -93,8 +104,12 @@ type Store interface {
 	// match resolves EXTRACTED; a name-only match that hits a unique global
 	// symbol resolves AMBIGUOUS (a best-effort guess, stored low-confidence);
 	// multiple or zero global matches are unresolvable → (0, "", "") so the
-	// caller drops the reference.
-	ResolveHandler(fileID int64, name string) (id int64, uid string, confidence string)
+	// caller drops the reference. candidates is the number of global symbols
+	// matched by name (logged when the ref is dropped).
+	ResolveHandler(fileID int64, name string) (id int64, uid string, confidence string, candidates int)
+	// StoreUnresolvedRefs persists the file's dropped references
+	// (target-state: the file's prior rows are replaced).
+	StoreUnresolvedRefs(fileID int64, refs []DroppedRef, now string) error
 }
 
 // FileSymbol is a minimal view of one 005-extracted symbol in the file, used
@@ -145,6 +160,9 @@ func Run(ctx context.Context, st Store, fileID int64, path string, src []byte, f
 	if err := st.StoreRouteDrops(fileID, b.Dropped); err != nil {
 		return stored, err
 	}
+	if err := st.StoreUnresolvedRefs(fileID, b.Drops, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		return stored, err
+	}
 	return stored, nil
 }
 
@@ -156,11 +174,11 @@ type resolver struct {
 }
 
 func (r resolver) ResolveHandler(name string) Resolution {
-	id, uid, conf := r.st.ResolveHandler(r.fileID, name)
+	id, uid, conf, c := r.st.ResolveHandler(r.fileID, name)
 	if id == 0 {
-		return Resolution{}
+		return Resolution{Candidates: c}
 	}
-	return Resolution{ID: id, UID: uid, Confidence: conf}
+	return Resolution{ID: id, UID: uid, Confidence: conf, Candidates: c}
 }
 
 // SymbolIndex resolves handler names to their symbol IDs. It is backed by the
@@ -177,6 +195,9 @@ type Resolution struct {
 	ID         int64
 	UID        string
 	Confidence string // ConfidenceExtracted | ConfidenceAmbiguous | ""
+	// Candidates is the number of global symbols matched by name — always
+	// reported (even when a same-file match wins) so a dropped ref can log it.
+	Candidates int
 }
 
 // Resolved reports whether a handler symbol was found (ok).
@@ -190,15 +211,15 @@ func (b *Built) buildRoutes(path string, src []byte, fr *FileRoutes, fileSyms []
 		name := routeNodeName(r.Framework, r.PathPattern, r.Method)
 		uid := symbolUID(r.Framework, r.PathPattern, r.Method)
 		node := RouteNode{
-			Name:          name,
-			UID:           uid,
-			PathPattern:   r.PathPattern,
-			Method:        r.Method,
-			Framework:     r.Framework,
-			Language:      strings.TrimPrefix(filepathExt(path), "."),
-			Line:          r.Line,
-			ContentHash:   uid,
-			HandlerName:   r.Handler,
+			Name:            name,
+			UID:             uid,
+			PathPattern:     r.PathPattern,
+			Method:          r.Method,
+			Framework:       r.Framework,
+			Language:        strings.TrimPrefix(filepathExt(path), "."),
+			Line:            r.Line,
+			ContentHash:     uid,
+			HandlerName:     r.Handler,
 			HandlerExplicit: r.Explicit,
 		}
 		if node.Language == "" {
@@ -213,7 +234,7 @@ func (b *Built) buildRoutes(path string, src []byte, fr *FileRoutes, fileSyms []
 			res := index.ResolveHandler(r.Handler)
 			if !res.Resolved() {
 				// Drop-not-guess: no same-file match, no unique global match.
-				b.recordDrop(r.Handler)
+				b.recordDrop(r.Handler, "route_handler", r.Line, res.Candidates)
 			} else {
 				node.HandlerSymbol = res.ID
 				node.HandlerUID = res.UID
@@ -244,6 +265,7 @@ func (b *Built) buildNavigates(path string, src []byte, fr *FileRoutes, fileSyms
 	for _, n := range fr.Navigates {
 		if n.Dest == "" {
 			// Computed / no-literal destination: unresolved, not fabricated.
+			b.recordDrop(n.Screen, "navigation", n.Line, 0)
 			continue
 		}
 		conf := ConfidenceExtracted
@@ -259,12 +281,14 @@ func (b *Built) buildNavigates(path string, src []byte, fr *FileRoutes, fileSyms
 	}
 }
 
-// recordDrop tallies a dropped reference for the warning.
-func (b *Built) recordDrop(name string) {
+// recordDrop tallies a dropped reference for the warning and logs it for the
+// unresolved_refs table.
+func (b *Built) recordDrop(name, kind string, line, candidates int) {
 	b.Dropped++
 	if b.DropSample == "" {
 		b.DropSample = name
 	}
+	b.Drops = append(b.Drops, DroppedRef{Name: name, Kind: kind, Line: line, Candidates: candidates})
 }
 
 // routeNodeName derives a readable route node name (method + pattern).

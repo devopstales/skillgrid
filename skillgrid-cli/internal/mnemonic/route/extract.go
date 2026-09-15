@@ -132,6 +132,7 @@ var handlers = []handler{
 	{"django", isPython, extractDjango},
 	{"express", isJS, extractExpress},
 	{"gin", isGo, extractGin},
+	{"nethttp", isGo, extractNetHTTP},
 	{"rails", isRuby, extractRails},
 	{"spring", isJava, extractSpring},
 	{"sveltekit", isSvelte, extractSvelteKit},
@@ -149,10 +150,10 @@ func isJS(path string) bool {
 	}
 	return false
 }
-func isJSX(path string) bool { return filepath.Ext(path) == ".tsx" || filepath.Ext(path) == ".jsx" }
-func isGo(path string) bool { return filepath.Ext(path) == ".go" }
-func isRuby(path string) bool { return filepath.Ext(path) == ".rb" }
-func isJava(path string) bool { return filepath.Ext(path) == ".java" }
+func isJSX(path string) bool    { return filepath.Ext(path) == ".tsx" || filepath.Ext(path) == ".jsx" }
+func isGo(path string) bool     { return filepath.Ext(path) == ".go" }
+func isRuby(path string) bool   { return filepath.Ext(path) == ".rb" }
+func isJava(path string) bool   { return filepath.Ext(path) == ".java" }
 func isSvelte(path string) bool { return filepath.Ext(path) == ".svelte" }
 
 // symbolUID derives a stable, path-independent identity for a route node from
@@ -431,7 +432,72 @@ func extractGin(path string, src []byte) *FileRoutes {
 			Handler: handler, Line: lineOf(src, m[0]), Explicit: true,
 		})
 	}
+	// A .go file with no gin binding (r.GET/...) may be a stdlib nethttp
+	// server instead — union the nethttp routes in so the gin dispatch does
+	// not silently drop them. The route-level Framework stays "nethttp".
+	if len(fr.Routes) == 0 && len(fr.Navigates) == 0 {
+		fr.Routes = append(fr.Routes, extractNetHTTP(path, src).Routes...)
+	}
 	return fr
+}
+
+// nethttpRouteRe matches stdlib mux bindings: `mux.HandleFunc("GET /path",
+// s.handler)` (Go 1.22 "METHOD /path") and `mux.HandleFunc("/path", handler)`
+// (Go 1.21, method defaults to ANY). The handler arg is captured non-greedily
+// up to the first `)`, so a wrapping call like `s.requireAuth(s.handleX)`
+// yields `s.requireAuth(s.handleX` — nethttpHandler takes the last identifier
+// in it, which is the inner handler.
+var nethttpRouteRe = regexp.MustCompile(`(?m)^\s*[\w.]*\.?(HandleFunc|Handle)\s*\(\s*["\x27]([A-Z]+\s+)?([^"\x27]+)["\x27]\s*,\s*([^)]+?)\s*\)`)
+
+func extractNetHTTP(path string, src []byte) *FileRoutes {
+	fr := &FileRoutes{Framework: "nethttp"}
+	for _, m := range nethttpRouteRe.FindAllStringSubmatchIndex(string(src), -1) {
+		if m == nil || len(m) < 8 {
+			continue
+		}
+		method := "ANY"
+		if m[4] >= 0 {
+			method = strings.ToUpper(strings.TrimSpace(string(src[m[4]:m[5]])))
+		}
+		pattern := string(src[m[6]:m[7]])
+		handler := nethttpHandler(string(src[m[8]:m[9]]))
+		if handler == "" {
+			continue
+		}
+		fr.Routes = append(fr.Routes, Route{
+			Framework: "nethttp", Method: method, PathPattern: pattern,
+			Handler: handler, Line: lineOf(src, m[0]), Explicit: true,
+		})
+	}
+	return fr
+}
+
+// nethttpHandler returns the handler symbol name from a HandleFunc/Handle
+// argument: the LAST identifier run in the arg (a bare identifier, the member
+// of a selector like `s.handleX`, or the innermost call of a wrapping
+// expression like `s.requireAuth(s.handleX`). A computed arg (lambda, call
+// with no identifier) yields "".
+func nethttpHandler(arg string) string {
+	var last string
+	for _, id := range idRuns.FindAllString(arg, -1) {
+		if goKeyword[id] {
+			continue
+		}
+		last = id
+	}
+	return last
+}
+
+var idRuns = regexp.MustCompile(`[A-Za-z_]\w*`)
+
+var goKeyword = map[string]bool{
+	"break": true, "case": true, "chan": true, "const": true,
+	"continue": true, "default": true, "defer": true, "else": true,
+	"fallthrough": true, "for": true, "func": true, "go": true,
+	"goto": true, "if": true, "import": true, "interface": true,
+	"map": true, "package": true, "range": true, "return": true,
+	"select": true, "struct": true, "switch": true, "type": true,
+	"var": true,
 }
 
 var railsRouteRe = regexp.MustCompile(`(?m)^\s*(get|post|put|patch|delete|resources|resource)\s+['\"]([^'\"]*)['\"]`)

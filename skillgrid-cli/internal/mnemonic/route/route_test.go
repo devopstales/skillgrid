@@ -13,6 +13,9 @@ import (
 type dummyIndex struct {
 	explicit   map[string]int64
 	globalOnly map[string]int64
+	// globalCandidates reports the number of global symbols matched by name
+	// for a name that does NOT resolve (logged on drops). Absent → 0.
+	globalCandidates map[string]int
 }
 
 func (d dummyIndex) ResolveHandler(name string) Resolution {
@@ -20,9 +23,9 @@ func (d dummyIndex) ResolveHandler(name string) Resolution {
 		return Resolution{ID: id, UID: "uid-" + name, Confidence: ConfidenceExtracted}
 	}
 	if id, ok := d.globalOnly[name]; ok {
-		return Resolution{ID: id, UID: "uid-" + name, Confidence: ConfidenceAmbiguous}
+		return Resolution{ID: id, UID: "uid-" + name, Confidence: ConfidenceAmbiguous, Candidates: 1}
 	}
-	return Resolution{}
+	return Resolution{Candidates: d.globalCandidates[name]}
 }
 
 // known builds an index where every name is an explicit (same-file) match —
@@ -65,10 +68,10 @@ func fileSyms(names ...string) []FileSymbol {
 // surfaces the route.
 func TestRouteNodesForWebFrameworks(t *testing.T) {
 	cases := []struct {
-		file    string
+		file      string
 		framework string // the per-route framework expected on the node
-		pattern string
-		handler string
+		pattern   string
+		handler   string
 	}{
 		{"urls.py", "django", "/home/", "HomeView"},
 		{"app.py", "fastapi", "/items/", "list_items"},

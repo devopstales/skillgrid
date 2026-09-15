@@ -130,7 +130,7 @@ func TestExploreToolSurface(t *testing.T) {
 	if !strings.Contains(text, "fair_coverage") {
 		t.Errorf("code_status must return a per-language fair_coverage field, got: %s", text)
 	}
-	for _, field := range []string{"file_count", "chunk_count", "stale"} {
+	for _, field := range []string{"file_count", "chunk_count", "stale", "unresolved_refs"} {
 		if !strings.Contains(text, field) {
 			t.Errorf("code_status lost an existing field %s: %s", field, text)
 		}

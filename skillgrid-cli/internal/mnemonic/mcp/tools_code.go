@@ -82,13 +82,21 @@ func handleCodeStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 	if cov, covErr := graph.FairCoverage(ctx, h.Store().DB); covErr == nil {
 		coverage = cov
 	}
+	// Unresolved refs: dropped route-handler references the index could not
+	// resolve (034). 0 on a store predating 034 is not expected (migrations
+	// run on open); a missing table is surfaced as an error, not a guess.
+	var unresolved int
+	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM unresolved_refs`).Scan(&unresolved); err != nil {
+		return toolError(err)
+	}
 
 	return JSONResult(map[string]any{
-		"file_count":    status.FileCount,
-		"chunk_count":   status.ChunkCount,
-		"last_indexed":  status.LastIndexed,
-		"stale":         stale,
-		"fair_coverage": coverage,
+		"file_count":      status.FileCount,
+		"chunk_count":     status.ChunkCount,
+		"last_indexed":    status.LastIndexed,
+		"stale":           stale,
+		"fair_coverage":   coverage,
+		"unresolved_refs": unresolved,
 	})
 }
 
@@ -285,11 +293,11 @@ func codeHitDTOs(db *sql.DB, query string, hits []search.CodeHit) []map[string]a
 		skelText := strings.Join(skel, "\n")
 		redacted := hybrid.RedactSecrets(skelText)
 		out[i] = map[string]any{
-			"path":           hit.Path,
-			"start_line":     hit.StartLine,
-			"end_line":       hit.EndLine,
-			"snippet":        redacted,
-			"score":          hit.Score,
+			"path":       hit.Path,
+			"start_line": hit.StartLine,
+			"end_line":   hit.EndLine,
+			"snippet":    redacted,
+			"score":      hit.Score,
 			// Additive response gains (005 contract: name + required params
 			// unchanged, response schema only grows).
 			"confidence":     conf.Level,

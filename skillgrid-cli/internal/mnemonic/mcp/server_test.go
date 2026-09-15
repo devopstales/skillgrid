@@ -43,6 +43,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"code_communities", "code_god_nodes", "code_explain_community",
 		// Framework route / navigation query tools.
 		"code_route", "code_navigates",
+		// Unresolved-ref drop log query tool (034).
+		"code_unresolved_refs",
 		// Precomputed process-flow tools.
 		"code_processes", "code_process",
 		// Knowledge-graph query tools.
@@ -137,10 +139,10 @@ func TestKnowledgeCompact(t *testing.T) {
 	// NO Fact Memory written. The relay handoff writes the bundle + a
 	// session_handoffs row, which is the "handoff input" the thin compact reads.
 	hoRes, err := handleSessionHandoff(context.Background(), newCallTool("session_handoff", map[string]any{
-		"progress":    "did the thing",
-		"knowledge":   "fail closed first",
-		"next_prompt": "resume later",
-		"handoff_id":  "ho-compact",
+		"progress":        "did the thing",
+		"knowledge":       "fail closed first",
+		"next_prompt":     "resume later",
+		"handoff_id":      "ho-compact",
 		"context_summary": "compact me",
 	}))
 	if err != nil {
@@ -232,5 +234,3 @@ func resultText(res *mcplib.CallToolResult) string {
 	}
 	return ""
 }
-
-
