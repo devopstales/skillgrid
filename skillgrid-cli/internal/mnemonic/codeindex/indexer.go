@@ -7,10 +7,12 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"hash/fnv"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -69,6 +71,11 @@ type ScannedFile struct {
 	Size     int64
 	Hash     string
 	Contents []byte
+	// AstHash is the deterministic structure hash of the file's extracted
+	// symbols + edges (set by the graph pass, not by Scan). Informational for
+	// now: it enables structure-only-change detection (a comment/format-only
+	// edit keeps the same AstHash) for a future skip-re-embed optimization.
+	AstHash string
 }
 
 // Scan walks root and returns files matching include/exclude globs.
@@ -328,6 +335,7 @@ type existingFile struct {
 	MtimeNs     int64
 	Size        int64
 	ContentHash string
+	AstHash     string
 }
 
 // Run scans root and upserts changed files; removes stale entries. The graph
@@ -374,6 +382,12 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 			continue
 		}
 		prev, ok := existing[file.Path]
+		// Full-skip guard: mtime + size + content hash all unchanged. The
+		// per-file ast_hash (structure of extracted symbols/edges) is persisted
+		// alongside but NOT part of this guard — it is informational, enabling
+		// a future "skip re-embed if structure unchanged" optimization (a
+		// comment-only edit keeps the same ast_hash while the content hash
+		// changes). The skip logic itself is deliberately unchanged.
 		if ok && prev.MtimeNs == file.MtimeNs && prev.Size == file.Size && prev.ContentHash == file.Hash {
 			stats.FilesSkipped++
 			skippedFileIDs = append(skippedFileIDs, prev.ID)
@@ -409,6 +423,14 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 		} else {
 			stats.SymbolsAdded += n
 			stats.EdgesAdded += len(edges)
+		}
+		// Structure hash: deterministic over the extracted symbol UIDs + edge
+		// tuples (comments/format are excluded), so a structure-only edit keeps
+		// the same value. Persisted on the files row (informational).
+		astHash := structureHash(syms, edges)
+		file.AstHash = astHash
+		if _, err := tx.Exec(`UPDATE files SET ast_hash = ? WHERE id = ?`, astHash, fileID); err != nil {
+			return stats, fmt.Errorf("set ast_hash for %s: %w", file.Path, err)
 		}
 		// Route pass: framework routing (route nodes + references/navigates
 		// edges) is extracted AFTER the 005 symbol/edge extraction, in the
@@ -1017,12 +1039,14 @@ func (s *txRouteStore) StoreReferencesEdges(fileID int64, nodes []route.RouteNod
 			conf = route.ConfidenceExtracted
 		}
 		if _, err := s.tx.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
-			VALUES ('references', ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, context, confidence_score, line, valid_from)
+			VALUES ('references', ?, ?, ?, ?, ?, ?, 'route', ?, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
 			  confidence = excluded.confidence,
+			  context = excluded.context,
+			  confidence_score = excluded.confidence_score,
 			  valid_from = excluded.valid_from`,
-			routeID, fileID, n.HandlerSymbol, n.HandlerName, n.PathPattern, conf, n.Line, time.Now().Unix(),
+			routeID, fileID, n.HandlerSymbol, n.HandlerName, n.PathPattern, conf, extract.ConfidenceScore(conf), n.Line, time.Now().Unix(),
 		); err != nil {
 			return stored, fmt.Errorf("upsert references edge %s: %w", n.HandlerName, err)
 		}
@@ -1056,12 +1080,14 @@ func (s *txRouteStore) StoreNavigatesEdges(fileID int64, navs []route.Navigation
 			continue // no sending function → unresolved, not fabricated
 		}
 		if _, err := s.tx.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
-			VALUES ('navigates', ?, ?, NULL, ?, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, context, confidence_score, line, valid_from)
+			VALUES ('navigates', ?, ?, NULL, ?, ?, ?, 'route', ?, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
 			  confidence = excluded.confidence,
+			  context = excluded.context,
+			  confidence_score = excluded.confidence_score,
 			  valid_from = excluded.valid_from`,
-			src, fileID, n.ToName, n.ToName, n.Confidence, n.Line, time.Now().Unix(),
+			src, fileID, n.ToName, n.ToName, n.Confidence, extract.ConfidenceScore(n.Confidence), n.Line, time.Now().Unix(),
 		); err != nil {
 			return stored, fmt.Errorf("upsert navigates edge %s (from_id=%d file_id=%d): %w", n.ToName, src, fileID, err)
 		}
@@ -1112,6 +1138,43 @@ func ResetFileFirstSymbol() {
 	for k := range fileFirstSymbol {
 		delete(fileFirstSymbol, k)
 	}
+}
+
+// structureHash is a deterministic FNV-1a digest over the file's extracted
+// STRUCTURE: the sorted set of symbol UIDs plus the sorted set of edge tuples
+// (kind + from UID + to name + to UID). Neither input includes comments or
+// formatting, so a comment/format-only edit (same symbols + edges) produces the
+// same hash — the signal a future pass needs to skip re-embedding.
+func structureHash(syms []extract.Symbol, edges []extract.Edge) string {
+	h := fnv.New64a()
+	uidSet := make([]string, 0, len(syms))
+	for _, s := range syms {
+		if s.UID != "" {
+			uidSet = append(uidSet, s.UID)
+		}
+	}
+	sort.Strings(uidSet)
+	for _, uid := range uidSet {
+		fmt.Fprintf(h, "S\x00%s\n", uid)
+	}
+	tuples := make([]string, 0, len(edges))
+	for _, e := range edges {
+		tuples = append(tuples, e.Kind+"\x00"+e.FromUID+"\x00"+e.ToName+"\x00"+e.ToUID)
+	}
+	sort.Strings(tuples)
+	for _, t := range tuples {
+		fmt.Fprintf(h, "E\x00%s\n", t)
+	}
+	return fmt.Sprintf("%x", h.Sum64())
+}
+
+// edgeScore returns the numeric confidence score for an edge: the extractor's
+// own value when set, otherwise the numeric form of its categorical label.
+func edgeScore(e extract.Edge) float64 {
+	if e.ConfidenceScore > 0 {
+		return e.ConfidenceScore
+	}
+	return extract.ConfidenceScore(e.Confidence)
 }
 
 // writeFileGraph upserts a file's target-state symbols, edges, and rationale.
@@ -1230,12 +1293,14 @@ func writeFileGraph(tx *sql.Tx, fileID int64, syms []extract.Symbol, edges []ext
 			}
 		}
 		if _, err := tx.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, context, confidence_score, line, valid_from)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
 			  confidence = excluded.confidence,
+			  context = excluded.context,
+			  confidence_score = excluded.confidence_score,
 			  valid_from = excluded.valid_from`,
-			e.Kind, fromID, fileID, toID, e.ToName, e.TargetPath, e.Confidence, e.Line, time.Now().Unix(),
+			e.Kind, fromID, fileID, toID, e.ToName, e.TargetPath, e.Confidence, e.Context, edgeScore(e), e.Line, time.Now().Unix(),
 		); err != nil {
 			return 0, fmt.Errorf("upsert edge %s: %w", e.Kind, err)
 		}
@@ -1282,7 +1347,7 @@ func pruneFileFootprint(tx *sql.Tx, fileID int64) error {
 }
 
 func loadExistingFiles(db *sql.DB) (map[string]existingFile, error) {
-	rows, err := db.Query(`SELECT id, path, mtime_ns, size, content_hash FROM files`)
+	rows, err := db.Query(`SELECT id, path, mtime_ns, size, content_hash, ast_hash FROM files`)
 	if err != nil {
 		return nil, err
 	}
@@ -1291,7 +1356,7 @@ func loadExistingFiles(db *sql.DB) (map[string]existingFile, error) {
 	for rows.Next() {
 		var f existingFile
 		var path string
-		if err := rows.Scan(&f.ID, &path, &f.MtimeNs, &f.Size, &f.ContentHash); err != nil {
+		if err := rows.Scan(&f.ID, &path, &f.MtimeNs, &f.Size, &f.ContentHash, &f.AstHash); err != nil {
 			return nil, err
 		}
 		out[path] = f

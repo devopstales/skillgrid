@@ -24,7 +24,7 @@ func writeHookFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, "main.go"), "package main\n\nfunc main() {\n\thandleListUsers()\n}\n\nfunc handleListUsers() {\n\tloadUsers()\n}\n\nfunc loadUsers() {}\n")
-	mustWrite(t, filepath.Join(root, "docs", "a.md"), "# A\n\nSee [B](./b.md).\n")
+	mustWrite(t, filepath.Join(root, "docs", "a.md"), "# A\n\nSee [B](./b.md). Use handleListUsers to list users.\n")
 	mustWrite(t, filepath.Join(root, "docs", "b.md"), "# B\nplain doc\n")
 	mustWrite(t, filepath.Join(root, "config", "app.yaml"), "server:\n  handler: handleListUsers\n")
 	mustWrite(t, filepath.Join(root, "db", "schema.sql"), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);\n")
@@ -98,6 +98,25 @@ func TestIndexerHook(t *testing.T) {
 	}
 	if docRefs < 1 {
 		t.Errorf("expected the knowledge doc pass to populate references edges (a.md -> b.md), got %d", docRefs)
+	}
+	// Doc->symbol edge: a.md mentions handleListUsers (defined in main.go) →
+	// an INFERRED references edge from the doc node to the symbol, context
+	// 'doc_mention'. The doc->doc link and the doc->symbol edge are distinct
+	// rows (different to_id/context), so docRefs must now be at least 2.
+	if docRefs < 2 {
+		t.Errorf("expected doc->doc AND doc->symbol references edges from a.md, got %d", docRefs)
+	}
+	var symRefs int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM edges
+		WHERE kind = 'references' AND context = 'doc_mention'
+		  AND confidence = 'INFERRED'
+		  AND to_name = 'handleListUsers'
+		  AND to_id = (SELECT id FROM symbols WHERE name = 'handleListUsers')`).Scan(&symRefs); err != nil {
+		t.Fatalf("count doc->symbol edges: %v", err)
+	}
+	if symRefs < 1 {
+		t.Errorf("expected a doc->symbol references edge to handleListUsers (context=doc_mention, INFERRED), got %d", symRefs)
 	}
 
 	// Knowledge config pass ran: config_nodes + configures edges.

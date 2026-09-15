@@ -20,6 +20,19 @@ const (
 	ConfidenceAmbiguous = "AMBIGUOUS"
 )
 
+// ConfidenceScore maps a categorical confidence label to a numeric score for
+// edge weighting (graphify-style): EXTRACTED=1.0, INFERRED=0.85, AMBIGUOUS=0.5.
+func ConfidenceScore(label string) float64 {
+	switch label {
+	case ConfidenceInferred:
+		return 0.85
+	case ConfidenceAmbiguous:
+		return 0.5
+	default:
+		return 1.0
+	}
+}
+
 // Symbol is one indexed code unit (function, method, type, ...).
 type Symbol struct {
 	Name          string
@@ -35,13 +48,15 @@ type Symbol struct {
 
 // Edge connects two symbols (or a symbol and an unresolved target name).
 type Edge struct {
-	Kind       string
-	FromUID    string
-	ToUID      string
-	ToName     string
-	TargetPath string
-	Confidence string
-	Line       int
+	Kind            string
+	FromUID         string
+	ToUID           string
+	ToName          string
+	TargetPath      string
+	Confidence      string
+	Context         string
+	ConfidenceScore float64
+	Line            int
 }
 
 // FileGraph is the extraction result for one file.

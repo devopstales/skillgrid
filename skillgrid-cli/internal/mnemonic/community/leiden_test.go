@@ -23,7 +23,7 @@ func openStore(t *testing.T) *sql.DB {
 		`CREATE TABLE symbols (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE, name TEXT NOT NULL, qualified_name TEXT, kind TEXT NOT NULL, language TEXT, signature TEXT, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, content_hash TEXT NOT NULL, uid TEXT NOT NULL UNIQUE)`,
 		`CREATE TABLE edges (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, from_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE, file_id INTEGER REFERENCES files(id) ON DELETE CASCADE, to_id INTEGER REFERENCES symbols(id) ON DELETE CASCADE, to_name TEXT, target_path TEXT, confidence TEXT NOT NULL DEFAULT 'EXTRACTED', line INTEGER, UNIQUE(kind, from_id, file_id, to_id, to_name, target_path, line))`,
 		`CREATE TABLE communities (id INTEGER, symbol_id INTEGER NOT NULL UNIQUE REFERENCES symbols(id) ON DELETE CASCADE)`,
-		`CREATE TABLE community_meta (id INTEGER PRIMARY KEY, label TEXT NOT NULL, symbol_count INTEGER NOT NULL, god_nodes TEXT NOT NULL DEFAULT '', cache_key TEXT NOT NULL)`,
+		`CREATE TABLE community_meta (id INTEGER PRIMARY KEY, label TEXT NOT NULL, symbol_count INTEGER NOT NULL, god_nodes TEXT NOT NULL DEFAULT '', hub_label TEXT NOT NULL DEFAULT '', cache_key TEXT NOT NULL)`,
 		`CREATE TABLE community_meta_cache (key TEXT PRIMARY KEY, value TEXT)`,
 	}
 	for _, s := range stmts {
@@ -311,5 +311,44 @@ func TestGodNodesColumnPopulated(t *testing.T) {
 	}
 	if populated == 0 {
 		t.Errorf("expected at least one community_meta.god_nodes populated, all empty")
+	}
+}
+
+// TestCommunityHubLabelPopulated covers 035: a community with god nodes
+// carries HubLabel = the top god-node name on the in-memory Community struct
+// AND persists it in community_meta.hub_label (so a cache hit can report the
+// hub without re-ranking).
+func TestCommunityHubLabelPopulated(t *testing.T) {
+	db := communityFixture(t)
+	res, err := Detect(context.Background(), db, Options{})
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if len(res.Communities) < 2 {
+		t.Fatalf("expected >=2 communities, got %d", len(res.Communities))
+	}
+	var withHub int
+	for _, c := range res.Communities {
+		if len(c.GodNodes) > 0 {
+			if c.HubLabel == "" {
+				t.Errorf("community %d has god nodes but empty HubLabel", c.ID)
+			}
+			if c.HubLabel != c.GodNodes[0] {
+				t.Errorf("community %d HubLabel %q != top god node %q", c.ID, c.HubLabel, c.GodNodes[0])
+			}
+		}
+		var stored string
+		if err := db.QueryRow(`SELECT hub_label FROM community_meta WHERE id = ?`, c.ID).Scan(&stored); err != nil {
+			t.Fatalf("read hub_label for community %d: %v", c.ID, err)
+		}
+		if stored != c.HubLabel {
+			t.Errorf("community %d hub_label column %q != HubLabel %q", c.ID, stored, c.HubLabel)
+		}
+		if stored != "" {
+			withHub++
+		}
+	}
+	if withHub == 0 {
+		t.Errorf("expected at least one community with a populated hub_label, all empty")
 	}
 }

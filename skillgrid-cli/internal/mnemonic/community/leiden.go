@@ -33,12 +33,14 @@ type Options struct {
 }
 
 // Community is one detected subsystem: its members (symbol ids) and its
-// LLM-free label (derived from god nodes + paths, never fabricated).
+// LLM-free label (derived from god nodes + paths, never fabricated). HubLabel
+// is the top god-node name ("" when the community has no god nodes).
 type Community struct {
 	ID       int      `json:"id"`
 	Label    string   `json:"label"`
 	Members  []int64  `json:"members"`
 	GodNodes []string `json:"god_nodes,omitempty"`
+	HubLabel string   `json:"hub_label,omitempty"`
 }
 
 // Result is the Detect output: the communities, the stable content-hash cache
@@ -236,7 +238,11 @@ func detectCore(db *sql.DB, opts Options, cacheKey string) (*Result, error) {
 			return nil, err
 		}
 		gods, label := labelForCommunity(db, 0, ids, opts)
-		res.Communities = []Community{{ID: 0, Label: label, Members: ids, GodNodes: gods}}
+		hub := ""
+		if len(gods) > 0 {
+			hub = gods[0]
+		}
+		res.Communities = []Community{{ID: 0, Label: label, Members: ids, GodNodes: gods, HubLabel: hub}}
 		return res, nil
 	}
 
@@ -283,7 +289,11 @@ func detectCore(db *sql.DB, opts Options, cacheKey string) (*Result, error) {
 		members := byComm[cid]
 		sort.Slice(members, func(a, b int) bool { return members[a] < members[b] })
 		gods, label := labelForCommunity(db, i, members, opts)
-		communities = append(communities, Community{ID: i, Label: label, Members: members, GodNodes: gods})
+		hub := ""
+		if len(gods) > 0 {
+			hub = gods[0]
+		}
+		communities = append(communities, Community{ID: i, Label: label, Members: members, GodNodes: gods, HubLabel: hub})
 	}
 	res.Communities = communities
 
@@ -372,9 +382,10 @@ func cachedResult(db *sql.DB, cacheKey string) (*Result, error) {
 	sort.Ints(order)
 	for i, id := range order {
 		res.Communities = append(res.Communities, Community{
-			ID:      i,
-			Label:   communityLabel(db, id),
-			Members: byID[id],
+			ID:       i,
+			Label:    communityLabel(db, id),
+			Members:  byID[id],
+			HubLabel: communityHubLabel(db, id),
 		})
 	}
 	return res, nil
@@ -390,6 +401,13 @@ func communityLabel(db *sql.DB, id int) string {
 	return label
 }
 
+// communityHubLabel reads the stored top god-node name ("" when none).
+func communityHubLabel(db *sql.DB, id int) string {
+	var hub string
+	_ = db.QueryRow(`SELECT hub_label FROM community_meta WHERE id = ?`, id).Scan(&hub)
+	return hub
+}
+
 // writeMeta caches the detected partition: one community_meta row per
 // community (label + symbol count + god-node names) and the content-hash cache
 // key.
@@ -403,8 +421,8 @@ func writeMeta(db *sql.DB, res *Result) error {
 		return err
 	}
 	for _, c := range res.Communities {
-		if _, err := tx.Exec(`INSERT INTO community_meta (id, label, symbol_count, god_nodes, cache_key) VALUES (?, ?, ?, ?, ?)`,
-			c.ID, c.Label, len(c.Members), strings.Join(c.GodNodes, ","), res.CacheKey); err != nil {
+		if _, err := tx.Exec(`INSERT INTO community_meta (id, label, symbol_count, god_nodes, hub_label, cache_key) VALUES (?, ?, ?, ?, ?, ?)`,
+			c.ID, c.Label, len(c.Members), strings.Join(c.GodNodes, ","), c.HubLabel, res.CacheKey); err != nil {
 			return err
 		}
 	}

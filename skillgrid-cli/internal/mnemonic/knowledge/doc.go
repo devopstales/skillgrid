@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // Edge kinds emitted by the knowledge extractors (distinct from 005's
@@ -59,13 +60,24 @@ type DocLink struct {
 	Confidence string
 }
 
+// SymbolRef is a code-symbol identifier mentioned in a doc's plain text: the
+// name as written and its first line. Resolution (doc node -> symbol node)
+// happens in the store (doc.go has no DB access); a name that does not resolve
+// to exactly one indexed symbol is dropped (drop-not-guess).
+type SymbolRef struct {
+	Name string
+	Line int
+}
+
 // DocResult is the extraction result for one markdown file: the doc node
-// (its title + path) and its outgoing references links.
+// (its title + path), its outgoing references links, and the code-symbol
+// identifiers its text mentions (for doc->symbol reference edges).
 type DocResult struct {
-	Path   string
-	Title  string
-	Links  []DocLink
-	IsDoc  bool
+	Path       string
+	Title      string
+	Links      []DocLink
+	SymbolRefs []SymbolRef
+	IsDoc      bool
 }
 
 // DocTitle derives the doc node's title from the first H1 heading, falling
@@ -80,15 +92,60 @@ func DocTitle(path string, src []byte) string {
 	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 }
 
-// ExtractDoc parses one markdown file into doc node + references links.
-// It never errors and never returns nil: a malformed file (unparseable link)
-// skips the bad link and keeps the rest (03.6). A non-markdown path returns
-// an empty (IsDoc=false) result.
+// mdLinkSpan is one [text](target) or [[target]] match: the text span to
+// blank out (so the link's target text is not mistaken for a symbol mention)
+// and its link span, in 1-based line offsets.
+type mdLinkSpan struct {
+	blank  [2]int // [text] span (text + brackets), 1-based offsets
+	linkLo int    // link span start, 1-based
+	linkHi int    // link span end (exclusive), 1-based
+}
+
+// rawSpan is one markdown link/wikilink match in 0-based line offsets.
+type rawSpan struct {
+	lo, hi, textLo, textHi int
+}
+
+// linkSpansInLine returns the blankable spans for a line's markdown links and
+// wikilinks, in document order.
+func linkSpansInLine(line string) []mdLinkSpan {
+	var spans []rawSpan
+	for _, m := range mdLink.FindAllStringSubmatchIndex(line, -1) {
+		spans = append(spans, rawSpan{lo: m[0], hi: m[1], textLo: m[0], textHi: m[2]})
+	}
+	for _, m := range mdWiki.FindAllStringSubmatchIndex(line, -1) {
+		spans = append(spans, rawSpan{lo: m[0], hi: m[1], textLo: m[0] + 1, textHi: m[2]})
+	}
+	sortSpans(spans)
+	out := make([]mdLinkSpan, 0, len(spans))
+	for _, s := range spans {
+		out = append(out, mdLinkSpan{
+			blank:  [2]int{s.textLo + 1, s.textHi + 1},
+			linkLo: s.lo + 1,
+			linkHi: s.hi + 1,
+		})
+	}
+	return out
+}
+
+func sortSpans(spans []rawSpan) {
+	for i := 1; i < len(spans); i++ {
+		for j := i; j > 0 && spans[j].lo < spans[j-1].lo; j-- {
+			spans[j], spans[j-1] = spans[j-1], spans[j]
+		}
+	}
+}
+
+// ExtractDoc parses one markdown file into doc node + references links +
+// symbol mentions. It never errors and never returns nil: a malformed file
+// (unparseable link) skips the bad link and keeps the rest (03.6). A
+// non-markdown path returns an empty (IsDoc=false) result.
 func ExtractDoc(path string, src []byte) *DocResult {
 	if !isMarkdown(path) {
 		return &DocResult{Path: path, Title: filepath.Base(path)}
 	}
 	res := &DocResult{Path: path, Title: DocTitle(path, src), IsDoc: true}
+	seen := map[string]bool{}
 	for lineNo, line := range strings.Split(string(src), "\n") {
 		for _, m := range mdLink.FindAllStringSubmatchIndex(line, -1) {
 			target := line[m[2]:m[3]]
@@ -109,8 +166,83 @@ func ExtractDoc(path string, src []byte) *DocResult {
 				Confidence: ConfidenceInferred,
 			})
 		}
+		// Symbol mentions: scan the line with link targets blanked (their text
+		// names a DOC, not a code symbol) for identifier-looking names.
+		for _, name := range symbolMentionsInLine(line, linkSpansInLine(line)) {
+			if !seen[name] {
+				seen[name] = true
+				res.SymbolRefs = append(res.SymbolRefs, SymbolRef{Name: name, Line: lineNo + 1})
+			}
+		}
 	}
 	return res
+}
+
+// symbolMentionsInLine extracts symbol-name-looking identifiers from a line:
+// len>=4, matches [A-Za-z_][A-Za-z0-9_]*, has an internal camel hump
+// (lowercase→uppercase) or an underscore. Link/wikilink spans are skipped
+// (their text names a DOC, not a code symbol). This is a cheap heuristic;
+// resolution is the store's job.
+func symbolMentionsInLine(line string, spans []mdLinkSpan) []string {
+	n := len(line)
+	skip := make([]bool, n)
+	for _, sp := range spans {
+		for p := sp.linkLo - 1; p < sp.linkHi-1 && p < n; p++ {
+			skip[p] = true
+		}
+	}
+	var out []string
+	i := 0
+	for i < n {
+		if skip[i] {
+			i++
+			continue
+		}
+		c := line[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_') {
+			i++
+			continue
+		}
+		j := i
+		for j < n && !skip[j] && isIdentByte(line[j]) {
+			j++
+		}
+		w := strings.Trim(line[i:j], "._")
+		if len(w) >= 4 && looksLikeSymbolName(w) {
+			out = append(out, w)
+		}
+		i = j
+	}
+	return out
+}
+
+func isIdentByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
+}
+
+// looksLikeSymbolName reports whether a candidate identifier looks like a code
+// symbol name: it contains a letter and has an internal camel hump or an
+// underscore (plain lowercase words are English prose, not symbols).
+func looksLikeSymbolName(s string) bool {
+	hasLetter := false
+	for _, c := range s {
+		if unicode.IsLetter(c) {
+			hasLetter = true
+			break
+		}
+	}
+	if !hasLetter {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] == '_' {
+			return true
+		}
+		if s[i-1] >= 'a' && s[i-1] <= 'z' && s[i] >= 'A' && s[i] <= 'Z' {
+			return true
+		}
+	}
+	return false
 }
 
 // isMarkdown reports whether path is a markdown file.

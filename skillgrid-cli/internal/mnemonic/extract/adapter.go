@@ -3,6 +3,7 @@ package extract
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	ts "github.com/odvcencio/gotreesitter"
 )
@@ -87,6 +88,32 @@ func (e *extractor) ExtractFile(path string, src []byte) (*FileGraph, error) {
 	return graph, nil
 }
 
+// dynImportModule extracts the module path argument of an import() call whose
+// call expression starts at startByte: it reads the `import` keyword, skips the
+// opening paren, and returns the text up to the closing paren. Returns "" when
+// the path cannot be determined (the caller then falls back to a keyword target).
+func dynImportModule(src []byte, startByte uint32) string {
+	i := startByte
+	for i < uint32(len(src)) && src[i] != '(' {
+		i++
+	}
+	if i >= uint32(len(src)) {
+		return ""
+	}
+	i++ // skip '('
+	if i >= uint32(len(src)) {
+		return ""
+	}
+	j := i
+	for j < uint32(len(src)) && src[j] != ')' {
+		j++
+	}
+	if j >= uint32(len(src)) {
+		return ""
+	}
+	return string(src[i:j])
+}
+
 // mapTree converts a parsed tree into a FileGraph using the one-pass
 // extractors for covered languages and the per-language node maps otherwise.
 func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error) {
@@ -144,7 +171,7 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 		return uid
 	}
 
-	addCall := func(target string, line int, conf string) {
+	addCall := func(target, kind string, line int, conf string) {
 		if target == "" {
 			return
 		}
@@ -153,7 +180,7 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 			toUID = u
 		}
 		edges = append(edges, edgeRec{
-			kind:   "calls",
+			kind:   kind,
 			toUID:  toUID,
 			toName: target,
 			conf:   conf,
@@ -178,12 +205,12 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 		})
 	}
 
-	addImport := func(target string, line int, conf string) {
+	addImport := func(target, kind string, line int, conf string) {
 		if target == "" {
 			return
 		}
 		edges = append(edges, edgeRec{
-			kind:   "imports",
+			kind:   kind,
 			toName: target,
 			target: target,
 			conf:   conf,
@@ -214,7 +241,16 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 				// derived) but the graph step will refine.
 				_ = c.Receiver
 			}
-			addCall(c.Name, lineOf(src, c.StartByte), conf)
+			// A bare import() call in JS/TS is a dynamic module load, not a
+			// plain call: the gotreesitter lib surfaces it as a call_expression
+			// whose callee is the `import` keyword. Emit a dynamic_import edge
+			// whose target is the module path (import("./mod") -> "./mod"); the
+			// callee `import` is the keyword, not a module.
+			if c.Name == "import" && (lang == "javascript" || lang == "typescript" || lang == "tsx") {
+				addImport(strings.Trim(dynImportModule(src, c.StartByte), "\"'`"), "dynamic_import", lineOf(src, c.StartByte), conf)
+				continue
+			}
+			addCall(c.Name, "calls", lineOf(src, c.StartByte), conf)
 		}
 		for _, h := range ts.ExtractHeritage(tree) {
 			if h.Name == "" || h.Parent == "" {
@@ -230,7 +266,9 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 			if target == "" {
 				continue
 			}
-			addImport(target, lineOf(src, imp.StartByte), ConfidenceExtracted)
+			// import statements are static in this grammar; dynamic module
+			// loads arrive as import() calls (handled in the call loop above).
+			addImport(target, "imports", lineOf(src, imp.StartByte), ConfidenceExtracted)
 		}
 
 	default:
@@ -258,14 +296,14 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 				}
 				target := ci.targetFrom(n, src)
 				if target != "" {
-					addCall(target, lineOf(src, n.StartByte()), ConfidenceExtracted)
+					addCall(target, "calls", lineOf(src, n.StartByte()), ConfidenceExtracted)
 				}
 			}
 			return true
 		})
 		if maps.imports != nil {
 			for _, imp := range maps.imports(tree) {
-				addImport(imp.path, imp.line, imp.confid)
+				addImport(imp.path, "imports", imp.line, imp.confid)
 			}
 		}
 		if maps.heritage != nil {

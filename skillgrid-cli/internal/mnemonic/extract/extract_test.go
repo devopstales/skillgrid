@@ -141,3 +141,24 @@ func TestCrashingGrammarIsolatedPerFile(t *testing.T) {
 		t.Errorf("second file should quarantine to regex, got err=%v g=%+v", err, g2)
 	}
 }
+
+// TestConfidenceScore covers the graphify-style numeric mapping of the
+// categorical confidence labels: EXTRACTED=1.0, INFERRED=0.85, AMBIGUOUS=0.5,
+// unknown/empty -> 1.0 (the default).
+func TestConfidenceScore(t *testing.T) {
+	cases := []struct {
+		label string
+		want  float64
+	}{
+		{ConfidenceExtracted, 1.0},
+		{ConfidenceInferred, 0.85},
+		{ConfidenceAmbiguous, 0.5},
+		{"", 1.0},
+		{"LSP_RESOLVED", 1.0},
+	}
+	for _, c := range cases {
+		if got := ConfidenceScore(c.label); got != c.want {
+			t.Errorf("ConfidenceScore(%q) = %v, want %v", c.label, got, c.want)
+		}
+	}
+}

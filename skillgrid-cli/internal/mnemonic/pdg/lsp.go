@@ -380,10 +380,12 @@ func PersistResolvedEdges(db *sql.DB, root string, edges []LSPResolvedEdge) (int
 		// (014 step 10 temporal edges); on conflict the existing row's
 		// observation time is kept (first observation wins).
 		_, err := db.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
-			VALUES ('calls', ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, context, confidence_score, line, valid_from)
+			VALUES ('calls', ?, ?, ?, ?, ?, ?, 'lsp', 1.0, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
-			  confidence = 'LSP_RESOLVED'`,
+			  confidence = 'LSP_RESOLVED',
+			  context = 'lsp',
+			  confidence_score = 1.0`,
 			fromID, fileID, toID, toName, "", conf, e.Line, time.Now().Unix())
 		if err == nil {
 			written++

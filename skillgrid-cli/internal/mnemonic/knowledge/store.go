@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"time"
+
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/extract"
 )
 
 // Store is the knowledge pass's persistence seam: it upserts knowledge nodes
@@ -78,12 +80,42 @@ func (s *Store) SaveDoc(ctx context.Context, path string, doc *DocResult) (int, 
 		// temporal edges); on conflict the existing row's observation time
 		// is kept (first observation wins).
 		if _, err := s.db.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
-			VALUES ('references', ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, context, confidence_score, line, valid_from)
+			VALUES ('references', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
-			  confidence = excluded.confidence`,
-			nodeID, fileIDFor(s.db, path), toID, target, target, link.Confidence, link.Line, time.Now().Unix()); err != nil {
+			  confidence = excluded.confidence,
+			  context = excluded.context,
+			  confidence_score = excluded.confidence_score`,
+			nodeID, fileIDFor(s.db, path), toID, target, target, link.Confidence, "doc_link", extract.ConfidenceScore(link.Confidence), link.Line, time.Now().Unix()); err != nil {
 			return stored, fmt.Errorf("upsert doc reference %s: %w", link.Target, err)
+		}
+		stored++
+	}
+	// Doc→symbol edges: a symbol name the doc text mentions, when it resolves
+	// to EXACTLY ONE indexed symbol (0 or >1 matches → skipped, drop-not-guess).
+	// These share the kind='references' prune above (from_id = this doc node),
+	// so they are target-state per doc like the doc→doc links.
+	for _, ref := range doc.SymbolRefs {
+		var matches int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM symbols WHERE name = ?`, ref.Name).Scan(&matches); err != nil {
+			return stored, err
+		}
+		if matches != 1 {
+			continue
+		}
+		var symID int64
+		if err := s.db.QueryRow(`SELECT id FROM symbols WHERE name = ?`, ref.Name).Scan(&symID); err != nil {
+			return stored, err
+		}
+		if _, err := s.db.Exec(`
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, context, confidence_score, line, valid_from)
+			VALUES ('references', ?, ?, ?, ?, ?, 'INFERRED', 'doc_mention', 0.85, ?, ?)
+			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
+			  confidence = excluded.confidence,
+			  context = excluded.context,
+			  confidence_score = excluded.confidence_score`,
+			nodeID, fileIDFor(s.db, path), symID, ref.Name, ref.Name, ref.Line, time.Now().Unix()); err != nil {
+			return stored, fmt.Errorf("upsert doc symbol reference %s: %w", ref.Name, err)
 		}
 		stored++
 	}
@@ -189,11 +221,13 @@ func (s *Store) SaveConfig(ctx context.Context, path string, cfg *ConfigResult) 
 		// step 10 temporal edges); on conflict the existing row's
 		// observation time is kept (first observation wins).
 		if _, err := s.db.Exec(`
-			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
-			VALUES ('configures', ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, context, confidence_score, line, valid_from)
+			VALUES ('configures', ?, ?, ?, ?, ?, ?, 'config', ?, ?, ?)
 			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
-			  confidence = excluded.confidence`,
-			nodeID, fileIDFor(s.db, path), toID, ref.Value, "", conf, ref.Line, time.Now().Unix()); err != nil {
+			  confidence = excluded.confidence,
+			  context = excluded.context,
+			  confidence_score = excluded.confidence_score`,
+			nodeID, fileIDFor(s.db, path), toID, ref.Value, "", conf, extract.ConfidenceScore(conf), ref.Line, time.Now().Unix()); err != nil {
 			return stored, fmt.Errorf("upsert config reference %s: %w", ref.Value, err)
 		}
 		stored++
@@ -259,11 +293,13 @@ func (s *Store) SaveSchema(ctx context.Context, path string, res *SQLResult) (in
 				// 10 temporal edges); on conflict the existing row's
 				// observation time is kept (first observation wins).
 				if _, err := s.db.Exec(`
-					INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
-					VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)
+					INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, context, confidence_score, line, valid_from)
+					VALUES (?, ?, ?, NULL, ?, ?, ?, 'sql', ?, ?, ?)
 					ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
-					  confidence = excluded.confidence`,
-					a.Op, fromID, fileID, a.Table, "", a.Confidence, a.Line, time.Now().Unix()); err != nil {
+					  confidence = excluded.confidence,
+					  context = excluded.context,
+					  confidence_score = excluded.confidence_score`,
+					a.Op, fromID, fileID, a.Table, "", a.Confidence, extract.ConfidenceScore(a.Confidence), a.Line, time.Now().Unix()); err != nil {
 					return stored, err
 				}
 				stored++
@@ -273,11 +309,13 @@ func (s *Store) SaveSchema(ctx context.Context, path string, res *SQLResult) (in
 			// temporal edges); on conflict the existing row's observation
 			// time is kept (first observation wins).
 			if _, err := s.db.Exec(`
-				INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, context, confidence_score, line, valid_from)
+				VALUES (?, ?, ?, ?, ?, ?, ?, 'sql', ?, ?, ?)
 				ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
-				  confidence = excluded.confidence`,
-				a.Op, fromID, fileID, tn, a.Table, "", a.Confidence, a.Line, time.Now().Unix()); err != nil {
+				  confidence = excluded.confidence,
+				  context = excluded.context,
+				  confidence_score = excluded.confidence_score`,
+				a.Op, fromID, fileID, tn, a.Table, "", a.Confidence, extract.ConfidenceScore(a.Confidence), a.Line, time.Now().Unix()); err != nil {
 				return stored, err
 			}
 			stored++
