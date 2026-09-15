@@ -3,6 +3,10 @@ name: _shared
 description: Shared Skillgrid references consumed by other skills (conventions, threat matrix, TDD cycle, agent-config block). Not invokable.
 disable-model-invocation: true
 user-invocable: false
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
 ---
 
 ## Purpose
@@ -10,6 +14,7 @@ user-invocable: false
 This directory stores shared reference documents consumed by Skillgrid skills. Do not invoke it as a skill.
 
 - `conventions/` — shared contract documents every skill must honor:
+  - [conventions/skill-anatomy.md](conventions/skill-anatomy.md) — canonical SKILL.md format: section order, frontmatter, writing principles, line budget.
   - [conventions/sdd-structure.md](conventions/sdd-structure.md) — canonical directory layout, artifact paths, phase order.
   - [conventions/fast-track.md](conventions/fast-track.md) — trivial/small waiver policy.
   - [conventions/mnemonic-memory.md](conventions/mnemonic-memory.md) — save shape, session protocol, topic-key rules.
@@ -21,3 +26,5 @@ This directory stores shared reference documents consumed by Skillgrid skills. D
   - [references/strict-tdd.md](references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR cycle.
 - `agent-config/` — agent config block family:
   - [agent-config/block.md](agent-config/block.md) — the canonical `## Skillgrid` payload + idempotent upsert sentinels.
+- `templates/` — fill-in skeletons:
+  - [templates/skill-template.md](templates/skill-template.md) — the canonical `SKILL.md` skeleton to copy for any new skill (see conventions/skill-anatomy.md).

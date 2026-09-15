@@ -1,10 +1,29 @@
 ---
 name: brainstorming
 description: "Use before any creative work — creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
-# based on superpowers:brainstorming
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: superpowers:brainstorming
 ---
 
 # Brainstorming Ideas Into Designs
+
+**Announce at start:** "I'm using the skillgrid:brainstorming skill to turn this idea into a design."
+
+## Overview
+
+Turns a raw idea into an approved design and spec before any implementation begins. You classify the request onto one of four paths, work the context and options with your human partner, and present a design — and **the approval gate is non-negotiable: no implementation until your partner says yes.** Simplicity shrinks the artifact, never the approval.
+
+## When to Use
+
+- When a new feature, component, or capability needs to be explored before building
+- When the approach is unclear and the options must be weighed (trade-offs, multiple paths)
+- When a change might restructure how components fit or alter interfaces others depend on
+
+**When NOT to use:** For a fully-specified, small, well-understood change where the design is already obvious and there is an existing flow to read — that is the **Bounded** path: a short design in chat and an approval, not this full interview → approaches → spec process. And the spike path stops at "present the probe, get a nod."
 
 **Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for spec location, `conventions.prd` for PRD path, `conventions.architecture` for ARCHITECTURE path. If the file doesn't exist, use the defaults shown in this skill.
 
@@ -110,6 +129,15 @@ it and get approval. "Simple" tasks are where unexamined assumptions
 cause the most wasted work. What scales with simplicity is the
 artifact, never the approval.
 
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "Too simple to need approval or a design" | What scales with simplicity is the artifact, never the approval. A two-sentence design in chat is still presented and still needs a yes. |
+| "I'll decide the approach myself and skip the paths" | The path classification is the process — it scales the ceremony to the task. Picking it silently is skipping the gate that lets your partner override. |
+| "The design is obvious, so skip the visual companion" | The companion is offered just-in-time only when a question is clearer shown than told. Obvious isn't the test — the test is whether it'd be understood better by seeing it. |
+| "I'll start implementing while they read the design" | The gate is the approval, not the design's length. Present, then stop until you hear yes. |
+
 ## Red Flags
 
 | Thought | Reality |
@@ -121,6 +149,14 @@ artifact, never the approval.
 | "The spike works, so I'll keep the code" | A spike's output is an answer. Keeping the code is a new request — classify it. |
 | "It grew, but I'm almost done — no need to re-classify" | Hidden complexity upgrades the path mid-task. Stop and say so. |
 | "They approved the spike, so the follow-up change is approved too" | Each task gets its own classification and its own approval. |
+
+## Verification
+
+- [ ] A design or approach was produced (spike answer, in-chat bounded design, or full spec) AND your human partner approved it — approval is quoted in the record, not implied
+- [ ] The chosen path (spike / bounded / new project / new function) was classified and stated out loud before the first question
+- [ ] The approval gate was passed, not skipped — the task was not waved through as "too simple" without a presented design and an explicit yes
+- [ ] For new project / new function: the chosen approach is recorded in `state.md` (and mirrored to mnemonic if `mnemonic.enabled: true`)
+- [ ] If a visual companion or sketch was offered and accepted, the resulting mockup/frame artifact is saved (e.g. the sketch winner + constraints in the topic's `findings.md`)
 
 ## Checklist
 

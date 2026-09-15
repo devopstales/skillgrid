@@ -1,7 +1,12 @@
 ---
 name: ticketing
 description: Use after slicing to publish tickets to the configured tracker, track their status through execution, and close them when done. Reads tracker config from .skillgrid/config.yaml.
-# based on skillgrid-v2:issue-creation + skillgrid-v2:_shared/issue-tracker + mattpocock-skills:triage + BMAD:bmad-sprint-planning
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: skillgrid-v2:issue-creation + skillgrid-v2:_shared/issue-tracker + mattpocock-skills:triage + BMAD:bmad-sprint-planning
 ---
 
 # Ticketing
@@ -9,6 +14,17 @@ description: Use after slicing to publish tickets to the configured tracker, tra
 Publish sliced tickets to the configured tracker, track their status through execution, and close them when done.
 
 **Announce at start:** "I'm using the skillgrid:ticketing skill to publish and track tickets."
+
+## Overview
+
+Publishes sliced tickets to the configured tracker, drives their status through the Status Machine as execution waves progress, and closes them on a clean review. The tracker is the source of truth for status — without it, work has no recovery point and no audit trail.
+
+## When to Use
+
+- When a change needs to be tracked as work tickets.
+- When creating, updating, or closing tickets in the configured tracker (Backlog.md, GitHub, GitLab, Jira).
+
+**When NOT to use:** when ticketing is disabled in config (`ticketing.enabled: false`) — don't create tickets if the project doesn't track them.
 
 ## Config
 
@@ -245,3 +261,11 @@ The only exception: writing the **Tracker ID** back into `tasks.md` (Step 3) —
 - One issue covering multiple components with no `Blocked by:` relation expressed
 - Backlog task missing `type:`, empty `references:`, empty DoD, or empty Implementation Plan
 - Ending the turn after publishing with a description-only stub
+
+## Verification
+
+- [ ] Tickets were created in the tracker and their IDs are recorded in `tasks.md` under each ticket's `Tracker ID`
+- [ ] The Status Machine transitions are valid (no skipped statuses: `backlog` → `ready` → `in-progress` → `review` → `done`)
+- [ ] The Pre-submission Privacy Review passed (no username, hostname, token, or private value in a ticket body)
+- [ ] Ticket bodies follow the tracker's Work-Item Formatting (title convention, component split, explicit `Blocked by:`)
+- [ ] When the tracker is Backlog.md, the Backlog completeness gate passed (`backlog task view <ID> --plain` shows type, references, DoD, and plan)

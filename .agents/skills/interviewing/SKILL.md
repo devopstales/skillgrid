@@ -1,10 +1,33 @@
 ---
 name: interviewing
 description: Interview the user relentlessly about a plan, decision, or idea until you reach a shared understanding, while maintaining the project's domain model (glossary + ADRs). Use when brainstorming needs to sharpen a design, or when the user wants to stress-test their thinking.
-# based on mattpocock-skills:grilling
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: mattpocock-skills:grilling
 ---
 
 # Interviewing
+
+**Announce at start:** "I'm using the skillgrid:interviewing skill to grill this until we share a model."
+
+## Overview
+
+Grill the user relentlessly until you and the user share a model of the
+problem. Mapping the problem as a **design tree** and working its frontier in
+rounds is how vague intent becomes a decision with a paper trail — the glossary
+and ADRs are written *during* the interview, not backfilled after.
+
+## When to Use
+
+- When a request is ambiguous and you must clarify before acting.
+- At the start of a non-trivial task with underspecified requirements.
+- When the user wants to stress-test their own thinking on a design.
+
+**When NOT to use:** when the request is fully specified and unambiguous — the
+clarity gate is the exit, not the entry; don't interview for the sake of it.
 
 Interview the user relentlessly until you reach a shared understanding. Map the
 problem as a **design tree**: every decision branches into the decisions that
@@ -112,3 +135,29 @@ A glossary untouched by a long interview means the architectural-decision-record
 skipped; go back and backfill, or say why there was nothing to record.
 
 Record the final scores in the design brief's **Clarity Report** section.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "I can infer the intent" | The decisions are the user's. Put each one to them and wait — inference is a guess, not a decision. |
+| "One question is enough" | The frontier is every decision whose prerequisites are settled. Ask the whole frontier; one question leaves the rest unblocked-by-nothing. |
+| "The user will just say 'you decide'" | If they do, that *is* the answer — record it. But you may not decide for them first; the ask is the decision point. |
+| "I'll look it up later, after the answers" | Finding facts is your job. A running lookup is an unsettled prerequisite — only the questions downstream of it wait, the rest of the frontier goes out now. |
+
+## Red Flags
+
+- A question asked whose prerequisite is still open in the same round.
+- The user is asked to provide a fact you could have looked up yourself.
+- One round after another with no new frontier — recompute or the frontier is empty and you haven't.
+- The glossary is untouched by a long interview: the domain model half was skipped.
+- Declaring "done" when the frontier is empty but the clarity gate hasn't been scored.
+- A decision recorded as made that the user never actually put to.
+
+## Verification
+
+- [ ] The clarity gate passed — clarity ≤ 0.20 AND every dimension ≥ its minimum, with final scores recorded in the Clarity Report.
+- [ ] Each question targeted a real decision point with a recommended answer, not a yes/no rubber-stamp.
+- [ ] No frontier question was asked before its prerequisites were settled.
+- [ ] The user was never asked for a fact you could have looked up yourself.
+- [ ] The paper trail is current: every resolved term is in the glossary, and every ADR-cleared decision was recorded or explicitly declined.

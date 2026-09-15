@@ -1,7 +1,12 @@
 ---
 name: sketch
 description: Build throwaway interactive UI mockups to answer a "does this layout/interaction feel right?" question. Produces 2-3 dramatically different variants the user can switch between, a marked winner, and the constraints for the real build. Use when the design has 2+ meaningfully different layout or interaction options and the answer depends on *feeling* it, not reading a description.
-# based on gsd-core:gsd-sketch + mattpocock-skills:prototype (UI branch — prefer adjusting an existing page)
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: gsd-core:gsd-sketch + mattpocock-skills:prototype (UI branch — prefer adjusting an existing page)
 ---
 
 # Sketch
@@ -24,6 +29,25 @@ comparison — that's just a design decision. A sketch is for when there are **2
 meaningfully different options** and the choice depends on *feeling* the interaction.
 A question that is purely about a *technical* feasibility ("can we stream this?") is
 `skillgrid:spike`, not a sketch.
+
+## Overview
+
+This skill answers "does this layout/interaction feel right?" by **building
+throwaway interactive mockups** the user can switch between and *feel* — never by
+describing the trade-off in prose. It produces **2-3 dramatically different
+variants**, a **marked winner + rationale**, and the **constraints** the real build
+must honor. The mockups are throwaway by design; only the winner's key structure and
+the constraints survive into the build.
+
+## When to Use
+
+- A new UI page/layout needs to be explored before building it for real, and there
+  are **2+ meaningfully different** layout or interaction options.
+- The visual direction is unclear and a cheap sketch beats guessing — the answer
+  depends on *feeling* the interaction, not reading a description.
+
+**When NOT to use:** for a one-line UI tweak or a fully-specified component where
+the layout is already obvious — a sketch is for exploring, not confirming.
 
 ## Config
 
@@ -207,3 +231,17 @@ file; it does not re-open the mockup.
 - Delete losing variants after a winner is marked (keep them navigable)
 - Write the findings without the rationale (the *why* is as important as the *what*)
 - Skip the interactivity (a static mockup is a screenshot, not a sketch)
+
+## Verification
+
+- [ ] A sketch artifact was produced — `sketches/NNN-name/index.html` exists with
+  2-3 switchable variants (file saved).
+- [ ] Mood intake was done before any code — the Findings/notes record the feel,
+  references, and core action established in conversation.
+- [ ] The sketch is grounded in real data shapes (or spike verdicts) where a
+  `findings.md` with spike sections exists — no "lorem ipsum" where a spike proved
+  the actual shape.
+- [ ] The adjust-an-existing-page vs standalone decision was made and recorded in
+  the findings (`diff-on-existing-page` vs `standalone`).
+- [ ] Findings written — a `## Sketch: NNN-name` section in `findings.md` with
+  winner, rationale, liftable parts, build constraints, and mode.

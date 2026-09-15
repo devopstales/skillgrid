@@ -1,10 +1,17 @@
 ---
 name: parallel-execution
 description: Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
-# based on superpowers:dispatching-parallel-agents
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: superpowers:dispatching-parallel-agents
 ---
 
 # Parallel Execution
+
+**Announce at start:** "I'm using the skillgrid:parallel-execution skill to fan these out."
 
 ## Overview
 
@@ -185,6 +192,24 @@ Agent 3 → Fix tool-approval-race-conditions.test.ts
 - Agent 3: Added wait for async tool execution to complete
 
 **Integration:** All fixes independent, no conflicts, full suite green
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "The tasks are independent enough, just run them back to back" | One dispatch per response = sequential execution. Multiple dispatches in the same response are what make them run in parallel — back-to-back just wastes the concurrency. |
+| "Parallelizing is risky, I'll do it sequentially" | If the domains are genuinely independent, sequential costs you the whole wall-clock time for zero safety gain. The risk is bad scoping, not concurrency — fix the scope, not the order. |
+| "I'll merge the results without checking each agent's output" | Agents can make systematic errors. Integrate from the ledger + git and review each summary and diff — never a blind merge. |
+| "It's only two tasks, parallel is overkill" | Two independent investigations still save a full round-trip of wall-clock time. Dispatch cost is near zero; the benefit scales with independence, not count. |
+
+## Red Flags
+
+- Two agents edited the same file or shared resource (no disjoint scope was set).
+- Results merged without a per-agent summary/diff review — the integration is a blind merge.
+- A task with a hidden dependency was parallelized (fixing one changed the other's premise).
+- Dispatches were spread across multiple responses instead of one (running sequentially).
+- The fan-out ledger is missing or stale — integration is relying on in-context summaries that may have compacted.
+- Full test suite was not re-run after all agents returned.
 
 ## Verification
 

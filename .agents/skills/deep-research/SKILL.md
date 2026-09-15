@@ -1,7 +1,12 @@
 ---
 name: deep-research
-# based on bmad:bmad-deep-recon (run, verification, synthesis)
 description: Investigate a wide or high-stakes question by fanning out parallel researcher subagents, then verifying load-bearing claims and red-teaming the major conclusions before synthesizing a cited findings file. Use when the question has multiple independent dimensions or the decision is high-stakes — the heavy counterpart to skillgrid:research.
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: bmad:bmad-deep-recon (run, verification, synthesis)
 ---
 
 # Deep Research
@@ -13,21 +18,28 @@ major conclusions, before synthesizing a cited findings file.
 **Announce at start:** "I'm using the skillgrid:deep-research skill to fan out
 researchers on this."
 
-**When to use:** this is the **heavy** research. Reach for it when
-`skillgrid:research` (one inline pass) isn't enough:
+## Overview
 
-- the question has **multiple independent dimensions** (a wide landscape, several
-  candidates, several constraints), or
-- the **decision is high-stakes** (a platform bet, a regulated domain, a
-  differentiation that rests on a specific claim)
+This is the **heavy** research: it fans out **N parallel researcher subagents**
+on a wide or high-stakes question, **verifies** the load-bearing claims against
+independent sources, **red-teams** the major conclusions, and synthesizes a cited
+findings file. The parallelism, the independent verification, and the fresh-
+context skeptic are the point — one inline pass cannot give them. It inherits
+`skillgrid:research`'s epistemics and reuses its type packs and findings
+scaffold.
 
-For a focused, single-dimension question, stay on `skillgrid:research` — the
-fan-out costs more than it finds.
+## When to Use
 
-**Relationship to the other research skill:** same target (a question), different
-topology. `research` is one inline pass. This is N parallel researchers, each a
-narrow slice, plus a verify + red-team layer. It **reuses** `research`'s type
-packs and findings scaffold (not copied) and inherits its epistemics.
+- the question needs **multi-source, high-effort investigation** beyond a quick
+  lookup — multiple independent dimensions, a wide landscape, several
+  candidates or constraints
+- the answer must be **well-evidenced** and the stakes justify deep research —
+  a platform bet, a regulated domain, a differentiation that rests on a
+  specific claim
+
+**When NOT to use:** for a quick fact check or single-source lookup — use
+`skillgrid:research` instead. Same epistemics, one inline pass; the fan-out
+costs more than it finds when the question has a single dimension.
 
 ## Config
 
@@ -86,9 +98,9 @@ craft, and freshness bars:
 
 | Type | Pack |
 |------|------|
-| technical | [../research/types/technical.md](../research/types/technical.md) |
-| competitive | [../research/types/competitive.md](../research/types/competitive.md) |
-| domain | [../research/types/domain.md](../research/types/domain.md) |
+| technical | [../research/references/technical.md](../research/references/technical.md) |
+| competitive | [../research/references/competitive.md](../research/references/competitive.md) |
+| domain | [../research/references/domain.md](../research/references/domain.md) |
 
 Prune the pack's dimensions to the decision.
 
@@ -223,3 +235,18 @@ the web.
 - Skip the red team on a high-stakes conclusion because "it feels right"
 - Claim a complete run when a dimension didn't finish
 - Pad a section with nothing behind it
+
+## Verification
+
+- [ ] Every load-bearing claim in the findings is cited inline `[n]` and the
+      number resolves in the source appendix
+- [ ] The effort preset's sourcing rules were met — subagent count,
+      sources/dimension, and depth rounds all within the preset's caps
+- [ ] The load-bearing claims carry a verification status (verified / disputed /
+      unverified / overturned) from the fresh-context verifier
+- [ ] Each major conclusion went through a red-team pass with no supporting
+      evidence given, and the outcome (survived / revised) is reflected
+- [ ] Confidence/uncertainty is stated per the epistemics rules — nothing
+      concluded from training data alone
+- [ ] The `research.md` findings artifact is written, committed, and (if
+      mnemonic is enabled) saved to memory

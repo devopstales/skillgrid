@@ -1,10 +1,15 @@
 ---
 name: writing-blueprints
 description: Use when you have a spec or requirements for a multi-step task, before touching code
-# based on superpowers:writing-plans
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: superpowers:writing-plans
 ---
 
-# Writing Plans
+# Writing Blueprints
 
 ## Overview
 
@@ -24,6 +29,13 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 - Copy `templates/blueprint.md` from this skill's directory and fill it in.
 - Commit the blueprint after saving (`git add` + `git commit`) — the artifact is a checkpoint alongside the code. The `pre-commit` zone guard (skillgrid:work-unit-commits) blocks a commit that mixes blueprint/spec changes with code.
 - (User preferences for plan location override this default)
+
+## When to Use
+
+- When a change needs an implementation blueprint/plan before execution
+- When converting a spec or approved design into a buildable plan
+
+**When NOT to use:** for a trivial one-file change that doesn't need a plan — a blueprint is for non-trivial multi-task work.
 
 ## Scope Check
 
@@ -374,3 +386,29 @@ high-risk blueprint (auth, data migration, money, concurrency, public API),
 escalate the final review to `skillgrid:parallel-code-review` — multi-reviewer
 fan-out. The execution skill decides when to escalate; you just tell the user
 the option exists when the blueprint looks risky.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "The plan is obvious, skip the Must-Haves" | Goal-Backward Verification derives the observable outcomes the verifier checks against; without them a task can be "done" and the spec still unmet. |
+| "I'll leave a placeholder and fill it in later" | No Placeholders calls TBD, "implement later", and "similar to Task N" plan failures — the engineer may read tasks out of order and a placeholder is a hole, not a shortcut. |
+| "I'll skip the one-way-door checkpoints, they're slow" | A one-way decision is expensive to undo; the `> ⚠ one-way:` stop is the only gate that surfaces a migration or contract break before the build commits to it. |
+| "Each task is small, granularity rules don't matter" | Right-Sizing + Bite-Sized Granularity keep every task an independently testable deliverable with its own review gate — a vague task is one a reviewer can't reject or approve. |
+
+## Red Flags
+
+- A task contains a placeholder (TBD, "implement later", "similar to Task N") — No Placeholders is violated.
+- A task is not independently testable, or two tasks share a file edit with no ordering — not a vertical tracer bullet.
+- A one-way-door decision (migration, contract break, data model) has no `> ⚠ one-way:` stop.
+- The Must-Haves / Goal-Backward Verification section is missing or empty — the verifier has nothing to check against.
+- A task's scope exceeds one fresh agent context window with no split proposed.
+
+## Verification
+
+- [ ] The blueprint file exists at `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md` and opens with the Plan Document Header (Goal, Architecture, Tech Stack, Spec).
+- [ ] The Must-Haves (Goal-Backward Verification) section is present and covers every spec requirement with verifiable truths, artifacts, and key links.
+- [ ] A placeholder scan (the No Placeholders patterns) returns zero hits across all tasks.
+- [ ] Every one-way-door decision is listed in the Must-Haves section and tagged `> ⚠ one-way:` on the task that implements it.
+- [ ] Self-Review and the Plan Review gate both ran and produced a verdict (READY FOR EXECUTION, or findings fixed inline).
+- [ ] The Execution Handoff is present — slicing decision made and an execution approach (Subagent-Driven or Inline) is offered, so the plan is ready to hand off.

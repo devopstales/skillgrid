@@ -6,8 +6,13 @@ description: >
   sizing, when-to-commit, the [skillgrid-context] commit block, the git-hook
   safety guards, and the .skillgrid/sdd/checkpoint.json resume handle. Fully
   active by default during simple-execution and subagent-execution.
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: gstack (WIP context block + snapshot), gsd-core (commit guards), addyosmani (atomic sizing), gentleman-ai/branch-pr (conventional format), DeL-TaiseiOzaki/claude-code-orchestra (checkpointing) + orchestkit (checkpoint-resume)
 ---
-# based on gstack (WIP context block + snapshot), gsd-core (commit guards), addyosmani (atomic sizing), gentleman-ai/branch-pr (conventional format), DeL-TaiseiOzaki/claude-code-orchestra (checkpointing) + orchestkit (checkpoint-resume)
 
 # Work-Unit Commits
 
@@ -29,6 +34,18 @@ the resume pointer. They cannot drift because the JSON is derived from history.
 **Fully active by default** during `skillgrid:simple-execution` and
 `skillgrid:subagent-execution` — every work-unit commit follows this protocol.
 Not on-demand.
+
+## When to Use
+
+- Before committing after a work unit — any change during
+  `skillgrid:simple-execution` or `skillgrid:subagent-execution`.
+- When wiring git hooks into a repo (`install-hooks.sh`) or resuming from a
+  checkpoint handle.
+- When checking that a commit is atomic, conventional, and independently
+  revertable before it lands.
+
+**When NOT to use:** for trivial throwaway commits on a scratch branch where
+revertability doesn't matter.
 
 ## The two layers
 
@@ -189,3 +206,30 @@ handoff is wanted, but the JSON is the source of truth.
 - `snapshot` after each commit; `restore` to resume; never hand-edit the JSON.
 - Never commit on a protected ref or a detached HEAD — the `pre-commit` hook stops it.
 - One-way-door decisions still get an ADR; the `Decisions:` line is the per-task record.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "One big commit is fine" | One logical change per commit; a feature + refactor + config change is three commits, not one. |
+| "I'll add Co-Authored-By" | No `Co-Authored-By`, `Generated-By`, or any AI attribution trailer — the `commit-msg` hook rejects it. |
+| "I'll squash it all into one later" | Independently-revertable means you can revert *now*; a squashed bundle loses that the moment it lands. |
+| "I'll commit when I'm really done" | Commit after a verified gate, before a long-running command — interruption lands on a checkpoint, not mid-command. |
+| "The spec and code go together" | Zone rule: spec commit before code commit, never both in one — `precommit-zone-guard.sh` enforces it. |
+
+## Red Flags
+
+- A commit mixing a feature, a refactor, and a config change.
+- A `Co-Authored-By` or `Generated-By` trailer in a commit message.
+- `.skillgrid/specs/` and code committed in the same commit.
+- Committing on `main`/`master`/`develop`/`trunk`/`release/*` or a detached HEAD.
+- A broken test or mid-edit state committed as a "checkpoint".
+- `checkpoint.json` hand-edited, or missing after a work-unit commit.
+
+## Verification
+
+- [ ] `git log --oneline` shows atomic, independently-revertable commits.
+- [ ] Each commit subject matches the conventional regex, with no AI attribution trailer.
+- [ ] Each commit body carries the `[skillgrid-context]` block (Task / Decisions / Remaining / Tried).
+- [ ] Git hooks are installed and fire on commit (`install-hooks.sh` ran; `pre-commit` + `commit-msg` shims present).
+- [ ] `checkpoint.json` exists and was derived by `checkpoint-state.sh snapshot` after the last commit.

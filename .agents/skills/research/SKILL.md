@@ -1,10 +1,20 @@
 ---
 name: research
-# based on mattpocock-skills:research + bmad:bmad-deep-recon (epistemics, type packs)
 description: Investigate a question against primary sources and capture the findings as a cited Markdown file. Use when the design or plan depends on a fact not in the codebase — a library's current API, a version's behavior, a domain constraint, a competitor's offering. The lightweight, single-pass research; for wide or high-stakes questions use skillgrid:deep-research.
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: mattpocock-skills:research + bmad:bmad-deep-recon (epistemics, type packs)
 ---
 
 # Research
+
+**Announce at start:** "I'm using the skillgrid:research skill to investigate
+this before the design."
+
+## Overview
 
 Answer a question by investigating **primary sources** and writing the findings
 to a cited Markdown file. One pass, done inline — no subagents, no rounds. For a
@@ -12,8 +22,15 @@ question that is wide (multiple independent dimensions) or high-stakes, use
 `skillgrid:deep-research` instead, which fans out parallel researchers and adds a
 verify + red-team layer.
 
-**Announce at start:** "I'm using the skillgrid:research skill to investigate
-this before the design."
+## When to Use
+
+- When you need to look up or verify a fact, API, library behavior, or external
+  source before coding or designing.
+- When an answer must be sourced rather than guessed.
+
+**When NOT to use:** when the answer is already known from the codebase or is a
+simple local read — don't research what you can just check. For high-effort,
+wide, multi-source work, use `skillgrid:deep-research` instead.
 
 ## Config
 
@@ -88,9 +105,9 @@ source craft, and freshness bars:
 
 | Type | Pack | Use when |
 |------|------|----------|
-| technical | [types/technical.md](types/technical.md) | adopt a tech, design an integration, ground an architecture in current practice, assess feasibility |
-| competitive | [types/competitive.md](types/competitive.md) | position against named competitors, build a battlecard, anticipate their next move |
-| domain | [types/domain.md](types/domain.md) | learn a domain's rules, constraints, vocabulary before designing in it |
+| technical | [references/technical.md](references/technical.md) | adopt a tech, design an integration, ground an architecture in current practice, assess feasibility |
+| competitive | [references/competitive.md](references/competitive.md) | position against named competitors, build a battlecard, anticipate their next move |
+| domain | [references/domain.md](references/domain.md) | learn a domain's rules, constraints, vocabulary before designing in it |
 
 Prune the pack's dimensions to the decision — research only the dimensions that
 answer it, not the whole pack.
@@ -145,3 +162,17 @@ path to `research.md`. The design (in `skillgrid:brainstorming`) or the blueprin
 - Cite an answer engine instead of its citation
 - Ship a stale source when a current one exists without flagging the staleness
 - Present thin data as if it were thick
+
+## Verification
+
+- [ ] Every cited claim in the findings file resolves to a fetched source with
+      publisher, publication date, and access date — no naked numbers.
+- [ ] The three epistemics standing rules were applied: no claim concluded from
+      training data alone, project context never stood in for evidence, and every
+      untrusted fetched span was wrapped in a fresh random delimiter.
+- [ ] Sourcing rules were met: only primary sources were used, and any stale,
+      speculative, or thin source was flagged rather than silently asserted.
+- [ ] The research type's pack was loaded, and its freshness bars were applied —
+      no source older than the bar was used without reporting staleness.
+- [ ] The findings file is written to `{specs_root}/YYYY-MM-DD-<topic>/research.md`
+      and committed (`git commit`), with confidence flagged per claim.

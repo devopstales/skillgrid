@@ -1,7 +1,12 @@
 ---
 name: qa
 description: "Use when a change is ready for the quality gate, after all implementation tasks and before the final review or merge — runs the test suite, verification-gap and TDD-evidence audits, and renders the four-state gate (PASS / CONCERNS / FAIL / WAIVED)."
-# based on BMAD:bmad-testarch-trace + BMAD:test-levels-framework + gsd-core:gsd-verifier + gsd-core:TESTING-STANDARDS + gstack:cso + superpowers:verification-before-completion
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: BMAD:bmad-testarch-trace + BMAD:test-levels-framework + gsd-core:gsd-verifier + gsd-core:TESTING-STANDARDS + gstack:cso + superpowers:verification-before-completion
 ---
 
 # QA
@@ -41,7 +46,7 @@ Own the quality gate. Produce a test plan with layer selection, verify the goal 
 - After a significant refactor that touches multiple tickets
 - When a human asks "is this actually done?"
 
-**Skip when:**
+**When NOT to use:**
 - The change has a single small ticket with a single acceptance scenario — the spec reviewer in `skillgrid:requesting-code-review` already covers it
 - You are mid-implementation (QA is a gate at the end, not a running check)
 
@@ -296,6 +301,16 @@ Present the gate verdict and the finding counts. Then route:
 - Running Trivy with `--severity LOW` and calling the gate "clean" when `config.yaml` says CRITICAL
 - Assigning every test to E2E because "it's more thorough" (Duplicate Coverage Guard violation)
 - A test at the wrong layer: unit-testing what integration covers, or e2e-testing what unit covers
+
+## Verification
+
+- [ ] The full test suite (`testing.runner`) ran and exited 0; every P0/P1 test named in the test plan actually ran (not skipped or filtered)
+- [ ] Lint and typecheck (`commands.lint` / `commands.typecheck`) ran with exit 0 and zero errors
+- [ ] Coverage, mutation, and every code-quality gate PASS or N/A against `quality:` thresholds (no gate below threshold rendered as PASS)
+- [ ] Goal-backward verification ran at all four levels; every truth in the briefing is `VERIFIED` by a named test, not a grep
+- [ ] The traceability matrix is complete: every scenario in `acceptance.feature` is in exactly one compliance status, and totals match the actual count (not guessed)
+- [ ] Every CRITICAL finding (verification, TDD, test quality, security) is resolved or explicitly WAIVED with a named human and a recorded risk
+- [ ] The QA report (`qa-report.md`) is committed with concrete output — the four-state verdict, finding counts, and named evidence (file / test / command / exit code), never "looks good"
 
 ## Final Rule
 

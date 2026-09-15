@@ -1,11 +1,15 @@
 ---
 name: mnemonic
 description: "Use when persisting, recalling, or structuring project memory, code orientation, or web research via the mnemonic MCP tools."
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: skillgrid-v2:mnemonic
 ---
 
-# based on skillgrid-v2:mnemonic
-
-# /mnemonic
+# Mnemonic
 
 Operate Mnemonic, skillgrid's local-first persistent memory (SQLite + FTS5, single `skillgrid` binary).
 Three things it does that a bare agent cannot:
@@ -14,6 +18,18 @@ Three things it does that a bare agent cannot:
 3. **Web cache** — Context7/Exa/DeepWiki/WebFetch snapshots with TTLs, so online research is reused instead of re-fetched.
 
 **Announce at start:** "I'm using the skillgrid:mnemonic skill for persistent memory, code orientation, and web research."
+
+## Overview
+
+Operates Mnemonic — skillgrid's local-first persistent memory (SQLite + FTS5, one `skillgrid` binary) — to persist, recall, and structure decisions, bugfixes, and discoveries that survive across sessions and compactions; to orient on code without dumping whole trees; and to cache web research so it is reused instead of re-fetched. The discipline is non-negotiable: **save when you learn, recall before you re-derive, close the session with a full summary** — skip any of the three and the next session starts blind.
+
+## When to Use
+
+- When you need to save or recall persistent memory/learnings (decisions, bugfixes, discoveries, conventions, preferences).
+- When starting a session and you need to recall prior context before re-deriving it.
+- When orienting on code or reusing prior web research via the cache.
+
+**When NOT to use:** for transient within-session notes that won't survive a session — use the session state file, not `mem_save`.
 
 ## Config
 
@@ -210,3 +226,28 @@ After compaction / "FIRST ACTION REQUIRED": FIRST call `mem_session_summary` wit
 | `skillgrid export --project ID --out DIR` | Obsidian Markdown + viz JSON (allowed-root enforced) |
 
 Full protocol refs: [references/memory.md](references/memory.md) (Skillgrid artifact naming, two-step recovery, upserts), [references/code-indexing.md](references/code-indexing.md) (code index + search router — former `mnemonic-code-index` skill, now folded here).
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "I'll remember it in my head" | The head is the session — it dies at compaction or close. `mem_save` NOW is the only thing that survives; "remembered" means lost. |
+| "The session summary is optional, skip it" | Step 7 says it is NOT optional — "if you skip it, the next session starts blind." Goal/Instructions/Discoveries/Accomplished/Next Steps/Relevant Files must all be filled. |
+| "I'll search memory later if I need it" | Step 3 is recall *before doing*, mandatory. Re-reading code to find something you already saved is re-derivation, not recall. |
+| "This discovery is too small to save" | Small non-obvious findings are exactly what a fresh session cannot re-derive cheaply. If it surprised you, it's worth a `mem_save`. |
+
+## Red Flags
+
+- A session ended without a `mem_session_summary` (or with any of the 5 sections empty).
+- A decision, bugfix, or non-obvious discovery was made but never `mem_save`'d.
+- A recall was done by re-reading code instead of `mem_context` → `mem_search` → `mem_get_observation`.
+- `mem_save` called without a live `session_id` (it fails) or a fresh session started mid-session instead of reusing the sid.
+- A remote lookup (Context7/Exa/WebFetch) made without a `web_cache_lookup` first, or not followed by `web_cache_save`.
+
+## Verification
+
+- [ ] `mem_session_start` was called once at session open and its `sid` reused for every `mem_save`.
+- [ ] Before new work, `mem_context` (and `mem_search`/`mem_get_observation` when needed) was used to recall prior context instead of re-deriving it.
+- [ ] Significant decisions/bugfixes/discoveries were `mem_save`'d with `**What**`/`**Why**`/`**Where**`/`**Learned**` and a live `session_id`.
+- [ ] `mem_session_summary` was called at session end with all 5 sections (Goal, Instructions, Discoveries, Accomplished, Next Steps) plus Relevant Files non-empty.
+- [ ] Each remote web lookup was bracketed by `web_cache_lookup` (before) and `web_cache_save` (after).

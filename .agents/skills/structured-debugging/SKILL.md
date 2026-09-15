@@ -1,10 +1,17 @@
 ---
 name: structured-debugging
 description: Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes
-# based on superpowers:systematic-debugging
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: superpowers:systematic-debugging
 ---
 
 # Structured Debugging
+
+**Announce at start:** "I'm using the skillgrid:structured-debugging skill to find the root cause."
 
 ## Overview
 
@@ -68,6 +75,8 @@ Use for ANY technical issue:
 - Issue seems simple (simple bugs have root causes too)
 - You're in a hurry (rushing guarantees rework)
 - Manager wants it fixed NOW (systematic is faster than thrashing)
+
+**When NOT to use:** a trivial, fully-understood one-liner where the cause is already known and the fix is mechanical (e.g. a typo, a missing import) — the full four-phase investigation is overkill. When the cause is known, state it and verify; don't run the phases for their own sake.
 
 ## The Four Phases
 
@@ -137,7 +146,7 @@ You MUST complete each phase before proceeding to the next.
 
    **WHEN error is deep in call stack:**
 
-   See `root-cause-tracing.md` in this directory for the complete backward tracing technique.
+   See `references/root-cause-tracing.md` for the complete backward tracing technique.
 
    **Quick version:**
    - Where does bad value originate?
@@ -304,8 +313,19 @@ If systematic investigation reveals issue is truly environmental, timing-depende
 
 ## Supporting Techniques
 
-These techniques are part of systematic debugging and available in this directory:
+These techniques are part of systematic debugging and available in `references/`:
 
-- **`root-cause-tracing.md`** - Trace bugs backward through call stack to find original trigger
-- **`defense-in-depth.md`** - Add validation at multiple layers after finding root cause
-- **`condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
+- **[`references/root-cause-tracing.md`](references/root-cause-tracing.md)** - Trace bugs backward through call stack to find original trigger
+- **[`references/defense-in-depth.md`](references/defense-in-depth.md)** - Add validation at multiple layers after finding root cause
+- **[`references/condition-based-waiting.md`](references/condition-based-waiting.md)** - Replace arbitrary timeouts with condition polling
+
+## Verification
+
+The debug session is complete only when every box below is provable with evidence — test output, a diff, the state file, or the reproduction. "Seems fixed" is not a checkbox.
+
+- [ ] **A root cause was identified and stated** — or "No Root Cause" was declared with the evidence for it (what was investigated and why it's environmental/timing/external), per the No Root Cause section.
+- [ ] **The fix addresses the root cause, not the symptom** — the change is at the point the bad value originates, not where it surfaces.
+- [ ] **Debug State was updated at each phase** — `.skillgrid/sdd/debug/<date>-<slug>/state.md` has an entry per iteration (`hypothesis | evidence | verdict`), and no phase was skipped ahead of the one before it.
+- [ ] **A failing test case existed before the fix** — the reproduction test was written and failing (or a one-off repro script) BEFORE the change, per Phase 4.1.
+- [ ] **The fix was verified by re-running the original reproduction** — the failing test now passes (green output captured) AND no other tests broke, per Phase 4.3 / `skillgrid:test-driven-verification`.
+- [ ] **No 3+ failed fix attempts were left unresolved** — if 3+ fixes failed, the architecture was questioned with your human partner before any Fix #4, per Phase 4.5.

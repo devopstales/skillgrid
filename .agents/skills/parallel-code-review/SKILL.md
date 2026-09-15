@@ -1,7 +1,12 @@
 ---
 name: parallel-code-review
-# based on bmad:bmad-code-review + gstack:review
 description: Use for large or high-risk diffs when a single review pass isn't enough — dispatch several specialist reviewers in parallel, then triage, deduplicate, and route the findings into the fix loop. The heavy counterpart to skillgrid:requesting-code-review.
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: bmad:bmad-code-review + gstack:review
 ---
 
 # Parallel Code Review
@@ -26,6 +31,27 @@ topology. `requesting-code-review` is one reviewer doing two axes (Standards +
 Spec). This skill is N specialist reviewers, each a narrow lens, run in
 parallel. The two-axis templates are **reused** here as two of the specialists
 (not copied).
+
+## Overview
+
+This skill fans a large or high-risk diff out to several independent specialist
+reviewers that run **in parallel**, each on a narrow lens, so no single
+reviewer's context becomes the bottleneck. The coordinator then normalizes,
+deduplicates, verifies, and triages the findings into one verdict before they
+enter the fix loop — the heavy counterpart to `skillgrid:requesting-code-review`.
+
+## When to Use
+
+Reach for this when a single review pass isn't enough:
+
+- the diff is non-trivial or high-risk and needs independent review across
+  multiple axes (auth, data migration, money, concurrency, public API)
+- the change is large enough to warrant more than one set of eyes before it
+  merges
+
+**When NOT to use:** for a small, low-risk diff where a single review
+(`skillgrid:requesting-code-review`) is enough — the fan-out costs more than it
+finds.
 
 ## Config
 
@@ -76,8 +102,8 @@ Standards/Spec, the shared templates):
 
 | Specialist | Template | Lens | Selected when |
 |------------|----------|------|---------------|
-| Standards | [../requesting-code-review/code-reviewer.md](../requesting-code-review/code-reviewer.md) | glossary, in-force ADRs, smell baseline | always (core) |
-| Spec | [../requesting-code-review/spec-reviewer.md](../requesting-code-review/spec-reviewer.md) | per-scenario BDD, missing/partial, scope creep | always (core) |
+| Standards | [../requesting-code-review/references/code-reviewer.md](../requesting-code-review/references/code-reviewer.md) | glossary, in-force ADRs, smell baseline | always (core) |
+| Spec | [../requesting-code-review/references/spec-reviewer.md](../requesting-code-review/references/spec-reviewer.md) | per-scenario BDD, missing/partial, scope creep | always (core) |
 | Edge cases | [reviewers/edge-case-hunter.md](reviewers/edge-case-hunter.md) | unhandled branches, boundaries, deletion regressions | core five |
 | Verification gaps | [reviewers/verification-gap.md](reviewers/verification-gap.md) | does verification actually catch a break? | core five |
 | Security | [reviewers/security.md](reviewers/security.md) | injection, authz, exposure, secrets, dep risk | core five |
@@ -183,3 +209,12 @@ before the verdict. Never present a "clean review" when a lens didn't complete.
 - Skip the red team on a high-risk diff because "the others looked fine"
 - Re-grade a verified verification-gap finding — trust its filed evidence, confirm the location
 - Confidently pass a check you can't infer from the diff — route it to `could-not-verify` and name the held-out test that would settle it
+
+## Verification
+
+- [ ] Every selected specialist actually ran and returned findings (an empty list counts; a failed/timed-out specialist is logged by name)
+- [ ] Findings from all reviewers were collected and normalized into one list — not just one specialist's output
+- [ ] Every entry was verified at its cited `file:line` and rendered exactly one verdict; none was dropped on a silent pass
+- [ ] The consolidated review was produced with the diff range + context, showing each specialist's count, deduped entries with source tags, and what was fixed vs deferred vs needs a human look
+- [ ] Critical findings were either fixed (with tests) or explicitly triaged into a `skillgrid:receiving-code-review` bucket
+- [ ] No "clean review" was claimed while any selected specialist failed or returned empty

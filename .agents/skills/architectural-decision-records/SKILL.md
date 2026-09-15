@@ -1,10 +1,19 @@
 ---
 name: architectural-decision-records
 description: Build and sharpen the project's domain model and record its architectural decisions. Use when discussing codebase terminology, editing the glossary in .skillgrid/glossary/, or drafting, reviewing, updating, or superseding an ADR in .skillgrid/adr/.
-# based on mattpocock-skills:domain-modeling + intent-driven-template:architectural-decision-records + skillgrid-v2:sdd-onboard/domain
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: mattpocock-skills:domain-modeling + intent-driven-template:architectural-decision-records + skillgrid-v2:sdd-onboard/domain
 ---
 
 # Architectural Decision Records
+
+**Announce at start:** "I'm using the skillgrid:architectural-decision-records skill to sharpen the domain model and record decisions."
+
+## Overview
 
 Actively build and sharpen the project's domain model as you design, and record
 its load-bearing architectural decisions. This is the *active* discipline:
@@ -12,6 +21,14 @@ challenging terms, inventing edge-case scenarios, and writing the glossary and
 the decisions down the moment they crystallize. (Merely *reading* the glossary
 for vocabulary is not this skill — that's a one-line habit any skill can do.
 This skill is for when you're *changing* the model, not just consuming it.)
+
+## When to Use
+
+- When making a significant architectural or design decision that should be recorded — a hard-to-reverse, surprising, real trade-off.
+- When a decision needs to be reviewed or revisited later — walking the `supersedes` trail to see what is in force.
+- When a glossary term is being sharpened, challenged, or cross-referenced against code during a design or interview session.
+
+**When NOT to use:** for trivial or reversible choices that don't warrant a record (e.g. a variable name, a one-line config).
 
 **Config:** Read `.skillgrid/config.yaml` first.
 - Use `conventions.glossary` for the glossary directory (default `.skillgrid/glossary/`) — it holds `business.md` and `technical.md`.
@@ -167,3 +184,31 @@ Process (run at the end of the interview, before the blueprint is written):
 - **Underneath `skillgrid:brainstorming`** — during the codebase feasibility check and design presentation, keep the model sharp; at the end of the interview, run the per-change ADR Review Manifest (write `.skillgrid/specs/<topic>/adr.md`) so the blueprint is constrained by a *verified* in-force set.
 - **Directly** — when you want the discipline without the full interview.
 - The glossary, repo ADRs, and the per-change manifest are then *consumed* by `writing-blueprints`, `slicing`, `subagent-execution`, and `requesting-code-review` (one-line habit: use the vocabulary, and check the work against the in-force ADRs named in the change's `adr.md` manifest).
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "I'll edit the ADR to match what we actually did" | The IRON RULE: an accepted ADR is a frozen historical record. Write a NEW ADR with `supersedes: ADR-NNNN` and explain why. |
+| "The decision is obvious, skip the ADR" | Obvious *now* is not obvious to the future reader. If it's hard to reverse and surprising without context, it's an ADR. |
+| "I'll write the ADRs after the fact in bulk" | The manifest runs at the end of the interview, *before* the blueprint. Bulk-writes miss the in-force set and the `supersedes` trail. |
+| "I'll just bump the status on the old ADR" | Status is immutable on an accepted ADR. A superseding ADR sets its own `status: accepted`; the prior file is untouched. |
+| "I'll add it to the glossary instead — it's faster" | The glossary is a vocabulary, not a decision record. Decisions live in `.skillgrid/adr/` with a fixed header and a `supersedes` trail. |
+
+## Red Flags
+
+- An accepted ADR's `status`, body, or `date` was edited in place instead of superseded.
+- A superseding ADR's `supersedes` points at a number that no longer exists, or at two ADRs at once.
+- A change's `adr.md` manifest is missing, or lists repo ADRs that don't exist in `.skillgrid/adr/`.
+- The glossary file is absorbing implementation details, specs, or scratch — it's becoming a running spec.
+- ADR sequence numbers are reused or out of monotonic order in `.skillgrid/adr/`.
+- A per-context ADR subfolder exists under `.skillgrid/adr/` — all ADRs live in the one folder.
+
+## Verification
+
+- [ ] Every new ADR file exists in `.skillgrid/adr/` with a monotonic 4-digit number and the fixed header (`status`, `date`, `supersedes`).
+- [ ] Every new ADR carries `status: accepted` (or `proposed`) and, when replacing a prior decision, a `supersedes: ADR-NNNN` that resolves to a real file.
+- [ ] No accepted ADR was mutated: `git diff` on `.skillgrid/adr/` shows only new files, no edits to previously accepted ADRs.
+- [ ] The per-change manifest exists at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md`, lists the in-force ADRs reviewed, and references every repo ADR the change created.
+- [ ] If no decision met the bar, the manifest explicitly says "no major durable architectural decision introduced; no new ADR files created."
+- [ ] The glossary files contain vocabulary only — no implementation details, no specs, no scratch.

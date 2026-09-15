@@ -1,6 +1,11 @@
 ---
 name: ship
 description: "Use when a change has passed qa and review and you need to integrate it to its base branch and close its change folder. The integration + archive-move step of the tail (qa → review → ship → reflect)."
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
 ---
 
 # Ship
@@ -20,6 +25,17 @@ DO NOT MERGE, PUSH, OR MOVE THE FOLDER UNTIL THE TEST SUITE IS GREEN ON THE INTE
 ```
 
 A green run only proves the tree it ran on. `qa` ran against the feature tree — run the suite again on the tree you are about to integrate.
+
+## Overview
+
+Ship is the close-out phase of the tail (`qa → review → ship → reflect`): it integrates verified work to its base branch, mechanically archives the change folder, and renders a GO / NO-GO ship decision with a mandatory rollback plan. It matters because shipping is where unverified work leaks into the base branch and the archive — the point of no return. The core principle: **do not merge, push, or move the folder until the test suite is green on the integrated tree.**
+
+## When to Use
+
+- When a change has passed QA/verification and is ready to be shipped/merged to its base branch.
+- At the end of the skillgrid flow, before closing the change folder and handing off to `reflect`.
+
+**When NOT to use:** mid-change before the gates pass — ship is the final phase, not a mid-task step.
 
 ## What You Receive
 
@@ -353,6 +369,35 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - **`--force` on a refused worktree removal** destroys files that exist only in that worktree. Show the user `git -C "$WORKTREE_PATH" status --porcelain -uall` and ask; never `--force` on your own initiative.
 - **Clean up only worktrees under `.worktrees/` or `worktrees/`.** Everything else belongs to the host.
 - **`CONCERNS` is not a block.** It is advisory — surface open items, the human decides. But `FAIL` / unresolved CRITICAL is a hard block.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "The gates are probably fine, ship it." | A `FAIL` or unresolved CRITICAL in `qa-report.md` is a hard block — a launch-prompt claim "it's fixed in a later commit" does not clear it. A fresh passing `qa` run is required. |
+| "I'll skip the workspace guard, it's fast." | In a read-only planning workspace or with the change folder outside the allowed edit roots, STOP and report — do not merge or move across an unsafe boundary. |
+| "I'll ship without the final review." | If the review gate recorded `review-waived` and the change is non-trivial, Step 9 runs the fan-out on the diff before rendering the GO/NO-GO. Skipping it means the verdict rests on an absence of signal. |
+| "Tests passed earlier this session, that's enough." | A green run only proves the tree it ran on. `qa` ran against the feature tree — run the suite again on the tree you are about to integrate. |
+| "I'll move the folder first, write the report after." | `ship-report.md` must live in the folder that gets moved, or it is orphaned in `specs/`. Write it before the move. |
+
+## Red Flags
+
+- A merge, push, or folder move happens before a fresh green test run on the integrated tree.
+- `ship-report.md` is missing from `.skillgrid/specs/` when the archive move runs.
+- The QA gate shows `FAIL` or an unresolved CRITICAL but the phase proceeds instead of returning `blocked`.
+- The workspace guard was skipped in a read-only planning workspace or across an unsafe boundary.
+- The archive move used model Read/Write instead of `git mv`/`mv`, or the `diff -r` readback is non-empty or absent.
+- The ship decision renders a GO with no rollback plan.
+
+## Verification
+
+- [ ] All gates in `Gates (all must pass before ANY mutation)` show PASS (or a recorded waiver/override).
+- [ ] Workspace/status guard confirms clean state — not a read-only workspace, change folder inside allowed edit roots, no `FAIL`/unresolved CRITICAL.
+- [ ] The test suite is green on the integrated tree (fresh run, not the `qa` run).
+- [ ] `ship-report.md` exists in `.skillgrid/specs/YYYY-MM-DD-<topic>/` before the move.
+- [ ] The archive move is mechanical (`git mv`/`mv`) with an empty `diff -r` readback against the pre-move snapshot.
+- [ ] The change folder is at `.skillgrid/archive/YYYY-MM-DD-<topic>/` and the source is gone.
+- [ ] The Return Envelope is rendered with a GO/NO-GO verdict, basis, and rollback plan.
 
 ## References
 

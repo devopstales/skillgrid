@@ -1,7 +1,12 @@
 ---
 name: simple-execution
 description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
-# based on superpowers:executing-plans
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: superpowers:executing-plans
 ---
 
 # Simple Execution
@@ -15,6 +20,14 @@ Load plan, review critically, execute all tasks, report when complete.
 **Config:** Read `.skillgrid/config.yaml` before starting. Use `testing.runner` for the test command, `commands.build` for build, `commands.lint` for lint. If `ticketing.enabled: true` AND a `tasks.md` with tracker IDs exists (produced by `skillgrid:ticketing`), update ticket status at each transition: `ready` (wave start) → `in-progress` (ticket started) → `review` (verification passed) → `done` (review clean). If the file doesn't exist, use the verifications specified in the plan.
 
 **Note:** This skill works much better with access to subagents (Claude Code, Codex CLI, Codex App, Copilot CLI, and Gemini CLI all qualify; see the per-platform tool refs in `../using-skillgrid/references/`). If subagents are available, use skillgrid:subagent-execution instead of this skill.
+
+## When to Use
+
+- You have a written implementation plan (or `tasks.md` from `skillgrid:slicing`) to execute in a separate session
+- You need review checkpoints and a QA gate before integration
+- You are on a platform without subagent access, so execution is inline
+
+**When NOT to use:** subagents are available (use skillgrid:subagent-execution), or there is no written plan yet (use skillgrid:brainstorming / skillgrid:planning first).
 
 ## The Process
 
@@ -90,3 +103,31 @@ After all tasks complete and verified:
 - Stop when blocked, don't guess
 - Never start implementation on main/master branch without explicit user consent
 - If tasks.md exists, execute tickets in wave order, not file order
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "The plan is clear enough, skip the critical review" | Step 1 says review critically and raise concerns before starting. A gap caught in review is one line; caught in execution it is a rework of tasks that depended on it. |
+| "I'll run the tests at the end" | `testing.tdd: true` means a failing test exists before code. Verifications are per-task (step 2.5), so a red gate at the end can't tell you which task broke. |
+| "This task is small, no need for a gate" | Step 2.4 requires a `G<n>` gate per requirement before code. Small tasks are where a missing gate silently skips the acceptance scenario. |
+| "I'll fix the commit zone guard later" | The zone rule is one commit each for `.skillgrid/specs/` and code; the `pre-commit` hook blocks a commit that stages both. "Later" means a commit that was already wrong. |
+| "The review found minor issues, ship anyway" | Step 2.6 caps at 3 rounds, but a review only closes clean or escalated. Shipping with open findings skips the gate that exists to catch them. |
+
+## Red Flags
+
+- Implementation started before the acceptance scenario was confirmed RED
+- A commit stages both `.skillgrid/specs/` and code (zone guard violation)
+- Task marked completed with no captured test output or exit code
+- QA gate hit FAIL and the fix was applied without a failing test first
+- Ticket status jumped past `review` to `done` without a clean review
+- Work started on main/master without explicit user consent
+
+## Verification
+
+- [ ] Plan (or `tasks.md`) was read and critically reviewed; concerns raised and resolved before execution started
+- [ ] Every task's gate is green: `CHECK:`+`EXPECT:` ran (or `manual` executed, `ABANDON` surfaced as a handoff) with captured output
+- [ ] Test runner from `testing.runner` exits 0; build from `commands.build` and lint from `commands.lint` are clean
+- [ ] QA gate (step 2.5) returned PASS or WAIVED with the waiver recorded; FAIL findings were fixed with a failing test first
+- [ ] Code review is clean or capped at 3 rounds; open findings logged
+- [ ] If `ticketing.enabled: true`, every ticket's status reflects its real state (`ready` → `in-progress` → `review` → `done`)

@@ -1,7 +1,12 @@
 ---
 name: test-driven-verification
 description: Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always
-# based on superpowers:verification-before-completion
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: superpowers:verification-before-completion
 ---
 
 # Test-Driven Verification
@@ -11,6 +16,13 @@ description: Use when about to claim work is complete, fixed, or passing, before
 **Core principle:** Evidence before claims, always.
 
 **Violating the letter of this rule is violating the spirit of this rule.**
+
+## When to Use
+
+- When about to claim a task, fix, or feature is done.
+- When a "done" claim needs an evidence gate before it's accepted.
+
+**When NOT to use:** for a pure refactor with no behavioral change where the existing test suite is the gate — don't write a redundant gate.
 
 ## The Iron Law
 
@@ -164,7 +176,24 @@ handoff you surface with the met / unmet / abandoned counts.
 
 **Hook-enforced:** with `install-hooks.sh --with-stop`, the `gate-stop` agent hook
 turns this rule into a guarantee — it runs a fresh `gate-state.sh --reverify` on the
-change's `acceptance.feature` and blocks the stop while any gate is unmet or a
-happy-path requirement is missing its gate (emitting a HANDOFF note when only
-`ABANDON` gates remain). A comment edit does not re-arm its 6-block loop guard; the
-guard keys on resolved gate state, not raw spec bytes.
+  change's `acceptance.feature` and blocks the stop while any gate is unmet or a
+  happy-path requirement is missing its gate (emitting a HANDOFF note when only
+  `ABANDON` gates remain). A comment edit does not re-arm its 6-block loop guard; the
+  guard keys on resolved gate state, not raw spec bytes.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "It works, I tested it manually" | Manual ≠ declared oracle. The Iron Law demands the fresh gate run, not vibes. |
+| "The existing tests cover it, skip the gate" | "Some test passed" is not verification — the declared `G<n>` oracle must exit 0 and match `EXPECT:`. |
+| "The oracle is obvious, no need to declare it" | Undeclared = untestable. A missing or unbound `EVIDENCE` does not count. |
+| "Just this once, the claim stands" | Skip any step of the Gate Function and it's lying, not verifying. No exceptions. |
+
+## Verification
+
+- [ ] The gate was written BEFORE the "done" claim, not after.
+- [ ] The gate ran fresh in this session and passed (exit 0 / green).
+- [ ] The declared oracle was the one tested — not a weaker proxy or stale run.
+- [ ] `EXPECT:` matched and `EVIDENCE` is bound to the run, not left `pending`.
+- [ ] The claim is backed by the gate output, not vibes, and met / unmet / abandoned counts are reported.

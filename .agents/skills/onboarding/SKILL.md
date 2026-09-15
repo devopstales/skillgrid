@@ -1,7 +1,12 @@
 ---
 name: onboarding
 description: Use when setting up Skillgrid for a new project. Detects stack, testing, and tracker; writes .skillgrid/config.yaml and an AGENTS.md block. Run once per project.
-# based on skillgrid-v2:sdd-onboard + mattpocock-skills:setup-matt-pocock-skills + BMAD:bmad-project-context
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: skillgrid-v2:sdd-onboard + mattpocock-skills:setup-matt-pocock-skills + BMAD:bmad-project-context
 ---
 
 # Onboarding
@@ -15,6 +20,8 @@ Detect project facts, confirm with the user, write `.skillgrid/config.yaml` and 
 - First time running any Skillgrid skill in a new project (no `.skillgrid/config.yaml` exists)
 - User says "set up Skillgrid", "init Skillgrid", "onboard this project"
 - Project stack changed significantly (new language, new test runner)
+
+**When NOT to use:** the project already has a valid `.skillgrid/config.yaml` and nothing about the stack changed — onboarding re-detects and confirms, it's not a per-task step. (Re-running to pick up a stack change IS a use, via merge mode.)
 
 ## The Process
 
@@ -163,7 +170,7 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - If `ticketing.type: jira`: verify `jira` CLI is available (`jira config`)
 - If `ticketing.enabled: false`: skip all tracker bootstrap
 
-**5. Mnemonic saves (if `mnemonic.enabled: true`):**
+**5. Mnemonic saves (if `mnemonic.enabled: true`):** follow the save shape + session protocol in `_shared/conventions/mnemonic-memory.md`. For onboarding specifically:
 - `mem_session_start(title: "skillgrid-init/{project}")`
 - `mem_save` topic_key: `skillgrid-init/{project}`, type: `architecture` — detected project context (name, stack, repo, deploy)
 - `mem_save` topic_key: `skillgrid/{project}/issue_tracker`, type: `config` — tracker id + CLI + storage path
@@ -197,6 +204,16 @@ If `.skillgrid/config.yaml` already exists:
 - Does not create `.skillgrid/specs/` or `.skillgrid/sdd/` directories — they're created on first use
 - Does not write `.skillgrid/config.user.yaml` — there is one config file, committed
 
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "The config already looks right — skip re-detection" | Stack and test runner drift between runs. Merge mode exists exactly to re-detect and show what changed. |
+| "The manifests are obvious — no need to confirm with the user" | Step 2 is explicit: present each fact, confirm one at a time. A wrong `tdd` or tracker value silently breaks every later phase. |
+| "I'll bootstrap the tracker after onboarding is done" | If `ticketing.enabled: true`, the CLI must be verified during onboarding (`gh --version`, `backlog status`, etc.). A tracker that isn't verified can't be trusted later. |
+| "Both AGENTS.md and CLAUDE.md exist — write the block to both" | Two full blocks are two sources that drift. Write full to `AGENTS.md`, one-line pointer in `CLAUDE.md`. |
+| "The user said 'looks good' — skip re-reading their corrections" | "Looks good" is only valid once every detected fact has been presented and confirmed individually. |
+
 ## Red Flags
 
 **Never:**
@@ -205,3 +222,11 @@ If `.skillgrid/config.yaml` already exists:
 - Skip the confirmation step — always present detected facts
 - Create both AGENTS.md and CLAUDE.md — pick the first that exists, or create AGENTS.md
 - Hard-code paths that the config already defines
+
+## Verification
+
+- [ ] `.skillgrid/config.yaml` exists and parses (`yaml` load succeeds); every detected field (stack, testing, commands, ticketing, TDD, checkpoint, BDD) is filled
+- [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}` and tracker/memory lines
+- [ ] Detected test runner command runs and exits 0 (e.g. `go test ./...`, `npm test`, `pytest`)
+- [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`
+- [ ] `git rev-parse --is-inside-work-tree` succeeds; onboarding artifacts are committed (`git log -1` shows `chore: add Skillgrid config`)

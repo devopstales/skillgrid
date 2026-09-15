@@ -1,6 +1,11 @@
 ---
 name: reflect
 description: "Use when a change has been shipped (folder moved to .skillgrid/archive/) and you need to close the cycle with a sourced retrospective and the final-state archive report. The terminal phase (qa → review → ship → reflect)."
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
 ---
 
 # Reflect
@@ -14,6 +19,17 @@ You are the **TERMINAL** phase — the close of the SDD cycle. `ship` already in
 3. **Close the session** — `mem_session_summary` + `mem_session_end`.
 
 You are the **completion checkpoint**: you are the last chance to honestly say what worked, what did not, and whether the change is accepted. You are also the **lineage endpoint** — the archive report is the record a future reader consults to learn what shipped and when.
+
+## Overview
+
+The terminal SDD phase. After `ship` has integrated the work and moved the change folder to `.skillgrid/archive/`, `reflect` closes the cycle: it runs a sourced retrospective, records the final-state archive report, and closes the session (`mem_session_summary` + `mem_session_end`). It is the last honest checkpoint of what shipped and the lineage endpoint a future reader consults to learn what landed and when.
+
+## When to Use
+
+- After completing a change that has been shipped — its folder moved to `.skillgrid/archive/YYYY-MM-DD-<topic>/` by `ship`.
+- Before closing a work unit / the session — you need the sourced retrospective, the final-state archive report, and the session close.
+
+**When NOT to use:** mid-task before work is done — `reflect` captures the final state at close, not in-flight state. It also does not run on a change that never shipped (the Ship Gate blocks it).
 
 ## What You Receive
 
@@ -243,6 +259,33 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 - **Session close is yours.** No earlier phase closes the session. If you skip it, the next session starts blind.
 - **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`, `scope: "project"`, active `session_id`. (See `conventions/mnemonic-memory.md`.)
 - **A `PASS WITH` style note is not a block, and a `FAIL` is not a verdict.** The QA Gate (hard) is separate from the Verdict Gate (advisory). Keep them apart.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "Nothing changed since QA, so skip the retrospective." | The retro is where sourced learnings + the acceptance verdict land. Skipping it means the next session starts with no record of what worked or what didn't. |
+| "I'll write the archive report later." | It is the final-state record of what actually shipped, with observation-ID lineage. There is no "later" — the session closes here. |
+| "The discoveries are obvious, no need to source them." | Unsourced is a guess, not a learning. Every entry needs a file:line, commit, ticket, or scenario — otherwise mark it undiagnosed. |
+| "The `qa-report` says pending, so I'll carry that into the archive." | Per Final-State Authority, `qa-report` is a point-in-time snapshot. Rank against `ship-report` / the repo at close and report the final state, citing where the fix landed. |
+| "A `rejected` verdict should block the cycle." | The verdict is advisory — recorded and surfaced, never a hard block. The human decides follow-up. Don't conflate it with the (hard) QA Gate. |
+
+## Red Flags
+
+- A learning in the retrospective with no source — no file:line, commit, ticket, or scenario cited.
+- The archive report restates a `qa-report` / ledger "pending / blocked / open" claim in bare present tense instead of attributing it to its source and time.
+- The retrospective or archive report was written even though a hard gate (Ship or QA) failed — those force `blocked` with no write.
+- A `rejected` verdict was treated as a block (or a `FAIL` waved through as "just a verdict").
+- The session was closed by an earlier phase, or not closed at all — close is `reflect`'s job and only its job.
+- The archive report is missing observation IDs for the artifacts read (the lineage endpoint is incomplete).
+
+## Verification
+
+- [ ] All gates passed before any write: Ship Gate (`ship-report.md` present, `success`, `diff -r` empty) + QA Gate (`PASS` / `WAIVED` / `CONCERNS`, no unresolved CRITICAL) — or `blocked` returned with no write.
+- [ ] `retrospective.md` written into the moved folder with every learning sourced (file:line / commit / ticket / scenario) and an acceptance verdict recorded.
+- [ ] `archive-report.md` written with final-state facts, gate results, the `diff -r` reference, and the observation IDs of every artifact read.
+- [ ] Session persisted and closed: `mem_session_summary` present with all 5 sections (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) non-empty, followed by `mem_session_end`.
+- [ ] Change marked closed: return envelope states the change, verdict, location, and "Next: none — cycle complete" (or the blocked reason, if gated).
 
 ## References
 

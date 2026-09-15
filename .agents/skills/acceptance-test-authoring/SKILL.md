@@ -1,11 +1,28 @@
 ---
 name: acceptance-test-authoring
 description: "Use when authoring BDD acceptance tests from a requirement, before implementation. Derives the acceptance.feature scenarios from intent."
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  source: derived from intent-driven-template's acceptance-test-authoring skill
 ---
 
 # Acceptance Test Authoring
 
-# based on intent-driven-template:acceptance-test-authoring
+**Announce at start:** "I'm using the skillgrid:acceptance-test-authoring skill to derive the acceptance scenarios."
+
+## Overview
+
+This skill derives BDD acceptance specs (Gherkin) from a requirement's intent, **before** implementation. Specs live as Markdown `acceptance.feature` files under `.skillgrid/specs/`; the runner extracts them into real `.feature` files and runs them against the running application. BDD is always on (non-negotiable, like TDD) — a green acceptance suite is the gate for archive.
+
+## When to Use
+
+- When authoring or updating BDD acceptance specs from a requirement, before implementation.
+- When converting a spec/blueprint into Gherkin scenarios (capability → requirement → scenario).
+
+**When NOT to use:** For unit tests or integration tests — this is acceptance/BDD only. The Zone Rule keeps `.skillgrid/specs/` (spec zone) separate from code: this skill authors the spec zone, not the code zone.
 
 The acceptance suite executes Gherkin specs that live under `.skillgrid/specs/` against the running application. BDD is always on (non-negotiable, like TDD) — `bdd.enabled` is always `true` in `.skillgrid/config.yaml`. Specs are Markdown files named `acceptance.feature`: Markdown headings carry the capability, requirement, and scenario structure, while ` ```gherkin ` fences contain only Given/When/Then steps. The runner extracts them into real `.feature` files on every run, synthesizing `Feature:`/`Rule:`/`Scenario:` from the headings.
 
@@ -129,3 +146,31 @@ BDD is always on, so the `.skillgrid/specs/` directory is always the **spec zone
 - Edit `.skillgrid/specs/` **or** code in a single commit — never both uncommitted. The `pre-commit` zone guard (skillgrid:work-unit-commits) enforces this: a commit staging both a spec and code files is blocked.
 - Commit specs before code: the spec is the contract; the code satisfies it.
 - A reviewer reading a PR must be able to see spec changes and code changes as separate, ordered commits.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "I'll write the spec after the code works" | The spec is the contract, committed before code (Zone Rule). Post-hoc specs describe the code, not the requirement. |
+| "One happy-path scenario is enough" | Every requirement has ≥1 happy + edge + failure scenario (Scenario Classification). One happy path proves nothing about boundaries or errors. |
+| "I'll skip the lint" | gherkin-lint over the extracted output catches structural errors the eye misses. Extract first, then lint — always. |
+| "Internal state is easier to assert" | `Then` steps state what the user or system observes, never internal state ("the cache is populated" is not a step). |
+| "I'll use the class name in the step" | Steps use glossary domain language, never implementation jargon. "POST /auth returns 200" is not a scenario name. |
+
+## Red Flags
+
+- A `Then` step asserts internal state instead of an observable outcome.
+- A scenario has no `When` (a precondition list) or no `Then` (proves nothing).
+- A single `And` clause introduces a second precondition — the scenario needs splitting.
+- Implementation jargon (class, method, DB column) or a URL appears in a step or scenario name.
+- The step definition contains a selector, regex, or URL instead of a page-object call.
+- A commit stages spec and code files together (Zone Rule violation — the zone guard blocks it).
+
+## Verification
+
+- [ ] Spec passes the linter with 0 errors: `gherkin-lint --config .gherkin-lintrc.json acceptance-tests/.extracted` exits 0.
+- [ ] Every requirement has ≥1 `happy path` + `edge` + `failure` scenario (Scenario Classification).
+- [ ] Each scenario maps to a spec requirement and is referenceable from blueprint tasks (`SATISFIES:`) and `tasks.md`.
+- [ ] Scenario classification (zone) applied — prefixes `happy path` / `edge` / `failure` are present and unique.
+- [ ] Runner invariants satisfied: suite boots the app with one command, the HTML report is generated under `acceptance-tests/reports/`, and the suite runs green.
+- [ ] Zone Rule honored: specs committed before code, and no commit stages both spec and code files.

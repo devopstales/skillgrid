@@ -1,16 +1,32 @@
 ---
 name: receiving-code-review
-# based on superpowers:receiving-code-review
 description: Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: superpowers:receiving-code-review
 ---
 
-# Code Review Reception
+# Receiving Code Review
+
+**Announce at start:** "I'm using the skillgrid:receiving-code-review skill to process this feedback."
 
 ## Overview
 
 Code review requires technical evaluation, not emotional performance.
 
 **Core principle:** Verify before implementing. Ask before assuming. Technical correctness over social comfort.
+
+## When to Use
+
+- You receive code review feedback (user, reviewer, or automated) and are about to act on it
+- A comment is unclear, technically questionable, or conflicts with a prior decision
+- A review produces multiple findings to triage and fix
+- You're about to agree to, or push back on, a reviewer's suggestion
+
+**When NOT to use:** No feedback exists yet — that's the `skillgrid:code-review` side. A single agreed, already-verified typo fix also doesn't need the full loop.
 
 ## The Response Pattern
 
@@ -208,6 +224,34 @@ If you pushed back and were wrong:
 ```
 
 State the correction factually and move on.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "The reviewer is wrong, ignore it" | Verify first — wrong AND unverified is how regressions ship. State why with technical reasoning, in-thread. |
+| "I'll implement all the comments at once" | Batched fixes hide which one broke what. One at a time, test each; clarify unclear items before starting. |
+| "It's a professional feature, keep it" | Grep for actual usage first. Unused = YAGNI; the user's rule is you don't add features you don't need. |
+| "The reviewer is right, I'll just agree" | Performative agreement skips verification. Restate the requirement or push back — then act. |
+| "I'm too uncomfortable to push back" | Discomfort is not a technical argument. Name the tension, state the issue, reference working tests/code. |
+
+## Red Flags
+
+- "Great point!" / "You're absolutely right!" / any "Thanks for..." in the reply — a Forbidden Response
+- Code changed before any verification against the codebase
+- Unclear items left as TODOs while understood items get implemented first
+- A fix with no test proving it (the test was never RED)
+- Multiple items fixed and tested together, so a regression can't be attributed
+- A pushback that's defensive or apologetic instead of technical
+
+## Verification
+
+- [ ] Every actionable comment fixed or explicitly pushed back on with a technical reason in-thread
+- [ ] Each fix has a test that was RED before the fix and is GREEN after (test output captured)
+- [ ] Full suite (tests + lint + build) passes after all fixes — exit 0
+- [ ] Diff reviewed comment-by-comment: no item silently dropped, deferred, or re-triaged without a logged ruling
+- [ ] No Forbidden Response in any thread reply (grep the replies for "Thanks"/"Great point")
+- [ ] If you pushed back and were wrong: correction stated factually in-thread, no apology essay
 
 ## Common Mistakes
 

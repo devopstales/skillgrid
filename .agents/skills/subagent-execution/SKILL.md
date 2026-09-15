@@ -1,7 +1,12 @@
 ---
 name: subagent-execution
 description: Use when executing implementation plans — independent or coupled tasks — in the current session
-# based on superpowers:subagent-driven-development
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: superpowers:subagent-driven-development
 ---
 
 # Subagent Execution
@@ -11,6 +16,8 @@ Execute plan by dispatching a fresh implementer subagent per task, a task review
 **Why subagents:** You delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed at their task. They should never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination work.
 
 **Core principle:** Fresh subagent per task + task review (spec + quality) + broad final review = high quality, fast iteration
+
+**Announce at start:** "I'm using the skillgrid:subagent-execution skill to execute this plan."
 
 **Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.scratch_dir` for the ledger directory (default `.skillgrid/sdd/`). Use `testing.runner` for test commands in implementer briefs. Use the glossary vocabulary from `conventions.glossary` (default `.skillgrid/glossary/`) in briefs and rulings, and carry the in-force ADRs — per the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` — into implementer briefs so a worker doesn't re-litigate a settled decision or name things outside the ubiquitous language. `testing.tdd` is always `true` — every implementation task follows skillgrid:test-driven-development (the implementer brief already carries this; the reviewer checks the TDD evidence). **BDD is always on** — the implementer brief names the task's `SATISFIES` scenario and the reviewer checks the acceptance scenario went RED→GREEN (TDD Evidence references the scenario name); enforce the spec zone rule — commit `.skillgrid/specs/` changes before code changes, never both uncommitted (the `pre-commit` zone guard, skillgrid:work-unit-commits, blocks a mixed commit). If `ticketing.enabled: true` AND a `tasks.md` with tracker IDs exists (produced by `skillgrid:ticketing`), update ticket status at each transition: `ready` (wave start) → `in-progress` (implementer dispatched) → `review` (review started) → `done` (review clean + merged). If the file doesn't exist, use the defaults shown in this skill.
 
@@ -53,6 +60,8 @@ digraph when_to_use {
 }
 ```
 
+**When NOT to use:** a single tightly-coupled task, or when there is no implementation plan yet (brainstorm/slice first). If the work is one linear piece you can do inline, dispatching a subagent adds coordination overhead without the parallelism benefit — use `skillgrid:simple-execution` instead.
+
 **vs. Executing Plans (parallel session):**
 - Same session (no context switch)
 - Fresh subagent per task (no context pollution)
@@ -77,16 +86,16 @@ digraph process {
 
     subgraph cluster_per_task {
         label="Per Task";
-        "Dispatch implementer subagent (./implementer-prompt.md)" [shape=box];
+        "Dispatch implementer subagent (references/implementer-prompt.md)" [shape=box];
         "Implementer asks questions?" [shape=diamond];
         "Answer questions, provide context" [shape=box];
         "Implementer implements, tests, commits, self-reviews" [shape=box];
-        "Generate review package, dispatch task reviewer (./task-reviewer-prompt.md)" [shape=box];
+        "Generate review package, dispatch task reviewer (references/task-reviewer-prompt.md)" [shape=box];
         "Spec ✅ and quality approved?" [shape=diamond];
         "Finding conflicts with plan text?" [shape=diamond];
         "Rule on the conflict, ledger the ruling" [shape=box];
         "Fix round R of 5: R≤3 resume implementer; R≥4 fresh implementer, more capable model" [shape=box];
-        "Dispatch scoped re-review (./re-review-prompt.md)" [shape=box];
+        "Dispatch scoped re-review (references/re-review-prompt.md)" [shape=box];
         "All findings addressed?" [shape=diamond];
         "R = 5?" [shape=diamond];
         "Adjudicate each open finding" [shape=box];
@@ -103,20 +112,20 @@ digraph process {
     "Final review clean: delete this plan's workspace" [shape=box];
     "Use skillgrid:ship" [shape=box style=filled fillcolor=lightgreen];
 
-    "Setup: worktree, ledger check, read plan, pre-flight review" -> "Dispatch implementer subagent (./implementer-prompt.md)";
-    "Dispatch implementer subagent (./implementer-prompt.md)" -> "Implementer asks questions?";
+    "Setup: worktree, ledger check, read plan, pre-flight review" -> "Dispatch implementer subagent (references/implementer-prompt.md)";
+    "Dispatch implementer subagent (references/implementer-prompt.md)" -> "Implementer asks questions?";
     "Implementer asks questions?" -> "Answer questions, provide context" [label="yes"];
     "Answer questions, provide context" -> "Implementer implements, tests, commits, self-reviews";
     "Implementer asks questions?" -> "Implementer implements, tests, commits, self-reviews" [label="no"];
-    "Implementer implements, tests, commits, self-reviews" -> "Generate review package, dispatch task reviewer (./task-reviewer-prompt.md)";
-    "Generate review package, dispatch task reviewer (./task-reviewer-prompt.md)" -> "Spec ✅ and quality approved?";
+    "Implementer implements, tests, commits, self-reviews" -> "Generate review package, dispatch task reviewer (references/task-reviewer-prompt.md)";
+    "Generate review package, dispatch task reviewer (references/task-reviewer-prompt.md)" -> "Spec ✅ and quality approved?";
     "Spec ✅ and quality approved?" -> "Append completion to ledger, mark todo complete" [label="yes"];
     "Spec ✅ and quality approved?" -> "Finding conflicts with plan text?" [label="no"];
     "Finding conflicts with plan text?" -> "Rule on the conflict, ledger the ruling" [label="yes"];
     "Rule on the conflict, ledger the ruling" -> "Fix round R of 5: R≤3 resume implementer; R≥4 fresh implementer, more capable model";
     "Finding conflicts with plan text?" -> "Fix round R of 5: R≤3 resume implementer; R≥4 fresh implementer, more capable model" [label="no"];
-    "Fix round R of 5: R≤3 resume implementer; R≥4 fresh implementer, more capable model" -> "Dispatch scoped re-review (./re-review-prompt.md)";
-    "Dispatch scoped re-review (./re-review-prompt.md)" -> "All findings addressed?";
+    "Fix round R of 5: R≤3 resume implementer; R≥4 fresh implementer, more capable model" -> "Dispatch scoped re-review (references/re-review-prompt.md)";
+    "Dispatch scoped re-review (references/re-review-prompt.md)" -> "All findings addressed?";
     "All findings addressed?" -> "Append completion to ledger, mark todo complete" [label="yes"];
     "All findings addressed?" -> "R = 5?" [label="no"];
     "R = 5?" -> "Fix round R of 5: R≤3 resume implementer; R≥4 fresh implementer, more capable model" [label="no - next round"];
@@ -126,7 +135,7 @@ digraph process {
     "Any load-bearing finding?" -> "Park findings in ledger with rulings" [label="no"];
     "Park findings in ledger with rulings" -> "Append completion to ledger, mark todo complete";
     "Append completion to ledger, mark todo complete" -> "More tasks remain?";
-    "More tasks remain?" -> "Dispatch implementer subagent (./implementer-prompt.md)" [label="yes"];
+    "More tasks remain?" -> "Dispatch implementer subagent (references/implementer-prompt.md)" [label="yes"];
     "More tasks remain?" -> "Dispatch final two-axis review (Standards + Spec, parallel)" [label="no"];
     "Dispatch final two-axis review (Standards + Spec, parallel)" -> "Final findings? ONE fix dispatch, one scoped re-review, adjudicate residuals";
     "Final findings? ONE fix dispatch, one scoped re-review, adjudicate residuals" -> "Final review clean: delete this plan's workspace";
@@ -136,78 +145,18 @@ digraph process {
 
 ## Setup
 
-Ensure the work happens in an isolated workspace: use
-skillgrid:isolated-workspace to create one or verify the existing one.
-Never start implementation on a main/master branch without your human
-partner's explicit consent.
+Before dispatching Task 1: create/verify an isolated workspace
+(`skillgrid:isolated-workspace` — never start on main/master without consent),
+run `scripts/sdd-workspace PLAN_FILE` to get this plan's git-ignored workspace,
+establish the progress ledger at `<workspace>/progress.md` (your recovery map
+that survives compaction — trust it and `git log` over your recollection after
+compaction), read the plan (or `tasks.md` if `skillgrid:slicing` produced one),
+and run the pre-flight conflict scan. Conversation memory is the single most
+expensive failure: controllers that lost their place have re-dispatched entire
+completed task sequences. The ledger is the fix, not todos.
 
-Conversation memory does not survive compaction. In real sessions,
-controllers that lost their place have re-dispatched entire completed task
-sequences — the single most expensive failure observed. Track progress in
-a ledger file, not only in todos.
-
-- Each plan owns a workspace: at skill start, run this skill's
-  `scripts/sdd-workspace PLAN_FILE` — it prints the plan's git-ignored
-  directory (`<repo-root>/.skillgrid/sdd/<plan-basename>/`), home to
-  every artifact for THIS plan: ledger, briefs, reports, review packages.
-  Another plan's directory is never yours to read or write.
-- Check for this plan's ledger at `<workspace>/progress.md`. If its first
-  line names your plan file, tasks with a `Task <N>: complete` line are DONE
-  — do not re-dispatch them; resume at the first task without one. A task
-  whose last line is a fix round is mid-loop: resume the loop at the next
-  round. A ledger whose first line names a different plan file — or a stray
-  ledger at the old flat path `.skillgrid/sdd/progress.md` — is another
-  plan's progress: leave it in place and start your own, fresh.
-- Create the ledger with its identity as the first line:
-  `# SDD ledger — plan: <plan file path>`.
-- The ledger is your recovery map: the commits it names exist in git even
-  when your context no longer remembers creating them. After compaction,
-  trust the ledger and `git log` over your own recollection.
-- **Mnemonic mirror:** when `mnemonic.enabled: true`, `mem_save(topic_key: skillgrid/<topic>/execution-progress, ...)` the ledger's tail (current task + last ruling) after each task completion and each ruling — upsert, never duplicate. The in-repo ledger stays the source of truth; the store is the index for a fresh session that hasn't found the workspace yet.
-- On resume, also read the commit checkpoint per skillgrid:work-unit-commits:
-  `bash .agents/hooks/checkpoint-state.sh restore`. It
-  prints `.skillgrid/sdd/checkpoint.json` (derived from `git log -1` + the last
-  `[skillgrid-context]` block) plus live git state. If its `remaining` names a
-  partial unit, finish that unit before dispatching the next task. The ledger
-  tells you *which* tasks are done; the checkpoint tells you *where in the
-  code* the last unit left off — use both.
-- `git clean -fdx` will destroy the workspace (it's git-ignored scratch); if
-  that happens, recover from `git log`.
-
-Read the plan once, note its context and Global Constraints, and create a
-todo per task. If a `tasks.md` exists alongside the plan (produced by
-`skillgrid:slicing`), read it instead: tickets replace tasks as the
-dispatch unit, and execution follows the wave order. If the plan names a
-Spec, read that too: the spec is the authority the plan argues from, and
-conflicts inside the plan resolve against it. A plan with no reachable spec
-gets a ledger note saying so — rulings made without one are provisional.
-
-Before dispatching Task 1, scan the plan once for conflicts, writing down
-what you checked as you check it:
-
-- tasks that contradict each other or the plan's Global Constraints
-- anything the plan explicitly mandates that the review rubric treats as a
-  defect (a test that asserts nothing, verbatim duplication of a logic block)
-
-The scan's output is a table, not a verdict. One row for every pair of tasks
-that share a file or an interface: the two tasks, what one produces against
-what the other consumes, and what you found. One row for every task: whether
-its own text agrees with itself — the tests it specifies against the code it
-specifies, the files it creates against the files it later touches. "The scan
-is clean" without those rows is not a scan you ran.
-
-Write the table to the ledger. Rule on everything you find before execution
-begins — each finding against the plan text that mandates it — and record
-each ruling in the ledger. If the scan is clean, proceed without comment.
-Rule on each conflict it surfaces — the spec is the binding authority, the
-plan is its argument — record the ruling beside its row, and dispatch
-Task 1. The review loop remains the net for conflicts that only emerge from
-implementation.
-
-If the blueprint has no `## Plan Review` section, note it in your pre-flight
-report: "Blueprint was written before plan review was introduced — proceeding
-without the structural gate." Do not block; the execution review loop still
-catches what the structural gate would have.
+Full workspace, ledger, checkpoint, and pre-flight-scan procedure:
+[setup.md](references/setup.md).
 
 ### Status Guard
 
@@ -316,40 +265,15 @@ parent re-verify, not for parallel fan-out.
 
 ## Model Selection
 
-Use the least powerful model that can handle each role to conserve cost and increase speed.
+Before dispatching any subagent, choose its model: use the least powerful tier
+that can handle the role, and **always specify the model explicitly** — an
+omitted model silently inherits your session's (most capable, most expensive)
+model. Mechanical implementation → cheap tier; integration/judgment → standard;
+architecture + the final whole-branch review → most capable; fix-loop rounds
+4-5 → at least one tier above the implementer that got stuck. Turn count beats
+token price: mid-tier is the floor for reviewers and prose-driven implementers.
 
-**Mechanical implementation tasks** (isolated functions, clear specs, 1-2 files): use a fast, cheap model. Most implementation tasks are mechanical when the plan is well-specified.
-
-**Integration and judgment tasks** (multi-file coordination, pattern matching, debugging): use a standard model.
-
-**Architecture and design tasks**: use the most capable available model.
-The final whole-branch review is one of these — dispatch it on the most
-capable available model, not the session default.
-
-**Review tasks**: choose the model with the same judgment, scaled to the
-diff's size, complexity, and risk. A small mechanical diff does not need the
-most capable model; a subtle concurrency change does. Scoped re-reviews of
-small fix diffs take a cheap-to-mid tier.
-
-**Fix-loop escalation (rounds 4-5)**: use a model at least one tier above
-the implementer that got stuck.
-
-**Always specify the model explicitly when dispatching a subagent.** An
-omitted model inherits your session's model — often the most capable and
-most expensive — which silently defeats this section.
-
-**Turn count beats token price.** Wall-clock and context cost scale with how
-many turns a subagent takes, and the cheapest models routinely take 2-3× the
-turns on multi-step work — costing more overall. Use a mid-tier model as the
-floor for reviewers and for implementers working from prose descriptions.
-When the task's plan text contains the complete code to write, the
-implementation is transcription plus testing: use the cheapest tier for
-that implementer. Single-file mechanical fixes also take the cheapest tier.
-
-**Task complexity signals (implementation tasks):**
-- Touches 1-2 files with a complete spec → cheap model
-- Touches multiple files with integration concerns → standard model
-- Requires design judgment or broad codebase understanding → most capable model
+Full per-role rules and complexity signals: [model-selection.md](references/model-selection.md).
 
 ## The Task Loop
 
@@ -421,7 +345,7 @@ and fix-round diffs need it.
   fix-loop rounds 1-3 resume this agent.
 - Never dispatch multiple implementation subagents in parallel (conflicts).
 
-Template: [implementer-prompt.md](implementer-prompt.md)
+Template: [implementer-prompt.md](references/implementer-prompt.md)
 
 ### 2. Handle the report
 
@@ -489,7 +413,7 @@ complete: you hold the plan and cross-task context the reviewer
 lacks. If you confirm an item is a real gap, treat it as a failed spec
 review — it enters the fix loop with the other findings.
 
-Template: [task-reviewer-prompt.md](task-reviewer-prompt.md)
+Template: [task-reviewer-prompt.md](references/task-reviewer-prompt.md)
 
 ### 4. The fix loop
 
@@ -535,7 +459,7 @@ whole suite.
 
 **The re-review is scoped.** Run `scripts/review-package PLAN_FILE FIX_BASE HEAD`
 where FIX_BASE is the head the previous review saw, and dispatch
-[re-review-prompt.md](re-review-prompt.md) with the findings list, the
+[re-review-prompt.md](references/re-review-prompt.md) with the findings list, the
 brief, the report file, and the printed diff path. The re-reviewer verdicts
 each finding ADDRESSED or NOT ADDRESSED and flags new breakage in the fix
 diff only. New Critical/Important breakage in the fix diff joins the open
@@ -595,45 +519,15 @@ The QA gate answers "was the goal achieved and would verification catch a regres
 
 ## Final Review
 
-The final whole-branch review gets a package too: run
-`scripts/review-package PLAN_FILE MERGE_BASE HEAD` (MERGE_BASE = the commit the
-branch started from, e.g. `git merge-base main HEAD`) and include the
-printed path in the final review dispatch, so the reviewer reads one file
-instead of re-deriving the branch diff with git commands. Dispatch on the most
-capable available model (see Model Selection) using skillgrid:requesting-code-review's
-two-axis templates, in parallel:
-[code-reviewer.md](../requesting-code-review/code-reviewer.md) (Standards —
-glossary, in-force ADRs, smell baseline) and
-[spec-reviewer.md](../requesting-code-review/spec-reviewer.md) (Spec —
-per-scenario BDD, missing/partial, scope creep). Present the two reports
-side by side without merging or reranking. Point them at the ledger's
-deferred-minor and parked lines so they can triage which must be fixed before
-merge.
+Once every task is complete and `skillgrid:qa` has passed, run the whole-branch
+review: package the branch diff (`scripts/review-package PLAN_FILE MERGE_BASE HEAD`),
+dispatch the two-axis review (Standards + Spec) in parallel on the most capable
+model, present the two reports side by side, and escalate to
+`skillgrid:parallel-code-review` for large (50+ lines) or high-risk branches.
+Findings get ONE fix subagent + one scoped re-review, then the breaker
+adjudicates — there is no second fix wave.
 
-**Escalate for large or high-risk branches:** if the whole-branch diff is large
-(50+ changed lines) or high-risk (auth, data migration, money, concurrency,
-public API), escalate the final review from the two-axis pass to
-`skillgrid:parallel-code-review` — it fans out specialist reviewers (Standards,
-Spec, edge cases, verification gaps, security, red team) in parallel, then
-triages and deduplicates their findings. The per-task reviews stay the
-lightweight two-axis pass; only the final whole-branch review escalates.
-
-If the final whole-branch review returns findings, dispatch ONE fix subagent
-with the complete findings list — not one fixer per finding.
-Per-finding fixers each rebuild context and re-run suites; a real
-session's final-review fix wave cost more than all its tasks combined.
-Then run exactly one scoped re-review of the fix wave
-(`scripts/review-package PLAN_FILE FIX_BASE HEAD` over the fix range,
-[re-review-prompt.md](re-review-prompt.md)).
-Adjudicate any residual findings as in the task loop's breaker: park with
-rulings, or rule on the load-bearing ones and ledger what you decided. Only
-the four classes above stop you here. There is no second fix wave —
-residual load-bearing findings surface to your human partner when
-ship presents the options.
-
-Per-task fix loops follow `skillgrid:receiving-code-review` triage rules
-(fix now / defer / human look / noise) applied through the ledger's
-park-and-rule mechanism.
+Full protocol, escalation threshold, and fix-wave rules: [final-review.md](references/final-review.md).
 
 ## Finish
 
@@ -667,71 +561,31 @@ Use skillgrid:ship.
 | "Ledger bookkeeping is overhead" | The ledger is what survives compaction. Controllers without one have re-dispatched entire completed task sequences. |
 | "The implementer spawned its own reviewer — free extra assurance" | It's a duplicate seat reviewing the same diff; the task review is the gate. A worker-spawned reviewer is a defect to flag, not rigor. |
 
-## Example Workflow
+## Red Flags
 
-```
-You: I'm using Subagent Execution to execute this plan.
+- An implementer was dispatched without a complete task brief (no `task-brief` path, or the brief path is missing from the prompt).
+- A subagent's output was trusted without parent re-verification — the `#### Gates` oracles were not re-run before marking the task complete.
+- The task loop re-dispatched the same task after round 5 without the breaker adjudicating — the cap was exceeded silently.
+- A task reviewer was dispatched without a diff file, or without all three inputs (brief, report, review package).
+- The Final QA Gate was skipped or its findings were not triaged before the Final Review ran.
 
-[Setup: worktree verified]
-[Read plan file once: .skillgrid/specs/<YYYY-MM-DD-topic>/blueprint.md]
-[Resolve workspace: scripts/sdd-workspace .skillgrid/specs/<YYYY-MM-DD-topic>/blueprint.md — no ledger inside, fresh start]
-[Create todos for all tasks]
+## Verification
 
-Task 1: Hook installation script
+- [ ] Every dispatched implementer received a complete task brief (the `task-brief` output path was in the dispatch prompt).
+- [ ] The Final QA Gate (`skillgrid:qa`) ran and returned a four-state verdict (PASS / CONCERNS / FAIL / WAIVED), and findings were triaged.
+- [ ] The Final whole-branch two-axis review (Standards + Spec) ran on the most capable model and its findings were resolved or parked with a ruling.
+- [ ] The task loop reached a terminal state — no task is stuck cycling past round 5 without a recorded breaker adjudication.
+- [ ] Every subagent's `#### Gates` oracles were re-run by the parent (not just self-reported by the implementer) before the task was marked complete.
 
-[Run task-brief for Task 1; dispatch implementer with brief + report paths + context]
+## References
 
-Implementer: "Before I begin - should the hook be installed at user or system level?"
+On-demand detail for this skill, in `references/`:
 
-You: "User level (~/.skillgrid/repos/skillgrid/hooks/)"
+- [setup.md](references/setup.md) — workspace, progress ledger, commit checkpoint, and pre-flight conflict scan.
+- [model-selection.md](references/model-selection.md) — per-role model-tier rules and complexity signals.
+- [final-review.md](references/final-review.md) — whole-branch review protocol, escalation threshold, fix-wave rules.
+- [example-workflow.md](references/example-workflow.md) — a worked end-to-end run of Setup → Task Loop → Final QA Gate → Final Review → Finish.
+- [implementer-prompt.md](references/implementer-prompt.md) — dispatch template for the implementer subagent.
+- [task-reviewer-prompt.md](references/task-reviewer-prompt.md) — dispatch template for the per-task spec+quality reviewer.
+- [re-review-prompt.md](references/re-review-prompt.md) — dispatch template for the scoped fix re-review.
 
-Implementer: [Later]
-  - Implemented install-hook command
-  - Added tests, 5/5 passing
-  - Self-review: Found I missed --force flag, added it
-  - Committed
-
-[Run review-package PLAN_FILE BASE HEAD; dispatch task reviewer with the printed path]
-Task reviewer: Spec ✅ - all requirements met, nothing extra.
-  Strengths: Good test coverage, clean. Issues: None. Task quality: Approved.
-
-[Ledger: Task 1: complete (commits a1b2c3d..d4e5f6a, review clean)]
-
-Task 2: Recovery modes
-
-[Run task-brief for Task 2; dispatch implementer with brief + report paths + context]
-
-Implementer: [No questions]
-  - Added verify/repair modes
-  - 8/8 tests passing
-  - Committed
-
-[Run review-package PLAN_FILE BASE HEAD; dispatch task reviewer with the printed path]
-Task reviewer: Spec ❌:
-  - Missing: Progress reporting (spec says "report every 100 items")
-  Issues (Important): Magic number (100)
-
-[Fix round 1: resume the implementer with both findings]
-Implementer: Added progress reporting, extracted PROGRESS_INTERVAL constant.
-  Re-ran test/recovery.test.js — 10/10 passing. Fix report appended.
-
-[Run review-package PLAN_FILE FIX_BASE HEAD; dispatch scoped re-review]
-Re-reviewer: Missing progress reporting — ADDRESSED (src/recovery.js:41).
-  Magic number — ADDRESSED (src/recovery.js:7). New breakage: none.
-  Verdict: all findings addressed.
-
-[Ledger: Task 2: fix round 1/5 (2 addressed, 0 open; commits d4e5f6a..b7c8d9e)]
-[Ledger: Task 2: complete (commits d4e5f6a..b7c8d9e, review clean)]
-
-...
-
-[After all tasks]
-[Run skillgrid:qa — goal-backward verification, verification-gap audit, traceability, TDD evidence]
-QA gate: PASS (all truths verified, all scenarios covered, no CRITICAL findings)
-[Run review-package PLAN_FILE MERGE_BASE HEAD; dispatch final code-reviewer, most capable model]
-Final reviewer: All requirements met. Deferred minors triaged: none block merge.
-
-[Delete this plan's workspace — the record now lives in git]
-
-Done! Using skillgrid:ship.
-```

@@ -1,10 +1,20 @@
 ---
 name: spike
 description: Run a throwaway feasibility experiment to answer a "will this technical approach work?" question. Produces a falsifiable verdict (VALIDATED / INVALIDATED / PARTIAL) with evidence, not an opinion. Use when the design or blueprint rests on an unproven technical claim — a library's real behavior, an integration's feasibility, a performance question, a data-shape question.
-# based on gsd-core:gsd-spike + mattpocock-skills:prototype (LOGIC branch — liftable pure module)
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: gsd-core:gsd-spike + mattpocock-skills:prototype (LOGIC branch — liftable pure module)
 ---
 
 # Spike
+
+**Announce at start:** "I'm using the skillgrid:spike skill to test this before we
+commit to it."
+
+## Overview
 
 Answer a feasibility question by **building a focused experiment** and reading what
 happens. The output is a **verdict with evidence** — `VALIDATED`, `INVALIDATED`, or
@@ -17,14 +27,12 @@ to ship. The one thing you lift into the real codebase is a **pure module** (see
 Liftable Pure Module section) — the rest stays in the spike directory, labeled as
 throwaway.
 
-**Announce at start:** "I'm using the skillgrid:spike skill to test this before we
-commit to it."
+## When to Use
 
-**When a spike is the wrong tool:** a question that is purely about a *fact* not in the
-codebase (a library's current API, a version's behavior, a competitor's offering) is
-`skillgrid:research`, not a spike — a spike is for a question that needs code executed
-to answer. If the question is "can we build the whole feature this way end-to-end,"
-you may want a tracer bullet instead; a spike stays small and single-purpose.
+- When a technical risk must be de-risked before committing to an approach — the design or blueprint rests on an unproven technical claim (a library's real behavior, an integration's feasibility, a performance question, a data-shape question).
+- When an unknown (API, library, integration) needs a time-boxed hands-on answer — code must actually run to produce the answer.
+
+**When NOT to use:** when the answer is already known from the codebase or a quick lookup — a spike is for genuine unknowns, not confirmation. A question that is purely about a *fact* not in the codebase (a library's current API, a version's behavior, a competitor's offering) is `skillgrid:research`, not a spike. If the question is "can we build the whole feature this way end-to-end," you may want a tracer bullet instead; a spike stays small and single-purpose.
 
 ## Config
 
@@ -251,4 +259,13 @@ than a single observed frame.
 - Hardcode spike-specific constants inside the liftable module (inject them as params)
 - Skip the investigation trail because the verdict is obvious (the trail is the record)
 - Present a spike as a recommendation without the verdict + evidence (it's an answer,
-  not an opinion)
+   not an opinion)
+
+## Verification
+
+- [ ] The spike produced a verdict — one of the three states (`VALIDATED` / `INVALIDATED` / `PARTIAL`) — that is evidence-gated, not vibes.
+- [ ] The verdict cites the concrete evidence that produced it: specific output, a log line, a measured number, a screenshot, or a head-to-head comparison result (not a single happy-path run for `VALIDATED`).
+- [ ] The investigation trail in `spike.md` records what was tried, what surprised, and which edge cases broke — not just the conclusion.
+- [ ] Any liftable pure module was extracted, labeled in `spike.md` (`## Liftable Module`), and preserved at the `spike.module_dir` path.
+- [ ] The spike artifacts (spike directory + consolidated `findings.md` section) were saved and committed — the record the blueprint cites survives the session.
+- [ ] If the runtime behavior was hard to judge visually, the forensic log layer (event log + export + summary) captured the evidence the verdict rests on.

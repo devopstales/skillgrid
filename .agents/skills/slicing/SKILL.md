@@ -1,7 +1,12 @@
 ---
 name: slicing
 description: Use after writing a blueprint to break it into vertical tracer-bullet tickets with dependency edges and execution waves. Produces tasks.md for the execution skills to pick up.
-# based on mattpocock-skills:to-tickets + colemedin-skills:piv-slice-epic
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: mattpocock-skills:to-tickets + colemedin-skills:piv-slice-epic
 ---
 
 # Slicing
@@ -18,7 +23,7 @@ Break a blueprint into vertical tracer-bullet tickets that each fit a single fre
 - When the blueprint is too large for a single execution session
 - When you need parallel execution waves (independent tickets can run concurrently)
 
-**Skip when:** the blueprint has 1-2 tasks. Just execute it directly with `skillgrid:subagent-execution` or `skillgrid:simple-execution`.
+**When NOT to use:** the blueprint has 1-2 tasks. Just execute it directly with `skillgrid:subagent-execution` or `skillgrid:simple-execution`.
 
 ## Fast-Track Classification
 
@@ -205,3 +210,12 @@ If any check fails, fix the slicing before committing.
 - Leave a ticket's acceptance criteria vague ("it works")
 - Skip the dependency graph
 - Put a ticket in a wave before its blockers
+
+## Verification
+
+- [ ] `tasks.md` was produced at `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md` with vertical tracer-bullet tickets (title, scope, acceptance, `SATISFIES`, files, blocks/blocked-by)
+- [ ] Every ticket is dependency-ordered — no ticket appears in a wave before its blockers, and each "blocked by" edge is a real implementation dependency
+- [ ] Every ticket is sized for one fresh agent context (implement + test + commit without re-reading the blueprint)
+- [ ] The Fast-Track classification was applied — a `trivial`/`small` waiver record exists in `briefing.md`, or a full `tasks.md` with waves and acceptance criteria was produced
+- [ ] The Slicing Self-Review passed — no oversized, non-vertical, demoable-less, or placeholder tickets
+- [ ] Ticket IDs are present if `ticketing.enabled: true` (published to the configured tracker as an epic)

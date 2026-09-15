@@ -1,7 +1,12 @@
 ---
 name: isolated-workspace
 description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - ensures an isolated workspace exists via native tools or git worktree fallback
-# based on superpowers:using-git-worktrees
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: superpowers:using-git-worktrees
 ---
 
 # Isolated Workspace
@@ -15,6 +20,14 @@ Ensure work happens in an isolated workspace. Prefer your platform's native work
 **Announce at start:** "I'm using the skillgrid:isolated-workspace skill to set up an isolated workspace."
 
 **Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.worktree_dir` for the worktree directory (default `.worktrees/`). Use `testing.setup` for the install command (e.g. `npm install`, `go mod download`) instead of auto-detecting. If the file doesn't exist, use the defaults shown in this skill.
+
+## When to Use
+
+- Starting feature work that must not touch the main checkout
+- Running an experiment/spike that needs a clean isolated env
+- Executing an implementation plan that will generate throwaway or reversible changes
+
+**When NOT to use:** for a quick read-only look or a single-file edit that won't be discarded — an isolated workspace is overkill.
 
 ## Step 0: Detect Existing Isolation
 
@@ -168,3 +181,20 @@ Ready to implement <feature-name>
 | "The worktree directory is surely ignored already" | Run `git check-ignore`. An unignored worktree directory commits the whole tree into the repo. |
 | "Any directory name works" | Explicit instructions beat an existing project-local directory, which beats the `.worktrees/` default. |
 | "The workspace is fresh — baseline tests can wait" | A dirty baseline makes every later failure ambiguous. Run the tests now; proceeding past failures is your human partner's call. |
+
+## Red Flags
+
+- Edits landed in the main checkout instead of the isolated workspace
+- Baseline tests not verified clean before starting work
+- Existing isolation not detected and a duplicate worktree was created
+- `git worktree add` used even though a native worktree tool was available
+- Worktree directory not checked with `git check-ignore` before creation
+- Branch state or detached HEAD in an existing worktree went unreported
+
+## Verification
+
+- [ ] Step 0 detection ran — existing isolation found or confirmed absent (with the submodule guard checked)
+- [ ] Isolated workspace created and is a valid worktree/checkout (native tool or `git worktree add`)
+- [ ] Worktree directory confirmed ignored, or added to `.gitignore` and committed
+- [ ] Project setup command from config (or auto-detected fallback) ran successfully
+- [ ] Step 3 clean baseline verified — test runner exit 0 and `git status` clean |

@@ -15,8 +15,11 @@ description: >
   translation, summaries, recipes).
 argument-hint: "[lite|full|ultra]"
 license: MIT
-# based on ponytail (MIT) — ported into skillgrid; the "one runnable check"
-# rule is re-bound to the #### Gates / test-driven-verification contract.
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: ponytail (MIT) — ported into skillgrid; the "one runnable check" rule is re-bound to the Gates / test-driven-verification contract
 ---
 
 # Ponytail
@@ -26,6 +29,26 @@ seen every over-engineered codebase and been paged at 3am for one. The best
 code is the code never written.
 
 **Announce at start:** "I'm using the skillgrid:ponytail skill to find the laziest solution that works."
+
+## Overview
+
+A stance, not a toolkit: before writing any code, climb the ladder and stop at
+the first rung that holds — skip the need entirely, reuse, stdlib, native,
+installed dep, one line, and only then the minimum code that works. Lazy means
+efficient, not careless: it shortens the solution, never the reading or the
+check.
+
+## When to Use
+
+- When choosing how much code/effort to spend on a task.
+- When the right level of solution is unclear.
+- Any coding task in the skillgrid flow: writing, adding, refactoring, fixing,
+  reviewing, designing code, or choosing libraries or dependencies.
+
+**When NOT to use:** non-coding requests (general knowledge, prose, translation,
+summaries, recipes); and never simplify away what the "When NOT to be lazy"
+section protects — trust-boundary validation, data-loss prevention, security,
+explicit spec requirements.
 
 ## Fully active by default
 
@@ -139,3 +162,30 @@ Ponytail governs what you build, not how you talk. "stop ponytail" / "normal
 mode": revert. Level persists until changed or session end.
 
 The shortest path to done is the right path.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "I'll add the robust version to be safe" | Speculative robustness is a new dependency with a bug surface. Ship the lazy version, question it in the same response, let the user ask for the full version. |
+| "Lazy means untested" | The check rule: a non-trivial change MUST leave its happy-path gate green, freshly run. Lazy shortens the code, not the check. |
+| "The ladder says do nothing, so skip the check rule" | The ladder picks the smallest rung that works; the check rule says that rung still has to pass its gate. They compose — neither waives the other. |
+| "One line is too fragile to trust" | Two stdlib options the same size? Take the one correct on edge cases. Lazy is less code, not the flimsier algorithm. |
+| "I'll skip understanding the problem to ship a smaller diff" | The ladder runs after you understand, never instead of. A small diff in the wrong place isn't lazy, it's a second bug. |
+
+## Red Flags
+
+- A `use case` / interface / factory / config block for one implementation or a value that never changes.
+- A new dependency added for what a few lines of stdlib or native platform feature can do.
+- A `ponytail:`-marked corner with no named ceiling and upgrade path.
+- A small diff shipped without tracing the files the change touches first — confident wrong fix, the dangerous kind of lazy.
+- A non-trivial change declared done while its happy-path gate is unmet or unrun.
+- More prose than code defending the simplification.
+
+## Verification
+
+- [ ] The solution is the minimum rung of the ladder that satisfies the constraints (state which rung and why the higher rungs didn't hold).
+- [ ] The check rule from this skill was run and its gate output is shown (`CHECK:` exits 0, `EXPECT:` matches, freshly run) — or the task is a trivial one-liner and the existing gate still passes.
+- [ ] No speculative robustness, abstraction, or dependency beyond what the task requires — diff shows deletion over addition.
+- [ ] The problem was read first: every file the change touches was traced before the rung was picked.
+- [ ] Nothing protected by "When NOT to be lazy" (trust-boundary validation, data-loss prevention, security, explicit spec) was simplified away.

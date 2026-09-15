@@ -1,14 +1,34 @@
 ---
 name: requesting-code-review
-# based on superpowers:requesting-code-review
 description: Use when completing tasks, implementing major features, or before merging to verify work meets requirements
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: superpowers:requesting-code-review
 ---
 
 # Requesting Code Review
 
+**Announce at start:** "I'm using the skillgrid:requesting-code-review skill to get this reviewed."
+
 Dispatch a code reviewer subagent to catch issues before they cascade. The reviewer gets precisely crafted context for evaluation — never your session's history.
 
 **Core principle:** Review early, review often.
+
+## Overview
+
+Dispatch a code reviewer subagent to catch issues before they cascade — a second pair of eyes that sees only the work product, never your session's history. This skill dispatches two axes in parallel (standards + spec) so a change is checked against both the repo's conventions and what was actually asked, then triages the combined findings.
+
+## When to Use
+
+- After completing a work unit (a task, a feature, a bug fix) and before proceeding to the next one
+- Before merging to main, so the diff is reviewed before `skillgrid:ship`
+- When you want independent eyes on a non-trivial diff — fresh context, no assumption that your reasoning holds
+- When you're stuck on your own change and need a fresh perspective
+
+**When NOT to use:** For a large (50+ changed lines) or high-risk diff (auth, data migration, money, concurrency, public API) — use `skillgrid:parallel-code-review` instead. For the moment the *mandatory/optional* triggers below are met, see [When to Request Review](#when-to-request-review). For a quick "does this look right" sanity pass on a trivial change, this two-axis dispatch is overkill.
 
 ## When to Request Review
 
@@ -42,7 +62,7 @@ HEAD_SHA=$(git rev-parse HEAD)
 Two axes, two `general-purpose` subagents, run concurrently (do not pollute
 each other's context):
 
-**Standards reviewer** — template at [code-reviewer.md](code-reviewer.md)
+**Standards reviewer** — template at [references/code-reviewer.md](references/code-reviewer.md)
 
 Does the code follow this repo's documented standards? Pass:
 - the diff range (`{BASE_SHA}..{HEAD_SHA}`)
@@ -55,7 +75,7 @@ Does the code follow this repo's documented standards? Pass:
   (name it, quote the hunk). Repo standards (glossary/ADRs) override the
   baseline. Skip anything tooling (lint) already enforces.
 
-**Spec reviewer** — template at [spec-reviewer.md](spec-reviewer.md)
+**Spec reviewer** — template at [references/spec-reviewer.md](references/spec-reviewer.md)
 
 Does the code implement what was asked? Pass:
 - the diff range
@@ -101,8 +121,8 @@ BASE_SHA=$(git log --oneline | grep "Task 1" | head -1 | awk '{print $1}')
 HEAD_SHA=$(git rev-parse HEAD)
 
 [Dispatch two reviewers in parallel]
-  Standards (code-reviewer.md): glossary + ADRs + smell baseline
-  Spec (spec-reviewer.md): acceptance.feature + blueprint
+  Standards (references/code-reviewer.md): glossary + ADRs + smell baseline
+  Spec (references/spec-reviewer.md): acceptance.feature + blueprint
 
 [Standards returns]
   Strengths: Naming inside the glossary, real tests
@@ -140,4 +160,13 @@ You: [triage both axes] [Fix glossary drift + add the missing scenario]
 - Show code/tests that prove it works
 - Request clarification
 
-See templates at: [code-reviewer.md](code-reviewer.md) (Standards) and [spec-reviewer.md](spec-reviewer.md) (Spec).
+## Verification
+
+- [ ] The two reviewers were actually dispatched (standards + spec, in parallel) and both returned reports — not assumed
+- [ ] Each reviewer's request included the diff range (`{BASE_SHA}..{HEAD_SHA}`) plus the context it needs (glossary/ADRs for standards, `acceptance.feature`/blueprint for spec)
+- [ ] The request names the specific risk areas to focus on (violated standards, scenarios that must pass) — per the "How to Request" briefs
+- [ ] The two reports were presented under `## Standards` and `## Spec` headings side by side, NOT merged or reranked
+- [ ] The combined findings were triaged and in-scope issues fixed with tests — not left as "reviewed, good to go"
+- [ ] The review was actually received (a report exists for each axis) before proceeding to the next task or merge
+
+See templates at: [references/code-reviewer.md](references/code-reviewer.md) (Standards) and [references/spec-reviewer.md](references/spec-reviewer.md) (Spec).

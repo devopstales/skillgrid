@@ -1,7 +1,12 @@
 ---
 name: using-skillgrid
 description: Use when starting any conversation - establishes how to find and use skills, requiring skill invocation before ANY response including clarifying questions
-# based on superpowers:using-superpowers
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  based_on: superpowers:using-superpowers
 ---
 
 <SUBAGENT-STOP>
@@ -15,6 +20,17 @@ IF A SKILL APPLIES TO YOUR TASK, YOU DO NOT HAVE A CHOICE. YOU MUST USE IT.
 
 This is not negotiable. You cannot rationalize your way out of this.
 </EXTREMELY-IMPORTANT>
+
+## Overview
+
+The router — the skill that tells an agent which skill to use before any response or action. If even a 1% chance a skill applies, you must invoke it; there is no choice, no rationalizing out. It runs the checks that gate the start (config, resume, domain model), routes the task to the right first skill, and keeps orchestration from turning routing into extra work.
+
+## When to Use
+
+- At the start of any skillgrid task, to pick the right skill.
+- When unsure which skill applies to the current request.
+
+**When NOT to use:** mid-phase, once the correct skill is already running — using-skillgrid routes at the start, it doesn't re-route every step.
 
 ## The Rule
 
@@ -153,3 +169,21 @@ If your harness appears here, read its reference file for special instructions:
 ## User Instructions
 
 User instructions (CLAUDE.md, AGENTS.md, GEMINI.md, etc, direct requests) take precedence over skills, which in turn override default behavior. Only skip skill workflows or instructions when your human partner has explicitly told you to.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "I'll just pick a skill by name, skip the router" | The Router table maps condition → first skill. Picking by name misses the gates (config, resume, domain model) that run before routing. |
+| "The user gate is optional, I'll proceed" | The User Gate is mandatory: the user confirms the slice before execution begins. Do not auto-execute. |
+| "I'll run two skills at once to be safe" | Skill Priority: process skills come first, then implementation. Running two at once re-enters routing and nests orchestration. |
+| "The router can just do the work itself" | The router is a persona that dispatches, not executes. Doing both doubles context and re-runs the full pipeline for trivial work. |
+| "I remember this skill, no need to read it" | Skills evolve. The Rule requires invoking the current version, not the one in memory. |
+
+## Verification
+
+- [ ] The Router selected exactly one first skill for the task (a `Router` row matches, no guessing by name).
+- [ ] The required start gates passed: config check (`onboarding` if uninitialized), resume check (in-flight artifacts), and domain model check (glossary/ADRs read).
+- [ ] The User Gate (mandatory) was passed — the user confirmed the slice before execution began.
+- [ ] Skill Priority was respected and no Orchestration Anti-Patterns (router executing, persona-calls-persona, depth > 1, orchestrator that edits).
+- [ ] The chosen skill was announced/invoked ("Using [skill] to [purpose]"), or its skip is documented (e.g. a meta/always-on skill).

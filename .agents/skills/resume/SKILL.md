@@ -1,7 +1,12 @@
 ---
 name: resume
 description: Use at the start of any session continuing prior work, or whenever you notice you've lost your place. Re-orient from durable state (state.md, execution ledger, commit checkpoint) before acting.
-# context-rot protection: the conversation is a control channel, the files are the store
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
+  note: context-rot protection — the conversation is a control channel, the files are the store
 ---
 
 # Resume
@@ -12,6 +17,10 @@ Recover your position from durable state and continue — do not re-derive from 
 
 **Announce at start:** "I'm using the skillgrid:resume skill to re-orient."
 
+## Overview
+
+Recover your position from the three durable state layers — phase, task, code — and continue from the first incomplete task, so work survives compaction, session death, and context overflow. The conversation is a control channel; the files are the store. When state files and your recollection disagree, the files win, every time.
+
 ## When to Use
 
 - Starting a session that continues prior work (new day, fresh session, after a `/clear`)
@@ -19,7 +28,7 @@ Recover your position from durable state and continue — do not re-derive from 
 - You notice you've lost your place — you can't say which task is next without guessing
 - Right after a compaction, before doing anything else
 
-**Skip when:** starting something genuinely new (no in-flight spec), or when a skill has already told you exactly where to pick up (e.g. `skillgrid:subagent-execution`'s own setup reads its ledger).
+**When NOT to use:** starting something genuinely new (no in-flight spec), or when a skill has already told you exactly where to pick up (e.g. `skillgrid:subagent-execution`'s own setup reads its ledger).
 
 ## The State Layers
 
@@ -83,3 +92,22 @@ The explicit pause-and-persist action. Invoke it when you are stopping for a whi
 ## Restore (context-restore)
 
 Identical to the protocol above: locate → read the layers → announce → continue. "I'm restoring context" is the named entry; the mechanism is the same three-layer read.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "I'll just re-read the code and figure out where we were" | The code layer only says *where the last unit left off*; the ledger says *which tasks are done*. Re-deriving skips the ledger and re-runs finished work. Read the layers. |
+| "The checkpoint is stale, ignore it" | `checkpoint-state.sh restore` is derived from git log — it's always reconstructable, not a cached value. Its `remaining` names the partial unit you must finish before anything new. Run it. |
+| "I'll save context at the end, not as I go" | A session can die between "as I go" and "the end" — compaction, context overflow, a risky operation. Save as you go so there is always a position to resume from. |
+| "The last few messages tell me what's next" | Messages are the control channel, not the store — they rot and get compacted. The ledger is the authority on which task is done; read it. |
+| "It's been a while, I'll start over from a fresh look" | Restarting re-runs finished tasks and loses the rulings already made. The phase layer and ledger preserve both — resume, don't restart. |
+
+## Verification
+
+- [ ] The in-flight topic was located: a `state.md`, an uncompleted `tasks.md`, or a ledger exists (or `skillgrid:using-skillgrid` was invoked because nothing is in flight)
+- [ ] The correct state layer was read for the phase: `state.md` always; the plan's `progress.md` when the phase is execution
+- [ ] The commit checkpoint was run — `bash .agents/hooks/checkpoint-state.sh restore` returned, and its `remaining` (a partial unit) was noted and finished before dispatching anything new
+- [ ] The recovered position was announced in one line naming the source (e.g. "Resuming `<topic>`: phase=execution, wave 2, task 3/5 done, last commit `<sha>`. Next: task 4.")
+- [ ] Resume continued at the first incomplete task (a `Task <N>: complete` line was NOT skipped over), not from scratch
+- [ ] If context was saved: `state.md` was refreshed, the plan's `progress.md` was appended (if executing), the work unit was committed, and `state.md` was committed (spec zone)

@@ -13,6 +13,9 @@ brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing
 | `using-skillgrid` | Orchestrator — detect, classify, route, resume, user gate |
 | `onboarding` | Bootstrap — detect facts; write `config.yaml` + AGENTS block |
 | `brainstorming` | Requirements gathering, ADR manifest |
+| `interviewing` | Grilling the user to a shared understanding (drives ADRs) |
+| `architectural-decision-records` | Domain model (glossary) + ADR authoring / supersession |
+| `acceptance-test-authoring` | BDD `acceptance.feature` scenarios from intent |
 | `research` / `deep-research` | External fact-finding → `research.md` |
 | `spike` | Feasibility probe → `findings.md` |
 | `sketch` | UI/interaction variants → `findings.md` |
@@ -20,11 +23,19 @@ brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing
 | `slicing` | Vertical tickets → `tasks.md` |
 | `ticketing` | Publish to tracker, track status |
 | `subagent-execution` / `simple-execution` | Implement tickets |
+| `parallel-execution` | Fan out independent tasks across subagents |
+| `structured-debugging` | Root-cause-first debugging discipline |
+| `test-driven-development` | RED → GREEN → TRIANGULATE → REFACTOR |
+| `test-driven-verification` | Evidence before any "done" claim |
+| `work-unit-commits` | Commit protocol + checkpoint resume handle |
+| `isolated-workspace` | Worktree isolation before execution |
+| `ponytail` | Lazy-minimal solution discipline (auto, on coding tasks) |
 | `qa` | Quality gate → `qa-report.md` |
 | `requesting-code-review` / `parallel-code-review` | Review |
 | `receiving-code-review` | Process findings |
 | `ship` | Integrate to base + move change folder to `archive/` → `ship-report.md` |
 | `reflect` | **Terminal** — retrospective + archive-report + session close → `retrospective.md` + `archive-report.md` |
+| `resume` | Re-orient from durable state at session start / context rot |
 
 ## Naming
 
