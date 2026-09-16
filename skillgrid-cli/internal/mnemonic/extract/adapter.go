@@ -125,14 +125,18 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 	}
 
 	type defRec struct {
-		name      string
-		qualified string
-		kind      string
-		sig       string
-		start     int
-		end       int
-		uid       string
-		hash      string
+		name       string
+		qualified  string
+		kind       string
+		sig        string
+		start      int
+		end        int
+		uid        string
+		hash       string
+		returnType string
+		paramTypes string
+		visibility string
+		isExported bool
 	}
 	type edgeRec struct {
 		kind    string
@@ -145,6 +149,10 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 	}
 	var defs []defRec
 	var edges []edgeRec
+	var unresolved []UnresolvedMember
+	// perLangCalls counts extracted call sites per language for the
+	// resolution-audit ledger (the drop-not-guess health signal).
+	perLangCalls := map[string]int{}
 
 	// symbolUIDs maps a name -> uid for in-file edge targeting (best-effort;
 	// cross-file resolution is the graph package's job in step 03).
@@ -153,20 +161,24 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 
 	addDef := func(name, kind, sig string, start, end int, spanText []byte) string {
 		uid := symbolUID(name, kind, start, end)
-		_ = spanText
 		if _, exists := uidByName[name]; !exists {
 			uidByName[name] = uid
 			kindByName[name] = kind
 		}
+		ti := deriveTypeInfo(lang, name, sig)
 		defs = append(defs, defRec{
-			name:      name,
-			qualified: name,
-			kind:      kind,
-			sig:       sig,
-			start:     start,
-			end:       end,
-			uid:       uid,
-			hash:      contentHash(spanText),
+			name:       name,
+			qualified:  name,
+			kind:       kind,
+			sig:        sig,
+			start:      start,
+			end:        end,
+			uid:        uid,
+			hash:       contentHash(spanText),
+			returnType: ti.ReturnType,
+			paramTypes: ti.ParamTypes,
+			visibility: visibilityOf(name, lang),
+			isExported: isExported(name, lang),
 		})
 		return uid
 	}
@@ -238,9 +250,19 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 			if c.Receiver != "" {
 				// Member call: the target is name-only against a receiver we
 				// cannot statically bind here — keep EXTRACTED (it is AST-
-				// derived) but the graph step will refine.
-				_ = c.Receiver
+				// derived) but the graph step will refine. Log it so the
+				// call-resolution backlog is auditable (gitnexus
+				// unresolvedReceiverMembers).
+				unresolved = append(unresolved, UnresolvedMember{
+					FilePath: path,
+					Language: lang,
+					Member:   c.Name,
+					Receiver: c.Receiver,
+					External: isExternalMember(lang, c.Receiver, c.Name),
+					Line:     lineOf(src, c.StartByte),
+				})
 			}
+			perLangCalls[lang]++
 			// A bare import() call in JS/TS is a dynamic module load, not a
 			// plain call: the gotreesitter lib surfaces it as a call_expression
 			// whose callee is the `import` keyword. Emit a dynamic_import edge
@@ -351,8 +373,22 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 			EndLine:       d.end,
 			ContentHash:   d.hash,
 			UID:           d.uid,
+			ReturnType:    d.returnType,
+			ParamTypes:    d.paramTypes,
+			Visibility:    d.visibility,
+			IsExported:    d.isExported,
 		})
 	}
+	for _, u := range unresolved {
+		g.UnresolvedMembers = append(g.UnresolvedMembers, u)
+		if u.External {
+			g.Audit.ExternalUnresolved++
+		} else {
+			g.Audit.Unresolved++
+		}
+	}
+	g.Audit.Lang = lang
+	g.Audit.CallSites = perLangCalls[lang]
 	for _, ed := range edges {
 		g.Edges = append(g.Edges, Edge{
 			Kind:       ed.kind,
@@ -372,4 +408,54 @@ func (e *extractor) mapTree(path, lang string, tree *ts.Tree) (*FileGraph, error
 	// nearest enclosing symbol (language-agnostic, comment-text based).
 	g.Rationales = ExtractRationale(src, g.Symbols)
 	return g, nil
+}
+
+// visibilityOf classifies a top-level symbol's visibility from its name.
+// Only Go has a name-based export rule (leading uppercase); JS/TS rely on
+// explicit export keywords the extractor does not surface here, so they
+// default to unexported (the safe, conservative reading).
+func visibilityOf(name, lang string) string {
+	if name == "" {
+		return ""
+	}
+	switch lang {
+	case "go":
+		if name[0] >= 'A' && name[0] <= 'Z' {
+			return "export"
+		}
+		return "private"
+	}
+	return "unexported"
+}
+
+// isExported is the boolean form of visibilityOf for fast filtering.
+func isExported(name, lang string) bool {
+	return visibilityOf(name, lang) == "export"
+}
+
+// jsPromiseMembers are receiver-qualified JS/TS members that resolve to
+// external (stdlib/browser) APIs rather than an in-repo symbol — the
+// gitnexus "external" split (e.g. .catch/.then on a promise).
+var jsPromiseMembers = map[string]bool{
+	"catch": true, "then": true, "finally": true,
+}
+
+// isExternalMember marks a receiver-qualified call as external (resolves to
+// stdlib/browser APIs, not an in-repo symbol) so the unresolved_members table
+// can split the backlog into "internal, worth resolving" vs "external, by
+// design".
+func isExternalMember(lang, receiver, member string) bool {
+	switch lang {
+	case "javascript", "typescript", "tsx":
+		if jsPromiseMembers[member] {
+			return true
+		}
+	}
+	// A lowercase Go receiver is almost always a local variable bound to a
+	// stdlib/external type (rows.Scan, req.URL) rather than an in-repo
+	// struct field.
+	if lang == "go" && receiver != "" && receiver[0] >= 'a' && receiver[0] <= 'z' {
+		return true
+	}
+	return false
 }

@@ -89,14 +89,64 @@ func handleCodeStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM unresolved_refs`).Scan(&unresolved); err != nil {
 		return toolError(err)
 	}
+	// Unresolved receiver-qualified call sites (036): the call-layer analogue
+	// of unresolved_refs. 0 on a fresh index; a missing table is an error, not
+	// a guess.
+	var unresolvedMembers int
+	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM unresolved_members`).Scan(&unresolvedMembers); err != nil {
+		return toolError(err)
+	}
+	// Call-resolution audit ledger (036): per-language call sites vs unresolved
+	// receiver members — the quantified drop-not-guess health signal.
+	audit := map[string]map[string]int{}
+	if rows, err := h.Store().DB.Query(`SELECT language, call_sites, unresolved FROM resolution_audit ORDER BY language`); err == nil {
+		for rows.Next() {
+			var lang string
+			var callSites, unres int
+			if rows.Scan(&lang, &callSites, &unres) == nil {
+				audit[lang] = map[string]int{"call_sites": callSites, "unresolved": unres}
+			}
+		}
+		rows.Close()
+	}
+	// Schema fingerprint (036): the structural-schema hash the current binary
+	// writes. If it differs from the one stored at index time, the index was
+	// built by an older extraction schema (silently stale). Empty on a store
+	// predating 036.
+	var schemaFP string
+	if err := h.Store().DB.QueryRow(`SELECT value FROM index_meta_kv WHERE key = 'schema_fingerprint'`).Scan(&schemaFP); err != nil {
+		schemaFP = ""
+	}
+	// Capabilities (036): declare what the index can actually do so an agent
+	// knows BEFORE querying whether full-text, vector, or graph traversal are
+	// available (the gitnexus capabilities block).
+	capabilities := map[string]map[string]string{
+		"graph":  {"provider": "sqlite", "status": "available"},
+		"fts":    {"provider": "sqlite-fts5", "status": "available"},
+		"vector": {"provider": "embedder", "status": "unavailable"},
+	}
+	var ftsRows int
+	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM symbol_fts`).Scan(&ftsRows); err == nil && ftsRows == 0 {
+		capabilities["fts"]["status"] = "unavailable"
+	}
+	var embCount int
+	var embDim int
+	if err := h.Store().DB.QueryRow(`SELECT COUNT(*), COALESCE(MAX(dim),0) FROM embeddings`).Scan(&embCount, &embDim); err == nil && embCount > 0 {
+		capabilities["vector"]["status"] = "available"
+		capabilities["vector"]["dims"] = fmt.Sprintf("%d", embDim)
+	}
 
 	return JSONResult(map[string]any{
-		"file_count":      status.FileCount,
-		"chunk_count":     status.ChunkCount,
-		"last_indexed":    status.LastIndexed,
-		"stale":           stale,
-		"fair_coverage":   coverage,
-		"unresolved_refs": unresolved,
+		"file_count":         status.FileCount,
+		"chunk_count":        status.ChunkCount,
+		"last_indexed":       status.LastIndexed,
+		"stale":              stale,
+		"fair_coverage":      coverage,
+		"unresolved_refs":    unresolved,
+		"unresolved_members": unresolvedMembers,
+		"resolution_audit":   audit,
+		"schema_fingerprint": schemaFP,
+		"capabilities":       capabilities,
 	})
 }
 

@@ -44,6 +44,46 @@ type Symbol struct {
 	EndLine       int
 	ContentHash   string
 	UID           string
+
+	// Type/visibility enrichment, derived from the source span (the
+	// gotreesitter DefinitionSpan carries only name/kind/range). Empty means
+	// "not derivable / not a function", never "unknown-but-present".
+	// ReturnType is the function return type, ParamTypes is the ordered
+	// parameter-type list, Visibility is export/private/unexported/unknown,
+	// IsExported is the boolean form of Visibility for fast filtering.
+	ReturnType string
+	ParamTypes string
+	Visibility string
+	IsExported bool
+}
+
+// UnresolvedMember is a receiver-qualified call site (obj.Scan(...)) whose
+// receiver the extractor cannot statically bind. It is logged to the
+// unresolved_members table so the call-resolution backlog is auditable: an
+// agent can see "these N call sites are unresolvable, here is the shape of
+// why" instead of a bare missing-edge.
+type UnresolvedMember struct {
+	FilePath string
+	Language string
+	// Member is the called name (Scan, QueryRow, ...); Receiver is the
+	// qualifier (rows, x, ...). External marks members that resolve to
+	// external/stdlib APIs (e.g. a .catch on a JS promise) rather than an
+	// in-repo symbol.
+	Member   string
+	Receiver string
+	External bool
+	Line     int
+}
+
+// AuditCounts is the per-run, per-language call-resolution ledger: how many
+// call sites were extracted and how many receiver-qualified members were left
+// unresolved. It quantifies the drop-not-guess policy so code_status can show
+// the resolver's health ("across N Go calls, M members were unresolved").
+type AuditCounts struct {
+	Lang               string
+	CallSites          int
+	Unresolved         int
+	ExternalUnresolved int
 }
 
 // Edge connects two symbols (or a symbol and an unresolved target name).
@@ -68,6 +108,13 @@ type FileGraph struct {
 	Rationales []Rationale
 	Extractor  string // "treesitter" | "regex"
 	Error      string // set when the primary extractor failed and fallback was used
+
+	// UnresolvedMembers are receiver-qualified call sites the extractor could
+	// not statically bind (logged to the unresolved_members table).
+	UnresolvedMembers []UnresolvedMember
+	// Audit is the per-language call-resolution ledger (call sites vs
+	// unresolved receiver members) for the drop-not-guess health signal.
+	Audit AuditCounts
 }
 
 // Extractor produces a FileGraph for a single source file. Implementations
@@ -340,6 +387,165 @@ func signatureOf(src []byte, start, end uint32) string {
 		text = text[:200]
 	}
 	return text
+}
+
+// typeInfo derives a function's return type and parameter types from its
+// signature span. The gotreesitter DefinitionSpan is name/kind/range only, so
+// this is a Go/TS heuristic over the source text, not type inference: it
+// returns "" for non-functions or anything it cannot parse (never
+// "unknown-but-present"). It is deliberately conservative — a wrong type is
+// worse than an absent one for rename/impact reasoning.
+type typeInfo struct {
+	ReturnType string
+	ParamTypes string
+}
+
+func deriveTypeInfo(lang, name, sig string) typeInfo {
+	var ti typeInfo
+	if sig == "" || name == "" {
+		return ti
+	}
+	switch lang {
+	case "go":
+		// A Go signature: [func ]Name(params) [results]. The callee name
+		// anchors the parameter list so we never mistake an assignment.
+		anchored := sig
+		if i := strings.Index(anchored, name+"("); i >= 0 {
+			anchored = anchored[i:]
+		} else {
+			return ti
+		}
+		open := strings.Index(anchored, "(")
+		if open < 0 {
+			return ti
+		}
+		closeParen := matchingParen(anchored, open)
+		if closeParen < 0 {
+			return ti
+		}
+		inner := strings.TrimSpace(anchored[open+1 : closeParen])
+		if inner != "" {
+			ti.ParamTypes = extractParamTypes(inner)
+		}
+		ti.ReturnType = cleanSingleType(anchored[closeParen+1:])
+	case "typescript", "tsx", "javascript":
+		// A TS signature: Name(params): ReturnType.
+		anchored := sig
+		if i := strings.Index(anchored, name+"("); i >= 0 {
+			anchored = anchored[i:]
+		} else {
+			return ti
+		}
+		open := strings.Index(anchored, "(")
+		if open < 0 {
+			return ti
+		}
+		closeParen := matchingParen(anchored, open)
+		if closeParen < 0 {
+			return ti
+		}
+		inner := strings.TrimSpace(anchored[open+1 : closeParen])
+		if inner != "" {
+			ti.ParamTypes = extractParamTypes(inner)
+		}
+		rest := anchored[closeParen+1:]
+		if i := strings.IndexByte(rest, ':'); i >= 0 {
+			ti.ReturnType = cleanSingleType(rest[i+1:])
+		}
+	}
+	return ti
+}
+
+// extractParamTypes reduces a raw parameter list (names + types) to just the
+// types, dropping Go parameter names and TS parameter names.
+func extractParamTypes(inner string) string {
+	parts := splitTopLevel(inner)
+	var types []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		// A Go/TS parameter is either `name type` or `type` (bare). Heuristic:
+		// if the last token is a known type-ish token, keep from it; otherwise
+		// keep the whole thing (it is already type-only).
+		fields := strings.Fields(p)
+		if len(fields) >= 2 {
+			// Keep the trailing type tokens (everything after the name). The
+			// name is the first field; the rest is the type.
+			types = append(types, strings.Join(fields[1:], " "))
+		} else {
+			types = append(types, p)
+		}
+	}
+	return strings.Join(types, ", ")
+}
+
+// cleanSingleType reduces a raw return-type tail to a single clean type: it
+// strips trailing braces/semicolons, unwraps a Go multi-return paren
+// (`(int, error)`), and keeps only the first top-level comma-separated type.
+func cleanSingleType(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimRight(s, " {;")
+	s = strings.TrimSpace(s)
+	// A Go multi-return is wrapped in parens: `(*T, error)`. Unwrap.
+	if strings.HasPrefix(s, "(") {
+		if end := matchingParen(s, 0); end >= 0 {
+			s = strings.TrimSpace(s[1:end])
+		}
+	}
+	// Keep only the first top-level comma-separated type (drop `, error`).
+	if i := strings.IndexByte(s, ','); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	return s
+}
+
+// matchingParen returns the index of the ')' matching the '(' at open, or -1.
+func matchingParen(s string, open int) int {
+	depth := 0
+	for i := open; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// splitTopLevel splits on commas that are not nested in (), [], {}, or a
+// string/character literal.
+func splitTopLevel(s string) []string {
+	var parts []string
+	depth := 0
+	start := 0
+	var quote rune
+	inStr := false
+	for i, r := range s {
+		switch {
+		case inStr:
+			if r == quote && s[i-1] != '\\' {
+				inStr = false
+			}
+		case r == '"' || r == '\'' || r == '`':
+			quote = r
+			inStr = true
+		case r == '(' || r == '[' || r == '{':
+			depth++
+		case r == ')' || r == ']' || r == '}':
+			depth--
+		case r == ',' && depth == 0:
+			parts = append(parts, s[start:i])
+			start = i + 1
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
 }
 
 // sortedNames returns the sorted unique names (for deterministic output).

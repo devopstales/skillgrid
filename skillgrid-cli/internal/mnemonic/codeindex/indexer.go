@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -360,6 +361,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	}
 	scannedPaths := make(map[string]struct{}, len(scanned))
 	targetUIDs := make(map[string]struct{})
+
 	// skippedFileIDs holds the file IDs of unchanged files that were skipped
 	// this run. Their symbols are already correct in the DB, so their UIDs
 	// must be added to targetUIDs to prevent the orphan prune from deleting them.
@@ -424,6 +426,9 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 			stats.SymbolsAdded += n
 			stats.EdgesAdded += len(edges)
 		}
+		// (Unresolved-members + resolution-audit are persisted over the FULL index
+		// after the commit, in resolutionAuditPass, so the tables are complete even
+		// on an incremental run.)
 		// Structure hash: deterministic over the extracted symbol UIDs + edge
 		// tuples (comments/format are excluded), so a structure-only edit keeps
 		// the same value. Persisted on the files row (informational).
@@ -568,7 +573,78 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 			fmt.Fprintf(os.Stderr, "warn: pdg pass: %v\n", err)
 		}
 	}
+	// Call-resolution audit ledger + schema fingerprint (target-state): the
+	// per-language call counts and unresolved-member counts from this run, and
+	// a short hash of the structural schema so code_status can detect a
+	// silently-stale index (built by an older extraction schema). Both are
+	// advisory; a failure never rolls back the committed graph.
+	if err := idx.resolutionAuditPass(ctx, passDB, scanned); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: resolution audit: %v\n", err)
+	}
+	if err := storeSchemaFingerprint(passDB); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: schema fingerprint: %v\n", err)
+	}
 	return stats, nil
+}
+
+// resolutionAuditPass re-extracts every scanned file and persists the
+// call-resolution ledger (per-language call sites + unresolved receiver
+// members) over the FULL index, in target-state. It runs after the commit as
+// an advisory pass (like community/process) so the tables are complete even on
+// an incremental run — a re-indexed-file-only write would leave the tables
+// scoped to the delta. Per-file failures are non-fatal (a malformed file skips
+// its member rows and the run continues).
+func (idx *Indexer) resolutionAuditPass(ctx context.Context, db *sql.DB, files []ScannedFile) error {
+	ex := extract.Default()
+	audit := map[string]extract.AuditCounts{}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, f := range files {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		lang := extract.DetectLanguage(f.Path)
+		g, err := ex.ExtractFile(f.Path, f.Contents)
+		if err != nil || g == nil {
+			continue // extraction fallback already handled; skip the ledger row
+		}
+		if g.Audit.Lang == "" {
+			g.Audit.Lang = lang
+		}
+		audit[g.Audit.Lang] = g.Audit
+		fileID, ferr := fileIDFor(tx, f.Path)
+		if ferr != nil {
+			continue
+		}
+		if err := storeUnresolvedMembers(tx, fileID, f.Path, g.Audit.Lang, g.UnresolvedMembers); err != nil {
+			return err
+		}
+	}
+	// Drop member rows for files deleted since the last run (their file_id no
+	// longer resolves), then write the per-language ledger (target-state).
+	if _, err := tx.Exec(`DELETE FROM unresolved_members WHERE file_id NOT IN (SELECT id FROM files)`); err != nil {
+		return err
+	}
+	for lang, c := range audit {
+		if _, err := tx.Exec(`
+			INSERT INTO resolution_audit (language, call_sites, unresolved)
+			VALUES (?, ?, ?)
+			ON CONFLICT(language) DO UPDATE SET
+			  call_sites = excluded.call_sites,
+			  unresolved = excluded.unresolved`,
+			lang, c.CallSites, c.Unresolved+c.ExternalUnresolved,
+		); err != nil {
+			return err
+		}
+	}
+	// Prune ledger rows for languages no longer present in the index.
+	if _, err := tx.Exec(`DELETE FROM resolution_audit WHERE language NOT IN (SELECT DISTINCT language FROM unresolved_members WHERE language != '')`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // communityPass runs the 01 community-detection pass over the indexed graph,
@@ -1189,9 +1265,13 @@ func writeFileGraph(tx *sql.Tx, fileID int64, syms []extract.Symbol, edges []ext
 	// Upsert symbols (and their FTS rows via trigger).
 	var upserted int
 	for _, s := range syms {
+		exported := 0
+		if s.IsExported {
+			exported = 1
+		}
 		if _, err := tx.Exec(`
-			INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid, return_type, param_types, visibility, is_exported)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(uid) DO UPDATE SET
 			  file_id = excluded.file_id,
 			  name = excluded.name,
@@ -1201,8 +1281,13 @@ func writeFileGraph(tx *sql.Tx, fileID int64, syms []extract.Symbol, edges []ext
 			  signature = excluded.signature,
 			  start_line = excluded.start_line,
 			  end_line = excluded.end_line,
-			  content_hash = excluded.content_hash`,
+			  content_hash = excluded.content_hash,
+			  return_type = excluded.return_type,
+			  param_types = excluded.param_types,
+			  visibility = excluded.visibility,
+			  is_exported = excluded.is_exported`,
 			fileID, s.Name, s.QualifiedName, s.Kind, s.Language, s.Signature, s.StartLine, s.EndLine, s.ContentHash, s.UID,
+			s.ReturnType, s.ParamTypes, s.Visibility, exported,
 		); err != nil {
 			return 0, fmt.Errorf("upsert symbol %s: %w", s.Name, err)
 		}
@@ -1334,6 +1419,67 @@ func writeFileGraph(tx *sql.Tx, fileID int64, syms []extract.Symbol, edges []ext
 		}
 	}
 	return upserted, nil
+}
+
+// storeUnresolvedMembers persists a file's receiver-qualified unresolved call
+// sites in target-state: the file's prior rows are replaced (a call that now
+// resolves drops out of the backlog). This is the call-layer analogue of the
+// route-layer unresolved_refs (034).
+func storeUnresolvedMembers(tx *sql.Tx, fileID int64, path, lang string, members []extract.UnresolvedMember) error {
+	if _, err := tx.Exec(`DELETE FROM unresolved_members WHERE file_id = ?`, fileID); err != nil {
+		return err
+	}
+	for _, m := range members {
+		external := 0
+		if m.External {
+			external = 1
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO unresolved_members (file_id, file_path, language, member, receiver, external, line)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			fileID, path, lang, m.Member, m.Receiver, external, m.Line,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// fileIDFor resolves a file's id by path within the open transaction (0 if the
+// file is absent — it was deleted this run, so its member rows are pruned).
+func fileIDFor(tx *sql.Tx, path string) (int64, error) {
+	var id int64
+	if err := tx.QueryRow(`SELECT id FROM files WHERE path = ?`, path).Scan(&id); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return id, nil
+}
+
+// storeSchemaFingerprint records a short hash of the structural schema in
+// index_meta so code_status can flag a silently-stale index (built by an older
+// extraction schema than the current binary).
+func storeSchemaFingerprint(db *sql.DB) error {
+	fp := SchemaFingerprint()
+	_, err := db.Exec(`
+		INSERT INTO index_meta_kv (key, value) VALUES ('schema_fingerprint', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, fp)
+	return err
+}
+
+// SchemaFingerprint returns a short stable hash of the structural schema the
+// current binary writes (the tables + columns the graph step upserts). If a
+// future migration changes that shape, this value changes and code_status can
+// report the index as built by an older schema.
+func SchemaFingerprint() string {
+	const schema = `symbols(return_type,param_types,visibility,is_exported)` +
+		`|unresolved_members(file_id,file_path,language,member,receiver,external,line)` +
+		`|resolution_audit(language,call_sites,unresolved)`
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(schema))
+	return strconv.FormatUint(h.Sum64(), 16)[:12]
 }
 
 // pruneFileFootprint deletes a file's whole graph footprint in one pass.
