@@ -70,6 +70,19 @@ Structural `code_grep` / `--corpus grep` patterns (invalid pattern → abort):
 
 `code_impact` is **additive** blast-radius over Edges (callers, callees, dependents, … with Confidence Labels). It does **not** replace `code_get_*`.
 
+## Index capabilities (advisory passes)
+
+Beyond the Orientation Ladder, the index runs advisory passes at index time (each warn-and-continue, never load-bearing; a pass failure never rolls back the committed symbol/edge graph). They surface structural signals an agent can read via `code_status` / `code_communities` / `code_explain_community` / `code_god_nodes`:
+
+- **Framework routes** — `route`/`navigates` edges for nethttp + framework handlers, with a `code_unresolved_refs` backlog (unresolved handler refs).
+- **Doc↔code edges** — `INFERRED` reference edges from documentation to the code it describes (so a spec links to its implementation).
+- **Symbol types** — `return_type` / `param_types` / `visibility` / `is_exported` derived from the source span (the tree-sitter span carries only name/kind/range).
+- **Call-resolution ledger** — `unresolved_members` (receiver-qualified calls the extractor cannot statically bind, split internal/external) + a per-language `resolution_audit` (call sites vs unresolved). The drop-not-guess health signal.
+- **AST-boundary chunking** — chunks split at function/class/method boundaries (~1000 chars, full-file coverage) for the semantic tier; `chunk_embeddings` embed chunk text, and the vector store is **language-partitioned** (`embeddings.language` / `chunk_embeddings.language`) so a language-scoped semantic search is an exact index filter (`code_semantic_search` / `code_hybrid_search` take a `language` param).
+- **Community analytics** — Leiden communities with a per-community **cohesion** score (`internal_edges / C(n,2)`, on `code_explain_community`) and **import-cycle** detection over the file import subgraph (`code_status.import_cycles`). Cohesion 1.0 = clique, 0.0 = loosely held; import cycles are the file-level dependency-loop smell.
+
+`code_status` exposes a `capabilities` block (graph/fts/vector + dims), the `resolution_audit`, `unresolved_members`, `import_cycles`, and a `schema_fingerprint` (an index built by an older extraction schema is silently stale — compare against the current binary's fingerprint).
+
 ## Memory export and serve visualization
 
 - `skillgrid export --project ID --out DIR` — read-only Obsidian Markdown + viz JSON under an allowed root (path outside root → abort).
@@ -88,6 +101,11 @@ Structural `code_grep` / `--corpus grep` patterns (invalid pattern → abort):
 | `code_grep` | Structural Matcher (dialect v1+v2) |
 | `code_impact` | Additive Impact Analysis |
 | `code_read` | Narrowed slice |
+| `code_communities` | Leiden subsystems (+ cohesion per community) |
+| `code_god_nodes` | Most-connected symbols (core abstractions) |
+| `code_explain_community` | A community's members + entry points + cohesion |
+| `code_unresolved_refs` | Unresolved handler/reference backlog |
+| `code_rationale` | Why-comments (NOTE/WHY/ADR) linked to a symbol |
 | `code_get_*` | Symbol/signature getters (unchanged) |
 
 ## Configuration

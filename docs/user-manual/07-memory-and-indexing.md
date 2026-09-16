@@ -36,6 +36,8 @@ Prefer `code_search` for unfamiliar large repos; use ripgrep for exact identifie
 
 Indexing config: hub `config.d/indexing.yaml` (include/exclude, `chunk_lines` default 80, overlap 10). Files over 512 KB are skipped.
 
+Beyond orientation, the index computes advisory structural signals (each warn-and-continue, never load-bearing): framework **routes** (`route`/`navigates` edges), **doc→code** links, derived **symbol types** (return/param/visibility), a **call-resolution ledger** (unresolved receiver calls), **AST-boundary chunking** with a language-partitioned vector store (language-scoped semantic search), and **community analytics** — Leiden subsystems with a per-community **cohesion** score and **import-cycle** detection (`code_communities`, `code_explain_community`, `code_god_nodes`, `code_status.import_cycles`).
+
 ## Project identity
 
 Each git repo binds to a **clone-private** identity under `.git/` so memory survives rename, re-clone, and linked worktrees. Parent of many repos → ambiguous; pick a project or set `MNEMONIC_PROJECT` / `SKILLGRID_MNEMONIC_PROJECT`.
