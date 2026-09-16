@@ -45,6 +45,11 @@ type Options struct {
 	FTSOnly  bool // select the lexical leg only (CLI --fts)
 	Semantic bool // select the vector leg only (CLI --semantic)
 	Embedder embedder.Embedder
+	// Language, when set, scopes the semantic leg to that language
+	// (exact index-level filter on the embeddings/chunk_embeddings language
+	// column — the cocoindex partition key, relational form). Empty means all
+	// languages.
+	Language string
 }
 
 // Result is a hybrid search answer.
@@ -188,35 +193,62 @@ func Search(ctx context.Context, db *sql.DB, query string, opts Options) (*Resul
 		res.Legs = append(res.Legs, "fts", "signal")
 	}
 
-	// Embedding leg: only when an embedder is provided and not FTS-only.
+	// Embedding leg: only when an embedder is provided and not FTS-only. Two
+	// sub-legs (both language-scoped when opts.Language is set): symbol-level
+	// (name+signature vectors) and chunk-level (AST-boundary text vectors, 037).
 	if !opts.FTSOnly && opts.Embedder != nil && opts.Embedder.Model() != "" {
-		embLeg, embWarn, err := vectorLeg(ctx, db, query, opts.Embedder, limit*3)
-		if err != nil {
+		symLeg, symWarn, symErr := vectorLeg(ctx, db, query, opts.Language, opts.Embedder, limit*3)
+		chunkLeg, chunkWarn, chunkErr := chunkVectorLeg(ctx, db, query, opts.Language, opts.Embedder, limit*3)
+		if symErr != nil || chunkErr != nil {
 			// Down embedder: degrade to FTS + signals (the floor).
-			res.Warnings = append(res.Warnings, "embedder down: "+err.Error())
-		} else {
-			for i, vh := range embLeg {
-				id := vh.ID
-				if _, ok := hits[id]; !ok {
-					hits[id] = Hit{
-						Path:      vh.Path,
-						StartLine: vh.StartLine,
-						EndLine:   vh.EndLine,
-						Symbol:    vh.Symbol,
-						Kind:      vh.Kind,
-					}
-				}
-				h := hits[id]
-				h.Provenance.Sim = vh.Sim
-				hits[id] = h
-				semRanks[id] = i
-			}
-			if len(embLeg) > 0 {
-				res.Legs = append(res.Legs, "semantic")
+			if symErr != nil {
+				res.Warnings = append(res.Warnings, "embedder down: "+symErr.Error())
+			} else {
+				res.Warnings = append(res.Warnings, "embedder down: "+chunkErr.Error())
 			}
 		}
-		if embWarn != "" {
-			res.Warnings = append(res.Warnings, embWarn)
+		for i, vh := range symLeg {
+			id := vh.ID
+			if _, ok := hits[id]; !ok {
+				hits[id] = Hit{
+					Path:      vh.Path,
+					StartLine: vh.StartLine,
+					EndLine:   vh.EndLine,
+					Symbol:    vh.Symbol,
+					Kind:      vh.Kind,
+				}
+			}
+			h := hits[id]
+			h.Provenance.Sim = vh.Sim
+			hits[id] = h
+			semRanks[id] = i
+		}
+		// Chunk-level hits are keyed by path+line (distinct from symbol ids).
+		for i, vh := range chunkLeg {
+			id := vh.ID
+			if _, ok := hits[id]; !ok {
+				hits[id] = Hit{
+					Path:      vh.Path,
+					StartLine: vh.StartLine,
+					EndLine:   vh.EndLine,
+					Kind:      "chunk",
+				}
+			}
+			h := hits[id]
+			h.Provenance.Sim = vh.Sim
+			hits[id] = h
+			if _, ok := semRanks[id]; !ok {
+				semRanks[id] = i
+			}
+		}
+		if len(symLeg) > 0 || len(chunkLeg) > 0 {
+			res.Legs = append(res.Legs, "semantic")
+		}
+		if symWarn != "" {
+			res.Warnings = append(res.Warnings, symWarn)
+		}
+		if chunkWarn != "" {
+			res.Warnings = append(res.Warnings, chunkWarn)
 		}
 	}
 
@@ -236,8 +268,10 @@ func Search(ctx context.Context, db *sql.DB, query string, opts Options) (*Resul
 }
 
 // vectorLeg computes the query vector and ranks stored symbol embeddings by
-// cosine similarity. Returns a warning string when degenerate rows are found.
-func vectorLeg(ctx context.Context, db *sql.DB, query string, emb embedder.Embedder, limit int) ([]vectorHit, string, error) {
+// cosine similarity. When language is non-empty it is an exact index-level
+// filter (the cocoindex partition key, relational form). Returns a warning
+// string when degenerate rows are found.
+func vectorLeg(ctx context.Context, db *sql.DB, query, language string, emb embedder.Embedder, limit int) ([]vectorHit, string, error) {
 	qVec, err := emb.Embed(ctx, query)
 	if err != nil {
 		return nil, "", fmt.Errorf("embed query: %w", err)
@@ -245,12 +279,18 @@ func vectorLeg(ctx context.Context, db *sql.DB, query string, emb embedder.Embed
 	if len(qVec.Data) == 0 {
 		return nil, "embedder returned empty vector", nil
 	}
-	rows, err := db.Query(`
+	q := `
 		SELECT e.symbol_id, s.name, s.kind, s.start_line, s.end_line, f.path, e.vector
 		FROM embeddings e
 		JOIN symbols s ON s.id = e.symbol_id
 		JOIN files f ON f.id = s.file_id
-	`)
+	`
+	var args []any
+	if language != "" {
+		q += ` WHERE s.language = ?`
+		args = append(args, language)
+	}
+	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, "", fmt.Errorf("select embeddings: %w", err)
 	}
@@ -315,6 +355,83 @@ type vectorHit struct {
 	Symbol    string
 	Kind      string
 	Sim       float64
+}
+
+// chunkVectorLeg ranks stored CHUNK embeddings (AST-boundary text vectors,
+// 037) by cosine similarity. Hits are keyed by path+start_line (distinct from
+// the symbol leg's sym:<id> ids). language, when set, is an exact index-level
+// filter. A store predating 037 (no chunk_embeddings rows) yields an empty
+// leg, never an error.
+func chunkVectorLeg(ctx context.Context, db *sql.DB, query, language string, emb embedder.Embedder, limit int) ([]vectorHit, string, error) {
+	qVec, err := emb.Embed(ctx, query)
+	if err != nil {
+		return nil, "", fmt.Errorf("embed query: %w", err)
+	}
+	if len(qVec.Data) == 0 {
+		return nil, "embedder returned empty vector", nil
+	}
+	// A chunk's language is the language of the first symbol in its file
+	// (files have no language column; symbols do), mirroring the indexer's
+	// embedChunks. The filter is a correlated subquery so it works whether or
+	// not the store has a language column on files.
+	q := `
+		SELECT e.chunk_id, c.start_line, c.end_line, f.path, e.vector
+		FROM chunk_embeddings e
+		JOIN chunks c ON c.id = e.chunk_id
+		JOIN files f ON f.id = c.file_id
+	`
+	var args []any
+	if language != "" {
+		q += ` WHERE (SELECT s.language FROM symbols s
+			WHERE s.file_id = c.file_id
+			ORDER BY s.start_line, s.id LIMIT 1) = ?`
+		args = append(args, language)
+	}
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		// chunk_embeddings absent (pre-037 store): degrade to no chunk leg.
+		return nil, "", nil
+	}
+	defer rows.Close()
+	var hits []vectorHit
+	for rows.Next() {
+		var chunkID int64
+		var startLine, endLine int
+		var path string
+		var blob []byte
+		if err := rows.Scan(&chunkID, &startLine, &endLine, &path, &blob); err != nil {
+			continue
+		}
+		vec, derr := memory.DecodeVector(blob)
+		if derr != nil || len(vec.Data) == 0 {
+			continue
+		}
+		if memory.CosineSimilarity(vec, vec) == 0 {
+			continue
+		}
+		sim := memory.CosineSimilarity(qVec, vec)
+		hits = append(hits, vectorHit{
+			ID:        fmt.Sprintf("chunk:%s:%d", path, startLine),
+			Path:      path,
+			StartLine: startLine,
+			EndLine:   endLine,
+			Kind:      "chunk",
+			Sim:       sim,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", nil
+	}
+	sort.SliceStable(hits, func(i, j int) bool {
+		if hits[i].Sim != hits[j].Sim {
+			return hits[i].Sim > hits[j].Sim
+		}
+		return hits[i].ID < hits[j].ID
+	})
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	return hits, "", nil
 }
 
 // signalSearch returns deterministic-signal hits: symbols whose identifier

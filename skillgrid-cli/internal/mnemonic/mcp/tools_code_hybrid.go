@@ -62,6 +62,7 @@ func codeHybridSearchTool() mcplib.Tool {
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search query (identifiers or free text)")),
 		mcplib.WithNumber("limit", mcplib.Description("Maximum hits (default 20)")),
 		mcplib.WithString("repo", mcplib.Description("Optional project/repo name; omitted when the cwd resolves it")),
+		mcplib.WithString("language", mcplib.Description("Optional language scope for the semantic leg (e.g. go, typescript); empty = all languages")),
 	)
 }
 
@@ -71,6 +72,7 @@ func codeSemanticSearchTool() mcplib.Tool {
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Free-text semantic query")),
 		mcplib.WithNumber("limit", mcplib.Description("Maximum hits (default 20)")),
 		mcplib.WithString("repo", mcplib.Description("Optional project/repo name; omitted when the cwd resolves it")),
+		mcplib.WithString("language", mcplib.Description("Optional language scope (e.g. go, typescript); exact index-level filter, empty = all languages")),
 	)
 }
 
@@ -99,6 +101,7 @@ func handleCodeHybridSearch(ctx context.Context, req mcplib.CallToolRequest) (*m
 
 	out, err := hybrid.Search(ctx, h.Store().DB, query, hybrid.Options{
 		Limit:    limit,
+		Language: req.GetString("language", ""),
 		Embedder: mcpResolveEmbedder(h),
 	})
 	if err != nil {
@@ -126,6 +129,7 @@ func handleCodeSemanticSearch(ctx context.Context, req mcplib.CallToolRequest) (
 	out, err := hybrid.Search(ctx, h.Store().DB, query, hybrid.Options{
 		Limit:    limit,
 		Semantic: true,
+		Language: req.GetString("language", ""),
 		Embedder: mcpResolveEmbedder(h),
 	})
 	if err != nil {

@@ -117,11 +117,13 @@ func rowsString(vals []any) string {
 	return strings.Join(parts, "¦")
 }
 
-// wantPdgBaseline is the captured pre-011 baseline fingerprint for
+// wantPdgBaseline is the captured 005 baseline fingerprint for
 // writePdgFixture under pdgCfg (005 extraction only, no opt-in pass). It is the
 // byte-for-byte target for TestOptInIsolation. Regenerate with
-// TestCapturePdgBaseline if the 005 extractor or fixture changes.
-var wantPdgBaseline = "164fd991779f234"
+// TestCapturePdgBaseline if the 005 extractor or fixture changes. (037:
+// re-captured — AST-boundary chunking changes the chunk rows for Go fixtures,
+// which is the intended semantic-tier behavior.)
+var wantPdgBaseline = "c904ebd2c5b19dc7"
 
 // TestCapturePdgBaseline prints the current 005 baseline fingerprint for the
 // pdg fixture. Run it once (go test -run TestCapturePdgBaseline -v) and paste

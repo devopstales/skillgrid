@@ -209,12 +209,16 @@ func globToRegexp(pattern string) (*regexp.Regexp, error) {
 	return regexp.Compile(b.String())
 }
 
-// Chunk represents a slice of a file for FTS indexing.
+// Chunk represents a slice of a file for FTS indexing. Kind is "lines" (the
+// default fixed-window behavior of ChunkLines) or "ast" (a symbol boundary
+// from ChunkLinesAst). The embedding tier prefers ast chunks for semantic
+// recall; FTS indexes both.
 type Chunk struct {
 	StartLine   int
 	EndLine     int
 	Text        string
 	ContentHash string
+	Kind        string
 }
 
 // ChunkLines splits content into overlapping windows of ~chunkLines.
@@ -250,10 +254,149 @@ func ChunkLines(content []byte, chunkLines, chunkOverlap int) []Chunk {
 			EndLine:     end,
 			Text:        chunkText,
 			ContentHash: hex.EncodeToString(sum[:]),
+			Kind:        "lines",
 		})
 		if end >= len(allLines) {
 			break
 		}
+	}
+	return chunks
+}
+
+// chunk target sizes (bytes), borrowed from cocoindex-code's language-aware
+// chunking: ~1000 chars (~300 tokens) keeps a chunk contextually coherent AND
+// within a 512-token encoder window; a symbol above the target is split into
+// line windows; a symbol below minChunkChars is merged with its neighbor so
+// tiny helpers don't produce degenerate one-line embeddings.
+const (
+	semanticChunkTargetChars = 1000
+	minChunkChars            = 250
+)
+
+// functionKinds are the top-level symbol kinds a chunk is worth building
+// around. Constants/variables/types are too small to embed meaningfully on
+// their own (they merge into a neighbor); functions/classes/methods carry the
+// semantic payload.
+var functionKinds = map[string]bool{
+	"function": true, "method": true, "class": true,
+}
+
+// ChunkLinesAst splits content at the extracted symbol boundaries, producing
+// one ast chunk per function/class/method whose span fits the char target.
+// Symbols too large are split into line windows (kind "lines"); symbols too
+// small are merged with the next boundary to reach minChunkChars. When there
+// are no function-like symbols (non-code, or a file of only consts/types) it
+// returns nil so the caller falls back to plain ChunkLines.
+func ChunkLinesAst(content []byte, syms []extract.Symbol) []Chunk {
+	if len(syms) == 0 {
+		return nil
+	}
+	lines := strings.Split(string(content), "\n")
+	// Boundary spans, in source order, function-like only.
+	type span struct {
+		start, end int // 1-based, inclusive
+		kind       string
+	}
+	var spans []span
+	for _, s := range syms {
+		if s.EndLine < s.StartLine || !functionKinds[s.Kind] {
+			continue
+		}
+		spans = append(spans, span{start: s.StartLine, end: s.EndLine, kind: s.Kind})
+	}
+	if len(spans) == 0 {
+		return nil
+	}
+	sort.SliceStable(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+
+	// spanText returns the 1-based inclusive line range as text.
+	spanText := func(a, b int) string {
+		if a < 1 {
+			a = 1
+		}
+		if b > len(lines) {
+			b = len(lines)
+		}
+		if a > b {
+			return ""
+		}
+		return strings.Join(lines[a-1:b], "\n")
+	}
+	charLen := func(a, b int) int {
+		return len(spanText(a, b))
+	}
+
+	// Build a FULL set of non-overlapping line segments that cover the whole
+	// file: each function/class/method span is one AST segment, and any lines
+	// BETWEEN spans (package clause, top-level consts/types, blank lines) are
+	// line segments. Covering everything (no gaps) keeps code_read's
+	// chunk-reassembly complete — an uncovered const would otherwise be lost.
+	type seg struct {
+		start, end int
+		kind       string
+	}
+	var segs []seg
+	prevEnd := 0
+	for _, s := range spans {
+		if s.start > prevEnd+1 {
+			// Gap before this span (or leading gap): a line segment.
+			segs = append(segs, seg{start: prevEnd + 1, end: s.start - 1, kind: "lines"})
+		}
+		segs = append(segs, seg{start: s.start, end: s.end, kind: "ast"})
+		prevEnd = s.end
+	}
+	if prevEnd < len(lines) {
+		segs = append(segs, seg{start: prevEnd + 1, end: len(lines), kind: "lines"})
+	}
+
+	// Merge a tiny leading AST segment (under minChunkChars, e.g. a one-line
+	// helper at the top) into the next segment so it doesn't form a
+	// degenerate one-line embedding (cocoindex min size). A tiny TAIL segment
+	// is left as-is: coverage is load-bearing (a gap loses text from
+	// code_read), and a small tail chunk still embeds fine. Only the leading
+	// case is safe to merge because the prior content (the package clause) is
+	// a line segment that already has its own chunk.
+	if n := len(segs); n >= 2 && segs[0].kind == "ast" && charLen(segs[0].start, segs[0].end) < minChunkChars {
+		segs[1].start = segs[0].start
+		segs = segs[1:]
+	}
+
+	// relabelLineChunks shifts a run of line chunks (whose start_line is
+	// 1-based relative to `text`) up by `offset` so the line numbers refer to
+	// the whole file. ChunkLines labels its output relative to its own input,
+	// so a slice of the file must be offset back to file coordinates.
+	relabelLineChunks := func(cs []Chunk, offset int) []Chunk {
+		for i := range cs {
+			cs[i].StartLine += offset
+			cs[i].EndLine += offset
+		}
+		return cs
+	}
+
+	var chunks []Chunk
+	for _, r := range segs {
+		text := spanText(r.start, r.end)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		if r.kind == "ast" && len(text) <= semanticChunkTargetChars {
+			sum := sha256.Sum256([]byte(text))
+			chunks = append(chunks, Chunk{
+				StartLine:   r.start,
+				EndLine:     r.end,
+				Text:        text,
+				ContentHash: hex.EncodeToString(sum[:]),
+				Kind:        "ast",
+			})
+			continue
+		}
+		// A line segment, or an AST span over the target (a single large
+		// function): line-window it, offsetting the sub-chunk line numbers
+		// back to whole-file coordinates.
+		chunks = append(chunks, relabelLineChunks(ChunkLines([]byte(text), 80, 10), r.start-1)...)
+	}
+	if len(chunks) == 0 {
+		return nil
 	}
 	return chunks
 }
@@ -404,21 +547,30 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 				return stats, fmt.Errorf("delete chunks for %s: %w", file.Path, err)
 			}
 		}
-		chunks := ChunkLines(file.Contents, cfg.ChunkLines, cfg.ChunkOverlap)
+		// Graph pass: extract symbols/edges/rationale FIRST (it has no tx
+		// dependency) so the chunking step below can split at the extracted
+		// symbol boundaries (AST-aware semantic chunking, 037). extractFile
+		// never aborts the run (regex fallback); on error we fall back to
+		// plain line chunking.
+		syms, edges, rationale, err := idx.extractFile(file)
+		if err != nil {
+			return stats, fmt.Errorf("extract %s: %w", file.Path, err)
+		}
+		// AST-boundary chunking for the semantic tier: prefer symbol-boundary
+		// chunks (one per function/class/method, ~1000 chars); fall back to
+		// line windows when there are no function-like symbols.
+		chunks := ChunkLinesAst(file.Contents, syms)
+		if len(chunks) == 0 {
+			chunks = ChunkLines(file.Contents, cfg.ChunkLines, cfg.ChunkOverlap)
+		}
 		for _, chunk := range chunks {
 			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO chunks (file_id, start_line, end_line, text, content_hash) VALUES (?, ?, ?, ?, ?)`,
-				fileID, chunk.StartLine, chunk.EndLine, chunk.Text, chunk.ContentHash,
+				`INSERT INTO chunks (file_id, start_line, end_line, text, content_hash, kind) VALUES (?, ?, ?, ?, ?, ?)`,
+				fileID, chunk.StartLine, chunk.EndLine, chunk.Text, chunk.ContentHash, chunk.Kind,
 			); err != nil {
 				return stats, fmt.Errorf("insert chunk for %s: %w", file.Path, err)
 			}
 			stats.ChunksAdded++
-		}
-		// Graph pass: extract symbols/edges/rationale for this file in the
-		// same tx.
-		syms, edges, rationale, err := idx.extractFile(file)
-		if err != nil {
-			return stats, fmt.Errorf("extract %s: %w", file.Path, err)
 		}
 		if n, err := writeFileGraph(tx, fileID, syms, edges, rationale); err != nil {
 			return stats, err
@@ -855,6 +1007,9 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 		if _, err := tx.Exec(`DELETE FROM embeddings`); err != nil {
 			return fmt.Errorf("clear stale embeddings: %w", err)
 		}
+		if _, err := tx.Exec(`DELETE FROM chunk_embeddings`); err != nil {
+			return fmt.Errorf("clear stale chunk embeddings: %w", err)
+		}
 		if _, err := tx.Exec(`INSERT OR REPLACE INTO embed_meta (key, value) VALUES ('embedding_model', ?)`, model); err != nil {
 			return err
 		}
@@ -863,9 +1018,10 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 	}
-	// Symbol-level embedding: embed each symbol's name + signature.
+	// Symbol-level embedding: embed each symbol's name + signature, tagged
+	// with its language (the cocoindex partition key, relational form).
 	rows, err := tx.Query(`
-		SELECT s.id, s.name, s.signature
+		SELECT s.id, s.name, s.signature, s.language
 		FROM symbols s
 		ORDER BY s.id
 	`)
@@ -878,8 +1034,8 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 		var symID int64
-		var name, sig string
-		if err := rows.Scan(&symID, &name, &sig); err != nil {
+		var name, sig, lang string
+		if err := rows.Scan(&symID, &name, &sig, &lang); err != nil {
 			return err
 		}
 		// Skip if already embedded with the current model (model-swap clears
@@ -902,14 +1058,79 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 		}
 		blob := memory.EncodeVector(vec)
 		if _, err := tx.Exec(`
-			INSERT INTO embeddings (symbol_id, model, dim, vector, updated_at)
-			VALUES (?, ?, ?, ?, ?)
+			INSERT INTO embeddings (symbol_id, model, dim, vector, updated_at, language)
+			VALUES (?, ?, ?, ?, ?, ?)
 			ON CONFLICT(symbol_id) DO UPDATE SET
 			  model = excluded.model,
 			  dim = excluded.dim,
 			  vector = excluded.vector,
-			  updated_at = excluded.updated_at
-		`, symID, model, dim, blob, now); err != nil {
+			  updated_at = excluded.updated_at,
+			  language = excluded.language
+		`, symID, model, dim, blob, now, lang); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	// Chunk-level embedding (037): embed each AST chunk's text so semantic
+	// recall works for non-symbol code (lambdas, config, doc spans) — the
+	// chunk-level recall cocoindex-code is built around.
+	return idx.embedChunks(ctx, tx, model, dim, now)
+}
+
+// embedChunks embeds each chunk's text (ast chunks first, then line windows)
+// and stores the vector + language in chunk_embeddings. It is idempotent per
+// model: a chunk already embedded with the current model is skipped.
+func (idx *Indexer) embedChunks(ctx context.Context, tx *sql.Tx, model string, dim int, now string) error {
+	// A chunk's language is the language of the first (lowest start_line)
+	// symbol in its file — files have no language column; symbols do. A file
+	// with no symbols yields '' (non-code), which is fine for the filter.
+	rows, err := tx.Query(`
+		SELECT c.id, c.text, COALESCE((
+			SELECT s.language FROM symbols s
+			WHERE s.file_id = c.file_id
+			ORDER BY s.start_line, s.id LIMIT 1
+		), '')
+		FROM chunks c
+		ORDER BY (CASE c.kind WHEN 'ast' THEN 0 ELSE 1 END), c.file_id, c.start_line
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var chunkID int64
+		var text, lang string
+		if err := rows.Scan(&chunkID, &text, &lang); err != nil {
+			return err
+		}
+		var existingModel string
+		err := tx.QueryRow(`SELECT model FROM chunk_embeddings WHERE chunk_id = ?`, chunkID).Scan(&existingModel)
+		if err == nil && existingModel == model {
+			continue
+		}
+		vec, err := idx.emb.Embed(ctx, text)
+		if err != nil {
+			continue
+		}
+		if len(vec.Data) != dim {
+			continue
+		}
+		blob := memory.EncodeVector(vec)
+		if _, err := tx.Exec(`
+			INSERT INTO chunk_embeddings (chunk_id, model, dim, vector, updated_at, language)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(chunk_id) DO UPDATE SET
+			  model = excluded.model,
+			  dim = excluded.dim,
+			  vector = excluded.vector,
+			  updated_at = excluded.updated_at,
+			  language = excluded.language
+		`, chunkID, model, dim, blob, now, lang); err != nil {
 			return err
 		}
 	}

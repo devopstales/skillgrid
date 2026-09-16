@@ -114,7 +114,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS symbol_fts USING fts5(name, qualified_name, c
 CREATE TRIGGER IF NOT EXISTS symbols_ai AFTER INSERT ON symbols BEGIN INSERT INTO symbol_fts(rowid, name, qualified_name) VALUES (new.id, new.name, new.qualified_name); END;
 CREATE TRIGGER IF NOT EXISTS symbols_ad AFTER DELETE ON symbols BEGIN INSERT INTO symbol_fts(symbol_fts, rowid, name, qualified_name) VALUES('delete', old.id, old.name, old.qualified_name); END;
 CREATE TRIGGER IF NOT EXISTS symbols_au AFTER UPDATE ON symbols BEGIN INSERT INTO symbol_fts(symbol_fts, rowid, name, qualified_name) VALUES('delete', old.id, old.name, old.qualified_name); INSERT INTO symbol_fts(rowid, name, qualified_name) VALUES (new.id, new.name, new.qualified_name); END;
-CREATE TABLE IF NOT EXISTS embeddings (id INTEGER PRIMARY KEY, symbol_id INTEGER, vector BLOB, model TEXT);
+CREATE TABLE IF NOT EXISTS embeddings (id INTEGER PRIMARY KEY, symbol_id INTEGER, vector BLOB, model TEXT, dim INTEGER NOT NULL DEFAULT 0, language TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS chunk_embeddings (chunk_id INTEGER PRIMARY KEY, vector BLOB, model TEXT, dim INTEGER NOT NULL DEFAULT 0, language TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS embed_meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS edges (id INTEGER PRIMARY KEY, kind TEXT, from_id INTEGER, file_id INTEGER, to_id INTEGER, to_name TEXT, target_path TEXT, confidence TEXT, line INTEGER);
 CREATE TABLE IF NOT EXISTS rationale (id INTEGER PRIMARY KEY, symbol_id INTEGER, text TEXT, kind TEXT, line INTEGER);
@@ -150,6 +151,8 @@ func insertHybridFixture(t *testing.T, db *sql.DB) {
 		`INSERT INTO chunks (file_id, start_line, end_line, text, content_hash) VALUES (1, 1, 5, 'parseConfig call site in main', 'k1')`,
 		`INSERT INTO chunks (file_id, start_line, end_line, text, content_hash) VALUES (2, 1, 5, 'loadUserSettings call site in cli', 'k2')`,
 	}
+	// A chunk embedding on the first file's chunk (file 1, go) so the
+	// chunk-vector leg has a row to rank and the language filter can scope it.
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
 			t.Fatalf("insert fixture: %v", err)
@@ -334,6 +337,106 @@ func TestSearchNamesSymbol(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("semantic mode returned no symbol-named results: %+v", res.Hits)
+		}
+	})
+}
+
+// TestSearchLanguageFilterAndChunkLeg covers 037: (1) a language-scoped
+// semantic search filters on the embeddings/chunk_embeddings language column
+// (exact index-level filter, the cocoindex partition key), and (2) the
+// chunk-vector leg surfaces a chunk-level semantic hit.
+func TestSearchLanguageFilterAndChunkLeg(t *testing.T) {
+	ctx := context.Background()
+	db := openHybridTestDB(t)
+	insertHybridFixture(t, db)
+	emb := embedder.NewHash(64)
+
+	// Give file 1's symbol a "go" language + a chunk embedding, so the
+	// language filter and chunk leg have rows to operate on.
+	if _, err := db.Exec(`UPDATE embeddings SET language='go' WHERE 1=0`); err != nil {
+		t.Fatalf("touch embeddings.language: %v", err)
+	}
+	var symID int64
+	if err := db.QueryRow(`SELECT id FROM symbols WHERE name='parseConfig'`).Scan(&symID); err != nil {
+		t.Fatalf("symbol id: %v", err)
+	}
+	vec, err := emb.Embed(ctx, "parseConfig settings")
+	if err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO embeddings (symbol_id, vector, model, dim, language) VALUES (?, ?, ?, ?, 'go')`, symID, memory.EncodeVector(vec), emb.Model(), emb.Dimension()); err != nil {
+		t.Fatalf("seed embedding: %v", err)
+	}
+	var chunkID int64
+	if err := db.QueryRow(`SELECT id FROM chunks WHERE file_id=1`).Scan(&chunkID); err != nil {
+		t.Fatalf("chunk id: %v", err)
+	}
+	cvec, err := emb.Embed(ctx, "parseConfig call site in main")
+	if err != nil {
+		t.Fatalf("embed chunk: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO chunk_embeddings (chunk_id, vector, model, dim, language) VALUES (?, ?, ?, ?, 'go')`, chunkID, memory.EncodeVector(cvec), emb.Model(), emb.Dimension()); err != nil {
+		t.Fatalf("seed chunk embedding: %v", err)
+	}
+
+	t.Run("language filter scopes the semantic leg", func(t *testing.T) {
+		// A non-matching language must yield no semantic hits for the go row.
+		res, err := Search(ctx, db, "parseConfig settings", Options{Semantic: true, Language: "python", Embedder: emb})
+		if err != nil {
+			t.Fatalf("Search python: %v", err)
+		}
+		for _, h := range res.Hits {
+			if h.Symbol == "parseConfig" || h.Kind == "chunk" {
+				t.Errorf("language=python should exclude the go rows, got %+v", h)
+			}
+		}
+		// The matching language surfaces the go symbol.
+		resGo, err := Search(ctx, db, "parseConfig settings", Options{Semantic: true, Language: "go", Embedder: emb})
+		if err != nil {
+			t.Fatalf("Search go: %v", err)
+		}
+		var found bool
+		for _, h := range resGo.Hits {
+			if h.Symbol == "parseConfig" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("language=go should surface the go symbol, got %+v", resGo.Hits)
+		}
+	})
+
+	t.Run("chunk-vector leg surfaces a chunk hit", func(t *testing.T) {
+		// A distinctive chunk whose text shares tokens with the query makes it
+		// top the chunk-vector leg (the hash embedder scores by token overlap).
+		// A distinctive chunk + query (no token overlap with any symbol) makes
+		// the chunk the only semantic hit, proving the chunk-vector leg fires.
+		var cid int64
+		if _, err := db.Exec(`INSERT INTO chunks (file_id, start_line, end_line, text, content_hash) VALUES (1, 30, 34, 'zzzwidget qqqthing rrrstuff', 'k3')`); err != nil {
+			t.Fatalf("insert chunk: %v", err)
+		}
+		if err := db.QueryRow(`SELECT id FROM chunks WHERE content_hash='k3'`).Scan(&cid); err != nil {
+			t.Fatalf("chunk id: %v", err)
+		}
+		zvec, err := emb.Embed(ctx, "zzzwidget qqqthing rrrstuff")
+		if err != nil {
+			t.Fatalf("embed chunk: %v", err)
+		}
+		if _, err := db.Exec(`INSERT INTO chunk_embeddings (chunk_id, vector, model, dim, language) VALUES (?, ?, ?, ?, 'go')`, cid, memory.EncodeVector(zvec), emb.Model(), emb.Dimension()); err != nil {
+			t.Fatalf("seed chunk embedding: %v", err)
+		}
+		res, err := Search(ctx, db, "zzzwidget qqqthing rrrstuff", Options{Semantic: true, Language: "go", Embedder: emb})
+		if err != nil {
+			t.Fatalf("Search chunk: %v", err)
+		}
+		var foundChunk bool
+		for _, h := range res.Hits {
+			if h.Kind == "chunk" {
+				foundChunk = true
+			}
+		}
+		if !foundChunk {
+			t.Errorf("chunk-vector leg should surface a chunk hit, got %+v", res.Hits)
 		}
 	})
 }
