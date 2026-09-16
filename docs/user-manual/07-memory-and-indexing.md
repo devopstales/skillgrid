@@ -19,7 +19,7 @@ That is **77 MCP tools** in total (27 memory · 32 code · 5 web cache · 3 sess
 
 ## Quick path
 
-```text
+```
 skillgrid mcp              # agent tools (stdio) — the 77 MCP tools below
 skillgrid serve            # HTTP API + Web UI (default 127.0.0.1:7438)
 skillgrid index --dir .    # one-shot code index (add --watch --embeddings --pdg for opt-in tiers)
@@ -42,7 +42,7 @@ Save after: bug fixes (with root cause), architecture/design decisions, non-obvi
 
 **Recall ladder** (cheap → full):
 
-```bash
+```
 mem_context  →  mem_search  →  mem_timeline  →  mem_get_observation
  (recent     (FTS5          (before/after    (full,
   summaries)  keyword)        context)        untruncated)
@@ -574,6 +574,42 @@ Config file `config.d/indexing.yaml`, searched up from the indexed dir; repo-loc
 
 `skillgrid index` flags: `--dir`, `--watch` (debounced live indexer), `--embeddings` (semantic tier), `--pdg` (CFG/PDG + taint), `--lsp` (LSP edge tier).
 
+### 6.1.1 Embedding providers & config
+
+The semantic tier is **opt-in** and **degrades to the Null adapter** (no vector leg; FTS + signals floor stays on) when no provider is selected or a provider fails to load. Two independent legs exist:
+
+- **Code** leg — enabled by `skillgrid index --embeddings` (and `--watch --embeddings`).
+- **Memory** leg — enabled by the `MNEMONIC_EMBED=1` env var (default off).
+
+The provider is chosen from the `mnemonic.embedder` section of `config.d/indexing.yaml` (`embedder.BuildFromConfig`, `select.go`):
+
+| `provider` | Behavior | Keys used |
+|---|---|---|
+| `onnx` **(default)** | In-process ONNX; default model `nomic-embed-code`, 768-dim. Missing model → hash fallback. | `model`, `dimension`, `indexing_params`, `query_params` |
+| `ollama` | `POST {model,prompt}` to `<base_url>/api/embeddings`. Probed at selection; server down → degrade to Null. | `base_url` (default `http://localhost:11434`), `model` (default `nomic-embed-code`), `dimension` |
+| `local` | Loads `<model_dir>/<model>.onnx` in-process. Missing file is a load error → degrade to Null. | `model_dir` (default `~/.skillgrid/models/`), `model`, `dimension` |
+| `external` | Any OpenAI-compatible endpoint; tries `/embeddings`, falls back to `/api/embed` (Ollama). Asymmetric-capable. | `base_url`, `model`, `api_key`, `dimension`, `indexing_params`, `query_params` |
+| `off` / `""` | Null adapter — no vector leg. | — |
+
+**Asymmetric** params: `indexing_params` (corpus side) and `query_params` (query side) each take `instructions`, `input_type`, `max_tokens`. Only `onnx`/`external` honor them.
+
+Ollama example (repo-local `config.d/indexing.yaml` or `~/.skillgrid/config.d/indexing.yaml`):
+
+```yaml
+mnemonic:
+  embedder:
+    provider: ollama
+    base_url: http://localhost:11434
+    model: nomic-embed-code
+    dimension: 768
+```
+
+Then `MNEMONIC_EMBED=1 skillgrid index --dir . --embeddings`. Verify with `code_embedding_status` (reports active provider/model/dim/embedded count) or `skillgrid doctor` (runs an embed round-trip).
+
+Two guards:
+- **Fail-safe** — a provider that fails to load degrades to Null with a logged warning (`degradeOnError`); the pipeline never hard-fails on embedding.
+- **Model-swap guard** — `embed_meta` records model+dim; a model or dimension change invalidates existing vectors and triggers re-embed on next index.
+
 ## 6.2 Environment variables
 
 | Variable | Role |
@@ -584,6 +620,7 @@ Config file `config.d/indexing.yaml`, searched up from the indexed dir; repo-loc
 | `SKILLGRID_MNEMONIC_PROJECT` | Pin project for `index` / tools |
 | `SKILLGRID_MNEMONIC_HTTP_URL` | Plugin → serve URL |
 | `SKILLGRID_NO_WATCH=1` | Disable the watcher (manual index; fingerprint gate is the backstop) |
+| `MNEMONIC_EMBED` | Enable the **memory** embedding leg (`1`/`true`/`yes`/`on`); default off. Code leg is separate — `--embeddings` flag |
 
 ## 6.3 Project identity
 
@@ -605,6 +642,7 @@ skillgrid trail <recent|show>      # inspect retrieval trails
 skillgrid export --project ID --out DIR   # Obsidian Markdown + viz JSON
 skillgrid setup <opencode|kilocode|cursor>  # install plugins + register MCP
 skillgrid migrate [--tier]         # backfill tier sidecars
+skillgrid doctor [--strict]        # functional health check (embed round-trip, capabilities)
 ```
 
 ## 6.6 Gotchas
