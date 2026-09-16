@@ -1,0 +1,36 @@
+# MemIndex default profile (config.d/indexing.yaml)
+# Loaded by `skillgrid index` / `skillgrid mcp` / `skillgrid serve`.
+# Repo-local config.d/indexing.yaml and ~/.skillgrid/config.d/indexing.yaml
+# override these defaults (first found wins per key).
+
+# Toggles the memindex profile in the default install.
+enabled: true
+
+# Code indexer defaults.
+chunk_lines: 80            # chunk window for code chunks
+max_file_size_kb: 512      # skip files larger than this
+
+# Exclude globs (component, path glob, dir-suffix or deep "**/" forms).
+exclude:
+  - .git
+  - .hg
+  - .svn
+  - node_modules
+  - vendor
+  - dist
+  - build
+  - target
+  - __pycache__
+  - .next
+  - .cache
+  - .venv
+  - venv
+  - coverage
+  - .idea
+  - .vscode
+  - go.sum
+  - .terraform
+
+# Web cache TTL overrides (days). Defaults: context7 30, exa 7, deepwiki 14,
+# fetch 7, manual 0 (never expires). Empty section = built-in defaults.
+web_ttl_days: {}

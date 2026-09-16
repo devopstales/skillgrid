@@ -1,0 +1,11 @@
+agents:
+  - "@kilocode/cli"
+  - "opencode-ai"
+
+mcp:
+  - "@upstash/context7-mcp"
+  - "@playwright/mcp@latest"
+  - "@playwright/cli@latest"
+  - "@cucumber/cucumber"
+  - "agent-browser"
+  - "@safedep/gryph"
