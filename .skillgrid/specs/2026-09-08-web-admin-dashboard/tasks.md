@@ -80,7 +80,7 @@ Copy verbatim from `briefing.md` (Error handling + Non-Goals + stack rules). Eve
 ```yaml
 phase: spec
 current_phase: 1-embed-pipeline-shell
-status: planned
+status: in-progress
 updated: 2026-09-16T00:00:00Z
 ```
 
@@ -125,16 +125,16 @@ The embed pipeline works end-to-end and `GET /` serves the SPA shell with every 
 
 This phase is done only when:
 
-- [ ] `npm run build` produces `ui/dist/index.html` + `ui/dist/assets/`
-- [ ] `go build` embeds `ui/dist/` and `skillgrid serve` serves the SPA at `/`
-- [ ] SPA fallback serves `index.html` for non-API/non-asset routes; assets + API routes are not shadowed
-- [ ] `/swagger/` + `/openapi.yaml` still load
-- [ ] Sidebar renders with all routes as labeled disabled stubs, dark theme applied
-- [ ] `tsc --noEmit` clean; no external CDN assets
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@phase-1` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] No Global Constraint violated
+- [x] `npm run build` produces `ui/dist/index.html` + `ui/dist/assets/`
+- [x] `go build` embeds `ui/dist/` and `skillgrid serve` serves the SPA at `/`
+- [x] SPA fallback serves `index.html` for non-API/non-asset routes; assets + API routes are not shadowed
+- [x] `/swagger/` + `/openapi.yaml` still load
+- [x] Sidebar renders with all routes as labeled disabled stubs, dark theme applied
+- [x] `tsc --noEmit` clean; no external CDN assets
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@phase-1` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] No Global Constraint violated
 
 > Depends on: none
 
@@ -152,37 +152,37 @@ This phase is done only when:
 
 ### Tasks
 
-- [ ] 1.1 `[AFK]` Scaffold `skillgrid-ui/` (Vite + React 19 + TS + Tailwind v4 + shadcn/ui); `vite.config.ts` `build.outDir` → `../skillgrid-cli/internal/mnemonic/http/ui/dist`, `emptyOutDir: true`, content-hash `entryFileNames`/`chunkFileNames`/`assetFileNames`; dev `server.proxy` `/api` → `:8080`
-- [ ] 1.2 `[AFK]` App shell: TanStack Router with placeholder routes for all 9 views; sidebar nav (Tracker, Mnemonic▸Graph/Files/Memories/Sessions/Search, Docs, Plans, Activity, Git, Prototypes, Settings); dark theme (`#0a0a0b`/`#141416`/`#27272a`/`#6366f1`); Inter + JetBrains Mono; project selector persists to localStorage
-- [ ] 1.3 `[RED]` Create `embed.go`: `//go:embed all:ui/dist`, `//go:embed ui/openapi.yaml`, `//go:embed all:ui/swagger`
-  - [ ] 1.3.a Write failing test: `GET /` returns the SPA `index.html`; `GET /assets/index-[hash].js` returns the hashed asset (not `index.html`); `GET /mnemonic/nope` (an API prefix) returns 404 JSON, not `index.html`.
-  - [ ] 1.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase1_Embed` — Expected: FAIL
-  - [ ] 1.3.c Minimal implementation: `embed.go` + `ui.go` SPA fallback (`fs.Sub` file server; non-`/api/`, non-asset → `index.html`).
-  - [ ] 1.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase1_Embed` — Expected: PASS
-  - [ ] 1.3.e Commit — `feat(ui): go:embed Vite dist + SPA fallback`
-- [ ] 1.4 `[RED]` Threat: SPA fallback does not shadow API/asset routes
-  - [ ] 1.4.a Write failing test: `GET /openapi.yaml` → 200 yaml; `GET /swagger/` → 200; a non-asset, non-API path (e.g. `/tracker`) → 200 `index.html` (client router); a known API route that does not exist yet → 404 JSON (not `index.html`).
-  - [ ] 1.4.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase1_SPAFallback` — Expected: FAIL
-  - [ ] 1.4.c Minimal implementation: prefix-based fallback (API prefixes → 404 JSON; assets → file server; everything else → `index.html`).
-  - [ ] 1.4.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase1_SPAFallback` — Expected: PASS
-  - [ ] 1.4.e Commit — `feat(ui): SPA fallback preserves API + asset routes`
-- [ ] 1.5 `[AFK]` Future views render as labeled disabled stubs, never dead links; no external CDN assets (offline check) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 1.6 `[AFK]` Taskfile `ui:build` (`dir: skillgrid-ui`, `npm ci && npm run build`) + `build:all` (`deps: [ui:build]`, `go build -o dist/skillgrid ./skillgrid-cli/cmd/skillgrid`); `.gitignore` adds `ui/dist/` — `Run: go test ./skillgrid-cli/internal/mnemonic/http/...` — Expected: PASS
+- [x] 1.1 `[AFK]` Scaffold `skillgrid-ui/` (Vite + React 19 + TS + Tailwind v4 + shadcn/ui); `vite.config.ts` `build.outDir` → `../skillgrid-cli/internal/mnemonic/http/ui/dist`, `emptyOutDir: true`, content-hash `entryFileNames`/`chunkFileNames`/`assetFileNames`; dev `server.proxy` `/api` → `:8080`
+- [x] 1.2 `[AFK]` App shell: TanStack Router with placeholder routes for all 9 views; sidebar nav (Tracker, Mnemonic▸Graph/Files/Memories/Sessions/Search, Docs, Plans, Activity, Git, Prototypes, Settings); dark theme (`#0a0a0b`/`#141416`/`#27272a`/`#6366f1`); Inter + JetBrains Mono; project selector persists to localStorage
+- [x] 1.3 `[RED]` Create `embed.go`: `//go:embed all:ui/dist`, `//go:embed ui/openapi.yaml`, `//go:embed all:ui/swagger`
+  - [x] 1.3.a Write failing test: `GET /` returns the SPA `index.html`; `GET /assets/index-[hash].js` returns the hashed asset (not `index.html`); `GET /mnemonic/nope` (an API prefix) returns 404 JSON, not `index.html`.
+  - [x] 1.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase1_Embed` — Expected: FAIL
+  - [x] 1.3.c Minimal implementation: `embed.go` + `ui.go` SPA fallback (`fs.Sub` file server; non-`/api/`, non-asset → `index.html`).
+  - [x] 1.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase1_Embed` — Expected: PASS
+  - [x] 1.3.e Commit — `feat(ui): go:embed Vite dist + SPA fallback`
+- [x] 1.4 `[RED]` Threat: SPA fallback does not shadow API/asset routes
+  - [x] 1.4.a Write failing test: `GET /openapi.yaml` → 200 yaml; `GET /swagger/` → 200; a non-asset, non-API path (e.g. `/tracker`) → 200 `index.html` (client router); a known API route that does not exist yet → 404 JSON (not `index.html`).
+  - [x] 1.4.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase1_SPAFallback` — Expected: FAIL
+  - [x] 1.4.c Minimal implementation: prefix-based fallback (API prefixes → 404 JSON; assets → file server; everything else → `index.html`).
+  - [x] 1.4.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase1_SPAFallback` — Expected: PASS
+  - [x] 1.4.e Commit — `feat(ui): SPA fallback preserves API + asset routes`
+- [x] 1.5 `[AFK]` Future views render as labeled disabled stubs, never dead links; no external CDN assets (offline check) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 1.6 `[AFK]` Taskfile `ui:build` (`dir: skillgrid-ui`, `npm ci && npm run build`) + `build:all` (`deps: [ui:build]`, `go build -o dist/skillgrid ./skillgrid-cli/cmd/skillgrid`); `.gitignore` adds `ui/dist/` — `Run: go test ./skillgrid-cli/internal/mnemonic/http/...` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase1_'` | PASS | — | embed + SPA fallback |
-| SPA build | `cd skillgrid-ui && npm ci && npx tsc --noEmit && npm run build` | PASS | — | produces `ui/dist/` |
-| Acceptance `@phase-1` / `@p0` | manual smoke: `skillgrid serve` + browser — sidebar + stubs + dark theme + swagger link | PENDING | — | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` | PASS | — | full package green |
-| Rollback boundary | `git revert` + `skillgrid serve` — old viewer still works | PENDING | N/A (additive) | new `skillgrid-ui/` + `embed.go` + `ui.go` rewrite; revert restores old `ui/` serving |
-| Global Constraints | — | held | — | offline, 127.0.1 unchanged, no `tools_*.go` touched |
+| Focused test | `go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase1_'` | PASS | PASS | `TestPhase1_Embed` + `TestPhase1_SPAFallback` green |
+| SPA build | `cd skillgrid-ui && npx tsc --noEmit && npm run build` | PASS | PASS | tsc clean; produces `ui/dist/` (index.html + assets/) |
+| Acceptance `@phase-1` / `@p0` | live smoke: `skillgrid serve` + curl — SPA shell, stubs, dark theme, swagger + openapi | PASS | PASS | `/` 200 SPA; `/tracker`+`/docs` 200 SPA fallback; `/openapi.yaml` 200 yaml; `/swagger/`+`/swagger/swagger-ui.css` 200; `/memory/nope` 404 JSON; `/projects` 200; asset 200 js |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` | PASS | PASS | full package green (26.9s) |
+| Rollback boundary | `git revert` + `skillgrid serve` — old viewer still works | PASS | N/A (additive) | new `skillgrid-ui/` + `embed.go`; revert restores pre-embed serving |
+| Global Constraints | — | held | held | offline (no CDN), 127.0.0.1 unchanged, no `tools_*.go` touched |
 
 ### Commit
 
