@@ -175,3 +175,48 @@ func TestFederatedConfigWeights(t *testing.T) {
 		t.Fatalf("malfederated weight must fall back to the 0.5/0.5 default, got %+v", got.Federated)
 	}
 }
+
+// TestHomeLocalConfigFallback covers the ~/.skillgrid/config.d/indexing.yaml
+// per-key fallback: a machine-local embedder block applies when the repo-local
+// file leaves the embedder unset, and a repo-local embedder block wins when both
+// are set. Uses an isolated HOME so it does not touch the operator's real home.
+func TestHomeLocalConfigFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".skillgrid", "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	homeCfg := filepath.Join(home, ".skillgrid", "config.d", "indexing.yaml")
+
+	// Write a machine-local Ollama embedder into the home config.
+	homeYAML := "mnemonic:\n  embedder:\n    provider: ollama\n    base_url: http://10.0.0.70:11434\n    model: nomic-embed-text\n    dimension: 768\n"
+	if err := os.WriteFile(homeCfg, []byte(homeYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Case 1: repo-local file present WITHOUT an embedder → home fallback applies.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("chunk_lines: 80\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Load(dir)
+	if got.Embedder.Provider != "ollama" || got.Embedder.BaseURL != "http://10.0.0.70:11434" || got.Embedder.Model != "nomic-embed-text" {
+		t.Fatalf("home fallback: expected ollama embedder from ~/.skillgrid, got provider=%q base_url=%q model=%q",
+			got.Embedder.Provider, got.Embedder.BaseURL, got.Embedder.Model)
+	}
+
+	// Case 2: repo-local file WITH its own embedder → repo-local wins (no leak).
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  embedder:\n    provider: onnx\n    model: nomic-embed-code\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if got.Embedder.Provider != "onnx" || got.Embedder.Model != "nomic-embed-code" {
+		t.Fatalf("repo-local must win over home: got provider=%q model=%q, want onnx/nomic-embed-code",
+			got.Embedder.Provider, got.Embedder.Model)
+	}
+}

@@ -332,21 +332,48 @@ func DefaultEmbedder() EmbedderConfig {
 }
 
 // Load returns indexing settings for startDir, walking up to find config.d/indexing.yaml.
+//
+// Precedence (lowest to highest): built-in defaults < home-local
+// (~/.skillgrid/config.d/indexing.yaml) < the first repo-local file found
+// walking up from startDir. The home-local file is a per-key fallback: it
+// supplies any key the repo-local file leaves unset (e.g. a machine-specific
+// mnemonic.embedder block) while the repo-local file keeps winning the keys it
+// does set. This is what lets an operator point mnemonic.embedder at a local
+// Ollama server without committing the machine-specific config to the repo.
 func Load(startDir string) Indexing {
 	defaults := DefaultIndexing()
+	var home mnemonicSection
+	if data, err := os.ReadFile(homeIndexingYAML()); err == nil {
+		var f indexingFile
+		if yaml.Unmarshal(data, &f) == nil {
+			home = f.Mnemonic
+		}
+	}
 	path, ok := findIndexingYAML(startDir)
 	if !ok {
-		return defaults
+		return mergeIndexing(defaults, home)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return defaults
+		return mergeIndexing(defaults, home)
 	}
 	var file indexingFile
 	if err := yaml.Unmarshal(data, &file); err != nil {
-		return defaults
+		return mergeIndexing(defaults, home)
 	}
-	return mergeIndexing(defaults, file.Mnemonic)
+	return mergeIndexing(mergeIndexing(defaults, home), file.Mnemonic)
+}
+
+// homeIndexingYAML is the machine-local config path (~/.skillgrid/config.d/
+// indexing.yaml). It is consulted only as a per-key fallback to the repo-local
+// file, so machine-specific settings (embedder endpoints, etc.) never need to
+// be committed.
+func homeIndexingYAML() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".skillgrid", "config.d", "indexing.yaml")
 }
 
 func findIndexingYAML(startDir string) (string, bool) {
