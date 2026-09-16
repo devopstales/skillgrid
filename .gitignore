@@ -26,7 +26,7 @@ skillgrid-cli/out/
 ###############################
 # done
 .codegraph/
-# ollama
+# done (ollama)
 graphify-out/
 # done (ollama)
 /.cocoindex_code/
