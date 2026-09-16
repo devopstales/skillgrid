@@ -1,0 +1,112 @@
+# Skillgrid SDD config — source of truth for this project's pipeline.
+# Schema per skillgrid-skills/.agents/skills/onboarding/templates/config.yaml
+# (the "standard" format). Migrated 2026-09-16 from docs/skillgrid/config.yaml
+# (old skillgrid-sdd/v1 layout); rules.* phase guidance preserved under `rules:`.
+schema: skillgrid/v1
+project: skillgrid
+context: >-
+  Go 1.25.5 monorepo: `skillgrid-cli/` (Go binary) installs the AI-assisted
+  development hub onto a machine, wiring OpenCode, Kilo, and Cursor with
+  Mnemonic persistent memory, code indexing, and web research caching.
+  Constraints: Go 1.22+ to build; Node/npm on PATH at install time.
+
+# --- Ticketing ---
+ticketing:
+  enabled: true
+  type: backlogmd
+  backlogmd:
+    dir: .backlog
+    task_prefix: "task"
+    zero_padded_ids: 3
+
+# --- Testing ---
+testing:
+  runner: "go test ./..."
+  setup: "go build ./..."
+  layers: [unit, integration]
+  coverage: "" # no enforced minimum; verify reports changed-file coverage informationally
+  mutation: "" # no mutation tooling configured
+  tdd: false # default mode is Standard; Strict-TDD branches are opt-in (rules.apply.tdd)
+
+# --- QA Gates (configurable thresholds) ---
+quality:
+  coverage_min: 0 # advisory only (80 reported informationally, never blocking)
+  mutation_min: 0 # disabled (no mutation tooling)
+  p0_pass_rate: 100
+  p1_pass_rate: 95
+
+# --- Artifact layout (standard .skillgrid/ zones) ---
+conventions:
+  artifacts_root: .skillgrid
+  scratch_dir: .skillgrid/sdd
+  specs_dir: .skillgrid/specs
+  archive_dir: .skillgrid/archive
+  registry: docs/skillgrid/agents/skill-registry.md # optional; never a workflow gate
+
+# --- Phase rules (preserved from the old skillgrid-sdd/v1 config) ---
+rules:
+  explore: []
+  propose:
+    - Include rollback plan for risky changes
+    - Include success criteria (measurable)
+    - Document architecture decisions with rationale (Choice/Alternatives/Rationale)
+    - Carry applicable threat-matrix rows forward into spec scenarios + tasks RED-test tasks
+    - Classify change (trivial | standard | risky; trivial may be one line) with verification floor L1-L4
+    - Name trust boundaries + stop-and-ask security assumptions, or one line when none
+    - Minimum secure design; label assumptions Verified / Inferred / Unknown
+    - State falsifiable hypothesis (right + wrong conditions) with thinnest MVP and door check
+    - Intent only in propose; engineering decisions belong to design/spec
+  spec:
+    - Map proposal Capabilities mechanically: New capability → full spec; Modified → delta spec (ADDED/MODIFIED/REMOVED/RENAMED)
+    - MODIFIED is replace semantics: copy the ENTIRE requirement block, then edit (un-copied scenarios vanish at archive)
+    - Requirements carry RFC 2119 keywords (uppercase); every requirement has Given/When/Then scenarios
+    - Cover a happy path and at least one edge + failure per requirement
+    - Every applicable design threat-matrix row gets a covering scenario (or a flagged gap)
+    - REMOVED requires (Reason:) + (Migration:) where affected; RENAMED requires the {old} → {new} heading
+  apply:
+    guidelines:
+      - Follow existing code patterns
+      - Mark tasks [x] as you go (in tasks.md)
+    tdd: false
+    test_command: "go test ./..."
+  verify:
+    test_command: "go test ./..."
+    build_command: ""
+    coverage_threshold: 80 # advisory only (WARNING at worst, never blocking)
+  fast_track:
+    enabled: true
+    classes:
+      trivial:
+        criteria:
+          - "single concern, ≤3 files, no behavior change (typo, copy, single-line config, pure rename)"
+          - "no migration, no new dependency, no trust-boundary change"
+        skips: [design, spec]
+        tasks: light
+        proposal: one-line
+      small:
+        criteria:
+          - "single file or single concern, no new capability, no migration"
+          - "≤10 files, 400-line budget risk Low"
+        skips: [design, spec]
+        tasks: light
+        proposal: full
+    waiver:
+      required: true
+      recorded_in: briefing.md
+      carried_to: [tasks.md, report.md]
+    blocked_when:
+      - "any design threat-matrix row Applicable"
+      - "400-line budget risk High"
+      - "new trust boundary or migration"
+      - "multi-domain spec impact"
+    gates:
+      user_gate: true
+      verify: advisory-on-missing
+      archive: intentional-partial
+  review:
+    - Fire requesting-code-review on high-risk signals (400-line risk High, chained PRs, applicable threat row, last step before archive)
+    - Run quality-security-review advisory after verify passes (vet/gofmt/trivy + checklist); WARNING/SUGGESTION only, never blocking
+    - Receive all findings via review-reception (verify against codebase first, one item at a time, pushback with evidence)
+  archive:
+    - Require every step in tasks.md to have PASS or PASS WITH WARNINGS before move
+    - Advisory review findings (quality-security) recorded, do not block move

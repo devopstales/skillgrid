@@ -1,0 +1,9 @@
+---
+description: Always apply the Mnemonic memory protocol for skillgrid projects.
+globs: "**/*"
+alwaysApply: true
+---
+
+# Mnemonic Memory Protocol
+
+{{MEMORY_PROTOCOL}}
