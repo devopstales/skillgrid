@@ -4,6 +4,42 @@ import (
 	"testing"
 )
 
+// TestFindImportCyclesNULLExternalTarget covers the external/stdlib import case:
+// an import edge whose target_path matches no indexed file leaves f_to.path
+// NULL via the LEFT JOIN. importFileEdges must scan that NULL without a
+// "converting NULL to string" error and drop the edge, while still returning
+// the real in-repo cycle.
+func TestFindImportCyclesNULLExternalTarget(t *testing.T) {
+	db := openStore(t)
+	aID := seedFile(t, db, "a.go")
+	bID := seedFile(t, db, "b.go")
+	// from_id must be a valid symbol id (edges.from_id references symbols).
+	aSym := seedSymbol(t, db, aID, "A", "func", 1)
+	bSym := seedSymbol(t, db, bID, "B", "func", 1)
+	// a.go -> b.go and b.go -> a.go: a real 2-file import cycle.
+	if _, err := db.Exec(`INSERT INTO edges (kind, from_id, file_id, to_name, target_path, confidence, line)
+		VALUES ('imports', ?, ?, 'b.go', 'b.go', 'EXTRACTED', 1),
+		       ('imports', ?, ?, 'a.go', 'a.go', 'EXTRACTED', 2)`, aSym, aID, bSym, bID); err != nil {
+		t.Fatalf("seed cycle: %v", err)
+	}
+	// a.go -> "context" (stdlib): no indexed file matches, so f_to.path is NULL.
+	if _, err := db.Exec(`INSERT INTO edges (kind, from_id, file_id, to_name, target_path, confidence, line)
+		VALUES ('imports', ?, ?, 'context', 'context', 'EXTRACTED', 3)`, aSym, aID); err != nil {
+		t.Fatalf("seed external: %v", err)
+	}
+
+	cycles, err := FindImportCycles(db)
+	if err != nil {
+		t.Fatalf("FindImportCycles: %v (want nil — the NULL external target must not error)", err)
+	}
+	if len(cycles) != 1 {
+		t.Fatalf("expected 1 cycle (external dropped), got %d: %+v", len(cycles), cycles)
+	}
+	if cycles[0].NodeCount != 2 || cycles[0].Cycle[0] != "a.go" {
+		t.Errorf("cycle = %+v, want a 2-node loop starting at a.go", cycles[0])
+	}
+}
+
 // TestDetectCyclesTwoNodeLoop covers the classic A→B→A import cycle: a single
 // 2-file loop must be detected once, canonicalized to put the lexicographically
 // smallest file first, and closed (last == first).

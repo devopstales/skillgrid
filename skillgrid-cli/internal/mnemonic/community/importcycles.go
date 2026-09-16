@@ -81,19 +81,20 @@ func importFileEdges(db *sql.DB) ([]FileEdge, error) {
 	seen := map[[2]string]bool{}
 	for rows.Next() {
 		var fileID int64
-		var from, target, to string
+		var from, target string
+		var to sql.NullString
 		if err := rows.Scan(&fileID, &from, &target, &to); err != nil {
 			return nil, err
 		}
-		if to == "" {
-			continue // external/stdlib import — not an indexed file
+		if !to.Valid || to.String == "" {
+			continue // external/stdlib import — f_to is NULL, not an indexed file
 		}
-		key := [2]string{from, to}
+		key := [2]string{from, to.String}
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		out = append(out, FileEdge{From: from, To: to})
+		out = append(out, FileEdge{From: from, To: to.String})
 	}
 	return out, rows.Err()
 }
