@@ -19,7 +19,7 @@ That is **77 MCP tools** in total (27 memory · 32 code · 5 web cache · 3 sess
 
 ## Quick path
 
-```bash
+```text
 skillgrid mcp              # agent tools (stdio) — the 77 MCP tools below
 skillgrid serve            # HTTP API + Web UI (default 127.0.0.1:7438)
 skillgrid index --dir .    # one-shot code index (add --watch --embeddings --pdg for opt-in tiers)
@@ -42,7 +42,7 @@ Save after: bug fixes (with root cause), architecture/design decisions, non-obvi
 
 **Recall ladder** (cheap → full):
 
-```
+```bash
 mem_context  →  mem_search  →  mem_timeline  →  mem_get_observation
  (recent     (FTS5          (before/after    (full,
   summaries)  keyword)        context)        untruncated)
@@ -108,6 +108,8 @@ graph LR
 | `mnemonic_commit` | Explicitly commit lessons into L2 durable (L0/L1 async). Does not run on session end. |
 | `knowledge_compact` | Thin-refresh `.cleave/KNOWLEDGE.md` from handoff/session inputs only. |
 
+> **Filesystem & sharing** (`mem fs ls/tree/find` over `mem://`, `mem_share` visibility, `mem export`) are CLI-only — see [1.5 Filesystem access & sharing](#15-filesystem-access--sharing), including the OpenViking comparison.
+
 ## 1.4 Memory data flow
 
 ```mermaid
@@ -132,6 +134,70 @@ flowchart TD
     SH["session_handoff / session_resume"] --> HND["session_handoffs + .cleave/ bundle"]
   end
 ```
+
+## 1.5 Filesystem access & sharing
+
+Mnemonic can present memory as a **virtual filesystem** and as **shared observations**, modeled on **OpenViking** (volcengine/OpenViking — a context database that exposes memory/resources/skills as a `viking://` filesystem). This section documents what is implemented, how to use it, and the gap to OpenViking's full "share like a network drive" model.
+
+### Filesystem browse (`mem fs`, CLI only — no MCP tool)
+
+`memfs` (change 014) exposes a `mem://` URI space with scope-aware `ls`/`tree`/`find`, alongside the existing semantic `mem_search`. The "directories" under a scope are the `memory_type` categories:
+
+```
+mem://project/{id}/            → all of project {id}'s observations
+mem://project/{id}/preferences → only {id}'s preference-typed observations
+mem://user/{id}/               → user {id}'s observations
+```
+
+Scopes resolve from the `topic_key` column (pattern `{kind}/{id}/{memory_type}/…`), so no separate schema is needed. It is **read-only** (browse, not mutate).
+
+```bash
+skillgrid mem fs ls project/A/              # list a scope
+skillgrid mem fs tree project/A/            # hierarchical tree view
+skillgrid mem fs find "*auth*" project/A/   # glob pattern across observations
+skillgrid mem search "auth" --trajectory    # semantic search + directory drill-down path
+```
+
+`--trajectory` (014 step 19) prints the directory-recursive retrieval drill-down — the OpenViking "observable retrieval trajectory".
+
+### Sharing (`mem_share` + visibility ladder)
+
+Observations are **private by default**. `mem_share` is the only explicit way to widen visibility, on a four-level ladder with per-observation ACLs (stored in `acl_grants`):
+
+```
+private  →  team  →  restricted (per-principal ACL)  →  agent
+```
+
+```bash
+skillgrid mem share <id> --target-visibility team
+skillgrid mem share <id> --target-visibility restricted --grants alice,bob
+skillgrid mem governance <id>     # read owner, version history, visibility, ACL grants
+```
+
+Visibility is enforced on read (`mem_search` / `mem_context` filter to what the reader can see). `mem_merge_projects` / `mem_unify` fold multiple project stores into one canonical store (the multi-repo share path).
+
+### Export (portable file share)
+
+```bash
+skillgrid mem export [--file out.json] [--skip-embeddings]   # COGX JSON (observations + graph edges + embeddings)
+skillgrid export --project ID --out DIR                       # Obsidian Markdown + viz JSON
+```
+
+These are the only file-based share mechanisms today — a portable payload you hand to someone, not a live mount.
+
+### Status vs OpenViking
+
+| OpenViking | Mnemonic | Status |
+|---|---|---|
+| VikingFS `ls`/`tree`/`find` over `viking://` | `mem fs ls/tree/find` over `mem://` | ✅ done (read-only, CLI) |
+| L0/L1/L2 tiered, loaded on demand | L0→L3 tiers + `load_full_details` | ✅ done |
+| Directory-recursive retrieval + observable trajectory | `mem search --trajectory` + `retrieval_trails` | ✅ done |
+| Point-in-time snapshots / rollback | `mem snapshot create/restore/list` | ✅ done |
+| Shared namespace + per-dir/file ACLs | `mem_share` visibility ladder + `acl_grants` | 🟡 partial — per-observation visibility, **no shared/peer `mem://` scope** |
+| FS mutations `cp`/`mv`/`mkdir`/`write` | — | ❌ not done (memfs is read-only) |
+| WebDAV / HTTP file protocol (mountable drive) | `skillgrid serve` is a JSON API + dashboard | ❌ not done |
+
+**Bottom line:** the *filesystem-browsing* and *tiered-recall* halves of OpenViking are implemented; the *share-as-a-network-drive* half (shared/peer scopes, FS writes, WebDAV) is not. Sharing today = `mem_share` visibility + `export` payloads, all local-first (one per-project SQLite file, no file-protocol server by default).
 
 ---
 
