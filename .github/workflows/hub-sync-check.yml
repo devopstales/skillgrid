@@ -1,4 +1,4 @@
-name: Hub IDE sync check
+name: Hub sync + hook tests
 
 on:
   push:
@@ -7,15 +7,11 @@ on:
     branches: [main, master]
 
 jobs:
-  sync-check:
+  sync-and-hooks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "lts/*"
-          cache: npm
-      - name: Verify Node lockfile (hub tools)
-        run: npm ci
-      - name: Verify Cursor mirrors match canonical commands and agents
+      - name: Verify IDE mirrors match canonical prompts and agents
         run: ./scripts/sync-ide-assets.sh --check
+      - name: Test the guard hooks
+        run: ./scripts/test-hooks.sh

@@ -1,0 +1,213 @@
+schema: skillgrid/v1
+project: {project}
+context: >-
+  {context}
+
+# --- Ticketing ---
+# Set enabled: false to skip ticket publishing entirely (tasks.md only).
+# type: backlogmd (default, local) | gh | glab | jira
+ticketing:
+  enabled: {ticketing_enabled}
+  type: {ticketing_type}
+  # Required when type: jira
+  # project_key: {jira_project_key}
+  # instance: https://{jira_org}.atlassian.net
+  backlogmd:
+    dir: .backlog
+    task_prefix: "task"
+    zero_padded_ids: 3
+  gh:
+    labels:
+      triage: "needs-triage"
+      info: "needs-info"
+      ready_agent: "ready-for-agent"
+      ready_human: "ready-for-human"
+      wontfix: "wontfix"
+  glab:
+    labels:
+      triage: "needs-triage"
+      info: "needs-info"
+      ready_agent: "ready-for-agent"
+      ready_human: "ready-for-human"
+      wontfix: "wontfix"
+
+# --- Testing ---
+testing:
+  runner: "{test_runner}"
+  setup: "{setup_command}"
+  layers: [{test_layers}]
+  coverage: {coverage_command}
+  mutation: {mutation_command}       # e.g. "npx stryker run" — set to "" if no mutation testing
+  tdd: true
+
+# --- QA Gates (configurable thresholds, asked at onboarding) ---
+# All values are hard gates: the skillgrid:qa skill FAILs the gate when a
+# threshold is not met. Set to 0 to disable a gate.
+# coverage_min: minimum line/branch coverage % (0 = disabled)
+# mutation_min: minimum mutation score % (0 = disabled, requires testing.mutation)
+# p0_pass_rate: minimum P0 test pass rate % (default 100)
+# p1_pass_rate: minimum P1 test pass rate % (default 95)
+quality:
+  coverage_min: {quality_coverage_min}
+  mutation_min: {quality_mutation_min}
+  p0_pass_rate: {quality_p0_pass_rate}
+  p1_pass_rate: {quality_p1_pass_rate}
+
+# --- Security Scan (Trivy) ---
+# Trivy is a multi-scanner: vulnerability (CVE), misconfiguration, secret,
+# and license. The skillgrid:qa skill runs it during the Security Audit step.
+# command: the trivy invocation ("" = disabled, falls back to manual checks)
+# target: what to scan (default: the current directory)
+# severities: minimum severity to report (comma-separated, highest first)
+#   CRITICAL (default) | CRITICAL,HIGH | CRITICAL,HIGH,MEDIUM | all
+# scan_types: which scanners to run (comma-separated)
+#   vuln (default) | vuln,misconfig | vuln,secret | vuln,secret,misconfig,license
+# fail_on: minimum severity that FAILs the QA gate ("" = Trivy findings are
+#   reported but never block; set to e.g. "CRITICAL" to hard-gate on it)
+security:
+  trivy:
+    command: "{trivy_command}"
+    target: "."
+    severities: "{trivy_severities}"
+    scan_types: "{trivy_scan_types}"
+    fail_on: "{trivy_fail_on}"
+
+# --- Commands ---
+commands:
+  build: "{build_command}"
+  lint: "{lint_command}"
+  format: "{format_command}"
+  typecheck: "{typecheck_command}"
+
+# --- Conventions ---
+conventions:
+  specs_root: .skillgrid/specs
+  scratch_dir: .skillgrid/sdd
+  prd: docs/PRD.md
+  architecture: docs/ARCHITECTURE.md
+  glossary: .skillgrid/glossary
+  adr: .skillgrid/adr
+  worktree_dir: .worktrees
+  commit_style: conventional
+
+# --- Checkpoint (commit discipline + resume handle) ---
+# skillgrid:work-unit-commits is fully active during execution. Each work-unit
+# commit carries a [skillgrid-context] block (the durable record); this state
+# file is a DERIVED resume handle (.skillgrid/sdd/checkpoint.json) that
+# checkpoint-state.sh snapshot writes from git log + the block. The git hooks
+# (pre-commit, commit-msg) enforce the safety guards and the commit format.
+# A future skillgrid-cli rebinds the hook shims; the state_file path is the seam.
+checkpoint:
+  enabled: true
+  state_file: .skillgrid/sdd/checkpoint.json
+  # hooks: pre-commit (cwd-drift + protected-ref/detached guards),
+  #        commit-msg (conventional subject + no AI-attribution trailer)
+  # rollup (session-end .skillgrid/sdd/PROGRESS.md) is deferred.
+
+# --- ADR format ---
+# Template used by skillgrid:architectural-decision-records for every ADR.
+# Ask the user at onboarding; never re-ask once set.
+# Options: madr-full | madr-minimal (default) | nygard | y-statement | custom
+adr_style: {adr_style}
+
+# --- BDD / Acceptance Testing ---
+# Always on — BDD is non-negotiable in Skillgrid (like TDD). The
+# skillgrid:acceptance-test-authoring skill and the acceptance-tests/ runner are
+# always active: brainstorming writes .skillgrid/specs/<id>/acceptance.feature
+# and execution enforces the spec zone rule (commit specs before code).
+# stack: javascript (cucumber-js) — python/behave is a follow-up.
+bdd:
+  enabled: true
+  stack: javascript
+  specs_dir: .skillgrid/specs
+  runner_dir: acceptance-tests
+  lint: gherkin
+
+# --- Mnemonic (persistent memory + code index + web cache) ---
+# Detected at onboarding via the skillgrid CLI. When enabled, the
+# skillgrid:mnemonic skill is active: mem_save for decisions, code_status
+# → code_index → code_search for code orientation, web_cache for research.
+# data_dir defaults to ~/.skillgrid/mnemonic; override if needed.
+mnemonic:
+  enabled: {mnemonic_enabled}
+  data_dir: ~/.skillgrid/mnemonic
+
+# --- Research ---
+# Investigate a question against primary sources into a cited `## Research:`
+# section at .skillgrid/specs/YYYY-MM-DD-<topic>/findings.md. Two skills:
+# research (single inline pass) and deep-research (parallel fan-out + verify +
+# red-team). Brainstorming dispatches research just-in-time when the design
+# depends on a fact not in the codebase; writing-blueprints cites the findings.
+research:
+  default: research              # research | deep-research
+  output_dir: .skillgrid/specs
+  deep_research_preset: standard # quick | standard | deep
+
+# --- Spike (feasibility probe) ---
+# skillgrid:spike answers a falsifiable question with a VALIDATED / INVALIDATED /
+# PARTIAL verdict + evidence. A tiny probe (one library, one command) is answered
+# inline by brainstorming; a real probe (code executed, a comparison, a demo)
+# delegates here. Both append their results to the topic's consolidated
+# findings.md, which writing-blueprints reads.
+spike:
+  enabled: true
+  findings: .skillgrid/specs/{topic}/findings.md   # consolidated per-topic file
+  module_dir: .skillgrid/specs/{topic}/modules     # liftable pure modules (if any)
+
+# --- Sketch (UI/interaction variant mockup) ---
+# skillgrid:sketch builds 2-3 dramatic-difference interactive mockups for a design
+# that has 2+ meaningfully different layout/interaction options. The marked
+# winner + build constraints are appended to the topic's consolidated findings.md.
+sketch:
+  enabled: true
+  findings: .skillgrid/specs/{topic}/findings.md   # consolidated per-topic file
+  dir: .skillgrid/specs/{topic}/sketches           # HTML mockups + themes/
+
+# --- Rules (per-phase overrides) ---
+# Each list is appended to the skill's built-in rules.
+# Empty = use skill defaults only.
+rules:
+  brainstorm: []
+  blueprint: []
+  slicing: []
+  execution: []
+  review: []
+  # --- Ship (integration + archive move) ---
+  # skillgrid:ship merges/PRs/keeps the branch, then moves the change folder
+  # specs/ -> archive/. No release mechanics (VERSION/CHANGELOG) and no docs
+  # check in any variant. fast_track_light: trivial/small skip PR-body
+  # generation but the mechanical move is never waived.
+  ship:
+    fast_track_light: true
+  # --- Reflect (terminal: report.md + session close) ---
+  # verdict_gate: advisory | blocking — the acceptance verdict (accepted /
+  # accepted-with-open-items / rejected) is advisory by default (recorded,
+  # human decides follow-up); set blocking to make a `rejected` verdict block.
+  reflect:
+    verdict_gate: advisory
+  # --- Fast-Track (trivial / small changes) ---
+  # Policy source of truth: .agents/skills/_shared/conventions/fast-track.md
+  # standard/risky changes always run the full pipeline; only trivial/small may waive.
+  fast_track:
+    enabled: true
+    classes:
+      trivial:
+        criteria:
+          - "single concern, ≤3 files, no behavior change (typo, copy, single-line config, pure rename)"
+          - "no migration, no new dependency, no trust-boundary change"
+        skips: [brainstorming, blueprint, acceptance.feature]
+        tasks: light
+      small:
+        criteria:
+          - "single file or single concern, no new capability, no migration"
+          - "≤10 files"
+        skips: [brainstorming, blueprint]
+        tasks: light
+    waiver:
+      required: true
+      recorded_in: briefing.md
+    blocked_when:
+      - "any threat-matrix row Applicable"
+      - "new trust boundary or migration"
+      - "multi-domain impact"
+      - "400+ line change"

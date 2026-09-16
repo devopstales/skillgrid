@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# commit-msg — thin shim over checkpoint-state.sh guard-msg.
+# Lives in .agents/git-hooks/ (the hook entrypoints); the implementation lives
+# in .agents/hooks/. $1 is the path to the file containing the commit message.
+# CLI-ready: skillgrid-cli rebinds this shim to its binary.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec bash "$SCRIPT_DIR/../hooks/checkpoint-state.sh" guard-msg "$1"
