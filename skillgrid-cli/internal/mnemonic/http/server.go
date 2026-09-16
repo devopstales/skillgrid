@@ -143,6 +143,7 @@ func (s *Server) registerRoutes() {
 	s.registerTeamsRoutes()
 	s.registerTrackerRoutes()
 	s.registerDocsRoutes()
+	s.registerUIRoutes()
 }
 
 // registerDocsRoutes mounts the read-only SDD docs bridge on the two routes
