@@ -27,6 +27,18 @@ tasks:
     cmds:
       - task: build
 
+  ui:build:
+    desc: Build the skillgrid-ui SPA into skillgrid-cli/internal/mnemonic/http/ui/dist (go:embed input).
+    cmds:
+      - cd skillgrid-ui && npm ci && npm run build
+
+  build:all:
+    desc: Build the SPA then the local platform binary (embed needs ui:build first).
+    deps:
+      - ui:build
+    cmds:
+      - task: build
+
   build:
     desc: Build the local platform binary into dist/.
     cmds:
