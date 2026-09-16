@@ -40,7 +40,7 @@ The router — the skill that tells an agent which skill to use before any respo
 
 **Config check:** if `.skillgrid/config.yaml` doesn't exist, invoke the skillgrid:onboarding skill first. All other skills read from this config for project-specific settings.
 
-**Resume check:** if the newest `.skillgrid/specs/` directory contains in-flight artifacts (a `state.md`, an uncompleted `tasks.md`, or a ledger under `.skillgrid/sdd/`), invoke the skillgrid:resume skill BEFORE any other skill — including clarifying questions. The files say where you left off; the conversation doesn't. A folder that has moved to `.skillgrid/archive/` is **closed**, not in-flight — do not resume it (a new change gets a new dated folder).
+**Resume check:** if the newest `.skillgrid/specs/` directory contains in-flight artifacts (an uncompleted `tasks.md`, a `checkpoint.json` with non-empty `remaining`, or a ledger under `.skillgrid/sdd/`), invoke the skillgrid:resume skill BEFORE any other skill — including clarifying questions. The files say where you left off; the conversation doesn't. A folder that has moved to `.skillgrid/archive/` is **closed**, not in-flight — do not resume it (a new change gets a new dated folder).
 
 **Domain model check:** if `.skillgrid/glossary/` exists, read `business.md` and `technical.md` for the project's vocabulary, and read the ADRs in `.skillgrid/adr/` for the area you're touching. Use that vocabulary in questions and designs, and respect ADRs that already settled decisions. When terms resolve or a hard-to-reverse decision is made, update them via skillgrid:architectural-decision-records.
 
@@ -50,7 +50,7 @@ Then announce "Using [skill] to [purpose]" and follow the skill exactly. If it h
 
 Conversation memory does not survive compaction, and no skill may assume it will.
 
-- **Persist before pressure, not after loss.** When a session is clearly long — many subagents dispatched, large tool outputs accumulating, or the harness showing a compaction indicator — STOP and: (1) append the current position to the active `state.md` and, during execution, the plan's ledger, (2) commit the work unit (skillgrid:work-unit-commits), (3) if the remaining work is large, run the save path in skillgrid:resume.
+- **Persist before pressure, not after loss.** When a session is clearly long — many subagents dispatched, large tool outputs accumulating, or the harness showing a compaction indicator — STOP and: (1) append the current position to the plan's ledger (during execution) or the spec-zone artifacts (during planning), (2) commit the work unit (skillgrid:work-unit-commits) so `checkpoint.json` carries the position, (3) if the remaining work is large, run the save path in skillgrid:resume.
 - **State writes are dual:** the in-repo file is the source of truth; when `mnemonic.enabled: true`, `mem_save` mirrors it under `skillgrid/<topic>/…` as an index and backup. If they disagree, the in-repo file wins.
 - **After compaction** ("FIRST ACTION REQUIRED"), re-orient via skillgrid:resume before continuing — files first, mnemonic only as fallback.
 
@@ -91,8 +91,8 @@ Do not auto-execute. The user must confirm the slice before execution begins.
 | All tickets done, no `qa-report.md` | `qa` |
 | `qa-report.md` PASS, no review | `requesting-code-review` |
 | Review clean | `receiving-code-review` → `ship` |
-| `ship-report.md` present, no `retrospective.md` | `reflect` (terminal) |
-| `retrospective.md` present | none — cycle complete |
+| Folder moved to `archive/`, no `report.md` | `reflect` (terminal) |
+| `report.md` present in `archive/` | none — cycle complete |
 
 ## Skill Priority
 

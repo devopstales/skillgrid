@@ -14,7 +14,7 @@ The pipeline is SDD: `onboarding → interviewing → writing-blueprints → sli
 - **A written change contract before code.** Blueprint + sliced tasks + Gherkin acceptance exist and are approved *before* implementation starts.
 - **A human approval gate** after spec, never auto-skipped.
 - **Evidence-based verify.** The QA gate runs oracles and traces to scenarios; findings re-enter apply.
-- **Durable, resumable state** (`state.md`, `checkpoint.json`) so a change survives compaction.
+- **Durable, resumable state** (`checkpoint.json` derived from the last commit's `[skillgrid-context]` block, plus the spec-zone artifacts that name the phase) so a change survives compaction.
 
 SDD is what makes "done" a claim with evidence instead of an assertion.
 
@@ -75,16 +75,13 @@ The pipeline's shared "domain model" home. `architectural-decision-records`: "Ac
 ├── adr/                 # 0001-slug.md … sequential, monotonic, never reused
 ├── sdd/                 # checkpoint.json, debug/, gate-stop-state.json
 └── specs/YYYY-MM-DD-<topic>/
-    ├── state.md
     ├── briefing.md
     ├── acceptance.feature
     ├── blueprint.md
     ├── tasks.md
     ├── adr.md           # ADR Review Manifest (pointers only)
-    ├── findings.md      # consolidated spike/sketch contract
-    ├── research.md
-    ├── test-plan.md
-    └── qa-report.md
+    ├── findings.md      # consolidated research/spike/sketch evidence
+    └── qa-report.md     # test plan + 4-state gate + evidence
 ```
 
 ### Glossary
@@ -142,7 +139,7 @@ Score each dimension 0.0 (completely unclear) to 1.0 (crystal clear):
 
 **The ratchet:** "When in doubt between two paths, take the heavier one. The ratchet is one-way: hidden complexity discovered mid-task upgrades the path — stop, say so, and step up. Nothing downgrades mid-task."
 
-The two full paths (New Project / New Function) create `state.md` at the first phase transition and append at every transition; the only skill invoked after is `writing-blueprints`. Spike/bounded skip `state.md` — they're short by design. Just-in-time offers (not upfront): visual companion, `sketch` (only when 2+ meaningfully different options whose choice depends on *feeling* it), `research` (first external fact not in the codebase).
+The two full paths (New Project / New Function) run long enough to outlive a session; the phase position is read from which spec-zone artifacts exist (no separate `state.md` is created), and each phase transition commits the artifacts that changed (the `[skillgrid-context]` `Decisions:` line carries the key call). Spike/bounded skip persistence — they're short by design. Just-in-time offers (not upfront): visual companion, `sketch` (only when 2+ meaningfully different options whose choice depends on *feeling* it), `research` (first external fact not in the codebase).
 
 ## Must-Haves + one-way-door (writing-blueprints)
 
@@ -285,7 +282,7 @@ Gherkin-in-Markdown: "Markdown headings carry the capability, requirement, and s
 | `competitive` | position against named competitors, battlecard | pricing/features ≤ 3 mo · trajectory ≤ 6 mo · sentiment ≤ 12 mo |
 | `domain` | learn a domain's rules, constraints, vocabulary | regulations/protocol ≤ 6 mo · operational patterns ≤ 12 mo · conventions ≤ 2 yr |
 
-Confidence per claim: **high** (verified, fresh, credible) / **medium** (single credible source, fresh) / **low** (stale, weak publisher, or disputed) / `unverified`. Findings land at `{specs_root}/YYYY-MM-DD-<topic>/research.md`; "every load-bearing claim is cited inline `[n]` and resolves in the source appendix."
+Confidence per claim: **high** (verified, fresh, credible) / **medium** (single credible source, fresh) / **low** (stale, weak publisher, or disputed) / `unverified`. Findings land as a `## Research: <question>` section at `{specs_root}/YYYY-MM-DD-<topic>/findings.md`; "every load-bearing claim is cited inline `[n]` and resolves in the source appendix."
 
 **The boundary between research / spike / sketch / deep-research:** research = a fact not in the codebase, one inline pass; spike = needs code executed; sketch = needs *feeling* a layout; deep-research = wide or high-stakes.
 
@@ -333,17 +330,29 @@ Tried: <failed approaches worth recording — omit line if none>
 
 `checkpoint.json` (`skillgrid/checkpoint/v1`) is derived from `git log -1`; never hand-edit. Snapshot via `checkpoint-state.sh snapshot` (idempotent); restore via `restore`. **Commit first, then review** — "Review diffs `merge-base...HEAD`; an uncommitted change is invisible to it."
 
-## The three state layers + resume
+## The state layers + resume
 
 "Conversation memory rots (compaction, session death, context overflow). Files do not. When state files and your recollection disagree, **the files win, every time.**" "The conversation is a control channel, the files are the store." Mnemonic is "a fallback index, not a layer."
 
+Two durable layers, plus the spec-zone artifacts that name the phase:
+
 | Layer | File | Answers | Lifetime |
 |-------|------|---------|----------|
-| **Phase** | `.skillgrid/specs/YYYY-MM-DD-<topic>/state.md` | What phase, what's done/open/decided? | Committed; survives `git clean -fdx` |
 | **Task** | `.skillgrid/sdd/<plan>/progress.md` | Which task done? What was ruled? | Git-ignored; deleted when review clean |
-| **Code** | `.skillgrid/sdd/checkpoint.json` (derived from git log) | Where in code did last unit leave off? | Derived; always reconstructable |
+| **Code** | `.skillgrid/sdd/checkpoint.json` (derived from git log + `[skillgrid-context]`) | Where in code did the last unit leave off? What task / decisions / remaining? | Derived; always reconstructable |
 
-`state.md` format: `Phase: <spike | interview | design | blueprint | slicing | execution | review | done>` + `Done:` / `Open:` / `Decisions:` / `Execution:` + a `## Handoff` narrative paragraph. Resume: "On resume: read the state file first (skillgrid:resume); resume at the first `open` item."
+The **phase** is not a separate file — it is read from which spec-zone artifacts exist in `.skillgrid/specs/YYYY-MM-DD-<topic>/`:
+
+| Artifacts present | Phase |
+|---|---|
+| `briefing.md` only (no `blueprint.md`) | planning (brainstorming / interviewing / design) |
+| `briefing.md` + `blueprint.md` (no `tasks.md` `[x]`) | blueprint done, slicing next |
+| `tasks.md` with `[ ]` items (no ledger) | slicing done, execution not started |
+| `tasks.md` with `[x]` items + ledger | execution in progress |
+| `qa-report.md` present | qa / review |
+| folder moved to `archive/` | closed (not in-flight — do not resume) |
+
+Resume: "On resume: locate the in-flight topic, read the layers (ledger + checkpoint), determine the phase from the artifacts, announce the recovered position in one line, continue at the first incomplete task." The narrative handoff lives in the checkpoint's `Decisions:` / `Remaining:` lines (or the ledger tail), not a separate `state.md`.
 
 ## Structured debugging: four phases + the 3-fix rule
 
@@ -370,9 +379,9 @@ This "3 rounds then escalate" mirrors the QA fix-loop cap — both cap iteration
 
 "Writing skills IS Test-Driven Development applied to process documentation. If you didn't watch an agent fail without the skill, you don't know if the skill teaches the right thing. NO SKILL WITHOUT A FAILING TEST FIRST … Write skill before testing? Delete it." The description field is "When to Use, NOT What the Skill Does" — descriptions that summarize the workflow create a shortcut agents will take. Two conventions that recur in skillgrid's skill format come from here: **close every loophole explicitly** ("Violating the letter of the rules is violating the spirit of the rules") and the **Red Flags / Rationalizations table** — the "These thoughts mean STOP — you're rationalizing" lists at the bottom of load-bearing skills. This is why skillgrid skills read the way they do: they were written TDD-style, against observed agent failures.
 
-## `findings.md` — consolidated spike/sketch contract
+## `findings.md` — consolidated pre-design evidence
 
-"The consolidated file is the single downstream contract that `writing-blueprints` reads — it must contain every spike's and sketch's verdict, what's liftable, and the constraints for the build." At `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md`: spike appends `## Spike: NNN-name` (Verdict / What we learned / What's liftable / Constraints for the build); sketch appends `## Sketch: NNN-name` (Winner / Rationale / What's liftable / Constraints / Mode). "Every design decision in the blueprint that rests on a feasibility result or a chosen layout must cite it."
+"The consolidated file is the single downstream contract that `writing-blueprints` reads — it carries the research, spike, and sketch evidence for the topic in one place." At `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` (`# Findings — <topic>` header): research / deep-research appends `## Research: <question>` (cited findings, source appendix, confidence per claim); spike appends `## Spike: NNN-name` (Verdict / What we learned / What's liftable / Constraints for the build); sketch appends `## Sketch: NNN-name` (Winner / Rationale / What's liftable / Constraints / Mode). "Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it."
 
 ## Branch finishing
 
@@ -472,7 +481,7 @@ subagent-execution decomposes a plan into **leaves (tasks) under branches (share
 
 **The search intent router:** retrieval "is not 'six equal corpora' as the only model. The **Search Intent Router** picks a daily path; advanced corpora are an escape hatch." Identifier-shaped query → `symbols`; structural / `func $NAME` / matcher → `grep`; decision / remember / past work → `mem`; unclassified → `code`. "Multi-corpus results must keep **provenance** (mem vs code never silently fused unlabeled). The `semantic` corpus must never pretend full quality when the Local Code Embedder is unavailable — never silent degrade to FTS-as-semantic."
 
-**The deterministic artifact naming convention:** "ALL Skillgrid artifacts persisted to Mnemonic MUST follow this deterministic naming: `title: skillgrid/{YYYY-MM-DD-<topic>}/{artifact-type}`, `topic_key: skillgrid/{YYYY-MM-DD-<topic>}/{artifact-type}`, `type: architecture`, `scope: project`." "`title` and `topic_key` must be identical — exact-match recovery depends on it." Artifact types include `briefing`, `blueprint`, `tasks`, `spec`, `ticketing`, `execution-progress`, `review-report`, `state`, `tech_stack`, etc. "Upserts: same `topic_key` + `scope` → UPDATE (overwrite), not INSERT … Mnemonic is working memory, not an audit trail."
+**The deterministic artifact naming convention:** "ALL Skillgrid artifacts persisted to Mnemonic MUST follow this deterministic naming: `title: skillgrid/{YYYY-MM-DD-<topic>}/{artifact-type}`, `topic_key: skillgrid/{YYYY-MM-DD-<topic>}/{artifact-type}`, `type: architecture`, `scope: project`." "`title` and `topic_key` must be identical — exact-match recovery depends on it." Artifact types include `briefing`, `blueprint`, `findings`, `tasks`, `spec`, `ticketing`, `execution-progress`, `qa-report`, `ship`, `report`, `tech_stack`, etc. "Upserts: same `topic_key` + `scope` → UPDATE (overwrite), not INSERT … Mnemonic is working memory, not an audit trail."
 
 **The 2-step recovery:** "Step 1: `mem_search(query: …)` → truncated preview + ID. Step 2: `mem_get_observation(id: …)` → complete content. Search previews are always truncated; `mem_get_observation` is the only way to get full content." "When retrieving multiple artifacts, group all searches first, then all retrievals."
 
@@ -482,11 +491,11 @@ subagent-execution decomposes a plan into **leaves (tasks) under branches (share
 
 `resume` re-orient from durable state. "Conversation memory rots … **the files win, every time.**"
 
-**Context-save** (the explicit pause-and-persist, when stopping or under context pressure): 1. refresh `state.md` (phase layer), 2. append current position to `progress.md` (task layer), 3. commit the work unit (code layer), 4. **narrative handoff** — "one short paragraph in `state.md` — what you were thinking, what you would do next, what to watch for. This is the one thing the structured layers do not capture", 5. Mnemonic mirror (`mem_save` for `state` + `execution-progress`), 6. commit `state.md` (spec zone).
+**Context-save** (the explicit pause-and-persist, when stopping or under context pressure): 1. append the current position to `progress.md` (task layer, if executing), 2. commit the work unit (code layer) so `checkpoint.json` carries the position, 3. **narrative handoff** — the checkpoint's `Decisions:` / `Remaining:` lines capture what you were thinking, what to do next, and what to watch for, 4. Mnemonic mirror (`mem_save` for `briefing` if planning, `execution-progress` if executing).
 
 **Context-restore:** "locate → read the layers → announce → continue." **The recovered-position announcement** (one line): "Resuming `<topic>`: phase=execution, wave 2, task 3/5 done, last commit `<sha>`. Next: task 4." "Say which source you recovered from when it was not the normal path."
 
-**"Persist before pressure, not after loss"** (using-skillgrid): "When a session is clearly long — many subagents dispatched, large tool outputs accumulating, or the harness showing a compaction indicator — STOP and: (1) append the current position to the active `state.md` and, during execution, the plan's ledger, (2) commit the work unit, (3) if the remaining work is large, run the save path in skillgrid:resume." "State writes are dual: the in-repo file is the source of truth; when `mnemonic.enabled: true`, `mem_save` mirrors it as an index and backup. If they disagree, the in-repo file wins." "After compaction ('FIRST ACTION REQUIRED'), re-orient via skillgrid:resume before continuing — files first, mnemonic only as fallback."
+**"Persist before pressure, not after loss"** (using-skillgrid): "When a session is clearly long — many subagents dispatched, large tool outputs accumulating, or the harness showing a compaction indicator — STOP and: (1) append the current position to the plan's ledger (during execution) or the spec-zone artifacts (during planning), (2) commit the work unit so `checkpoint.json` carries the position, (3) if the remaining work is large, run the save path in skillgrid:resume." "State writes are dual: the in-repo file is the source of truth; when `mnemonic.enabled: true`, `mem_save` mirrors it as an index and backup. If they disagree, the in-repo file wins." "After compaction ('FIRST ACTION REQUIRED'), re-orient via skillgrid:resume before continuing — files first, mnemonic only as fallback."
 
 ## Gherkin authoring discipline
 

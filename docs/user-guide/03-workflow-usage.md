@@ -24,7 +24,7 @@ The entry skill only **routes**. It does not write `blueprint.md` / `tasks.md` /
 | Feature / bug / refactor / greenfield | optional `spike` / `sketch` / `research` → `interviewing` → `writing-blueprints` → `slicing` → **approval gate** |
 | Q&A / lookup | `mnemonic` / code index / `research` (no pipeline) |
 | Spike only | `spike` (promote to blueprint if you keep findings) |
-| Mid-change | `resume` from `checkpoint.json` / `state.md` |
+| Mid-change | `resume` from `checkpoint.json` (+ spec-zone artifacts for the phase) |
 
 Announce pattern: `Using <skill> to <route>`.
 
@@ -54,14 +54,14 @@ flowchart TD
     interview --> adr
     interview --> blueprint["writing-blueprints"]
 
-    blueprint -.-> spike["spike"]
-    blueprint -.-> sketch["sketch"]
-    blueprint -.-> research["research / deep-research"]
+    blueprint -.-> research["research / spike / sketch"]
+    research -.-> findings["findings.md"]
+    findings -.-> blueprint
 
-    blueprint --> slicing["slicing"]
+    blueprint --> slicing["slicing + ticketing"]
     slicing --> gate["approval gate"]
 
-    gate --> apply["simple-execution / subagent-execution / parallel-execution"]
+    gate -->|Go| apply["simple-execution / subagent-execution / parallel-execution"]
     apply --> isolated["isolated-workspace"]
     apply --> tdd["test-driven-development"]
     apply --> debug["structured-debugging"]
@@ -69,11 +69,11 @@ flowchart TD
     apply --> tddverif["test-driven-verification"]
     apply --> accept["acceptance-test-authoring"]
 
-    apply --> qa["qa"]
+    apply --> qa["qa (qa-report.md)"]
     qa --> reqreview["requesting-code-review / parallel-code-review"]
     reqreview --> reception["receiving-code-review"]
     reception --> ship["ship (integrate + archive move)"]
-    ship --> reflect["reflect (retrospective + session close)"]
+    ship --> reflect["reflect (report.md + session close)"]
     qa -->|findings| apply
     qa --> ticket["ticketing"]
 ```
@@ -85,13 +85,19 @@ Cross-cutting skills (`mnemonic`, `ponytail`) are available at every stage.
 ```text
 .skillgrid/
 ├── config.yaml
-    ├── sdd/
-    │   ├── checkpoint.json        # derived resume handle
-    │   └── gate-stop-state.json   # Stop-hook loop guard
-    ├── specs/
-    │   └── acceptance.feature     # BDD (spec zone) — ACTIVE changes
-    └── archive/                   # CLOSED changes (immutable), created by ship
-        └── YYYY-MM-DD-<topic>/    #   + retrospective.md + archive-report.md (reflect)
+├── sdd/
+│   ├── checkpoint.json        # derived resume handle (from the last commit's [skillgrid-context])
+│   └── gate-stop-state.json   # Stop-hook loop guard
+├── specs/YYYY-MM-DD-<topic>/  # ACTIVE changes (spec zone, committed)
+│   ├── briefing.md
+│   ├── acceptance.feature     # BDD (traceability oracle)
+│   ├── adr.md                 # ADR Review Manifest
+│   ├── findings.md            # research / spike / sketch evidence (optional)
+│   ├── blueprint.md
+│   ├── tasks.md               # tickets, waves, dependencies
+│   └── qa-report.md           # test plan + 4-state gate + evidence
+└── archive/                   # CLOSED changes (immutable), created by ship
+    └── YYYY-MM-DD-<topic>/    #   + report.md (reflect: integration + retro + lineage)
 ```
 
 Blueprint (`blueprint.md`), slices (`tasks.md`), glossary/ADRs, and the ticket set live in the repo per the tracker config. Numbering: slice `NN-name`; gate `G<n>`. Never reuse or renumber after creation.
@@ -107,8 +113,8 @@ Blueprint (`blueprint.md`), slices (`tasks.md`), glossary/ADRs, and the ticket s
 | QA FAIL / CONCERNS | `qa` findings → `apply` again |
 | QA PASS/WAIVED | `ticketing` → advance status |
 | Review clean, not shipped | `ship` (integrate to base + move folder to `archive/`) |
-| `ship-report.md` present, no `retrospective.md` | `reflect` (terminal) |
-| `retrospective.md` present | none — cycle complete |
+| Folder in `archive/`, no `report.md` | `reflect` (terminal) |
+| `report.md` present in `archive/` | none — cycle complete |
 
 ## Apply ⇄ QA loop
 
@@ -122,8 +128,8 @@ Blueprint (`blueprint.md`), slices (`tasks.md`), glossary/ADRs, and the ticket s
 
 Once review is clean, the change is closed in two steps:
 
-1. **`ship`** — verify tests are green on the *integrated* tree, then integrate to the base branch (merge / PR / keep — the user decides), and **mechanically move** the change folder `specs/YYYY-MM-DD-<topic>/` → `archive/YYYY-MM-DD-<topic>/` (shell `git mv` + `diff -r` readback). Writes `ship-report.md`. No release mechanics, no docs check.
-2. **`reflect`** (terminal) — read-only over the archived folder: a sourced retrospective (Decisions / Lessons / Patterns / Surprises) + an acceptance verdict (advisory: `accepted` / `accepted-with-open-items` / `rejected`), a final-state `archive-report.md` with observation-ID lineage, and the Mnemonic session close.
+1. **`ship`** — verify tests are green on the *integrated* tree, then integrate to the base branch (merge / PR / keep — the user decides), and **mechanically move** the change folder `specs/YYYY-MM-DD-<topic>/` → `archive/YYYY-MM-DD-<topic>/` (shell `git mv` + `diff -r` readback). Writes no report file — it captures the ship context in its Return Envelope. No release mechanics, no docs check.
+2. **`reflect`** (terminal) — read-only over the archived folder: writes the single `report.md` (final-state facts, gate results, sourced Decisions / Lessons / Patterns / Surprises, an advisory acceptance verdict `accepted` / `accepted-with-open-items` / `rejected`, move evidence, observation-ID lineage), then the Mnemonic session close.
 
 `specs/` holds only *active* changes; a folder in `archive/` is closed and is never resumed.
 

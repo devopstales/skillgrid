@@ -65,7 +65,7 @@ Identify: every scenario name, every ticket, every `SATISFIES` mapping, the stat
 
 ### Step 2: Write the Test Plan
 
-Produce `.skillgrid/specs/<topic>/test-plan.md` from [templates/test-plan.md](templates/test-plan.md).
+Produce the **Test Plan** section of `.skillgrid/specs/<topic>/qa-report.md` from [templates/qa-report.md](templates/qa-report.md) (the `## Test Plan` section at the top).
 
 **Process:**
 1. List every scenario from `acceptance.feature`.
@@ -232,7 +232,7 @@ Run the commands from `config.yaml` and compare against the `quality:` threshold
 
 ### Step 10: Render the Gate
 
-Produce `.skillgrid/specs/<topic>/qa-report.md` from [templates/qa-report.md](templates/qa-report.md).
+Complete `.skillgrid/specs/<topic>/qa-report.md` (the Test Plan section was already written in Step 2) from [templates/qa-report.md](templates/qa-report.md).
 
 **Four-state gate (HARD — thresholds from config):**
 

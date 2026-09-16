@@ -102,7 +102,7 @@ mem_context(limit: 5)                          # fast: recent session summaries
 → if empty: mem_search(query: "<phase keywords>") → mem_get_observation(id)  # previews are truncated; get_observation is the only full-content path
 ```
 
-Skillgrid naming (when working a change `{YYYY-MM-DD-<topic>}`): `title` == `topic_key` == `skillgrid/{YYYY-MM-DD-<topic>}/{artifact}` (`briefing|blueprint|tasks|execution-progress|review-report|archive-report`), `type: architecture`, `scope: project`. Same `topic_key` + `scope` → UPDATE, not INSERT.
+Skillgrid naming (when working a change `{YYYY-MM-DD-<topic>}`): `title` == `topic_key` == `skillgrid/{YYYY-MM-DD-<topic>}/{artifact}` (`briefing|blueprint|findings|tasks|execution-progress|qa-report|ship|report`), `type: architecture`, `scope: project`. Same `topic_key` + `scope` → UPDATE, not INSERT.
 
 ### Step 3 — Recall before doing (mandatory before new work)
 
@@ -207,7 +207,7 @@ web_cache_lookup(source: context7|exa|deepwiki|fetch|manual, ...)  # BEFORE the 
 
 This is NOT optional — if you skip it, the next session starts blind.
 
-**SDD session close:** when a change ends its full pipeline, **`reflect` is the single owner** of `mem_session_summary` + `mem_session_end` — it closes the session after writing `retrospective.md` + `archive-report.md`. Sub-agents in earlier phases (execution, qa, review, ship) emit `## Key Learnings` only and do **not** close the session, so they never double-close it. Outside an SDD change, the active agent closes the session as above.
+**SDD session close:** when a change ends its full pipeline, **`reflect` is the single owner** of `mem_session_summary` + `mem_session_end` — it closes the session after writing `report.md`. Sub-agents in earlier phases (execution, qa, review, ship) emit `## Key Learnings` only and do **not** close the session, so they never double-close it. Outside an SDD change, the active agent closes the session as above.
 
 After compaction / "FIRST ACTION REQUIRED": FIRST call `mem_session_summary` with the compacted content, then `mem_context`, only then continue.
 

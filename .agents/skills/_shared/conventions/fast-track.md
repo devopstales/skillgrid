@@ -41,9 +41,8 @@ qa-report as `Fast-track: {trivial|small} (waiver in briefing.md)`.
   **iff** the waiver exists and no blocked-from-fast-track condition is present.
 - `execution`: proceeds normally; TDD is still mandatory.
 - `review`: proceeds normally.
-- `ship`: light variant — the merge/PR menu still appears, but no PR-body generation and `ship-report.md`
-  is the light form (one verdict line + the move readback). The mechanical move to `archive/` is **not**
-  waived. No release mechanics, no docs check.
+- `ship`: light variant — the merge/PR menu still appears, but no PR-body generation. The
+  mechanical move to `archive/` is **not** waived. No release mechanics, no docs check.
 - `reflect`: light variant — `mem_save` a single compact observation + a one-line acceptance verdict in
-  the return text; **no full `retrospective.md` / `archive-report.md` documents**. Session close
+  the return text; **no full `report.md` document**. Session close
   (`mem_session_summary` + `mem_session_end`) is **never** waived.

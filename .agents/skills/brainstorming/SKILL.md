@@ -107,17 +107,22 @@ session: interview → approaches → design → feasibility → ADR manifest �
 briefing. The path state — which checklist item you are on, which approach
 was approved — lives in conversation, which rots.
 
-- **Create `state.md`** (from `skillgrid:resume/templates/state.md`) in the
-  topic's spec dir — `.skillgrid/specs/YYYY-MM-DD-<topic>/state.md` — at the
-  first phase transition (after interview, before approaches).
-- **Append at every phase transition** — before doing the next phase: update
-  `Phase:`, add the finished phase to `Done:`, refresh `Open:` and
-  `Decisions:` (each approved approach, each declined ADR, the feasibility
-  verdict). If `mnemonic.enabled: true`, mirror it with
-  `mem_save(topic_key: skillgrid/<topic>/state, type: architecture)` (upsert).
+- **The spec-zone artifacts ARE the phase signal.** `skillgrid:resume`
+  determines the phase from which files exist in the spec dir
+  (`briefing.md` present = planning started; `blueprint.md` present =
+  planning done; `tasks.md` with `[ ]` items = slicing done). No separate
+  `state.md` is created.
+- **At each phase transition**, commit the spec-zone artifacts that changed
+  (the zone guard requires spec commits before code). The commit's
+  `[skillgrid-context]` block's `Decisions:` line carries the key call
+  (approved approach, declined ADR, feasibility verdict). If
+  `mnemonic.enabled: true`, mirror with
+  `mem_save(topic_key: skillgrid/<topic>/briefing, type: architecture)`
+  (upsert).
 - **On resume:** the `skillgrid:resume` check in `skillgrid:using-skillgrid`
-  finds the `state.md` and re-enters at the first incomplete checklist item.
-- **Skip state.md** for the spike and bounded paths — they are short by
+  reads the spec-zone artifacts and the checkpoint, and re-enters at the
+  first incomplete step.
+- **Skip persistence** for the spike and bounded paths — they are short by
   design and produce no spec dir.
 
 ## Anti-Pattern: "Too Simple To Need Approval"
@@ -155,7 +160,7 @@ artifact, never the approval.
 - [ ] A design or approach was produced (spike answer, in-chat bounded design, or full spec) AND your human partner approved it — approval is quoted in the record, not implied
 - [ ] The chosen path (spike / bounded / new project / new function) was classified and stated out loud before the first question
 - [ ] The approval gate was passed, not skipped — the task was not waved through as "too simple" without a presented design and an explicit yes
-- [ ] For new project / new function: the chosen approach is recorded in `state.md` (and mirrored to mnemonic if `mnemonic.enabled: true`)
+- [ ] For new project / new function: the chosen approach is committed in the spec-zone (and mirrored to mnemonic if `mnemonic.enabled: true`)
 - [ ] If a visual companion or sketch was offered and accepted, the resulting mockup/frame artifact is saved (e.g. the sketch winner + constraints in the topic's `findings.md`)
 
 ## Checklist
@@ -185,7 +190,7 @@ your path and complete them in order.
  1. **Explore project context** — check existing files, docs, commits (often minimal for greenfield)
   2. **Offer the visual companion just-in-time** — NOT upfront. The first time a question would genuinely be clearer shown than described, offer it then (its own message); on approval its browser tab opens for you. If no visual question ever arises, never offer it. See the Visual Companion section below.
   3. **Offer a sketch just-in-time** — NOT upfront, and only when the design has **2+ meaningfully different layout or interaction options** whose choice depends on *feeling* it, not reading a description. The first time that is true, offer it then (its own message): "This has a few different layout options — I can build throwaway interactive mockups so you can feel which one works. Want me to?" On approval, invoke the `skillgrid:sketch` skill; the marked winner + constraints land in the topic's consolidated `findings.md`, which the blueprint reads. If the design never has 2+ genuinely different visual options, never offer it.
-  4. **Research external facts just-in-time** — NOT upfront. The first time the design depends on a fact not in the codebase (a library's current API, a version's behavior, a domain constraint, a competitor's offering), dispatch `skillgrid:research` (one inline pass) or `skillgrid:deep-research` (wide or high-stakes) and let the design read the resulting `.skillgrid/specs/YYYY-MM-DD-<topic>/research.md`. The research answers the question; the interview still owns the decisions. If no external fact ever comes up, never offer it.
+  4. **Research external facts just-in-time** — NOT upfront. The first time the design depends on a fact not in the codebase (a library's current API, a version's behavior, a domain constraint, a competitor's offering), dispatch `skillgrid:research` (one inline pass) or `skillgrid:deep-research` (wide or high-stakes) and let the design read the resulting `## Research:` section in `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md`. The research answers the question; the interview still owns the decisions. If no external fact ever comes up, never offer it.
   5. **Interview the user** — invoke the `skillgrid:interviewing` skill. Work the design tree in rounds: map the decision tree, ask the whole frontier per round (numbered, with your recommended answer), look up facts yourself, put decisions to the user. Repeat until the frontier is empty AND the clarity gate passes (see the interviewing skill's exit check). This replaces one-at-a-time questioning — the frontier rounds are the structure. As the interview runs, `skillgrid:architectural-decision-records` maintains `.skillgrid/glossary/` (glossary) and offers ADRs in `.skillgrid/adr/` — the paper trail is written during the interview, not after.
    6. **Propose 2-3 approaches** — with trade-offs and your recommendation
    7. **Present design** — in sections scaled to their complexity, get user approval after each section

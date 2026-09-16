@@ -79,15 +79,14 @@ question still open in this round belongs to a _later_ round, not this one.
 position — which round you are on, which questions are settled, which are
 still open — lives in conversation only. A crashed interview loses it.
 
-- When the topic has a spec dir, keep `state.md` current: after each round,
-  update `Open:` (the unsettled frontier) and `Decisions:` (what settled this
-  round), and bump the round count. It is the in-flight index of the glossary,
-  not a duplicate of it — the glossary still gets every term the moment it
-  resolves.
+- When the topic has a spec dir, **commit the glossary and ADR changes after
+  each round** (spec zone). The committed glossary + ADRs ARE the in-flight
+  index — the glossary gets every term the moment it resolves, and the ADRs
+  capture each settled decision. No separate `state.md` is maintained.
 - If `mnemonic.enabled: true`, mirror the transition with
-  `mem_save(topic_key: skillgrid/<topic>/state, ...)` (upsert).
-- On resume, read `state.md` first (skillgrid:resume) — recompute the frontier
-  from the settled list, then continue with the next round.
+  `mem_save(topic_key: skillgrid/<topic>/briefing, ...)` (upsert).
+- On resume (skillgrid:resume), read the glossary + ADRs to recompute the
+  frontier — what is in the glossary is settled; what is not is open.
 
 ## Rules
 

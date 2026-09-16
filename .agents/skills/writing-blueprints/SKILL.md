@@ -21,7 +21,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for blueprint location. If the file doesn't exist, use the default `.skillgrid/specs/`. Use the glossary vocabulary from `conventions.glossary` (default `.skillgrid/glossary/`) for names and concepts. Constrain the blueprint by the in-force decisions: read the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (produced by brainstorming) and respect every in-force ADR it names — a blueprint that contradicts an in-force ADR must either follow it or record a new superseding ADR.
 
-**Read the topic's findings before writing.** If `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` exists, read it in full before drafting the blueprint. It is the single consolidated file for the topic — spike verdicts, liftable modules, and the sketch's chosen winner + constraints all live there. Every design decision in the blueprint that rests on a feasibility result or a chosen layout must cite it (the header's **Spike findings** / **Sketch findings** lines carry the path). If the file is absent, the change ran no spike/sketch — proceed and omit those header lines.
+**Read the topic's findings before writing.** If `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` exists, read it in full before drafting the blueprint. It is the single consolidated evidence file for the topic — research findings (cited), spike verdicts + liftable modules, and the sketch's chosen winner + constraints all live there as typed sections. Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it (the header's **Findings** line carries the path). If the file is absent, the change ran no research/spike/sketch — proceed and omit that header line.
 
 **Context:** If working in an isolated worktree, it should have been created via the `skillgrid:isolated-workspace` skill at execution time.
 
@@ -173,23 +173,13 @@ includes it plus a sample task — use it as the starting scaffold):
 **Spec:** [path to the spec/design doc this plan implements — the plan
 argues from the spec, so the spec travels with it; executors read both]
 
-**Research:** [path to the change's `.skillgrid/specs/YYYY-MM-DD-<topic>/research.md`
-if one exists — produced by `skillgrid:research` or `skillgrid:deep-research`.
-The blueprint cites it for every decision that rests on a fact not in the
-codebase; the spec argues from the research, so it travels with the plan. Omit
-if the change needed no external research.]
-
-**Spike findings:** [path to the change's consolidated
-`.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md`, "Spike" sections only —
-produced by `skillgrid:spike`. Cite it for every design decision that rests on
-a feasibility result (e.g. "X is liftable", "approach A is cheaper than B").
-Omit if the change ran no spike.]
-
-**Sketch findings:** [path to the change's consolidated
-`.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md`, "Sketch" sections only —
-produced by `skillgrid:sketch`. Cite it for the chosen layout/interaction, the
-marked winner, and the constraints the build must preserve. Omit if the change
-skipped a sketch.]
+**Findings:** [path to the change's consolidated
+`.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` if it exists — produced by
+`skillgrid:research` / `skillgrid:deep-research` (Research sections),
+`skillgrid:spike` (Spike sections), or `skillgrid:sketch` (Sketch sections).
+Cite it for every design decision that rests on a research fact, a feasibility
+result (e.g. "X is liftable", "approach A is cheaper than B"), or a chosen
+layout/interaction. Omit if the change ran no research/spike/sketch.]
 
 ## Global Constraints
 

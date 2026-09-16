@@ -121,8 +121,12 @@ Present a compact plan and **get approval before fanning out**:
   minutes and many times the tokens
 
 Bind the run to a folder: `{specs_root}/YYYY-MM-DD-<topic>/` — the same topic
-always resolves to the same folder. Seed `research.md` from
-[../research/templates/research.md](../research/templates/research.md).
+always resolves to the same folder. The findings are written as a
+`## Research: <question>` section in `{specs_root}/YYYY-MM-DD-<topic>/findings.md`
+(create it with a `# Findings — <topic>` header if it does not exist). Use the
+scaffold shape from
+[../research/templates/research.md](../research/templates/research.md) for the
+section body.
 
 ### Step 3: Fan out the researchers (one message, parallel)
 
@@ -188,8 +192,9 @@ reportable — say what was searched for and not found.
 
 ### Step 6: Synthesize
 
-Assemble `research.md` in this order (BMAD synthesis contract — **succinct is the
-contract**, findings and verdicts, not essays):
+Assemble the `## Research: <question>` section in `findings.md` in this order
+(BMAD synthesis contract — **succinct is the contract**, findings and verdicts,
+not essays):
 
 1. **Executive summary** — decision-first: what the evidence says to do, the 2-3
    findings that drive it, the biggest caveat. One page max, readable standalone.
@@ -207,14 +212,14 @@ contract**, findings and verdicts, not essays):
 7. **Source appendix** — the numbered table; every inline `[n]` resolves here.
 
 Commit the findings (`git add` + `git commit`). If mnemonic is enabled, `mem_save`
-the findings under `skillgrid/{YYYY-MM-DD-<topic>}/research`.
+the findings under `skillgrid/{YYYY-MM-DD-<topic>}/findings`.
 
 ### Step 7: Hand off
 
 Report: the decision, the 2-3 findings that drive it, the verification outcome on
-the load-bearing claims, the biggest caveat, and the path to `research.md`. The
-blueprint (`skillgrid:writing-blueprints`) cites the file; it does not reprocess
-the web.
+the load-bearing claims, the biggest caveat, and the path to `findings.md` (the
+`## Research:` section). The blueprint (`skillgrid:writing-blueprints`) cites the
+file; it does not reprocess the web.
 
 ## Common Rationalizations
 
@@ -248,5 +253,5 @@ the web.
       evidence given, and the outcome (survived / revised) is reflected
 - [ ] Confidence/uncertainty is stated per the epistemics rules — nothing
       concluded from training data alone
-- [ ] The `research.md` findings artifact is written, committed, and (if
+- [ ] The `## Research:` section in `findings.md` is written, committed, and (if
       mnemonic is enabled) saved to memory

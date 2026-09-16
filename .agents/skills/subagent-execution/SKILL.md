@@ -163,7 +163,7 @@ Full workspace, ledger, checkpoint, and pre-flight-scan procedure:
 Before reading implementation files or dispatching any task, confirm readiness:
 
 - If state is **`blocked`** (missing artifacts, unsafe context), STOP and return `blocked` with the missing items named.
-- If state is **`all_done`** (every ticket in `tasks.md` is `[x]`), do not dispatch. Return `success` with `Next: qa`. The full tail is `qa → review → ship → reflect` — you own only up to the `qa` handoff; `ship` (integration + archive move) and `reflect` (retrospective + session close) run after review.
+- If state is **`all_done`** (every ticket in `tasks.md` is `[x]`), do not dispatch. Return `success` with `Next: qa`. The full tail is `qa → review → ship → reflect` — you own only up to the `qa` handoff; `ship` (integration + archive move) and `reflect` (report + session close) run after review.
 - If state is **`ready`**, proceed only on the assigned pending tickets.
 
 **Edit roots are bounded.** If the blueprint or `tasks.md` names specific directories/files as the change's affected areas, edit only under them. If a needed edit is outside, STOP and report the unsafe path. Never edit files outside the change's affected areas without a ruling.

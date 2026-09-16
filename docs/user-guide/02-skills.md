@@ -39,8 +39,8 @@ Priority: `using-skillgrid` → workflow stage → the general skills that stage
 | `brainstorming` | Turn ideas into designs via 4 classified paths (spike / bounded / new-project / new-function) with a hard approval gate before implementation. Has a visual companion (local server + templates). |
 | `spike` | Throwaway feasibility experiment producing an evidence-gated verdict (VALIDATED / INVALIDATED / PARTIAL), an investigation trail, and one liftable pure module. |
 | `sketch` | Build throwaway interactive UI mockups (2–3 structurally different variants, tab-switchable) to get a felt verdict + constraints for the real build. |
-| `research` | Lightweight single-pass research against primary sources with epistemics (research firewall) and type packs; writes a cited `research.md`. |
-| `deep-research` | Heavy research: fan out parallel researcher subagents (researcher / verifier / red-team), verify load-bearing claims, red-team conclusions, synthesize a cited findings file. |
+| `research` | Lightweight single-pass research against primary sources with epistemics (research firewall) and type packs; appends a cited `## Research:` section to `findings.md`. |
+| `deep-research` | Heavy research: fan out parallel researcher subagents (researcher / verifier / red-team), verify load-bearing claims, red-team conclusions, synthesize a cited `## Research:` section in `findings.md`. |
 
 ## Execution
 
@@ -50,7 +50,7 @@ Priority: `using-skillgrid` → workflow stage → the general skills that stage
 | `subagent-execution` | Execute a plan with a fresh implementer subagent per task, per-task spec+quality review, 5-round fix loop with breaker/adjudication, final QA + whole-branch two-axis review; ledger-based. |
 | `parallel-execution` | Dispatch one subagent per independent problem domain in the same message (parallel); integrate from a fan-out ledger. |
 | `work-unit-commits` | Canonical commit protocol: conventional commits, atomic sizing, `[skillgrid-context]` block, git-hook guards, `checkpoint.json` resume handle. |
-| `resume` | Re-orient from durable state (`state.md`, execution ledger, `checkpoint.json`, Mnemonic fallback) — files win over conversation memory; includes a context save/restore protocol. |
+| `resume` | Re-orient from durable state (execution ledger, `checkpoint.json`, spec-zone artifacts that name the phase, Mnemonic fallback) — files win over conversation memory; includes a context save/restore protocol. |
 
 ## Quality
 
@@ -69,8 +69,8 @@ The tail after review: `qa → review → ship → reflect`.
 
 | Skill | Role |
 |-------|------|
-| `ship` | Integrate the change to its base branch (merge / PR / keep — tests green on the integrated tree), then mechanically move the change folder `specs/` → `archive/` with a `diff -r` readback. Writes `ship-report.md`. No release mechanics, no docs check. |
-| `reflect` | Terminal phase: sourced retrospective (Decisions / Lessons / Patterns / Surprises) + acceptance verdict (advisory) + final-state `archive-report.md` with observation-ID lineage; owns the Mnemonic session close. |
+| `ship` | Integrate the change to its base branch (merge / PR / keep — tests green on the integrated tree), then mechanically move the change folder `specs/` → `archive/` with a `diff -r` readback. Writes no report file — captures the ship context in its Return Envelope for reflect. No release mechanics, no docs check. |
+| `reflect` | Terminal phase: writes the single `report.md` (final-state facts, gate results, sourced Decisions / Lessons / Patterns / Surprises, advisory acceptance verdict, observation-ID lineage); owns the Mnemonic session close. |
 
 ## Cross-cutting
 

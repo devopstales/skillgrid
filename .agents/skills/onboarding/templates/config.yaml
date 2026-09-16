@@ -133,11 +133,11 @@ mnemonic:
   data_dir: ~/.skillgrid/mnemonic
 
 # --- Research ---
-# Investigate a question against primary sources into a cited findings file at
-# .skillgrid/specs/YYYY-MM-DD-<topic>/research.md. Two skills: research (single
-# inline pass) and deep-research (parallel fan-out + verify + red-team).
-# Brainstorming dispatches research just-in-time when the design depends on a
-# fact not in the codebase; writing-blueprints cites the findings in the spec.
+# Investigate a question against primary sources into a cited `## Research:`
+# section at .skillgrid/specs/YYYY-MM-DD-<topic>/findings.md. Two skills:
+# research (single inline pass) and deep-research (parallel fan-out + verify +
+# red-team). Brainstorming dispatches research just-in-time when the design
+# depends on a fact not in the codebase; writing-blueprints cites the findings.
 research:
   default: research              # research | deep-research
   output_dir: .skillgrid/specs
@@ -175,11 +175,11 @@ rules:
   # --- Ship (integration + archive move) ---
   # skillgrid:ship merges/PRs/keeps the branch, then moves the change folder
   # specs/ -> archive/. No release mechanics (VERSION/CHANGELOG) and no docs
-  # check in any variant. fast_track_light: trivial/small use the light
-  # ship-report (merge-only, no PR body) but the mechanical move is never waived.
+  # check in any variant. fast_track_light: trivial/small skip PR-body
+  # generation but the mechanical move is never waived.
   ship:
     fast_track_light: true
-  # --- Reflect (terminal: retrospective + archive-report + session close) ---
+  # --- Reflect (terminal: report.md + session close) ---
   # verdict_gate: advisory | blocking — the acceptance verdict (accepted /
   # accepted-with-open-items / rejected) is advisory by default (recorded,
   # human decides follow-up); set blocking to make a `rejected` verdict block.

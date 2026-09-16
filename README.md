@@ -34,7 +34,7 @@ reflect ← ship ← review ← qa ⇄ apply (simple / subagent / parallel)
 | **Apply** | Slices executed TDD-first; commits via the canonical commit protocol |
 | **Review + QA** | Two-axis or up-to-8-specialist review (a11y + performance added when the diff touches UI or data); 4-state QA gate (PASS / CONCERNS / FAIL / WAIVED) over the **test pyramid** — layer selection, duplicate-coverage guard, mutation + P0/P1 pass-rate thresholds |
 | **Ship** | Integrate to base (merge / PR / keep) + mechanical `specs/` → `archive/` move |
-| **Reflect** | Sourced retrospective + acceptance verdict + final-state `archive-report.md` |
+| **Reflect** | Sourced retrospective + acceptance verdict + final-state `report.md` |
 
 ## Quick start
 

@@ -128,12 +128,19 @@ class; report staleness when nothing current exists).
 
 ### Step 4: Write the findings
 
-Fill the scaffold at [templates/research.md](templates/research.md) and save it
-to `{specs_root}/YYYY-MM-DD-<topic>/research.md`. Every load-bearing claim is
-cited inline `[n]` and resolves in the source appendix. Flag confidence per
-claim: **high** (verified, fresh, credible publisher), **medium** (single credible
-source, fresh), **low** (stale, weak publisher, or disputed), or `unverified`.
-Sections with nothing behind them collapse to a line rather than pad.
+Append a `## Research: <question>` section to the topic's
+`{specs_root}/YYYY-MM-DD-<topic>/findings.md` (create it with a
+`# Findings — <topic>` header if it does not exist). Use the scaffold shape from
+[templates/research.md](templates/research.md) for the section body. Every
+load-bearing claim is cited inline `[n]` and resolves in a source appendix
+within the section. Flag confidence per claim: **high** (verified, fresh,
+credible publisher), **medium** (single credible source, fresh), **low** (stale,
+weak publisher, or disputed), or `unverified`. Sections with nothing behind them
+collapse to a line rather than pad.
+
+The consolidated `findings.md` is the single downstream contract that
+`skillgrid:writing-blueprints` reads — it carries research, spike, and sketch
+evidence in one file.
 
 Commit the findings (`git add` + `git commit`) — the artifact is a checkpoint the
 blueprint will cite.
@@ -141,8 +148,9 @@ blueprint will cite.
 ### Step 5: Hand off
 
 Report: the decision, the 2-3 findings that drive it, the biggest caveat, and the
-path to `research.md`. The design (in `skillgrid:brainstorming`) or the blueprint
-(`skillgrid:writing-blueprints`) reads the file; it does not reprocess the web.
+path to `findings.md` (the `## Research:` section). The design (in
+`skillgrid:brainstorming`) or the blueprint (`skillgrid:writing-blueprints`)
+reads the file; it does not reprocess the web.
 
 ## Common Rationalizations
 
@@ -174,5 +182,5 @@ path to `research.md`. The design (in `skillgrid:brainstorming`) or the blueprin
       speculative, or thin source was flagged rather than silently asserted.
 - [ ] The research type's pack was loaded, and its freshness bars were applied —
       no source older than the bar was used without reporting staleness.
-- [ ] The findings file is written to `{specs_root}/YYYY-MM-DD-<topic>/research.md`
+- [ ] The `## Research:` section is written to `{specs_root}/YYYY-MM-DD-<topic>/findings.md`
       and committed (`git commit`), with confidence flagged per claim.

@@ -51,22 +51,25 @@ title/topic_key: skillgrid-init/{project}     (init-time full project context)
 | `tasks` | slicing | architecture |
 | `spec` (per `acceptance.feature`, concatenated) | slicing | architecture |
 | `ticketing` | ticketing | config |
+| `findings` (research/spike/sketch evidence) | research / spike / sketch | architecture |
 | `execution-progress` (cumulative, per change) | simple-execution / subagent-execution (one per batch) | architecture |
-| `review-report` (per review, concatenated) | requesting-code-review | architecture |
-| `archive-report` (lineage: all obs IDs) | (archive phase) | architecture |
-| `state` | orchestrator (DAG state for recovery) | architecture |
+| `qa-report` (test plan + verdict + evidence) | qa | architecture |
+| `ship` (integration + move context) | ship | architecture |
+| `report` (final close: integration + retro + lineage) | reflect | learning |
 | `changelog` (topic reservations + archives) | brainstorming / (archive phase) | config |
 | `tech_stack` | onboarding | config |
 | `issue_tracker` | onboarding | config |
 | `testing-capabilities` | onboarding | config |
 | `skill-registry` | onboarding (topic `skill-registry`, global project scope) | config |
 
-### State Artifact
+### Briefing Artifact (planning-phase state)
+
+The in-repo `state.md` is gone; the planning-phase position is mirrored under the `briefing` slot. The spec-zone artifacts (which files exist) are the primary phase signal; this observation is a fallback index.
 
 ```
 mem_save(
-  title: "skillgrid/{YYYY-MM-DD-<topic>}/state",
-  topic_key: "skillgrid/{YYYY-MM-DD-<topic>}/state",
+  title: "skillgrid/{YYYY-MM-DD-<topic>}/briefing",
+  topic_key: "skillgrid/{YYYY-MM-DD-<topic>}/briefing",
   type: "architecture",
   scope: "project",
   session_id: {sid},
@@ -74,7 +77,7 @@ mem_save(
 )
 ```
 
-Recovery: `mem_search("skillgrid/{YYYY-MM-DD-<topic>}/state")` → `mem_get_observation(id)` → parse → restore state.
+Recovery: `mem_search("skillgrid/{YYYY-MM-DD-<topic>}/briefing")` → `mem_get_observation(id)` → parse → restore planning state. For execution-phase position, use the `execution-progress` slot + `checkpoint.json`.
 
 ## Recovery Protocol (2 steps)
 
@@ -162,5 +165,5 @@ For code retrieval (Search Intent Router, Index Freshness, Orientation Ladder), 
 - Deterministic `title` == `topic_key` → recovery works by exact match
 - `skillgrid/` prefix → namespaces all Skillgrid artifacts per change
 - Two-step recovery → `mem_get_observation` is the only full-content path
-- Lineage → `archive-report` content lists all observation IDs for complete traceability
+- Lineage → `report` content lists all observation IDs for complete traceability
 - Hybrid → filesystem survives Mnemonic wipes; Mnemonic survives branch switches and /clear
