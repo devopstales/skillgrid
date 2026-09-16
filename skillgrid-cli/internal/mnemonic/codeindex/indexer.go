@@ -20,6 +20,7 @@ import (
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/community"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/extract"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/hybrid"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/knowledge"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/pdg"
@@ -741,6 +742,13 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	}
 	if err := storeSchemaFingerprint(passDB); err != nil {
 		fmt.Fprintf(os.Stderr, "warn: schema fingerprint: %v\n", err)
+	}
+	// Invalidate the in-memory vector cache: the embed pass above may have
+	// upserted new/changed vectors (or cleared them on a model swap), so the
+	// next semantic query must rebuild from the fresh table, not the stale
+	// in-memory copy.
+	if idx.emb != nil && idx.emb.Model() != "" {
+		hybrid.InvalidateVectorCache(idx.store.Path(), idx.emb.Model())
 	}
 	return stats, nil
 }

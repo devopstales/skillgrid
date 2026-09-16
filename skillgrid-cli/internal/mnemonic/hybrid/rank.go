@@ -10,6 +10,8 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
@@ -268,9 +270,10 @@ func Search(ctx context.Context, db *sql.DB, query string, opts Options) (*Resul
 }
 
 // vectorLeg computes the query vector and ranks stored symbol embeddings by
-// cosine similarity. When language is non-empty it is an exact index-level
-// filter (the cocoindex partition key, relational form). Returns a warning
-// string when degenerate rows are found.
+// cosine similarity. Vectors are scored from the in-memory cache (built once
+// per store+model, see vectorcache.go); the language filter and the metadata
+// join run over the candidate set only. Returns a warning when degenerate
+// rows are found among the scored candidates.
 func vectorLeg(ctx context.Context, db *sql.DB, query, language string, emb embedder.Embedder, limit int) ([]vectorHit, string, error) {
 	qVec, err := emb.Embed(ctx, query)
 	if err != nil {
@@ -279,56 +282,74 @@ func vectorLeg(ctx context.Context, db *sql.DB, query, language string, emb embe
 	if len(qVec.Data) == 0 {
 		return nil, "embedder returned empty vector", nil
 	}
-	q := `
-		SELECT e.symbol_id, s.name, s.kind, s.start_line, s.end_line, f.path, e.vector
-		FROM embeddings e
-		JOIN symbols s ON s.id = e.symbol_id
-		JOIN files f ON f.id = s.file_id
-	`
-	var args []any
-	if language != "" {
-		q += ` WHERE s.language = ?`
-		args = append(args, language)
+	syms, _, ok := vecCacheInstance.get(storePath(db), emb.Model())
+	if !ok {
+		s, c, err := loadVectorCache(ctx, db)
+		if err != nil {
+			return nil, "", err
+		}
+		vecCacheInstance.set(storePath(db), emb.Model(), s, c)
+		syms = s
 	}
-	rows, err := db.Query(q, args...)
-	if err != nil {
-		return nil, "", fmt.Errorf("select embeddings: %w", err)
+	if len(syms) == 0 {
+		return nil, "", nil
 	}
-	defer rows.Close()
-	var hits []vectorHit
+	type cand struct {
+		id int64
+		e  vecEntry
+	}
+	var cands []cand
 	var degenerate int
-	for rows.Next() {
-		var symbolID int64
-		var name, kind, path string
-		var startLine, endLine int
-		var blob []byte
-		if err := rows.Scan(&symbolID, &name, &kind, &startLine, &endLine, &path, &blob); err != nil {
-			continue
-		}
-		vec, derr := memory.DecodeVector(blob)
-		if derr != nil || len(vec.Data) == 0 {
+	for id, e := range syms {
+		if e.degen {
 			degenerate++
 			continue
 		}
-		// An all-zeros vector has cosine similarity 0 with everything — it
-		// carries no direction, so the vector leg skips it (04.11).
-		if memory.CosineSimilarity(vec, vec) == 0 {
-			degenerate++
-			continue
-		}
-		sim := memory.CosineSimilarity(qVec, vec)
-		hits = append(hits, vectorHit{
-			ID:        fmt.Sprintf("sym:%d", symbolID),
-			Path:      path,
-			StartLine: startLine,
-			EndLine:   endLine,
-			Symbol:    name,
-			Kind:      kind,
-			Sim:       sim,
-		})
+		cands = append(cands, cand{id: id, e: e})
 	}
-	if err := rows.Err(); err != nil {
-		return nil, "", err
+	if len(cands) == 0 {
+		warn := ""
+		if degenerate > 0 {
+			warn = fmt.Sprintf("%d degenerate embeddings skipped", degenerate)
+		}
+		return nil, warn, nil
+	}
+	// Language filter (indexed scan over the candidate set only).
+	if language != "" {
+		filtered := make([]cand, 0, len(cands))
+		var ids []any
+		for _, c := range cands {
+			ids = append(ids, c.id)
+		}
+		ph := placeholders(len(cands))
+		rows, err := db.QueryContext(ctx,
+			`SELECT e.symbol_id FROM embeddings e
+			 WHERE e.symbol_id IN (`+ph+`)
+			   AND (SELECT s.language FROM symbols s WHERE s.id = e.symbol_id) = ?`,
+			append(ids, language)...)
+		if err == nil {
+			keep := map[int64]bool{}
+			for rows.Next() {
+				var id int64
+				if rows.Scan(&id) == nil {
+					keep[id] = true
+				}
+			}
+			rows.Close()
+			for _, c := range cands {
+				if keep[c.id] {
+					filtered = append(filtered, c)
+				}
+			}
+		}
+		cands = filtered
+	}
+	var hits []vectorHit
+	for _, c := range cands {
+		hits = append(hits, vectorHit{
+			ID:  fmt.Sprintf("sym:%d", c.id),
+			Sim: memory.CosineSimilarity(qVec, c.e.vec),
+		})
 	}
 	sort.SliceStable(hits, func(i, j int) bool {
 		if hits[i].Sim != hits[j].Sim {
@@ -339,11 +360,82 @@ func vectorLeg(ctx context.Context, db *sql.DB, query, language string, emb embe
 	if len(hits) > limit {
 		hits = hits[:limit]
 	}
+	// Metadata join for the top-K only (indexed lookups, not a full scan).
+	// Join directly on symbols.id — no embeddings join — because a symbol can
+	// have multiple embedding rows (re-embeds) and the test schema keys
+	// chunk_embeddings on chunk_id, so an embeddings join would fan out.
+	for i := range hits {
+		var name, kind, path string
+		var startLine, endLine int
+		id, _ := strconv.ParseInt(strings.TrimPrefix(hits[i].ID, "sym:"), 10, 64)
+		_ = db.QueryRow(`
+			SELECT s.name, s.kind, f.path, s.start_line, s.end_line
+			FROM symbols s
+			JOIN files f ON f.id = s.file_id
+			WHERE s.id = ?`, id).
+			Scan(&name, &kind, &path, &startLine, &endLine)
+		hits[i].Path, hits[i].Symbol, hits[i].Kind = path, name, kind
+		hits[i].StartLine, hits[i].EndLine = startLine, endLine
+	}
 	warn := ""
 	if degenerate > 0 {
 		warn = fmt.Sprintf("%d degenerate embeddings skipped", degenerate)
 	}
 	return hits, warn, nil
+}
+
+// placeholders returns a comma-separated list of n SQL placeholders (no
+// trailing comma).
+func placeholders(n int) string {
+	return strings.TrimRight(strings.Repeat("?,", n), ",")
+}
+
+// loadVectorCache decodes every symbol + chunk embedding once into in-memory
+// maps. The 55MB BLOB scan happens here — at index time or first query — not
+// on every query. Degenerate (zero) vectors are kept with degen=true so the
+// warning count matches the pre-cache behavior.
+func loadVectorCache(ctx context.Context, db *sql.DB) (map[int64]vecEntry, map[int64]vecEntry, error) {
+	rows, err := db.QueryContext(ctx, `SELECT symbol_id, vector FROM embeddings`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("select embeddings: %w", err)
+	}
+	defer rows.Close()
+	syms := map[int64]vecEntry{}
+	for rows.Next() {
+		var id int64
+		var blob []byte
+		if err := rows.Scan(&id, &blob); err != nil {
+			continue
+		}
+		vec, derr := memory.DecodeVector(blob)
+		if derr != nil || len(vec.Data) == 0 || memory.CosineSimilarity(vec, vec) == 0 {
+			syms[id] = vecEntry{degen: true}
+			continue
+		}
+		syms[id] = vecEntry{vec: vec}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	chunks := map[int64]vecEntry{}
+	rows2, err := db.QueryContext(ctx, `SELECT chunk_id, vector FROM chunk_embeddings`)
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var id int64
+			var blob []byte
+			if err := rows2.Scan(&id, &blob); err != nil {
+				continue
+			}
+			vec, derr := memory.DecodeVector(blob)
+			if derr != nil || len(vec.Data) == 0 || memory.CosineSimilarity(vec, vec) == 0 {
+				chunks[id] = vecEntry{degen: true}
+				continue
+			}
+			chunks[id] = vecEntry{vec: vec}
+		}
+	}
+	return syms, chunks, nil
 }
 
 // vectorHit is one ranked embedding match.
@@ -370,57 +462,60 @@ func chunkVectorLeg(ctx context.Context, db *sql.DB, query, language string, emb
 	if len(qVec.Data) == 0 {
 		return nil, "embedder returned empty vector", nil
 	}
-	// A chunk's language is the language of the first symbol in its file
-	// (files have no language column; symbols do), mirroring the indexer's
-	// embedChunks. The filter is a correlated subquery so it works whether or
-	// not the store has a language column on files.
-	q := `
-		SELECT e.chunk_id, c.start_line, c.end_line, f.path, e.vector
-		FROM chunk_embeddings e
-		JOIN chunks c ON c.id = e.chunk_id
-		JOIN files f ON f.id = c.file_id
-	`
-	var args []any
-	if language != "" {
-		q += ` WHERE (SELECT s.language FROM symbols s
-			WHERE s.file_id = c.file_id
-			ORDER BY s.start_line, s.id LIMIT 1) = ?`
-		args = append(args, language)
+	_, chunks, ok := vecCacheInstance.get(storePath(db), emb.Model())
+	if !ok {
+		s, c, err := loadVectorCache(ctx, db)
+		if err != nil {
+			return nil, "", nil // pre-037 store: no chunk leg, never an error
+		}
+		vecCacheInstance.set(storePath(db), emb.Model(), s, c)
+		chunks = c
 	}
-	rows, err := db.Query(q, args...)
-	if err != nil {
-		// chunk_embeddings absent (pre-037 store): degrade to no chunk leg.
+	if len(chunks) == 0 {
 		return nil, "", nil
 	}
-	defer rows.Close()
+	// Metadata join up front (indexed scan over the candidate set only) so the
+	// language filter and the hit IDs use the real path+line.
+	type cand struct {
+		id   int64
+		e    vecEntry
+		meta chunkMeta
+	}
+	var cands []cand
+	for id, e := range chunks {
+		if e.degen {
+			continue
+		}
+		// Join directly on chunks.id (the cache key) — no chunk_embeddings
+		// join, because the test schema keys chunk_embeddings on chunk_id and
+		// a chunk can have multiple embedding rows.
+		var m chunkMeta
+		if err := db.QueryRow(`
+			SELECT c.start_line, c.end_line, f.path,
+			       (SELECT s.language FROM symbols s
+			         WHERE s.file_id = c.file_id
+			         ORDER BY s.start_line, s.id LIMIT 1)
+			FROM chunks c
+			JOIN files f ON f.id = c.file_id
+			WHERE c.id = ?`, id).
+			Scan(&m.StartLine, &m.EndLine, &m.Path, &m.Language); err != nil {
+			continue
+		}
+		if language != "" && m.Language != language {
+			continue
+		}
+		cands = append(cands, cand{id: id, e: e, meta: m})
+	}
 	var hits []vectorHit
-	for rows.Next() {
-		var chunkID int64
-		var startLine, endLine int
-		var path string
-		var blob []byte
-		if err := rows.Scan(&chunkID, &startLine, &endLine, &path, &blob); err != nil {
-			continue
-		}
-		vec, derr := memory.DecodeVector(blob)
-		if derr != nil || len(vec.Data) == 0 {
-			continue
-		}
-		if memory.CosineSimilarity(vec, vec) == 0 {
-			continue
-		}
-		sim := memory.CosineSimilarity(qVec, vec)
+	for _, c := range cands {
 		hits = append(hits, vectorHit{
-			ID:        fmt.Sprintf("chunk:%s:%d", path, startLine),
-			Path:      path,
-			StartLine: startLine,
-			EndLine:   endLine,
+			ID:        fmt.Sprintf("chunk:%s:%d", c.meta.Path, c.meta.StartLine),
+			Path:      c.meta.Path,
+			StartLine: c.meta.StartLine,
+			EndLine:   c.meta.EndLine,
 			Kind:      "chunk",
-			Sim:       sim,
+			Sim:       memory.CosineSimilarity(qVec, c.e.vec),
 		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, "", nil
 	}
 	sort.SliceStable(hits, func(i, j int) bool {
 		if hits[i].Sim != hits[j].Sim {
@@ -432,6 +527,30 @@ func chunkVectorLeg(ctx context.Context, db *sql.DB, query, language string, emb
 		hits = hits[:limit]
 	}
 	return hits, "", nil
+}
+
+// chunkMeta is the indexed metadata for one chunk, fetched alongside the
+// language filter so the hot path never does a full-scan join.
+type chunkMeta struct {
+	StartLine int
+	EndLine   int
+	Path      string
+	Language  string
+}
+
+// storePath returns a stable per-DB cache key. For file-backed stores it is
+// the database path (from pragma_database_list); for in-memory / anonymous
+// DBs it falls back to the *sql.DB pointer, which is unique per connection
+// pool. This keeps separate in-memory test DBs from colliding on the cache.
+func storePath(db *sql.DB) string {
+	if db == nil {
+		return "nil"
+	}
+	var file string
+	if err := db.QueryRow(`SELECT file FROM pragma_database_list() WHERE name = 'main'`).Scan(&file); err == nil && file != "" {
+		return file
+	}
+	return fmt.Sprintf("db:%p", db)
 }
 
 // signalSearch returns deterministic-signal hits: symbols whose identifier

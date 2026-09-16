@@ -380,6 +380,7 @@ func TestSearchLanguageFilterAndChunkLeg(t *testing.T) {
 	}
 
 	t.Run("language filter scopes the semantic leg", func(t *testing.T) {
+		ResetVectorCacheForTest()
 		// A non-matching language must yield no semantic hits for the go row.
 		res, err := Search(ctx, db, "parseConfig settings", Options{Semantic: true, Language: "python", Embedder: emb})
 		if err != nil {
@@ -407,6 +408,7 @@ func TestSearchLanguageFilterAndChunkLeg(t *testing.T) {
 	})
 
 	t.Run("chunk-vector leg surfaces a chunk hit", func(t *testing.T) {
+		ResetVectorCacheForTest()
 		// A distinctive chunk whose text shares tokens with the query makes it
 		// top the chunk-vector leg (the hash embedder scores by token overlap).
 		// A distinctive chunk + query (no token overlap with any symbol) makes
