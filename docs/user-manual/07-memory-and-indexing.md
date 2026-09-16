@@ -22,7 +22,7 @@ That is **77 MCP tools** in total (27 memory · 32 code · 5 web cache · 3 sess
 ```
 skillgrid mcp              # agent tools (stdio) — the 77 MCP tools below
 skillgrid serve            # HTTP API + Web UI (default 127.0.0.1:7438)
-skillgrid index --dir .    # one-shot code index (add --watch --embeddings --pdg for opt-in tiers)
+skillgrid index --dir .    # one-shot code index (semantic tier is config-driven; --pdg / --lsp opt-in tiers)
 skillgrid search "AuthService"   # intent-routed retrieval
 ```
 
@@ -205,12 +205,12 @@ These are the only file-based share mechanisms today — a portable payload you 
 
 ## 2.1 What the index is
 
-An incremental, tree-sitter-based graph of the repo: files → symbols → edges, plus lexical (FTS5) and (opt-in) semantic (embedding) retrieval, plus advisory structural analyses. It is **per-project** (one SQLite file, no cross-project code search).
+An incremental, tree-sitter-based graph of the repo: files → symbols → edges, plus lexical (FTS5) and semantic (embedding) retrieval, plus advisory structural analyses. It is **per-project** (one SQLite file, no cross-project code search).
 
 ```
 files → symbols → edges (calls / imports / references / extends / route / navigates / …)
                  → chunks → chunks_fts   (BM25 lexical)
-                 → embeddings / chunk_embeddings   (opt-in semantic)
+                 → embeddings / chunk_embeddings   (semantic, config-driven)
                  → communities / communities_meta   (advisory analytics)
 ```
 
@@ -295,7 +295,7 @@ flowchart TD
 
   S --> SFTS["symbol_fts (FTS5)"]
   C --> CFTS["chunks_fts (FTS5)"]
-  S & C -->|embedPass opt-in| VEC["embeddings + chunk_embeddings<br/>(language-partitioned)"]
+  S & C -->|embedPass (config)| VEC["embeddings + chunk_embeddings<br/>(language-partitioned)"]
   S & E --> CM["communities + community_meta<br/>(Leiden + cohesion)"]
   E --> IC["import_cycles (color-DFS)"]
   E --> PR["processes + process_steps<br/>(entry-point traces)"]
@@ -410,7 +410,7 @@ All tables live in the single per-project SQLite file. FTS5 shadow tables (`*_ft
 
 Edge `kind` values: `calls`, `imports`, `references`, `extends`, `route`, `navigates`, `dynamic_import`, `configures`, `reads`, `writes`, `tests_for`, `method`. `confidence` is `EXTRACTED` (1.0) / `INFERRED` (0.85) / `AMBIGUOUS` (0.5).
 
-### Semantic tier (opt-in `--embeddings`)
+### Semantic tier (config-driven via `mnemonic.embedder`)
 
 | Table | Purpose | Key columns |
 |-------|---------|-------------|
@@ -572,16 +572,20 @@ Config file `config.d/indexing.yaml`, searched up from the indexed dir; repo-loc
 | `chunk_overlap` | `10` | Overlap between line windows |
 | `max_file_size_kb` | `512` | Hard cap; larger files skipped |
 
-`skillgrid index` flags: `--dir`, `--watch` (debounced live indexer), `--embeddings` (semantic tier), `--pdg` (CFG/PDG + taint), `--lsp` (LSP edge tier).
+`skillgrid index` flags: `--dir` (default `.`), `--project` (pin identity, else `SKILLGRID_MNEMONIC_PROJECT`), `--pdg` (CFG/PDG + taint), `--lsp` (LSP edge tier). There is **no `--embeddings` flag** — the semantic tier is config-driven via `mnemonic.embedder` (see 6.1.1).
 
 ### 6.1.1 Embedding providers & config
 
-The semantic tier is **opt-in** and **degrades to the Null adapter** (no vector leg; FTS + signals floor stays on) when no provider is selected or a provider fails to load. Two independent legs exist:
+**Embedding is config-driven, not flag-driven.** The provider is chosen from the `mnemonic.embedder` section of `config.d/indexing.yaml` and applies to indexing automatically — `skillgrid index` has **no `--embeddings` flag** (only `-dir`, `-project`, `-pdg`, `-lsp`). Set `mnemonic.embedder.provider` and re-index; the vectors are written by the index pass.
 
-- **Code** leg — enabled by `skillgrid index --embeddings` (and `--watch --embeddings`).
-- **Memory** leg — enabled by the `MNEMONIC_EMBED=1` env var (default off).
+| Leg | How it turns on |
+|---|---|
+| **Indexing** (code symbol + chunk vectors) | Always, whenever a provider is configured (default `onnx`). No flag, no env. |
+| **Retrieval** (semantic *search* leg in `code_semantic_search` / `code_hybrid_search`) | Gated by `MNEMONIC_EMBED=1` (default off) — `embedder.Default()`. |
 
-The provider is chosen from the `mnemonic.embedder` section of `config.d/indexing.yaml` (`embedder.BuildFromConfig`, `select.go`):
+A provider that can't load (e.g. Ollama down, missing local model) **degrades to the Null adapter** (no vector leg; FTS + signals floor stays on) with a logged warning.
+
+Provider table — `mnemonic.embedder` keys (`embedder.BuildFromConfig`, `select.go`):
 
 | `provider` | Behavior | Keys used |
 |---|---|---|
@@ -604,7 +608,7 @@ mnemonic:
     dimension: 768
 ```
 
-Then `MNEMONIC_EMBED=1 skillgrid index --dir . --embeddings`. Verify with `code_embedding_status` (reports active provider/model/dim/embedded count) or `skillgrid doctor` (runs an embed round-trip).
+Then re-index: `skillgrid index --dir .` (the provider from the config above applies automatically). To also enable the semantic *search* leg at retrieval time, set `MNEMONIC_EMBED=1`. Verify with `code_embedding_status` (reports active provider/model/dim/embedded count) or `skillgrid doctor` (runs an embed round-trip).
 
 Two guards:
 - **Fail-safe** — a provider that fails to load degrades to Null with a logged warning (`degradeOnError`); the pipeline never hard-fails on embedding.
@@ -620,7 +624,7 @@ Two guards:
 | `SKILLGRID_MNEMONIC_PROJECT` | Pin project for `index` / tools |
 | `SKILLGRID_MNEMONIC_HTTP_URL` | Plugin → serve URL |
 | `SKILLGRID_NO_WATCH=1` | Disable the watcher (manual index; fingerprint gate is the backstop) |
-| `MNEMONIC_EMBED` | Enable the **memory** embedding leg (`1`/`true`/`yes`/`on`); default off. Code leg is separate — `--embeddings` flag |
+| `MNEMONIC_EMBED` | Enable the semantic **search** leg in retrieval (`1`/`true`/`yes`/`on`); default off. Indexing is separate — config-driven via `mnemonic.embedder`, no env |
 
 ## 6.3 Project identity
 
@@ -635,7 +639,7 @@ Each git repo binds to a **clone-private** identity under `.git/` so memory surv
 ```bash
 skillgrid mcp [--debug]            # stdio MCP server (the 77 tools)
 skillgrid serve [--port 7438]      # HTTP API + dashboard
-skillgrid index [--dir .] [--watch] [--embeddings] [--pdg] [--lsp]
+skillgrid index [--dir .] [--project ID] [--pdg] [--lsp]
 skillgrid search [--corpus code|grep|mem|symbols|hybrid|semantic] <query>
 skillgrid code <map|get-symbol|get-signature|symbols-in-file|impact|get-callers|index-status|…>
 skillgrid trail <recent|show>      # inspect retrieval trails
