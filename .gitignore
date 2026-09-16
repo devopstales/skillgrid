@@ -36,5 +36,7 @@ graphify-out/
 *gitnexus*
 ###############################
 
-skillgrid-ui/
+# skillgrid-ui: track the source tree, ignore only build/deps artifacts
+skillgrid-ui/node_modules/
+skillgrid-ui/dist/
 
