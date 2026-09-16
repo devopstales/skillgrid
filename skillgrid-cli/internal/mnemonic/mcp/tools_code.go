@@ -117,6 +117,13 @@ func handleCodeStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 	if err := h.Store().DB.QueryRow(`SELECT value FROM index_meta_kv WHERE key = 'schema_fingerprint'`).Scan(&schemaFP); err != nil {
 		schemaFP = ""
 	}
+	// Import cycles (038): dependency loops in the file import subgraph
+	// (graphify "Import Cycles" signal). 0 on a cycle-free index; a missing
+	// table (store predating 038) is an error, not a guess.
+	var importCycles int
+	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM import_cycles`).Scan(&importCycles); err != nil {
+		return toolError(err)
+	}
 	// Capabilities (036): declare what the index can actually do so an agent
 	// knows BEFORE querying whether full-text, vector, or graph traversal are
 	// available (the gitnexus capabilities block).
@@ -145,6 +152,7 @@ func handleCodeStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 		"unresolved_refs":    unresolved,
 		"unresolved_members": unresolvedMembers,
 		"resolution_audit":   audit,
+		"import_cycles":      importCycles,
 		"schema_fingerprint": schemaFP,
 		"capabilities":       capabilities,
 	})

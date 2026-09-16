@@ -699,6 +699,12 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	if err := idx.communityPass(ctx, passDB); err != nil {
 		fmt.Fprintf(os.Stderr, "warn: community pass: %v\n", err)
 	}
+	// 038: import-cycle detection (graphify "Import Cycles" signal): walk the
+	// file import subgraph for dependency loops and persist them to
+	// import_cycles (target-state). Advisory, never load-bearing.
+	if err := community.RunImportCyclePass(ctx, passDB); err != nil {
+		fmt.Fprintf(os.Stderr, "warn: import cycles: %v\n", err)
+	}
 	if err := idx.processPass(ctx, passDB); err != nil {
 		fmt.Fprintf(os.Stderr, "warn: process pass: %v\n", err)
 	}

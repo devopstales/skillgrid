@@ -34,13 +34,19 @@ type Options struct {
 
 // Community is one detected subsystem: its members (symbol ids) and its
 // LLM-free label (derived from god nodes + paths, never fabricated). HubLabel
-// is the top god-node name ("" when the community has no god nodes).
+// is the top god-node name ("" when the community has no god nodes). Cohesion
+// (038) is the internal-edge density internal_edges / C(n,2) — a graphify
+// report signal: 0 for a singleton/no-internal-edge community, 1 for a
+// fully-connected clique. It is computed over the SAME undirected,
+// self-loop-free edge set loadGraph builds, so it is comparable to the
+// partition's own connectivity.
 type Community struct {
 	ID       int      `json:"id"`
 	Label    string   `json:"label"`
 	Members  []int64  `json:"members"`
 	GodNodes []string `json:"god_nodes,omitempty"`
 	HubLabel string   `json:"hub_label,omitempty"`
+	Cohesion *float64 `json:"cohesion,omitempty"`
 }
 
 // Result is the Detect output: the communities, the stable content-hash cache
@@ -242,7 +248,7 @@ func detectCore(db *sql.DB, opts Options, cacheKey string) (*Result, error) {
 		if len(gods) > 0 {
 			hub = gods[0]
 		}
-		res.Communities = []Community{{ID: 0, Label: label, Members: ids, GodNodes: gods, HubLabel: hub}}
+		res.Communities = []Community{{ID: 0, Label: label, Members: ids, GodNodes: gods, HubLabel: hub, Cohesion: cohesionOf(len(ids), 0)}}
 		return res, nil
 	}
 
@@ -262,6 +268,38 @@ func detectCore(db *sql.DB, opts Options, cacheKey string) (*Result, error) {
 		return nil, fmt.Errorf("leiden: %w", err)
 	}
 	res.Modularity = part.Modularity
+
+	// Internal-edge count per community (038): walk the SAME undirected,
+	// self-loop-free edge set the partition was built from and tally, per
+	// partition id, how many edges have both endpoints inside the community.
+	// This is the numerator of cohesion; the denominator is C(n,2) in Go. An
+	// undirected edge is stored twice (both directions in adjacency), so the
+	// canonical min/max pair de-duplicates it exactly as loadGraph does.
+	internal := map[int]int{}
+	seenPair := map[[2]graph.NodeID]bool{}
+	for _, from := range g.Nodes() {
+		for _, e := range g.Neighbors(from) {
+			to := e.To
+			if from == to {
+				continue
+			}
+			pair := [2]graph.NodeID{from, to}
+			if pair[1] < pair[0] {
+				pair = [2]graph.NodeID{to, from}
+			}
+			if seenPair[pair] {
+				continue
+			}
+			seenPair[pair] = true
+			cid, ok := part.Partition[pair[0]]
+			if !ok {
+				continue
+			}
+			if cid2, ok2 := part.Partition[pair[1]]; ok2 && cid2 == cid {
+				internal[cid]++
+			}
+		}
+	}
 
 	// Invert the partition into communities: loom node -> member symbol ids.
 	loomToSymbol := map[graph.NodeID]int64{}
@@ -293,7 +331,7 @@ func detectCore(db *sql.DB, opts Options, cacheKey string) (*Result, error) {
 		if len(gods) > 0 {
 			hub = gods[0]
 		}
-		communities = append(communities, Community{ID: i, Label: label, Members: members, GodNodes: gods, HubLabel: hub})
+		communities = append(communities, Community{ID: i, Label: label, Members: members, GodNodes: gods, HubLabel: hub, Cohesion: cohesionOf(len(members), internal[cid])})
 	}
 	res.Communities = communities
 
@@ -386,6 +424,7 @@ func cachedResult(db *sql.DB, cacheKey string) (*Result, error) {
 			Label:    communityLabel(db, id),
 			Members:  byID[id],
 			HubLabel: communityHubLabel(db, id),
+			Cohesion: communityCohesion(db, id),
 		})
 	}
 	return res, nil
@@ -408,6 +447,16 @@ func communityHubLabel(db *sql.DB, id int) string {
 	return hub
 }
 
+// communityCohesion reads the stored cohesion (nil when NULL — a community
+// built before the 038 pass, or on a store predating the column).
+func communityCohesion(db *sql.DB, id int) *float64 {
+	var coh sql.NullFloat64
+	if err := db.QueryRow(`SELECT cohesion FROM community_meta WHERE id = ?`, id).Scan(&coh); err != nil || !coh.Valid {
+		return nil
+	}
+	return &coh.Float64
+}
+
 // writeMeta caches the detected partition: one community_meta row per
 // community (label + symbol count + god-node names) and the content-hash cache
 // key.
@@ -421,8 +470,12 @@ func writeMeta(db *sql.DB, res *Result) error {
 		return err
 	}
 	for _, c := range res.Communities {
-		if _, err := tx.Exec(`INSERT INTO community_meta (id, label, symbol_count, god_nodes, hub_label, cache_key) VALUES (?, ?, ?, ?, ?, ?)`,
-			c.ID, c.Label, len(c.Members), strings.Join(c.GodNodes, ","), c.HubLabel, res.CacheKey); err != nil {
+		var coh interface{}
+		if c.Cohesion != nil {
+			coh = *c.Cohesion
+		}
+		if _, err := tx.Exec(`INSERT INTO community_meta (id, label, symbol_count, god_nodes, hub_label, cache_key, cohesion) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			c.ID, c.Label, len(c.Members), strings.Join(c.GodNodes, ","), c.HubLabel, res.CacheKey, coh); err != nil {
 			return err
 		}
 	}
@@ -438,3 +491,19 @@ func writeMeta(db *sql.DB, res *Result) error {
 // labelForCommunity is a hook for tests; defaults to the LLM-free derivation
 // in labels.go.
 var labelForCommunity = labelForCommunityImpl
+
+// cohesionOf computes the internal-edge density internalEdges / C(n,2) for a
+// community of n members. A community of <2 members has no possible internal
+// edge, so it returns a pointer to 0 (a defined, honest value — NOT null: a
+// singleton is maximally cohesive in the degenerate sense of "nothing to
+// cohere", and null is reserved for "not yet computed by a 038 pass"). The
+// denominator is computed in Go to avoid a SQL divide-by-zero on n<2.
+func cohesionOf(n, internalEdges int) *float64 {
+	if n < 2 {
+		z := 0.0
+		return &z
+	}
+	denom := float64(n * (n - 1) / 2)
+	c := float64(internalEdges) / denom
+	return &c
+}

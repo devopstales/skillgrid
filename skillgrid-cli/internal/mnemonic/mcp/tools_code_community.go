@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strconv"
 
@@ -114,6 +115,16 @@ func handleCodeExplainCommunity(ctx context.Context, req mcplib.CallToolRequest)
 	return JSONResult(out)
 }
 
+// communityCohesion reads the stored cohesion for a community (nil when NULL
+// — a community built before the 038 pass, or a store predating the column).
+func communityCohesion(db *sql.DB, id int) *float64 {
+	var coh sql.NullFloat64
+	if err := db.QueryRow(`SELECT cohesion FROM community_meta WHERE id = ?`, id).Scan(&coh); err != nil || !coh.Valid {
+		return nil
+	}
+	return &coh.Float64
+}
+
 // numericArg returns a numeric argument or a clear validation error when the
 // argument is present but not a number (no silent default-inventing).
 func numericArg(req mcplib.CallToolRequest, key string, def float64) (float64, error) {
@@ -188,6 +199,11 @@ func mcpCodeExplainCommunity(ctx context.Context, h *service.ProjectHandle, id i
 	label := "community-" + fmt.Sprintf("%d", id)
 	_ = db.QueryRow(`SELECT label FROM community_meta WHERE id = ?`, id).Scan(&label)
 	out := &service.CommunityExplanation{Found: true, ID: id, Label: label, EntryPts: []community.GodNode{}}
+	// Cohesion (038): the internal-edge density graphify surfaces per
+	// community. NULL (pre-038 store) leaves the field nil (absent in JSON).
+	if c := communityCohesion(db, id); c != nil {
+		out.Cohesion = c
+	}
 	for _, mid := range memberIDs {
 		var name, kind, lang, path string
 		var startLine, endLine int

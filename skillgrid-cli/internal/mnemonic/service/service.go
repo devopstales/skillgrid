@@ -2096,7 +2096,12 @@ type CommunityExplanation struct {
 	Label    string              `json:"label"`
 	Members  []map[string]any    `json:"members"`
 	EntryPts []community.GodNode `json:"entry_points"`
-	Reason   string              `json:"reason,omitempty"`
+	// Cohesion (038) is the community's internal-edge density
+	// (internal_edges / C(n,2)) — a graphify report signal: low cohesion says
+	// "this cluster is held together by little". Nil (absent in JSON) when the
+	// store predates the 038 column or the community was built pre-038.
+	Cohesion *float64 `json:"cohesion,omitempty"`
+	Reason   string   `json:"reason,omitempty"`
 }
 
 // CodeExplainCommunity returns a community's members + key entry points. An
