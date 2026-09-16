@@ -8,13 +8,13 @@ updated_date: '2026-09-10 20:46'
 labels: []
 dependencies: []
 references:
-  - docs/skillgrid/changes/006-structured-session-handoff/change.md
-  - docs/skillgrid/changes/006-structured-session-handoff/tasks.md
-  - docs/skillgrid/changes/006-structured-session-handoff/acceptance.feature
+  - .skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md
+  - .skillgrid/archive/2026-09-10-structured-session-handoff/tasks.md
+  - .skillgrid/archive/2026-09-10-structured-session-handoff/acceptance.feature
   - docs/plan/06-structured-session-handof.md
   - skillgrid-cli/internal/mnemonic/
 documentation:
-  - docs/skillgrid/changes/006-structured-session-handoff/change.md
+  - .skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md
   - .agents/skills/_shared/conventions/sdd-structure.md
 priority: medium
 type: feature
@@ -26,7 +26,7 @@ type: feature
 Track implementation of the approved SDD plan for change 006-structured-session-handoff (Cleave-style Session Relay). Continuity across context fill / session end without Hermes facts/skills or 003 tiered/semantic/commit/trail cores.
 
 **Current State:**
-- Intent approved; plan authored at docs/skillgrid/changes/006-structured-session-handoff/change.md
+- Intent approved; plan authored at .skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md
 - Steps 01-05 IMPLEMENTED + per-step task-review PASS (commit range 53cc95b..d529769, doc-fix 9409c34): 01 relay-schema (019 additive migration), 02 handoff-resume (relay + MCP session_handoff/session_resume, fail-closed no-orphan), 03 status-compact (session_status + thin knowledge_compact, no Fact Memory), 04 session-cli (skillgrid session handoff|resume|status mirrors MCP on the same store), 05 handoff-watchdog (env-gated, off by default, fail-closed on invalid config)
 - Change-level verify PASS: 16/16 @step-NN scenarios COMPLIANT at runtime (store/relay/mcp/cmd -race ok); 005/008/010/011/013 baselines intact (one pre-existing flaky 011 pdg wall-clock timeout, passes alone); all Global Constraints held; additive 82-tool surface
 - Human QA WAIVED (load-bearing invariants asserted by passing -race runtime tests; additive change)
@@ -61,7 +61,7 @@ Track implementation of the approved SDD plan for change 006-structured-session-
 
 <!-- SECTION:PLAN:BEGIN -->
 1. Soft-after 003 L0 path conventions only — no hard SQL dep on `010_*`; use migration slot `012_session_relay.sql`.
-2. Follow `docs/skillgrid/changes/006-structured-session-handoff/change.md` Step Blueprint: 01 schema → 02 handoff/resume → 03 status/compact → 04 CLI → 05 optional watchdog.
+2. Follow `.skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md` Step Blueprint: 01 schema → 02 handoff/resume → 03 status/compact → 04 CLI → 05 optional watchdog.
 3. Drive each step from `steps/*/tasks.md` and `acceptance.feature`; RED threat tests for MCP session tools in 02 and 03 before production tools.
 4. Keep relay deep module owning SQL + `.skillgrid/.cleave/` FS; MCP/CLI are thin callers. Do not pull in 004 Fact Memory.
 5. Verify with `go test ./...` on touched packages; mark AC/DoD and archive when change DoD is green.
@@ -70,7 +70,7 @@ Track implementation of the approved SDD plan for change 006-structured-session-
 ## Technical Notes
 
 - Affected paths: `skillgrid-cli/internal/mnemonic/{store/migrations,relay,mcp}/`, `skillgrid-cli/cmd/skillgrid/{session,main}.go`, `.gitignore`
-- Plan: `docs/skillgrid/changes/006-structured-session-handoff/change.md`
+- Plan: `.skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md`
 - Source proposal: `docs/plan/06-structured-session-handof.md`
 - Migration slot: `012_session_relay.sql` (leaves `009`/`010`/`011` for 001/003/004)
 

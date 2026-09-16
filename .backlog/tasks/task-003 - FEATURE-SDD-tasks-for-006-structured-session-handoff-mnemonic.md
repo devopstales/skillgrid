@@ -11,12 +11,12 @@ dependencies:
 priority: medium
 type: feature
 references:
-  - docs/skillgrid/changes/006-structured-session-handoff/tasks.md
-  - docs/skillgrid/changes/006-structured-session-handoff/change.md
-  - docs/skillgrid/changes/006-structured-session-handoff/acceptance.feature
-  - docs/skillgrid/changes/006-structured-session-handoff/steps/
+  - .skillgrid/archive/2026-09-10-structured-session-handoff/tasks.md
+  - .skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md
+  - .skillgrid/archive/2026-09-10-structured-session-handoff/acceptance.feature
+  - .skillgrid/archive/2026-09-10-structured-session-handoff
 documentation:
-  - docs/skillgrid/changes/006-structured-session-handoff/change.md
+  - .skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md
   - .agents/skills/_shared/conventions/sdd-structure.md
 ---
 
@@ -25,7 +25,7 @@ documentation:
 Track the SDD **tasks.md** punch-lists for change **006-structured-session-handoff** (Session Relay steps 01–05). Acceptance features are authored; implementation waits on human choice between `sdd-apply` and `sdd-propose`.
 
 **Current State:**
-- Plan tracked by TASK-002; step folders and `tasks.md` exist under `docs/skillgrid/changes/006-structured-session-handoff/steps/`
+- Plan tracked by TASK-002; step folders and `tasks.md` exist under `.skillgrid/archive/2026-09-10-structured-session-handoff/`
 - Per-step `acceptance.feature` written (spec phase); no production Session Relay code yet
 
 **Expected State:**
@@ -67,7 +67,7 @@ Track the SDD **tasks.md** punch-lists for change **006-structured-session-hando
 ## Technical Notes
 
 - Steps: `01-relay-schema`, `02-handoff-resume`, `03-status-compact`, `04-session-cli`, `05-handoff-watchdog`
-- Paths: `docs/skillgrid/changes/006-structured-session-handoff/steps/*/tasks.md`
+- Paths: `.skillgrid/archive/2026-09-10-structured-session-handoff/*/tasks.md`
 - Spec: Engram `sdd/006-structured-session-handoff/spec`; carry-through plan ticket TASK-002
 - Open: watchdog usage signal (client `%` vs token estimate) decided in step 05
 

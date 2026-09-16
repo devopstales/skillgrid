@@ -1,3 +1,9 @@
+
+
+---
+
+## interview
+
 # Interview: 002-mnemonic-identity-and-parity
 
 > User-gate revise via `questioning` (2026-09-05). Spec already written; grill before apply.

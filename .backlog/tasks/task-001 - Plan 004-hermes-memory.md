@@ -8,13 +8,13 @@ updated_date: '2026-09-11 15:17'
 labels: []
 dependencies: []
 references:
-  - docs/skillgrid/changes/004-hermes-memory/change.md
-  - docs/skillgrid/changes/004-hermes-memory/tasks.md
-  - docs/skillgrid/changes/004-hermes-memory/acceptance.feature
+  - .skillgrid/specs/2026-09-04-hermes-memory/briefing.md
+  - .skillgrid/specs/2026-09-04-hermes-memory/tasks.md
+  - .skillgrid/specs/2026-09-04-hermes-memory/acceptance.feature
   - docs/plan/05-hermes-memory.md
   - skillgrid-cli/internal/mnemonic/
 documentation:
-  - docs/skillgrid/changes/004-hermes-memory/change.md
+  - .skillgrid/specs/2026-09-04-hermes-memory/briefing.md
   - .agents/skills/_shared/conventions/sdd-structure.md
 priority: medium
 type: feature
@@ -25,7 +25,7 @@ type: feature
 Track implementation of the approved SDD plan for change **004-hermes-memory** (Hermes Fact Memory & Agent Skills). Extends change **003** with a new Fact Memory store and Agent Skill registry; does not redo Tiered Storage.
 
 **Current State:**
-- Intent approved; plan authored at `docs/skillgrid/changes/004-hermes-memory/change.md` (and legacy `plan.md` if present)
+- Intent approved; plan authored at `.skillgrid/specs/2026-09-04-hermes-memory/briefing.md` (and legacy `plan.md` if present)
 - No Fact Memory / Agent Skill MCP tools or CLI yet
 
 **Expected State:**
@@ -57,7 +57,7 @@ Track implementation of the approved SDD plan for change **004-hermes-memory** (
 
 <!-- SECTION:PLAN:BEGIN -->
 1. Confirm 003 `010_*` landed; reserve `011_facts_skills.sql` slot.
-2. Follow `docs/skillgrid/changes/004-hermes-memory/change.md` Step Blueprint in order: 01 schema → 02 fact tools → 03 skills registry → 04 sandboxed `use_skill` + hybrid → 05 commit hooks + CLI.
+2. Follow `.skillgrid/specs/2026-09-04-hermes-memory/briefing.md` Step Blueprint in order: 01 schema → 02 fact tools → 03 skills registry → 04 sandboxed `use_skill` + hybrid → 05 commit hooks + CLI.
 3. Drive each step from `steps/*/tasks.md` and `acceptance.feature`; write RED threat tests before production tools for steps 02–04.
 4. Keep Fact/Skill vectors on sqlite-vec Seam; do not redo 003 Tiered Storage / core semantic / trail surfaces.
 5. Verify with `go test ./...` on touched packages; mark AC/DoD and archive when change DoD is green.
@@ -66,7 +66,7 @@ Track implementation of the approved SDD plan for change **004-hermes-memory** (
 ## Technical Notes
 
 - Affected paths: `skillgrid-cli/internal/mnemonic/{store,facts,skills,vec,mcp}/`, `skillgrid-cli/cmd/skillgrid/{memory,skill,main}.go`
-- Plan: `docs/skillgrid/changes/004-hermes-memory/change.md`
+- Plan: `.skillgrid/specs/2026-09-04-hermes-memory/briefing.md`
 - Source proposal: `docs/plan/05-hermes-memory.md`
 
 ## Priority

@@ -1,20 +1,49 @@
-schema: skillgrid-sdd/v1
+# Skillgrid SDD config — source of truth for this project's pipeline.
+# Schema per skillgrid-skills/.agents/skills/onboarding/templates/config.yaml
+# (the "standard" format). Migrated 2026-09-16 from docs/skillgrid/config.yaml
+# (old skillgrid-sdd/v1 layout); rules.* phase guidance preserved under `rules:`.
+schema: skillgrid/v1
 project: skillgrid
 context: >-
   Go 1.25.5 monorepo: `skillgrid-cli/` (Go binary) installs the AI-assisted
   development hub onto a machine, wiring OpenCode, Kilo, and Cursor with
   Mnemonic persistent memory, code indexing, and web research caching.
   Constraints: Go 1.22+ to build; Node/npm on PATH at install time.
-issue_tracker: backlogmd
+
+# --- Ticketing ---
+ticketing:
+  enabled: true
+  type: backlogmd
+  backlogmd:
+    dir: .backlog
+    task_prefix: "task"
+    zero_padded_ids: 3
+
+# --- Testing ---
 testing:
-  runner: go test ./...
+  runner: "go test ./..."
+  setup: "go build ./..."
   layers: [unit, integration]
-  coverage: null # no enforced minimum; verify reports changed-file coverage informationally when a tool exists
-  tdd: false # default mode is Standard; Strict-TDD branches in sdd-apply/sdd-verify are opt-in via rules.apply.tdd below
+  coverage: "" # no enforced minimum; verify reports changed-file coverage informationally
+  mutation: "" # no mutation tooling configured
+  tdd: false # default mode is Standard; Strict-TDD branches are opt-in (rules.apply.tdd)
+
+# --- QA Gates (configurable thresholds) ---
+quality:
+  coverage_min: 0 # advisory only (80 reported informationally, never blocking)
+  mutation_min: 0 # disabled (no mutation tooling)
+  p0_pass_rate: 100
+  p1_pass_rate: 95
+
+# --- Artifact layout (standard .skillgrid/ zones) ---
 conventions:
-  artifacts_root: docs/skillgrid
+  artifacts_root: .skillgrid
   scratch_dir: .skillgrid/sdd
-  registry: docs/skillgrid/agents/skill-registry.md  # optional; never a workflow gate
+  specs_dir: .skillgrid/specs
+  archive_dir: .skillgrid/archive
+  registry: docs/skillgrid/agents/skill-registry.md # optional; never a workflow gate
+
+# --- Phase rules (preserved from the old skillgrid-sdd/v1 config) ---
 rules:
   explore: []
   propose:
@@ -43,41 +72,38 @@ rules:
   verify:
     test_command: "go test ./..."
     build_command: ""
-    coverage_threshold: 80 # advisory only (WARNING at worst, never blocking); applied only when a coverage tool is available
+    coverage_threshold: 80 # advisory only (WARNING at worst, never blocking)
   fast_track:
-    # Policy source of truth; behavior defined in _shared/conventions/fast-track.md.
-    # standard/risky changes always run the full pipeline; only trivial/small may waive.
     enabled: true
     classes:
       trivial:
         criteria:
           - "single concern, ≤3 files, no behavior change (typo, copy, single-line config, pure rename)"
           - "no migration, no new dependency, no trust-boundary change"
-        skips: [design, spec]          # no design.md, no specs/ delta files
-        tasks: light                   # sdd-tasks: 1–3 tasks, forecast still required
-        proposal: one-line             # Classification: trivial suffices
+        skips: [design, spec]
+        tasks: light
+        proposal: one-line
       small:
         criteria:
           - "single file or single concern, no new capability, no migration"
           - "≤10 files, 400-line budget risk Low"
-        skips: [design, spec]          # no design.md, no specs/ delta files
-        tasks: light                   # fewer phases, 1–2 lines per task
-        proposal: full                 # full proposal.md still required
+        skips: [design, spec]
+        tasks: light
+        proposal: full
     waiver:
       required: true
-      recorded_in: proposal.md         # ## Fast-Track Waiver: Class, Skips, Reason, Approved by
-      carried_to: [tasks.md, verify-report, archive-report]
-    blocked_when:                      # any hit → full pipeline mandatory
+      recorded_in: briefing.md
+      carried_to: [tasks.md, report.md]
+    blocked_when:
       - "any design threat-matrix row Applicable"
       - "400-line budget risk High"
       - "new trust boundary or migration"
       - "multi-domain spec impact"
     gates:
-      user_gate: true                  # gate after sdd-tasks still mandatory, never auto-apply
-      verify: advisory-on-missing      # missing design/spec → WARNING (not CRITICAL) iff waiver valid
-      archive: intentional-partial     # recorded in Overrides / Final-State Notes
+      user_gate: true
+      verify: advisory-on-missing
+      archive: intentional-partial
   review:
-    - Owner: sdd-review (optional; orchestrator proposes after verify passes, runs only on human approval; waiver recorded)
     - Fire requesting-code-review on high-risk signals (400-line risk High, chained PRs, applicable threat row, last step before archive)
     - Run quality-security-review advisory after verify passes (vet/gofmt/trivy + checklist); WARNING/SUGGESTION only, never blocking
     - Receive all findings via review-reception (verify against codebase first, one item at a time, pushback with evidence)

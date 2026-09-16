@@ -11,12 +11,12 @@ dependencies:
 priority: medium
 type: feature
 references:
-  - docs/skillgrid/changes/004-hermes-memory/acceptance.feature
-  - docs/skillgrid/changes/004-hermes-memory/change.md
-  - docs/skillgrid/changes/004-hermes-memory/tasks.md
-  - docs/skillgrid/changes/004-hermes-memory/steps/
+  - .skillgrid/specs/2026-09-04-hermes-memory/acceptance.feature
+  - .skillgrid/specs/2026-09-04-hermes-memory/briefing.md
+  - .skillgrid/specs/2026-09-04-hermes-memory/tasks.md
+  - .skillgrid/specs/2026-09-04-hermes-memory
 documentation:
-  - docs/skillgrid/changes/004-hermes-memory/change.md
+  - .skillgrid/specs/2026-09-04-hermes-memory/briefing.md
   - .agents/skills/_shared/conventions/sdd-structure.md
 ---
 
@@ -25,7 +25,7 @@ documentation:
 Track the SDD **acceptance.feature** specs for change **004-hermes-memory** (Hermes Fact Memory & Agent Skills, steps 01–05). Tasks punch-lists exist; implementation waits on human choice between `sdd-apply` and `sdd-propose`.
 
 **Current State:**
-- Plan tracked by TASK-001; step folders and `tasks.md` exist under `docs/skillgrid/changes/004-hermes-memory/steps/`
+- Plan tracked by TASK-001; step folders and `tasks.md` exist under `.skillgrid/specs/2026-09-04-hermes-memory/`
 - Per-step `acceptance.feature` written (spec phase); no production Fact Memory / Agent Skill code yet
 
 **Expected State:**
@@ -67,7 +67,7 @@ Track the SDD **acceptance.feature** specs for change **004-hermes-memory** (Her
 ## Technical Notes
 
 - Steps: `01-facts-schema`, `02-fact-tools`, `03-skills-registry`, `04-skill-execute-hybrid`, `05-commit-hooks-cli`
-- Paths: `docs/skillgrid/changes/004-hermes-memory/steps/*/acceptance.feature`
+- Paths: `.skillgrid/specs/2026-09-04-hermes-memory/acceptance.feature`
 - Spec: Engram `sdd/004-hermes-memory/spec`; carry-through plan ticket TASK-001
 - Open: sqlite-vec on modernc (extension vs CGO) decided in step 01
 

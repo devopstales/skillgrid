@@ -1,3 +1,9 @@
+
+
+---
+
+## interview
+
 # Interview: 003-mnemonic-self-evolving-context-database
 
 > User-gate revise via `questioning` (2026-09-05). Spec already written; grill before apply.

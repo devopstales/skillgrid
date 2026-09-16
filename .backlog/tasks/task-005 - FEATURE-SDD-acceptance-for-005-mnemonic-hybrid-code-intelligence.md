@@ -8,14 +8,14 @@ updated_date: '2026-09-09 08:53'
 labels: []
 dependencies: []
 references:
-  - docs/skillgrid/changes/005-mnemonic-hybrid-code-intelligence/change.md
-  - docs/skillgrid/changes/005-mnemonic-hybrid-code-intelligence/tasks.md
+  - .skillgrid/archive/2026-09-09-mnemonic-hybrid-code-intelligence/briefing.md
+  - .skillgrid/archive/2026-09-09-mnemonic-hybrid-code-intelligence/tasks.md
   - >-
-    docs/skillgrid/changes/005-mnemonic-hybrid-code-intelligence/acceptance.feature
+    .skillgrid/archive/2026-09-09-mnemonic-hybrid-code-intelligence/acceptance.feature
   - docs/plan/07-nmemonic-hybid-search.md
   - skillgrid-cli/internal/mnemonic/
 documentation:
-  - docs/skillgrid/changes/005-mnemonic-hybrid-code-intelligence/change.md
+  - .skillgrid/archive/2026-09-09-mnemonic-hybrid-code-intelligence/briefing.md
   - .agents/skills/_shared/conventions/sdd-structure.md
 priority: medium
 type: feature
@@ -27,7 +27,7 @@ type: feature
 Track SDD **acceptance** for change **005-mnemonic-hybrid-code-intelligence** (hybrid/graph code-intelligence foundation slice, steps 01–04). Turns chunk-FTS into Symbols/Edges, Identifier-Aware FTS, Tier-1/2 tools, and offline RRF hybrid search.
 
 **Current State:**
-- Intent/plan folded into `docs/skillgrid/changes/005-mnemonic-hybrid-code-intelligence/change.md`
+- Intent/plan folded into `.skillgrid/archive/2026-09-09-mnemonic-hybrid-code-intelligence/briefing.md`
 - Acceptance/tasks artifacts exist; no production hybrid extractor / graph / hybrid-search tools yet
 
 **Expected State:**
@@ -61,7 +61,7 @@ Track SDD **acceptance** for change **005-mnemonic-hybrid-code-intelligence** (h
 
 <!-- SECTION:PLAN:BEGIN -->
 1. Triage to `ready-for-agent` once human confirms Implement vs Revise for 005.
-2. Follow `docs/skillgrid/changes/005-mnemonic-hybrid-code-intelligence/change.md` Step Blueprint (01–04): schema/extractor → identifier FTS/orientation → graph tools → offline hybrid RRF.
+2. Follow `.skillgrid/archive/2026-09-09-mnemonic-hybrid-code-intelligence/briefing.md` Step Blueprint (01–04): schema/extractor → identifier FTS/orientation → graph tools → offline hybrid RRF.
 3. Drive from `tasks.md` + `acceptance.feature`; keep memory `semantic_search` distinct from hybrid code search.
 4. Languages for this slice: Go / TypeScript / TSX only; embeddings off by default (Null Adapter).
 5. Verify with `go test ./...` on touched packages; mark AC/DoD and archive when change DoD is green.
@@ -70,7 +70,7 @@ Track SDD **acceptance** for change **005-mnemonic-hybrid-code-intelligence** (h
 ## Technical Notes
 
 - Affected paths: Mnemonic codeindex / hybrid modules under `skillgrid-cli/internal/mnemonic/`
-- Change: `docs/skillgrid/changes/005-mnemonic-hybrid-code-intelligence/change.md`
+- Change: `.skillgrid/archive/2026-09-09-mnemonic-hybrid-code-intelligence/briefing.md`
 - Source proposal: `docs/plan/07-nmemonic-hybid-search.md`
 - Soft preference: after 002 identity; orthogonal to 003/004
 
