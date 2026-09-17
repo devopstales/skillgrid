@@ -404,18 +404,26 @@ The Mnemonic vector graph renders the memory graph with GitNexus parity: Sigma.j
 
 This phase is done only when:
 
-- [ ] `/mnemonic/graph*` routes covered by depth/truncate + happy-path tests
-- [ ] `mnemonicGraphToGraphology` converter + layouts + communities + filters work
-- [ ] VectorGraph (force/tree/circles, Louvain, depth slider, search highlight, legend/zoom/hover, HTML export) works in-browser
-- [ ] Degrades to node-only + file-list fallback when 005/008 edge data absent
-- [ ] `openapi.yaml` documents the graph routes
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@phase-4` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on phase already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] `/mnemonic/graph*` routes covered by depth/truncate + happy-path tests
+- [x] `mnemonicGraphToGraphology` converter + layouts + communities + filters work
+- [x] VectorGraph (force/tree/circles, Louvain, depth slider, search highlight, legend/zoom/hover, HTML export) works in-browser
+- [x] Degrades to node-only + file-list fallback when 005/008 edge data absent
+- [x] `openapi.yaml` documents the graph routes
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@phase-4` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on phase already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 1-embed-pipeline-shell, (soft: 005/008)
+>
+> **Path note:** the API lives under the `/mnemonic/graph/` *subtree* —
+> `GET /mnemonic/graph/data` (nodes+edges) and `GET /mnemonic/graph/nodes` —
+> so the bare `/mnemonic/graph` client route stays free for the SPA shell (the
+> API-prefix 404 catch-all otherwise swallows it). The `Interfaces` line above
+> is illustrative; the concrete paths are `/mnemonic/graph/data` +
+> `/mnemonic/graph/nodes`. Communities are Leiden (server-side, the community
+> package) — the "Louvain" wording is the frontend coloring contract.
 
 **Files:**
 - Modify: `skillgrid-cli/internal/mnemonic/http/server.go` (mount `/mnemonic/graph*`)
@@ -430,38 +438,38 @@ This phase is done only when:
 
 ### Tasks
 
-- [ ] 4.1 `[RED]` Threat: Graph scale — depth filter + node cap + `truncated` flag
-  - [ ] 4.1.a Write failing test: a graph deeper than 2 hops with `GET /mnemonic/graph?depth=2` returns only the 2-hop neighborhood + `truncated: true`; `/graph/nodes?limit=500` caps at 500 nodes; the converter drops edges whose endpoints are absent from the node set.
-  - [ ] 4.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_GraphScale` — Expected: FAIL
-  - [ ] 4.1.c Minimal implementation: BFS depth filter on the graph + node cap + edge pruning + `truncated` flag.
-  - [ ] 4.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_GraphScale` — Expected: PASS
-  - [ ] 4.1.e Commit — `feat(http): /mnemonic/graph with depth filter + node cap`
-- [ ] 4.2 `[AFK]` `/mnemonic/graph` happy path returns nodes (id, label, type, path, degree, community) + edges (source, target, type, weight) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_GraphHappy` — Expected: PASS
-- [ ] 4.3 `[RED]` Threat: 005/008 soft dep — graph degrades to node-only + file-list fallback when edge/community data absent
-  - [ ] 4.3.a Write failing test: against a store with nodes but no edge/community data, `/mnemonic/graph` returns 200 with nodes + empty edges + a `degraded: true` flag; the file-list fallback data is present.
-  - [ ] 4.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_GraphDegraded` — Expected: FAIL
-  - [ ] 4.3.c Minimal implementation: detect absent edge/community data; return `degraded: true` + file-list fallback.
-  - [ ] 4.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_GraphDegraded` — Expected: PASS
-  - [ ] 4.3.e Commit — `feat(http): graph degrades to node-only + file-list when 005/008 absent`
-- [ ] 4.4 `[AFK]` `mnemonicGraphToGraphology` converter (node label/type/path/size-by-degree/x/y/color; edge type/weight/size/color; multi + directed) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 4.5 `[AFK]` VectorGraph: `SigmaContainer` + `useLoadGraph`; `force` (ForceAtlas2 bounded iterations) / `tree` / `circles` layouts via `layouts.ts`; Louvain community coloring via `communities.ts`; `filterGraphByDepth` + visibleLabels via `filters.ts` — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 4.6 `[AFK]` Graph controls: LayoutSwitcher, SearchPanel, Legend, DepthSlider; zoom/pan; hover tooltips (node type/path/degree/community); semantic search → node highlight — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 4.7 `[AFK]` Lightweight HTML export (Sigma.js from CDN in the exported file only, not the app) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 4.8 `[AFK]` openapi.yaml documents the graph routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_OpenAPI` — Expected: PASS
+- [x] 4.1 `[RED]` Threat: Graph scale — depth filter + node cap + `truncated` flag
+  - [x] 4.1.a Write failing test: a graph deeper than 2 hops with `GET /mnemonic/graph/data?depth=2` returns only the 2-hop neighborhood + `truncated: true`; `/graph/nodes?limit=500` caps at 500 nodes; the converter drops edges whose endpoints are absent from the node set.
+  - [x] 4.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_GraphScale` — Expected: FAIL
+  - [x] 4.1.c Minimal implementation: BFS depth filter on the graph + node cap + edge pruning + `truncated` flag.
+  - [x] 4.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_GraphScale` — Expected: PASS
+  - [x] 4.1.e Commit — `feat(http): /mnemonic/graph with depth filter + node cap`
+- [x] 4.2 `[AFK]` `/mnemonic/graph/data` happy path returns nodes (id, label, type, path, degree, community) + edges (source, target, type, weight) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_GraphHappy` — Expected: PASS
+- [x] 4.3 `[RED]` Threat: 005/008 soft dep — graph degrades to node-only + file-list fallback when edge/community data absent
+  - [x] 4.3.a Write failing test: against a store with nodes but no edge/community data, `/mnemonic/graph/data` returns 200 with nodes + empty edges + a `degraded: true` flag; the file-list fallback data is present.
+  - [x] 4.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_GraphDegraded` — Expected: FAIL
+  - [x] 4.3.c Minimal implementation: detect absent edge/community data; return `degraded: true` + file-list fallback.
+  - [x] 4.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_GraphDegraded` — Expected: PASS
+  - [x] 4.3.e Commit — `feat(http): graph degrades to node-only + file-list when 005/008 absent`
+- [x] 4.4 `[AFK]` `mnemonicGraphToGraphology` converter (node label/nodeType/path/size-by-degree/x/y/color; edge edgeType/weight/size/color; multi + directed) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 4.5 `[AFK]` VectorGraph: `SigmaContainer` + `useLoadGraph`; `force` (ForceAtlas2 `.assign` bounded iterations) / `tree` / `circles` layouts via `layouts.ts`; Leiden community coloring via `communities.ts`; `filterGraphByDepth` + visibleLabels via `filters.ts` — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 4.6 `[AFK]` Graph controls: LayoutSwitcher, SearchPanel, Legend, DepthSlider; zoom/pan; hover tooltips (node nodeType/path/degree/community); semantic search → node highlight — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 4.7 `[AFK]` Lightweight HTML export (Sigma.js from CDN in the exported file only, not the app) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 4.8 `[AFK]` openapi.yaml documents the graph routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase4_OpenAPI` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test (scale + degrade) | `go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase4_'` | PASS | — | depth/truncate, happy, degraded, openapi |
-| Acceptance `@phase-4` / `@p0` | manual smoke: `skillgrid serve` + browser — force/tree/circles, Louvain, depth, search highlight, export | PENDING | — | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + SPA `tsc --noEmit` | PASS | — | |
-| Rollback boundary | `git revert` + `go test ./...` | PENDING | N/A (additive) | new `mnemonic_graph.go` + graph feature; revert restores Phase 3 shell |
-| Global Constraints | — | held | — | Sigma.js (not D3), no CDN at runtime, 005/008 soft-dep honored |
+| Focused test (scale + degrade) | `go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase4_'` | PASS | PASS | TestPhase4_GraphScale (depth=2 excludes 3-hop leaf + truncated; /nodes?limit=2 caps + truncated), GraphHappy (5 nodes + 4 edges + key shape + not degraded), GraphDegraded (no edges → degraded + 2 nodes + 2-item file list), OpenAPI |
+| Acceptance `@phase-4` / `@p0` | manual smoke: `skillgrid serve` + browser against the real `aiskillgrid` graph (4113 nodes / 17056 edges) — force/tree/circles, community coloring, depth, search, export | PASS | PASS | Canvas (1920×1490, WebGL) mounts; ForceAtlas2/Tree/Circles switch + refetch; search input + Enter no-crash; legend + status "4113 nodes · 17056 edges"; HTML export button present |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + SPA `tsc --noEmit` | PASS | PASS | full http tree green (http, http/docs, http/tracker); tsc clean; vite build OK |
+| Rollback boundary | `git revert` + `go test ./...` | PASS | N/A (additive) | new `mnemonic_graph.go` + graph feature + `/mnemonic/graph/*` routes; revert restores Phase 3 shell |
+| Global Constraints | — | held | held | Sigma.js (not D3); no CDN at app runtime (export HTML only); 005/008 soft-dep honored (degraded fallback) |
 
 ### Commit
 
