@@ -33,11 +33,8 @@ func seedMDRepo(t *testing.T) string {
 		"---\nid: 0001\ntitle: Dashboard — PRD\ntype: prd\n---\n\n# Dashboard — PRD\n\n## 1. Problem\n\nProblem.\n")
 	// backlog root -> .backlog/tasks/
 	write(".backlog/tasks/TASK-001-something.md", "---\nid: TASK-001\nstatus: in-progress\npriority: high\n---\n\n# Task one\n\nBody.\n")
-	// backlogdocs root -> .backlog/decisions/ (ADR) + .backlog/docs/ (PRD)
-	write(".backlog/decisions/decision-1 - Use-Tailwind-v4.md",
-		"---\nid: decision-1\ntitle: Use Tailwind v4\nstatus: accepted\ndate: 2026-09-17\n---\n\n# Decision: Use Tailwind v4\n\n## Context\n\nWhy.\n\n## Decision\n\nWe use Tailwind v4.\n\n## Consequences\n\nPositive.\n")
-	write(".backlog/docs/doc-001 - Guide.md",
-		"---\nid: doc-001\ntitle: Project Guide\ntype: guide\n---\n\n# Project Guide\n\nGuide body.\n")
+	// a hidden .skillgrid subdir (must NOT appear in the skillgrid root tree)
+	write(".skillgrid/archive/old-change/briefing.md", "# Old Briefing\n\nArchived.\n")
 	// docs root -> docs/
 	write("docs/guide.md", "# Guide\n\nSome guide text.\n")
 	// root *.md

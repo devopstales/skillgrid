@@ -22,22 +22,21 @@ import (
 // works from any repo that uses any subset of these methods.
 //
 // Methods (their canonical artifact locations, researched):
-//   - skillgrid:  .skillgrid/** (specs/<change>/{briefing,tasks,acceptance}.md,
-//                decisions/ ADRs, prd/ product docs) — the team's own SDD artifacts
+//   - skillgrid:  .skillgrid/{specs,adr,prd} — the team's own SDD artifacts
+//                (specs/<change>/{briefing,tasks,acceptance}.md, adr/ ADRs, prd/ product docs);
+//                archive/ and other .skillgrid subdirs are hidden
 //   - openspec:   openspec/specs/**, openspec/changes/**
 //   - speckit:    specs/<NNN-feature>/{spec,plan,tasks}.md, .specify/memory/constitution.md
 //   - superpowers: docs/superpowers/plans/**, docs/superpowers/specs/**
 //   - backlog:    .backlog/tasks/*.md
-//   - backlogdocs:.backlog/docs/** (doc-NNN), .backlog/decisions/** (ADR decision-N)
 //   - docs:       docs/** (human docs)
 //   - root:       top-level *.md
 var mdRoots = map[string][]string{
-	"skillgrid":   {".skillgrid"},
+	"skillgrid":   {".skillgrid/specs", ".skillgrid/adr", ".skillgrid/prd"},
 	"openspec":    {"openspec/specs", "openspec/changes", "openspec"},
 	"speckit":     {"specs", ".specify/memory"},
 	"superpowers": {"docs/superpowers/plans", "docs/superpowers/specs"},
 	"backlog":     {".backlog/tasks"},
-	"backlogdocs": {".backlog/docs", ".backlog/decisions"},
 	"docs":        {"docs"},
 	"root":        {"."},
 }
@@ -45,7 +44,7 @@ var mdRoots = map[string][]string{
 // mdRootOrder is the stable display/search order for root=all.
 var mdRootOrder = []string{
 	"skillgrid", "openspec", "speckit", "superpowers",
-	"backlog", "backlogdocs", "docs", "root",
+	"backlog", "docs", "root",
 }
 
 // MDNode is one entry in the docs tree.
@@ -416,14 +415,38 @@ func relatedPlans(body, cwd string) []string {
 	return out
 }
 
+// skillgridTopDirs is the fixed set of .skillgrid subdirectories the Skillgrid
+// root surfaces; everything else (archive/, glossary/, sdd/, *.yaml) is hidden.
+var skillgridTopDirs = map[string]bool{
+	"specs": true, "adr": true, "prd": true,
+}
+
+// skillgridSearchRoots returns the on-disk .skillgrid subdirs to search for the
+// skillgrid selector, limited to skillgridTopDirs (so archive/ etc. are excluded).
+func skillgridSearchRoots(cwd string) []string {
+	var out []string
+	for d := range skillgridTopDirs {
+		out = append(out, ".skillgrid/"+d)
+	}
+	// stable order
+	sort.Strings(out)
+	return out
+}
+
 // BuildTree walks the selected root(s) and returns a nested tree of MDNode.
 // Each root is a list of candidate paths; only directories that exist in the
 // current repo are walked, so the tree adapts to whatever methods the repo uses.
+// The "skillgrid" selector is special-cased: it is a single top-level
+// directory (.skillgrid) whose tree is restricted to skillgridTopDirs.
 func BuildTree(ctx context.Context, cwd, root string) ([]MDNode, error) {
 	sels := orderedRoots(root)
 	var out []MDNode
 	for _, sel := range sels {
-		for _, rootRel := range mdRoots[sel] {
+		roots := mdRoots[sel]
+		if sel == "skillgrid" {
+			roots = []string{".skillgrid"}
+		}
+		for _, rootRel := range roots {
 			abs, err := filepath.Abs(filepath.Join(cwd, rootRel))
 			if err != nil {
 				continue
@@ -434,6 +457,16 @@ func BuildTree(ctx context.Context, cwd, root string) ([]MDNode, error) {
 			node, err := walkDir(ctx, cwd, abs, sel, filepath.Base(abs))
 			if err != nil {
 				return nil, err
+			}
+			// skillgrid top-level: keep only specs/adr/prd subdirs.
+			if sel == "skillgrid" && node != nil && filepath.Base(abs) == ".skillgrid" {
+				var kept []MDNode
+				for _, c := range node.Children {
+					if skillgridTopDirs[strings.ToLower(c.Name)] {
+						kept = append(kept, c)
+					}
+				}
+				node.Children = kept
 			}
 			if node != nil {
 				out = append(out, *node)
@@ -498,36 +531,6 @@ func specTaskDir(name string) bool {
 	return true
 }
 
-// specDocDir reports whether a subdirectory of the .skillgrid root holds first-class
-// SDD documents (ADRs / product docs) that must be shown even though the skillgrid
-// selector is otherwise spec/task-only.
-func specDocDir(name string) bool {
-	switch strings.ToLower(name) {
-	case "decisions", "prd", "adrs", "product":
-		return true
-	}
-	return false
-}
-
-// specDocFile reports whether a top-level .md file under .skillgrid is a first-class
-// SDD document (an ADR or a PRD) rather than a config/meta file. Skillgrid uses
-// numeric IDs (0001-*.md) inside adr/ and prd/; Backlog.md-style uses adr- / prd-
-// prefixes. All are surfaced.
-func specDocFile(name string) bool {
-	lower := strings.ToLower(name)
-	return strings.HasPrefix(lower, "decision-") || strings.HasPrefix(lower, "adr-") ||
-		strings.HasPrefix(lower, "prd-") || numericIDPrefix(lower)
-}
-
-// numericIDPrefix reports a leading 4+ digit id ("0001-...", "0007-...").
-func numericIDPrefix(lower string) bool {
-	n := 0
-	for n < len(lower) && lower[n] >= '0' && lower[n] <= '9' {
-		n++
-	}
-	return n >= 4 && n < len(lower) && lower[n] == '-'
-}
-
 func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 	entries, err := os.ReadDir(abs)
 	if err != nil {
@@ -542,14 +545,11 @@ func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 	}
 	// The "root" selector only lists top-level *.md files (not subdirs).
 	rootOnly := sel == "root"
-	// The "skillgrid" selector shows only spec/task files (not research
-	// side-products) to keep the tree focused on the plan/spec artifacts —
-	// plus first-class decision/PRD docs (see specDocDir/specDocFile).
-	specOnly := sel == "skillgrid"
-	// When walking a .skillgrid decision/PRD container, every file is a doc
-	// (ADR/PRD), not a spec file — so the spec-file filter must not clobber it.
-	inSpecDoc := specOnly && (name == "decisions" || name == "prd" ||
-		name == "adrs" || name == "product")
+	// specOnly: the skillgrid root surfaces specs/, adr/, prd/ (filtered in
+	// BuildTree). Inside specs/ (name == "specs"), prune research dirs and
+	// non-spec files; inside adr/ or prd/ every file is a doc (no clobber).
+	specOnly := sel == "skillgrid" && (name == "specs" || name == "adr" || name == "prd")
+	insideSpecs := sel == "skillgrid" && name == "specs"
 	for _, e := range entries {
 		select {
 		case <-ctx.Done():
@@ -561,8 +561,8 @@ func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 			if rootOnly {
 				continue
 			}
-			// spec/task only: skip research dirs unless it's a decision/PRD container.
-			if specOnly && !specTaskDir(e.Name()) && !specDocDir(e.Name()) {
+			// inside specs/: skip research side-product dirs.
+			if insideSpecs && !specTaskDir(e.Name()) {
 				continue
 			}
 			child, err := walkDir(ctx, cwd, childAbs, sel, e.Name())
@@ -577,8 +577,8 @@ func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 		if !strings.EqualFold(filepath.Ext(e.Name()), ".md") {
 			continue
 		}
-		// spec/task only: skip non-plan files, except first-class ADR/PRD docs.
-		if specOnly && !inSpecDoc && !specTaskFile(e.Name()) && !specDocFile(e.Name()) {
+		// inside specs/<change>/: skip non-spec files (research, etc.).
+		if specOnly && insideSpecs && !specTaskFile(e.Name()) {
 			continue
 		}
 		data, err := os.ReadFile(childAbs)
@@ -618,7 +618,11 @@ func Search(ctx context.Context, cwd, q string, limit int) []SearchHit {
 		if sel == "root" {
 			continue
 		}
-		for _, rootRel := range mdRoots[sel] {
+		roots := mdRoots[sel]
+		if sel == "skillgrid" {
+			roots = skillgridSearchRoots(cwd)
+		}
+		for _, rootRel := range roots {
 			abs, err := filepath.Abs(filepath.Join(cwd, rootRel))
 			if err != nil {
 				continue
@@ -626,6 +630,9 @@ func Search(ctx context.Context, cwd, q string, limit int) []SearchHit {
 			if info, err := os.Stat(abs); err != nil || !info.IsDir() {
 				continue
 			}
+			// searchSkillgrid: true for the skillgrid selector so we apply the
+			// spec/task file filter only inside specs/ (adr/ + prd/ are all docs).
+			searchSkillgrid := sel == "skillgrid"
 			_ = filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
 				if err != nil {
 					return nil
@@ -633,9 +640,9 @@ func Search(ctx context.Context, cwd, q string, limit int) []SearchHit {
 				if d.IsDir() || !strings.EqualFold(filepath.Ext(path), ".md") {
 					return nil
 				}
-				// Keep search consistent with the tree: the skillgrid root only
-				// searches spec/task files (research side-products stay hidden).
-				if sel == "skillgrid" && !specTaskFile(filepath.Base(path)) {
+				// Keep search consistent with the tree: inside skillgrid specs/,
+				// only spec/task files are searched (research side-products hidden).
+				if searchSkillgrid && strings.Contains(filepath.ToSlash(path), string(os.PathSeparator)+"specs"+string(os.PathSeparator)) && !specTaskFile(filepath.Base(path)) {
 					return nil
 				}
 				select {

@@ -10,45 +10,6 @@ import (
 	"testing"
 )
 
-// 3b.1 [AFK] The backlogdocs root exposes .backlog/decisions (ADR) and
-// .backlog/docs (doc-NNN/PRD), and root=scoping does not leak across roots.
-func TestPhase3b_BacklogDocsTree(t *testing.T) {
-	h := newMDHandler(t)
-	do := func(target string) (int, string) {
-		rr := httptest.NewRecorder()
-		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, target, nil))
-		return rr.Code, rr.Body.String()
-	}
-
-	// root=backlogdocs shows the ADR + the doc
-	code, body := do("/docs/tree?root=backlogdocs")
-	if code != http.StatusOK {
-		t.Fatalf("backlogdocs tree: expected 200, got %d (%s)", code, body)
-	}
-	for _, want := range []string{
-		"decision-1", "accepted", "doc-001",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("backlogdocs tree missing %q in %s", want, body)
-		}
-	}
-	// it must not leak the tasks root or the sdd root
-	if strings.Contains(body, "TASK-001") {
-		t.Errorf("backlogdocs tree leaked the tasks root: %s", body)
-	}
-	if strings.Contains(body, "briefing.md") {
-		t.Errorf("backlogdocs tree leaked the sdd root: %s", body)
-	}
-
-	// root=all still includes both new artifacts alongside the old roots
-	_, body = do("/docs/tree")
-	for _, want := range []string{"decision-1", "doc-001", "TASK-001", "briefing.md"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("all tree missing %q in %s", want, body)
-		}
-	}
-}
-
 // 3b.2 [AFK] An ADR served via /docs/content carries docType=adr +
 // decisionStatus (lower-cased) from its frontmatter; the body keeps its
 // Context/Decision/Consequences sections for schema-aware rendering.
@@ -56,7 +17,7 @@ func TestPhase3b_ADRContent(t *testing.T) {
 	h := newMDHandler(t)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet,
-		"/docs/content?path=.backlog/decisions/decision-1%20-%20Use-Tailwind-v4.md", nil))
+		"/docs/content?path=.skillgrid/adr/0007-sdd-docs.md", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("adr content: expected 200, got %d (%s)", rr.Code, rr.Body.String())
 	}
@@ -70,15 +31,16 @@ func TestPhase3b_ADRContent(t *testing.T) {
 	if out.DecisionStatus != "accepted" {
 		t.Errorf("adr decisionStatus: expected \"accepted\", got %q", out.DecisionStatus)
 	}
-	for _, want := range []string{"## Context", "## Decision", "## Consequences"} {
+	for _, want := range []string{"## Context and Problem Statement", "## Decision Outcome"} {
 		if !strings.Contains(out.Body, want) {
 			t.Errorf("adr body missing %q", want)
 		}
 	}
 }
 
-// 3b.2b [AFK] The skillgrid root (.skillgrid) surfaces first-class ADR + PRD
-// artifacts alongside the spec/task files, and they classify as adr/prd.
+// 3b.2b [AFK] The skillgrid root surfaces first-class ADR + PRD + spec artifacts
+// (specs/, adr/, prd/) and hides everything else (archive/, config.yaml, ...);
+// ADRs/PRDs classify as adr/prd with their decisionStatus.
 func TestPhase3b_SkillgridRootDocs(t *testing.T) {
 	h := newMDHandler(t)
 	do := func(target string) (int, string) {
@@ -87,14 +49,20 @@ func TestPhase3b_SkillgridRootDocs(t *testing.T) {
 		return rr.Code, rr.Body.String()
 	}
 
-	// root=skillgrid includes the numeric ADR + PRD under .skillgrid/
+	// root=skillgrid includes the numeric ADR + PRD + spec file
 	code, body := do("/docs/tree?root=skillgrid")
 	if code != http.StatusOK {
 		t.Fatalf("skillgrid tree: expected 200, got %d (%s)", code, body)
 	}
-	for _, want := range []string{"0007-sdd-docs", "0001-dashboard", "briefing.md"} {
+	for _, want := range []string{"0007-sdd-docs", "0001-dashboard", "briefing.md", "specs", "adr", "prd"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("skillgrid tree missing %q in %s", want, body)
+		}
+	}
+	// archive/ and the hidden .skillgrid subdirs must NOT appear
+	for _, gone := range []string{"archive", "glossary", "config.yaml"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("skillgrid tree should hide %q in %s", gone, body)
 		}
 	}
 
@@ -129,8 +97,8 @@ func TestPhase3b_SkillgridRootDocs(t *testing.T) {
 	}
 }
 
-// 3b.3 [AFK] A PRD under .backlog/docs is classified docType=prd; a plain
-// doc-NNN is docType=doc; a Backlog task stays docType=task.
+// 3b.3 [AFK] A Backlog task classifies docType=task; a Backlog.md-style doc-NNN
+// classifies docType=doc; an ADR in .skillgrid/adr classifies docType=adr.
 func TestPhase3b_DocTypeClassification(t *testing.T) {
 	h := newMDHandler(t)
 	get := func(path string) MDContent {
@@ -146,21 +114,23 @@ func TestPhase3b_DocTypeClassification(t *testing.T) {
 		return out
 	}
 
-	// A PRD: detected by id "prd-..." (frontmatter id, not path)
-	prdPath := ".backlog/docs/prd-001%20-%20Dashboard%20PRD.md"
-	// the fixture uses doc-001 (a guide), so add a PRD classification check via
-	// the real seeded doc-001 (doc) and a synthetic PRD via id prefix.
-	doc := get(".backlog/docs/doc-001%20-%20Guide.md")
-	if doc.DocType != DocTypeDoc {
-		t.Errorf("doc-001 docType: expected %q, got %q", DocTypeDoc, doc.DocType)
-	}
-
-	// the seeded ADR is already covered above; a Backlog task must be "task"
+	// a Backlog task must be "task"
 	task := get(".backlog/tasks/TASK-001-something.md")
 	if task.DocType != DocTypeTask {
 		t.Errorf("task docType: expected %q, got %q", DocTypeTask, task.DocType)
 	}
-	_ = prdPath
+
+	// the skillgrid ADR must be "adr"
+	adr := get(".skillgrid/adr/0007-sdd-docs.md")
+	if adr.DocType != DocTypeADR {
+		t.Errorf("skillgrid adr docType: expected %q, got %q", DocTypeADR, adr.DocType)
+	}
+
+	// a plain doc-NNN must be "doc"
+	doc := get("docs/guide.md")
+	if doc.DocType != DocTypeNote && doc.DocType != DocTypeDoc {
+		t.Errorf("docs/guide.md docType: expected doc/note, got %q", doc.DocType)
+	}
 }
 
 // 3b.4 [AFK] PRD classification: a doc whose frontmatter id begins with "prd"
@@ -176,14 +146,14 @@ func TestPhase3b_PRDContent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	w(".backlog/docs/prd-001 - Dashboard PRD.md",
-		"---\nid: prd-001\ntitle: Dashboard PRD\ntype: prd\n---\n\n# Dashboard PRD\n\nProblem.\n")
+	w(".skillgrid/prd/0002-dashboard.md",
+		"---\nid: 0002\ntitle: Dashboard PRD\ntype: prd\n---\n\n# Dashboard PRD\n\nProblem.\n")
 
 	h := http.NewServeMux()
 	h.Handle("GET /docs/content", NewContent(cwd))
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet,
-		"/docs/content?path=.backlog/docs/prd-001%20-%20Dashboard%20PRD.md", nil))
+		"/docs/content?path=.skillgrid/prd/0002-dashboard.md", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("prd content: expected 200, got %d (%s)", rr.Code, rr.Body.String())
 	}

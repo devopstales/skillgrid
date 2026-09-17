@@ -53,7 +53,6 @@ export const DOCS_ROOTS = [
   'speckit',
   'superpowers',
   'backlog',
-  'backlogdocs',
   'docs',
 ] as const
 export type DocsRoot = (typeof DOCS_ROOTS)[number]
@@ -65,6 +64,5 @@ export const ROOT_LABEL: Record<DocsRoot, string> = {
   speckit: 'SpecKit',
   superpowers: 'Superpowers',
   backlog: 'Backlog',
-  backlogdocs: 'Docs & Decisions',
   docs: 'Docs',
 }

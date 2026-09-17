@@ -1630,10 +1630,9 @@ paths:
       operationId: docsTree
       summary: Grouped markdown doc tree across the declared roots
       description: |-
-        Read-only tree of markdown files under `.skillgrid/` (skillgrid: specs + adr/ + prd/),
+        Read-only tree of markdown files under `.skillgrid/{specs,adr,prd}` (skillgrid),
         `openspec/`, `specs/` + `.specify/memory` (speckit),
         `docs/superpowers/plans|specs` (superpowers), `.backlog/tasks/` (backlog),
-        `.backlog/docs` + `.backlog/decisions` (backlogdocs: doc-NNN/PRD + ADR),
         `docs/` (docs), and top-level root `*.md`. Every path is sandboxed (clean +
         prefix-checked). The SPA renders; the server never executes markdown.
       parameters:
@@ -1642,9 +1641,9 @@ paths:
           required: false
           schema:
             type: string
-            enum: [skillgrid, openspec, speckit, superpowers, backlog, backlogdocs, docs, all]
+            enum: [skillgrid, openspec, speckit, superpowers, backlog, docs, all]
             default: all
-          description: Which doc method's artifacts to include. `all` (default) includes every method whose directories exist in the repo (skillgrid specs, openspec, speckit, superpowers, backlog, backlogdocs, docs).
+          description: Which doc method's artifacts to include. `all` (default) includes every method whose directories exist in the repo (skillgrid, openspec, speckit, superpowers, backlog, docs).
       responses:
         "200":
           description: Tree
