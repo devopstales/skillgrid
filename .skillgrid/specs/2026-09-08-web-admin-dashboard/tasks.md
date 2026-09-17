@@ -355,6 +355,14 @@ This phase is done only when:
 - [x] 3.7 `[AFK]` "View plan progress →" cross-link to the Plans view (Phase 6 stub target) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
 - [x] 3.8 `[AFK]` openapi.yaml documents the docs routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase3_OpenAPI` — Expected: PASS
 
+#### 3b — Docs & Decisions roots + schema-aware ADR/PRD rendering (2026-09-17)
+
+- [x] 3b.1 `[AFK]` Add `backlogdocs` root (`.backlog/docs`, `.backlog/decisions`) to `mdRoots`/`mdRootOrder`; existence-gated; no cross-root leak — `Run: go test ./internal/mnemonic/http/docs/ -run TestPhase3b_BacklogDocsTree` — Expected: PASS
+- [x] 3b.2 `[AFK]` `MDContent` carries `docType` (task|doc|adr|prd|spec|note) via `classifyDoc`; ADRs carry `decisionStatus` (lower-cased frontmatter `status`) — `Run: go test ./internal/mnemonic/http/docs/ -run 'TestPhase3b_ADRContent|TestPhase3b_DocTypeClassification|TestPhase3b_PRDContent'` — Expected: PASS
+- [x] 3b.3 `[AFK]` Frontend: `DocType` chips (ADR/PRD/Task/Doc/Spec), ADR status lifecycle chip + "Decision record" banner (Context → Decision → Consequences) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 3b.4 `[AFK]` openapi `root` enum + `DocsContent.docType`/`decisionStatus` documented — `Run: go test ./internal/mnemonic/http/docs/ -run TestPhase3_OpenAPI` — Expected: PASS
+- [x] 3b.5 `[AFK]` Author `.backlog/decisions/adr-001` (SDD multi-method docs) + `.backlog/docs/prd-001` (dashboard PRD) as Backlog.md-schema artifacts — verified via live `serve` + browser
+
 ### Verification
 
 Verdict: `PASS`
@@ -369,6 +377,7 @@ Evidence:
 | Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + SPA `tsc --noEmit` | PASS | PASS | full http tree green; tsc clean; build → ui/dist/ |
 | Rollback boundary | `git revert` + `go test ./...` | PENDING | N/A (additive) | new `docs/` markdown readers + 4 routes + docs feature; revert restores Phase 2 shell |
 | Global Constraints | — | held | PASS | read-only sandbox, no CDN (mermaid bundled), markdown rendered not executed |
+| Phase 3b (Docs & Decisions) | `go test ./internal/mnemonic/http/docs/ -run 'TestPhase3b_'` + SPA `tsc --noEmit` + browser | PASS | PASS | 4 Phase3b tests green (tree no-leak, ADR docType+decisionStatus, doc/prd/task classification, PRD id prefix); tsc clean; browser: ADR "Decision record" banner + Context/Decision/Consequences + accepted chip, PRD "PRD" chip + 8 sections |
 
 ### Commit
 
