@@ -146,7 +146,14 @@ func (s *Server) registerRoutes() {
 	s.registerTeamsRoutes()
 	s.registerTrackerRoutes()
 	s.registerDocsRoutes()
+	s.registerGraphRoutes()
 	s.registerUIRoutes()
+}
+
+// registerGraphRoutes mounts the Phase 4 mnemonic vector-graph routes.
+func (s *Server) registerGraphRoutes() {
+	s.mux.HandleFunc("GET /mnemonic/graph", s.handleMnemonicGraph)
+	s.mux.HandleFunc("GET /mnemonic/graph/nodes", s.handleMnemonicGraphNodes)
 }
 
 // registerDocsRoutes mounts the read-only SDD docs bridge on the two routes

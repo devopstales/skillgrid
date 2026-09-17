@@ -1766,6 +1766,106 @@ paths:
           $ref: "#/components/responses/Bad"
         "404":
           $ref: "#/components/responses/Bad"
+  /mnemonic/graph:
+    get:
+      tags: [mnemonic-graph]
+      operationId: mnemonicGraph
+      summary: Code/memory vector graph (nodes + edges)
+      description: |-
+        Returns the project's symbol graph as a flat {nodes, edges} payload for
+        the Sigma.js frontend. Nodes carry id/label/type/path/degree/community;
+        edges carry source/target/type/weight/directed/confidence.
+
+        With `node_id` + `depth`, returns the depth-hop neighborhood of that
+        symbol (BFS, undirected) and sets `truncated` when the bound dropped
+        edges. Without `node_id`, returns the full graph (capped at `limit`).
+
+        `degraded` is true when no edge/community data is present (the 005/008
+        soft dependency is absent): the response then carries a `files` list so
+        the UI can fall back to a node-only + file-list view.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+          example: my-project
+        - name: node_id
+          in: query
+          required: false
+          schema: { type: integer }
+          example: 42
+          description: Symbol id to center a depth-limited neighborhood on.
+        - name: depth
+          in: query
+          required: false
+          schema: { type: integer, default: 2 }
+          example: 2
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 5000 }
+          example: 5000
+      responses:
+        "200":
+          description: Graph payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items: { $ref: "#/components/schemas/GraphNode" }
+                  edges:
+                    type: array
+                    items: { $ref: "#/components/schemas/GraphEdge" }
+                  truncated: { type: boolean }
+                  degraded: { type: boolean }
+                  files:
+                    type: array
+                    items: { type: string }
+                  project: { type: string }
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Bad"
+  /mnemonic/graph/nodes:
+    get:
+      tags: [mnemonic-graph]
+      operationId: mnemonicGraphNodes
+      summary: Graph node list (capped)
+      description: |-
+        Returns symbol nodes (id/label/type/path/degree/community) without
+        edges, capped at `limit`. Sets `truncated` when the cap dropped nodes
+        and `total` for the uncapped count.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+          example: my-project
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 5000 }
+          example: 500
+      responses:
+        "200":
+          description: Node payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items: { $ref: "#/components/schemas/GraphNode" }
+                  truncated: { type: boolean }
+                  total: { type: integer }
+        "400":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Bad"
   /swagger-ui:
     get:
       tags: [ui]
@@ -1807,6 +1907,29 @@ components:
       properties:
         error:
           type: string
+    GraphNode:
+      type: object
+      properties:
+        id: { type: integer, description: Symbol id (stable graph key) }
+        uid: { type: string, description: Content-stable symbol UID }
+        label: { type: string, description: Symbol name }
+        type: { type: string, description: Symbol kind (function/method/class/...) }
+        language: { type: string }
+        path: { type: string, description: File path of the symbol }
+        degree: { type: integer, description: Undirected degree (for sizing) }
+        community:
+          type: integer
+          description: Leiden community id; -1 when community data is absent
+    GraphEdge:
+      type: object
+      properties:
+        id: { type: string, description: kind:from->to key }
+        source: { type: integer }
+        target: { type: integer }
+        type: { type: string, description: Edge kind (calls/imports/extends/...) }
+        weight: { type: number }
+        directed: { type: boolean }
+        confidence: { type: string, description: EXTRACTED / INFERRED / AMBIGUOUS }
     DocChange:
       type: object
       required: [name, status]
