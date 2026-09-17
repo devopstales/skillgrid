@@ -362,6 +362,7 @@ This phase is done only when:
 - [x] 3b.3 `[AFK]` Frontend: `DocType` chips (ADR/PRD/Task/Doc/Spec), ADR status lifecycle chip + "Decision record" banner (Context → Decision → Consequences) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
 - [x] 3b.4 `[AFK]` openapi `root` enum + `DocsContent.docType`/`decisionStatus` documented — `Run: go test ./internal/mnemonic/http/docs/ -run TestPhase3_OpenAPI` — Expected: PASS
 - [x] 3b.5 `[AFK]` Author `.backlog/decisions/adr-001` (SDD multi-method docs) + `.backlog/docs/prd-001` (dashboard PRD) as Backlog.md-schema artifacts — verified via live `serve` + browser
+- [x] 3b.6 `[AFK]` Relocate Skillgrid ADR + PRD under the **Skillgrid** root: `.skillgrid/adr/0007` + `.skillgrid/prd/0001`; broaden `skillgrid` root to `.skillgrid` (spec/task files + `adr/` + `prd/`); lenient `splitFrontmatter` (title-first ADR convention) so existing `adr/0001–0006` status/date are readable; rename UI label "Skillgrid Specs" → "Skillgrid" — `Run: go test ./internal/mnemonic/http/docs/ -run TestPhase3b_` + live browser — Expected: PASS
 
 ### Verification
 
