@@ -73,6 +73,22 @@ func TestProgressModelEvent(t *testing.T) {
 	}
 }
 
+// TestProgressViewInitialFrame: the very first rendered frame must carry a
+// phase label and not be a bare elapsed-time cell. This is the reported bug:
+// before the first index event arrives the view was " 0s" (empty phase), so on
+// a warm index the user only ever saw the ticking seconds. The view must be
+// non-trivial from frame one.
+func TestProgressViewInitialFrame(t *testing.T) {
+	m := progressModel{view: progressView{phase: "starting", start: time.Now()}}
+	first := m.View()
+	if !strings.Contains(first, "starting") {
+		t.Errorf("initial frame = %q, want a phase label (not a bare elapsed cell)", first)
+	}
+	if strings.TrimSpace(first) == strings.TrimSpace(first[strings.LastIndex(first, " "):]) {
+		t.Errorf("initial frame %q looks like a bare elapsed-time cell", first)
+	}
+}
+
 // TestProgressModelDetail: the detail (current file/function) is shown in the
 // view and cleared on the next phase start.
 func TestProgressModelDetail(t *testing.T) {

@@ -158,21 +158,21 @@ func (m progressModel) View() string {
 	return m.view.View()
 }
 
-// progressViewTea wraps bubbletea: Event sends a msg (bounded buffer, drops
-// when full so the indexer never blocks), Done stops the program and
-// clears the frame.
+// progressViewTea wraps bubbletea: Event sends a msg to the program, Done
+// stops the program and clears the frame.
 type progressViewTea struct {
 	p     *tea.Program
-	events chan tea.Msg
 	start time.Time
 }
 
 func newProgressViewTea(w io.Writer) *progressViewTea {
-	m := progressModel{view: progressView{start: time.Now()}}
+	// Seed with a "starting" phase so the very first rendered frame carries a
+	// label + bar area, not a bare elapsed-time cell. Without this, on a warm
+	// index the first index event lands after the renderer's first tick and the
+	// user only ever sees the ticking seconds (the reported bug).
+	m := progressModel{view: progressView{phase: "starting", start: time.Now()}}
 	p := tea.NewProgram(m, tea.WithOutput(w), tea.WithInputTTY(), tea.WithoutSignalHandler())
-	r := &progressViewTea{p: p, events: make(chan tea.Msg, 256), start: time.Now()}
-	go p.Send(r.events)
-	return r
+	return &progressViewTea{p: p, start: time.Now()}
 }
 
 func (r *progressViewTea) Start() {
@@ -181,14 +181,16 @@ func (r *progressViewTea) Start() {
 	}()
 }
 
+// Event delivers one index event to the tea program. Program.Send is
+// goroutine-safe (it feeds the program's internal message queue), so this can
+// be called directly from the indexing goroutine without a relay channel. The
+// program is bounded: Run() consumes messages as fast as it renders, so a
+// cold-index burst is queued and drained in order.
 func (r *progressViewTea) Event(e codeindex.Event) {
 	if !e.PhaseStart && e.Done == 0 {
 		return
 	}
-	select {
-	case r.events <- progressEventMsg(e):
-	default: // viewer is slow — drop, never block the indexer
-	}
+	r.p.Send(progressEventMsg(e))
 }
 
 func (r *progressViewTea) Done() {

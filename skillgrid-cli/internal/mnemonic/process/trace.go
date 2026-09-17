@@ -448,14 +448,32 @@ func communityOf(db *sql.DB) (map[int64]int, error) {
 	return out, rows.Err()
 }
 
+// liveSymbol reports whether symbolID still exists in the symbols table. A
+// symbol can vanish (orphan-prune) between the time it is selected as an entry
+// point / trace step and the time it is persisted, leaving a dangling FK
+// reference. db may be a *sql.DB or *sql.Tx (both expose QueryRow).
+func liveSymbol(db interface{ QueryRow(string, ...interface{}) *sql.Row }, symbolID int64) bool {
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM symbols WHERE id = ?`, symbolID).Scan(&n)
+	return n > 0
+}
+
 // persistProcess writes one process + its steps (idempotent: replaces any
-// prior row with the same content hash). Returns the process id.
+// prior row with the same content hash). Returns the process id. Symbol
+// references that no longer exist (pruned after selection) are stored as NULL
+// rather than failing the FK, so a single dangling symbol can't abort the
+// whole pass.
 func persistProcess(ctx context.Context, db *sql.DB, p *Process) (int64, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
+	// FK-safe entry symbol: NULL if pruned (the column is nullable).
+	entryID := p.EntrySymbolID
+	if entryID != 0 && !liveSymbol(tx, entryID) {
+		entryID = 0
+	}
 	var id int64
 	err = tx.QueryRowContext(ctx, `
 		SELECT id FROM processes WHERE content_hash = ?`, p.ContentHash).Scan(&id)
@@ -464,7 +482,7 @@ func persistProcess(ctx context.Context, db *sql.DB, p *Process) (int64, error) 
 		res, err = tx.ExecContext(ctx, `
 			INSERT INTO processes (name, entry_symbol_id, entry_kind, cross_community, content_hash, label, label_status, stop_note, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			p.Name, p.EntrySymbolID, p.EntryKind, boolTo(p.CrossCommunity), p.ContentHash,
+			p.Name, nullIfZero(entryID), p.EntryKind, boolTo(p.CrossCommunity), p.ContentHash,
 			p.Label, p.LabelStatus, stopNoteText(p.Stop), p.UpdatedAtOrNow())
 		if err != nil {
 			return 0, err
@@ -480,12 +498,24 @@ func persistProcess(ctx context.Context, db *sql.DB, p *Process) (int64, error) 
 		return 0, err
 	}
 	for i, s := range p.Steps {
+		symID := s.SymbolID
+		if symID != 0 && !liveSymbol(tx, symID) {
+			symID = 0
+		}
 		if _, err := tx.Exec(`INSERT INTO process_steps (process_id, step, symbol_id, confidence, kind) VALUES (?, ?, ?, ?, ?)`,
-			id, i+1, s.SymbolID, s.Confidence, s.Kind); err != nil {
+			id, i+1, nullIfZero(symID), s.Confidence, s.Kind); err != nil {
 			return 0, err
 		}
 	}
 	return id, tx.Commit()
+}
+
+// nullIfZero renders 0 as NULL for the nullable symbol-id columns.
+func nullIfZero(id int64) interface{} {
+	if id == 0 {
+		return nil
+	}
+	return id
 }
 
 // cachedProcesses rebuilds the stored processes from the tables when the
