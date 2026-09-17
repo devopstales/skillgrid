@@ -1630,19 +1630,21 @@ paths:
       operationId: docsTree
       summary: Grouped markdown doc tree across the declared roots
       description: |-
-        Read-only tree of markdown files under `.skillgrid/specs/` (sdd),
-        `openspec/`, `.backlog/tasks/` (backlog), `docs/` (docs), and top-level
-        root `*.md`. Every path is sandboxed (clean + prefix-checked). The SPA
-        renders; the server never executes markdown.
+        Read-only tree of markdown files under `.skillgrid/specs/` (skillgrid),
+        `openspec/`, `specs/` + `.specify/memory` (speckit),
+        `docs/superpowers/plans|specs` (superpowers), `.backlog/tasks/` (backlog),
+        `.backlog/docs` + `.backlog/decisions` (backlogdocs: doc-NNN/PRD + ADR),
+        `docs/` (docs), and top-level root `*.md`. Every path is sandboxed (clean +
+        prefix-checked). The SPA renders; the server never executes markdown.
       parameters:
         - name: root
           in: query
           required: false
           schema:
             type: string
-            enum: [skillgrid, openspec, speckit, superpowers, backlog, docs, all]
+            enum: [skillgrid, openspec, speckit, superpowers, backlog, backlogdocs, docs, all]
             default: all
-          description: Which doc method's artifacts to include. `all` (default) includes every method whose directories exist in the repo (skillgrid specs, openspec, speckit, superpowers, backlog, docs).
+          description: Which doc method's artifacts to include. `all` (default) includes every method whose directories exist in the repo (skillgrid specs, openspec, speckit, superpowers, backlog, backlogdocs, docs).
       responses:
         "200":
           description: Tree
@@ -1892,6 +1894,13 @@ components:
               type: string
               enum: [strict]
               description: SPA must render mermaid at this level (XSS-safe)
+        docType:
+          type: string
+          enum: [task, doc, adr, prd, spec, note]
+          description: Artifact type inferred from path + frontmatter; the SPA renders a schema-aware view
+        decisionStatus:
+          type: string
+          description: ADR lifecycle status (proposed/accepted/rejected/superseded); present only for docType=adr
     DocsSearchHit:
       type: object
       required: [path]

@@ -163,15 +163,29 @@ export function DocsPage() {
               <div className="flex min-h-0 flex-1">
                 {/* Article + scroll-spy scroll container */}
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-                  {/* "View plan progress" cross-link (3.7) for SDD plan docs */}
-                  {isPlan && relatedPlanName && (
-                    <a
-                      href={`/plans?change=${encodeURIComponent(relatedPlanName)}`}
-                      className="mb-4 inline-flex items-center gap-1 rounded-md border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs text-accent hover:bg-accent/20"
-                    >
-                      View plan progress →
-                    </a>
-                  )}
+                    {/* ADR lifecycle banner (3b) — schema-aware decision view */}
+                    {content.docType === 'adr' && content.decisionStatus && (
+                      <div className="mb-4 flex items-center gap-2 rounded-md border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-xs text-violet-200">
+                        <span className="font-semibold">Decision record</span>
+                        <span className="text-violet-400/70">·</span>
+                        <span>
+                          status: <b className="capitalize">{content.decisionStatus}</b>
+                        </span>
+                        <span className="ml-auto text-violet-400/70">
+                          Context → Decision → Consequences
+                        </span>
+                      </div>
+                    )}
+
+                    {/* "View plan progress" cross-link (3.7) for SDD plan docs */}
+                    {isPlan && relatedPlanName && (
+                      <a
+                        href={`/plans?change=${encodeURIComponent(relatedPlanName)}`}
+                        className="mb-4 inline-flex items-center gap-1 rounded-md border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs text-accent hover:bg-accent/20"
+                      >
+                        View plan progress →
+                      </a>
+                    )}
 
                   <h1 className="mb-3 text-2xl font-semibold text-zinc-100">{content.title}</h1>
                   <div className="mb-5">

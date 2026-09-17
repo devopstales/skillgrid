@@ -14,6 +14,9 @@ export interface DocsMermaidCfg {
   securityLevel: string
 }
 
+// Artifact type the SPA renders with a schema-aware view (mirrors Go docType).
+export type DocsDocType = 'task' | 'doc' | 'adr' | 'prd' | 'spec' | 'note'
+
 export interface DocsContent {
   path: string
   title?: string
@@ -22,6 +25,8 @@ export interface DocsContent {
   relatedPlans?: string[]
   updatedAt?: string
   mermaid?: DocsMermaidCfg
+  docType?: DocsDocType
+  decisionStatus?: string
 }
 
 export interface DocsSearchHit {
@@ -48,6 +53,7 @@ export const DOCS_ROOTS = [
   'speckit',
   'superpowers',
   'backlog',
+  'backlogdocs',
   'docs',
 ] as const
 export type DocsRoot = (typeof DOCS_ROOTS)[number]
@@ -59,5 +65,6 @@ export const ROOT_LABEL: Record<DocsRoot, string> = {
   speckit: 'SpecKit',
   superpowers: 'Superpowers',
   backlog: 'Backlog',
+  backlogdocs: 'Docs & Decisions',
   docs: 'Docs',
 }

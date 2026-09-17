@@ -27,6 +27,7 @@ import (
 //   - speckit:    specs/<NNN-feature>/{spec,plan,tasks}.md, .specify/memory/constitution.md
 //   - superpowers: docs/superpowers/plans/**, docs/superpowers/specs/**
 //   - backlog:    .backlog/tasks/*.md
+//   - backlogdocs:.backlog/docs/** (doc-NNN), .backlog/decisions/** (ADR decision-N)
 //   - docs:       docs/** (human docs)
 //   - root:       top-level *.md
 var mdRoots = map[string][]string{
@@ -35,12 +36,16 @@ var mdRoots = map[string][]string{
 	"speckit":     {"specs", ".specify/memory"},
 	"superpowers": {"docs/superpowers/plans", "docs/superpowers/specs"},
 	"backlog":     {".backlog/tasks"},
+	"backlogdocs": {".backlog/docs", ".backlog/decisions"},
 	"docs":        {"docs"},
 	"root":        {"."},
 }
 
 // mdRootOrder is the stable display/search order for root=all.
-var mdRootOrder = []string{"skillgrid", "openspec", "speckit", "superpowers", "backlog", "docs", "root"}
+var mdRootOrder = []string{
+	"skillgrid", "openspec", "speckit", "superpowers",
+	"backlog", "backlogdocs", "docs", "root",
+}
 
 // MDNode is one entry in the docs tree.
 type MDNode struct {
@@ -62,6 +67,63 @@ type MDContent struct {
 	RelatedPlans  []string       `json:"relatedPlans,omitempty"`
 	UpdatedAt     string         `json:"updatedAt,omitempty"`
 	Mermaid       MermaidCfg     `json:"mermaid"`
+	DocType       string         `json:"docType"`        // task|doc|adr|prd|spec|note
+	DecisionStatus string        `json:"decisionStatus,omitempty"` // ADR status (proposed/accepted/...)
+}
+
+// Doc types the SPA renders with schema-aware views.
+const (
+	DocTypeTask = "task"
+	DocTypeDoc  = "doc"
+	DocTypeADR  = "adr"
+	DocTypePRD  = "prd"
+	DocTypeSpec = "spec"
+	DocTypeNote = "note"
+)
+
+// classifyDoc infers the artifact type from path + frontmatter so the SPA can
+// pick a schema-aware view. Decisions (ADR) are detected by the .backlog/
+// decisions/ path or a decision-N id; PRDs by a "PRD" title/id; docs by the
+// doc-NNN id; tasks by the .backlog/tasks/ path or status+acceptance.
+func classifyDoc(path string, fm map[string]any) string {
+	lower := strings.ToLower(path)
+	id, _ := fm["id"].(string)
+	idl := strings.ToLower(id)
+	switch {
+	case strings.Contains(lower, "/decisions/") || strings.HasPrefix(idl, "decision-") ||
+		strings.HasPrefix(idl, "adr-"):
+		return DocTypeADR
+	case strings.Contains(lower, "/docs/") && (strings.HasPrefix(idl, "doc-") || idl != "") ||
+		(strings.Contains(lower, "/docs/") && strings.HasPrefix(idl, "prd")):
+		if strings.HasPrefix(idl, "prd") || strings.Contains(strings.ToLower(strOf(fm["title"])), "prd") ||
+			strings.Contains(lower, "prd") {
+			return DocTypePRD
+		}
+		return DocTypeDoc
+	case strings.Contains(lower, "/tasks/") || strings.HasPrefix(idl, "task-") ||
+		strings.HasPrefix(idl, "back-") || hasKey(fm, "acceptance_criteria") || hasKey(fm, "definition_of_done"):
+		return DocTypeTask
+	case hasKey(fm, "type") && strOf(fm["type"]) == "prd":
+		return DocTypePRD
+	}
+	// fallback: a spec-like path
+	if strings.Contains(lower, "spec") {
+		return DocTypeSpec
+	}
+	return DocTypeNote
+}
+
+func strOf(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+func hasKey(m map[string]any, k string) bool {
+	if m == nil {
+		return false
+	}
+	_, ok := m[k]
+	return ok
 }
 
 // MermaidCfg carries the mermaid render config the SPA must use so diagrams are
@@ -184,6 +246,7 @@ func NewContent(cwd string) http.Handler {
 			return
 		}
 		fm, body := splitFrontmatter(string(data))
+		docType := classifyDoc(filepath.ToSlash(raw), fm)
 		out := MDContent{
 			Path:         filepath.ToSlash(raw),
 			Title:        titleFromBody(body, filepath.Base(raw)),
@@ -191,6 +254,11 @@ func NewContent(cwd string) http.Handler {
 			Body:         body,
 			RelatedPlans: relatedPlans(body, cwd),
 			Mermaid:      MermaidCfg{SecurityLevel: MermaidSecurityLevel()},
+			DocType:      docType,
+		}
+		// ADRs carry a lifecycle status (proposed/accepted/rejected/superseded).
+		if docType == DocTypeADR {
+			out.DecisionStatus = strings.ToLower(strings.TrimSpace(strOf(fm["status"])))
 		}
 		if info, err := os.Stat(abs); err == nil {
 			out.UpdatedAt = info.ModTime().UTC().Format("2006-01-02T15:04:05Z")
