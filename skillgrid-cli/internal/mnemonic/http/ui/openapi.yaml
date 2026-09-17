@@ -1766,7 +1766,7 @@ paths:
           $ref: "#/components/responses/Bad"
         "404":
           $ref: "#/components/responses/Bad"
-  /mnemonic/graph:
+  /mnemonic/graph/data:
     get:
       tags: [mnemonic-graph]
       operationId: mnemonicGraph

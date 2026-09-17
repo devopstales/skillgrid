@@ -150,10 +150,25 @@ func (s *Server) registerRoutes() {
 	s.registerUIRoutes()
 }
 
-// registerGraphRoutes mounts the Phase 4 mnemonic vector-graph routes.
+// registerGraphRoutes mounts the Phase 4 mnemonic vector-graph routes. The API
+// lives under the /mnemonic/graph/ subtree (data + nodes) so the bare
+// /mnemonic/graph path stays free for the SPA client router. The other
+// mnemonic client paths also get explicit SPA-shell routes so the API-prefix
+// 404 catch-all doesn't swallow them.
 func (s *Server) registerGraphRoutes() {
-	s.mux.HandleFunc("GET /mnemonic/graph", s.handleMnemonicGraph)
+	s.mux.HandleFunc("GET /mnemonic/graph/data", s.handleMnemonicGraph)
 	s.mux.HandleFunc("GET /mnemonic/graph/nodes", s.handleMnemonicGraphNodes)
+	// The SPA shell uses base './', so on a /mnemonic/... path its module
+	// script is requested at /mnemonic/assets/... — serve the embedded build
+	// assets there (the root /assets/ route covers the top-level roots).
+	s.mux.HandleFunc("GET /mnemonic/assets/{rest...}", s.handleUIAsset)
+	for _, p := range []string{
+		"/mnemonic/graph", "/mnemonic/files", "/mnemonic/memories",
+		"/mnemonic/sessions", "/mnemonic/search",
+	} {
+		p := p
+		s.mux.HandleFunc("GET "+p, s.handleShellPage)
+	}
 }
 
 // registerDocsRoutes mounts the read-only SDD docs bridge on the two routes

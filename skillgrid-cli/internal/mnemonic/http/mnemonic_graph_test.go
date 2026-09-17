@@ -107,7 +107,7 @@ func TestPhase4_GraphScale(t *testing.T) {
 	nodes := getJSON(t, h, "/mnemonic/graph/nodes?project="+proj)
 	rootID := nodeIDByLabel(t, nodes, "root")
 
-	m := getJSON(t, h, "/mnemonic/graph?project="+proj+"&node_id="+itoaStr(rootID)+"&depth=2")
+	m := getJSON(t, h, "/mnemonic/graph/data?project="+proj+"&node_id="+itoaStr(rootID)+"&depth=2")
 	names := nodeNames(t, m)
 	if names["leaf"] {
 		t.Errorf("depth=2 from root should exclude 'leaf' (3 hops away), got %v", names)
@@ -139,7 +139,7 @@ func TestPhase4_GraphHappy(t *testing.T) {
 	svc := service.New(dataDir)
 	h := NewServer(svc).Handler()
 
-	m := getJSON(t, h, "/mnemonic/graph?project="+proj)
+	m := getJSON(t, h, "/mnemonic/graph/data?project="+proj)
 	names := nodeNames(t, m)
 	for _, want := range []string{"root", "mid1", "mid2", "leaf", "sib"} {
 		if !names[want] {
@@ -200,7 +200,7 @@ func TestPhase4_GraphDegraded(t *testing.T) {
 
 	svc := service.New(dataDir)
 	h := NewServer(svc).Handler()
-	m := getJSON(t, h, "/mnemonic/graph?project="+proj)
+	m := getJSON(t, h, "/mnemonic/graph/data?project="+proj)
 	if b, _ := m["degraded"].(bool); !b {
 		t.Errorf("graph with no edges should be degraded, got %v", m["degraded"])
 	}

@@ -1,5 +1,9 @@
-import { StubPage } from '../../components/StubPage'
+import { VectorGraph } from './graph/VectorGraph'
 
 export function GraphPage() {
-  return <StubPage view="Mnemonic — Graph" phase="Coming in Phase 4" />
+  return (
+    <div className="h-[calc(100vh-4rem)] w-full">
+      <VectorGraph />
+    </div>
+  )
 }
