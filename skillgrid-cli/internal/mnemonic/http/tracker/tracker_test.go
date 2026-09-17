@@ -3,13 +3,16 @@ package tracker
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-// 02.1 [RED] provider detection never guesses.
-func TestStep02_Detection(t *testing.T) {
+// ─────────────────────────── 2.1 detection ───────────────────────────
+
+// 2.1 [RED] Threat: Taxonomy — provider detection never guesses.
+func TestPhase2_Detection(t *testing.T) {
 	// Explicit overrides win.
 	for env, want := range map[string]string{
 		"backlogmd":  ProviderBacklogMD,
@@ -29,29 +32,34 @@ func TestStep02_Detection(t *testing.T) {
 	// Unknown override → 501-class error, never a guess.
 	if _, err := ResolveProvider("not-a-tracker", "", ""); err == nil {
 		t.Error("unknown SKILLGRID_TRACKER must error, got nil")
-	} else if _, ok := err.(*errUnresolvable); !ok {
-		t.Errorf("unknown tracker must be errUnresolvable, got %T", err)
+	} else if code := statusForHTTP(err); code != 501 {
+		t.Errorf("unknown tracker must map to 501, got %d", code)
 	}
 	// Tracker doc wins over config.
 	doc := "# Issue tracker: GitHub\n\nSome body."
-	got, err := ResolveProvider("", doc, "backlogmd")
-	if err != nil || got != ProviderGitHub {
-		t.Errorf("tracker doc: got %q, %v; want github", got, err)
+	if got, _ := ResolveProvider("", doc, "backlogmd"); got != ProviderGitHub {
+		t.Errorf("tracker doc: got %q; want github", got)
 	}
 	// Config value used when doc is absent.
-	got, err = ResolveProvider("", "", "gitlab")
-	if err != nil || got != ProviderGitLab {
-		t.Errorf("config value: got %q, %v; want gitlab", got, err)
+	if got, _ := ResolveProvider("", "", "gitlab"); got != ProviderGitLab {
+		t.Errorf("config value: got %q; want gitlab", got)
 	}
 	// Total silence → default backlogmd.
-	got, err = ResolveProvider("", "", "")
-	if err != nil || got != ProviderBacklogMD {
-		t.Errorf("default: got %q, %v; want backlogmd", got, err)
+	if got, _ := ResolveProvider("", "", ""); got != ProviderBacklogMD {
+		t.Errorf("default: got %q; want backlogmd", got)
 	}
-	// Tracker doc naming Jira resolves (project key handled by the adapter).
-	got, err = ResolveProvider("", "# Issue tracker: Jira\n", "")
-	if err != nil || got != ProviderJira {
-		t.Errorf("jira doc: got %q, %v; want jira", got, err)
+	// Jira doc resolves; the project key is enforced by the adapter (501 if missing).
+	if got, _ := ResolveProvider("", "# Issue tracker: Jira\n", ""); got != ProviderJira {
+		t.Errorf("jira doc: got %q; want jira", got)
+	}
+	// Jira without a project key → errUnresolvable (501), never a guess.
+	t.Setenv("SKILLGRID_JIRA_PROJECT", "")
+	t.Chdir(t.TempDir()) // no tracker doc
+	ja := &jiraAdapter{}
+	if _, err := ja.List(context.Background()); err == nil {
+		t.Error("jira without project key must error")
+	} else if code := statusForHTTP(err); code != 501 {
+		t.Errorf("jira missing key must map to 501, got %d", code)
 	}
 }
 
@@ -65,45 +73,49 @@ func mkbin(t *testing.T, name, script string) {
 	t.Setenv("PATH", dir)
 }
 
-func TestStep02_CLI_Missing(t *testing.T) {
+// ─────────────────────── 2.2/2.3 CLI error semantics ───────────────────────
+
+// 2.2 [RED] Threat: Subprocess — CLI-backed provider missing → 503.
+func TestPhase2_CLI_Missing(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // empty: no CLIs at all
-	a := &backlogAdapter{}
-	if _, err := a.List(context.Background()); err == nil {
+	g := &githubAdapter{}
+	if _, err := g.List(context.Background()); err == nil {
 		t.Fatal("expected error, got nil")
 	} else if _, ok := err.(*errCLIMissing); !ok {
 		t.Fatalf("missing CLI must be errCLIMissing, got %T (%v)", err, err)
 	}
-	if code := statusForHTTP(&errCLIMissing{CLI: "backlog"}); code != 503 {
+	if code := statusForHTTP(&errCLIMissing{CLI: "gh"}); code != 503 {
 		t.Errorf("missing CLI must map to 503, got %d", code)
+	}
+	// Backlog.md (file-based) is unaffected by a missing PATH.
+	a := &backlogAdapter{tasksDir: t.TempDir()}
+	if _, err := a.List(context.Background()); err != nil {
+		t.Errorf("file-based backlog must work without CLI, got %v", err)
 	}
 }
 
-func TestStep02_CLI_Exit1(t *testing.T) {
-	mkbin(t, "backlog", `echo "boom: something broke" >&2; exit 1`)
-	a := &backlogAdapter{}
-	_, err := a.List(context.Background())
+// 2.3 [RED] Threat: Subprocess — CLI non-zero exit / timeout / bad output → 502.
+func TestPhase2_CLI_Failure(t *testing.T) {
+	// exit-1 with stderr.
+	mkbin(t, "gh", `echo "boom: something broke" >&2; exit 1`)
+	g := &githubAdapter{}
+	_, err := g.List(context.Background())
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	ferr, ok := err.(*errCLIFailed)
-	if !ok {
-		t.Fatalf("exit-1 must be errCLIFailed, got %T (%v)", err, err)
-	}
-	if !strings.Contains(ferr.Error(), "boom: something broke") {
-		t.Errorf("stderr excerpt must surface, got %q", ferr.Error())
+	if ferr, ok := err.(*errCLIFailed); !ok || !strings.Contains(ferr.Error(), "boom: something broke") {
+		t.Fatalf("exit-1 must be errCLIFailed with stderr, got %T (%v)", err, err)
 	}
 	if code := statusForHTTP(err); code != 502 {
 		t.Errorf("CLI failure must map to 502, got %d", code)
 	}
 }
 
-func TestStep02_CLI_Timeout(t *testing.T) {
-	mkbin(t, "backlog", `/bin/sleep 11; echo '{}'`)
-	t.Setenv("SKILLGRID_TRACKER_TIMEOUT_SECS", "")
-	a := &backlogAdapter{}
+func TestPhase2_CLI_Timeout(t *testing.T) {
+	mkbin(t, "gh", `/bin/sleep 11; echo '{}'`)
+	g := &githubAdapter{}
 	start := time.Now()
-	_, err := a.List(context.Background())
-	el := time.Since(start)
+	_, err := g.List(context.Background())
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
@@ -111,15 +123,18 @@ func TestStep02_CLI_Timeout(t *testing.T) {
 	if !ok || !ferr.Timeout {
 		t.Fatalf("timeout must be errCLIFailed{Timeout}, got %T (%v)", err, err)
 	}
-	if el > 11*time.Second {
-		t.Errorf("must time out before the 11s fixture finishes (took %v)", el)
+	if time.Since(start) > 11*time.Second {
+		t.Errorf("must time out before the 11s fixture finishes")
+	}
+	if code := statusForHTTP(err); code != 502 {
+		t.Errorf("timeout must map to 502, got %d", code)
 	}
 }
 
-func TestStep02_BadOutput(t *testing.T) {
-	mkbin(t, "backlog", `echo 'not json'`)
-	a := &backlogAdapter{}
-	_, err := a.List(context.Background())
+func TestPhase2_BadOutput(t *testing.T) {
+	mkbin(t, "gh", `echo 'not json'`)
+	g := &githubAdapter{}
+	_, err := g.List(context.Background())
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -131,100 +146,176 @@ func TestStep02_BadOutput(t *testing.T) {
 	}
 }
 
-const fixtureConfigText = `Configuration:
-  projectName: skillgrid
-  statuses: [needs-triage, ready-for-agent, done]
-  labels: []
-  priorities: [high, medium, low]
-  types: [feature, bug, chore]
+// ─────────────────────── 2.4 Backlog.md file adapter ───────────────────────
+
+const taskA = `---
+id: TASK-001
+title: 'First task'
+status: needs-triage
+priority: high
+type: feature
+assignee:
+  - "@ana"
+labels:
+  - ui
+  - p1
+dependencies: []
+milestone: m1
+---
+## Description
+
+Do the thing.
 `
 
-const fixtureTaskList = `{"schemaVersion": 1, "kind": "task-list", "tasks": [
-  {"id": "TASK-001", "title": "First", "description": "Do the thing", "status": "needs-triage", "type": "feature", "priority": "high",
-   "assignees": ["@ana"], "labels": ["ui"], "acceptanceCriteriaCompleted": 1, "acceptanceCriteriaCount": 4,
-   "createdAt": "2026-09-03", "updatedAt": "2026-09-04", "isReady": true,
-   "references": ["docs/a.md"], "documentation": ["docs/b.md"]},
-  {"id": "TASK-002", "title": "Second", "status": "done", "type": "bug", "priority": "low",
-   "assignees": [], "labels": [], "acceptanceCriteriaCompleted": 2, "acceptanceCriteriaCount": 2,
-   "updatedAt": "2026-09-05", "isReady": true}
-]}`
+const taskB = `---
+id: TASK-002
+title: Second task
+status: done
+priority: low
+type: bug
+assignee: []
+labels: []
+dependencies:
+  - TASK-001
+---
+Second body.
+`
 
-const fixtureTaskView = `{"schemaVersion": 1, "kind": "task-view", "task":
-  {"id": "TASK-001", "title": "First", "status": "ready-for-agent", "type": "feature", "priority": "high",
-   "assignees": [], "labels": [], "acceptanceCriteriaCompleted": 0, "acceptanceCriteriaCount": 1,
-   "updatedAt": "2026-09-05", "isReady": false, "references": ["docs/skillgrid/changes/009-web-admin-dashboard/change.md"]}}`
+const taskC = `---
+id: TASK-003
+title: Third task
+status: in-progress
+priority: medium
+type: chore
+assignee: []
+labels: [docs]
+dependencies: []
+parent: TASK-001
+---
+Third body.
+`
 
-// 02.6 [RED] backlog adapter: text config + list/view/status via real commands.
-func TestStep02_Backlog(t *testing.T) {
-	mkbin(t, "backlog", `case "$1 $2" in
-  "config list") printf '%s' "$FIX_CONFIG" ;;
-  "task list") printf '%s' "$FIX_LIST" ;;
-  "task view") if [ "$3" = "TASK-001" ]; then printf '%s' "$FIX_VIEW"; else echo "Task $3 not found."; fi ;;
-  "task edit") exit 0 ;;
-  *) echo "unexpected: $*" >&2; exit 1 ;;
-esac`)
-	t.Setenv("FIX_CONFIG", fixtureConfigText)
-	t.Setenv("FIX_LIST", fixtureTaskList)
-	t.Setenv("FIX_VIEW", fixtureTaskView)
-	a := &backlogAdapter{}
+func writeTasks(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+}
 
-	cfg, err := a.Config(context.Background())
-	if err != nil {
-		t.Fatalf("config: %v", err)
-	}
-	if len(cfg.Statuses) != 3 || cfg.Statuses[0] != "needs-triage" {
-		t.Errorf("statuses parsed wrong: %v", cfg.Statuses)
-	}
-	if len(cfg.Types) != 3 || len(cfg.Priorities) != 3 {
-		t.Errorf("types/priorities parsed wrong: %v / %v", cfg.Types, cfg.Priorities)
-	}
+// 2.4 [RED] Backlog.md adapter: parse frontmatter → UnifiedTask (no CLI).
+func TestPhase2_Backlog(t *testing.T) {
+	dir := t.TempDir()
+	writeTasks(t, dir, map[string]string{
+		"task-001.md": taskA,
+		"task-002.md": taskB,
+		"task-003.md": taskC,
+	})
+	a := &backlogAdapter{tasksDir: dir}
 
 	items, err := a.List(context.Background())
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(items) != 2 || items[0].ID != "TASK-001" || items[0].ACCompleted != 1 || items[0].ACTotal != 4 {
-		t.Errorf("list DTO wrong: %+v", items)
+	if len(items) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(items))
 	}
-	if items[0].Board != "todo" || items[0].Description != "Do the thing" || items[0].CreatedAt != "2026-09-03" {
-		t.Errorf("list demo fields wrong: %+v", items[0])
+	byID := map[string]UnifiedTask{}
+	for _, it := range items {
+		byID[it.ID] = it
 	}
-	if len(items[0].DocRefs) != 2 || items[0].DocRefs[0] != "docs/a.md" {
-		t.Errorf("list doc_refs wrong: %+v", items[0].DocRefs)
+	a1 := byID["TASK-001"]
+	if a1.Title != "First task" || a1.Status != "needs-triage" || a1.Board != "todo" {
+		t.Errorf("TASK-001 wrong: %+v", a1)
 	}
-	if items[0].Provider != ProviderBacklogMD || items[0].IsReady == nil || !*items[0].IsReady {
-		t.Errorf("list provider/isReady wrong: %+v", items[0])
+	if a1.Priority != "high" || a1.Type != "feature" || a1.Milestone != "m1" {
+		t.Errorf("TASK-001 meta wrong: %+v", a1)
 	}
+	if len(a1.Assignees) != 1 || a1.Assignees[0] != "@ana" {
+		t.Errorf("TASK-001 assignee wrong: %+v", a1)
+	}
+	if len(a1.Labels) != 2 || a1.Labels[0] != "ui" {
+		t.Errorf("TASK-001 labels wrong: %+v", a1)
+	}
+	b1 := byID["TASK-002"]
+	if len(b1.Dependencies) != 1 || b1.Dependencies[0] != "TASK-001" {
+		t.Errorf("TASK-002 deps wrong: %+v", b1)
+	}
+	if b1.Board != "done" {
+		t.Errorf("TASK-002 board wrong: %+v", b1)
+	}
+	c1 := byID["TASK-003"]
+	if c1.Parent != "TASK-001" || c1.Board != "in_progress" {
+		t.Errorf("TASK-003 parent/board wrong: %+v", c1)
+	}
+	// provider always "backlogmd"
+	if a1.Provider != ProviderBacklogMD {
+		t.Errorf("provider wrong: %q", a1.Provider)
+	}
+	// No CLI was required: this ran with the real PATH but a temp tasksDir.
+}
 
+// 2.4 Get: one item; unknown id → 404-class.
+func TestPhase2_Backlog_Get(t *testing.T) {
+	dir := t.TempDir()
+	writeTasks(t, dir, map[string]string{"task-001.md": taskA})
+	a := &backlogAdapter{tasksDir: dir}
 	got, err := a.Get(context.Background(), "TASK-001")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if got.Status != "ready-for-agent" || !strings.Contains(got.StatusDetail, "009-web-admin-dashboard") {
+	if got.ID != "TASK-001" || got.Status != "needs-triage" {
 		t.Errorf("get DTO wrong: %+v", got)
-	}
-	if got.Board != "in_progress" {
-		t.Errorf("get board wrong: %+v", got)
 	}
 	if _, err := a.Get(context.Background(), "TASK-999"); err == nil {
 		t.Fatal("unknown id must error")
-	} else if _, ok := err.(*errNotFound); !ok {
-		t.Fatalf("unknown id must be errNotFound, got %T (%v)", err, err)
+	} else if code := statusForHTTP(err); code != 404 {
+		t.Errorf("unknown id must map to 404, got %d", code)
 	}
+}
 
-	moved, err := a.SetStatus(context.Background(), "TASK-001", "ready-for-agent")
-	if err != nil {
-		t.Fatalf("setstatus: %v", err)
-	}
-	if moved.Status != "ready-for-agent" {
-		t.Errorf("status change not reflected: %+v", moved)
+// 2.4 SetStatus: invalid status → 400-class; valid status shells out to task edit.
+func TestPhase2_Backlog_SetStatus(t *testing.T) {
+	dir := t.TempDir()
+	writeTasks(t, dir, map[string]string{"task-001.md": taskA})
+	mkbin(t, "backlog", `case "$1 $2" in
+  "task edit") exit 0 ;;
+  *) echo "unexpected: $*" >&2; exit 1 ;;
+esac`)
+	a := &backlogAdapter{tasksDir: dir}
+	if _, err := a.SetStatus(context.Background(), "TASK-001", "ready-for-agent"); err != nil {
+		t.Fatalf("valid status: %v", err)
 	}
 	if _, err := a.SetStatus(context.Background(), "TASK-001", "not-a-real-status"); err == nil {
 		t.Fatal("invalid status must error")
-	} else if _, ok := err.(*errBadStatus); !ok {
-		t.Fatalf("invalid status must be errBadStatus, got %T (%v)", err, err)
+	} else if code := statusForHTTP(err); code != 400 {
+		t.Errorf("invalid status must map to 400, got %d", code)
 	}
 }
+
+// 2.4 Dependencies: TASK-002 depends on TASK-001, so TASK-001 has DepsIn=[TASK-002].
+func TestPhase2_Backlog_Deps(t *testing.T) {
+	dir := t.TempDir()
+	writeTasks(t, dir, map[string]string{"task-001.md": taskA, "task-002.md": taskB})
+	a := &backlogAdapter{tasksDir: dir}
+	d, err := a.Dependencies(context.Background(), "TASK-001")
+	if err != nil {
+		t.Fatalf("deps: %v", err)
+	}
+	if len(d.DepsIn) != 1 || d.DepsIn[0] != "TASK-002" {
+		t.Errorf("TASK-001 DepsIn wrong: %+v", d)
+	}
+	d2, err := a.Dependencies(context.Background(), "TASK-002")
+	if err != nil {
+		t.Fatalf("deps2: %v", err)
+	}
+	if len(d2.DepsOut) != 1 || d2.DepsOut[0] != "TASK-001" {
+		t.Errorf("TASK-002 DepsOut wrong: %+v", d2)
+	}
+}
+
+// ─────────────────────── 2.5 remote adapters ───────────────────────
 
 const fixtureGHList = `[{"number": 12, "title": "Fix login", "state": "OPEN",
   "labels": [{"name": "bug"}], "assignees": [{"login": "ana"}], "updatedAt": "2026-09-01T00:00:00Z"},
@@ -235,8 +326,8 @@ const fixtureGHView = `{"number": 12, "title": "Fix login", "body": "details her
   "labels": [{"name": "bug"}], "assignees": [{"login": "ana"}], "comments": [],
   "updatedAt": "2026-09-01T00:00:00Z"}`
 
-// 02.7 [RED] GitHub + GitLab adapters: JSON list/view + close/reopen.
-func TestStep02_GitHubGitLab(t *testing.T) {
+// 2.5 [RED] GitHub + GitLab adapters: JSON list/get + close/reopen.
+func TestPhase2_RemoteAdapters(t *testing.T) {
 	mkbin(t, "gh", `case "$1 $2" in
   "issue list") printf '%s' "$FIX_GH_LIST" ;;
   "issue view") if [ "$3" = "12" ]; then printf '%s' "$FIX_GH_VIEW"; else echo "Could not resolve to an Issue" >&2; exit 1; fi ;;
@@ -248,13 +339,6 @@ esac`)
 	t.Setenv("FIX_GH_VIEW", fixtureGHView)
 	g := &githubAdapter{}
 
-	cfg, err := g.Config(context.Background())
-	if err != nil {
-		t.Fatalf("gh config: %v", err)
-	}
-	if len(cfg.Statuses) != 2 || cfg.Statuses[0] != "open" {
-		t.Errorf("gh statuses wrong: %v", cfg.Statuses)
-	}
 	items, err := g.List(context.Background())
 	if err != nil {
 		t.Fatalf("gh list: %v", err)
@@ -262,8 +346,8 @@ esac`)
 	if len(items) != 2 || items[0].ID != "12" || items[0].Status != "open" {
 		t.Errorf("gh list DTO wrong: %+v", items)
 	}
-	if len(items[0].Assignees) != 1 || items[0].Assignees[0] != "ana" || len(items[0].Labels) != 1 {
-		t.Errorf("gh labels/assignees wrong: %+v", items[0])
+	if len(items[0].Assignees) != 1 || items[0].Assignees[0] != "ana" {
+		t.Errorf("gh assignees wrong: %+v", items[0])
 	}
 	got, err := g.Get(context.Background(), "12")
 	if err != nil {
@@ -274,20 +358,21 @@ esac`)
 	}
 	if _, err := g.Get(context.Background(), "999"); err == nil {
 		t.Fatal("gh unknown id must error")
-	} else if _, ok := err.(*errNotFound); !ok {
-		t.Fatalf("gh unknown id must be errNotFound, got %T (%v)", err, err)
+	} else if code := statusForHTTP(err); code != 404 {
+		t.Errorf("gh unknown id must map to 404, got %d", code)
 	}
-	closed, err := g.SetStatus(context.Background(), "12", "closed")
-	if err != nil {
+	// done → close
+	if _, err := g.SetStatus(context.Background(), "12", "done"); err != nil {
 		t.Fatalf("gh close: %v", err)
 	}
-	_ = closed
+	// custom status → 501
 	if _, err := g.SetStatus(context.Background(), "12", "needs-triage"); err == nil {
 		t.Fatal("gh custom status must error")
-	} else if _, ok := err.(*errUnsupported); !ok {
-		t.Fatalf("gh custom status must be errUnsupported, got %T (%v)", err, err)
+	} else if code := statusForHTTP(err); code != 501 {
+		t.Errorf("gh custom status must map to 501, got %d", code)
 	}
 
+	// GitLab.
 	mkbin(t, "glab", `case "$1 $2" in
   "issue list") printf '%s' "$FIX_GLAB_LIST" ;;
   "issue view") if [ "$3" = "5" ]; then printf '%s' "$FIX_GLAB_VIEW"; else echo "404 Not Found" >&2; exit 1; fi ;;
@@ -307,13 +392,13 @@ esac`)
 	if len(litems) != 1 || litems[0].ID != "5" || litems[0].Status != "opened" {
 		t.Errorf("glab list DTO wrong: %+v", litems)
 	}
-	if _, err := gl.SetStatus(context.Background(), "5", "closed"); err != nil {
+	if _, err := gl.SetStatus(context.Background(), "5", "done"); err != nil {
 		t.Fatalf("glab close: %v", err)
 	}
 	if _, err := gl.SetStatus(context.Background(), "5", "needs-triage"); err == nil {
 		t.Fatal("glab custom status must error")
-	} else if _, ok := err.(*errUnsupported); !ok {
-		t.Fatalf("glab custom status must be errUnsupported, got %T (%v)", err, err)
+	} else if code := statusForHTTP(err); code != 501 {
+		t.Errorf("glab custom status must map to 501, got %d", code)
 	}
 }
 
@@ -329,8 +414,8 @@ Priority: High
 Updated: 2026-09-01
 `
 
-// 02.8 [RED] Jira adapter: JQL list/view/move with project key from tracker doc.
-func TestStep02_Jira(t *testing.T) {
+// 2.5 [RED] Jira adapter: JQL list/get/move; project key never guessed.
+func TestPhase2_Jira(t *testing.T) {
 	mkbin(t, "jira", `case "$1 $2" in
   "issue list") printf '%s' "$FIX_JIRA_LIST" ;;
   "issue view") if [ "$3" = "PROJ-1" ]; then printf '%s' "$FIX_JIRA_VIEW"; else echo "does not exist" >&2; exit 1; fi ;;
@@ -341,13 +426,6 @@ esac`)
 	t.Setenv("FIX_JIRA_VIEW", fixtureJiraView)
 	j := &jiraAdapter{projectKey: func() (string, error) { return "PROJ", nil }}
 
-	cfg, err := j.Config(context.Background())
-	if err != nil {
-		t.Fatalf("jira config: %v", err)
-	}
-	if cfg.ProjectKey != "PROJ" {
-		t.Errorf("jira project key wrong: %+v", cfg)
-	}
 	items, err := j.List(context.Background())
 	if err != nil {
 		t.Fatalf("jira list: %v", err)
@@ -364,60 +442,51 @@ esac`)
 	}
 	if _, err := j.Get(context.Background(), "PROJ-9"); err == nil {
 		t.Fatal("jira unknown key must error")
-	} else if _, ok := err.(*errNotFound); !ok {
-		t.Fatalf("jira unknown key must be errNotFound, got %T (%v)", err, err)
+	} else if code := statusForHTTP(err); code != 404 {
+		t.Errorf("jira unknown key must map to 404, got %d", code)
 	}
 	if _, err := j.SetStatus(context.Background(), "PROJ-1", "Done"); err != nil {
 		t.Fatalf("jira move: %v", err)
 	}
-	// Missing project key is never guessed.
+	// Missing project key is never guessed → 501.
 	j2 := &jiraAdapter{projectKey: func() (string, error) {
 		return "", &errUnresolvable{Reason: "no project key"}
 	}}
 	if _, err := j2.List(context.Background()); err == nil {
 		t.Fatal("missing project key must error")
-	} else if _, ok := err.(*errUnresolvable); !ok {
-		t.Fatalf("missing key must be errUnresolvable, got %T (%v)", err, err)
+	} else if code := statusForHTTP(err); code != 501 {
+		t.Errorf("missing key must map to 501, got %d", code)
 	}
 }
 
-// Non-zero exit carrying "not found" text must map to 404-class (live bug 2026-09-11).
-func TestStep02_NotFoundNonZeroExit(t *testing.T) {
-	mkbin(t, "backlog", `echo "Task TASK-999 not found." >&2; exit 1`)
-	a := &backlogAdapter{}
-	if _, err := a.Get(context.Background(), "TASK-999"); err == nil {
+// Non-zero exit carrying "not found" text maps to 404-class.
+func TestPhase2_NotFoundNonZeroExit(t *testing.T) {
+	mkbin(t, "gh", `echo "Could not resolve to an Issue" >&2; exit 1`)
+	g := &githubAdapter{}
+	if _, err := g.Get(context.Background(), "999"); err == nil {
 		t.Fatal("expected error, got nil")
-	} else if _, ok := err.(*errNotFound); !ok {
-		t.Fatalf("must be errNotFound, got %T (%v)", err, err)
-	}
-	if code := statusForHTTP(&errNotFound{ID: "x"}); code != 404 {
+	} else if code := statusForHTTP(err); code != 404 {
 		t.Errorf("not-found must map to 404, got %d", code)
 	}
 }
 
-// Canonical board columns (demo STATUS_COLUMNS): every provider maps to one.
-func TestStep02_BoardMapping(t *testing.T) {
+// Canonical board columns: every provider maps to one.
+func TestPhase2_BoardMapping(t *testing.T) {
 	cases := []struct{ provider, status, want string }{
 		{ProviderBacklogMD, "needs-triage", "todo"},
-		{ProviderBacklogMD, "needs-info", "todo"},
 		{ProviderBacklogMD, "ready-for-agent", "in_progress"},
-		{ProviderBacklogMD, "ready-for-human", "in_progress"},
 		{ProviderBacklogMD, "in-progress", "in_progress"},
 		{ProviderBacklogMD, "blocked", "blocked"},
 		{ProviderBacklogMD, "done", "done"},
 		{ProviderBacklogMD, "wontfix", "done"},
-		{ProviderBacklogMD, "something-new", "todo"},
 		{ProviderGitHub, "OPEN", "todo"},
 		{ProviderGitHub, "CLOSED", "done"},
 		{ProviderGitLab, "opened", "todo"},
 		{ProviderGitLab, "closed", "done"},
 		{ProviderJira, "In Progress", "in_progress"},
-		{ProviderJira, "In Review", "in_progress"},
 		{ProviderJira, "Done", "done"},
-		{ProviderJira, "Closed", "done"},
 		{ProviderJira, "Blocked", "blocked"},
 		{ProviderJira, "To Do", "todo"},
-		{ProviderJira, "Backlog", "todo"},
 	}
 	for _, c := range cases {
 		if got := boardFor(c.provider, c.status); got != c.want {

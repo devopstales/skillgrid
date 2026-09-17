@@ -2,164 +2,263 @@ package tracker
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"regexp"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 )
 
-// backlogAdapter shells out to the `backlog` CLI.
-// Verified CLI facts (2026-09-11):
-//   - `task list --json` / `task view <id> --json` emit {schemaVersion:1, kind, ...}
-//   - `config list` is TEXT ONLY (--json/--plain are rejected)
-//   - `task view <missing> --json` exits 0 with plain "Task X not found" text
-//   - status change is `task edit <id> -s <status>`
-type backlogAdapter struct{}
+// backlogAdapter is the FILE-BASED Backlog.md provider (Phase 2). It reads
+// `.backlog/tasks/*.md` YAML frontmatter directly — no CLI dependency — so the
+// board works even when the `backlog` CLI is absent or segfaults. Status
+// writes shell out to `backlog task edit <id> -s <status>` (the one file
+// mutation, per the Global Constraints).
+//
+// Frontmatter keys (verified against real task files 2026-09-16):
+//   id, title, status, priority, type, assignee ([]), labels ([]),
+//   dependencies ([]), milestone, parent, due_date / dueDate,
+//   created_date / createdAt, updated_date / updatedAt.
+type backlogAdapter struct {
+	// tasksDir overrides .backlog/tasks (tests inject a temp dir).
+	tasksDir string
+}
 
 func (a *backlogAdapter) Name() string    { return ProviderBacklogMD }
-func (a *backlogAdapter) CLIName() string { return "backlog" }
+func (a *backlogAdapter) CLIName() string { return "" } // file-based, no CLI for reads
 
-var backlogListRe = regexp.MustCompile(`(?m)^\s*(statuses|types|priorities|labels):\s*\[(.*?)\]`)
+func (a *backlogAdapter) dir() string {
+	if a.tasksDir != "" {
+		return a.tasksDir
+	}
+	return ".backlog/tasks"
+}
+
+// backlogStatuses is the canonical Backlog.md status vocabulary (the statuses
+// the dashboard offers for drag-drop and the `task edit` write path). This is
+// the Backlog.md status set, not a guess — it matches the frontmatter `status`
+// values the task tooling emits.
+var backlogStatuses = []string{
+	"Draft", "needs-triage", "needs-info", "ready-for-agent", "ready-for-human",
+	"in-progress", "done", "blocked", "wontfix",
+}
 
 func (a *backlogAdapter) Config(ctx context.Context) (TrackerConfig, error) {
-	out, err := runCLI(ctx, "backlog", "config", "list")
-	if err != nil {
-		return TrackerConfig{}, err
+	return TrackerConfig{
+		Provider:   ProviderBacklogMD,
+		Statuses:   append([]string{}, backlogStatuses...),
+		Types:      []string{"feature", "bug", "enhancement", "refactor", "docs", "chore"},
+		Priorities: []string{"high", "medium", "low"},
+		Version:    "file-based",
+		Schema:     "1",
+	}, nil
+}
+
+// parseFrontmatter reads the leading `---`-fenced YAML block of a task file.
+// Returns the raw block + the markdown body. No external YAML dep: the values
+// are flat scalars and simple inline/block lists, parsed line-by-line.
+func parseFrontmatter(raw string) (fm map[string]string, fmLists map[string][]string, body string, ok bool) {
+	lines := strings.Split(raw, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return nil, nil, raw, false
 	}
-	cfg := TrackerConfig{Provider: ProviderBacklogMD}
-	for _, m := range backlogListRe.FindAllStringSubmatch(out, -1) {
-		vals := splitCSV(m[2])
-		switch m[1] {
-		case "statuses":
-			cfg.Statuses = vals
-		case "types":
-			cfg.Types = vals
-		case "priorities":
-			cfg.Priorities = vals
+	fm = map[string]string{}
+	fmLists = map[string][]string{}
+	var currentList string
+	end := -1
+	for i := 1; i < len(lines); i++ {
+		line := lines[i]
+		if strings.TrimSpace(line) == "---" {
+			end = i
+			break
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Block list item (indented "- value")
+		if strings.HasPrefix(trimmed, "- ") {
+			if currentList != "" {
+				fmLists[currentList] = append(fmLists[currentList], unquote(strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))))
+			}
+			continue
+		}
+		// key: value or key:
+		idx := strings.Index(line, ":")
+		if idx <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		val := strings.TrimSpace(line[idx+1:])
+		if val == "" {
+			currentList = key // expect block list items
+			continue
+		}
+		currentList = ""
+		if strings.HasPrefix(val, "[") && strings.HasSuffix(val, "]") {
+			// Inline list: [a, b, c] or []
+			inner := strings.TrimSuffix(strings.TrimPrefix(val, "["), "]")
+			var vals []string
+			for _, p := range strings.Split(inner, ",") {
+				if v := strings.TrimSpace(unquote(strings.TrimSpace(p))); v != "" {
+					vals = append(vals, v)
+				}
+			}
+			fmLists[key] = vals
+		} else {
+			fm[key] = unquote(val)
 		}
 	}
-	if len(cfg.Statuses) == 0 {
-		return TrackerConfig{}, &errBadOutput{CLI: "backlog", Provider: ProviderBacklogMD, Reason: "no statuses parsed from config list"}
+	if end < 0 {
+		return nil, nil, raw, false
 	}
-	return cfg, nil
+	body = strings.Join(lines[end+1:], "\n")
+	return fm, fmLists, body, true
 }
 
-func splitCSV(s string) []string {
-	var out []string
-	for _, p := range strings.Split(s, ",") {
-		if v := strings.TrimSpace(p); v != "" {
-			out = append(out, v)
+func unquote(s string) string {
+	if len(s) >= 2 {
+		if (s[0] == '\'' && s[len(s)-1] == '\'') || (s[0] == '"' && s[len(s)-1] == '"') {
+			return s[1 : len(s)-1]
 		}
 	}
-	return out
+	return s
 }
 
-type backlogTask struct {
-	ID            string   `json:"id"`
-	Title         string   `json:"title"`
-	Description   string   `json:"description"`
-	Status        string   `json:"status"`
-	Type          string   `json:"type"`
-	Priority      string   `json:"priority"`
-	Assignees     []string `json:"assignees"`
-	Labels        []string `json:"labels"`
-	ACCompleted   int      `json:"acceptanceCriteriaCompleted"`
-	ACCount       int      `json:"acceptanceCriteriaCount"`
-	CreatedAt     string   `json:"createdAt"`
-	UpdatedAt     string   `json:"updatedAt"`
-	IsReady       *bool    `json:"isReady"`
-	References    []string `json:"references"`
-	Documentation []string `json:"documentation"`
-}
-
-func backlogItem(t backlogTask) Item {
-	detail := ""
-	if len(t.References) > 0 {
-		detail = strings.Join(t.References, ", ")
-	}
-	docRefs := append(append([]string{}, t.References...), t.Documentation...)
-	return Item{
-		ID: t.ID, Title: t.Title, Description: t.Description,
-		Status: t.Status, StatusDetail: detail,
-		Type: t.Type, Priority: t.Priority, Assignees: t.Assignees,
-		Labels: t.Labels, DocRefs: docRefs, Board: boardFor(ProviderBacklogMD, t.Status),
-		ACCompleted: t.ACCompleted, ACTotal: t.ACCount,
-		IsReady: t.IsReady, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
-		Provider: ProviderBacklogMD,
-	}
-}
-
-func (a *backlogAdapter) List(ctx context.Context) ([]Item, error) {
-	out, err := runCLI(ctx, "backlog", "task", "list", "--json")
-	if err != nil {
-		return nil, err
-	}
-	var doc struct {
-		SchemaVersion int           `json:"schemaVersion"`
-		Kind          string        `json:"kind"`
-		Tasks         []backlogTask `json:"tasks"`
-	}
-	if err := json.Unmarshal([]byte(out), &doc); err != nil {
-		return nil, &errBadOutput{CLI: "backlog", Provider: ProviderBacklogMD, Reason: "task list is not JSON"}
-	}
-	if doc.SchemaVersion != 1 {
-		return nil, &errBadOutput{CLI: "backlog", Provider: ProviderBacklogMD, Reason: fmt.Sprintf("unknown schemaVersion %d", doc.SchemaVersion)}
-	}
-	items := make([]Item, 0, len(doc.Tasks))
-	for _, t := range doc.Tasks {
-		items = append(items, backlogItem(t))
-	}
-	return items, nil
-}
-
-func (a *backlogAdapter) Get(ctx context.Context, id string) (Item, error) {
-	out, err := runCLI(ctx, "backlog", "task", "view", id, "--json")
-	if err != nil {
-		// Unknown ids fail either as exit-0 plain text or non-zero with the
-		// miss reported on either stream (verified live 2026-09-11).
-		if isNotFoundText(failedOutput(err)) {
-			return Item{}, &errNotFound{ID: id}
+// firstKey returns the first present value among the given keys (for the
+// created/updated date aliases).
+func firstKey(fm map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(fm[k]); v != "" {
+			return v
 		}
-		return Item{}, err
 	}
-	var doc struct {
-		SchemaVersion int         `json:"schemaVersion"`
-		Kind          string      `json:"kind"`
-		Task          backlogTask `json:"task"`
-	}
-	if err := json.Unmarshal([]byte(out), &doc); err != nil {
-		// `task view <missing> --json` exits 0 with plain "not found" text.
-		if strings.Contains(strings.ToLower(out), "not found") {
-			return Item{}, &errNotFound{ID: id}
-		}
-		return Item{}, &errBadOutput{CLI: "backlog", Provider: ProviderBacklogMD, Reason: "task view is not JSON"}
-	}
-	if doc.Task.ID == "" {
-		return Item{}, &errNotFound{ID: id}
-	}
-	return backlogItem(doc.Task), nil
+	return ""
 }
 
-func (a *backlogAdapter) SetStatus(ctx context.Context, id, status string) (Item, error) {
-	cfg, err := a.Config(ctx)
-	if err != nil {
-		return Item{}, err
+func backlogTaskFrom(fm map[string]string, fmLists map[string][]string, body string) UnifiedTask {
+	status := strings.TrimSpace(fm["status"])
+	return UnifiedTask{
+		ID:           strings.TrimSpace(fm["id"]),
+		Title:        strings.TrimSpace(fm["title"]),
+		Status:       status,
+		Description:  strings.TrimSpace(body),
+		Type:         strings.TrimSpace(fm["type"]),
+		Priority:     strings.ToLower(strings.TrimSpace(fm["priority"])),
+		Assignees:    fmLists["assignee"],
+		Labels:       fmLists["labels"],
+		DocRefs:      fmLists["references"],
+		Board:        boardFor(ProviderBacklogMD, status),
+		Dependencies: fmLists["dependencies"],
+		Milestone:    strings.TrimSpace(fm["milestone"]),
+		Parent:       strings.TrimSpace(fm["parent"]),
+		DueDate:      strings.TrimSpace(firstKey(fm, "due_date", "dueDate")),
+		CreatedAt:    firstKey(fm, "created_date", "createdAt"),
+		UpdatedAt:    firstKey(fm, "updated_date", "updatedAt"),
+		Provider:     ProviderBacklogMD,
 	}
+}
+
+// loadTasks reads every .md in the tasks dir and parses frontmatter.
+func (a *backlogAdapter) loadTasks() ([]UnifiedTask, error) {
+	dir := a.dir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []UnifiedTask{}, nil
+		}
+		return nil, &errBadOutput{CLI: "", Provider: ProviderBacklogMD, Reason: fmt.Sprintf("read %s: %v", dir, err)}
+	}
+	var tasks []UnifiedTask
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		fm, fmLists, body, ok := parseFrontmatter(string(raw))
+		if !ok {
+			continue
+		}
+		t := backlogTaskFrom(fm, fmLists, body)
+		if t.ID == "" {
+			continue
+		}
+		tasks = append(tasks, t)
+	}
+	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
+	return tasks, nil
+}
+
+func (a *backlogAdapter) List(ctx context.Context) ([]UnifiedTask, error) {
+	return a.loadTasks()
+}
+
+func (a *backlogAdapter) Get(ctx context.Context, id string) (UnifiedTask, error) {
+	tasks, err := a.loadTasks()
+	if err != nil {
+		return UnifiedTask{}, err
+	}
+	for _, t := range tasks {
+		if t.ID == id {
+			return t, nil
+		}
+	}
+	return UnifiedTask{}, &errNotFound{ID: id}
+}
+
+func (a *backlogAdapter) SetStatus(ctx context.Context, id, status string) (UnifiedTask, error) {
+	// Validate against the canonical Backlog.md status set (never invented).
 	valid := false
-	for _, s := range cfg.Statuses {
-		if s == status {
+	for _, s := range backlogStatuses {
+		if strings.EqualFold(strings.TrimSpace(s), strings.TrimSpace(status)) {
 			valid = true
 			break
 		}
 	}
 	if !valid {
-		return Item{}, &errBadStatus{Status: status, Valid: cfg.Statuses}
+		return UnifiedTask{}, &errBadStatus{Status: status, Valid: backlogStatuses}
 	}
+	// The task must exist (file-based check before shelling out).
+	if _, err := a.Get(ctx, id); err != nil {
+		return UnifiedTask{}, err
+	}
+	// Status write via `backlog task edit` (the one file mutation). If the CLI
+	// is missing, degrade to 503 (never a direct file write bypassing the tool).
 	if _, err := runCLI(ctx, "backlog", "task", "edit", id, "-s", status, "--plain"); err != nil {
 		if isNotFoundText(failedOutput(err)) {
-			return Item{}, &errNotFound{ID: id}
+			return UnifiedTask{}, &errNotFound{ID: id}
 		}
-		return Item{}, err
+		return UnifiedTask{}, err
 	}
 	return a.Get(ctx, id)
+}
+
+// Dependencies: for Backlog.md, compute edges from the frontmatter `dependencies`
+// list across all tasks (DepsOut = this task's deps; DepsIn = tasks that list
+// this task as a dependency).
+func (a *backlogAdapter) Dependencies(ctx context.Context, id string) (UnifiedTaskDeps, error) {
+	tasks, err := a.loadTasks()
+	if err != nil {
+		return UnifiedTaskDeps{}, err
+	}
+	found := false
+	deps := UnifiedTaskDeps{TaskID: id, DepsIn: []string{}, DepsOut: []string{}}
+	for _, t := range tasks {
+		if t.ID == id {
+			found = true
+			deps.DepsOut = t.Dependencies
+		}
+		for _, d := range t.Dependencies {
+			if d == id {
+				deps.DepsIn = append(deps.DepsIn, t.ID)
+			}
+		}
+	}
+	if !found {
+		return UnifiedTaskDeps{}, &errNotFound{ID: id}
+	}
+	return deps, nil
 }

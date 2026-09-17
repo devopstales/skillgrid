@@ -1,5 +1,5 @@
-import { StubPage } from '../../components/StubPage'
+import { KanbanView } from '../kanban/KanbanView'
 
 export function TrackerPage() {
-  return <StubPage view="Tracker" phase="Coming in Phase 2" />
+  return <KanbanView />
 }

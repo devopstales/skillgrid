@@ -1235,6 +1235,40 @@ paths:
                     created_at: "2026-01-02T00:00:00Z"
         "404":
           $ref: "#/components/responses/Bad"
+  /tracker/providers:
+    get:
+      tags: [tracker]
+      operationId: trackerProviders
+      summary: Active tracker provider + whether its CLI is connected
+      description: |-
+        Reports the resolved provider (never guessed — 501 when unresolvable) and
+        whether a CLI-backed provider's binary is on PATH. File-based Backlog.md is
+        always connected:true. The UI uses connected:false to show a "not connected"
+        empty state instead of a perpetual spinner.
+      responses:
+        "200":
+          description: Provider status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [provider, connected]
+                properties:
+                  provider:
+                    type: string
+                  connected:
+                    type: boolean
+                  reason:
+                    type: string
+                  cli:
+                    type: string
+              example:
+                provider: backlogmd
+                connected: true
+                reason: ""
+                cli: ""
+        "501":
+          $ref: "#/components/responses/Bad"
   /tracker/config:
     get:
       tags: [tracker]
@@ -1373,6 +1407,100 @@ paths:
           $ref: "#/components/responses/Internal"
         "503":
           $ref: "#/components/responses/Internal"
+    patch:
+      tags: [tracker]
+      operationId: trackerPatch
+      summary: Update an item's status (the Phase 2 write path, write-gated)
+      description: |-
+        PATCH /tracker/tasks/{id} with {"status": ...} → SetStatus. Same semantics
+        as POST .../status but using the HTTP PATCH verb. Requires the bearer token
+        when SKILLGRID_HTTP_TOKEN is set. 400 on a status outside the provider set,
+        501 where the provider has no equivalent transition.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+            example:
+              status: ready-for-agent
+      responses:
+        "200":
+          description: Updated normalized item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerItem"
+        "400":
+          $ref: "#/components/responses/Bad"
+        "401":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
+        "501":
+          $ref: "#/components/responses/Bad"
+        "502":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/Internal"
+  /tracker/tasks/{id}/deps:
+    get:
+      tags: [tracker]
+      operationId: trackerDeps
+      summary: Dependency edges for one task (the Kanban dependency mini-graph)
+      description: |-
+        Backlog.md computes deps from the frontmatter `dependencies` list across all
+        tasks. GitHub/GitLab/Jira expose no native edges here, so they return empty
+        (the board still renders). 404 for an unknown task id.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dependency edges
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackerDeps"
+              example:
+                task_id: TASK-001
+                deps_in: [TASK-002]
+                deps_out: []
+        "404":
+          $ref: "#/components/responses/Bad"
+        "501":
+          $ref: "#/components/responses/Bad"
+  /tracker/stream:
+    get:
+      tags: [tracker]
+      operationId: trackerStream
+      summary: Live task-change events (SSE)
+      description: |-
+        Server-sent events on .backlog/tasks/ changes (fsnotify). Emits an initial
+        "ready" event, then a "tasks-changed" event whenever a task file is
+        written/created/removed/renamed. The Kanban board live-updates from this
+        stream without a manual reload. Clients are cleaned up on disconnect
+        (no goroutine leak).
+      responses:
+        "200":
+          description: Server-sent event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
   /backlog/config:
     get:
       tags: [tracker]
@@ -1608,6 +1736,20 @@ components:
           description: Linked document paths (used by the Docs entry)
           items:
             type: string
+        dependencies:
+          type: array
+          description: Task ids this task depends on (edges out — the Kanban dependency mini-graph)
+          items:
+            type: string
+        milestone:
+          type: string
+          description: Optional milestone label
+        parent:
+          type: string
+          description: Optional parent task id (subtask linkage)
+        due_date:
+          type: string
+          description: Optional due date (day, no time)
         ac_completed:
           type: integer
         ac_total:
@@ -1621,6 +1763,22 @@ components:
           type: string
         provider:
           type: string
+    TrackerDeps:
+      type: object
+      required: [task_id]
+      properties:
+        task_id:
+          type: string
+        deps_in:
+          type: array
+          description: Tasks that depend on this one (its dependents)
+          items:
+            type: string
+        deps_out:
+          type: array
+          description: Tasks this one depends on (its blockers)
+          items:
+            type: string
     TrackerConfig:
       type: object
       required: [provider, statuses]

@@ -32,12 +32,12 @@ type glabIssue struct {
 	} `json:"assignees"`
 }
 
-func glabItem(g glabIssue) Item {
+func glabItem(g glabIssue) UnifiedTask {
 	users := make([]string, 0, len(g.Assignees))
 	for _, u := range g.Assignees {
 		users = append(users, u.Username)
 	}
-	return Item{
+	return UnifiedTask{
 		ID: fmt.Sprintf("%d", g.IID), Title: g.Title, Description: g.Description,
 		Status: strings.ToLower(g.State), Labels: g.Labels, Assignees: users,
 		Board:     boardFor(ProviderGitLab, g.State),
@@ -45,7 +45,7 @@ func glabItem(g glabIssue) Item {
 	}
 }
 
-func (a *gitlabAdapter) List(ctx context.Context) ([]Item, error) {
+func (a *gitlabAdapter) List(ctx context.Context) ([]UnifiedTask, error) {
 	out, err := runCLI(ctx, "glab", "issue", "list", "--all", "-O", "json", "-P", "100")
 	if err != nil {
 		return nil, err
@@ -54,43 +54,52 @@ func (a *gitlabAdapter) List(ctx context.Context) ([]Item, error) {
 	if err := json.Unmarshal([]byte(out), &issues); err != nil {
 		return nil, &errBadOutput{CLI: "glab", Provider: ProviderGitLab, Reason: "issue list is not JSON"}
 	}
-	items := make([]Item, 0, len(issues))
+	tasks := make([]UnifiedTask, 0, len(issues))
 	for _, g := range issues {
-		items = append(items, glabItem(g))
+		tasks = append(tasks, glabItem(g))
 	}
-	return items, nil
+	return tasks, nil
 }
 
-func (a *gitlabAdapter) Get(ctx context.Context, id string) (Item, error) {
+func (a *gitlabAdapter) Get(ctx context.Context, id string) (UnifiedTask, error) {
 	out, err := runCLI(ctx, "glab", "issue", "view", id, "-F", "json")
 	if err != nil {
 		if isNotFoundText(failedOutput(err)) {
-			return Item{}, &errNotFound{ID: id}
+			return UnifiedTask{}, &errNotFound{ID: id}
 		}
-		return Item{}, err
+		return UnifiedTask{}, err
 	}
 	var g glabIssue
 	if err := json.Unmarshal([]byte(out), &g); err != nil {
-		return Item{}, &errBadOutput{CLI: "glab", Provider: ProviderGitLab, Reason: "issue view is not JSON"}
+		return UnifiedTask{}, &errBadOutput{CLI: "glab", Provider: ProviderGitLab, Reason: "issue view is not JSON"}
 	}
 	return glabItem(g), nil
 }
 
-func (a *gitlabAdapter) SetStatus(ctx context.Context, id, status string) (Item, error) {
+func (a *gitlabAdapter) SetStatus(ctx context.Context, id, status string) (UnifiedTask, error) {
 	var cmd string
 	switch strings.ToLower(status) {
-	case "closed", "close":
+	case "closed", "close", "done":
 		cmd = "close"
-	case "opened", "open", "reopen":
+	case "opened", "open", "reopen", "todo":
 		cmd = "reopen"
 	default:
-		return Item{}, &errUnsupported{Reason: fmt.Sprintf("GitLab supports close/reopen only (got %q)", status)}
+		return UnifiedTask{}, &errUnsupported{Reason: fmt.Sprintf("GitLab supports close/reopen only (got %q)", status)}
 	}
 	if _, err := runCLI(ctx, "glab", "issue", cmd, id); err != nil {
 		if isNotFoundText(failedOutput(err)) {
-			return Item{}, &errNotFound{ID: id}
+			return UnifiedTask{}, &errNotFound{ID: id}
 		}
-		return Item{}, err
+		return UnifiedTask{}, err
 	}
 	return a.Get(ctx, id)
+}
+
+// Dependencies: GitLab issues have no native dependency edges here; the
+// Kanban dependency mini-graph degrades to empty.
+func (a *gitlabAdapter) Dependencies(ctx context.Context, id string) (UnifiedTaskDeps, error) {
+	if _, err := a.Get(ctx, id); err != nil {
+		return UnifiedTaskDeps{}, err
+	}
+	return UnifiedTaskDeps{TaskID: id, DepsIn: []string{}, DepsOut: []string{}}, nil
 }

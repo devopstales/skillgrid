@@ -49,6 +49,67 @@ type Item struct {
 	Provider    string `json:"provider"`
 }
 
+// UnifiedTask is the provider-independent task DTO served on /tracker/* (Phase 2).
+// Every provider normalizes to this shape so the Kanban board renders one
+// consistent board regardless of backend. It is a strict superset of Item:
+// the legacy JSON keys (id/title/status/...) are preserved so existing
+// consumers keep working, while dependencies/milestone/parent/board enrich
+// the board + dependency mini-graph.
+type UnifiedTask struct {
+	ID           string   `json:"id"`
+	Title        string   `json:"title"`
+	Status       string   `json:"status"`
+	StatusDetail string   `json:"status_detail,omitempty"`
+	Description  string   `json:"description,omitempty"`
+	Type         string   `json:"type,omitempty"`
+	Priority     string   `json:"priority,omitempty"`
+	Assignees    []string `json:"assignees,omitempty"`
+	Labels       []string `json:"labels,omitempty"`
+	DocRefs      []string `json:"doc_refs,omitempty"`
+	// Board is the canonical kanban column (todo|in_progress|blocked|done).
+	Board string `json:"board"`
+	// Dependencies are task IDs this task depends on (edges OUT: task → dep).
+	Dependencies []string `json:"dependencies,omitempty"`
+	// Milestone is the optional milestone label.
+	Milestone string `json:"milestone,omitempty"`
+	// Parent is the optional parent task ID (subtask linkage).
+	Parent string `json:"parent,omitempty"`
+	// DueDate is the optional due date (day, no time).
+	DueDate string `json:"due_date,omitempty"`
+	// ACCompleted / ACTotal are the acceptance-criteria counters.
+	ACCompleted int    `json:"ac_completed,omitempty"`
+	ACTotal     int    `json:"ac_total,omitempty"`
+	IsReady     *bool  `json:"is_ready,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+	Provider    string `json:"provider"`
+}
+
+// toUnified converts a legacy Item to a UnifiedTask (Phase 2 migration shim).
+// Adapters that can parse dependencies/milestone/parent set those on the
+// UnifiedTask directly; this helper is for adapters that still build Items.
+func toUnified(it Item, deps, milestone, parent, dueDate string) UnifiedTask {
+	return UnifiedTask{
+		ID: it.ID, Title: it.Title, Status: it.Status, StatusDetail: it.StatusDetail,
+		Description: it.Description, Type: it.Type, Priority: it.Priority,
+		Assignees: it.Assignees, Labels: it.Labels, DocRefs: it.DocRefs,
+		Board: it.Board, Dependencies: splitComma(deps), Milestone: milestone,
+		Parent: parent, DueDate: dueDate, ACCompleted: it.ACCompleted, ACTotal: it.ACTotal,
+		IsReady: it.IsReady, CreatedAt: it.CreatedAt, UpdatedAt: it.UpdatedAt,
+		Provider: it.Provider,
+	}
+}
+
+func splitComma(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if v := strings.TrimSpace(p); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // boardFor maps a provider-native status to its canonical column.
 func boardFor(provider, status string) string {
 	s := strings.ToLower(strings.TrimSpace(status))
@@ -144,17 +205,39 @@ type errUnresolvable struct{ Reason string }
 
 func (e *errUnresolvable) Error() string { return e.Reason }
 
-// Provider is one tracker backend.
-type Provider interface {
+// TicketProvider is one tracker backend (Phase 2). It is the provider
+// registry entry the HTTP layer dispatches to. The four adapters (backlogmd,
+// github, gitlab, jira) each implement it.
+type TicketProvider interface {
 	// Name returns backlogmd | github | gitlab | jira.
 	Name() string
-	// CLIName returns the binary shelled out to.
+	// CLIName returns the binary shelled out to ("" for file-based providers).
 	CLIName() string
+	// Config returns the provider's status/type/priority vocabulary.
 	Config(ctx context.Context) (TrackerConfig, error)
-	List(ctx context.Context) ([]Item, error)
-	Get(ctx context.Context, id string) (Item, error)
-	SetStatus(ctx context.Context, id, status string) (Item, error)
+	// List returns every task normalized to UnifiedTask.
+	List(ctx context.Context) ([]UnifiedTask, error)
+	// Get returns one task by id.
+	Get(ctx context.Context, id string) (UnifiedTask, error)
+	// SetStatus moves the task to status (provider-native transition).
+	SetStatus(ctx context.Context, id, status string) (UnifiedTask, error)
+	// Dependencies returns the in/out dependency edges for one task
+	// (edges into the task + edges out of it).
+	Dependencies(ctx context.Context, id string) (deps UnifiedTaskDeps, err error)
 }
+
+// UnifiedTaskDeps is the dependency edges for one task: DepsIn are tasks that
+// depend on `id` (blockers of dependents), DepsOut are tasks `id` depends on.
+type UnifiedTaskDeps struct {
+	TaskID  string   `json:"task_id"`
+	DepsIn  []string `json:"deps_in"`  // tasks that depend on this one
+	DepsOut []string `json:"deps_out"` // tasks this one depends on
+}
+
+// Provider is the legacy interface name retained as an alias so pre-Phase-2
+// code/tests that reference tracker.Provider keep compiling during migration.
+// It is satisfied by the same adapters.
+type Provider = TicketProvider
 
 // ResolveProvider maps override/tracker-doc/config inputs to a provider.
 // Empty inputs fall through; unknown values are errors (never guessed).

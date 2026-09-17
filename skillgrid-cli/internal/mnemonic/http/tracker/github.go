@@ -33,7 +33,7 @@ type ghIssue struct {
 	UpdatedAt string `json:"updatedAt"`
 }
 
-func ghItem(g ghIssue) Item {
+func ghItem(g ghIssue) UnifiedTask {
 	labels := make([]string, 0, len(g.Labels))
 	for _, l := range g.Labels {
 		labels = append(labels, l.Name)
@@ -42,7 +42,7 @@ func ghItem(g ghIssue) Item {
 	for _, u := range g.Assignees {
 		users = append(users, u.Login)
 	}
-	return Item{
+	return UnifiedTask{
 		ID: fmt.Sprintf("%d", g.Number), Title: g.Title, Description: g.Body,
 		Status: strings.ToLower(g.State), Labels: labels, Assignees: users,
 		Board:     boardFor(ProviderGitHub, g.State),
@@ -50,7 +50,7 @@ func ghItem(g ghIssue) Item {
 	}
 }
 
-func (a *githubAdapter) List(ctx context.Context) ([]Item, error) {
+func (a *githubAdapter) List(ctx context.Context) ([]UnifiedTask, error) {
 	out, err := runCLI(ctx, "gh", "issue", "list", "--state", "all", "--limit", "100",
 		"--json", "number,title,state,labels,assignees,updatedAt")
 	if err != nil {
@@ -60,46 +60,55 @@ func (a *githubAdapter) List(ctx context.Context) ([]Item, error) {
 	if err := json.Unmarshal([]byte(out), &issues); err != nil {
 		return nil, &errBadOutput{CLI: "gh", Provider: ProviderGitHub, Reason: "issue list is not JSON"}
 	}
-	items := make([]Item, 0, len(issues))
+	tasks := make([]UnifiedTask, 0, len(issues))
 	for _, g := range issues {
-		items = append(items, ghItem(g))
+		tasks = append(tasks, ghItem(g))
 	}
-	return items, nil
+	return tasks, nil
 }
 
-func (a *githubAdapter) Get(ctx context.Context, id string) (Item, error) {
+func (a *githubAdapter) Get(ctx context.Context, id string) (UnifiedTask, error) {
 	out, err := runCLI(ctx, "gh", "issue", "view", id,
 		"--json", "number,title,body,state,labels,assignees,comments,updatedAt")
 	if err != nil {
 		if isNotFoundText(failedOutput(err)) {
-			return Item{}, &errNotFound{ID: id}
+			return UnifiedTask{}, &errNotFound{ID: id}
 		}
-		return Item{}, err
+		return UnifiedTask{}, err
 	}
 	var g ghIssue
 	if err := json.Unmarshal([]byte(out), &g); err != nil {
-		return Item{}, &errBadOutput{CLI: "gh", Provider: ProviderGitHub, Reason: "issue view is not JSON"}
+		return UnifiedTask{}, &errBadOutput{CLI: "gh", Provider: ProviderGitHub, Reason: "issue view is not JSON"}
 	}
 	return ghItem(g), nil
 }
 
-func (a *githubAdapter) SetStatus(ctx context.Context, id, status string) (Item, error) {
+func (a *githubAdapter) SetStatus(ctx context.Context, id, status string) (UnifiedTask, error) {
 	var cmd string
 	switch strings.ToLower(status) {
-	case "closed", "close":
+	case "closed", "close", "done":
 		cmd = "close"
-	case "open", "opened", "reopen":
+	case "open", "opened", "reopen", "todo":
 		cmd = "reopen"
 	default:
-		return Item{}, &errUnsupported{Reason: fmt.Sprintf("GitHub supports close/reopen only (got %q)", status)}
+		return UnifiedTask{}, &errUnsupported{Reason: fmt.Sprintf("GitHub supports close/reopen only (got %q)", status)}
 	}
 	if _, err := runCLI(ctx, "gh", "issue", cmd, id); err != nil {
 		if isNotFoundText(failedOutput(err)) {
-			return Item{}, &errNotFound{ID: id}
+			return UnifiedTask{}, &errNotFound{ID: id}
 		}
-		return Item{}, err
+		return UnifiedTask{}, err
 	}
 	return a.Get(ctx, id)
+}
+
+// Dependencies: GitHub issues have no native dependency edges; the Kanban
+// dependency mini-graph degrades to empty (the board still renders).
+func (a *githubAdapter) Dependencies(ctx context.Context, id string) (UnifiedTaskDeps, error) {
+	if _, err := a.Get(ctx, id); err != nil {
+		return UnifiedTaskDeps{}, err
+	}
+	return UnifiedTaskDeps{TaskID: id, DepsIn: []string{}, DepsOut: []string{}}, nil
 }
 
 func isNotFoundText(s string) bool {

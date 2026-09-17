@@ -64,7 +64,7 @@ var jiraColSplit = regexp.MustCompile(`\s{2,}`)
 
 // parseJiraTable maps header names to column indexes, then reads rows.
 // Returns items with id/title/status/priority/updated when those headers exist.
-func parseJiraTable(out string) ([]Item, error) {
+func parseJiraTable(out string) ([]UnifiedTask, error) {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) < 2 {
 		return nil, fmt.Errorf("no rows")
@@ -82,7 +82,7 @@ func parseJiraTable(out string) ([]Item, error) {
 	ti, _ := idx["status"]
 	pi, _ := idx["priority"]
 	ui, _ := idx["updated"]
-	var items []Item
+	var items []UnifiedTask
 	for _, ln := range lines[1:] {
 		if strings.TrimSpace(ln) == "" {
 			continue
@@ -94,7 +94,7 @@ func parseJiraTable(out string) ([]Item, error) {
 			}
 			return ""
 		}
-		items = append(items, Item{
+		items = append(items, UnifiedTask{
 			ID: get(ki), Title: get(si), Status: get(ti),
 			Board:    boardFor(ProviderJira, get(ti)),
 			Priority: get(pi), UpdatedAt: get(ui), Provider: ProviderJira,
@@ -106,7 +106,7 @@ func parseJiraTable(out string) ([]Item, error) {
 	return items, nil
 }
 
-func (a *jiraAdapter) List(ctx context.Context) ([]Item, error) {
+func (a *jiraAdapter) List(ctx context.Context) ([]UnifiedTask, error) {
 	key, err := a.key()
 	if err != nil {
 		return nil, err
@@ -124,8 +124,8 @@ func (a *jiraAdapter) List(ctx context.Context) ([]Item, error) {
 }
 
 // parseJiraView reads `Key: Value` lines (summary/status/assignee/priority/updated).
-func parseJiraView(id, out string) (Item, error) {
-	it := Item{ID: id, Provider: ProviderJira}
+func parseJiraView(id, out string) (UnifiedTask, error) {
+	it := UnifiedTask{ID: id, Provider: ProviderJira}
 	kv := regexp.MustCompile(`(?im)^\s*(summary|status|assignee|priority|updated)\s*:\s*(.+?)\s*$`)
 	found := false
 	for _, m := range kv.FindAllStringSubmatch(out, -1) {
@@ -144,43 +144,52 @@ func parseJiraView(id, out string) (Item, error) {
 		}
 	}
 	if !found || it.Title == "" || it.Status == "" {
-		return Item{}, fmt.Errorf("no summary/status fields")
+		return UnifiedTask{}, fmt.Errorf("no summary/status fields")
 	}
 	it.Board = boardFor(ProviderJira, it.Status)
 	return it, nil
 }
 
-func (a *jiraAdapter) Get(ctx context.Context, id string) (Item, error) {
+func (a *jiraAdapter) Get(ctx context.Context, id string) (UnifiedTask, error) {
 	if _, err := a.key(); err != nil {
-		return Item{}, err
+		return UnifiedTask{}, err
 	}
 	out, err := runCLI(ctx, "jira", "issue", "view", id, "--comments", "10")
 	if err != nil {
 		if isNotFoundText(failedOutput(err)) {
-			return Item{}, &errNotFound{ID: id}
+			return UnifiedTask{}, &errNotFound{ID: id}
 		}
-		return Item{}, err
+		return UnifiedTask{}, err
 	}
 	it, perr := parseJiraView(id, out)
 	if perr != nil {
-		return Item{}, &errBadOutput{CLI: "jira", Provider: ProviderJira, Reason: "issue view unparsable: " + perr.Error()}
+		return UnifiedTask{}, &errBadOutput{CLI: "jira", Provider: ProviderJira, Reason: "issue view unparsable: " + perr.Error()}
 	}
 	return it, nil
 }
 
-func (a *jiraAdapter) SetStatus(ctx context.Context, id, status string) (Item, error) {
+func (a *jiraAdapter) SetStatus(ctx context.Context, id, status string) (UnifiedTask, error) {
 	if _, err := a.key(); err != nil {
-		return Item{}, err
+		return UnifiedTask{}, err
 	}
 	if _, err := runCLI(ctx, "jira", "issue", "move", id, status); err != nil {
 		if isNotFoundText(failedOutput(err)) {
-			return Item{}, &errNotFound{ID: id}
+			return UnifiedTask{}, &errNotFound{ID: id}
 		}
 		lower := strings.ToLower(failedOutput(err))
 		if strings.Contains(lower, "invalid transition") || strings.Contains(lower, "not a valid") {
-			return Item{}, &errBadStatus{Status: status, Valid: nil}
+			return UnifiedTask{}, &errBadStatus{Status: status, Valid: nil}
 		}
-		return Item{}, err
+		return UnifiedTask{}, err
 	}
 	return a.Get(ctx, id)
+}
+
+// Dependencies: Jira `issue list`/`view` here don't expose link edges, so the
+// Kanban dependency mini-graph degrades to empty (board still renders).
+func (a *jiraAdapter) Dependencies(ctx context.Context, id string) (UnifiedTaskDeps, error) {
+	if _, err := a.Get(ctx, id); err != nil {
+		return UnifiedTaskDeps{}, err
+	}
+	return UnifiedTaskDeps{TaskID: id, DepsIn: []string{}, DepsOut: []string{}}, nil
 }
