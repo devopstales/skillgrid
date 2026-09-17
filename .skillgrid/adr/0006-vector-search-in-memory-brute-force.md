@@ -20,13 +20,18 @@ decode through `modernc.org/sqlite`'s pure-Go reader — not the cosine math
 (~28 ms).
 
 The question: should we adopt a SQLite vector extension — **sqlite-vec**
-(vec0 virtual tables, HNSW ANN index) — to push the KNN into the database?
+(vec0 virtual tables, exact/brute KNN) — to push the KNN into the database?
 The cgo-free, single-binary distribution model (`modernc.org/sqlite` +
 gotreesitter; `skillgrid doctor` reports `cgo: free`) is an architectural
-invariant, and the ncruces WASM binding for sqlite-vec (`ncruces/go-sqlite3`
-+ `sqlite-vec-go-bindings/ncruces`) preserves it — but at the cost of
-replacing the entire SQLite driver underneath all 39 migrations, the
-WAL-retry logic, and the modernc-specific workarounds the codebase depends on.
+invariant. As of this writing that invariant is preserved natively:
+`modernc.org/sqlite/vec` (first shipped in v1.59.0, 2026-09-15) bundles
+sqlite-vec v0.1.9 in the same cgo-free form and auto-registers on every
+connection, so adoption is a same-module version bump — **not** a driver
+swap. The ncruces WASM binding (`ncruces/go-sqlite3` +
+`sqlite-vec-go-bindings/ncruces`) remains the fallback if the modernc
+subpackage proves insufficient, and it *is* a full driver migration
+(replacing the driver underneath all 39 migrations, the WAL-retry logic,
+and the modernc-specific workarounds the codebase depends on).
 
 ## Considered Options
 
@@ -34,10 +39,16 @@ WAL-retry logic, and the modernc-specific workarounds the codebase depends on.
   (store, embedding-model) into a process-global map; score cosine over RAM;
   invalidate on re-index / model swap. No driver change, no new dependency,
   exact top-K.
-- **B. sqlite-vec via ncruces WASM** — replace `modernc.org/sqlite` with
-  `ncruces/go-sqlite3` + `sqlite-vec-go-bindings/ncruces`; create vec0
-  virtual tables over `embeddings` / `chunk_embeddings`; KNN in-SQL.
-  cgo-free (WASM), but a full driver migration.
+- **B. sqlite-vec via `modernc.org/sqlite/vec`** — blank-import the
+  modernc-native vec subpackage (bundles sqlite-vec v0.1.9, cgo-free,
+  auto-registered via `sqlite3_auto_extension`); create vec0 virtual tables
+  over `embeddings` / `chunk_embeddings`; KNN in-SQL. **No driver swap** —
+  it is a same-module subpackage. Requires bumping `modernc.org/sqlite`
+  from v1.45.0 to ≥ v1.59.0 (the first release shipping `/vec`).
+- **B′. sqlite-vec via ncruces WASM** — *fallback* if the modernc `/vec`
+  subpackage proves insufficient: replace `modernc.org/sqlite` with
+  `ncruces/go-sqlite3` + `sqlite-vec-go-bindings/ncruces`. cgo-free (WASM)
+  but a full driver migration.
 - **C. sqlite-vec via CGO (mattn)** — `mattn/go-sqlite3` +
   `sqlite-vec-go-bindings/cgo`. Simplest sqlite-vec integration, but breaks
   the cgo-free invariant (per-platform `.so`, CGo build).
@@ -45,11 +56,14 @@ WAL-retry logic, and the modernc-specific workarounds the codebase depends on.
   ANN index in Go over the cached vectors. Adds a dependency and an in-memory
   index structure; only pays off at 100K+ vectors.
 
-### Considered and rejected after the decision (2026-09-16)
+### Considered after the decision (2026-09-16)
 
-Two further SQLite vector extensions were evaluated post-decision and
-rejected. Neither displaces option A at the current scale, and both are
-worse revisit triggers than option B (sqlite-vec / ncruces).
+Three further SQLite vector paths were evaluated post-decision. **E**
+(sqlite-vss) and **F** (vectorlite) were rejected — neither displaces option A
+at the current scale, and both are worse revisit triggers than option B. **G**
+(sqlite-vec via the modernc-native `/vec` subpackage) was *not* rejected — it
+is a cheaper path to option B and becomes the default revisit path; it simply
+does not change the current-scale decision.
 
 - **E. sqlite-vss (alexgarcia.xyz)** — Faiss-backed loadable C extension.
   Rejected: (1) **not in active development** — its own README states the
@@ -83,6 +97,22 @@ worse revisit triggers than option B (sqlite-vec / ncruces).
   Net: vectorlite is the best *index*, the worst *integration* for a
   Go/cgo-free single binary. It does not change the revisit ladder.
 
+- **G. sqlite-vec via `modernc.org/sqlite/vec` (modernc-native, post-decision
+  discovery)** — not a new *option* so much as a **cheaper path to option B**:
+  a same-module subpackage (no driver swap), cgo-free, exact top-K, and its
+  `partition key` / `auxiliary metadata` columns can carry our `language`
+  filter. Verified on pkg.go.dev: it bundles sqlite-vec **v0.1.9** and first
+  ships in **modernc.org/sqlite v1.59.0** (2026-09-15); the module cache for
+  our current **v1.45.0** has no `vec` dir. Adoption cost collapses to a
+  `modernc.org/sqlite` version bump plus a migration adding the two vec0
+  tables and a re-embed backfill. It does **not** displace option A at the
+  current ~20K scale (the BLOB-I/O bottleneck is already solved by the cache,
+  and sqlite-vec v0.1.9 is brute-force — no ANN index yet — so it removes the
+  I/O cost the cache already removed, with added dependency + version-bump
+  risk for no query-time gain). But it *does* materially lower the cost of the
+  revisit trigger below: when we do cross ~100K vectors, **G is the default
+  path** (same-module, cgo-free, transactional, exact), not B′ (ncruces).
+
 ## Decision Outcome
 
 Chosen option: **A. In-memory vector cache**, because at the current dataset
@@ -91,7 +121,7 @@ algorithm** — 87% of the 220 ms is re-reading 55 MB of vectors out of SQLite
 per query. Caching the decoded vectors in RAM eliminates that cost with zero
 driver risk, zero new dependencies, and exact (not approximate) top-K
 ranking, which the RRF fusion in `hybrid/rank.go` is built around. The
-sqlite-vec options (B, C) only become worth the driver-migration / cgo cost
+sqlite-vec options (B, C) only become worth the version-bump / cgo cost
 when the dataset crosses ~100K vectors (cross-project `all_projects`
 semantic search, or large monorepos) — at which point ANN's asymptotic win
 outweighs the migration risk, and the architecture is changing anyway.
@@ -140,9 +170,12 @@ Revisit this ADR (write a superseding ADR) when **any** of:
    feature completeness, performance) — at which point sqlite-vec becomes a
    low-risk add-on rather than a driver swap.
 
-When revisiting, option **B (sqlite-vec / ncruces)** remains the default
-candidate: it is the only ANN alternative that is cgo-free *and* a real `go.mod`
-dependency *and* transactional. sqlite-vss (E) and vectorlite (F) were
+When revisiting, option **B via the modernc-native subpackage (G)** is the
+default path: same-module, cgo-free, a real `go.mod` dependency, transactional,
+exact top-K, and a `partition key`/`auxiliary metadata` column for the
+`language` filter. It needs only a `modernc.org/sqlite` bump to ≥ v1.59.0 —
+not a driver swap. B′ (ncruces) is the fallback only if the modernc
+`/vec` subpackage proves insufficient. sqlite-vss (E) and vectorlite (F) were
 evaluated and rejected (see above) and should not be re-explored unless their
 binding/transaction/recall constraints change.
 
