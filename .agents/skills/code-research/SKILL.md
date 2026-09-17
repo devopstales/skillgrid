@@ -1,6 +1,6 @@
 ---
 name: code-research
-description: Investigate a wide or high-stakes question by fanning out parallel researcher subagents, then verifying load-bearing claims and red-teaming the major conclusions before synthesizing a cited findings file. Use when the question has multiple independent dimensions or the decision is high-stakes — the heavy informational counterpart to skillgrid:research; for long-horizon experimental research (hypothesis → experiment → measure loops) use skillgrid:deep-research.
+description: Investigate a wide or high-stakes question by fanning out parallel researcher subagents, then verifying load-bearing claims and red-teaming the major conclusions before synthesizing a cited findings file. Use when the question has multiple independent dimensions or the decision is high-stakes, or when reading legwork should be delegated to background agents so the main thread keeps working — the heavy informational counterpart to skillgrid:research; for long-horizon experimental research (hypothesis → experiment → measure loops) use skillgrid:deep-research.
 license: MIT
 metadata:
   author: devopstales
@@ -26,7 +26,10 @@ independent sources, **red-teams** the major conclusions, and synthesizes a cite
 findings file. The parallelism, the independent verification, and the fresh-
 context skeptic are the point — one inline pass cannot give them. It inherits
 `skillgrid:research`'s epistemics and reuses its type packs and findings
-scaffold.
+scaffold. The fan-out is also how the **orchestrator stays lean**: all the heavy
+reading happens in fresh subagent contexts behind the firewall, so the
+orchestrator's context never fills with fetched sources — it holds only the plan,
+the digests, and the synthesis.
 
 ## When to Use
 
@@ -36,6 +39,9 @@ scaffold.
 - the answer must be **well-evidenced** and the stakes justify deep research —
   a platform bet, a regulated domain, a differentiation that rests on a
   specific claim
+- the reading legwork is heavy enough that it should be **delegated to
+  background agents** so the main thread keeps working on other tasks while it
+  runs
 
 **When NOT to use:** for a quick fact check or single-source lookup — use
 `skillgrid:research` instead. Same epistemics, one inline pass; the fan-out
@@ -126,7 +132,10 @@ always resolves to the same folder. The findings are written as a
 (create it with a `# Findings — <topic>` header if it does not exist). Use the
 scaffold shape from
 [../research/templates/research.md](../research/templates/research.md) for the
-section body.
+section body. By default that path is the contract `writing-blueprints` reads;
+if the repo already keeps research notes somewhere else, match that convention
+and say where — but note the divergence, since `writing-blueprints` looks at
+the `{specs_root}` path by default.
 
 ### Step 3: Fan out the researchers (one message, parallel)
 
@@ -159,6 +168,11 @@ questions. A shorter honest report beats a longer stale one.
 **Resilience:** a failed or empty researcher is logged; the rest continue. If all
 failers cover the whole question, do not claim a complete run — report which
 dimensions didn't finish.
+
+**Async posture:** the fan-out is background work by default. Launch it, then
+let the orchestrator keep working on other tasks while digests land — do not idle
+in the orchestrator context waiting on them. Synthesize (Step 6) when the last
+digest lands or the stop-and-write valve trips, whichever is first.
 
 ### Step 4: Verify at landing
 
@@ -230,6 +244,7 @@ file; it does not reprocess the web.
 | "Two sources agree, so it's verified" | Only if they're independent — different publisher, different data. Two syndications of one report is one source. |
 | "The red team is overkill, the researchers looked fine" | The red team reads the conclusion with no supporting evidence and hunts the bear case. It catches the confident wrong answer the researchers' shared context made comfortable. |
 | "Small question, I'll still fan out" | Fan-out is for wide or high-stakes questions. A focused ask is `skillgrid:research`, one inline pass. |
+| "I'll do this research inline, it's not that much" | The orchestrator's context is a scarce resource. Reading legwork belongs in a subagent behind the firewall — delegate it so the main thread stays free to keep working. |
 
 ## Red Flags
 

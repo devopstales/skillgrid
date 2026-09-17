@@ -17,7 +17,11 @@ this before the design."
 ## Overview
 
 Answer a question by investigating **primary sources** and writing the findings
-to a cited Markdown file. One pass, done inline — no subagents, no rounds. For a
+to a cited Markdown file. One pass, no subagent fan-out, no rounds. Do it
+**inline** when you need the answer now (it's a blocker for the next step); when
+you can keep working, **delegate it to a background agent** so the main thread
+stays free while it reads — same epistemics, same `findings.md` contract, just
+off the critical path. For a
 question that is wide (multiple independent dimensions) or high-stakes and
 **informational**, use `skillgrid:code-research` instead, which fans out parallel
 researchers and adds a verify + red-team layer. For research that is
