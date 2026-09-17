@@ -19,17 +19,24 @@ func TestPhase3_Tree(t *testing.T) {
 		return rr.Code, rr.Body.String()
 	}
 
-	// root=all includes the backlog tree with the TASK-001 node + status
+	// root=all groups each method under a top folder (Skillgrid, Backlog, Docs)
+	// and inlines top-level *.md (README.md).
 	code, body := do("/docs/tree")
 	if code != http.StatusOK {
 		t.Fatalf("tree: expected 200, got %d (%s)", code, body)
 	}
 	for _, want := range []string{
-		"TASK-001-something.md", "in-progress", "Briefing", ".skillgrid/specs/009-web-admin-dashboard",
+		"Skillgrid", "Backlog", "TASK-001-something.md", "in-progress", "Briefing",
+		"009-web-admin-dashboard", "README.md",
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("tree missing %q in %s", want, body)
+			t.Errorf("all tree missing %q in %s", want, body)
 		}
+	}
+	// the skillgrid method is a named folder (title "Skillgrid"), not a raw
+	// ".skillgrid" directory node.
+	if strings.Contains(body, `"name":".skillgrid"`) {
+		t.Errorf("all tree should group skillgrid under a named folder: %s", body)
 	}
 
 	// root=backlog scopes to just the backlog root

@@ -421,32 +421,66 @@ var skillgridTopDirs = map[string]bool{
 	"specs": true, "adr": true, "prd": true,
 }
 
+// skillgridTopDirOrder is the stable display order for the surfaced skillgrid dirs.
+var skillgridTopDirOrder = []string{"specs", "adr", "prd"}
+
 // skillgridSearchRoots returns the on-disk .skillgrid subdirs to search for the
 // skillgrid selector, limited to skillgridTopDirs (so archive/ etc. are excluded).
 func skillgridSearchRoots(cwd string) []string {
 	var out []string
-	for d := range skillgridTopDirs {
+	for _, d := range skillgridTopDirOrder {
 		out = append(out, ".skillgrid/"+d)
 	}
-	// stable order
-	sort.Strings(out)
 	return out
+}
+
+// skillgridDirNode walks one surfaced .skillgrid subdir (specs/adr/prd) and
+// returns the node, or nil if the subdir doesn't exist.
+func skillgridDirNode(ctx context.Context, cwd string, d string) *MDNode {
+	abs, err := filepath.Abs(filepath.Join(cwd, ".skillgrid", d))
+	if err != nil {
+		return nil
+	}
+	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+		return nil
+	}
+	node, err := walkDir(ctx, cwd, abs, "skillgrid", d)
+	if err != nil {
+		return nil
+	}
+	return node
 }
 
 // BuildTree walks the selected root(s) and returns a nested tree of MDNode.
 // Each root is a list of candidate paths; only directories that exist in the
 // current repo are walked, so the tree adapts to whatever methods the repo uses.
-// The "skillgrid" selector is special-cased: it is a single top-level
-// directory (.skillgrid) whose tree is restricted to skillgridTopDirs.
+//
+// Shape rules:
+//   - "skillgrid": unwraps the .skillgrid folder and shows specs/ + adr/ + prd/
+//     directly (no .skillgrid wrapper, no archive/glossary/sdd/config).
+//   - "all": groups every method under a single top-level folder whose name is
+//     the same label as the root menu (Skillgrid, Backlog, Docs, …); the
+//     root-level *.md files are inlined as top-level files.
+//   - other single selectors: the existing per-root layout (unchanged).
 func BuildTree(ctx context.Context, cwd, root string) ([]MDNode, error) {
 	sels := orderedRoots(root)
+	// Skillgrid dirs shared by the "skillgrid" selector and the "all" group.
+	var sgDirs []MDNode
+	for _, d := range skillgridTopDirOrder {
+		if n := skillgridDirNode(ctx, cwd, d); n != nil {
+			sgDirs = append(sgDirs, *n)
+		}
+	}
+	if root == "all" {
+		return buildAllTree(ctx, cwd, sels, sgDirs)
+	}
+	// Single selector: the skillgrid selector shows the dirs directly (unwrapped).
+	if root == "skillgrid" {
+		return sgDirs, nil
+	}
 	var out []MDNode
 	for _, sel := range sels {
-		roots := mdRoots[sel]
-		if sel == "skillgrid" {
-			roots = []string{".skillgrid"}
-		}
-		for _, rootRel := range roots {
+		for _, rootRel := range mdRoots[sel] {
 			abs, err := filepath.Abs(filepath.Join(cwd, rootRel))
 			if err != nil {
 				continue
@@ -458,22 +492,79 @@ func BuildTree(ctx context.Context, cwd, root string) ([]MDNode, error) {
 			if err != nil {
 				return nil, err
 			}
-			// skillgrid top-level: keep only specs/adr/prd subdirs.
-			if sel == "skillgrid" && node != nil && filepath.Base(abs) == ".skillgrid" {
-				var kept []MDNode
-				for _, c := range node.Children {
-					if skillgridTopDirs[strings.ToLower(c.Name)] {
-						kept = append(kept, c)
-					}
-				}
-				node.Children = kept
-			}
 			if node != nil {
 				out = append(out, *node)
 			}
 		}
 	}
 	return out, nil
+}
+
+// buildAllTree assembles the root=all tree: one folder per existing method (named
+// like the root menu) + top-level *.md files inlined at the top.
+func buildAllTree(ctx context.Context, cwd string, sels []string, sgDirs []MDNode) ([]MDNode, error) {
+	var out []MDNode
+	for _, sel := range sels {
+		if sel == "root" {
+			continue
+		}
+		var children []MDNode
+		if sel == "skillgrid" {
+			children = append(children, sgDirs...)
+		} else {
+			for _, rootRel := range mdRoots[sel] {
+				abs, err := filepath.Abs(filepath.Join(cwd, rootRel))
+				if err != nil {
+					continue
+				}
+				if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+					continue
+				}
+				node, err := walkDir(ctx, cwd, abs, sel, filepath.Base(abs))
+				if err != nil {
+					return nil, err
+				}
+				if node != nil {
+					children = append(children, *node)
+				}
+			}
+		}
+		if len(children) == 0 {
+			continue // method has no markdown → don't show an empty folder
+		}
+		label := strings.ReplaceAll(rootLabel(sel), " ", "_")
+		out = append(out, MDNode{Dir: true, Name: label, Title: rootLabel(sel), Children: children})
+	}
+	// top-level root *.md files inlined at the top level.
+	if rootDir, err := filepath.Abs(filepath.Join(cwd, ".")); err == nil {
+		if info, err := os.Stat(rootDir); err == nil && info.IsDir() {
+			if n, err := walkDir(ctx, cwd, rootDir, "root", "."); err == nil && n != nil {
+				out = append(out, n.Children...)
+			}
+		}
+	}
+	return out, nil
+}
+
+// rootLabel is the human label for a doc-method selector, mirroring the SPA's
+// root menu (DocsRoot → ROOT_LABEL) so the root=all folders match the menu.
+func rootLabel(sel string) string {
+	switch sel {
+	case "skillgrid":
+		return "Skillgrid"
+	case "openspec":
+		return "OpenSpec"
+	case "speckit":
+		return "SpecKit"
+	case "superpowers":
+		return "Superpowers"
+	case "backlog":
+		return "Backlog"
+	case "docs":
+		return "Docs"
+	default:
+		return sel
+	}
 }
 
 func orderedRoots(root string) []string {

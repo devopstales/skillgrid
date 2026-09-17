@@ -49,7 +49,7 @@ func TestPhase3b_SkillgridRootDocs(t *testing.T) {
 		return rr.Code, rr.Body.String()
 	}
 
-	// root=skillgrid includes the numeric ADR + PRD + spec file
+	// root=skillgrid shows specs/adr/prd directly (no .skillgrid wrapper)
 	code, body := do("/docs/tree?root=skillgrid")
 	if code != http.StatusOK {
 		t.Fatalf("skillgrid tree: expected 200, got %d (%s)", code, body)
@@ -59,8 +59,12 @@ func TestPhase3b_SkillgridRootDocs(t *testing.T) {
 			t.Errorf("skillgrid tree missing %q in %s", want, body)
 		}
 	}
-	// archive/ and the hidden .skillgrid subdirs must NOT appear
-	for _, gone := range []string{"archive", "glossary", "config.yaml"} {
+	// the .skillgrid wrapper folder node must NOT be present (specs/adr/prd are
+	// direct children); hidden .skillgrid subdirs must not appear.
+	if strings.Contains(body, `"name":".skillgrid"`) {
+		t.Errorf("skillgrid tree shows the .skillgrid wrapper node: %s", body)
+	}
+	for _, gone := range []string{`"name":"archive"`, `"name":"glossary"`, "config.yaml"} {
 		if strings.Contains(body, gone) {
 			t.Errorf("skillgrid tree should hide %q in %s", gone, body)
 		}
