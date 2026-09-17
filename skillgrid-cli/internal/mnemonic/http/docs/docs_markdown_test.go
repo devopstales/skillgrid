@@ -32,8 +32,8 @@ func seedMDRepo(t *testing.T) string {
 	write("docs/guide.md", "# Guide\n\nSome guide text.\n")
 	// root *.md
 	write("README.md", "# README\n\nRepo readme.\n")
-	// the secret — outside every declared root
-	write("secret.md", "SECRET=traversal-found-me\n")
+	// the secret — outside every declared root (a subdir that is not a root)
+	write(".private/secret.md", "SECRET=traversal-found-me\n")
 	return root
 }
 
@@ -89,8 +89,9 @@ func TestPhase3_Traversal(t *testing.T) {
 
 	// the secret must never leak on any content path
 	for _, target := range []string{
-		"/docs/content?path=secret.md",
-		"/docs/content?path=docs/../../secret.md",
+		"/docs/content?path=.private/secret.md",
+		"/docs/content?path=docs/../../.private/secret.md",
+		"/docs/content?path=..%2F.private%2Fsecret.md",
 	} {
 		_, body := do(target)
 		if strings.Contains(body, "SECRET=traversal-found-me") {

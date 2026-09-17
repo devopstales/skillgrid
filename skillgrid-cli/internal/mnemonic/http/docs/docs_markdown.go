@@ -23,6 +23,7 @@ var mdRoots = map[string]string{
 	"openspec": "openspec",
 	"backlog": ".backlog/tasks",
 	"docs":    "docs",
+	"root":    ".",
 }
 
 // MDNode is one entry in the docs tree.
@@ -44,7 +45,18 @@ type MDContent struct {
 	Body          string         `json:"body"`
 	RelatedPlans  []string       `json:"relatedPlans,omitempty"`
 	UpdatedAt     string         `json:"updatedAt,omitempty"`
+	Mermaid       MermaidCfg     `json:"mermaid"`
 }
+
+// MermaidCfg carries the mermaid render config the SPA must use so diagrams are
+// XSS-safe regardless of the doc author's markup.
+type MermaidCfg struct {
+	SecurityLevel string `json:"securityLevel"`
+}
+
+// MermaidSecurityLevel is the server-declared default the SPA renders with.
+// 'strict' is the safe choice: mermaid does not allow HTML inside node labels.
+func MermaidSecurityLevel() string { return "strict" }
 
 // SearchHit is one search match.
 type SearchHit struct {
@@ -93,7 +105,9 @@ func resolveMDPath(cwd, rel string) (string, string, error) {
 	if err != nil {
 		return "", "", ErrMDBadPath
 	}
-	// Must sit under exactly one declared root.
+	// Must sit under exactly one declared root. The "root" (".") selector is
+	// restricted to top-level *.md files (no subpaths) so it never swallows
+	// files under a real doc root or a private subdir.
 	for sel, rootRel := range mdRoots {
 		absRoot, err := filepath.Abs(filepath.Join(cwd, rootRel))
 		if err != nil {
@@ -103,9 +117,16 @@ func resolveMDPath(cwd, rel string) (string, string, error) {
 		if err != nil {
 			continue
 		}
-		if relPath == "." || (relPath != ".." && !strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) && !filepath.IsAbs(relPath)) {
-			return sel, absFull, nil
+		if relPath == "." || filepath.IsAbs(relPath) || relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
+			continue
 		}
+		if sel == "root" {
+			// top-level file only: no path separators, must be a .md file
+			if strings.ContainsAny(relPath, `/\`) || !strings.EqualFold(filepath.Ext(relPath), ".md") {
+				continue
+			}
+		}
+		return sel, absFull, nil
 	}
 	return "", "", ErrMDNotFound
 }
@@ -150,6 +171,7 @@ func NewContent(cwd string) http.Handler {
 			Frontmatter:  fm,
 			Body:         body,
 			RelatedPlans: relatedPlans(body, cwd),
+			Mermaid:      MermaidCfg{SecurityLevel: MermaidSecurityLevel()},
 		}
 		if info, err := os.Stat(abs); err == nil {
 			out.UpdatedAt = info.ModTime().UTC().Format("2006-01-02T15:04:05Z")
@@ -166,9 +188,13 @@ func NewTree(cwd string) http.Handler {
 		if root == "" {
 			root = "all"
 		}
+		if _, ok := mdRoots[root]; !ok && root != "all" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown root: " + root})
+			return
+		}
 		tree, err := BuildTree(r.Context(), cwd, root)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"root": root, "nodes": tree})
@@ -303,7 +329,7 @@ func orderedRoots(root string) []string {
 		return []string{}
 	}
 	// stable order
-	return []string{"sdd", "openspec", "backlog", "docs"}
+	return []string{"sdd", "openspec", "backlog", "docs", "root"}
 }
 
 func walkDir(ctx context.Context, abs, sel, name string) (*MDNode, error) {
@@ -318,6 +344,8 @@ func walkDir(ctx context.Context, abs, sel, name string) (*MDNode, error) {
 	if info, err := os.Stat(abs); err == nil {
 		node.Updated = info.ModTime().UTC().Format("2006-01-02")
 	}
+	// The "root" selector only lists top-level *.md files (not subdirs).
+	rootOnly := sel == "root"
 	for _, e := range entries {
 		select {
 		case <-ctx.Done():
@@ -326,6 +354,9 @@ func walkDir(ctx context.Context, abs, sel, name string) (*MDNode, error) {
 		}
 		childAbs := filepath.Join(abs, e.Name())
 		if e.IsDir() {
+			if rootOnly {
+				continue
+			}
 			child, err := walkDir(ctx, childAbs, sel, e.Name())
 			if err != nil {
 				return nil, err
@@ -363,7 +394,11 @@ func walkDir(ctx context.Context, abs, sel, name string) (*MDNode, error) {
 func Search(ctx context.Context, cwd, q string, limit int) []SearchHit {
 	qLower := strings.ToLower(q)
 	var hits []SearchHit
-	for _, sel := range orderedRoots("all") {
+	// Search the real doc roots (not the "." root — that would re-walk all
+	// other roots and double-count). Top-level root *.md are still scanned via
+	// a separate shallow pass below.
+	searchRoots := []string{"sdd", "openspec", "backlog", "docs"}
+	for _, sel := range searchRoots {
 		abs, err := filepath.Abs(filepath.Join(cwd, mdRoots[sel]))
 		if err != nil {
 			continue
@@ -397,6 +432,29 @@ func Search(ctx context.Context, cwd, q string, limit int) []SearchHit {
 			}
 			return nil
 		})
+	}
+	// Shallow pass: top-level root *.md (e.g. README.md) — not under a doc root.
+	if entries, err := os.ReadDir(cwd); err == nil {
+		for _, e := range entries {
+			if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".md") {
+				continue
+			}
+			path := filepath.Join(cwd, e.Name())
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			text := string(data)
+			if strings.Contains(strings.ToLower(text), qLower) {
+				_, body := splitFrontmatter(text)
+				hits = append(hits, SearchHit{
+					Path:    e.Name(),
+					Title:   titleFromBody(body, e.Name()),
+					Snippet: snippetAround(text, qLower),
+					Root:    "root",
+				})
+			}
+		}
 	}
 	sort.Slice(hits, func(i, j int) bool { return hits[i].Path < hits[j].Path })
 	if len(hits) > limit {

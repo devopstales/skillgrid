@@ -1624,6 +1624,147 @@ paths:
           $ref: "#/components/responses/Bad"
         "404":
           $ref: "#/components/responses/Bad"
+  /docs/tree:
+    get:
+      tags: [docs]
+      operationId: docsTree
+      summary: Grouped markdown doc tree across the declared roots
+      description: |-
+        Read-only tree of markdown files under `.skillgrid/specs/` (sdd),
+        `openspec/`, `.backlog/tasks/` (backlog), `docs/` (docs), and top-level
+        root `*.md`. Every path is sandboxed (clean + prefix-checked). The SPA
+        renders; the server never executes markdown.
+      parameters:
+        - name: root
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [sdd, openspec, backlog, docs, all]
+            default: all
+          description: Which root to include. `all` (default) includes every declared root.
+      responses:
+        "200":
+          description: Tree
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [root, nodes]
+                properties:
+                  root: { type: string }
+                  nodes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DocsTreeNode"
+              example:
+                root: all
+                nodes:
+                  - dir: true
+                    name: backlog
+                    path: backlog/.backlog/tasks
+                    children:
+                      - dir: false
+                        name: TASK-001-something.md
+                        path: .backlog/tasks/TASK-001-something.md
+                        title: Task one
+                        status: in-progress
+        "400":
+          $ref: "#/components/responses/Bad"
+  /docs/content:
+    get:
+      tags: [docs]
+      operationId: docsContent
+      summary: One markdown doc's raw body + frontmatter + related plans
+      description: |-
+        Returns the file body (for client-side render + sanitize), any YAML
+        frontmatter, cross-referenced plan names, the mermaid render config
+        (securityLevel: strict), and mtime. Sandboxed: raw `..`/absolute paths
+        are 400, clean-but-absent paths are 404.
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+          example: .backlog/tasks/TASK-001-something.md
+      responses:
+        "200":
+          description: Doc content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocsContent"
+              example:
+                path: .backlog/tasks/TASK-001-something.md
+                title: Task one
+                frontmatter: { id: TASK-001, status: in-progress, priority: high }
+                body: "# Task one\n\nBody.\n"
+                relatedPlans: []
+                updatedAt: "2026-09-08T00:00:00Z"
+                mermaid: { securityLevel: strict }
+        "400":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
+  /docs/search:
+    get:
+      tags: [docs]
+      operationId: docsSearch
+      summary: Case-insensitive search across all markdown docs
+      description: |-
+        Returns matching docs with a short snippet around the first match.
+        Scans every declared root plus top-level root `*.md`.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+          example: Briefing
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [q, results]
+                properties:
+                  q: { type: string }
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DocsSearchHit"
+              example:
+                q: Briefing
+                results:
+                  - path: .skillgrid/specs/009-web-admin-dashboard/briefing.md
+                    title: Briefing
+                    snippet: "…# Briefing …"
+                    root: sdd
+  /docs/render:
+    get:
+      tags: [docs]
+      operationId: docsRender
+      summary: Server-side rendered HTML fallback for a doc
+      description: |-
+        Conservative, dependency-free markdown→HTML (escaped; headings,
+        paragraphs, lists). The primary path renders client-side; this is an SSR
+        fallback. Same sandboxing as /docs/content.
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+          example: README.md
+      responses:
+        "200":
+          description: Rendered HTML
+          content:
+            text/html: {}
+        "400":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
   /swagger-ui:
     get:
       tags: [ui]
@@ -1698,6 +1839,72 @@ components:
         tasks_md:
           type: string
           description: Full tasks.md text; absent when the change has no tasks.md
+    DocsTreeNode:
+      type: object
+      required: [dir, name, path]
+      properties:
+        dir:
+          type: boolean
+        name:
+          type: string
+        path:
+          type: string
+          description: Repo-relative slash path
+        title:
+          type: string
+        status:
+          type: string
+          description: Frontmatter status (leaf markdown files only)
+        updated:
+          type: string
+          description: mtime, YYYY-MM-DD
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocsTreeNode"
+    DocsContent:
+      type: object
+      required: [path, body, mermaid]
+      properties:
+        path:
+          type: string
+        title:
+          type: string
+        frontmatter:
+          type: object
+          additionalProperties: { type: string }
+          description: Parsed YAML frontmatter (flat key/value); absent when none
+        body:
+          type: string
+          description: Markdown body (frontmatter stripped) — rendered + sanitized client-side
+        relatedPlans:
+          type: array
+          items: { type: string }
+          description: Other spec/change names referenced in the body
+        updatedAt:
+          type: string
+          format: date-time
+        mermaid:
+          type: object
+          required: [securityLevel]
+          properties:
+            securityLevel:
+              type: string
+              enum: [strict]
+              description: SPA must render mermaid at this level (XSS-safe)
+    DocsSearchHit:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+        title:
+          type: string
+        snippet:
+          type: string
+          description: Short text around the first match
+        root:
+          type: string
     TrackerItem:
       type: object
       required: [id, title, status, board, provider]
