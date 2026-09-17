@@ -88,23 +88,30 @@ type progressView struct {
 	start  time.Time
 }
 
+// View renders two lines: the phase label (+ current-file detail) on line one,
+// and the progress bar + done/total + elapsed on line two. The status line is
+// fixed-width regardless of the detail, so the bar sits in the same column
+// every frame — only the file line moves when the detail changes (no full-line
+// "jumping").
 func (v progressView) View() string {
 	elapsed := time.Since(v.start).Round(time.Second)
 	label := phaseLabel(v.phase)
 	if v.detail != "" {
 		label += " " + v.detail
 	}
-	var bar string
+	var status string
 	if v.total > 0 {
 		width := 20
 		filled := 0
 		if v.done > 0 {
 			filled = v.done * width / v.total
 		}
-		bar = " " + strings.Repeat("=", filled) + strings.Repeat(" ", width-filled) + " " +
-			fmt.Sprintf("%d/%d", v.done, v.total)
+		status = strings.Repeat("=", filled) + strings.Repeat(" ", width-filled) +
+			fmt.Sprintf(" %d/%d %s", v.done, v.total, elapsed)
+	} else {
+		status = elapsed.String()
 	}
-	return label + bar + " " + elapsed.String()
+	return label + "\n" + status
 }
 
 type tickMsg time.Time

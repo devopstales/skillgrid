@@ -58,6 +58,42 @@ func TestProgressViewRender(t *testing.T) {
 	}
 }
 
+// TestProgressViewStatusOnOwnLine: the progress bar + done/total + elapsed
+// must render on a line by itself, with the phase label (and current-file
+// detail) on the line above. The reported "jumping" was the whole single line
+// (label+detail+bar+counter) being rewritten on every file change; splitting
+// the status onto its own line keeps the bar in a fixed column so only the
+// file line moves.
+func TestProgressViewStatusOnOwnLine(t *testing.T) {
+	v := progressView{phase: "extract", detail: "skillgrid-ui/vite.config.ts", done: 10, total: 40, start: time.Now().Add(-2 * time.Second)}
+	lines := strings.Split(v.View(), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("view = %q, want exactly 2 lines (label line + status line)", v.View())
+	}
+	// Line 1: phase label + current file detail.
+	if !strings.Contains(lines[0], "extracting") || !strings.Contains(lines[0], "vite.config.ts") {
+		t.Errorf("line 0 = %q, want phase label + detail", lines[0])
+	}
+	// Line 2: bar + counter + elapsed, and NO file detail.
+	if !strings.Contains(lines[1], "10/40") || !strings.Contains(lines[1], "2s") {
+		t.Errorf("line 1 = %q, want done/total + elapsed", lines[1])
+	}
+	if strings.Contains(lines[1], "vite.config.ts") {
+		t.Errorf("line 1 = %q, must not contain the file detail", lines[1])
+	}
+	// The bar segment is fixed-width (20) regardless of detail length, so it
+	// sits in the same column on every frame. Extract the 20-char bar that
+	// immediately precedes " 10/40".
+	idx := strings.Index(lines[1], " 10/40")
+	if idx < 20 {
+		t.Fatalf("line 1 = %q, bar should end before the counter", lines[1])
+	}
+	bar := lines[1][idx-20 : idx]
+	if got := len(bar); got != 20 {
+		t.Errorf("bar width = %d, want 20 (fixed-width)", got)
+	}
+}
+
 // TestProgressModelEvent: phase start resets the counters; progress events
 // update them; the phase label tracks the latest start.
 func TestProgressModelEvent(t *testing.T) {
@@ -80,12 +116,9 @@ func TestProgressModelEvent(t *testing.T) {
 // non-trivial from frame one.
 func TestProgressViewInitialFrame(t *testing.T) {
 	m := progressModel{view: progressView{phase: "starting", start: time.Now()}}
-	first := m.View()
-	if !strings.Contains(first, "starting") {
-		t.Errorf("initial frame = %q, want a phase label (not a bare elapsed cell)", first)
-	}
-	if strings.TrimSpace(first) == strings.TrimSpace(first[strings.LastIndex(first, " "):]) {
-		t.Errorf("initial frame %q looks like a bare elapsed-time cell", first)
+	lines := strings.Split(m.View(), "\n")
+	if len(lines) < 1 || !strings.Contains(lines[0], "starting") {
+		t.Errorf("initial frame = %q, want a phase label on line one (not a bare elapsed cell)", m.View())
 	}
 }
 
