@@ -1,5 +1,5 @@
 import Graph from 'graphology'
-import type { EdgeAttributes, NodeAttributes } from 'graphology-types'
+import type { Attributes } from 'graphology-types'
 import type { GraphEdge, GraphNode } from './types'
 import { communityColor } from './communities'
 
@@ -10,7 +10,7 @@ import { communityColor } from './communities'
 // registered by default is "circle" (resolveSettings merges {circle: CircleProgram});
 // "default" does NOT exist, so nodes must use type: 'circle'. The symbol kind is
 // stored in `nodeType` to avoid colliding with the program selector.
-export interface GraphologyNode extends NodeAttributes {
+export interface GraphologyNode extends Attributes {
   size: number
   color: string
   label: string
@@ -20,9 +20,13 @@ export interface GraphologyNode extends NodeAttributes {
   degree: number
   community: number
   uid: string
+  // x/y are assigned by the layout (seeded to 0 at build); declared here so
+  // setNodeAttribute(n, 'x', ...) type-checks.
+  x: number
+  y: number
 }
 
-export interface GraphologyEdge extends EdgeAttributes {
+export interface GraphologyEdge extends Attributes {
   // `type` is Sigma's edge-program selector — v3 only registers "arrow"/"line"
   // by default, so we use "arrow". The actual edge kind (calls/imports/...) is
   // stored in `edgeType` for tooltips/legend.

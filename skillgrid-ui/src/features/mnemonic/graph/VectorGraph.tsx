@@ -86,9 +86,10 @@ function HoverTooltip() {
     registerEvents({
       enterNode: (e) => {
         const g = sigma.getGraph()
-        const n = g.getNodeAttributes(e.node) as Record<string, unknown>
+        const n = g.getNodeAttributes(e.node) as unknown as Record<string, unknown>
+        const offsetX = e.event.original instanceof MouseEvent ? e.event.original.offsetX : 0
         setTip({
-          x: e.event as unknown as { offsetX: number },
+          x: offsetX,
           y: 0,
           text: `${n.label} · ${n.nodeType} · degree ${n.degree} · ${
             (n.community as number) < 0 ? 'no community' : `community ${n.community}`
@@ -96,9 +97,8 @@ function HoverTooltip() {
         })
       },
       mousemove: (e) => {
-        setTip((prev) =>
-          prev ? { ...prev, x: (e.event as unknown as { offsetX: number }).offsetX, y: 0 } : prev,
-        )
+        const offsetX = e.original instanceof MouseEvent ? e.original.offsetX : 0
+        setTip((prev) => (prev ? { ...prev, x: offsetX, y: 0 } : prev))
       },
       leaveNode: () => setTip(null),
     })
@@ -108,7 +108,7 @@ function HoverTooltip() {
   return (
     <div
       className="pointer-events-none absolute top-2 z-10 rounded bg-slate-950/90 px-2 py-1 text-[11px] text-slate-200 shadow"
-      style={{ left: (tip.x as unknown as { offsetX: number }).offsetX + 12 }}
+      style={{ left: tip.x + 12 }}
     >
       {tip.text}
     </div>
@@ -119,8 +119,8 @@ function HoverTooltip() {
 // CDN is used ONLY in the exported artifact, never in the app.
 function exportHtml(g: Graph<GraphologyNode, GraphologyEdge>): void {
   const nodes: { id: string; label: string; x: number; y: number; size: number; color: string; title: string }[] = []
-  for (const n of g.order()) {
-    const a = g.getNodeAttributes(n) as Record<string, unknown>
+  for (const n of g.nodes()) {
+    const a = g.getNodeAttributes(n) as unknown as Record<string, unknown>
     nodes.push({
       id: n,
       label: String(a.label ?? n),
@@ -156,11 +156,10 @@ var s = new Sigma.default(g, document.getElementById('g'));
 }
 
 export function VectorGraph() {
-  const { g, raw, loading, error, layout, setLayout, recenter, degraded, truncated } =
+  const { g, raw, loading, error, layout, setLayout, degraded, truncated } =
     useMnemonicGraph()
   const [searchCenter, setSearchCenter] = useState<string | null>(null)
   const [depth, setDepth] = useState(2)
-  const [hoverNode, setHoverNode] = useState<string | null>(null)
 
   const labels = useMemo(
     () => (g ? visibleLabels(g, filterGraphByDepth(g, searchCenter, depth)) : []),
@@ -172,7 +171,6 @@ export function VectorGraph() {
     const found = searchNode(g, query)
     if (found) {
       setSearchCenter(found)
-      setHoverNode(found)
     }
   }
 
@@ -225,9 +223,9 @@ export function VectorGraph() {
         settings={{
           allowInvalidContainer: true,
           defaultEdgeType: 'arrow',
+          defaultNodeColor: '#0f172a',
+          labelColor: { color: '#e2e8f0' },
           labelRenderedSizeThreshold: 6,
-          nodeLabelColor: { color: '#e2e8f0' },
-          nodeBorderColor: { color: '#0f172a' },
         }}
       >
         <Loader g={g} />

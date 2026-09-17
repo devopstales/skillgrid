@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type Graph from 'graphology'
 import { mnemonicGraphToGraphology, type GraphologyEdge, type GraphologyNode } from '../converters'
 import { applyLayout, type LayoutKind } from '../layouts'
-import { fetchGraph, type GraphResponse } from '../api'
+import { fetchGraph } from '../api'
+import type { GraphResponse } from '../types'
 
 export interface UseMnemonicGraph {
   g: Graph<GraphologyNode, GraphologyEdge> | null

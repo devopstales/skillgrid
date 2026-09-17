@@ -4,6 +4,18 @@ import type { GraphologyNode, GraphologyEdge } from './converters'
 
 export type LayoutKind = 'force' | 'tree' | 'circles'
 
+// hashKey maps a node key to a stable pseudo-random-ish number in [0, 2π) for
+// spreading disconnected nodes on the fallback circle. Deterministic (string
+// hash) so repeated renders place the same node in the same spot.
+function hashKey(s: string): number {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return (h >>> 0) % (Math.PI * 2)
+}
+
 // forceLayout runs ForceAtlas2 for a bounded number of iterations. It stops
 // early when the layout "settles" (force below the threshold) so large graphs
 // don't spin forever.
@@ -32,7 +44,7 @@ export function forceLayout(
 // connected nodes sit on the inner circle, the rest fan out. Deterministic and
 // cheap — a good "organized" default.
 export function circlesLayout(g: Graph<GraphologyNode, GraphologyEdge>): void {
-  const nodes = g.order()
+  const nodes = g.nodes()
   if (nodes.length === 0) return
   const byDegree = [...nodes].sort(
     (a, b) => (g.getNodeAttribute(b, 'degree') ?? 0) - (g.getNodeAttribute(a, 'degree') ?? 0),
@@ -52,11 +64,11 @@ export function circlesLayout(g: Graph<GraphologyNode, GraphologyEdge>): void {
 // spreading children by depth + sibling index. Fallback to circles when the
 // graph is disconnected (BFS won't reach every node).
 export function treeLayout(g: Graph<GraphologyNode, GraphologyEdge>): void {
-  if (g.order() === 0) return
+  if (g.order === 0) return
   // root = highest-degree node
-  let root = g.order()[0]
+  let root = g.nodes()[0]
   let best = -1
-  for (const n of g.order()) {
+  for (const n of g.nodes()) {
     const d = g.getNodeAttribute(n, 'degree') ?? 0
     if (d > best) {
       best = d
@@ -86,7 +98,7 @@ export function treeLayout(g: Graph<GraphologyNode, GraphologyEdge>): void {
   }
   // place nodes: x by sibling index within depth, y by depth
   const byDepth = new Map<number, string[]>()
-  for (const n of g.order()) {
+  for (const n of g.nodes()) {
     const d = depth.get(n)
     if (d == null) continue // unreachable from root
     const arr = byDepth.get(d) ?? []
@@ -104,10 +116,10 @@ export function treeLayout(g: Graph<GraphologyNode, GraphologyEdge>): void {
     })
   }
   // any unreachable nodes fall back to a circles position
-  if (placed < g.order()) {
-    for (const n of g.order()) {
+  if (placed < g.order) {
+    for (const n of g.nodes()) {
       if (!depth.has(n)) {
-        const angle = g.hashCode(n) * 0.7
+        const angle = hashKey(n) * 0.7
         g.setNodeAttribute(n, 'x', 100 * Math.cos(angle))
         g.setNodeAttribute(n, 'y', 100 * Math.sin(angle))
       }
