@@ -312,7 +312,7 @@ func BuildTree(ctx context.Context, cwd, root string) ([]MDNode, error) {
 		if info, err := os.Stat(abs); err != nil || !info.IsDir() {
 			continue
 		}
-		node, err := walkDir(ctx, abs, sel, filepath.Base(abs))
+		node, err := walkDir(ctx, cwd, abs, sel, filepath.Base(abs))
 		if err != nil {
 			return nil, err
 		}
@@ -332,7 +332,22 @@ func orderedRoots(root string) []string {
 	return []string{"sdd", "openspec", "backlog", "docs", "root"}
 }
 
-func walkDir(ctx context.Context, abs, sel, name string) (*MDNode, error) {
+// repoRel returns the repo-relative slash path for abs, or "" on error.
+// cwd may be "." (the docsCwd default) — it is made absolute first so
+// filepath.Rel has two absolute operands.
+func repoRel(cwd, abs string) string {
+	absCwd, err := filepath.Abs(cwd)
+	if err != nil {
+		return ""
+	}
+	rel, err := filepath.Rel(absCwd, abs)
+	if err != nil {
+		return ""
+	}
+	return filepath.ToSlash(rel)
+}
+
+func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 	entries, err := os.ReadDir(abs)
 	if err != nil {
 		if errorsIsNotExist(err) {
@@ -340,7 +355,7 @@ func walkDir(ctx context.Context, abs, sel, name string) (*MDNode, error) {
 		}
 		return nil, err
 	}
-	node := &MDNode{Dir: true, Name: name, Path: sel + "/" + name, Title: name}
+	node := &MDNode{Dir: true, Name: name, Path: repoRel(cwd, abs), Title: name}
 	if info, err := os.Stat(abs); err == nil {
 		node.Updated = info.ModTime().UTC().Format("2006-01-02")
 	}
@@ -357,7 +372,7 @@ func walkDir(ctx context.Context, abs, sel, name string) (*MDNode, error) {
 			if rootOnly {
 				continue
 			}
-			child, err := walkDir(ctx, childAbs, sel, e.Name())
+			child, err := walkDir(ctx, cwd, childAbs, sel, e.Name())
 			if err != nil {
 				return nil, err
 			}
@@ -376,7 +391,7 @@ func walkDir(ctx context.Context, abs, sel, name string) (*MDNode, error) {
 		fm, body := splitFrontmatter(string(data))
 		cn := MDNode{
 			Name:  e.Name(),
-			Path:  filepath.ToSlash(childAbs),
+			Path:  repoRel(cwd, childAbs),
 			Title: titleFromBody(body, strings.TrimSuffix(e.Name(), ".md")),
 		}
 		if st, ok := fm["status"]; ok {
@@ -421,10 +436,9 @@ func Search(ctx context.Context, cwd, q string, limit int) []SearchHit {
 			}
 			text := string(data)
 			if strings.Contains(strings.ToLower(text), qLower) {
-				rel, _ := filepath.Rel(cwd, path)
 				_, body := splitFrontmatter(text)
 				hits = append(hits, SearchHit{
-					Path:    filepath.ToSlash(rel),
+					Path:    repoRel(cwd, path),
 					Title:   titleFromBody(body, filepath.Base(path)),
 					Snippet: snippetAround(text, qLower),
 					Root:    sel,
