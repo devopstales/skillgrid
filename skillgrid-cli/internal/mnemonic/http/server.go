@@ -154,6 +154,12 @@ func (s *Server) registerRoutes() {
 func (s *Server) registerDocsRoutes() {
 	s.mux.Handle("GET /docs/changes", docs.NewList(docsCwd))
 	s.mux.Handle("GET /docs/changes/{name}", docs.NewDetail(docsCwd))
+	// Phase 3: read-only markdown tree/content/search/render across the
+	// declared doc roots (sandboxed, read-only, rendered not executed).
+	s.mux.Handle("GET /docs/tree", docs.NewTree(docsCwd))
+	s.mux.Handle("GET /docs/content", docs.NewContent(docsCwd))
+	s.mux.Handle("GET /docs/search", docs.NewSearch(docsCwd))
+	s.mux.Handle("GET /docs/render", docs.NewRender(docsCwd))
 }
 
 // Handler returns the root http.Handler.
