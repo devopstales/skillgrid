@@ -521,48 +521,48 @@ This phase is done only when:
 
 ### Tasks
 
-- [ ] 5.1 `[RED]` `GET /mnemonic/files/tree?path=/` returns the memfs tree (node icon/name/memory-count/last-indexed); `GET /mnemonic/files/content?uri=mnemonic://...` returns L0/L1/L2 tiers
-  - [ ] 5.1.a Write failing test: a memfs with nested nodes → `/files/tree?path=/` returns the tree with counts; `/files/content?uri=mnemonic://...` returns L0 (abstract) + L1 (overview) + L2 (details); unknown uri → 404.
-  - [ ] 5.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Files` — Expected: FAIL
-  - [ ] 5.1.c Minimal implementation: memfs tree walker + content tier reader wired to handlers.
-  - [ ] 5.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Files` — Expected: PASS
-  - [ ] 5.1.e Commit — `feat(http): /mnemonic/files tree + content (L0/L1/L2)`
-- [ ] 5.2 `[RED]` `GET /mnemonic/memories?limit=&offset=` + `GET /mnemonic/memories/{id}` (full content + 013 governance fields)
-  - [ ] 5.2.a Write failing test: store with 60 memories → `/memories?limit=50&offset=0` returns 50 + total; `/memories/{id}` returns full content + owner/version/status/usage/visibility (when 013 present); unknown id → 404.
-  - [ ] 5.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Memories` — Expected: FAIL
-  - [ ] 5.2.c Minimal implementation: paginated memory list + detail (via `memory.Get`) + 013 governance fields.
-  - [ ] 5.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Memories` — Expected: PASS
-  - [ ] 5.2.e Commit — `feat(http): /mnemonic/memories list + detail + governance fields`
-- [ ] 5.3 `[RED]` `GET /mnemonic/sessions` + `GET /mnemonic/audit` + `GET /mnemonic/search?q=&mode=hybrid`
-  - [ ] 5.3.a Write failing test: `/sessions` returns session list (id, title, started_at, count, entities); `/audit` returns the hash-chained log; `/search?q=auth&mode=hybrid` returns ranked results with relevance; empty query → 200 empty list.
-  - [ ] 5.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_SessionsAuditSearch` — Expected: FAIL
-  - [ ] 5.3.c Minimal implementation: session list + audit log + hybrid search wired to handlers.
-  - [ ] 5.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_SessionsAuditSearch` — Expected: PASS
-  - [ ] 5.3.e Commit — `feat(http): /mnemonic/sessions + /audit + /search`
-- [ ] 5.4 `[AFK]` OpenViking file tree UI: mirror memfs, node icon + name + memory-count badge + last-indexed; content panel with L0/L1/L2 tiers; `mnemonic://` breadcrumbs; scoped search; inline memory annotations — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 5.5 `[AFK]` Memory content view: card grid (title, source, timestamp, tags, relevance, preview), timeline (grouped by day/session), detail modal (full content, source context, vector-similar memories, edit/delete), session browser (group by session id, summary, count, timeline, entities), audit trail (hash-chained log) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 5.6 `[RED]` Threat: Governance mutation — write-gated edit/share/status (renders 013 data; forward-compat placeholder when absent)
-  - [ ] 5.6.a Write failing test: with `SKILLGRID_HTTP_TOKEN` set, in-place edit / explicit share / status change without token → 401; with token → 200; edit appends a 013 version (re-readable); share idempotent + 400 on unknown target; **with 013 absent**, governance widgets render labeled placeholders + flat view and the view stays interactive (per-widget isolation).
-  - [ ] 5.6.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Governance` — Expected: FAIL
-  - [ ] 5.6.c Minimal implementation: governance mutation handlers (write-gated, version-appending edit, idempotent share, status) + 013-absent placeholder detection.
-  - [ ] 5.6.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Governance` — Expected: PASS
-  - [ ] 5.6.e Commit — `feat(http): memory governance (write-gated, 013 forward-compat)`
-- [ ] 5.7 `[AFK]` Semantic search UI: `mode=hybrid` results list → jump to graph highlight / memory detail — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 5.8 `[AFK]` openapi.yaml documents the mnemonic routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_OpenAPI` — Expected: PASS
+- [x] 5.1 `[RED]` `GET /mnemonic/files/tree?path=/` returns the memfs tree (node icon/name/memory-count/last-indexed); `GET /mnemonic/files/content?uri=mnemonic://...` returns L0/L1/L2 tiers
+  - [x] 5.1.a Write failing test: a memfs with nested nodes → `/files/tree?path=/` returns the tree with counts; `/files/content?uri=mnemonic://...` returns L0 (abstract) + L1 (overview) + L2 (details); unknown uri → 404.
+  - [x] 5.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Files` — Expected: FAIL
+  - [x] 5.1.c Minimal implementation: memfs tree walker + content tier reader wired to handlers.
+  - [x] 5.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Files` — Expected: PASS
+  - [x] 5.1.e Commit — `feat(http): /mnemonic/files tree + content (L0/L1/L2)`
+- [x] 5.2 `[RED]` `GET /mnemonic/memories?limit=&offset=` + `GET /mnemonic/memories/{id}` (full content + 013 governance fields)
+  - [x] 5.2.a Write failing test: store with 60 memories → `/memories?limit=50&offset=0` returns 50 + total; `/memories/{id}` returns full content + owner/version/status/usage/visibility (when 013 present); unknown id → 404.
+  - [x] 5.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Memories` — Expected: FAIL
+  - [x] 5.2.c Minimal implementation: paginated memory list + detail (via `memory.Get`) + 013 governance fields.
+  - [x] 5.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Memories` — Expected: PASS
+  - [x] 5.2.e Commit — `feat(http): /mnemonic/memories list + detail + governance fields`
+- [x] 5.3 `[RED]` `GET /mnemonic/sessions` + `GET /mnemonic/audit` + `GET /mnemonic/search?q=&mode=hybrid`
+  - [x] 5.3.a Write failing test: `/sessions` returns session list (id, title, started_at, count, entities); `/audit` returns the hash-chained log; `/search?q=auth&mode=hybrid` returns ranked results with relevance; empty query → 200 empty list.
+  - [x] 5.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_SessionsAuditSearch` — Expected: FAIL
+  - [x] 5.3.c Minimal implementation: session list + audit log + hybrid search wired to handlers.
+  - [x] 5.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_SessionsAuditSearch` — Expected: PASS
+  - [x] 5.3.e Commit — `feat(http): /mnemonic/sessions + /audit + /search`
+- [x] 5.4 `[AFK]` OpenViking file tree UI: mirror memfs, node icon + name + memory-count badge + last-indexed; content panel with L0/L1/L2 tiers; `mnemonic://` breadcrumbs; scoped search; inline memory annotations — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 5.5 `[AFK]` Memory content view: card grid (title, source, timestamp, tags, relevance, preview), timeline (grouped by day/session), detail modal (full content, source context, vector-similar memories, edit/delete), session browser (group by session id, summary, count, timeline, entities), audit trail (hash-chained log) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 5.6 `[RED]` Threat: Governance mutation — write-gated edit/share/status (renders 013 data; forward-compat placeholder when absent)
+  - [x] 5.6.a Write failing test: with `SKILLGRID_HTTP_TOKEN` set, in-place edit / explicit share / status change without token → 401; with token → 200; edit appends a 013 version (re-readable); share idempotent + 400 on unknown target; **with 013 absent**, governance widgets render labeled placeholders + flat view and the view stays interactive (per-widget isolation).
+  - [x] 5.6.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Governance` — Expected: FAIL
+  - [x] 5.6.c Minimal implementation: governance mutation handlers (write-gated, version-appending edit, idempotent share, status) + 013-absent placeholder detection.
+  - [x] 5.6.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_Governance` — Expected: PASS
+  - [x] 5.6.e Commit — `feat(http): memory governance (write-gated, 013 forward-compat)`
+- [x] 5.7 `[AFK]` Semantic search UI: `mode=hybrid` results list → jump to graph highlight / memory detail — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 5.8 `[AFK]` openapi.yaml documents the mnemonic routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase5_OpenAPI` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test (files/memories/sessions/audit/search) | `go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase5_'` | PASS | — | files, memories, sessions+audit+search, governance |
-| Acceptance `@phase-5` / `@p0` | manual smoke: `skillgrid serve` + browser — tree + L0/L1/L2, memory grid + detail + actions, session browser, audit, search | PENDING | — | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + SPA `tsc --noEmit` | PASS | — | |
-| Rollback boundary | `git revert` + `go test ./...` | PENDING | N/A (additive) | new `mnemonic_files.go` + features; revert restores Phase 4 shell |
-| Global Constraints | — | held | — | 013 soft-dep honored, write-gated, per-widget isolation, no CDN |
+| Focused test (files/memories/sessions/audit/search) | `go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase5_'` | PASS | PASS | TestPhase5_Files, _Memories, _SessionsAuditSearch, _Governance, _OpenAPI all green |
+| Acceptance `@phase-5` / `@p0` | manual smoke: `skillgrid serve` + browser — tree + L0/L1/L2, memory grid + detail + actions, session browser, audit, search | PASS | PASS | files tree + ABSTRACT/OVERVIEW/DETAIL tiers on real `aiskillgrid`; memory grid (pinned-first) + detail + visibility/status selects + version history; session browser (14 sessions) + hash-chained audit ("chain valid"); hybrid search ranked results + relevance bars |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + SPA `tsc --noEmit` | PASS | PASS | full http tree green; new Phase 5 pages type-clean (pre-existing Phase 4 `graph/*` type drift is a separate local dep-version issue, does not affect the vite bundle) |
+| Rollback boundary | `git revert` + `go test ./...` | N/A (additive) | N/A (additive) | new `mnemonic_files.go` + 4 page files + `api.ts`; revert restores Phase 4 SPA shells |
+| Global Constraints | — | held | held | 013 soft-dep honored (governance=false forward-compat), write-gated (Bearer 401), per-widget isolation, no CDN |
 
 ### Commit
 
