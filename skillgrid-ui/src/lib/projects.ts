@@ -1,34 +1,21 @@
-export const PROJECT_STORAGE_KEY = 'skillgrid.project'
-
-export interface ProjectsState {
-  projects: string[]
-  status: 'loading' | 'ready' | 'unavailable'
-}
-
-export function readStoredProject(): string | null {
+// currentProjectName resolves the project the server is running in via
+// GET /project/current (derived server-side from the git remote's repo name).
+// Read-only: the dashboard shows the active project, it does not switch
+// between several.
+export async function currentProjectName(): Promise<string> {
   try {
-    return window.localStorage.getItem(PROJECT_STORAGE_KEY)
+    const res = await fetch('/project/current', {
+      headers: { Accept: 'application/json' },
+    })
+    if (res.ok) {
+      const data = (await res.json()) as { project?: unknown }
+      if (typeof data.project === 'string' && data.project) {
+        return data.project
+      }
+    }
   } catch {
-    return null
+    // fall through
   }
-}
-
-export function storeProject(project: string): void {
-  try {
-    window.localStorage.setItem(PROJECT_STORAGE_KEY, project)
-  } catch {
-    // localStorage may be unavailable (private mode); selection still works in memory
-  }
-}
-
-export async function fetchProjects(): Promise<string[]> {
-  const res = await fetch('/projects', {
-    headers: { Accept: 'application/json' },
-  })
-  if (!res.ok) {
-    throw new Error(`GET /projects returned ${res.status}`)
-  }
-  const data = (await res.json()) as { projects?: unknown }
-  const list = Array.isArray(data.projects) ? data.projects : []
-  return list.filter((p): p is string => typeof p === 'string')
+  const title = document.title.trim()
+  return title && title.toLowerCase() !== 'untitled' ? title : 'project'
 }

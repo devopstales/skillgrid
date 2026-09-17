@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -139,6 +141,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /web/status", s.handleWebStatus)
 
 	s.mux.HandleFunc("GET /projects", s.handleProjects)
+	s.mux.HandleFunc("GET /project/current", s.handleProjectCurrent)
 
 	s.registerTeamsRoutes()
 	s.registerTrackerRoutes()
@@ -1462,6 +1465,53 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"projects": ids})
+}
+
+// handleProjectCurrent reports the single project the server is running in,
+// derived from the git remote's repo name (devopstales/skillgrid.git →
+// skillgrid). The dashboard shows this as a read-only badge — it does not
+// switch between projects. Falls back to the working-directory base name when
+// there is no origin remote, and "unknown" when neither is available.
+func (s *Server) handleProjectCurrent(w http.ResponseWriter, r *http.Request) {
+	name, ok := currentProjectFromGit()
+	if !ok {
+		name = filepath.Base(workDir())
+	}
+	if name == "" || name == "." {
+		name = "unknown"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"project": name})
+}
+
+// workDir is the server's working directory (where serve was launched).
+func workDir() string {
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return ""
+}
+
+// currentProjectFromGit returns the repo base name from `git remote get-url
+// origin` (strips .git and any owner path). Returns ok=false when there is no
+// origin remote or git fails.
+func currentProjectFromGit() (string, bool) {
+	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+	if err != nil {
+		return "", false
+	}
+	url := strings.TrimSpace(string(out))
+	if url == "" {
+		return "", false
+	}
+	url = strings.TrimSuffix(url, ".git")
+	seg := url
+	if i := strings.LastIndexAny(seg, "/:"); i >= 0 {
+		seg = seg[i+1:]
+	}
+	if seg == "" {
+		return "", false
+	}
+	return seg, true
 }
 
 func (s *Server) handleObservationsList(w http.ResponseWriter, r *http.Request) {

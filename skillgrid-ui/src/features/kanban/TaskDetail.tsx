@@ -45,13 +45,15 @@ export function TaskDetail({
   const t = full
 
   return (
-    <div className="fixed inset-0 z-40">
+    <div className="fixed inset-0 z-40 flex justify-end">
+      {/* Click-away scrim (transparent, keeps the board visible at 2/3). */}
       <div
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/20"
         onClick={onClose}
         aria-hidden
       />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-edge bg-card shadow-2xl">
+      {/* 1/3-width detail sidebar. */}
+      <aside className="relative right-0 top-0 flex h-full w-full max-w-[33vw] min-w-72 flex-col border-l border-edge bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-edge px-4 py-3">
           <span className="font-mono text-xs text-zinc-500">{task}</span>
           <button
