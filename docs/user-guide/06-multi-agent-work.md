@@ -25,7 +25,7 @@ Quality drops before the advertised window is full. Prefer more, smaller slices 
 | `parallel-execution` | 2+ **independent** problem domains in the same message (no shared files / shared `topic_key`) |
 | `simple-execution` | Small slice; inline without spawning |
 | `isolated-workspace` | Worktree isolation when branches would collide |
-| `deep-research` | Parallel researcher subagents (researcher / verifier / red-team) |
+| `code-research` | Parallel researcher subagents (researcher / verifier / red-team) |
 | `parallel-code-review` | 6 specialist reviewers in parallel, then triage / dedup / verdict |
 
 ## Parallel dispatch rules

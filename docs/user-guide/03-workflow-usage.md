@@ -11,7 +11,7 @@ Day-to-day Spec-Driven Development with AISkillGrid.
 ```
 onboarding → interviewing → writing-blueprints → slicing → [approval gate] → apply ⇄ qa → ticketing
               ↑                    ↑
-        optional spike / sketch / research / deep-research
+        optional spike / sketch / research / code-research
 ```
 
 ## Entry: `using-skillgrid`

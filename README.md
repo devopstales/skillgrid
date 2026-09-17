@@ -93,7 +93,7 @@ onboarding → interviewing → writing-blueprints → slicing → [approval gat
                                                               ↓
 reflect ← ship ← review ← qa ⇄ apply (simple / subagent / parallel)
                               ↑
-        optional spike / sketch / research / deep-research (before the blueprint)
+        optional spike / sketch / research / code-research (before the blueprint)
 ```
 
 | Phase | You get |
@@ -149,7 +149,7 @@ For the full walkthrough see [docs/user-guide/03-workflow-usage.md](docs/user-gu
 | `spike` | The plan rests on an unproven technical claim — falsifiable verdict |
 | `sketch` | The design has 2+ layout options and the answer depends on *feeling* it |
 | `research` | The design depends on a fact not in the codebase (lightweight) |
-| `deep-research` | Wide or high-stakes question — parallel researchers + verify + red-team |
+| `code-research` | Wide or high-stakes question — parallel researchers + verify + red-team |
 
 ### Execution
 | Skill | Use when |

@@ -32,7 +32,7 @@ Entry skill: **`using-skillgrid`** — invoke the relevant skill before ANY resp
 ```
 onboarding → interviewing → writing-blueprints → slicing → [approval gate] → apply ⇄ qa → ticketing
               ↑                    ↑
-        optional spike / sketch / research / deep-research
+        optional spike / sketch / research / code-research
 ```
 
 ## Quick path

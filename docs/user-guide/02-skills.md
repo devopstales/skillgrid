@@ -8,7 +8,7 @@ The 28 skills under `.agents/skills/`. Do not duplicate a general capability as 
 |-------|------|----------|
 | **Entry / router** | Invoked before any response; routes the phase | `using-skillgrid` |
 | **Workflow stages** | Own a pipeline stage; write `.skillgrid/` artifacts | `onboarding`, `writing-blueprints`, `slicing`, `qa`, `ticketing` |
-| **Discovery** | Reduce ambiguity before locking a blueprint | `interviewing`, `brainstorming`, `spike`, `sketch`, `research`, `deep-research` |
+| **Discovery** | Reduce ambiguity before locking a blueprint | `interviewing`, `brainstorming`, `spike`, `sketch`, `research`, `code-research` |
 | **Execution** | Run the plan; commit; resume | `simple-execution`, `subagent-execution`, `parallel-execution`, `work-unit-commits`, `resume` |
 | **Quality** | Evidence-based verification and review | `test-driven-development`, `test-driven-verification`, `acceptance-test-authoring`, `requesting-code-review`, `receiving-code-review`, `parallel-code-review` |
 | **Cross-cutting** | Reusable across stages and outside SDD | `mnemonic`, `isolated-workspace`, `structured-debugging`, `architectural-decision-records`, `ponytail` |
@@ -40,7 +40,8 @@ Priority: `using-skillgrid` → workflow stage → the general skills that stage
 | `spike` | Throwaway feasibility experiment producing an evidence-gated verdict (VALIDATED / INVALIDATED / PARTIAL), an investigation trail, and one liftable pure module. |
 | `sketch` | Build throwaway interactive UI mockups (2–3 structurally different variants, tab-switchable) to get a felt verdict + constraints for the real build. |
 | `research` | Lightweight single-pass research against primary sources with epistemics (research firewall) and type packs; appends a cited `## Research:` section to `findings.md`. |
-| `deep-research` | Heavy research: fan out parallel researcher subagents (researcher / verifier / red-team), verify load-bearing claims, red-team conclusions, synthesize a cited `## Research:` section in `findings.md`. |
+| `code-research` | Heavy informational research: fan out parallel researcher subagents (researcher / verifier / red-team), verify load-bearing claims, red-team conclusions, synthesize a cited `## Research:` section in `findings.md`. |
+| `deep-research` | Long-horizon experimental research: two-loop hypothesis → experiment → measure cycles with persistent state, direction decisions (deepen/broaden/pivot/conclude), and progress reporting. Generates new results, not just synthesized evidence. |
 
 ## Execution
 

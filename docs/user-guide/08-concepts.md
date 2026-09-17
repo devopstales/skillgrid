@@ -266,9 +266,9 @@ Gherkin-in-Markdown: "Markdown headings carry the capability, requirement, and s
 
 **ADR Review Manifest:** one per change at `…/specs/…/adr.md`. "The change's ADR completion marker and the read source for downstream skills. It holds *pointers* only — never duplicate a repo ADR's Context / Decision / Consequences." Sections: **In-Force ADRs Reviewed** / **New Durable ADRs Created** / **Supersessions**. "If nothing meets the bar, say so explicitly … Don't invent ADRs to fill the manifest."
 
-## The research firewall + epistemics + type packs (research / deep-research)
+## The research firewall + epistemics + type packs (research / code-research)
 
-**The research firewall:** "Project context — briefs, specs, code, memory, the glossary — shapes *what to ask*, never *what is true*. It is inadmissible as evidence: every claim in the findings file traces to a source you fetched. The firewall is why a fact your codebase *assumes* still gets re-verified against the source that owns it." In `deep-research` it's stronger: "Every researcher subagent runs behind it: it gets its brief and nothing else — no project files, no ambient context."
+**The research firewall:** "Project context — briefs, specs, code, memory, the glossary — shapes *what to ask*, never *what is true*. It is inadmissible as evidence: every claim in the findings file traces to a source you fetched. The firewall is why a fact your codebase *assumes* still gets re-verified against the source that owns it." In `code-research` it's stronger: "Every researcher subagent runs behind it: it gets its brief and nothing else — no project files, no ambient context."
 
 **Epistemics (two standing rules):** (1) "Never conclude from training data alone. What you already know proposes hypotheses, queries, and structure — it is not evidence. Conclusions require evidence retrieved *this run*. A claim you cannot evidence is stated as `unverified` or dropped, never asserted." (2) The research firewall.
 
@@ -284,11 +284,11 @@ Gherkin-in-Markdown: "Markdown headings carry the capability, requirement, and s
 
 Confidence per claim: **high** (verified, fresh, credible) / **medium** (single credible source, fresh) / **low** (stale, weak publisher, or disputed) / `unverified`. Findings land as a `## Research: <question>` section at `{specs_root}/YYYY-MM-DD-<topic>/findings.md`; "every load-bearing claim is cited inline `[n]` and resolves in the source appendix."
 
-**The boundary between research / spike / sketch / deep-research:** research = a fact not in the codebase, one inline pass; spike = needs code executed; sketch = needs *feeling* a layout; deep-research = wide or high-stakes.
+**The boundary between research / code-research / deep-research / spike / sketch:** research = a fact not in the codebase, one inline pass; code-research = wide or high-stakes *informational* question, parallel subagents + verify + red-team; deep-research = long-horizon *experimental* research (hypothesis → experiment → measure loops, persistent state); spike = needs code executed; sketch = needs *feeling* a layout.
 
-## Deep-research roles: researcher / verifier / red-team
+## Code-research roles: researcher / verifier / red-team
 
-`deep-research` fans out parallel researcher subagents, then verifies load-bearing claims and red-teams the conclusions before synthesizing a cited findings file.
+`code-research` fans out parallel researcher subagents, then verifies load-bearing claims and red-teams the conclusions before synthesizing a cited findings file.
 
 - **Researcher** — runs behind the firewall; returns a **digest, not raw results** — findings as claims `{claim, source, publisher, pub_date, accessed, confidence, class}`, plus leads and what it could not find. "Write each digest to `<run-folder>/digests/` the moment it lands — the conversation is a control channel, never the store." A two-source-class claim carries `needs_second_source: true` (the verifier closes it, not the researcher).
 - **Verifier** (fresh context, at landing, per dimension) — checks the load-bearing claims against an **independent source** (different publisher, different underlying data). Outcomes: **verified** / **disputed** ("independent sources materially disagree; report both, both cited, never averaged") / **unverified** / **overturned** ("corrected, original noted"). "Verification happens as material lands, per dimension — never as an end-of-run rewrite pass."
@@ -381,7 +381,7 @@ This "3 rounds then escalate" mirrors the QA fix-loop cap — both cap iteration
 
 ## `findings.md` — consolidated pre-design evidence
 
-"The consolidated file is the single downstream contract that `writing-blueprints` reads — it carries the research, spike, and sketch evidence for the topic in one place." At `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` (`# Findings — <topic>` header): research / deep-research appends `## Research: <question>` (cited findings, source appendix, confidence per claim); spike appends `## Spike: NNN-name` (Verdict / What we learned / What's liftable / Constraints for the build); sketch appends `## Sketch: NNN-name` (Winner / Rationale / What's liftable / Constraints / Mode). "Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it."
+"The consolidated file is the single downstream contract that `writing-blueprints` reads — it carries the research, spike, and sketch evidence for the topic in one place." At `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` (`# Findings — <topic>` header): research / code-research appends `## Research: <question>` (cited findings, source appendix, confidence per claim); spike appends `## Spike: NNN-name` (Verdict / What we learned / What's liftable / Constraints for the build); sketch appends `## Sketch: NNN-name` (Winner / Rationale / What's liftable / Constraints / Mode). "Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it."
 
 ## Branch finishing
 
