@@ -20,3 +20,17 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
+
+/* Sigma.js ships a white canvas via its imported style.css:
+   `.react-sigma { background: var(--sigma-background-color) }`. The shorthand
+   sets `background-color`, so a plain `background-color` longhand on the same
+   element loses to it — set the CSS var instead. The container also sets the
+   var inline (VectorGraph.tsx); this rule is the fallback if the inline style
+   is ever stripped. Keep the canvas transparent so the dark bg shows through. */
+.mnemonic-sigma.react-sigma {
+  --sigma-background-color: #0f172a;
+  background-color: #0f172a !important;
+}
+.mnemonic-sigma.react-sigma canvas {
+  background: transparent;
+}

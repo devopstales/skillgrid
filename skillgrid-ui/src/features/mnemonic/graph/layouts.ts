@@ -23,18 +23,22 @@ export function forceLayout(
   g: Graph<GraphologyNode, GraphologyEdge>,
   opts?: { iterations?: number },
 ): void {
-  const iterations = opts?.iterations ?? 120
+  const iterations = opts?.iterations ?? 300
   // .assign applies the computed positions back onto the graph (the plain call
   // only returns a mapping). Settings live under params.settings.
+  // Tuned so nodes don't collapse into one blob: high scalingRatio + antigravity
+  // pushes hubs apart, outboundAttraction keeps chains straight, adjustSizes
+  // forces a per-node repulsion floor, and a low barnesHutTheta gives crisper
+  // repulsion for the ~5k-node graphs this renders.
   forceAtlas2.assign(g, {
     iterations,
     settings: {
-      scalingRatio: 20,
-      gravity: 0.05,
-      strongGravityMode: true,
-      outboundAttractionDistribution: false,
+      scalingRatio: 60,
+      gravity: 0.1,
+      strongGravityMode: false,
+      outboundAttractionDistribution: true,
       adjustSizes: true,
-      barnesHutTheta: 0.5,
+      barnesHutTheta: 0.4,
       linLogMode: false,
     },
   })

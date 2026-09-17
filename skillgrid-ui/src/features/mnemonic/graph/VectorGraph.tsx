@@ -155,8 +155,52 @@ var s = new Sigma.default(g, document.getElementById('g'));
   URL.revokeObjectURL(url)
 }
 
+// LoadingState shows a progress indicator while the graph payload streams in,
+// then switches to an "organizing" label while the synchronous layout
+// computation runs (which blocks the main thread). We don't know the total
+// bytes up front, so the bar uses a saturating ease (fast start, slow finish)
+// capped at 92% — it never reads "done" until the layout actually lands.
+function LoadingState({ layingOut }: { layingOut: boolean }) {
+  const [pct, setPct] = useState(0)
+  useEffect(() => {
+    const start = performance.now()
+    let raf = 0
+    const loop = () => {
+      const t = (performance.now() - start) / 1000
+      // 92% cap while loading; pinned to 99% (not 100) during layout so the
+      // user can tell the phase changed by the label, not a bar jump.
+      const target = layingOut ? 99 : 92
+      const eased = target * (1 - Math.exp(-t / 1.4))
+      setPct(eased)
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [layingOut])
+
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-slate-950 p-6">
+      <div className="relative h-10 w-10">
+        <div className="absolute inset-0 animate-spin rounded-full border-2 border-slate-700 border-t-indigo-400" />
+      </div>
+      <div className="text-sm text-slate-300">
+        {layingOut ? 'Organizing layout…' : 'Loading graph…'}
+      </div>
+      <div className="h-1.5 w-56 overflow-hidden rounded-full bg-slate-800">
+        <div
+          className="h-full rounded-full bg-indigo-400"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="text-[11px] tabular-nums text-slate-500">
+        {Math.round(pct)}%
+      </div>
+    </div>
+  )
+}
+
 export function VectorGraph() {
-  const { g, raw, loading, error, layout, setLayout, degraded, truncated } =
+  const { g, raw, loading, layingOut, error, layout, setLayout, degraded, truncated } =
     useMnemonicGraph()
   const [searchCenter, setSearchCenter] = useState<string | null>(null)
   const [depth, setDepth] = useState(2)
@@ -174,7 +218,7 @@ export function VectorGraph() {
     }
   }
 
-  if (loading) return <div className="p-6 text-sm text-slate-400">Loading graph…</div>
+  if (loading) return <LoadingState layingOut={layingOut} />
   if (error) return <div className="p-6 text-sm text-red-400">Graph error: {error}</div>
   if (!g || !raw) return <div className="p-6 text-sm text-slate-400">No graph data.</div>
 
@@ -217,9 +261,14 @@ export function VectorGraph() {
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="relative h-full w-full overflow-hidden bg-slate-950">
       <SigmaContainer
-        className="h-full w-full"
+        className="mnemonic-sigma h-full w-full"
+        // Sigma reads the canvas background from the --sigma-background-color
+        // CSS var (its style.css sets background: var(--sigma-background-color)).
+        // Setting it inline on the co-occurring .react-sigma element overrides
+        // the shipped default (light) without a specificity fight.
+        style={{ ['--sigma-background-color' as string]: '#0f172a' }}
         settings={{
           allowInvalidContainer: true,
           defaultEdgeType: 'arrow',

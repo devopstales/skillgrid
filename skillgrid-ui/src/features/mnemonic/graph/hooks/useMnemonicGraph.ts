@@ -9,6 +9,10 @@ export interface UseMnemonicGraph {
   g: Graph<GraphologyNode, GraphologyEdge> | null
   raw: GraphResponse | null
   loading: boolean
+  // layingOut is true once the data has arrived but before the (synchronous)
+  // layout has been applied — lets the UI show an "organizing" indicator during
+  // the force/tree computation, which blocks the main thread.
+  layingOut: boolean
   error: string | null
   layout: LayoutKind
   setLayout: (k: LayoutKind) => void
@@ -26,6 +30,7 @@ export function useMnemonicGraph(): UseMnemonicGraph {
   const [g, setG] = useState<Graph<GraphologyNode, GraphologyEdge> | null>(null)
   const [raw, setRaw] = useState<GraphResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [layingOut, setLayingOut] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [layout, setLayoutState] = useState<LayoutKind>('force')
   const [focus, setFocus] = useState<{ id: number | null; depth: number }>({ id: null, depth: 2 })
@@ -34,18 +39,28 @@ export function useMnemonicGraph(): UseMnemonicGraph {
     let cancelled = false
     const run = async () => {
       setLoading(true)
+      setLayingOut(false)
       setError(null)
       try {
         const res = await fetchGraph(focus.id != null ? { nodeId: focus.id, depth: focus.depth } : undefined)
         if (cancelled) return
         setRaw(res)
+        // Data arrived; the layout computation below is synchronous and blocks
+        // the main thread. Flip layingOut so the indicator can render first
+        // (one frame), then compute, then publish the graph.
+        setLayingOut(true)
+        await new Promise((r) => requestAnimationFrame(() => r(null)))
         const graph = mnemonicGraphToGraphology(res.nodes, res.edges)
         applyLayout(graph, layout)
+        if (cancelled) return
         setG(graph)
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          setLayingOut(false)
+        }
       }
     }
     run()
@@ -66,6 +81,7 @@ export function useMnemonicGraph(): UseMnemonicGraph {
     g,
     raw,
     loading,
+    layingOut,
     error,
     layout,
     setLayout,
