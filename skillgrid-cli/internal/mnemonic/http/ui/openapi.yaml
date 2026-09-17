@@ -1640,9 +1640,9 @@ paths:
           required: false
           schema:
             type: string
-            enum: [sdd, openspec, backlog, docs, all]
+            enum: [skillgrid, openspec, speckit, superpowers, backlog, docs, all]
             default: all
-          description: Which root to include. `all` (default) includes every declared root.
+          description: Which doc method's artifacts to include. `all` (default) includes every method whose directories exist in the repo (skillgrid specs, openspec, speckit, superpowers, backlog, docs).
       responses:
         "200":
           description: Tree
@@ -1740,7 +1740,7 @@ paths:
                   - path: .skillgrid/specs/009-web-admin-dashboard/briefing.md
                     title: Briefing
                     snippet: "…# Briefing …"
-                    root: sdd
+                    root: skillgrid
   /docs/render:
     get:
       tags: [docs]

@@ -41,13 +41,23 @@ export interface DocsSearchResponse {
   results: DocsSearchHit[]
 }
 
-export const DOCS_ROOTS = ['all', 'sdd', 'openspec', 'backlog', 'docs'] as const
+export const DOCS_ROOTS = [
+  'all',
+  'skillgrid',
+  'openspec',
+  'speckit',
+  'superpowers',
+  'backlog',
+  'docs',
+] as const
 export type DocsRoot = (typeof DOCS_ROOTS)[number]
 
 export const ROOT_LABEL: Record<DocsRoot, string> = {
   all: 'All',
-  sdd: 'SDD Plans',
+  skillgrid: 'Skillgrid Specs',
   openspec: 'OpenSpec',
+  speckit: 'SpecKit',
+  superpowers: 'Superpowers',
   backlog: 'Backlog',
   docs: 'Docs',
 }

@@ -15,16 +15,32 @@ import (
 	"strings"
 )
 
-// mdRoot maps the tree `root=` selector to its on-disk directory (relative to
-// the server's working directory, the repo root). "sdd" maps to the spec/plan
-// store (.skillgrid/specs) in this repo layout.
-var mdRoots = map[string]string{
-	"sdd":     ".skillgrid/specs",
-	"openspec": "openspec",
-	"backlog": ".backlog/tasks",
-	"docs":    "docs",
-	"root":    ".",
+// mdRoots maps the tree `root=` selector to the on-disk directories (relative
+// to the server's working directory, the repo root) that hold that method's
+// spec/task/docs artifacts. Each entry is a list of candidate paths; only the
+// ones that actually exist in the current repo are shown, so the same dashboard
+// works from any repo that uses any subset of these methods.
+//
+// Methods (their canonical artifact locations, researched):
+//   - skillgrid:  .skillgrid/specs/<change>/{briefing,tasks,acceptance}.md
+//   - openspec:   openspec/specs/**, openspec/changes/**
+//   - speckit:    specs/<NNN-feature>/{spec,plan,tasks}.md, .specify/memory/constitution.md
+//   - superpowers: docs/superpowers/plans/**, docs/superpowers/specs/**
+//   - backlog:    .backlog/tasks/*.md
+//   - docs:       docs/** (human docs)
+//   - root:       top-level *.md
+var mdRoots = map[string][]string{
+	"skillgrid":   {".skillgrid/specs"},
+	"openspec":    {"openspec/specs", "openspec/changes", "openspec"},
+	"speckit":     {"specs", ".specify/memory"},
+	"superpowers": {"docs/superpowers/plans", "docs/superpowers/specs"},
+	"backlog":     {".backlog/tasks"},
+	"docs":        {"docs"},
+	"root":        {"."},
 }
+
+// mdRootOrder is the stable display/search order for root=all.
+var mdRootOrder = []string{"skillgrid", "openspec", "speckit", "superpowers", "backlog", "docs", "root"}
 
 // MDNode is one entry in the docs tree.
 type MDNode struct {
@@ -105,28 +121,31 @@ func resolveMDPath(cwd, rel string) (string, string, error) {
 	if err != nil {
 		return "", "", ErrMDBadPath
 	}
-	// Must sit under exactly one declared root. The "root" (".") selector is
-	// restricted to top-level *.md files (no subpaths) so it never swallows
-	// files under a real doc root or a private subdir.
-	for sel, rootRel := range mdRoots {
-		absRoot, err := filepath.Abs(filepath.Join(cwd, rootRel))
-		if err != nil {
-			continue
-		}
-		relPath, err := filepath.Rel(absRoot, absFull)
-		if err != nil {
-			continue
-		}
-		if relPath == "." || filepath.IsAbs(relPath) || relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
-			continue
-		}
-		if sel == "root" {
-			// top-level file only: no path separators, must be a .md file
-			if strings.ContainsAny(relPath, `/\`) || !strings.EqualFold(filepath.Ext(relPath), ".md") {
+	// Must sit under one of the candidate paths of a declared root. Check the
+	// most-specific roots first (mdRootOrder) so a file under e.g. openspec/
+	// resolves to "openspec", not the broader "root" (".") catch-all. The
+	// "root" selector is restricted to top-level *.md files (no subpaths).
+	for _, sel := range mdRootOrder {
+		for _, rootRel := range mdRoots[sel] {
+			absRoot, err := filepath.Abs(filepath.Join(cwd, rootRel))
+			if err != nil {
 				continue
 			}
+			relPath, err := filepath.Rel(absRoot, absFull)
+			if err != nil {
+				continue
+			}
+			if relPath == "." || filepath.IsAbs(relPath) || relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
+				continue
+			}
+			if sel == "root" {
+				// top-level file only: no path separators, must be a .md file
+				if strings.ContainsAny(relPath, `/\`) || !strings.EqualFold(filepath.Ext(relPath), ".md") {
+					continue
+				}
+			}
+			return sel, absFull, nil
 		}
-		return sel, absFull, nil
 	}
 	return "", "", ErrMDNotFound
 }
@@ -306,22 +325,28 @@ func relatedPlans(body, cwd string) []string {
 }
 
 // BuildTree walks the selected root(s) and returns a nested tree of MDNode.
+// Each root is a list of candidate paths; only directories that exist in the
+// current repo are walked, so the tree adapts to whatever methods the repo uses.
 func BuildTree(ctx context.Context, cwd, root string) ([]MDNode, error) {
 	sels := orderedRoots(root)
 	var out []MDNode
 	for _, sel := range sels {
-		abs, err := filepath.Abs(filepath.Join(cwd, mdRoots[sel]))
-		if err != nil {
-			continue
+		for _, rootRel := range mdRoots[sel] {
+			abs, err := filepath.Abs(filepath.Join(cwd, rootRel))
+			if err != nil {
+				continue
+			}
+			if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+				continue
+			}
+			node, err := walkDir(ctx, cwd, abs, sel, filepath.Base(abs))
+			if err != nil {
+				return nil, err
+			}
+			if node != nil {
+				out = append(out, *node)
+			}
 		}
-		if info, err := os.Stat(abs); err != nil || !info.IsDir() {
-			continue
-		}
-		node, err := walkDir(ctx, cwd, abs, sel, filepath.Base(abs))
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *node)
 	}
 	return out, nil
 }
@@ -334,7 +359,7 @@ func orderedRoots(root string) []string {
 		return []string{}
 	}
 	// stable order
-	return []string{"sdd", "openspec", "backlog", "docs", "root"}
+	return mdRootOrder
 }
 
 // repoRel returns the repo-relative slash path for abs, or "" on error.
@@ -352,6 +377,35 @@ func repoRel(cwd, abs string) string {
 	return filepath.ToSlash(rel)
 }
 
+// specTaskFile reports whether a markdown filename is a Skillgrid spec/task doc.
+// The SDD root shows only the plan/spec artifacts (briefing, tasks, acceptance,
+// spec) — research side-products (findings, adr, digests, literature) and the
+// research branch are hidden to keep the tree focused on specs + tasks.
+func specTaskFile(name string) bool {
+	switch strings.ToLower(name) {
+	case "briefing.md", "tasks.md", "acceptance.feature", "spec.md", "specs.md",
+		"blueprint.md", "plan.md", "intent.md":
+		return true
+	}
+	base := strings.ToLower(strings.TrimSuffix(name, ".md"))
+	return base == "spec" || base == "specs" || base == "plan" ||
+		base == "briefing" || base == "tasks" || base == "acceptance" ||
+		base == "blueprint" || base == "intent"
+}
+
+// specTaskDir reports whether a subdirectory of the SDD root is a plan/spec
+// container (a change folder) rather than a research side-product dir. Change
+// folders are dated (YYYY-MM-DD-*) or plainly named; digests/literature/notes
+// are research and hidden.
+func specTaskDir(name string) bool {
+	switch strings.ToLower(name) {
+	case "digests", "literature", "notes", "research", "sources", "refs",
+		"findings", "assets", "images":
+		return false
+	}
+	return true
+}
+
 func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 	entries, err := os.ReadDir(abs)
 	if err != nil {
@@ -366,6 +420,9 @@ func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 	}
 	// The "root" selector only lists top-level *.md files (not subdirs).
 	rootOnly := sel == "root"
+	// The "skillgrid" selector shows only spec/task files (not research
+	// side-products) to keep the tree focused on the plan/spec artifacts.
+	specOnly := sel == "skillgrid"
 	for _, e := range entries {
 		select {
 		case <-ctx.Done():
@@ -375,6 +432,10 @@ func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 		childAbs := filepath.Join(abs, e.Name())
 		if e.IsDir() {
 			if rootOnly {
+				continue
+			}
+			// spec/task only: skip research dirs (digests, literature, ...).
+			if specOnly && !specTaskDir(e.Name()) {
 				continue
 			}
 			child, err := walkDir(ctx, cwd, childAbs, sel, e.Name())
@@ -387,6 +448,10 @@ func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 			continue
 		}
 		if !strings.EqualFold(filepath.Ext(e.Name()), ".md") {
+			continue
+		}
+		// spec/task only: skip non-plan files in the SDD root.
+		if specOnly && !specTaskFile(e.Name()) {
 			continue
 		}
 		data, err := os.ReadFile(childAbs)
@@ -407,6 +472,11 @@ func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 		}
 		node.Children = append(node.Children, cn)
 	}
+	// spec/task only: prune change folders that ended up with no visible
+	// spec/task children (e.g. research-only branches).
+	if specOnly && !rootOnly && len(node.Children) == 0 {
+		return nil, nil
+	}
 	return node, nil
 }
 
@@ -417,40 +487,52 @@ func Search(ctx context.Context, cwd, q string, limit int) []SearchHit {
 	// Search the real doc roots (not the "." root — that would re-walk all
 	// other roots and double-count). Top-level root *.md are still scanned via
 	// a separate shallow pass below.
-	searchRoots := []string{"sdd", "openspec", "backlog", "docs"}
-	for _, sel := range searchRoots {
-		abs, err := filepath.Abs(filepath.Join(cwd, mdRoots[sel]))
-		if err != nil {
+	for _, sel := range mdRootOrder {
+		if sel == "root" {
 			continue
 		}
-		_ = filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
+		for _, rootRel := range mdRoots[sel] {
+			abs, err := filepath.Abs(filepath.Join(cwd, rootRel))
 			if err != nil {
+				continue
+			}
+			if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+				continue
+			}
+			_ = filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
+				if err != nil {
+					return nil
+				}
+				if d.IsDir() || !strings.EqualFold(filepath.Ext(path), ".md") {
+					return nil
+				}
+				// Keep search consistent with the tree: the skillgrid root only
+				// searches spec/task files (research side-products stay hidden).
+				if sel == "skillgrid" && !specTaskFile(filepath.Base(path)) {
+					return nil
+				}
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+				}
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return nil
+				}
+				text := string(data)
+				if strings.Contains(strings.ToLower(text), qLower) {
+					_, body := splitFrontmatter(text)
+					hits = append(hits, SearchHit{
+						Path:    repoRel(cwd, path),
+						Title:   titleFromBody(body, filepath.Base(path)),
+						Snippet: snippetAround(text, qLower),
+						Root:    sel,
+					})
+				}
 				return nil
-			}
-			if d.IsDir() || !strings.EqualFold(filepath.Ext(path), ".md") {
-				return nil
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return nil
-			}
-			text := string(data)
-			if strings.Contains(strings.ToLower(text), qLower) {
-				_, body := splitFrontmatter(text)
-				hits = append(hits, SearchHit{
-					Path:    repoRel(cwd, path),
-					Title:   titleFromBody(body, filepath.Base(path)),
-					Snippet: snippetAround(text, qLower),
-					Root:    sel,
-				})
-			}
-			return nil
-		})
+			})
+		}
 	}
 	// Shallow pass: top-level root *.md (e.g. README.md) — not under a doc root.
 	if entries, err := os.ReadDir(cwd); err == nil {
