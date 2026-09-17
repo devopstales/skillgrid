@@ -108,7 +108,7 @@ The change touches **Mnemonic tool contracts** (`code_*` tools) → the Skillgri
 - Deletion test: without it, the MCP handlers have no deterministic renderer — the compact branch in Task 3/4 has nothing to call and re-derives the line format inline (duplication across two handlers).
 - Adapters: 1 (the single production call site path via the MCP handlers). The seam is justified by testability, not by a second adapter.
 
-**SATISFIES:** compact-format-symbol, compact-format-chunk, compact-no-body, compact-deterministic
+**SATISFIES:** compact-format-symbol, compact-no-body, compact-deterministic
 
 - [ ] **Step 1: Write the failing test**
 
@@ -694,7 +694,7 @@ git commit -m "feat(mcp): add context + unfold params to code_search"
 
 ## Self-Review
 
-1. **Spec coverage:** DoD item 1 (hybrid compact) → Task 3; item 2 (hybrid full unchanged) → Task 3 (omitted-context subtest); item 3 (fts compact) → Task 4; item 4 (≤250 tokens) → Task 1 (`TestCompactFormat` budget subtest) + Task 3 (MCP budget); item 5 (full unchanged regression) → Task 3 (omitted) + Task 4 (full path untouched); item 6 (determinism) → Task 1 (`TestCompactFormat` determinism assertion); item 7 (unfold) → Task 2 + Task 3/4; item 8/9 (test commands) → Task 3/4 Step 4; item 10 (no algorithm change) → Global Constraints. No gaps.
+1. **Spec coverage:** DoD item 1 (hybrid compact) → Task 3; item 2 (hybrid full unchanged) → Task 3 (omitted-context subtest); item 3 (fts compact) → Task 4; item 4 (≤250 tokens) → Task 2 (`TestCompactFormat` chunk + token-budget subtests) + Task 3 (MCP budget); item 5 (full unchanged regression) → Task 3 (omitted) + Task 4 (full path untouched); item 6 (determinism) → Task 1 (`TestCompactFormat` determinism assertion); item 7 (unfold) → Task 2 + Task 3/4; item 8/9 (test commands) → Task 3/4 Step 4; item 10 (no algorithm change) → Global Constraints. No gaps.
 2. **Must-haves coverage:** every DoD item maps to a truth/artifact/key-link above; the two `backstop` truths (MCP runtime + determinism) carry held-out tests.
 3. **One-way-door completeness:** the response-shape contract change is listed in Must-Haves and tagged `> ⚠ one-way:` on Task 3 and Task 4.
 4. **Placeholder scan:** no TBD/TODO/"similar to Task N"; every code step shows real code; the `search.CodeHit`→`hybrid.Hit` field mapping (`Path/StartLine/EndLine/Snippet`) matches the existing `codeHitDTOs` usage in `tools_code.go`.
