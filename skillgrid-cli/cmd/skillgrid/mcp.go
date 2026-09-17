@@ -20,6 +20,7 @@ import (
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/setup"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/ui"
 )
 
 // runMCP starts the MCP stdio server.
@@ -243,7 +244,18 @@ func runIndex(version string, args []string) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	stats, err := svc.RunCodeIndexPDG(ctx, dir, pdg, lsp)
+	// Live progress: bubbletea view on a capable TTY, one stderr line per
+	// phase otherwise (pipes/CI/NO_COLOR stay clean on stdout).
+	var rep progressReporter
+	if ui.FancyUI() {
+		rep = newProgressViewTea(os.Stderr)
+	} else {
+		rep = newPlainProgress(os.Stderr)
+	}
+	rep.Start()
+	defer rep.Done()
+
+	stats, err := svc.RunCodeIndexPDGWithProgress(ctx, dir, pdg, lsp, rep.Event)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)

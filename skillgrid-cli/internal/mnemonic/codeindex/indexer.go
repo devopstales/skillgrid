@@ -53,6 +53,27 @@ type Config struct {
 	// / failing / timing-out server warns and continues, leaving the static
 	// index unchanged (no partial LSP edge set).
 	LSP bool
+	// Progress, when set, receives live indexing events (phase transitions
+	// and per-file/per-item progress) during Run. It is nil by default — a
+	// nil Progress changes no behavior — and is safe to call from the
+	// indexing goroutine; keep it non-blocking (the CLI forwards events to
+	// a channel or a line writer).
+	Progress func(Event)
+}
+
+// Event is one progress report emitted during Indexer.Run. Phase is a stable
+// slug ("scan", "extract", "embed", "community", "import-cycles", "process",
+// "knowledge", "lsp", "pdg", "resolution-audit", "complete"); PhaseStart is
+// true on the single event announcing a phase begins (Done==Total==0);
+// progress events carry Done/Total for the current position (Total==0 means
+// unknown — spin, don't bar). Detail is an optional human label (e.g. the
+// current file or function).
+type Event struct {
+	Phase      string
+	PhaseStart bool
+	Done       int
+	Total      int
+	Detail     string
 }
 
 // Stats summarizes one indexing run.
@@ -423,6 +444,12 @@ type Indexer struct {
 	// default. A test sets a tiny value to exercise the hang/timeout path
 	// without waiting 30s.
 	lspTimeout time.Duration
+	// emit is the live progress reporter for the current Run (bound at the
+	// top of Run; a no-op when Config.Progress is nil).
+	emit func(Event)
+	// embedDone/embedTotal track items embedded since the embed phase
+	// started, for per-item progress events.
+	embedDone, embedTotal int
 }
 
 // New creates an Indexer backed by st.
@@ -489,16 +516,25 @@ type existingFile struct {
 // dual-sync drift).
 func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, error) {
 	var stats Stats
+	emit := cfg.Progress
+	if emit == nil {
+		emit = func(Event) {}
+	}
 	if idx == nil || idx.store == nil || idx.store.DB == nil {
 		return stats, fmt.Errorf("indexer not initialized")
 	}
 	if cfg.MaxFileSize > 0 {
 		maxFileSize = int64(cfg.MaxFileSize)
 	}
+	idx.emit = cfg.Progress
+	if idx.emit == nil {
+		idx.emit = func(Event) {}
+	}
 	scanned, err := Scan(root, cfg.Include, cfg.Exclude)
 	if err != nil {
 		return stats, err
 	}
+	idx.emit(Event{Phase: "scan", PhaseStart: true, Total: len(scanned)})
 	existing, err := loadExistingFiles(idx.store.DB)
 	if err != nil {
 		return stats, err
@@ -516,7 +552,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 		return stats, err
 	}
 	defer tx.Rollback()
-	for _, file := range scanned {
+	for i, file := range scanned {
 		if err := ctx.Err(); err != nil {
 			return stats, err
 		}
@@ -609,6 +645,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 			targetUIDs[uid] = struct{}{}
 		}
 		stats.FilesIndexed++
+		emit(Event{Phase: "extract", Done: i + 1, Total: len(scanned), Detail: file.Path})
 	}
 	// Target-state prune: a deleted file prunes its whole footprint via the
 	// file_id cascade; symbols whose file still exists but was rewritten are
@@ -697,18 +734,22 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	// passes at index time so code_processes / code_communities / code_docs /
 	// code_configs / code_sql_* are populated. Each pass is advisory and
 	// never load-bearing: a pass failure warns and continues.
+	idx.emit(Event{Phase: "community", PhaseStart: true})
 	if err := idx.communityPass(ctx, passDB); err != nil {
 		fmt.Fprintf(os.Stderr, "warn: community pass: %v\n", err)
 	}
 	// 038: import-cycle detection (graphify "Import Cycles" signal): walk the
 	// file import subgraph for dependency loops and persist them to
 	// import_cycles (target-state). Advisory, never load-bearing.
+	idx.emit(Event{Phase: "import-cycles", PhaseStart: true})
 	if err := community.RunImportCyclePass(ctx, passDB); err != nil {
 		fmt.Fprintf(os.Stderr, "warn: import cycles: %v\n", err)
 	}
+	idx.emit(Event{Phase: "process", PhaseStart: true})
 	if err := idx.processPass(ctx, passDB); err != nil {
 		fmt.Fprintf(os.Stderr, "warn: process pass: %v\n", err)
 	}
+	idx.emit(Event{Phase: "knowledge", PhaseStart: true})
 	if err := idx.knowledgePass(ctx, passDB, scanned); err != nil {
 		fmt.Fprintf(os.Stderr, "warn: knowledge pass: %v\n", err)
 	}
@@ -720,6 +761,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	// passes are advisory (warn + continue); a failure never rolls back the
 	// already-committed 005 graph.
 	if idx.lspEnabled || cfg.LSP {
+		idx.emit(Event{Phase: "lsp", PhaseStart: true, Total: len(scanned)})
 		if err := idx.lspPass(ctx, passDB, scanned); err != nil {
 			fmt.Fprintf(os.Stderr, "warn: lsp pass: %v\n", err)
 		}
@@ -728,6 +770,11 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	// (the scanned files are already in memory, so this is a fallback only).
 	scanRoot = root
 	if idx.pdgEnabled || cfg.PDG {
+		if n, err := pdgFunctions(passDB); err == nil {
+			idx.emit(Event{Phase: "pdg", PhaseStart: true, Total: len(n)})
+		} else {
+			idx.emit(Event{Phase: "pdg", PhaseStart: true})
+		}
 		if err := idx.pdgPass(ctx, passDB, scanned); err != nil {
 			fmt.Fprintf(os.Stderr, "warn: pdg pass: %v\n", err)
 		}
@@ -737,6 +784,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	// a short hash of the structural schema so code_status can detect a
 	// silently-stale index (built by an older extraction schema). Both are
 	// advisory; a failure never rolls back the committed graph.
+	idx.emit(Event{Phase: "resolution-audit", PhaseStart: true, Total: len(scanned)})
 	if err := idx.resolutionAuditPass(ctx, passDB, scanned); err != nil {
 		fmt.Fprintf(os.Stderr, "warn: resolution audit: %v\n", err)
 	}
@@ -750,6 +798,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	if idx.emb != nil && idx.emb.Model() != "" {
 		hybrid.InvalidateVectorCache(idx.store.Path(), idx.emb.Model())
 	}
+	idx.emit(Event{Phase: "complete", PhaseStart: true})
 	return stats, nil
 }
 
@@ -1014,6 +1063,19 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 		return nil
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
+	// Count the items that still need a vector under the current model
+	// (the model-swap guard below clears stale rows before embedding, so the
+	// count reflects the work actually done). Used for progress reporting.
+	var symTotal, chunkTotal int
+	_ = tx.QueryRow(`SELECT COUNT(*) FROM symbols s WHERE NOT EXISTS
+		(SELECT 1 FROM embeddings e WHERE e.symbol_id = s.id AND e.model = ?)`, model).Scan(&symTotal)
+	_ = tx.QueryRow(`SELECT COUNT(*) FROM chunks c WHERE NOT EXISTS
+		(SELECT 1 FROM chunk_embeddings ce WHERE ce.chunk_id = c.id AND ce.model = ?)`, model).Scan(&chunkTotal)
+	idx.embedDone = 0
+	idx.embedTotal = symTotal + chunkTotal
+	if idx.embedTotal > 0 {
+		idx.emit(Event{Phase: "embed", PhaseStart: true, Total: idx.embedTotal})
+	}
 	// Model-swap guard: if the indexed model differs, clear all vectors.
 	var indexedModel string
 	_ = tx.QueryRow(`SELECT value FROM embed_meta WHERE key = 'embedding_model'`).Scan(&indexedModel)
@@ -1083,6 +1145,10 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 		`, symID, model, dim, blob, now, lang); err != nil {
 			return err
 		}
+		idx.embedDone++
+		if total := idx.embedTotal; total > 0 {
+			idx.emit(Event{Phase: "embed", Done: idx.embedDone, Total: total, Detail: name})
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -1146,6 +1212,10 @@ func (idx *Indexer) embedChunks(ctx context.Context, tx *sql.Tx, model string, d
 			  language = excluded.language
 		`, chunkID, model, dim, blob, now, lang); err != nil {
 			return err
+		}
+		idx.embedDone++
+		if total := idx.embedTotal; total > 0 {
+			idx.emit(Event{Phase: "embed", Done: idx.embedDone, Total: total, Detail: "chunk"})
 		}
 	}
 	return rows.Err()

@@ -1749,6 +1749,33 @@ func (s *Service) RunCodeIndexPDG(ctx context.Context, directory string, pdg, ls
 	return idx.Run(ctx, directory, idxCfg)
 }
 
+// RunCodeIndexPDGWithProgress is RunCodeIndexPDG with a live progress
+// callback threaded into the indexer's Config.Progress (the CLI's `index`
+// command renders it). A nil progress is exactly the RunCodeIndexPDG path.
+func (s *Service) RunCodeIndexPDGWithProgress(ctx context.Context, directory string, pdg, lsp bool, progress func(codeindex.Event)) (codeindex.Stats, error) {
+	h, cleanup, err := s.openProjectForDirectory(directory)
+	if err != nil {
+		return codeindex.Stats{}, err
+	}
+	defer cleanup()
+	cfg := config.Load(directory)
+	idxCfg := codeindex.Config{
+		Include:      cfg.Include,
+		Exclude:      cfg.Exclude,
+		ChunkLines:   cfg.ChunkLines,
+		ChunkOverlap: cfg.ChunkOverlap,
+		MaxFileSize:  cfg.MaxFileSize,
+		PDG:          pdg,
+		LSP:          lsp,
+		Progress:     progress,
+	}
+	idx := codeindex.New(h.store)
+	if emb := resolveEmbedder(h.root); emb != nil {
+		idx = idx.WithEmbedder(emb)
+	}
+	return idx.Run(ctx, directory, idxCfg)
+}
+
 // ReindexStructural runs a structural-only incremental re-index for directory:
 // it syncs chunks/symbols/edges (the 005 extraction) but does NOT attach an
 // embedder, so no model load or embedding call happens. This is the

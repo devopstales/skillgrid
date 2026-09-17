@@ -41,10 +41,11 @@ func (idx *Indexer) pdgPass(ctx context.Context, passDB *sql.DB, scanned []Scann
 	if err != nil {
 		return err
 	}
-	for _, s := range syms {
+	for i, s := range syms {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		idx.emit(Event{Phase: "pdg", Done: i + 1, Total: len(syms), Detail: s.Name})
 		relPath, err := fileIDToPath(passDB, s.FileID)
 		if err != nil {
 			continue
