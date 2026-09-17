@@ -1,20 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import mermaid from 'mermaid'
 import DOMPurify from 'dompurify'
 
-// mermaid is configured once with the safe defaults. securityLevel 'strict'
-// (the server-declared default) forbids raw HTML inside node labels, and we
-// additionally DOMPurify-sanitize the rendered SVG before injecting it.
-let configured = false
-function ensureConfigured(securityLevel: string) {
-  if (configured) return
-  configured = true
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: securityLevel === 'strict' ? 'strict' : 'strict',
-    theme: 'dark',
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  })
+// mermaid is loaded lazily (dynamic import) so its ~700 kB bundle is only
+// fetched when a diagram actually renders, keeping the initial app payload
+// small. The promise is memoized at module scope so the lib is initialized
+// exactly once across all blocks.
+let mermaidPromise: Promise<typeof import('mermaid').default> | null = null
+function loadMermaid(): Promise<typeof import('mermaid').default> {
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then((m) => {
+      m.default.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict', // forbids raw HTML inside node labels
+        theme: 'dark',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+      })
+      return m.default
+    })
+  }
+  return mermaidPromise
 }
 
 // FNV-1a — a cheap, dependency-free content hash for the SVG cache key.
@@ -31,11 +35,11 @@ const svgCache = new Map<string, string>()
 let idSeq = 0
 
 export function MermaidBlock({ code, securityLevel }: { code: string; securityLevel?: string }) {
-  ensureConfigured(securityLevel ?? 'strict')
   const ref = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
   const key = useMemo(() => hash(code), [code])
   const cached = svgCache.get(key)
+  void securityLevel // reserved for future per-block overrides
 
   useEffect(() => {
     let cancelled = false
@@ -46,6 +50,7 @@ export function MermaidBlock({ code, securityLevel }: { code: string; securityLe
         if (hit) {
           svg = hit
         } else {
+          const mermaid = await loadMermaid()
           const id = `mmd-${++idSeq}`
           const out = await mermaid.render(id, code)
           svg = out.svg
