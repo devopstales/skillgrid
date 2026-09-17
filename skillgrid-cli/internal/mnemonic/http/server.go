@@ -158,14 +158,29 @@ func (s *Server) registerRoutes() {
 func (s *Server) registerGraphRoutes() {
 	s.mux.HandleFunc("GET /mnemonic/graph/data", s.handleMnemonicGraph)
 	s.mux.HandleFunc("GET /mnemonic/graph/nodes", s.handleMnemonicGraphNodes)
+
+	// Phase 5 mnemonic data routes (files / memories / sessions / audit /
+	// search). The bare client paths below are registered AFTER these so the
+	// specific API sub-routes win the mux match.
+	s.mux.HandleFunc("GET /mnemonic/files/tree", s.handleMnemonicFilesTree)
+	s.mux.HandleFunc("GET /mnemonic/files/content", s.handleMnemonicFilesContent)
+	s.mux.HandleFunc("GET /mnemonic/memories", s.handleMnemonicListOrShell(s.handleMnemonicMemories))
+	s.mux.HandleFunc("GET /mnemonic/memories/{id}", s.handleMnemonicMemoryDetail)
+	s.mux.HandleFunc("PUT /mnemonic/memories/{id}", s.requireWriteAuth(s.handleMnemonicMemoryEdit))
+	s.mux.HandleFunc("POST /mnemonic/memories/{id}/share", s.requireWriteAuth(s.handleMnemonicMemoryShare))
+	s.mux.HandleFunc("POST /mnemonic/memories/{id}/status", s.requireWriteAuth(s.handleMnemonicMemoryStatus))
+	s.mux.HandleFunc("GET /mnemonic/sessions", s.handleMnemonicListOrShell(s.handleMnemonicSessions))
+	s.mux.HandleFunc("GET /mnemonic/audit", s.handleMnemonicAudit)
+	s.mux.HandleFunc("GET /mnemonic/search", s.handleMnemonicListOrShell(s.handleMnemonicSearch))
+
 	// The SPA shell uses base './', so on a /mnemonic/... path its module
 	// script is requested at /mnemonic/assets/... — serve the embedded build
 	// assets there (the root /assets/ route covers the top-level roots).
 	s.mux.HandleFunc("GET /mnemonic/assets/{rest...}", s.handleUIAsset)
-	for _, p := range []string{
-		"/mnemonic/graph", "/mnemonic/files", "/mnemonic/memories",
-		"/mnemonic/sessions", "/mnemonic/search",
-	} {
+	// The bare client paths stay SPA shells for the client router. The Phase 5
+	// API routes above own the exact /mnemonic/{memories,sessions,search}
+	// paths, so only the paths without an API handler keep an explicit shell.
+	for _, p := range []string{"/mnemonic/graph", "/mnemonic/files"} {
 		p := p
 		s.mux.HandleFunc("GET "+p, s.handleShellPage)
 	}

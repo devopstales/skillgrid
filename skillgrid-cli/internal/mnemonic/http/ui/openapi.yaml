@@ -19,6 +19,12 @@ tags:
   - name: web
   - name: tracker
   - name: ui
+  - name: mnemonic-graph
+  - name: mnemonic-files
+  - name: mnemonic-memories
+  - name: mnemonic-sessions
+  - name: mnemonic-audit
+  - name: mnemonic-search
 paths:
   /health:
     get:
@@ -1860,12 +1866,378 @@ paths:
                   nodes:
                     type: array
                     items: { $ref: "#/components/schemas/GraphNode" }
-                  truncated: { type: boolean }
-                  total: { type: integer }
+                   truncated: { type: boolean }
+                   total: { type: integer }
         "400":
           $ref: "#/components/responses/Bad"
         "500":
           $ref: "#/components/responses/Bad"
+  /mnemonic/files/tree:
+    get:
+      tags: [mnemonic-files]
+      operationId: mnemonicFilesTree
+      summary: OpenViking file tree
+      description: |-
+        Returns the OpenViking tree derived from observations.topic_key for the
+        project, with per-node memory_count (live observations under the prefix)
+        and last_indexed (newest created_at). `path` scopes the walk to a
+        topic_key prefix.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+          example: my-project
+        - name: path
+          in: query
+          required: false
+          schema: { type: string }
+          example: arch
+      responses:
+        "200":
+          description: File tree
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { type: string }
+                  root: { $ref: "#/components/schemas/FileTreeNode" }
+                  nodes: { type: integer }
+        "400": { $ref: "#/components/responses/Bad" }
+        "500": { $ref: "#/components/responses/Bad" }
+  /mnemonic/files/content:
+    get:
+      tags: [mnemonic-files]
+      operationId: mnemonicFilesContent
+      summary: OpenViking L0/L1/L2 content tiers
+      description: |-
+        Returns the L0 (abstract), L1 (overview), and L2 (details) content tiers
+        for a topic_key. `uri` is a mnemonic:// URI whose final path segment is
+        the topic key.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+          example: my-project
+        - name: uri
+          in: query
+          required: true
+          schema: { type: string }
+          example: "mnemonic://arch"
+      responses:
+        "200":
+          description: Content tiers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uri: { type: string }
+                  project: { type: string }
+                  l0: { $ref: "#/components/schemas/FileContentTier" }
+                  l1: { $ref: "#/components/schemas/FileContentTier" }
+                  l2: { $ref: "#/components/schemas/FileContentTier" }
+        "400": { $ref: "#/components/responses/Bad" }
+        "404": { $ref: "#/components/responses/Bad" }
+        "500": { $ref: "#/components/responses/Bad" }
+  /mnemonic/memories:
+    get:
+      tags: [mnemonic-memories]
+      operationId: mnemonicMemories
+      summary: Paginated memory list
+      description: |-
+        Returns a paginated list of observations, pinned first, newest first.
+        Each row carries the 013 asset fields (owner/visibility/status) when
+        present.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+          example: my-project
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 50 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, default: 0 }
+      responses:
+        "200":
+          description: Memory list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { type: string }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+                  memories:
+                    type: array
+                    items: { $ref: "#/components/schemas/MemorySummary" }
+        "400": { $ref: "#/components/responses/Bad" }
+        "500": { $ref: "#/components/responses/Bad" }
+  /mnemonic/memories/{id}:
+    get:
+      tags: [mnemonic-memories]
+      operationId: mnemonicMemoryDetail
+      summary: Memory detail + 013 governance
+      description: |-
+        Returns the full, untruncated observation plus the 013 governance
+        overlay (owner/versions/status/retrieval_usage/visibility + ACL grants).
+        When 013 is absent, the governance fields stay zero/empty and
+        `governance` is false (forward-compat).
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Memory detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryDetail"
+        "400": { $ref: "#/components/responses/Bad" }
+        "404": { $ref: "#/components/responses/Bad" }
+        "500": { $ref: "#/components/responses/Bad" }
+    put:
+      tags: [mnemonic-memories]
+      operationId: mnemonicMemoryEdit
+      summary: Edit a memory (write-gated)
+      description: |-
+        Write-gated (Bearer token) edit of a memory's content/title. The 013
+        service layer appends an observation_version before rewriting; when 013
+        is absent it rewrites in place.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string }
+                title: { type: string }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  updated: { type: boolean }
+                  revision: { type: integer }
+        "400": { $ref: "#/components/responses/Bad" }
+        "401": { $ref: "#/components/responses/Bad" }
+        "404": { $ref: "#/components/responses/Bad" }
+        "500": { $ref: "#/components/responses/Bad" }
+  /mnemonic/memories/{id}/share:
+    post:
+      tags: [mnemonic-memories]
+      operationId: mnemonicMemoryShare
+      summary: Change memory visibility (write-gated)
+      description: |-
+        Write-gated (Bearer token) visibility change (team|restricted|agent).
+        Idempotent; an unknown target is a 400.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [visibility]
+              properties:
+                visibility: { type: string, enum: [team, restricted, agent] }
+                grants:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: Shared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  visibility: { type: string }
+        "400": { $ref: "#/components/responses/Bad" }
+        "401": { $ref: "#/components/responses/Bad" }
+        "404": { $ref: "#/components/responses/Bad" }
+        "500": { $ref: "#/components/responses/Bad" }
+  /mnemonic/memories/{id}/status:
+    post:
+      tags: [mnemonic-memories]
+      operationId: mnemonicMemoryStatus
+      summary: Set memory lifecycle status (write-gated)
+      description: |-
+        Write-gated (Bearer token) lifecycle status change
+        (active|superseded|archived). Unknown status is a 400.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, superseded, archived] }
+      responses:
+        "200":
+          description: Status set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  status: { type: string }
+        "400": { $ref: "#/components/responses/Bad" }
+        "401": { $ref: "#/components/responses/Bad" }
+        "404": { $ref: "#/components/responses/Bad" }
+        "500": { $ref: "#/components/responses/Bad" }
+  /mnemonic/sessions:
+    get:
+      tags: [mnemonic-sessions]
+      operationId: mnemonicSessions
+      summary: Mnemonic session browser
+      description: |-
+        Returns the project's sessions with derived memory_count and summary
+        presence, newest first.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Session list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { type: string }
+                  sessions:
+                    type: array
+                    items: { $ref: "#/components/schemas/MnemonicSession" }
+        "400": { $ref: "#/components/responses/Bad" }
+        "500": { $ref: "#/components/responses/Bad" }
+  /mnemonic/audit:
+    get:
+      tags: [mnemonic-audit]
+      operationId: mnemonicAudit
+      summary: Hash-chained audit trail
+      description: |-
+        Returns the hash-chained audit trail over observation_versions (the
+        append-only memory change log). Each entry's hash covers the previous
+        hash + this entry's fields, so a tamper breaks the chain.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 200 }
+      responses:
+        "200":
+          description: Audit trail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { type: string }
+                  entries:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEntry" }
+                  chain_valid: { type: boolean }
+        "400": { $ref: "#/components/responses/Bad" }
+        "500": { $ref: "#/components/responses/Bad" }
+  /mnemonic/search:
+    get:
+      tags: [mnemonic-search]
+      operationId: mnemonicSearch
+      summary: Hybrid memory search
+      description: |-
+        Runs the memory search (default hybrid; `mode=fts` for the lexical leg)
+        and returns ranked results with a 0..1 rank-derived relevance. An empty
+        query returns 200 with an empty list.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+          example: auth
+        - name: mode
+          in: query
+          required: false
+          schema: { type: string, enum: [hybrid, fts], default: hybrid }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 25 }
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { type: string }
+                  results:
+                    type: array
+                    items: { $ref: "#/components/schemas/SearchResult" }
+                  total: { type: integer }
+        "400": { $ref: "#/components/responses/Bad" }
+        "500": { $ref: "#/components/responses/Bad" }
   /swagger-ui:
     get:
       tags: [ui]
@@ -1930,6 +2302,116 @@ components:
         weight: { type: number }
         directed: { type: boolean }
         confidence: { type: string, description: EXTRACTED / INFERRED / AMBIGUOUS }
+    FileTreeNode:
+      type: object
+      properties:
+        name: { type: string }
+        path: { type: string, description: topic_key path for this node }
+        leaf: { type: boolean, description: true when the node is a topic with observations }
+        memory_count: { type: integer, description: live observations under this prefix }
+        last_indexed: { type: string, description: newest created_at under this prefix }
+        children:
+          type: array
+          items: { $ref: "#/components/schemas/FileTreeNode" }
+    FileContentTier:
+      type: object
+      properties:
+        label: { type: string, enum: [abstract, overview, details] }
+        content: { type: string }
+        count: { type: integer }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              title: { type: string }
+              type: { type: string }
+              content: { type: string }
+              created_at: { type: string }
+    MemorySummary:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        type: { type: string }
+        scope: { type: string }
+        topic_key: { type: string }
+        source: { type: string }
+        owner: { type: string }
+        visibility: { type: string }
+        status: { type: string }
+        pinned: { type: boolean }
+        retrieval_usage: { type: integer }
+        revision_count: { type: integer }
+        created_at: { type: string }
+        updated_at: { type: string }
+    MemoryDetail:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        type: { type: string }
+        content: { type: string }
+        scope: { type: string }
+        topic_key: { type: string }
+        source: { type: string }
+        created_at: { type: string }
+        updated_at: { type: string }
+        pinned: { type: boolean }
+        owner: { type: string }
+        visibility: { type: string }
+        status: { type: string }
+        retrieval_usage: { type: integer }
+        revision_count: { type: integer }
+        versions:
+          type: array
+          items:
+            type: object
+            properties:
+              revision: { type: integer }
+              created_at: { type: string }
+        grants:
+          type: array
+          items:
+            type: object
+            properties:
+              grantee: { type: string }
+              grant_type: { type: string }
+        governance:
+          type: boolean
+          description: true when the 013 governance overlay was applied
+    MnemonicSession:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        started_at: { type: string }
+        ended_at: { type: string }
+        status: { type: string }
+        memory_count: { type: integer }
+        has_summary: { type: boolean }
+    AuditEntry:
+      type: object
+      properties:
+        seq: { type: integer }
+        observation_id: { type: integer }
+        revision: { type: integer }
+        created_at: { type: string }
+        hash: { type: string, description: sha256 over prev+fields }
+        prev_hash: { type: string }
+    SearchResult:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        type: { type: string }
+        scope: { type: string }
+        topic_key: { type: string }
+        source: { type: string }
+        preview: { type: string }
+        created_at: { type: string }
+        relevance: { type: number, description: 0..1 rank-derived score }
     DocChange:
       type: object
       required: [name, status]
