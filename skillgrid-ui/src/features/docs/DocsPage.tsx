@@ -22,7 +22,7 @@ export function DocsPage() {
     setTreeError('')
     fetchTree(root)
       .then((res) => {
-        if (!cancelled) setNodes(res.nodes)
+        if (!cancelled) setNodes(res.nodes ?? [])
       })
       .catch((e) => {
         if (!cancelled) setTreeError(e instanceof DocsError ? e.message : 'failed to load tree')

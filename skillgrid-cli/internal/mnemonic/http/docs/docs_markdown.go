@@ -197,6 +197,11 @@ func NewTree(cwd string) http.Handler {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
+		// Emit [] (not null) when a root has no markdown, so the UI's
+		// nodes.map/reduce never runs on null.
+		if tree == nil {
+			tree = []MDNode{}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"root": root, "nodes": tree})
 	})
 }
