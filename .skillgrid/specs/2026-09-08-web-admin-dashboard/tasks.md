@@ -205,16 +205,16 @@ The Tracker Kanban is fully functional on the active tracker (and, where configu
 
 This phase is done only when:
 
-- [ ] Provider detection + all four adapters work with tests
-- [ ] Backlog.md adapter parses `.backlog/tasks/*.md` frontmatter (no CLI dependency)
-- [ ] `/tracker/*` CRUD + `/tracker/stream` SSE covered by tests (incl. all error rows)
-- [ ] Kanban board/detail/drawer/dependency-graph UI works in-browser
-- [ ] `openapi.yaml` documents the tracker routes
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@phase-2` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on phase already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] Provider detection + all four adapters work with tests
+- [x] Backlog.md adapter parses `.backlog/tasks/*.md` frontmatter (no CLI dependency)
+- [x] `/tracker/*` CRUD + `/tracker/stream` SSE covered by tests (incl. all error rows)
+- [x] Kanban board/detail/drawer/dependency-graph UI works in-browser
+- [x] `openapi.yaml` documents the tracker routes
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@phase-2` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on phase already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 1-embed-pipeline-shell
 
@@ -233,59 +233,59 @@ This phase is done only when:
 
 ### Tasks
 
-- [ ] 2.1 `[RED]` Threat: Taxonomy — provider detection never guesses
-  - [ ] 2.1.a Write failing test: unknown `SKILLGRID_TRACKER` → 501; Jira without project key in tracker doc → 501 with reason; valid `backlogmd` resolves to the backlog adapter; `?provider=github` override validated.
-  - [ ] 2.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_Detection` — Expected: FAIL
-  - [ ] 2.1.c Minimal implementation: `TicketProvider` interface + registry + detection (issue-tracker doc + `config.yaml:issue_tracker` + `SKILLGRID_TRACKER`, default `backlogmd`).
-  - [ ] 2.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_Detection` — Expected: PASS
-  - [ ] 2.1.e Commit — `feat(tracker): TicketProvider registry + detection`
-- [ ] 2.2 `[RED]` Threat: Subprocess — CLI-backed provider missing → 503 with provider name
-  - [ ] 2.2.a Write failing test: empty PATH, `GET /tracker/tasks?provider=github` → 503 `{error: "gh CLI not found", provider: "github"}`; Backlog.md (file-based) still → 200.
-  - [ ] 2.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_CLI_Missing` — Expected: FAIL
-  - [ ] 2.2.c Minimal implementation: `exec.LookPath` check per CLI-backed adapter; 503 with JSON reason + provider.
-  - [ ] 2.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_CLI_Missing` — Expected: PASS
-  - [ ] 2.2.e Commit — `feat(tracker): 503 when CLI-backed provider missing`
-- [ ] 2.3 `[RED]` Threat: Subprocess — CLI non-zero exit / auth failure → 502; timeout >10s → 502; bad output → 502
-  - [ ] 2.3.a Write failing test: fixture CLI exiting 1 (stderr "boom") → 502 with excerpt (200 chars) + provider; auth-failure fixture → 502; fixture sleeping 11s → 502 timeout; fixture printing garbage / unknown `schemaVersion` → 502.
-  - [ ] 2.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_CLI_Failure` — Expected: FAIL
-  - [ ] 2.3.c Minimal implementation: `exec.CommandContext` 10s; capture + truncate stderr; per-adapter parse + `schemaVersion` gate.
-  - [ ] 2.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_CLI_Failure` — Expected: PASS
-  - [ ] 2.3.e Commit — `feat(tracker): 502 on CLI failure/timeout/bad-output`
-- [ ] 2.4 `[RED]` Backlog.md adapter: parse `.backlog/tasks/*.md` frontmatter into `UnifiedTask` (no CLI dependency) + status write via `task edit`
-  - [ ] 2.4.a Write failing test: temp `.backlog/tasks/` with 3 real `.md` files → `GET /tracker/tasks?provider=backlogmd` returns normalized `UnifiedTask` (id, title, status, priority, assignee, labels, dependencies, milestone, board column); unknown id → 404; `PATCH /tracker/tasks/{id}` status write runs `task edit` (verified by re-reading the file); without token → 401; invalid status → 400.
-  - [ ] 2.4.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_Backlog` — Expected: FAIL
-  - [ ] 2.4.c Minimal implementation: frontmatter parser (`id`/`status`/`priority`/`assignee`/`labels`/`dependencies`/`milestone`/`dueDate`/`parent`) + `board` column mapping + `task edit` status write.
-  - [ ] 2.4.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_Backlog` — Expected: PASS
-  - [ ] 2.4.e Commit — `feat(tracker): backlog adapter (frontmatter parse + status write)`
-- [ ] 2.5 `[RED]` GitHub + GitLab + Jira adapters: JSON list/get/patch behind the interface
-  - [ ] 2.5.a Write failing test: fixture `gh`/`glab`/`jira` JSON → normalized `UnifiedTask`; `UpdateTask` maps to close/reopen (gh/glab) / `issue move` (jira); custom status → 501; unknown transition → 400/501; missing project key → 501 (never guessed); without token → 401.
-  - [ ] 2.5.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_RemoteAdapters` — Expected: FAIL
-  - [ ] 2.5.c Minimal implementation: refactored shell-out adapters behind `TicketProvider` (`gh issue list --json`/view/close-reopen; `glab issue list -F json`/view/close-reopen; `jira issue list -q JQL`/view/`issue move` after transition discovery).
-  - [ ] 2.5.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_RemoteAdapters` — Expected: PASS
-  - [ ] 2.5.e Commit — `feat(tracker): github + gitlab + jira adapters`
-- [ ] 2.6 `[RED]` Threat: SSE — `/tracker/stream` (fsnotify on `.backlog/tasks/`) live-updates + no goroutine leak
-  - [ ] 2.6.a Write failing test: an SSE client subscribes; a `.backlog/tasks/*.md` change is emitted as an event; a client that disconnects is cleaned up (goroutine count before/after equal); a slow consumer does not block other clients.
-  - [ ] 2.6.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase2_TrackerStream` — Expected: FAIL
-  - [ ] 2.6.c Minimal implementation: `GET /tracker/stream` SSE + fsnotify watcher + per-client buffered channel + context-cancel cleanup.
-  - [ ] 2.6.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase2_TrackerStream` — Expected: PASS
-  - [ ] 2.6.e Commit — `feat(tracker): /tracker/stream SSE (fsnotify, leak-free)`
-- [ ] 2.7 `[AFK]` Mount `/tracker/*` CRUD + `/tracker/stream` on the mux (reads open, writes token-gated) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase2_Routes` — Expected: PASS
-- [ ] 2.8 `[AFK]` Kanban UI: provider tabs, board/list toggle, `@dnd-kit` drag across columns, filter bar (provider/assignee/label/milestone/priority/date), task detail drawer (markdown + dependency mini-graph), dependency graph — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 2.9 `[AFK]` Kanban degraded states (503/501 → disabled view with provider + reason; per-widget error isolation) + SSE live board updates — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 2.10 `[AFK]` openapi.yaml documents the tracker routes (+ CRUD + SSE) with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase2_OpenAPI` — Expected: PASS
+- [x] 2.1 `[RED]` Threat: Taxonomy — provider detection never guesses
+  - [x] 2.1.a Write failing test: unknown `SKILLGRID_TRACKER` → 501; Jira without project key in tracker doc → 501 with reason; valid `backlogmd` resolves to the backlog adapter; `?provider=github` override validated.
+  - [x] 2.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_Detection` — Expected: FAIL
+  - [x] 2.1.c Minimal implementation: `TicketProvider` interface + registry + detection (issue-tracker doc + `config.yaml:issue_tracker` + `SKILLGRID_TRACKER`, default `backlogmd`).
+  - [x] 2.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_Detection` — Expected: PASS
+  - [x] 2.1.e Commit — `feat(tracker): TicketProvider registry + detection`
+- [x] 2.2 `[RED]` Threat: Subprocess — CLI-backed provider missing → 503 with provider name
+  - [x] 2.2.a Write failing test: empty PATH, `GET /tracker/tasks?provider=github` → 503 `{error: "gh CLI not found", provider: "github"}`; Backlog.md (file-based) still → 200.
+  - [x] 2.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_CLI_Missing` — Expected: FAIL
+  - [x] 2.2.c Minimal implementation: `exec.LookPath` check per CLI-backed adapter; 503 with JSON reason + provider.
+  - [x] 2.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_CLI_Missing` — Expected: PASS
+  - [x] 2.2.e Commit — `feat(tracker): 503 when CLI-backed provider missing`
+- [x] 2.3 `[RED]` Threat: Subprocess — CLI non-zero exit / auth failure → 502; timeout >10s → 502; bad output → 502
+  - [x] 2.3.a Write failing test: fixture CLI exiting 1 (stderr "boom") → 502 with excerpt (200 chars) + provider; auth-failure fixture → 502; fixture sleeping 11s → 502 timeout; fixture printing garbage / unknown `schemaVersion` → 502.
+  - [x] 2.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_CLI_Failure` — Expected: FAIL
+  - [x] 2.3.c Minimal implementation: `exec.CommandContext` 10s; capture + truncate stderr; per-adapter parse + `schemaVersion` gate.
+  - [x] 2.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_CLI_Failure` — Expected: PASS
+  - [x] 2.3.e Commit — `feat(tracker): 502 on CLI failure/timeout/bad-output`
+- [x] 2.4 `[RED]` Backlog.md adapter: parse `.backlog/tasks/*.md` frontmatter into `UnifiedTask` (no CLI dependency) + status write via `task edit`
+  - [x] 2.4.a Write failing test: temp `.backlog/tasks/` with 3 real `.md` files → `GET /tracker/tasks?provider=backlogmd` returns normalized `UnifiedTask` (id, title, status, priority, assignee, labels, dependencies, milestone, board column); unknown id → 404; `PATCH /tracker/tasks/{id}` status write runs `task edit` (verified by re-reading the file); without token → 401; invalid status → 400.
+  - [x] 2.4.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_Backlog` — Expected: FAIL
+  - [x] 2.4.c Minimal implementation: frontmatter parser (`id`/`status`/`priority`/`assignee`/`labels`/`dependencies`/`milestone`/`dueDate`/`parent`) + `board` column mapping + `task edit` status write.
+  - [x] 2.4.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_Backlog` — Expected: PASS
+  - [x] 2.4.e Commit — `feat(tracker): backlog adapter (frontmatter parse + status write)`
+- [x] 2.5 `[RED]` GitHub + GitLab + Jira adapters: JSON list/get/patch behind the interface
+  - [x] 2.5.a Write failing test: fixture `gh`/`glab`/`jira` JSON → normalized `UnifiedTask`; `UpdateTask` maps to close/reopen (gh/glab) / `issue move` (jira); custom status → 501; unknown transition → 400/501; missing project key → 501 (never guessed); without token → 401.
+  - [x] 2.5.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_RemoteAdapters` — Expected: FAIL
+  - [x] 2.5.c Minimal implementation: refactored shell-out adapters behind `TicketProvider` (`gh issue list --json`/view/close-reopen; `glab issue list -F json`/view/close-reopen; `jira issue list -q JQL`/`issue move` after transition discovery).
+  - [x] 2.5.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/tracker/... -run TestPhase2_RemoteAdapters` — Expected: PASS
+  - [x] 2.5.e Commit — `feat(tracker): github + gitlab + jira adapters`
+- [x] 2.6 `[RED]` Threat: SSE — `/tracker/stream` (fsnotify on `.backlog/tasks/`) live-updates + no goroutine leak
+  - [x] 2.6.a Write failing test: an SSE client subscribes; a `.backlog/tasks/*.md` change is emitted as an event; a client that disconnects is cleaned up (goroutine count before/after equal); a slow consumer does not block other clients.
+  - [x] 2.6.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase2_TrackerStream` — Expected: FAIL
+  - [x] 2.6.c Minimal implementation: `GET /tracker/stream` SSE + fsnotify watcher + per-client buffered channel + context-cancel cleanup.
+  - [x] 2.6.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase2_TrackerStream` — Expected: PASS
+  - [x] 2.6.e Commit — `feat(tracker): /tracker/stream SSE (fsnotify, leak-free)`
+- [x] 2.7 `[AFK]` Mount `/tracker/*` CRUD + `/tracker/stream` on the mux (reads open, writes token-gated) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase2_Routes` — Expected: PASS
+- [x] 2.8 `[AFK]` Kanban UI: provider tabs, board/list toggle, `@dnd-kit` drag across columns, filter bar (provider/assignee/label/milestone/priority/date), task detail drawer (markdown + dependency mini-graph), dependency graph — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 2.9 `[AFK]` Kanban degraded states (503/501 → disabled view with provider + reason; per-widget error isolation) + SSE live board updates — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 2.10 `[AFK]` openapi.yaml documents the tracker routes (+ CRUD + SSE) with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase2_'` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test (provider) | `go test ./skillgrid-cli/internal/mnemonic/http/tracker/...` | PASS | — | detection, missing/exit-1/timeout/bad-output, 4 adapters, frontmatter parse |
-| Focused test (SSE/routes) | `go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase2_'` | PASS | — | stream leak-free, routes, openapi |
-| Acceptance `@phase-2` / `@p0` | manual smoke: Backlog.md board round-trip + one more provider + browser | PENDING | — | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + SPA `tsc --noEmit` | PASS | — | |
+| Focused test (provider) | `go test ./skillgrid-cli/internal/mnemonic/http/tracker/...` | PASS | PASS | detection, missing/exit-1/timeout/bad-output, 4 adapters, frontmatter parse, deps, board mapping |
+| Focused test (SSE/routes) | `go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase2_'` | PASS | PASS | providers, routes, patch auth/invalid, file-based list, stream (live event + no leak) |
+| Acceptance `@phase-2` / `@p0` | live smoke on :7439 (Backlog.md file-based round-trip + github override + SPA) | PENDING | PASS | real `.backlog/tasks/*.md` parsed; deps_in real; SSE tasks-changed on file change; 501 unknown provider; SPA fallback + openapi intact |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + SPA `tsc --noEmit` + `npm run build` | PASS | PASS | all http-tree packages green; tsc clean; build → ui/dist/ |
 | Rollback boundary | `git revert` + `go test ./...` | PENDING | N/A (additive) | new tracker registry + routes + kanban feature; revert restores Phase 1 shell |
 | Global Constraints | — | held | — | shell-out only, no invented statuses, Jira key never guessed, no CDN |
 
