@@ -62,3 +62,29 @@ Implementation notes (deviations from plan text, all justified):
 - Test uses `/memory/nope` (not `/mnemonic/nope`) for the API-prefix 404 case: `/mnemonic` has no registered API prefix in this codebase (that's a future phase), so it correctly falls through to the SPA shell.
 
 Pre-existing WIP preserved (stashed for the test run, restored after): `skillgrid-cli/internal/mnemonic/hybrid/{rank.go,vectorcache.go}`, `skillgrid-cli/internal/mnemonic/codeindex/indexer.go`, `docs/user-guide/05-memory-and-indexing.md`, untracked `skillgrid-cli/cmd/vecbench/`. Unrelated to this change; `hybrid/` does not compile until that WIP lands (rank.go:461 `loadSymbolCache` undefined) — blocked full-module `go test ./...` during the run, http package tested in isolation.
+
+### Phase 2 — kanban (PASS, 2026-09-16)
+
+The Tracker Kanban is fully functional: Go `TicketProvider` registry + `/tracker/*` CRUD + `/tracker/stream` SSE + `@dnd-kit` React board.
+
+Tasks 2.1–2.10 all `[x]`; Phase 2 DoD all `[x]`; Verification Verdict `PASS`.
+
+Evidence:
+- `go test ./skillgrid-cli/internal/mnemonic/http/...` → PASS (http + docs + tracker packages).
+- `go test .../tracker/ -run 'TestPhase2_'` → PASS (detection, CLI missing/exit-1/timeout/bad-output, Backlog file-based list/get/setstatus/deps, GitHub+GitLab+Jira adapters, board mapping, not-found).
+- `go test .../http/ -run 'TestPhase2_'` → PASS (providers, routes, PATCH auth 401/200 + invalid 400, file-based list, SSE live event + no-leak).
+- `cd skillgrid-ui && npx tsc --noEmit` → clean; `npm run build` → ui/dist/ (index.js 373kB / 119kB gzip).
+- Live smoke (`skillgrid serve :7439` + curl, real repo): `/tracker/providers` → `{"provider":"backlogmd","connected":true}`; `GET /tracker/tasks?provider=backlogmd` → real `.backlog/tasks/*.md` parsed (id/title/status/priority/board/dependencies); `GET /tracker/tasks/TASK-001/deps` → `{"deps_in":["TASK-004"]}` (real dependency); `?provider=nope` → 501; `/tracker` → 200 SPA fallback; `/openapi.yaml` → 200.
+- SSE live: `curl -sN /tracker/stream` → `event: ready` then, after touching a task file, `event: tasks-changed` with `{file,op:WRITE,provider:backlogmd}`.
+
+Implementation notes (deviations from plan text, all justified):
+- **Backlog.md adapter is file-based** (per DoD "no CLI dependency"): reads `.backlog/tasks/*.md` YAML frontmatter directly via a hand-rolled parser (flat scalars + inline/block lists, no YAML dep), maps `board` column, and computes `Dependencies` (deps_in/deps_out) across all tasks. The ONE file mutation (status write) still shells out to `backlog task edit -s` (Global Constraint: shell-out only). `CLIName()` returns "" so the provider reports connected:true with no CLI.
+- **`TicketProvider` interface** (plan name) with `List/Get/SetStatus → UnifiedTask` + new `Dependencies()`. `Provider` is kept as a type alias (`type Provider = TicketProvider`) so pre-Phase-2 code/tests referencing `tracker.Provider` keep compiling.
+- **`UnifiedTask`** is a strict superset of the old `Item` (same JSON keys + dependencies/milestone/parent/due_date), so the legacy JSON consumers and the openapi `TrackerItem` schema stay compatible.
+- **New routes**: `GET /tracker/providers` (connected flag for the UI's "not connected" empty state), `PATCH /tracker/tasks/{id}` (the Phase 2 write path; `POST .../status` retained), `GET /tracker/tasks/{id}/deps`, `GET /tracker/stream` (SSE, fsnotify on `.backlog/tasks/`, per-request watcher + buffered channel + context-cancel cleanup → leak-free).
+- **GitHub/GitLab `done`/`todo`** map to close/reopen (acceptance: "PATCH maps to close/reopen"); Jira runs `issue move`. All three expose no native edges, so their `Dependencies()` return empty (board still renders).
+- **SSE per-request watcher**: each client runs its own fsnotify watcher (simplest correct lifecycle for the single-operator dashboard); a shared hub can replace it later without a wire-format change.
+- **Kanban UI** (`skillgrid-ui/src/features/kanban/`): `KanbanView` (provider tabs + board/list toggle + live indicator), `BoardView` (@dnd-kit sortable drag across the 4 canonical columns), `ListView`, `FilterBar` (query/assignee/label/milestone/priority, distinct values derived from tasks — never invented), `TaskDetail` drawer (description + metadata grid + `DependencyGraph` SVG mini-graph), `api.ts` (token from localStorage, `TrackerError` with status), `hooks.ts` (`useTrackerBoard` live via SSE, `useTaskDrawer` deep-link via `?task=`), `types.ts`. Deep-links: `?provider=` + `?task=`.
+- **Write token**: the SPA can't read the server env, so the HTTP token is stored in localStorage (`skillgrid.httpToken`) and attached to mutating requests; a 401 shows "set it in Settings".
+
+Pre-existing WIP: none this phase — the earlier `hybrid/` WIP landed (working tree clean at start). Full-module `go test ./...` unblocked; http tree verified in isolation.
