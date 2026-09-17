@@ -311,15 +311,15 @@ The Docs view renders repo markdown with Mermaid diagrams across `.skillgrid/sdd
 
 This phase is done only when:
 
-- [ ] `/docs/*` routes covered by traversal + happy-path tests
-- [ ] Tree, rendered view, Mermaid SVG, TOC, frontmatter chips, search work in-browser
-- [ ] Mermaid/markdown XSS guarded (strict + sanitize + DOMPurify)
-- [ ] `openapi.yaml` documents the docs routes
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@phase-3` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on phase already PASS / PASS WITH WARNINGS
-- [ ] No Global Constraint violated
+- [x] `/docs/*` routes covered by traversal + happy-path tests
+- [x] Tree, rendered view, Mermaid SVG, TOC, frontmatter chips, search work in-browser
+- [x] Mermaid/markdown XSS guarded (strict + sanitize + DOMPurify)
+- [x] `openapi.yaml` documents the docs routes
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@phase-3` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on phase already PASS / PASS WITH WARNINGS
+- [x] No Global Constraint violated
 
 > Depends on: 1-embed-pipeline-shell
 
@@ -336,39 +336,39 @@ This phase is done only when:
 
 ### Tasks
 
-- [ ] 3.1 `[RED]` Threat: path traversal — `..`, absolute paths, symlink escape, unknown paths blocked
-  - [ ] 3.1.a Write failing test: `GET /docs/content?path=../secret`, `path=/etc/passwd`, `path=docs/../x`, unknown `path` → 400/404; happy `path` under a declared root returns the file + frontmatter + relatedPlans.
-  - [ ] 3.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_Traversal` — Expected: FAIL
-  - [ ] 3.1.c Minimal implementation: clean + prefix-check every path against the declared roots; read-only; render as markdown, never execute.
-  - [ ] 3.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_Traversal` — Expected: PASS
-  - [ ] 3.1.e Commit — `feat(docs): sandboxed doc readers`
-- [ ] 3.2 `[RED]` Threat: Mermaid/markdown XSS — untrusted markdown + `language-mermaid` sanitized
-  - [ ] 3.2.a Write failing test: a doc with a `<script>` in markdown body does not yield raw `<script>` in the rendered output (rehype-sanitize); a `language-mermaid` block renders to SVG that is DOMPurify-sanitized; `mermaid` `securityLevel` is `strict` (asserted from the SPA config fixture / a Go-side default).
-  - [ ] 3.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_MermaidSanitize` — Expected: FAIL
-  - [ ] 3.2.c Minimal implementation: `rehype-sanitize` + DOMPurify on `mermaid.render()` SVG; `securityLevel: 'strict'`; SVG cached by content hash.
-  - [ ] 3.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_MermaidSanitize` — Expected: PASS
-  - [ ] 3.2.e Commit — `feat(docs): mermaid + markdown XSS guards`
-- [ ] 3.3 `[AFK]` `GET /docs/tree?root=sdd|openspec|backlog|docs|all` returns the grouped tree (path, title, updatedAt, frontmatter status) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_Tree` — Expected: PASS
-- [ ] 3.4 `[AFK]` `GET /docs/search?q=...` returns matches (path + snippet) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_Search` — Expected: PASS
-- [ ] 3.5 `[AFK]` `GET /docs/render?path=...` (optional SSR fallback) returns rendered HTML — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_Render` — Expected: PASS
-- [ ] 3.6 `[AFK]` Docs UI: tree sidebar grouped by root (file icons, updated-at badges, name filter, expand/collapse), MarkdownView (GFM, anchors, task lists, syntax highlighting), **MermaidBlock**, frontmatter chips (status/author/updated), on-this-page sticky TOC with scroll-spy, cross-links to SPA routes, copy/download/print — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 3.7 `[AFK]` "View plan progress →" cross-link to the Plans view (Phase 6 stub target) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
-- [ ] 3.8 `[AFK]` openapi.yaml documents the docs routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase3_OpenAPI` — Expected: PASS
+- [x] 3.1 `[RED]` Threat: path traversal — `..`, absolute paths, symlink escape, unknown paths blocked
+  - [x] 3.1.a Write failing test: `GET /docs/content?path=../secret`, `path=/etc/passwd`, `path=docs/../x`, unknown `path` → 400/404; happy `path` under a declared root returns the file + frontmatter + relatedPlans.
+  - [x] 3.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_Traversal` — Expected: FAIL
+  - [x] 3.1.c Minimal implementation: clean + prefix-check every path against the declared roots; read-only; render as markdown, never execute.
+  - [x] 3.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_Traversal` — Expected: PASS
+  - [x] 3.1.e Commit — `feat(docs): sandboxed doc readers`
+- [x] 3.2 `[RED]` Threat: Mermaid/markdown XSS — untrusted markdown + `language-mermaid` sanitized
+  - [x] 3.2.a Write failing test: a doc with a `<script>` in markdown body does not yield raw `<script>` in the rendered output (rehype-sanitize); a `language-mermaid` block renders to SVG that is DOMPurify-sanitized; `mermaid` `securityLevel` is `strict` (asserted from the SPA config fixture / a Go-side default).
+  - [x] 3.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_MermaidSanitize` — Expected: FAIL
+  - [x] 3.2.c Minimal implementation: `rehype-sanitize` + DOMPurify on `mermaid.render()` SVG; `securityLevel: 'strict'`; SVG cached by content hash.
+  - [x] 3.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_MermaidSanitize` — Expected: PASS
+  - [x] 3.2.e Commit — `feat(docs): mermaid + markdown XSS guards`
+- [x] 3.3 `[AFK]` `GET /docs/tree?root=sdd|openspec|backlog|docs|all` returns the grouped tree (path, title, updatedAt, frontmatter status) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_Tree` — Expected: PASS
+- [x] 3.4 `[AFK]` `GET /docs/search?q=...` returns matches (path + snippet) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_Search` — Expected: PASS
+- [x] 3.5 `[AFK]` `GET /docs/render?path=...` (optional SSR fallback) returns rendered HTML — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestPhase3_Render` — Expected: PASS
+- [x] 3.6 `[AFK]` Docs UI: tree sidebar grouped by root (file icons, updated-at badges, name filter, expand/collapse), MarkdownView (GFM, anchors, task lists, syntax highlighting), **MermaidBlock**, frontmatter chips (status/author/updated), on-this-page sticky TOC with scroll-spy, cross-links to SPA routes, copy/download/print — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 3.7 `[AFK]` "View plan progress →" cross-link to the Plans view (Phase 6 stub target) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 3.8 `[AFK]` openapi.yaml documents the docs routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase3_OpenAPI` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test (traversal + XSS) | `go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run 'TestPhase3_'` | PASS | — | traversal RED→GREEN, mermaid sanitize |
-| Focused test (routes) | `go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase3_'` | PASS | — | tree/search/render/openapi |
-| Acceptance `@phase-3` / `@p0` | manual smoke: `skillgrid serve` + browser — tree, rendered view, Mermaid SVG, TOC, search | PENDING | — | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + SPA `tsc --noEmit` | PASS | — | |
-| Rollback boundary | `git revert` + `go test ./...` | PENDING | N/A (additive) | new `docs/` pkg + routes + docs feature; revert restores Phase 2 shell |
-| Global Constraints | — | held | — | read-only sandbox, no CDN, markdown rendered not executed |
+| Focused test (traversal + XSS) | `go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run 'TestPhase3_'` | PASS | PASS | traversal RED→GREEN; mermaid sanitize + strict |
+| Focused test (routes) | `go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run 'TestPhase3_'` | PASS | PASS | tree/search/render/openapi |
+| Acceptance `@phase-3` / `@p0` | manual smoke: `skillgrid serve` + browser — tree, rendered view, TOC, cross-link | PASS | PASS | tree (30 files, grouped), rendered briefing.md, ON THIS PAGE TOC populated, "View plan progress →" cross-link; traversal 400, render escaped HTML |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + SPA `tsc --noEmit` | PASS | PASS | full http tree green; tsc clean; build → ui/dist/ |
+| Rollback boundary | `git revert` + `go test ./...` | PENDING | N/A (additive) | new `docs/` markdown readers + 4 routes + docs feature; revert restores Phase 2 shell |
+| Global Constraints | — | held | PASS | read-only sandbox, no CDN (mermaid bundled), markdown rendered not executed |
 
 ### Commit
 
