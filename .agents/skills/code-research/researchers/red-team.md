@@ -1,7 +1,7 @@
 # Red-Team Brief (subagent template)
 
 Use this template when dispatching a **red-team** subagent from
-`skillgrid:deep-research`. The red team runs in **fresh context** and gets the
+`skillgrid:code-research`. The red team runs in **fresh context** and gets the
 conclusion with **no supporting evidence and no run context** — its job is to
 find the disconfirming evidence the researchers' shared context made comfortable.
 

@@ -4,7 +4,7 @@
 > Y, position against Z. One or two sentences.>
 >
 > **Type:** technical | competitive | domain
-> **Mode:** research (single pass) | deep-research (fan-out)
+> **Mode:** research (single pass) | code-research (fan-out)
 > **Date:** <YYYY-MM-DD> · **Status:** complete
 
 ## Executive Summary
@@ -36,7 +36,7 @@ genuinely none, say so — do not manufacture them.>
 
 ## Contrary Evidence
 
-<When a red-team pass ran (deep-research) and found material: the strongest
+<When a red-team pass ran (code-research) and found material: the strongest
 surviving counter-arguments, cited. For single-pass research, note the strongest
 alternative you considered and rejected, and why.>
 

@@ -1,7 +1,7 @@
 # Researcher Brief (subagent template)
 
 Use this template when dispatching a **researcher** subagent from
-`skillgrid:deep-research`. The researcher runs behind the **research firewall**:
+`skillgrid:code-research`. The researcher runs behind the **research firewall**:
 it gets this brief and nothing else — no project files, no ambient context.
 
 ```

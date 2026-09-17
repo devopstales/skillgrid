@@ -16,7 +16,7 @@ brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing
 | `interviewing` | Grilling the user to a shared understanding (drives ADRs) |
 | `architectural-decision-records` | Domain model (glossary) + ADR authoring / supersession |
 | `acceptance-test-authoring` | BDD `acceptance.feature` scenarios from intent |
-| `research` / `deep-research` | External fact-finding → `findings.md` (Research section) |
+| `research` / `code-research` | External fact-finding → `findings.md` (Research section) |
 | `spike` | Feasibility probe → `findings.md` (Spike section) |
 | `sketch` | UI/interaction variants → `findings.md` (Sketch section) |
 | `writing-blueprints` | Technical plan → `blueprint.md` |

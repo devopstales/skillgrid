@@ -1,7 +1,7 @@
 # Verifier Brief (subagent template)
 
 Use this template when dispatching a **verifier** subagent from
-`skillgrid:deep-research`. The verifier runs in **fresh context** and behind the
+`skillgrid:code-research`. The verifier runs in **fresh context** and behind the
 research firewall — it reads only the claim and a search budget, not the run.
 
 **When it runs:** at landing, per dimension, on the **load-bearing claims** —

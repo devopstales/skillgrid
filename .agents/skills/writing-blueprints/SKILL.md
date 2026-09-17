@@ -175,7 +175,7 @@ argues from the spec, so the spec travels with it; executors read both]
 
 **Findings:** [path to the change's consolidated
 `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` if it exists — produced by
-`skillgrid:research` / `skillgrid:deep-research` (Research sections),
+`skillgrid:research` / `skillgrid:code-research` (Research sections),
 `skillgrid:spike` (Spike sections), or `skillgrid:sketch` (Sketch sections).
 Cite it for every design decision that rests on a research fact, a feasibility
 result (e.g. "X is liftable", "approach A is cheaper than B"), or a chosen

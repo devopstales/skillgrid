@@ -1,6 +1,6 @@
 ---
-name: deep-research
-description: Investigate a wide or high-stakes question by fanning out parallel researcher subagents, then verifying load-bearing claims and red-teaming the major conclusions before synthesizing a cited findings file. Use when the question has multiple independent dimensions or the decision is high-stakes — the heavy counterpart to skillgrid:research.
+name: code-research
+description: Investigate a wide or high-stakes question by fanning out parallel researcher subagents, then verifying load-bearing claims and red-teaming the major conclusions before synthesizing a cited findings file. Use when the question has multiple independent dimensions or the decision is high-stakes — the heavy informational counterpart to skillgrid:research; for long-horizon experimental research (hypothesis → experiment → measure loops) use skillgrid:deep-research.
 license: MIT
 metadata:
   author: devopstales
@@ -9,13 +9,13 @@ metadata:
   based_on: bmad:bmad-deep-recon (run, verification, synthesis)
 ---
 
-# Deep Research
+# Code Research
 
 Answer a wide or high-stakes question by fanning out **parallel researcher
 subagents**, then **verifying** the load-bearing claims and **red-teaming** the
 major conclusions, before synthesizing a cited findings file.
 
-**Announce at start:** "I'm using the skillgrid:deep-research skill to fan out
+**Announce at start:** "I'm using the skillgrid:code-research skill to fan out
 researchers on this."
 
 ## Overview
@@ -45,7 +45,7 @@ costs more than it finds when the question has a single dimension.
 
 Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root`
 (default `.skillgrid/specs`) for the findings location. Use the `research` block
-when present: `research.deep_research_preset` (default `standard`) sets the
+when present: `research.code_research_preset` (default `standard`) sets the
 effort. If the `mnemonic` block is enabled, check `web_cache_lookup` before
 fetching and `web_cache_save` after, and `mem_save` the findings under
 `skillgrid/{YYYY-MM-DD-<topic>}/research` so later sessions recover them.

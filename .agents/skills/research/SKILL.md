@@ -1,6 +1,6 @@
 ---
 name: research
-description: Investigate a question against primary sources and capture the findings as a cited Markdown file. Use when the design or plan depends on a fact not in the codebase — a library's current API, a version's behavior, a domain constraint, a competitor's offering. The lightweight, single-pass research; for wide or high-stakes questions use skillgrid:deep-research.
+description: Investigate a question against primary sources and capture the findings as a cited Markdown file. Use when the design or plan depends on a fact not in the codebase — a library's current API, a version's behavior, a domain constraint, a competitor's offering. The lightweight, single-pass research; for wide or high-stakes informational questions use skillgrid:code-research; for long-horizon experimental research (hypothesis → experiment → measure loops) use skillgrid:deep-research.
 license: MIT
 metadata:
   author: devopstales
@@ -18,9 +18,11 @@ this before the design."
 
 Answer a question by investigating **primary sources** and writing the findings
 to a cited Markdown file. One pass, done inline — no subagents, no rounds. For a
-question that is wide (multiple independent dimensions) or high-stakes, use
-`skillgrid:deep-research` instead, which fans out parallel researchers and adds a
-verify + red-team layer.
+question that is wide (multiple independent dimensions) or high-stakes and
+**informational**, use `skillgrid:code-research` instead, which fans out parallel
+researchers and adds a verify + red-team layer. For research that is
+**experimental** — you are generating new results by running hypothesis →
+experiment → measure loops over a measurable outcome — use `skillgrid:deep-research`.
 
 ## When to Use
 
@@ -30,7 +32,9 @@ verify + red-team layer.
 
 **When NOT to use:** when the answer is already known from the codebase or is a
 simple local read — don't research what you can just check. For high-effort,
-wide, multi-source work, use `skillgrid:deep-research` instead.
+wide, multi-source *informational* work, use `skillgrid:code-research` instead;
+for long-horizon *experimental* work (a measurable proxy metric you are trying to
+move), use `skillgrid:deep-research`.
 
 ## Config
 
@@ -160,7 +164,7 @@ reads the file; it does not reprocess the web.
 | "The codebase assumes X, so X is true" | The firewall: the codebase shapes the question, not the answer. Re-verify X against the source. |
 | "This blog is detailed enough" | A blog is a secondary source. Follow it to the docs, source, or spec it's describing; cite the owner. |
 | "The question is small, I'll skip the file" | The file is what the blueprint cites. Two findings still get the scaffold — the decision-relevant truth, in a place that survives the session. |
-| "Wide question, I'll just do more inline" | When the question has multiple independent dimensions or is high-stakes, stop — that's `skillgrid:deep-research`, which parallelizes and verifies. |
+| "Wide question, I'll just do more inline" | When the question has multiple independent dimensions or is high-stakes, stop — that's `skillgrid:code-research` (informational) or `skillgrid:deep-research` (experimental), which parallelize and verify. |
 
 ## Red Flags
 
