@@ -1,11 +1,11 @@
 ---
-id: prd-001
-title: Skillgrid Web Admin Dashboard — PRD
+id: 0001
+title: Web Admin Dashboard — PRD
 type: prd
 created_date: '2026-09-08'
 updated_date: '2026-09-17'
 ---
-# Skillgrid Web Admin Dashboard — PRD
+# Web Admin Dashboard — PRD
 
 ## 1. Problem
 

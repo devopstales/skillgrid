@@ -60,7 +60,7 @@ export type DocsRoot = (typeof DOCS_ROOTS)[number]
 
 export const ROOT_LABEL: Record<DocsRoot, string> = {
   all: 'All',
-  skillgrid: 'Skillgrid Specs',
+  skillgrid: 'Skillgrid',
   openspec: 'OpenSpec',
   speckit: 'SpecKit',
   superpowers: 'Superpowers',

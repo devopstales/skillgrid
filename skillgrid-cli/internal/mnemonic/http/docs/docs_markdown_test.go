@@ -26,6 +26,11 @@ func seedMDRepo(t *testing.T) string {
 	// sdd root -> .skillgrid/specs/<change>/
 	write(".skillgrid/specs/009-web-admin-dashboard/briefing.md", "# Briefing\n\n## Goal\n\nShip it.\n")
 	write(".skillgrid/specs/009-web-admin-dashboard/tasks.md", "# Tasks\n\n- [x] 01.1 done\n")
+	// skillgrid first-class docs -> .skillgrid/adr/ (numeric ADR) + .skillgrid/prd/ (numeric PRD)
+	write(".skillgrid/adr/0007-sdd-docs.md",
+		"# SDD docs viewer\n\n---\nstatus: \"accepted\"\nsupersedes: none\ndate: 2026-09-17\n---\n\n## Context and Problem Statement\n\nWhy.\n\n## Decision Outcome\n\nExistence-gated roots.\n\n### Consequences\n\nGood.\n")
+	write(".skillgrid/prd/0001-dashboard.md",
+		"---\nid: 0001\ntitle: Dashboard — PRD\ntype: prd\n---\n\n# Dashboard — PRD\n\n## 1. Problem\n\nProblem.\n")
 	// backlog root -> .backlog/tasks/
 	write(".backlog/tasks/TASK-001-something.md", "---\nid: TASK-001\nstatus: in-progress\npriority: high\n---\n\n# Task one\n\nBody.\n")
 	// backlogdocs root -> .backlog/decisions/ (ADR) + .backlog/docs/ (PRD)

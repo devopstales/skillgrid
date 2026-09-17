@@ -1630,7 +1630,7 @@ paths:
       operationId: docsTree
       summary: Grouped markdown doc tree across the declared roots
       description: |-
-        Read-only tree of markdown files under `.skillgrid/specs/` (skillgrid),
+        Read-only tree of markdown files under `.skillgrid/` (skillgrid: specs + adr/ + prd/),
         `openspec/`, `specs/` + `.specify/memory` (speckit),
         `docs/superpowers/plans|specs` (superpowers), `.backlog/tasks/` (backlog),
         `.backlog/docs` + `.backlog/decisions` (backlogdocs: doc-NNN/PRD + ADR),

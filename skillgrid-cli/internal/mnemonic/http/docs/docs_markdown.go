@@ -22,7 +22,8 @@ import (
 // works from any repo that uses any subset of these methods.
 //
 // Methods (their canonical artifact locations, researched):
-//   - skillgrid:  .skillgrid/specs/<change>/{briefing,tasks,acceptance}.md
+//   - skillgrid:  .skillgrid/** (specs/<change>/{briefing,tasks,acceptance}.md,
+//                decisions/ ADRs, prd/ product docs) — the team's own SDD artifacts
 //   - openspec:   openspec/specs/**, openspec/changes/**
 //   - speckit:    specs/<NNN-feature>/{spec,plan,tasks}.md, .specify/memory/constitution.md
 //   - superpowers: docs/superpowers/plans/**, docs/superpowers/specs/**
@@ -31,7 +32,7 @@ import (
 //   - docs:       docs/** (human docs)
 //   - root:       top-level *.md
 var mdRoots = map[string][]string{
-	"skillgrid":   {".skillgrid/specs"},
+	"skillgrid":   {".skillgrid"},
 	"openspec":    {"openspec/specs", "openspec/changes", "openspec"},
 	"speckit":     {"specs", ".specify/memory"},
 	"superpowers": {"docs/superpowers/plans", "docs/superpowers/specs"},
@@ -82,29 +83,27 @@ const (
 )
 
 // classifyDoc infers the artifact type from path + frontmatter so the SPA can
-// pick a schema-aware view. Decisions (ADR) are detected by the .backlog/
-// decisions/ path or a decision-N id; PRDs by a "PRD" title/id; docs by the
-// doc-NNN id; tasks by the .backlog/tasks/ path or status+acceptance.
+// pick a schema-aware view. Decisions (ADR) are detected by any /decisions/
+// path segment or a decision-N / adr-N id; PRDs by a prd-N id, a "PRD" title,
+// or a /prd/ path; docs by a doc-NNN id; tasks by a /tasks/ path or a task-/
+// back- id or acceptance_criteria / definition_of_done frontmatter.
 func classifyDoc(path string, fm map[string]any) string {
 	lower := strings.ToLower(path)
 	id, _ := fm["id"].(string)
 	idl := strings.ToLower(id)
+	titleLower := strings.ToLower(strOf(fm["title"]))
 	switch {
-	case strings.Contains(lower, "/decisions/") || strings.HasPrefix(idl, "decision-") ||
-		strings.HasPrefix(idl, "adr-"):
+	case strings.Contains(lower, "/adr/") || strings.Contains(lower, "/decisions/") ||
+		strings.HasPrefix(idl, "decision-") || strings.HasPrefix(idl, "adr-"):
 		return DocTypeADR
-	case strings.Contains(lower, "/docs/") && (strings.HasPrefix(idl, "doc-") || idl != "") ||
-		(strings.Contains(lower, "/docs/") && strings.HasPrefix(idl, "prd")):
-		if strings.HasPrefix(idl, "prd") || strings.Contains(strings.ToLower(strOf(fm["title"])), "prd") ||
-			strings.Contains(lower, "prd") {
-			return DocTypePRD
-		}
-		return DocTypeDoc
+	case strings.Contains(lower, "/prd/") || strings.HasPrefix(idl, "prd") ||
+		strings.Contains(titleLower, "prd") || (hasKey(fm, "type") && strOf(fm["type"]) == "prd"):
+		return DocTypePRD
 	case strings.Contains(lower, "/tasks/") || strings.HasPrefix(idl, "task-") ||
 		strings.HasPrefix(idl, "back-") || hasKey(fm, "acceptance_criteria") || hasKey(fm, "definition_of_done"):
 		return DocTypeTask
-	case hasKey(fm, "type") && strOf(fm["type"]) == "prd":
-		return DocTypePRD
+	case strings.HasPrefix(idl, "doc-"):
+		return DocTypeDoc
 	}
 	// fallback: a spec-like path
 	if strings.Contains(lower, "spec") {
@@ -337,17 +336,42 @@ func NewRender(cwd string) http.Handler {
 // splitFrontmatter pulls a leading YAML frontmatter block (--- ... ---) into a
 // flat string->string map, and returns the remaining body.
 func splitFrontmatter(s string) (map[string]any, string) {
-	if !strings.HasPrefix(s, "---\n") {
+	if strings.HasPrefix(s, "---\n") {
+		rest := s[4:]
+		idx := strings.Index(rest, "\n---")
+		if idx >= 0 {
+			block := rest[:idx]
+			body := strings.TrimPrefix(rest[idx+len("\n---"):], "\n")
+			return parseFrontmatterBlock(block), body
+		}
 		return nil, s
 	}
-	rest := s[4:]
-	idx := strings.Index(rest, "\n---")
-	if idx < 0 {
+	// Title-first variant (the y-statement / custom ADR convention): a leading
+	// "# Title" line, then a blank line, then a "--- ... ---" frontmatter block.
+	// We parse that block as frontmatter and keep the title as the body H1 so the
+	// doc's status/date are readable. Standard frontmatter-first files are
+	// unaffected (this guard requires the first line to be an H1, and the
+	// frontmatter to begin right after the title).
+	first, rest, ok := strings.Cut(s, "\n")
+	if !ok || !strings.HasPrefix(strings.TrimSpace(first), "# ") {
 		return nil, s
 	}
-	block := rest[:idx]
-	body := rest[idx+len("\n---"):]
-	body = strings.TrimPrefix(body, "\n")
+	openIdx := strings.Index(rest, "\n---\n")
+	if openIdx < 0 {
+		return nil, s
+	}
+	afterOpen := rest[openIdx+len("\n---\n"):]
+	closeIdx := strings.Index(afterOpen, "\n---\n")
+	if closeIdx < 0 {
+		return nil, s
+	}
+	fmBlock := afterOpen[:closeIdx]
+	body := first + afterOpen[closeIdx+len("\n---\n"):]
+	return parseFrontmatterBlock(fmBlock), body
+}
+
+// parseFrontmatterBlock parses a "key: value" frontmatter block into a flat map.
+func parseFrontmatterBlock(block string) map[string]any {
 	fm := map[string]any{}
 	for _, line := range strings.Split(block, "\n") {
 		k, v, ok := strings.Cut(line, ":")
@@ -356,7 +380,7 @@ func splitFrontmatter(s string) (map[string]any, string) {
 		}
 		fm[strings.TrimSpace(k)] = strings.TrimSpace(strings.Trim(strings.TrimSpace(v), `"`))
 	}
-	return fm, body
+	return fm
 }
 
 // titleFromBody extracts the first markdown H1 as the title, else falls back.
@@ -474,6 +498,36 @@ func specTaskDir(name string) bool {
 	return true
 }
 
+// specDocDir reports whether a subdirectory of the .skillgrid root holds first-class
+// SDD documents (ADRs / product docs) that must be shown even though the skillgrid
+// selector is otherwise spec/task-only.
+func specDocDir(name string) bool {
+	switch strings.ToLower(name) {
+	case "decisions", "prd", "adrs", "product":
+		return true
+	}
+	return false
+}
+
+// specDocFile reports whether a top-level .md file under .skillgrid is a first-class
+// SDD document (an ADR or a PRD) rather than a config/meta file. Skillgrid uses
+// numeric IDs (0001-*.md) inside adr/ and prd/; Backlog.md-style uses adr- / prd-
+// prefixes. All are surfaced.
+func specDocFile(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasPrefix(lower, "decision-") || strings.HasPrefix(lower, "adr-") ||
+		strings.HasPrefix(lower, "prd-") || numericIDPrefix(lower)
+}
+
+// numericIDPrefix reports a leading 4+ digit id ("0001-...", "0007-...").
+func numericIDPrefix(lower string) bool {
+	n := 0
+	for n < len(lower) && lower[n] >= '0' && lower[n] <= '9' {
+		n++
+	}
+	return n >= 4 && n < len(lower) && lower[n] == '-'
+}
+
 func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 	entries, err := os.ReadDir(abs)
 	if err != nil {
@@ -489,8 +543,13 @@ func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 	// The "root" selector only lists top-level *.md files (not subdirs).
 	rootOnly := sel == "root"
 	// The "skillgrid" selector shows only spec/task files (not research
-	// side-products) to keep the tree focused on the plan/spec artifacts.
+	// side-products) to keep the tree focused on the plan/spec artifacts —
+	// plus first-class decision/PRD docs (see specDocDir/specDocFile).
 	specOnly := sel == "skillgrid"
+	// When walking a .skillgrid decision/PRD container, every file is a doc
+	// (ADR/PRD), not a spec file — so the spec-file filter must not clobber it.
+	inSpecDoc := specOnly && (name == "decisions" || name == "prd" ||
+		name == "adrs" || name == "product")
 	for _, e := range entries {
 		select {
 		case <-ctx.Done():
@@ -502,8 +561,8 @@ func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 			if rootOnly {
 				continue
 			}
-			// spec/task only: skip research dirs (digests, literature, ...).
-			if specOnly && !specTaskDir(e.Name()) {
+			// spec/task only: skip research dirs unless it's a decision/PRD container.
+			if specOnly && !specTaskDir(e.Name()) && !specDocDir(e.Name()) {
 				continue
 			}
 			child, err := walkDir(ctx, cwd, childAbs, sel, e.Name())
@@ -518,8 +577,8 @@ func walkDir(ctx context.Context, cwd, abs, sel, name string) (*MDNode, error) {
 		if !strings.EqualFold(filepath.Ext(e.Name()), ".md") {
 			continue
 		}
-		// spec/task only: skip non-plan files in the SDD root.
-		if specOnly && !specTaskFile(e.Name()) {
+		// spec/task only: skip non-plan files, except first-class ADR/PRD docs.
+		if specOnly && !inSpecDoc && !specTaskFile(e.Name()) && !specDocFile(e.Name()) {
 			continue
 		}
 		data, err := os.ReadFile(childAbs)

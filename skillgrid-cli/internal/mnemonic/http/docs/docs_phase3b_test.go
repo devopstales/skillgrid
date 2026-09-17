@@ -77,6 +77,58 @@ func TestPhase3b_ADRContent(t *testing.T) {
 	}
 }
 
+// 3b.2b [AFK] The skillgrid root (.skillgrid) surfaces first-class ADR + PRD
+// artifacts alongside the spec/task files, and they classify as adr/prd.
+func TestPhase3b_SkillgridRootDocs(t *testing.T) {
+	h := newMDHandler(t)
+	do := func(target string) (int, string) {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, target, nil))
+		return rr.Code, rr.Body.String()
+	}
+
+	// root=skillgrid includes the numeric ADR + PRD under .skillgrid/
+	code, body := do("/docs/tree?root=skillgrid")
+	if code != http.StatusOK {
+		t.Fatalf("skillgrid tree: expected 200, got %d (%s)", code, body)
+	}
+	for _, want := range []string{"0007-sdd-docs", "0001-dashboard", "briefing.md"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("skillgrid tree missing %q in %s", want, body)
+		}
+	}
+
+	// the ADR classifies as adr with decisionStatus from frontmatter
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet,
+		"/docs/content?path=.skillgrid/adr/0007-sdd-docs.md", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("skillgrid adr content: expected 200, got %d (%s)", rr.Code, rr.Body.String())
+	}
+	var adr MDContent
+	if err := json.Unmarshal(rr.Body.Bytes(), &adr); err != nil {
+		t.Fatalf("decode adr: %v", err)
+	}
+	if adr.DocType != DocTypeADR {
+		t.Errorf("skillgrid adr docType: expected %q, got %q", DocTypeADR, adr.DocType)
+	}
+	if adr.DecisionStatus != "accepted" {
+		t.Errorf("skillgrid adr decisionStatus: expected \"accepted\", got %q", adr.DecisionStatus)
+	}
+
+	// the PRD classifies as prd
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet,
+		"/docs/content?path=.skillgrid/prd/0001-dashboard.md", nil))
+	var prd MDContent
+	if err := json.Unmarshal(rr.Body.Bytes(), &prd); err != nil {
+		t.Fatalf("decode prd: %v", err)
+	}
+	if prd.DocType != DocTypePRD {
+		t.Errorf("skillgrid prd docType: expected %q, got %q", DocTypePRD, prd.DocType)
+	}
+}
+
 // 3b.3 [AFK] A PRD under .backlog/docs is classified docType=prd; a plain
 // doc-NNN is docType=doc; a Backlog task stays docType=task.
 func TestPhase3b_DocTypeClassification(t *testing.T) {
