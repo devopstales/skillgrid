@@ -8,18 +8,16 @@ import (
 	"strings"
 )
 
-// Find performs a filesystem-style glob pattern search across observations
-// in the given scope. The pattern is matched against the basename of the
-// topic_key (the last path segment) and against the observation title.
+// Find globs the code index within an optional scope. The pattern is matched
+// (via path.Match) against indexed file paths/basenames and against symbol
+// names. scope (a code path prefix) narrows the search to files under it.
 //
-// Supported glob characters: * (any chars), ? (single char).
+//   - Find(ctx, "*.go", "")         → all files matching *.go + symbols named *.go
+//   - Find(ctx, "Handler", "")       → symbols named Handler
+//   - Find(ctx, "*.go", "src/auth/") → files under src/auth/ matching *.go
 //
-//   - Find(ctx, "auth*", "project/A/") → observations whose topic_key basename
-//     or title matches "auth*"
-//   - Find(ctx, "*.go", "") → all observations matching "*.go" across all scopes
-//
-// scope may be "" to search all observations in the project.
-func (fs *MemFS) Find(ctx context.Context, pattern string, scope string) ([]Observation, error) {
+// An unindexed store returns 0 entries, nil error.
+func (fs *MemFS) Find(ctx context.Context, pattern, scope string) ([]Entry, error) {
 	if fs == nil || fs.db == nil {
 		return nil, fmt.Errorf("memfs: not initialized")
 	}
@@ -27,73 +25,96 @@ func (fs *MemFS) Find(ctx context.Context, pattern string, scope string) ([]Obse
 	if pattern == "" {
 		return nil, fmt.Errorf("memfs find: empty pattern")
 	}
-
-	var (
-		rows *sql.Rows
-		err  error
-	)
+	scopeDir := ""
 	if scope != "" {
-		f, perr := ResolveURI(scope)
-		if perr != nil {
-			return nil, perr
+		cp, err := ResolveCodePath(fs.projectID, scope)
+		if err != nil {
+			return nil, err
 		}
-		prefix := f.Prefix()
-		rows, err = fs.db.QueryContext(ctx, `
-			SELECT id, title, content, topic_key, memory_type, created_at
-			FROM observations
-			WHERE project = ? AND deleted_at IS NULL
-			  AND (topic_key = ? OR topic_key LIKE ?)
-			ORDER BY created_at DESC, id DESC
-			LIMIT 200`,
-			fs.projectID, prefix, prefix+"/%",
-		)
-	} else {
-		rows, err = fs.db.QueryContext(ctx, `
-			SELECT id, title, content, topic_key, memory_type, created_at
-			FROM observations
-			WHERE project = ? AND deleted_at IS NULL
-			ORDER BY created_at DESC, id DESC
-			LIMIT 200`,
-			fs.projectID,
-		)
+		scopeDir = cp.Dir
 	}
-	if err != nil {
-		return nil, fmt.Errorf("memfs find: %w", err)
-	}
-	defer rows.Close()
 
-	var out []Observation
-	for rows.Next() {
-		var o Observation
-		var tk sql.NullString
-		var mt sql.NullString
-		if err := rows.Scan(&o.ID, &o.Title, &o.Content, &tk, &mt, &o.CreatedAt); err != nil {
-			return nil, fmt.Errorf("memfs find scan: %w", err)
+	// Materialize files first (single query, closed), then symbols, so the
+	// single-connection store pool is never held by two live row sets.
+	var files []string
+	{
+		var rows *sql.Rows
+		var err error
+		if scopeDir == "" {
+			rows, err = fs.db.QueryContext(ctx, `SELECT path FROM files ORDER BY path LIMIT 200`)
+		} else {
+			rows, err = fs.db.QueryContext(ctx,
+				`SELECT path FROM files WHERE path LIKE ? ORDER BY path LIMIT 200`, scopeDir+"/%")
 		}
-		o.TopicKey = tk.String
-		o.MemoryType = mt.String
-		if matchesGlob(pattern, o) {
-			out = append(out, o)
+		if err != nil {
+			return nil, fmt.Errorf("memfs find: %w", err)
+		}
+		for rows.Next() {
+			var p string
+			if err := rows.Scan(&p); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("memfs find scan: %w", err)
+			}
+			files = append(files, p)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
 		}
 	}
-	return out, rows.Err()
-}
 
-// matchesGlob reports whether the observation matches the glob pattern.
-// It checks the basename of topic_key and the title.
-func matchesGlob(pattern string, o Observation) bool {
-	// Check topic_key basename.
-	if o.TopicKey != "" {
-		base := path.Base(o.TopicKey)
-		if ok, _ := path.Match(pattern, base); ok {
-			return true
+	var out []Entry
+	seenFile := map[string]bool{}
+	for _, p := range files {
+		if seenFile[p] {
+			continue
+		}
+		if matchesCodeGlob(pattern, p) {
+			seenFile[p] = true
+			out = append(out, Entry{Name: p, Kind: "file"})
 		}
 	}
-	// Check title.
-	if o.Title != "" {
-		if ok, _ := path.Match(pattern, o.Title); ok {
-			return true
+
+	type symRef struct {
+		name string
+		sig  string
+	}
+	var syms []symRef
+	{
+		var rows *sql.Rows
+		var err error
+		if scopeDir == "" {
+			rows, err = fs.db.QueryContext(ctx,
+				`SELECT s.name, s.signature FROM files f JOIN symbols s ON s.file_id = f.id ORDER BY s.name LIMIT 200`)
+		} else {
+			rows, err = fs.db.QueryContext(ctx,
+				`SELECT s.name, s.signature FROM files f JOIN symbols s ON s.file_id = f.id WHERE f.path LIKE ? ORDER BY s.name LIMIT 200`,
+				scopeDir+"/%")
+		}
+		if err != nil {
+			return nil, fmt.Errorf("memfs find: %w", err)
+		}
+		for rows.Next() {
+			var sr symRef
+			var sig sql.NullString
+			if err := rows.Scan(&sr.name, &sig); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("memfs find scan: %w", err)
+			}
+			sr.sig = sig.String
+			syms = append(syms, sr)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
 		}
 	}
-	return false
+	for _, sr := range syms {
+		if ok, _ := path.Match(pattern, sr.name); ok {
+			out = append(out, Entry{Name: sr.name, Kind: "symbol", Signature: sr.sig})
+		}
+	}
+	return out, nil
 }

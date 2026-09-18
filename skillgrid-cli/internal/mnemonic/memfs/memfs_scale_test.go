@@ -2,88 +2,65 @@ package memfs
 
 import (
 	"context"
-	"strings"
+	"strconv"
 	"testing"
 )
 
-// TestMemURIResolutionWith10kObservations is 26.1 [RED] — `mem://` URI
-// resolution and scope listing stay correct and fast under scale (10k+
-// observations). The URI parser (ResolveURI) is allocation-free and must
-// resolve identically regardless of store size; the scope List query must
-// honor its LIMIT 200 cap (returning at most 200 rows, newest first) rather
-// than materializing the whole 10k+ set. This pins the scale behavior: a
-// regression that drops the LIMIT, or that makes resolution depend on a full
-// table scan, would blow past the cap or change results as the store grows.
-func TestMemURIResolutionWith10kObservations(t *testing.T) {
-	fx := newMemFSTestFixture(t, "memfs-scale-test")
+// TestListStaysCappedUnderScale pins the scale behavior of the code-index
+// listing: a store with many indexed files must return at most the LIMIT cap
+// (200) rows from `ls`, not the whole set. A regression that drops the LIMIT
+// would materialize the entire files table.
+func TestListStaysCappedUnderScale(t *testing.T) {
+	fs, st := newCodeFSTestFixture(t, "code-scale-test")
 	ctx := context.Background()
+	db := st.DB
 
-	const total = 10_000
-	const inScope = 5_000
-
-	// 5000 observations under project/A/preferences (varied titles so dedup on
-	// (title+content+type) does not collapse them), 5000 under project/A/entities.
-	for i := 0; i < inScope; i++ {
-		fx.saveObs(t, "pref-obs-"+itoa(i), "project/A/preferences/pref-"+itoa(i), "preferences", "preference body "+itoa(i))
-	}
-	for i := 0; i < total-inScope; i++ {
-		fx.saveObs(t, "ent-obs-"+itoa(i), "project/A/entities/ent-"+itoa(i), "entities", "entity body "+itoa(i))
-	}
-
-	// URI resolution is allocation-free and store-size independent: it must
-	// resolve to the same ScopeFilter as the small-scale test, under 10k rows.
-	f, err := ResolveURI("mem://project/A/preferences")
+	// 250 files across 5 top-level dirs (src/, lib/, cmd/, pkg/, docs/).
+	tx, err := db.Begin()
 	if err != nil {
-		t.Fatalf("ResolveURI at 10k scale: %v", err)
+		t.Fatalf("begin: %v", err)
 	}
-	if f.Kind != "project" || f.ID != "A" || f.MemoryType != "preferences" {
-		t.Fatalf("ResolveURI at 10k scale: got %+v", f)
-	}
-	if f.Prefix() != "project/A/preferences" {
-		t.Fatalf("ResolveURI prefix at 10k scale: got %q", f.Prefix())
-	}
-
-	// Scope listing must honor its LIMIT 200 cap (not return all 5000) and
-	// return only in-scope (preferences) observations.
-	res, err := fx.fs.List(ctx, "project/A/preferences")
-	if err != nil {
-		t.Fatalf("ls project/A/preferences at 10k scale: %v", err)
-	}
-	if len(res) > 200 {
-		t.Fatalf("ls returned %d rows, want at most 200 (LIMIT cap) at 10k scale", len(res))
-	}
-	if len(res) == 0 {
-		t.Fatalf("ls returned 0 rows at 10k scale; expected the newest <=200 preferences")
-	}
-	for _, o := range res {
-		if !strings.Contains(o.TopicKey, "preferences") {
-			t.Fatalf("ls at 10k scale returned an out-of-scope observation: title=%q topic_key=%q", o.Title, o.TopicKey)
+	for i := 0; i < 250; i++ {
+		dir := []string{"src", "lib", "cmd", "pkg", "docs"}[i%5]
+		if _, err := tx.Exec(`INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES (?, 1, 10, ?, '2026-01-01T00:00:00Z')`,
+			dir+"/f"+strconv.Itoa(i)+".go", "h"+strconv.Itoa(i)); err != nil {
+			tx.Rollback()
+			t.Fatalf("insert file %d: %v", i, err)
 		}
 	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
 
-	// The broader scope (project/A/) must also be capped at 200 and mix only
-	// in-A rows (no user/B rows exist here, but the cap is the assertion).
-	resAll, err := fx.fs.List(ctx, "project/A/")
+	// Root listing is capped at LIMIT 200 file rows; with 250 files across 5
+	// dirs the 5th dir can fall off the cap. Assert it returns at most the cap
+	// and at least the dirs fully within the first 200 rows.
+	res, err := fs.List(ctx, "")
 	if err != nil {
-		t.Fatalf("ls project/A/ at 10k scale: %v", err)
+		t.Fatalf("ls root at scale: %v", err)
 	}
-	if len(resAll) > 200 {
-		t.Fatalf("ls project/A/ returned %d rows, want at most 200 (LIMIT cap)", len(resAll))
+	if len(res) > 200 {
+		t.Errorf("ls root at scale returned %d, want at most 200", len(res))
 	}
-}
+	if len(res) < 4 {
+		t.Errorf("ls root at scale returned %d top-level dirs, want >= 4", len(res))
+	}
 
-// itoa is a tiny int→string helper so the test does not import strconv for a
-// formatting detail.
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
+	// A directory with 50 files lists all 50 (under cap).
+	res, err = fs.List(ctx, "src/")
+	if err != nil {
+		t.Fatalf("ls src/ at scale: %v", err)
 	}
-	var b [20]byte
-	pos := len(b)
-	for i > 0 {
-		pos--
-		b[pos] = byte('0' + i%10)
-		i /= 10
+	if len(res) != 50 {
+		t.Errorf("ls src/ at scale: expected 50 files, got %d", len(res))
 	}
-	return string(b[pos:])
+
+	// Find *.go is capped at 200 even though 250 files match.
+	res, err = fs.Find(ctx, "*.go", "")
+	if err != nil {
+		t.Fatalf("find *.go at scale: %v", err)
+	}
+	if len(res) > 200 {
+		t.Errorf("find *.go at scale returned %d rows, want at most 200 (LIMIT cap)", len(res))
+	}
 }

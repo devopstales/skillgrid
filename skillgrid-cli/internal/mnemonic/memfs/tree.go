@@ -2,87 +2,90 @@ package memfs
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
 )
 
-// TreeNode is one node in the hierarchical tree view.
+// TreeNode is one node in the code-index tree view.
 type TreeNode struct {
-	Name     string     `json:"name"`
-	Children []*TreeNode `json:"children,omitempty"`
-	// Leaf is true when this node represents an observation (a leaf file),
-	// false when it is a directory.
-	Leaf    bool   `json:"leaf"`
-	Title   string `json:"title,omitempty"`
+	Name     string
+	Children []*TreeNode
+	Leaf     bool
+	Meta     string // e.g. "1 symbols" on file leaves
 }
 
-// Tree returns a rendered hierarchical tree of the topic_key namespace
-// under the given scope. The output is indented text using ├── and └──.
+// noCodeIndexNote is the message shown for an unindexed store.
+func (fs *MemFS) noCodeIndexNote() string {
+	return "mem fs: no code index for project " + fs.projectID + " (run skillgrid index)\n"
+}
+
+// Tree renders the code-index repo directory tree under the given code path.
+// Files are leaves annotated with their symbol count, e.g.
 //
-// Example for scope "project/A/":
+//	src/
+//	├── auth/
+//	│   └── login.go (1 symbols)
+//	└── util.go (0 symbols)
 //
-//	project/A/
-//	├── entities/
-//	│   └── user_model.go
-//	└── preferences/
-//	    ├── sub1
-//	    └── sub2
-func (fs *MemFS) Tree(ctx context.Context, scope string) (string, error) {
+// An empty (unindexed) store returns the "no code index" note.
+func (fs *MemFS) Tree(ctx context.Context, codePath string) (string, error) {
 	if fs == nil || fs.db == nil {
 		return "", fmt.Errorf("memfs: not initialized")
 	}
-	f, err := ResolveURI(scope)
+	cp, err := ResolveCodePath(fs.projectID, codePath)
 	if err != nil {
 		return "", err
 	}
-	prefix := f.Prefix()
-
-	rows, err := fs.db.QueryContext(ctx, `
-		SELECT topic_key, title
-		FROM observations
-		WHERE project = ? AND deleted_at IS NULL
-		  AND topic_key IS NOT NULL AND topic_key != ''
-		  AND topic_key LIKE ?
-		ORDER BY topic_key`,
-		fs.projectID, prefix+"/%",
-	)
+	var rows *sql.Rows
+	if cp.Dir == "" {
+		rows, err = fs.db.QueryContext(ctx,
+			`SELECT f.path, (SELECT COUNT(*) FROM symbols s WHERE s.file_id = f.id) FROM files f ORDER BY f.path LIMIT 200`)
+	} else {
+		rows, err = fs.db.QueryContext(ctx,
+			`SELECT f.path, (SELECT COUNT(*) FROM symbols s WHERE s.file_id = f.id) FROM files f WHERE f.path LIKE ? ORDER BY f.path LIMIT 200`,
+			cp.Dir+"/%")
+	}
 	if err != nil {
 		return "", fmt.Errorf("memfs tree: %w", err)
 	}
 	defer rows.Close()
 
-	// Collect all topic_keys under the prefix.
-	type keyRow struct {
-		key   string
-		title string
+	type fileRow struct {
+		path string
+		n    int
 	}
-	var keys []keyRow
+	var files []fileRow
 	for rows.Next() {
-		var k, t string
-		if err := rows.Scan(&k, &t); err != nil {
+		var fr fileRow
+		if err := rows.Scan(&fr.path, &fr.n); err != nil {
 			return "", fmt.Errorf("memfs tree scan: %w", err)
 		}
-		keys = append(keys, keyRow{key: k, title: t})
+		files = append(files, fr)
 	}
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
-
-	// Build the tree.
-	root := &TreeNode{Name: prefix + "/", Children: nil, Leaf: false}
-	for _, kr := range keys {
-		// Strip the prefix to get the relative path.
-		rel := strings.TrimPrefix(kr.key, prefix+"/")
-		segs := strings.Split(rel, "/")
-		insertNode(root, segs, kr.title)
+	if len(files) == 0 {
+		return fs.noCodeIndexNote(), nil
 	}
 
-	return renderTree(root, prefix+"/", ""), nil
+	relPrefix := cp.Dir
+	if relPrefix != "" {
+		relPrefix += "/"
+	}
+	root := &TreeNode{Name: cp.Dir + "/", Leaf: false}
+	for _, fr := range files {
+		rel := strings.TrimPrefix(fr.path, relPrefix)
+		segs := splitPath(rel)
+		insertCodeNode(root, segs, fr.n)
+	}
+	return renderCodeTree(root), nil
 }
 
-// insertNode inserts a leaf (title) at the path segs under parent.
-func insertNode(parent *TreeNode, segs []string, title string) {
+// insertCodeNode inserts a file leaf (annotated with n symbols) at segs under parent.
+func insertCodeNode(parent *TreeNode, segs []string, n int) {
 	if len(segs) == 0 {
 		return
 	}
@@ -90,12 +93,10 @@ func insertNode(parent *TreeNode, segs []string, title string) {
 	for i, seg := range segs {
 		last := i == len(segs)-1
 		var child *TreeNode
-		if len(cur.Children) > 0 {
-			for _, c := range cur.Children {
-				if c.Name == seg {
-					child = c
-					break
-				}
+		for _, c := range cur.Children {
+			if c.Name == seg {
+				child = c
+				break
 			}
 		}
 		if child == nil {
@@ -104,15 +105,14 @@ func insertNode(parent *TreeNode, segs []string, title string) {
 		}
 		if last {
 			child.Leaf = true
-			child.Title = title
+			child.Meta = fmt.Sprintf("%d symbols", n)
 		}
 		cur = child
 	}
-	// Sort children alphabetically for deterministic output.
-	sortChildren(cur)
+	sortCodeChildren(cur)
 }
 
-func sortChildren(n *TreeNode) {
+func sortCodeChildren(n *TreeNode) {
 	if n == nil || len(n.Children) == 0 {
 		return
 	}
@@ -120,21 +120,18 @@ func sortChildren(n *TreeNode) {
 		return n.Children[i].Name < n.Children[j].Name
 	})
 	for _, c := range n.Children {
-		sortChildren(c)
+		sortCodeChildren(c)
 	}
 }
 
-// renderTree renders the tree as indented text.
-func renderTree(node *TreeNode, path, indent string) string {
+func renderCodeTree(node *TreeNode) string {
 	var b strings.Builder
+	writeCodeChildren(&b, node, "")
+	return b.String()
+}
+
+func writeCodeChildren(b *strings.Builder, node *TreeNode, indent string) {
 	children := node.Children
-	if len(children) == 0 {
-		b.WriteString(indent + leafLabel(node))
-		return b.String()
-	}
-	// The root node's name ends with "/" — its children are memory_type
-	// directories and should always render with a trailing slash.
-	isRoot := strings.HasSuffix(node.Name, "/")
 	for i, c := range children {
 		last := i == len(children)-1
 		connector := "├── "
@@ -143,22 +140,15 @@ func renderTree(node *TreeNode, path, indent string) string {
 			connector = "└── "
 			childIndent = indent + "    "
 		}
-		if c.Leaf && len(c.Children) == 0 && !isRoot {
-			b.WriteString(indent + connector + leafLabel(c) + "\n")
+		if c.Leaf && len(c.Children) == 0 {
+			label := c.Name
+			if c.Meta != "" {
+				label += " (" + c.Meta + ")"
+			}
+			b.WriteString(indent + connector + label + "\n")
 		} else {
 			b.WriteString(indent + connector + c.Name + "/\n")
-			if len(c.Children) > 0 {
-				b.WriteString(renderTree(c, path+c.Name+"/", childIndent))
-			}
+			writeCodeChildren(b, c, childIndent)
 		}
 	}
-	return b.String()
-}
-
-func leafLabel(n *TreeNode) string {
-	label := n.Name
-	if !strings.HasSuffix(label, "/") && n.Title != "" {
-		label = n.Title
-	}
-	return label
 }

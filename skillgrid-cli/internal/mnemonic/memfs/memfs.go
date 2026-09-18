@@ -1,20 +1,22 @@
-// Package memfs is the virtual filesystem over the mnemonic observation store
-// (change 014, step 25). It exposes `mem ls`, `mem tree`, and `mem find` as
-// scope-aware directory operations alongside the existing `mem search`.
+// Package memfs is a virtual filesystem over the project code index
+// (files/symbols/chunks). It exposes `mem fs ls`, `mem fs tree`, `mem fs find`,
+// and `mem fs cat` as path-aware directory operations, modeled on the
+// OpenViking viking:// browse paradigm: the agent walks the indexed repo tree
+// instead of querying a black-box store.
 //
-// Scope URIs follow the shape `mem://project/{id}/` and `mem://user/{id}/`.
-// The "directories" under a scope are organized by memory_type (e.g.
-// `mem://project/A/preferences` = project A's preference-typed observations).
+// Code paths are repo-relative, rooted at the project:
 //
-// Scope storage: observations are associated with a memfs scope via the
-// topic_key column using the pattern `{kind}/{id}/{memory_type}/...`.
-// This is consistent with step 19's directory retrieval and requires no
-// schema migration.
+//	memfs://project/{id}/                → repo root
+//	memfs://project/{id}/src/            → a directory
+//	memfs://project/{id}/src/a/b.go      → a file
+//	memfs://project/{id}/src/a/b.go::Fn  → a symbol in a file
+//
+// The observation store is unchanged and remains reachable via `mem search`
+// and the MCP mem_* tools; memfs no longer fronts it.
 package memfs
 
 import (
 	"database/sql"
-	"errors"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
 )
@@ -40,17 +42,3 @@ func (fs *MemFS) DB() *sql.DB {
 	}
 	return fs.db
 }
-
-// Observation is the memfs-level view of a stored observation. It mirrors
-// the fields relevant to scope-based directory listing.
-type Observation struct {
-	ID         int64  `json:"id"`
-	Title      string `json:"title"`
-	Content    string `json:"content"`
-	TopicKey   string `json:"topic_key,omitempty"`
-	MemoryType string `json:"memory_type,omitempty"`
-	CreatedAt  string `json:"created_at"`
-}
-
-// ErrEmptyScope is returned when a scope path is empty or malformed.
-var ErrEmptyScope = errors.New("memfs: empty or malformed scope path")
