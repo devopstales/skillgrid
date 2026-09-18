@@ -1239,7 +1239,10 @@ func reorderMemArgs(args []string) []string {
 	return append(flags, pos...)
 }
 
-// runMemFS handles the `mem fs` subcommand group (014 step 25): ls, tree, find.
+// runMemFS handles the `mem fs` subcommand group: an OpenViking-style virtual
+// filesystem over the code index (files/symbols/chunks). Verbs: ls, tree,
+// find, cat. Paths are repo-relative (or memfs://project/{id}/...); a file's
+// symbols are addressed as <file>::<symbol>.
 func runMemFS(svc *service.Service, projID string, pos []string) {
 	sub := ""
 	if len(pos) >= 1 {
@@ -1255,29 +1258,24 @@ func runMemFS(svc *service.Service, projID string, pos []string) {
 	ctx := context.Background()
 	switch sub {
 	case "ls":
-		if len(pos) < 2 {
-			fmt.Fprintln(os.Stderr, "error: mem fs ls requires <scope>")
-			os.Exit(2)
-		}
-		scope := strings.Join(pos[1:], " ")
-		obs, lerr := fs.List(ctx, scope)
+		pathArg := joinPathArgs(pos[1:])
+		entries, lerr := fs.List(ctx, pathArg)
 		if lerr != nil {
 			fmt.Fprintln(os.Stderr, "error:", lerr)
 			os.Exit(1)
 		}
+		if len(entries) == 0 {
+			fmt.Fprintln(os.Stderr, noCodeIndexNote(projID))
+		}
 		printJSON(map[string]any{
-			"project":      projID,
-			"scope":        scope,
-			"observations": obs,
-			"count":        len(obs),
+			"project": projID,
+			"path":    pathArg,
+			"entries": entries,
+			"count":   len(entries),
 		})
 	case "tree":
-		if len(pos) < 2 {
-			fmt.Fprintln(os.Stderr, "error: mem fs tree requires <scope>")
-			os.Exit(2)
-		}
-		scope := strings.Join(pos[1:], " ")
-		tree, terr := fs.Tree(ctx, scope)
+		pathArg := joinPathArgs(pos[1:])
+		tree, terr := fs.Tree(ctx, pathArg)
 		if terr != nil {
 			fmt.Fprintln(os.Stderr, "error:", terr)
 			os.Exit(1)
@@ -1289,34 +1287,67 @@ func runMemFS(svc *service.Service, projID string, pos []string) {
 			os.Exit(2)
 		}
 		pattern := pos[1]
-		scope := ""
-		if len(pos) >= 3 {
-			scope = strings.Join(pos[2:], " ")
-		}
-		obs, ferr := fs.Find(ctx, pattern, scope)
+		scope := joinPathArgs(pos[2:])
+		entries, ferr := fs.Find(ctx, pattern, scope)
 		if ferr != nil {
 			fmt.Fprintln(os.Stderr, "error:", ferr)
 			os.Exit(1)
 		}
 		printJSON(map[string]any{
-			"project":      projID,
-			"pattern":      pattern,
-			"scope":        scope,
-			"observations": obs,
-			"count":        len(obs),
+			"project": projID,
+			"pattern": pattern,
+			"scope":   scope,
+			"entries": entries,
+			"count":   len(entries),
 		})
+	case "cat":
+		if len(pos) < 2 {
+			fmt.Fprintln(os.Stderr, "error: mem fs cat requires <path> (file or file::symbol)")
+			os.Exit(2)
+		}
+		src, cerr := fs.Cat(ctx, joinPathArgs(pos[1:]))
+		if cerr != nil {
+			fmt.Fprintln(os.Stderr, "error:", cerr)
+			os.Exit(1)
+		}
+		fmt.Print(src)
+		if !strings.HasSuffix(src, "\n") {
+			fmt.Println()
+		}
 	case "help", "-h", "--help", "":
-		fmt.Fprint(os.Stderr, `usage: skillgrid mem fs <ls|tree|find> [args]
+		fmt.Fprint(os.Stderr, `usage: skillgrid mem fs <ls|tree|find|cat> [args]
 
-  ls <scope>               list observations in a scope
-                           (e.g. project/A/preferences, user/B/)
-  tree <scope>             hierarchical tree view of a scope
-  find <pattern> [scope]   glob pattern search (* and ? supported)
+  An OpenViking-style virtual filesystem over the code index.
+
+  Paths are repo-relative, or memfs://project/{id}/... . A file's symbols are
+  addressed as <file>::<symbol>. Run 'skillgrid index' first to populate.
+
+  ls <path>                list subdirs + files (a dir) or symbols (a file)
+  tree <path>              repo tree; files annotated with symbol count
+  find <pattern> [scope]   glob over file paths and symbol names (* and ?)
+  cat <path>               print source: <file>::<symbol> (a symbol) or
+                           <file> (the whole file)
+
+  Examples:
+    mem fs tree
+    mem fs ls src/auth/login.go
+    mem fs find *.go src/
+    mem fs cat src/auth/login.go::Handler
 `)
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown mem fs subcommand %q\n", sub)
 		os.Exit(2)
 	}
+}
+
+// joinPathArgs joins positional path args into a single path string.
+func joinPathArgs(args []string) string {
+	return strings.Join(args, " ")
+}
+
+// noCodeIndexNote is the stderr note for an unindexed store.
+func noCodeIndexNote(projID string) string {
+	return "mem fs: no code index for project " + projID + " (run skillgrid index)"
 }
 
 func printJSON(v any) {
