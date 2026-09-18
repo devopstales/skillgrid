@@ -25,23 +25,133 @@ export function forceLayout(
 ): void {
   const iterations = opts?.iterations ?? 300
   // .assign applies the computed positions back onto the graph (the plain call
-  // only returns a mapping). Settings live under params.settings.
-  // Tuned so nodes don't collapse into one blob: high scalingRatio + antigravity
-  // pushes hubs apart, outboundAttraction keeps chains straight, adjustSizes
-  // forces a per-node repulsion floor, and a low barnesHutTheta gives crisper
-  // repulsion for the ~5k-node graphs this renders.
+  // only returns a mapping). Shared settings (see FORCE_SETTINGS).
   forceAtlas2.assign(g, {
     iterations,
-    settings: {
-      scalingRatio: 60,
-      gravity: 0.1,
-      strongGravityMode: false,
-      outboundAttractionDistribution: true,
-      adjustSizes: true,
-      barnesHutTheta: 0.4,
-      linLogMode: false,
-    },
+    settings: FORCE_SETTINGS,
   })
+}
+
+// ForceAtlas2 settings shared by the sync and animated force layouts. Tuned so
+// nodes don't collapse into one blob: high scalingRatio + low gravity pushes
+// hubs apart, outboundAttraction keeps chains straight, adjustSizes forces a
+// per-node repulsion floor, and a low barnesHutTheta gives crisper repulsion
+// for the ~5k-node graphs this renders.
+const FORCE_SETTINGS = {
+  scalingRatio: 60,
+  gravity: 0.1,
+  strongGravityMode: false,
+  outboundAttractionDistribution: true,
+  adjustSizes: true,
+  barnesHutTheta: 0.4,
+  linLogMode: false,
+} as const
+
+export interface AnimatedLayoutHandle {
+  // Resolve when the layout settles, is stopped, or exhausts maxIterations.
+  done: Promise<void>
+  // Interrupt mid-flight. Idempotent; positions remain whatever they are at
+  // the moment of stop (always a valid, finite layout).
+  stop: () => void
+}
+
+// forceLayoutAnimated runs the ForceAtlas2 simulation incrementally across
+// animation frames so the graph visibly settles instead of the tab freezing.
+// The library only exposes a synchronous assign(graph, iterations), so we drive
+// it in small batches: each frame runs `iterationsPerFrame` iterations (assign
+// reads the graph's current x/y as its starting state, so batching is safe and
+// the motion is continuous), then yields to rAF. It stops early when the max
+// per-frame displacement drops below `settleEpsilon` for a few frames, when
+// `maxIterations` is reached, or when stop() is called.
+//
+// In a non-DOM environment (tests) requestAnimationFrame falls back to
+// setTimeout(0) via the `raf`/`cancel` injectables so it's fully testable.
+export function forceLayoutAnimated(
+  g: Graph<GraphologyNode, GraphologyEdge>,
+  opts?: {
+    maxIterations?: number
+    iterationsPerFrame?: number
+    settleEpsilon?: number
+    raf?: (cb: () => void) => number
+    cancel?: (id: number) => void
+  },
+): AnimatedLayoutHandle {
+  const maxIterations = opts?.maxIterations ?? 300
+  const perFrame = opts?.iterationsPerFrame ?? 4
+  const settleEpsilon = opts?.settleEpsilon ?? 0.05
+  // Prefer requestAnimationFrame in the browser; fall back to a 16 ms timer in
+  // non-DOM environments (tests) so the simulation is fully testable.
+  const raf =
+    opts?.raf ??
+    (typeof requestAnimationFrame === 'function'
+      ? (cb: () => void) => requestAnimationFrame(cb)
+      : (cb: () => void) => setTimeout(cb, 16) as unknown as number)
+  const cancel =
+    opts?.cancel ??
+    (typeof cancelAnimationFrame === 'function'
+      ? (id: number) => cancelAnimationFrame(id)
+      : (id: number) => clearTimeout(id as unknown as ReturnType<typeof setTimeout>))
+
+  const nodes = g.nodes()
+  if (nodes.length === 0) {
+    return { done: Promise.resolve(), stop: () => {} }
+  }
+
+  let rafId = 0
+  let frame = 0
+  let stableFrames = 0
+  let done = false
+  let resolveDone: () => void = () => {}
+  const donePromise = new Promise<void>((r) => {
+    resolveDone = r
+  })
+
+  function positions(): Map<string, { x: number; y: number }> {
+    const m = new Map<string, { x: number; y: number }>()
+    for (const n of nodes) {
+      m.set(n, {
+        x: Number(g.getNodeAttribute(n, 'x') ?? 0),
+        y: Number(g.getNodeAttribute(n, 'y') ?? 0),
+      })
+    }
+    return m
+  }
+
+  function step(): void {
+    if (done) return
+    const before = positions()
+    forceAtlas2.assign(g, { iterations: perFrame, settings: FORCE_SETTINGS })
+    frame++
+    // max per-frame displacement → settle heuristic.
+    let maxMove = 0
+    for (const n of nodes) {
+      const b = before.get(n)!
+      const dx = Number(g.getNodeAttribute(n, 'x') ?? 0) - b.x
+      const dy = Number(g.getNodeAttribute(n, 'y') ?? 0) - b.y
+      const d = Math.hypot(dx, dy)
+      if (d > maxMove) maxMove = d
+    }
+    if (maxMove < settleEpsilon) stableFrames++
+    else stableFrames = 0
+    const settled = stableFrames >= 3
+    if (settled || frame * perFrame >= maxIterations) {
+      done = true
+      resolveDone()
+      return
+    }
+    rafId = raf(step)
+  }
+
+  rafId = raf(step)
+
+  function stop(): void {
+    if (done) return
+    done = true
+    cancel(rafId)
+    resolveDone()
+  }
+
+  return { done: donePromise, stop }
 }
 
 // circlesLayout assigns nodes to concentric circles by degree rank: the most
