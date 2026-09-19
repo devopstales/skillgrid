@@ -655,8 +655,85 @@ paths:
                     format: int64
                   fetched_at:
                     type: string
-                  expires_at:
-                    type: string
+        expires_at:
+          type: string
+        cache_key:
+          type: string
+    # --- Phase 6 schemas ---
+    ActivityEvent:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        ts: { type: string }
+        type: { type: string }
+        source: { type: string }
+        actor: { type: string, nullable: true }
+        severity: { type: string }
+        summary: { type: string }
+        topicKey: { type: string, nullable: true }
+        sessionId: { type: string }
+        relatedIds:
+          type: array
+          items: { type: integer, format: int64 }
+    PlanSummary:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        progress: { type: number }
+        tasksDone: { type: integer }
+        tasksTotal: { type: integer }
+        hasLedger: { type: boolean }
+    PlanFile:
+      type: object
+      properties:
+        name: { type: string }
+        size: { type: integer }
+    PlanStep:
+      type: object
+      properties:
+        raw: { type: string }
+        status: { type: string }
+    PlanDetail:
+      allOf:
+        - $ref: "#/components/schemas/PlanSummary"
+        - type: object
+          properties:
+            files:
+              type: array
+              items: { $ref: "#/components/schemas/PlanFile" }
+            steps:
+              type: array
+              items: { $ref: "#/components/schemas/PlanStep" }
+            briefing: { type: string }
+            tasks: { type: string }
+    GitCommit:
+      type: object
+      properties:
+        sha: { type: string }
+        author: { type: string }
+        date: { type: string }
+        message: { type: string }
+        body: { type: string }
+        additions: { type: integer }
+        deletions: { type: integer }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/GitFileStat" }
+    GitFileStat:
+      type: object
+      properties:
+        path: { type: string }
+        additions: { type: integer }
+        deletions: { type: integer }
+    GitBlameLine:
+      type: object
+      properties:
+        line: { type: integer }
+        sha: { type: string }
+        author: { type: string }
+        summary: { type: string }
+        text: { type: string }
         "400":
           $ref: "#/components/responses/Bad"
         "500":
@@ -1861,11 +1938,11 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  nodes:
-                    type: array
-                    items: { $ref: "#/components/schemas/GraphNode" }
+                 type: object
+                 properties:
+                   nodes:
+                     type: array
+                     items: { $ref: "#/components/schemas/GraphNode" }
                    truncated: { type: boolean }
                    total: { type: integer }
         "400":
@@ -2258,6 +2335,311 @@ paths:
           description: OpenAPI 3.0 YAML
           content:
             application/yaml: {}
+
+  # --- Phase 6: activity / plans / git ---
+  /activity/events:
+    get:
+      tags: [activity]
+      operationId: activityEvents
+      summary: Agent activity feed (newest first)
+      description: |-
+        Returns the project's agent activity (observations) newest first.
+        There is no events table — activity is modeled as observations.
+        limit is clamped to 1..500. Unknown project → 200 with an empty feed.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100 }
+      responses:
+        "200":
+          description: Activity events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { type: string }
+                  events:
+                    type: array
+                    items: { $ref: "#/components/schemas/ActivityEvent" }
+                  limit: { type: integer }
+        "400": { $ref: "#/components/responses/Bad" }
+
+  /activity/stats:
+    get:
+      tags: [activity]
+      operationId: activityStats
+      summary: Activity counters
+      description: Total events, per-type breakdown, and active session count.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Activity stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { type: string }
+                  total: { type: integer }
+                  byType:
+                    type: object
+                    additionalProperties: { type: integer }
+                  activeSessions: { type: integer }
+        "400": { $ref: "#/components/responses/Bad" }
+
+  /activity/stream:
+    get:
+      tags: [activity]
+      operationId: activityStream
+      summary: Live activity stream (SSE)
+      description: |-
+        Server-Sent Events. Emits an initial `event: ready`, then an
+        `event: activity` for each new observation (800ms poll). 15s
+        heartbeat. Leak-free: the poller exits on client disconnect.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/Bad" }
+
+  /plans:
+    get:
+      tags: [plans]
+      operationId: listPlans
+      summary: List SDD plans (from .skillgrid/specs)
+      description: |-
+        One card per .skillgrid/specs/<slug>/ directory: name, status (the
+        `> **STATUS:**` blockquote line), checklist progress (done/total),
+        and whether an SDD ledger exists. Newest date first.
+      responses:
+        "200":
+          description: Plan list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items: { $ref: "#/components/schemas/PlanSummary" }
+
+  /plans/{id}:
+    get:
+      tags: [plans]
+      operationId: planDetail
+      summary: Plan detail (status, progress, files, SDD ledger steps)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Plan detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanDetail" }
+        "404":
+          description: Unknown plan
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
+
+  /specs:
+    get:
+      tags: [plans]
+      operationId: listSpecs
+      summary: List spec markdown files (for a UI file tree)
+      responses:
+        "200":
+          description: Spec file list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items: { type: string }
+
+  /specs/{path...}:
+    get:
+      tags: [plans]
+      operationId: specContent
+      summary: Spec markdown content (sandboxed to .skillgrid/specs)
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Spec content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path: { type: string }
+                  content: { type: string }
+        "404":
+          description: Unknown spec
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
+
+  /git/commits:
+    get:
+      tags: [git]
+      operationId: gitCommits
+      summary: Commit log (newest first)
+      description: git log with per-commit +/- stats and author. limit clamped 1..500. Not-a-repo → 503.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: Commit list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  commits:
+                    type: array
+                    items: { $ref: "#/components/schemas/GitCommit" }
+                  limit: { type: integer }
+        "503":
+          description: Not a git repository
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
+
+  /git/commits/{sha}:
+    get:
+      tags: [git]
+      operationId: gitCommit
+      summary: Commit detail (metadata + changed files)
+      parameters:
+        - name: sha
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Commit detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitCommit" }
+        "404":
+          description: Unknown commit
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
+        "503":
+          description: Not a git repository
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
+
+  /git/diff/{sha}:
+    get:
+      tags: [git]
+      operationId: gitDiff
+      summary: Unified diff of a commit
+      parameters:
+        - name: sha
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Diff
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sha: { type: string }
+                  diff: { type: string }
+        "404":
+          description: Unknown commit
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
+
+  /git/file-history:
+    get:
+      tags: [git]
+      operationId: gitFileHistory
+      summary: Commit history for one file
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: File history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path: { type: string }
+                  history:
+                    type: array
+                    items: { $ref: "#/components/schemas/GitCommit" }
+        "404":
+          description: No history for path
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
+
+  /git/blame:
+    get:
+      tags: [git]
+      operationId: gitBlame
+      summary: Per-line blame for one file
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Blame
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path: { type: string }
+                  lines:
+                    type: array
+                    items: { $ref: "#/components/schemas/GitBlameLine" }
+        "404":
+          description: Blame error / unknown path
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
 components:
   responses:
     Bad:
