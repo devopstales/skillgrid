@@ -35,7 +35,8 @@ export function EventCard({ event }: { event: ActivityEvent }) {
   const border = SEVERITY_BORDER[event.severity] ?? SEVERITY_BORDER.info
   const icon = TYPE_ICON[event.type] ?? '•'
   return (
-    <div className={`rounded-md border border-edge ${border} border-l-4 bg-card px-3 py-2`}>
+    // animate-stream-in: SSE-prepended items fade/slide in from the top (7.4).
+    <div className={`animate-stream-in rounded-md border border-edge ${border} border-l-4 bg-card px-3 py-2`}>
       <div className="flex items-start gap-2.5">
         <span className="mt-0.5 text-sm text-accent" aria-hidden>
           {icon}

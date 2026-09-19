@@ -107,7 +107,8 @@ export function ActivityPage() {
           {events.length === 0 ? 'No activity recorded yet.' : 'No events match the current filters.'}
         </div>
       ) : (
-        <div className="space-y-2">
+        // density-gap tokens (7.4): the feed gap respects the density mode.
+        <div className="flex flex-col" style={{ gap: 'var(--density-row)' }}>
           {filtered.map((e) => (
             <EventCard key={e.id} event={e} />
           ))}
