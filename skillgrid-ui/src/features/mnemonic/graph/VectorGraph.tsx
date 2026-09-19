@@ -8,7 +8,7 @@ import {
 } from '@react-sigma/core'
 import '@react-sigma/core/lib/style.css'
 import type Graph from 'graphology'
-import { useMnemonicGraph } from './hooks/useMnemonicGraph'
+import type { UseMnemonicGraph } from './hooks/useMnemonicGraph'
 import { filterGraphByDepth, searchNode, visibleLabels } from './filters'
 import { LayoutSwitcher } from './controls/LayoutSwitcher'
 import { SearchPanel } from './controls/SearchPanel'
@@ -17,6 +17,7 @@ import { DepthSlider } from './controls/DepthSlider'
 import { StopLayoutButton } from './controls/StopLayoutButton'
 import { ViewControls } from './controls/ViewControls'
 import { fitCameraToBBox } from './camera'
+import { agentForPath } from './explorer'
 import type { GraphologyNode, GraphologyEdge } from './converters'
 
 // Loader must render inside SigmaContainer and load the graphology instance.
@@ -92,6 +93,48 @@ function SearchHighlight({ center }: { center: string | null }) {
       },
     })
   }, [center, setSettings, sigma])
+  return null
+}
+
+// FileHighlight dims nodes based on the ExplorerPanel's selected file (path
+// match) and/or active agent chips (agentForPath). It's a separate child from
+// SearchHighlight so file/agent filtering and node-search highlighting don't
+// fight each other; the last-applied reducer wins (file filter applies first,
+// then search highlight on top). No-op when neither filter is active.
+function FileHighlight({
+  selectedFile,
+  activeAgents,
+}: {
+  selectedFile: string | null
+  activeAgents?: Set<string>
+}) {
+  const sigma = useSigma()
+  const setSettings = useSetSettings()
+  const fileSet = useMemo(() => {
+    if (!selectedFile) return null
+    return new Set<string>([selectedFile])
+  }, [selectedFile])
+  const agents = activeAgents && activeAgents.size > 0 ? activeAgents : null
+
+  useEffect(() => {
+    if (!fileSet && !agents) return
+    setSettings({
+      nodeReducer: (node, data) => {
+        const attrs = sigma.getGraph().getNodeAttributes(node) as { path?: string }
+        const path = attrs.path ?? ''
+        let dim = false
+        if (fileSet) {
+          // match the selected file itself, or any node under that directory
+          dim = !(path === selectedFile || path.startsWith(selectedFile + '/') || path.includes('/' + selectedFile))
+        }
+        if (agents) {
+          const a = agentForPath(path)
+          dim = dim || !(a != null && agents.has(a))
+        }
+        return dim ? { ...data, color: '#1e293b', label: '' } : data
+      },
+    })
+  }, [fileSet, agents, selectedFile, setSettings, sigma])
   return null
 }
 
@@ -189,9 +232,21 @@ function LoadingState() {
   )
 }
 
-export function VectorGraph() {
+interface VectorGraphProps {
+  // Graph data, owned by the parent (GraphPage) which shares it with the
+  // ExplorerPanel so there's one fetch.
+  graphState: UseMnemonicGraph
+  // A file path selected in the ExplorerPanel. Nodes whose `path` doesn't match
+  // (isn't under) this path are dimmed. null = no file filter.
+  selectedFile?: string | null
+  // Active agent chips from the ExplorerPanel (cursor/kilo/opencode/all).
+  // When non-empty, nodes whose agentForPath(path) isn't in the set are dimmed.
+  activeAgents?: Set<string>
+}
+
+export function VectorGraph({ selectedFile, activeAgents, graphState }: VectorGraphProps) {
   const { g, raw, loading, layoutStatus, stopLayout, error, layout, setLayout, degraded, truncated } =
-    useMnemonicGraph()
+    graphState
   const [searchCenter, setSearchCenter] = useState<string | null>(null)
   const [depth, setDepth] = useState(2)
   const optimizing = layoutStatus === 'optimizing'
@@ -270,6 +325,7 @@ export function VectorGraph() {
       >
         <Loader g={g} />
         <HoverEffects />
+        <FileHighlight selectedFile={selectedFile ?? null} activeAgents={activeAgents} />
         <SearchHighlight center={searchCenter} />
         <HoverTooltip />
         <AutoFit layoutStatus={layoutStatus} searchCenter={searchCenter} />
