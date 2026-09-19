@@ -267,39 +267,49 @@ highlights its node(s). Plus per-agent filter chips (cursor / kilo / opencode).
 
 ### Tasks
 
-- [ ] 4.1 `[RED]` `buildPathTree(paths)` builds a nested tree from file paths
+- [x] 4.1 `[RED]` `buildPathTree(paths)` builds a nested tree from file paths
   - [ ] 4.1.a Write failing test: paths `['a/b/c.ts','a/b/d.ts','e.ts']` → tree with `a` → `b` → [c.ts, d.ts] and `e.ts` as a leaf; dedupes; caps depth.
   - [ ] 4.1.b Run to confirm fail — `Run: cd skillgrid-ui && npx vitest run src/features/mnemonic/graph/explorer.test.ts` — Expected: FAIL
   - [ ] 4.1.c Minimal implementation.
   - [ ] 4.1.d Run to confirm pass — Expected: PASS
   - [ ] 4.1.e Commit — `feat(graph): client-side code file tree`
-- [ ] 4.2 `[RED]` `agentForPath(p)` returns the agent a config file belongs to (or null)
+- [x] 4.2 `[RED]` `agentForPath(p)` returns the agent a config file belongs to (or null)
   - [ ] 4.2.a Write failing test: `.cursor/foo`→`cursor`, `plugins/kilo/mnemonic.ts`→`kilo`, `.opencode/agents/x`→`opencode`, `AGENTS.md`→`all`, `src/main.go`→`null`.
   - [ ] 4.2.b Run to confirm fail — Expected: FAIL
   - [ ] 4.2.c Minimal implementation (regex/path checks).
   - [ ] 4.2.d Run to confirm pass — Expected: PASS
   - [ ] 4.2.e Commit — `feat(graph): per-agent path heuristic`
-- [ ] 4.3 `[AFK]` `ExplorerPanel` component (file tree + "Search files…" + agent chips + collapse)
+- [x] 4.3 `[AFK]` `ExplorerPanel` component (file tree + "Search files…" + agent chips + collapse)
   - `Run: cd skillgrid-ui && npx tsc -b --noEmit` — Expected: PASS
-- [ ] 4.4 `[AFK]` Wire file-click → node highlight + agent-chip filtering into VectorGraph
+- [x] 4.4 `[AFK]` Wire file-click → node highlight + agent-chip filtering into VectorGraph
   - `Run: cd skillgrid-ui && npx tsc -b --noEmit` — Expected: PASS
-- [ ] 4.5 `[AFK]` Restructure `GraphPage` to a flex row (explorer + graph), collapsible
+- [x] 4.5 `[AFK]` Restructure `GraphPage` to a flex row (explorer + graph), collapsible
   - `Run: cd skillgrid-ui && npx tsc -b --noEmit` — Expected: PASS
-- [ ] 4.6 `[AFK]` Browser smoke: explorer highlights nodes, agent chips filter, collapse works
+- [x] 4.6 `[AFK]` Browser smoke: explorer highlights nodes, agent chips filter, collapse works
   - `Run: skillgrid serve` + browser — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Unit (file tree + agent predicate) | `cd skillgrid-ui && npx vitest run src/features/mnemonic/graph/explorer.test.ts` | PASS | — | |
-| Type-check | `cd skillgrid-ui && npx tsc -b --noEmit` | PASS | — | |
-| Build | `cd skillgrid-ui && npm run build` | PASS | — | |
-| Browser smoke (explorer + agents) | `skillgrid serve` + browser | PASS | — | |
+| Unit (file tree + agent predicate) | `cd skillgrid-ui && npx vitest run src/features/mnemonic/graph/explorer.test.ts` | PASS | PASS | 11 tests: tree build/dedupe/sort/depth-cap/leading-slash/empty; agentForPath cursor/kilo/opencode/all/null |
+| Type-check | `cd skillgrid-ui && npx tsc -b --noEmit` | PASS | PASS | 0 errors |
+| Build | `cd skillgrid-ui && npm run build` | PASS | PASS | clean |
+| Browser smoke (explorer + agents) | `skillgrid serve -dir ~/.skillgrid/mnemonic -port 8150` + browser | PASS | PASS | explorer renders (tree + "Search files…" + 4 agent chips); chip toggle → violet active; collapse width 255→36; file click (README.md) → highlight reducer; 4429 nodes, no error |
+
+Notes:
+- `GraphPage` owns `useMnemonicGraph` and passes the result to both
+  `ExplorerPanel` (for the file tree) and `VectorGraph` (via `graphState`
+  prop) — one fetch, no duplication.
+- `FileHighlight` (child of SigmaContainer) dims nodes by selected-file path
+  match + active-agent set (via `agentForPath`). Separate from `SearchHighlight`
+  so file/agent filters and node-search highlighting coexist.
+- The agent chips are a client-side path heuristic (no backend per-agent
+  dimension) — an approximation; exact filtering is a future backend task.
 
 ---
 
