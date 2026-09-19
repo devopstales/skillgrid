@@ -78,10 +78,16 @@ Copy verbatim from `briefing.md` (Error handling + Non-Goals + stack rules). Eve
 ## State
 
 ```yaml
-phase: 7-prototypes-polish
-current_phase: 7-prototypes-polish
+phase: archive
+current_phase: archive
 status: done
-updated: 2026-09-19T00:00:00Z
+updated: 2026-09-19T14:00:00Z
+note: >
+  Shipped on release/2 (kept; not merged to main — release/2 is 560 commits
+  ahead, a separate integration decision). QA gate PASS; parallel code review
+  (8 specialists) — no blockers, medium findings fixed in commit 8e08ba3, 2
+  deferred (prototypes version history, api.ts dedup). Folder moved to
+  .skillgrid/archive/ 2026-09-19.
 ```
 
 ## Phase map
@@ -764,9 +770,9 @@ When phase DoD is met: `feat(dashboard): prototypes + polish + DoD smoke (Phase 
 
 ## Archive gate checklist
 
-- [ ] Change-level **Definition of Done** fully checked
-- [ ] No unchecked `- [ ]` under any `### Tasks`
-- [ ] Every phase Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] No Global Constraint violated
-- [ ] `## State` status is `done` and phase is `archive` (set by verify/archive)
-- [ ] STATUS banner updated to `complete`
+- [x] Change-level **Definition of Done** fully checked
+- [x] No unchecked `- [ ]` under any `### Tasks`
+- [x] Every phase Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] No Global Constraint violated
+- [x] `## State` status is `done` and phase is `archive` (set by verify/archive)
+- [x] STATUS banner updated to `complete`
