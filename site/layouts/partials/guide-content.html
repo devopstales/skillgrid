@@ -1,0 +1,1731 @@
+<h2 id="layout">Layout</h2>
+
+<div class="doc-body">{{ `What lives in the hub and where agents pick it up.
+
+## .agents/skills/
+
+Each skill is a directory with a SKILL.md plus optional references/, templates/, and scripts/. Agents read the SKILL.md when the task matches the skill's description.
+
+| Kind | Examples |
+|------|----------|
+| **Entry / router** | using-skillgrid |
+| **Workflow stages** | onboarding, writing-blueprints, slicing, qa, ticketing |
+| **Discovery** | interviewing, brainstorming, research, code-research, spike, sketch |
+| **Execution** | simple-execution, subagent-execution, parallel-execution, work-unit-commits, resume |
+| **Quality** | test-driven-development, test-driven-verification, acceptance-test-authoring, requesting-code-review, receiving-code-review, parallel-code-review |
+| **Cross-cutting** | mnemonic, isolated-workspace, structured-debugging, architectural-decision-records, ponytail |
+
+## .agents/hooks/
+
+The enforcement logic. checkpoint-state.sh is the dispatcher; the rest are the individual guards and the agent Stop hooks. See [Hooks](04-hooks.md).
+
+## .agents/git-hooks/
+
+Thin shims (set -euo pipefail, resolve their own dir, exec into ../hooks/). Two are git hooks (pre-commit, commit-msg); two are agent-harness Stop hooks (stop, gate-stop) that live in the same directory. install-hooks.sh copies per-repo shims into the repo's active hooks dir, honoring an existing core.hooksPath.
+
+## Project config
+
+Runtime state for a project lives under .skillgrid/ in the target repo:
+
+| Path | Role |
+|------|------|
+| .skillgrid/config.yaml | Project facts: stack, testing.runner, tracker, bdd.specs_dir, worktree_dir |
+| .skillgrid/sdd/checkpoint.json | Derived resume handle (from the last commit's [skillgrid-context] block) |
+| .skillgrid/specs/YYYY-MM-DD-&lt;topic>/ | Active change artifacts (spec zone, committed): briefing.md, acceptance.feature, blueprint.md, tasks.md, findings.md, qa-report.md |
+
+Hooks and skills read these at runtime. The [skillgrid-context] block in a commit body is the **durable** record; checkpoint.json is regenerated from git log -1, so it cannot drift from history.
+
+## Naming conventions
+
+- Skill dir = skill name (kebab-case). Frontmatter name: matches the dir for 26 of 28 skills; acceptance-test-authoring and mnemonic carry no frontmatter (prose header instead).
+- Gates are G&lt;n>; steps/tickets are NN-name; never reuse or renumber after creation.
+
+## Checklist
+
+- [ ] Target repo has .skillgrid/config.yaml
+- [ ] Hooks installed via install-hooks.sh (git hooks + --with-stop for agent hooks)
+- [ ] using-skillgrid is the first skill an agent loads` | markdownify }}</div>
+
+<h2 id="skills">Skills</h2>
+
+<div class="doc-body">{{ `The 28 skills under .agents/skills/. Do not duplicate a general capability as a stage skill — stages load general skills.
+
+## Entry / router
+
+| Skill | Role |
+|-------|------|
+| using-skillgrid | Invoke the relevant skill before ANY response. Config/resume/domain-model checks, context discipline, skill priority, platform adaptation. Carries per-platform tool references (codex, pi, antigravity, hermes, gemini). |
+
+## Workflow stages
+
+| Skill | Role |
+|-------|------|
+| onboarding | One-time project setup: detect stack/testing/tracker/security, confirm facts (blocking), write .skillgrid/config.yaml + AGENTS.md block. |
+| writing-blueprints | Write a bite-sized TDD plan (blueprint.md): Must-Haves, one-way-door tags, no placeholders, self-review + fresh-eyes plan review, then hand off. |
+| slicing | Break the blueprint into vertical tracer-bullet tickets with dependency edges and execution waves → tasks.md. |
+| qa | The quality gate: test plan, goal-backward verification, verification-gap / traceability / TDD-evidence / test-quality / security / code-quality audits → 4-state gate (PASS / CONCERNS / FAIL / WAIVED). |
+| ticketing | Publish sliced tickets to the configured tracker (Backlog.md / gh / glab / jira); run the status machine (backlog → ready → in-progress → review → done); privacy review. |
+
+## Discovery
+
+| Skill | Role |
+|-------|------|
+| interviewing | Interview the user via a design-tree "frontier" in rounds until a weighted clarity gate passes; maintain glossary/ADRs as terms resolve. |
+| brainstorming | Turn ideas into designs via 4 classified paths (spike / bounded / new-project / new-function) with a hard approval gate before implementation. Has a visual companion (local server + templates). |
+| spike | Throwaway feasibility experiment producing an evidence-gated verdict (VALIDATED / INVALIDATED / PARTIAL), an investigation trail, and one liftable pure module. |
+| sketch | Build throwaway interactive UI mockups (2–3 structurally different variants, tab-switchable) to get a felt verdict + constraints for the real build. |
+| research | Lightweight single-pass research against primary sources with epistemics (research firewall) and type packs; appends a cited ## Research: section to findings.md. |
+| code-research | Heavy informational research: fan out parallel researcher subagents (researcher / verifier / red-team), verify load-bearing claims, red-team conclusions, synthesize a cited ## Research: section in findings.md. |
+| deep-research | Long-horizon experimental research: two-loop hypothesis → experiment → measure cycles with persistent state, direction decisions (deepen/broaden/pivot/conclude), and progress reporting. Generates new results, not just synthesized evidence. |
+
+## Execution
+
+| Skill | Role |
+|-------|------|
+| simple-execution | Inline plan execution: load/review plan, TDD per task, QA gate, request review, finish branch; stops and asks on blockers. |
+| subagent-execution | Execute a plan with a fresh implementer subagent per task, per-task spec+quality review, 5-round fix loop with breaker/adjudication, final QA + whole-branch two-axis review; ledger-based. |
+| parallel-execution | Dispatch one subagent per independent problem domain in the same message (parallel); integrate from a fan-out ledger. |
+| work-unit-commits | Canonical commit protocol: conventional commits, atomic sizing, [skillgrid-context] block, git-hook guards, checkpoint.json resume handle. |
+| resume | Re-orient from durable state (execution ledger, checkpoint.json, spec-zone artifacts that name the phase, Mnemonic fallback) — files win over conversation memory; includes a context save/restore protocol. |
+
+## Quality
+
+| Skill | Role |
+|-------|------|
+| test-driven-development | Iron-law TDD: no production code without a failing test first; red → green → refactor. |
+| test-driven-verification | The #### Gates contract: every requirement carries G&lt;n> oracles (CHECK: + EXPECT:, manual, or ABANDON with reason); a gate is met only when freshly run. |
+| acceptance-test-authoring | Author BDD acceptance suites: Gherkin-in-Markdown acceptance.feature, cucumber-js runner, extraction contract, page-object model, zone rule. BDD is always on. |
+| requesting-code-review | Dispatch two parallel reviewer subagents on two separate axes — Standards (glossary/ADRs) and Spec (BDD scenarios) — then triage findings. |
+| receiving-code-review | Handle review feedback with technical rigor (verify, push back, no performative agreement); own the triage → fix → validate loop (3-round cap). |
+| parallel-code-review | Heavy review: fan out 6 specialist reviewers (standards, spec, edge cases, verification gaps, security, red team) in parallel, then triage / dedup / verdict. |
+
+## Close-out (ship → reflect)
+
+The tail after review: qa → review → ship → reflect.
+
+| Skill | Role |
+|-------|------|
+| ship | Integrate the change to its base branch (merge / PR / keep — tests green on the integrated tree), then mechanically move the change folder specs/ → archive/ with a diff -r readback. Invokes document for the PR body (when the PR option is chosen) and offers the other record types. Captures the ship context (incl. open decision debt) in its Return Envelope for reflect. |
+| document | Write the human-facing record from the real diff + change folder, never from memory: PR body, changelog (CHANGELOG.md at root), release note (.skillgrid/releases/), postmortem (.skillgrid/postmortems/). Invoked by ship or standalone. Writes prose only — no code, tests, or specs. |
+| reflect | Terminal phase: writes the single report.md (final-state facts, gate results, sourced Decisions / Lessons / Patterns / Surprises, advisory acceptance verdict, open decision debt, observation-ID lineage); owns the Mnemonic session close. |
+
+## Cross-cutting
+
+| Skill | Role |
+|-------|------|
+| mnemonic | Operate Skillgrid's persistent memory (SQLite + FTS5): mem_save/recall protocol, code-index ladder, web cache, session summary rules. |
+| isolated-workspace | Ensure an isolated workspace (native worktree tools first, git worktree fallback); detect existing isolation; run setup + baseline tests. |
+| structured-debugging | Root-cause-first debugging: 4 phases (investigate → pattern → hypothesis → implement); 3 fixes fail → question architecture; debug state file survives compaction. |
+| architectural-decision-records | Build/sharpen the domain model (glossary business.md + technical.md) and record ADRs (5 styles, immutable once accepted, per-change ADR Review Manifest). |
+| ponytail | Enforce the laziest working solution via a 7-rung ladder (YAGNI → codebase → stdlib → native → installed dep → one-liner → minimal); always-on by default. |
+
+## Frontmatter note
+
+28 of 30 skills carry YAML frontmatter with name + description. Two are exceptions — acceptance-test-authoring and mnemonic start with a prose # header and no frontmatter. If a skill loader keys off frontmatter, add a name/description block to these two.
+
+## Where skills come from
+
+AISkillGrid unifies stage and general skills inspired by superpowers, intent-driven-template, mattpocock, gentleman-ai, BMAD, and gsd-core. See [Start here](00-start-here.md#sources-of-logic).` | markdownify }}</div>
+
+<h2 id="workflow-usage">Workflow usage</h2>
+
+<div class="doc-body">{{ `Day-to-day Spec-Driven Development with AISkillGrid.
+
+## Entry: using-skillgrid
+
+The entry skill only **routes**. It does not write blueprint.md / tasks.md / product code.
+
+| Your request | Route |
+|--------------|-------|
+| Uninitialized repo | onboarding → confirm facts → stop for validation |
+| Feature / bug / refactor / greenfield | optional spike / sketch / research → interviewing → writing-blueprints → slicing → **approval gate** |
+| Q&A / lookup | mnemonic / code index / research (no pipeline) |
+| Spike only | spike (promote to blueprint if you keep findings) |
+| Mid-change | resume from checkpoint.json (+ spec-zone artifacts for the phase) |
+
+Announce pattern: Using &lt;skill> to &lt;route>.
+
+## Phases
+
+| Phase | Skill | You get |
+|-------|--------|---------|
+| Onboard | onboarding | .skillgrid/config.yaml, glossary stubs, AGENTS.md block |
+| Interview | interviewing | Resolved ambiguity; terms recorded into glossary/ADRs |
+| Blueprint | writing-blueprints | blueprint.md (Must-Haves, one-way-door tags) |
+| Slice | slicing | tasks.md (tracer-bullet tickets, dependency edges, execution waves) |
+| **Approval gate** | — | **Go** or **Revise** — never skip |
+| Apply | simple-execution / subagent-execution / parallel-execution | Unblocked slices executed; TDD per task; commits via work-unit-commits |
+| QA | qa | 4-state gate (PASS / CONCERNS / FAIL / WAIVED) + human QA plan; findings → apply |
+| Publish | ticketing | Tickets pushed to the tracker; status machine advances |
+
+## Skill triggers (who calls who)
+
+
+
+
+
+Cross-cutting skills (mnemonic, ponytail) are available at every stage.
+
+## Artifacts
+
+SFtext
+.skillgrid/
+├── config.yaml
+├── sdd/
+│   ├── checkpoint.json        # derived resume handle (from the last commit's [skillgrid-context])
+│   └── gate-stop-state.json   # Stop-hook loop guard
+├── specs/YYYY-MM-DD-<topic>/  # ACTIVE changes (spec zone, committed)
+│   ├── briefing.md
+│   ├── acceptance.feature     # BDD (traceability oracle)
+│   ├── adr.md                 # ADR Review Manifest
+│   ├── findings.md            # research / spike / sketch evidence (optional)
+│   ├── blueprint.md
+│   ├── tasks.md               # tickets, waves, dependencies
+│   └── qa-report.md           # test plan + 4-state gate + evidence
+└── archive/                   # CLOSED changes (immutable), created by ship
+    └── YYYY-MM-DD-<topic>/    #   + report.md (reflect: integration + retro + lineage)
+SF
+
+Blueprint (blueprint.md), slices (tasks.md), glossary/ADRs, and the ticket set live in the repo per the tracker config. Numbering: slice NN-name; gate G&lt;n>. Never reuse or renumber after creation.
+
+## Resume map
+
+| Durable state present | Action |
+|-----------------------|--------|
+| No .skillgrid/config.yaml | onboarding |
+| blueprint.md not final | interviewing / writing-blueprints (spike/sketch first if needed) |
+| tasks.md incomplete | slicing → approval gate |
+| Mid-apply | resume from checkpoint.json; continue unblocked slices |
+| QA FAIL / CONCERNS | qa findings → apply again |
+| QA PASS/WAIVED | ticketing → advance status |
+| Review clean, not shipped | ship (integrate to base + move folder to archive/) |
+| Folder in archive/, no report.md | reflect (terminal) |
+| report.md present in archive/ | none — cycle complete |
+
+## Apply ⇄ QA loop
+
+1. Agent runs TDD and traces to acceptance scenarios.
+2. Agent runs the #### Gates oracles (test-driven-verification / gate-state.sh --reverify).
+3. Code review as needed (requesting-code-review / parallel-code-review / receiving-code-review).
+4. Your QA or review findings become new slices → **apply** again.
+5. QA gate PASS/WAIVED, no open slices, human QA accepted or waived → **ticketing**.
+
+## Close-out (ship → reflect)
+
+Once review is clean, the change is closed in two steps:
+
+1. **ship** — verify tests are green on the *integrated* tree, then integrate to the base branch (merge / PR / keep — the user decides), and **mechanically move** the change folder specs/YYYY-MM-DD-&lt;topic>/ → archive/YYYY-MM-DD-&lt;topic>/ (shell git mv + diff -r readback). Writes no report file — it captures the ship context in its Return Envelope. No release mechanics, no docs check.
+2. **reflect** (terminal) — read-only over the archived folder: writes the single report.md (final-state facts, gate results, sourced Decisions / Lessons / Patterns / Surprises, an advisory acceptance verdict accepted / accepted-with-open-items / rejected, move evidence, observation-ID lineage), then the Mnemonic session close.
+
+specs/ holds only *active* changes; a folder in archive/ is closed and is never resumed.
+
+## Vertical slices and context
+
+- Prefer thin end-to-end slices over "all DB then all API then all UI".
+- Keep the orchestrator in the **smart zone** (~≤ 40% context): route and point; delegate heavy work to subagents and Mnemonic ([multi-agent](06-multi-agent-work.md), [memory](05-memory-and-indexing.md)).
+
+## Checklist
+
+- [ ] Initialized (.skillgrid/config.yaml)
+- [ ] Blueprint + slices complete → approval gate before apply
+- [ ] Gates freshly run + human QA before ticketing
+- [ ] Context still in the smart zone; checkpoint to Mnemonic if heavy
+<pre class="mermaid">flowchart TD
+    entry["using-skillgrid<br/>router"] --> onboard["onboarding"]
+    entry --> interview["interviewing"]
+    entry --> resume["resume"]
+
+    onboard --> adr["architectural-decision-records"]
+
+    interview --> adr
+    interview --> blueprint["writing-blueprints"]
+
+    blueprint -.-> research["research / spike / sketch"]
+    research -.-> findings["findings.md"]
+    findings -.-> blueprint
+
+    blueprint --> slicing["slicing + ticketing"]
+    slicing --> gate["approval gate"]
+
+    gate -->|Go| apply["simple-execution / subagent-execution / parallel-execution"]
+    apply --> isolated["isolated-workspace"]
+    apply --> tdd["test-driven-development"]
+    apply --> debug["structured-debugging"]
+    apply --> workunits["work-unit-commits"]
+    apply --> tddverif["test-driven-verification"]
+    apply --> accept["acceptance-test-authoring"]
+
+    apply --> qa["qa (qa-report.md)"]
+    qa --> reqreview["requesting-code-review / parallel-code-review"]
+    reqreview --> reception["receiving-code-review"]
+    reception --> ship["ship (integrate + archive move)"]
+    ship --> reflect["reflect (report.md + session close)"]
+    qa -->|findings| apply
+    qa --> ticket["ticketing"]</pre>` | markdownify }}</div>
+
+<h2 id="hooks">Hooks</h2>
+
+<div class="doc-body">{{ `AISkillGrid enforces discipline with two kinds of hooks: **git hooks** (commit-time) and **agent Stop hooks** (block the agent from ending its turn while an invariant is red). "A rule asks; a hook guarantees."
+
+## Layout
+
+SFtext
+.agents/
+├── hooks/           # logic
+│   ├── checkpoint-state.sh        # dispatcher + snapshot/restore/guard-msg
+│   ├── precommit-guard.sh         # cwd-drift + protected-ref/detached
+│   ├── precommit-zone-guard.sh    # spec-zone XOR code-zone
+│   ├── precommit-ignore-guard.sh  # generated/scratch paths (auto-fix + FATAL)
+│   ├── gate-lint.sh               # advisory linter for #### Gates
+│   ├── gate-state.sh              # gate state engine (--status / --reverify)
+│   ├── gate-stop.sh               # agent Stop: gate-level
+│   └── stop-tests.sh              # agent Stop: suite-level
+└── git-hooks/       # thin shims
+    ├── pre-commit   ──> checkpoint-state.sh guard
+    ├── commit-msg   ──> checkpoint-state.sh guard-msg "$1"
+    ├── stop         ──> stop-tests.sh        (drains stdin)
+    └── gate-stop    ──> gate-stop.sh         (reads harness JSON for session_id)
+SF
+
+install-hooks.sh copies per-repo shims into the repo's active hooks dir, honoring an existing core.hooksPath. Agent Stop hooks install with install-hooks.sh --with-stop.
+
+## The pre-commit chain
+
+checkpoint-state.sh guard runs, in order:
+
+1. **precommit-guard.sh guard** — FATAL on:
+   - *cwd drift* (worktrees only): a prior cd left the worktree toplevel.
+   - *protected ref / detached HEAD*: committing on main/master/develop/trunk/release/ (override SKILLGRID_PROTECTED_BRANCHES) or a detached HEAD. First commit of a repo (unborn HEAD) is allowed. In a worktree, the branch must match the per-agent regex ^(agent-|worktree-agent-|worktree-wf_)[A-Za-z0-9._/-]+$ (override SKILLGRID_AGENT_BRANCH_REGEX).
+2. **precommit-zone-guard.sh** — FATAL if a commit stages both spec-zone (.skillgrid/specs/** or acceptance-tests/features/) and code in one shot. Spec is committed *before* the code that satisfies it.
+3. **precommit-ignore-guard.sh** — FATAL (and auto-fix) on generated/scratch paths: acceptance-tests/.extracted/* and the worktree dir (from worktree_dir:, default .worktrees/, plus worktrees/). If a path is already gitignored it is unstaged + WARNING; if not, the dir is **auto-added to .gitignore** ("auto-git"), unstaged, NOTE.
+4. **gate-lint.sh** — **advisory** only (always exit 0). Flags a gate id not matching G&lt;n>, a runnable gate missing CHECK/EXPECT, blank CHECK/EXPECT, an EXPECT that is a bare number also appearing in CHECK (tautology), an ABANDON with a blank reason, and a happy-path requirement with no gate (traceability gap).
+
+Every FATAL prints a RECOVERY: line and exits 1, blocking the commit.
+
+## Commit message guard
+
+checkpoint-state.sh guard-msg "$1" ($1 = message file):
+
+- Subject must match the conventional-commits regex ^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9._-]+\))?!?: .+ → FATAL + RECOVERY (exit 1) if not.
+- Rejects Co-Authored-By / Generated-By AI-attribution trailers → FATAL (exit 1).
+- Exit 2 if the message file is missing.
+
+## Agent Stop hooks
+
+Both read testing.runner / gates from .skillgrid/config.yaml. Neither should drain the harness stdin (the stop shim drains it so the harness doesn't see a broken pipe; gate-stop deliberately does not, because the script reads the harness JSON for session_id).
+
+### stop-tests.sh (suite-level)
+
+- No testing.runner configured → allow the stop (no-op), exit 0.
+- Runs the command; on failure prints the last 40 lines + STOP BLOCKED: tests are failing... and **exit 2** (blocks the stop). Success → exit 0.
+
+### gate-stop.sh (gate-level)
+
+Runs a fresh gate-state.sh --reverify:
+
+- No spec discoverable → ALLOW (degrade, don't trap), exit 0.
+- unmet=0 and missing=0 → ALLOW, exit 0; if only ABANDON gates remain, allows with a **HANDOFF REQUIRED** note (abandoned = handoff, never a pass).
+- Otherwise → **BLOCK, exit 2**, listing outstanding items (capped display at 5).
+- **Loop guard:** per (session_id, repo) state in .skillgrid/sdd/gate-stop-state.json. The counter accumulates only while the *resolved gate state* (hash of per-gate lines, not raw spec bytes — a comment edit must not re-arm) is unchanged; any progress resets it. After SKILLGRID_GATE_MAX_BLOCKS (default 6) blocks without progress → ALLOW with a release message.
+
+## Gate state engine (gate-state.sh)
+
+Parses a change's #### Gates blocks and reports each G&lt;n>'s state. A gate is met only when its CHECK **freshly** exits 0 AND its output matches EXPECT (substring, or /.../ POSIX ERE with optional i flag).
+
+- --status — non-executing ledger view (runnable gates shown as unmet (not run)); exit 0 always.
+- --reverify — executing: runs every runnable CHECK (bounded by SKILLGRID_GATE_TIMEOUT, default 120s, via timeout/gtimeout when available), compares to EXPECT.
+- Spec discovery: explicit --spec, else path in checkpoint.json, else acceptance.feature in git diff HEAD, else newest under the specs root (from bdd.specs_dir).
+- Output: one line per gate/requirement (G1=met, G2=unmet, G3=abandoned, G4=manual, REQ=&lt;name>=missing) plus SUMMARY met=.. unmet=.. abandoned=.. manual=.. missing=... NO_SPEC + zeroed summary if nothing found. **Exit 0 in both modes** — the caller interprets.
+
+## Checkpoint (manual, skills call it)
+
+| Subcommand | What it does |
+|------------|--------------|
+| checkpoint-state.sh snapshot | Derives + writes .skillgrid/sdd/checkpoint.json (branch, last commit, and the Task/Decisions/Remaining/Tried fields pulled from the last commit's [skillgrid-context] block). Prints CHECKPOINT_WRITTEN &lt;path>. |
+| checkpoint-state.sh restore | Prints the JSON plus live git state (branch, HEAD, git status --short) for a fresh session to resume from. NO_CHECKPOINT + exit 0 if absent. |
+| checkpoint-state.sh post-check | WARNING (non-blocking) if HEAD~1..HEAD deleted tracked files. |
+
+## Environment overrides
+
+| Variable | Role |
+|----------|------|
+| SKILLGRID_PROTECTED_BRANCHES | Branches the pre-commit guard refuses |
+| SKILLGRID_AGENT_BRANCH_REGEX | Per-agent branch allow-list (worktrees) |
+| SKILLGRID_TEST_CMD | Override the testing.runner command |
+| SKILLGRID_GATE_TIMEOUT | Per-CHECK timeout for --reverify (default 120s) |
+| SKILLGRID_GATE_MAX_BLOCKS | Stop-hook no-progress release threshold (default 6) |
+
+## Agent tool hooks (beyond git + Stop)
+
+The two kinds above run at **commit** time and at **turn end**. Harnesses also expose **PreToolUse / PostToolUse** hooks that wrap individual tool calls. They are the right home for *intercepting and reshaping tool I/O* — not just gating — and they follow the same "a rule asks; a hook guarantees" contract.
+
+Three idioms worth knowing (all graceful: a missing dependency or malformed input degrades to exit 0, letting the tool call through):
+
+- **Read-only cache via exit 2 + stderr.** A PreToolUse hook that wants to *replace* a tool's result (e.g. serve a cached WebFetch body instead of re-fetching) writes the body to **stderr** and **exits 2** — the harness then delivers that text in place of the tool output. This is how a sha256(url)-keyed cache, revalidated with ETag/Last-Modified (304 only, no TTL), can cut repeated research fetches to zero. A PostToolUse pair stores the body + validators after each real fetch.
+- **Graceful degradation is the default.** Check dependencies up front (command -v jq || exit 0); on any parse failure, log a warning and let the call through. A hook that cannot do its job must never block the session it is supposed to protect.
+- **Hide, don't lose, model-facing noise.** A hook pair can swap large or vendor blocks for a BLOCK_&lt;hash> placeholder on Read, expand the model's edits back onto the real content after Edit/Write, and restore the true file on Stop — so the model never re-reads or re-edits the hidden block, yet nothing is lost.
+
+Skillgrid's current hooks are git + Stop; these are the patterns to reach for when you add a PreToolUse/PostToolUse hook (e.g. a tool-agnostic research cache to complement the in-skill mnemonic web cache).` | markdownify }}</div>
+
+<h2 id="memory-and-indexing">Memory and indexing</h2>
+
+<div class="doc-body">{{ `**Mnemonic** is Skillgrid's local-first persistent memory engine — a single SQLite + FTS5 store embedded in the skillgrid CLI, exposed to agents over MCP (skillgrid mcp), over HTTP + a web dashboard (skillgrid serve), and as direct CLI commands.
+
+**Storage stack:** the SQLite database is provided by [modernc.org/sqlite](https://modernc.org/sqlite) (pure-Go build of SQLite, **cgo-free**, v1.45.0 in skillgrid-cli/go.mod) — the only SQLite extension in use is **FTS5**, compiled into the driver; no json1, rtree, vec0, or loadable extensions (verified against internal/mnemonic/store/).
+
+Everything lives in **one per-project database** at ~/.skillgrid/mnemonic/&lt;project>.sqlite (override the directory with SKILLGRID_MNEMONIC_DATA_DIR). The store is single-connection (MaxOpenConns=1) and WAL-journaled; memory, code, and web cache are three views over the same file, not three databases.
+
+Mnemonic has **three functions**, plus a cross-cutting layer of agent-orchestration tools:
+
+| Function | Purpose | MCP prefix |
+|----------|---------|------------|
+| **Memory** | Durable observations, sessions, layered (L0–L3) distillation, governance, recall | mem_*, semantic_*, load_*, mnemonic_commit, session_*, knowledge_* |
+| **Code index** | Incremental AST graph + BM25 + hybrid + semantic search, impact, communities, PDG/taint | code_* |
+| **Web cache** | TTL-cached remote research snapshots | web_cache_* |
+| **Team orchestration** (cross-cutting) | Spawn/claim/complete tasks across agents | team_*, agent_* |
+
+That is **77 MCP tools** in total (27 memory · 32 code · 5 web cache · 3 session · 5 agent · 1 team · 1 knowledge · 1 semantic · 1 load · 1 mnemonic).
+
+---
+
+## 1.1 What memory is for
+
+Memory persists what an agent learned, so a future session starts oriented instead of blind. It is **project-scoped** by default (an observation tagged with the CWD-resolved project is visible only in that project) and **scope-tiered** for the few facts that should cross projects: project → user → global.
+
+Save after: bug fixes (with root cause), architecture/design decisions, non-obvious discoveries, config/env setup, established patterns, and user preferences. Use a stable topic_key for evolving topics (upsert, don't duplicate). End sessions with mem_session_summary — the next session reads it.
+
+**Recall ladder** (cheap → full):
+
+SF
+mem_context  →  mem_search  →  mem_timeline  →  mem_get_observation
+ (recent     (FTS5          (before/after    (full,
+  summaries)  keyword)        context)        untruncated)
+SF
+
+## 1.2 Layered memory (L0 → L3)
+
+Raw observations (L0) are distilled upward into progressively more durable, more abstract layers. mem_layers returns the chain for a session or topic, with each layer's provenance link back to its resolvable L0 source:
+
+
+
+
+
+- **L0** = observations rows (the atoms; every mem_save).
+- **L1** = scenario overview, surfaced by semantic_search (returns L1 overviews + abstracts, never full L2 bodies).
+- **L2/L3** = durable long-term memories in long_term_memories + tiered_contents; loaded on demand via load_full_details.
+
+mnemonic_commit explicitly commits lessons into L2 (durable); L0/L1 remain async. knowledge_compact re-thins .cleave/KNOWLEDGE.md from handoff/session inputs only — no Fact-Memory dependency.
+
+## 1.3 Memory MCP tools
+
+| Tool | Role |
+|------|------|
+| mem_current_project | Detect project from CWD — never errors; recommended first call. Returns resolved project ID, resolution source, all available projects. |
+| mem_save | Save a curated observation (**What**/**Why**/**Where**/**Learned**). Reuse topic_key to upsert an evolving topic. Best-effort links to related obs. |
+| mem_update | Update an observation in place (non-empty fields only; FTS stays in sync). |
+| mem_delete | Soft-delete by default (deleted_at set, recoverable); hard=true removes the row. |
+| mem_get_observation | Full untruncated content by ID. |
+| mem_search | FTS5 full-text search. project scopes/overrides CWD; scope restricts to project/user/global. |
+| mem_context | Recent session summaries for fast recall before a full search. |
+| mem_timeline | Chronological before/after around one observation (the progressive-disclosure middle layer). |
+| mem_suggest_topic_key | Suggest a stable topic_key from type + title for upserts. |
+| mem_stats | Observation count by type, active/total sessions, created-range. |
+| mem_compare | Record/clear/inspect semantic relations between two obs: related \| compatible \| scoped \| conflicts_with \| supersedes. |
+| mem_judge | Record a conflict verdict between two obs (not_conflict removes a conflicts_with link). |
+| mem_pin / mem_unpin | Pin an obs to sort ahead in mem_context and boost mem_search (local to this device store). |
+| mem_share | Widen visibility — the only explicit way out of private. Target team\|restricted\|agent; acl for restricted/agent. |
+| mem_governance | Read governance fields: owner, append-only version history, status, retrieval usage, visibility + ACL grants. |
+| mem_layers | Inspect the L0→L1→L2→L3 chain for a session/topic with provenance links. |
+| mem_capture_passive | Extract structured learnings from pasted text (recognizes Key Learnings: / Lesson / Discovery lines). |
+| mem_save_prompt | Record a user prompt for future recall (trimmed, bounded, deduped per session). |
+| mem_review | List obs due for local review, or mark reviewed to reset the cycle. |
+| mem_doctor | Read-only diagnostics: schema version, WAL state, FTS drift vs base tables, by-type counts, disk size. |
+| mem_merge_projects | Merge one source project name into the canonical name (idempotent; records the alias). |
+| mem_unify | Fold several source project stores into one canonical project (idempotent aliases + re-tag). |
+| mem_session_start | Create a workspace session (required before mem_save in OpenCode plugin flows). Optional title. |
+| mem_session_set_title | Rename a session (shown in the web dashboard session list). |
+| mem_session_summary | Persist the structured end-of-session summary (the ## Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files block). |
+| mem_session_end | End a session with an optional summary. |
+
+### Session handoff & tiered recall (cross-memory)
+
+| Tool | Role |
+|------|------|
+| session_handoff | Write a structured handoff: three .skillgrid/.cleave/ files (PROGRESS / KNOWLEDGE / NEXT_PROMPT) + a session_handoffs row. Fails closed — no row if the files can't be written. |
+| session_resume | Resume a prior session by handoff_id: reads the .cleave/ bundle, returns the stored NEXT_PROMPT. Fails closed on an unknown id. |
+| session_status | Relay status: handoff count + last known cost/context (optional context_usage_percent, cost_usd). |
+| semantic_search | Ranked L1 overviews (with abstracts) over tiered/long-term memory. Never returns full L2 bodies — use load_full_details. |
+| load_full_details | Load full L2 markdown for a path returned by semantic_search. |
+| mnemonic_commit | Explicitly commit lessons into L2 durable (L0/L1 async). Does not run on session end. |
+| knowledge_compact | Thin-refresh .cleave/KNOWLEDGE.md from handoff/session inputs only. |
+
+> **Filesystem & sharing** (mem fs ls/tree/find over mem://, mem_share visibility, mem export) are CLI-only — see [1.5 Filesystem access & sharing](#15-filesystem-access--sharing).
+
+## 1.4 Memory data flow
+
+
+
+
+
+## 1.5 Filesystem access & sharing
+
+Mnemonic can present memory as a **virtual filesystem** and as **shared observations**. This section documents the logic behind each: how to browse the mem:// URI space, how visibility/sharing is modeled, and how to export a portable share payload.
+
+### Filesystem browse (mem fs, CLI only — no MCP tool)
+
+memfs exposes a mem:// URI space with scope-aware ls/tree/find, alongside the existing semantic mem_search. The "directories" under a scope are the memory_type categories:
+
+SF
+mem://project/{id}/            → all of project {id}'s observations
+mem://project/{id}/preferences → only {id}'s preference-typed observations
+mem://user/{id}/               → user {id}'s observations
+SF
+
+Scopes resolve from the topic_key column (pattern {kind}/{id}/{memory_type}/…), so no separate schema is needed. It is **read-only** (browse, not mutate).
+
+SFbash
+skillgrid mem fs ls project/A/              # list a scope
+skillgrid mem fs tree project/A/            # hierarchical tree view
+skillgrid mem fs find "*auth*" project/A/   # glob pattern across observations
+skillgrid mem search "auth" --trajectory    # semantic search + directory drill-down path
+SF
+
+--trajectory prints the directory-recursive retrieval drill-down: the path of mem_type directories the search descended through to reach each hit, making retrieval inspectable.
+
+### Sharing (mem_share + visibility ladder)
+
+Observations are **private by default**. mem_share is the only explicit way to widen visibility, on a four-level ladder with per-observation ACLs (stored in acl_grants):
+
+SF
+private  →  team  →  restricted (per-principal ACL)  →  agent
+SF
+
+SFbash
+skillgrid mem share <id> --target-visibility team
+skillgrid mem share <id> --target-visibility restricted --grants alice,bob
+skillgrid mem governance <id>     # read owner, version history, visibility, ACL grants
+SF
+
+Visibility is enforced on read (mem_search / mem_context filter to what the reader can see). mem_merge_projects / mem_unify fold multiple project stores into one canonical store (the multi-repo share path).
+
+### Export (portable file share)
+
+SFbash
+skillgrid mem export [--file out.json] [--skip-embeddings]   # COGX JSON (observations + graph edges + embeddings)
+skillgrid export --project ID --out DIR                       # Obsidian Markdown + viz JSON
+SF
+
+These are the only file-based share mechanisms today — a portable payload you hand to someone, not a live mount.
+
+### Current capabilities
+
+| Capability | Status |
+|---|---|
+| Browse mem:// with ls/tree/find | done (read-only, CLI) |
+| Tiered recall on demand (L0→L3 + load_full_details) | done |
+| Directory-recursive retrieval with inspectable trajectory (mem search --trajectory, retrieval_trails) | done |
+| Point-in-time snapshots / rollback (mem snapshot create/restore/list) | done |
+| Per-observation sharing via mem_share visibility + acl_grants | partial — per-observation only, **no shared/peer mem:// scope** |
+| FS mutations (cp/mv/mkdir/write) | not done (memfs is read-only) |
+| HTTP file-protocol endpoint (mountable drive) | not done (skillgrid serve is a JSON API + dashboard) |
+
+**Bottom line:** filesystem browsing, tiered recall, and export payloads are implemented; live sharing (shared/peer mem:// scopes, FS writes, a file-protocol server) is not. Sharing today = mem_share visibility + export payloads, all local-first (one per-project SQLite file, no file-protocol server by default).
+
+---
+
+# Part 2 — Code index
+
+## 2.1 What the index is
+
+An incremental, tree-sitter-based graph of the repo: files → symbols → edges, plus lexical (FTS5) and semantic (embedding) retrieval, plus advisory structural analyses. It is **per-project** (one SQLite file, no cross-project code search).
+
+SF
+files → symbols → edges (calls / imports / references / extends / route / navigates / …)
+                 → chunks → chunks_fts   (BM25 lexical)
+                 → embeddings / chunk_embeddings   (semantic, config-driven)
+                 → communities / communities_meta   (advisory analytics)
+SF
+
+The core graph commit is transactional; every advisory pass (community, process, knowledge, import-cycle, resolution-audit, LSP, PDG) runs **after** the commit and is warn-and-continue — a pass failure never rolls back the committed graph.
+
+## 2.2 Orientation ladder (canonical order)
+
+SF
+code_status → code_index (if not fresh) → code_map → code_search → code_read
+SF
+
+code_status reports freshness (fresh | lag | empty | unknown); compat stale=true means empty-only, not lag. Reindex when not fresh. Prefer index tools over rg for **unfamiliar** large repos; use rg/grep for exact identifiers.
+
+## 2.3 Code MCP tools
+
+### Search & retrieval
+
+| Tool | Role |
+|------|------|
+| code_status | Index health + freshness, capabilities block (graph/fts/vector+dims), resolution_audit, unresolved_members, import_cycles, schema_fingerprint. |
+| code_index | Incremental index for the cwd git root (respects indexing.yaml). |
+| code_search | BM25 full-text over indexed chunks. |
+| code_hybrid_search | Offline hybrid: FTS + deterministic signals (proximity, TF-IDF, type/API) + semantic vectors via RRF. Every hit carries per-signal provenance. |
+| code_semantic_search | Semantic (embedding) search. Symbol-level hits → file+line; chunk-level → line range. Requires an active embedder; language param for exact index-level filtering. |
+| code_embedding_status | Active provider (onnx/external/off), model, dim, embedded count, model-swap guard. |
+| code_explore | **Primary** code-intelligence tool: relevant symbols' verbatim source grouped by file, call paths between them (incl. INFERRED dispatch hops), and blast radius — one call. |
+| code_grep | Structural by-example search: metavariable pattern (\name, \(ARGS*), \*) against the tree-sitter syntax tree (dialect v1+v2). |
+
+### Orient & read
+
+| Tool | Role |
+|------|------|
+| code_map | Structural overview from the index (not a prose dump). |
+| code_orient | Tier-1 orientation: symbol metadata, signature, file TOC, symbol list, linked rationale. |
+| code_signature | Just the signature + span of a resolved symbol. |
+| code_file_toc | Table of contents (every symbol, in line order) for the file containing a symbol. |
+| code_read | Indexed source for a path + optional range — **after** search narrowed the location. Never read whole files speculatively. |
+| code_explain | A symbol's node, degree, and all connections ranked by neighbor degree (hubs first). |
+| code_related | Neighbors via Edges. |
+| code_rationale | Rationale comments (# NOTE: / # WHY: / ADR-RFC) linked to a symbol's nearest enclosing definition. |
+
+### Impact & navigation
+
+| Tool | Role |
+|------|------|
+| code_impact | Risk-tiered blast radius: depth-1 dependents WILL BREAK, deeper LIKELY AFFECTED. Every edge confidence-tagged; min_confidence filters low-confidence hops. |
+| code_affected | PR command: which tests to run after a change. Traverses changed files → affected tests via import + tests_for (and resolved route) edges, depth-capped. Additive; traverses resolved edges only. |
+| code_rename | PR command: what renaming a symbol touches. Splits into graph edits (high-confidence) + text-search edits (flagged). dry_run default true. |
+| code_path | Shortest edge path between two symbols (each hop confidence-labeled); if no static path, a "where the graph stops" answer. |
+| code_route | Framework routes: route nodes (URL + method + framework) and their references edges to handlers. |
+| code_navigates | Framework navigation (screen → screen) edges. |
+
+### Structural & analytical
+
+| Tool | Role |
+|------|------|
+| code_communities | Leiden subsystems, LLM-free labeled, each with a **cohesion** score. Seeded/reproducible (content-hash cache). |
+| code_god_nodes | Most-connected symbols by degree; exclude_hubs suppresses utility super-hubs. |
+| code_explain_community | A community's members (symbol, kind, path, line), entry points, and **cohesion**. |
+| code_processes | Precomputed process flows (execution traces from entry points through call chains), each step confidence-labeled + LLM/deterministic label. |
+| code_process | The full step-by-step trace of one named process, with the "stops at \&lt;symbol\> (\&lt;reason\>)" note. |
+| code_docs | Indexed markdown docs + their references edges (EXTRACTED link / INFERRED wikilink). |
+| code_configs | Indexed config files + their configures edges to the code they configure. |
+| code_sql_schema | Indexed SQL schema nodes (tables + columns parsed from DDL). |
+| code_sql_access | reads/writes edges between code symbols and SQL tables (parsed from DML). |
+| code_unresolved_refs | Unresolved reference drops (route-handler refs that failed to resolve — drop-not-guess), each with match count. |
+| code_pdg_query | (opt-in --pdg) CFG/PDG: control- and data-dependents of a statement inside a function. |
+| code_taint | (opt-in --pdg) Intraprocedural source→sink taint findings. |
+
+## 2.4 Extraction & indexing data flow
+
+
+
+
+
+### Search data flow
+
+
+
+
+
+No embedder → the semantic leg is **explicitly** degraded=true with a reason + fallback. Never silent degrade to FTS-as-semantic.
+
+---
+
+# Part 3 — Web cache
+
+## 3.1 What the cache is for
+
+A TTL-cached snapshot store for remote research, so a repeat lookup doesn't re-hit Context7 / Exa / DeepWiki / WebFetch. The protocol is **lookup-first**:
+
+SF
+web_cache_lookup(source, …)  →  hit? use it
+                                 miss/stale? → remote MCP call
+web_cache_save(source, content, …)   # immediately after the remote call (cap 256 KB)
+SF
+
+"What did we find about X online?" → web_cache_search(query) → web_cache_get(id).
+
+## 3.2 Web cache MCP tools
+
+| Tool | Role |
+|------|------|
+| web_cache_lookup | Check the cache before a remote MCP call. Returns hit/miss/stale + entry id. |
+| web_cache_save | Persist a snapshot after a remote MCP or fetch. Cap 256 KB per snapshot — summarize first. |
+| web_cache_search | FTS5 search over cached research. |
+| web_cache_get | Full untruncated snapshot by id. |
+| web_cache_status | Health: counts by source, expired entries, oldest/newest fetch. |
+
+## 3.3 Web cache data flow
+
+
+
+
+
+Default TTLs: context7 30d, exa/fetch 7d, deepwiki 14d, manual never.
+
+---
+
+# Part 4 — Database schema
+
+All tables live in the single per-project SQLite file. FTS5 shadow tables (*_fts_content, *_fts_data, *_fts_docsize, *_fts_idx, *_fts_config) are shown collapsed as *_fts. Row counts are from a live aiskillgrid index (code + 5 observations); memory-heavy cells vary by project.
+
+## 4.1 Memory tables
+
+| Table | Purpose | Key columns |
+|-------|---------|-------------|
+| observations | L0 atoms — every saved memory | id, session_id, type, title, content, project, scope, topic_key, normalized_hash, revision_count, source, pinned, expires_at, embedding/embedding_model, visibility, owner, status, importance_score, recency_decay, maturity_tier, provenance |
+| observations_fts | FTS5 over observations | content (external-content) |
+| observation_versions | Append-only version history (governance) | observation_id, content, created_at |
+| observation_relations | Typed links between observations | from_id, to_id, relation |
+| memory_relations | Cross-observation semantic relations | obs_a, obs_b, relation |
+| acl_grants | Visibility ACLs for shared obs | observation_id, principal, access |
+| prompts / prompts_fts | Saved user prompts | session_id, text |
+| sessions / session_archives | Workspace sessions | id, project, directory, started_at, ended_at, summary, status, title, compression_index |
+| session_handoffs | Relay handoffs (→ .cleave/ bundle) | handoff_id, source_session, status, cleave_path, context_summary |
+| handoff_meta | Handoff pass metadata | key, value |
+| observation_layers | L0–L3 layer provenance | project, layer, target_kind, target_id, source_session, source_topic, content_hash |
+| long_term_memories | L2/L3 durable memories | project, title, tiered_content_id, source_link, full_path, abstract_path, overview_path, embedding_blob |
+| tiered_contents | Tiered L1/L2/L3 content bodies | id, layer, content |
+| personas | Distilled persona deltas (L2) | project, content, updated_at |
+| retrieval_trails | Retrieval provenance audit | session_id, query, hits_json |
+| distill_llm_cache | LLM distillation cache | input_hash, output |
+| snapshots / ttl_config | Snapshot store + TTL overrides | — |
+| project_aliases | Source→canonical project aliases | alias, canonical |
+
+## 4.2 Code index tables
+
+### Core graph (transactional)
+
+| Table | Purpose | Key columns |
+|-------|---------|-------------|
+| files | Indexed files | id, path, mtime_ns, size, content_hash, indexed_at, ast_hash |
+| symbols | Code units (function/method/type/route/…) | id, file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid, hub_score, return_type, param_types, visibility, is_exported |
+| edges | Symbol→symbol relationships | id, kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from, valid_to, context, confidence_score |
+| chunks | Lexical + semantic units | id, file_id, start_line, end_line, text, content_hash, kind (lines\|ast) |
+| symbol_fts / chunks_fts | FTS5 lexical indexes | name/qualified_name/signature/kind/language · chunk text |
+| symbol_segments | Reverse segment index (substring location) | symbol_id, segment, offset |
+
+Edge kind values: calls, imports, references, extends, route, navigates, dynamic_import, configures, reads, writes, tests_for, method. confidence is EXTRACTED (1.0) / INFERRED (0.85) / AMBIGUOUS (0.5).
+
+### Semantic tier (config-driven via mnemonic.embedder)
+
+| Table | Purpose | Key columns |
+|-------|---------|-------------|
+| embeddings | Symbol vectors (name+signature) | symbol_id, model, dim, vector (BLOB), updated_at, language |
+| chunk_embeddings | Chunk-text vectors (non-symbol code) | chunk_id, model, dim, vector, updated_at, language |
+| lsh_buckets | LSH acceleration buckets | model, dim, bucket, ref_id |
+| path_embeddings | File-path embeddings (topical locality) | file_id, vector |
+| embed_meta | Embedder model + dim registry (model-swap guard) | model, dim, active |
+
+### Advisory analytics (never load-bearing)
+
+| Table | Purpose | Key columns |
+|-------|---------|-------------|
+| communities / community_meta | Leiden partition + per-community meta | id, symbol_id · id, label, symbol_count, god_nodes, hub_label, cache_key, cohesion |
+| community_meta_cache | Content-hash cache key | key, value |
+| import_cycles | File import dependency loops | cycle (comma paths, closed), node_count, discovered |
+| processes / process_steps / process_meta_cache | Entry-point execution traces | name, entry_symbol_id, cross_community, label, stop_note · step hops |
+| route_meta / route_drops | Framework route nodes + unresolved drops | URL/method/framework · dropped handler refs |
+| doc_nodes / config_nodes / sql_schema_nodes | Knowledge-graph nodes (docs, configs, SQL DDL) | node text + parsed structure |
+| rationale | Rationale comments linked to a symbol | symbol_id, text, kind (note\|why\|adr), line |
+| unresolved_refs | Dropped reference targets (drop-not-guess) | name, kind, line, match_count |
+| unresolved_members | Unbound receiver-qualified calls (internal/external split) | file_id, language, member, receiver, external, line |
+| resolution_audit | Per-language call-resolution ledger | language, call_sites, unresolved |
+| cfg_blocks / cfg_edges / pdg_edges / taint_findings | (opt-in --pdg) per-function CFG/PDG + taint | blocks, control/data edges, taint paths |
+| index_freshness / index_meta / index_meta_kv / fingerprint_meta / extraction_metadata | Freshness + migration + schema-fingerprint bookkeeping | — |
+
+## 4.3 Web cache tables
+
+| Table | Purpose | Key columns |
+|-------|---------|-------------|
+| web_cache | Snapshot store | id, project, source, cache_key, url, title, query, library_id, version_tag, content, metadata_json, content_hash, fetched_at, expires_at, session_id |
+| web_cache_fts | FTS5 over cached content | content (external-content) |
+
+## 4.4 Orchestration tables (team)
+
+| Table | Purpose |
+|-------|---------|
+| teams / team_members | Team + member registry |
+| tasks / task_results | Task queue + outputs |
+| reviews | Peer reviews (spec_compliance / code_quality) |
+| messages | Threaded member messages |
+
+## 4.5 Schema map
+
+
+
+
+
+---
+
+# Part 5 — End-to-end data flows
+
+## 5.1 A save + recall round-trip (memory)
+
+
+
+
+
+## 5.2 Index + orient round-trip (code)
+
+
+
+
+
+## 5.3 Research cache round-trip (web)
+
+
+
+
+
+---
+
+# Part 6 — Configuration & operations
+
+## 6.1 SQLite extensions & storage stack
+
+Mnemonic runs on **modernc.org/sqlite** v1.45.0 (skillgrid-cli/go.mod) — the pure-Go, cgo-free port of the SQLite C library. skillgrid doctor reports cgo: free (modernc.org/sqlite + gotreesitter).
+
+**Extensions actually used: FTS5 only.** Everything else is stock SQLite:
+
+| Extension | Used? | Where / notes |
+|-----------|-------|---------------|
+| **FTS5** | yes | The only extension in play. Five virtual tables, all external-content with trigger sync: observations_fts (tokenize='porter'), chunks_fts, symbol_fts (tokenize='unicode61'), prompts_fts, web_cache_fts. Rank queries use the bm25() built into FTS5. |
+| JSON1 | no | No json_extract/json_each/json_array anywhere in Go or migration SQL — JSON payloads (metadata_json, hits_json, graph edges) are stored as TEXT and parsed in Go. |
+| rtree / rtree* | no | No spatial queries. |
+| vec0 (sqlite-vec) | no | Semantic search keeps vectors as BLOBs in embeddings / chunk_embeddings / path_embeddings and does brute-force cosine ranking in Go; lsh_buckets is a plain table, not a vec0 index. |
+| Loadable extensions (sqlite3_load_extension) | no | Extensions are never loaded at runtime; what is compiled into modernc's SQLite build is all there is. |
+
+Consequences of the modernc choice (documented in the code):
+
+- **No sha1() SQL function** — content hashes and cache keys are computed in Go, not in SQL (process/trace.go, community/leiden.go).
+- **No regexp / string char functions** — the session-title backfill migration was kept in Go for that reason (migrations/003_backfill_session_titles.sql).
+- **No ON CONFLICT against partial indexes** — conflicts are handled in Go (memory/relations.go).
+
+Connection-level tuning (PRAGMAs applied in store.openDatabase, store.go):
+
+SF
+PRAGMA journal_mode=WAL      -- WAL journal (single connection, MaxOpenConns=1)
+PRAGMA foreign_keys=ON
+PRAGMA busy_timeout=10000    -- absorbs the transient WAL lock from the session-close distill hook
+SF
+
+WAL-locked opens are retried with backoff (50ms → 100ms → 200ms, 3 attempts total) before failing.
+
+## 6.2 Indexing config
+
+Config file config.d/indexing.yaml, searched up from the indexed dir; repo-local and ~/.skillgrid/config.d/indexing.yaml override defaults.
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| chunk_lines | 80 | Fixed line-window size for lines chunks (AST chunks use the ~1000-char target) |
+| chunk_overlap | 10 | Overlap between line windows |
+| max_file_size_kb | 512 | Hard cap; larger files skipped |
+
+skillgrid index flags: --dir (default .), --project (pin identity, else SKILLGRID_MNEMONIC_PROJECT), --pdg (CFG/PDG + taint), --lsp (LSP edge tier). There is **no --embeddings flag** — the semantic tier is config-driven via mnemonic.embedder (see 6.2.1).
+
+### 6.2.1 Embedding providers & config
+
+**Embedding is config-driven, not flag-driven.** The provider is chosen from the mnemonic.embedder section of config.d/indexing.yaml and applies to indexing automatically — skillgrid index has **no --embeddings flag** (only -dir, -project, -pdg, -lsp). Set mnemonic.embedder.provider and re-index; the vectors are written by the index pass.
+
+| Leg | How it turns on |
+|---|---|
+| **Indexing** (code symbol + chunk vectors) | Always, whenever a provider is configured (default onnx). No flag, no env. |
+| **Retrieval** (semantic *search* leg in code_semantic_search / code_hybrid_search) | Gated by MNEMONIC_EMBED=1 (default off) — embedder.Default(). |
+
+A provider that can't load (e.g. Ollama down, missing local model) **degrades to the Null adapter** (no vector leg; FTS + signals floor stays on) with a logged warning.
+
+Provider table — mnemonic.embedder keys (embedder.BuildFromConfig, select.go):
+
+| provider | Behavior | Keys used |
+|---|---|---|
+| onnx **(default)** | In-process ONNX; default model nomic-embed-code, 768-dim. Missing model → hash fallback. | model, dimension, indexing_params, query_params |
+| ollama | POST {model,prompt} to &lt;base_url>/api/embeddings. Probed at selection; server down → degrade to Null. | base_url (default http://localhost:11434), model (default nomic-embed-code), dimension |
+| local | Loads &lt;model_dir>/&lt;model>.onnx in-process. Missing file is a load error → degrade to Null. | model_dir (default ~/.skillgrid/models/), model, dimension |
+| external | Any OpenAI-compatible endpoint; tries /embeddings, falls back to /api/embed (Ollama). Asymmetric-capable. | base_url, model, api_key, dimension, indexing_params, query_params |
+| off / "" | Null adapter — no vector leg. | — |
+
+**Asymmetric** params: indexing_params (corpus side) and query_params (query side) each take instructions, input_type, max_tokens. Only onnx/external honor them.
+
+Ollama example (repo-local config.d/indexing.yaml or ~/.skillgrid/config.d/indexing.yaml):
+
+SFyaml
+mnemonic:
+  embedder:
+    provider: ollama
+    base_url: http://localhost:11434
+    model: nomic-embed-code
+    dimension: 768
+SF
+
+Then re-index: skillgrid index --dir . (the provider from the config above applies automatically). To also enable the semantic *search* leg at retrieval time, set MNEMONIC_EMBED=1. Verify with code_embedding_status (reports active provider/model/dim/embedded count) or skillgrid doctor (runs an embed round-trip).
+
+Two guards:
+- **Fail-safe** — a provider that fails to load degrades to Null with a logged warning (degradeOnError); the pipeline never hard-fails on embedding.
+- **Model-swap guard** — embed_meta records model+dim; a model or dimension change invalidates existing vectors and triggers re-embed on next index.
+
+## 6.3 Environment variables
+
+| Variable | Role |
+|----------|------|
+| SKILLGRID_MNEMONIC_DATA_DIR | Data directory (default ~/.skillgrid/mnemonic) |
+| SKILLGRID_MNEMONIC_PORT | Serve port (default 7438) |
+| SKILLGRID_HTTP_TOKEN | Bearer for write routes |
+| SKILLGRID_MNEMONIC_PROJECT | Pin project for index / tools |
+| SKILLGRID_MNEMONIC_HTTP_URL | Plugin → serve URL |
+| SKILLGRID_NO_WATCH=1 | Disable the watcher (manual index; fingerprint gate is the backstop) |
+| MNEMONIC_EMBED | Enable the semantic **search** leg in retrieval (1/true/yes/on); default off. Indexing is separate — config-driven via mnemonic.embedder, no env |
+
+## 6.4 Project identity
+
+Each git repo binds to a **clone-private** identity under .git/ so memory survives rename, re-clone, and linked worktrees. A parent of many repos → ambiguous; pick a project explicitly or set SKILLGRID_MNEMONIC_PROJECT. Fold multiple directory-hashed stores into one with mem_unify / mem_merge_projects.
+
+## 6.5 HTTP API & dashboard
+
+skillgrid serve exposes the same data over HTTP + a read-only dashboard (Memory Visualization + Code Graph: 3-pane callers | source | callees, blast radius, symbol search, entry points, flow/path). Plugins auto-start it if /health fails. Write routes may require SKILLGRID_HTTP_TOKEN. See [Web UI](10-webui.md).
+
+## 6.6 CLI quick reference
+
+SFbash
+skillgrid mcp [--debug]            # stdio MCP server (the 77 tools)
+skillgrid serve [--port 7438]      # HTTP API + dashboard
+skillgrid index [--dir .] [--project ID] [--pdg] [--lsp]
+skillgrid search [--corpus code|grep|mem|symbols|hybrid|semantic] <query>
+skillgrid code <map|get-symbol|get-signature|symbols-in-file|impact|get-callers|index-status|…>
+skillgrid trail <recent|show>      # inspect retrieval trails
+skillgrid export --project ID --out DIR   # Obsidian Markdown + viz JSON
+skillgrid setup <opencode|kilocode|cursor>  # install plugins + register MCP
+skillgrid migrate [--tier]         # backfill tier sidecars
+skillgrid doctor [--strict]        # functional health check (embed round-trip, capabilities)
+SF
+
+## 6.7 Gotchas
+
+- code_index indexes the **git root**, not the cwd.
+- Semantic path without an embedder → **explicit** degraded=true, never silent.
+- stale=true ≠ lag; use freshness.
+- The code index is **per-project** (one SQLite file); no cross-project code search.
+- The store is **single-connection** (MaxOpenConns=1); advisory passes reopen the DB after the core commit to avoid the write-lock deadlock.
+- Go import targets are stored as **leaf names**, so Go import-cycle detection only ever reports cycles for in-repo file pairs when full module paths are persisted.
+
+## 6.8 Protocol reference
+
+Full agent-facing conventions (not this operator reference):
+
+- .agents/skills/_shared/conventions/mnemonic-memory.md
+- .agents/skills/_shared/conventions/mnemonic-code-indexing.md
+- Skill: mnemonic (memory + code index + web cache folded in; former mnemonic-code-index skill retired → redirect)
+<pre class="mermaid">graph LR
+  L0["L0 atoms<br/>(raw observations)"] -->|distill| L1["L1 scenario<br/>(abstract overview)"]
+  L1 -->|distill| L2["L2 persona delta / durable<br/>(long-term memory)"]
+  L2 --> L3["L3 durable long-term<br/>(tiered_content)"]</pre>
+<pre class="mermaid">flowchart TD
+  A["agent: mem_save / mem_capture_passive"] --> B["observations (L0)<br/>+ observations_fts"]
+  A2["mem_save_prompt"] --> P["prompts"] --> B
+  B --> C{"distill"}
+  C --> L1["L1 scenario (semantic_search corpus)"]
+  C --> L23["L2/L3 durable<br/>long_term_memories + tiered_contents"]
+  L1 --> RS["semantic_search → ranked L1 + abstract"]
+  L23 --> LF["load_full_details (L2 body)"]
+  B --> RS2["mem_search / mem_context / mem_timeline"]
+
+  subgraph governance
+    B -. mem_compare / mem_judge .-> REL["memory_relations / observation_relations"]
+    B -. mem_share / mem_governance .-> GOV["observation_versions / acl_grants"]
+    B -. mem_review .-> REV["review cycle"]
+  end
+
+  subgraph session
+    SS["mem_session_start/summary/end"] --> SES["sessions / session_archives"]
+    SH["session_handoff / session_resume"] --> HND["session_handoffs + .cleave/ bundle"]
+  end</pre>
+<pre class="mermaid">flowchart TD
+  SCAN["skillgrid index --dir .<br/>git-root scan (indexing.yaml include/exclude)"] --> DIFF{"file changed?<br/>(mtime + content_hash + ast_hash)"}
+  DIFF -->|no| SKIP["skip (fingerprint gate)"]
+  DIFF -->|yes| EX["extract: tree-sitter adapter<br/>(30 langs, CGo in adapter)<br/>+ regex fallback"]
+
+  EX --> S["symbols<br/>(name, kind, lang, sig,<br/>return_type, param_types,<br/>visibility, is_exported)"]
+  EX --> E["edges<br/>(calls, imports, references,<br/>extends, route, navigates,<br/>dynamic_import)"]
+  EX --> R["rationale + unresolved_members<br/>+ per-lang resolution_audit"]
+  EX --> C["chunks (kind=lines|ast)<br/>AST-boundary, full-file coverage"]
+
+  S --> SFTS["symbol_fts (FTS5)"]
+  C --> CFTS["chunks_fts (FTS5)"]
+  S & C -->|embedPass (config)| VEC["embeddings + chunk_embeddings<br/>(language-partitioned)"]
+  S & E --> CM["communities + community_meta<br/>(Leiden + cohesion)"]
+  E --> IC["import_cycles (color-DFS)"]
+  E --> PR["processes + process_steps<br/>(entry-point traces)"]
+  E --> KN["doc_nodes / config_nodes / sql_schema_nodes"]
+
+  subgraph advisory
+    CM & IC & PR & KN
+  end</pre>
+<pre class="mermaid">flowchart LR
+  Q["query"] --> RT{"Search Intent Router"}
+  RT -->|identifier-shaped| SYM["symbol_fts (code_search_symbols)"]
+  RT -->|func $NAME / matcher| GRP["code_grep (tree-sitter by-example)"]
+  RT -->|decision / remember| MEM["mem_search"]
+  RT -->|unclassified| CODE["code_search / code_hybrid_search"]
+
+  CODE --> FTS["chunks_fts (BM25)"]
+  CODE --> SIG["deterministic signals<br/>(proximity, TF-IDF, type/API)"]
+  CODE -->|embedder available| SEM["embeddings / chunk_embeddings<br/>(language filter)"]
+  FTS & SIG & SEM --> RRF["RRF fusion + rerank<br/>(every factor has a written rationale)"]
+  RRF --> HITS["hits with per-signal provenance"]</pre>
+<pre class="mermaid">flowchart LR
+  AGENT["agent"] --> LK["web_cache_lookup(source, key)"]
+  LK -->|hit| USE["use cached snapshot"]
+  LK -->|miss/stale| REMOTE["remote MCP<br/>(Context7 / Exa / DeepWiki / WebFetch)"]
+  REMOTE --> SV["web_cache_save (≤256 KB)"]
+  SV --> DB["web_cache + web_cache_fts<br/>(TTL per source)"]
+  DB --> SE["web_cache_search (FTS5)"]
+  SE --> GT["web_cache_get(id)"]</pre>
+<pre class="mermaid">flowchart TD
+  subgraph memory
+    OBS["observations"] --> OBSFTS["observations_fts"]
+    OBS --> OVR["observation_versions"]
+    OBS --> ORR["observation_relations"]
+    OBS --> ACL["acl_grants"]
+    OBS --> OL["observation_layers"]
+    OL --> LTM["long_term_memories"]
+    LTM --> TC["tiered_contents"]
+    OL --> PE["personas"]
+    SE["sessions"] --> SEH["session_handoffs"]
+    PR["prompts"] --> PFTS["prompts_fts"]
+  end
+
+  subgraph code
+    F["files"] --> SYM["symbols"]
+    SYM --> EDG["edges"]
+    F --> CK["chunks"]
+    CK --> CKFTS["chunks_fts"]
+    SYM --> SYFTS["symbol_fts"]
+    SYM --> SSEG["symbol_segments"]
+    SYM --> EMB["embeddings"]
+    CK --> CEMB["chunk_embeddings"]
+    EMB --> LSH["lsh_buckets"]
+    SYM & EDG --> COMM["communities + community_meta"]
+    EDG --> ICC["import_cycles"]
+    EDG --> PROC["processes + process_steps"]
+    EDG --> DOC["doc_nodes / config_nodes / sql_schema_nodes"]
+    SYM --> RAT["rationale"]
+    EDG --> URF["unresolved_refs / unresolved_members"]
+    EDG --> CFG["cfg/pdg/taint (opt-in)"]
+  end
+
+  subgraph web
+    WC["web_cache"] --> WCFTS["web_cache_fts"]
+  end</pre>
+<pre class="mermaid">sequenceDiagram
+  participant A as Agent
+  participant M as Mnemonic (MCP)
+  participant DB as SQLite store
+  A->>M: mem_session_start
+  M->>DB: INSERT sessions
+  A->>M: mem_save(topic_key, content)
+  M->>DB: INSERT/UPSERT observations + observations_fts
+  M-->>A: observation id
+  Note over A,DB: …later, a new session…
+  A->>M: mem_context
+  M-->>A: recent session summaries
+  A->>M: mem_search(query)
+  M->>DB: FTS5 query observations_fts
+  M-->>A: ranked compact hits
+  A->>M: mem_get_observation(id)
+  M-->>A: full untruncated content</pre>
+<pre class="mermaid">sequenceDiagram
+  participant A as Agent
+  participant C as skillgrid index
+  participant DB as SQLite store
+  A->>C: code_index (git root)
+  C->>DB: scan + diff (content_hash/ast_hash)
+  C->>DB: write files/symbols/edges/chunks (tx)
+  C->>DB: advisory passes (community, import-cycle,<br/>process, knowledge) — warn+continue
+  A->>C: code_status
+  C-->>A: freshness + capabilities + schema_fingerprint
+  A->>C: code_explore(query)
+  C->>DB: hybrid: FTS + signals + semantic (RRF)
+  C-->>A: verbatim source + call paths + blast radius
+  A->>C: code_read(path, range)
+  C-->>A: narrowed slice (secrets redacted)</pre>
+<pre class="mermaid">sequenceDiagram
+  participant A as Agent
+  participant M as Mnemonic (MCP)
+  participant R as Remote MCP
+  A->>M: web_cache_lookup(source, key)
+  M-->>A: miss
+  A->>R: Context7 / Exa / DeepWiki / WebFetch
+  R-->>A: content
+  A->>M: web_cache_save(source, content)
+  M->>M: store ≤256 KB, set TTL
+  Note over A,M: …repeat lookup…
+  A->>M: web_cache_lookup(source, key)
+  M-->>A: hit (no remote call)</pre>` | markdownify }}</div>
+
+<h2 id="multi-agent-work">Multi-agent work</h2>
+
+<div class="doc-body">{{ `How AISkillGrid keeps the orchestrator lean while fanning out implementation and research.
+
+## Smart side vs dumb side
+
+| Side | Role | Budget |
+|------|------|--------|
+| **Smart** | Orchestrator: classify, unblock the DAG, spawn work, record verdicts | Stay in the usable **smart zone** — roughly **≤ ~40%** of the context window for plan/execute load |
+| **Dumb** | Raw dumps, long tool output, full-file reads, degraded late-window tokens | Offload to subagents, files, Mnemonic progressive disclosure |
+
+Quality drops before the advertised window is full. Prefer more, smaller slices over one plan that burns the smart zone and finishes degraded (gsd-core smart-zone idea).
+
+## Skills
+
+| Skill | When |
+|-------|------|
+| subagent-execution | Fresh implementer subagent per task, per-task spec+quality review, 5-round fix loop, ledger-based |
+| parallel-execution | 2+ **independent** problem domains in the same message (no shared files / shared topic_key) |
+| simple-execution | Small slice; inline without spawning |
+| isolated-workspace | Worktree isolation when branches would collide |
+| code-research | Parallel researcher subagents (researcher / verifier / red-team) |
+| parallel-code-review | 6 specialist reviewers in parallel, then triage / dedup / verdict |
+
+## Parallel dispatch rules
+
+Use parallel only when:
+
+- Root causes / domains are independent
+- Agents will not edit the same files
+- Agents will not clobber the same Mnemonic topic_key
+
+Otherwise run sequential apply along the Depends on: edges in tasks.md.
+
+## Pattern
+
+SF
+Orchestrator (using-skillgrid / subagent-execution)
+    │  reads tasks.md State + Depends
+    ├─► Subagent A  (slice 01 — fresh context)
+    ├─► Subagent B  (slice 03 — unblocked, parallel)
+    └─► Updates checkboxes + mem_save decisions
+SF
+
+Subagents must receive everything they need **on disk or in the prompt**. They do not inherit the parent chat. using-skillgrid carries a &lt;SUBAGENT-STOP> so dispatched subagents do not re-enter the router.
+
+## Checklist
+
+- [ ] Blocking DAG in tasks.md is honest
+- [ ] Parallel only for unblocked independent work
+- [ ] Orchestrator not inlining huge files — points to paths
+- [ ] Context still in smart zone; checkpoint to Mnemonic if heavy` | markdownify }}</div>
+
+<h2 id="ticketing">Ticketing</h2>
+
+<div class="doc-body">{{ `The **ticketing** skill maps SDD work to an issue tracker. Default: **Backlog.md**. Alternatives: GitHub, GitLab, Jira.
+
+Tracker choice is recorded in .skillgrid/config.yaml. Formatting seeds and per-tracker references live under .agents/skills/ticketing/references/ (backlogmd, github, gitlab, jira + *-formatting.md + triage-labels.md).
+
+## Backlog.md (default)
+
+SFbash
+backlog init "<name>" --integration-mode cli --backlog-dir .backlog ...
+backlog task list --plain
+backlog task view TASK-123 --plain
+SF
+
+- Storage: .backlog/tasks/&lt;ID>.md
+- Do **not** edit task files by hand — use the backlog CLI
+- Session start: backlog instructions overview
+
+## Mapping SDD → tickets
+
+| SDD artifact | Typical ticket mapping |
+|--------------|------------------------|
+| Blueprint (blueprint.md) | Epic / parent issue / tracking ticket |
+| Slice in tasks.md | Story / issue / backlog task |
+| Acceptance scenarios (acceptance.feature) | Linked in description; verify against them |
+
+### Strategy A — Blueprint = issue, slices = checklist
+
+Good for small teams on GitHub/GitLab Issues: one issue per change; tasks.md items become checklist lines in the body.
+
+### Strategy B — Domain = epic, change = story
+
+Good for Jira (and larger GitHub Projects): long-lived domain epic; each change is a story; slices become sub-tasks.
+
+## Agent obligations
+
+When the skill says "publish to the issue tracker":
+
+1. Search for duplicates first
+2. Create via the tracker's CLI/API (never invent IDs)
+3. Link paths: blueprint.md, tasks.md, acceptance.feature
+4. Respect Blocked by / depends edges from tasks.md` | markdownify }}</div>
+
+<h2 id="concepts">Concepts</h2>
+
+<div class="doc-body">{{ `The recurring ideas across skills and hooks. These are the named seams that make the pipeline work — the same term appears in multiple skills and means the same thing.
+
+## The practices (why the pipeline exists)
+
+The whole hub is an expression of four engineering practices. Everything below is the *mechanism*; this section is the *intent*.
+
+### Spec-Driven Development (SDD)
+
+The pipeline is SDD: onboarding → interviewing → writing-blueprints → slicing → [approval gate] → apply ⇄ qa → ticketing.
+
+- **Specs are the source of truth**, not the chat. The change's contract lives under .skillgrid/specs/… (briefing.md, acceptance.feature, blueprint.md, tasks.md) and is what verify/QA trace back to.
+- **A written change contract before code.** Blueprint + sliced tasks + Gherkin acceptance exist and are approved *before* implementation starts.
+- **A human approval gate** after spec, never auto-skipped.
+- **Evidence-based verify.** The QA gate runs oracles and traces to scenarios; findings re-enter apply.
+- **Durable, resumable state** (checkpoint.json derived from the last commit's [skillgrid-context] block, plus the spec-zone artifacts that name the phase) so a change survives compaction.
+
+SDD is what makes "done" a claim with evidence instead of an assertion.
+
+### Intent-Driven Development (IDD)
+
+IDD is the *front half* of the pipeline: lock the **why** and the user-visible end state *before* any design or code, by grilling ambiguity out of the idea. interviewing (based on mattpocock's *grill*) is the engine, and the **brainstorming hard approval gate** is where intent is made explicit and approved.
+
+- **Intent is locked first.** "Interview the user relentlessly about a plan, decision, or idea until you reach a shared understanding." The outcome, the boundary, the constraints, and the acceptance criteria are settled *before* a blueprint is written.
+- **A design tree, not a flat Q&A.** "Map the problem as a **design tree**: every decision branches into the decisions that hang off it." The **frontier** is every decision whose prerequisites are already settled — "the questions you can ask *now* without guessing at answers you haven't heard yet." Ask the whole frontier in one round, wait, recompute, next round. A question whose answer depends on another still-open question belongs to a *later* round.
+- **Rules:** "Finding facts is your job, never the user's." "The decisions are the user's. … Never decide for them." "One round at a time."
+- **The domain model is written as you go.** Terms are written to the glossary the moment they resolve; load-bearing decisions clear the ADR bar and get recorded there. "A glossary that only changes after the interview is a summary, not the session's output." The interview ends with the glossary and ADRs *already* reflecting what was decided, not a to-do to backfill.
+- **Exit is the clarity gate** (not just "no more questions"). The interview is "not done when the frontier is empty. It's done when the frontier is empty **AND** the clarity gate passes" — see [The Clarity Gate](#the-clarity-gate-interviewing).
+
+IDD is what makes the rest of the pipeline *worth doing*: a blueprint, slice, and gate only mean something if the intent behind them was actually agreed first.
+
+### Test-Driven Development (TDD)
+
+test-driven-development — "Write the test first. Watch it fail. Write minimal code to pass." Core principle: "If you didn't watch the test fail, you don't know if it tests the right thing."
+
+**The Iron Law:** "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST. Write code before the test? Delete it. Start over. … Delete means delete. Implement fresh from tests. Period." "Violating the letter of the rules is violating the spirit of the rules."
+
+**Red → Green → Refactor:** RED (write a failing test, verify it fails *correctly*) → GREEN (minimal code, verify all green) → REFACTOR (clean up, tests still green) → next.
+
+Used **always** for new features, bug fixes, refactoring, and behavior changes. Exceptions only with your human's sign-off: throwaway prototypes, generated code, configuration. "Thinking 'skip TDD just this once'? Stop. That's rationalization."
+
+TDD is the *per-task* engine; the #### Gates oracles and the goal-backward QA check are the *change-level* evidence on top of it.
+
+### Vertical slices
+
+A slice is a **narrow but COMPLETE** path through every layer — "UI → API → DB → config" — not a horizontal layer dump. "Vertical, not horizontal." "All DB, then all API, then all UI" is the anti-pattern.
+
+This is the sizing unit for slicing (tracer-bullet tickets, ~500–1500 lines, each fitting one fresh agent context) and for the work-unit commit ("~100 lines as the soft ceiling … a vertical slice that must move together is fine"). Slices keep context small, keep commits atomic, and keep each unit independently testable and revertable.
+
+### Behavior-Driven Development (BDD)
+
+acceptance-test-authoring — Gherkin-in-Markdown acceptance.feature describes observable behaviour; it is **always on** ("non-negotiable, like TDD — bdd.enabled is always true").
+
+BDD is the *language of the contract*: the scenarios are what the QA traceability matrix and the #### Gates oracles verify against. "Every requirement has ≥1 happy + edge + failure scenario." Specs use domain (glossary) language, never implementation jargon, so the behaviour stays readable to a non-engineer.
+
+**How the five fit together:** IDD locks the *intent* first (grill + clarity gate + brainstorming approval). SDD provides the *pipeline* and the *written contract*. BDD provides the *behavioural language* of that contract. TDD is the *per-task* proof engine. Vertical slices are the *size unit* that keeps every one of them inside a context window. A slice is a thin SDD unit, written as BDD scenarios, proved by TDD, verified by the gates — all in service of the intent IDD locked at the front.
+
+## The PIV loop
+
+The high-level loop the whole pipeline follows: **prime → plan → implement → validate → review → commit → PR.** "prime" = onboard/interview (lock intent); "plan" = blueprint + slice; "implement" = apply with TDD; "validate" = the QA gate; "review" = code review; "commit" = work-unit commit; "PR" = ticketing/branch finishing. Every skillgrid phase is a step of this loop — the loop is the spine, the skills are the muscles.
+
+## Verification-before-completion
+
+"Evidence before claims, always." The principle that the entire review discipline operationalizes: **"Agent completed → VCS diff shows changes, NOT agent reports 'success'."** A task is not done because the agent said done — it is done because the diff, the freshly-run gate, and the traceable test prove it. "Do Not Trust the Report" (in the review discipline) is this rule applied to subagent output. No completion claim without fresh verification evidence, in the same message.
+
+## Domain model and the shared .skillgrid/ home
+
+The pipeline's shared "domain model" home. architectural-decision-records: "Actively build and sharpen the project's domain model as you design."
+
+SFtext
+.skillgrid/
+├── config.yaml
+├── glossary/            # business.md + technical.md (domain model)
+├── adr/                 # 0001-slug.md … sequential, monotonic, never reused
+├── sdd/                 # checkpoint.json, debug/, gate-stop-state.json
+└── specs/YYYY-MM-DD-<topic>/
+    ├── briefing.md
+    ├── acceptance.feature
+    ├── blueprint.md
+    ├── tasks.md
+    ├── adr.md           # ADR Review Manifest (pointers only)
+    ├── findings.md      # consolidated research/spike/sketch evidence
+    └── qa-report.md     # test plan + 4-state gate + evidence
+SF
+
+### Glossary
+
+A glossary and nothing else — "no implementation details, no specs, no scratch. This is the rule that breaks in the field: left unchecked, models treat 'write to the glossary' as permission to persist every answer."
+
+- .skillgrid/glossary/business.md — domain, product, workflow terms.
+- .skillgrid/glossary/technical.md — architecture, platform, protocol terms (and the codebase-design vocabulary, seeded here).
+- Multi-context repos add a CONTEXT-MAP.md.
+- "A glossary that only changes after the interview is a summary, not the session's output." interviewing writes terms inline as they resolve.
+- BDD specs use glossary terms, never implementation jargon.
+
+### Codebase-design vocabulary (deep modules)
+
+writing-blueprints/references/codebase-design.md seeds a fixed vocabulary into .skillgrid/glossary/technical.md that must be used exactly — "don't substitute 'component,' 'service,' 'API,' or 'boundary.'"
+
+| Use | Avoid |
+|-----|-------|
+| **Module** | unit / component / service |
+| **Interface** | API / signature |
+| **Seam** (Michael Feathers: "a place where you can alter behaviour without editing in that place") | boundary |
+| **Adapter**, **Depth**, **Leverage**, **Locality** | — |
+
+Two falsifiable design gates:
+
+- **The deletion test:** "Imagine deleting the module. If complexity vanishes, it was a pass-through. If complexity reappears across N callers, it was earning its keep." A blueprint task creating a module must name, in its Interfaces field, what complexity reappears if removed.
+- **The one-adapter rule:** "One adapter means a hypothetical seam; two adapters mean a real one. Don't introduce a seam (port) unless at least two adapters are justified (typically production + test)."
+- **Design It Twice:** for a hard interface, spawn 3+ subagents producing radically different interfaces, then compare.
+
+## The Clarity Gate (interviewing)
+
+The interview is "**not** done when the frontier is empty. It's done when the frontier is empty **AND** the clarity gate passes."
+
+Score each dimension 0.0 (completely unclear) to 1.0 (crystal clear):
+
+| Dimension | Weight | Minimum | What it measures |
+|-----------|--------|---------|------------------|
+| Goal Clarity | 35% | 0.75 | Is the outcome specific and measurable? |
+| Boundary Clarity | 25% | 0.70 | What's in scope vs out of scope? |
+| Constraint Clarity | 20% | 0.65 | Performance, compatibility, data requirements? |
+| Acceptance Criteria | 20% | 0.70 | How do we know it's done? |
+
+**Clarity score** = 1.0 − (0.35×goal + 0.25×boundary + 0.20×constraint + 0.20×acceptance). The formula is inverted: a *low* score is the pass condition. **Gate:** clarity ≤ 0.20 AND all dimensions ≥ their minimums → shared understanding reached. On fail, ask targeted questions at the lowest dimension, re-score, repeat. A dimension below its minimum is marked **⚠** and treated as an assumption. Final scores land in the briefing's **Clarity Report**.
+
+## Brainstorming: four classified paths + hard approval gate
+
+brainstorming classifies every idea into one path and applies a **HARD-GATE**: "Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have told your human partner what you intend and they have approved it. … the ceremony scales with the task; the approval gate never does."
+
+| Path | Definition | Terminal state |
+|------|------------|----------------|
+| **Spike** | A feasibility question ("can we…") whose output is an answer, not code you keep. **Tiny** (answer inline, no file) or **Real probe** (delegate to spike; anything built stays throwaway). | A reported recommendation. |
+| **Bounded** | A well-scoped change to code that already exists (a flag, small endpoint, one-file fix). "If there is no existing flow to change, the task is not bounded." | Implement directly; no spec/plan doc. |
+| **New Project** | Greenfield, a new subsystem, or a restructure of how components fit. | docs/PRD.md + docs/ARCHITECTURE.md + spec briefing.md. |
+| **New Function** | A new feature/endpoint/capability in a project whose architecture is in place. | Spec briefing.md (+ update global PRD/ARCHITECTURE only if they exist AND change). |
+
+**The ratchet:** "When in doubt between two paths, take the heavier one. The ratchet is one-way: hidden complexity discovered mid-task upgrades the path — stop, say so, and step up. Nothing downgrades mid-task."
+
+The two full paths (New Project / New Function) run long enough to outlive a session; the phase position is read from which spec-zone artifacts exist (no separate state.md is created), and each phase transition commits the artifacts that changed (the [skillgrid-context] Decisions: line carries the key call). Spike/bounded skip persistence — they're short by design. Just-in-time offers (not upfront): visual companion, sketch (only when 2+ meaningfully different options whose choice depends on *feeling* it), research (first external fact not in the codebase).
+
+## Must-Haves + one-way-door (writing-blueprints)
+
+**Must-Haves** are "the observable outcomes that MUST be true when the plan is complete. The verifier checks the result against this list, not just that tasks exist." Three categories, every item verifiable:
+
+- **Truths** — observable behaviors that must hold.
+- **Artifacts** — files that must exist with real implementation, not stubs.
+- **Key links** — critical connections between artifacts that must work together.
+
+"If you can't state a truth, artifact, or link for a spec requirement, the requirement is ambiguous — go back to the spec."
+
+**One-way-door** = "hard to reverse: it needs a migration, breaks a published contract, changes a public API shape, or is otherwise expensive to undo." Tag at the top of the task: > ⚠ one-way: &lt;decision> and **STOP to get explicit user approval before proceeding**. All one-way-door decisions are listed in the blueprint's Must-Haves under "One-way-door decisions" (or "None"). work-unit-commits: "One-way-door decisions still get an ADR … the Decisions: line is the per-task record, not a replacement for the ADR."
+
+## Assumed blueprints + ratification (writing-blueprints)
+
+The approval gate is a wall by default, but a wall with no door makes agents rationalize around it. The **Owed-Decision Gate** (input coverage check) catches undecided decisions *mechanically*, not by introspection:
+
+> Enumerate every value the build must produce, compute, or display. For each, does the blueprint name where it comes from? Any required value with no named source is an owed decision.
+
+"AI will happily convince itself that a real decision is just wiring and push right past it." Introspection fails for exactly that reason, so the gate is a positive coverage test — harder to talk yourself out of.
+
+When an owed decision exists, the panel offers three paths (recommended first):
+
+1. **Resolve first** — settle the decision in brainstorming/interviewing, return to the blueprint.
+2. **Not a real decision** — proceed; record the judgment as a Decision note: in the blueprint header.
+3. **Build on the assumption** — write an **ASSUMED block** (owed decision, assumption built on, code area, authorized by) into the blueprint and proceed. The assumption now lives in a file, not in chat: it survives /clear, teammates read it, and a later run builds against it instead of guessing again.
+
+The ASSUMED status **never blocks** — execution, slicing, QA (WARNING, never CRITICAL), and ship all proceed. It is surfaced per ticket by slicing (Note: assumed decision (blueprint &lt;path>)), in the qa-report (decision debt), in the ship Return Envelope, and in the final report.md until it is ratified.
+
+**Ratify** is the only path out: read the Assumed blueprint in full, deliberate the decision anchored to what was actually built, then either fill the real decision record into adr.md and clear the flag (assumption holds), or write a superseding blueprint and mark the old one SUPERSEDED by &lt;path> (assumption wrong). Only the blueprint author writes decision content; only Ratify clears the flag. That single ownership is what keeps an override honest without ever slowing the work down.
+
+## Tracer bullets + execution waves (slicing)
+
+"Break a blueprint into vertical tracer-bullet tickets that each fit a single fresh agent context window. Vertical, not horizontal. Each ticket is a narrow but COMPLETE path through every layer (UI → API → DB → config)."
+
+**Sizing:** "A ticket is the right size when a single agent session can implement it, test it, and commit it without needing to re-read the blueprint. Rough guide: **~500–1500 lines of change (20–50% tests)**." Template size label: ~&lt;lines> (S &lt;500 / M 500-1500 / L >1500).
+
+**Dependency edges:** "Dependency = implemented, not sliced. Ticket B is blocked by ticket A until A is done, not until A is written down." Each ticket carries - **Blocks:** / - **Blocked by:** lines. A later-wave ticket waits for its dependency to be *complete* (reviewed, committed), not just started.
+
+**Waves (algorithm):**
+
+1. **Wave 1:** all tickets with no blockers (run in parallel)
+2. **Wave 2:** tickets blocked only by Wave 1 tickets
+3. **Wave N:** tickets blocked by Wave N−1 tickets
+
+Encoded in tasks.md as a mermaid Dependency Graph block plus an **Execution Order** section (Wave 1 (parallel): TICKET-01, …). Self-review check: "no ticket appears in a wave before its blockers are in earlier waves."
+
+## Rigor tiers — match effort to risk
+
+A throwaway prototype shouldn't be pushed through mutation testing and an 8-specialist review, and a payment system shouldn't get away with a self-check. **Rigor tiers** (T0–T3, in _shared/conventions/rigor-tiers.md) are a per-change verification dial:
+
+| Tier | Name | Blueprint | QA floor | Review |
+|---|---|---|---|---|
+| T0 | Prototype | none | self-check evidence | none |
+| T1 | Alpha | light | L1 + runtime verify | none |
+| T2 | Beta | full | L2+L3 | two-axis |
+| T3 | GA | full | L4 (mutation + security) | parallel + **fresh-model reviewer** |
+
+The project default is set at onboarding (rules.tiers.default, recommended from the product's risk/size) and a per-change Tier: line in briefing.md overrides it. The tier selects *which tail steps run*; the change-classification floor (verification ladder) still applies as the minimum — a T0 that is actually a migration still gets the migration's L3 floor. Skipped steps are recorded as skipped, never silently absent.
+
+T3's fresh-model rule: at least one reviewer runs on a model different from the implementer's, because a model reviewing its own work carries its own blind spots.
+
+## Build shapes (delivery strategy)
+
+*How* the work is ordered — which behavior exists first — is a recorded decision, not a vibe. The blueprint header carries **Build shape:** with one of four decades-old delivery strategies:
+
+| Shape | What it means |
+|---|---|
+| **Tracer thread** | A thin end-to-end path through every layer works first, then thickens |
+| **Smallest usable whole** | The thinnest usable product ships first, then grows |
+| **Facade** | UI shell on placeholder data first; real backend wires in later |
+| **Journey** | One user path completed fully before the next begins |
+
+writing-blueprints recommends and records the shape (one-line why); slicing reads the line to order the first wave. The shape is orthogonal to slicing's risk-first / contract-first strategies, which order *within* waves — the shape orders the *first* one.
+
+## The 4-state QA gate (qa)
+
+"The gate is the decision, not the test suite." "Task completion ≠ goal achievement. Passing tests ≠ verified behavior."
+
+| Verdict | Criteria |
+|---------|----------|
+| **PASS** | ALL of: all truths VERIFIED; all scenarios covered by a test that ran and passed; no CRITICAL findings; no MISSING_RED; all code-quality gates PASS or N/A; P0 pass rate ≥ quality.p0_pass_rate; P1 ≥ quality.p1_pass_rate; coverage ≥ quality.coverage_min (if > 0); mutation ≥ quality.mutation_min (if > 0); no Trivy finding ≥ security.trivy.fail_on (if set). |
+| **CONCERNS** | No CRITICAL findings and all hard gates PASS, BUT ≥ 1 of: a PRESENT_BEHAVIOR_UNVERIFIED level, a WARNING finding, a P0 without triangulation, a low-risk missing adoption, or a lint warning. Open items named with a path to resolution. |
+| **FAIL** | ANY of: a truth UNVERIFIED; a scenario with no covering test; a test that ran and failed; a MISSING_RED; a regression gap with no covering test; a missing-oracle gap (happy-path scenario with no G&lt;n>); a CRITICAL security finding; a code-quality gate FAIL; a Trivy finding ≥ security.trivy.fail_on. |
+| **WAIVED** | The human explicitly waived a specific gate criterion. Waiver + criterion + accepted risk recorded in the report. **WAIVED is never a machine decision.** |
+
+**Default config thresholds** (quality:, when unset): coverage_min 80, mutation_min 80, p0_pass_rate 100, p1_pass_rate 95. Trivy: severities "CRITICAL", scan_types "vuln,secret,misconfig", fail_on "" (= report only). **A threshold of 0 means disabled — a gate with threshold 0 is N/A, it cannot FAIL.**
+
+**The Trivy security gate** (PASS item 10 / the FAIL row): fail_on empty means Trivy findings are reported but can never fail the gate; set fail_on to a severity (e.g. "CRITICAL") and any finding at or above it FAILs the gate. This is the machine-enforced security decision; the 6-specialist parallel review (Security specialist) is the human-facing lens over the same findings.
+
+**Six hard rules:** (1) A human decision always overrides the machine verdict. (2) A change that fails with no human decision is recorded as **not accepted**, never silently accepted. (3) A non-empty pending list in the traceability matrix makes the gate **FAIL**, including headless. (4) Passing tests do not substitute for running the system — the goal-backward check is the evidence, not the suite count. (5) A code-quality gate at threshold 0 is N/A. (6) An ABANDON-ed gate is a handoff, never a pass — it keeps the gate unmet, routing to FAIL or WAIVED on the human's explicit decision.
+
+**Fix-loop cap:** "3 rounds. If the gate is still FAIL after 3 rounds of fixes, stop and escalate. The finding is likely not a test gap — it's an architectural or scope problem that needs a human decision." Routing: PASS → code review (or parallel-code-review for 50+ lines / high-risk); CONCERNS → fix/defer/human-look, re-run; FAIL → fix each with a failing test first; WAIVED → record, proceed.
+
+## Goal-backward verification (qa)
+
+"Force stance: Assume the goal was NOT achieved until codebase evidence proves it. Your starting hypothesis: tasks completed, goal missed. Falsify the implementation narrative."
+
+Four levels, one named test per level:
+
+| Level | Question | Evidence that passes |
+|-------|----------|----------------------|
+| **Truth** | Is the falsifiable claim actually true? | A test/scenario that exercises the behavior end-to-end and passed. |
+| **Artifact** | Does the named file exist, is it substantive, is it wired in? | File with real content (not a stub) + an import/registration connecting it. |
+| **Key Link** | Is the wiring between components actually exercised? | A test that calls through the link and asserts the output at the far end. |
+| **Data Flow** | Does real data move through the system as claimed? | A test with a concrete input producing an observable output at the boundary. |
+
+Statuses: **VERIFIED** (a test exercised it and passed); **PRESENT_BEHAVIOR_UNVERIFIED** (code exists and is wired, but no test exercises the state transition / cleanup / ordering invariant — "Never counts as VERIFIED. Routes to human."); **UNVERIFIED** (no evidence found). "Presence is not behavior. A grep that confirms a function exists is not verification. A test that calls it and asserts the output is."
+
+## Verification gap + traceability (qa)
+
+"Find changed behavior that could break without reliable verification catching it." One question: *"If this behavior broke where it's actually used, would verification fail?"*
+
+Gap shapes: **Regression gap** (regresses where used, no covering test fails); **Missing-adoption gap** (a place that should now use the new behavior doesn't — caller not updated, flag not flipped, migration not run); **Broken-verification gap** (a test appears to cover it but is skipped/flaky/not-run/too weak — mock-only, snapshot-only, asserts the mock not the code); **Missing-oracle gap** (a happy-path scenario with no G&lt;n> — "a scenario with no oracle is a traceability gap, not a completed behavior").
+
+**Evidence rule:** "Read the test before claiming what it covers. A test name is not evidence. Search the whole repo by symbol + import references before claiming no test exists. Run the test … to confirm it actually executes. **Triage trusts a gap finding as filed.**" Each finding names a **Smallest Regression** — the specific input/state/call sequence that would break.
+
+**Traceability:** matrix = every acceptance.feature scenario → covering test → did it run? → pass/fail? "A scenario with no test = traceability gap. A test that ran and failed = CRITICAL finding. A test that exists but was skipped or filtered = treat as pending. **Never edit the expectation to match the code.** If a test disagrees with the matrix, fix the code."
+
+## Gates (#### Gates) + the Iron Law
+
+Every requirement's happy-path scenario carries a G&lt;n> oracle — the verifiable definition of done. "NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE. If you haven't run the verification command in this message, you cannot claim it passes."
+
+| Form | Meaning |
+|------|---------|
+| **Runnable** | G&lt;n> with CHECK: (a repo-owned command) + EXPECT: (a success-only marker) + EVIDENCE: pending. Met when CHECK exits 0 AND output matches EXPECT (substring, or /.../ POSIX ERE, optional i), **freshly run**. |
+| **Manual** | No command can decide; G&lt;n> + EVIDENCE: pending, reviewed proportionally to risk. |
+| **ABANDON** | G&lt;n>: ABANDON &lt;non-empty reason and handoff>. "Terminal and non-successful; it is a handoff, never a pass." |
+
+"The declared oracle is the oracle. A scenario is met **only** when its G&lt;n> CHECK exits 0 and its output matches EXPECT, freshly run. 'I ran *some* test' is not verification. You may not claim 'done' while any happy-path scenario's gate is unmet or abandoned. Report met / unmet / abandoned counts."
+
+test-driven-verification authors them; gate-state.sh evaluates them (--status non-executing / --reverify executing); gate-stop.sh blocks the agent's Stop while any is unmet; gate-lint.sh lints structure at commit time. ponytail re-binds the "check" rule to these gates: "Lazy code without its check is unfinished … a non-trivial task MUST leave its happy-path scenario's gate green." See [Hooks](04-hooks.md).
+
+## BDD extraction contract (acceptance-test-authoring)
+
+Gherkin-in-Markdown: "Markdown headings carry the capability, requirement, and scenario structure, while  SFgherkin  fences contain only Given/When/Then steps. The runner extracts them into real .feature files on every run, synthesizing Feature:/Rule:/Scenario: from the headings." "This file is the definition. javascript/extract-gherkin.cjs is a binding of it. When behavior changes, this file changes first."
+
+| Markdown line (outside any fence) | Emitted Gherkin line |
+|-----------------------------------|----------------------|
+| # <title> (the single H1) | Feature: <title> |
+| ### Requirement: <name> |   Rule: <name> |
+| #### Scenario: <name> |     Scenario: <name> |
+| #### Scenario Outline: <name> |     Scenario Outline: <name> |
+| any line inside a  SFgherkin  fence | copied **verbatim**, column unchanged |
+| everything else (prose, other headings, fence markers) | blank line |
+
+**Line fidelity invariant:** "Every input line maps to exactly one output line … the extracted file has the IDENTICAL line count and **line N of the .feature is line N of the .md**." "Never 'improve' the extractor to collapse blank lines." Fence opener = 3+ backticks at column 0, info string **exactly** gherkin; steps indented 6 spaces verbatim. **Hard errors:** no H1; more than one H1; a #### Scenario: with no fence before the next heading/EOF; Feature:/Rule:/Scenario:/Scenario Outline:/Example: inside a fence; indented fence opener. Zero gherkin fences is fine (prose-only spec).
+
+**Scenario classification** is by naming prefix, not Gherkin tags: happy path / edge / failure. "Every requirement has ≥1 happy + edge + failure scenario." Priority @p0/@p1 and trace markers @step-NN live in the blueprint/tasks SATISFIES field, not in the Gherkin.
+
+**Zone rule (recurring):** "BDD is always on (non-negotiable, like TDD) — bdd.enabled is always true." .skillgrid/specs/ is always the **spec zone**; the rest is the **code zone**. "Edit .skillgrid/specs/ or code in a single commit — never both uncommitted. Commit specs before code." Enforced by the pre-commit zone guard.
+
+## ADRs: styles, immutability, manifest (architectural-decision-records)
+
+**IRON RULE:** "ADRs are immutable once accepted. You MUST NOT edit a prior accepted ADR under any circumstance — not its status, not its body, not its date. The accepted ADR is a frozen historical record."
+
+| adr_style | Template | Shape |
+|-------------|----------|-------|
+| madr-full | madr-full.md | Detailed tradeoff record |
+| madr-minimal (default) | madr-minimal.md | Context / Considered Options / Decision Outcome / Consequences |
+| nygard | nygard.md | Classic: Status / Context / Decision / Consequences |
+| y-statement | y-statement.md | One-sentence decision |
+| custom | custom.md | Project-specific |
+
+**Fixed machine-readable header** (all styles): status: proposed | accepted | deprecated | superseded; date: YYYY-MM-DD; supersedes: ADR-NNNN (only when replacing a prior in-force ADR). "The header is fixed; the body is not." This is what makes the in-force set computable.
+
+**In-force derivation:** "An ADR is in force when its status is accepted **and** no later ADR's supersedes points at it." Consumers walk supersedes links. Numbering: 0001-slug.md, sequential, monotonic, never reused. All ADRs live in the single .skillgrid/adr/ folder.
+
+**ADR bar (offer only when all three true):** (1) Hard to reverse, (2) Surprising without context, (3) Result of a real trade-off. "If any of the three is missing, skip the ADR and say which test failed."
+
+**ADR Review Manifest:** one per change at …/specs/…/adr.md. "The change's ADR completion marker and the read source for downstream skills. It holds *pointers* only — never duplicate a repo ADR's Context / Decision / Consequences." Sections: **In-Force ADRs Reviewed** / **New Durable ADRs Created** / **Supersessions**. "If nothing meets the bar, say so explicitly … Don't invent ADRs to fill the manifest."
+
+## The research firewall + epistemics + type packs (research / code-research)
+
+**The research firewall:** "Project context — briefs, specs, code, memory, the glossary — shapes *what to ask*, never *what is true*. It is inadmissible as evidence: every claim in the findings file traces to a source you fetched. The firewall is why a fact your codebase *assumes* still gets re-verified against the source that owns it." In code-research it's stronger: "Every researcher subagent runs behind it: it gets its brief and nothing else — no project files, no ambient context."
+
+**Epistemics (two standing rules):** (1) "Never conclude from training data alone. What you already know proposes hypotheses, queries, and structure — it is not evidence. Conclusions require evidence retrieved *this run*. A claim you cannot evidence is stated as unverified or dropped, never asserted." (2) The research firewall.
+
+**Sourcing:** "Primary sources only … Follow every claim back to the source that owns it." "A claim is a sentence with a source — publisher, publication date, access date. No naked numbers." "Answer engines (Perplexity, Grok, and kin) are aggregators too — chase their citations and cite *those*, never the engine." "Thin public data is reported as thin; absence of evidence is a finding; freshness is part of truth."
+
+**Three type packs** (research/types/), each with Dimensions / Craft / Freshness bars / Two-source classes:
+
+| Type | Use when | Freshness bars |
+|------|----------|----------------|
+| technical | adopt a tech, design an integration, ground an architecture, assess feasibility | versions/compat ≤ 1 mo · ecosystem signals ≤ 6 mo · landscape ≤ 12 mo (AI-adjacent ≤ 3 mo) · patterns ≤ 2 yr |
+| competitive | position against named competitors, battlecard | pricing/features ≤ 3 mo · trajectory ≤ 6 mo · sentiment ≤ 12 mo |
+| domain | learn a domain's rules, constraints, vocabulary | regulations/protocol ≤ 6 mo · operational patterns ≤ 12 mo · conventions ≤ 2 yr |
+
+Confidence per claim: **high** (verified, fresh, credible) / **medium** (single credible source, fresh) / **low** (stale, weak publisher, or disputed) / unverified. Findings land as a ## Research: <question> section at {specs_root}/YYYY-MM-DD-<topic>/findings.md; "every load-bearing claim is cited inline [n] and resolves in the source appendix."
+
+**The boundary between research / code-research / deep-research / spike / sketch:** research = a fact not in the codebase, one inline pass; code-research = wide or high-stakes *informational* question, parallel subagents + verify + red-team; deep-research = long-horizon *experimental* research (hypothesis → experiment → measure loops, persistent state); spike = needs code executed; sketch = needs *feeling* a layout.
+
+## Code-research roles: researcher / verifier / red-team
+
+code-research fans out parallel researcher subagents, then verifies load-bearing claims and red-teams the conclusions before synthesizing a cited findings file.
+
+- **Researcher** — runs behind the firewall; returns a **digest, not raw results** — findings as claims {claim, source, publisher, pub_date, accessed, confidence, class}, plus leads and what it could not find. "Write each digest to <run-folder>/digests/ the moment it lands — the conversation is a control channel, never the store." A two-source-class claim carries needs_second_source: true (the verifier closes it, not the researcher).
+- **Verifier** (fresh context, at landing, per dimension) — checks the load-bearing claims against an **independent source** (different publisher, different underlying data). Outcomes: **verified** / **disputed** ("independent sources materially disagree; report both, both cited, never averaged") / **unverified** / **overturned** ("corrected, original noted"). "Verification happens as material lands, per dimension — never as an end-of-run rewrite pass."
+- **Red-team** (fresh-context skeptic) — given the conclusion and a budget but **no supporting evidence and no run context**; hunts disconfirming evidence. Verdict: **holds | weakened | overturned**. "Zero findings after a real search is itself reportable." Runs off for low-stakes single-dimension runs; on by default for high-stakes conclusions.
+
+**Effort presets:** quick (2 subagents, 5 sources/dim, 1 round) / standard default (3, 8, 2) / deep (6, 12, 3). "The user's explicit request beats the preset. depth is a cap, not a quota." Topologies: breadth-first (split dimensions) / depth-first (split angles) / straightforward (one subagent, no fan-out).
+
+## Spike: verdict + liftable pure module
+
+Verdict (3 states, evidence-gated): VALIDATED ✓ / INVALIDATED ✗ / PARTIAL ⚠. Evidence rule: "a verdict is a claim with a demonstration. If you cannot point to specific output, a log line, a measured number, or a screenshot … the verdict is PARTIAL at best with an unverified flag — never VALIDATED by vibes." VALIDATED requires evidence beyond a single happy-path test (at least one edge case exercised, or a comparison spike).
+
+**The liftable pure module:** "The one thing you lift into the real codebase is a **pure module**." Rules: pure (no DOM/fetch/side effects); labeled (## Liftable Module with path, I/O signature, dependencies); named for the real codebase (glossary vocabulary); no spike-specific constants (inject as params). "If the question is 'can we build the whole feature this way end-to-end,' you may want a tracer bullet instead; a spike stays small and single-purpose."
+
+## Sketch: 2–3 variants, winner + constraints
+
+"Build throwaway interactive UI mockups to answer a 'does this layout/interaction feel right?' question. Produces 2–3 dramatically different variants the user can switch between, a marked winner, and the constraints for the real build." Build **2–3 variants** in one HTML file (tab-switchable), "meaningfully different" in the first round (not the same layout with different colors); "Never more than 4." Viewport previews: **375px / 768px / 1280px**. Prefer adjusting an existing page (?variant= param or dev toggle) over a throwaway standalone file. Synthesis is first-class ("A's layout, C's palette" → labeled synthesis variant).
+
+## Work-unit commits: [skillgrid-context] + atomic sizing
+
+"Turn 'commit after every task' into an *enforced* checkpoint: a conventional, atomic, independently-revertable commit that carries a machine-readable [skillgrid-context] block, guarded by git hooks, with a derived checkpoint.json resume handle. The commit is the durable record; the JSON is the resume pointer. They cannot drift because the JSON is derived from history."
+
+SF
+type(scope): concise description
+
+- key change 1
+- key change 2
+
+[skillgrid-context]
+Task: &lt;task or ticket id>
+Decisions: &lt;key choices this unit made, and why>
+Remaining: &lt;what is left in this logical unit — empty if done>
+Tried: &lt;failed approaches worth recording — omit line if none>
+[/skillgrid-context]
+SF
+
+**Conventional-commit subject regex:** ^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9._-]+\))?!?: .+ — type required, (scope) optional lowercase, ! marks breaking change. "No Co-Authored-By, Generated-By, or any AI attribution trailer."
+
+**Atomic sizing:** "One logical change per commit." "**~100 lines as the soft ceiling**" (a vertical slice that must move together is fine). "**Independently revertable:** prefer additive changes; do not delete and replace in the same commit — split into a delete commit and an add commit." "**Spec before code (zone rule).**" "Commit **after** a verified gate (a green G<n> — not 'I think it's done'), and **before** a long-running install/build/test command."
+
+checkpoint.json (skillgrid/checkpoint/v1) is derived from git log -1; never hand-edit. Snapshot via checkpoint-state.sh snapshot (idempotent); restore via restore. **Commit first, then review** — "Review diffs merge-base...HEAD; an uncommitted change is invisible to it."
+
+## The state layers + resume
+
+"Conversation memory rots (compaction, session death, context overflow). Files do not. When state files and your recollection disagree, **the files win, every time.**" "The conversation is a control channel, the files are the store." Mnemonic is "a fallback index, not a layer."
+
+Two durable layers, plus the spec-zone artifacts that name the phase:
+
+| Layer | File | Answers | Lifetime |
+|-------|------|---------|----------|
+| **Task** | .skillgrid/sdd/<plan>/progress.md | Which task done? What was ruled? | Git-ignored; deleted when review clean |
+| **Code** | .skillgrid/sdd/checkpoint.json (derived from git log + [skillgrid-context]) | Where in code did the last unit leave off? What task / decisions / remaining? | Derived; always reconstructable |
+
+The **phase** is not a separate file — it is read from which spec-zone artifacts exist in .skillgrid/specs/YYYY-MM-DD-<topic>/:
+
+| Artifacts present | Phase |
+|---|---|
+| briefing.md only (no blueprint.md) | planning (brainstorming / interviewing / design) |
+| briefing.md + blueprint.md (no tasks.md [x]) | blueprint done, slicing next |
+| tasks.md with [ ] items (no ledger) | slicing done, execution not started |
+| tasks.md with [x] items + ledger | execution in progress |
+| qa-report.md present | qa / review |
+| folder moved to archive/ | closed (not in-flight — do not resume) |
+
+Resume: "On resume: locate the in-flight topic, read the layers (ledger + checkpoint), determine the phase from the artifacts, announce the recovered position in one line, continue at the first incomplete task." The narrative handoff lives in the checkpoint's Decisions: / Remaining: lines (or the ledger tail), not a separate state.md.
+
+## Structured debugging: four phases + the 3-fix rule
+
+**Iron Law:** "NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST. If you haven't completed Phase 1, you cannot propose fixes." "ALWAYS find root cause before attempting fixes. Symptom fixes are failure."
+
+1. **Root Cause Investigation** — read errors carefully, reproduce consistently, check recent changes, instrument each boundary, trace data flow (fix at source, not symptom).
+2. **Pattern Analysis** — find working examples, compare against references, identify differences.
+3. **Hypothesis and Testing** — "Form a single hypothesis … 'I think X is the root cause because Y.' Test minimally, one variable at a time. Didn't work? Form a NEW hypothesis. DON'T add more fixes on top."
+4. **Implementation** — "Create a failing test case (MUST have before fixing) … Implement a single fix. No 'while I'm here' improvements. Verify the fix with test-driven-verification."
+
+**The 3-fix rule:** "If < 3: Return to Phase 1, re-analyze. **If ≥ 3: STOP and question the architecture** — DON'T attempt Fix #4 without architectural discussion." Red flag: **"'One more fix attempt' (when already tried 2+)."** "This is NOT a failed hypothesis — this is a wrong architecture." The debug state trail is written to .skillgrid/sdd/debug/<date>-<slug>/state.md (hypothesis | evidence | verdict), git-ignored, survives compaction. "On root cause: if the cause is a design decision, record an ADR; if it is a bug, the TDD evidence in the fix commit is the durable record."
+
+This "3 rounds then escalate" mirrors the QA fix-loop cap — both cap iteration at 3 and route to a human/architecture question.
+
+**Scope-lock during debugging:** "recurring bugs in the same files are an architectural smell" — if fixes keep landing in the same place, stop patching and question the design. The debug discipline pairs with a **freeze/scope-lock**: block edits outside the area under investigation (fail-closed — a tool call that can't be parsed is denied, not allowed) so the debugger can't accidentally "fix" unrelated code and mask the real cause.
+
+## Ponytail ladder + check rule
+
+"Channels a senior dev who has seen everything, and questions whether the task needs to exist at all (YAGNI)." The ladder (7 rungs, stop at the first that holds): (1) Does this need to exist at all? (YAGNI) → (2) Already in this codebase? → (3) Stdlib does it? → (4) Native platform feature covers it? → (5) Already-installed dependency solves it? → (6) Can it be one line? → (7) Only then: the minimum code that works. Intensities: lite / full (default) / ultra.
+
+**The check rule:** "Lazy code without its check is unfinished. In the skillgrid flow the 'check' is … the #### Gates block the task's requirements carry in acceptance.feature." **Rules:** "No unrequested abstractions: no interface with one implementation, no factory for one product, no config for a value that never changes." "Deletion over addition. Boring over clever." Mark deliberate simplifications with a ponytail: comment naming the ceiling and upgrade path. (The design-side twin of the one-adapter rule.)
+
+## Skill authoring as TDD
+
+"Writing skills IS Test-Driven Development applied to process documentation. If you didn't watch an agent fail without the skill, you don't know if the skill teaches the right thing. NO SKILL WITHOUT A FAILING TEST FIRST … Write skill before testing? Delete it." The description field is "When to Use, NOT What the Skill Does" — descriptions that summarize the workflow create a shortcut agents will take. Two conventions that recur in skillgrid's skill format come from here: **close every loophole explicitly** ("Violating the letter of the rules is violating the spirit of the rules") and the **Red Flags / Rationalizations table** — the "These thoughts mean STOP — you're rationalizing" lists at the bottom of load-bearing skills. This is why skillgrid skills read the way they do: they were written TDD-style, against observed agent failures.
+
+## findings.md — consolidated pre-design evidence
+
+"The consolidated file is the single downstream contract that writing-blueprints reads — it carries the research, spike, and sketch evidence for the topic in one place." At .skillgrid/specs/YYYY-MM-DD-<topic>/findings.md (# Findings — <topic> header): research / code-research appends ## Research: <question> (cited findings, source appendix, confidence per claim); spike appends ## Spike: NNN-name (Verdict / What we learned / What's liftable / Constraints for the build); sketch appends ## Sketch: NNN-name (Winner / Rationale / What's liftable / Constraints / Mode). "Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it."
+
+## Branch finishing
+
+When the QA gate passes and the branch is clean, the agent presents exactly three options and lets the human choose — "the integration decision is theirs": **1. Merge back to the base branch locally**, **2. Push and create a Pull Request**, **3. Keep the branch as-is.** Discarding the branch requires the user to type the word discard to confirm ("Only the typed word discard authorizes deletion"). Worktree cleanup is provenance-based — "Never --force on your own initiative." This is the tail of the PIV loop (commit → PR): the agent never auto-merges, auto-pushes, or auto-discards.
+
+## The SATISFIES traceability link
+
+The explicit wire between BDD scenarios, tasks, and the QA matrix. Every blueprint task and every slice ticket carries a **SATISFIES:** <scenario-name> pointing at the acceptance.feature scenario it makes green. "The SATISFIES scenario names in tasks.md are the traceability oracle for skillgrid:qa — every scenario must be referenceable from a test. Name them precisely."
+
+**Acceptance-first (BDD is always on):** "every ticket carries a SATISFIES: <scenario-name> pointing at its acceptance scenario … The scenario's RED state is confirmed before the implementation that turns it green. Order scenario/RED tickets ahead of their implementation tickets in the graph." A blueprint task's field: "the acceptance scenario in acceptance.feature this task makes green — BDD is always on."
+
+The @p0/@p1 priority and @step-NN trace markers live in the blueprint/tasks SATISFIES field, **not** in the Gherkin (the extracted Gherkin carries no tags — see [The BDD extraction contract](#bdd-extraction-contract-acceptance-test-authoring)). Scenario names must be unique and referenceable.
+
+This is how a change is traced end-to-end: scenario (BDD) → task SATISFIES → slice ticket → QA traceability matrix → the G<n> gate that proves it.
+
+## The review discipline
+
+### Two-axis review
+
+requesting-code-review runs **two** general-purpose subagents **concurrently** (do not pollute each other's context): **Standards** — "Does the code follow this repo's documented standards?" — and **Spec** — "Does the code implement what was asked?"
+
+"Present the two reports under ## Standards and ## Spec headings, side by side, verbatim or lightly cleaned. End with one line per axis: finding count + worst issue *within* that axis. **Never pick a single cross-axis winner** — that's the reranking the separation exists to prevent." "A change can be spec-perfect but violate every convention, or beautifully written but implement the wrong thing; the two axes are deliberately separate."
+
+**Escalation threshold:** "if the whole-branch diff is large (50+ changed lines) or high-risk (auth, data migration, money, concurrency, public API), escalate the final review from the two-axis pass to skillgrid:parallel-code-review."
+
+### The smell baseline
+
+A fixed set of 12 Fowler code smells (*Refactoring*, ch.3) that applies even when the repo documents nothing: Mysterious Name, Duplicated Code, Feature Envy, Data Clumps, Primitive Obsession, Repeated Switches, Shotgun Surgery, Divergent Change, Speculative Generality, Message Chains, Middle Man, Refused Bequest. Two binding rules: "**The repo overrides.** A documented standard (glossary/ADR) always wins; where it endorses something the baseline would flag, suppress the smell." "**Always a judgement call.** Each is a labelled heuristic, never a hard violation. Skip anything tooling (lint) already enforces."
+
+### The no-subagents contract
+
+"the implementer never dispatches subagents — not helpers, and never a reviewer. Review arrives from you, after the report. In real sessions, every reviewer a worker spawned duplicated the task review the controller dispatched anyway — a full extra review seat per task." "A reviewer you spawn duplicates that review at full cost, and its approval counts for nothing in the process."
+
+### "Do Not Trust the Report"
+
+"Treat the implementer's report as unverified claims about the code. It may be incomplete, inaccurate, or optimistic. Verify the claims against the diff. Design rationales in the report are claims too … is the implementer grading their own work." "Judge the code on its merits — a stated rationale never downgrades a finding's severity."
+
+**"plan-mandated":** "If the plan or brief explicitly mandates something this rubric calls a defect … that IS a finding — report it as Important, labeled plan-mandated. The plan's authorship does not grade its own work; the human decides."
+
+**"⚠️ Cannot verify from diff":** requirements that live in unchanged code or span tasks. "These do not block the rest of the review, but you must resolve each one yourself before marking the task complete … If you confirm an item is a real gap, treat it as a failed spec review — it enters the fix loop with the other findings."
+
+### Triage (receiving-code-review)
+
+"Sort findings before touching code. If direction is unclear, surface them grouped and ASK rather than fixing everything by default." Four buckets: **Fix now** (real, in-scope, belongs with this change), **Defer** (real but later; log as a tracker issue), **Human look** (needs manual inspection before trusting), **Noise** (won't-fix or misread; say why, drop it). "Don't let the reviewer dictate scope — 'real, but later' is a valid and common call." Fix order: "Blocking issues → Simple fixes → Complex fixes. Test each fix individually. Verify no regressions. **Cap at 3 rounds** — beyond that, surface the remaining items to the human with the rulings you made and why." Forbidden responses: any gratitude expression ("You're absolutely right!", "Great point!", "Let me implement that now") before verification.
+
+**YAGNI Check:** "IF reviewer suggests 'implementing properly': grep codebase for actual usage. IF unused: 'This endpoint isn't called. Remove it (YAGNI)?' IF used: Then implement properly."
+
+### The 5-round fix loop + breaker + adjudication
+
+subagent-execution: "A fix round is one fix dispatch plus one scoped re-review. **Five rounds maximum per task.**" Rounds 1–3 resume the original implementer (context intact), sending the open findings verbatim. Rounds 4–5 dispatch a fresh implementer on a more capable model. "The breaker. When round 5's re-review still leaves findings open, stop dispatching. **Adjudicate each open finding yourself.**" Three adjudication outcomes: **park** (reviewer wrong), **park** (real but not load-bearing), **rule** (real and load-bearing — a later task builds on it). "Adjudicate only at the cap. Adjudicating earlier to end a loop is pre-judging with a different name. Every adjudication is a ledger entry — a silent discard is forbidden." "Never fix findings yourself in the controller session — your context stays clean for coordination, and controller fixes skip review."
+
+### The 6-specialist parallel review
+
+parallel-code-review fans out six specialist reviewers in parallel: **Standards, Spec, Edge cases, Verification gaps, Security, Red team**. Sizing: "< 50 changed lines → run only Standards + Spec (the two-axis set). ≥ 50 changed lines, or high-risk → run all six." "Red team runs last: dispatch it after the other five return, and hand it their merged findings so it hunts for what they missed, not what they found." "The diff is passed as a **path**, not inlined text." Resilience: "if a specialist fails … log its name and continue with the survivors. If **all** specialists fail or return empty, do **not** claim a clean review."
+
+**Deduplicate by fingerprint** (path:line:category); findings from 2+ specialists pointing at the same defect collapse into one entry, tagged MULTI-REVIEWER CONFIRMED (a + b). "Two findings belong in one entry only when the same defect produced both." The entry's severity is the highest of its members. **The 5-verdict triage** (high / medium / low / false / maybe-false): "The coordinator verifies; specialists don't grade — they lack the full context to grade severity." Reject any false; any low whose fix adds more complexity than the harm; or any whose only fix is to edit the spec under review.
+
+The specialist lenses: **Edge Case Hunter** (mechanical path/boundary enumeration — control flow, domain boundaries, *implicit branches*, handle lifetime, call-site mismatches, and a deletion check; "Do NOT assign severity"); **Verification Gap Hunter** (the 3 gap shapes + "the smallest concrete regression the consumer would observe"); **Red Team** (reads the merged findings, hunts the surface the others didn't cover — integration boundaries, failure modes, ordering, assumptions, "the boring stuff"); **Security** (injection, authn/authz/IDOR, data exposure, crypto, deserialization, supply-chain, concurrency/TOCTOU — "Name the concrete attack or exposure — 'improves security' is not a finding").
+
+## The Depth Tree (Decompose & Gate)
+
+subagent-execution decomposes a plan into **leaves (tasks) under branches (shared interfaces)** and gates dispatch on verified dependencies, not file order.
+
+- **Inventory the outcomes:** "Reread the plan/spec and list every independently-omittable outcome. A plan whose tasks omit an outcome nobody owns is a half-done plan."
+- **File ownership:** Task <N>: Owns: <repo-relative globs> and Task <N>: Needs: <task ids or interfaces it builds on>. "These are coordination metadata, not a filesystem sandbox — a task may still read outside its Owns, but it may not write to another in-flight task's Owns."
+- **Dependency-gated dispatch:** "Dispatch a task only when every task named in its Needs: has a Task <M>: complete ledger line."
+- **Branch integration gate:** "If two or more tasks share an interface or file, name the task that *integrates* them and give it an extra G<n> gate: the child tasks' outputs compose and the shared interface holds end-to-end."
+- **Parent re-verify:** "A leaf's self-pass does not count as verification. Before marking a task complete, re-run its #### Gates oracles yourself."
+
+**The Concurrent Coupled Build** (parallel-execution) is the sibling for 2+ tasks that must run at once AND touch overlapping files/interfaces. Four conditions (all must be true): 2+ implementation tasks, touch same file(s) or shared interface, write sets can be made **disjoint**, want them in flight at the same time. "If any of these fail — especially 'write sets can be made disjoint' — do not parallelize. Fall back to skillgrid:subagent-execution." "Never dispatch a leaf whose Owns: intersects another in-flight leaf's Owns:. A wave is a set of leaves whose Needs: are all satisfied." The parent re-verifies: re-run Gates, re-verify the integration gate, confirm no leaf wrote outside its Owns:. Keep it light — "it does not track lease state, wave state, or a dispatch.json. That machinery only pays off at 4+ leaves in flight." The **fan-out ledger** (parallel-ledger.md, one row per agent agent | task | status | changed files | test result) is the store: "summaries returned to your context rot with it … Integrate from the ledger + git, not from in-context summaries."
+
+**The implementer report contract:** an implementer reports one of four statuses — DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT — each with a distinct controller response (DONE → build the review package; DONE_WITH_CONCERNS → read the concerns first; NEEDS_CONTEXT → provide context and re-dispatch; BLOCKED → assess and re-dispatch with a more capable model or break the task). "Never ignore an escalation or force the same model to retry without changes. If the implementer said it's stuck, something needs to change."
+
+**Controller rules of the loop:** **Rulings, not stalls** — "A running plan does not wait on a human … the spec is the binding authority, the plan is its argument, and your judgment settles what neither answers. Record every decision in the ledger as Ruling: <what> — <why> — <what it costs if wrong>." Four stop conditions (only these): an irreversible/destructive operation, a security-sensitive action, a side effect outside this worktree, or a plan so broken that every path is a guess. **Continuous execution** — "Do not pause to check in between tasks … 'Should I continue?' prompts and progress summaries waste their time." **Batch small same-shape work** — compose ONE dispatch for several small, same-kind edits; reserve one-dispatch-per-task for work needing its own judgment/tests/review surface. **Bounded waits** — "never poll … with short timeouts, and never sit in one silent, open-ended wait either … wait in bounded stretches (five to ten minutes)." **Pre-flight review** — before Task 1, scan the plan once for conflicts, "writing down what you checked as you check it"; "the scan's output is a table, not a verdict." **The ledger** (progress.md) is the recovery map: "the commits it names exist in git even when your context no longer remembers creating them."
+
+## The ticketing rules
+
+ticketing maps SDD work to the tracker and runs a status machine. The **status machine**: backlog → ready → in-progress → review → done — backlog (set by ticketing at publish), ready ("all blockers done", set at wave start), in-progress (set by subagent-execution / simple-execution), review (implementation done), done ("review clean, merged", set by requesting-code-review on a clean review). Epic: backlog → in-progress (first ticket starts) → done (all tickets done).
+
+**The 5 canonical triage roles** (each maps to a label/status string in the active tracker): needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix. "If the user's tracker already uses different label names, record the override per-role in .skillgrid/config.yaml — do not rename the roles."
+
+**Backlog completeness gate** (when the tracker is Backlog.md, a ticket is not published until all four are present): **Type** (frontmatter type:), **References** (frontmatter references:), **Definition of Done** (body ## Definition of Done), **Implementation Plan** (body ## Implementation Plan) — plus Description, Acceptance Criteria, and priority:. "SDD tickets: seed References to briefing.md / tasks.md / acceptance.feature; seed Plan from the blueprint steps; seed DoD from project defaults. Thin one-line description stubs are **forbidden**."
+
+**Pre-submission privacy review** (mandatory, every tracker): scan the body immediately before publishing and replace environment-specific data with placeholders — project names → <project-name>, usernames → <user>, hostnames → <hostname>, keys/tokens/passwords → <token>/<password>, internal ports/IPs → <host>:<port>. "Do NOT redact intentionally public identifiers … Rule of thumb: if the reader can run the reproduction after the replacement, sanitization is correct."
+
+**Per-phase lifecycle** (creation alone is not enough — every later execution phase owns a tracker update): start → in-progress + "apply began" comment; per commit → footer Refs: <ID>; review → review + verdict comment; done → done, closing commit uses Closes <ID>. "If no tracker ID exists … skip all tracker mutations. Do not invent an id."
+
+**Title convention:** [TYPE] Brief description (COMPONENT), where [TYPE] ∈ {BUG, FEATURE, ENHANCEMENT, REFACTOR, DOCS, CHORE}. "Title [TYPE] is not a substitute for frontmatter type: — both are required." **Priority** (4-tier): Critical (production down, data loss, security), High (blocks users, no workaround), Medium (workaround, subset of users), Low (cosmetic, internal). **Slicing strategy per tracker:** Backlog.md one task per ticket parented to an epic; GitHub one issue per ticket as a sub-issue; GitLab /blocked_by links; Jira domain = epic, ticket = story, acceptance = sub-tasks.
+
+## The Mnemonic protocol
+
+mnemonic (SQLite + FTS5, single skillgrid binary) — persistent memory, code index, web cache.
+
+**The orientation ladder** (primary repo navigation; "Do **not** dump the whole tree as primary orientation"): 1. code_status (health + Index Freshness) → 2. code_map (structural overview) → 3. symbols / outline (narrow the unit) → 4. code_related (neighbors via Edges) → 5. code_read (exact slice). "code_read is **only** for a path + line range already narrowed by map/symbols/related/search. Never read a whole file speculatively."
+
+**Index freshness:** code_status reports freshness (fresh | lag | empty | unknown) — "Unreadable mtime/hash → unknown (never false-clean)." "After clone, branch switch, large edits: check status; reindex when not fresh." stale=true is **empty-index compat only**; lag is freshness=lag, not silent "fine."
+
+**The search intent router:** retrieval "is not 'six equal corpora' as the only model. The **Search Intent Router** picks a daily path; advanced corpora are an escape hatch." Identifier-shaped query → symbols; structural / func $NAME / matcher → grep; decision / remember / past work → mem; unclassified → code. "Multi-corpus results must keep **provenance** (mem vs code never silently fused unlabeled). The semantic corpus must never pretend full quality when the Local Code Embedder is unavailable — never silent degrade to FTS-as-semantic."
+
+**The deterministic artifact naming convention:** "ALL Skillgrid artifacts persisted to Mnemonic MUST follow this deterministic naming: title: skillgrid/{YYYY-MM-DD-<topic>}/{artifact-type}, topic_key: skillgrid/{YYYY-MM-DD-<topic>}/{artifact-type}, type: architecture, scope: project." "title and topic_key must be identical — exact-match recovery depends on it." Artifact types include briefing, blueprint, findings, tasks, spec, ticketing, execution-progress, qa-report, ship, report, tech_stack, etc. "Upserts: same topic_key + scope → UPDATE (overwrite), not INSERT … Mnemonic is working memory, not an audit trail."
+
+**The 2-step recovery:** "Step 1: mem_search(query: …) → truncated preview + ID. Step 2: mem_get_observation(id: …) → complete content. Search previews are always truncated; mem_get_observation is the only way to get full content." "When retrieving multiple artifacts, group all searches first, then all retrievals."
+
+**Web cache:** Context7/Exa/DeepWiki/WebFetch snapshots with TTLs — "context7 720h, exa 168h, deepwiki 336h, fetch 168h", cap 256 KB. web_cache_lookup before the remote call; web_cache_save within the same turn on miss.
+
+## The resume protocols
+
+resume re-orient from durable state. "Conversation memory rots … **the files win, every time.**"
+
+**Context-save** (the explicit pause-and-persist, when stopping or under context pressure): 1. append the current position to progress.md (task layer, if executing), 2. commit the work unit (code layer) so checkpoint.json carries the position, 3. **narrative handoff** — the checkpoint's Decisions: / Remaining: lines capture what you were thinking, what to do next, and what to watch for, 4. Mnemonic mirror (mem_save for briefing if planning, execution-progress if executing).
+
+**Context-restore:** "locate → read the layers → announce → continue." **The recovered-position announcement** (one line): "Resuming <topic>: phase=execution, wave 2, task 3/5 done, last commit <sha>. Next: task 4." "Say which source you recovered from when it was not the normal path."
+
+**"Persist before pressure, not after loss"** (using-skillgrid): "When a session is clearly long — many subagents dispatched, large tool outputs accumulating, or the harness showing a compaction indicator — STOP and: (1) append the current position to the plan's ledger (during execution) or the spec-zone artifacts (during planning), (2) commit the work unit so checkpoint.json carries the position, (3) if the remaining work is large, run the save path in skillgrid:resume." "State writes are dual: the in-repo file is the source of truth; when mnemonic.enabled: true, mem_save mirrors it as an index and backup. If they disagree, the in-repo file wins." "After compaction ('FIRST ACTION REQUIRED'), re-orient via skillgrid:resume before continuing — files first, mnemonic only as fallback."
+
+## Gherkin authoring discipline
+
+acceptance-test-authoring — the 6 authoring rules ("folded from the gherkin-authoring discipline"):
+
+1. **Domain language** — "Use the project's glossary terms. Never use implementation jargon (class names, method names, DB column names) in steps."
+2. **Observable outcomes** — "Then steps state what the user or system observes — a response, a state change, a message. Never assert internal state ('the cache is populated')."
+3. **One behavior per scenario** — "If a scenario needs a second And clause that introduces a new precondition, split it."
+4. **Falsifiable** — "Every scenario must be able to fail. 'The system works correctly' is not a step."
+5. **Given/When/Then balance** — "A scenario with no When is a precondition list, not a scenario. A scenario with no Then proves nothing."
+6. **No implementation details in scenario names** — "'Login succeeds with valid credentials' not 'POST /auth returns 200'."
+
+**The Page Object Model:** "Step definitions must read as intent; all UI knowledge lives in page objects." Page objects live under acceptance-tests/support/pages/, one per screen/flow, encapsulating routes, form field names, selectors, and ids; they expose intent-level methods (open(), submit_signup(...), error_message()). "Parse responses with the stack's HTML parser, never with regexes over raw HTML" (cucumber-js: cheerio). "Step definitions contain no selectors, regexes, or URLs; only page-object calls and assertions."
+
+**The 5 runner invariants:** (1) acceptance-tests/ is an independent test project; its hooks boot the app before the suite and shut it down after, so the suite runs with a single command. (2) The default run executes every acceptance.feature under .skillgrid/specs/. (3) "A green suite is the gate for archive, and archive must never change suite results." (4) Every run generates an HTML report under acceptance-tests/reports/. (5) Verify extraction whenever the runner config, extractor, or .skillgrid/specs/ tree changes.
+
+**Workflow cadence:** "Implement one pending step definition at a time: run the suite so the step fails for the right reason, implement until it passes, then commit. The suite's red scenarios at propose time are the change's work list." "Finish only when every scenario passes with zero pending or undefined steps and the HTML report is generated."
+
+## Isolated workspace
+
+"Detect existing isolation first. Then use native tools. Then fall back to git. **Never fight the harness.**" "A native tool (e.g. EnterWorktree) owns placement, branching, and cleanup. Bypassing it is the #1 mistake — it creates phantom state your harness can't see or manage." Step 0 detects before creating: GIT_DIR != GIT_COMMON → already in a linked worktree (skip); the **submodule guard** (git rev-parse --show-superproject-working-tree returns a path → you're in a submodule, treat as a normal repo); empty branch → detached HEAD ("cannot branch/push/PR from sandbox"). "Honor any existing declared preference without asking. If the user declines consent, work in place." "MUST verify the directory is ignored before creating a worktree: git check-ignore -q .worktrees." **Verify clean baseline:** "Run tests to ensure the workspace starts clean. A dirty baseline makes every later failure ambiguous. Proceeding past failures is your human partner's call."
+
+## Cross-cutting invariants (short reference)
+
+- **A rule asks; a hook guarantees.** When an invariant is non-negotiable, wire a hook — see [Hooks](04-hooks.md).
+- **The smart zone (≤ ~40% context).** Keep the orchestrator under ~40% of the window; offload dumps/reads/research/implementation to subagents, files, Mnemonic. See [Multi-agent work](06-multi-agent-work.md).
+- **Vertical slices over horizontal layers.** Thin end-to-end paths, not "all DB then all API then all UI."
+- **Spec zone XOR code zone.** Commit .skillgrid/specs/ before the code that satisfies it — never both uncommitted.
+- **Durable state over chat memory.** Files win over conversation memory, every time.
+- **Never edit the expectation to match the code.** Fix the code.` | markdownify }}</div>

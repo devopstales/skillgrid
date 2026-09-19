@@ -1,0 +1,14 @@
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="{{ site.BaseURL }}">
+      <img src="{{ "img/logo.png" | relURL }}" alt="skillgrid">
+      <span>skillgrid</span>
+    </a>
+    <nav class="nav">
+      <a href="{{ site.BaseURL }}" class="{{ if .IsHome }}active{{ end }}">Skills</a>
+      <a href="{{ "workflow-guides/" | relURL }}" class="{{ if and .IsPage (eq .RelPermalink (site.GetPage "workflow-guides").RelPermalink) }}active{{ end }}">Workflow guide</a>
+      <a href="{{ site.Params.repo }}" target="_blank" rel="noopener" class="keep">GitHub</a>
+      <a class="btn keep" href="#install">Install</a>
+    </nav>
+  </div>
+</header>

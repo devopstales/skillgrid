@@ -1,0 +1,30 @@
+{{ $steps := (slice "/develop" "/check verify" "/test" "/check review" "/document") }}
+{{ $tiers := (slice
+  (dict "t" 0 "name" "Prototype" "sub" "throwaway" "desc" "Just /develop, self-checked. For work you intend to throw away.")
+  (dict "t" 1 "name" "Alpha" "sub" "internal" "desc" "Adds /check verify, so the feature is proven against its spec in the real app.")
+  (dict "t" 2 "name" "Beta" "sub" "real users" "desc" "Adds /test, so what was proven once stays proven.")
+  (dict "t" 3 "name" "GA" "sub" "shipping" "desc" "Adds a fresh-eyes /check review and /document, for anything you put your name on.")
+) }}
+<section class="section" id="depth">
+  <div class="wrap">
+    <p class="eyebrow">Workflow depth</p>
+    <h2>Pick how much checking a project earns. Override it per feature, anytime.</h2>
+    <p class="lead">Depth just sets which checks are <em>suggested</em> after /develop. Skip any of them and mark a feature done when you say it is. The only thing asked at every depth: write the decision down.</p>
+    <div class="depth" data-depth style="margin-top:40px">
+      {{ range $tier := $tiers }}
+      <div class="tier {{ if eq $tier.t 2 }}active{{ end }}" data-tier="{{ $tier.t }}">
+        <div class="tag">{{ $tier.name }}</div>
+        <div class="sub-label">{{ $tier.sub }}</div>
+        <div class="desc">{{ $tier.desc }}</div>
+        <div class="steps">
+          {{ range $i, $step := $steps }}
+          <div class="step {{ if lt $i (add $tier.t 1) }}on{{ end }}" data-step="{{ $i }}">
+            <span class="mk">✓</span><span>{{ $step }}</span>
+          </div>
+          {{ end }}
+        </div>
+      </div>
+      {{ end }}
+    </div>
+  </div>
+</section>

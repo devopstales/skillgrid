@@ -1,0 +1,25 @@
+<section class="section" id="install">
+  <div class="wrap">
+    <p class="eyebrow">Install</p>
+    <h2>One command. Then commit the folder and your team has the workflow.</h2>
+    <div class="install-box" data-install style="margin-top:40px">
+      <div class="tabs">
+        <button class="tab active" data-pane="claude">Claude Code</button>
+        <button class="tab" data-pane="codex">Codex &amp; others</button>
+      </div>
+      <div class="code-row" data-pane="claude">
+        <span class="dollar">$</span><code>npx skills@latest add devopstales/skillgrid -a claude-code</code>
+        <button class="copy-btn" data-copy="npx skills@latest add devopstales/skillgrid -a claude-code">Copy</button>
+      </div>
+      <div class="code-row" data-pane="codex" style="display:none">
+        <span class="dollar">$</span><code>npx skills@latest add devopstales/skillgrid</code>
+        <button class="copy-btn" data-copy="npx skills@latest add devopstales/skillgrid">Copy</button>
+      </div>
+      <p class="install-note">Works on any Agent Skills client: Claude Code, Cursor, Codex, Gemini CLI and more. Each skill's instructions live in its SKILL.md, which is what every client reads.</p>
+      <div class="cta-row">
+        <a class="btn btn-accent" href="{{ site.Params.repo }}" target="_blank" rel="noopener">Star on GitHub</a>
+        <a class="btn" href="{{ "workflow-guides/" | relURL }}">Read the workflow guide</a>
+      </div>
+    </div>
+  </div>
+</section>

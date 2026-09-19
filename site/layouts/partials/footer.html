@@ -1,0 +1,34 @@
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-cols">
+      <div class="footer-brand">
+        <a class="brand" href="{{ site.BaseURL }}"><img src="{{ "img/logo.png" | relURL }}" alt="skillgrid"><span>skillgrid</span></a>
+        <p>Agentic engineering for AI-assisted development. Four verbs, one loop — and the context lives in files in your repo, not in a chat.</p>
+      </div>
+      <div>
+        <h5>Workflow</h5>
+        <a href="{{ site.BaseURL }}#the-loop">The loop</a>
+        <a href="{{ site.BaseURL }}#the-skills">The skills</a>
+        <a href="{{ site.BaseURL }}#depth">Match effort to risk</a>
+        <a href="{{ site.BaseURL }}#files">Files and ownership</a>
+      </div>
+      <div>
+        <h5>Docs</h5>
+        <a href="{{ "workflow-guides/" | relURL }}">Workflow guide</a>
+        <a href="{{ "workflow-guides/" | relURL }}#files">Files that carry the work</a>
+        <a href="{{ "workflow-guides/" | relURL }}#worked-example">Worked example</a>
+        <a href="{{ "workflow-guides/" | relURL }}#debug">The debug loop</a>
+      </div>
+      <div>
+        <h5>Elsewhere</h5>
+        <a href="{{ site.Params.repo }}" target="_blank" rel="noopener">GitHub</a>
+        <a href="{{ site.Params.repo }}/tree/main/.agents/skills" target="_blank" rel="noopener">Agent Skills</a>
+        <a href="{{ site.BaseURL }}">skillgrid</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>{{ site.Params.footerNote }} · Built with the Agent Skills open format.</span>
+      <span>{{ site.Params.repoLabel }}</span>
+    </div>
+  </div>
+</footer>

@@ -1,0 +1,68 @@
+<div class="wrap guide">
+  <aside class="guide-side">
+    <div class="grp">
+      <h6>Overview</h6>
+      <a href="#the-skills">The 32 skills</a>
+    </div>
+    <div class="grp">
+      <h6>Skill reference</h6>
+      {{ $skills := hugo.Data.skills }}
+      {{ range $group := $skills.groups }}
+        {{ if eq $group.id "router" }}{{ continue }}{{ end }}
+        {{ range $s := $group.skills }}
+          <a class="skill" href="#ref-{{ $s.name }}">/{{ $s.name }}</a>
+        {{ end }}
+      {{ end }}
+    </div>
+    <div class="grp">
+      <h6>How it works</h6>
+      <a href="#concepts">The concepts</a>
+      <a href="#files">Files that carry the work</a>
+      <a href="#rigor-tiers">Rigor tiers</a>
+      <a href="#build-shapes">Build shapes</a>
+    </div>
+    <div class="grp">
+      <h6>In practice</h6>
+      <a href="#workflow-usage">Workflow usage</a>
+      <a href="#multi-agent-work">Multi-agent work</a>
+      <a href="#ticketing">Ticketing</a>
+    </div>
+    <div class="grp">
+      <h6>Reference</h6>
+      <a href="#layout">Layout</a>
+      <a href="#hooks">Hooks</a>
+      <a href="#memory-and-indexing">Memory + indexing</a>
+    </div>
+    <div class="grp">
+      <h6>Install</h6>
+      <a href="{{ "skills/" | relURL }}#install">Install the skills</a>
+    </div>
+  </aside>
+
+  <main class="guide-main">
+    <div class="guide-hero">
+      <p class="eyebrow">Workflow guide</p>
+      <h1>Every skill, and one idea followed to shipped.</h1>
+      <p class="lead">A set of skills that take a change from a rough idea to shipped, tested and documented code, one skill per stage. The important state lives in files in your repository, not in a chat, so the work survives across sessions and is shared with your whole team.</p>
+    </div>
+
+    <h2 id="the-skills">The 32 skills</h2>
+    <p>There are 32. You run only the ones a change needs, in whatever order fits. The four verbs (interview → blueprint → slice → verify) are the spine; the rest are the capabilities each verb loads at the right moment.</p>
+
+    <h3 style="margin-top:36px">Skill reference</h3>
+    <p>One entry per skill: what it does, what it writes, and what group it belongs to. Every entry is self-contained, so you can jump straight to the one you need.</p>
+    {{ partial "skill-ref-cards.html" . }}
+
+    {{ partial "render-guide.html" . }}
+
+    <h2 id="files">The files that carry the work</h2>
+    <p>Everything the workflow knows is written into files in your repo. A chat can end, a session can be cleared, a teammate can pull the branch, and the knowledge is still there because it was never trapped in a conversation. The full map of what lives where, and who owns each file, is in the <a href="{{ "skills/" | relURL }}#files">files and ownership table</a> on the skills page.</p>
+    <p>The key idea is that these files <strong>nest</strong>. One at the root for rules that apply everywhere; more inside <code>.skillgrid/specs/&lt;date&gt;-&lt;topic&gt;/</code> for the change's own artifacts. When a skill works on a change, it reads the nearest one, so it sees both the project-wide conventions and the local ones. <code>onboarding</code> creates them, every other skill reads them, and <code>ship</code>'s Reconcile step keeps them current.</p>
+
+    <h2 id="rigor-tiers">Rigor tiers — match effort to risk</h2>
+    <p>T0–T3 are a per-change verification dial. The project default is set at onboarding and a <code>Tier:</code> line in the briefing overrides it. The tier selects which tail steps run; the change's shape still sets a floor the tier can't lower. Skipped steps are recorded as skipped, never silently absent.</p>
+
+    <h2 id="build-shapes">Build shapes</h2>
+    <p><em>How</em> the work is ordered — which behavior exists first — is a recorded decision, not a vibe. The blueprint header carries <code>Build shape:</code> (tracer thread / smallest usable whole / facade / journey); <code>slicing</code> reads it to order the first wave.</p>
+  </main>
+</div>

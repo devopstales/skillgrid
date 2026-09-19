@@ -1,0 +1,23 @@
+{{ $skills := hugo.Data.skills }}
+<section class="section" id="the-skills">
+  <div class="wrap">
+    <p class="eyebrow">The skills</p>
+    <h2>Every skill owns a phase, and the files it produces.</h2>
+    <p class="lead">32 skills. Each one is a small, focused file the agent loads at the right moment. A capability is not duplicated as a stage.</p>
+    {{ range $group := $skills.groups }}
+      <div class="group-label">{{ $group.label }}</div>
+      <div class="grid grid-3">
+        {{ range $s := $group.skills }}
+        <div class="card skill-card">
+          <div class="head">
+            <span class="name">{{ $s.name }}</span>
+            <span class="num">{{ printf "%02d" $s.num }}</span>
+          </div>
+          <span class="desc">{{ $s.desc }}</span>
+          <span class="files">{{ $s.files }}</span>
+        </div>
+        {{ end }}
+      </div>
+    {{ end }}
+  </div>
+</section>

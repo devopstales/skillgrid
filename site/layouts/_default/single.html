@@ -1,0 +1,14 @@
+{{ define "main" }}
+{{ $key := (replace .RelPermalink site.BaseURL "") }}
+{{ $key = (replace $key "/skillgrid" "") }}
+{{ $key = (replace $key "/" "") }}
+{{ if eq $key "skills" }}
+  {{ partial "skills-redirect.html" . }}
+{{ else if eq $key "workflow-guides" }}
+  {{ partial "guide-page.html" . }}
+{{ else if .IsHome }}
+  {{ partial "home-redirect.html" . }}
+{{ else }}
+  <div class="wrap section"><h2>{{ .Title }}</h2>{{ .Content }}</div>
+{{ end }}
+{{ end }}

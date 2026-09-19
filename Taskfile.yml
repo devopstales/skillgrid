@@ -5,6 +5,9 @@
 #   task test         go vet && go test in skillgrid-cli/
 #   task skill-check  skill-hygiene guard (anatomy invariants + line budgets + hot paths)
 #   task seed-test     run the Mnemonic all-stores seed integration tests
+#   task site:build    build the Hugo docs site into site/public
+#   task site:serve    run the Hugo dev server for the docs site
+#   task gh-pages      build the site + publish it to the gh-pages branch
 #   task fmt          gofmt -w the module
 #   task clean        remove dist/
 #   task install      copy dist/skillgrid-linux-amd64 → ~/.skillgrid/bin/skillgrid
@@ -82,6 +85,36 @@ tasks:
     desc: Skill-hygiene guard — anatomy invariants, line budgets, hot-path ceilings (scripts/check-skillgrid-skills.mjs).
     cmds:
       - node scripts/check-skillgrid-skills.mjs
+
+  site:gen:
+    desc: Regenerate site/layouts/partials/guide-content.html from docs/user-guide/ (keep the guide in sync with the docs).
+    cmds:
+      - python3 scripts/gen-guide-content.py
+
+  site:build:
+    desc: Build the Hugo docs site into site/public.
+    cmds:
+      - task: site:gen
+      - hugo --source site
+
+  site:serve:
+    desc: Run the Hugo dev server for the docs site (live reload).
+    cmds:
+      - task: site:gen
+      - hugo server --source site --baseURL "http://localhost:1313/skillgrid/"
+
+  gh-pages:
+    desc: Build the site and publish it to the gh-pages branch (enable Pages on gh-pages in GitHub settings).
+    cmds:
+      - task: site:gen
+      - hugo --source site
+      - git checkout --orphan gh-pages
+      - git rm -rf . 2>/dev/null || true
+      - cp -R site/public/. .
+      - git add -A
+      - 'git commit -m "chore(site): publish skillgrid site" --allow-empty'
+      - git push origin gh-pages --force
+      - git checkout -
 
   fmt:
     desc: gofmt -w the whole module.

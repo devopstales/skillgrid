@@ -1,0 +1,25 @@
+<section class="section" id="why-files">
+  <div class="wrap">
+    <p class="eyebrow">Why files, not chat</p>
+    <h2>Context in a chat is a single point of failure.</h2>
+    <p class="lead">A chat can end, a session can be cleared, a teammate can pull the branch. Everything the workflow knows is written into your repo, so the knowledge is still there because it was never trapped in a conversation.</p>
+    <div class="two-col" style="margin-top:40px">
+      <div class="panel bad">
+        <h3>Context in the chat</h3>
+        <div class="row"><span class="ic">✗</span><span>Session cleared → context gone</span></div>
+        <div class="row"><span class="ic">✗</span><span>Teammate pulls branch → knows nothing</span></div>
+        <div class="row"><span class="ic">✗</span><span>New model → re-explain everything</span></div>
+        <div class="row"><span class="ic">✗</span><span>Decision made at 2pm → lost by 5pm</span></div>
+        <div class="row"><span class="ic">✗</span><span>Long chat → cost climbs, agent drifts</span></div>
+      </div>
+      <div class="panel good">
+        <h3>Context in the repo</h3>
+        <div class="row"><span class="ic">✓</span><span><code>.skillgrid/specs/</code> → what to build, the decision as a contract</span></div>
+        <div class="row"><span class="ic">✓</span><span><code>AGENTS.md</code> → your stack and conventions</span></div>
+        <div class="row"><span class="ic">✓</span><span><code>glossary/</code> + <code>adr.md</code> → the domain model, immutable</span></div>
+        <div class="row"><span class="ic">✓</span><span><code>acceptance.feature</code> → the proof, run on every change</span></div>
+        <div class="row"><span class="ic">✓</span><span>Mnemonic memory → decisions + code index + web cache, outside the chat</span></div>
+      </div>
+    </div>
+  </div>
+</section>
