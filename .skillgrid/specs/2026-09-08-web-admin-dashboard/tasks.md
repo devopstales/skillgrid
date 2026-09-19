@@ -715,7 +715,7 @@ This phase is done only when:
 
 ### Tasks
 
-- [ ] 7.1 `[RED]` Threat: repo file serving (path traversal) — `/prototypes*` sandboxed to `.stitch/`
+- [x] 7.1 `[RED]` Threat: repo file serving (path traversal) — `/prototypes*` sandboxed to `.stitch/`
   - [ ] 7.1.a Write failing test: `GET /prototypes/{id}` with `..`, absolute, or unknown id → 400/404; happy id returns the prototype HTML; reads sandboxed to `.stitch/`; no file execution.
   - [ ] 7.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase7_Prototypes` — Expected: FAIL
   - [ ] 7.1.c Minimal implementation: `.stitch/` reader + clean + prefix-check + handlers.
