@@ -15,6 +15,8 @@ import { SearchPanel } from './controls/SearchPanel'
 import { Legend } from './controls/Legend'
 import { DepthSlider } from './controls/DepthSlider'
 import { StopLayoutButton } from './controls/StopLayoutButton'
+import { ViewControls } from './controls/ViewControls'
+import { fitCameraToBBox } from './camera'
 import type { GraphologyNode, GraphologyEdge } from './converters'
 
 // Loader must render inside SigmaContainer and load the graphology instance.
@@ -23,6 +25,22 @@ function Loader({ g }: { g: Graph<GraphologyNode, GraphologyEdge> | null }) {
   useEffect(() => {
     if (g) loadGraph(g)
   }, [g, loadGraph])
+  return null
+}
+
+// AutoFit frames the whole graph when the layout settles (optimizing → ready)
+// and when a search-focus recenter happens (searchCenter changes). It must live
+// inside SigmaContainer (useSigma context) and only acts on those two signals —
+// not on hover/zoom — so it doesn't fight the user's manual camera.
+function AutoFit({ layoutStatus, searchCenter }: { layoutStatus: string; searchCenter: string | null }) {
+  const sigma = useSigma()
+  const ready = layoutStatus === 'ready'
+  useEffect(() => {
+    if (!ready && !searchCenter) return
+    // Fit the bbox currently loaded in sigma.
+    const cam = fitCameraToBBox(sigma.getBBox(), sigma.getDimensions(), 0.1)
+    sigma.getCamera().animate(cam, { duration: 400, easing: 'quadraticInOut' })
+  }, [ready, searchCenter, sigma])
   return null
 }
 
@@ -254,6 +272,8 @@ export function VectorGraph() {
         <HoverEffects />
         <SearchHighlight center={searchCenter} />
         <HoverTooltip />
+        <AutoFit layoutStatus={layoutStatus} searchCenter={searchCenter} />
+        <ViewControls />
       </SigmaContainer>
 
       {/* top-left: search */}
