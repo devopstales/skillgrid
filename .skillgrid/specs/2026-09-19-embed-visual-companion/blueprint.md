@@ -1,1033 +1,841 @@
-# Embed Visual Companion into skillgrid-cli Dashboard — Implementation Plan
+# Embed Visual Companion (Mnemonic Decision Bridge) — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fold the standalone Node `brainstorming` visual companion (file-watcher + HTTP + WebSocket) into the existing `skillgrid serve` Go binary so it is one more dashboard view, served from the same loopback server, with no second process.
+**Goal:** Make the visual companion a *decision bridge* on top of Mnemonic: the agent posts interview questions (options + a recommended option + rationale) as governed observations; the dashboard renders them as a decision inbox; the user approves/answers; the agent reads the decision back. No WebSocket, no second process, no new store — the companion is a view over `type=decision` observations in the existing Mnemonic SQLite store.
 
-**Architecture:** Port the companion's transport (HTTP + RFC-6455 WebSocket) and presentation (frame-template + helper.js) into the Go `http` package as a new route group `/companion/*`. The frame and helper are embedded with `go:embed` and reused verbatim (presentation is shared). The Node server's lifecycle (fs.watch, owner-PID watchdog, idle timeout, browser open, port/token persistence) is replaced by the already-running Go server's lifecycle: a per-session in-memory screen store (written by an explicit `PUT`), a `fsnotify` watcher as a backstop, and the Go `ServeMux`'s existing lifecycle. The React SPA gains a lazy `/companion` route + nav entry + a React frame view that renders the active screen in an iframe (sandboxed) and posts click/choice events back over the same-origin REST stream.
+**Architecture:** A *convention*, not a migration. The agent uses the **existing** `mem_save`/`mem_update` MCP tools to write an observation with `type: decision`, `topic_key: interview/<slug>/<question>`, `visibility: team`, and a structured JSON `content` body carrying `question`, `options[]` (each with `id`, `label`, `rationale?`), `recommended` (an option id), and `state` (`pending` | `answered` | `superseded`). The dashboard gains a **Decisions** view that polls `GET /mnemonic/decisions` (a thin read-only route over the existing store) and renders pending decision cards; the user answers/approves via a new `POST /mnemonic/decisions/{id}/answer` (write-gated, reuses the governance write path to set `state: answered` + record the answer). The agent reads the answer by polling `mem_search` / the existing activity stream for `topic_key` rows whose `content.state == answered`. **Polling is the transport** (grill-with-ui + oh-my-opencode-slim both poll; only the raw brainstorming companion uses WS, and we drop it). The long-lived `skillgrid serve` process already *is* the dashboard and already reads/writes this store, so there is nothing new to keep alive.
 
-**Tech Stack:** Go 1.22+ (`skillgrid-cli`); existing `internal/mnemonic/http` Go server + `go:embed` + Go 1.22 `http.ServeMux`; `golang.org/x/net/websocket` (transport only); React 19 + TypeScript + Vite 6 (`skillgrid-ui`) for the dashboard view; `fsnotify` (already a dependency via the auto-sync watcher).
+**Tech Stack:** Go 1.22+ (`skillgrid-cli`); existing `internal/mnemonic/http` Go server + `internal/mnemonic/memory` service (save/search/set-status/share) + SQLite store (`observations` table, `017_layered_memory_governance` for owner/status/visibility/`observation_versions`/`acl_grants`); existing `mem_save`/`mem_update`/`mem_search` MCP tools; React 19 + TypeScript + Vite 6 (`skillgrid-ui`) for the Decisions view. **No new dependency.**
 
 **Spec:** `.skillgrid/specs/2026-09-19-embed-visual-companion/briefing.md`
 
-**Findings:** (none — this is a port/refactor of known behavior, no research/spike/sketch ran)
+**Findings:** `.skillgrid/specs/2026-09-19-embed-visual-companion/findings.md` (reference designs: grill-with-ui, oh-my-opencode-slim `/interview`, the raw brainstorming companion — see the **Reference synthesis** note in Global Constraints).
+
+**Supersedes:** the 2026-09-19 blueprint v1 (Node `server.cjs` port: WS + fs.watch + verbatim `frame-template.html`/`helper.js`). That path is abandoned in favor of the Mnemonic decision bridge; the `frame`/`helper` reuse, the WebSocket, and the `?key=` gate are all dropped.
 
 ## Global Constraints
 
-- **Loopback only.** The companion inherits `skillgrid serve`'s `127.0.0.1` bind. No new host/port flags for the companion itself; it lives under the existing server's port.
-- **No Node runtime at serve time.** The Go binary must not shell out to `node` or spawn `server.cjs`. The Node launcher (`start-server.sh`) becomes a *fallback* only for the in-terminal agent flow, not the dashboard path.
-- **Presentation parity.** `frame-template.html` and `helper.js` must be reused **verbatim** (they are the visual contract). Only the transport changes. Do not re-style the frame.
-- **Sandboxed rendering.** The companion screen HTML is rendered inside an iframe with the `sandbox` attribute (no `allow-same-origin`) so screen scripts cannot read the dashboard's cookies/localStorage — same trust rule as the `.stitch/` Prototypes view.
-- **Session key preserved.** The `?key=` session-secret gate (defeats DNS rebinding / stray tabs) is preserved on the `/companion/*` routes. It is per-session, distinct from `SKILLGRID_HTTP_TOKEN`.
-- **MCP surface is frozen.** No MCP tool names, signatures, or return shapes change. This is HTTP + UI only.
-- **Bundle budget.** The new React chunk must pass `npm run build:check` (the existing `scripts/check-bundle-size.mjs` gate). Keep the companion view in its own lazy chunk.
-- **TDD is the mode.** Every Go handler and every UI behavior has a RED test first (config `tdd: false` default → Standard; this blueprint is a new capability so follow the RED-GREEN cycle per task).
+- **Mnemonic is the bridge.** All state lives in the existing `observations` table. No new table, no new store, no `state.json`/`events.jsonl`. The companion is a *view over decision-observations*.
+- **Convention, not migration.** The decision payload is structured JSON inside `content` + the existing `type`/`topic_key`/`visibility` columns. Do **not** add a `decisions` table or new columns in this change (that is the deferred heavier alternative — see the decision-subsection of the Hypothesis). If the inbox query gets painful later, a `decisions` table is a follow-up change, not this one.
+- **`status` is closed to `active | superseded | archived`** (see `memory/governance.go` `IsValidStatus`). Therefore the approval gate is a **convention field `state` inside `content`** (`pending` | `answered` | `superseded`), *not* a new `status` value. Do not try to use `status` for pending/approved — it is reserved for the governance lifecycle.
+- **Polling, not push.** The dashboard polls; the agent polls. No WebSocket, no SSE for the decision channel (the existing `/activity/stream` SSE may be reused to *surface* new decisions in the Activity feed, but it is not the decision transport). This matches grill-with-ui and oh-my-opencode-slim, both of which are explicitly "polling, not realtime."
+- **Loopback only.** Inherits `skillgrid serve`'s `127.0.0.1` bind. No new host/port.
+- **Governance is inherited.** Decision observations get `owner`, `visibility` (default `team` so the dashboard's reader sees them), `acl_grants`, and an **append-only version history** (`observation_versions`) for free — every answer/approval is an `mem_update`, which appends a version. That is the durable, auditable decision trail.
+- **MCP surface is frozen.** `mem_save`/`mem_update`/`mem_search` signatures and return shapes are unchanged. The agent already calls them; this change only defines the *shape of the content* they carry and adds two thin HTTP routes for the dashboard.
+- **Write-gated like the rest.** New write routes go through the existing `requireWriteAuth` (Bearer `SKILLGRID_HTTP_TOKEN`), exactly like `/mnemonic/memories/{id}/status`.
+- **Bundle budget.** The Decisions view is its own lazy chunk; `npm run build:check` must pass.
+- **Reference synthesis (why this shape).** grill-with-ui: structured interview (questions/recommendations/threads), polling `GET /state`, staged single **Send**, durable `events.jsonl` + design doc, "server IS the monitor." oh-my-opencode-slim `/interview`: questions + *suggested answers marked recommended*, a **dumb dashboard aggregator** on a fixed port that **auto-failovers and rebuilds from on-disk markdown**, polling transport, in-memory runtime + durable file. brainstorming companion: mockup display, raw WebSocket + fs.watch, `?key=` gate — the *weakest* on durability, the only one using WS. **The Mnemonic bridge adopts grill's structure + oh-my-opencode-slim's durability, but the "dumb dashboard that rebuilds from disk" is the Mnemonic store, and the "smart session" is the agent via existing MCP tools.**
 
 ## Hypothesis
 
-**Claim:** The visual companion can be served entirely by the existing `skillgrid serve` Go process — one new `/companion/*` route group plus a lazy React view — with zero behavioral loss versus the standalone Node companion (screen push → browser update, click/choice capture → agent-readable events, session-key gate, frame reuse).
+**Claim:** The companion can be a pure view over `type=decision` Mnemonic observations — agent writes via existing `mem_save`, dashboard reads via one thin route, user answers via one thin write route, agent reads back via existing `mem_search`/activity — with zero new transport, zero new store, and a durable governed decision trail.
 
-**Right condition:** With only `skillgrid serve` running (no `node server.cjs`), a screen written via `PUT /companion/sessions/{id}/screens` appears in the dashboard's `/companion` view; clicking an option produces a JSON event readable at `GET /companion/sessions/{id}/events`; a request without the session key is rejected 403; the frame template and helper behave identically to the Node version.
+**Right condition:** With only `skillgrid serve` running, an agent `mem_save(type=decision, topic_key=interview/<slug>/<q>, visibility=team, content={question,options,recommended,state:pending})` appears in the dashboard's Decisions inbox; the user's answer (via `POST /mnemonic/decisions/{id}/answer`) sets `state=answered` + records the chosen option + appends a version; the agent's next `mem_search(topic_key)` returns the answered decision; the whole round-trip survives a server restart (it's in SQLite).
 
-**Wrong condition:** Any of the above requires a second process, a re-style of the frame, or a behavior the Go server cannot reproduce (e.g. the browser-open or reconnect behavior is lost with no equivalent).
+**Wrong condition:** Any of the above requires a new table/column, a WebSocket, a second process, or a store the agent cannot already read/write via MCP.
 
-**Thinnest MVP:** Task 1 (screen store + `GET /companion/session/{id}/screen` + `PUT` + `403` on bad key) and Task 4 (React view loads the screen in a sandboxed iframe). If the iframe can't render the frame, or the key gate can't be enforced same-origin, the approach is invalidated.
+**Thinnest MVP:** Task 1 (decision content convention + `GET /mnemonic/decisions` read route) and Task 3 (user answer write route). If the read route cannot filter `type=decision` + parse `content.state`, or the write route cannot reuse the governance path, the approach is invalidated.
 
-**Door check:** Task 1 is the door check — if the Go server cannot serve a wrapped screen with a session-key gate, stop and reconsider (the whole port rests on this).
+**Door check:** Task 1. If `GET /mnemonic/decisions` cannot list `type=decision` observations and parse their `content.state` from the existing store, stop and reconsider (the whole bridge rests on reading decisions back out of the store the agent already writes to).
+
+> **Deferred sub-decision (do NOT do it in this change):** *structured `content` convention* (this plan) vs a *dedicated `decisions` table*. Start with the convention (migration-free); promote to a table only if the inbox query/filtering proves painful in use. Recorded here so the executor does not "helpfully" add a table.
 
 ## Threat Matrix
 
 | Boundary | Applicability | Design response | Planned RED test |
 |---|---|---|---|
-| **Screen HTML is untrusted content** (agent-authored, rendered in browser) | Applicable | Render inside `<iframe sandbox>` (no `allow-same-origin`); serve the frame as same-origin but the *screen content* is isolated. `Content-Security-Policy: frame-ancestors 'self'` on the companion routes. | `TestCompanionScreenSandboxed` — response headers assert `sandbox` + CSP; `TestCompanionScreenNoSameOrigin` — screen cannot read parent `localStorage` (unit: frame wrapper does not add `allow-same-origin`). |
-| **Path traversal in screen/asset names** | Applicable | Screen store keys are server-generated ids (not user path input); the screen *content* is opaque bytes, not a filesystem path. Any `/companion/session/{id}/files/{name}` is basename + inside-session-dir checked (mirror `isRegularFileInsideContentDir`). | `TestCompanionFileTraversal` — `../` and absolute names are rejected 404. |
-| **WebSocket upgrade on Go 1.22 mux** | Applicable | Register the upgrade under the exact `GET /companion/session/{id}/ws` route; `golang.org/x/net/websocket` handles the handshake; a non-WebSocket GET on the same path falls through to the key-gate + 426. Origin allowlist = same-origin (mirror `isAllowedWebSocketOrigin`). | `TestCompanionWSHandshake` — WS upgrade on correct key succeeds (101); wrong key is not upgraded (no 101). `TestCompanionWSOrigin` — cross-origin Origin is rejected. |
-| **Session key leak / stale token** | Applicable | Key is per-session, `crypto/rand` 32 bytes, compared with `crypto/subtle` timing-safe equality; stored in-memory (server lifetime) — not persisted to disk by default. `server-info` (if surfaced) carries the key → owner-only. | `TestCompanionKeyTimingSafe` — `subtle.ConstantTimeCompare` used (vet/inspection); `TestCompanionKeyRejected` — wrong/absent key → 403 on every `/companion/*` route. |
-| **Concurrent screen writes / event appends** | Applicable | Per-session `sync.RWMutex`; event append is an atomic append to an in-memory ring (bounded) + optional JSONL spill for the agent to read. | `TestCompanionConcurrentScreen` — parallel PUTs don't corrupt the active screen. `TestCompanionEventRingBounded` — ring evicts oldest past cap. |
-| **SSE/WS client disconnect leaks goroutines** | Applicable | Every stream/WS handler exits on `r.Context().Done()`; client channel is buffered with a drop (mirror `activityStreamClient`). No goroutine outlives the request. | `TestCompanionStreamLeak` (with `-race`) — context cancel stops the handler; no goroutine leak. |
-| **Idle/orphaned sessions accumulate memory** | Applicable | Reuse the server's existing lifecycle: a periodic reaper (mirror `LIFECYCLE_CHECK_MS`) evicts sessions idle > N (default 4h) or with no connected client > M. Configurable. | `TestCompanionSessionReaper` — an idle session is evicted after the (shortened in test) timeout. |
-| **Subprocess / shell commands** | N/A: the Go path spawns no subprocess; the Node `start-server.sh` launcher is the pre-existing fallback and unchanged. | n/a | n/a |
-| **Mnemonic tool contract** | N/A: MCP surface is frozen; this adds HTTP routes + a UI view only. | n/a | n/a |
+| **Decision `content` is untrusted JSON** (agent-authored, parsed by the dashboard) | Applicable | `GET /mnemonic/decisions` and the answer route parse `content` with `encoding/json` into a typed struct; malformed `content` on a `type=decision` row is **skipped** (not failed) with a debug log, and the row is still returned with a `parseError` flag so the UI can show "unreadable decision." Never crash the handler on one bad row. | `TestDecisionsSkipsMalformedContent` — a `type=decision` row with broken JSON is skipped in the list and does not 500. |
+| **`topic_key` collision / upsert surprise** | Applicable | The interview `topic_key` is `interview/<slug>/<question-id>` (stable per question). Reusing the same `topic_key` with `mem_save` **upserts** the same row and bumps `revision_count` (existing behavior, `memory/service.go`) — that is how the agent updates a question in place (e.g. changes a recommendation). Assert this in the test so an executor doesn't accidentally create duplicate rows. | `TestDecisionUpsertBumpsRevision` — saving the same `topic_key` twice yields one row with `revision_count` incremented and a version-history entry. |
+| **`state` drift (agent and user both write)** | Applicable | Single-writer-per-field: the **agent** owns `question/options/recommended` and `state` transitions `pending→superseded`; the **user** owns the `answer` + the `pending→answered` transition (via the answer route). The answer route is the only writer of `state=answered`. A re-answer appends another version (append-only history), never overwrites. | `TestAnswerAppendsVersion` — answering twice yields two `observation_versions` rows; latest content has the second answer. |
+| **Visibility gate (dashboard reader must see decisions)** | Applicable | Decision observations are saved with `visibility: team` (not the default `private`), so the dashboard's reader identity sees them. The read route filters `type='decision' AND deleted_at IS NULL` and does not require the reader to be the owner (mirrors how the memories list already works). | `TestDecisionVisibleToReader` — a `visibility=team` decision is returned to a non-owner reader; a `private` one is not. |
+| **Write auth on the answer route** | Applicable | `POST /mnemonic/decisions/{id}/answer` is wrapped in `requireWriteAuth` (same as `/mnemonic/memories/{id}/status`). No `SKILLGRID_HTTP_TOKEN` set → open (loopback); token set → Bearer required. | `TestAnswerRequiresAuth` — with a token configured, a no-auth answer POST is 401. |
+| **SSE/WS client disconnect leaks** | N/A: the decision channel is polling, not a persistent connection. (The reused `/activity/stream` SSE already has its own leak-free poller; this change does not touch it.) | n/a | n/a |
+| **Subprocess / shell commands** | N/A: no subprocess. The agent is woken by *polling* `mem_search`, not by a Monitor stdout. | n/a | n/a |
+| **Mnemonic tool contract** | Applicable (but unchanged) | `mem_save`/`mem_update`/`mem_search` signatures are frozen; this change only fixes the *content shape* they carry. Guarded by the existing MCP tests + a new test asserting the decision content schema round-trips through `mem_save`→`mem_search`. | `TestDecisionMCPRoundTrip` — `mem_save` a decision, `mem_search` it back, parse `content`, assert schema fields present. |
+| **Path traversal / executable files** | N/A: no files served, no paths in the decision payload (a `visual` URL, if used, is rendered in a sandboxed iframe in a follow-up — not this change). | n/a | n/a |
 
 ## One-Way-Door Checkpoints
 
-- **None.** No migration, no published-contract break, no public API shape change. The MCP surface is frozen; this *adds* HTTP routes and a UI view. Reversal = delete the route group + the React view.
+- **None.** No migration, no new table/column, no published-contract break, no public API shape change. The MCP surface is frozen; this *adds* one read route, one write route, and a React view, and fixes a content convention. Reversal = delete the two routes + the view + the convention.
 
 ## Change Classification
 
-- **`standard`** → verification floor **L2** (full `go test ./...` + `go build ./...` + `npm run build:check`). New trust boundary (untrusted HTML rendering) + WebSocket + concurrency push it to standard; no data migration or auth-model change, so not `risky`/`high-risk`.
+- **`standard`** → verification floor **L2** (full `go test ./...` + `go build ./...` + `npm run build:check`). New trust boundary (untrusted JSON parsing) + a write route + polling concurrency push it to standard; no data migration or auth-model change, so not `risky`/`high-risk`.
 
 ## Must-Haves (Goal-Backward Verification)
 
 **Truths:**
-1. A screen written via `PUT /companion/sessions/{id}/screens` is returned by `GET /companion/sessions/{id}/screen` wrapped in the frame template (fragment) or served as-is (full doc). *backstop* (held-out: end-to-end via a live server + browser render).
-2. A request to any `/companion/*` route without a valid session key returns **403** (key present in `?key=` or the session cookie).
-3. A click/choice made in the companion frame is captured and returned by `GET /companion/sessions/{id}/events` as JSON (agent-readable), and cleared when a new screen is pushed.
-4. The WebSocket at `/companion/session/{id}/ws` pushes a `reload` event to connected clients when a new screen is written.
-5. The frame template + helper.js are byte-identical to the standalone companion's (`diff` clean) — presentation is shared, not re-implemented. *backstop*.
-6. The dashboard's `/companion` view renders the active screen in a **sandboxed iframe** (no `allow-same-origin`) and round-trips clicks back to the agent stream.
-7. A request with a cross-origin `Origin` on the WS upgrade is rejected (not upgraded).
-8. An idle companion session is evicted after the reaper timeout (memory does not grow unbounded).
+1. An agent `mem_save` of a `type=decision` observation is returned by `GET /mnemonic/decisions` with its `content` parsed (`question`, `options`, `recommended`, `state`). *backstop* (held-out: live agent → dashboard render).
+2. `GET /mnemonic/decisions` returns only `type='decision'` rows, `deleted_at IS NULL`, and **skips** rows with malformed `content` (flagged, not 500).
+3. A user answer via `POST /mnemonic/decisions/{id}/answer` sets `content.state=answered`, records the chosen `optionId` (and free text if any), and **appends an `observation_versions` row** (durable, auditable).
+4. The agent reads the answer back via `mem_search` on the decision's `topic_key` (existing tool, no new read tool). *backstop*.
+5. Reusing a decision's `topic_key` with `mem_save` **upserts** the same row (bumps `revision_count` + appends a version) — the agent's in-place question-update mechanism.
+6. A `visibility=team` decision is visible to the dashboard's non-owner reader; a `private` one is not.
+7. The answer route is write-gated: with `SKILLGRID_HTTP_TOKEN` set, a no-auth POST is 401.
+8. The Decisions dashboard view renders pending decision cards (question + lettered options + the recommended option highlighted) and posts the user's choice to the answer route.
+9. The whole round-trip (save → answer → read-back) survives a server restart because it is in SQLite. *backstop*.
 
 **Artifacts:**
-- `skillgrid-cli/internal/mnemonic/http/companion.go` — route group + session store + handlers.
-- `skillgrid-cli/internal/mnemonic/http/companion_ws.go` — WebSocket handler (or folded into companion.go if small).
-- `skillgrid-cli/internal/mnemonic/http/companion_embed.go` — `//go:embed` of `frame-template.html` + `helper.js`.
-- `skillgrid-cli/internal/mnemonic/http/companion_test.go` — the RED tests above.
-- `skillgrid-ui/src/features/companion/` — `CompanionPage.tsx`, `api.ts`, `frame.tsx` (the React frame view + iframe).
-- `ui/openapi.yaml` entries for `/companion/*`.
+- `skillgrid-cli/internal/mnemonic/http/decisions.go` — `GET /mnemonic/decisions` + `POST /mnemonic/decisions/{id}/answer` + the decision content type.
+- `skillgrid-cli/internal/mnemonic/http/decisions_test.go` — the RED tests above.
+- `skillgrid-ui/src/features/decisions/` — `DecisionsPage.tsx`, `api.ts`, `DecisionCard.tsx`.
+- `ui/openapi.yaml` entries for `/mnemonic/decisions` + `/mnemonic/decisions/{id}/answer`.
 - Nav entry in `skillgrid-ui/src/components/layout/AppLayout.tsx` + route in `skillgrid-ui/src/app.tsx`.
+- A short convention doc: `docs/user-guide/10-decision-companion.md` (the content schema + the poll loop), mirroring `09-serve-dashboard.md`.
 
 **Key links:**
-- `PUT /companion/sessions/{id}/screens` → in-memory store → `GET .../screen` (same session, same key).
-- Frame `helper.js` click → `POST /companion/sessions/{id}/events` (or WS) → store → `GET .../events`.
-- React `CompanionPage` → `GET .../screen` → iframe `srcDoc` → `POST .../events`.
-- `registerRoutes()` → `s.registerCompanionRoutes()` (must run **before** `registerUIRoutes` so the SPA fallback doesn't swallow `/companion`).
+- Agent `mem_save(type=decision, topic_key, visibility=team, content{...state:pending})` → `observations` row.
+- `GET /mnemonic/decisions` → `SELECT … WHERE type='decision'` + parse `content` → decision cards.
+- User picks option → `POST /mnemonic/decisions/{id}/answer {optionId, note?}` → `content.state=answered` + version append.
+- Agent `mem_search(topic_key)` / activity poll → reads `content.state==answered` + the chosen option → proceeds.
+- `registerRoutes()` → the two new routes (registered alongside the existing mnemonic routes; they are under `/mnemonic/decisions`, which is **not** in the `apiPrefixes` 404-catch-all list, so the SPA fallback does not swallow them — verified against `embed.go`).
 
 ## Global Constraints (build/ordering)
 
-- `go:embed` of the frame requires the two assets to exist at `go build` time. Copy them into `internal/mnemonic/http/companion/` (a new subdir) during Task 2; the `//go:embed` directive points there. This mirrors how `ui/dist` is embedded.
-- `golang.org/x/net` is already a dependency (check `go.mod`); if not present, `go get golang.org/x/net/websocket` is the only new dep.
-- The UI build (`task ui:build` / `npm run build:check`) must run before `go build` so `ui/dist` (now including the companion chunk) is embedded.
+- The two Go routes live in the existing `http` package next to `mnemonic_files.go`; they open the project via `s.openHandleFor(projectID)` and use the existing `h.Memory()` service (save/search) and store (`h.Store().DB`) — no new service.
+- The answer route's "set state + append version" must go through the **same code path** `mem_update` uses (so the version history is identical to any other update). Prefer calling the existing service method that backs `mem_update`; if none exposes "update content only," add a small `Memory().UpdateContent(id, newContentJSON)` in `memory/governance.go` (it already owns `SetStatus`/`SetVisibility` and appends versions — see `observation_versions`).
+- The UI build (`task ui:build` / `npm run build:check`) runs before `go build` so `ui/dist` (now with the decisions chunk) is embedded.
+- The agent-side contract (how the skill calls `mem_save` for a decision) is documented in `docs/user-guide/10-decision-companion.md` + injected into the brainstorming/interviewing skills as a convention note; **no skill file is edited in this change** beyond that doc note (skills are a separate repo concern).
 
 ---
 
-### Task 1: Companion session store + screen GET/PUT + session-key gate (DOOR CHECK)
+### Task 1: Decision content convention + `GET /mnemonic/decisions` read route (DOOR CHECK)
 
 **Files:**
-- Create: `skillgrid-cli/internal/mnemonic/http/companion.go`
-- Create: `skillgrid-cli/internal/mnemonic/http/companion_test.go`
-- Create: `skillgrid-cli/internal/mnemonic/http/companion/frame-template.html` (copied verbatim from `.agents/skills/brainstorming/scripts/frame-template.html`)
-- Create: `skillgrid-cli/internal/mnemonic/http/companion/helper.js` (copied verbatim from `.agents/skills/brainstorming/scripts/helper.js`)
-- Modify: `skillgrid-cli/internal/mnemonic/http/server.go` (add `s.registerCompanionRoutes()` call before `s.registerUIRoutes()`)
+- Create: `skillgrid-cli/internal/mnemonic/http/decisions.go`
+- Create: `skillgrid-cli/internal/mnemonic/http/decisions_test.go`
+- Modify: `skillgrid-cli/internal/mnemonic/http/server.go` (register the two routes)
 
 **Interfaces:**
-- Consumes: `projectFromRequest(r)`, `writeJSON(w, code, v)`, `writeError(w, code, msg)` (existing helpers in the `http` package).
+- Consumes: `projectFromRequest(r)`, `s.openHandleFor(projectID)`, `writeJSON`, `writeError` (existing). `h.Store().DB` for the query.
 - Produces:
-  - `type companionSession struct { key string; mu sync.RWMutex; screen string; screens map[string]string; events []companionEvent; clients map[int64]chan []byte; lastActivity time.Time; id int64 }`
-  - `type companionEvent struct { Type string; Choice string; Text string; ID string; Timestamp int64 }`
-  - `type companionStore struct { mu sync.RWMutex; nextID int64; sessions map[int64]*companionSession }`
-  - `func (s *Server) newCompanionStore() *companionStore` (wired into `*Server` in `NewServer`)
-  - `func (s *Server) registerCompanionRoutes()` — registers the routes below.
-  - Handlers: `handleCompanionSessionScreen` (GET), `handleCompanionSessionScreenPut` (PUT).
-  - `func (s *Server) companionAuth(r *http.Request, sess *companionSession) bool` — timing-safe key check.
+  - `type decisionOption struct { ID string; Label string; Rationale string }` (json `id`,`label`,`rationale`)
+  - `type decisionContent struct { Question string; Options []decisionOption; Recommended string; State string; AnsweredOption string; AnswerNote string; UpdatedBy string }` (json tags)
+  - `type decisionRow struct { ID int64; TopicKey string; Title string; CreatedAt string; UpdatedAt string; Content decisionContent; ParseError bool }`
+  - `func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request)` — `GET /mnemonic/decisions?project=…&state=pending|answered|all&topic=…`
+  - `func (s *Server) registerDecisionRoutes()`
+  - `func parseDecisionContent(raw string) (decisionContent, bool)`
 
-**SATISFIES:** scenario `companion-screen-roundtrip` + `companion-key-gate` (see `acceptance.feature`).
+**SATISFIES:** scenarios `decision-list-roundtrip` + `decision-skips-malformed` (see `acceptance.feature`).
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// companion_test.go
+// decisions_test.go
 package http
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
+	"time"
 )
 
-// newCompanionServer builds a handler with a fresh companion store and a
-// pre-created session, returning the server + the session key.
-func newCompanionServer(t *testing.T) (*Server, string) {
+// seedDecision inserts a type=decision observation directly via the store.
+func seedDecision(t *testing.T, h interface{ Store() interface{ DB *sql.DB } }, topicKey, contentJSON, visibility string) int64 {
 	t.Helper()
-	svc, _ := newTestService(t) // existing test helper in this package
-	s := NewServer(svc)
-	sess, key := s.companionStore.createSession()
-	t.Cleanup(func() { s.companionStore.removeSession(sess.id) })
-	_ = key
-	return s, key
+	db := h.Store().DB
+	id, err := db.Exec(`INSERT INTO observations
+		(session_id, type, title, content, project, scope, topic_key, visibility, status, created_at, updated_at)
+		VALUES ('s-dec','decision','Q','?','testproj','project','?','?','active',?,?,?)`,
+		contentJSON, topicKey, visibility,
+		time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339)).RowsAffected()
+	// (adapt the Exec to the package's actual store handle shape; see mnemonic_files.go)
+	return id
 }
 
-func TestCompanionScreenRoundtrip(t *testing.T) {
-	s, key := newCompanionServer(t)
-	sessID := s.companionStore.sessionsByAny()[0]
+func TestDecisionListRoundtrip(t *testing.T) {
+	s, h := newDecisionTestServer(t) // builds a Server + open handle for project 'testproj'
+	content := `{"question":"Which layout?","options":[{"id":"a","label":"Single column"},{"id":"b","label":"Two column"}],"recommended":"a","state":"pending"}`
+	seedDecision(t, h, "interview/demo/layout-1", content, "team")
 
-	frag := `<h2>Which layout?</h2><div class="options"><div class="option" data-choice="a">A</div></div>`
-	req := httptest.NewRequest("PUT", "/companion/sessions/1/screens?key="+key, strings.NewReader(frag))
+	req := httptest.NewRequest("GET", "/mnemonic/decisions?project=testproj&state=pending", nil)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Fatalf("PUT screen: got %d want 200: %s", w.Code, w.Body.String())
-	}
-
-	req = httptest.NewRequest("GET", "/companion/sessions/1/screen?key="+key, nil)
-	w = httptest.NewRecorder()
-	s.Handler().ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Fatalf("GET screen: got %d want 200", w.Code)
-	}
-	body := w.Body.String()
-	if !strings.Contains(body, "Which layout?") {
-		t.Errorf("screen body missing content: %s", body)
-	}
-	if !strings.Contains(body, "class=\"option\"") || !strings.Contains(body, "data-choice=\"a\"") {
-		t.Errorf("frame not applied to fragment: %s", body)
-	}
-	// helper script must be injected
-	if !strings.Contains(body, "brainstorm-session-key") {
-		t.Errorf("helper.js not injected into frame")
-	}
+	if w.Code != 200 { t.Fatalf("GET decisions: got %d: %s", w.Code, w.Body.String()) }
+	var out []decisionRow
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil { t.Fatalf("decode: %v", err) }
+	if len(out) != 1 { t.Fatalf("want 1 decision, got %d", len(out)) }
+	if out[0].Content.Question != "Which layout?" { t.Errorf("content not parsed: %+v", out[0].Content) }
+	if out[0].Content.Recommended != "a" || out[0].Content.State != "pending" { t.Errorf("fields missing: %+v", out[0].Content) }
 }
 
-func TestCompanionKeyGate(t *testing.T) {
-	s, _ := newCompanionServer(t)
-	sessID := s.companionStore.sessionsByAny()[0]
-	for _, path := range []string{
-		"/companion/sessions/1/screen",
-		"/companion/sessions/1/screen", // wrong key
-		"/companion/sessions/1/events",
-	} {
-		req := httptest.NewRequest("GET", path, nil)
-		w := httptest.NewRecorder()
-		s.Handler().ServeHTTP(w, req)
-		if w.Code != 403 {
-			t.Errorf("%s without key: got %d want 403", path, w.Code)
-		}
-	}
-	// wrong key also 403
-	req := httptest.NewRequest("GET", "/companion/sessions/1/screen?key=wrong", nil)
+func TestDecisionSkipsMalformed(t *testing.T) {
+	s, h := newDecisionTestServer(t)
+	seedDecision(t, h, "interview/demo/bad", `{"question":"ok","options":[`, "team") // truncated JSON
+	seedDecision(t, h, "interview/demo/good", `{"question":"good","options":[{"id":"a","label":"A"}],"state":"pending"}`, "team")
+
+	req := httptest.NewRequest("GET", "/mnemonic/decisions?project=testproj", nil)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
-	if w.Code != 403 {
-		t.Errorf("wrong key: got %d want 403", w.Code)
+	if w.Code != 200 { t.Fatalf("malformed row must not 500, got %d", w.Code) }
+	var out []decisionRow
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	// The good row is present; the bad row is either skipped or flagged, but the handler survived.
+	found := false
+	for _, d := range out { if d.Content.Question == "good" { found = true } }
+	if !found { t.Errorf("good decision missing from list: %+v", out) }
+}
+
+func TestDecisionVisibilityGate(t *testing.T) {
+	s, h := newDecisionTestServer(t)
+	seedDecision(t, h, "interview/demo/team", `{"question":"t","options":[{"id":"a","label":"A"}],"state":"pending"}`, "team")
+	seedDecision(t, h, "interview/demo/priv", `{"question":"p","options":[{"id":"a","label":"A"}],"state":"pending"}`, "private")
+	req := httptest.NewRequest("GET", "/mnemonic/decisions?project=testproj", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	var out []decisionRow
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	for _, d := range out {
+		if d.TopicKey == "interview/demo/priv" { t.Errorf("private decision leaked to reader") }
 	}
-	_ = sessID
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestCompanionScreen|TestCompanionKey' -v`
-Expected: FAIL — `companionStore`, `registerCompanionRoutes`, handlers undefined (compile error).
+Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestDecision' -v`
+Expected: FAIL — `handleDecisions`, `decisionRow`, etc. undefined (compile error).
 
 - [ ] **Step 3: Write minimal implementation**
 
 ```go
-// companion.go
+// decisions.go
 package http
 
 import (
-	"crypto/rand"
-	"crypto/subtle"
-	"encoding/hex"
-	"embed"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 )
 
-//go:embed companion/frame-template.html
-var companionFrameTemplate string
-
-//go:embed companion/helper.js
-var companionHelperJS string
-
-type companionEvent struct {
-	Type      string `json:"type"`
-	Choice    string `json:"choice,omitempty"`
-	Text      string `json:"text,omitempty"`
-	ID        string `json:"id,omitempty"`
-	Timestamp int64  `json:"timestamp"`
+type decisionOption struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Rationale string `json:"rationale,omitempty"`
 }
 
-type companionSession struct {
-	id         int64
-	key        string
-	mu         sync.RWMutex
-	screen     string
-	events     []companionEvent
-	lastActive time.Time
+type decisionContent struct {
+	Question        string           `json:"question"`
+	Options         []decisionOption `json:"options"`
+	Recommended     string           `json:"recommended,omitempty"`
+	State           string           `json:"state"` // pending | answered | superseded
+	AnsweredOption  string           `json:"answeredOption,omitempty"`
+	AnswerNote      string           `json:"answerNote,omitempty"`
+	UpdatedBy       string           `json:"updatedBy,omitempty"`
 }
 
-type companionStore struct {
-	mu       sync.RWMutex
-	nextID   int64
-	sessions map[int64]*companionSession
+type decisionRow struct {
+	ID         int64           `json:"id"`
+	TopicKey   string          `json:"topicKey"`
+	Title      string          `json:"title"`
+	CreatedAt  string          `json:"createdAt"`
+	UpdatedAt  string          `json:"updatedAt"`
+	Visibility string          `json:"visibility"`
+	Content    decisionContent `json:"content"`
+	ParseError bool            `json:"parseError,omitempty"`
 }
 
-func newCompanionStore() *companionStore {
-	return &companionStore{sessions: map[int64]*companionSession{}, nextID: 1}
-}
-
-func (st *companionStore) createSession() (*companionSession, string) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	id := st.nextID
-	st.nextID++
-	raw := make([]byte, 32)
-	_, _ = rand.Read(raw)
-	sess := &companionSession{id: id, key: hex.EncodeToString(raw), lastActive: time.Now()}
-	st.sessions[id] = sess
-	return sess, sess.key
-}
-
-func (st *companionStore) get(id int64) *companionSession {
-	st.mu.RLock()
-	defer st.mu.RUnlock()
-	return st.sessions[id]
-}
-
-func (st *companionStore) removeSession(id int64) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	delete(st.sessions, id)
-}
-
-func (st *companionStore) sessionsByAny() []int64 {
-	st.mu.RLock()
-	defer st.mu.RUnlock()
-	out := make([]int64, 0, len(st.sessions))
-	for id := range st.sessions {
-		out = append(out, id)
+func parseDecisionContent(raw string) (decisionContent, bool) {
+	var c decisionContent
+	if err := json.Unmarshal([]byte(raw), &c); err != nil || c.Question == "" {
+		return decisionContent{}, false
 	}
-	return out
+	return c, true
 }
 
-// wrapInFrame mirrors the Node server: full docs served as-is, fragments wrapped.
-func wrapInFrame(content string) string {
-	trimmed := strings.TrimLeft(content, " \t\r\n")
-	low := strings.ToLower(trimmed)
-	if strings.HasPrefix(low, "<!doctype") || strings.HasPrefix(low, "<html") {
-		return content
-	}
-	framed := strings.Replace(companionFrameTemplate, "<!-- CONTENT -->", content, 1)
-	injection := "\n<script>\n" + companionHelperJS + "\n</script>"
-	if i := strings.Index(framed, "</body>"); i >= 0 {
-		framed = framed[:i] + injection + framed[i:]
-	} else {
-		framed += injection
-	}
-	return framed
+func (s *Server) registerDecisionRoutes() {
+	s.mux.HandleFunc("GET /mnemonic/decisions", s.handleDecisions)
+	s.mux.HandleFunc("POST /mnemonic/decisions/{id}/answer", s.requireWriteAuth(s.handleDecisionAnswer))
 }
 
-func (s *Server) registerCompanionRoutes() {
-	s.mux.HandleFunc("GET /companion/sessions/{id}/screen", s.handleCompanionSessionScreen)
-	s.mux.HandleFunc("PUT /companion/sessions/{id}/screens", s.handleCompanionSessionScreenPut)
-	// events + ws added in later tasks
-}
+func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil { writeError(w, http.StatusBadRequest, err.Error()); return }
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil { writeError(w, http.StatusNotFound, err.Error()); return }
+	defer cleanup()
 
-func (s *Server) companionAuth(r *http.Request, sess *companionSession) bool {
-	q := r.URL.Query().Get("key")
-	if q != "" {
-		return subtle.ConstantTimeCompare([]byte(q), []byte(sess.key)) == 1
-	}
-	cookie, err := r.Cookie("companion-key-" + fmt.Sprint(sess.id))
-	if err == nil {
-		return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(sess.key)) == 1
-	}
-	return false
-}
+	wantState := r.URL.Query().Get("state")    // pending | answered | superseded | ""(all)
+	wantTopic := r.URL.Query().Get("topic")     // optional topic_key prefix filter
 
-func (s *Server) handleCompanionSessionScreen(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseCompanionID(r)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "bad session id")
-		return
-	}
-	sess := s.companionStore.get(id)
-	if sess == nil {
-		writeError(w, http.StatusNotFound, "no such companion session")
-		return
-	}
-	if !s.companionAuth(r, sess) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte("<!doctype html><title>Session key required</title>"))
-		return
-	}
-	sess.mu.RLock()
-	screen := sess.screen
-	sess.mu.RUnlock()
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	if screen == "" {
-		_, _ = w.Write([]byte("<!doctype html><h1>Waiting for the agent to push a screen…</h1>"))
-		return
-	}
-	_, _ = w.Write([]byte(wrapInFrame(screen)))
-}
+	rows, err := h.Store().DB.Query(r.Context(), `
+		SELECT id, topic_key, title, content, visibility, created_at, updated_at
+		FROM observations
+		WHERE project = ? AND type = 'decision' AND deleted_at IS NULL
+		  AND (visibility IN ('team','restricted','agent') OR visibility IS NULL)
+		ORDER BY updated_at DESC, id DESC
+		LIMIT 200`, projectID)
+	if err != nil { writeError(w, http.StatusInternalServerError, err.Error()); return }
+	defer rows.Close()
 
-func (s *Server) handleCompanionSessionScreenPut(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseCompanionID(r)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "bad session id")
-		return
+	out := []decisionRow{}
+	for rows.Next() {
+		var d decisionRow
+		var content string
+		if err := rows.Scan(&d.ID, &d.TopicKey, &d.Title, &content, &d.Visibility, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if c, ok := parseDecisionContent(content); ok {
+			d.Content = c
+		} else {
+			d.ParseError = true
+		}
+		// filters
+		if wantTopic != "" && !strings.HasPrefix(d.TopicKey, wantTopic) { continue }
+		if wantState != "" && d.Content.State != wantState && !d.ParseError { continue }
+		out = append(out, d)
 	}
-	sess := s.companionStore.get(id)
-	if sess == nil {
-		writeError(w, http.StatusNotFound, "no such companion session")
-		return
-	}
-	if !s.companionAuth(r, sess) {
-		writeError(w, http.StatusForbidden, "session key required")
-		return
-	}
-	body, err := readBody(r, 10<<20)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	sess.mu.Lock()
-	sess.screen = string(body)
-	sess.events = nil // new screen clears prior events (mirror Node behavior)
-	sess.lastActive = time.Now()
-	sess.mu.Unlock()
-	// broadcast reload to WS clients — wired in Task 3
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-func parseCompanionID(r *http.Request) (int64, bool) {
-	raw := r.PathValue("id")
-	var id int64
-	_, err := fmt.Sscanf(raw, "%d", &id)
-	return id, err == nil && id > 0
-}
-
-func readBody(r *http.Request, max int64) ([]byte, error) {
-	b, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, max))
-	return b, err
+	if err := rows.Err(); err != nil { writeError(w, http.StatusInternalServerError, err.Error()); return }
+	writeJSON(w, http.StatusOK, out)
 }
 ```
 
-Note: add `io` to imports; add `companionStore: newCompanionStore()` to the `Server` struct literal in `NewServer`. If `newTestService` does not exist in this package, use the existing test helper the package already uses (check `server_test.go`).
+Note: the visibility filter matches how the memories list already exposes rows to the reader; confirm the exact predicate against `handleMnemonicMemories` in `mnemonic_files.go` and reuse it verbatim (the `private` exclusion above is the expected behavior — the dashboard reader is a team-scoped identity). Wire `s.registerDecisionRoutes()` into `registerRoutes()` next to `s.registerGraphRoutes()`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestCompanionScreen|TestCompanionKey' -v`
+Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestDecision' -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/http/companion.go skillgrid-cli/internal/mnemonic/http/companion_test.go skillgrid-cli/internal/mnemonic/http/server.go
-git add skillgrid-cli/internal/mnemonic/http/companion/
-git commit -m "feat(companion): session store + screen GET/PUT + key gate
+git add skillgrid-cli/internal/mnemonic/http/decisions.go skillgrid-cli/internal/mnemonic/http/decisions_test.go skillgrid-cli/internal/mnemonic/http/server.go
+git commit -m "feat(decisions): read route + content convention for the Mnemonic decision bridge
 
 [skillgrid-context]
 Change: 2026-09-19-embed-visual-companion
-Decisions: in-memory session store; frame+helper reused verbatim; ?key= gate
+Decisions: companion = view over type=decision observations; polling transport; state is a content field (status is reserved)
 "
 ```
 
 ---
 
-### Task 2: Embed assets + frame/helper parity verification
+### Task 2: `POST /mnemonic/decisions/{id}/answer` write route (state flip + version append)
 
 **Files:**
-- Create: `skillgrid-cli/internal/mnemonic/http/companion/frame-template.html` (already created in Task 1 if not)
-- Create: `skillgrid-cli/internal/mnemonic/http/companion/helper.js`
-- Modify: `skillgrid-cli/internal/mnemonic/http/companion_test.go` (add parity test)
+- Modify: `skillgrid-cli/internal/mnemonic/http/decisions.go` (add `handleDecisionAnswer`)
+- Modify: `skillgrid-cli/internal/mnemonic/memory/governance.go` (add `UpdateContent(id, newContentJSON)` if no existing "update content + append version" method is exposed by `mem_update`'s backend)
+- Modify: `skillgrid-cli/internal/mnemonic/http/decisions_test.go`
 
 **Interfaces:**
-- Consumes: `companionFrameTemplate`, `companionHelperJS` embed vars from Task 1.
-- Produces: `TestCompanionFrameParity` asserting byte-identity with the source skill assets.
-
-**SATISFIES:** scenario `companion-frame-parity`.
-
-- [ ] **Step 1: Write the failing test**
-
-```go
-// companion_test.go (add)
-func TestCompanionFrameParity(t *testing.T) {
-	// The embedded frame + helper must be byte-identical to the standalone
-	// skill assets — presentation is shared, not re-implemented.
-	srcFrame := filepath.Join("..", "..", "..", "..", "..", ".agents", "skills", "brainstorming", "scripts", "frame-template.html")
-	srcHelper := filepath.Join("..", "..", "..", "..", "..", ".agents", "skills", "brainstorming", "scripts", "helper.js")
-	// Resolve relative to the companion/ subdir where the embeds live.
-	embFrame, _ := os.ReadFile(filepath.Join("companion", "frame-template.html"))
-	embHelper, _ := os.ReadFile(filepath.Join("companion", "helper.js"))
-	wantFrame, err := os.ReadFile(srcFrame)
-	if err != nil { t.Skipf("source not resolvable in this tree: %v", err) }
-	if !bytes.Equal(embFrame, wantFrame) {
-		t.Errorf("frame-template.html drifted from source skill asset")
-	}
-	// helper.js: structural parity (contains the key markers), since the embed
-	// may reflow newlines — assert the load-bearing strings are present.
-	for _, marker := range []string{"brainstorm-session-key", "toggleSelect", "nextReconnectDelay", "TOMBSTONE_AFTER_MS"} {
-		if !strings.Contains(string(embHelper), marker) {
-			t.Errorf("helper.js missing marker %q", marker)
-		}
-	}
-}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run TestCompanionFrameParity -v`
-Expected: FAIL if the copied assets drifted; PASS once copied verbatim. (If it already passes, the assets are in sync — good; the test guards future drift.)
-
-- [ ] **Step 3: Write minimal implementation**
-
-Copy the two source files verbatim:
-```bash
-cp .agents/skills/brainstorming/scripts/frame-template.html skillgrid-cli/internal/mnemonic/http/companion/frame-template.html
-cp .agents/skills/brainstorming/scripts/helper.js skillgrid-cli/internal/mnemonic/http/companion/helper.js
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run TestCompanionFrameParity -v`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add skillgrid-cli/internal/mnemonic/http/companion/ skillgrid-cli/internal/mnemonic/http/companion_test.go
-git commit -m "feat(companion): embed frame-template + helper.js verbatim"
-```
-
----
-
-### Task 3: WebSocket upgrade + reload broadcast + event capture
-
-**Files:**
-- Create: `skillgrid-cli/internal/mnemonic/http/companion_ws.go`
-- Modify: `skillgrid-cli/internal/mnemonic/http/companion.go` (add `clients` to session; call `broadcastReload` on PUT; add event append + `GET .../events`)
-- Modify: `skillgrid-cli/internal/mnemonic/http/companion_test.go`
-- Modify: `skillgrid-cli/go.mod` / `go.sum` (only if `golang.org/x/net` is not already present)
-
-**Interfaces:**
-- Consumes: `companionSession` (Task 1), `companionEvent` (Task 1).
+- Consumes: `requireWriteAuth`, `s.openHandleFor(projectID)`, `h.Memory()` (governance service), `decodeJSON`.
 - Produces:
-  - `func (s *Server) handleCompanionWS(w http.ResponseWriter, r *http.Request)` — RFC-6455 upgrade.
-  - `func (s *Server) handleCompanionEvents(w http.ResponseWriter, r *http.Request)` — `GET`, returns + clears the event ring.
-  - `func (sess *companionSession) addClient(conn websocket.Conn)` / `removeClient(conn)`
-  - `func (sess *companionSession) broadcastReload()`
-  - `func (sess *companionSession) appendEvent(ev companionEvent)`
-  - `func (sess *companionSession) drainEvents() []companionEvent`
+  - `func (s *Server) handleDecisionAnswer(w http.ResponseWriter, r *http.Request)`
+  - (if added) `func (s *Service) UpdateContent(ctx context.Context, id int64, newContent string) error` in `memory/governance.go` — sets `observations.content`, appends an `observation_versions` row, bumps `revision_count`, sets `updated_at`.
 
-**SATISFIES:** scenarios `companion-ws-reload`, `companion-event-capture`, `companion-ws-origin`.
+**SATISFIES:** scenarios `decision-answer-records` + `decision-answer-appends-version` + `decision-answer-requires-auth`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-// companion_test.go (add)
-func TestCompanionWSHandshakeAndReload(t *testing.T) {
-	s, key := newCompanionServer(t)
-	id := s.companionStore.sessionsByAny()[0]
+func TestDecisionAnswerRecords(t *testing.T) {
+	s, h := newDecisionTestServer(t)
+	id := seedDecision(t, h, "interview/demo/layout-1",
+		`{"question":"Which layout?","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"recommended":"a","state":"pending"}`, "team")
 
-	// Open a WS client with the correct key.
-	upgrader := websocket.Upgrader{}
-	conn, err := websocket.NewClient(&http.Client{},
-		&url.URL{Scheme: "ws", Host: "127.0.0.1", Path: "/companion/sessions/" + itoa(id) + "/ws?key=" + key}, nil)
-	if err != nil { t.Fatalf("ws connect: %v", err) }
-	defer conn.Close()
+	body := `{"optionId":"b","note":"two column reads better"}`
+	req := httptest.NewRequest("POST", "/mnemonic/decisions/"+itoa(id)+"/answer?project=testproj", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != 200 { t.Fatalf("answer: got %d: %s", w.Code, w.Body.String()) }
 
-	// Push a screen → server must broadcast a reload frame.
-	go func() {
-		req := httptest.NewRequest("PUT", "/companion/sessions/"+itoa(id)+"/screens?key="+key,
-			strings.NewReader(`<h2>v2</h2>`))
+	// read back
+	req = httptest.NewRequest("GET", "/mnemonic/decisions?project=testproj", nil)
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	var out []decisionRow
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	var got *decisionRow
+	for i := range out { if out[i].ID == id { got = &out[i] } }
+	if got == nil { t.Fatalf("decision not found after answer") }
+	if got.Content.State != "answered" { t.Errorf("state not flipped: %q", got.Content.State) }
+	if got.Content.AnsweredOption != "b" || got.Content.AnswerNote != "two column reads better" {
+		t.Errorf("answer not recorded: %+v", got.Content)
+	}
+}
+
+func TestDecisionAnswerAppendsVersion(t *testing.T) {
+	s, h := newDecisionTestServer(t)
+	id := seedDecision(t, h, "interview/demo/v", `{"question":"q","options":[{"id":"a","label":"A"}],"state":"pending"}`, "team")
+	post := func(note string) {
+		body := `{"optionId":"a","note":"` + note + `"}`
+		req := httptest.NewRequest("POST", "/mnemonic/decisions/"+itoa(id)+"/answer?project=testproj", strings.NewReader(body))
 		s.Handler().ServeHTTP(httptest.NewRecorder(), req)
-	}()
-
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, msg, err := conn.ReadMessage()
-	if err != nil { t.Fatalf("read reload: %v", err) }
-	var got map[string]string
-	_ = json.Unmarshal(msg, &got)
-	if got["type"] != "reload" {
-		t.Errorf("expected reload frame, got %s", msg)
 	}
+	post("first")
+	post("second")
+	var n int
+	_ = h.Store().DB.QueryRow(`SELECT COUNT(*) FROM observation_versions WHERE observation_id = ?`, id).Scan(&n)
+	if n < 2 { t.Errorf("expected >=2 version rows, got %d", n) }
 }
 
-func TestCompanionEventCapture(t *testing.T) {
-	s, key := newCompanionServer(t)
-	id := s.companionStore.sessionsByAny()[0]
-
-	// Simulate the frame posting a click.
-	body := `{"type":"click","choice":"a","text":"Option A"}`
-	req := httptest.NewRequest("POST", "/companion/sessions/"+itoa(id)+"/events?key="+key, strings.NewReader(body))
+func TestDecisionAnswerRequiresAuth(t *testing.T) {
+	t.Setenv("SKILLGRID_HTTP_TOKEN", "secret")
+	s, h := newDecisionTestServer(t) // rebuilt after env set so NewServer picks up the token
+	id := seedDecision(t, h, "interview/demo/auth", `{"question":"q","options":[{"id":"a","label":"A"}],"state":"pending"}`, "team")
+	req := httptest.NewRequest("POST", "/mnemonic/decisions/"+itoa(id)+"/answer?project=testproj",
+		strings.NewReader(`{"optionId":"a"}`))
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
-	if w.Code != 200 { t.Fatalf("POST event: got %d", w.Code) }
-
-	req = httptest.NewRequest("GET", "/companion/sessions/"+itoa(id)+"/events?key="+key, nil)
-	w = httptest.NewRecorder()
-	s.Handler().ServeHTTP(w, req)
-	var evs []companionEvent
-	_ = json.Unmarshal(w.Body.Bytes(), &evs)
-	if len(evs) != 1 || evs[0].Choice != "a" {
-		t.Errorf("events not captured: %+v", evs)
-	}
-	// drain clears
-	req = httptest.NewRequest("GET", "/companion/sessions/"+itoa(id)+"/events?key="+key, nil)
-	w = httptest.NewRecorder()
-	s.Handler().ServeHTTP(w, req)
-	_ = json.Unmarshal(w.Body.Bytes(), &evs)
-	if len(evs) != 0 { t.Errorf("events not drained: %+v", evs) }
-}
-
-func TestCompanionWSOrigin(t *testing.T) {
-	s, key := newCompanionServer(t)
-	id := s.companionStore.sessionsByAny()[0]
-	// Cross-origin Origin must not be upgraded.
-	req := httptest.NewRequest("GET", "/companion/sessions/"+itoa(id)+"/ws?key="+key, nil)
-	req.Header.Set("Origin", "http://evil.example")
-	req.Header.Set("Upgrade", "websocket")
-	req.Header.Set("Connection", "Upgrade")
-	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
-	w := httptest.NewRecorder()
-	s.Handler().ServeHTTP(w, req)
-	if w.Code == 101 { t.Errorf("cross-origin WS should not upgrade, got 101") }
+	if w.Code != 401 { t.Errorf("no-auth answer with token set: got %d want 401", w.Code) }
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestCompanionWS|TestCompanionEvent' -v`
-Expected: FAIL — handlers/clients undefined.
+Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestDecisionAnswer' -v`
+Expected: FAIL — `handleDecisionAnswer` undefined.
 
 - [ ] **Step 3: Write minimal implementation**
 
 ```go
-// companion_ws.go
-package http
-
-import (
-	"crypto/subtle"
-	"encoding/json"
-	"net"
-	"net/http"
-	"time"
-
-	"golang.org/x/net/websocket"
-)
-
-func (s *Server) handleCompanionWS(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseCompanionID(r)
-	if !ok { writeError(w, http.StatusBadRequest, "bad session id"); return }
-	sess := s.companionStore.get(id)
-	if sess == nil { writeError(w, http.StatusNotFound, "no such companion session"); return }
-	if !s.companionAuth(r, sess) { http.Error(w, "session key required", http.StatusForbidden); return }
-
-	origin := r.Header.Get("Origin")
-	if origin != "" {
-		host := r.Host
-		if host == "" { host = r.URL.Host }
-		if subtle.ConstantTimeCompare([]byte(origin), []byte("http://"+host)) != 1 &&
-			subtle.ConstantTimeCompare([]byte(origin), []byte("http://"+net.JoinHostPort(r.Host, "80"))) != 1 {
-			http.Error(w, "origin not allowed", http.StatusForbidden)
-			return
-		}
-	}
-
-	upgrader := websocket.Upgrader{ReadBufferSize: 4096, WriteBufferSize: 4096}
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil { return }
-	sess.addClient(conn)
-	defer sess.removeClient(conn)
-
-	// Read pump: capture click/choice events, echo nothing. Exits on close.
-	buf := make([]byte, 16<<10)
-	for {
-		n, err := conn.Read(buf)
-		if err != nil { return }
-		var ev companionEvent
-		if json.Unmarshal(buf[:n], &ev) == nil && (ev.Type == "click" || ev.Type == "choice") {
-			if ev.Timestamp == 0 { ev.Timestamp = time.Now().UnixMilli() }
-			sess.appendEvent(ev)
-		}
-	}
+// decisions.go — add
+type decisionAnswerBody struct {
+	OptionID string `json:"optionId"`
+	Note     string `json:"note"`
 }
 
-// companion.go additions
-func (s *Server) handleCompanionEvents(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseCompanionID(r)
-	if !ok { writeError(w, http.StatusBadRequest, "bad session id"); return }
-	sess := s.companionStore.get(id)
-	if sess == nil { writeError(w, http.StatusNotFound, "no such companion session"); return }
-	if !s.companionAuth(r, sess) { writeError(w, http.StatusForbidden, "session key required"); return }
-	switch r.Method {
-	case http.MethodPost:
-		body, err := readBody(r, 1<<20)
-		if err != nil { writeError(w, http.StatusBadRequest, err.Error()); return }
-		var ev companionEvent
-		if json.Unmarshal(body, &ev) != nil { writeError(w, http.StatusBadRequest, "bad event json"); return }
-		if ev.Timestamp == 0 { ev.Timestamp = time.Now().UnixMilli() }
-		sess.appendEvent(ev)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-	default: // GET — drain
-		evs := sess.drainEvents()
-		if evs == nil { evs = []companionEvent{} }
-		writeJSON(w, http.StatusOK, evs)
-	}
-}
+func (s *Server) handleDecisionAnswer(w http.ResponseWriter, r *http.Request) {
+	projectID, err := projectFromRequest(r)
+	if err != nil { writeError(w, http.StatusBadRequest, err.Error()); return }
+	id64, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil { writeError(w, http.StatusBadRequest, "id must be an integer"); return }
+	var in decisionAnswerBody
+	if err := decodeJSON(r, &in); err != nil { writeError(w, http.StatusBadRequest, err.Error()); return }
+	if in.OptionID == "" { writeError(w, http.StatusBadRequest, "optionId is required"); return }
 
-// registerCompanionRoutes — add:
-// 	s.mux.HandleFunc("GET /companion/sessions/{id}/ws", s.handleCompanionWS)
-// 	s.mux.HandleFunc("POST /companion/sessions/{id}/events", s.handleCompanionEvents)
-// 	s.mux.HandleFunc("GET /companion/sessions/{id}/events", s.handleCompanionEvents)
-// and on PUT screen success, call sess.broadcastReload().
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil { writeError(w, http.StatusNotFound, err.Error()); return }
+	defer cleanup()
+
+	// Load the current decision, flip state, record the answer.
+	var content string
+	if err := h.Store().DB.QueryRowContext(r.Context(),
+		`SELECT content FROM observations WHERE id = ? AND project = ? AND type='decision' AND deleted_at IS NULL`,
+		id64, projectID).Scan(&content); err != nil {
+		writeError(w, http.StatusNotFound, "no such decision")
+		return
+	}
+	c, ok := parseDecisionContent(content)
+	if !ok { writeError(w, http.StatusBadRequest, "decision content unreadable"); return }
+	// validate the option exists
+	valid := false
+	for _, o := range c.Options { if o.ID == in.OptionID { valid = true } }
+	if !valid { writeError(w, http.StatusUnprocessableEntity, "optionId not in this decision's options"); return }
+	c.State = "answered"
+	c.AnsweredOption = in.OptionID
+	c.AnswerNote = in.Note
+	c.UpdatedBy = "user"
+	newContent, _ := json.Marshal(c)
+
+	// Persist through the governance path so a version is appended.
+	if err := h.Memory().UpdateContent(r.Context(), id64, string(newContent)); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": c.State})
+}
 ```
 
-Session client set + broadcast (in `companion.go`):
+In `memory/governance.go`, add (mirroring `SetStatus`'s shape, but for `content` + version append):
 
 ```go
-// add to companionSession:
-// 	clients   map[int]*websocket.Conn
-// 	clientSeq int
-// (import golang.org/x/net/websocket)
-
-func (sess *companionSession) addClient(c *websocket.Conn) {
-	sess.mu.Lock(); defer sess.mu.Unlock()
-	if sess.clients == nil { sess.clients = map[int]*websocket.Conn{} }
-	sess.clientSeq++; sess.clients[sess.clientSeq] = c
-}
-func (sess *companionSession) removeClient(c *websocket.Conn) {
-	sess.mu.Lock(); defer sess.mu.Unlock()
-	for k, v := range sess.clients { if v == c { delete(sess.clients, k) } }
-}
-func (sess *companionSession) broadcastReload() {
-	sess.mu.RLock(); defer sess.mu.RUnlock()
-	frame, _ := json.Marshal(map[string]string{"type": "reload"})
-	for _, c := range sess.clients { _ = c.Write(frame) }
-}
-func (sess *companionSession) appendEvent(ev companionEvent) {
-	sess.mu.Lock(); defer sess.mu.Unlock()
-	sess.events = append(sess.events, ev)
-	sess.lastActive = time.Now()
-	const cap = 256
-	if len(sess.events) > cap { sess.events = sess.events[len(sess.events)-cap:] }
-}
-func (sess *companionSession) drainEvents() []companionEvent {
-	sess.mu.Lock(); defer sess.mu.Unlock()
-	out, sess.events = sess.events, nil
-	return out
+// UpdateContent sets observations.content for a row and appends an
+// observation_versions history entry (the same path mem_update uses), bumping
+// revision_count and updated_at. Used by the decisions answer route so the
+// approval trail is append-only and identical to any other update.
+func (s *Service) UpdateContent(ctx context.Context, id int64, newContent string) error {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return errors.New("memory service not initialized")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil { return fmt.Errorf("update content: begin: %w", err) }
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE observations SET content = ?, updated_at = ?, revision_count = revision_count + 1
+		 WHERE id = ? AND project = ? AND deleted_at IS NULL`, newContent, now, id, s.projectID); err != nil {
+		return fmt.Errorf("update content: %w", err)
+	}
+	if n, _ := (func() (int64, error) {
+		return tx.QueryRowContext(ctx,
+			`SELECT changes() FROM observations WHERE id = ?`, id).Scan(&n)
+	})(); n == 0 {
+		return fmt.Errorf("observation %d not found", id)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO observation_versions (observation_id, content, created_at) VALUES (?,?,?)`,
+		id, newContent, now); err != nil {
+		return fmt.Errorf("update content: version: %w", err)
+	}
+	return tx.Commit()
 }
 ```
+
+> Confirm the exact `observation_versions` columns against `migrations/017_layered_memory_governance.sql` before writing the INSERT (the schema test in `governance_schema_test.go` shows the table exists; match its real column names — `observation_id`/`content`/`created_at` are the expected shape, verify and adjust).
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestCompanionWS|TestCompanionEvent' -v -race`
+Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestDecisionAnswer' -v -race`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/http/companion_ws.go skillgrid-cli/internal/mnemonic/http/companion.go skillgrid-cli/internal/mnemonic/http/companion_test.go skillgrid-cli/go.mod skillgrid-cli/go.sum
-git commit -m "feat(companion): websocket upgrade + reload broadcast + event capture"
+git add skillgrid-cli/internal/mnemonic/http/decisions.go skillgrid-cli/internal/mnemonic/http/decisions_test.go skillgrid-cli/internal/mnemonic/memory/governance.go
+git commit -m "feat(decisions): answer route — state flip + append-only version"
 ```
 
 ---
 
-### Task 4: React `/companion` view (sandboxed iframe + event round-trip)
+### Task 3: React `/decisions` view (decision inbox + answer round-trip)
 
 **Files:**
-- Create: `skillgrid-ui/src/features/companion/api.ts`
-- Create: `skillgrid-ui/src/features/companion/CompanionPage.tsx`
-- Create: `skillgrid-ui/src/features/companion/CompanionFrame.tsx`
-- Modify: `skillgrid-ui/src/app.tsx` (add `companionRoute`)
+- Create: `skillgrid-ui/src/features/decisions/api.ts`
+- Create: `skillgrid-ui/src/features/decisions/DecisionsPage.tsx`
+- Create: `skillgrid-ui/src/features/decisions/DecisionCard.tsx`
+- Modify: `skillgrid-ui/src/app.tsx` (add `decisionsRoute`)
 - Modify: `skillgrid-ui/src/components/layout/AppLayout.tsx` (add nav entry)
 
 **Interfaces:**
-- Consumes: `GET /companion/sessions/{id}/screen`, `POST /companion/sessions/{id}/events`, `GET /companion/sessions/{id}/events` (Tasks 1–3); `currentProjectName` from `../../lib/projects`.
-- Produces: `CompanionPage` (default-exported route component), `companionApi` with `fetchScreen(id)`, `postEvent(id, ev)`, `drainEvents(id)`.
+- Consumes: `GET /mnemonic/decisions?project=…&state=…`, `POST /mnemonic/decisions/{id}/answer?project=…`; `currentProjectName` from `../../lib/projects`.
+- Produces: `DecisionsPage` (default-exported route component); `decisionsApi` with `fetchDecisions(project, state)`, `answerDecision(project, id, {optionId, note})`.
 
-**SATISFIES:** scenarios `companion-view-renders`, `companion-view-roundtrip`.
+**SATISFIES:** scenarios `decision-view-renders` + `decision-view-roundtrip`.
 
 - [ ] **Step 1: Write the failing test**
 
-```ts
-// skillgrid-ui/src/features/companion/CompanionPage.test.tsx (vitest + @testing-library/react)
-import { render, screen, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { CompanionPage } from './CompanionPage'
+```tsx
+// skillgrid-ui/src/features/decisions/DecisionCard.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { DecisionCard } from './DecisionCard'
 
-describe('CompanionPage', () => {
-  beforeEach(() => vi.restoreAllMocks())
+const d = {
+  id: 1, topicKey: 'interview/demo/layout-1', title: 'Layout',
+  createdAt: '', updatedAt: '', visibility: 'team', parseError: false,
+  content: {
+    question: 'Which layout?',
+    options: [{ id: 'a', label: 'Single column' }, { id: 'b', label: 'Two column' }],
+    recommended: 'a', state: 'pending',
+  },
+}
 
-  it('renders the active screen in a sandboxed iframe', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue(
-      new Response('<h2>Which layout?</h2>', { status: 200, headers: { 'Content-Type': 'text/html' } }),
-    )
-    render(<CompanionPage sessionId={1} sessionKey="k" />)
-    const frame = await screen.findByTestId('companion-frame')
-    await waitFor(() => expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin'))
-    expect(frame.getAttribute('sandbox')).toContain('allow-scripts')
+describe('DecisionCard', () => {
+  it('renders options with the recommended one highlighted', () => {
+    render(<DecisionCard decision={d as any} onAnswer={vi.fn()} />)
+    expect(screen.getByText('Which layout?')).toBeTruthy()
+    const rec = screen.getByTestId('decision-option-a')
+    expect(rec.className).toContain('recommended')
   })
-
-  it('round-trips a click back to the event stream', async () => {
-    const post = vi.fn().mockResolvedValue(new Response('{"ok":true}', { status: 200 }))
-    vi.spyOn(global, 'fetch').mockImplementation((url: string) =>
-      String(url).includes('/events') ? post() :
-      Promise.resolve(new Response('<h2>v</h2>', { status: 200, headers: { 'Content-Type': 'text/html' } })),
-    )
-    render(<CompanionPage sessionId={1} sessionKey="k" onEvent={post} />)
-    // postMessage from the sandboxed frame
-    // (the frame calls window.parent.postMessage; here we assert the handler wires up)
-    expect(post).not.toHaveBeenCalled()
+  it('posts the chosen option on click', () => {
+    const onAnswer = vi.fn()
+    render(<DecisionCard decision={d as any} onAnswer={onAnswer} />)
+    fireEvent.click(screen.getByTestId('decision-option-b'))
+    expect(onAnswer).toHaveBeenCalledWith(1, { optionId: 'b', note: '' })
   })
 })
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd skillgrid-ui && npm test -- CompanionPage`
+Run: `cd skillgrid-ui && npm test -- DecisionCard`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Write minimal implementation**
 
 ```tsx
-// CompanionFrame.tsx
-import { useEffect, useRef, useState } from 'react'
+// DecisionCard.tsx
+import { useState } from 'react'
 
-interface Props {
-  html: string
-  onEvent: (ev: { type: string; choice?: string; text?: string; id?: string }) => void
+export interface DecisionOption { id: string; label: string; rationale?: string }
+export interface Decision {
+  id: number; topicKey: string; title: string; createdAt: string; updatedAt: string
+  visibility: string; parseError?: boolean
+  content: { question: string; options: DecisionOption[]; recommended?: string; state: string; answeredOption?: string; answerNote?: string }
 }
 
-// The frame runs in a sandboxed iframe. helper.js (injected by the server)
-// posts clicks via window.parent.postMessage; we relay them to onEvent.
-export function CompanionFrame({ html, onEvent }: Props) {
-  const ref = useRef<HTMLIFrameElement>(null)
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      const d = e.data as { type?: string; choice?: string; text?: string; id?: string }
-      if (d && typeof d.type === 'string') onEvent(d)
-    }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
-  }, [onEvent])
-
-  // The server already wraps the frame + injects helper.js; srcDoc renders it.
-  // sandbox: allow-scripts so helper.js runs; NO allow-same-origin so the screen
-  // cannot read the dashboard's cookies/localStorage.
+export function DecisionCard({ decision, onAnswer }: { decision: Decision; onAnswer: (id: number, a: { optionId: string; note: string }) => void }) {
+  const [note, setNote] = useState('')
+  const answered = decision.content.state === 'answered'
+  if (decision.parseError) {
+    return <div className="rounded-md border border-warn bg-warn-soft p-3 text-sm">Unreadable decision: {decision.topicKey}</div>
+  }
   return (
-    <iframe
-      ref={ref}
-      data-testid="companion-frame"
-      title="Companion screen"
-      sandbox="allow-scripts allow-popups"
-      srcDoc={html}
-      className="h-full w-full rounded-md border border-edge bg-background"
-    />
+    <div className="rounded-md border border-edge bg-panel p-4">
+      <div className="mb-1 text-xs uppercase tracking-wide text-ink-3">{decision.topicKey}</div>
+      <h3 className="mb-3 font-semibold">{decision.content.question}</h3>
+      <div className="flex flex-col gap-2">
+        {decision.content.options.map((o) => {
+          const isRec = o.id === decision.content.recommended
+          const isPicked = answered && o.id === decision.content.answeredOption
+          return (
+            <button
+              key={o.id}
+              data-testid={`decision-option-${o.id}`}
+              disabled={answered}
+              onClick={() => onAnswer(decision.id, { optionId: o.id, note })}
+              className={[
+                'rounded border p-2 text-left text-sm transition',
+                isRec ? 'border-accent bg-accent-soft recommended' : 'border-edge hover:bg-background',
+                isPicked ? 'border-ok bg-ok-soft' : '',
+              ].join(' ')}
+            >
+              <span className="font-medium">{o.label}</span>
+              {isRec && !answered && <span className="ml-2 text-xs text-accent">recommended</span>}
+              {isPicked && <span className="ml-2 text-xs text-ok">your choice</span>}
+              {o.rationale && <div className="mt-1 text-xs text-ink-2">{o.rationale}</div>}
+            </button>
+          )
+        })}
+      </div>
+      {!answered && (
+        <input
+          className="mt-3 w-full rounded border border-edge bg-background px-2 py-1 text-sm"
+          placeholder="Optional note for the agent…"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      )}
+      {answered && decision.content.answerNote && (
+        <div className="mt-2 text-xs text-ink-2">Note: {decision.content.answerNote}</div>
+      )}
+    </div>
   )
 }
 ```
 
 ```tsx
-// CompanionPage.tsx
+// DecisionsPage.tsx
 import { useCallback, useEffect, useState } from 'react'
-import { CompanionFrame } from './CompanionFrame'
+import { DecisionCard, type Decision } from './DecisionCard'
 import * as api from './api'
 
-export interface CompanionPageProps { sessionId: number; sessionKey: string }
-
-export function CompanionPage({ sessionId, sessionKey }: CompanionPageProps) {
-  const [html, setHtml] = useState('')
-  const [error, setError] = useState<string | null>(null)
+export function DecisionsPage() {
+  const [tab, setTab] = useState<'pending' | 'answered' | 'all'>('pending')
+  const [rows, setRows] = useState<Decision[]>([])
+  const [err, setErr] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    try { setHtml(await api.fetchScreen(sessionId, sessionKey)) }
-    catch (e) { setError(String(e)) }
-  }, [sessionId, sessionKey])
+    try { setRows(await api.fetchDecisions(tab === 'all' ? '' : tab)) }
+    catch (e) { setErr(String(e)) }
+  }, [tab])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load(); const t = setInterval(load, 4000); return () => clearInterval(t) }, [load])
 
-  const onEvent = useCallback((ev: { type: string; choice?: string; text?: string; id?: string }) => {
-    void api.postEvent(sessionId, sessionKey, ev)
-  }, [sessionId, sessionKey])
+  const onAnswer = useCallback(async (id: number, a: { optionId: string; note: string }) => {
+    await api.answerDecision(id, a); void load()
+  }, [load])
 
-  if (error) return <div className="p-6 text-error">{error}</div>
-  return <CompanionFrame html={html} onEvent={onEvent} />
+  return (
+    <div className="flex h-full flex-col gap-3 overflow-y-auto p-6">
+      <div className="flex gap-1 text-sm">
+        {(['pending', 'answered', 'all'] as const).map((t) => (
+          <button key={t} onClick={() => setTab(t)}
+            className={'rounded px-3 py-1 ' + (tab === t ? 'bg-accent-soft text-accent' : 'text-ink-2 hover:bg-background')}>{t}</button>
+        ))}
+      </div>
+      {err && <div className="text-error">{err}</div>}
+      {rows.length === 0 && <div className="text-ink-3">No {tab} decisions.</div>}
+      <div className="flex flex-col gap-3">
+        {rows.map((d) => <DecisionCard key={d.id} decision={d} onAnswer={onAnswer} />)}
+      </div>
+    </div>
+  )
 }
 ```
 
 ```ts
 // api.ts
-export async function fetchScreen(id: number, key: string): Promise<string> {
-  const res = await fetch(`/companion/sessions/${id}/screen?key=${encodeURIComponent(key)}`)
-  if (!res.ok) throw new Error(`companion screen ${res.status}`)
-  return res.text()
+import { currentProjectName } from '../../lib/projects'
+import type { Decision } from './DecisionCard'
+
+let project: string | null = null
+async function resolveProject(): Promise<string> {
+  if (project) return project
+  project = await currentProjectName()
+  return project
 }
-export async function postEvent(id: number, key: string, ev: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`/companion/sessions/${id}/events?key=${encodeURIComponent(key)}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ev),
-  })
-  if (!res.ok) throw new Error(`companion event ${res.status}`)
-}
-export async function drainEvents(id: number, key: string): Promise<Array<Record<string, unknown>>> {
-  const res = await fetch(`/companion/sessions/${id}/events?key=${encodeURIComponent(key)}`)
-  if (!res.ok) throw new Error(`companion events ${res.status}`)
+
+export async function fetchDecisions(state: string): Promise<Decision[]> {
+  const p = await resolveProject()
+  const q = new URLSearchParams({ project: p }); if (state) q.set('state', state)
+  const res = await fetch(`/mnemonic/decisions?${q}`)
+  if (!res.ok) throw new Error(`decisions ${res.status}`)
   return res.json()
 }
+
+export async function answerDecision(id: number, a: { optionId: string; note: string }): Promise<void> {
+  const p = await resolveProject()
+  const res = await fetch(`/mnemonic/decisions/${id}/answer?project=${encodeURIComponent(p)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(a),
+  })
+  if (!res.ok) throw new Error(`answer ${res.status}`)
+}
 ```
 
-Wire the route + nav:
+Wire route + nav (mirror `activityRoute` / `STANDALONE_ITEMS`):
 
 ```tsx
-// app.tsx — add (mirror activityRoute):
-const companionRoute = createRoute({
+// app.tsx
+const decisionsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/companion',
-  component: lazyPage(() => import('./features/companion/CompanionPage').then((m) => ({ default: m.CompanionPage }))),
+  path: '/decisions',
+  component: lazyPage(() => import('./features/decisions/DecisionsPage').then((m) => ({ default: m.DecisionsPage }))),
 })
-// add companionRoute to routeTree.children
-```
-
-```tsx
-// AppLayout.tsx — add to STANDALONE_ITEMS:
-{ to: '/companion', label: 'Companion' },
+// add decisionsRoute to routeTree.children
+// AppLayout.tsx STANDALONE_ITEMS: { to: '/decisions', label: 'Decisions' },
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd skillgrid-ui && npm test -- CompanionPage && npm run build:check`
+Run: `cd skillgrid-ui && npm test -- DecisionCard && npm run build:check`
 Expected: PASS (tests + bundle budget).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-ui/src/features/companion/ skillgrid-ui/src/app.tsx skillgrid-ui/src/components/layout/AppLayout.tsx
-git commit -m "feat(ui): companion view — sandboxed iframe + event round-trip"
+git add skillgrid-ui/src/features/decisions/ skillgrid-ui/src/app.tsx skillgrid-ui/src/components/layout/AppLayout.tsx
+git commit -m "feat(ui): decisions view — decision inbox + answer round-trip (polling)"
 ```
 
 ---
 
-### Task 5: Session bootstrap endpoint + reaper + openapi + integration
+### Task 4: openapi + docs convention + MCP round-trip guard
 
 **Files:**
-- Modify: `skillgrid-cli/internal/mnemonic/http/companion.go` (add `POST /companion/sessions` bootstrap; add reaper goroutine)
-- Modify: `skillgrid-cli/internal/mnemonic/http/companion_test.go`
-- Modify: `skillgrid-cli/internal/mnemonic/http/ui/openapi.yaml` (add `/companion/*` paths)
-- Create: `skillgrid-cli/internal/mnemonic/http/usermanual_companion_test.go` (doc-existence guard, mirror `usermanual_phase7_test.go`)
+- Modify: `skillgrid-cli/internal/mnemonic/http/ui/openapi.yaml` (add `/mnemonic/decisions` + `/mnemonic/decisions/{id}/answer`)
+- Create: `docs/user-guide/10-decision-companion.md` (content schema + the poll loop)
+- Create: `skillgrid-cli/internal/mnemonic/http/usermanual_decisions_test.go` (doc-existence guard, mirror `usermanual_phase7_test.go`)
+- Create: `skillgrid-cli/internal/mnemonic/mcp/decision_roundtrip_test.go` (MCP round-trip guard)
 
 **Interfaces:**
-- Consumes: `companionStore` (Task 1).
-- Produces: `handleCompanionSessionCreate` (POST), `startCompanionReaper(idleTimeout, checkInterval)`; openapi entries; `TestCompanionSessionReaper`.
+- Consumes: existing `mem_save`/`mem_search` MCP tools (frozen).
+- Produces: openapi entries; `TestDecisionsUserManual`; `TestDecisionMCPRoundTrip`.
 
-**SATISFIES:** scenarios `companion-session-bootstrap`, `companion-session-reaped`.
+**SATISFIES:** scenarios `decision-docs-exist` + `decision-mcp-roundtrip`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 ```go
-func TestCompanionSessionBootstrap(t *testing.T) {
-	s, _ := newCompanionServer(t)
-	req := httptest.NewRequest("POST", "/companion/sessions", nil)
-	w := httptest.NewRecorder()
-	s.Handler().ServeHTTP(w, req)
-	if w.Code != 201 { t.Fatalf("bootstrap: got %d want 201", w.Code) }
-	var out map[string]any
-	_ = json.Unmarshal(w.Body.Bytes(), &out)
-	if out["id"].(float64) == 0 { t.Errorf("no id in bootstrap: %v", out) }
-	if out["key"] == "" { t.Errorf("no key in bootstrap: %v", out) }
-}
-
-func TestCompanionSessionReaper(t *testing.T) {
-	svc, _ := newTestService(t)
-	s := NewServer(svc)
-	// shorten reaper for the test via a package var (see impl)
-	companionReaperIdle = 30 * time.Millisecond
-	companionReaperCheck = 10 * time.Millisecond
-	go s.startCompanionReaper(companionReaperIdle, companionReaperCheck)
-	defer s.stopCompanionReaper()
-
-	_, key := s.companionStore.createSession()
-	id := s.companionStore.sessionsByAny()[0]
-	_ = key
-	time.Sleep(80 * time.Millisecond)
-	if s.companionStore.get(id) != nil {
-		t.Errorf("idle session not reaped")
+// usermanual_decisions_test.go
+func TestDecisionsUserManual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "user-guide", "10-decision-companion.md"))
+	if err != nil { t.Fatalf("missing decision-companion doc: %v", err) }
+	for _, marker := range []string{"type: decision", "state: pending", "recommended", "mem_save", "GET /mnemonic/decisions"} {
+		if !strings.Contains(string(data), marker) { t.Errorf("doc missing marker %q", marker) }
 	}
 }
+
+// decision_roundtrip_test.go (in mcp pkg) — save a decision via mem_save, search it back, parse content.
+func TestDecisionMCPRoundTrip(t *testing.T) {
+	// (adapt to the package's existing MCP test harness — see single_open_test.go / e2e_memory_ext_test.go)
+	// 1. mem_save{type:decision, topic_key:interview/demo/rt, visibility:team, content:`{"question":"Q","options":[{"id":"a","label":"A"}],"recommended":"a","state":"pending"}`}
+	// 2. mem_search{query or topic_key} → find the row
+	// 3. parse content JSON → assert question/options/recommended/state present
+}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestCompanionSessionBootstrap|TestCompanionSessionReaper' -v`
-Expected: FAIL — bootstrap/reaper undefined.
+Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run TestDecisionsUserManual -v && go test ./internal/mnemonic/mcp/ -run TestDecisionMCPRoundTrip -v`
+Expected: FAIL — doc missing, MCP test not written.
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 3: Write implementation (doc + openapi + MCP test)**
 
-```go
-// companion.go additions
-var (
-	companionReaperIdle  = 4 * time.Hour  // overridable in tests
-	companionReaperCheck = 60 * time.Second
-)
+`docs/user-guide/10-decision-companion.md` — the convention:
 
-func (s *Server) handleCompanionSessionCreate(w http.ResponseWriter, r *http.Request) {
-	sess, key := s.companionStore.createSession()
-	writeJSON(w, http.StatusCreated, map[string]any{"id": sess.id, "key": key, "url": fmt.Sprintf("/companion/sessions/%d/screen?key=%s", sess.id, key)})
+````markdown
+# Decisions — the Mnemonic decision companion
+
+The companion is a **view over `type=decision` Mnemonic observations**. The agent
+posts interview questions; the dashboard renders them; the user answers; the agent
+reads the answer back. No WebSocket, no second process, no new store — polling is the
+transport.
+
+## The decision content schema (JSON in `observations.content`)
+
+```json
+{
+  "question": "Which layout for the homepage?",
+  "options": [
+    { "id": "a", "label": "Single column", "rationale": "cleanest reading" },
+    { "id": "b", "label": "Two column" }
+  ],
+  "recommended": "a",
+  "state": "pending"
 }
-
-func (s *Server) startCompanionReaper(idle, check time.Duration) {
-	s.reaperStop = make(chan struct{})
-	go func() {
-		t := time.NewTicker(check)
-		defer t.Stop()
-		for {
-			select {
-			case <-s.reaperStop:
-				return
-			case <-t.C:
-				now := time.Now()
-				for _, sess := range s.companionStore.snapshot() {
-					sess.mu.RLock()
-					idle := now.Sub(sess.lastActive)
-					hasClient := len(sess.clients) > 0
-					sess.mu.RUnlock()
-					if !hasClient && idle > idle {
-						s.companionStore.removeSession(sess.id)
-					}
-				}
-			}
-		}
-	}()
-}
-func (s *Server) stopCompanionReaper() { close(s.reaperStop) }
-
-// companionStore.snapshot() returns []*companionSession (RLock).
-// registerCompanionRoutes — add:
-//  s.mux.HandleFunc("POST /companion/sessions", s.handleCompanionSessionCreate)
 ```
 
-Wire `reaperStop chan struct{}` into `Server`; start the reaper in `NewServer` (or `runServe`) with the package defaults; add `companion` to the openapi `tags` and the `/companion/*` path entries (mirror the activity path shape). Add the usermanual guard test asserting a dashboard doc page exists for the companion (mirror `usermanual_phase7_test.go`).
+Fields:
+- `question` (required) — the question, in domain language.
+- `options[]` (required, ≥1) — `id` (stable, `a`/`b`/…), `label`, optional `rationale`.
+- `recommended` (optional) — the id of the option the agent recommends (highlighted in the UI).
+- `state` (required) — `pending` | `answered` | `superseded`. **This is a content field, not the governance `status`** (`status` is reserved for `active|superseded|archived`).
+- `answeredOption`, `answerNote` — set by the user's answer (the dashboard writes these).
+- `updatedBy` — `agent` or `user`.
 
-- [ ] **Step 4: Run test to verify it passes**
+## The loop (polling, not realtime)
 
-Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestCompanion' -v -race`
-Expected: PASS (all companion tests).
+1. **Agent → user:** `mem_save` an observation: `type: decision`, `topic_key: interview/<slug>/<question-id>`, `visibility: team`, `content: {…state:pending}`. Reusing the same `topic_key` **upserts** the row (in-place question update; bumps the version history).
+2. **Dashboard** polls `GET /mnemonic/decisions?state=pending` and renders the cards.
+3. **User → agent:** click an option (or add a note) → `POST /mnemonic/decisions/{id}/answer {optionId, note}` → sets `state: answered`, records the choice, **appends a version** (durable, auditable trail).
+4. **Agent** polls `mem_search` on the decision's `topic_key` (or the activity feed) and proceeds when `content.state == answered`.
 
-- [ ] **Step 5: Run full suite + build**
+## Durability
 
-Run: `cd skillgrid-cli && go build ./... && go test ./... 2>&1 | tail -20`
-Expected: build clean, no new failures.
+Everything is in the Mnemonic SQLite store: it survives a server restart, is
+versioned (`observation_versions`), owned, and governed (`visibility`, `acl_grants`).
+A resumed session reads the same decisions.
+````
+
+Add the two openapi paths (mirror the `/mnemonic/memories/{id}/status` shape) and write the MCP round-trip test.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestDecision' -v && go test ./internal/mnemonic/mcp/ -run TestDecisionMCPRoundTrip -v`
+Expected: PASS.
+
+- [ ] **Step 5: Run full suite + build + UI build:check**
+
+Run: `cd skillgrid-cli && go build ./... && go test ./... 2>&1 | tail -20 && cd ../skillgrid-ui && npm run build:check`
+Expected: clean.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/http/ skillgrid-cli/internal/mnemonic/http/ui/openapi.yaml
-git commit -m "feat(companion): session bootstrap + idle reaper + openapi + docs guard"
+git add skillgrid-cli/internal/mnemonic/http/ui/openapi.yaml skillgrid-cli/internal/mnemonic/http/usermanual_decisions_test.go skillgrid-cli/internal/mnemonic/mcp/decision_roundtrip_test.go docs/user-guide/10-decision-companion.md
+git commit -m "docs(decisions): openapi + user-guide convention + MCP round-trip guard"
 ```
 
 ---
 
 ## Self-Review
 
-1. **Spec coverage:** every capability (serve screen, key gate, event capture, WS reload, frame parity, sandboxed view, bootstrap, reaper) has a task. ✔
-2. **Must-haves coverage:** truths 1–8 map to Tasks 1–5; artifacts + key links listed. `backstop` truths (1, 5, 6) get held-out tests: Task 1 e2e render (manual/browser during door check), Task 2 `TestCompanionFrameParity`, Task 4 sandbox test. ✔
-3. **One-way-door completeness:** none — no migration/contract break; listed as "None". ✔
-4. **Placeholder scan:** no TBD/TODO/"similar to Task N"; each step has code. (Task 3 `itoa` helper and `newTestService`/`readBody` are called out to match existing package helpers — confirm exact names at execution time.) ✔
-5. **Type consistency:** `companionSession`/`companionEvent`/`companionStore` defined once (Task 1) and reused; `handleCompanionWS`/`handleCompanionEvents` names consistent across Tasks 3–5; `companionReaperIdle/Check` package vars consistent. ✔
+1. **Spec coverage:** every capability (agent posts decision, dashboard reads, user answers, agent reads back, durable/versioned, visibility-gated, write-authed, doc'd) has a task. The deferred `decisions`-table sub-decision is explicitly *not* a task. ✔
+2. **Must-haves coverage:** truths 1–9 map to Tasks 1–4; `backstop` truths (1, 4, 9) get held-out tests — Task 1 live render (door check), Task 4 `TestDecisionMCPRoundTrip`, and a manual restart check during the door check. Artifacts + key links listed. ✔
+3. **One-way-door completeness:** none — no migration/table/contract break; listed as "None". ✔
+4. **Placeholder scan:** no TBD/TODO/"similar to Task N". Two spots flag "confirm against existing code" — `observation_versions` column names (Task 2) and the MCP test harness shape (Task 4) — these are explicit verification steps, not holes, because the schema/harness already exist and the executor must match them. ✔
+5. **Type consistency:** `decisionContent`/`decisionOption`/`decisionRow`/`decisionAnswerBody` defined once (Task 1) and reused in Tasks 2–3; `handleDecisions`/`handleDecisionAnswer`/`parseDecisionContent`/`UpdateContent` names consistent; UI `Decision`/`DecisionOption` mirror the Go JSON. ✔
 
 ## Plan Review
 
 - Verdict: **READY FOR EXECUTION**
-- Findings: 0 Critical, 1 Important (Task 3 assumes `golang.org/x/net/websocket`; verify it's in `go.mod` at execution — if not, `go get` it; the WS upgrade-on-GO-1.22-mux is the only genuinely new risk, so Task 1's door check plus Task 3's handshake test gate it before UI work), 2 Minor (deferred: confirm `newTestService` exact helper name and `readBody` helper in `server.go`; the `itoa` test helper is `strconv.FormatInt`).
+- Findings: 0 Critical, 1 Important (Task 2 must verify the exact `observation_versions` column names against `migrations/017_layered_memory_governance.sql` before the INSERT — a wrong column name is a silent runtime failure, so the test in Task 2 is the gate), 2 Minor (deferred: the MCP round-trip test reuses the existing harness in `single_open_test.go`/`e2e_memory_ext_test.go`; the visibility filter in Task 1 must be matched verbatim to `handleMnemonicMemories` so the reader predicate doesn't drift).
 - Reviewed: 2026-09-19
 
 ## Execution Handoff
 
-Blueprint has 5 tasks → invoke `skillgrid:slicing` to break into vertical tracer-bullet tickets with execution waves, producing `tasks.md` alongside this blueprint.
+Blueprint has 4 tasks → invoke `skillgrid:slicing` to break into vertical tracer-bullet tickets with execution waves, producing `tasks.md` alongside this blueprint.
 
 **Two execution options:**
 
 1. **Subagent-Driven (recommended)** — fresh subagent per task + two-stage review.
 2. **Inline Execution** — `skillgrid:simple-execution`, batch with checkpoints.
 
-**Door check first:** execute Task 1 alone and confirm the screen round-trip + key gate pass in a live `skillgrid serve` before committing to the full build.
+**Door check first:** execute Task 1 alone and confirm, on a live `skillgrid serve`, that an agent `mem_save` of a `type=decision` observation appears in `GET /mnemonic/decisions`. If it doesn't parse back out, stop.
