@@ -15,3 +15,15 @@ jobs:
         run: ./scripts/sync-ide-assets.sh --check
       - name: Test the guard hooks
         run: ./scripts/test-hooks.sh
+
+  skill-hygiene:
+    # Runs on every PR (cheap, ~1s); the skills only change via PRs, so this is
+    # enough — no path filter needed and it catches accidental edits too.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Skill hygiene guard (anatomy + line budgets + hot paths)
+        run: node scripts/check-skillgrid-skills.mjs

@@ -8,6 +8,12 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-execution (recommended) or simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** PROPOSED
+
+**Tier:** T2
+
+**Build shape:** Tracer thread
+
 **Goal:** [One sentence describing what this builds]
 
 **Architecture:** [2-3 sentences about approach]
@@ -15,6 +21,21 @@
 **Tech Stack:** [Key technologies/libraries]
 
 **Spec:** [path to the spec this plan implements — the plan argues from the spec, so it travels with it; e.g., `../briefing.md` or `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`]
+
+<!-- ASSUMED BLOCK: replace **Status:** PROPOSED above with **Status: ASSUMED** and
+uncomment + fill this block ONLY when the Owed-Decision Gate's option 3
+("Build on the assumption") was chosen. Delete this comment when done. -->
+<!--
+**Status: ASSUMED** — owes ratification (run `skillgrid:writing-blueprints`
+with this blueprint as the topic to ratify)
+
+| | |
+|---|---|
+| Owed decision | {the specific load-bearing choice that was not made} |
+| Assumption built on | {the concrete assumption this build will use} |
+| Code area | {the paths this build will touch} |
+| Authorized by | {user name/handle}, at the blueprint gate |
+-->
 
 ## Must-Haves (goal-backward verification)
 

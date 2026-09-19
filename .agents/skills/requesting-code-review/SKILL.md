@@ -4,7 +4,7 @@ description: Use when completing tasks, implementing major features, or before m
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
   based_on: superpowers:requesting-code-review
 ---
@@ -16,6 +16,8 @@ metadata:
 Dispatch a code reviewer subagent to catch issues before they cascade. The reviewer gets precisely crafted context for evaluation — never your session's history.
 
 **Core principle:** Review early, review often.
+
+**Rigor tier:** at T2 (Beta) this two-axis pass is the default review (per `_shared/conventions/rigor-tiers.md`). At T3 (GA) use `skillgrid:parallel-code-review` instead, with at least one reviewer running on a model different from the one that implemented.
 
 ## Overview
 

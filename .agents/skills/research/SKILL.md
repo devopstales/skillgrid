@@ -1,6 +1,6 @@
 ---
 name: research
-description: Investigate a question against primary sources and capture the findings as a cited Markdown file. Use when the design or plan depends on a fact not in the codebase — a library's current API, a version's behavior, a domain constraint, a competitor's offering. The lightweight, single-pass research; for wide or high-stakes informational questions use skillgrid:code-research; for long-horizon experimental research (hypothesis → experiment → measure loops) use skillgrid:deep-research.
+description: Single-pass investigation of a question against primary sources, captured as a cited Markdown file. Use when the design or plan depends on a fact not in the codebase (a library API, a version's behavior, a domain constraint, a competitor's offering). Wide/high-stakes → skillgrid:code-research; long-horizon experimental → skillgrid:deep-research.
 license: MIT
 metadata:
   author: devopstales

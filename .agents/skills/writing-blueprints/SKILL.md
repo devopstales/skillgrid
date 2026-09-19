@@ -4,7 +4,7 @@ description: Use when you have a spec or requirements for a multi-step task, bef
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
   based_on: superpowers:writing-plans
 ---
@@ -113,6 +113,25 @@ matrix section per `../_shared/references/threat-matrix.md`:
 - Every Applicable row MUST have a concrete RED test that becomes a task in `tasks.md` and a scenario in `acceptance.feature`.
 - Omit the section entirely if no boundary is touched.
 
+## Build Shape
+
+Record the change's **build shape** in the blueprint header (`**Build shape:**
+<name>`). The shape is *how the work is ordered* — which behavior exists first —
+and it shapes the first execution wave. These are decades-old delivery
+strategies; the pick is a recorded decision (with a one-line why), not a vibe:
+
+| Shape | What it means | When it's right |
+|---|---|---|
+| **Tracer thread** | A thin end-to-end path through every layer (UI → API → DB) works first, then thickens | You want something real and connected as early as possible; integration risk is the unknown |
+| **Smallest usable whole** | The thinnest version a person could actually use ships first, then grows | Ship-and-learn; scope is uncertain but the core value is clear |
+| **Facade** | The UI shell stands up on placeholder data first; the real backend wires in later | The look needs sign-off before the plumbing earns its investment; a prototype path |
+| **Journey** | One user path is completed fully — every state of it — before the next begins | Each path must feel finished; the paths are genuinely independent |
+
+Recommend the shape that fits (one line why) and record it. `skillgrid:slicing`
+reads the recorded shape to order the first wave. The shape is orthogonal to
+the risk-first / contract-first ordering strategies in slicing (those order
+*within* waves; the shape orders the *first* wave).
+
 ## One-Way-Door Checkpoints
 
 A **one-way-door** decision is hard to reverse: it needs a migration, breaks
@@ -163,6 +182,19 @@ includes it plus a sample task — use it as the starting scaffold):
 # [Feature Name] Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Status:** PROPOSED (default. Set to `ASSUMED` only via the Owed-Decision
+Gate option 3 — the Assumed block follows the header; cleared only by Ratify.)
+
+**Tier:** T<n> (rigor tier — from `briefing.md`'s `Tier:` line, else
+`rules.tiers.default` in config, else inferred from the Change Classification
+and noted as an assumption. See `../_shared/conventions/rigor-tiers.md`. T1 →
+light blueprint (header + Must-Haves, no threat matrix unless applicable);
+T2/T3 → full blueprint.)
+
+**Build shape:** <Tracer thread | Smallest usable whole | Facade | Journey>
+(the recorded delivery strategy that orders the first execution wave — see the
+Build Shape section; `skillgrid:slicing` reads this line.)
 
 **Goal:** [One sentence describing what this builds]
 
@@ -271,6 +303,119 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 **5. Type consistency:** Do the types, method signatures, and property names you used in later tasks match what you defined in earlier tasks? A function called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.
 
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
+
+## Owed-Decision Gate (input coverage)
+
+After self-review passes and before the Plan Review gate, run the **input
+coverage check** to catch decisions nobody made yet.
+
+**Do NOT judge this by introspection** ("do I feel like I'm inventing
+something?"). The build model happily rationalizes a real decision as "just
+wiring" and pushes past it. The check is mechanical:
+
+1. Enumerate **every value this build must produce, compute, or display** —
+   from the Must-Haves truths and the spec's requirements (a total, a date, a
+   status, a count, a URL, a permission).
+2. For each, ask: **does the blueprint name where it comes from?** A named
+   source is: a spec input, a data column, a derivation from another named
+   value, or an in-force ADR.
+3. Any required value with **no named source is an owed decision.**
+
+A decision is also owed when the build would have to invent:
+- a provider, library, integration, or data model;
+- a whole screen or page whose design the blueprint does not pin down
+  (layout, composition, asset strategy);
+- a feature's behavior the acceptance criteria constrain but the blueprint
+  never settles ("what exactly should it do?" is still open).
+
+**Local implementation detail** is the narrow exception: a choice among
+options the named sources already permit — a loop style, a variable name,
+which helper to call. The moment a choice determines a value's source or a
+behavior an acceptance criterion constrains, it is load-bearing by definition,
+however small it looks.
+
+**No owed decisions** → proceed to the Plan Review gate.
+
+**Owed decisions exist** → present the panel (recommended first, one-line why;
+never a neutral menu, never a silent decision):
+
+> This blueprint owes a decision before it can be executed: `<name the
+> specific load-bearing choice, e.g. "which date a "today" total is computed
+> from — session time or the user's last-read row">`. How do you want to
+> handle it?
+>
+> 1. **Resolve first** (recommended) — settle the decision in
+>    brainstorming/interviewing now, then return to this blueprint. The build
+>    has a real decision, not a guess.
+> 2. **Not a real decision** — you've judged there's nothing load-bearing
+>    here. Proceed; record the judgment as a one-line `Decision note:` in the
+>    blueprint header.
+> 3. **Build on the assumption** — keep moving. Write the **Assumed block**
+>    below into the blueprint, then proceed. The assumption now lives in a
+>    file, not in this chat — it survives `/clear`, teammates read it, and a
+>    later run builds against it instead of guessing again. It stays flagged
+>    as owing ratification until `skillgrid:writing-blueprints` (Ratify mode)
+>    settles it. The flag never blocks execution.
+
+### The Assumed block
+
+On **Build on the assumption**, write this block into `blueprint.md` directly
+after the header (before `## Must-Haves`), and set the header line
+`**Status: ASSUMED**` (replace the default `**Status: PROPOSED**`). The
+assumed values in the task steps are the named content — no placeholders for
+them:
+
+```markdown
+**Status: ASSUMED** — owes ratification (run `skillgrid:writing-blueprints`
+with this blueprint as the topic to ratify)
+
+| | |
+|---|---|
+| Owed decision | {the specific load-bearing choice that was not made} |
+| Assumption built on | {the concrete assumption this build will use} |
+| Code area | {the paths this build will touch} |
+| Authorized by | {user name/handle}, at the blueprint gate |
+```
+
+Rules:
+- Only this gate (via option 3) creates an `ASSUMED` blueprint. Nothing else
+  sets the status.
+- The Assumed block records the assumption — it does NOT carry options,
+  rationale, or alternatives. That content is written by Ratify.
+- `ASSUMED` never blocks execution, slicing, QA, or ship. It is surfaced
+  (WARNING, never CRITICAL) by `skillgrid:qa`, carried into the ship Return
+  Envelope, and listed in the final `report.md` until ratified.
+- A blueprint stays `ASSUMED` through the whole change. Only Ratify clears it.
+
+## Ratify
+
+**When to use:** a change's blueprint carries `**Status: ASSUMED**` and the
+decision is now being deliberated — often phrased "ratify <feature>", or
+surfaced by `skillgrid:qa`'s decision-debt WARNING, the ship Return Envelope,
+or `skillgrid:reflect`'s report.
+
+**Process:**
+1. Read the Assumed blueprint in full. Its Owed decision, Assumption built on,
+   and Code area tell you what was decided provisionally and where the code
+   lives.
+2. Run the design conversation anchored to what was **actually built** (the
+   same infer / ask / recommend discipline as brainstorming). Deliberate the
+   decision properly.
+3. Two outcomes:
+   - **The assumption holds.** Fill in the real decision record in the
+     change's `adr.md` (ADR + options considered + rationale per the
+     `adr_style` from config), then clear the flag: set the status line to
+     `**Status: PROPOSED**` (the build is still in flight) or
+     `**Status: ACCEPTED**` (built and verified). Delete nothing else.
+   - **The assumption was wrong.** Write a corrected blueprint (a new
+     `.skillgrid/specs/YYYY-MM-DD-<topic>/blueprint.md` for the same topic),
+     mark the old one `**Status: SUPERSEDED by <new blueprint path>**`, and
+     tell the user the build rests on a wrong assumption and should be redone
+     against the corrected blueprint.
+
+**Never leave a blueprint ASSUMED after a ratify run.** Ratification is the
+only path out of the state — that is what keeps an override honest without
+ever blocking the work.
 
 ## Plan Review
 
@@ -385,18 +530,23 @@ the option exists when the blueprint looks risky.
 | "I'll leave a placeholder and fill it in later" | No Placeholders calls TBD, "implement later", and "similar to Task N" plan failures — the engineer may read tasks out of order and a placeholder is a hole, not a shortcut. |
 | "I'll skip the one-way-door checkpoints, they're slow" | A one-way decision is expensive to undo; the `> ⚠ one-way:` stop is the only gate that surfaces a migration or contract break before the build commits to it. |
 | "Each task is small, granularity rules don't matter" | Right-Sizing + Bite-Sized Granularity keep every task an independently testable deliverable with its own review gate — a vague task is one a reviewer can't reject or approve. |
+| "That's just wiring — I'll decide it during execution" | The build model rationalizes real decisions as wiring and buries the choice in code. If a value's source isn't named in the blueprint, the Owed-Decision Gate says it is owed. Resolve it, or record it as Assumed — don't invent it mid-build. |
+| "The Assumed flag will get in the way later" | An `ASSUMED` blueprint never blocks execution, QA, or ship. What blocks later is the *silent* decision — the one that lived only in chat and got re-guessed by the next session. The flag is cheap insurance that the assumption stays visible until it's ratified. |
 
 ## Red Flags
 
 - A task contains a placeholder (TBD, "implement later", "similar to Task N") — No Placeholders is violated.
 - A task is not independently testable, or two tasks share a file edit with no ordering — not a vertical tracer bullet.
 - A one-way-door decision (migration, contract break, data model) has no `> ⚠ one-way:` stop.
+- A task step uses a value whose source is named nowhere in the blueprint and no `ASSUMED` block covers it — an owed decision passed the gate.
+- An `ASSUMED` block with an empty "Assumption built on" cell — the assumption must be concrete, not "TBD".
 - The Must-Haves / Goal-Backward Verification section is missing or empty — the verifier has nothing to check against.
 - A task's scope exceeds one fresh agent context window with no split proposed.
 
 ## Verification
 
-- [ ] The blueprint file exists at `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md` and opens with the Plan Document Header (Goal, Architecture, Tech Stack, Spec).
+- [ ] The blueprint file exists at `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md` and opens with the Plan Document Header (Status, Goal, Architecture, Tech Stack, Spec).
+- [ ] The Owed-Decision Gate (input coverage check) ran: every value the build must produce has a named source, or the blueprint carries a filled `ASSUMED` block (no empty cells).
 - [ ] The Must-Haves (Goal-Backward Verification) section is present and covers every spec requirement with verifiable truths, artifacts, and key links.
 - [ ] A placeholder scan (the No Placeholders patterns) returns zero hits across all tasks.
 - [ ] Every one-way-door decision is listed in the Must-Haves section and tagged `> ⚠ one-way:` on the task that implements it.

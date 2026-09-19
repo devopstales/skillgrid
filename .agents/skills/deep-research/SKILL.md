@@ -1,6 +1,6 @@
 ---
 name: deep-research
-description: Orchestrates long-horizon, autonomous experimental research — the two-loop hypothesis → experiment → measure cycle with persistent state, outer-loop synthesis, and direction decisions. Use when the question is answered by generating new results (running experiments against a measurable outcome) over a sustained horizon, not by synthesizing existing evidence. For a one-pass evidence sweep over a wide or high-stakes informational question, use skillgrid:code-research instead; for a single inline lookup, use skillgrid:research.
+description: Long-horizon autonomous experimental research — the two-loop hypothesis → experiment → measure cycle with persistent state and direction decisions. Use when the question needs new results generated against a measurable outcome over a sustained horizon, not synthesized from existing evidence. One-pass sweep → skillgrid:code-research; single lookup → skillgrid:research.
 license: MIT
 metadata:
   author: devopstales
@@ -32,7 +32,7 @@ use best judgment and keep moving. Show the human progress frequently via
 reports in `to_human/` so they can redirect. The human may be busy; your job is
 to make as much research progress as possible on your own.
 
-## Boundary: deep-research vs code-research vs research
+## When to Use
 
 | Skill | Shape | Horizon | Output |
 |-------|-------|---------|--------|
@@ -46,6 +46,12 @@ the inner loop, and the real contribution requires synthesis beyond the metric.
 **Use `code-research` instead** when the answer is in existing sources and the
 work is gathering + verifying + red-teaming evidence. **Use `research`** for a
 one-off lookup.
+
+**When NOT to use:** for a question a single evidence pass settles (use
+`skillgrid:research`), for an answer already in existing sources that only needs
+gathering and verification (use `skillgrid:code-research`), or when there is no
+measurable proxy metric to run the inner loop against — without one, the
+experiment cycle has nothing to measure.
 
 ## Config
 
@@ -273,6 +279,21 @@ When the outer loop decides CONCLUDE:
 4. If the research produced an architectural decision, route to
    `skillgrid:architectural-decision-records`.
 5. `mem_save` durable learnings if mnemonic is enabled.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "The experiment is obvious, skip the locked protocol commit" | Pre-registration is what keeps a result honest — a protocol locked *before* the result commit is the only thing that separates a confirmatory result from a post-hoc rationalization. |
+| "I'll stop as soon as one experiment confirms the hypothesis" | One confirmatory result is a single data point. The outer-loop rubric (DEEPEN / BROADEN / PIVOT / CONCLUDE) exists to keep testing until the result is robust, not to stop at the first win. |
+| "I'll trust the cached source, it's the same page" | A cached page is a TTL window, not a verification. Re-check the URL before citing; a stale source silently poisons the synthesis. |
+
+## Red Flags
+
+- A result commit with no preceding locked protocol commit — the experiment was not pre-registered, so the result is exploratory, not confirmatory.
+- An experiment with no measurable proxy metric — the inner loop is measuring nothing; stop and find the metric or drop the experiment.
+- `findings.md` with no Current Understanding / Patterns / Lessons and Constraints — the synthesis is missing, so a human could not write the abstract from it.
+- The outer loop picked a direction without applying the DEEPEN / BROADEN / PIVOT / CONCLUDE rubric — a random direction, not a reasoned one.
 
 ## Verification
 

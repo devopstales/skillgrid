@@ -4,7 +4,7 @@ description: "Use when a change is ready for the quality gate, after all impleme
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
   based_on: BMAD:bmad-testarch-trace + BMAD:test-levels-framework + gsd-core:gsd-verifier + gsd-core:TESTING-STANDARDS + gstack:cso + superpowers:verification-before-completion
 ---
@@ -16,6 +16,8 @@ Own the quality gate. Produce a test plan with layer selection, verify the goal 
 **Announce at start:** "I'm using the skillgrid:qa skill to verify this change meets its quality bar."
 
 **Core principle:** Task completion ≠ goal achievement. Passing tests ≠ verified behavior. The gate is the decision, not the test suite.
+
+**Green tests only prove the code the agent *thought to test* — they never prove the feature exists.** A suite that passes on the diff is evidence about the tests, not about the feature. The goal check (goal-backward verification) is the part of the gate that actually verifies the feature; the test suite is one input to it, not the verdict.
 
 **Config:** Read `.skillgrid/config.yaml` before starting.
 - `testing.runner` — test command
@@ -33,7 +35,10 @@ Own the quality gate. Produce a test plan with layer selection, verify the goal 
 - `security.trivy.severities` — minimum Trivy severity to report (default "CRITICAL")
 - `security.trivy.scan_types` — Trivy scanners (default "vuln,secret,misconfig")
 - `security.trivy.fail_on` — minimum Trivy severity that FAILs the gate ("" = report only)
+- `rules.tiers.default` — project rigor tier (T0–T3; see `../_shared/conventions/rigor-tiers.md`)
 - If `quality:` is absent from config: use the defaults above and note in the report "quality: not configured — using defaults. Run `skillgrid:onboarding` to set thresholds."
+
+**Rigor tier (selects the floor):** the effective tier is `briefing.md`'s `Tier:` line → the blueprint header's `Tier:` line → `rules.tiers.default` → inferred from the Change Classification. The tier selects which audits run and the verification floor per `../_shared/conventions/rigor-tiers.md` (T0: self-check evidence only, no gates; T1: L1 + runtime verification; T2: L2+L3; T3: L4 with mutation + security mandatory). **The change-classification floor (verification-ladder.md) still applies as the minimum** — the tier never lowers the floor the change shape demands; when it exceeds the tier's floor, the classification wins and the report notes which gates the tier would have skipped. Record the effective tier and the applied floor in the report header.
 
 ## When to Use
 
@@ -57,7 +62,7 @@ Own the quality gate. Produce a test plan with layer selection, verify the goal 
 Read, in order:
 1. `briefing.md` — the falsifiable requirements (truths) and the stated goal
 2. `acceptance.feature` — every scenario (the traceability oracle)
-3. `blueprint.md` — the task breakdown and `SATISFIES` lines
+3. `blueprint.md` — the task breakdown, `SATISFIES` lines, and the `**Status:**` line
 4. `tasks.md` — the ticket list and dependency graph
 5. `findings.md` (if present) — spike/sketch results that constrain the verification
 
@@ -243,6 +248,8 @@ Complete `.skillgrid/specs/<topic>/qa-report.md` (the Test Plan section was alre
 | **FAIL** | ANY of: a truth UNVERIFIED, a scenario with no covering test, a test that ran and failed, a MISSING_RED, a regression gap with no covering test, a missing-oracle gap (a happy-path scenario with no `G<n>`), a CRITICAL security finding, a code-quality gate FAIL (coverage/mutation/lint/typecheck/P0/P1 below threshold), or a Trivy finding at or above `security.trivy.fail_on` severity (if `fail_on` is set). |
 | **WAIVED** | The human explicitly waived a specific gate criterion. The waiver, the criterion, and the accepted risk are recorded in the report. WAIVED is never a machine decision. |
 
+**Decision debt (Assumed blueprints):** if `blueprint.md` carries `**Status: ASSUMED**`, the report records it as a **WARNING** — "assumed decision (blueprint <path>) owes ratification" — and names the ratify path (`skillgrid:writing-blueprints`, Ratify mode). It is never a CRITICAL and never affects the verdict: an assumption is a recorded, authorized decision, not a verification gap. The flag survives to the ship Return Envelope and the final `report.md`.
+
 **Hard rules:**
 1. A human decision always overrides the machine verdict.
 2. A change that fails its criteria with no human decision is recorded as **not accepted** — never as silently accepted.
@@ -283,6 +290,7 @@ Present the gate verdict and the finding counts. Then route:
 | "Mutation testing is slow, skip it this time" | If `testing.mutation` is set and `quality.mutation_min` > 0, it's a hard gate. If it's too slow, run it on the changed files only (`--since` flag) or set the threshold to 0 in config. Don't skip silently. |
 | "Trivy is already in CI, no need to run it here" | CI runs Trivy on push/PR. The QA gate runs it on the **working tree** — uncommitted changes, unpushed commits. A finding that's in your branch but not yet pushed is invisible to CI. Run it locally. |
 | "The Trivy finding is in a dependency we don't control" | That's what the fix version column is for. If there's a fix, it's CRITICAL. If there's no fix, it's WARNING with a note. "We don't control it" is not a classification. |
+| "The ASSUMED flag should fail the gate" | No. An `ASSUMED` blueprint is an authorized, recorded decision — decision debt, not a verification gap. It stays a WARNING until ratification; blocking on it would make the override pointless. |
 
 ## Red Flags
 

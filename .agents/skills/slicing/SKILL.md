@@ -4,7 +4,7 @@ description: Use after writing a blueprint to break it into vertical tracer-bull
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
   based_on: mattpocock-skills:to-tickets + colemedin-skills:piv-slice-epic
 ---
@@ -41,15 +41,27 @@ The waiver record (class, skips, reason, approved-by) must be present in `briefi
 
 **Downstream:** the `SATISFIES` scenario names in `tasks.md` are the traceability oracle for `skillgrid:qa` — every scenario must be referenceable from a test. Name them precisely.
 
+**Assumed blueprints:** if `blueprint.md` carries `**Status: ASSUMED**`, slicing proceeds normally (the flag never blocks). Add `Note: assumed decision (blueprint <path>)` to every ticket that implements the assumed value, so the decision debt is visible per ticket and survives into `qa`'s report and the ship Return Envelope.
+
 ## The Process
 
 ### Step 1: Read the Blueprint
 
-1. Read `blueprint.md` (technical details, task breakdown, interfaces)
+1. Read `blueprint.md` (technical details, task breakdown, interfaces; note the `**Status:**` line — `ASSUMED` carries the debt note above)
 2. Read `briefing.md` (context, falsifiable requirements, acceptance criteria)
 3. Identify all work units in the blueprint
 
 ### Step 2: Identify Vertical Slices
+
+**Build shape (orders the first wave):** read `**Build shape:**` from the
+blueprint header. It decides which behavior exists *first*:
+- **Tracer thread** → ticket 1 is the thin end-to-end path through every layer; later tickets thicken it.
+- **Smallest usable whole** → ticket 1 is the thinnest usable product (one complete, shippable behavior); later tickets grow it.
+- **Facade** → the UI shell ticket comes first (on placeholder data), with `Fails-when:` on the wire-up boundary that separates shell from real backend.
+- **Journey** → one user path's tickets form the early waves, completed fully before the next path's tickets start.
+
+The shape orders the *first* wave only — risk-first / contract-first ordering
+still applies *within* and after it.
 
 Slice the work into tickets using these rules:
 

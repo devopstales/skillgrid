@@ -4,7 +4,7 @@ description: Use when setting up Skillgrid for a new project. Detects stack, tes
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
   based_on: skillgrid-v2:sdd-onboard + mattpocock-skills:setup-matt-pocock-skills + BMAD:bmad-project-context
 ---
@@ -12,6 +12,8 @@ metadata:
 # Onboarding
 
 Detect project facts, confirm with the user, write `.skillgrid/config.yaml` and an AGENTS.md block. Run once per project — subsequent runs merge, not overwrite.
+
+**The real job is inherited code.** The typical onboarding target is not a shiny new project — it is a codebase somebody else wrote, years old, with conventions to reverse-engineer and no documentation (or outdated documentation). Onboard it by reading what's actually there, not what a project "like this" would look like. Plan the next slice **on top of reality**, against the constraints the existing system already imposes — the data it has, the patterns it follows. **Reuse instead of regenerate.**
 
 **Announce at start:** "I'm using the skillgrid:onboarding skill to configure Skillgrid for this project."
 
@@ -108,6 +110,17 @@ Read the project and detect facts. Never guess — detect, then confirm.
 - If not available: note "Mnemonic not detected — memory, code index, and web cache will be inactive"
 - If available: `mnemonic: enabled: true` in config
 
+### Step 1.5: Enroll (brownfield)
+
+If Step 1 shows an existing codebase (real commit history + feature code, not just a scaffold), enroll what's already there instead of planning it from zero:
+
+1. **Detect existing capabilities.** From the source tree, routes, manifests, and git history, list the features/capabilities that already exist (a few lines each — what it does, where it lives).
+2. **Mark them `existing`.** They are not planned-from-zero and not `planned` — they predate this workflow. Record them in the `## Skillgrid` block's context note (or the briefing of the first change) so `skillgrid:writing-blueprints` designs the next slice against them: the data they hold, the patterns they follow. The first blueprint's Build shape and File Structure start from "what's already there", not from an empty tree.
+3. **Reverse-engineer conventions.** Capture the project's actual conventions (error handling, naming, layering, test style) into the `## Skillgrid` block and the glossary (`business.md` / `technical.md`), from the code — not from assumptions about the stack. If a convention is surprising or undocumented, flag it for the user rather than guessing.
+4. **Nested AGENTS.md note.** Area-specific rules (a payments module, a UI kit) live in `<area>/AGENTS.md` — the root block stays global and lean. Note the areas that would warrant their own file; create them lazily (ship's reconcile creates one for a net-new area, never for a pre-existing undocumented one — it flags instead).
+
+A greenfield project (scaffold, no feature history) skips Step 1.5 — there is nothing to enroll.
+
 ### Step 2: Present & Confirm
 
 Show the detected facts to the user. Confirm one at a time — don't dump everything at once:
@@ -136,7 +149,9 @@ Show the detected facts to the user. Confirm one at a time — don't dump everyt
       - Fail on: CRITICAL (hard gate) / "" (report only, never blocks)
     Any changes? (If you say "defaults", I'll use them as-is.)"
 
-11. **Mnemonic** — (only when the `skillgrid` CLI was detected) "Persistent memory detected (skillgrid CLI). Memory, code index, and web cache will be active. Artifacts saved to Mnemonic survive /clear and branch switches. OK?" — (when not detected) "Mnemonic not detected (skillgrid CLI not found). Memory, code index, and web cache will be inactive until the CLI is installed."
+11. **Rigor tier default** — "How much verification does a typical change in this project want? Tiers: T0 Prototype (self-check only), T1 Alpha (light blueprint + verify), T2 Beta (full pipeline + two-axis review), T3 GA (mutation + security + parallel fresh-model review). I recommend **{recommended tier}** for {one-line reason from the stated product's risk/size — e.g. 'a user-facing product with payments'}. Any change can override per-change in its briefing (`Tier: T<n>`)." Store in `rules.tiers.default`. Never re-ask once set.
+
+12. **Mnemonic** — (only when the `skillgrid` CLI was detected) "Persistent memory detected (skillgrid CLI). Memory, code index, and web cache will be active. Artifacts saved to Mnemonic survive /clear and branch switches. OK?" — (when not detected) "Mnemonic not detected (skillgrid CLI not found). Memory, code index, and web cache will be inactive until the CLI is installed."
 
 If the user corrects anything, use their value. If they say "looks good" or "yes", move on.
 
@@ -230,3 +245,4 @@ If `.skillgrid/config.yaml` already exists:
 - [ ] Detected test runner command runs and exits 0 (e.g. `go test ./...`, `npm test`, `pytest`)
 - [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`
 - [ ] `git rev-parse --is-inside-work-tree` succeeds; onboarding artifacts are committed (`git log -1` shows `chore: add Skillgrid config`)
+- [ ] If the project is brownfield (existing feature code + history), Step 1.5 ran: existing capabilities are recorded as `existing`, conventions were reverse-engineered into the block + glossary, and the first slice is planned against the existing system (reuse, not regenerate)

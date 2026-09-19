@@ -153,6 +153,24 @@ The two full paths (New Project / New Function) run long enough to outlive a ses
 
 **One-way-door** = "hard to reverse: it needs a migration, breaks a published contract, changes a public API shape, or is otherwise expensive to undo." Tag at the top of the task: `> ⚠ one-way: <decision>` and **STOP to get explicit user approval before proceeding**. All one-way-door decisions are listed in the blueprint's Must-Haves under "One-way-door decisions" (or "None"). `work-unit-commits`: "One-way-door decisions still get an ADR … the `Decisions:` line is the per-task record, not a replacement for the ADR."
 
+## Assumed blueprints + ratification (writing-blueprints)
+
+The approval gate is a wall by default, but a wall with no door makes agents rationalize around it. The **Owed-Decision Gate** (input coverage check) catches undecided decisions *mechanically*, not by introspection:
+
+> Enumerate every value the build must produce, compute, or display. For each, does the blueprint name where it comes from? Any required value with no named source is an owed decision.
+
+"AI will happily convince itself that a real decision is just wiring and push right past it." Introspection fails for exactly that reason, so the gate is a positive coverage test — harder to talk yourself out of.
+
+When an owed decision exists, the panel offers three paths (recommended first):
+
+1. **Resolve first** — settle the decision in brainstorming/interviewing, return to the blueprint.
+2. **Not a real decision** — proceed; record the judgment as a `Decision note:` in the blueprint header.
+3. **Build on the assumption** — write an **`ASSUMED` block** (owed decision, assumption built on, code area, authorized by) into the blueprint and proceed. The assumption now lives in a file, not in chat: it survives `/clear`, teammates read it, and a later run builds against it instead of guessing again.
+
+The `ASSUMED` status **never blocks** — execution, slicing, QA (WARNING, never CRITICAL), and ship all proceed. It is surfaced per ticket by `slicing` (`Note: assumed decision (blueprint <path>)`), in the `qa-report` (decision debt), in the ship Return Envelope, and in the final `report.md` until it is ratified.
+
+**Ratify** is the only path out: read the Assumed blueprint in full, deliberate the decision anchored to what was actually built, then either fill the real decision record into `adr.md` and clear the flag (assumption holds), or write a superseding blueprint and mark the old one `SUPERSEDED by <path>` (assumption wrong). Only the blueprint author writes decision content; only Ratify clears the flag. That single ownership is what keeps an override honest without ever slowing the work down.
+
 ## Tracer bullets + execution waves (slicing)
 
 "Break a blueprint into vertical tracer-bullet tickets that each fit a single fresh agent context window. Vertical, not horizontal. Each ticket is a narrow but COMPLETE path through every layer (UI → API → DB → config)."
@@ -168,6 +186,34 @@ The two full paths (New Project / New Function) run long enough to outlive a ses
 3. **Wave N:** tickets blocked by Wave N−1 tickets
 
 Encoded in `tasks.md` as a mermaid `Dependency Graph` block plus an **Execution Order** section (`Wave 1 (parallel): TICKET-01, …`). Self-review check: "no ticket appears in a wave before its blockers are in earlier waves."
+
+## Rigor tiers — match effort to risk
+
+A throwaway prototype shouldn't be pushed through mutation testing and an 8-specialist review, and a payment system shouldn't get away with a self-check. **Rigor tiers** (T0–T3, in `_shared/conventions/rigor-tiers.md`) are a per-change verification dial:
+
+| Tier | Name | Blueprint | QA floor | Review |
+|---|---|---|---|---|
+| T0 | Prototype | none | self-check evidence | none |
+| T1 | Alpha | light | L1 + runtime verify | none |
+| T2 | Beta | full | L2+L3 | two-axis |
+| T3 | GA | full | L4 (mutation + security) | parallel + **fresh-model reviewer** |
+
+The project default is set at onboarding (`rules.tiers.default`, recommended from the product's risk/size) and a per-change `Tier:` line in `briefing.md` overrides it. The tier selects *which tail steps run*; the change-classification floor (verification ladder) still applies as the minimum — a T0 that is actually a migration still gets the migration's L3 floor. Skipped steps are recorded as skipped, never silently absent.
+
+T3's fresh-model rule: at least one reviewer runs on a model different from the implementer's, because a model reviewing its own work carries its own blind spots.
+
+## Build shapes (delivery strategy)
+
+*How* the work is ordered — which behavior exists first — is a recorded decision, not a vibe. The blueprint header carries `**Build shape:**` with one of four decades-old delivery strategies:
+
+| Shape | What it means |
+|---|---|
+| **Tracer thread** | A thin end-to-end path through every layer works first, then thickens |
+| **Smallest usable whole** | The thinnest usable product ships first, then grows |
+| **Facade** | UI shell on placeholder data first; real backend wires in later |
+| **Journey** | One user path completed fully before the next begins |
+
+`writing-blueprints` recommends and records the shape (one-line why); `slicing` reads the line to order the first wave. The shape is orthogonal to slicing's risk-first / contract-first strategies, which order *within* waves — the shape orders the *first* one.
 
 ## The 4-state QA gate (qa)
 

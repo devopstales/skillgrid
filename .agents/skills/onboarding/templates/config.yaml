@@ -175,6 +175,19 @@ rules:
   slicing: []
   execution: []
   review: []
+  # --- Rigor Tiers (match effort to risk) ---
+  # The verification dial per change. T0 = prototype (self-check only),
+  # T1 = alpha (light blueprint + verify), T2 = beta (default: full pipeline +
+  # two-axis review), T3 = GA (mutation + security + parallel review with a
+  # fresh-model reviewer). A per-change override in briefing.md (`Tier: T<n>`)
+  # wins over the project default. Policy source:
+  # .agents/skills/_shared/conventions/rigor-tiers.md
+  tiers:
+    default: {tiers_default}
+    T0: { name: Prototype, blueprint: none,  qa: self-check }
+    T1: { name: Alpha,     blueprint: light, qa: L1+verify  }
+    T2: { name: Beta,      blueprint: full,  qa: L2+L3,     review: two-axis }
+    T3: { name: GA,        blueprint: full,  qa: L4,        review: parallel+fresh-model }
   # --- Ship (integration + archive move) ---
   # skillgrid:ship merges/PRs/keeps the branch, then moves the change folder
   # specs/ -> archive/. No release mechanics (VERSION/CHANGELOG) and no docs

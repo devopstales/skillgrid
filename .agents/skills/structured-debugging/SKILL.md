@@ -4,7 +4,7 @@ description: Use when encountering any bug, test failure, or unexpected behavior
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
   based_on: superpowers:systematic-debugging
 ---
@@ -248,6 +248,18 @@ You MUST complete each phase before proceeding to the next.
 
    This is NOT a failed hypothesis - this is a wrong architecture.
 
+### If the root cause is a decision, not code — stop patching
+
+When the confirmed root cause is a **decision** (a data model that can't hold the value, an API shape that forces the bad path, a provider choice with the wrong failure mode) and not a coding mistake, a patch is a papering-over. The code is doing what the decision told it to do.
+
+1. **Record the decision** — an ADR via `skillgrid:architectural-decision-records` (what the decision was, that it is flawed, and why).
+2. **Route the decision, not the patch:**
+   - **The decision predates this change** → flag it in the next blueprint's Owed-Decision Gate list (or write an `ASSUMED` block if the build is already on it) so the redesign is planned, not improvised.
+   - **The decision is mid-change** → back to the blueprint owner (`skillgrid:writing-blueprints`) to revise the decision before more code lands on it.
+3. **A patch is allowed only while the decision stands** — if the human keeps the decision for now, the patch ships with the ADR recording that it is a known workaround, not a fix.
+
+This is the decision-escalation beat: the same discipline as the 3-fix rule, applied one level up. Three patches around a bad decision is the bug shipping twice.
+
 ## Red Flags - STOP and Follow Process
 
 If you catch yourself thinking:
@@ -262,6 +274,7 @@ If you catch yourself thinking:
 - Proposing solutions before tracing data flow
 - **"One more fix attempt" (when already tried 2+)**
 - **Each fix reveals new problem in different place**
+- **The confirmed cause is a decision (data model, API shape, provider) and you're writing a patch anyway** — that's papering over. Record the ADR, route the decision.
 
 **ALL of these mean: STOP. Return to Phase 1.**
 
@@ -290,6 +303,7 @@ If you catch yourself thinking:
 | "Reference too long, I'll adapt the pattern" | Partial understanding guarantees bugs. Read it completely. |
 | "I see the problem, let me fix it" | Seeing symptoms ≠ understanding root cause. |
 | "One more fix attempt" (after 2+ failures) | 3+ failures = architectural problem. Question pattern, don't fix again. |
+| "The bug is in the code, I'll just patch it" | If the root cause is a decision — a data model, API shape, or provider choice — the code is doing what the decision told it to do. Patching around a bad decision is how the same incident ships twice. Record the ADR, route the decision. |
 
 ## Quick Reference
 
@@ -329,3 +343,4 @@ The debug session is complete only when every box below is provable with evidenc
 - [ ] **A failing test case existed before the fix** — the reproduction test was written and failing (or a one-off repro script) BEFORE the change, per Phase 4.1.
 - [ ] **The fix was verified by re-running the original reproduction** — the failing test now passes (green output captured) AND no other tests broke, per Phase 4.3 / `skillgrid:test-driven-verification`.
 - [ ] **No 3+ failed fix attempts were left unresolved** — if 3+ fixes failed, the architecture was questioned with your human partner before any Fix #4, per Phase 4.5.
+- [ ] **A decision-cause was not patched silently** — if the root cause is a decision (not code), an ADR was recorded and the decision was routed (next blueprint's owed list / blueprint owner); a patch shipped only as a recorded workaround.

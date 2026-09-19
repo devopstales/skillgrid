@@ -161,12 +161,13 @@ Return: Summary of what you found and what you fixed.
 **❌ Vague output:** "Fix it" - you don't know what changed
 **✅ Specific:** "Return summary of root cause and changes"
 
-## When NOT to Use
+## When to Use
 
-**Related failures:** Fixing one might fix others - investigate together first
-**Need full context:** Understanding requires seeing entire system
-**Exploratory debugging:** You don't know what's broken yet
-**Shared state:** Agents would interfere (editing same files, using same resources)
+**When NOT to use:**
+- **Related failures:** Fixing one might fix others — investigate together first.
+- **Need full context:** Understanding requires seeing the entire system.
+- **Exploratory debugging:** You don't know what's broken yet.
+- **Shared state:** Agents would interfere (editing the same files, using the same resources).
 
 ## Real Example from Session
 

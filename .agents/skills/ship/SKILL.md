@@ -4,7 +4,7 @@ description: "Use when a change has passed qa and review and you need to integra
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
 ---
 
@@ -196,7 +196,9 @@ git push -u origin <feature-branch>
 # git push origin HEAD:refs/heads/<new-branch>
 ```
 
-Then create the pull/merge request against `<base-branch>` with the forge's tooling (its CLI if available, or the creation URL most forges print on push), following the repo's PR template if present, and report the URL. The PR body is generated from the planning artifacts: the change's `briefing.md` (goal) + `blueprint.md` (approach) + `tasks.md` (what shipped) + `qa-report.md` (gate + evidence). **Keep the worktree** — the user iterates on PR feedback there.
+Then create the pull/merge request against `<base-branch>` with the forge's tooling (its CLI if available, or the creation URL most forges print on push), following the repo's PR template if present, and report the URL. **The PR body is written by `skillgrid:document` (type `pr`)** — it writes from the real diff (`git log`/`git diff`) + the change folder (`briefing.md` goal, `blueprint.md` approach, `tasks.md` what shipped, `qa-report.md` gate + evidence), never from memory. Hand the body to the forge CLI or present it per `document`'s Step 4. **Keep the worktree** — the user iterates on PR feedback there.
+
+**Human-facing record offers (after the integration lands, before Step 6):** offer `skillgrid:document` for the record types the change warrants — `changelog` (always, if the change is user-facing or a `CHANGELOG.md` exists), `release-note` (if a tag/version is involved), `postmortem` (if the change folder contains a debug state file with a design-flaw note, or the user names an incident). The user picks; `document` writes and commits. The fast-track light variant skips the offers (the PR body is the only record).
 
 **Option 3 — Keep As-Is:**
 
@@ -228,6 +230,7 @@ Record the following in your working context (it goes into reflect's `report.md`
 - PR/merge outcome (URL, or merge commit, or "kept").
 - Worktree state (cleaned up / preserved / host-managed).
 - Gate results (QA verdict + any waiver/override; review status).
+- **Open decision debt:** if the change's `blueprint.md` carried `**Status: ASSUMED**`, list it — "assumed decision (blueprint <path>) owes ratification". The flag survives the merge into the archive and the final `report.md`; shipping never clears it (only Ratify does).
 
 These are passed to `skillgrid:reflect` via the Return Envelope.
 
@@ -262,6 +265,32 @@ diff_status=$?
 Use **today's date in ISO format** (`YYYY-MM-DD`) — it is already the folder's name prefix. Compare the archived folder against the **pre-move** recursive snapshot — do not substitute a model readback, a staged tree, or the post-move source. Any non-empty `diff -r` output or non-zero status is truncation, alteration, or an operational failure — it **FAILS** the phase.
 
 > **If shell access is unavailable**, STOP and report `blocked` with reason `shell access required for mechanical archive move is unavailable` — do **not** fall back to Read/Write moving.
+
+### Step 7.5: Reconcile (knowledge stays current after the change)
+
+The change just merged — the durable knowledge must match the repo now, or it
+rots. Reconcile is **surgical**: it adds lines and rewrites only the single
+lines it owns. It never rewrites curated prose.
+
+**Boundaries (the exact contract — reconcile touches nothing outside it):**
+
+| Target | Reconcile does | Owner of the rest |
+|---|---|---|
+| `## Skillgrid` block (AGENTS.md / CLAUDE.md) | surgical update of drifted facts (stack, commands) via the sentinel upsert | onboarding (structure), human (curated prose) |
+| `.skillgrid/glossary/` (business.md + technical.md) | add one line per new term the change introduced that is absent | `architectural-decision-records` (definitions) |
+| `.skillgrid/adr/` | **flag only** — in-force ADRs the diff contradicts or supersedes, listed for the human | `architectural-decision-records` (ADRs are immutable once accepted) |
+| Archived change folder | read (for the debt list); never modified after the move | the archive is an audit trail |
+| `.skillgrid/config.yaml` | **flag only** — a detected stack/runner change the human should re-onboard for | onboarding (merge mode) |
+
+**Process:**
+1. Re-verify the `## Skillgrid` block facts against the repo (manifests, test runner, commands). If a line drifted (the change introduced a new dependency or changed the runner), update that line via the idempotent sentinel upsert (same sentinels as onboarding). If the drift is structural (a new area with its own conventions, a renamed runner), flag it — do not restructure.
+2. Glossary: scan the change's new/modified files for terms absent from `.skillgrid/glossary/`. Add one line each (term + one-line definition) to the right file (business.md / technical.md). If a term needs a real definition and ADR, flag for `architectural-decision-records` instead of guessing.
+3. ADRs: list in-force ADRs the diff contradicts or supersedes. **Flag, never edit** — ADR immutability holds. The human decides whether a superseding ADR is owed.
+4. Config: if the change changed the stack or test runner in a way `config.yaml` doesn't reflect, flag "run `skillgrid:onboarding` (merge mode)" — do not edit the config.
+5. **Open decision debt:** list every `ASSUMED` blueprint in the archive (from Step 6) into the Return Envelope's `Open decision debt` line.
+
+Record what reconcile changed (or "nothing to reconcile") in the ship context
+for reflect's `report.md`.
 
 ### Step 8: Persist to Mnemonic (hybrid)
 
@@ -343,6 +372,7 @@ If the change is **trivial** (≤ 2 files, < 50 lines, and touches no auth / pay
 
 **Mnemonic**: observation `{id or 'none'}` · session `{sid}`
 **Open questions**: {list, or "None"}
+**Open decision debt**: {assumed blueprints owed ratification — or "None"}
 **Next**: reflect — writes `report.md` (integration + retro + archive summary) + session close
 ```
 
@@ -356,7 +386,8 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - **The move is the LAST step** — everything that must be in the archive (qa-report, review artifacts) is already written when the folder leaves `specs/`. The `report.md` is written by reflect *after* the move, in the archive.
 - **The archive is an audit trail** — `.skillgrid/archive/` is created if absent; archived changes are never deleted or modified after the move.
 - The integration decision (merge / PR / keep / discard) is the user's — present the menu and wait. Discard happens only on the typed word `discard`.
-- No release mechanics (no VERSION/CHANGELOG bump), no docs check (no Diataxis coverage) — in any variant.
+- No release mechanics (no VERSION/CHANGELOG bump), no docs check (no Diataxis coverage) — in any variant. The human-facing record (PR body, changelog, release note, postmortem) is written by `skillgrid:document`, which ship invokes for the PR body when the user chooses the PR option (and offers the other types where applicable).
+- **Decision debt ships, it doesn't clear.** An `ASSUMED` blueprint flag is carried into the Return Envelope and the archive — never removed by shipping.
 - If shell access is unavailable, STOP and report `blocked` — do not fall back to Read/Write moving.
 - Return envelope per Step 9 — final action is text, not a tool call. `reflect` is next.
 

@@ -1,6 +1,23 @@
 # AISkillGrid
 
-A configuration hub for opinionated AI-assisted development. It turns "chat with an agent" into a repeatable, evidence-gated pipeline — **interview → blueprint → slice → execute → review → QA-gate → ship → reflect** — with BDD acceptance, test-driven gates, persistent memory, and hook-enforced discipline that survives compaction.
+## The problem: your AI context decays
+
+Every AI-assisted change is a small bet that the agent still knows what it's doing. It doesn't, for long. The prompt that nailed the first feature is buried under twenty sessions of "just a quick fix." Context fills up. Intent drifts. The agent re-derives the same design decisions you already made, and "done" becomes a claim with no evidence behind it.
+
+You keep writing the same instructions. You keep watching the agent re-decide the same things. You keep merging work that passed its own tests but never actually did the thing. The knowledge that made the first change good was in a chat window, and the chat window is gone.
+
+**This is not an agent problem. It's a context problem** — and it compounds.
+
+## The fix: turn your project into agentic engineering
+
+Skillgrid stops you from re-deciding. It gives the agent a set of **verbs it runs on your codebase** instead of a wall of instructions you have to repeat:
+
+- **Interview** — the agent grills the ambiguity in your request and writes the answers down where the next session can find them.
+- **Blueprint** — the agent turns a spec into a written, falsifiable plan with the decisions named *before* a line of code exists.
+- **Slice** — the blueprint becomes vertical tracer-bullet tickets the agent can each finish in one fresh context window.
+- **Verify** — the agent gates the result on fresh evidence, not on the fact that the suite is green.
+
+Every verb writes what it learned to disk — the glossary, the ADRs, the blueprint, the acceptance criteria — so the *next* agent starts from your project's actual state, not from a blank chat. The verbs are **skills** under `.agents/skills/`, and they run as a repeatable, evidence-gated pipeline: **interview → blueprint → slice → execute → review → QA-gate → ship → reflect**.
 
 ---
 
@@ -82,16 +99,25 @@ It ships:
 
 ## Why
 
-Agents are strong at local edits and weak at long-horizon work. Context fills up, intent drifts, and "done" becomes a claim without evidence. AISkillGrid fixes that with a written blueprint before code, a hard approval gate before execution, evidence-based QA (`G<n>` gates with `CHECK:`/`EXPECT:` oracles), hooks that block bad commits and red stops, and memory that lives outside the chat.
+The verbs are only half of it. A skill is an *ask* — and a model will rationalize its way past an ask, especially a long-running one. Skillgrid pairs every ask with a **guarantee**: git + agent Stop hooks that block bad commits, red stops, and skipped gates. "A rule asks; a hook guarantees." That pairing is what makes the pipeline hold under pressure instead of collapsing into "the agent said it was done."
+
+Two properties matter most:
+
+**Match the effort to the risk.** A throwaway prototype shouldn't be pushed through mutation testing and an eight-specialist review; a payment system shouldn't get away with a self-check. **Rigor tiers (T0–T3)** are a per-change verification dial — T0 self-checks, T3 runs the full gauntlet with a fresh-model reviewer — and a per-change `Tier:` line overrides the project default. The change's shape (a migration, a new trust boundary) still sets a floor the tier can't lower. See [08-concepts](docs/user-guide/08-concepts.md#rigor-tiers—match-effort-to-risk).
+
+**Decisions live in files, not in chat.** When the agent hits a decision nobody made yet, the **Owed-Decision Gate** catches it *mechanically* (not by the agent feeling uncertain), and it can either resolve it or record it as an **`ASSUMED` blueprint** — a named assumption in a file that survives `/clear`, that teammates read, and that `qa` flags as decision debt until **Ratify** settles it. That single move is what stops the agent from silently inventing the load-bearing choice and burying it in code.
 
 **The test pyramid is a first-class concept.** `qa` selects the *highest layer that fits* each behavior (unit / integration / E2E), applies a duplicate-coverage guard (a test at the wrong layer is a slower, flakier way to test something a cheaper layer already covers), and gates on mutation score + P0/P1 pass-rate thresholds. The full strategy is in [`.agents/skills/qa/references/test-strategy.md`](.agents/skills/qa/references/test-strategy.md).
 
 ## The pipeline
 
+The four verbs are the spine. Each maps to one or more pipeline phases, and each writes its output to disk so the next verb — and the next session — starts from your project's actual state:
+
 ```
 onboarding → interviewing → writing-blueprints → slicing → [approval gate]
-                                                              ↓
+   (setup)     INTERVIEW          BLUEPRINT         SLICE          ↓
 reflect ← ship ← review ← qa ⇄ apply (simple / subagent / parallel)
+   REFLECT      SHIP          VERIFY (review + QA gate over the applied slices)
                               ↑
         optional spike / sketch / research / code-research (before the blueprint)
 ```
@@ -187,7 +213,9 @@ For the full walkthrough see [docs/user-guide/03-workflow-usage.md](docs/user-gu
 
 ## How a skill is shaped
 
-Each skill is a small, focused file: a `name` + `description` frontmatter (the description states **what it does** and **when to use it** — never the step list), an announcement line, the process, a `## Common Rationalizations` table, a `## Red Flags` list, and — for tail phases — a `prev-phase`/`next-phase`/`artifact` contract plus a Return Envelope. Shared material (conventions, the TDD cycle, the threat matrix) lives in `_shared/` and is referenced, never duplicated. The full contract is in [docs/skill-anatomy.md](docs/skill-anatomy.md); contribution rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Each skill is a small, focused file: a `name` + `description` frontmatter (the description states **what it does** and **when to use it** — never the step list), an announcement line, the process, a `## Common Rationalizations` table, a `## Red Flags` list, and — for tail phases — a `prev-phase`/`next-phase`/`artifact` contract plus a Return Envelope. Shared material (conventions, the TDD cycle, the threat matrix) lives in `_shared/` and is referenced, never duplicated.
+
+The shape is **enforced, not just documented**: `task skill-check` (→ `scripts/check-skillgrid-skills.mjs`) is a zero-dependency hygiene guard that checks every skill against [skill-anatomy](docs/skill-anatomy.md) — frontmatter, required sections, line budgets by tier, cross-skill reference form — plus **hot-path budgets** so the cumulative skill load of a canonical change path (blueprint / execution / QA / close) never grows past a ratcheted ceiling. It runs in CI. The full contract is in [docs/skill-anatomy.md](docs/skill-anatomy.md); contribution rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Repository layout
 
@@ -199,11 +227,12 @@ Each skill is a small, focused file: a `name` + `description` frontmatter (the d
 .github/
 ├── prompts/           # canonical slash-command prompts (mirror source)
 ├── agents/            # canonical subagent definitions
-└── workflows/         # CI: IDE-sync check + hook tests
+└── workflows/         # CI: IDE-sync check + hook tests + skill hygiene
 scripts/
 ├── install-hooks.sh   # wire the hook set into a repo
 ├── sync-ide-assets.sh # mirror canonical prompts/agents to IDE copies
-└── test-hooks.sh      # exercise the guard hooks against throwaway repos
+├── test-hooks.sh      # exercise the guard hooks against throwaway repos
+└── check-skillgrid-skills.mjs  # skill-hygiene guard (anatomy + line + hot-path budgets)
 docs/user-guide/       # the full walkthrough (layout, skills, workflow, hooks, memory, …)
 ```
 

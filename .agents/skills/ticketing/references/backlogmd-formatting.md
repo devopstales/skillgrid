@@ -240,16 +240,8 @@ If the project has templates in config, pass `--template <name>`. On CLI crash, 
 
 ## File placement rules
 
-- Active tasks: `.backlog/tasks/<ID>.md`
-- Completed: move (or copy) to `.backlog/completed/<ID>.md`
-- Archived: `.backlog/archive/<ID>.md`
-
-Prefer the CLI so IDs and metadata stay consistent. Filesystem fallback is allowed only when the CLI is broken, and must still satisfy the required-field gate.
+Active tasks live at `.backlog/tasks/<ID>.md`; on completion move (or copy) to `.backlog/completed/<ID>.md`; archive at `.backlog/archive/<ID>.md`. Prefer the CLI so IDs and metadata stay consistent. Filesystem fallback is allowed only when the CLI is broken, and must still satisfy the required-field gate.
 
 ## Markdown rendering notes
 
-Files are raw markdown. When rendered (VS Code preview, GitHub Pages of the backlog, etc.):
-
-- Frontmatter (YAML) is metadata, not rendered.
-- `- [ ]` checkboxes render as clickable task lists in supporting renderers.
-- Mermaid blocks render with the `mermaid` code fence: ```` ```mermaid ````.
+Files are raw markdown. When rendered (VS Code preview, GitHub Pages): frontmatter is metadata (not rendered), `- [ ]` checkboxes become clickable task lists in supporting renderers, and Mermaid blocks use the ` ```mermaid ` fence.

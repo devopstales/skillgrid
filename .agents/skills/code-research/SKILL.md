@@ -1,6 +1,6 @@
 ---
 name: code-research
-description: Investigate a wide or high-stakes question by fanning out parallel researcher subagents, then verifying load-bearing claims and red-teaming the major conclusions before synthesizing a cited findings file. Use when the question has multiple independent dimensions or the decision is high-stakes, or when reading legwork should be delegated to background agents so the main thread keeps working — the heavy informational counterpart to skillgrid:research; for long-horizon experimental research (hypothesis → experiment → measure loops) use skillgrid:deep-research.
+description: Parallel-fan-out investigation of a wide or high-stakes question — researcher subagents gather, then verify load-bearing claims and red-team conclusions before a cited findings file. Use when the question has multiple independent dimensions, the decision is high-stakes, or reading legwork should be delegated so the main thread keeps working. Long-horizon experimental → skillgrid:deep-research.
 license: MIT
 metadata:
   author: devopstales

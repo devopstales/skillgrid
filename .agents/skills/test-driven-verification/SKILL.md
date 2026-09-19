@@ -15,6 +15,8 @@ metadata:
 
 **Core principle:** Evidence before claims, always.
 
+**Green tests only prove the code the agent *thought to test* — they never prove the feature exists.** A passing suite is evidence about the tests you wrote, not about the feature. Before claiming done, verify the *behavior* actually runs — not just that the suite is green.
+
 **Violating the letter of this rule is violating the spirit of this rule.**
 
 ## When to Use

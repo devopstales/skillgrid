@@ -4,7 +4,7 @@ description: Use for large or high-risk diffs when a single review pass isn't en
 license: MIT
 metadata:
   author: devopstales
-  version: "1.0"
+  version: "1.1"
   part-of: skillgrid
   based_on: bmad:bmad-code-review + gstack:review
 ---
@@ -31,6 +31,8 @@ topology. `requesting-code-review` is one reviewer doing two axes (Standards +
 Spec). This skill is N specialist reviewers, each a narrow lens, run in
 parallel. The two-axis templates are **reused** here as two of the specialists
 (not copied).
+
+**Rigor tier:** this is the T3 (GA) review (per `_shared/conventions/rigor-tiers.md`). At T3, at least one reviewer runs on a **model different from the one that implemented the change** — a model reviewing its own work carries its own blind spots. The fresh-model reviewer is a recommendation the human can decline; the decline is recorded.
 
 ## Overview
 

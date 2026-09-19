@@ -70,8 +70,9 @@ The tail after review: `qa → review → ship → reflect`.
 
 | Skill | Role |
 |-------|------|
-| `ship` | Integrate the change to its base branch (merge / PR / keep — tests green on the integrated tree), then mechanically move the change folder `specs/` → `archive/` with a `diff -r` readback. Writes no report file — captures the ship context in its Return Envelope for reflect. No release mechanics, no docs check. |
-| `reflect` | Terminal phase: writes the single `report.md` (final-state facts, gate results, sourced Decisions / Lessons / Patterns / Surprises, advisory acceptance verdict, observation-ID lineage); owns the Mnemonic session close. |
+| `ship` | Integrate the change to its base branch (merge / PR / keep — tests green on the integrated tree), then mechanically move the change folder `specs/` → `archive/` with a `diff -r` readback. Invokes `document` for the PR body (when the PR option is chosen) and offers the other record types. Captures the ship context (incl. open decision debt) in its Return Envelope for reflect. |
+| `document` | Write the human-facing record from the real diff + change folder, never from memory: PR body, changelog (`CHANGELOG.md` at root), release note (`.skillgrid/releases/`), postmortem (`.skillgrid/postmortems/`). Invoked by ship or standalone. Writes prose only — no code, tests, or specs. |
+| `reflect` | Terminal phase: writes the single `report.md` (final-state facts, gate results, sourced Decisions / Lessons / Patterns / Surprises, advisory acceptance verdict, open decision debt, observation-ID lineage); owns the Mnemonic session close. |
 
 ## Cross-cutting
 
