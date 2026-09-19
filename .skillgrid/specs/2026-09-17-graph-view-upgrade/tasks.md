@@ -123,31 +123,41 @@ Fit-to-Screen also auto-runs after a layout completes and after a search-focus r
 
 ### Tasks
 
-- [ ] 2.1 `[RED]` `fitCameraToBBox(box, dims, padding)` returns the target `CameraState`
+- [x] 2.1 `[RED]` `fitCameraToBBox(box, dims, padding)` returns the target `CameraState`
   - [ ] 2.1.a Write failing test: given a bbox + viewport dims + padding → returns `{x,y,angle,ratio}` where `ratio` is `max(vw*(1-2p)/w, vh*(1-2p)/h)` and x/y are the bbox center. Edge: zero-area bbox → ratio uses `|| 1`.
   - [ ] 2.1.b Run to confirm fail — `Run: cd skillgrid-ui && npx vitest run src/features/mnemonic/graph/camera.test.ts` — Expected: FAIL
   - [ ] 2.1.c Minimal implementation: pure function (no Sigma import) computing the camera state.
   - [ ] 2.1.d Run to confirm pass — Expected: PASS
   - [ ] 2.1.e Commit — `feat(graph): fit-camera math`
-- [ ] 2.2 `[AFK]` `ViewControls` component (Zoom In / Zoom Out / Fit to Screen) inside SigmaContainer
+- [x] 2.2 `[AFK]` `ViewControls` component (Zoom In / Zoom Out / Fit to Screen) inside SigmaContainer
   - `Run: cd skillgrid-ui && npx tsc -b --noEmit` — Expected: PASS
-- [ ] 2.3 `[AFK]` Auto-fit on layout-ready + search recenter
+- [x] 2.3 `[AFK]` Auto-fit on layout-ready + search recenter
   - `Run: cd skillgrid-ui && npx tsc -b --noEmit` — Expected: PASS
-- [ ] 2.4 `[AFK]` Browser smoke: fit + zoom work, auto-fit after layout
+- [x] 2.4 `[AFK]` Browser smoke: fit + zoom work, auto-fit after layout
   - `Run: skillgrid serve` + browser — Expected: PASS (whole graph framed after load; zoom buttons zoom; recenter refits)
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Unit (fit-camera math) | `cd skillgrid-ui && npx vitest run src/features/mnemonic/graph/camera.test.ts` | PASS | — | |
-| Type-check | `cd skillgrid-ui && npx tsc -b --noEmit` | PASS | — | |
-| Build | `cd skillgrid-ui && npm run build` | PASS | — | |
-| Browser smoke (fit/zoom/auto-fit) | `skillgrid serve` + browser | PASS | — | |
+| Unit (fit-camera math) | `cd skillgrid-ui && npx vitest run src/features/mnemonic/graph/camera.test.ts` | PASS | PASS | 5 tests: tighter-axis width/height, zero-area finite ratio, padding scaling, default padding |
+| Type-check | `cd skillgrid-ui && npx tsc -b --noEmit` | PASS | PASS | 0 errors |
+| Build | `cd skillgrid-ui && npm run build` | PASS | PASS | clean |
+| Browser smoke (fit/zoom/auto-fit) | `skillgrid serve -dir ~/.skillgrid/mnemonic -port 8148` + browser | PASS | PASS | auto-fit on ready → ratio 1.366; zoom-in → 0.911 (Sigma: smaller ratio = closer); Fit → back to 1.366. 4379 nodes, no errors |
+
+Notes:
+- `ViewControls` renders inside `SigmaContainer` (needs `useSigma`/`useCamera`
+  context); top-center placement avoids the legend (bottom-left) + status
+  (bottom-right).
+- `AutoFit` child fits on `layoutStatus==='ready'` and `searchCenter` change only
+  (not hover/zoom), so it doesn't fight the user's manual camera.
+- Sigma v3 camera convention: `ratio` is viewport-units-per-graph-unit, so
+  zoom-in divides ratio (animatedZoom: `ratio / DEFAULT_ZOOMING_RATIO`). Verified
+  empirically (zoom-in 1.366→0.911).
 
 ---
 
