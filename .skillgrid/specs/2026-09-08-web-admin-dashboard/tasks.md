@@ -493,14 +493,14 @@ The rest of the Mnemonic suite: OpenViking file tree (L0/L1/L2), memory browser 
 
 This phase is done only when:
 
-- [ ] `/mnemonic/files|memories|sessions|audit|search` routes covered by integration tests
-- [ ] OpenViking tree + L0/L1/L2 content, memory grid/timeline/detail, session browser, audit trail, semantic search work in-browser
-- [ ] Governance renders 013 data (forward-compat placeholder when absent), write-gated
-- [ ] `openapi.yaml` documents the mnemonic routes
-- [ ] All `### Tasks` checkboxes below are `[x]`
-- [ ] All `@phase-5` scenarios in `acceptance.feature` pass
-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
-- [ ] Depends-on phase already PASS / PASS WITH WARNINGS
+- [x] `/mnemonic/files|memories|sessions|audit|search` routes covered by integration tests
+- [x] OpenViking tree + L0/L1/L2 content, memory grid/timeline/detail, session browser, audit trail, semantic search work in-browser
+- [x] Governance renders 013 data (forward-compat placeholder when absent), write-gated
+- [x] `openapi.yaml` documents the mnemonic routes
+- [x] All `### Tasks` checkboxes below are `[x]`
+- [x] All `@phase-5` scenarios in `acceptance.feature` pass
+- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+- [x] Depends-on phase already PASS / PASS WITH WARNINGS
 - [ ] No Global Constraint violated
 
 > Depends on: 1-embed-pipeline-shell, (soft: 013)
