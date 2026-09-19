@@ -92,6 +92,32 @@ three on durability and the only one using WS.
   a `type=decision` observation with a structured JSON `content`; the approval gate is a
   `content.state` field (`pending`/`answered`/`superseded`) because the governance `status` is
   closed to `active|superseded|archived` (`memory/governance.go:174`).
-- **No migration, no new table, no new process, no new transport.** Only two thin HTTP routes
-  (`GET /mnemonic/decisions`, `POST /mnemonic/decisions/{id}/answer`) + a React view + a content
-  convention. Reversible.
+- **No migration, no new table, no new process, no new transport.** Only thin HTTP routes
+  (`GET /mnemonic/decisions`, `POST /mnemonic/decisions/{id}/answer`, `GET /prototype/{id...}`) + a
+  React view + a content convention. Reversible.
+
+## Decision: the prototype function lives on-disk at `.skillgrid/prototype/`
+
+The brainstorming flow has a *second* visual mechanism besides the interactive companion: the
+`sketch` skill builds **throwaway standalone interactive HTML** (2–3 switchable variants, a
+marked winner + rationale + constraints). The user chose **on-disk storage** for the companion's
+visuals, at the concrete path:
+
+```
+.skillgrid/prototype/<topic>/<variant>.html
+```
+
+- **Separate from `.stitch/`** (which holds Stitch-generated design-system prototypes, read by the
+  existing `prototypes.go` → `GET /prototypes`) and **separate from `sketch.dir`**
+  (`{specs_root}/{topic}/sketches/`, where the `sketch` skill currently drops its HTML). The
+  companion flow points `sketch` at `.skillgrid/prototype/<topic>/` so the dashboard can serve it.
+- **Served by a new `GET /prototype/{id...}`** that reuses the existing `stitchFile`
+  path-traversal guard shape, root = `.skillgrid/prototype/` (reject absolute ids, `..`, and
+  anything escaping the root after `filepath.Clean`). A distinct subtree from the plural
+  `/prototypes` route.
+- **Rendered in the existing sandboxed iframe** (`sandbox="allow-scripts"`, no
+  `allow-same-origin`) — the identical trust rule as the `.stitch/` Prototypes view and grill's
+  `visual.html`. The decision's `content.visual` carries the id; a decision without `visual`
+  renders no iframe. Only a re-authored variant reloads it.
+- **Throwaway by design.** The durable record is the decision observation + its `observation_versions`
+  history; the prototype HTML is scratch under `.skillgrid/` (expected gitignored).

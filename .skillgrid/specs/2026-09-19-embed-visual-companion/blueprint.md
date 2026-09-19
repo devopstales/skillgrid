@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the visual companion a *decision bridge* on top of Mnemonic: the agent posts interview questions (options + a recommended option + rationale) as governed observations; the dashboard renders them as a decision inbox; the user approves/answers; the agent reads the decision back. No WebSocket, no second process, no new store — the companion is a view over `type=decision` observations in the existing Mnemonic SQLite store.
+**Goal:** Make the visual companion a *decision bridge* on top of Mnemonic: the agent posts interview questions (options + a recommended option + rationale) as governed observations; the dashboard renders them as a decision inbox; the user approves/answers; the agent reads the decision back. When a question is clearer *shown* than told, the agent also writes a throwaway interactive prototype to `.skillgrid/prototype/<topic>/<variant>.html`, and the dashboard renders it in the existing sandboxed-iframe preview, linked from the decision card. No WebSocket, no second process, no new store — the companion is a view over `type=decision` observations (durable decisions) plus on-disk `.skillgrid/prototype/` HTML (the visual), both served by `skillgrid serve`.
 
-**Architecture:** A *convention*, not a migration. The agent uses the **existing** `mem_save`/`mem_update` MCP tools to write an observation with `type: decision`, `topic_key: interview/<slug>/<question>`, `visibility: team`, and a structured JSON `content` body carrying `question`, `options[]` (each with `id`, `label`, `rationale?`), `recommended` (an option id), and `state` (`pending` | `answered` | `superseded`). The dashboard gains a **Decisions** view that polls `GET /mnemonic/decisions` (a thin read-only route over the existing store) and renders pending decision cards; the user answers/approves via a new `POST /mnemonic/decisions/{id}/answer` (write-gated, reuses the governance write path to set `state: answered` + record the answer). The agent reads the answer by polling `mem_search` / the existing activity stream for `topic_key` rows whose `content.state == answered`. **Polling is the transport** (grill-with-ui + oh-my-opencode-slim both poll; only the raw brainstorming companion uses WS, and we drop it). The long-lived `skillgrid serve` process already *is* the dashboard and already reads/writes this store, so there is nothing new to keep alive.
+**Architecture:** Two artifacts, two stores, one dashboard. **(1) Decisions — a Mnemonic convention, not a migration.** The agent uses the **existing** `mem_save`/`mem_update` MCP tools to write an observation with `type: decision`, `topic_key: interview/<slug>/<question>`, `visibility: team`, and a structured JSON `content` body carrying `question`, `options[]` (each with `id`, `label`, `rationale?`), `recommended` (an option id), `state` (`pending` | `answered` | `superseded`), and an optional `visual` (the prototype id, see below). The dashboard gains a **Decisions** view that polls `GET /mnemonic/decisions` (a thin read-only route over the existing store) and renders pending decision cards; the user answers/approves via a new `POST /mnemonic/decisions/{id}/answer` (write-gated, reuses the governance write path to set `state: answered` + record the answer). The agent reads the answer by polling `mem_search` / the existing activity stream for `topic_key` rows whose `content.state == answered`. **(2) Prototypes — on-disk, in the repo.** When a question is clearer shown than told, the agent (via the existing `sketch` skill) writes throwaway standalone interactive HTML to `.skillgrid/prototype/<topic>/<variant>.html`; the decision's `content.visual` carries the prototype id (`<topic>/<variant>.html`). A new thin route `GET /prototype/{id...}` serves that directory, **reusing the existing `stitchFile` path-traversal guard** (sandboxed to `.skillgrid/prototype/`), and the dashboard renders it in the **existing** `SandboxPreview` iframe (`sandbox="allow-scripts"`, no `allow-same-origin` — the same trust rule as the `.stitch/` Prototypes view and grill's `visual.html`). Only a re-authored variant reloads the iframe (grill's version-bump trick). **Polling is the transport** (grill-with-ui + oh-my-opencode-slim both poll; only the raw brainstorming companion uses WS, and we drop it). The long-lived `skillgrid serve` process already *is* the dashboard and already reads/writes this store, so there is nothing new to keep alive.
 
 **Tech Stack:** Go 1.22+ (`skillgrid-cli`); existing `internal/mnemonic/http` Go server + `internal/mnemonic/memory` service (save/search/set-status/share) + SQLite store (`observations` table, `017_layered_memory_governance` for owner/status/visibility/`observation_versions`/`acl_grants`); existing `mem_save`/`mem_update`/`mem_search` MCP tools; React 19 + TypeScript + Vite 6 (`skillgrid-ui`) for the Decisions view. **No new dependency.**
 
@@ -22,7 +22,9 @@
 - **Polling, not push.** The dashboard polls; the agent polls. No WebSocket, no SSE for the decision channel (the existing `/activity/stream` SSE may be reused to *surface* new decisions in the Activity feed, but it is not the decision transport). This matches grill-with-ui and oh-my-opencode-slim, both of which are explicitly "polling, not realtime."
 - **Loopback only.** Inherits `skillgrid serve`'s `127.0.0.1` bind. No new host/port.
 - **Governance is inherited.** Decision observations get `owner`, `visibility` (default `team` so the dashboard's reader sees them), `acl_grants`, and an **append-only version history** (`observation_versions`) for free — every answer/approval is an `mem_update`, which appends a version. That is the durable, auditable decision trail.
-- **MCP surface is frozen.** `mem_save`/`mem_update`/`mem_search` signatures and return shapes are unchanged. The agent already calls them; this change only defines the *shape of the content* they carry and adds two thin HTTP routes for the dashboard.
+- **Prototypes live in the repo at `.skillgrid/prototype/<topic>/<variant>.html`.** This is the on-disk artifact store for the visual function (chosen over a Mnemonic content blob). It is *separate* from the existing `.stitch/` directory (which holds Stitch-generated design-system prototypes) and from `sketch.dir` (`{specs_root}/{topic}/sketches/` — where the `sketch` skill currently drops its throwaway HTML). The `sketch` skill must be pointed at `.skillgrid/prototype/<topic>/` for the companion flow (a config/skill note, not a code change in this blueprint). `.skillgrid/` is already under the artifacts root and is expected to be gitignored for scratch; confirm it's in `.gitignore` (the prototypes are throwaway by design).
+- **Prototype serving reuses the existing `stitchFile` traversal guard.** `GET /prototype/{id...}` must sandbox to `.skillgrid/prototype/` exactly like `GET /prototypes/{id...}` sandboxes to `.stitch/` (reject absolute ids, `..` segments, and any path that escapes the root after `filepath.Clean`). Do not invent a new traversal check.
+- **MCP surface is frozen.** `mem_save`/`mem_update`/`mem_search` signatures and return shapes are unchanged. The agent already calls them; this change only defines the *shape of the content* they carry and adds thin HTTP routes for the dashboard (decisions read/answer + prototype serve).
 - **Write-gated like the rest.** New write routes go through the existing `requireWriteAuth` (Bearer `SKILLGRID_HTTP_TOKEN`), exactly like `/mnemonic/memories/{id}/status`.
 - **Bundle budget.** The Decisions view is its own lazy chunk; `npm run build:check` must pass.
 - **Reference synthesis (why this shape).** grill-with-ui: structured interview (questions/recommendations/threads), polling `GET /state`, staged single **Send**, durable `events.jsonl` + design doc, "server IS the monitor." oh-my-opencode-slim `/interview`: questions + *suggested answers marked recommended*, a **dumb dashboard aggregator** on a fixed port that **auto-failovers and rebuilds from on-disk markdown**, polling transport, in-memory runtime + durable file. brainstorming companion: mockup display, raw WebSocket + fs.watch, `?key=` gate — the *weakest* on durability, the only one using WS. **The Mnemonic bridge adopts grill's structure + oh-my-opencode-slim's durability, but the "dumb dashboard that rebuilds from disk" is the Mnemonic store, and the "smart session" is the agent via existing MCP tools.**
@@ -53,7 +55,7 @@
 | **SSE/WS client disconnect leaks** | N/A: the decision channel is polling, not a persistent connection. (The reused `/activity/stream` SSE already has its own leak-free poller; this change does not touch it.) | n/a | n/a |
 | **Subprocess / shell commands** | N/A: no subprocess. The agent is woken by *polling* `mem_search`, not by a Monitor stdout. | n/a | n/a |
 | **Mnemonic tool contract** | Applicable (but unchanged) | `mem_save`/`mem_update`/`mem_search` signatures are frozen; this change only fixes the *content shape* they carry. Guarded by the existing MCP tests + a new test asserting the decision content schema round-trips through `mem_save`→`mem_search`. | `TestDecisionMCPRoundTrip` — `mem_save` a decision, `mem_search` it back, parse `content`, assert schema fields present. |
-| **Path traversal / executable files** | N/A: no files served, no paths in the decision payload (a `visual` URL, if used, is rendered in a sandboxed iframe in a follow-up — not this change). | n/a | n/a |
+| **Prototype path traversal** (the `visual` id is agent-authored and served from disk) | Applicable | `GET /prototype/{id...}` reuses the `stitchFile` guard shape: reject empty/absolute ids, `..` segments, and any path that escapes `.skillgrid/prototype/` after `filepath.Clean`; serve with `X-Content-Type-Options: nosniff`; render in the sandboxed iframe (no `allow-same-origin`) so prototype scripts can't read dashboard cookies. | `TestPrototypeTraversal` — `../`, absolute, and double-encode-escaping ids → 400; a real file → 200; unknown → 404. |
 
 ## One-Way-Door Checkpoints
 
@@ -75,21 +77,25 @@
 7. The answer route is write-gated: with `SKILLGRID_HTTP_TOKEN` set, a no-auth POST is 401.
 8. The Decisions dashboard view renders pending decision cards (question + lettered options + the recommended option highlighted) and posts the user's choice to the answer route.
 9. The whole round-trip (save → answer → read-back) survives a server restart because it is in SQLite. *backstop*.
+10. `GET /prototype/{id...}` serves a file from `.skillgrid/prototype/<topic>/<variant>.html` and **rejects** absolute ids, `..` segments, and any id that escapes `.skillgrid/prototype/` (400), returning 404 for unknown files.
+11. A decision whose `content.visual` is set renders its prototype in the **existing sandboxed iframe** (`sandbox="allow-scripts"`, no `allow-same-origin`) inside the decision card; a decision without `visual` renders no iframe.
 
 **Artifacts:**
-- `skillgrid-cli/internal/mnemonic/http/decisions.go` — `GET /mnemonic/decisions` + `POST /mnemonic/decisions/{id}/answer` + the decision content type.
-- `skillgrid-cli/internal/mnemonic/http/decisions_test.go` — the RED tests above.
-- `skillgrid-ui/src/features/decisions/` — `DecisionsPage.tsx`, `api.ts`, `DecisionCard.tsx`.
-- `ui/openapi.yaml` entries for `/mnemonic/decisions` + `/mnemonic/decisions/{id}/answer`.
+- `skillgrid-cli/internal/mnemonic/http/decisions.go` — `GET /mnemonic/decisions` + `POST /mnemonic/decisions/{id}/answer` + the decision content type (with the `visual` field).
+- `skillgrid-cli/internal/mnemonic/http/prototype.go` — `GET /prototype/{id...}` + `prototypeRoot()`/`prototypeFile()` (reuses the `stitchFile` guard shape, root = `.skillgrid/prototype`).
+- `skillgrid-cli/internal/mnemonic/http/decisions_test.go` + `skillgrid-cli/internal/mnemonic/http/prototype_test.go` — the RED tests above.
+- `skillgrid-ui/src/features/decisions/` — `DecisionsPage.tsx`, `api.ts`, `DecisionCard.tsx` (with the sandboxed-iframe visual, reusing `SandboxPreview`).
+- `ui/openapi.yaml` entries for `/mnemonic/decisions`, `/mnemonic/decisions/{id}/answer`, `/prototype/{id...}`.
 - Nav entry in `skillgrid-ui/src/components/layout/AppLayout.tsx` + route in `skillgrid-ui/src/app.tsx`.
-- A short convention doc: `docs/user-guide/10-decision-companion.md` (the content schema + the poll loop), mirroring `09-serve-dashboard.md`.
+- A short convention doc: `docs/user-guide/10-decision-companion.md` (the content schema + the poll loop + the `.skillgrid/prototype/` convention), mirroring `09-serve-dashboard.md`.
 
 **Key links:**
-- Agent `mem_save(type=decision, topic_key, visibility=team, content{...state:pending})` → `observations` row.
+- Agent `mem_save(type=decision, topic_key, visibility=team, content{...state:pending, visual?})` → `observations` row.
 - `GET /mnemonic/decisions` → `SELECT … WHERE type='decision'` + parse `content` → decision cards.
-- User picks option → `POST /mnemonic/decisions/{id}/answer {optionId, note?}` → `content.state=answered` + version append.
+- Agent writes prototype HTML → `.skillgrid/prototype/<topic>/<variant>.html` → `GET /prototype/{topic/variant.html}` (traversal-guarded) → sandboxed iframe in the decision card.
+- User picks option (+ optional visual note) → `POST /mnemonic/decisions/{id}/answer {optionId, note?}` → `content.state=answered` + version append.
 - Agent `mem_search(topic_key)` / activity poll → reads `content.state==answered` + the chosen option → proceeds.
-- `registerRoutes()` → the two new routes (registered alongside the existing mnemonic routes; they are under `/mnemonic/decisions`, which is **not** in the `apiPrefixes` 404-catch-all list, so the SPA fallback does not swallow them — verified against `embed.go`).
+- `registerRoutes()` → the new routes (registered alongside the existing mnemonic routes; `/mnemonic/decisions` is **not** in the `apiPrefixes` 404-catch-all list, and `/prototype/{id...}` is an explicit route registered before the SPA fallback — verified against `embed.go`).
 
 ## Global Constraints (build/ordering)
 
@@ -779,6 +785,7 @@ Fields:
 - `state` (required) — `pending` | `answered` | `superseded`. **This is a content field, not the governance `status`** (`status` is reserved for `active|superseded|archived`).
 - `answeredOption`, `answerNote` — set by the user's answer (the dashboard writes these).
 - `updatedBy` — `agent` or `user`.
+- `visual` (optional) — the prototype id `<topic>/<variant>.html`, served from `.skillgrid/prototype/` (see below). When present, the decision card renders it in a sandboxed iframe.
 
 ## The loop (polling, not realtime)
 
@@ -786,6 +793,18 @@ Fields:
 2. **Dashboard** polls `GET /mnemonic/decisions?state=pending` and renders the cards.
 3. **User → agent:** click an option (or add a note) → `POST /mnemonic/decisions/{id}/answer {optionId, note}` → sets `state: answered`, records the choice, **appends a version** (durable, auditable trail).
 4. **Agent** polls `mem_search` on the decision's `topic_key` (or the activity feed) and proceeds when `content.state == answered`.
+
+## Prototypes (the visual function)
+
+When a question is clearer *shown* than told, the agent writes throwaway standalone
+interactive HTML to `.skillgrid/prototype/<topic>/<variant>.html` (via the existing `sketch`
+skill, pointed at this dir for the companion flow) and sets `content.visual` to
+`<topic>/<variant>.html`. The dashboard serves it at `GET /prototype/<topic>/<variant>.html`
+(sandboxed to `.skillgrid/prototype/`, traversal-guarded) and renders it in a sandboxed
+iframe (`sandbox="allow-scripts"`, no `allow-same-origin`) inside the decision card. The
+prototype is throwaway by design; the durable record is the decision + its version history.
+`sketch.dir` (the skill's default `{specs_root}/{topic}/sketches/`) is for standalone sketch
+work; the companion uses `.skillgrid/prototype/` so the dashboard can serve it.
 
 ## Durability
 
@@ -815,10 +834,178 @@ git commit -m "docs(decisions): openapi + user-guide convention + MCP round-trip
 
 ---
 
+### Task 5: Prototype serve route + sandboxed iframe in the decision card (the visual function)
+
+**Files:**
+- Create: `skillgrid-cli/internal/mnemonic/http/prototype.go`
+- Create: `skillgrid-cli/internal/mnemonic/http/prototype_test.go`
+- Modify: `skillgrid-cli/internal/mnemonic/http/server.go` (register `GET /prototype/{id...}`)
+- Modify: `skillgrid-ui/src/features/decisions/DecisionCard.tsx` (render `content.visual` in the sandboxed iframe)
+- Modify: `skillgrid-ui/src/features/decisions/DecisionCard.test.tsx` (iframe render test)
+
+**Interfaces:**
+- Consumes: `sddRoot()` (existing, `plans.go`); the `stitchFile` guard *shape* (existing, `prototypes.go`) — replicated for the `.skillgrid/prototype/` root; `SandboxPreview` (existing, `features/prototypes/SandboxPreview.tsx`) or a minimal inline `<iframe sandbox="allow-scripts">`.
+- Produces:
+  - `func prototypeRoot() string` — `filepath.Join(sddRoot(), ".skillgrid", "prototype")`
+  - `func prototypeFile(id string) (string, bool)` — the `stitchFile` guard shape, root = `prototypeRoot()`.
+  - `func (s *Server) handlePrototypeDecision(w http.ResponseWriter, r *http.Request)` — `GET /prototype/{id...}`.
+
+**SATISFIES:** scenarios `prototype-serve-traversal` + `decision-card-renders-visual`.
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+// prototype_test.go
+package http
+
+import (
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestPrototypeServeAndTraversal(t *testing.T) {
+	s := newTestServerForCwd(t, tempCwd(t)) // sets SKILLGRID_DOCS_CWD to a temp dir (see plans_test.go pattern)
+	dir := filepath.Join(sddRoot(), ".skillgrid", "prototype", "demo")
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "a.html"), []byte("<h1>variant A</h1>"), 0o644)
+
+	// good id
+	req := httptest.NewRequest("GET", "/prototype/demo/a.html", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "variant A") {
+		t.Fatalf("serve: got %d %q", w.Code, w.Body.String())
+	}
+
+	// traversal / absolute ids → 400
+	for _, id := range []string{"../a.html", "..%2F..%2Fa.html", "/etc/passwd", "a/../../x.html"} {
+		req = httptest.NewRequest("GET", "/prototype/"+id, nil)
+		w = httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, req)
+		if w.Code != 400 { t.Errorf("id %q: got %d want 400", id, w.Code) }
+	}
+	// unknown file → 404
+	req = httptest.NewRequest("GET", "/prototype/demo/nope.html", nil)
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != 404 { t.Errorf("unknown: got %d want 404", w.Code) }
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run TestPrototypeServe -v`
+Expected: FAIL — `handlePrototypeDecision`, `prototypeFile` undefined.
+
+- [ ] **Step 3: Write minimal implementation**
+
+```go
+// prototype.go
+package http
+
+import (
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// prototypeRoot returns the .skillgrid/prototype/ directory (under sddRoot,
+// the repo root). This is the on-disk store for the companion's throwaway
+// interactive prototypes (agent-authored HTML), separate from .stitch/.
+func prototypeRoot() string { return filepath.Join(sddRoot(), ".skillgrid", "prototype") }
+
+// prototypeFile resolves a prototype id to an absolute path sandboxed to
+// .skillgrid/prototype/ — the same path-traversal guard shape as stitchFile
+// (prototypes.go). ok=false for empty/absolute ids, '..' segments, or any path
+// that escapes the root after filepath.Clean.
+func prototypeFile(id string) (string, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", false
+	}
+	if filepath.IsAbs(id) || id[0] == '/' || (len(id) >= 2 && id[1] == ':') {
+		return "", false
+	}
+	root := prototypeRoot()
+	full := filepath.Join(root, filepath.FromSlash(id))
+	cleanFull := filepath.Clean(full)
+	cleanRoot := filepath.Clean(root)
+	rel, err := filepath.Rel(cleanRoot, cleanFull)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return cleanFull, true
+}
+
+// handlePrototypeDecision serves GET /prototype/{id...} — the HTML of one
+// companion prototype, sandboxed to .skillgrid/prototype/. Traversal/absolute
+// ids → 400; unknown → 404. Rendered client-side in a sandboxed iframe
+// (sandbox="allow-scripts", no allow-same-origin).
+func (s *Server) handlePrototypeDecision(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	full, ok := prototypeFile(id)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid prototype id: "+id)
+		return
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeError(w, http.StatusNotFound, "unknown prototype: "+id)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+```
+
+Register in `registerRoutes()` (next to the existing `s.mux.HandleFunc("GET /prototypes/…")` lines):
+```go
+s.mux.HandleFunc("GET /prototype/{id...}", s.handlePrototypeDecision)
+```
+> Note: `/prototype/{id...}` is a distinct subtree from the existing `/prototypes` (plural) route — Go 1.22 mux treats them separately. Register it before `registerUIRoutes()` so the SPA fallback doesn't catch it.
+
+In `DecisionCard.tsx`, render the visual when present (reuse the sandboxed-iframe pattern from `SandboxPreview.tsx`):
+```tsx
+{decision.content.visual && (
+  <div className="mt-3 overflow-hidden rounded-md border border-edge">
+    <iframe
+      src={`/prototype/${decision.content.visual}`}
+      title={`Prototype: ${decision.content.visual}`}
+      sandbox="allow-scripts"
+      className="h-[420px] w-full bg-white"
+    />
+  </div>
+)}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `cd skillgrid-cli && go test ./internal/mnemonic/http/ -run 'TestPrototype' -v -race && cd ../skillgrid-ui && npm test -- DecisionCard`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add skillgrid-cli/internal/mnemonic/http/prototype.go skillgrid-cli/internal/mnemonic/http/prototype_test.go skillgrid-cli/internal/mnemonic/http/server.go skillgrid-ui/src/features/decisions/
+git commit -m "feat(decisions): prototype serve route (.skillgrid/prototype) + sandboxed iframe in the card"
+```
+
+---
+
 ## Self-Review
 
-1. **Spec coverage:** every capability (agent posts decision, dashboard reads, user answers, agent reads back, durable/versioned, visibility-gated, write-authed, doc'd) has a task. The deferred `decisions`-table sub-decision is explicitly *not* a task. ✔
-2. **Must-haves coverage:** truths 1–9 map to Tasks 1–4; `backstop` truths (1, 4, 9) get held-out tests — Task 1 live render (door check), Task 4 `TestDecisionMCPRoundTrip`, and a manual restart check during the door check. Artifacts + key links listed. ✔
+1. **Spec coverage:** every capability (agent posts decision, dashboard reads, user answers, agent reads back, durable/versioned, visibility-gated, write-authed, **agent authors + dashboard renders a prototype**, doc'd) has a task. The deferred `decisions`-table sub-decision is explicitly *not* a task. ✔
+2. **Must-haves coverage:** truths 1–11 map to Tasks 1–5; `backstop` truths (1, 4, 9) get held-out tests — Task 1 live render (door check), Task 4 `TestDecisionMCPRoundTrip`, and a manual restart check during the door check. Truths 10–11 (prototype serve + sandboxed render) are covered by Task 5's `TestPrototypeServeAndTraversal` + the `DecisionCard` iframe test. Artifacts + key links listed. ✔
 3. **One-way-door completeness:** none — no migration/table/contract break; listed as "None". ✔
 4. **Placeholder scan:** no TBD/TODO/"similar to Task N". Two spots flag "confirm against existing code" — `observation_versions` column names (Task 2) and the MCP test harness shape (Task 4) — these are explicit verification steps, not holes, because the schema/harness already exist and the executor must match them. ✔
 5. **Type consistency:** `decisionContent`/`decisionOption`/`decisionRow`/`decisionAnswerBody` defined once (Task 1) and reused in Tasks 2–3; `handleDecisions`/`handleDecisionAnswer`/`parseDecisionContent`/`UpdateContent` names consistent; UI `Decision`/`DecisionOption` mirror the Go JSON. ✔
@@ -826,12 +1013,12 @@ git commit -m "docs(decisions): openapi + user-guide convention + MCP round-trip
 ## Plan Review
 
 - Verdict: **READY FOR EXECUTION**
-- Findings: 0 Critical, 1 Important (Task 2 must verify the exact `observation_versions` column names against `migrations/017_layered_memory_governance.sql` before the INSERT — a wrong column name is a silent runtime failure, so the test in Task 2 is the gate), 2 Minor (deferred: the MCP round-trip test reuses the existing harness in `single_open_test.go`/`e2e_memory_ext_test.go`; the visibility filter in Task 1 must be matched verbatim to `handleMnemonicMemories` so the reader predicate doesn't drift).
+- Findings: 0 Critical, 1 Important (Task 2 must verify the exact `observation_versions` column names against `migrations/017_layered_memory_governance.sql` before the INSERT — a wrong column name is a silent runtime failure, so the test in Task 2 is the gate), 3 Minor (deferred: the MCP round-trip test reuses the existing harness in `single_open_test.go`/`e2e_memory_ext_test.go`; the visibility filter in Task 1 must be matched verbatim to `handleMnemonicMemories` so the reader predicate doesn't drift; Task 5's `prototypeFile` guard is a deliberate copy of `stitchFile`'s shape for a different root — keep them in lockstep if one changes).
 - Reviewed: 2026-09-19
 
 ## Execution Handoff
 
-Blueprint has 4 tasks → invoke `skillgrid:slicing` to break into vertical tracer-bullet tickets with execution waves, producing `tasks.md` alongside this blueprint.
+Blueprint has 5 tasks → invoke `skillgrid:slicing` to break into vertical tracer-bullet tickets with execution waves, producing `tasks.md` alongside this blueprint.
 
 **Two execution options:**
 
