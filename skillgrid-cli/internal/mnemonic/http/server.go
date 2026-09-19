@@ -178,6 +178,12 @@ func (s *Server) registerGraphRoutes() {
 	s.mux.HandleFunc("GET /activity/stats", s.handleMnemonicActivityStats)
 	s.mux.HandleFunc("GET /activity/stream", s.handleMnemonicActivityStream)
 
+	// Phase 6 plans/specs routes (SDD aggregation from .skillgrid/*).
+	s.mux.HandleFunc("GET /plans", s.handlePlans)
+	s.mux.HandleFunc("GET /plans/{id}", s.handlePlanDetail)
+	s.mux.HandleFunc("GET /specs", s.handleSpecs)
+	s.mux.HandleFunc("GET /specs/{path...}", s.handleSpecContent)
+
 	// The SPA shell uses base './', so on a /mnemonic/... path its module
 	// script is requested at /mnemonic/assets/... — serve the embedded build
 	// assets there (the root /assets/ route covers the top-level roots).
