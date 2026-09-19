@@ -42,16 +42,17 @@ func ResolveCodePath(memfsProjectID, raw string) (CodePath, error) {
 		return CodePath{Kind: "dir", Dir: ""}, nil
 	}
 	segs := splitPath(s)
-	// With the memfs://project/{id}/... form, the path begins with the literal
-	// "project" segment; validate {id} and drop both.
+	// With the explicit memfs://project/{id}/... form, the path begins with the
+	// literal "project" segment; validate {id} against the bound project and
+	// drop both. A bare path (no scheme) is always project-relative: its first
+	// segment is a repo directory, never a project id. This keeps the explicit
+	// and bare forms consistent — only the explicit URI carries a project id to
+	// validate (see review #2).
 	if explicit && len(segs) >= 2 && segs[0] == "project" {
 		if segs[1] != memfsProjectID {
 			return CodePath{}, errCodeScopeMismatch
 		}
 		segs = segs[2:]
-	} else if len(segs) > 0 && segs[0] == memfsProjectID {
-		// Bare form: a leading project-id segment is dropped.
-		segs = segs[1:]
 	}
 	if len(segs) == 0 {
 		return CodePath{Kind: "dir", Dir: ""}, nil

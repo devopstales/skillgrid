@@ -16,12 +16,17 @@ func TestResolveCodePath(t *testing.T) {
 		{raw: "", kind: "dir", dir: ""},
 		{raw: ".", kind: "dir", dir: ""},
 		{raw: "memfs://project/A/src/", kind: "dir", dir: "src"},
-		{raw: "A/src/", kind: "dir", dir: "src"},
 		{raw: "src/", kind: "dir", dir: "src"},
 		{raw: "memfs://project/A/src/auth/login.go", kind: "file", dir: "src/auth", file: "login.go"},
-		{raw: "A/src/auth/login.go", kind: "file", dir: "src/auth", file: "login.go"},
-		{raw: "A/src/auth/login.go::Handler", kind: "symbol", dir: "src/auth", file: "login.go", symbol: "Handler"},
-		{raw: "memfs://project/B/src/", want: errCodeScopeMismatch}, // id B != A
+		// Bare paths are project-relative: a leading segment is a dir, not a
+		// project id. memfs://project/B/... under project A is a mismatch.
+		{raw: "A/src/", kind: "dir", dir: "A/src"},
+		{raw: "A/src/auth/login.go::Handler", kind: "symbol", dir: "A/src/auth", file: "login.go", symbol: "Handler"},
+		{raw: "memfs://project/B/src/", want: errCodeScopeMismatch}, // explicit id B != A
+		// Bare paths are project-relative: a leading segment is a dir, never a
+		// project id (consistent with the explicit form, which is the only one
+		// that carries an id to validate — review #2).
+		{raw: "B/src/", kind: "dir", dir: "B/src"},
 	}
 	for _, c := range cases {
 		got, err := ResolveCodePath("A", c.raw)

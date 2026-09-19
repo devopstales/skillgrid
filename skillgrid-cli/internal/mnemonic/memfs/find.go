@@ -36,32 +36,9 @@ func (fs *MemFS) Find(ctx context.Context, pattern, scope string) ([]Entry, erro
 
 	// Materialize files first (single query, closed), then symbols, so the
 	// single-connection store pool is never held by two live row sets.
-	var files []string
-	{
-		var rows *sql.Rows
-		var err error
-		if scopeDir == "" {
-			rows, err = fs.db.QueryContext(ctx, `SELECT path FROM files ORDER BY path LIMIT 200`)
-		} else {
-			rows, err = fs.db.QueryContext(ctx,
-				`SELECT path FROM files WHERE path LIKE ? ORDER BY path LIMIT 200`, scopeDir+"/%")
-		}
-		if err != nil {
-			return nil, fmt.Errorf("memfs find: %w", err)
-		}
-		for rows.Next() {
-			var p string
-			if err := rows.Scan(&p); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("memfs find scan: %w", err)
-			}
-			files = append(files, p)
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return nil, err
-		}
+	files, err := fs.listFilePaths(ctx, scopeDir)
+	if err != nil {
+		return nil, err
 	}
 
 	var out []Entry
@@ -82,16 +59,8 @@ func (fs *MemFS) Find(ctx context.Context, pattern, scope string) ([]Entry, erro
 	}
 	var syms []symRef
 	{
-		var rows *sql.Rows
-		var err error
-		if scopeDir == "" {
-			rows, err = fs.db.QueryContext(ctx,
-				`SELECT s.name, s.signature FROM files f JOIN symbols s ON s.file_id = f.id ORDER BY s.name LIMIT 200`)
-		} else {
-			rows, err = fs.db.QueryContext(ctx,
-				`SELECT s.name, s.signature FROM files f JOIN symbols s ON s.file_id = f.id WHERE f.path LIKE ? ORDER BY s.name LIMIT 200`,
-				scopeDir+"/%")
-		}
+		q, args := symbolNameQuery(scopeDir)
+		rows, err := fs.db.QueryContext(ctx, q, args...)
 		if err != nil {
 			return nil, fmt.Errorf("memfs find: %w", err)
 		}

@@ -1265,7 +1265,7 @@ func runMemFS(svc *service.Service, projID string, pos []string) {
 			os.Exit(1)
 		}
 		if len(entries) == 0 {
-			fmt.Fprintln(os.Stderr, noCodeIndexNote(projID))
+			fmt.Fprintln(os.Stderr, fs.NoCodeIndexNote())
 		}
 		printJSON(map[string]any{
 			"project": projID,
@@ -1343,11 +1343,6 @@ func runMemFS(svc *service.Service, projID string, pos []string) {
 // joinPathArgs joins positional path args into a single path string.
 func joinPathArgs(args []string) string {
 	return strings.Join(args, " ")
-}
-
-// noCodeIndexNote is the stderr note for an unindexed store.
-func noCodeIndexNote(projID string) string {
-	return "mem fs: no code index for project " + projID + " (run skillgrid index)"
 }
 
 func printJSON(v any) {

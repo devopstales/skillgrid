@@ -51,7 +51,7 @@ func (fs *MemFS) Cat(ctx context.Context, codePath string) (string, error) {
 		return fs.catSpan(ctx, fileID, startLine, endLine)
 	}
 	// Whole file: all its chunks in line order.
-	return fs.catSpan(ctx, fileID, 0, 1<<30)
+	return fs.catSpan(ctx, fileID, 0, wholeFileEnd)
 }
 
 // catSpan concatenates the chunks of a file intersecting [startLine..endLine].

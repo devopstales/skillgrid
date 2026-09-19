@@ -54,30 +54,13 @@ func fullPath(dir, file string) string {
 
 // listDir lists immediate subdirectories and files under dirPrefix.
 func (fs *MemFS) listDir(ctx context.Context, dirPrefix string) ([]Entry, error) {
-	var rows *sql.Rows
-	var err error
-	if dirPrefix == "" {
-		rows, err = fs.db.QueryContext(ctx, `SELECT path FROM files ORDER BY path LIMIT 200`)
-	} else {
-		rows, err = fs.db.QueryContext(ctx,
-			`SELECT path FROM files WHERE path LIKE ? ORDER BY path LIMIT 200`, dirPrefix+"/%")
-	}
+	paths, err := fs.listFilePaths(ctx, dirPrefix)
 	if err != nil {
-		return nil, fmt.Errorf("memfs list: %w", err)
-	}
-	defer rows.Close()
-
-	type node struct {
-		name string
-		kind string
+		return nil, err
 	}
 	seen := map[string]bool{}
 	var out []Entry
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
-			return nil, fmt.Errorf("memfs list scan: %w", err)
-		}
+	for _, p := range paths {
 		rel := strings.TrimPrefix(p, dirPrefix)
 		if dirPrefix != "" {
 			rel = strings.TrimPrefix(rel, "/")
@@ -87,19 +70,17 @@ func (fs *MemFS) listDir(ctx context.Context, dirPrefix string) ([]Entry, error)
 			continue
 		}
 		first := segs[0]
-		if len(segs) > 1 {
-			if !seen[first] {
-				seen[first] = true
-				out = append(out, Entry{Name: first, Kind: "dir"})
-			}
-		} else {
-			if !seen[first] {
-				seen[first] = true
-				out = append(out, Entry{Name: first, Kind: "file"})
-			}
+		if seen[first] {
+			continue
 		}
+		seen[first] = true
+		kind := "file"
+		if len(segs) > 1 {
+			kind = "dir"
+		}
+		out = append(out, Entry{Name: first, Kind: kind})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // listSymbols lists the symbols in a file (optionally a single named one).

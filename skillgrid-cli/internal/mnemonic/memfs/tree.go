@@ -2,7 +2,6 @@ package memfs
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -14,11 +13,6 @@ type TreeNode struct {
 	Children []*TreeNode
 	Leaf     bool
 	Meta     string // e.g. "1 symbols" on file leaves
-}
-
-// noCodeIndexNote is the message shown for an unindexed store.
-func (fs *MemFS) noCodeIndexNote() string {
-	return "mem fs: no code index for project " + fs.projectID + " (run skillgrid index)\n"
 }
 
 // Tree renders the code-index repo directory tree under the given code path.
@@ -38,15 +32,8 @@ func (fs *MemFS) Tree(ctx context.Context, codePath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var rows *sql.Rows
-	if cp.Dir == "" {
-		rows, err = fs.db.QueryContext(ctx,
-			`SELECT f.path, (SELECT COUNT(*) FROM symbols s WHERE s.file_id = f.id) FROM files f ORDER BY f.path LIMIT 200`)
-	} else {
-		rows, err = fs.db.QueryContext(ctx,
-			`SELECT f.path, (SELECT COUNT(*) FROM symbols s WHERE s.file_id = f.id) FROM files f WHERE f.path LIKE ? ORDER BY f.path LIMIT 200`,
-			cp.Dir+"/%")
-	}
+	q, args := fileCountQuery(cp.Dir)
+	rows, err := fs.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return "", fmt.Errorf("memfs tree: %w", err)
 	}
