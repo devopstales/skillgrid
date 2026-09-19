@@ -22,7 +22,7 @@ export function LayoutSwitcher({ value, onChange }: Props) {
           className={
             'rounded-md px-3 py-1 text-xs font-medium transition-colors ' +
             (value === o.kind
-              ? 'bg-indigo-500 text-white'
+              ? 'bg-accent text-white'
               : 'text-slate-300 hover:bg-slate-800')
           }
         >

@@ -70,9 +70,9 @@ export function DependencyGraph({
         })}
         {/* center task */}
         <rect x={cx - 40} y={height / 2 - nodeH / 2} width="80" height={nodeH}
-          rx="4" fill="#1e1b4b" stroke="#6366f1" strokeWidth="1.5" />
+          rx="4" fill="#2e1065" stroke="#7c3aed" strokeWidth="1.5" />
         <text x={cx} y={height / 2 + 3} textAnchor="middle" fontSize="10"
-          fill="#c7d2fe" fontFamily="monospace">{task.id}</text>
+          fill="#ddd6fe" fontFamily="monospace">{task.id}</text>
         <defs>
           <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3"
             orient="auto">

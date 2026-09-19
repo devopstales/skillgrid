@@ -12,7 +12,7 @@ export function DepthSlider({ value, min = 0, max = 6, onChange }: Props) {
     <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-2">
       <div className="mb-1 flex items-center justify-between text-[11px] text-slate-400">
         <span className="font-semibold uppercase tracking-wide">Depth</span>
-        <span className="text-indigo-400">{value} hops</span>
+        <span className="text-violet-400">{value} hops</span>
       </div>
       <input
         type="range"
@@ -21,7 +21,7 @@ export function DepthSlider({ value, min = 0, max = 6, onChange }: Props) {
         step={1}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-40 accent-indigo-500"
+        className="w-40 accent-violet-500"
       />
     </div>
   )

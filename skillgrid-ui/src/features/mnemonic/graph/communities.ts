@@ -6,7 +6,7 @@
 // those nodes get the neutral color.
 
 export const COMMUNITY_PALETTE = [
-  '#6366f1', // indigo
+  '#7c3aed', // violet (theme accent)
   '#22c55e', // green
   '#f59e0b', // amber
   '#ef4444', // red

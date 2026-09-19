@@ -146,7 +146,7 @@ function exportHtml(g: Graph<GraphologyNode, GraphologyEdge>): void {
       x: Number(a.x ?? 0),
       y: Number(a.y ?? 0),
       size: Number(a.size ?? 4),
-      color: String(a.color ?? '#6366f1'),
+      color: String(a.color ?? '#7c3aed'),
       title: `${a.label} · ${a.nodeType} · ${a.path}`,
     })
   }
@@ -156,7 +156,7 @@ function exportHtml(g: Graph<GraphologyNode, GraphologyEdge>): void {
     edges.push({ id: e, source: s, target: t })
   }
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Skillgrid Graph</title>
-<style>html,body{margin:0;height:100%;background:#0f172a}#g{width:100vw;height:100vh}</style>
+<style>html,body{margin:0;height:100%;background:#06060a}#g{width:100vw;height:100vh}</style>
 <script src="https://unpkg.com/sigma@3/build/sigma.min.js"></script>
 <script src="https://unpkg.com/graphology/dist/graphology.umd.min.js"></script></head>
 <body><div id="g"></div><script>
@@ -180,9 +180,9 @@ var s = new Sigma.default(g, document.getElementById('g'));
 // phase. tree/circles are instant.)
 function LoadingState() {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-slate-950 p-6">
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-[#06060a] p-6">
       <div className="relative h-10 w-10">
-        <div className="absolute inset-0 animate-spin rounded-full border-2 border-slate-700 border-t-indigo-400" />
+        <div className="absolute inset-0 animate-spin rounded-full border-2 border-slate-700 border-t-violet-400" />
       </div>
       <div className="text-sm text-slate-300">Loading graph…</div>
     </div>
@@ -252,18 +252,18 @@ export function VectorGraph() {
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-slate-950">
+    <div className="relative h-full w-full overflow-hidden bg-[#06060a]">
       <SigmaContainer
         className="mnemonic-sigma h-full w-full"
         // Sigma reads the canvas background from the --sigma-background-color
         // CSS var (its style.css sets background: var(--sigma-background-color)).
         // Setting it inline on the co-occurring .react-sigma element overrides
         // the shipped default (light) without a specificity fight.
-        style={{ ['--sigma-background-color' as string]: '#0f172a' }}
+        style={{ ['--sigma-background-color' as string]: '#06060a' }}
         settings={{
           allowInvalidContainer: true,
           defaultEdgeType: 'arrow',
-          defaultNodeColor: '#0f172a',
+          defaultNodeColor: '#06060a',
           labelColor: { color: '#e2e8f0' },
           labelRenderedSizeThreshold: 6,
         }}

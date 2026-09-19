@@ -31,7 +31,7 @@ export function SearchPanel({ labels, onSelect, onClear }: Props) {
           }
         }}
         placeholder="Search nodes…"
-        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 outline-none placeholder:text-slate-500 focus:border-indigo-500"
+        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 outline-none placeholder:text-slate-500 focus:border-accent"
       />
       {suggestions.length > 0 && (
         <ul className="mt-1 max-h-40 overflow-auto">

@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #0a0a0b;
-  --color-card: #141416;
+  --color-bg: #06060a;
+  --color-card: #101014;
   --color-edge: #27272a;
-  --color-accent: #6366f1;
+  --color-accent: #7c3aed;
 
   --font-sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -28,8 +28,8 @@ body {
    var inline (VectorGraph.tsx); this rule is the fallback if the inline style
    is ever stripped. Keep the canvas transparent so the dark bg shows through. */
 .mnemonic-sigma.react-sigma {
-  --sigma-background-color: #0f172a;
-  background-color: #0f172a !important;
+  --sigma-background-color: #06060a;
+  background-color: #06060a !important;
 }
 .mnemonic-sigma.react-sigma canvas {
   background: transparent;
