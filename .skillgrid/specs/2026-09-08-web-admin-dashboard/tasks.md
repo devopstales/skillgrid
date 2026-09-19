@@ -615,7 +615,7 @@ This phase is done only when:
 
 ### Tasks
 
-- [ ] 6.1 `[RED]` `/activity/events?limit=100` + `/activity/stats` + `/activity/stream` (SSE, leak-free)
+- [x] 6.1 `[RED]` `/activity/events?limit=100` + `/activity/stats` + `/activity/stream` (SSE, leak-free)
   - [ ] 6.1.a Write failing test: seeded events → `/activity/events?limit=100` returns them (newest first, type/source/actor/severity/relatedIds); `/activity/stats` returns the counters; `/activity/stream` emits new events live and cleans up on disconnect (goroutine count before/after equal).
   - [ ] 6.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase6_Activity` — Expected: FAIL
   - [ ] 6.1.c Minimal implementation: event log + SSE + stats handlers.
