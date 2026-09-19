@@ -16,6 +16,24 @@ function hashKey(s: string): number {
   return (h >>> 0) % (Math.PI * 2)
 }
 
+// seedPositions spreads nodes onto a small ring (golden-angle placement) so a
+// force layout has a NON-DEGENERATE start. ForceAtlas2 produces zero movement
+// when every node sits at the same point (repulsion/attraction cancel by
+// symmetry), so the animated sim must start from a spread, not the (0,0) seed
+// the converter uses. Deterministic (golden angle by index) so repeated loads
+// seed identically; radius scales with node count so larger graphs spread wider.
+export function seedPositions(g: Graph<GraphologyNode, GraphologyEdge>): void {
+  const nodes = g.nodes()
+  if (nodes.length === 0) return
+  const radius = 30 + Math.sqrt(nodes.length) * 4
+  const GOLDEN = 2.399963 // radians
+  nodes.forEach((n, i) => {
+    const angle = i * GOLDEN
+    g.setNodeAttribute(n, 'x', radius * Math.cos(angle))
+    g.setNodeAttribute(n, 'y', radius * Math.sin(angle))
+  })
+}
+
 // forceLayout runs ForceAtlas2 for a bounded number of iterations. It stops
 // early when the layout "settles" (force below the threshold) so large graphs
 // don't spin forever.
@@ -24,6 +42,8 @@ export function forceLayout(
   opts?: { iterations?: number },
 ): void {
   const iterations = opts?.iterations ?? 300
+  // Seed first — ForceAtlas2 needs a non-degenerate start (see seedPositions).
+  seedPositions(g)
   // .assign applies the computed positions back onto the graph (the plain call
   // only returns a mapping). Shared settings (see FORCE_SETTINGS).
   forceAtlas2.assign(g, {
@@ -77,8 +97,13 @@ export function forceLayoutAnimated(
   },
 ): AnimatedLayoutHandle {
   const maxIterations = opts?.maxIterations ?? 300
-  const perFrame = opts?.iterationsPerFrame ?? 4
-  const settleEpsilon = opts?.settleEpsilon ?? 0.05
+  const perFrame = opts?.iterationsPerFrame ?? 3
+  // settleRel: settle when the max per-frame displacement is under a FRACTION
+  // of the graph's current extent. Relative (not absolute) so it works across
+  // graph sizes — ForceAtlas2 displacement scales with graph size, so a fixed
+  // absolute epsilon would never fire on large graphs. 1e-3 ≈ "nodes moved less
+  // than 0.1% of the layout radius this frame" = effectively settled.
+  const settleRel = opts?.settleEpsilon ?? 1e-3
   // Prefer requestAnimationFrame in the browser; fall back to a 16 ms timer in
   // non-DOM environments (tests) so the simulation is fully testable.
   const raf =
@@ -96,6 +121,8 @@ export function forceLayoutAnimated(
   if (nodes.length === 0) {
     return { done: Promise.resolve(), stop: () => {} }
   }
+  // Non-degenerate start so the sim actually moves (see seedPositions).
+  seedPositions(g)
 
   let rafId = 0
   let frame = 0
@@ -105,6 +132,40 @@ export function forceLayoutAnimated(
   const donePromise = new Promise<void>((r) => {
     resolveDone = r
   })
+  // Dev-only observability (no-op in prod builds): exposes the current frame
+  // count + last displacement/extent so a browser test can tell "still
+  // animating" from "settled" and tune the settle threshold. Removed by
+  // minification.
+  let lastMaxMove = 0
+  let lastExtent = 0
+  // Tag the hook with the node count so a browser test can find the REAL sim
+  // (there can be a stale empty-graph one from StrictMode's double-invoke).
+  const hook = {
+    get frame() {
+      return frame
+    },
+    get settled() {
+      return done
+    },
+    get lastMaxMove() {
+      return lastMaxMove
+    },
+    get lastExtent() {
+      return lastExtent
+    },
+    get maxMovePerExtent() {
+      return lastExtent ? lastMaxMove / lastExtent : 0
+    },
+    posSum() {
+      let s = 0
+      for (const n of nodes) s += Number(g.getNodeAttribute(n, 'x') ?? 0) + Number(g.getNodeAttribute(n, 'y') ?? 0)
+      return s
+    },
+  }
+  const gt = globalThis as { __skillgridGraph?: unknown; __skillgridGraphByOrder?: Record<number, unknown> }
+  gt.__skillgridGraph = hook
+  if (!gt.__skillgridGraphByOrder) gt.__skillgridGraphByOrder = {}
+  gt.__skillgridGraphByOrder[nodes.length] = hook
 
   function positions(): Map<string, { x: number; y: number }> {
     const m = new Map<string, { x: number; y: number }>()
@@ -122,16 +183,23 @@ export function forceLayoutAnimated(
     const before = positions()
     forceAtlas2.assign(g, { iterations: perFrame, settings: FORCE_SETTINGS })
     frame++
-    // max per-frame displacement → settle heuristic.
+    // max per-frame displacement → relative settle heuristic.
     let maxMove = 0
+    let maxAbs = 0
     for (const n of nodes) {
       const b = before.get(n)!
-      const dx = Number(g.getNodeAttribute(n, 'x') ?? 0) - b.x
-      const dy = Number(g.getNodeAttribute(n, 'y') ?? 0) - b.y
-      const d = Math.hypot(dx, dy)
+      const nx = Number(g.getNodeAttribute(n, 'x') ?? 0)
+      const ny = Number(g.getNodeAttribute(n, 'y') ?? 0)
+      const d = Math.hypot(nx - b.x, ny - b.y)
       if (d > maxMove) maxMove = d
+      if (Math.abs(nx) > maxAbs) maxAbs = Math.abs(nx)
+      if (Math.abs(ny) > maxAbs) maxAbs = Math.abs(ny)
     }
-    if (maxMove < settleEpsilon) stableFrames++
+    // extent (radius of the current layout) — the denominator for "settled".
+    const extent = maxAbs || 1
+    lastMaxMove = maxMove
+    lastExtent = extent
+    if (maxMove < settleRel * extent) stableFrames++
     else stableFrames = 0
     const settled = stableFrames >= 3
     if (settled || frame * perFrame >= maxIterations) {

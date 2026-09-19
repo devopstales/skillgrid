@@ -14,6 +14,7 @@ import { LayoutSwitcher } from './controls/LayoutSwitcher'
 import { SearchPanel } from './controls/SearchPanel'
 import { Legend } from './controls/Legend'
 import { DepthSlider } from './controls/DepthSlider'
+import { StopLayoutButton } from './controls/StopLayoutButton'
 import type { GraphologyNode, GraphologyEdge } from './converters'
 
 // Loader must render inside SigmaContainer and load the graphology instance.
@@ -155,55 +156,27 @@ var s = new Sigma.default(g, document.getElementById('g'));
   URL.revokeObjectURL(url)
 }
 
-// LoadingState shows a progress indicator while the graph payload streams in,
-// then switches to an "organizing" label while the synchronous layout
-// computation runs (which blocks the main thread). We don't know the total
-// bytes up front, so the bar uses a saturating ease (fast start, slow finish)
-// capped at 92% — it never reads "done" until the layout actually lands.
-function LoadingState({ layingOut }: { layingOut: boolean }) {
-  const [pct, setPct] = useState(0)
-  useEffect(() => {
-    const start = performance.now()
-    let raf = 0
-    const loop = () => {
-      const t = (performance.now() - start) / 1000
-      // 92% cap while loading; pinned to 99% (not 100) during layout so the
-      // user can tell the phase changed by the label, not a bar jump.
-      const target = layingOut ? 99 : 92
-      const eased = target * (1 - Math.exp(-t / 1.4))
-      setPct(eased)
-      raf = requestAnimationFrame(loop)
-    }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
-  }, [layingOut])
-
+// LoadingState shows a simple spinner while the graph payload is fetched.
+// (The force layout no longer blocks the main thread — it animates in place
+// after the graph is published, so there's no separate "organizing" full-block
+// phase. tree/circles are instant.)
+function LoadingState() {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-slate-950 p-6">
       <div className="relative h-10 w-10">
         <div className="absolute inset-0 animate-spin rounded-full border-2 border-slate-700 border-t-indigo-400" />
       </div>
-      <div className="text-sm text-slate-300">
-        {layingOut ? 'Organizing layout…' : 'Loading graph…'}
-      </div>
-      <div className="h-1.5 w-56 overflow-hidden rounded-full bg-slate-800">
-        <div
-          className="h-full rounded-full bg-indigo-400"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <div className="text-[11px] tabular-nums text-slate-500">
-        {Math.round(pct)}%
-      </div>
+      <div className="text-sm text-slate-300">Loading graph…</div>
     </div>
   )
 }
 
 export function VectorGraph() {
-  const { g, raw, loading, layingOut, error, layout, setLayout, degraded, truncated } =
+  const { g, raw, loading, layoutStatus, stopLayout, error, layout, setLayout, degraded, truncated } =
     useMnemonicGraph()
   const [searchCenter, setSearchCenter] = useState<string | null>(null)
   const [depth, setDepth] = useState(2)
+  const optimizing = layoutStatus === 'optimizing'
 
   const labels = useMemo(
     () => (g ? visibleLabels(g, filterGraphByDepth(g, searchCenter, depth)) : []),
@@ -218,7 +191,7 @@ export function VectorGraph() {
     }
   }
 
-  if (loading) return <LoadingState layingOut={layingOut} />
+  if (loading) return <LoadingState />
   if (error) return <div className="p-6 text-sm text-red-400">Graph error: {error}</div>
   if (!g || !raw) return <div className="p-6 text-sm text-slate-400">No graph data.</div>
 
@@ -288,9 +261,10 @@ export function VectorGraph() {
         <SearchPanel labels={labels} onSelect={onSearch} onClear={() => setSearchCenter(null)} />
       </div>
 
-      {/* top-right: layout + depth + export */}
+      {/* top-right: layout + stop + depth + export */}
       <div className="absolute right-3 top-3 z-10 flex flex-col items-end gap-2">
         <LayoutSwitcher value={layout} onChange={setLayout} />
+        <StopLayoutButton visible={optimizing} onStop={stopLayout} />
         {searchCenter && (
           <DepthSlider value={depth} onChange={(d) => { setDepth(d) }} />
         )}
@@ -309,9 +283,23 @@ export function VectorGraph() {
       </div>
 
       {/* bottom-right: status */}
-      <div className="absolute bottom-3 right-3 z-10 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-1 text-[11px] text-slate-400">
-        {raw.nodes.length} nodes · {raw.edges.length} edges
-        {truncated && <span className="ml-2 text-amber-400">truncated</span>}
+      <div className="absolute bottom-3 right-3 z-10 flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-1 text-[11px] text-slate-400">
+        <span>
+          {raw.nodes.length} nodes · {raw.edges.length} edges
+          {truncated && <span className="ml-2 text-amber-400">truncated</span>}
+        </span>
+        <span
+          className={
+            optimizing
+              ? 'flex items-center gap-1.5 text-amber-300'
+              : 'text-emerald-400'
+          }
+        >
+          {optimizing && (
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-300" aria-hidden />
+          )}
+          {optimizing ? 'Layout optimizing…' : 'Ready'}
+        </span>
       </div>
     </div>
   )

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import Graph from 'graphology'
-import { forceLayoutAnimated } from './layouts'
+import { forceLayoutAnimated, seedPositions } from './layouts'
 import type { GraphologyNode, GraphologyEdge } from './converters'
 
 // makeGraph builds a directed graphology graph with seeded x/y + the node
@@ -51,6 +51,33 @@ function finitePositions(g: Graph<GraphologyNode, GraphologyEdge>): boolean {
   return true
 }
 
+describe('seedPositions', () => {
+  it('spreads nodes off the origin (non-degenerate start)', () => {
+    const g = makeGraph(20, Array.from({ length: 20 }, (_, i) => [i, (i + 1) % 20] as [number, number]))
+    // reset all to origin first (the converter's seed)
+    for (const n of g.nodes()) {
+      g.setNodeAttribute(n, 'x', 0)
+      g.setNodeAttribute(n, 'y', 0)
+    }
+    seedPositions(g)
+    // at least two distinct positions exist (not all at 0,0)
+    const pts = new Set<string>()
+    for (const n of g.nodes()) pts.add(`${g.getNodeAttribute(n, 'x')},${g.getNodeAttribute(n, 'y')}`)
+    expect(pts.size).toBeGreaterThan(1)
+  })
+
+  it('is deterministic (same node count → same seed)', () => {
+    const a = makeGraph(15, [[0, 1], [1, 2]])
+    const b = makeGraph(15, [[0, 1], [1, 2]])
+    seedPositions(a)
+    seedPositions(b)
+    const na = a.nodes()[0]
+    const nb = b.nodes()[0]
+    expect(a.getNodeAttribute(na, 'x')).toBe(b.getNodeAttribute(nb, 'x'))
+    expect(a.getNodeAttribute(na, 'y')).toBe(b.getNodeAttribute(nb, 'y'))
+  })
+})
+
 describe('forceLayoutAnimated', () => {
   it('returns a done promise and stop() resolves it early with finite positions', async () => {
     // A ring of 30 nodes — a layout that takes several batches to settle.
@@ -82,9 +109,9 @@ describe('forceLayoutAnimated', () => {
   })
 
   it('settles on its own (done resolves without stop) for a small graph', async () => {
-    // tiny graph settles quickly: low maxIterations keeps it bounded.
+    // tiny graph settles quickly: maxIterations bounds it.
     const g = makeGraph(8, [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7]])
-    const handle = forceLayoutAnimated(g, { maxIterations: 60, iterationsPerFrame: 3, settleEpsilon: 0.01 })
+    const handle = forceLayoutAnimated(g, { maxIterations: 40, iterationsPerFrame: 4 })
     await expect(handle.done).resolves.toBeUndefined()
     expect(finitePositions(g)).toBe(true)
   })
