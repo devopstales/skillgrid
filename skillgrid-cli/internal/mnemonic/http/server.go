@@ -184,6 +184,13 @@ func (s *Server) registerGraphRoutes() {
 	s.mux.HandleFunc("GET /specs", s.handleSpecs)
 	s.mux.HandleFunc("GET /specs/{path...}", s.handleSpecContent)
 
+	// Phase 6 git routes (read-only commit log / diff / file-history / blame).
+	s.mux.HandleFunc("GET /git/commits", s.handleGitCommits)
+	s.mux.HandleFunc("GET /git/commits/{sha}", s.handleGitCommit)
+	s.mux.HandleFunc("GET /git/diff/{sha}", s.handleGitDiff)
+	s.mux.HandleFunc("GET /git/file-history", s.handleGitFileHistory)
+	s.mux.HandleFunc("GET /git/blame", s.handleGitBlame)
+
 	// The SPA shell uses base './', so on a /mnemonic/... path its module
 	// script is requested at /mnemonic/assets/... — serve the embedded build
 	// assets there (the root /assets/ route covers the top-level roots).
