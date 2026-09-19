@@ -659,3 +659,20 @@ git commit -m "feat(memfs): cat node source + point mem fs at the code index"
 2. Inline (simple-execution).
 
 Final review: lightweight two-axis (`requesting-code-review`); escalate to `parallel-code-review` only if the diff grows past ~150 changed lines (it should not).
+
+## Code Review (post-implementation)
+
+- Verdict: Standards "met with fixes" + Spec "met" (two-axis, 1461fe7..7813e57).
+- Fixed (commit ce4c03b + glossary 38460bc): glossary drift (#1), bare-vs-explicit
+  project-id consistency (#2), DRY query extraction + named caps/sentinel
+  (#3/#4/#5/#6), single NoCodeIndexNote home (#7).
+- Deferred (real, later — note for a future cleanup ticket):
+  - #8 `CodePath.Kind`/`Entry.Kind` stringly-typed → `type Kind string` + consts.
+  - #9 `Tree`/`List` accept a file/symbol path and silently return empty
+    (asymmetric with `Cat`, which errors on a dir).
+  - Spec note: `mem fs find` on an unindexed store prints no "no code index"
+    note (only `ls`/`tree` do); the acceptance scenario only requires ls/tree.
+- Noise (won't-fix / misread):
+  - #10 `seenFile` map in Find is a no-op safety net (paths are unique).
+  - Spec note: `listDir` edge where a top-level file is named exactly like a
+    dir prefix (out of acceptance scope).
