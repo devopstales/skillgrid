@@ -721,7 +721,7 @@ This phase is done only when:
   - [ ] 7.1.c Minimal implementation: `.stitch/` reader + clean + prefix-check + handlers.
   - [ ] 7.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase7_Prototypes` — Expected: PASS
   - [ ] 7.1.e Commit — `feat(http): /prototypes (sandboxed .stitch/ readers)`
-- [ ] 7.2 `[AFK]` Prototypes UI: gallery grid, sandboxed iframe preview (`sandbox` attr), device viewport toggle (desktop/tablet/mobile), code viewer (HTML/CSS/JS side-by-side), version history + diffs, standalone-HTML export / copy — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 7.2 `[AFK]` Prototypes UI: gallery grid, sandboxed iframe preview (`sandbox` attr), device viewport toggle (desktop/tablet/mobile), code viewer (HTML/CSS/JS side-by-side), version history + diffs, standalone-HTML export / copy — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
 - [ ] 7.3 `[AFK]` Performance: TanStack Router code-splitting per feature route; lazy-load graph + git; content-hash assets; bundle-size budget checked (report + threshold) — `Run: cd skillgrid-ui && npm run build` — Expected: PASS
 - [ ] 7.4 `[AFK]` Responsive (desktop/tablet/mobile) + density modes (comfortable/compact) + motion (150ms ease; activity stream animates from top) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
 - [ ] 7.5 `[AFK]` openapi.yaml final review: every route documented with valid examples; `/swagger/` exercises each; old routes still documented — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase7_OpenAPI` — Expected: PASS
