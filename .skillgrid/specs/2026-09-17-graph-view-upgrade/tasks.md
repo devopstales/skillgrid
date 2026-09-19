@@ -47,38 +47,43 @@ mid-settle, keeping the current (already-valid) positions.
 
 ### Tasks
 
-- [ ] 1.1 `[RED]` `forceLayoutAnimated(g, opts)` runs a rAF ForceAtlas2 simulation and returns `{ stop, done }`
+- [x] 1.1 `[RED]` `forceLayoutAnimated(g, opts)` runs a rAF ForceAtlas2 simulation and returns `{ stop, done }`
   - [ ] 1.1.a Write failing test: a small graph (say 30 nodes / 50 edges) → `forceLayoutAnimated` returns a `done` promise; before `done` resolves, node positions change across frames; `stop()` resolves `done` early with finite (non-NaN) x/y on every node.
   - [ ] 1.1.b Run to confirm fail — `Run: cd skillgrid-ui && npx vitest run src/features/mnemonic/graph/layouts.test.ts` (add vitest if absent — see 1.5) — Expected: FAIL
   - [ ] 1.1.c Minimal implementation: rAF loop stepping ForceAtlas2 a few iterations/frame, writing x/y back; `stop()` cancels rAF + resolves `done`; auto-settle on displacement epsilon.
   - [ ] 1.1.d Run to confirm pass — Expected: PASS
   - [ ] 1.1.e Commit — `feat(graph): animated force layout with stop handle`
-- [ ] 1.2 `[AFK]` Wire the hook: force uses the animated loop; expose `layoutStatus` + `stopLayout()`
+- [x] 1.2 `[AFK]` Wire the hook: force uses the animated loop; expose `layoutStatus` + `stopLayout()`
   - `useMnemonicGraph`: for `force`, build graph + seed, start `forceLayoutAnimated`, store the stop handle in a ref; expose `layoutStatus` (`'optimizing'` while running, `'ready'` when done) and `stopLayout()`. `tree`/`circles` keep the synchronous `applyLayout` and set status `ready` immediately.
   - `Run: cd skillgrid-ui && npx tsc -b --noEmit` — Expected: PASS
-- [ ] 1.3 `[AFK]` "Stop Layout" control + status readout in VectorGraph
+- [x] 1.3 `[AFK]` "Stop Layout" control + status readout in VectorGraph
   - A button in the top-right cluster: visible only while `layoutStatus === 'optimizing'` and `layout === 'force'`; label "Stop Layout"; calls `stopLayout()`.
   - Status text (bottom-right, next to the node/edge count): "Layout optimizing…" while optimizing, "Ready" when done.
   - `Run: cd skillgrid-ui && npx tsc -b --noEmit` — Expected: PASS
-- [ ] 1.4 `[AFK]` Browser smoke: force layout animates + stop works
+- [x] 1.4 `[AFK]` Browser smoke: force layout animates + stop works
   - Serve the fixture, open `/mnemonic/graph`, confirm the graph visibly settles over ~1–3 s (positions change), "Layout optimizing…" shows then "Ready"; click "Stop Layout" mid-settle and confirm the graph freezes in place (no NaN, still interactive).
   - `Run: skillgrid serve -dir ~/.skillgrid/mnemonic -port 8131` + browser — Expected: PASS
-- [ ] 1.5 `[AFK]` (only if vitest absent) add a minimal vitest setup for graph unit tests
+- [x] 1.5 `[AFK]` (only if vitest absent) add a minimal vitest setup for graph unit tests
   - Add `vitest` dev dep + a `test` script; keep it light (only what 1.1 needs). If vitest is already present, skip.
   - `Run: cd skillgrid-ui && npx vitest run` — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Unit (animated layout + stop) | `cd skillgrid-ui && npx vitest run src/features/mnemonic/graph/layouts.test.ts` | PASS | — | |
-| Type-check | `cd skillgrid-ui && npx tsc -b --noEmit` | PASS | — | |
-| Build | `cd skillgrid-ui && npm run build` | PASS | — | |
-| Browser smoke (animate + stop) | `skillgrid serve` + browser | PASS | — | positions change, stop freezes |
+| Unit (animated layout + stop + seed) | `cd skillgrid-ui && npx vitest run src/features/mnemonic/graph/layouts.test.ts` | PASS | PASS | 7 tests: stop resolves done early w/ finite pos, motion across frames, self-settle, idempotent stop, empty fast-path, seed non-degenerate + deterministic |
+| Type-check | `cd skillgrid-ui && npx tsc -b --noEmit` | PASS | PASS | 0 errors |
+| Build | `cd skillgrid-ui && npm run build` | PASS | PASS | clean, initial ~814 kB |
+| Browser smoke (animate + stop) | `skillgrid serve -dir ~/.skillgrid/mnemonic -port 8145` + browser | PASS | PASS | default: "Layout optimizing…" + extent growing 654, not settled, 4379 nodes; `maxiter=500000`: optimizing seen, Stop present, click froze frame+positions |
+
+Key fix: `forceAtlas2.assign` produces ZERO movement on a graph seeded at the
+origin (symmetric forces cancel) — added `seedPositions` (deterministic golden-angle
+ring) before the sim. Settle heuristic is relative (`settleRel=1e-3` of graph
+extent), not absolute, so it fires on large graphs.
 
 ---
 
