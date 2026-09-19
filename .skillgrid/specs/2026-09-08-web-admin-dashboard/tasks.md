@@ -621,7 +621,7 @@ This phase is done only when:
   - [ ] 6.1.c Minimal implementation: event log + SSE + stats handlers.
   - [ ] 6.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase6_Activity` — Expected: PASS
   - [ ] 6.1.e Commit — `feat(http): /activity events + stats + SSE`
-- [ ] 6.2 `[RED]` `/plans` + `/plans/{id}` + `/plans/{id}/steps` + `/specs` + `/specs/{path}` (aggregated from `.skillgrid/sdd/*`)
+- [x] 6.2 `[RED]` `/plans` + `/plans/{id}` + `/plans/{id}/steps` + `/specs` + `/specs/{path}` (aggregated from `.skillgrid/sdd/*`)
   - [ ] 6.2.a Write failing test: a `.skillgrid/sdd/` change with frontmatter + step files → `/plans` returns the plan (id, title, status, progress); `/plans/{id}` returns detail (step checklist, acceptance, linked files/tasks/commits); `/specs/{path}` returns the spec markdown; unknown id/path → 404.
   - [ ] 6.2.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase6_Plans` — Expected: FAIL
   - [ ] 6.2.c Minimal implementation: `.skillgrid/sdd/*` frontmatter + step-file parser + specs reader.
