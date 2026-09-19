@@ -2640,6 +2640,64 @@ paths:
           content:
             application/json:
               schema: { type: object, properties: { error: { type: string } } }
+  /prototypes:
+    get:
+      tags: [prototypes]
+      operationId: prototypesList
+      summary: List .stitch/ design prototypes (sandboxed)
+      description: Returns the prototype .html files under .stitch/ as
+        relative paths. Served as the SPA shell to a browser (Accept: text/html),
+        as JSON to the API client (Accept: application/json).
+      responses:
+        "200":
+          description: Prototype list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prototypes:
+                    type: array
+                    items: { type: string }
+                  error: { type: string }
+              example:
+                prototypes: ["proto-a.html", "nested/proto-b.html"]
+        "404":
+          description: No .stitch/ directory
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
+  /prototypes/{id}:
+    get:
+      tags: [prototypes]
+      operationId: prototypeGet
+      summary: Get one prototype HTML (sandboxed to .stitch/)
+      description: Serves the HTML of one prototype. Traversal/absolute ids
+        (.., leading /) → 400; unknown → 404. The file is sandboxed to .stitch/
+        (Phase 7 path-traversal threat model) and served with nosniff.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Prototype path relative to .stitch/
+          schema: { type: string }
+      responses:
+        "200":
+          description: Prototype HTML
+          content:
+            text/html:
+              schema: { type: string }
+              example: "<html><body><h1>Proto A</h1></body></html>"
+        "400":
+          description: Invalid (traversal/absolute) id
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
+        "404":
+          description: Unknown prototype
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
 components:
   responses:
     Bad:
