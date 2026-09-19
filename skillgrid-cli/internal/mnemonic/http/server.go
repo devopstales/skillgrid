@@ -195,6 +195,10 @@ func (s *Server) registerGraphRoutes() {
 	s.mux.HandleFunc("GET /git/file-history", s.handleGitFileHistory)
 	s.mux.HandleFunc("GET /git/blame", s.handleGitBlame)
 
+	// Phase 7 prototypes routes (sandboxed .stitch/ gallery readers).
+	s.mux.HandleFunc("GET /prototypes", s.shellOrJSON(s.handlePrototypes))
+	s.mux.HandleFunc("GET /prototypes/{id...}", s.handlePrototype)
+
 	// The SPA shell uses base './', so on a /mnemonic/... path its module
 	// script is requested at /mnemonic/assets/... — serve the embedded build
 	// assets there (the root /assets/ route covers the top-level roots).
