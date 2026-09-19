@@ -633,7 +633,7 @@ This phase is done only when:
   - [ ] 6.3.c Minimal implementation: `git log/diff/show/blame` invocations (read-only) + diff parsing + handlers.
   - [ ] 6.3.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase6_Git` — Expected: PASS
   - [ ] 6.3.e Commit — `feat(http): /git commits + diff + file-history + blame`
-- [ ] 6.4 `[AFK]` Activity UI: infinite-scroll live feed (newest first), compact cards (icon/timestamp/summary/severity border), filters (type/source/severity/actor/time), stats bar, agent health panel, alert banners — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
+- [x] 6.4 `[AFK]` Activity UI: infinite-scroll live feed (newest first), compact cards (icon/timestamp/summary/severity border), filters (type/source/severity/actor/time), stats bar, agent health panel, alert banners — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
 - [ ] 6.5 `[AFK]` Plans UI: plan cards (status, progress bar), plan detail (step checklist, acceptance, linked files/tasks/commits), dependency DAG, spec viewer (reuses Docs MarkdownView + MermaidBlock), "Read in Docs →" — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
 - [ ] 6.6 `[AFK]` Git UI: commit graph (branch lanes, merge nodes, author avatars), commit list (SHA copyable, message, author, +/-), commit detail (unified/split diff, changed-file tree), file history, blame view, commit↔task linking via message conventions — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
 - [ ] 6.7 `[AFK]` openapi.yaml documents the activity/plans/git routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase6_OpenAPI` — Expected: PASS
