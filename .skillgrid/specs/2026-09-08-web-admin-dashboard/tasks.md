@@ -627,7 +627,7 @@ This phase is done only when:
   - [ ] 6.2.c Minimal implementation: `.skillgrid/sdd/*` frontmatter + step-file parser + specs reader.
   - [ ] 6.2.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase6_Plans` — Expected: PASS
   - [ ] 6.2.e Commit — `feat(http): /plans + /specs (SDD aggregation)`
-- [ ] 6.3 `[RED]` `/git/commits?limit=50` + `/git/commits/{sha}` + `/git/diff/{sha}` + `/git/file-history?path=...` + `/git/blame?path=&line=`
+- [x] 6.3 `[RED]` `/git/commits?limit=50` + `/git/commits/{sha}` + `/git/diff/{sha}` + `/git/file-history?path=...` + `/git/blame?path=&line=`
   - [ ] 6.3.a Write failing test: a fixture git repo → `/git/commits?limit=50` returns commits (sha, message, author, date, +/- stats, branch lane); `/git/commits/{sha}` + `/git/diff/{sha}` return the diff; `/git/file-history?path=...` + `/git/blame?path=&line=` return history + blame; unknown sha/path → 404; not-a-repo → 503.
   - [ ] 6.3.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase6_Git` — Expected: FAIL
   - [ ] 6.3.c Minimal implementation: `git log/diff/show/blame` invocations (read-only) + diff parsing + handlers.
