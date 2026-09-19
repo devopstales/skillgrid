@@ -34,13 +34,13 @@ export function PlanDetailPanel({
         </p>
       </div>
 
-      {plan.steps.length > 0 && (
+      {(plan.steps?.length ?? 0) > 0 && (
         <section>
           <h3 className="mb-2 text-xs font-medium uppercase tracking-widest text-zinc-500">
             SDD ledger steps
           </h3>
           <ul className="space-y-1">
-            {plan.steps.map((s, i) => (
+            {plan.steps!.map((s, i) => (
               <li
                 key={i}
                 className="flex items-start gap-2 rounded-md border border-edge bg-card px-3 py-1.5 text-xs"

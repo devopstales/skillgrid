@@ -171,6 +171,9 @@ func (s *Server) handlePlanDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	steps := parseLedgerSteps(filepath.Join(sddLedgerDir(), id, "progress.md"))
+	if steps == nil {
+		steps = []planStep{}
+	}
 
 	writeJSON(w, http.StatusOK, planDetail{
 		planSummary: planSummary{Name: id, Status: status, Progress: progress, TasksDone: done, TasksTotal: total, HasLedger: len(steps) > 0},

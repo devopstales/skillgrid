@@ -377,6 +377,23 @@ func (s *Server) handleMnemonicListOrShell(next http.HandlerFunc) http.HandlerFu
 	}
 }
 
+// shellOrJSON is the Phase 6 sibling of handleMnemonicListOrShell for routes
+// that have no ?project= query (plans/specs/git). It serves the SPA shell to a
+// browser (Accept: text/html, no ?project=) and JSON to the API client
+// (Accept: application/json, as sent by the UI api.ts fetch helpers). This is
+// what lets /plans, /activity, and /git be BOTH a SPA route and an API list
+// endpoint.
+func (s *Server) shellOrJSON(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("project") != "" ||
+			strings.Contains(r.Header.Get("Accept"), "application/json") {
+			next(w, r)
+			return
+		}
+		s.handleShellPage(w, r)
+	}
+}
+
 // memorySummary is one row in the paginated memory list.
 type memorySummary struct {
 	ID             int64  `json:"id"`

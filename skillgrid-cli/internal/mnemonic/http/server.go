@@ -174,17 +174,21 @@ func (s *Server) registerGraphRoutes() {
 	s.mux.HandleFunc("GET /mnemonic/search", s.handleMnemonicListOrShell(s.handleMnemonicSearch))
 
 	// Phase 6 activity routes (agent event feed + live SSE stream + stats).
+	// /activity is the SPA route, so the list endpoints share it via
+	// shellOrJSON (browser → shell, API client Accept: application/json → JSON).
+	s.mux.HandleFunc("GET /activity", s.shellOrJSON(s.handleMnemonicActivityEvents))
 	s.mux.HandleFunc("GET /activity/events", s.handleMnemonicActivityEvents)
 	s.mux.HandleFunc("GET /activity/stats", s.handleMnemonicActivityStats)
 	s.mux.HandleFunc("GET /activity/stream", s.handleMnemonicActivityStream)
 
 	// Phase 6 plans/specs routes (SDD aggregation from .skillgrid/*).
-	s.mux.HandleFunc("GET /plans", s.handlePlans)
+	s.mux.HandleFunc("GET /plans", s.shellOrJSON(s.handlePlans))
 	s.mux.HandleFunc("GET /plans/{id}", s.handlePlanDetail)
 	s.mux.HandleFunc("GET /specs", s.handleSpecs)
 	s.mux.HandleFunc("GET /specs/{path...}", s.handleSpecContent)
 
 	// Phase 6 git routes (read-only commit log / diff / file-history / blame).
+	s.mux.HandleFunc("GET /git", s.shellOrJSON(s.handleGitCommits))
 	s.mux.HandleFunc("GET /git/commits", s.handleGitCommits)
 	s.mux.HandleFunc("GET /git/commits/{sha}", s.handleGitCommit)
 	s.mux.HandleFunc("GET /git/diff/{sha}", s.handleGitDiff)

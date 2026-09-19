@@ -185,10 +185,13 @@ func TestPhase6_ActivitySSE(t *testing.T) {
 	}
 }
 
-// doGet performs a GET and returns the recorder (test helper).
+// doGet performs a GET and returns the recorder (test helper). It sends
+// Accept: application/json — the same header the UI api.ts fetch helpers send —
+// so the shellOrJSON-wrapped list routes (plans/activity/git) return JSON.
 func doGet(t *testing.T, h http.Handler, target string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req.Header.Set("Accept", "application/json")
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 	return rr
