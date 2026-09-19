@@ -640,17 +640,31 @@ This phase is done only when:
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Focused test (activity/plans/git) | `go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase6_'` | PASS | — | activity SSE, plans, git, openapi |
-| Acceptance `@phase-6` / `@p0` | manual smoke: `skillgrid serve` + browser — live feed, plan cards + spec viewer, commit graph + diff + blame | PENDING | — | |
-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + SPA `tsc --noEmit` | PASS | — | |
+| Focused test (activity/plans/git) | `go test ./skillgrid-cli/internal/mnemonic/http/... -run 'TestPhase6_'` | PASS | PASS | 7 tests: Activity (events/stats), ActivitySSE (ready+live+leak-free), Git (commits/diff/history/blame), GitNotRepo (503), Plans (list/detail/steps/files), Specs (list/content/404), OpenAPI (paths+schemas) |
+| Acceptance `@phase-6` / `@p0` | manual smoke: `skillgrid serve` + browser — live feed, plan cards + spec viewer, commit graph + diff + blame | PENDING | PASS | Activity: live feed (10 events newest-first) + StatsBar + AlertBanner + Filters + AgentHealth, 0 console errors. Plans: 8 plan cards (graph-view-upgrade 18/38·47%, dashboard 174/244·71%) + Pipeline DAG + detail (SDD steps, files) + SpecViewer renders briefing.md via Docs MarkdownView, 0 errors. Git: 50-commit log (SHA copyable, +/- stats) + commit detail (changed-file tree + colored unified diff) + blame (Taskfile.yml), 0 errors |
+| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` + SPA `tsc --noEmit` | PASS | PASS | full http package + docs + tracker pass (no regressions); tsc 0 errors; `npm run build` clean; Go binary rebuilt to embed fresh ui/dist |
 | Rollback boundary | `git revert` + `go test ./...` | PENDING | N/A (additive) | new activity/plans/git pkgs + features; revert restores Phase 5 shell |
-| Global Constraints | — | held | — | git read-only, SSE leak-free, no CDN |
+| Global Constraints | — | held | — | git read-only (only `git` CLI, no deps), SSE leak-free (goroutine-leak test), no CDN (violet theme + inline Tailwind) |
+
+Notes:
+- Activity is modeled as `observations` (no events table) — `deriveSeverity(type)`
+  maps bugfix/bug→high, decision/architecture→medium, else info; actor=tool_name.
+- Plans/specs read the `.skillgrid/` tree (repo root = docsCwd / SKILLGIT_DOCS_CWD).
+  `sddRoot()` reads the env fresh per call (the package-level `docsCwd` var is fixed
+  at init) so tests override via t.Setenv.
+- Git bridge reads the repo from the server CWD via `git` CLI; 503 when not a
+  worktree. `parseNumstat`/`parseLedgerSteps` are hand-rolled (no deps).
+- SPA/API route collision: `/plans`, `/activity`, `/git` are both SPA routes and
+  API list routes → `shellOrJSON` wrapper (browser text/html → shell,
+  Accept: application/json → JSON). Fixed during verification (commit 54722ef).
+- Pre-existing openapi.yaml YAML indentation bug (graph/nodes `properties`)
+  fixed as a side effect of 6.7 — the doc was malformed before; yaml.v3 now parses.
 
 ### Commit
 
