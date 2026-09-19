@@ -248,7 +248,8 @@ docs/user-guide/       # the full walkthrough (layout, skills, workflow, hooks, 
 | [05-memory-and-indexing](docs/user-guide/05-memory-and-indexing.md) | Mnemonic memory + code index |
 | [06-multi-agent-work](docs/user-guide/06-multi-agent-work.md) | Parallel / subagent work |
 | [07-ticketing](docs/user-guide/07-ticketing.md) | Backlog.md / GitHub / GitLab / Jira |
-| [08-concepts](docs/user-guide/08-concepts.md) | Gates, waves, clarity gate, PIV loop, ADRs, … |
+ | [08-concepts](docs/user-guide/08-concepts.md) | Gates, waves, clarity gate, PIV loop, ADRs, … |
+ | [09-serve-dashboard](docs/user-guide/09-serve-dashboard.md) | `skillgrid serve` web dashboard + views + tracker CLI |
 
 ## License
 
