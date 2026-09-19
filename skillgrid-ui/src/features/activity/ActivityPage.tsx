@@ -20,6 +20,17 @@ export function ActivityPage() {
   const [dismissed, setDismissed] = useState<Set<number>>(new Set())
   const [stats, setStats] = useState<Awaited<ReturnType<typeof fetchActivityStats>> | null>(null)
   const loadedRef = useRef(false)
+  // Debounce the per-event stats refresh (review A10): the server can emit
+  // multiple events per 800ms poll tick, so a refetch per event is a request
+  // storm. Coalesce to at most one refetch per 5s.
+  const statsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const refreshStats = () => {
+    if (statsTimer.current) return
+    statsTimer.current = setTimeout(() => {
+      statsTimer.current = null
+      fetchActivityStats().then(setStats).catch(() => {})
+    }, 5000)
+  }
 
   // Initial load: events + stats.
   useEffect(() => {
@@ -37,10 +48,11 @@ export function ActivityPage() {
       })
     return () => {
       cancelled = true
+      if (statsTimer.current) clearTimeout(statsTimer.current)
     }
   }, [])
 
-  // Live SSE stream: prepend new events, refresh stats, toggle live flag.
+  // Live SSE stream: prepend new events, refresh stats (debounced), toggle live.
   useEffect(() => {
     const close = openActivityStream({
       onReady: () => setLive(true),
@@ -51,10 +63,7 @@ export function ActivityPage() {
           if (prev.some((p) => p.id === e.id)) return prev
           return [e, ...prev].slice(0, 200)
         })
-        // lightweight stats refresh
-        fetchActivityStats()
-          .then(setStats)
-          .catch(() => {})
+        refreshStats()
       },
       onError: () => setLive(false),
     })
@@ -108,7 +117,9 @@ export function ActivityPage() {
         </div>
       ) : (
         // density-gap tokens (7.4): the feed gap respects the density mode.
-        <div className="flex flex-col" style={{ gap: 'var(--density-row)' }}>
+        // role="log" + aria-live so new events are announced to assistive tech
+        // (review B5: the live feed was silent to screen readers).
+        <div className="flex flex-col" style={{ gap: 'var(--density-row)' }} role="log" aria-live="polite" aria-label="Live activity feed">
           {filtered.map((e) => (
             <EventCard key={e.id} event={e} />
           ))}

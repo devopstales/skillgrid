@@ -1,21 +1,68 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
+// gitMaxOutput bounds a single git command's combined output so a huge diff,
+// blame, or log cannot hold multi-MB strings in memory per request (review A3).
+const gitMaxOutput = 4 << 20 // 4 MiB
+
+// gitTimeout bounds a single git subprocess (review A3).
+const gitTimeout = 10 * time.Second
+
+// shaRE validates a git revision: 7-40 hex chars. Rejects anything else (in
+// particular a leading `-` or a `--flag=`-shaped value) so the value is never
+// parsed as a git option (review A2).
+var shaRE = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
+
+// isSHA reports whether s is a plausible git revision (see shaRE).
+func isSHA(s string) bool { return shaRE.MatchString(s) }
+
+// ctxIsTimeout reports whether err is a git subprocess timeout (review A3).
+func ctxIsTimeout(err error) bool { return err == context.DeadlineExceeded }
+
+// isRelPath reports whether s is a safe relative repo path: non-empty, no
+// leading `-` (so it is never parsed as a git option), no `..` segment, and no
+// absolute path. Used for the `?path=` query arg (review A2).
+func isRelPath(s string) bool {
+	if s == "" || s[0] == '-' {
+		return false
+	}
+	if strings.HasPrefix(s, "/") || len(s) >= 2 && s[1] == ':' {
+		return false
+	}
+	for _, seg := range strings.Split(s, "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
 // gitCmd runs a git command in root and returns stdout, or an error. root is
-// the repo (sddRoot()). Used by all the read-only /git handlers.
+// the repo (sddRoot()). Used by all the read-only /git handlers. Output is
+// capped at gitMaxOutput and the subprocess is bounded by gitTimeout.
 func gitCmd(root string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return string(out), context.DeadlineExceeded
+		}
 		return string(out), err
+	}
+	if len(out) > gitMaxOutput {
+		return string(out[:gitMaxOutput]) + "\n…[truncated]", nil
 	}
 	return string(out), nil
 }
@@ -44,10 +91,13 @@ func (s *Server) handleGitCommits(w http.ResponseWriter, r *http.Request) {
 
 	// %H sha | %an author | %ad date | %s subject | %b body — one record per
 	// commit, \x1e (RS) separator between records, \x1f (US) between fields.
+	// --numstat appends the per-commit +/- stats to the SAME single call, so
+	// there is no per-commit `git show` fan-out (review A4: was N+1 spawns).
 	const sep = "\x1e"
 	const fsep = "\x1f"
 	out, err := gitCmd(root, "log",
 		"--max-count", strconv.Itoa(limit),
+		"--numstat",
 		"--pretty=format:"+sep+"%H"+fsep+"%an"+fsep+"%ad"+fsep+"%s"+fsep+"%b",
 	)
 	if err != nil {
@@ -69,12 +119,8 @@ func (s *Server) handleGitCommits(w http.ResponseWriter, r *http.Request) {
 		if len(f) == 5 {
 			c.Body = f[4]
 		}
-		// +/- stats for this commit (numstat).
-		numstat, err := gitCmd(root, "show", "--numstat", "--format=", c.SHA)
-		if err == nil {
-			add, del := parseNumstat(numstat)
-			c.Additions, c.Deletions = add, del
-		}
+		// +/- stats from the numstat block appended after the body (same call).
+		c.Additions, c.Deletions = parseNumstat(c.Body)
 		commits = append(commits, c)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"commits": commits, "limit": limit})
@@ -89,8 +135,16 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sha := r.PathValue("sha")
+	if !isSHA(sha) {
+		writeError(w, http.StatusBadRequest, "invalid commit sha: "+sha)
+		return
+	}
 	out, err := gitCmd(root, "show", "--numstat", "--format=%H%x1f%an%x1f%ad%x1f%s%x1f%b%x1e", sha)
 	if err != nil {
+		if ctxIsTimeout(err) {
+			writeError(w, http.StatusGatewayTimeout, "git show timed out: "+sha)
+			return
+		}
 		if strings.Contains(err.Error(), "unknown revision") || strings.Contains(out, "unknown revision") {
 			writeError(w, http.StatusNotFound, "unknown commit: "+sha)
 			return
@@ -146,8 +200,16 @@ func (s *Server) handleGitDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sha := r.PathValue("sha")
+	if !isSHA(sha) {
+		writeError(w, http.StatusBadRequest, "invalid commit sha: "+sha)
+		return
+	}
 	diff, err := gitCmd(root, "show", "--format=", sha)
 	if err != nil {
+		if ctxIsTimeout(err) {
+			writeError(w, http.StatusGatewayTimeout, "git show timed out: "+sha)
+			return
+		}
 		if strings.Contains(err.Error(), "unknown revision") || strings.Contains(diff, "unknown revision") {
 			writeError(w, http.StatusNotFound, "unknown commit: "+sha)
 			return
@@ -171,8 +233,23 @@ func (s *Server) handleGitFileHistory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "path required")
 		return
 	}
-	out, err := gitCmd(root, "log", "--pretty=format:%H%x1f%an%x1f%ad%x1f%s", "--", path)
+	if !isRelPath(path) {
+		writeError(w, http.StatusBadRequest, "invalid path: "+path)
+		return
+	}
+	hlimit := queryInt(r, "limit", 50)
+	if hlimit < 1 {
+		hlimit = 1
+	}
+	if hlimit > 500 {
+		hlimit = 500
+	}
+	out, err := gitCmd(root, "log", "--max-count", strconv.Itoa(hlimit), "--pretty=format:%H%x1f%an%x1f%ad%x1f%s", "--", path)
 	if err != nil {
+		if ctxIsTimeout(err) {
+			writeError(w, http.StatusGatewayTimeout, "git log timed out: "+path)
+			return
+		}
 		// A path with no history errors out.
 		writeError(w, http.StatusNotFound, "no history for: "+path)
 		return
@@ -209,10 +286,18 @@ func (s *Server) handleGitBlame(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "path required")
 		return
 	}
+	if !isRelPath(path) {
+		writeError(w, http.StatusBadRequest, "invalid path: "+path)
+		return
+	}
 	// %h sha | %l line# | %an author | %s summary | line content (the last
 	// token after the 4th tab is the file line).
 	out, err := gitCmd(root, "blame", "--porcelain", "--", path)
 	if err != nil {
+		if ctxIsTimeout(err) {
+			writeError(w, http.StatusGatewayTimeout, "git blame timed out: "+path)
+			return
+		}
 		writeError(w, http.StatusNotFound, "blame: "+path+" ("+err.Error()+")")
 		return
 	}

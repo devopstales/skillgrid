@@ -100,11 +100,14 @@ export function PrototypesPage() {
           {/* preview / code */}
           <section className="min-w-0 space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex rounded-md border border-edge p-0.5">
+              {/* Review B5: tablist/tab semantics so the active view is announced. */}
+              <div className="flex rounded-md border border-edge p-0.5" role="tablist" aria-label="Preview or code">
                 {(['preview', 'code'] as const).map((v) => (
                   <button
                     key={v}
                     type="button"
+                    role="tab"
+                    aria-selected={view === v}
                     onClick={() => setView(v)}
                     className={`rounded px-3 py-1 text-xs ${
                       view === v ? 'bg-accent text-white' : 'text-zinc-400 hover:text-zinc-200'
@@ -115,11 +118,13 @@ export function PrototypesPage() {
                 ))}
               </div>
               {view === 'preview' && (
-                <div className="flex rounded-md border border-edge p-0.5">
+                <div className="flex rounded-md border border-edge p-0.5" role="tablist" aria-label="Device viewport">
                   {(Object.keys(DEVICE_WIDTHS) as Device[]).map((d) => (
                     <button
                       key={d}
                       type="button"
+                      role="tab"
+                      aria-selected={device === d}
                       onClick={() => setDevice(d)}
                       className={`rounded px-3 py-1 text-xs ${
                         device === d ? 'bg-accent text-white' : 'text-zinc-400 hover:text-zinc-200'

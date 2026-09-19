@@ -89,17 +89,22 @@ export function FileExplorer() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
+        {/* Review B5: aria-label (a placeholder is not a valid accessible name). */}
         <input
           value={path}
           onChange={(e) => setPath(e.target.value)}
           placeholder="file path (e.g. skillgrid-cli/main.go)"
+          aria-label="File path"
           className="min-w-0 flex-1 rounded-md border border-edge bg-card px-3 py-1.5 text-xs text-zinc-200 focus:border-accent focus:outline-none"
         />
-        <div className="flex rounded-md border border-edge p-0.5">
+        {/* Review B5: tablist/tab semantics so the selected tab is announced. */}
+        <div className="flex rounded-md border border-edge p-0.5" role="tablist" aria-label="File view">
           {(['history', 'blame'] as const).map((t) => (
             <button
               key={t}
               type="button"
+              role="tab"
+              aria-selected={tab === t}
               onClick={() => setTab(t)}
               className={`rounded px-3 py-1 text-xs ${
                 tab === t ? 'bg-accent text-white' : 'text-zinc-400 hover:text-zinc-200'

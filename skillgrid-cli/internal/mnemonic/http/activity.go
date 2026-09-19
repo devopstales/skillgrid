@@ -47,7 +47,10 @@ func (s *Server) handleMnemonicActivityEvents(w http.ResponseWriter, r *http.Req
 	}
 	h, cleanup, err := s.openHandleFor(projectID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		// A project that exists but whose DB handle cannot be opened is a
+		// server fault, not a 404 — matches mnemonic_graph.go / server.go
+		// (review B1: this was StatusNotFound, the others 500).
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer cleanup()
@@ -174,7 +177,9 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 	}
 	h, cleanup, err := s.openHandleFor(projectID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		// Before the SSE headers are written, so this is a clean JSON error
+		// (not a body into text/event-stream). 500, not 404 (review B1).
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer cleanup()
@@ -195,11 +200,15 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 	go func() {
 		db := h.Store().DB
 		// Seed the high-water mark with the current newest id (no replay of
-		// history on connect — the client already has it from /events).
+		// history on connect — the client already has it from /events). If the
+		// seed query errors, treat the stream as closed rather than replaying
+		// the entire table from id>0 (review: seed-error edge case).
 		var newest int64
-		_ = db.QueryRowContext(ctx,
+		if err := db.QueryRowContext(ctx,
 			`SELECT COALESCE(MAX(id), 0) FROM observations WHERE project = ? AND deleted_at IS NULL`, projectID,
-		).Scan(&newest)
+		).Scan(&newest); err != nil {
+			return
+		}
 
 		ticker := time.NewTicker(800 * time.Millisecond)
 		defer ticker.Stop()
@@ -212,7 +221,8 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 					SELECT id, created_at, type, COALESCE(source,'agent'), tool_name, title, session_id
 					FROM observations
 					WHERE project = ? AND deleted_at IS NULL AND id > ?
-					ORDER BY id ASC`, projectID, newest)
+					ORDER BY id ASC
+					LIMIT 100`, projectID, newest)
 				if err != nil {
 					return
 				}

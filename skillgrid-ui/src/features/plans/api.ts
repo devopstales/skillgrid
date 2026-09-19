@@ -1,6 +1,6 @@
 // Shared fetch + type contracts for the Phase 6 Plans view. Plans/specs are
 // read from the .skillgrid/ tree (repo root), so these are plain relative GETs
-// (no ?project= — the server resolves the repo from CWD / SKILLGIT_DOCS_CWD).
+// (no ?project= — the server resolves the repo from CWD / SKILLGRID_DOCS_CWD).
 
 export class PlansError extends Error {
   status: number

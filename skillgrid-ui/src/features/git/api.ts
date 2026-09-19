@@ -1,5 +1,5 @@
 // Shared fetch + type contracts for the Phase 6 Git view. The git bridge
-// reads the repo from the server CWD / SKILLGIT_DOCS_CWD, so these are plain
+// reads the repo from the server CWD / SKILLGRID_DOCS_CWD, so these are plain
 // relative GETs (no ?project=). Not-a-repo → 503 (GitError status 503).
 
 export class GitError extends Error {

@@ -121,7 +121,10 @@ func (s *Server) handlePlans(w http.ResponseWriter, r *http.Request) {
 			TasksDone: done, TasksTotal: total, HasLedger: hasLedger,
 		})
 	}
-	sort.Slice(plans, func(i, j int) bool { return plans[i].Name > plans[j].Name }) // newest date first
+	// Spec dirs are not date-prefixed, so this is alphabetical (descending) —
+	// the highest letter first. (Review: the "newest date first" comment was
+	// misleading; there is no date ordering without a date prefix.)
+	sort.Slice(plans, func(i, j int) bool { return plans[i].Name > plans[j].Name })
 	writeJSON(w, http.StatusOK, map[string]any{"plans": plans})
 }
 
@@ -135,7 +138,15 @@ func (s *Server) handlePlanDetail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "plan id required")
 		return
 	}
-	dir := filepath.Join(sddSpecsDir(), id)
+	root := sddSpecsDir()
+	dir := filepath.Join(root, id)
+	// Sandbox: the plan dir must stay under the specs root (no .. / absolute
+	// escape) — an absolute or ..-shaped id is rejected, not just 404'd.
+	relCheck, err := filepath.Rel(root, dir)
+	if err != nil || relCheck == ".." || strings.HasPrefix(relCheck, ".."+string(filepath.Separator)) {
+		writeError(w, http.StatusNotFound, "unknown plan: "+id)
+		return
+	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		writeError(w, http.StatusNotFound, "unknown plan: "+id)
 		return
@@ -238,9 +249,11 @@ func (s *Server) handleSpecContent(w http.ResponseWriter, r *http.Request) {
 	}
 	root := sddSpecsDir()
 	full := filepath.Join(root, filepath.FromSlash(rel))
-	// Sandbox: the resolved path must stay under root (no .. escape).
+	// Sandbox: the resolved path must stay under root (no .. escape). The
+	// prefix check includes the separator so `..foo` does not pass as `..`
+	// (review A8 — matches the stitchFile guard in prototypes.go).
 	relCheck, err := filepath.Rel(root, full)
-	if err != nil || strings.HasPrefix(relCheck, "..") {
+	if err != nil || relCheck == ".." || strings.HasPrefix(relCheck, ".."+string(filepath.Separator)) {
 		writeError(w, http.StatusNotFound, "unknown spec: "+rel)
 		return
 	}

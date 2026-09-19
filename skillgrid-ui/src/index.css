@@ -51,6 +51,12 @@ body {
 .animate-stream-in {
   animation: stream-in var(--motion-ease);
 }
+/* Review B5: respect prefers-reduced-motion — no fade/slide for motion-sensitive users. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-stream-in {
+    animation: none;
+  }
+}
 
 /* Sigma.js ships a white canvas via its imported style.css:
    `.react-sigma { background: var(--sigma-background-color) }`. The shorthand

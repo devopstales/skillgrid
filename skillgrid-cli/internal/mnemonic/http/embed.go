@@ -28,6 +28,11 @@ var uiSwaggerFS embed.FS
 var apiPrefixes = []string{
 	"sessions", "memory", "observations", "code", "web", "projects",
 	"prompts", "relations", "context", "health", "tracker", "docs",
+	// NOTE (review B2): the Phase 6/7 read bridges (activity/plans/git/
+	// prototypes/specs) are deliberately NOT in this list — they are
+	// SPA-routed (a browser GET serves the shell so the client router can
+	// handle the sub-path), and adding them here registers a conflicting
+	// `GET /{prefix}/{rest...}` wildcard against their explicit routes.
 }
 
 // registerUIRoutes mounts the embedded SPA + openapi + swagger assets.

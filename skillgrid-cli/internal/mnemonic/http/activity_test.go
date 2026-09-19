@@ -176,12 +176,24 @@ func TestPhase6_ActivitySSE(t *testing.T) {
 		t.Fatalf("did not receive a live activity SSE event within 5s")
 	}
 
-	// Disconnect and confirm no goroutine leak.
+	// Disconnect and confirm the per-client poller goroutine exits on
+	// ctx.Done(). The realistic single-disconnect leak is exactly ONE extra
+	// goroutine, so `after > before` is too weak (review A6). Instead, poll
+	// until the count returns to baseline within a deadline — the poller
+	// goroutine must terminate, not merely be bounded.
 	cancel()
 	<-done
-	time.Sleep(150 * time.Millisecond)
-	if after := runtime.NumGoroutine(); after > before {
-		t.Errorf("goroutine leak: before=%d after=%d", before, after)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		after := runtime.NumGoroutine()
+		if after <= before {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("goroutine leak: before=%d after=%d (poller did not exit on ctx.Done)", before, after)
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
