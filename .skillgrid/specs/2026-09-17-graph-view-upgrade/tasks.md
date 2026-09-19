@@ -196,24 +196,30 @@ graph feature and the app shell both read as the same dark/violet theme.
 
 ### Tasks
 
-- [ ] 3.1 `[AFK]` Update `index.css` tokens (accent violet, bg near-black) + sigma bg
+- [x] 3.1 `[AFK]` Update `index.css` tokens (accent violet, bg near-black) + sigma bg
   - `Run: cd skillgrid-ui && npx tsc -b --noEmit` — Expected: PASS
-- [ ] 3.2 `[AFK]` Recolor the 5 graph files + communities.ts + DependencyGraph.tsx
+- [x] 3.2 `[AFK]` Recolor the 5 graph files + communities.ts + DependencyGraph.tsx
   - `Run: cd skillgrid-ui && npx tsc -b --noEmit` — Expected: PASS
-- [ ] 3.3 `[AFK]` Browser smoke: theme matches GitNexus (near-black + violet), no contrast regressions
+- [x] 3.3 `[AFK]` Browser smoke: theme matches GitNexus (near-black + violet), no contrast regressions
   - `Run: skillgrid serve` + browser — Expected: PASS
 
 ### Verification
 
-Verdict: `PENDING`
+Verdict: `PASS`
 
 Evidence:
 
 | Check | Run | Expected | Result | Notes |
 |-------|-----|----------|--------|-------|
-| Type-check | `cd skillgrid-ui && npx tsc -b --noEmit` | PASS | — | |
-| Build | `cd skillgrid-ui && npm run build` | PASS | — | |
-| Browser smoke (theme) | `skillgrid serve` + browser | PASS | — | |
+| Type-check | `cd skillgrid-ui && npx tsc -b --noEmit` | PASS | PASS | 0 errors |
+| Build | `cd skillgrid-ui && npm run build` | PASS | PASS | clean |
+| Browser smoke (theme) | `skillgrid serve -dir ~/.skillgrid/mnemonic -port 8149` + browser | PASS | PASS | body bg rgb(6,6,10), sigma canvas rgb(6,6,10), --sigma-background-color #06060a, active tab #7c3aed; 4379 nodes settled, no errors |
+
+Recolored: index.css (bg/card/accent + sigma bg), VectorGraph.tsx (spinner
+border-t-violet-400, bg-[#06060a], sigma var, defaultNodeColor, exportHtml bg),
+LayoutSwitcher (active bg-accent), SearchPanel (focus:border-accent),
+DepthSlider (accent-violet-500 + text-violet-400), communities.ts (palette[0]
+#7c3aed), kanban/DependencyGraph.tsx (#7c3aed stroke + #2e1065 fill).
 
 ---
 
