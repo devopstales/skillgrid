@@ -2,6 +2,8 @@
 
 > Sliced from `.skillgrid/specs/2026-09-19-embed-visual-companion/blueprint.md`.
 > Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.
+>
+> **Epic Tracker ID:** TASK-006 (backlogmd `.backlog`)
 
 ## Epic Summary
 
@@ -47,6 +49,7 @@ Chain strategy: stacked-to-main
 > `SATISFIES` traceability oracle for `skillgrid:qa`.
 
 ### TICKET-01 — RED: decision list + answer acceptance tests
+- **Tracker ID:** TASK-007
 
 - **Scope:** Write the failing acceptance tests (no implementation yet) for the two backend routes: a `GET /mnemonic/decisions` list test (filters `type=decision` + `content.state=pending`, orders ascending by `created_at`) and a `POST /mnemonic/decisions/{id}/answer` test (state flip `pending`→`answered`, appends `observation_versions`, bumps `revision_count`, `actor=user:<name>`, idempotent no-op on re-answer, `404` on bad id, `409` when `content.state` is missing/invalid).
 - **Acceptance:** `go test -count=1 ./internal/mnemonic/http/... -run 'TestDecision'` fails (routes not yet registered / `UpdateContent` undefined) with the exact expected assertions; test file compiles against the proposed `memory.UpdateContent` signature (add a forward declaration or interface stub if needed so it compiles RED, not a build error).
@@ -58,6 +61,7 @@ Chain strategy: stacked-to-main
 - **Fails-when:** `go test` exits non-zero on the decision tests (expected RED) but the package still compiles.
 
 ### TICKET-02 — `GET /mnemonic/decisions` + `POST /mnemonic/decisions/{id}/answer`
+- **Tracker ID:** TASK-008
 
 - **Scope:** Implement the read route (filter `type=decision` + `content.state=pending` from `GET /mnemonic/memories` output, ascending by `created_at`, return `{decisions, total}`) and the write route (parse `{answer, rationale?, answerer?}`, require `content.state` present + valid, set `state="answered"` + `answer` + `rationale`, `actor=user:<name>` via `UpdateContent`, `404` bad id, `409` missing/invalid `content.state`, idempotent no-op when already answered). Add `UpdateContent` to `memory` with version append. Register both routes in `server.go` before `registerUIRoutes()`.
 - **Acceptance:** TICKET-01 tests now pass; a live `skillgrid serve` + curl round-trip: seed a `type=decision`/`state=pending` observation via `mem_save`, `GET /mnemonic/decisions` lists it, `POST .../answer` flips it, re-`GET` shows `state=answered` with the answer, `observation_versions` gained a row, re-`POST` is a no-op, bad id → `404`, memory without `content.state` → `409`.
@@ -69,6 +73,7 @@ Chain strategy: stacked-to-main
 - **Fails-when:** `go test -count=1 ./internal/mnemonic/http/...` exits non-zero.
 
 ### TICKET-03 — RED: frontend `/decisions` view acceptance tests
+- **Tracker ID:** TASK-009
 
 - **Scope:** Write the failing React acceptance tests (no components yet) for `/decisions`: a list renders the pending decision inbox (title + body + created), clicking a card opens the detail with a textarea + submit, submitting POSTs to `POST /mnemonic/decisions/{id}/answer` and on success shows `state=answered` + the stored answer, a decision without `visual` renders no iframe, a decision with `visual` renders the sandboxed iframe at `/prototype/{visual}`.
 - **Acceptance:** `pnpm --filter skillgrid-ui test` (or the project's vitest runner) fails on the decision view tests (route/component not yet present) with the expected assertions; tests compile.
@@ -80,6 +85,7 @@ Chain strategy: stacked-to-main
 - **Fails-when:** the UI test runner exits non-zero on the decision view tests (expected RED) but the UI package compiles.
 
 ### TICKET-04 — `/decisions` dashboard view (inbox + answer round-trip)
+- **Tracker ID:** TASK-010
 
 - **Scope:** Build the `/decisions` route + `DecisionsPage` (left inbox list of pending decisions, right detail), `DecisionCard` (title/body/created + answer textarea + submit → `POST .../answer`, on success show `state=answered` + stored answer, idempotent re-answer is a no-op), `api.ts` (fetch `GET /mnemonic/decisions`, POST answer). Add the `/decisions` route to `app.tsx` and a nav entry to `AppLayout.tsx`.
 - **Acceptance:** TICKET-03 tests now pass; in the live dashboard, the pending decision appears in the inbox, the user types an answer and submits, the card flips to `state=answered` and shows the stored answer, a second submit is a no-op, and the decision no longer appears in the pending list on reload.
@@ -91,6 +97,7 @@ Chain strategy: stacked-to-main
 - **Fails-when:** the UI test runner exits non-zero on the decision view tests.
 
 ### TICKET-05 — RED: prototype serve route + iframe acceptance tests
+- **Tracker ID:** TASK-011
 
 - **Scope:** Write the failing acceptance tests (no implementation yet) for the prototype function: `GET /prototype/{id...}` serves `.skillgrid/prototype/<topic>/<variant>.html` with `Content-Type: text/html`, returns `404` for a missing file, returns `400`/`404` for a path-traversal escape (e.g. `/prototype/../../.stitch/foo.html`), and `DecisionCard` renders the sandboxed iframe only when `content.visual` is set (attr `sandbox="allow-scripts"` and **not** `allow-same-origin`).
 - **Acceptance:** `go test -count=1 ./internal/mnemonic/http/... -run 'TestPrototype'` and the UI iframe test fail (route/component not yet wired) with the expected assertions; tests compile.
@@ -102,6 +109,7 @@ Chain strategy: stacked-to-main
 - **Fails-when:** the prototype go test and the UI iframe test exit non-zero (expected RED) but packages compile.
 
 ### TICKET-06 — prototype serve route + sandboxed iframe in the card
+- **Tracker ID:** TASK-012
 
 - **Scope:** Implement `GET /prototype/{id...}` in `internal/mnemonic/http/prototype.go` — root = `.skillgrid/prototype/` (via `sddRoot()`), reuse the `stitchFile` traversal-guard shape (reject absolute ids, `..`, and anything escaping the root after `filepath.Clean`), serve `text/html`. Register the route in `server.go` (distinct subtree from the plural `/prototypes`). Wire `DecisionCard` to render the existing `SandboxPreview` iframe (src=`/prototype/{content.visual}`) only when `visual` is set.
 - **Acceptance:** TICKET-05 tests now pass; with a seeded `.skillgrid/prototype/<topic>/a.html`, `GET /prototype/<topic>/a.html` returns the HTML, traversal `GET /prototype/../../etc/passwd` is rejected, and the dashboard decision card shows the prototype in a sandboxed iframe.
@@ -113,6 +121,7 @@ Chain strategy: stacked-to-main
 - **Fails-when:** `go test -count=1 ./internal/mnemonic/http/...` or the UI iframe test exits non-zero.
 
 ### TICKET-07 — openapi + docs + MCP round-trip guard
+- **Tracker ID:** TASK-013
 
 - **Scope:** Add `/mnemonic/decisions`, `/mnemonic/decisions/{id}/answer`, `/prototype/{id...}` to `ui/openapi.yaml`. Add `docs/user-guide/10-decision-companion.md` (content schema + poll loop + `.skillgrid/prototype/` convention). Add the round-trip guard test: `GET /mnemonic/decisions` lists exactly the seeded decision; `mem_search("state pending")` is consistent with the list; the answer round-trip is visible to a fresh MCP `mem_search`.
 - **Acceptance:** openapi.yaml validates (or the existing openapi test passes); the docs file exists and is referenced; `go test -count=1 ./internal/mnemonic/http/... -run 'TestDecisionRoundTrip'` passes (list ↔ `mem_search` consistency + answer visible to fresh MCP `mem_search`).
