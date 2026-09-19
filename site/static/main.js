@@ -65,27 +65,39 @@
   });
 })();
 
-// mermaid: load CDN script and render .mermaid blocks
+// mermaid: render .mermaid blocks (ESM CDN, one diagram at a time)
 (function () {
   if (!document.querySelector('pre.mermaid')) return;
-  var s = document.createElement('script');
-  s.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
-  s.onload = function () {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: 'dark',
-      themeVariables: {
-        primaryColor: '#050709', primaryTextColor: '#ffffff',
-        primaryBorderColor: '#2e3238', lineColor: '#6ee7a0',
-        secondaryColor: '#111214', tertiaryColor: '#020013',
-        mainBkg: '#050709', nodeBorder: '#2e3238',
-        clusterBkg: '#111214', clusterBorder: '#2e3238',
-        titleColor: '#ffffff', edgeLabelBackground: '#050709'
+  function render() {
+    import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs').then(function (m) {
+      var mermaid = m.default;
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        themeVariables: {
+          primaryColor: '#050709', primaryTextColor: '#ffffff',
+          primaryBorderColor: '#2e3238', lineColor: '#6ee7a0',
+          secondaryColor: '#111214', tertiaryColor: '#020013',
+          mainBkg: '#050709', nodeBorder: '#2e3238',
+          clusterBkg: '#111214', clusterBorder: '#2e3238',
+          titleColor: '#ffffff', edgeLabelBackground: '#050709'
+        }
+      });
+      var nodes = document.querySelectorAll('pre.mermaid');
+      var p = Promise.resolve();
+      for (var i = 0; i < nodes.length; i++) {
+        (function (n) {
+          p = p.then(function () {
+            return mermaid.run({ nodes: [n] }).catch(function (e) {
+              console.error('[skillgrid] mermaid diagram failed:', e && e.message ? e.message : e);
+            });
+          });
+        })(nodes[i]);
       }
     });
-    mermaid.run({ nodes: document.querySelectorAll('pre.mermaid') });
-  };
-  document.head.appendChild(s);
+  }
+  if (document.readyState === 'complete') render();
+  else window.addEventListener('load', render);
 })();
 
 // pipeline: no JS needed (static flex), but smooth-scroll for #anchor nav

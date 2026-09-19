@@ -168,23 +168,9 @@ Cross-cutting skills (mnemonic, ponytail) are available at every stage.
 
 ## Artifacts
 
-SFtext
-.skillgrid/
-├── config.yaml
-├── sdd/
-│   ├── checkpoint.json        # derived resume handle (from the last commit's [skillgrid-context])
-│   └── gate-stop-state.json   # Stop-hook loop guard
-├── specs/YYYY-MM-DD-<topic>/  # ACTIVE changes (spec zone, committed)
-│   ├── briefing.md
-│   ├── acceptance.feature     # BDD (traceability oracle)
-│   ├── adr.md                 # ADR Review Manifest
-│   ├── findings.md            # research / spike / sketch evidence (optional)
-│   ├── blueprint.md
-│   ├── tasks.md               # tickets, waves, dependencies
-│   └── qa-report.md           # test plan + 4-state gate + evidence
-└── archive/                   # CLOSED changes (immutable), created by ship
-    └── YYYY-MM-DD-<topic>/    #   + report.md (reflect: integration + retro + lineage)
-SF
+
+
+
 
 Blueprint (blueprint.md), slices (tasks.md), glossary/ADRs, and the ticket set live in the repo per the tracker config. Numbering: slice NN-name; gate G&lt;n>. Never reuse or renumber after creation.
 
@@ -261,7 +247,22 @@ specs/ holds only *active* changes; a folder in archive/ is closed and is never 
     reception --> ship["ship (integrate + archive move)"]
     ship --> reflect["reflect (report.md + session close)"]
     qa -->|findings| apply
-    qa --> ticket["ticketing"]</pre>` | markdownify }}</div>
+    qa --> ticket["ticketing"]</pre>
+<pre><code class="language-text">.skillgrid/
+├── config.yaml
+├── sdd/
+│   ├── checkpoint.json        # derived resume handle (from the last commit's [skillgrid-context])
+│   └── gate-stop-state.json   # Stop-hook loop guard
+├── specs/YYYY-MM-DD-&lt;topic&gt;/  # ACTIVE changes (spec zone, committed)
+│   ├── briefing.md
+│   ├── acceptance.feature     # BDD (traceability oracle)
+│   ├── adr.md                 # ADR Review Manifest
+│   ├── findings.md            # research / spike / sketch evidence (optional)
+│   ├── blueprint.md
+│   ├── tasks.md               # tickets, waves, dependencies
+│   └── qa-report.md           # test plan + 4-state gate + evidence
+└── archive/                   # CLOSED changes (immutable), created by ship
+    └── YYYY-MM-DD-&lt;topic&gt;/    #   + report.md (reflect: integration + retro + lineage)</code></pre>` | markdownify }}</div>
 
 <h2 id="hooks">Hooks</h2>
 
@@ -269,23 +270,9 @@ specs/ holds only *active* changes; a folder in archive/ is closed and is never 
 
 ## Layout
 
-SFtext
-.agents/
-├── hooks/           # logic
-│   ├── checkpoint-state.sh        # dispatcher + snapshot/restore/guard-msg
-│   ├── precommit-guard.sh         # cwd-drift + protected-ref/detached
-│   ├── precommit-zone-guard.sh    # spec-zone XOR code-zone
-│   ├── precommit-ignore-guard.sh  # generated/scratch paths (auto-fix + FATAL)
-│   ├── gate-lint.sh               # advisory linter for #### Gates
-│   ├── gate-state.sh              # gate state engine (--status / --reverify)
-│   ├── gate-stop.sh               # agent Stop: gate-level
-│   └── stop-tests.sh              # agent Stop: suite-level
-└── git-hooks/       # thin shims
-    ├── pre-commit   ──> checkpoint-state.sh guard
-    ├── commit-msg   ──> checkpoint-state.sh guard-msg "$1"
-    ├── stop         ──> stop-tests.sh        (drains stdin)
-    └── gate-stop    ──> gate-stop.sh         (reads harness JSON for session_id)
-SF
+
+
+
 
 install-hooks.sh copies per-repo shims into the repo's active hooks dir, honoring an existing core.hooksPath. Agent Stop hooks install with install-hooks.sh --with-stop.
 
@@ -365,7 +352,22 @@ Three idioms worth knowing (all graceful: a missing dependency or malformed inpu
 - **Graceful degradation is the default.** Check dependencies up front (command -v jq || exit 0); on any parse failure, log a warning and let the call through. A hook that cannot do its job must never block the session it is supposed to protect.
 - **Hide, don't lose, model-facing noise.** A hook pair can swap large or vendor blocks for a BLOCK_&lt;hash> placeholder on Read, expand the model's edits back onto the real content after Edit/Write, and restore the true file on Stop — so the model never re-reads or re-edits the hidden block, yet nothing is lost.
 
-Skillgrid's current hooks are git + Stop; these are the patterns to reach for when you add a PreToolUse/PostToolUse hook (e.g. a tool-agnostic research cache to complement the in-skill mnemonic web cache).` | markdownify }}</div>
+Skillgrid's current hooks are git + Stop; these are the patterns to reach for when you add a PreToolUse/PostToolUse hook (e.g. a tool-agnostic research cache to complement the in-skill mnemonic web cache).
+<pre><code class="language-text">.agents/
+├── hooks/           # logic
+│   ├── checkpoint-state.sh        # dispatcher + snapshot/restore/guard-msg
+│   ├── precommit-guard.sh         # cwd-drift + protected-ref/detached
+│   ├── precommit-zone-guard.sh    # spec-zone XOR code-zone
+│   ├── precommit-ignore-guard.sh  # generated/scratch paths (auto-fix + FATAL)
+│   ├── gate-lint.sh               # advisory linter for #### Gates
+│   ├── gate-state.sh              # gate state engine (--status / --reverify)
+│   ├── gate-stop.sh               # agent Stop: gate-level
+│   └── stop-tests.sh              # agent Stop: suite-level
+└── git-hooks/       # thin shims
+    ├── pre-commit   ──&gt; checkpoint-state.sh guard
+    ├── commit-msg   ──&gt; checkpoint-state.sh guard-msg "$1"
+    ├── stop         ──&gt; stop-tests.sh        (drains stdin)
+    └── gate-stop    ──&gt; gate-stop.sh         (reads harness JSON for session_id)</code></pre>` | markdownify }}</div>
 
 <h2 id="memory-and-indexing">Memory and indexing</h2>
 
@@ -396,11 +398,9 @@ Save after: bug fixes (with root cause), architecture/design decisions, non-obvi
 
 **Recall ladder** (cheap → full):
 
-SF
-mem_context  →  mem_search  →  mem_timeline  →  mem_get_observation
- (recent     (FTS5          (before/after    (full,
-  summaries)  keyword)        context)        untruncated)
-SF
+
+
+
 
 ## 1.2 Layered memory (L0 → L3)
 
@@ -475,20 +475,15 @@ Mnemonic can present memory as a **virtual filesystem** and as **shared observat
 
 memfs exposes a mem:// URI space with scope-aware ls/tree/find, alongside the existing semantic mem_search. The "directories" under a scope are the memory_type categories:
 
-SF
-mem://project/{id}/            → all of project {id}'s observations
-mem://project/{id}/preferences → only {id}'s preference-typed observations
-mem://user/{id}/               → user {id}'s observations
-SF
+
+
+
 
 Scopes resolve from the topic_key column (pattern {kind}/{id}/{memory_type}/…), so no separate schema is needed. It is **read-only** (browse, not mutate).
 
-SFbash
-skillgrid mem fs ls project/A/              # list a scope
-skillgrid mem fs tree project/A/            # hierarchical tree view
-skillgrid mem fs find "*auth*" project/A/   # glob pattern across observations
-skillgrid mem search "auth" --trajectory    # semantic search + directory drill-down path
-SF
+
+
+
 
 --trajectory prints the directory-recursive retrieval drill-down: the path of mem_type directories the search descended through to reach each hit, making retrieval inspectable.
 
@@ -496,24 +491,21 @@ SF
 
 Observations are **private by default**. mem_share is the only explicit way to widen visibility, on a four-level ladder with per-observation ACLs (stored in acl_grants):
 
-SF
-private  →  team  →  restricted (per-principal ACL)  →  agent
-SF
 
-SFbash
-skillgrid mem share <id> --target-visibility team
-skillgrid mem share <id> --target-visibility restricted --grants alice,bob
-skillgrid mem governance <id>     # read owner, version history, visibility, ACL grants
-SF
+
+
+
+
+
+
 
 Visibility is enforced on read (mem_search / mem_context filter to what the reader can see). mem_merge_projects / mem_unify fold multiple project stores into one canonical store (the multi-repo share path).
 
 ### Export (portable file share)
 
-SFbash
-skillgrid mem export [--file out.json] [--skip-embeddings]   # COGX JSON (observations + graph edges + embeddings)
-skillgrid export --project ID --out DIR                       # Obsidian Markdown + viz JSON
-SF
+
+
+
 
 These are the only file-based share mechanisms today — a portable payload you hand to someone, not a live mount.
 
@@ -539,20 +531,17 @@ These are the only file-based share mechanisms today — a portable payload you 
 
 An incremental, tree-sitter-based graph of the repo: files → symbols → edges, plus lexical (FTS5) and semantic (embedding) retrieval, plus advisory structural analyses. It is **per-project** (one SQLite file, no cross-project code search).
 
-SF
-files → symbols → edges (calls / imports / references / extends / route / navigates / …)
-                 → chunks → chunks_fts   (BM25 lexical)
-                 → embeddings / chunk_embeddings   (semantic, config-driven)
-                 → communities / communities_meta   (advisory analytics)
-SF
+
+
+
 
 The core graph commit is transactional; every advisory pass (community, process, knowledge, import-cycle, resolution-audit, LSP, PDG) runs **after** the commit and is warn-and-continue — a pass failure never rolls back the committed graph.
 
 ## 2.2 Orientation ladder (canonical order)
 
-SF
-code_status → code_index (if not fresh) → code_map → code_search → code_read
-SF
+
+
+
 
 code_status reports freshness (fresh | lag | empty | unknown); compat stale=true means empty-only, not lag. Reindex when not fresh. Prefer index tools over rg for **unfamiliar** large repos; use rg/grep for exact identifiers.
 
@@ -634,11 +623,9 @@ No embedder → the semantic leg is **explicitly** degraded=true with a reason +
 
 A TTL-cached snapshot store for remote research, so a repeat lookup doesn't re-hit Context7 / Exa / DeepWiki / WebFetch. The protocol is **lookup-first**:
 
-SF
-web_cache_lookup(source, …)  →  hit? use it
-                                 miss/stale? → remote MCP call
-web_cache_save(source, content, …)   # immediately after the remote call (cap 256 KB)
-SF
+
+
+
 
 "What did we find about X online?" → web_cache_search(query) → web_cache_get(id).
 
@@ -801,11 +788,9 @@ Consequences of the modernc choice (documented in the code):
 
 Connection-level tuning (PRAGMAs applied in store.openDatabase, store.go):
 
-SF
-PRAGMA journal_mode=WAL      -- WAL journal (single connection, MaxOpenConns=1)
-PRAGMA foreign_keys=ON
-PRAGMA busy_timeout=10000    -- absorbs the transient WAL lock from the session-close distill hook
-SF
+
+
+
 
 WAL-locked opens are retried with backoff (50ms → 100ms → 200ms, 3 attempts total) before failing.
 
@@ -846,14 +831,9 @@ Provider table — mnemonic.embedder keys (embedder.BuildFromConfig, select.go):
 
 Ollama example (repo-local config.d/indexing.yaml or ~/.skillgrid/config.d/indexing.yaml):
 
-SFyaml
-mnemonic:
-  embedder:
-    provider: ollama
-    base_url: http://localhost:11434
-    model: nomic-embed-code
-    dimension: 768
-SF
+
+
+
 
 Then re-index: skillgrid index --dir . (the provider from the config above applies automatically). To also enable the semantic *search* leg at retrieval time, set MNEMONIC_EMBED=1. Verify with code_embedding_status (reports active provider/model/dim/embedded count) or skillgrid doctor (runs an embed round-trip).
 
@@ -883,18 +863,9 @@ skillgrid serve exposes the same data over HTTP + a read-only dashboard (Memory 
 
 ## 6.6 CLI quick reference
 
-SFbash
-skillgrid mcp [--debug]            # stdio MCP server (the 77 tools)
-skillgrid serve [--port 7438]      # HTTP API + dashboard
-skillgrid index [--dir .] [--project ID] [--pdg] [--lsp]
-skillgrid search [--corpus code|grep|mem|symbols|hybrid|semantic] <query>
-skillgrid code <map|get-symbol|get-signature|symbols-in-file|impact|get-callers|index-status|…>
-skillgrid trail <recent|show>      # inspect retrieval trails
-skillgrid export --project ID --out DIR   # Obsidian Markdown + viz JSON
-skillgrid setup <opencode|kilocode|cursor>  # install plugins + register MCP
-skillgrid migrate [--tier]         # backfill tier sidecars
-skillgrid doctor [--strict]        # functional health check (embed round-trip, capabilities)
-SF
+
+
+
 
 ## 6.7 Gotchas
 
@@ -912,6 +883,9 @@ Full agent-facing conventions (not this operator reference):
 - .agents/skills/_shared/conventions/mnemonic-memory.md
 - .agents/skills/_shared/conventions/mnemonic-code-indexing.md
 - Skill: mnemonic (memory + code index + web cache folded in; former mnemonic-code-index skill retired → redirect)
+<pre><code>mem_context  →  mem_search  →  mem_timeline  →  mem_get_observation
+ (recent     (FTS5          (before/after    (full,
+  summaries)  keyword)        context)        untruncated)</code></pre>
 <pre class="mermaid">graph LR
   L0["L0 atoms<br/>(raw observations)"] -->|distill| L1["L1 scenario<br/>(abstract overview)"]
   L1 -->|distill| L2["L2 persona delta / durable<br/>(long-term memory)"]
@@ -936,6 +910,24 @@ Full agent-facing conventions (not this operator reference):
     SS["mem_session_start/summary/end"] --> SES["sessions / session_archives"]
     SH["session_handoff / session_resume"] --> HND["session_handoffs + .cleave/ bundle"]
   end</pre>
+<pre><code>mem://project/{id}/            → all of project {id}'s observations
+mem://project/{id}/preferences → only {id}'s preference-typed observations
+mem://user/{id}/               → user {id}'s observations</code></pre>
+<pre><code class="language-bash">skillgrid mem fs ls project/A/              # list a scope
+skillgrid mem fs tree project/A/            # hierarchical tree view
+skillgrid mem fs find "*auth*" project/A/   # glob pattern across observations
+skillgrid mem search "auth" --trajectory    # semantic search + directory drill-down path</code></pre>
+<pre><code>private  →  team  →  restricted (per-principal ACL)  →  agent</code></pre>
+<pre><code class="language-bash">skillgrid mem share &lt;id&gt; --target-visibility team
+skillgrid mem share &lt;id&gt; --target-visibility restricted --grants alice,bob
+skillgrid mem governance &lt;id&gt;     # read owner, version history, visibility, ACL grants</code></pre>
+<pre><code class="language-bash">skillgrid mem export [--file out.json] [--skip-embeddings]   # COGX JSON (observations + graph edges + embeddings)
+skillgrid export --project ID --out DIR                       # Obsidian Markdown + viz JSON</code></pre>
+<pre><code>files → symbols → edges (calls / imports / references / extends / route / navigates / …)
+                 → chunks → chunks_fts   (BM25 lexical)
+                 → embeddings / chunk_embeddings   (semantic, config-driven)
+                 → communities / communities_meta   (advisory analytics)</code></pre>
+<pre><code>code_status → code_index (if not fresh) → code_map → code_search → code_read</code></pre>
 <pre class="mermaid">flowchart TD
   SCAN["skillgrid index --dir .<br/>git-root scan (indexing.yaml include/exclude)"] --> DIFF{"file changed?<br/>(mtime + content_hash + ast_hash)"}
   DIFF -->|no| SKIP["skip (fingerprint gate)"]
@@ -948,14 +940,19 @@ Full agent-facing conventions (not this operator reference):
 
   S --> SFTS["symbol_fts (FTS5)"]
   C --> CFTS["chunks_fts (FTS5)"]
-  S & C -->|embedPass (config)| VEC["embeddings + chunk_embeddings<br/>(language-partitioned)"]
-  S & E --> CM["communities + community_meta<br/>(Leiden + cohesion)"]
+  S -->|embedPass| VEC["embeddings + chunk_embeddings<br/>(language-partitioned)"]
+  C --> VEC
+  S --> CM["communities + community_meta<br/>(Leiden + cohesion)"]
+  E --> CM
   E --> IC["import_cycles (color-DFS)"]
   E --> PR["processes + process_steps<br/>(entry-point traces)"]
   E --> KN["doc_nodes / config_nodes / sql_schema_nodes"]
 
   subgraph advisory
-    CM & IC & PR & KN
+    CM
+    IC
+    PR
+    KN
   end</pre>
 <pre class="mermaid">flowchart LR
   Q["query"] --> RT{"Search Intent Router"}
@@ -967,8 +964,13 @@ Full agent-facing conventions (not this operator reference):
   CODE --> FTS["chunks_fts (BM25)"]
   CODE --> SIG["deterministic signals<br/>(proximity, TF-IDF, type/API)"]
   CODE -->|embedder available| SEM["embeddings / chunk_embeddings<br/>(language filter)"]
-  FTS & SIG & SEM --> RRF["RRF fusion + rerank<br/>(every factor has a written rationale)"]
+  FTS --> RRF["RRF fusion + rerank<br/>(every factor has a written rationale)"]
+  SIG --> RRF
+  SEM --> RRF
   RRF --> HITS["hits with per-signal provenance"]</pre>
+<pre><code>web_cache_lookup(source, …)  →  hit? use it
+                                 miss/stale? → remote MCP call
+web_cache_save(source, content, …)   # immediately after the remote call (cap 256 KB)</code></pre>
 <pre class="mermaid">flowchart LR
   AGENT["agent"] --> LK["web_cache_lookup(source, key)"]
   LK -->|hit| USE["use cached snapshot"]
@@ -1001,7 +1003,8 @@ Full agent-facing conventions (not this operator reference):
     SYM --> EMB["embeddings"]
     CK --> CEMB["chunk_embeddings"]
     EMB --> LSH["lsh_buckets"]
-    SYM & EDG --> COMM["communities + community_meta"]
+    SYM --> COMM["communities + community_meta"]
+    EDG --> COMM
     EDG --> ICC["import_cycles"]
     EDG --> PROC["processes + process_steps"]
     EDG --> DOC["doc_nodes / config_nodes / sql_schema_nodes"]
@@ -1057,7 +1060,26 @@ Full agent-facing conventions (not this operator reference):
   M->>M: store ≤256 KB, set TTL
   Note over A,M: …repeat lookup…
   A->>M: web_cache_lookup(source, key)
-  M-->>A: hit (no remote call)</pre>` | markdownify }}</div>
+  M-->>A: hit (no remote call)</pre>
+<pre><code>PRAGMA journal_mode=WAL      -- WAL journal (single connection, MaxOpenConns=1)
+PRAGMA foreign_keys=ON
+PRAGMA busy_timeout=10000    -- absorbs the transient WAL lock from the session-close distill hook</code></pre>
+<pre><code class="language-yaml">mnemonic:
+  embedder:
+    provider: ollama
+    base_url: http://localhost:11434
+    model: nomic-embed-code
+    dimension: 768</code></pre>
+<pre><code class="language-bash">skillgrid mcp [--debug]            # stdio MCP server (the 77 tools)
+skillgrid serve [--port 7438]      # HTTP API + dashboard
+skillgrid index [--dir .] [--project ID] [--pdg] [--lsp]
+skillgrid search [--corpus code|grep|mem|symbols|hybrid|semantic] &lt;query&gt;
+skillgrid code &lt;map|get-symbol|get-signature|symbols-in-file|impact|get-callers|index-status|…&gt;
+skillgrid trail &lt;recent|show&gt;      # inspect retrieval trails
+skillgrid export --project ID --out DIR   # Obsidian Markdown + viz JSON
+skillgrid setup &lt;opencode|kilocode|cursor&gt;  # install plugins + register MCP
+skillgrid migrate [--tier]         # backfill tier sidecars
+skillgrid doctor [--strict]        # functional health check (embed round-trip, capabilities)</code></pre>` | markdownify }}</div>
 
 <h2 id="multi-agent-work">Multi-agent work</h2>
 
@@ -1095,13 +1117,9 @@ Otherwise run sequential apply along the Depends on: edges in tasks.md.
 
 ## Pattern
 
-SF
-Orchestrator (using-skillgrid / subagent-execution)
-    │  reads tasks.md State + Depends
-    ├─► Subagent A  (slice 01 — fresh context)
-    ├─► Subagent B  (slice 03 — unblocked, parallel)
-    └─► Updates checkboxes + mem_save decisions
-SF
+
+
+
 
 Subagents must receive everything they need **on disk or in the prompt**. They do not inherit the parent chat. using-skillgrid carries a &lt;SUBAGENT-STOP> so dispatched subagents do not re-enter the router.
 
@@ -1110,7 +1128,12 @@ Subagents must receive everything they need **on disk or in the prompt**. They d
 - [ ] Blocking DAG in tasks.md is honest
 - [ ] Parallel only for unblocked independent work
 - [ ] Orchestrator not inlining huge files — points to paths
-- [ ] Context still in smart zone; checkpoint to Mnemonic if heavy` | markdownify }}</div>
+- [ ] Context still in smart zone; checkpoint to Mnemonic if heavy
+<pre><code>Orchestrator (using-skillgrid / subagent-execution)
+    │  reads tasks.md State + Depends
+    ├─► Subagent A  (slice 01 — fresh context)
+    ├─► Subagent B  (slice 03 — unblocked, parallel)
+    └─► Updates checkboxes + mem_save decisions</code></pre>` | markdownify }}</div>
 
 <h2 id="ticketing">Ticketing</h2>
 
@@ -1120,11 +1143,9 @@ Tracker choice is recorded in .skillgrid/config.yaml. Formatting seeds and per-t
 
 ## Backlog.md (default)
 
-SFbash
-backlog init "<name>" --integration-mode cli --backlog-dir .backlog ...
-backlog task list --plain
-backlog task view TASK-123 --plain
-SF
+
+
+
 
 - Storage: .backlog/tasks/&lt;ID>.md
 - Do **not** edit task files by hand — use the backlog CLI
@@ -1153,7 +1174,10 @@ When the skill says "publish to the issue tracker":
 1. Search for duplicates first
 2. Create via the tracker's CLI/API (never invent IDs)
 3. Link paths: blueprint.md, tasks.md, acceptance.feature
-4. Respect Blocked by / depends edges from tasks.md` | markdownify }}</div>
+4. Respect Blocked by / depends edges from tasks.md
+<pre><code class="language-bash">backlog init "&lt;name&gt;" --integration-mode cli --backlog-dir .backlog ...
+backlog task list --plain
+backlog task view TASK-123 --plain</code></pre>` | markdownify }}</div>
 
 <h2 id="concepts">Concepts</h2>
 
@@ -1225,21 +1249,9 @@ The high-level loop the whole pipeline follows: **prime → plan → implement �
 
 The pipeline's shared "domain model" home. architectural-decision-records: "Actively build and sharpen the project's domain model as you design."
 
-SFtext
-.skillgrid/
-├── config.yaml
-├── glossary/            # business.md + technical.md (domain model)
-├── adr/                 # 0001-slug.md … sequential, monotonic, never reused
-├── sdd/                 # checkpoint.json, debug/, gate-stop-state.json
-└── specs/YYYY-MM-DD-<topic>/
-    ├── briefing.md
-    ├── acceptance.feature
-    ├── blueprint.md
-    ├── tasks.md
-    ├── adr.md           # ADR Review Manifest (pointers only)
-    ├── findings.md      # consolidated research/spike/sketch evidence
-    └── qa-report.md     # test plan + 4-state gate + evidence
-SF
+
+
+
 
 ### Glossary
 
@@ -1432,15 +1444,15 @@ test-driven-verification authors them; gate-state.sh evaluates them (--status no
 
 ## BDD extraction contract (acceptance-test-authoring)
 
-Gherkin-in-Markdown: "Markdown headings carry the capability, requirement, and scenario structure, while  SFgherkin  fences contain only Given/When/Then steps. The runner extracts them into real .feature files on every run, synthesizing Feature:/Rule:/Scenario: from the headings." "This file is the definition. javascript/extract-gherkin.cjs is a binding of it. When behavior changes, this file changes first."
+Gherkin-in-Markdown: "Markdown headings carry the capability, requirement, and scenario structure, while  gherkin  fences contain only Given/When/Then steps. The runner extracts them into real .feature files on every run, synthesizing Feature:/Rule:/Scenario: from the headings." "This file is the definition. javascript/extract-gherkin.cjs is a binding of it. When behavior changes, this file changes first."
 
 | Markdown line (outside any fence) | Emitted Gherkin line |
 |-----------------------------------|----------------------|
-| # <title> (the single H1) | Feature: <title> |
-| ### Requirement: <name> |   Rule: <name> |
-| #### Scenario: <name> |     Scenario: <name> |
-| #### Scenario Outline: <name> |     Scenario Outline: <name> |
-| any line inside a  SFgherkin  fence | copied **verbatim**, column unchanged |
+| # &lt;title> (the single H1) | Feature: &lt;title> |
+| ### Requirement: &lt;name> |   Rule: &lt;name> |
+| #### Scenario: &lt;name> |     Scenario: &lt;name> |
+| #### Scenario Outline: &lt;name> |     Scenario Outline: &lt;name> |
+| any line inside a  gherkin  fence | copied **verbatim**, column unchanged |
 | everything else (prose, other headings, fence markers) | blank line |
 
 **Line fidelity invariant:** "Every input line maps to exactly one output line … the extracted file has the IDENTICAL line count and **line N of the .feature is line N of the .md**." "Never 'improve' the extractor to collapse blank lines." Fence opener = 3+ backticks at column 0, info string **exactly** gherkin; steps indented 6 spaces verbatim. **Hard errors:** no H1; more than one H1; a #### Scenario: with no fence before the next heading/EOF; Feature:/Rule:/Scenario:/Scenario Outline:/Example: inside a fence; indented fence opener. Zero gherkin fences is fine (prose-only spec).
@@ -1485,7 +1497,7 @@ Gherkin-in-Markdown: "Markdown headings carry the capability, requirement, and s
 | competitive | position against named competitors, battlecard | pricing/features ≤ 3 mo · trajectory ≤ 6 mo · sentiment ≤ 12 mo |
 | domain | learn a domain's rules, constraints, vocabulary | regulations/protocol ≤ 6 mo · operational patterns ≤ 12 mo · conventions ≤ 2 yr |
 
-Confidence per claim: **high** (verified, fresh, credible) / **medium** (single credible source, fresh) / **low** (stale, weak publisher, or disputed) / unverified. Findings land as a ## Research: <question> section at {specs_root}/YYYY-MM-DD-<topic>/findings.md; "every load-bearing claim is cited inline [n] and resolves in the source appendix."
+Confidence per claim: **high** (verified, fresh, credible) / **medium** (single credible source, fresh) / **low** (stale, weak publisher, or disputed) / unverified. Findings land as a ## Research: &lt;question> section at {specs_root}/YYYY-MM-DD-&lt;topic>/findings.md; "every load-bearing claim is cited inline [n] and resolves in the source appendix."
 
 **The boundary between research / code-research / deep-research / spike / sketch:** research = a fact not in the codebase, one inline pass; code-research = wide or high-stakes *informational* question, parallel subagents + verify + red-team; deep-research = long-horizon *experimental* research (hypothesis → experiment → measure loops, persistent state); spike = needs code executed; sketch = needs *feeling* a layout.
 
@@ -1493,7 +1505,7 @@ Confidence per claim: **high** (verified, fresh, credible) / **medium** (single 
 
 code-research fans out parallel researcher subagents, then verifies load-bearing claims and red-teams the conclusions before synthesizing a cited findings file.
 
-- **Researcher** — runs behind the firewall; returns a **digest, not raw results** — findings as claims {claim, source, publisher, pub_date, accessed, confidence, class}, plus leads and what it could not find. "Write each digest to <run-folder>/digests/ the moment it lands — the conversation is a control channel, never the store." A two-source-class claim carries needs_second_source: true (the verifier closes it, not the researcher).
+- **Researcher** — runs behind the firewall; returns a **digest, not raw results** — findings as claims {claim, source, publisher, pub_date, accessed, confidence, class}, plus leads and what it could not find. "Write each digest to &lt;run-folder>/digests/ the moment it lands — the conversation is a control channel, never the store." A two-source-class claim carries needs_second_source: true (the verifier closes it, not the researcher).
 - **Verifier** (fresh context, at landing, per dimension) — checks the load-bearing claims against an **independent source** (different publisher, different underlying data). Outcomes: **verified** / **disputed** ("independent sources materially disagree; report both, both cited, never averaged") / **unverified** / **overturned** ("corrected, original noted"). "Verification happens as material lands, per dimension — never as an end-of-run rewrite pass."
 - **Red-team** (fresh-context skeptic) — given the conclusion and a budget but **no supporting evidence and no run context**; hunts disconfirming evidence. Verdict: **holds | weakened | overturned**. "Zero findings after a real search is itself reportable." Runs off for low-stakes single-dimension runs; on by default for high-stakes conclusions.
 
@@ -1513,23 +1525,13 @@ Verdict (3 states, evidence-gated): VALIDATED ✓ / INVALIDATED ✗ / PARTIAL �
 
 "Turn 'commit after every task' into an *enforced* checkpoint: a conventional, atomic, independently-revertable commit that carries a machine-readable [skillgrid-context] block, guarded by git hooks, with a derived checkpoint.json resume handle. The commit is the durable record; the JSON is the resume pointer. They cannot drift because the JSON is derived from history."
 
-SF
-type(scope): concise description
 
-- key change 1
-- key change 2
 
-[skillgrid-context]
-Task: &lt;task or ticket id>
-Decisions: &lt;key choices this unit made, and why>
-Remaining: &lt;what is left in this logical unit — empty if done>
-Tried: &lt;failed approaches worth recording — omit line if none>
-[/skillgrid-context]
-SF
+
 
 **Conventional-commit subject regex:** ^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9._-]+\))?!?: .+ — type required, (scope) optional lowercase, ! marks breaking change. "No Co-Authored-By, Generated-By, or any AI attribution trailer."
 
-**Atomic sizing:** "One logical change per commit." "**~100 lines as the soft ceiling**" (a vertical slice that must move together is fine). "**Independently revertable:** prefer additive changes; do not delete and replace in the same commit — split into a delete commit and an add commit." "**Spec before code (zone rule).**" "Commit **after** a verified gate (a green G<n> — not 'I think it's done'), and **before** a long-running install/build/test command."
+**Atomic sizing:** "One logical change per commit." "**~100 lines as the soft ceiling**" (a vertical slice that must move together is fine). "**Independently revertable:** prefer additive changes; do not delete and replace in the same commit — split into a delete commit and an add commit." "**Spec before code (zone rule).**" "Commit **after** a verified gate (a green G&lt;n> — not 'I think it's done'), and **before** a long-running install/build/test command."
 
 checkpoint.json (skillgrid/checkpoint/v1) is derived from git log -1; never hand-edit. Snapshot via checkpoint-state.sh snapshot (idempotent); restore via restore. **Commit first, then review** — "Review diffs merge-base...HEAD; an uncommitted change is invisible to it."
 
@@ -1541,10 +1543,10 @@ Two durable layers, plus the spec-zone artifacts that name the phase:
 
 | Layer | File | Answers | Lifetime |
 |-------|------|---------|----------|
-| **Task** | .skillgrid/sdd/<plan>/progress.md | Which task done? What was ruled? | Git-ignored; deleted when review clean |
+| **Task** | .skillgrid/sdd/&lt;plan>/progress.md | Which task done? What was ruled? | Git-ignored; deleted when review clean |
 | **Code** | .skillgrid/sdd/checkpoint.json (derived from git log + [skillgrid-context]) | Where in code did the last unit leave off? What task / decisions / remaining? | Derived; always reconstructable |
 
-The **phase** is not a separate file — it is read from which spec-zone artifacts exist in .skillgrid/specs/YYYY-MM-DD-<topic>/:
+The **phase** is not a separate file — it is read from which spec-zone artifacts exist in .skillgrid/specs/YYYY-MM-DD-&lt;topic>/:
 
 | Artifacts present | Phase |
 |---|---|
@@ -1566,7 +1568,7 @@ Resume: "On resume: locate the in-flight topic, read the layers (ledger + checkp
 3. **Hypothesis and Testing** — "Form a single hypothesis … 'I think X is the root cause because Y.' Test minimally, one variable at a time. Didn't work? Form a NEW hypothesis. DON'T add more fixes on top."
 4. **Implementation** — "Create a failing test case (MUST have before fixing) … Implement a single fix. No 'while I'm here' improvements. Verify the fix with test-driven-verification."
 
-**The 3-fix rule:** "If < 3: Return to Phase 1, re-analyze. **If ≥ 3: STOP and question the architecture** — DON'T attempt Fix #4 without architectural discussion." Red flag: **"'One more fix attempt' (when already tried 2+)."** "This is NOT a failed hypothesis — this is a wrong architecture." The debug state trail is written to .skillgrid/sdd/debug/<date>-<slug>/state.md (hypothesis | evidence | verdict), git-ignored, survives compaction. "On root cause: if the cause is a design decision, record an ADR; if it is a bug, the TDD evidence in the fix commit is the durable record."
+**The 3-fix rule:** "If &lt; 3: Return to Phase 1, re-analyze. **If ≥ 3: STOP and question the architecture** — DON'T attempt Fix #4 without architectural discussion." Red flag: **"'One more fix attempt' (when already tried 2+)."** "This is NOT a failed hypothesis — this is a wrong architecture." The debug state trail is written to .skillgrid/sdd/debug/&lt;date>-&lt;slug>/state.md (hypothesis | evidence | verdict), git-ignored, survives compaction. "On root cause: if the cause is a design decision, record an ADR; if it is a bug, the TDD evidence in the fix commit is the durable record."
 
 This "3 rounds then escalate" mirrors the QA fix-loop cap — both cap iteration at 3 and route to a human/architecture question.
 
@@ -1584,7 +1586,7 @@ This "3 rounds then escalate" mirrors the QA fix-loop cap — both cap iteration
 
 ## findings.md — consolidated pre-design evidence
 
-"The consolidated file is the single downstream contract that writing-blueprints reads — it carries the research, spike, and sketch evidence for the topic in one place." At .skillgrid/specs/YYYY-MM-DD-<topic>/findings.md (# Findings — <topic> header): research / code-research appends ## Research: <question> (cited findings, source appendix, confidence per claim); spike appends ## Spike: NNN-name (Verdict / What we learned / What's liftable / Constraints for the build); sketch appends ## Sketch: NNN-name (Winner / Rationale / What's liftable / Constraints / Mode). "Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it."
+"The consolidated file is the single downstream contract that writing-blueprints reads — it carries the research, spike, and sketch evidence for the topic in one place." At .skillgrid/specs/YYYY-MM-DD-&lt;topic>/findings.md (# Findings — &lt;topic> header): research / code-research appends ## Research: &lt;question> (cited findings, source appendix, confidence per claim); spike appends ## Spike: NNN-name (Verdict / What we learned / What's liftable / Constraints for the build); sketch appends ## Sketch: NNN-name (Winner / Rationale / What's liftable / Constraints / Mode). "Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it."
 
 ## Branch finishing
 
@@ -1592,13 +1594,13 @@ When the QA gate passes and the branch is clean, the agent presents exactly thre
 
 ## The SATISFIES traceability link
 
-The explicit wire between BDD scenarios, tasks, and the QA matrix. Every blueprint task and every slice ticket carries a **SATISFIES:** <scenario-name> pointing at the acceptance.feature scenario it makes green. "The SATISFIES scenario names in tasks.md are the traceability oracle for skillgrid:qa — every scenario must be referenceable from a test. Name them precisely."
+The explicit wire between BDD scenarios, tasks, and the QA matrix. Every blueprint task and every slice ticket carries a **SATISFIES:** &lt;scenario-name> pointing at the acceptance.feature scenario it makes green. "The SATISFIES scenario names in tasks.md are the traceability oracle for skillgrid:qa — every scenario must be referenceable from a test. Name them precisely."
 
-**Acceptance-first (BDD is always on):** "every ticket carries a SATISFIES: <scenario-name> pointing at its acceptance scenario … The scenario's RED state is confirmed before the implementation that turns it green. Order scenario/RED tickets ahead of their implementation tickets in the graph." A blueprint task's field: "the acceptance scenario in acceptance.feature this task makes green — BDD is always on."
+**Acceptance-first (BDD is always on):** "every ticket carries a SATISFIES: &lt;scenario-name> pointing at its acceptance scenario … The scenario's RED state is confirmed before the implementation that turns it green. Order scenario/RED tickets ahead of their implementation tickets in the graph." A blueprint task's field: "the acceptance scenario in acceptance.feature this task makes green — BDD is always on."
 
 The @p0/@p1 priority and @step-NN trace markers live in the blueprint/tasks SATISFIES field, **not** in the Gherkin (the extracted Gherkin carries no tags — see [The BDD extraction contract](#bdd-extraction-contract-acceptance-test-authoring)). Scenario names must be unique and referenceable.
 
-This is how a change is traced end-to-end: scenario (BDD) → task SATISFIES → slice ticket → QA traceability matrix → the G<n> gate that proves it.
+This is how a change is traced end-to-end: scenario (BDD) → task SATISFIES → slice ticket → QA traceability matrix → the G&lt;n> gate that proves it.
 
 ## The review discipline
 
@@ -1638,7 +1640,7 @@ subagent-execution: "A fix round is one fix dispatch plus one scoped re-review. 
 
 ### The 6-specialist parallel review
 
-parallel-code-review fans out six specialist reviewers in parallel: **Standards, Spec, Edge cases, Verification gaps, Security, Red team**. Sizing: "< 50 changed lines → run only Standards + Spec (the two-axis set). ≥ 50 changed lines, or high-risk → run all six." "Red team runs last: dispatch it after the other five return, and hand it their merged findings so it hunts for what they missed, not what they found." "The diff is passed as a **path**, not inlined text." Resilience: "if a specialist fails … log its name and continue with the survivors. If **all** specialists fail or return empty, do **not** claim a clean review."
+parallel-code-review fans out six specialist reviewers in parallel: **Standards, Spec, Edge cases, Verification gaps, Security, Red team**. Sizing: "&lt; 50 changed lines → run only Standards + Spec (the two-axis set). ≥ 50 changed lines, or high-risk → run all six." "Red team runs last: dispatch it after the other five return, and hand it their merged findings so it hunts for what they missed, not what they found." "The diff is passed as a **path**, not inlined text." Resilience: "if a specialist fails … log its name and continue with the survivors. If **all** specialists fail or return empty, do **not** claim a clean review."
 
 **Deduplicate by fingerprint** (path:line:category); findings from 2+ specialists pointing at the same defect collapse into one entry, tagged MULTI-REVIEWER CONFIRMED (a + b). "Two findings belong in one entry only when the same defect produced both." The entry's severity is the highest of its members. **The 5-verdict triage** (high / medium / low / false / maybe-false): "The coordinator verifies; specialists don't grade — they lack the full context to grade severity." Reject any false; any low whose fix adds more complexity than the harm; or any whose only fix is to edit the spec under review.
 
@@ -1649,16 +1651,16 @@ The specialist lenses: **Edge Case Hunter** (mechanical path/boundary enumeratio
 subagent-execution decomposes a plan into **leaves (tasks) under branches (shared interfaces)** and gates dispatch on verified dependencies, not file order.
 
 - **Inventory the outcomes:** "Reread the plan/spec and list every independently-omittable outcome. A plan whose tasks omit an outcome nobody owns is a half-done plan."
-- **File ownership:** Task <N>: Owns: <repo-relative globs> and Task <N>: Needs: <task ids or interfaces it builds on>. "These are coordination metadata, not a filesystem sandbox — a task may still read outside its Owns, but it may not write to another in-flight task's Owns."
-- **Dependency-gated dispatch:** "Dispatch a task only when every task named in its Needs: has a Task <M>: complete ledger line."
-- **Branch integration gate:** "If two or more tasks share an interface or file, name the task that *integrates* them and give it an extra G<n> gate: the child tasks' outputs compose and the shared interface holds end-to-end."
+- **File ownership:** Task &lt;N>: Owns: &lt;repo-relative globs> and Task &lt;N>: Needs: &lt;task ids or interfaces it builds on>. "These are coordination metadata, not a filesystem sandbox — a task may still read outside its Owns, but it may not write to another in-flight task's Owns."
+- **Dependency-gated dispatch:** "Dispatch a task only when every task named in its Needs: has a Task &lt;M>: complete ledger line."
+- **Branch integration gate:** "If two or more tasks share an interface or file, name the task that *integrates* them and give it an extra G&lt;n> gate: the child tasks' outputs compose and the shared interface holds end-to-end."
 - **Parent re-verify:** "A leaf's self-pass does not count as verification. Before marking a task complete, re-run its #### Gates oracles yourself."
 
 **The Concurrent Coupled Build** (parallel-execution) is the sibling for 2+ tasks that must run at once AND touch overlapping files/interfaces. Four conditions (all must be true): 2+ implementation tasks, touch same file(s) or shared interface, write sets can be made **disjoint**, want them in flight at the same time. "If any of these fail — especially 'write sets can be made disjoint' — do not parallelize. Fall back to skillgrid:subagent-execution." "Never dispatch a leaf whose Owns: intersects another in-flight leaf's Owns:. A wave is a set of leaves whose Needs: are all satisfied." The parent re-verifies: re-run Gates, re-verify the integration gate, confirm no leaf wrote outside its Owns:. Keep it light — "it does not track lease state, wave state, or a dispatch.json. That machinery only pays off at 4+ leaves in flight." The **fan-out ledger** (parallel-ledger.md, one row per agent agent | task | status | changed files | test result) is the store: "summaries returned to your context rot with it … Integrate from the ledger + git, not from in-context summaries."
 
 **The implementer report contract:** an implementer reports one of four statuses — DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT — each with a distinct controller response (DONE → build the review package; DONE_WITH_CONCERNS → read the concerns first; NEEDS_CONTEXT → provide context and re-dispatch; BLOCKED → assess and re-dispatch with a more capable model or break the task). "Never ignore an escalation or force the same model to retry without changes. If the implementer said it's stuck, something needs to change."
 
-**Controller rules of the loop:** **Rulings, not stalls** — "A running plan does not wait on a human … the spec is the binding authority, the plan is its argument, and your judgment settles what neither answers. Record every decision in the ledger as Ruling: <what> — <why> — <what it costs if wrong>." Four stop conditions (only these): an irreversible/destructive operation, a security-sensitive action, a side effect outside this worktree, or a plan so broken that every path is a guess. **Continuous execution** — "Do not pause to check in between tasks … 'Should I continue?' prompts and progress summaries waste their time." **Batch small same-shape work** — compose ONE dispatch for several small, same-kind edits; reserve one-dispatch-per-task for work needing its own judgment/tests/review surface. **Bounded waits** — "never poll … with short timeouts, and never sit in one silent, open-ended wait either … wait in bounded stretches (five to ten minutes)." **Pre-flight review** — before Task 1, scan the plan once for conflicts, "writing down what you checked as you check it"; "the scan's output is a table, not a verdict." **The ledger** (progress.md) is the recovery map: "the commits it names exist in git even when your context no longer remembers creating them."
+**Controller rules of the loop:** **Rulings, not stalls** — "A running plan does not wait on a human … the spec is the binding authority, the plan is its argument, and your judgment settles what neither answers. Record every decision in the ledger as Ruling: &lt;what> — &lt;why> — &lt;what it costs if wrong>." Four stop conditions (only these): an irreversible/destructive operation, a security-sensitive action, a side effect outside this worktree, or a plan so broken that every path is a guess. **Continuous execution** — "Do not pause to check in between tasks … 'Should I continue?' prompts and progress summaries waste their time." **Batch small same-shape work** — compose ONE dispatch for several small, same-kind edits; reserve one-dispatch-per-task for work needing its own judgment/tests/review surface. **Bounded waits** — "never poll … with short timeouts, and never sit in one silent, open-ended wait either … wait in bounded stretches (five to ten minutes)." **Pre-flight review** — before Task 1, scan the plan once for conflicts, "writing down what you checked as you check it"; "the scan's output is a table, not a verdict." **The ledger** (progress.md) is the recovery map: "the commits it names exist in git even when your context no longer remembers creating them."
 
 ## The ticketing rules
 
@@ -1668,9 +1670,9 @@ ticketing maps SDD work to the tracker and runs a status machine. The **status m
 
 **Backlog completeness gate** (when the tracker is Backlog.md, a ticket is not published until all four are present): **Type** (frontmatter type:), **References** (frontmatter references:), **Definition of Done** (body ## Definition of Done), **Implementation Plan** (body ## Implementation Plan) — plus Description, Acceptance Criteria, and priority:. "SDD tickets: seed References to briefing.md / tasks.md / acceptance.feature; seed Plan from the blueprint steps; seed DoD from project defaults. Thin one-line description stubs are **forbidden**."
 
-**Pre-submission privacy review** (mandatory, every tracker): scan the body immediately before publishing and replace environment-specific data with placeholders — project names → <project-name>, usernames → <user>, hostnames → <hostname>, keys/tokens/passwords → <token>/<password>, internal ports/IPs → <host>:<port>. "Do NOT redact intentionally public identifiers … Rule of thumb: if the reader can run the reproduction after the replacement, sanitization is correct."
+**Pre-submission privacy review** (mandatory, every tracker): scan the body immediately before publishing and replace environment-specific data with placeholders — project names → &lt;project-name>, usernames → &lt;user>, hostnames → &lt;hostname>, keys/tokens/passwords → &lt;token>/&lt;password>, internal ports/IPs → &lt;host>:&lt;port>. "Do NOT redact intentionally public identifiers … Rule of thumb: if the reader can run the reproduction after the replacement, sanitization is correct."
 
-**Per-phase lifecycle** (creation alone is not enough — every later execution phase owns a tracker update): start → in-progress + "apply began" comment; per commit → footer Refs: <ID>; review → review + verdict comment; done → done, closing commit uses Closes <ID>. "If no tracker ID exists … skip all tracker mutations. Do not invent an id."
+**Per-phase lifecycle** (creation alone is not enough — every later execution phase owns a tracker update): start → in-progress + "apply began" comment; per commit → footer Refs: &lt;ID>; review → review + verdict comment; done → done, closing commit uses Closes &lt;ID>. "If no tracker ID exists … skip all tracker mutations. Do not invent an id."
 
 **Title convention:** [TYPE] Brief description (COMPONENT), where [TYPE] ∈ {BUG, FEATURE, ENHANCEMENT, REFACTOR, DOCS, CHORE}. "Title [TYPE] is not a substitute for frontmatter type: — both are required." **Priority** (4-tier): Critical (production down, data loss, security), High (blocks users, no workaround), Medium (workaround, subset of users), Low (cosmetic, internal). **Slicing strategy per tracker:** Backlog.md one task per ticket parented to an epic; GitHub one issue per ticket as a sub-issue; GitLab /blocked_by links; Jira domain = epic, ticket = story, acceptance = sub-tasks.
 
@@ -1684,7 +1686,7 @@ mnemonic (SQLite + FTS5, single skillgrid binary) — persistent memory, code in
 
 **The search intent router:** retrieval "is not 'six equal corpora' as the only model. The **Search Intent Router** picks a daily path; advanced corpora are an escape hatch." Identifier-shaped query → symbols; structural / func $NAME / matcher → grep; decision / remember / past work → mem; unclassified → code. "Multi-corpus results must keep **provenance** (mem vs code never silently fused unlabeled). The semantic corpus must never pretend full quality when the Local Code Embedder is unavailable — never silent degrade to FTS-as-semantic."
 
-**The deterministic artifact naming convention:** "ALL Skillgrid artifacts persisted to Mnemonic MUST follow this deterministic naming: title: skillgrid/{YYYY-MM-DD-<topic>}/{artifact-type}, topic_key: skillgrid/{YYYY-MM-DD-<topic>}/{artifact-type}, type: architecture, scope: project." "title and topic_key must be identical — exact-match recovery depends on it." Artifact types include briefing, blueprint, findings, tasks, spec, ticketing, execution-progress, qa-report, ship, report, tech_stack, etc. "Upserts: same topic_key + scope → UPDATE (overwrite), not INSERT … Mnemonic is working memory, not an audit trail."
+**The deterministic artifact naming convention:** "ALL Skillgrid artifacts persisted to Mnemonic MUST follow this deterministic naming: title: skillgrid/{YYYY-MM-DD-&lt;topic>}/{artifact-type}, topic_key: skillgrid/{YYYY-MM-DD-&lt;topic>}/{artifact-type}, type: architecture, scope: project." "title and topic_key must be identical — exact-match recovery depends on it." Artifact types include briefing, blueprint, findings, tasks, spec, ticketing, execution-progress, qa-report, ship, report, tech_stack, etc. "Upserts: same topic_key + scope → UPDATE (overwrite), not INSERT … Mnemonic is working memory, not an audit trail."
 
 **The 2-step recovery:** "Step 1: mem_search(query: …) → truncated preview + ID. Step 2: mem_get_observation(id: …) → complete content. Search previews are always truncated; mem_get_observation is the only way to get full content." "When retrieving multiple artifacts, group all searches first, then all retrievals."
 
@@ -1696,7 +1698,7 @@ resume re-orient from durable state. "Conversation memory rots … **the files w
 
 **Context-save** (the explicit pause-and-persist, when stopping or under context pressure): 1. append the current position to progress.md (task layer, if executing), 2. commit the work unit (code layer) so checkpoint.json carries the position, 3. **narrative handoff** — the checkpoint's Decisions: / Remaining: lines capture what you were thinking, what to do next, and what to watch for, 4. Mnemonic mirror (mem_save for briefing if planning, execution-progress if executing).
 
-**Context-restore:** "locate → read the layers → announce → continue." **The recovered-position announcement** (one line): "Resuming <topic>: phase=execution, wave 2, task 3/5 done, last commit <sha>. Next: task 4." "Say which source you recovered from when it was not the normal path."
+**Context-restore:** "locate → read the layers → announce → continue." **The recovered-position announcement** (one line): "Resuming &lt;topic>: phase=execution, wave 2, task 3/5 done, last commit &lt;sha>. Next: task 4." "Say which source you recovered from when it was not the normal path."
 
 **"Persist before pressure, not after loss"** (using-skillgrid): "When a session is clearly long — many subagents dispatched, large tool outputs accumulating, or the harness showing a compaction indicator — STOP and: (1) append the current position to the plan's ledger (during execution) or the spec-zone artifacts (during planning), (2) commit the work unit so checkpoint.json carries the position, (3) if the remaining work is large, run the save path in skillgrid:resume." "State writes are dual: the in-repo file is the source of truth; when mnemonic.enabled: true, mem_save mirrors it as an index and backup. If they disagree, the in-repo file wins." "After compaction ('FIRST ACTION REQUIRED'), re-orient via skillgrid:resume before continuing — files first, mnemonic only as fallback."
 
@@ -1728,4 +1730,28 @@ acceptance-test-authoring — the 6 authoring rules ("folded from the gherkin-au
 - **Vertical slices over horizontal layers.** Thin end-to-end paths, not "all DB then all API then all UI."
 - **Spec zone XOR code zone.** Commit .skillgrid/specs/ before the code that satisfies it — never both uncommitted.
 - **Durable state over chat memory.** Files win over conversation memory, every time.
-- **Never edit the expectation to match the code.** Fix the code.` | markdownify }}</div>
+- **Never edit the expectation to match the code.** Fix the code.
+<pre><code class="language-text">.skillgrid/
+├── config.yaml
+├── glossary/            # business.md + technical.md (domain model)
+├── adr/                 # 0001-slug.md … sequential, monotonic, never reused
+├── sdd/                 # checkpoint.json, debug/, gate-stop-state.json
+└── specs/YYYY-MM-DD-&lt;topic&gt;/
+    ├── briefing.md
+    ├── acceptance.feature
+    ├── blueprint.md
+    ├── tasks.md
+    ├── adr.md           # ADR Review Manifest (pointers only)
+    ├── findings.md      # consolidated research/spike/sketch evidence
+    └── qa-report.md     # test plan + 4-state gate + evidence</code></pre>
+<pre><code>type(scope): concise description
+
+- key change 1
+- key change 2
+
+[skillgrid-context]
+Task: &lt;task or ticket id&gt;
+Decisions: &lt;key choices this unit made, and why&gt;
+Remaining: &lt;what is left in this logical unit — empty if done&gt;
+Tried: &lt;failed approaches worth recording — omit line if none&gt;
+[/skillgrid-context]</code></pre>` | markdownify }}</div>

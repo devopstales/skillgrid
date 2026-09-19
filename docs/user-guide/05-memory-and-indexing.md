@@ -297,14 +297,19 @@ flowchart TD
 
   S --> SFTS["symbol_fts (FTS5)"]
   C --> CFTS["chunks_fts (FTS5)"]
-  S & C -->|embedPass (config)| VEC["embeddings + chunk_embeddings<br/>(language-partitioned)"]
-  S & E --> CM["communities + community_meta<br/>(Leiden + cohesion)"]
+  S -->|embedPass| VEC["embeddings + chunk_embeddings<br/>(language-partitioned)"]
+  C --> VEC
+  S --> CM["communities + community_meta<br/>(Leiden + cohesion)"]
+  E --> CM
   E --> IC["import_cycles (color-DFS)"]
   E --> PR["processes + process_steps<br/>(entry-point traces)"]
   E --> KN["doc_nodes / config_nodes / sql_schema_nodes"]
 
   subgraph advisory
-    CM & IC & PR & KN
+    CM
+    IC
+    PR
+    KN
   end
 ```
 
@@ -321,7 +326,9 @@ flowchart LR
   CODE --> FTS["chunks_fts (BM25)"]
   CODE --> SIG["deterministic signals<br/>(proximity, TF-IDF, type/API)"]
   CODE -->|embedder available| SEM["embeddings / chunk_embeddings<br/>(language filter)"]
-  FTS & SIG & SEM --> RRF["RRF fusion + rerank<br/>(every factor has a written rationale)"]
+  FTS --> RRF["RRF fusion + rerank<br/>(every factor has a written rationale)"]
+  SIG --> RRF
+  SEM --> RRF
   RRF --> HITS["hits with per-signal provenance"]
 ```
 
@@ -482,7 +489,8 @@ flowchart TD
     SYM --> EMB["embeddings"]
     CK --> CEMB["chunk_embeddings"]
     EMB --> LSH["lsh_buckets"]
-    SYM & EDG --> COMM["communities + community_meta"]
+    SYM --> COMM["communities + community_meta"]
+    EDG --> COMM
     EDG --> ICC["import_cycles"]
     EDG --> PROC["processes + process_steps"]
     EDG --> DOC["doc_nodes / config_nodes / sql_schema_nodes"]

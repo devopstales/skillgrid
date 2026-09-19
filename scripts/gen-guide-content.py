@@ -34,7 +34,6 @@ ORDER = [
 # backticks (raw-string terminators) or }} / {# (template delimiters).
 _PH_CLOSE = "SQCLOSE"      # was }}
 _PH_COMMENT = "SQCOMMENT"  # was {#
-_PH_FENCE = "SF"           # was ``` (2-char, no backticks)
 
 
 def strip_frontmatter(text: str) -> str:
@@ -56,52 +55,47 @@ def html_escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;")
 
 
-def _fix_odd_backticks(part: str) -> str:
-    # Safety net: if a prose segment has an odd backtick count (unclosed
-    # inline-code span in the source), strip backticks so the Hugo raw string
-    # stays balanced. Pairs (even count) are kept for goldmark inline code.
-    if part.count("`") % 2 != 0:
-        return part.replace("`", "")
-    return part
-
-
-def extract_mermaid(text: str) -> tuple:
-    """Pull out ```mermaid blocks as <pre class="mermaid"> and replace them
-    with a placeholder in the markdown. Returns (markdown_without_mermaid,
+def extract_code_blocks(text: str) -> tuple:
+    """Pull out ALL fenced code blocks. Mermaid blocks become
+    <pre class="mermaid">; others become <pre><code>. The markdown keeps
+    only prose (no backticks, no bare <). Returns (md_without_fences,
     [pre_blocks])."""
     pres = []
 
     def _repl(m):
-        src = m.group(1).strip()
-        pres.append(f'<pre class="mermaid">{src}</pre>')
+        lang = (m.group(1) or "").strip()
+        src = m.group(2)
+        if src.endswith("\n"):
+            src = src[:-1]
+        if lang.lower() == "mermaid":
+            pres.append(f'<pre class="mermaid">{src}</pre>')
+        else:
+            escaped = (
+                src.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+            cls = f' class="language-{lang}"' if lang else ""
+            pres.append(f"<pre><code{cls}>{escaped}</code></pre>")
         return "\n\n"
 
-    md = re.sub(r"```mermaid\n(.*?)```", _repl, text, flags=re.S)
+    md = re.sub(r"```(\w*)\n(.*?)```", _repl, text, flags=re.S)
     return md, pres
 
 
 def tpl_escape(text: str) -> str:
-    # Hugo raw strings can't contain backticks. So:
-    # 1. Extract ```mermaid blocks -> <pre class="mermaid"> (no backticks).
-    # 2. Replace remaining ``` fences with SF (2-char placeholder).
-    # 3. Strip ALL remaining backticks (inline code -> plain text).
-    # 4. Escape < in prose (keep literal in code for <br/> etc.).
-    # 5. Replace }} and {# with safe placeholders.
-    text, pres = extract_mermaid(text)
-    text = text.replace("```", _PH_FENCE)
-    parts = text.split(_PH_FENCE)
-    out = []
-    for i, part in enumerate(parts):
-        part = part.replace("`", "")
-        part = part.replace("}}", _PH_CLOSE).replace("{#", _PH_COMMENT)
-        if i % 2 == 0:
-            part = part.replace("<", "&lt;")
-        out.append(part)
-    result = _PH_FENCE.join(out)
-    # Re-insert the <pre> mermaid blocks: they were at fence positions,
-    # which are now SF delimiters. We track them by re-splitting the
-    # original text on the mermaid regex to find positions.
-    # Simpler: emit all <pre> blocks after the markdownify div.
+    # Hugo raw strings can't contain backticks or bare <. So:
+    # 1. Extract ALL fenced code blocks -> <pre> raw HTML (no backticks,
+    #    no bare <). Mermaid blocks keep <br/> literal; others escape <.
+    # 2. Strip ALL remaining backticks (inline code -> plain text).
+    # 3. Escape < in the remaining prose.
+    # 4. Replace }} and {# with safe placeholders.
+    # 5. Append the extracted <pre> blocks (raw HTML, outside markdownify).
+    text, pres = extract_code_blocks(text)
+    text = text.replace("`", "")
+    text = text.replace("}}", _PH_CLOSE).replace("{#", _PH_COMMENT)
+    text = text.replace("<", "&lt;")
+    result = text
     if pres:
         result += "\n" + "\n".join(pres)
     return result
