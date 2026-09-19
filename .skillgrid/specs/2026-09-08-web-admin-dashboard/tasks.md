@@ -725,7 +725,7 @@ This phase is done only when:
 - [x] 7.3 `[AFK]` Performance: TanStack Router code-splitting per feature route; lazy-load graph + git; content-hash assets; bundle-size budget checked (report + threshold) — `Run: cd skillgrid-ui && npm run build` — Expected: PASS
 - [x] 7.4 `[AFK]` Responsive (desktop/tablet/mobile) + density modes (comfortable/compact) + motion (150ms ease; activity stream animates from top) — `Run: cd skillgrid-ui && npx tsc --noEmit` — Expected: PASS
 - [x] 7.5 `[AFK]` openapi.yaml final review: every route documented with valid examples; `/swagger/` exercises each; old routes still documented — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase7_OpenAPI` — Expected: PASS
-- [ ] 7.6 `[AFK]` User-manual serve section documents the views + the per-provider tracker-CLI dependency (install/auth + degraded states) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase7_UserManual` — Expected: PASS
+- [x] 7.6 `[AFK]` User-manual serve section documents the views + the per-provider tracker-CLI dependency (install/auth + degraded states) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestPhase7_UserManual` — Expected: PASS
 - [ ] 7.7 `[AFK]` Full DoD smoke: `npm run build` + `go test ./...` + `go vet ./...` + `tsc --noEmit` + manual browser pass over all views — `Run: go test ./...` — Expected: PASS
 
 ### Verification
