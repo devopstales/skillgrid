@@ -533,7 +533,12 @@ func buildAllTree(ctx context.Context, cwd string, sels []string, sgDirs []MDNod
 			continue // method has no markdown → don't show an empty folder
 		}
 		label := strings.ReplaceAll(rootLabel(sel), " ", "_")
-		out = append(out, MDNode{Dir: true, Name: label, Title: rootLabel(sel), Children: children})
+		// Give each synthetic group a unique Path. The SPA uses the node Path
+		// as the React key and the expand/collapse state key — an empty Path
+		// (the zero value) made every group share key "" and share collapse
+		// state, so the tree rendered the groups incorrectly (duplicated /
+		// all toggled together). A stable per-method path keeps them distinct.
+		out = append(out, MDNode{Dir: true, Name: label, Title: rootLabel(sel), Path: "root:" + sel, Children: children})
 	}
 	// top-level root *.md files inlined at the top level.
 	if rootDir, err := filepath.Abs(filepath.Join(cwd, ".")); err == nil {
