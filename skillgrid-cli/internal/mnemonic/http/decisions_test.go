@@ -142,6 +142,32 @@ func TestDecisionSkipsMalformed(t *testing.T) {
 	}
 }
 
+// [decision-skips-records] The type='decision' column is also used by mem_save
+// for plain decision RECORDS (markdown notes, no convention state). Those rows
+// must NOT appear in the interview-decision inbox.
+func TestDecisionSkipsRecordsWithoutState(t *testing.T) {
+	s, h := newDecisionTestServer(t)
+	// A markdown decision record — valid JSON? No: it's markdown, so it fails
+	// parseDecisionContent. Also test a JSON record with no state field.
+	seedDecision(t, h, "session/summary/phase3", `**What:** finished phase 3 (a decision RECORD, not an interview question)`, "team", "2026-01-01T00:00:00Z")
+	seedDecision(t, h, "interview/demo/nostate", `{"question":"no state here","options":[{"id":"a","label":"A"}]}`, "team", "2026-01-01T00:00:01Z")
+	seedDecision(t, h, "interview/demo/withstate", `{"question":"has state","options":[{"id":"a","label":"A"}],"state":"pending"}`, "team", "2026-01-01T00:00:02Z")
+
+	rows, code := getDecisions(t, s, "")
+	if code != http.StatusOK {
+		t.Fatalf("got %d: %s", code, "")
+	}
+	if decisionByTopic(rows, "session/summary/phase3") != nil {
+		t.Errorf("markdown decision record leaked into inbox: %+v", rows)
+	}
+	if decisionByTopic(rows, "interview/demo/nostate") != nil {
+		t.Errorf("state-less JSON leaked into inbox: %+v", rows)
+	}
+	if decisionByTopic(rows, "interview/demo/withstate") == nil {
+		t.Errorf("real decision missing from inbox: %+v", rows)
+	}
+}
+
 // [decision-visible-to-reader] A team decision is visible to the dashboard
 // reader; a private one is not.
 func TestDecisionVisibilityGate(t *testing.T) {

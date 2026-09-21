@@ -68,6 +68,14 @@ func parseDecisionContent(raw string) (decisionContent, bool) {
 	return c, true
 }
 
+// isDecisionPayload reports whether parsed content is a decision-bridge
+// payload: it carries a convention state field. The type='decision' column is
+// reused by mem_save for plain decision RECORDS (session notes, no state), so
+// the inbox filters on this, not the column alone.
+func isDecisionPayload(c decisionContent) bool {
+	return c.State == decisionStatePending || c.State == decisionStateAnswered || c.State == decisionStateSuperseded
+}
+
 func (s *Server) registerDecisionRoutes() {
 	s.mux.HandleFunc("GET /mnemonic/decisions", s.handleDecisions)
 	s.mux.HandleFunc("POST /mnemonic/decisions/{id}/answer", s.requireWriteAuth(s.handleDecisionAnswer))
@@ -117,10 +125,13 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if c, ok := parseDecisionContent(content); ok {
-			d.Content = c
-		} else {
-			d.ParseError = true
+		c, ok := parseDecisionContent(content)
+		if !ok {
+			continue // not a decision payload (e.g. a mem_save decision record) — not an interview decision
+		}
+		d.Content = c
+		if !isDecisionPayload(c) {
+			continue // parseable JSON but no convention state → not a decision-bridge row
 		}
 		if wantTopic != "" && !strings.HasPrefix(d.TopicKey, wantTopic) {
 			continue
