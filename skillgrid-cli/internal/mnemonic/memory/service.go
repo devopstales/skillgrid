@@ -948,6 +948,14 @@ func (s *Service) SessionStartByClientID(ctx context.Context, clientSessionID, d
 				WHERE id = ? AND project = ?`,
 				title, absDir, clientSessionID, projectID)
 		}
+		// Best-effort backfill of the commit range on re-entry (session
+		// events layer): fill from_commit only when the row has none.
+		if head := gitHead(absDir); head != "" {
+			_, _ = s.store.DB.ExecContext(ctx, `
+				UPDATE sessions SET from_commit = ?
+				WHERE id = ? AND project = ? AND (from_commit IS NULL OR from_commit = '')`,
+				head, clientSessionID, projectID)
+		}
 		return clientSessionID, projectID, true, nil
 	}
 
@@ -956,14 +964,31 @@ func (s *Service) SessionStartByClientID(ctx context.Context, clientSessionID, d
 	if t := strings.TrimSpace(title); t != "" {
 		titleNull = sql.NullString{String: t, Valid: true}
 	}
-	_, err = s.store.DB.ExecContext(ctx, `
-		INSERT INTO sessions (id, project, directory, title, started_at, status)
-		VALUES (?, ?, ?, ?, ?, 'active')`,
-		clientSessionID, projectID, absDir, titleNull, now,
-	)
+	head := gitHead(absDir)
+	tx, err := s.store.DB.BeginTx(ctx, nil)
 	if err != nil {
+		return "", "", false, fmt.Errorf("start session begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO sessions (id, project, directory, title, started_at, status, agent_session_id, from_commit)
+		VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`,
+		clientSessionID, projectID, absDir, titleNull, now, clientSessionID, head,
+	); err != nil {
 		return "", "", false, fmt.Errorf("insert session: %w", err)
 	}
+	if err = appendSessionEvent(ctx, tx, projectID, clientSessionID, "session_start", head, now); err != nil {
+		return "", "", false, err
+	}
+	if err = tx.Commit(); err != nil {
+		return "", "", false, fmt.Errorf("start session commit: %w", err)
+	}
+	committed = true
 	return clientSessionID, projectID, false, nil
 }
 
@@ -991,14 +1016,31 @@ func (s *Service) SessionStart(ctx context.Context, directory, title string) (st
 	if t := strings.TrimSpace(title); t != "" {
 		titleNull = sql.NullString{String: t, Valid: true}
 	}
-	_, err = s.store.DB.ExecContext(ctx, `
-		INSERT INTO sessions (id, project, directory, title, started_at, status)
-		VALUES (?, ?, ?, ?, ?, 'active')`,
-		sessionID, projectID, absDir, titleNull, now,
-	)
+	head := gitHead(absDir)
+	tx, err := s.store.DB.BeginTx(ctx, nil)
 	if err != nil {
+		return "", fmt.Errorf("start session begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO sessions (id, project, directory, title, started_at, status, agent_session_id, from_commit)
+		VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`,
+		sessionID, projectID, absDir, titleNull, now, sessionID, head,
+	); err != nil {
 		return "", fmt.Errorf("insert session: %w", err)
 	}
+	if err = appendSessionEvent(ctx, tx, projectID, sessionID, "session_start", head, now); err != nil {
+		return "", err
+	}
+	if err = tx.Commit(); err != nil {
+		return "", fmt.Errorf("start session commit: %w", err)
+	}
+	committed = true
 	return sessionID, nil
 }
 
@@ -1117,6 +1159,17 @@ func (s *Service) SessionSummary(ctx context.Context, sessionID, summary string)
 			return fmt.Errorf("update session summary: %w", err)
 		}
 	}
+	// Best-effort end-commit stamp (session events layer): a summary carries
+	// the session's current HEAD as the end of its range. Never clobbers a
+	// recorded range; skipped when the directory has no HEAD.
+	if rowProject, dir, lerr := lookupSessionRow(ctx, s.store.DB, sessionID); lerr == nil {
+		if head := gitHead(dir); head != "" {
+			_, _ = s.store.DB.ExecContext(ctx, `
+				UPDATE sessions SET to_commit = ?
+				WHERE id = ? AND project = ? AND (to_commit IS NULL OR to_commit = '')`,
+				head, sessionID, rowProject)
+		}
+	}
 	var n int
 	if err := s.store.DB.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM sessions WHERE id = ? AND project = ?`,
@@ -1143,31 +1196,51 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID, summary string) err
 	if strings.TrimSpace(sessionID) == "" {
 		return errors.New("session_id is required")
 	}
+	// Resolve the row first (any project): the sessions table is keyed by id,
+	// and a session started under a resolved project may live outside this
+	// service's bucket. Unknown ids stay a session-not-found error.
+	rowProject, dir, lerr := lookupSessionRow(ctx, s.store.DB, sessionID)
+	if lerr != nil {
+		if errors.Is(lerr, sql.ErrNoRows) {
+			return fmt.Errorf("session %s not found", sessionID)
+		}
+		return fmt.Errorf("session end look-up: %w", lerr)
+	}
+	head := gitHead(dir)
 	now := time.Now().UTC().Format(time.RFC3339)
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("end session begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
 	var res sql.Result
-	var err error
 	if strings.TrimSpace(summary) != "" {
 		title := deriveSessionTitle(summary)
 		if title != "" {
-			res, err = s.store.DB.ExecContext(ctx, `
+			res, err = tx.ExecContext(ctx, `
 				UPDATE sessions
 				SET summary = ?, ended_at = ?, status = 'ended',
 				    title = COALESCE(NULLIF(TRIM(title), ''), ?)
 				WHERE id = ? AND project = ?`,
-				summary, now, title, sessionID, s.projectID,
+				summary, now, title, sessionID, rowProject,
 			)
 		} else {
-			res, err = s.store.DB.ExecContext(ctx, `
+			res, err = tx.ExecContext(ctx, `
 				UPDATE sessions SET summary = ?, ended_at = ?, status = 'ended'
 				WHERE id = ? AND project = ?`,
-				summary, now, sessionID, s.projectID,
+				summary, now, sessionID, rowProject,
 			)
 		}
 	} else {
-		res, err = s.store.DB.ExecContext(ctx, `
+		res, err = tx.ExecContext(ctx, `
 			UPDATE sessions SET ended_at = ?, status = 'ended'
 			WHERE id = ? AND project = ?`,
-			now, sessionID, s.projectID,
+			now, sessionID, rowProject,
 		)
 	}
 	if err != nil {
@@ -1180,6 +1253,15 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID, summary string) err
 	if n == 0 {
 		return fmt.Errorf("session %s not found", sessionID)
 	}
+	// End of range (best-effort, never clobbers) + the closing stream entry.
+	stampToCommit(ctx, tx, sessionID, rowProject, dir)
+	if err := appendSessionEvent(ctx, tx, rowProject, sessionID, "session_end", head, now); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("end session commit: %w", err)
+	}
+	committed = true
 	// Session-to-graph auto-promotion (014, step 09): a close summary that
 	// meets the quality threshold is promoted to a permanent graph node
 	// SYNCHRONOUSLY here, BEFORE the distill hook — the node must be durable
