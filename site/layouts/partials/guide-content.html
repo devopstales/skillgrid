@@ -15,13 +15,17 @@ Each skill is a directory with a SKILL.md plus optional references/, templates/,
 | **Quality** | test-driven-development, test-driven-verification, acceptance-test-authoring, requesting-code-review, receiving-code-review, parallel-code-review |
 | **Cross-cutting** | mnemonic, isolated-workspace, structured-debugging, architectural-decision-records, ponytail |
 
-## .agents/hooks/
+## hooks/
 
 The enforcement logic. checkpoint-state.sh is the dispatcher; the rest are the individual guards and the agent Stop hooks. See [Hooks](04-hooks.md).
 
-## .agents/git-hooks/
+## git-hooks/
 
-Thin shims (set -euo pipefail, resolve their own dir, exec into ../hooks/). Two are git hooks (pre-commit, commit-msg); two are agent-harness Stop hooks (stop, gate-stop) that live in the same directory. install-hooks.sh copies per-repo shims into the repo's active hooks dir, honoring an existing core.hooksPath.
+Thin shims (set -euo pipefail, resolve their own dir, exec into ../hooks/). Two are git hooks (pre-commit, commit-msg); two are agent-harness Stop hooks (stop, gate-stop) that live in the same directory. skillgrid install stages them to ~/.skillgrid/git-hooks/ alongside a copy of hooks/, and points git's global core.hooksPath at the staged dir.
+
+## plugins/
+
+Agent capture-bridge plugins (opencode, kilo, cursor) that forward per-tool-call events to the mnemonic session layer. Installed from the staged copy at ~/.skillgrid/plugins/.
 
 ## Project config
 
@@ -43,7 +47,7 @@ Hooks and skills read these at runtime. The [skillgrid-context] block in a commi
 ## Checklist
 
 - [ ] Target repo has .skillgrid/config.yaml
-- [ ] Hooks installed via install-hooks.sh (git hooks + --with-stop for agent hooks)
+- [ ] Hooks installed via skillgrid install (stages hooks/, git-hooks/, plugins/ to ~/.skillgrid/ and wires core.hooksPath)
 - [ ] using-skillgrid is the first skill an agent loads` | markdownify }}</div>
 
 <h2 id="skills">Skills</h2>
@@ -274,7 +278,10 @@ specs/ holds only *active* changes; a folder in archive/ is closed and is never 
 
 
 
-install-hooks.sh copies per-repo shims into the repo's active hooks dir, honoring an existing core.hooksPath. Agent Stop hooks install with install-hooks.sh --with-stop.
+skillgrid install stages hooks/, git-hooks/, and plugins/ to
+~/.skillgrid/ and points git's global core.hooksPath at the staged
+git-hooks. Agent Stop hooks stage with the rest of git-hooks/ and are wired
+by the harness's Stop-hook config.
 
 ## The pre-commit chain
 
@@ -328,7 +335,7 @@ Parses a change's #### Gates blocks and reports each G&lt;n>'s state. A gate is 
 
 | Subcommand | What it does |
 |------------|--------------|
-| checkpoint-state.sh snapshot | Derives + writes .skillgrid/sdd/checkpoint.json (branch, last commit, and the Task/Decisions/Remaining/Tried fields pulled from the last commit's [skillgrid-context] block). Prints CHECKPOINT_WRITTEN &lt;path>. |
+ | checkpoint-state.sh snapshot | Derives + writes .skillgrid/sdd/checkpoint.json (branch, last commit, and the Task/Decisions/Remaining/Tried fields pulled from the last commit's [skillgrid-context] block). Also feeds the Handoff Hub change log — best-effort skillgrid handoff record (a missing binary is a no-op, never blocks the commit). Prints CHECKPOINT_WRITTEN &lt;path>. |
 | checkpoint-state.sh restore | Prints the JSON plus live git state (branch, HEAD, git status --short) for a fresh session to resume from. NO_CHECKPOINT + exit 0 if absent. |
 | checkpoint-state.sh post-check | WARNING (non-blocking) if HEAD~1..HEAD deleted tracked files. |
 
@@ -353,21 +360,25 @@ Three idioms worth knowing (all graceful: a missing dependency or malformed inpu
 - **Hide, don't lose, model-facing noise.** A hook pair can swap large or vendor blocks for a BLOCK_&lt;hash> placeholder on Read, expand the model's edits back onto the real content after Edit/Write, and restore the true file on Stop — so the model never re-reads or re-edits the hidden block, yet nothing is lost.
 
 Skillgrid's current hooks are git + Stop; these are the patterns to reach for when you add a PreToolUse/PostToolUse hook (e.g. a tool-agnostic research cache to complement the in-skill mnemonic web cache).
-<pre><code class="language-text">.agents/
-├── hooks/           # logic
-│   ├── checkpoint-state.sh        # dispatcher + snapshot/restore/guard-msg
-│   ├── precommit-guard.sh         # cwd-drift + protected-ref/detached
-│   ├── precommit-zone-guard.sh    # spec-zone XOR code-zone
-│   ├── precommit-ignore-guard.sh  # generated/scratch paths (auto-fix + FATAL)
-│   ├── gate-lint.sh               # advisory linter for #### Gates
-│   ├── gate-state.sh              # gate state engine (--status / --reverify)
-│   ├── gate-stop.sh               # agent Stop: gate-level
-│   └── stop-tests.sh              # agent Stop: suite-level
-└── git-hooks/       # thin shims
-    ├── pre-commit   ──&gt; checkpoint-state.sh guard
-    ├── commit-msg   ──&gt; checkpoint-state.sh guard-msg "$1"
-    ├── stop         ──&gt; stop-tests.sh        (drains stdin)
-    └── gate-stop    ──&gt; gate-stop.sh         (reads harness JSON for session_id)</code></pre>` | markdownify }}</div>
+<pre><code class="language-text">hooks/                # logic (staged to ~/.skillgrid/hooks/)
+├── checkpoint-state.sh        # dispatcher + snapshot/restore/guard-msg
+├── precommit-guard.sh         # cwd-drift + protected-ref/detached
+├── precommit-zone-guard.sh    # spec-zone XOR code-zone
+├── precommit-ignore-guard.sh  # generated/scratch paths (auto-fix + FATAL)
+├── gate-lint.sh               # advisory linter for #### Gates
+├── gate-state.sh              # gate state engine (--status / --reverify)
+├── gate-stop.sh               # agent Stop: gate-level
+├── stop-tests.sh              # agent Stop: suite-level
+└── session-start.sh           # harness SessionStart: inject the router
+git-hooks/            # thin shims (staged to ~/.skillgrid/git-hooks/)
+├── pre-commit   ──&gt; ../hooks/checkpoint-state.sh guard
+├── commit-msg   ──&gt; ../hooks/checkpoint-state.sh guard-msg "$1"
+├── stop         ──&gt; ../hooks/stop-tests.sh        (drains stdin)
+└── gate-stop    ──&gt; ../hooks/gate-stop.sh         (reads harness JSON for session_id)
+plugins/              # capture-bridge plugins (installed from ~/.skillgrid/plugins/)
+├── opencode/mnemonic.ts
+├── kilo/mnemonic.ts
+└── cursor/mnemonic.mdc</code></pre>` | markdownify }}</div>
 
 <h2 id="memory-and-indexing">Memory and indexing</h2>
 

@@ -176,7 +176,7 @@ Skip any step = lying, not verifying
 abandoned. A task with a missing or `ABANDON`-ed oracle is not complete — it is a
 handoff you surface with the met / unmet / abandoned counts.
 
-**Hook-enforced:** with `install-hooks.sh --with-stop`, the `gate-stop` agent hook
+**Hook-enforced:** with the staged `gate-stop` agent hook (wired by `skillgrid install`), the `gate-stop` agent hook
 turns this rule into a guarantee — it runs a fresh `gate-state.sh --reverify` on the
   change's `acceptance.feature` and blocks the stop while any gate is unmet or a
   happy-path requirement is missing its gate (emitting a HANDOFF note when only

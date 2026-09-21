@@ -51,6 +51,15 @@ func Run(c *Config) error {
 		}
 	}
 
+	info("mirroring repo to ~/.skillgrid")
+	if err := syncFullTree(c); err != nil {
+		return err
+	}
+	info("wiring git hooks (core.hooksPath)")
+	if err := wireGitHooks(c); err != nil {
+		Out("  warning: git hooks wiring:", err)
+	}
+
 	info("checking node + npm")
 	if err := checkNode(c); err != nil {
 		return err

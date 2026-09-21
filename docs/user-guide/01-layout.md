@@ -5,11 +5,12 @@ What lives in the hub and where agents pick it up.
 ## Quick path
 
 ```text
-skillgrid-skills/
+skillgrid/
 ├── .agents/
-│   ├── skills/        # 28 skills (SKILL.md + references/ + templates/ + scripts/)
-│   ├── hooks/         # 8 hook scripts (bash) — the enforcement logic
-│   └── git-hooks/     # 4 thin shims (2 git hooks + 2 agent Stop hooks)
+│   └── skills/        # 28 skills (SKILL.md + references/ + templates/ + scripts/)
+├── hooks/             # 9 hook scripts (bash) — the enforcement logic
+├── git-hooks/         # 4 thin shims (2 git hooks + 2 agent Stop hooks)
+├── plugins/           # agent capture-bridge plugins (opencode, kilo, cursor)
 ├── docs/
 │   ├── user-guide/    # this guide
 │   ├── plans/         # planning notes (workflow plan, companion)
@@ -17,6 +18,16 @@ skillgrid-skills/
 ├── README.md
 └── LICENSE
 ```
+
+`skillgrid install` mirrors the whole repo tree (`$REPO/*`, recursively) to
+`~/.skillgrid/` and wires git's `core.hooksPath` at the mirrored git-hooks:
+plugins install from `~/.skillgrid/plugins`, git hooks run from
+`~/.skillgrid/git-hooks`, implementations are used (copied) from
+`~/.skillgrid/hooks`. The shims resolve `../hooks/` relatively, so they work
+identically from the repo checkout and the mirror. Excluded from the mirror:
+`.git` and `node_modules` (any depth); top-level `.skillgrid`, `dist`, `out`
+(worktree state, not content). Never touched at the destination: `mnemonic`,
+`repos`, `backup`, `bin`, `tmp`, `logs`, `config.d` (live operational state).
 
 ## `.agents/skills/`
 
@@ -31,13 +42,17 @@ Each skill is a directory with a `SKILL.md` plus optional `references/`, `templa
 | **Quality** | `test-driven-development`, `test-driven-verification`, `acceptance-test-authoring`, `requesting-code-review`, `receiving-code-review`, `parallel-code-review` |
 | **Cross-cutting** | `mnemonic`, `isolated-workspace`, `structured-debugging`, `architectural-decision-records`, `ponytail` |
 
-## `.agents/hooks/`
+## `hooks/`
 
 The enforcement logic. `checkpoint-state.sh` is the dispatcher; the rest are the individual guards and the agent Stop hooks. See [Hooks](04-hooks.md).
 
-## `.agents/git-hooks/`
+## `git-hooks/`
 
-Thin shims (`set -euo pipefail`, resolve their own dir, `exec` into `../hooks/`). Two are git hooks (`pre-commit`, `commit-msg`); two are agent-harness Stop hooks (`stop`, `gate-stop`) that live in the same directory. `install-hooks.sh` copies per-repo shims into the repo's active hooks dir, honoring an existing `core.hooksPath`.
+Thin shims (`set -euo pipefail`, resolve their own dir, `exec` into `../hooks/`). Two are git hooks (`pre-commit`, `commit-msg`); two are agent-harness Stop hooks (`stop`, `gate-stop`) that live in the same directory. `skillgrid install` stages them to `~/.skillgrid/git-hooks/` alongside a copy of `hooks/`, and points git's global `core.hooksPath` at the staged dir.
+
+## `plugins/`
+
+Agent capture-bridge plugins (opencode, kilo, cursor) that forward per-tool-call events to the mnemonic session layer. Installed from the staged copy at `~/.skillgrid/plugins/`.
 
 ## Project config
 
@@ -59,7 +74,7 @@ Hooks and skills read these at runtime. The `[skillgrid-context]` block in a com
 ## Checklist
 
 - [ ] Target repo has `.skillgrid/config.yaml`
-- [ ] Hooks installed via `install-hooks.sh` (git hooks + `--with-stop` for agent hooks)
+- [ ] Hooks installed via `skillgrid install` (stages `hooks/`, `git-hooks/`, `plugins/` to `~/.skillgrid/` and wires `core.hooksPath`)
 - [ ] `using-skillgrid` is the first skill an agent loads
 
 ## Next step

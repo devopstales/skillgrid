@@ -195,22 +195,9 @@ func hasPrefixPath(path, prefix string) bool {
 
 // copyFromRepo copies a single repo-relative file to dst, overwriting.
 func copyFromRepo(repoRoot, relPath, dst string, dryRun bool) error {
-	src := filepath.Join(repoRoot, relPath)
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", src, err)
+	if err := copyFile(filepath.Join(repoRoot, relPath), dst, dryRun); err != nil {
+		return fmt.Errorf("copy %s: %w", relPath, err)
 	}
-	if dryRun {
-		Out("      [dry-run] cp", src, dst)
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(dst, data, 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", dst, err)
-	}
-	Out("      copied", dst)
 	return nil
 }
 
@@ -395,7 +382,7 @@ func installAgentConfig(c *Config, agent string) error {
 			return err
 		}
 		logoDst := filepath.Join(dir, "tui-plugins", "skillgrid-logo.tsx")
-		if err := copyFromRepo(repoRoot, opencodeLogoRel, logoDst, dry); err != nil {
+		if err := copyAsset(home, repoRoot, opencodeLogoRel, logoDst, dry); err != nil {
 			return err
 		}
 		if err := setJSON(tuiPath, "theme", "tokyonight", dry); err != nil {
@@ -423,7 +410,7 @@ func installAgentConfig(c *Config, agent string) error {
 		if err := ensureConfigFile(tuiPath, dry); err != nil {
 			return err
 		}
-		if err := copyFromRepo(repoRoot, kiloLogoRel, logoDst, dry); err != nil {
+		if err := copyAsset(home, repoRoot, kiloLogoRel, logoDst, dry); err != nil {
 			return err
 		}
 		if err := setJSON(tuiPath, "theme", "tokyonight", dry); err != nil {

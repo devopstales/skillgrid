@@ -163,7 +163,7 @@ Four product components:
 | **Installer** | `install` / `sync-repo` / `setup`; wires agents, MCP, Hub Content | Writes to `~/.skillgrid/`, `~/.agents/`, and agent config files; the only writer of agent MCP config |
 | **Mnemonic Engine** | Memory (observations, search, provenance, governance, session relay) + Code Intelligence (indexing, orientation, graph, hybrid search, taint) + shared project resolution | Owns the per-project SQLite store; no transport concerns |
 | **Distribution Surface** | MCP stdio (`mcp`), HTTP/REST + embedded SPA + OpenAPI/Swagger (`serve`), and the CLI command group | Owns the transports; no data ownership; the one real trust boundary lives here (MCP-spawn model, ADR-0005) |
-| **Hub Content** | `.agents/skills/` (30 skills), `.agents/hooks/` + `.agents/git-hooks/`, `config.d/` | Shipped by the Installer; not a runtime component of the binary |
+| **Hub Content** | `.agents/skills/` (30 skills), `hooks/` + `git-hooks/` + `plugins/`, `config.d/` | Shipped by the Installer (staged to `~/.skillgrid/`); not a runtime component of the binary |
 
 ### Frontend (embedded dashboard — Phase 2)
 - **Technology Stack:** Vite + React 19 + TypeScript + Tailwind 4 + TanStack Router (`skillgrid-ui/`).

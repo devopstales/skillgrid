@@ -62,8 +62,9 @@ The newest directory under `conventions.specs_root` (default `.skillgrid/specs/`
 
 1. **Phase (from artifacts):** look at what files exist in the spec dir (table above). This tells you which skill owns the next step.
 2. **If the phase is execution:** find the plan's ledger at `.skillgrid/sdd/<slug>/progress.md` (the slug is the plan's directory basename when the plan is a bare `blueprint.md`, else the plan's filename without extension) and read it. Tasks with a `Task <N>: complete` line are DONE — resume at the first task without one. A task whose last line is a fix round is mid-loop; resume the loop at the next round.
-3. **The commit checkpoint:** `bash .agents/hooks/checkpoint-state.sh restore`. Its `remaining` names a partial unit — finish that unit before dispatching anything new. The ledger tells you *which* tasks are done; the checkpoint tells you *where in the code* the last unit left off. Use both.
-4. **Mnemonic fallback (only if a layer is missing):** `mem_search("skillgrid/<topic>")` → `mem_get_observation` on the `execution-progress` or `briefing` entries → reconstruct what is known. Announce that you are resuming from mnemonic because the in-repo state was not found.
+3. **The commit checkpoint:** `bash hooks/checkpoint-state.sh restore`. Its `remaining` names a partial unit — finish that unit before dispatching anything new. The ledger tells you *which* tasks are done; the checkpoint tells you *where in the code* the last unit left off. Use both.
+4. **Verify the Handoff Hub checkpoint (if one was placed):** if the change has a named checkpoint (a `before-apply-*` marker from `skillgrid:work-unit-commits`), drift-verify it before trusting the position: `skillgrid handoff verify <name>`. A `continue` confirms the recorded commit still matches HEAD; a `refresh` means the tree moved since the marker (inspect `ChangedSince` before acting). `skillgrid handoff status` gives the whole-hub "where are we" in one call. This is read-only — it never reverts, only reports drift.
+5. **Mnemonic fallback (only if a layer is missing):** `mem_search("skillgrid/<topic>")` → `mem_get_observation` on the `execution-progress` or `briefing` entries → reconstruct what is known. Announce that you are resuming from mnemonic because the in-repo state was not found.
 
 ### 3. Announce the recovered position
 
@@ -115,7 +116,7 @@ Identical to the protocol above: locate → read the layers → announce → con
 - [ ] The in-flight topic was located: an uncompleted `tasks.md`, a `checkpoint.json` with non-empty `remaining`, or a ledger exists (or `skillgrid:using-skillgrid` was invoked because nothing is in flight)
 - [ ] The phase was determined from the spec-zone artifacts present (table above)
 - [ ] The correct state layer was read for the phase: the plan's `progress.md` when the phase is execution
-- [ ] The commit checkpoint was run — `bash .agents/hooks/checkpoint-state.sh restore` returned, and its `remaining` (a partial unit) was noted and finished before dispatching anything new
+- [ ] The commit checkpoint was run — `bash hooks/checkpoint-state.sh restore` returned, and its `remaining` (a partial unit) was noted and finished before dispatching anything new
 - [ ] The recovered position was announced in one line naming the source (e.g. "Resuming `<topic>`: phase=execution, wave 2, task 3/5 done, last commit `<sha>`. Next: task 4.")
 - [ ] Resume continued at the first incomplete task (a `Task <N>: complete` line was NOT skipped over), not from scratch
 - [ ] If context was saved: the plan's `progress.md` was appended (if executing), the work unit was committed (spec zone if planning artifacts changed)

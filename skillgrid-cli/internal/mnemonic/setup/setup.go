@@ -134,8 +134,30 @@ func cursorMCPEntry() map[string]interface{} {
 	}
 }
 
+// stagedPluginPath returns the staged ~/.skillgrid/plugins copy of a
+// repo-relative plugins/... asset when present, else "". Plugin installs read
+// staged-first (the `skillgrid install` hook-tree staging owns that copy);
+// the checkout is the fallback.
+func stagedPluginPath(rel string) string {
+	if !strings.HasPrefix(rel, "plugins/") {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	p := filepath.Join(home, ".skillgrid", "plugins", strings.TrimPrefix(rel, "plugins/"))
+	if _, err := os.Stat(p); err != nil {
+		return ""
+	}
+	return p
+}
+
 func copyFromRepo(repoRoot, relPath, dst string, dryRun bool) error {
 	src := filepath.Join(repoRoot, relPath)
+	if staged := stagedPluginPath(relPath); staged != "" {
+		src = staged
+	}
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", src, err)

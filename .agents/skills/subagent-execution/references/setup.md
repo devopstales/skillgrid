@@ -42,7 +42,7 @@ only in todos.
   — upsert, never duplicate. The in-repo ledger stays the source of truth; the
   store is the index for a fresh session that hasn't found the workspace yet.
 - On resume, also read the commit checkpoint per `skillgrid:work-unit-commits`:
-  `bash .agents/hooks/checkpoint-state.sh restore`. It prints
+  `bash hooks/checkpoint-state.sh restore`. It prints
   `.skillgrid/sdd/checkpoint.json` (derived from `git log -1` + the last
   `[skillgrid-context]` block) plus live git state. If its `remaining` names a
   partial unit, finish that unit before dispatching the next task. The ledger

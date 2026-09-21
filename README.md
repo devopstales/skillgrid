@@ -94,7 +94,7 @@ copy `.agents/` into `~/.agents/`.
 It ships:
 
 - **30 skills** under `.agents/skills/` — workflow stages + general capabilities the agent loads at the right moment.
-- **Git + agent hooks** under `.agents/hooks/` and `.agents/git-hooks/` — "a rule asks; a hook guarantees."
+- **Git + agent hooks** under `hooks/` and `git-hooks/`, agent **plugins** under `plugins/` — "a rule asks; a hook guarantees."
 - **Templates, references, and a router** the agent consumes at runtime.
 
 ## Why
@@ -138,12 +138,7 @@ reflect ← ship ← review ← qa ⇄ apply (simple / subagent / parallel)
 
 1. **Onboard** a project: ask the agent to run `onboarding` — it detects your stack/testing/tracker and writes `.skillgrid/config.yaml` (blocking until you confirm the facts).
 2. **Route** every request through `using-skillgrid` — it establishes which skill to use and enforces context discipline.
-3. **Wire the hooks** so discipline is enforced, not just asked:
-
-   ```bash
-   bash <install-root>/scripts/install-hooks.sh            # git guards (zone, protected-ref, commit-msg)
-   bash <install-root>/scripts/install-hooks.sh --with-stop  # + Stop-phase test + gate gates
-   ```
+3. **Wire the hooks** so discipline is enforced, not just asked (`skillgrid install` stages `hooks/`, `git-hooks/`, `plugins/` to `~/.skillgrid/` and points git's `core.hooksPath` at the staged git-hooks — guards, commit-msg, plus the agent Stop hooks):
 
 4. **Make a change**: `using-skillgrid` routes it through the pipeline; you approve at the blueprint gate; the agent executes, gates, and ships.
 
@@ -221,15 +216,15 @@ The shape is **enforced, not just documented**: `task skill-check` (→ `scripts
 
 ```
 .agents/
-├── skills/            # the 30 skills + _shared/ (conventions, references)
-├── hooks/             # guard implementations (zone, protected-ref, stop, gate-*)
-└── git-hooks/         # thin shims over .agents/hooks/
+└── skills/            # the 30 skills + _shared/ (conventions, references)
+hooks/                 # guard implementations (zone, protected-ref, stop, gate-*)
+git-hooks/             # thin shims over hooks/ (exec ../hooks/...)
+plugins/               # agent capture-bridge plugins (opencode, kilo, cursor)
 .github/
 ├── prompts/           # canonical slash-command prompts (mirror source)
 ├── agents/            # canonical subagent definitions
 └── workflows/         # CI: IDE-sync check + hook tests + skill hygiene
 scripts/
-├── install-hooks.sh   # wire the hook set into a repo
 ├── sync-ide-assets.sh # mirror canonical prompts/agents to IDE copies
 ├── test-hooks.sh      # exercise the guard hooks against throwaway repos
 └── check-skillgrid-skills.mjs  # skill-hygiene guard (anatomy + line + hot-path budgets)

@@ -37,6 +37,12 @@ func (c *Config) SyncRepo(srcPath string) error {
 		if _, err := os.Stat(filepath.Join(abs, ".agents")); err == nil {
 			fmt.Fprintln(os.Stderr, "      [dry-run] copy", filepath.Join(abs, ".agents"), "→", c.AgentsDir)
 		}
+		if ops, err := planMirror(abs); err == nil {
+			for _, op := range ops {
+				fmt.Fprintln(os.Stderr, "      [dry-run] mirror", op.action, filepath.Join(abs, op.name), "→", filepath.Join(c.RepoHome, op.name))
+			}
+		}
+		fmt.Fprintln(os.Stderr, "      [dry-run] git config --global core.hooksPath", filepath.Join(c.RepoHome, "git-hooks"))
 		fmt.Fprintln(os.Stderr, "      no changes were written (dry run)")
 		return nil
 	}
@@ -60,6 +66,15 @@ func (c *Config) SyncRepo(srcPath string) error {
 		fmt.Fprintln(os.Stderr, "      copied .agents/ → ~/.agents/")
 	} else if c.SkipAgentsCopy {
 		fmt.Fprintln(os.Stderr, "      skipped ~/.agents copy (--skip-agents)")
+	}
+
+	// Mirror the checkout next to itself so consumers read from
+	// ~/.skillgrid/{hooks,git-hooks,plugins,...}.
+	if err := syncFullTree(c); err != nil {
+		return err
+	}
+	if err := wireGitHooks(c); err != nil {
+		fmt.Fprintln(os.Stderr, "  warning: git hooks wiring:", err)
 	}
 
 	fmt.Fprintln(os.Stderr, "\n  done")

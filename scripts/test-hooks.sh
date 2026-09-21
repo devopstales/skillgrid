@@ -16,7 +16,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOOKS="$ROOT/.agents/hooks"
+HOOKS="$ROOT/hooks"
 CHECKPOINT="$HOOKS/checkpoint-state.sh"
 ZONE="$HOOKS/precommit-zone-guard.sh"
 GUARD="$HOOKS/precommit-guard.sh"

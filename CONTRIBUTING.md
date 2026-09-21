@@ -35,10 +35,11 @@ A good contribution names the behavior it fixes or improves and shows the before
 
 ```
 .agents/skills/<name>/SKILL.md   # the skill
-.agents/hooks/                   # guard implementations
-.agents/git-hooks/               # thin shims over .agents/hooks/
+hooks/                           # guard implementations
+git-hooks/                       # thin shims over hooks/
+plugins/                         # agent capture-bridge plugins
 .github/prompts/  .github/agents/# canonical command + agent assets (IDE mirror source)
-scripts/                         # install-hooks, sync-ide-assets, test-hooks
+scripts/                         # sync-ide-assets, test-hooks (hook install lives in `skillgrid install`)
 docs/skill-anatomy.md            # the skill contract
 docs/user-guide/                 # the walkthrough
 ```

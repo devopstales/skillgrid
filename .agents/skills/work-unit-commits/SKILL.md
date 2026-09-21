@@ -39,7 +39,7 @@ Not on-demand.
 
 - Before committing after a work unit — any change during
   `skillgrid:simple-execution` or `skillgrid:subagent-execution`.
-- When wiring git hooks into a repo (`install-hooks.sh`) or resuming from a
+- When wiring git hooks into a repo (`skillgrid install`) or resuming from a
   checkpoint handle.
 - When checking that a commit is atomic, conventional, and independently
   revertable before it lands.
@@ -110,32 +110,26 @@ checkpoint, not mid-command). Never commit broken tests or mid-edit state.
 
 ## Where the hooks live
 
-| Layer | Path | What |
-|-------|------|------|
-| **Hook entrypoints (shims)** | `.agents/git-hooks/pre-commit`, `.agents/git-hooks/commit-msg`, `.agents/git-hooks/stop`, `.agents/git-hooks/gate-stop` | one-line shims that call the entrypoint |
-| **Implementation** | `.agents/hooks/checkpoint-state.sh` (subcommands `guard` / `guard-msg` / `post-check` / `snapshot` / `restore`), `.agents/hooks/precommit-guard.sh`, `.agents/hooks/precommit-zone-guard.sh`, `.agents/hooks/precommit-ignore-guard.sh`, `.agents/hooks/gate-lint.sh`, `.agents/hooks/gate-state.sh`, `.agents/hooks/gate-stop.sh`, `.agents/hooks/stop-tests.sh` | the actual logic |
+| Layer | Path (repo → staged) | What |
+|-------|----------------------|------|
+| **Hook entrypoints (shims)** | `git-hooks/pre-commit`, `git-hooks/commit-msg`, `git-hooks/stop`, `git-hooks/gate-stop` → `~/.skillgrid/git-hooks/` | one-line shims that call the entrypoint |
+| **Implementation** | `hooks/checkpoint-state.sh` (subcommands `guard` / `guard-msg` / `post-check` / `snapshot` / `restore`), `hooks/precommit-guard.sh`, `hooks/precommit-zone-guard.sh`, `hooks/precommit-ignore-guard.sh`, `hooks/gate-lint.sh`, `hooks/gate-state.sh`, `hooks/gate-stop.sh`, `hooks/stop-tests.sh` → `~/.skillgrid/hooks/` | the actual logic |
 
-The shims resolve `checkpoint-state.sh` relative to themselves
-(`.agents/git-hooks/../hooks/checkpoint-state.sh`), so the two dirs stay
-together and move as a unit.
+The shims resolve their implementation relative to themselves
+(`../hooks/checkpoint-state.sh`), so the two dirs stage together and work
+identically from the repo checkout and from `~/.skillgrid/`.
 
 ## Wiring the git hooks into a repo
 
-Install once per repo (idempotent) via the installer:
+`skillgrid install` mirrors the whole repo tree to `~/.skillgrid/`
+(remove-then-copy per top-level entry; `.git`/`node_modules` and the repo's own
+`.skillgrid/` excluded, live `mnemonic/`/`repos/`/`config.d/` never touched)
+and points git's global `core.hooksPath` at `~/.skillgrid/git-hooks`.
+Consumers then read from the mirror: plugins from `~/.skillgrid/plugins`, git
+hooks from `~/.skillgrid/git-hooks`, implementations via copy from
+`~/.skillgrid/hooks`. Re-run install after the repo updates the hook tree.
 
-```bash
-bash <install-root>/scripts/install-hooks.sh
-```
-
-The installer ships at the skillgrid repo root, not in this skill's directory. `<install-root>` is `~/.skillgrid/repos/skillgrid/` when installed (or the dev checkout root, e.g. `git/ai-test/skillgrid-skills/`, when running from source).
-
-It writes per-repo shims into the repo's *active* hooks dir (honoring an
-existing `core.hooksPath`, e.g. a global `~/.aiskillgrid/git-hooks`) and points
-them at the absolute path of `checkpoint-state.sh`. Re-run it after the skill
-moves. A future `skillgrid-cli` replaces this per-repo copy with a single
-`core.hooksPath` pointing at `.agents/git-hooks`.
-
-What they enforce (see `.agents/hooks/precommit-guard.sh`):
+What they enforce (see `hooks/precommit-guard.sh`):
 
 These guards serve **all** skillgrid skills — the commit-time invariants the
 whole family states as prose. `guard` is a dispatcher over every guard; adding
@@ -155,34 +149,33 @@ one is a one-line change in `checkpoint-state.sh`.
 
 The `stop` and `gate-stop` hooks are **agent harness hooks** (Stop events), not
 git hooks. `stop` needs a test runner and `gate-stop` needs the change's
-`acceptance.feature`, so `install-hooks.sh --with-stop` installs both separately.
-`gate-stop` reads the harness JSON on stdin for `session_id` (its loop-guard key);
-its shim does not drain stdin.
+`acceptance.feature`; both stage with the rest of `git-hooks/` and are wired
+by the harness's Stop-hook config. `gate-stop` reads the harness JSON on stdin
+for `session_id` (its loop-guard key); its shim does not drain stdin.
 
 Run the deletion check after committing:
 
 ```bash
-bash .agents/hooks/checkpoint-state.sh post-check
+bash hooks/checkpoint-state.sh post-check
 ```
 
-**CLI-ready:** the hooks are one-line shims over
-`.agents/hooks/checkpoint-state.sh`. `skillgrid-cli` later rebinds those shims
-(or points `core.hooksPath` at `.agents/git-hooks`) — the subcommand contract
-(`guard` / `guard-msg` / `post-check`) is the stable seam, so no repo change is
-needed when the CLI lands.
+**CLI wiring:** the hooks are one-line shims over `hooks/checkpoint-state.sh`,
+staged to `~/.skillgrid/` by `skillgrid install`, which also points
+`core.hooksPath` at `~/.skillgrid/git-hooks`. The subcommand contract
+(`guard` / `guard-msg` / `post-check`) is the stable seam.
 
 ## The checkpoint resume handle
 
 After each work-unit commit, snapshot (idempotent, cheap):
 
 ```bash
-bash .agents/hooks/checkpoint-state.sh snapshot
+bash hooks/checkpoint-state.sh snapshot
 ```
 
 A fresh session resumes by reading the handle + live git state:
 
 ```bash
-bash .agents/hooks/checkpoint-state.sh restore
+bash hooks/checkpoint-state.sh restore
 ```
 
 Resume rules (full decision tree in `references/state-schema.md`):
@@ -196,6 +189,41 @@ Resume rules (full decision tree in `references/state-schema.md`):
 A human-readable view can be written from `templates/checkpoint.md` when a
 handoff is wanted, but the JSON is the source of truth.
 
+## The Handoff Hub (change snapshots + named checkpoints)
+
+The `checkpoint.json` resume handle is the *per-change* pointer. The **Handoff
+Hub** (change 015) is the *engine-backed* change log that makes the whole
+history queryable from the admin UI and MCP. It has two layers on top of git:
+
+| Layer | Where | What | Who writes it |
+|-------|-------|------|---------------|
+| **Change snapshots** | `change_snapshots` (SQLite) | a git-derived, append-only log of EVERY commit + its parsed `[skillgrid-context]` block | `checkpoint-state.sh snapshot` (best-effort `skillgrid handoff record`) or `skillgrid handoff backfill` (first run, last 100 commits) |
+| **Named checkpoints** | `checkpoints` (SQLite) | intentional markers placed *before* risky actions, with drift verification | `skillgrid handoff checkpoint <name>` (you, before-apply / before-pause) |
+
+The change snapshots are reconstructable by replaying `git log` — they are the
+index, the commit is the durable record (same relationship as
+`checkpoint.json`). They can never be the sole source of truth.
+
+**Record a named checkpoint before a risky action** (before-apply-<change>,
+before a long pause, before validation):
+
+```bash
+skillgrid handoff checkpoint before-apply-<change> --evidence "lint ok, tests 34/34"
+```
+
+**Drift-verify a checkpoint before resuming** (no reverts — it only reports):
+
+```bash
+skillgrid handoff verify before-apply-<change>
+# -> continue | inspect-drift | refresh
+```
+
+The hook wiring is best-effort: `checkpoint-state.sh snapshot` already calls
+`skillgrid handoff record` after writing `checkpoint.json`, so the hub stays
+current with the resume handle. A missing `skillgrid` binary never blocks the
+commit. See `resume` for the verify-first resume flow and `ship` for archiving
+the change's checkpoints.
+
 ## Remember
 
 - Conventional subject, no AI-attribution trailer — the `commit-msg` hook enforces it.
@@ -204,6 +232,8 @@ handoff is wanted, but the JSON is the source of truth.
 - Commit **after** a verified gate, **before** a long command.
 - Every work-unit commit carries the `[skillgrid-context]` block.
 - `snapshot` after each commit; `restore` to resume; never hand-edit the JSON.
+- The snapshot also feeds the Handoff Hub change log (best-effort `skillgrid handoff record`).
+- Place a named checkpoint (`skillgrid handoff checkpoint`) before a risky action; verify it (`skillgrid handoff verify`) before resuming.
 - Never commit on a protected ref or a detached HEAD — the `pre-commit` hook stops it.
 - One-way-door decisions still get an ADR; the `Decisions:` line is the per-task record.
 
@@ -231,5 +261,5 @@ handoff is wanted, but the JSON is the source of truth.
 - [ ] `git log --oneline` shows atomic, independently-revertable commits.
 - [ ] Each commit subject matches the conventional regex, with no AI attribution trailer.
 - [ ] Each commit body carries the `[skillgrid-context]` block (Task / Decisions / Remaining / Tried).
-- [ ] Git hooks are installed and fire on commit (`install-hooks.sh` ran; `pre-commit` + `commit-msg` shims present).
+- [ ] Git hooks are installed and fire on commit (`skillgrid install` ran; `pre-commit` + `commit-msg` shims present in `~/.skillgrid/git-hooks/`).
 - [ ] `checkpoint.json` exists and was derived by `checkpoint-state.sh snapshot` after the last commit.

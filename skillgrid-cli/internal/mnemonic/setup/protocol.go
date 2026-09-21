@@ -23,6 +23,13 @@ func ProtocolMarkdown() string {
 
 // ProtocolMarkdownFromRepo reads protocol text from repoRoot when the file exists.
 func ProtocolMarkdownFromRepo(repoRoot string) string {
+	for _, rel := range []string{"plugins/opencode/" + protocolRelPath, "plugins/kilo/" + protocolRelPath} {
+		if staged := stagedPluginPath(rel); staged != "" {
+			if data, err := os.ReadFile(staged); err == nil {
+				return string(data)
+			}
+		}
+	}
 	if repoRoot != "" {
 		for _, rel := range []string{"plugins/opencode/" + protocolRelPath, "plugins/kilo/" + protocolRelPath} {
 			path := filepath.Join(repoRoot, rel)

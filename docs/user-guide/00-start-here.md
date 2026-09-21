@@ -2,7 +2,7 @@
 
 **Read the [README](../../README.md) first.** It makes the case: your AI context decays across sessions, and Skillgrid fixes that by turning your project into **agentic engineering** — a set of verbs the agent runs on your codebase (**interview → blueprint → slice → verify**) that write what they learn to disk so the next agent starts from your project's actual state. This page is the guide entry: the shape of the hub and where each topic lives.
 
-**AISkillGrid** is a configuration hub for opinionated AI-assisted development: a set of reusable **skills** under `.agents/skills/`, **git + agent hooks** under `.agents/hooks/` and `.agents/git-hooks/`, and templates/references that agents consume at runtime.
+**AISkillGrid** is a configuration hub for opinionated AI-assisted development: a set of reusable **skills** under `.agents/skills/`, **git + agent hooks** under `hooks/` and `git-hooks/`, agent capture-bridge **plugins** under `plugins/`, and templates/references that agents consume at runtime.
 
 It turns "chat with an agent" into a repeatable pipeline — interview → blueprint → slice → execute → review → QA-gate → ship → reflect — with BDD acceptance, test-driven gates, persistent memory, and hook-enforced discipline that survive compaction.
 
