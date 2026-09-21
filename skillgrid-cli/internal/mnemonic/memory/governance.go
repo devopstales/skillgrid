@@ -163,6 +163,51 @@ func (s *Service) AppendVersion(ctx context.Context, id int64, revision int) err
 	return nil
 }
 
+// UpdateContent sets an observation's content in place through the same
+// governance path mem_update uses: the prior state is captured into
+// observation_versions (tagged with the revision being reached) before the
+// rewrite, and the update bumps revision_count and updated_at. It is the
+// content-only companion to SetStatus/SetVisibility, for callers that must
+// rewrite content as a governed, append-only change (the decision bridge's
+// answer route). An unknown id is an error; the observation is left unchanged.
+func (s *Service) UpdateContent(ctx context.Context, id int64, newContent string) error {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return errors.New("memory service not initialized")
+	}
+	if strings.TrimSpace(newContent) == "" {
+		return errors.New("content is required")
+	}
+	// Capture the pre-update state (tagged with the revision about to be
+	// reached) before the UPDATE below rewrites content and advances
+	// revision_count — the same append, never-overwrite rule as mem_update.
+	var curRev int
+	if err := s.store.DB.QueryRowContext(ctx, `
+		SELECT COALESCE(revision_count,0) FROM observations
+		WHERE id = ? AND project = ? AND deleted_at IS NULL`, id, s.projectID).Scan(&curRev); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("observation %d not found", id)
+		}
+		return fmt.Errorf("load revision: %w", err)
+	}
+	if appErr := s.AppendVersion(ctx, id, curRev+1); appErr != nil {
+		return fmt.Errorf("append version: %w", appErr)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.store.DB.ExecContext(ctx, `
+		UPDATE observations SET content = ?,
+			revision_count = COALESCE(revision_count,0) + 1,
+			updated_at = ?
+		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		newContent, now, id, s.projectID)
+	if err != nil {
+		return fmt.Errorf("update content: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("observation %d not found", id)
+	}
+	return nil
+}
+
 // SetStatus sets an observation's lifecycle status explicitly. It is never
 // inferred from content: the caller decides. An unknown status is rejected.
 func (s *Service) SetStatus(ctx context.Context, id int64, status string) error {

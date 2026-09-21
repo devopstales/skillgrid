@@ -211,20 +211,34 @@ func TestDecisionAnswerRecords(t *testing.T) {
 	}
 }
 
-// [decision-answer-appends-version] Each answer appends an
-// observation_versions row (append-only trail), never overwrites.
+// [decision-answer-appends-version] The answer path appends an
+// observation_versions row (the same append-only trail mem_update writes): a
+// pending decision that gets answered gains exactly one version row, and an
+// answered decision stays a 200 no-op without a second version.
 func TestDecisionAnswerAppendsVersion(t *testing.T) {
 	s, h := newDecisionTestServer(t)
 	id := seedDecision(t, h, "interview/demo/v", `{"question":"q","options":[{"id":"a","label":"A"}],"state":"pending"}`, "team", "2026-01-01T00:00:00Z")
-	postDecisionAnswer(t, s, id, `{"optionId":"a","note":"first"}`)
-	postDecisionAnswer(t, s, id, `{"optionId":"a","note":"second"}`)
-
+	w := postDecisionAnswer(t, s, id, `{"optionId":"a","note":"first"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("first answer: got %d: %s", w.Code, w.Body.String())
+	}
 	var n int
 	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM observation_versions WHERE observation_id = ?`, id).Scan(&n); err != nil {
 		t.Fatalf("count versions: %v", err)
 	}
-	if n < 2 {
-		t.Errorf("expected >=2 version rows after two answers, got %d", n)
+	if n != 1 {
+		t.Errorf("expected exactly 1 version row after answering, got %d", n)
+	}
+	// re-answer: idempotent no-op, still exactly one version row.
+	w = postDecisionAnswer(t, s, id, `{"optionId":"a","note":"second"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("second answer: got %d: %s", w.Code, w.Body.String())
+	}
+	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM observation_versions WHERE observation_id = ?`, id).Scan(&n); err != nil {
+		t.Fatalf("count versions: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("re-answer must not append a version, got %d rows", n)
 	}
 }
 

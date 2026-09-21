@@ -147,6 +147,7 @@ func (s *Server) registerRoutes() {
 	s.registerTrackerRoutes()
 	s.registerDocsRoutes()
 	s.registerGraphRoutes()
+	s.registerDecisionRoutes()
 	s.registerUIRoutes()
 }
 
@@ -180,6 +181,9 @@ func (s *Server) registerGraphRoutes() {
 	s.mux.HandleFunc("GET /activity/events", s.handleMnemonicActivityEvents)
 	s.mux.HandleFunc("GET /activity/stats", s.handleMnemonicActivityStats)
 	s.mux.HandleFunc("GET /activity/stream", s.handleMnemonicActivityStream)
+	// Handoff Hub (change 015): change-snapshot log + one-call hub status.
+	s.mux.HandleFunc("GET /activity/snapshots", s.handleHandoffSnapshots)
+	s.mux.HandleFunc("GET /handoff/status", s.handleHandoffStatus)
 
 	// Phase 6 plans/specs routes (SDD aggregation from .skillgrid/*).
 	s.mux.HandleFunc("GET /plans", s.shellOrJSON(s.handlePlans))
