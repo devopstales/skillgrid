@@ -3,9 +3,11 @@ package memory
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -167,4 +169,162 @@ func (s *Service) SessionChanges(ctx context.Context, sessionID string) (events 
 		return nil, "", "", fmt.Errorf("iterate session events: %w", err)
 	}
 	return events, from, to, nil
+}
+
+// RecordCommitEvent records the HEAD commit of repoDir as a `commit` event on
+// the session's event stream, carrying the commit sha plus the parsed
+// [skillgrid-context] block (Task/Decisions/Remaining/Tried) as a JSON
+// payload. It is the Go-side record path for work-unit commits; the trigger
+// call-site wiring (bash post-commit hook) is out of scope and lands later.
+//
+// Body source: `git log -1 --pretty=%B` in repoDir. A commit without a context
+// block is still recorded (empty payload, no error).
+//
+// Session resolution: an explicit sessionID wins; when empty, the latest
+// active session for the repo directory is used; when none exists the call
+// fails with a session-not-found error and writes no row. A repoDir outside a
+// git repository (or with an unborn HEAD, i.e. no commits yet) fails with a
+// no-commit-to-record error and writes no row.
+//
+// Payload shape (block present, at least one known field non-empty):
+// {"task":"...","decisions":"...","remaining":"...","tried":"..."}
+// with missing keys rendered as "". Block absent (or block with none of the
+// four keys) renders as "".
+func (s *Service) RecordCommitEvent(ctx context.Context, sessionID, repoDir string) (*Event, error) {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return nil, errors.New("memory service not initialized")
+	}
+	if strings.TrimSpace(repoDir) == "" {
+		return nil, errors.New("no commit to record: empty directory")
+	}
+	// HEAD sha first: it fails outside a repo and on unborn HEAD, and both
+	// must error with no row written.
+	headCmd := exec.Command("git", "rev-parse", "HEAD")
+	headCmd.Dir = repoDir
+	headOut, err := headCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("no commit to record in %s: %w", repoDir, err)
+	}
+	sha := strings.TrimSpace(string(headOut))
+	if sha == "" {
+		return nil, fmt.Errorf("no commit to record in %s: empty HEAD", repoDir)
+	}
+	// Body for the context block. An unreadable body degrades to block-less
+	// (empty payload), never an error: the sha is already known good.
+	var body string
+	bodyCmd := exec.Command("git", "log", "-1", "--pretty=%B")
+	bodyCmd.Dir = repoDir
+	if out, berr := bodyCmd.Output(); berr == nil {
+		body = string(out)
+	}
+
+	// Session resolution.
+	var sid, rowProject string
+	if strings.TrimSpace(sessionID) != "" {
+		sid = strings.TrimSpace(sessionID)
+		var lerr error
+		rowProject, _, lerr = lookupSessionRow(ctx, s.store.DB, sid)
+		if lerr != nil {
+			if errors.Is(lerr, sql.ErrNoRows) {
+				return nil, fmt.Errorf("session %s not found", sid)
+			}
+			return nil, fmt.Errorf("commit event session look-up: %w", lerr)
+		}
+	} else {
+		absDir, aerr := filepath.Abs(repoDir)
+		if aerr != nil {
+			return nil, fmt.Errorf("resolve directory: %w", aerr)
+		}
+		if qerr := s.store.DB.QueryRowContext(ctx, `
+			SELECT id, project FROM sessions
+			WHERE directory = ? AND status = 'active'
+			ORDER BY started_at DESC, rowid DESC LIMIT 1`,
+			absDir,
+		).Scan(&sid, &rowProject); qerr != nil {
+			if errors.Is(qerr, sql.ErrNoRows) {
+				return nil, fmt.Errorf("session not found: no active session for %s", absDir)
+			}
+			return nil, fmt.Errorf("commit event session look-up: %w", qerr)
+		}
+	}
+
+	// Parse the context block. Only the four known keys are kept; a missing
+	// block (or one with none of the keys) leaves the payload empty.
+	payload := ""
+	if start := strings.Index(body, "[skillgrid-context]"); start >= 0 {
+		rest := body[start+len("[skillgrid-context]"):]
+		if end := strings.Index(rest, "[/skillgrid-context]"); end >= 0 {
+			fields := map[string]string{}
+			for _, line := range strings.Split(rest[:end], "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				if i := strings.Index(line, ":"); i > 0 {
+					fields[strings.TrimSpace(line[:i])] = strings.TrimSpace(line[i+1:])
+				}
+			}
+			task, decisions, remaining, tried :=
+				fields["Task"], fields["Decisions"], fields["Remaining"], fields["Tried"]
+			if task != "" || decisions != "" || remaining != "" || tried != "" {
+				if raw, merr := json.Marshal(struct {
+					Task      string `json:"task"`
+					Decisions string `json:"decisions"`
+					Remaining string `json:"remaining"`
+					Tried     string `json:"tried"`
+				}{task, decisions, remaining, tried}); merr == nil {
+					payload = string(raw)
+				}
+			}
+		}
+	}
+
+	now := eventNow()
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("commit event begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if err := appendSessionEvent(ctx, tx, rowProject, sid, "commit", sha, now); err != nil {
+		return nil, err
+	}
+	if payload != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE session_events SET payload = ?
+			WHERE session_id = ? AND sequence = (
+				SELECT MAX(sequence) FROM session_events WHERE session_id = ?)`,
+			payload, sid, sid,
+		); err != nil {
+			return nil, fmt.Errorf("commit event payload: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit event commit: %w", err)
+	}
+	committed = true
+
+	var e Event
+	var sensitive int
+	if err := s.store.DB.QueryRowContext(ctx, `
+		SELECT id, session_id, project, sequence, action_type,
+		       COALESCE(result_status, 'success'), COALESCE(is_sensitive, 0),
+		       COALESCE(tool_name, ''), COALESCE(path, ''), COALESCE(command, ''),
+		       COALESCE("commit", ''), COALESCE(payload, ''), timestamp
+		FROM session_events WHERE session_id = ?
+		ORDER BY sequence DESC LIMIT 1`,
+		sid,
+	).Scan(
+		&e.ID, &e.SessionID, &e.Project, &e.Sequence, &e.ActionType,
+		&e.ResultStatus, &sensitive,
+		&e.ToolName, &e.Path, &e.Command, &e.Commit, &e.Payload, &e.Timestamp,
+	); err != nil {
+		return nil, fmt.Errorf("commit event read back: %w", err)
+	}
+	e.IsSensitive = sensitive != 0
+	return &e, nil
 }
