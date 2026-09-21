@@ -46,6 +46,19 @@ describe('DecisionCard', () => {
     expect(container.querySelector('iframe')).toBeNull()
   })
 
+  it('renders the sandboxed iframe for a decision with visual', () => {
+    const withVisual: Decision = {
+      ...pending,
+      content: { ...pending.content, visual: 'demo/a.html' },
+    }
+    const { container } = render(<DecisionCard decision={withVisual} onAnswer={vi.fn()} />)
+    const iframe = container.querySelector('iframe')
+    expect(iframe).not.toBeNull()
+    expect(iframe?.getAttribute('src')).toBe('/prototype/demo/a.html')
+    expect(iframe?.getAttribute('sandbox')).toBe('allow-scripts')
+    expect(iframe?.getAttribute('sandbox')).not.toContain('allow-same-origin')
+  })
+
   it('posts the chosen option and note on submit', () => {
     const onAnswer = vi.fn()
     render(<DecisionCard decision={pending} onAnswer={onAnswer} />)
