@@ -1,14 +1,12 @@
 import { currentProjectName } from '../../lib/projects'
 
 // Shared fetch + type contracts for the unified Sessions view
-// (sessions-activity-unification). This merges the three former features:
+// (sessions-activity-unification). This merges the former features:
 //   - Activity (event feed + stats + SSE)  → activity/events, /activity/stats, /activity/stream
-//   - Handoff Hub (change log + hub status) → /handoff/snapshots, /handoff/status, /activity/stream (event: snapshot)
 //   - Mnemonic sessions + audit            → /mnemonic/sessions, /sessions/{id}/summary, /sessions/{id}/activity, /mnemonic/audit
 //
 // Project resolution mirrors the activity view (git name → first project with
-// data). The live SSE reuses the single /activity/stream endpoint and
-// multiplexes both `activity` and `snapshot` events.
+// data). The live SSE reuses the single /activity/stream endpoint.
 
 export class SessionsError extends Error {
   status: number
@@ -131,35 +129,16 @@ export interface Checkpoint {
   dirty: boolean
   prdPath: string
   specDir: string
-  handoffFile: string
   evidence: string
   status: 'open' | 'verified' | 'stale' | 'archived'
   createdAt: string
   verifiedAt: string
 }
 
-export interface HandoffRef {
-  handoffId: string
-  handoffType: 'session' | 'team' | 'checkpoint'
-  fromCommit: string
-  toCommit: string
-  specDir: string
-  teamId: string
-  taskId: string
-  createdAt: string
-}
-
 export interface SnapshotsResponse {
   project: string
   snapshots: ChangeSnapshot[]
   limit: number
-}
-
-export interface HubStatus {
-  project: string
-  latest_snapshot: ChangeSnapshot | null
-  checkpoints: Checkpoint[]
-  handoff_refs: HandoffRef[]
 }
 
 export interface MnemonicSession {
@@ -209,20 +188,6 @@ export async function fetchSessionActivity(id: string, limit = 200): Promise<Act
 export async function fetchActivityStats(): Promise<ActivityStats> {
   const project = await resolveProject()
   return get<ActivityStats>(`/activity/stats?${qs(project)}`)
-}
-
-// ---------------------------------------------------------------------------
-// handoff: change-snapshot log + hub status
-// ---------------------------------------------------------------------------
-
-export async function fetchSnapshots(limit = 100): Promise<SnapshotsResponse> {
-  const project = await resolveProject()
-  return get<SnapshotsResponse>(`/handoff/snapshots?${qs(project, { limit })}`)
-}
-
-export async function fetchHubStatus(): Promise<HubStatus> {
-  const project = await resolveProject()
-  return get<HubStatus>(`/handoff/status?${qs(project)}`)
 }
 
 // ---------------------------------------------------------------------------

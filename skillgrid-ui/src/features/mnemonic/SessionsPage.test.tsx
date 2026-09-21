@@ -4,15 +4,14 @@ import { SessionsPage } from './SessionsPage'
 import * as api from '../sessions/api'
 
 // The tab nav buttons render their raw value and uppercase it via CSS
-// `capitalize`, so the DOM text is the lowercase value ('changes', 'handoffs',
-// 'audit', 'activity'). Address them by role + exact lowercase name.
+// `capitalize`, so the DOM text is the lowercase value ('audit', 'activity').
+// Address them by role + exact lowercase name.
 const tabButton = (name: string) => screen.getByRole('button', { name })
 
 // The Sessions page is the single "what happened" home. These tests pin the
 // consolidation behavior: the session list renders, the session-scoped activity
-// endpoint is used when a session is selected, the Audit tab is a distinct
-// (secondary) tab, and the Handoff Hub's change log + handoffs are folded in as
-// tabs (the former /activity and /handoff pages no longer exist).
+// endpoint is used when a session is selected, and the Audit tab is a distinct
+// (secondary) tab.
 const session = (id: string, title: string) => ({
   id,
   title,
@@ -27,35 +26,6 @@ beforeEach(() => {
   vi.spyOn(api, 'fetchSessions').mockResolvedValue({
     project: 'p',
     sessions: [session('sess-a', 'Session A')],
-  })
-  vi.spyOn(api, 'fetchSnapshots').mockResolvedValue({
-    project: 'p',
-    snapshots: [{
-      id: 1,
-      branch: 'main',
-      commit: 'abc1234def',
-      commitShort: 'abc1234',
-      subject: 'feat: add auth',
-      author: 'dev',
-      committedAt: '2026-09-10T09:00:00Z',
-      changedFiles: '',
-    }],
-    limit: 200,
-  })
-  vi.spyOn(api, 'fetchHubStatus').mockResolvedValue({
-    project: 'p',
-    latest_snapshot: null,
-    checkpoints: [],
-    handoff_refs: [{
-      handoffId: 'hf-1',
-      handoffType: 'session',
-      fromCommit: 'aaa111',
-      toCommit: 'bbb222',
-      specDir: '.skillgrid/specs/x',
-      teamId: 'team-1',
-      taskId: 'task-1',
-      createdAt: '2026-09-10T09:00:00Z',
-    }],
   })
   vi.spyOn(api, 'fetchSessionActivity').mockResolvedValue({
     project: 'p',
@@ -121,22 +91,5 @@ describe('SessionsPage (unified activity home)', () => {
     expect(tabButton('audit')).toBeTruthy()
     // The audit table is not rendered until the tab is opened.
     expect(screen.queryByText('deadbeefcafe')).toBeFalsy()
-  })
-
-  it('folds the Handoff Hub change log in as a Changes tab', async () => {
-    render(<SessionsPage />)
-    await screen.findByRole('button', { name: /Session A/ })
-    expect(tabButton('changes')).toBeTruthy()
-    // Switching to the Changes tab renders the snapshot table row.
-    fireEvent.click(tabButton('changes'))
-    expect(await screen.findByText('feat: add auth')).toBeTruthy()
-  })
-
-  it('folds the Handoff Hub handoffs in as a Handoffs tab', async () => {
-    render(<SessionsPage />)
-    await screen.findByRole('button', { name: /Session A/ })
-    expect(tabButton('handoffs')).toBeTruthy()
-    fireEvent.click(tabButton('handoffs'))
-    expect(await screen.findByText('hf-1')).toBeTruthy()
   })
 })

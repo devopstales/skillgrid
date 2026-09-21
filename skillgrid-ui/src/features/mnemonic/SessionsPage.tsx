@@ -1,42 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   fetchAudit,
-  fetchHubStatus,
   fetchSessionSummary,
   fetchSessions,
-  fetchSnapshots,
   openActivityStream,
   SessionsError,
   type ActivityEvent,
   type AuditEntry,
-  type ChangeSnapshot,
-  type Checkpoint,
-  type HandoffRef,
   type MnemonicSession,
   type SessionSummary,
 } from '../sessions/api'
 import { ActivityPane } from '../sessions/ActivityPane'
-import { ChangesPane } from '../sessions/ChangesPane'
-import { HandoffsPane } from '../sessions/HandoffsPane'
 import { AuditTab } from '../sessions/AuditTab'
 
-type Tab = 'activity' | 'changes' | 'handoffs' | 'audit'
+type Tab = 'activity' | 'audit'
 
 // SessionsPage — the single "what happened" home (sessions-activity-unification).
 // Left: the project's sessions. Right: a session-scoped activity feed (global
-// when nothing is selected) as the default tab, with the Handoff Hub's change
-// log + handoffs folded in as tabs, and the hash-chained audit trail demoted to
-// a secondary tab.
+// when nothing is selected) as the default tab, and the hash-chained audit
+// trail demoted to a secondary tab.
 export function SessionsPage() {
   const [sessions, setSessions] = useState<MnemonicSession[]>([])
   const [tab, setTab] = useState<Tab>('activity')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  // Change-log + handoff data (Handoff Hub), shared across tabs.
-  const [snapshots, setSnapshots] = useState<ChangeSnapshot[]>([])
-  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
-  const [refs, setRefs] = useState<HandoffRef[]>([])
-  const [latest, setLatest] = useState<ChangeSnapshot | null>(null)
   const [live, setLive] = useState(false)
 
   // Audit trail (secondary tab).
@@ -68,38 +55,11 @@ export function SessionsPage() {
       .catch((e) => setError(e instanceof SessionsError ? e.message : 'failed to load sessions'))
   }, [])
 
-  // Change log + hub status + the single live stream (activity + snapshot).
+  // The single live stream (activity events).
   useEffect(() => {
-    Promise.all([fetchSnapshots(200), fetchHubStatus()])
-      .then(([snaps, status]) => {
-        setSnapshots(snaps.snapshots ?? [])
-        setCheckpoints(status.checkpoints ?? [])
-        setRefs(status.handoff_refs ?? [])
-        setLatest(status.latest_snapshot ?? null)
-      })
-      .catch((e) =>
-        setError(e instanceof SessionsError ? e.message : 'failed to load change log'),
-      )
     const close = openActivityStream({
       onReady: () => setLive(true),
       onActivity: (e) => activityHandlerRef.current?.(e),
-      onSnapshot: (s) => {
-        setSnapshots((prev) => {
-          if (prev.some((p) => p.commit === s.commit)) return prev
-          const ns: ChangeSnapshot = {
-            id: Date.now(),
-            branch: s.branch,
-            commit: s.commit,
-            commitShort: s.commitShort,
-            subject: s.subject,
-            author: s.author,
-            committedAt: s.committedAt,
-            changedFiles: '',
-          }
-          setLatest(ns)
-          return [ns, ...prev].slice(0, 200)
-        })
-      },
       onError: () => setLive(false),
     })
     return close
@@ -130,17 +90,6 @@ export function SessionsPage() {
       .catch(() => setSummary(null))
   }, [selectedId])
 
-  const checkpointByCommit = useMemo(() => {
-    const m = new Map<string, Checkpoint>()
-    for (const c of checkpoints) m.set(c.commit, c)
-    return m
-  }, [checkpoints])
-
-  const openCheckpoints = useMemo(
-    () => checkpoints.filter((c) => c.status === 'open' || c.status === 'stale'),
-    [checkpoints],
-  )
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b border-edge px-4 py-2">
@@ -151,7 +100,7 @@ export function SessionsPage() {
             {live ? '● live' : '○ offline'}
           </span>
           <nav className="flex gap-1 rounded-lg border border-edge p-0.5">
-            {(['activity', 'changes', 'handoffs', 'audit'] as Tab[]).map((t) => (
+            {(['activity', 'audit'] as Tab[]).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -205,15 +154,6 @@ export function SessionsPage() {
             {tab === 'activity' && (
               <ActivityPane sessionId={selectedId} live={live} registerActivity={registerActivity} />
             )}
-            {tab === 'changes' && (
-              <ChangesPane
-                snapshots={snapshots}
-                checkpointByCommit={checkpointByCommit}
-                openCheckpoints={openCheckpoints}
-                latest={latest}
-              />
-            )}
-            {tab === 'handoffs' && <HandoffsPane checkpoints={checkpoints} refs={refs} />}
             {tab === 'audit' && (
               <AuditTab entries={entries} chainValid={chainValid} error={auditError} />
             )}
