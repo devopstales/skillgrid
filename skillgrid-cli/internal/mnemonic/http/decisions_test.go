@@ -410,3 +410,157 @@ func TestDecisionAnswer400MissingOption(t *testing.T) {
 		t.Errorf("missing optionId should 400, got %d (%s)", w.Code, w.Body.String())
 	}
 }
+
+// [decision-roundtrip] The MCP round-trip guard (TICKET-07, change
+// 2026-09-19-embed-visual-companion): the agent posts a decision via mem_save
+// (type=decision, topic_key interview/<slug>/<question-id>, visibility team);
+// the dashboard lists it via GET /mnemonic/decisions; the agent's own
+// mem_search (SearchOwnerScoped — the same service the MCP mem_search tool
+// runs) finds it with a query consistent with the list; the user answers via
+// POST /mnemonic/decisions/{id}/answer; and a FRESH mem_search (a new service
+// over the same data dir, simulating the agent polling later in a new session)
+// sees content.state=answered + the answered option. This proves the
+// agent-side read-back works with the frozen MCP surface.
+func TestDecisionRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	topic := "interview/demo/roundtrip-1"
+
+	// Agent session (the writer identity), seeded directly into the proj store
+	// — the same fixture shape newDecisionTestServer uses, so the session id
+	// is a valid FK target for observations.session_id in proj. The session id
+	// is also the default owner of the saved row, so the same agent reads it
+	// back under per-owner visibility enforcement.
+	sid := "s-roundtrip"
+	{
+		st, err := store.Open(dataDir, proj)
+		if err != nil {
+			t.Fatalf("open store: %v", err)
+		}
+		if _, err := st.DB.Exec(`INSERT INTO sessions (id, project, directory, started_at, summary, status) VALUES ('s-roundtrip', ?, '.', '2026-01-01T00:00:00Z', 'seed', 'ended')`, proj); err != nil {
+			t.Fatalf("seed session: %v", err)
+		}
+		st.Close()
+	}
+
+	// 1. Agent → user: mem_save the pending decision (same payload shape the
+	// agent posts; owner defaults to the session id, so the same agent can
+	// read it back under per-owner visibility enforcement). The frozen mem_save
+	// has no visibility arg, so the companion's visibility=team convention is
+	// applied via mem_share (the only path that leaves private).
+	svc0 := service.New(dataDir)
+	h0, cleanup0, err := svc0.Open(proj)
+	if err != nil {
+		t.Fatalf("open for save: %v", err)
+	}
+	id, err := h0.Memory().Save(ctx, memory.SaveInput{
+		SessionID: sid,
+		Type:      "decision",
+		Title:     "Decision: roundtrip layout",
+		Content:   decisionSeedContent,
+		Scope:     "project",
+		TopicKey:  topic,
+	})
+	if err != nil {
+		cleanup0()
+		t.Fatalf("mem_save decision: %v", err)
+	}
+	if err := h0.Memory().Share(ctx, id, memory.ShareInput{Visibility: "team"}); err != nil {
+		cleanup0()
+		t.Fatalf("mem_share team: %v", err)
+	}
+	cleanup0()
+
+	// 2. Dashboard side: GET /mnemonic/decisions lists exactly the seeded
+	// decision, with its content parsed.
+	s := NewServer(service.New(dataDir))
+	rows, _ := getDecisions(t, s, "&state=pending")
+	if len(rows) != 1 {
+		t.Fatalf("want exactly 1 listed decision, got %d: %+v", len(rows), rows)
+	}
+	row := rows[0]
+	if row.TopicKey != topic {
+		t.Fatalf("listed row topic = %q, want %q", row.TopicKey, topic)
+	}
+	if row.Content.State != "pending" || row.Content.Question != "Which layout?" {
+		t.Errorf("listed content not parsed: %+v", row.Content)
+	}
+	if len(rows) != 1 || row.ParseError {
+		t.Fatalf("list must be exactly the seeded decision, unparsed: %+v", rows)
+	}
+
+	// 3. Agent-side mem_search (the same service the MCP mem_search tool
+	// uses — SearchOwnerScoped with the agent as reader) finds the decision
+	// with a query consistent with the list (a word of the listed content).
+	hits, err := searchDecisions(t, dataDir, sid, "layout")
+	if err != nil {
+		t.Fatalf("agent mem_search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != row.ID {
+		t.Fatalf("mem_search must surface the listed decision, got %+v", hits)
+	}
+	if hits[0].TopicKey != topic {
+		t.Errorf("mem_search hit topic = %q, want %q (consistent with the list)", hits[0].TopicKey, topic)
+	}
+
+	// 4. User → agent: the answer flips the convention state.
+	w := postDecisionAnswer(t, s, row.ID, `{"optionId":"b","note":"two column reads better"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("answer: got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 5. FRESH agent mem_search (a NEW service over the same data dir — the
+	// agent polling later in a resumed session, same query as step 3) sees the
+	// answered state and the chosen option in the content.
+	fresh, err := searchDecisions(t, dataDir, sid, "layout")
+	if err != nil {
+		t.Fatalf("fresh mem_search: %v", err)
+	}
+	if len(fresh) != 1 {
+		t.Fatalf("fresh mem_search must surface the decision, got %+v", fresh)
+	}
+	var content struct {
+		State          string `json:"state"`
+		AnsweredOption string `json:"answeredOption"`
+		AnswerNote     string `json:"answerNote"`
+		UpdatedBy      string `json:"updatedBy"`
+	}
+	if err := json.Unmarshal([]byte(fresh[0].Content), &content); err != nil {
+		t.Fatalf("fresh content is not decision JSON: %v (%q)", err, fresh[0].Content)
+	}
+	if content.State != "answered" {
+		t.Errorf("fresh mem_search must see state=answered, got %q", content.State)
+	}
+	if content.AnsweredOption != "b" {
+		t.Errorf("fresh mem_search must see the answered option, got %q", content.AnsweredOption)
+	}
+	if !strings.HasPrefix(content.UpdatedBy, "user:") {
+		t.Errorf("fresh content updatedBy must be user:<name>, got %q", content.UpdatedBy)
+	}
+}
+
+// searchDecisions runs the same search service the MCP mem_search tool uses
+// (Service.SearchOwnerScoped, the per-owner-enforced FTS path) as a fresh
+// service over dataDir, reading as the given owner, and returns only the
+// type=decision hits — the agent-side read-back leg of the round trip.
+func searchDecisions(t *testing.T, dataDir, readerOwner, query string) ([]memory.Observation, error) {
+	t.Helper()
+	svc := service.New(dataDir)
+	h, cleanup, err := svc.Open(proj)
+	if err != nil {
+		t.Fatalf("open service for search: %v", err)
+	}
+	defer cleanup()
+	hits, err := h.Memory().SearchOwnerScoped(context.Background(), readerOwner, "", query, "any", "", 20)
+	if err != nil {
+		return nil, err
+	}
+	var out []memory.Observation
+	for _, o := range hits {
+		if o.Type == "decision" {
+			out = append(out, o)
+		}
+	}
+	return out, nil
+}
