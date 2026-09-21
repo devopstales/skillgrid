@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -14,6 +15,10 @@ export default defineConfig({
     // Component tests (decisions view) render real DOM + act on it; the
     // existing pure-logic tests keep running fine under jsdom too.
     environment: 'jsdom',
+    // globals enables @testing-library/react's afterEach auto-cleanup (it
+    // looks the cleanup hook up via a global import), so each render() is
+    // torn down between tests.
+    globals: true,
   },
   build: {
     outDir: '../skillgrid-cli/internal/mnemonic/http/ui/dist',

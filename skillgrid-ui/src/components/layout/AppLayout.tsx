@@ -14,7 +14,9 @@ const MNEMONIC_ITEMS: Array<{ to: string; label: string }> = [
 const STANDALONE_ITEMS: Array<{ to: string; label: string }> = [
   { to: '/docs', label: 'Docs' },
   { to: '/plans', label: 'Plans' },
+  { to: '/handoff', label: 'Handoff' },
   { to: '/activity', label: 'Activity' },
+  { to: '/decisions', label: 'Decisions' },
   { to: '/git', label: 'Git' },
   { to: '/prototypes', label: 'Prototypes' },
   { to: '/settings', label: 'Settings' },

@@ -91,6 +91,18 @@ const activityRoute = createRoute({
   component: lazyPage(() => import('./features/activity/ActivityPage').then((m) => ({ default: m.ActivityPage }))),
 })
 
+const handoffRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/handoff',
+  component: lazyPage(() => import('./features/handoff/HandoffHubPage').then((m) => ({ default: m.HandoffHubPage }))),
+})
+
+const decisionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/decisions',
+  component: lazyPage(() => import('./features/decisions/DecisionsPage').then((m) => ({ default: m.DecisionsPage }))),
+})
+
 const gitRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/git',
@@ -126,6 +138,8 @@ const routeTree = rootRoute.addChildren([
   docsRoute,
   plansRoute,
   activityRoute,
+  handoffRoute,
+  decisionsRoute,
   gitRoute,
   prototypesRoute,
   settingsRoute,
