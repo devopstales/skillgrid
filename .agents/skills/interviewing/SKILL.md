@@ -75,9 +75,59 @@ frontier outward and unblock questions that depended on them. Recompute the
 frontier and ask the next round. A question whose answer depends on another
 question still open in this round belongs to a _later_ round, not this one.
 
+**Post each question to the decision bridge** (so the dashboard's Decisions
+view is the live inbox — see `docs/user-guide/10-decision-companion.md`). For
+every frontier question you put to the user, also `mem_save` it as a governed
+`type: decision` observation, then widen it so the team-scoped dashboard reader
+sees it (the frozen `mem_save` tool has no visibility argument, so `mem_share`
+after saving):
+
+```
+mem_save(
+  type: "decision",
+  title: "<question title>",
+  topic_key: "interview/<slug>/<question-id>",   # <slug>=the interview, <question-id>=this Q (stable)
+  content: {
+    "question": "<question body>",
+    "options": [ { "id": "a", "label": "<choice>" }, { "id": "b", "label": "<choice>" } ],
+    "recommended": "<id of your recommended answer>",
+    "state": "pending"
+  })
+mem_share(id, target: "team")
+```
+
+Rules:
+
+- **`content` is JSON, not markdown** — `mem_save` normally takes markdown, but
+  a decision's `content` MUST be the structured payload above (the dashboard
+  parses it; markdown or a missing `state` is not an interview decision and is
+  excluded from the inbox).
+- **`recommended` is your `➡️` answer**, encoded as an option `id` — the UI
+  highlights it. Free-text questions still get options (the stated choices, or
+  the realistic ones you'd put to them); never a decision with zero options.
+- **`topic_key` is stable per question** — re-saving the same key updates the
+  question in place (upsert + version), which is how you revise a recommendation
+  mid-interview.
+- **`visual` (optional):** when a question is clearer shown than told and the
+  user has accepted the visual companion, write throwaway HTML to
+  `.skillgrid/prototype/<topic>/<variant>.html` and add `"visual": "<topic>/<variant>.html"`
+  to `content` — the card renders it in a sandboxed iframe.
+- **Read the answer back by polling.** After the user answers in the dashboard
+  (or in chat), poll `mem_search` on a word of the question; when the returned
+  `content.state` is `"answered"`, fold `answeredOption` / `answerNote` into the
+  tree and clear the question. A chat answer the user never posts to the
+  dashboard: record it by re-saving the same `topic_key` with
+  `state: "answered"` + the chosen option so the durable trail matches.
+- **Skip persistence** when the interview is purely conversational and the user
+  has no dashboard — the bridge is a convenience view, not a requirement for the
+  clarity gate.
+
 **Round state:** the glossary and ADRs capture the *output*, but the in-flight
 position — which round you are on, which questions are settled, which are
-still open — lives in conversation only. A crashed interview loses it.
+still open — lives in conversation only. A crashed interview loses it. The
+decision bridge is the durable exception: every posted question is a governed
+`type: decision` observation with a version history, so the open/settled
+position is recoverable from the store, not just the transcript.
 
 - When the topic has a spec dir, **commit the glossary and ADR changes after
   each round** (spec zone). The committed glossary + ADRs ARE the in-flight
@@ -85,8 +135,11 @@ still open — lives in conversation only. A crashed interview loses it.
   capture each settled decision. No separate `state.md` is maintained.
 - If `mnemonic.enabled: true`, mirror the transition with
   `mem_save(topic_key: skillgrid/<topic>/briefing, ...)` (upsert).
-- On resume (skillgrid:resume), read the glossary + ADRs to recompute the
-  frontier — what is in the glossary is settled; what is not is open.
+- On resume (skillgrid:resume), read the glossary + ADRs **and the decision
+  bridge** to recompute the frontier: `GET /mnemonic/decisions?state=pending`
+  (or `mem_search` on the interview slug) lists what is still open — `pending`
+  rows are the unsettled frontier, `answered` rows are settled with their
+  recorded choice. What is in the glossary is settled; what is not is open.
 
 ## Rules
 
@@ -152,6 +205,12 @@ Record the final scores in the design brief's **Clarity Report** section.
 - The glossary is untouched by a long interview: the domain model half was skipped.
 - Declaring "done" when the frontier is empty but the clarity gate hasn't been scored.
 - A decision recorded as made that the user never actually put to.
+- A posted "decision" whose `content` is markdown or has no `state` — that is a
+  decision *record*, not an interview decision; the inbox excludes it (the
+  dashboard filters on the payload, not the `type` column).
+- A decision saved but not `mem_share`d to `team` — `mem_save` defaults to
+  `private`, and the dashboard reader is team-scoped, so a private decision is
+  never listed.
 
 ## Verification
 
@@ -160,3 +219,4 @@ Record the final scores in the design brief's **Clarity Report** section.
 - [ ] No frontier question was asked before its prerequisites were settled.
 - [ ] The user was never asked for a fact you could have looked up yourself.
 - [ ] The paper trail is current: every resolved term is in the glossary, and every ADR-cleared decision was recorded or explicitly declined.
+- [ ] When the bridge was used: each posted question is a `type: decision` observation (JSON `content` + `state`), shared to `team`, with a stable `topic_key`; answered questions were read back via `mem_search` and folded into the tree (or the user confirmed a chat-only interview).

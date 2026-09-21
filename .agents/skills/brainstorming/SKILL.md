@@ -404,6 +404,19 @@ Wait for the user's response. If they request changes, make them and re-run the 
 
 A browser-based companion for showing mockups, diagrams, and visual options during brainstorming. Available as a tool — not a mode. Accepting the companion means it's available for questions that benefit from visual treatment; it does NOT mean every question goes through the browser.
 
+> **The decision bridge is the primary companion now.** Interview questions — and the
+> visual options that belong to them — are posted to the **Mnemonic decision bridge**:
+> the agent `mem_save`s each frontier question as a `type: decision` observation
+> (JSON `content` + `state: pending`, `recommended`, and a `visual` prototype id when
+> the question is clearer shown than told) and shares it to `team`; the user answers
+> in the **Decisions** view of the running `skillgrid serve` dashboard; the agent reads
+> the answer back by polling `mem_search`. This is durable, governed (version history),
+> and needs no second process — see `docs/user-guide/10-decision-companion.md` and the
+> `skillgrid:interviewing` skill's "Post each question to the decision bridge".
+> The standalone Node companion below (`visual-companion.md` — WebSocket + fs.watch +
+> `?key=` gate) is the older, weaker path: use it only when there is no running
+> `skillgrid serve` to host the Decisions view.
+
 **Offering the companion (just-in-time):** Do NOT offer it upfront. Wait until a question would genuinely be clearer shown than told — a real mockup / layout / diagram question, not merely a UI *topic*. The first time that happens, offer it then, as its own message:
 > "This next part might be easier if I show you — I can put together mockups, diagrams, and comparisons in a browser tab as we go. It's still new and can be token-intensive. Want me to? I'll open it for you."
 

@@ -58,6 +58,17 @@ consolidated findings file comes from `sketch.findings` (default
 `{specs_root}/{topic}/findings.md`). If the `mnemonic` block is enabled, the findings
 file you write is cited by `skillgrid:writing-blueprints` downstream.
 
+**Decision-companion mode:** when the sketch backs an interview question on the
+**Mnemonic decision bridge** (the `skillgrid:interviewing` skill is posting the
+question as a `type: decision` observation), set `sketch.dir` in
+`.skillgrid/config.yaml` to `.skillgrid/prototype/<topic>/` so each variant lands at
+`.skillgrid/prototype/<topic>/<variant>.html`. The running `skillgrid serve`
+dashboard serves that subtree at `GET /prototype/<topic>/<variant>.html` (traversal-
+guarded) and renders the chosen variant in a sandboxed iframe inside the decision
+card. The agent then sets `content.visual` to `<topic>/<variant>.html` on the
+decision. Outside the companion flow, keep the default `sketch.dir` — see
+`docs/user-guide/10-decision-companion.md` (§ Prototypes).
+
 ## Ground in Real Data Shapes (if spikes ran)
 
 If the topic has a `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` with spike
