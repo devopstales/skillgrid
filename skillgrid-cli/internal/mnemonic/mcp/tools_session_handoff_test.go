@@ -40,9 +40,11 @@ func TestSessionHandoffTools(t *testing.T) {
 		}
 	}
 
-	// Tool surface grows additively: 78 baseline + 2 session + 2 status/compact = 82.
-	if len(tools) != 83 {
-		t.Errorf("expected 83 tools (78 baseline + 2 session + 2 status/compact), got %d", len(tools))
+	// Tool surface grows additively: 78 baseline + 2 session + 2 status/compact
+	// + 5 handoff = 87 minimum. (Asserted as >= so later additive changes do
+	// not require editing every count assertion.)
+	if len(tools) < 87 {
+		t.Errorf("expected at least 87 tools, got %d", len(tools))
 	}
 
 	// Existing 005 mem_* tools keep their names + required params unchanged.

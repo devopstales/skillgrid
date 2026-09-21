@@ -95,6 +95,17 @@ cmd_snapshot() {
 }
 EOF
   echo "CHECKPOINT_WRITTEN $sf"
+
+  # Mirror the snapshot into the Handoff Hub store (change 015-handoff-hub).
+  # Best-effort: the bash script stays the standalone source of truth; when the
+  # skillgrid binary is present it also records the commit into the
+  # change_snapshots table so the admin UI change log stays current. A missing
+  # binary or a store write failure must never block the commit.
+  #
+  local root; root="$(repo_root)"
+  if [ -n "$root" ] && command -v skillgrid >/dev/null 2>&1; then
+    ( cd "$root" && skillgrid handoff record >/dev/null 2>&1 ) || true
+  fi
 }
 
 cmd_restore() {

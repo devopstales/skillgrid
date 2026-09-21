@@ -76,6 +76,28 @@ filterable feed (type/source/severity/actor), agent-health liveness, and
 dismissible high-severity alerts. Live via SSE (`/activity/stream`) — new
 events animate in from the top.
 
+### Handoff
+
+The Handoff Hub (`/handoff`, change 015): one page combining the three
+checkpoint mechanisms into a single engine-backed view.
+
+- **Changes tab** — the change log: every commit as a git-derived snapshot
+  (`change_snapshots`) with its parsed `[skillgrid-context]` block (Task /
+  Decisions / Remaining / Tried), named checkpoints overlaid as markers, and
+  the latest commit up top. Live via the extended `/activity/stream`
+  (`event: snapshot`) — a new commit animates in.
+- **Activity tab** — the same agent-activity feed as the Activity view.
+- **Handoffs tab** — the named checkpoints (with drift status) and the
+  handoff refs (session/team handoffs joined to their commit ranges + spec dir).
+
+The data is engine-backed (SQLite, migration `039_handoff_hub.sql`), populated
+by `checkpoint-state.sh snapshot` (best-effort `skillgrid handoff record`) and
+seeded on first run by `skillgrid handoff backfill` (last 100 commits). Named
+checkpoints are placed with `skillgrid handoff checkpoint <name>` and
+drift-verified with `skillgrid handoff verify <name>`; the one-call "where are
+we" is `skillgrid handoff status`. The MCP surface exposes `handoff_snapshot`,
+`handoff_status`, `handoff_checkpoint`, `handoff_verify`, and `handoff_rollup`.
+
 ### Git
 
 A read-only git bridge: the commit log (with +/- stats), commit detail +
@@ -123,8 +145,8 @@ Tracker view degrades gracefully — it does not break the rest of the dashboard
 - The board shows an **amber banner**: the provider name, what's missing
   (CLI not on `PATH` / not authenticated), and the exact command to fix it
   (e.g. `gh auth login`).
-- The other views (Graph, Memories, Sessions, Docs, Plans, Activity, Git,
-  Prototypes) are **unaffected** — they don't touch the tracker CLI.
+- The other views (Graph, Memories, Sessions, Docs, Plans, Handoff, Activity,
+  Git, Prototypes) are **unaffected** — they don't touch the tracker CLI.
 - `GET /tracker/providers` reports each provider's availability so the UI can
   render the banner; `GET /tracker/config` reports the active provider.
 

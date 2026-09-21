@@ -90,6 +90,51 @@ func TestHandoff(t *testing.T) {
 	}
 }
 
+// TestHandoffRecordsRefJoin covers change 015-handoff-hub: a bundle carrying a
+// commit range (or spec dir) also writes a handoff_refs row joining the
+// handoff to that range; a bundle without either writes no ref (degrades to a
+// plain handoff).
+func TestHandoffRecordsRefJoin(t *testing.T) {
+	st, root := openStore(t, "relayproj")
+	ctx := context.Background()
+
+	// With a commit range -> ref row present.
+	hid, _, err := Handoff(ctx, st.DB, "relayproj", "", root, Bundle{
+		NextPrompt: "resume",
+		FromCommit: "aaa111",
+		ToCommit:   "bbb222",
+		SpecDir:    ".skillgrid/sdd/015-handoff-hub",
+	})
+	if err != nil {
+		t.Fatalf("handoff: %v", err)
+	}
+	var fc, tc, spec string
+	if err := st.DB.QueryRow(`
+		SELECT from_commit, to_commit, spec_dir
+		FROM handoff_refs WHERE project = 'relayproj' AND handoff_id = ? AND handoff_type = 'session'`, hid).
+		Scan(&fc, &tc, &spec); err != nil {
+		t.Fatalf("expected handoff_refs row: %v", err)
+	}
+	if fc != "aaa111" || tc != "bbb222" || spec != ".skillgrid/sdd/015-handoff-hub" {
+		t.Fatalf("ref join = %q..%q (spec %q)", fc, tc, spec)
+	}
+
+	// Without a range / spec -> no ref row.
+	root2 := t.TempDir()
+	hid2, _, err := Handoff(ctx, st.DB, "relayproj", "", root2, Bundle{NextPrompt: "resume"})
+	if err != nil {
+		t.Fatalf("handoff2: %v", err)
+	}
+	var n int
+	if err := st.DB.QueryRow(`
+		SELECT COUNT(*) FROM handoff_refs WHERE project = 'relayproj' AND handoff_id = ?`, hid2).Scan(&n); err != nil {
+		t.Fatalf("count refs: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0 handoff_refs for a plain handoff, got %d", n)
+	}
+}
+
 // TestHandoffFailClosedNoOrphan asserts the load-bearing invariant: if the
 // cleave file write fails, NO session_handoffs row is written (no orphan row
 // without files). A read-only cleave dir forces the file write to fail.

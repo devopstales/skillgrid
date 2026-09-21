@@ -194,21 +194,28 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 	flusher.Flush()
 
 	ctx := r.Context()
-	client := &activityStreamClient{events: make(chan string, 32)}
+	client := &activityStreamClient{events: make(chan streamEvent, 64)}
 
-	// Poller: track the newest observation id, emit rows newer than it.
+	// Poller: track the newest observation id AND the newest change_snapshot
+	// id (Handoff Hub, change 015). Each tick emits rows newer than the mark,
+	// tagged with the SSE event type (activity | snapshot).
 	go func() {
 		db := h.Store().DB
-		// Seed the high-water mark with the current newest id (no replay of
-		// history on connect — the client already has it from /events). If the
-		// seed query errors, treat the stream as closed rather than replaying
-		// the entire table from id>0 (review: seed-error edge case).
+		// Seed the high-water marks with the current newest ids (no replay of
+		// history on connect — the client already has it from /events and
+		// /activity/snapshots). If the observations seed errors, treat the
+		// stream as closed rather than replaying the whole table from id>0.
+		// The snapshot seed is best-effort (the table may predate the hub).
 		var newest int64
 		if err := db.QueryRowContext(ctx,
 			`SELECT COALESCE(MAX(id), 0) FROM observations WHERE project = ? AND deleted_at IS NULL`, projectID,
 		).Scan(&newest); err != nil {
 			return
 		}
+		var newestSnap int64
+		_ = db.QueryRowContext(ctx,
+			`SELECT COALESCE(MAX(id), 0) FROM change_snapshots WHERE project = ?`, projectID,
+		).Scan(&newestSnap)
 
 		ticker := time.NewTicker(800 * time.Millisecond)
 		defer ticker.Stop()
@@ -217,6 +224,7 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				// Activity (observations) rows.
 				rows, err := db.QueryContext(ctx, `
 					SELECT id, created_at, type, COALESCE(source,'agent'), tool_name, title, session_id
 					FROM observations
@@ -248,9 +256,6 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 					batch = append(batch, er)
 				}
 				rows.Close()
-				if len(batch) == 0 {
-					continue
-				}
 				for _, er := range batch {
 					payload, _ := json.Marshal(map[string]any{
 						"id":        er.id,
@@ -263,8 +268,55 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 						"sessionId": er.session,
 					})
 					select {
-					case client.events <- string(payload):
+					case client.events <- streamEvent{kind: "activity", data: string(payload)}:
 					default: // slow consumer: drop, never block
+					}
+				}
+
+				// Change snapshots (Handoff Hub). Best-effort: an error here
+				// (e.g. the table is absent on a very old store) just skips
+				// this tick rather than killing the activity stream.
+				if srows, serr := db.QueryContext(ctx, `
+					SELECT id, branch, "commit", COALESCE(commit_short,''), COALESCE(subject,''),
+					       COALESCE(author,''), committed_at
+					FROM change_snapshots
+					WHERE project = ? AND id > ?
+					ORDER BY id ASC
+					LIMIT 100`, projectID, newestSnap); serr == nil {
+					type snapRow struct {
+						id     int64
+						branch string
+						commit string
+						short  string
+						subj   string
+						author string
+						at     string
+					}
+					var sbatch []snapRow
+					for srows.Next() {
+						var sr snapRow
+						if err := srows.Scan(&sr.id, &sr.branch, &sr.commit, &sr.short, &sr.subj, &sr.author, &sr.at); err != nil {
+							break
+						}
+						if sr.id > newestSnap {
+							newestSnap = sr.id
+						}
+						sbatch = append(sbatch, sr)
+					}
+					srows.Close()
+					for _, sr := range sbatch {
+						payload, _ := json.Marshal(map[string]any{
+							"commit":       sr.commit,
+							"commitShort":  sr.short,
+							"subject":      sr.subj,
+							"branch":       sr.branch,
+							"author":       sr.author,
+							"committedAt":  sr.at,
+						})
+						select {
+						case client.events <- streamEvent{kind: "snapshot", data: string(payload)}:
+						default:
+						}
 					}
 				}
 			}
@@ -278,11 +330,11 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 		select {
 		case <-ctx.Done():
 			return
-		case msg := <-client.events:
-			if _, err := w.Write([]byte("event: activity\n")); err != nil {
+		case ev := <-client.events:
+			if _, err := w.Write([]byte("event: " + ev.kind + "\n")); err != nil {
 				return
 			}
-			if _, err := w.Write([]byte("data: " + msg + "\n\n")); err != nil {
+			if _, err := w.Write([]byte("data: " + ev.data + "\n\n")); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -298,5 +350,13 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 // activityStreamClient is one subscribed SSE client; the buffered channel lets
 // a slow consumer drop events without blocking the poller.
 type activityStreamClient struct {
-	events chan string
+	events chan streamEvent
+}
+
+// streamEvent is one SSE frame: the event kind (activity | snapshot) plus the
+// JSON data payload. The kind maps to the SSE `event:` line so clients can
+// multiplex on event type.
+type streamEvent struct {
+	kind string
+	data string
 }

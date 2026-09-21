@@ -210,11 +210,13 @@ func doGet(t *testing.T, h http.Handler, target string) *httptest.ResponseRecord
 }
 
 // flushingWriter is an http.ResponseWriter + http.Flusher that signals when the
-// 'ready' and a live activity event have been written.
+// 'ready' event, a live activity event, and a live snapshot event (Handoff Hub,
+// change 015) have been written.
 type flushingWriter struct {
 	*httptest.ResponseRecorder
 	gotReady    chan struct{}
 	gotActivity chan struct{}
+	gotSnapshot chan struct{}
 }
 
 func newFlushingWriter() *flushingWriter {
@@ -222,6 +224,7 @@ func newFlushingWriter() *flushingWriter {
 		ResponseRecorder: httptest.NewRecorder(),
 		gotReady:         make(chan struct{}),
 		gotActivity:      make(chan struct{}),
+		gotSnapshot:      make(chan struct{}),
 	}
 }
 
@@ -229,11 +232,15 @@ func (f *flushingWriter) Flush() {}
 
 func (f *flushingWriter) Write(b []byte) (int, error) {
 	n, err := f.ResponseRecorder.Write(b)
-	if strings.Contains(string(b), "event: ready") {
+	s := string(b)
+	if strings.Contains(s, "event: ready") {
 		closeOnce(&f.gotReady)
 	}
-	if strings.Contains(string(b), "event: activity") {
+	if strings.Contains(s, "event: activity") {
 		closeOnce(&f.gotActivity)
+	}
+	if f.gotSnapshot != nil && strings.Contains(s, "event: snapshot") {
+		closeOnce(&f.gotSnapshot)
 	}
 	return n, err
 }

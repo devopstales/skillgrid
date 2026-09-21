@@ -38,6 +38,9 @@ func sessionHandoffTool() mcplib.Tool {
 		mcplib.WithString("session_id", mcplib.Description("Source session id (sessions.id) this handoff is taken from. Optional.")),
 		mcplib.WithString("handoff_id", mcplib.Description("Operator-facing handoff identifier / resume target. Blank generates one from the source session + timestamp.")),
 		mcplib.WithString("context_summary", mcplib.Description("Optional short context note recorded on the handoff row.")),
+		mcplib.WithString("from_commit", mcplib.Description("Optional: first commit of the range this handoff covers (Handoff Hub). When set, a handoff_refs join row is recorded.")),
+		mcplib.WithString("to_commit", mcplib.Description("Optional: last commit of the range this handoff covers (Handoff Hub).")),
+		mcplib.WithString("spec_dir", mcplib.Description("Optional: .skillgrid/sdd/<change>/ dir this handoff hands off (recorded on the handoff_refs join).")),
 	)
 }
 
@@ -63,6 +66,9 @@ func handleSessionHandoff(ctx context.Context, req mcplib.CallToolRequest) (*mcp
 		Knowledge:      req.GetString("knowledge", ""),
 		SourceSession:  req.GetString("session_id", ""),
 		ContextSummary: req.GetString("context_summary", ""),
+		FromCommit:     req.GetString("from_commit", ""),
+		ToCommit:       req.GetString("to_commit", ""),
+		SpecDir:        req.GetString("spec_dir", ""),
 	}
 
 	handoffID, paths, err := relay.Handoff(ctx, h.Store().DB, h.ProjectID(), req.GetString("handoff_id", ""), h.Root(), in)
@@ -106,6 +112,14 @@ func handleSessionResume(ctx context.Context, req mcplib.CallToolRequest) (*mcpl
 	}
 	if archive {
 		out["archive_id"] = archiveID
+	}
+	// Handoff Hub (change 015): surface the commit range + spec dir the
+	// handoff covers (from the handoff_refs join) so resume is grounded in
+	// the change log, not just the cleave bundle.
+	if ref, ok, rerr := relay.GetHandoffRef(ctx, h.Store().DB, h.ProjectID(), handoffID, "session"); rerr == nil && ok {
+		out["from_commit"] = ref.FromCommit
+		out["to_commit"] = ref.ToCommit
+		out["spec_dir"] = ref.SpecDir
 	}
 	return JSONResult(out)
 }

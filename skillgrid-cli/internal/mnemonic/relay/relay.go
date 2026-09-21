@@ -66,7 +66,82 @@ func Handoff(ctx context.Context, db Store, projectID, handoffID, projectRoot st
 		}
 		return "", nil, fmt.Errorf("relay: record handoff row: %w", err)
 	}
+
+	// Handoff Hub (change 015): when the bundle carries a commit range (or a
+	// spec dir), record a handoff_refs join row so "this handoff covers
+	// commits X..Y of change Z" is explicit. Best-effort: a refs failure
+	// does not fail the handoff (the session_handoffs row + bundle are the
+	// durable record); the join is an index.
+	if strings.TrimSpace(b.FromCommit) != "" || strings.TrimSpace(b.ToCommit) != "" || strings.TrimSpace(b.SpecDir) != "" {
+		_, rerr := db.ExecContext(ctx, `
+			INSERT INTO handoff_refs
+				(handoff_id, handoff_type, project, from_commit, to_commit, spec_dir, created_at)
+			VALUES (?, 'session', ?, ?, ?, ?, ?)
+			ON CONFLICT(handoff_id, handoff_type, project) DO NOTHING`,
+			handoffID, projectID, nullString(b.FromCommit), nullString(b.ToCommit), nullString(b.SpecDir), now)
+		if rerr != nil {
+			// Roll back the ref only (leave the handoff row + bundle intact).
+			_, _ = db.ExecContext(ctx,
+				`DELETE FROM handoff_refs WHERE project = ? AND handoff_id = ? AND handoff_type = 'session'`,
+				projectID, handoffID)
+		}
+	}
 	return handoffID, paths, nil
+}
+
+// HandoffRef is the handoff_refs join row for one handoff (change 015): the
+// commit range + spec dir the handoff covers.
+type HandoffRef struct {
+	HandoffID   string
+	HandoffType string
+	FromCommit  string
+	ToCommit    string
+	SpecDir     string
+}
+
+// RecordTeamRef writes a 'team' handoff_refs row for a completed team task
+// (change 015-handoff-hub). Best-effort: callers ignore the error so a ref
+// write never fails the task. Idempotent on (task_id, 'team', project).
+func RecordTeamRef(ctx context.Context, db Store, projectID, taskID string) error {
+	if db == nil {
+		return fmt.Errorf("relay: store is required")
+	}
+	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(taskID) == "" {
+		return fmt.Errorf("relay: project and task id are required for a team ref")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO handoff_refs (handoff_id, handoff_type, project, task_id, created_at)
+		VALUES (?, 'team', ?, ?, ?)
+		ON CONFLICT(handoff_id, handoff_type, project) DO NOTHING`,
+		taskID, projectID, taskID, now)
+	return err
+}
+
+// GetHandoffRef returns the handoff_refs join for a handoff id, or ok=false
+// when no ref exists (a plain handoff with no commit range). It does not error
+// on absence — only on a real query failure.
+func GetHandoffRef(ctx context.Context, db Store, projectID, handoffID, handoffType string) (*HandoffRef, bool, error) {
+	if db == nil {
+		return nil, false, fmt.Errorf("relay: store is required")
+	}
+	var r HandoffRef
+	var fc, tc, spec sql.NullString
+	err := db.QueryRowContext(ctx, `
+		SELECT handoff_id, handoff_type, from_commit, to_commit, spec_dir
+		FROM handoff_refs
+		WHERE project = ? AND handoff_id = ? AND handoff_type = ?`,
+		projectID, handoffID, handoffType).Scan(&r.HandoffID, &r.HandoffType, &fc, &tc, &spec)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("relay: lookup handoff ref: %w", err)
+	}
+	r.FromCommit = fc.String
+	r.ToCommit = tc.String
+	r.SpecDir = spec.String
+	return &r, true, nil
 }
 
 // Resume reads the cleave bundle for handoffID and returns the NEXT_PROMPT as

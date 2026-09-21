@@ -42,6 +42,15 @@ type Bundle struct {
 	SourceSession string
 	// ContextSummary is an optional short context note recorded on the row.
 	ContextSummary string
+	// FromCommit / ToCommit bound the commit range this handoff covers
+	// (Handoff Hub, change 015-handoff-hub). When set, Handoff also records a
+	// handoff_refs row joining the handoff to that range. Blank is allowed —
+	// the bundle degrades to a plain handoff with no commit-range join.
+	FromCommit string
+	ToCommit   string
+	// SpecDir is the .skillgrid/sdd/<change>/ directory this handoff hands off,
+	// recorded on the handoff_refs join when set. Blank is allowed.
+	SpecDir string
 }
 
 // BundleDir returns the absolute cleave directory for projectRoot.
