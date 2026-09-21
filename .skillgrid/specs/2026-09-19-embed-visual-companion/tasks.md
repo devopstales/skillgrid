@@ -26,9 +26,9 @@ iframe inside the decision card.
 | Delivery strategy | ask-on-risk |
 | Chain strategy | stacked-to-main (recommended) or feature-branch-chain |
 
-Decision needed before apply: Yes
-Chained PRs recommended: Yes
-Chain strategy: stacked-to-main
+Decision needed before apply: No (resolved 2026-09-21: size:exception single PR — user decision)
+Chained PRs recommended: Yes (superseded by the size:exception decision)
+Chain strategy: size:exception
 400-line budget risk: High
 
 ### Suggested Work Units
