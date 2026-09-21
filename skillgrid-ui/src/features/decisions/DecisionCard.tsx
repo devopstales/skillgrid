@@ -6,8 +6,9 @@ import { useState } from 'react'
 // shows the stored choice + note; the options stay re-answerable (the backend
 // appends a version) and re-selecting the picked option re-submits it.
 // A decision whose content carries a `visual` gets a sandboxed prototype
-// iframe in P3 — until then it renders a "visual available" placeholder,
-// never an iframe.
+// iframe (src=/prototype/{visual}, sandbox="allow-scripts", no
+// allow-same-origin) rendering the companion's throwaway HTML from
+// .skillgrid/prototype/ — the same sandbox contract as SandboxPreview.
 
 export interface DecisionOption {
   id: string
@@ -137,8 +138,13 @@ export function DecisionCard({
       )}
 
       {hasVisual && (
-        <div className="mt-3 rounded-md border border-dashed border-edge px-3 py-2 text-xs text-zinc-500">
-          Visual prototype available (renders in P3).
+        <div className="mt-3 overflow-hidden rounded-md border border-edge bg-white">
+          <iframe
+            title={`Prototype: ${content.visual}`}
+            src={`/prototype/${content.visual}`}
+            sandbox="allow-scripts"
+            className="h-[420px] w-full border-0"
+          />
         </div>
       )}
 

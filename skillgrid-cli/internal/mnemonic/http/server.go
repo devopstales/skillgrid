@@ -203,6 +203,12 @@ func (s *Server) registerGraphRoutes() {
 	s.mux.HandleFunc("GET /prototypes", s.shellOrJSON(s.handlePrototypes))
 	s.mux.HandleFunc("GET /prototypes/{id...}", s.handlePrototype)
 
+	// Visual companion prototype serve route (sandboxed .skillgrid/prototype/
+	// readers). A distinct subtree from the plural /prototypes above;
+	// registered here (before registerUIRoutes) so the SPA fallback can't
+	// swallow it.
+	s.mux.HandleFunc("GET /prototype/{id...}", s.handlePrototypeDecision)
+
 	// The SPA shell uses base './', so on a /mnemonic/... path its module
 	// script is requested at /mnemonic/assets/... — serve the embedded build
 	// assets there (the root /assets/ route covers the top-level roots).

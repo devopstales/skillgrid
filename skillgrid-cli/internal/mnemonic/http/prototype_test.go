@@ -58,15 +58,29 @@ func TestPrototypeServeAndTraversal(t *testing.T) {
 	}
 
 	// --- traversal / absolute ids → 400 ---
-	for _, id := range []string{
-		"../a.html",
-		"..%2F..%2Fa.html",
-		"%2Fetc%2Fpasswd",
-		"demo/../../secret.html",
+	// Bare `..` ids are rewritten by the mux's clean-path redirect before
+	// reaching the handler (307 to a path outside the /prototype subtree);
+	// %-encoded forms reach the handler and must be 400. A successful
+	// response must never be the secret (no escape past the root either way).
+	wants := map[string]int{
+		"307": http.StatusTemporaryRedirect,
+		"400": http.StatusBadRequest,
+		"404": http.StatusNotFound,
+	}
+	for _, tc := range []struct{ id, want string }{
+		{"../a.html", "307"},
+		{"..%2F..%2Fa.html", "400"},
+		{"%2e%2e/secret.html", "400"},
+		{"%2Fetc%2Fpasswd", "400"},
+		{"demo/../../secret.html", "307"},
+		{"demo/../secret.html", "307"},
 	} {
-		rr = doGet(t, h, "/prototype/"+id)
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("id %q: status = %d, want 400; body=%s", id, rr.Code, rr.Body.String())
+		rr = doGet(t, h, "/prototype/"+tc.id)
+		if rr.Code != wants[tc.want] {
+			t.Errorf("id %q: status = %d, want %s; body=%s", tc.id, rr.Code, tc.want, rr.Body.String())
+		}
+		if rr.Code == http.StatusOK && strings.Contains(rr.Body.String(), "SECRET") {
+			t.Errorf("id %q: served SECRET (escaped .skillgrid/prototype/)", tc.id)
 		}
 	}
 
