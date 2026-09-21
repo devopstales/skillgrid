@@ -37,7 +37,7 @@ func TestMemGovernanceTools(t *testing.T) {
 	}
 
 	// Tool surface grows additively: 75 baseline + 2 governance + 1 layers + 2 session + 2 status/compact = 82.
-	if len(tools) != 88 {
+	if len(tools) != 89 {
 		t.Errorf("expected 88 tools, got %d", len(tools))
 	}
 

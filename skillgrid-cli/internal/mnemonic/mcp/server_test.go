@@ -69,6 +69,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"session_handoff", "session_resume",
 		// Session status + thin knowledge compact (006 step 03).
 		"session_status", "knowledge_compact",
+		// Session events read (session events layer, TICKET-04).
+		"session_changes",
 		// Handoff Hub (015).
 		"handoff_snapshot", "handoff_status", "handoff_checkpoint", "handoff_verify", "handoff_rollup",
 	}

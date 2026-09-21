@@ -76,7 +76,7 @@ func TestAffectedTools(t *testing.T) {
 
 	// The tool surface grows additively: 71 baseline + 2 affected/rename +
 	// 1 code_pdg_query + 1 code_taint + 2 governance + 1 mem_layers + 2 session = 80.
-	if len(tools) != 88 {
+	if len(tools) != 89 {
 		t.Errorf("expected 88 tools, got %d", len(tools))
 	}
 

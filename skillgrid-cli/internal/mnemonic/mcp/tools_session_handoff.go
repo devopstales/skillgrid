@@ -23,6 +23,7 @@ func registerSessionTools(s *server.MCPServer) {
 		// Step 03: session status + thin knowledge compact (additive).
 		{sessionStatusTool(), handleSessionStatus},
 		{knowledgeCompactTool(), handleKnowledgeCompact},
+		{sessionChangesTool(), handleSessionChanges}, // TICKET-04: session read (additive).
 	}
 	for _, entry := range tools {
 		s.AddTool(entry.tool, entry.handler)
