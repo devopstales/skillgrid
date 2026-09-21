@@ -1,15 +1,13 @@
 ---
 id: TASK-003
 title: '[FEATURE] SDD tasks punch-list for 006-structured-session-handoff (mnemonic)'
-status: ready-for-agent
+status: done
 assignee: []
 created_date: '2026-09-04'
-updated_date: '2026-09-05'
+updated_date: '2026-09-21 07:12'
 labels: []
 dependencies:
   - TASK-002
-priority: medium
-type: feature
 references:
   - .skillgrid/archive/2026-09-10-structured-session-handoff/tasks.md
   - .skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md
@@ -18,6 +16,8 @@ references:
 documentation:
   - .skillgrid/archive/2026-09-10-structured-session-handoff/briefing.md
   - .agents/skills/_shared/conventions/sdd-structure.md
+priority: medium
+type: feature
 ---
 
 ## Description
@@ -63,6 +63,15 @@ Track the SDD **tasks.md** punch-lists for change **006-structured-session-hando
 4. Ensure RED threat scenarios for MCP session tools (02, 03) land before production tool code.
 5. Close when all step checkboxes + change DoD are green; archive with TASK-002.
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-09-21 07:12
+---
+2026-09-21: marked done — 006-structured-session-handoff was fully applied + verified (16/16 @step-NN scenarios COMPLIANT) and archived to .skillgrid/archive/2026-09-10-structured-session-handoff/ before this ticket was closed. Complements TASK-002 (already done). Stale 'ready-for-agent' from the spec phase.
+---
+<!-- COMMENTS:END -->
 
 ## Technical Notes
 

@@ -4,7 +4,7 @@ title: '[FEATURE] SDD plan for 004-hermes-memory (mnemonic)'
 status: ready-for-agent
 assignee: []
 created_date: '2026-09-04'
-updated_date: '2026-09-11 15:17'
+updated_date: '2026-09-21 07:13'
 labels: []
 dependencies: []
 references:
@@ -62,6 +62,15 @@ Track implementation of the approved SDD plan for change **004-hermes-memory** (
 4. Keep Fact/Skill vectors on sqlite-vec Seam; do not redo 003 Tiered Storage / core semantic / trail surfaces.
 5. Verify with `go test ./...` on touched packages; mark AC/DoD and archive when change DoD is green.
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-09-21 07:13
+---
+2026-09-21: spec flagged STALLED (see .skillgrid/specs/2026-09-04-hermes-memory/tasks.md). 0/5 steps implemented since Sep 4 — importance/dream exist via 014, but the Fact Memory store + Agent Skills sandbox are unimplemented. Ticket kept open (ready-for-agent) for a future resume; not archived.
+---
+<!-- COMMENTS:END -->
 
 ## Technical Notes
 

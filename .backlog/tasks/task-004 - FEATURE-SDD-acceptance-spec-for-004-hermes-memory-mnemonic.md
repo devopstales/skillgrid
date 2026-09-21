@@ -4,12 +4,10 @@ title: '[FEATURE] SDD acceptance spec for 004-hermes-memory (mnemonic)'
 status: ready-for-agent
 assignee: []
 created_date: '2026-09-04'
-updated_date: '2026-09-05'
+updated_date: '2026-09-21 07:13'
 labels: []
 dependencies:
   - TASK-001
-priority: medium
-type: feature
 references:
   - .skillgrid/specs/2026-09-04-hermes-memory/acceptance.feature
   - .skillgrid/specs/2026-09-04-hermes-memory/briefing.md
@@ -18,6 +16,8 @@ references:
 documentation:
   - .skillgrid/specs/2026-09-04-hermes-memory/briefing.md
   - .agents/skills/_shared/conventions/sdd-structure.md
+priority: medium
+type: feature
 ---
 
 ## Description
@@ -63,6 +63,15 @@ Track the SDD **acceptance.feature** specs for change **004-hermes-memory** (Her
 4. Prioritize threat RED: path escape / unknown language (04); Mnemonic tool surface (02, 03, 04).
 5. Close when all AC scenarios + change DoD are green; archive with TASK-001.
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-09-21 07:13
+---
+2026-09-21: spec flagged STALLED (see .skillgrid/specs/2026-09-04-hermes-memory/tasks.md). Kept open for a future resume; not archived.
+---
+<!-- COMMENTS:END -->
 
 ## Technical Notes
 
