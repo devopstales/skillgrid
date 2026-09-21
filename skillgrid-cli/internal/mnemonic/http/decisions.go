@@ -147,9 +147,11 @@ type decisionAnswerBody struct {
 // it records the chosen option + note + updatedBy (user:<name>) in the
 // content and persists it through memory.UpdateContent, so an
 // observation_versions row is appended and revision_count/updated_at bumped —
-// the same governed path mem_update uses. An answered decision is an
-// idempotent no-op 200 (no new version). A bad id is 404; a row whose content
-// has no valid state (missing, malformed, or unrecognized) is 409.
+// the same governed path mem_update uses. Re-answering an answered decision
+// applies the same update path again (state stays answered, the new answer is
+// recorded, another version row is appended): append-only history, the latest
+// content carries the latest answer. A bad id is 404; a row whose content has
+// no valid state (missing, malformed, or unrecognized) is 409.
 func (s *Server) handleDecisionAnswer(w http.ResponseWriter, r *http.Request) {
 	projectID, err := projectFromRequest(r)
 	if err != nil {
@@ -197,11 +199,10 @@ func (s *Server) handleDecisionAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch c.State {
-	case decisionStatePending:
-	case decisionStateAnswered:
-		// Idempotent no-op: already answered. The recorded answer stands.
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": decisionStateAnswered, "noOp": true})
-		return
+	case decisionStatePending, decisionStateAnswered:
+		// pending → answered flip, or re-answer of an answered decision:
+		// the same update path below (state stays answered on re-answer, the
+		// new answer is recorded, a version row is appended).
 	case decisionStateSuperseded:
 		// The agent owns the pending→superseded transition; the answer gate
 		// does not apply.
@@ -239,7 +240,7 @@ func (s *Server) handleDecisionAnswer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": decisionStateAnswered, "noOp": false})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "state": decisionStateAnswered})
 }
 
 // decisionOptionExists reports whether the option id is one of the decision's

@@ -211,10 +211,9 @@ func TestDecisionAnswerRecords(t *testing.T) {
 	}
 }
 
-// [decision-answer-appends-version] The answer path appends an
-// observation_versions row (the same append-only trail mem_update writes): a
-// pending decision that gets answered gains exactly one version row, and an
-// answered decision stays a 200 no-op without a second version.
+// [decision-answer-appends-version] R6: answering twice yields two
+// observation_versions rows; the latest content carries the second answer
+// (append-only history, never overwrites the history).
 func TestDecisionAnswerAppendsVersion(t *testing.T) {
 	s, h := newDecisionTestServer(t)
 	id := seedDecision(t, h, "interview/demo/v", `{"question":"q","options":[{"id":"a","label":"A"}],"state":"pending"}`, "team", "2026-01-01T00:00:00Z")
@@ -222,35 +221,43 @@ func TestDecisionAnswerAppendsVersion(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("first answer: got %d: %s", w.Code, w.Body.String())
 	}
-	var n int
-	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM observation_versions WHERE observation_id = ?`, id).Scan(&n); err != nil {
-		t.Fatalf("count versions: %v", err)
-	}
-	if n != 1 {
-		t.Errorf("expected exactly 1 version row after answering, got %d", n)
-	}
-	// re-answer: idempotent no-op, still exactly one version row.
 	w = postDecisionAnswer(t, s, id, `{"optionId":"a","note":"second"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("second answer: got %d: %s", w.Code, w.Body.String())
 	}
+	var n int
 	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM observation_versions WHERE observation_id = ?`, id).Scan(&n); err != nil {
 		t.Fatalf("count versions: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("re-answer must not append a version, got %d rows", n)
+	if n != 2 {
+		t.Errorf("expected 2 version rows after two answers, got %d", n)
+	}
+	rows, _ := getDecisions(t, s, "")
+	var got *decisionRow
+	for i := range rows {
+		if rows[i].ID == id {
+			got = &rows[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("decision not found after re-answer")
+	}
+	if got.Content.State != "answered" || got.Content.AnsweredOption != "a" || got.Content.AnswerNote != "second" {
+		t.Errorf("latest content must carry the second answer: %+v", got.Content)
 	}
 }
 
-// [decision-answer-idempotent] Re-answering an answered decision is a no-op
-// 200: state stays answered, the first answer is kept, no new version row.
+// [decision-answer-reanswer-updates] R6: a re-answer of an answered decision
+// is a 200 that records the NEW answer (option + note + updatedBy) and appends
+// a version — the history is append-only, the latest content is the latest
+// answer.
 func TestDecisionAnswerIdempotent(t *testing.T) {
 	s, h := newDecisionTestServer(t)
 	id := seedDecision(t, h, "interview/demo/idem", `{"question":"q","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"state":"pending"}`, "team", "2026-01-01T00:00:00Z")
 	postDecisionAnswer(t, s, id, `{"optionId":"a","note":"first"}`)
 	w := postDecisionAnswer(t, s, id, `{"optionId":"b","note":"second"}`)
 	if w.Code != http.StatusOK {
-		t.Fatalf("re-answer should be a 200 no-op, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("re-answer should be 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	rows, _ := getDecisions(t, s, "")
@@ -263,15 +270,18 @@ func TestDecisionAnswerIdempotent(t *testing.T) {
 	if got == nil {
 		t.Fatalf("decision not found after re-answer")
 	}
-	if got.Content.State != "answered" || got.Content.AnsweredOption != "a" || got.Content.AnswerNote != "first" {
-		t.Errorf("re-answer must not change the recorded answer: %+v", got.Content)
+	if got.Content.State != "answered" || got.Content.AnsweredOption != "b" || got.Content.AnswerNote != "second" {
+		t.Errorf("re-answer must record the new answer: %+v", got.Content)
+	}
+	if got.Content.UpdatedBy != "user:unknown" {
+		t.Errorf("updatedBy must reflect the latest answerer: %q", got.Content.UpdatedBy)
 	}
 	var n int
 	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM observation_versions WHERE observation_id = ?`, id).Scan(&n); err != nil {
 		t.Fatalf("count versions: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("re-answer must not append a version, got %d rows, want 1", n)
+	if n != 2 {
+		t.Errorf("re-answer must append a version, got %d rows, want 2", n)
 	}
 }
 
