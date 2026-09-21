@@ -126,6 +126,16 @@ case_zone() {
   ( cd "$WORK/zone-mixed" && mkdir -p .skillgrid/specs/t1 src && printf 'Feature: t1\n' > .skillgrid/specs/t1/acceptance.feature && printf 'x=1\n' > src/a.js && git add -A )
   expect "zone: mixed spec+code commit blocked" 1 zone-mixed "bash '$ZONE'"
 
+  # archive-only commit: allow (archive is the terminal state of spec artifacts)
+  new_repo zone-archive
+  ( cd "$WORK/zone-archive" && mkdir -p .skillgrid/archive/t1 && printf 'Feature: t1\n' > .skillgrid/archive/t1/acceptance.feature && git add -A )
+  expect "zone: archive-only commit allowed" 0 zone-archive "bash '$ZONE'"
+
+  # archive + specs commit: allow (both spec-zone)
+  new_repo zone-spec-archive
+  ( cd "$WORK/zone-spec-archive" && mkdir -p .skillgrid/specs/t1 .skillgrid/archive/t1 && printf 'a\n' > .skillgrid/specs/t1/tasks.md && printf 'b\n' > .skillgrid/archive/t1/tasks.md && git add -A )
+  expect "zone: specs+archive commit allowed" 0 zone-spec-archive "bash '$ZONE'"
+
   # nothing staged: allow (guard defers to others)
   new_repo zone-empty
   expect "zone: nothing staged allowed" 0 zone-empty "bash '$ZONE'"

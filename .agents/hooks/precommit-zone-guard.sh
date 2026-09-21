@@ -7,13 +7,16 @@
 # it. A commit that stages both a spec file and a source file defeats the
 # spec-as-contract model, so this guard FAILs it.
 #
-# A commit is "mixed" when it stages at least one .skillgrid/specs/** path AND
-# at least one non-spec path. A commit that is all-specs, or all-code, passes.
+# A commit is "mixed" when it stages at least one spec-zone path
+# (.skillgrid/specs/** or .skillgrid/archive/** — archive is the terminal state
+# of spec artifacts) AND at least one non-spec path. A commit that is
+# all-specs, or all-code, passes.
 #
 # CLI-ready: called by checkpoint-state.sh guard (the pre-commit dispatcher).
 set -euo pipefail
 
 SPEC_PREFIX=".skillgrid/specs/"
+SPEC_ARCHIVE_PREFIX=".skillgrid/archive/"
 # Treat acceptance-test sources (not the extracted output) as spec zone too.
 SPEC_EXTRAS="acceptance-tests/features/"
 
@@ -23,7 +26,7 @@ staged="$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)"
 has_spec=0
 has_code=0
 for f in $staged; do
-  if [[ "$f" == "$SPEC_PREFIX"* || "$f" == "$SPEC_EXTRAS"* ]]; then
+  if [[ "$f" == "$SPEC_PREFIX"* || "$f" == "$SPEC_ARCHIVE_PREFIX"* || "$f" == "$SPEC_EXTRAS"* ]]; then
     has_spec=1
   else
     has_code=1
@@ -40,7 +43,9 @@ if [ "$has_spec" = 1 ] && [ "$has_code" = 1 ]; then
     echo "  2) git add <code files> && git commit -m 'feat(...): ...'          # then code"
     echo "Mixed staged spec files:"
     for f in $staged; do
-      [[ "$f" == "$SPEC_PREFIX"* || "$f" == "$SPEC_EXTRAS"* ]] && echo "    $f"
+      if [[ "$f" == "$SPEC_PREFIX"* || "$f" == "$SPEC_ARCHIVE_PREFIX"* || "$f" == "$SPEC_EXTRAS"* ]]; then
+        echo "    $f"
+      fi
     done
   } >&2
   exit 1
