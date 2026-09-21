@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   fetchAudit,
   fetchHubStatus,
@@ -7,6 +7,7 @@ import {
   fetchSnapshots,
   openActivityStream,
   SessionsError,
+  type ActivityEvent,
   type AuditEntry,
   type ChangeSnapshot,
   type Checkpoint,
@@ -41,10 +42,22 @@ export function SessionsPage() {
   // Audit trail (secondary tab).
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [chainValid, setChainValid] = useState(true)
+  const [auditError, setAuditError] = useState('')
 
   // Selected session header.
   const [summary, setSummary] = useState<SessionSummary | null>(null)
   const [error, setError] = useState('')
+
+  // Single SSE subscription: the page is the only owner of /activity/stream.
+  // Activity events are routed to the ActivityPane (scoped there); snapshot
+  // events feed the change log; ready/error drive the `live` indicator.
+  const activityHandlerRef = useRef<((e: ActivityEvent) => void) | null>(null)
+  const registerActivity = useCallback(
+    (h: ((e: ActivityEvent) => void) | null) => {
+      activityHandlerRef.current = h
+    },
+    [],
+  )
 
   const selected = sessions.find((s) => s.id === selectedId) ?? null
 
@@ -55,7 +68,7 @@ export function SessionsPage() {
       .catch((e) => setError(e instanceof SessionsError ? e.message : 'failed to load sessions'))
   }, [])
 
-  // Change log + hub status + live snapshot stream (event: snapshot).
+  // Change log + hub status + the single live stream (activity + snapshot).
   useEffect(() => {
     Promise.all([fetchSnapshots(200), fetchHubStatus()])
       .then(([snaps, status]) => {
@@ -64,9 +77,12 @@ export function SessionsPage() {
         setRefs(status.handoff_refs ?? [])
         setLatest(status.latest_snapshot ?? null)
       })
-      .catch(() => {})
+      .catch((e) =>
+        setError(e instanceof SessionsError ? e.message : 'failed to load change log'),
+      )
     const close = openActivityStream({
       onReady: () => setLive(true),
+      onActivity: (e) => activityHandlerRef.current?.(e),
       onSnapshot: (s) => {
         setSnapshots((prev) => {
           if (prev.some((p) => p.commit === s.commit)) return prev
@@ -92,12 +108,15 @@ export function SessionsPage() {
   // Audit trail (lazy: only when the Audit tab is opened).
   useEffect(() => {
     if (tab !== 'audit') return
+    setAuditError('')
     fetchAudit(200)
       .then((a) => {
         setEntries(a.entries)
         setChainValid(a.chain_valid)
       })
-      .catch(() => {})
+      .catch((e) =>
+        setAuditError(e instanceof SessionsError ? e.message : 'failed to load audit trail'),
+      )
   }, [tab])
 
   // Selected session header (summary + status + ended_at).
@@ -126,9 +145,7 @@ export function SessionsPage() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b border-edge px-4 py-2">
         <h1 className="text-sm font-semibold text-zinc-100">Sessions</h1>
-        <span className="text-xs text-zinc-500">
-          {sessions.length} sessions · one activity home
-        </span>
+        <span className="text-xs text-zinc-500">{sessions.length} sessions</span>
         <span className="ml-auto flex items-center gap-2 text-xs">
           <span className={live ? 'text-emerald-500' : 'text-zinc-600'}>
             {live ? '● live' : '○ offline'}
@@ -185,7 +202,9 @@ export function SessionsPage() {
             <SessionHeader summary={summary} session={selected} />
           )}
           <div className="min-h-0 flex-1">
-            {tab === 'activity' && <ActivityPane sessionId={selectedId} />}
+            {tab === 'activity' && (
+              <ActivityPane sessionId={selectedId} live={live} registerActivity={registerActivity} />
+            )}
             {tab === 'changes' && (
               <ChangesPane
                 snapshots={snapshots}
@@ -195,7 +214,9 @@ export function SessionsPage() {
               />
             )}
             {tab === 'handoffs' && <HandoffsPane checkpoints={checkpoints} refs={refs} />}
-            {tab === 'audit' && <AuditTab entries={entries} chainValid={chainValid} />}
+            {tab === 'audit' && (
+              <AuditTab entries={entries} chainValid={chainValid} error={auditError} />
+            )}
           </div>
         </main>
       </div>

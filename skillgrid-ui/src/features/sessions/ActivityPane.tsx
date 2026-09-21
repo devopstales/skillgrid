@@ -3,7 +3,6 @@ import {
   fetchActivityEvents,
   fetchActivityStats,
   fetchSessionActivity,
-  openActivityStream,
   SessionsError,
   type ActivityEvent,
   type ActivityStats,
@@ -19,10 +18,20 @@ import { AlertBanner } from './AlertBanner'
 // scoped via /sessions/{id}/activity); without one it renders the global feed.
 // Filters, stats, alerts and agent-health carry over from the former /activity
 // page unchanged.
-export function ActivityPane({ sessionId }: { sessionId?: string | null }) {
+export function ActivityPane({
+  sessionId,
+  live,
+  registerActivity,
+}: {
+  sessionId?: string | null
+  live: boolean
+  // The parent's single SSE stream calls this with its event handler; the pane
+  // registers its live handler (which scopes by the current session) so the
+  // parent never needs to re-subscribe when the selection changes.
+  registerActivity: (h: ((e: ActivityEvent) => void) | null) => void
+}) {
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [error, setError] = useState('')
-  const [live, setLive] = useState(false)
   const [filters, setFilters] = useState<ActivityFilters>(EMPTY_FILTERS)
   const [dismissed, setDismissed] = useState<Set<number>>(new Set())
   const [stats, setStats] = useState<ActivityStats | null>(null)
@@ -60,23 +69,24 @@ export function ActivityPane({ sessionId }: { sessionId?: string | null }) {
     }
   }, [sessionId])
 
-  // Live SSE stream: prepend new events (scoped to the session when set),
-  // refresh stats (debounced), toggle live.
-  useEffect(() => {
-    const close = openActivityStream({
-      onReady: () => setLive(true),
-      onActivity: (e) => {
-        if (sessionId && e.sessionId !== sessionId) return
-        setEvents((prev) => {
-          if (prev.some((p) => p.id === e.id)) return prev
-          return [e, ...prev].slice(0, 200)
-        })
-        refreshStats()
-      },
-      onError: () => setLive(false),
+  // Live activity events: the parent (SessionsPage) owns the single SSE
+  // subscription and pushes events here, so there is exactly one EventSource on
+  // /activity/stream. The ref always holds the freshest handler (current
+  // sessionId); we register it with the parent once so the parent's stable
+  // callback calls the latest handler without re-subscribing on selection.
+  const onActivityRef = useRef<(e: ActivityEvent) => void>(() => {})
+  onActivityRef.current = (e) => {
+    if (sessionId && e.sessionId !== sessionId) return
+    setEvents((prev) => {
+      if (prev.some((p) => p.id === e.id)) return prev
+      return [e, ...prev].slice(0, 200)
     })
-    return close
-  }, [sessionId])
+    refreshStats()
+  }
+  useEffect(() => {
+    registerActivity((e) => onActivityRef.current(e))
+    return () => registerActivity(null)
+  }, [registerActivity])
 
   const filtered = useMemo(() => {
     return events.filter((e) => {
@@ -98,7 +108,7 @@ export function ActivityPane({ sessionId }: { sessionId?: string | null }) {
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
       <div className="flex items-center gap-2 text-xs text-zinc-500">
         <span className={live ? 'text-emerald-500' : ''}>
-          {live ? '● live' : '○ connected'}
+          {live ? '● live' : '○ offline'}
         </span>
         <span>{sessionId ? 'session-scoped feed' : 'project-wide feed'}</span>
       </div>

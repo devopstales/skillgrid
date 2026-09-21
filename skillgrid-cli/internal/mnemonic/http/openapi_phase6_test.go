@@ -18,10 +18,11 @@ func TestPhase6_OpenAPI(t *testing.T) {
 	text := string(data)
 	for _, want := range []string{
 		"/activity/events", "/activity/stats", "/activity/stream",
+		"/sessions/{id}/activity", "/handoff/snapshots",
 		"/plans", "/plans/{id}", "/specs", "/specs/{path...}",
 		"/git/commits", "/git/commits/{sha}", "/git/diff/{sha}",
 		"/git/file-history", "/git/blame",
-		"ActivityEvent", "PlanSummary", "PlanDetail", "GitCommit", "GitBlameLine",
+		"ActivityEvent", "ChangeSnapshot", "PlanSummary", "PlanDetail", "GitCommit", "GitBlameLine",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("openapi.yaml missing Phase 6 %s", want)

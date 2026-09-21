@@ -12,10 +12,10 @@ export function HandoffsPane({
   return (
     <div className="flex flex-col gap-4 overflow-y-auto p-6">
       <section>
-        <h2 className="mb-2 text-sm font-semibold">Checkpoints ({checkpoints.length})</h2>
-        <div className="overflow-hidden rounded-lg border">
+        <h2 className="mb-2 text-sm font-semibold text-zinc-200">Checkpoints ({checkpoints.length})</h2>
+        <div className="overflow-hidden rounded-lg border border-edge">
           <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+            <thead className="bg-card text-left text-xs uppercase text-zinc-500">
               <tr>
                 <th className="px-3 py-2">Name</th>
                 <th className="px-3 py-2">Status</th>
@@ -26,19 +26,19 @@ export function HandoffsPane({
             </thead>
             <tbody>
               {checkpoints.map((c) => (
-                <tr key={c.id} className="border-t">
-                  <td className="px-3 py-2 font-mono text-xs">{c.name}</td>
+                <tr key={c.id} className="border-t border-edge">
+                  <td className="px-3 py-2 font-mono text-xs text-zinc-300">{c.name}</td>
                   <td className="px-3 py-2">
                     <StatusPill status={c.status} />
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs">{c.commit.slice(0, 7)}</td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{c.specDir || '—'}</td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{c.evidence || '—'}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-zinc-400">{c.commit.slice(0, 7)}</td>
+                  <td className="px-3 py-2 text-xs text-zinc-500">{c.specDir || '—'}</td>
+                  <td className="px-3 py-2 text-xs text-zinc-500">{c.evidence || '—'}</td>
                 </tr>
               ))}
               {checkpoints.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">
+                  <td colSpan={5} className="px-3 py-6 text-center text-zinc-600">
                     No checkpoints placed.
                   </td>
                 </tr>
@@ -49,10 +49,10 @@ export function HandoffsPane({
       </section>
 
       <section>
-        <h2 className="mb-2 text-sm font-semibold">Handoff refs ({refs.length})</h2>
-        <div className="overflow-hidden rounded-lg border">
+        <h2 className="mb-2 text-sm font-semibold text-zinc-200">Handoff refs ({refs.length})</h2>
+        <div className="overflow-hidden rounded-lg border border-edge">
           <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+            <thead className="bg-card text-left text-xs uppercase text-zinc-500">
               <tr>
                 <th className="px-3 py-2">Handoff</th>
                 <th className="px-3 py-2">Type</th>
@@ -62,18 +62,18 @@ export function HandoffsPane({
             </thead>
             <tbody>
               {refs.map((r) => (
-                <tr key={r.handoffId + r.handoffType} className="border-t">
-                  <td className="px-3 py-2 font-mono text-xs">{r.handoffId}</td>
-                  <td className="px-3 py-2 text-xs">{r.handoffType}</td>
-                  <td className="px-3 py-2 font-mono text-xs">
+                <tr key={r.handoffId + r.handoffType} className="border-t border-edge">
+                  <td className="px-3 py-2 font-mono text-xs text-zinc-300">{r.handoffId}</td>
+                  <td className="px-3 py-2 text-xs text-zinc-400">{r.handoffType}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-zinc-400">
                     {(r.fromCommit || '…').slice(0, 7)}..{(r.toCommit || '…').slice(0, 7)}
                   </td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{r.specDir || '—'}</td>
+                  <td className="px-3 py-2 text-xs text-zinc-500">{r.specDir || '—'}</td>
                 </tr>
               ))}
               {refs.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
+                  <td colSpan={4} className="px-3 py-6 text-center text-zinc-600">
                     No handoff refs yet (session/team handoffs populate this).
                   </td>
                 </tr>
@@ -89,11 +89,11 @@ export function HandoffsPane({
 function StatusPill({ status }: { status: Checkpoint['status'] }) {
   const color =
     status === 'verified'
-      ? 'bg-emerald-100 text-emerald-800'
+      ? 'bg-emerald-500/15 text-emerald-300'
       : status === 'stale'
-        ? 'bg-amber-100 text-amber-800'
+        ? 'bg-amber-500/15 text-amber-300'
         : status === 'archived'
-          ? 'bg-slate-100 text-slate-600'
-          : 'bg-blue-100 text-blue-800'
+          ? 'bg-zinc-500/15 text-zinc-400'
+          : 'bg-blue-500/15 text-blue-300'
   return <span className={`rounded px-1.5 py-0.5 text-xs ${color}`}>{status}</span>
 }
