@@ -167,9 +167,6 @@ func main() {
 	case "session":
 		runSession(version, rest[1:])
 		return
-	case "handoff":
-		runHandoff(version, rest[1:])
-		return
 	case "embedding-status":
 		runSearchEmbeddingStatus(version, rest[1:])
 		return
