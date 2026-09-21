@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   fetchActivityEvents,
   fetchActivityStats,
+  fetchSessionActivity,
   openActivityStream,
-  ActivityError,
+  SessionsError,
   type ActivityEvent,
+  type ActivityStats,
 } from './api'
 import { StatsBar } from './StatsBar'
 import { EventCard } from './EventCard'
@@ -12,17 +14,20 @@ import { Filters, EMPTY_FILTERS, type ActivityFilters } from './Filters'
 import { AgentHealth } from './AgentHealth'
 import { AlertBanner } from './AlertBanner'
 
-export function ActivityPage() {
+// ActivityPane — the live activity feed, the default tab of the unified
+// Sessions view. With a `sessionId` it renders that session's own feed (server-
+// scoped via /sessions/{id}/activity); without one it renders the global feed.
+// Filters, stats, alerts and agent-health carry over from the former /activity
+// page unchanged.
+export function ActivityPane({ sessionId }: { sessionId?: string | null }) {
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [error, setError] = useState('')
   const [live, setLive] = useState(false)
   const [filters, setFilters] = useState<ActivityFilters>(EMPTY_FILTERS)
   const [dismissed, setDismissed] = useState<Set<number>>(new Set())
-  const [stats, setStats] = useState<Awaited<ReturnType<typeof fetchActivityStats>> | null>(null)
-  const loadedRef = useRef(false)
-  // Debounce the per-event stats refresh (review A10): the server can emit
-  // multiple events per 800ms poll tick, so a refetch per event is a request
-  // storm. Coalesce to at most one refetch per 5s.
+  const [stats, setStats] = useState<ActivityStats | null>(null)
+  // Debounce the per-event stats refresh (review A10): coalesce to one refetch
+  // per 5s so a burst of SSE events doesn't storm the stats endpoint.
   const statsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshStats = () => {
     if (statsTimer.current) return
@@ -32,34 +37,37 @@ export function ActivityPage() {
     }, 5000)
   }
 
-  // Initial load: events + stats.
+  // Initial load: events (scoped or global) + global stats. Re-runs when the
+  // selected session changes.
   useEffect(() => {
     let cancelled = false
     setError('')
-    Promise.all([fetchActivityEvents(100), fetchActivityStats()])
+    const load = sessionId
+      ? fetchSessionActivity(sessionId, 200)
+      : fetchActivityEvents(200)
+    Promise.all([load, fetchActivityStats()])
       .then(([ev, st]) => {
         if (cancelled) return
         setEvents(ev.events ?? [])
         setStats(st)
-        loadedRef.current = true
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof ActivityError ? e.message : 'failed to load activity')
+        if (!cancelled) setError(e instanceof SessionsError ? e.message : 'failed to load activity')
       })
     return () => {
       cancelled = true
       if (statsTimer.current) clearTimeout(statsTimer.current)
     }
-  }, [])
+  }, [sessionId])
 
-  // Live SSE stream: prepend new events, refresh stats (debounced), toggle live.
+  // Live SSE stream: prepend new events (scoped to the session when set),
+  // refresh stats (debounced), toggle live.
   useEffect(() => {
     const close = openActivityStream({
       onReady: () => setLive(true),
       onActivity: (e) => {
+        if (sessionId && e.sessionId !== sessionId) return
         setEvents((prev) => {
-          // de-dup by id (the poller seeds from the newest id, so no overlap,
-          // but be defensive)
           if (prev.some((p) => p.id === e.id)) return prev
           return [e, ...prev].slice(0, 200)
         })
@@ -68,7 +76,7 @@ export function ActivityPage() {
       onError: () => setLive(false),
     })
     return close
-  }, [])
+  }, [sessionId])
 
   const filtered = useMemo(() => {
     return events.filter((e) => {
@@ -87,12 +95,12 @@ export function ActivityPage() {
   )
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-8">
-      <div>
-        <h1 className="text-2xl font-semibold text-zinc-100">Activity</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Live agent event feed · {live ? 'streaming' : 'connected'}
-        </p>
+    <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
+      <div className="flex items-center gap-2 text-xs text-zinc-500">
+        <span className={live ? 'text-emerald-500' : ''}>
+          {live ? '● live' : '○ connected'}
+        </span>
+        <span>{sessionId ? 'session-scoped feed' : 'project-wide feed'}</span>
       </div>
 
       <StatsBar stats={stats} />
@@ -116,10 +124,13 @@ export function ActivityPage() {
           {events.length === 0 ? 'No activity recorded yet.' : 'No events match the current filters.'}
         </div>
       ) : (
-        // density-gap tokens (7.4): the feed gap respects the density mode.
-        // role="log" + aria-live so new events are announced to assistive tech
-        // (review B5: the live feed was silent to screen readers).
-        <div className="flex flex-col" style={{ gap: 'var(--density-row)' }} role="log" aria-live="polite" aria-label="Live activity feed">
+        <div
+          className="flex flex-col"
+          style={{ gap: 'var(--density-row)' }}
+          role="log"
+          aria-live="polite"
+          aria-label="Live activity feed"
+        >
           {filtered.map((e) => (
             <EventCard key={e.id} event={e} />
           ))}

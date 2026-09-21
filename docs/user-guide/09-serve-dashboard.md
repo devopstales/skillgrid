@@ -54,7 +54,15 @@ degraded state when a provider CLI is missing.
 - **Files** — the indexed-file tree with content read.
 - **Memories** — the observation list; supports pin, share, and status actions
   (the only writes).
-- **Sessions** — the session list with summaries.
+- **Sessions** — the single "what happened" home. The session list (left)
+  plus a detail pane (right) with four tabs: **Activity** (default — the live
+  feed, scoped to the selected session via `GET /sessions/{id}/activity`, or
+  project-wide when nothing is selected; stats bar, filters, agent-health,
+  high-severity alerts), **Changes** (the Handoff Hub change log: git-derived
+  snapshots + checkpoint markers), **Handoffs** (named checkpoints + handoff
+  refs), and **Audit** (the hash-chained memory change log, a secondary
+  verification tab). Selecting a session also shows its stored summary in the
+  header. This consolidates the former separate Activity and Handoff pages.
 - **Search** — cross-store search (memory + code + web cache).
 
 ### Docs
@@ -69,34 +77,28 @@ change with status + task-progress bar, a dependency pipeline, a detail view
 (SDD ledger steps, file inventory), and a spec viewer (renders `briefing.md` /
 `tasks.md` / `findings.md`). Read-only — it reflects what the SDD skills wrote.
 
-### Activity
+### Activity / Handoff (now part of Sessions)
 
-The live agent-activity feed (observations as events): a stats bar, a
-filterable feed (type/source/severity/actor), agent-health liveness, and
-dismissible high-severity alerts. Live via SSE (`/activity/stream`) — new
-events animate in from the top.
+The former standalone **Activity** (`/activity`) and **Handoff** (`/handoff`)
+pages are consolidated into the **Sessions** page (the single "what happened"
+home). The live activity feed (observations as events — stats bar, filterable
+feed by type/source/severity/actor, agent-health liveness, dismissible
+high-severity alerts, live via SSE `/activity/stream`) is the Sessions
+**Activity** tab, scoped to the selected session. The Handoff Hub's change log
+(git-derived snapshots with parsed `[skillgrid-context]` blocks + checkpoint
+markers) and handoffs (named checkpoints + handoff refs) are the Sessions
+**Changes** and **Handoffs** tabs. Their duplicate "activity" tab was removed.
 
-### Handoff
-
-The Handoff Hub (`/handoff`, change 015): one page combining the three
-checkpoint mechanisms into a single engine-backed view.
-
-- **Changes tab** — the change log: every commit as a git-derived snapshot
-  (`change_snapshots`) with its parsed `[skillgrid-context]` block (Task /
-  Decisions / Remaining / Tried), named checkpoints overlaid as markers, and
-  the latest commit up top. Live via the extended `/activity/stream`
-  (`event: snapshot`) — a new commit animates in.
-- **Activity tab** — the same agent-activity feed as the Activity view.
-- **Handoffs tab** — the named checkpoints (with drift status) and the
-  handoff refs (session/team handoffs joined to their commit ranges + spec dir).
-
-The data is engine-backed (SQLite, migration `039_handoff_hub.sql`), populated
-by `checkpoint-state.sh snapshot` (best-effort `skillgrid handoff record`) and
-seeded on first run by `skillgrid handoff backfill` (last 100 commits). Named
-checkpoints are placed with `skillgrid handoff checkpoint <name>` and
-drift-verified with `skillgrid handoff verify <name>`; the one-call "where are
-we" is `skillgrid handoff status`. The MCP surface exposes `handoff_snapshot`,
-`handoff_status`, `handoff_checkpoint`, `handoff_verify`, and `handoff_rollup`.
+The change-log data is engine-backed (SQLite, migration
+`039_handoff_hub.sql`), populated by `checkpoint-state.sh snapshot`
+(best-effort `skillgrid handoff record`) and seeded on first run by
+`skillgrid handoff backfill` (last 100 commits). Named checkpoints are placed
+with `skillgrid handoff checkpoint <name>` and drift-verified with
+`skillgrid handoff verify <name>`; the one-call "where are we" is
+`skillgrid handoff status`. The change-snapshot REST route moved to
+`GET /handoff/snapshots` (renamed from `/activity/snapshots`); the MCP surface
+exposes `handoff_snapshot`, `handoff_status`, `handoff_checkpoint`,
+`handoff_verify`, and `handoff_rollup`.
 
 ### Git
 
@@ -145,8 +147,8 @@ Tracker view degrades gracefully — it does not break the rest of the dashboard
 - The board shows an **amber banner**: the provider name, what's missing
   (CLI not on `PATH` / not authenticated), and the exact command to fix it
   (e.g. `gh auth login`).
-- The other views (Graph, Memories, Sessions, Docs, Plans, Handoff, Activity,
-  Git, Prototypes) are **unaffected** — they don't touch the tracker CLI.
+- The other views (Graph, Memories, Sessions, Docs, Plans, Git, Prototypes) are
+  **unaffected** — they don't touch the tracker CLI.
 - `GET /tracker/providers` reports each provider's availability so the UI can
   render the banner; `GET /tracker/config` reports the active provider.
 
