@@ -36,6 +36,8 @@ package memory
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -233,6 +235,9 @@ const (
 	HookPreEdit      = "pre-edit"
 	HookPromptSubmit = "prompt-submit"
 	HookSessionStop  = "session-stop"
+	// HookPostToolUse records one finished tool call as an ordered session
+	// event plus its per-session counter bump, in a single transaction.
+	HookPostToolUse = "post_tool_use"
 )
 
 // DefaultHookTimeout is the per-hook execution budget (014 step 24.3). A
@@ -251,11 +256,19 @@ type HooksConfig struct {
 
 // HookPayload is the per-hook input (24.2). File is the pre-edit target; Query
 // is the session-start / prompt-submit text to classify and retrieve on;
-// SessionID is the session-stop distillation target. Unused fields are empty.
+// SessionID is the session-stop distillation target. The post_tool_use
+// extension (ActionType/ToolName/Command/ResultStatus/ContentHash/
+// ContentPreview) carries one finished tool call; unused fields stay empty.
 type HookPayload struct {
-	File      string `json:"file,omitempty"`
-	Query     string `json:"query,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
+	File           string `json:"file,omitempty"`
+	Query          string `json:"query,omitempty"`
+	SessionID      string `json:"session_id,omitempty"`
+	ActionType     string `json:"action_type,omitempty"`
+	ToolName       string `json:"tool_name,omitempty"`
+	Command        string `json:"command,omitempty"`
+	ResultStatus   string `json:"result_status,omitempty"`
+	ContentHash    string `json:"content_hash,omitempty"`
+	ContentPreview string `json:"content_preview,omitempty"`
 }
 
 // HookResult is the per-hook output (24.2). Memories/Skills are the
@@ -391,7 +404,7 @@ func (s *Service) RunHook(ctx context.Context, hookType string, payload HookPayl
 	}
 	var fn hookFunc
 	switch hookType {
-	case HookSessionStart, HookPreEdit, HookPromptSubmit, HookSessionStop:
+	case HookSessionStart, HookPreEdit, HookPromptSubmit, HookSessionStop, HookPostToolUse:
 	default:
 		return HookResult{}, fmt.Errorf("unknown hook type %q (valid: session-start, pre-edit, prompt-submit, session-stop)", hookType)
 	}
@@ -438,6 +451,8 @@ func (s *Service) defaultHook(ctx context.Context, hookType string, payload Hook
 		return s.hookPromptSubmit(ctx, payload)
 	case HookSessionStop:
 		return s.hookSessionStop(ctx, payload)
+	case HookPostToolUse:
+		return s.hookPostToolUse(ctx, payload)
 	default:
 		return HookResult{}, fmt.Errorf("unknown hook type %q", hookType)
 	}
@@ -505,6 +520,171 @@ func (s *Service) hookSessionStop(ctx context.Context, payload HookPayload) (Hoo
 		return HookResult{}, err
 	}
 	return HookResult{Distilled: distilled}, nil
+}
+
+// hookPostToolUse records one finished tool call (TICKET-02): an ordered
+// session_events row plus the per-session counter bump, committed in ONE
+// transaction. Sequencing reuses the changes.go writer seam (appendSessionEvent
+// + its internal nextSequenceTx); the same tx then enriches the row with the
+// tool detail and bumps the sessions counters, so the event and its counters
+// can never diverge.
+//
+// Tool→action mapping: Write→file_write, Read→file_read, Shell→command_exec,
+// everything else→tool_use. Counter mapping: file_write→files_written,
+// file_read→files_read, command_exec→commands_exec, an error result→errors, a
+// sensitive path→sensitive_actions (on top of the action counter).
+//
+// Sensitive paths (isSensitivePath) never persist raw content: the payload
+// stores only {"content_hash","preview"} — the SHA-256 of the full content
+// plus the masked first-200-chars preview from redactPreview.
+func (s *Service) hookPostToolUse(ctx context.Context, payload HookPayload) (HookResult, error) {
+	sessionID := strings.TrimSpace(payload.SessionID)
+	if sessionID == "" {
+		return HookResult{}, fmt.Errorf("post_tool_use hook requires a session_id in the payload")
+	}
+	rowProject, _, lerr := lookupSessionRow(ctx, s.store.DB, sessionID)
+	if lerr != nil {
+		if errors.Is(lerr, sql.ErrNoRows) {
+			return HookResult{}, fmt.Errorf("session %s not found", sessionID)
+		}
+		return HookResult{}, fmt.Errorf("post_tool_use look-up: %w", lerr)
+	}
+
+	action := actionForTool(payload.ToolName, payload.ActionType)
+	status := strings.TrimSpace(payload.ResultStatus)
+	if status == "" {
+		status = "success"
+	}
+	isErr := isErrorStatus(status)
+	path := strings.TrimSpace(payload.File)
+	sensitive := isSensitivePath(path)
+
+	storedPayload := strings.TrimSpace(payload.ContentPreview)
+	if sensitive && storedPayload != "" {
+		hash := strings.TrimSpace(payload.ContentHash)
+		if hash == "" {
+			hash, _ = redactPreview(storedPayload)
+		}
+		_, masked := redactPreview(storedPayload)
+		raw, merr := json.Marshal(map[string]string{
+			"content_hash": hash,
+			"preview":      masked,
+		})
+		if merr != nil {
+			return HookResult{}, fmt.Errorf("post_tool_use redact payload: %w", merr)
+		}
+		storedPayload = string(raw)
+	}
+
+	now := eventNow()
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return HookResult{}, fmt.Errorf("post_tool_use begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	// Single insert path: the changes.go writer assigns the next sequence.
+	if err := appendSessionEvent(ctx, tx, rowProject, sessionID, action, "", now); err != nil {
+		return HookResult{}, err
+	}
+	var seq int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT MAX(sequence) FROM session_events WHERE session_id = ?`,
+		sessionID,
+	).Scan(&seq); err != nil {
+		return HookResult{}, fmt.Errorf("post_tool_use sequence: %w", err)
+	}
+	sensFlag := 0
+	if sensitive {
+		sensFlag = 1
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE session_events
+		SET result_status = ?, is_sensitive = ?, tool_name = ?, path = ?, command = ?, payload = ?
+		WHERE session_id = ? AND sequence = ?`,
+		status, sensFlag,
+		strings.TrimSpace(payload.ToolName), path, strings.TrimSpace(payload.Command),
+		storedPayload, sessionID, seq,
+	); err != nil {
+		return HookResult{}, fmt.Errorf("post_tool_use enrich event: %w", err)
+	}
+	if bumps := counterBumps(action, isErr, sensitive); len(bumps) > 0 {
+		sets := make([]string, 0, len(bumps))
+		for _, col := range bumps {
+			sets = append(sets, col+" = "+col+" + 1")
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE sessions SET `+strings.Join(sets, ", ")+` WHERE id = ? AND project = ?`,
+			sessionID, rowProject,
+		); err != nil {
+			return HookResult{}, fmt.Errorf("post_tool_use counters: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return HookResult{}, fmt.Errorf("post_tool_use commit: %w", err)
+	}
+	committed = true
+	return HookResult{}, nil
+}
+
+// actionForTool maps a tool name to its session event action type:
+// Write→file_write, Read→file_read, Shell→command_exec, everything
+// else→tool_use. Matching is case-insensitive substring so "Write"/"write
+// file" style names all map. An explicitly supplied, valid action type is
+// honored only when no tool name was given.
+func actionForTool(toolName, actionType string) string {
+	t := strings.ToLower(strings.TrimSpace(toolName))
+	switch {
+	case strings.Contains(t, "write"):
+		return "file_write"
+	case strings.Contains(t, "read"):
+		return "file_read"
+	case strings.Contains(t, "shell"):
+		return "command_exec"
+	}
+	if t == "" {
+		switch strings.ToLower(strings.TrimSpace(actionType)) {
+		case "file_write", "file_read", "command_exec", "tool_use":
+			return strings.ToLower(strings.TrimSpace(actionType))
+		}
+	}
+	return "tool_use"
+}
+
+// isErrorStatus reports whether a result status counts as an error for the
+// errors counter.
+func isErrorStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "error", "failed", "failure", "fail":
+		return true
+	}
+	return false
+}
+
+// counterBumps returns the sessions counter columns to bump for one tool-call
+// event. Column names come from this fixed allowlist only — never from caller
+// input — so the UPDATE is safe to assemble.
+func counterBumps(action string, isErr, sensitive bool) []string {
+	var bumps []string
+	switch action {
+	case "file_write":
+		bumps = append(bumps, "files_written")
+	case "file_read":
+		bumps = append(bumps, "files_read")
+	case "command_exec":
+		bumps = append(bumps, "commands_exec")
+	}
+	if isErr {
+		bumps = append(bumps, "errors")
+	}
+	if sensitive {
+		bumps = append(bumps, "sensitive_actions")
+	}
+	return bumps
 }
 
 // hooksMu guards the hooks* fields on Service (SetHooks / SetHookFunc read
