@@ -2,6 +2,8 @@
 
 > Sliced from research findings (`.skillgrid/specs/2026-09-17-sqlite-ai-code-indexing/findings.md`) and ory/lumen comparison.
 > Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.
+>
+> **Compact search output** (the `context` param on `code_hybrid_search` / `code_search`) is a separate spec: `.skillgrid/specs/2026-09-17-compact-search-output/`.
 
 ## Epic Summary
 

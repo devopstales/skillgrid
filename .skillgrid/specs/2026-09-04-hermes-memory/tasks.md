@@ -1,6 +1,6 @@
 # Tasks: 004-hermes-memory
 
-> **STATUS:** `in-progress` (2026-09-04) — 0/5 steps PASS
+> **STATUS:** `stalled` (2026-09-04) — 0/5 steps PASS. Flagged stalled 2026-09-21: importance scoring / dream loop exist (via 014) but the Fact Memory store + Agent Skills sandbox are unimplemented.
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-execution (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax.
 
