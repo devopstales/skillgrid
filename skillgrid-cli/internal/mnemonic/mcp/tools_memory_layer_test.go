@@ -33,9 +33,10 @@ func TestLayerTools(t *testing.T) {
 		t.Errorf("expected tool %q to be registered", "mem_layers")
 	}
 
-	// Tool surface grows additively: 77 (75 baseline + 2 governance) + 1 layers + 2 session + 2 status/compact = 82.
-	if len(tools) != 89 {
-		t.Errorf("expected 88 tools, got %d", len(tools))
+	// Tool surface: 80 (hub/relay tools removed by the session events layer
+	// consolidation; session_changes remains).
+	if len(tools) != 80 {
+		t.Errorf("expected 80 tools, got %d", len(tools))
 	}
 
 	// Existing 005 mem_* tools keep their names + required params unchanged.

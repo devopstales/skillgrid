@@ -121,9 +121,10 @@ func TestKnowledgeTools(t *testing.T) {
 
 	// The tool surface grows additively: 67 baseline + 4 knowledge + 2
 	// affected/rename + 1 code_pdg_query + 1 code_taint + 2 governance +
-	// 1 mem_layers + 2 session = 80 (all keep their names + required params).
-	if len(tools) != 89 {
-		t.Errorf("expected 88 tools, got %d", len(tools))
+	// 1 mem_layers + 1 session_changes = 80 (hub/relay tools removed by the
+	// session events layer consolidation; all keep their names + required params).
+	if len(tools) != 80 {
+		t.Errorf("expected 80 tools, got %d", len(tools))
 	}
 
 	// code_docs returns the indexed docs (a query, not an error).

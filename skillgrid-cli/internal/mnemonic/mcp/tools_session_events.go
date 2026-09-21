@@ -4,7 +4,16 @@ import (
 	"context"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
+
+// registerSessionTools is the session MCP registrar. After the session events
+// layer consolidation (TICKET-06) only the events-layer read remains:
+// session_changes. The hub/relay tools (session_handoff, session_resume,
+// session_status, knowledge_compact) were removed.
+func registerSessionTools(s *server.MCPServer) {
+	s.AddTool(sessionChangesTool(), handleSessionChanges)
+}
 
 // sessionChangesTool is the session_changes MCP tool (session events layer,
 // TICKET-04). It answers what changed in a session from its event stream plus
