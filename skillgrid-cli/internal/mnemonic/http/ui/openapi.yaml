@@ -25,6 +25,7 @@ tags:
   - name: mnemonic-sessions
   - name: mnemonic-audit
   - name: mnemonic-search
+  - name: mnemonic-decisions
 paths:
   /health:
     get:
@@ -2315,6 +2316,126 @@ paths:
                   total: { type: integer }
         "400": { $ref: "#/components/responses/Bad" }
         "500": { $ref: "#/components/responses/Bad" }
+  # ── Phase 8: Mnemonic decision bridge (change 2026-09-19-embed-visual-companion) ──
+  /mnemonic/decisions:
+    get:
+      tags: [mnemonic-decisions]
+      operationId: mnemonicDecisions
+      summary: List the project's decision observations (the visual companion)
+      description: |-
+        Returns the project's type=decision observations (not deleted, never
+        private) with their content parsed into a structured payload, ordered
+        ascending by created_at (capped at 200 rows). `state` filters the
+        convention state inside the content (pending|answered|superseded;
+        `all` or omitted = every state); a row whose content is malformed is
+        still returned, flagged parseError, and is only excluded by a
+        specific state filter. `topic` is an optional topic_key prefix filter
+        (the convention is interview/<slug>/<question-id>). The row's
+        `status` column is governance (active|superseded|archived); pending /
+        answered lives in the content JSON.
+      parameters:
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+          example: my-project
+        - name: state
+          in: query
+          required: false
+          description: Filter on the convention state inside the content.
+          schema: { type: string, enum: [pending, answered, superseded, all] }
+        - name: topic
+          in: query
+          required: false
+          description: topic_key prefix filter (e.g. interview/<slug>/)
+          schema: { type: string }
+      responses:
+        "200":
+          description: Decision list (empty array when none match)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DecisionRow" }
+              example:
+                - id: 12
+                  topicKey: interview/demo/layout-1
+                  title: "Decision: layout-1"
+                  createdAt: "2026-09-19T00:00:00Z"
+                  updatedAt: "2026-09-19T00:00:00Z"
+                  visibility: team
+                  content:
+                    question: Which layout?
+                    options:
+                      - id: a
+                        label: Single column
+                      - id: b
+                        label: Two column
+                    recommended: a
+                    state: pending
+        "400":
+          $ref: "#/components/responses/Bad"
+        "404":
+          $ref: "#/components/responses/Bad"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /mnemonic/decisions/{id}/answer:
+    post:
+      tags: [mnemonic-decisions]
+      operationId: mnemonicDecisionAnswer
+      summary: Answer a decision (write-gated)
+      description: |-
+        Write-gated (Bearer token, SKILLGRID_HTTP_TOKEN) answer: flips the
+        decision's convention state pending→answered, records the chosen
+        option + note + updatedBy (user:<name>) in the content, and persists
+        it through the same version-append path mem_update uses — an
+        observation_versions row is appended and revision_count/updated_at
+        bumped (durable, auditable). Re-answering an answered decision is a
+        200: the state stays answered, the new answer is recorded, and another
+        version is appended (the latest content carries the latest answer).
+        400 for a missing/invalid project or id, a malformed body, or a
+        missing optionId; 401 without the bearer token; 404 for an unknown id
+        (or non-decision row); 409 for content with no valid state (missing,
+        malformed, or unrecognized) or a superseded decision; 422 for an
+        optionId not in the decision's options.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, description: Decision observation id (an integer) }
+        - name: project
+          in: query
+          required: true
+          schema: { type: string }
+        - name: answerer
+          in: query
+          required: false
+          description: Answerer name recorded as updatedBy (user:<name>; default "unknown")
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DecisionAnswerInput" }
+            example: { optionId: b, note: two column reads better }
+      responses:
+        "200":
+          description: Answered
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, state]
+                properties:
+                  ok: { type: boolean }
+                  state: { type: string, enum: [answered] }
+              example: { ok: true, state: answered }
+        "400": { $ref: "#/components/responses/Bad" }
+        "401": { $ref: "#/components/responses/Bad" }
+        "404": { $ref: "#/components/responses/Bad" }
+        "409": { $ref: "#/components/responses/Bad" }
+        "422": { $ref: "#/components/responses/Bad" }
+        "500": { $ref: "#/components/responses/Internal" }
   /swagger-ui:
     get:
       tags: [ui]
@@ -2645,7 +2766,8 @@ paths:
       tags: [prototypes]
       operationId: prototypesList
       summary: List .stitch/ design prototypes (sandboxed)
-      description: Returns the prototype .html files under .stitch/ as
+      description: |-
+        Returns the prototype .html files under .stitch/ as
         relative paths. Served as the SPA shell to a browser (Accept: text/html),
         as JSON to the API client (Accept: application/json).
       responses:
@@ -2672,7 +2794,8 @@ paths:
       tags: [prototypes]
       operationId: prototypeGet
       summary: Get one prototype HTML (sandboxed to .stitch/)
-      description: Serves the HTML of one prototype. Traversal/absolute ids
+      description: |-
+        Serves the HTML of one prototype. Traversal/absolute ids
         (.., leading /) → 400; unknown → 404. The file is sandboxed to .stitch/
         (Phase 7 path-traversal threat model) and served with nosniff.
       parameters:
@@ -2698,6 +2821,43 @@ paths:
           content:
             application/json:
               schema: { type: object, properties: { error: { type: string } } }
+  /prototype/{id...}:
+    get:
+      tags: [mnemonic-decisions]
+      operationId: prototypeDecision
+      summary: Serve one decision-companion prototype (sandboxed to .skillgrid/prototype)
+      description: |-
+        Serves the HTML of one visual-companion prototype, sandboxed to
+        .skillgrid/prototype/ (a distinct subtree from the plural /prototypes
+        above, which is sandboxed to .stitch/). Traversal/absolute ids
+        (.., leading /) → 400; unknown → 404. Served with nosniff; rendered
+        client-side in a sandboxed iframe (sandbox="allow-scripts", no
+        allow-same-origin) inside the decision card. Throwaway by design —
+        the durable record is the decision observation + its version history.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Prototype path relative to .skillgrid/prototype/ (e.g. <topic>/<variant>.html)
+          schema: { type: string }
+      responses:
+        "200":
+          description: Prototype HTML
+          content:
+            text/html:
+              schema: { type: string }
+              example: "<html><body><h1>Variant A</h1></body></html>"
+        "400":
+          description: Invalid (traversal/absolute) id
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
+        "404":
+          description: Unknown prototype
+          content:
+            application/json:
+              schema: { type: object, properties: { error: { type: string } } }
+        "500": { $ref: "#/components/responses/Internal" }
 components:
   responses:
     Bad:
@@ -2852,6 +3012,44 @@ components:
         preview: { type: string }
         created_at: { type: string }
         relevance: { type: number, description: 0..1 rank-derived score }
+    DecisionOption:
+      type: object
+      properties:
+        id: { type: string, description: "Stable option id (a/b/…)" }
+        label: { type: string }
+        rationale: { type: string }
+    DecisionContent:
+      type: object
+      required: [question, state]
+      properties:
+        question: { type: string, description: "The question, in domain language" }
+        options:
+          type: array
+          items: { $ref: "#/components/schemas/DecisionOption" }
+        recommended: { type: string, description: "Id of the agent-recommended option (highlighted in the UI)" }
+        state: { type: string, enum: [pending, answered, superseded], description: "The convention state (a content field, not the governance status)" }
+        answeredOption: { type: string, description: "Id of the option the user chose (set by the answer)" }
+        answerNote: { type: string, description: "The user's answer note (set by the answer)" }
+        updatedBy: { type: string, description: "Last writer, agent, or user:<name> after an answer" }
+        visual: { type: string, description: "Prototype id <topic>/<variant>.html served from .skillgrid/prototype/ (GET /prototype/…); rendered in a sandboxed iframe when present" }
+    DecisionRow:
+      type: object
+      required: [id, topicKey, title, createdAt, updatedAt, visibility, content]
+      properties:
+        id: { type: integer, format: int64 }
+        topicKey: { type: string, description: "Convention topic_key interview/<slug>/<question-id>" }
+        title: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        visibility: { type: string }
+        content: { $ref: "#/components/schemas/DecisionContent" }
+        parseError: { type: boolean, description: "True when the row's content is not valid decision JSON (the row is still returned, never a 500)" }
+    DecisionAnswerInput:
+      type: object
+      required: [optionId]
+      properties:
+        optionId: { type: string, description: "Id of the option the user chose" }
+        note: { type: string, description: "Optional answer note" }
     DocChange:
       type: object
       required: [name, status]
