@@ -37,6 +37,7 @@ Chain strategy: pending
 ## Tickets
 
 ### TICKET-01 — Migration 040 plus session start/end events plus SessionChanges
+- **Tracker ID:** TASK-019.01
 
 - **Scope:** Tracer thread end-to-end: 040 schema, start/end event writes with commit range, ordered read.
 - **Acceptance:** `TestMigration040SessionEvents` and `TestSessionStartEndEvents` pass; `SessionChanges(sid)` returns start/end in order with from/to commits.
@@ -50,6 +51,7 @@ Chain strategy: pending
 - **Fails-when:** `go test` exits non-zero or `FAIL` appears in output
 
 ### TICKET-02 — Tool-call events plus counters plus sensitive redaction
+- **Tracker ID:** TASK-019.04
 
 - **Scope:** `post_tool_use` hook branch: ordered event rows, counter bumps in-transaction, sensitive matcher with hash/preview-only storage.
 - **Acceptance:** Two hook calls yield sequences 1, 2 with counters bumped; `.env` write flags sensitive with no full secret in payload.
@@ -60,6 +62,7 @@ Chain strategy: pending
 - **Blocked by:** TICKET-01
 
 ### TICKET-03 — Commit events with parsed context block
+- **Tracker ID:** TASK-019.03
 
 - **Scope:** Post-commit record path writes `commit` events (sha + parsed Task/Decisions/Remaining/Tried); block-less commits still recorded.
 - **Acceptance:** `TestCommitEventParsesContextBlock` passes for both block and block-less commits; non-repo path errors cleanly.
@@ -70,6 +73,7 @@ Chain strategy: pending
 - **Blocked by:** TICKET-01
 
 ### TICKET-04 — Session read: CLI plus MCP tool
+- **Tracker ID:** TASK-019.05
 
 - **Scope:** `skillgrid session <id> [--show-diff]` and `session_changes` MCP tool over `SessionChanges`.
 - **Acceptance:** CLI prints ordered events; `--show-diff` adds `git diff --stat from..to`; unknown id errors; MCP tool returns events JSON.
@@ -80,6 +84,7 @@ Chain strategy: pending
 - **Blocked by:** TICKET-01
 
 ### TICKET-05 — Delete Handoff Hub package plus CLI command
+- **Tracker ID:** TASK-019.07
 
 - **Scope:** Delete `internal/mnemonic/handoff/`, `cmd/skillgrid/handoff.go` (+tests), strip `main.go` dispatch; `skillgrid handoff` becomes unknown-subcommand.
 - **Acceptance:** `TestHandoffCommandGone` passes; `rg "mnemonic/handoff"` over Go sources is empty; full build green.
@@ -90,6 +95,7 @@ Chain strategy: pending
 - **Blocked by:** TICKET-02, TICKET-03, TICKET-04
 
 ### TICKET-06 — Delete hub and relay MCP tools
+- **Tracker ID:** TASK-019.06
 
 - **Scope:** Delete `tools_handoff.go`, `tools_session_handoff.go`, `tools_session_status.go`; deregister in `server.go`.
 - **Acceptance:** Registry test: 9 tool names absent, `session_changes` present; `mcp` package suite green.
@@ -103,6 +109,7 @@ Chain strategy: pending
 - **Fails-when:** registry test fails or any remaining reference to the 9 names exists in non-test sources
 
 ### TICKET-07 — Delete relay, hub HTTP, envelope field, bash snapshot/restore
+- **Tracker ID:** TASK-019.09
 
 - **Scope:** Delete `internal/mnemonic/relay/`, `http/handoff.go` (+test, strip `activity.go`), `memory/envelope.go` HandoffRefs, `session.go` handoff/resume/status; strip `snapshot`/`restore` + hub mirror from `checkpoint-state.sh` (keep guards).
 - **Acceptance:** `checkpoint-state.sh snapshot` errors unknown-subcommand; `rg` for the five table names + `cleave` in Go sources is empty; `test-hooks.sh` green at its adjusted count.
@@ -113,6 +120,7 @@ Chain strategy: pending
 - **Blocked by:** TICKET-05, TICKET-06
 
 ### TICKET-07b — Remove hub UI panes
+- **Tracker ID:** TASK-019.08
 
 - **Scope:** Delete `HandoffsPane.tsx` + `ChangesPane.tsx`, strip handoff calls from `api.ts`, fix remaining UI references.
 - **Acceptance:** UI builds with no handoff-pane imports; no `handoff`/`Handoff` references remain under `skillgrid-ui/src/features/sessions/`.
@@ -123,6 +131,7 @@ Chain strategy: pending
 - **Blocked by:** TICKET-06 (tool contracts it rendered must be gone first)
 
 ### TICKET-08 — Repoint skills to the events model
+- **Tracker ID:** TASK-019.11
 
 - **Scope:** Rewrite the 14 skill files + `sdd-structure.md` to the events model; regenerate the site partial.
 - **Acceptance:** Grep check: zero `checkpoint.json`, `snapshot|restore`, `handoff verify|record|archive|checkpoint`, `.cleave` refs; site partial regenerated.
@@ -133,6 +142,7 @@ Chain strategy: pending
 - **Blocked by:** TICKET-07
 
 ### TICKET-09 — Per-plan sdd workspace scripts
+- **Tracker ID:** TASK-019.02
 
 - **Scope:** Port `sdd-workspace`/`task-brief`/`review-package` (repathed to `.skillgrid/sdd`) plus `test-sdd-workspace.sh`.
 - **Acceptance:** Distinct plans resolve distinct dirs; artifacts land per-plan; parent `.gitignore` keeps `git status` clean; missing plan exits 2.
@@ -143,6 +153,7 @@ Chain strategy: pending
 - **Blocked by:** none
 
 ### TICKET-10 — Migration 041 drops old tables
+- **Tracker ID:** TASK-019.10
 
 - **Scope:** Drop `change_snapshots`, `checkpoints`, `handoff_refs`, `session_handoffs`, `session_archives` + six indexes.
 - **Acceptance:** Hub-era DB migrates with the five tables absent and `sessions`/`session_events` intact; full store suite green.
