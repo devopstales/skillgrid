@@ -10,6 +10,11 @@ export default defineConfig({
       '/api': 'http://127.0.0.1:7438',
     },
   },
+  test: {
+    // Component tests (decisions view) render real DOM + act on it; the
+    // existing pure-logic tests keep running fine under jsdom too.
+    environment: 'jsdom',
+  },
   build: {
     outDir: '../skillgrid-cli/internal/mnemonic/http/ui/dist',
     emptyOutDir: true,
