@@ -100,6 +100,71 @@ func (s *Server) handleMnemonicActivityEvents(w http.ResponseWriter, r *http.Req
 	})
 }
 
+// handleSessionActivity serves GET /sessions/{id}/activity?limit=N — the
+// activity feed scoped to one session. It reuses the exact events shape as
+// /activity/events but adds a session filter, so the Sessions UI can render a
+// session's own feed without a client-side filter of the global window
+// (sessions-activity-unification). An id with no observations returns 200 with
+// an empty events array (matching the unknown-project convention above), not 404.
+func (s *Server) handleSessionActivity(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer cleanup()
+
+	limit := queryInt(r, "limit", 100)
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	rows, err := h.Store().DB.QueryContext(r.Context(), `
+		SELECT o.id, o.created_at, o.type, COALESCE(o.source,'agent'), o.tool_name,
+		       o.title, o.topic_key, o.session_id
+		FROM observations o
+		WHERE o.project = ? AND o.deleted_at IS NULL AND o.session_id = ?
+		ORDER BY o.created_at DESC, o.id DESC
+		LIMIT ?`, projectID, sessionID, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	events := []activityEvent{}
+	for rows.Next() {
+		var e activityEvent
+		var otype string
+		if err := rows.Scan(&e.ID, &e.TS, &otype, &e.Source, &e.Actor, &e.Summary, &e.TopicKey, &e.SessionID); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		e.Type = otype
+		e.Severity = deriveSeverity(otype)
+		e.Related = []int64{}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"project": projectID,
+		"events":  events,
+		"limit":   limit,
+	})
+}
+
 // handleMnemonicActivityStats serves GET /activity/stats — counters for the
 // stats bar: total events, per-type breakdown, and active session count.
 func (s *Server) handleMnemonicActivityStats(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +268,7 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 		db := h.Store().DB
 		// Seed the high-water marks with the current newest ids (no replay of
 		// history on connect — the client already has it from /events and
-		// /activity/snapshots). If the observations seed errors, treat the
+		// /handoff/snapshots). If the observations seed errors, treat the
 		// stream as closed rather than replaying the whole table from id>0.
 		// The snapshot seed is best-effort (the table may predate the hub).
 		var newest int64

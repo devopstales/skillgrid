@@ -7,11 +7,12 @@ import (
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/handoff"
 )
 
-// handleHandoffSnapshots serves GET /activity/snapshots?limit=N — the
+// handleHandoffSnapshots serves GET /handoff/snapshots?limit=N — the
 // change-snapshot log (change_snapshots), newest-first. This is the Handoff
 // Hub's change log backed by the git-derived snapshot index (change
 // 015-handoff-hub). It is a read-only view; the durable record is the commit
-// (and its [skillgrid-context] block).
+// (and its [skillgrid-context] block). The route was renamed from
+// /activity/snapshots in sessions-activity-unification.
 func (s *Server) handleHandoffSnapshots(w http.ResponseWriter, r *http.Request) {
 	projectID, err := projectFromRequest(r)
 	if err != nil {

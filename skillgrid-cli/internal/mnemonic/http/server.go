@@ -90,6 +90,9 @@ func (s *Server) registerRoutes() {
 	// P6 Sessions entry: open list read + per-session summary read.
 	s.mux.HandleFunc("GET /sessions", s.handleSessionList)
 	s.mux.HandleFunc("GET /sessions/{id}/summary", s.handleSessionSummary)
+	// sessions-activity-unification: server-side session-scoped activity feed.
+	// Same response shape as /activity/events, filtered by the {id} session.
+	s.mux.HandleFunc("GET /sessions/{id}/activity", s.handleSessionActivity)
 
 	s.mux.HandleFunc("GET /context", s.handleContext)
 	s.mux.HandleFunc("GET /context/compaction", s.handleContextCompaction)
@@ -182,7 +185,10 @@ func (s *Server) registerGraphRoutes() {
 	s.mux.HandleFunc("GET /activity/stats", s.handleMnemonicActivityStats)
 	s.mux.HandleFunc("GET /activity/stream", s.handleMnemonicActivityStream)
 	// Handoff Hub (change 015): change-snapshot log + one-call hub status.
-	s.mux.HandleFunc("GET /activity/snapshots", s.handleHandoffSnapshots)
+	// The snapshot route lives under /handoff (renamed from /activity/snapshots
+	// in sessions-activity-unification — handoff data belongs in the handoff
+	// namespace, not the activity feed).
+	s.mux.HandleFunc("GET /handoff/snapshots", s.handleHandoffSnapshots)
 	s.mux.HandleFunc("GET /handoff/status", s.handleHandoffStatus)
 
 	// Phase 6 plans/specs routes (SDD aggregation from .skillgrid/*).

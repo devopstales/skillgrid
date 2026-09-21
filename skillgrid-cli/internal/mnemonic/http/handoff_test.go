@@ -39,11 +39,12 @@ func newHandoffServer(t *testing.T) (http.Handler, string) {
 	return NewServer(svc).Handler(), dataDir
 }
 
-// TestHandoffSnapshotsEndpoint covers GET /activity/snapshots — the change log
-// returns the seeded snapshot with its parsed [skillgrid-context] block.
+// TestHandoffSnapshotsEndpoint covers GET /handoff/snapshots — the change log
+// returns the seeded snapshot with its parsed [skillgrid-context] block. The
+// route was renamed from /activity/snapshots (sessions-activity-unification).
 func TestHandoffSnapshotsEndpoint(t *testing.T) {
 	h, _ := newHandoffServer(t)
-	rr := doGet(t, h, "/activity/snapshots?project="+proj+"&limit=10")
+	rr := doGet(t, h, "/handoff/snapshots?project="+proj+"&limit=10")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
 	}
@@ -62,6 +63,17 @@ func TestHandoffSnapshotsEndpoint(t *testing.T) {
 	ctx, ok := s0["context"].(map[string]any)
 	if !ok || ctx["task"] != "auth" || ctx["decisions"] != "jwt" {
 		t.Fatalf("parsed context = %v", s0["context"])
+	}
+	// The old path is gone (hard rename, no alias): it must no longer resolve to
+	// the snapshot handler. The SPA fallback (embed.go) serves the shell HTML
+	// for any unmatched GET, so "gone" means it returns HTML, not the JSON
+	// snapshot payload — assert the body no longer parses as JSON.
+	old := doGet(t, h, "/activity/snapshots?project="+proj+"&limit=10")
+	if old.Body.Len() > 0 {
+		var probe map[string]any
+		if err := json.Unmarshal(old.Body.Bytes(), &probe); err == nil {
+			t.Fatalf("old /activity/snapshots still returns JSON after rename: %v", probe)
+		}
 	}
 }
 
