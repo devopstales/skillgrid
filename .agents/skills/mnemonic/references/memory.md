@@ -77,7 +77,7 @@ mem_save(
 )
 ```
 
-Recovery: `mem_search("skillgrid/{YYYY-MM-DD-<topic>}/briefing")` → `mem_get_observation(id)` → parse → restore planning state. For execution-phase position, use the `execution-progress` slot + `checkpoint.json`.
+Recovery: `mem_search("skillgrid/{YYYY-MM-DD-<topic>}/briefing")` → `mem_get_observation(id)` → parse → restore planning state. For execution-phase position, use the `execution-progress` slot + the session's `commit` events (`skillgrid session <id>` / `session_changes`).
 
 ## Recovery Protocol (2 steps)
 

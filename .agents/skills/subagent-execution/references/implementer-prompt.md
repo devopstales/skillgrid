@@ -36,7 +36,7 @@ Subagent (general-purpose):
     2. Implement exactly what the task specifies
     3. Write tests (TDD is always on — follow skillgrid:test-driven-development per [`_shared/references/strict-tdd.md`](../../_shared/references/strict-tdd.md): failing test first, watch it fail, implement, then TRIANGULATE a second test with different inputs before refactoring). **BDD is always on** — the task carries a `SATISFIES: [scenario-name]` — that is the acceptance scenario in `.skillgrid/specs/<id>/acceptance.feature` you must make green. Confirm it is RED before writing code.
 4. Verify implementation works
-5. Commit your work per skillgrid:work-unit-commits (commit `.skillgrid/specs/` changes before code changes — zone rule, BDD is always on). Conventional subject, no AI-attribution trailer, atomic + independently-revertable. Put a `[skillgrid-context]` block in the body (Task / Decisions / Remaining / Tried). The git hooks enforce the guards; commit *after* the gate is green, *before* any long install/build. Then run `bash hooks/checkpoint-state.sh snapshot`.
+5. Commit your work per skillgrid:work-unit-commits (commit `.skillgrid/specs/` changes before code changes — zone rule, BDD is always on). Conventional subject, no AI-attribution trailer, atomic + independently-revertable. Put a `[skillgrid-context]` block in the body (Task / Decisions / Remaining / Tried). The git hooks enforce the guards; commit *after* the gate is green, *before* any long install/build.
 6. Self-review (see below)
     7. Report back
 
@@ -140,9 +140,9 @@ Subagent (general-purpose):
         A `G<n>` you could not run is reported as such (not silently passed); an
         impossible one is reported as `ABANDON <reason>`, a handoff, not done.
       - **Checkpoint:** the commit SHA + the `[skillgrid-context]` block you
-        wrote (Task / Decisions / Remaining / Tried), and confirmation you ran
-        `checkpoint-state.sh snapshot`. A commit with no context block is a
-        resume blind spot — say so if you had to skip the block.
+        wrote (Task / Decisions / Remaining / Tried). A commit with no context
+        block records an event with empty detail — say so if you had to skip
+        the block.
      - **TDD Evidence** (always required — TDD is non-negotiable):
       - RED: command run, relevant failing output before implementation, and why the failure was expected
       - GREEN: command run and relevant passing output after implementation

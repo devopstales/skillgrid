@@ -1,7 +1,7 @@
 # Setup
 
 Loaded on demand from `subagent-execution` SKILL.md before dispatching Task 1:
-workspace creation, the progress ledger, the commit checkpoint, and the
+workspace creation, the progress ledger, the commit position, and the
 pre-flight conflict scan. The Status Guard and the gate subsections stay in the
 main file; this is the detailed setup procedure.
 
@@ -41,13 +41,14 @@ only in todos.
   tail (current task + last ruling) after each task completion and each ruling
   — upsert, never duplicate. The in-repo ledger stays the source of truth; the
   store is the index for a fresh session that hasn't found the workspace yet.
-- On resume, also read the commit checkpoint per `skillgrid:work-unit-commits`:
-  `bash hooks/checkpoint-state.sh restore`. It prints
-  `.skillgrid/sdd/checkpoint.json` (derived from `git log -1` + the last
-  `[skillgrid-context]` block) plus live git state. If its `remaining` names a
-  partial unit, finish that unit before dispatching the next task. The ledger
-  tells you *which* tasks are done; the checkpoint tells you *where in the code*
-  the last unit left off — use both.
+- On resume, also read the commit position per `skillgrid:work-unit-commits`:
+  `git log --oneline -5` plus the latest commit's `[skillgrid-context]` block.
+  If its `Remaining:` names a partial unit, finish that unit before dispatching
+  the next task. For another session's position, read its events via
+  `skillgrid session <session-id>` (or the `session_changes` MCP tool) —
+  `to_commit` is the resume position. The ledger tells you *which* tasks are
+  done; the commit events tell you *where in the code* the last unit left
+  off — use both.
 - `git clean -fdx` will destroy the workspace (it's git-ignored scratch); if
   that happens, recover from `git log`.
 

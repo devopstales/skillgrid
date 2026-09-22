@@ -90,19 +90,15 @@ conventions:
   worktree_dir: .worktrees
   commit_style: conventional
 
-# --- Checkpoint (commit discipline + resume handle) ---
+# --- Work-unit commits (commit discipline + session events) ---
 # skillgrid:work-unit-commits is fully active during execution. Each work-unit
-# commit carries a [skillgrid-context] block (the durable record); this state
-# file is a DERIVED resume handle (.skillgrid/sdd/checkpoint.json) that
-# checkpoint-state.sh snapshot writes from git log + the block. The git hooks
+# commit carries a [skillgrid-context] block (the durable record); the hooks
+# record it as a `commit` event on the session event stream. The git hooks
 # (pre-commit, commit-msg) enforce the safety guards and the commit format.
-# A future skillgrid-cli rebinds the hook shims; the state_file path is the seam.
 checkpoint:
   enabled: true
-  state_file: .skillgrid/sdd/checkpoint.json
   # hooks: pre-commit (cwd-drift + protected-ref/detached guards),
   #        commit-msg (conventional subject + no AI-attribution trailer)
-  # rollup (session-end .skillgrid/sdd/PROGRESS.md) is deferred.
 
 # --- ADR format ---
 # Template used by skillgrid:architectural-decision-records for every ADR.

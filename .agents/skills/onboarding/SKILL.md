@@ -87,12 +87,11 @@ Read the project and detect facts. Never guess — detect, then confirm.
 **TDD mode:**
 - Always `true` — TDD is non-negotiable in Skillgrid
 
-**Checkpoint (commit discipline + resume handle):**
-- Always `enabled: true` — `skillgrid:work-unit-commits` is fully active during execution
-- `state_file` defaults to `<scratch_dir>/checkpoint.json` (`.skillgrid/sdd/checkpoint.json`)
-- Ask the user: "Checkpoint mode — (1) commit-only, (2) commit + resume handle (recommended)?"
-  - (2) → `checkpoint.enabled: true`, install the `pre-commit` + `commit-msg` hook shims
-  - (1) → `checkpoint.enabled: false`, conventional commits + guards only, no `checkpoint.json`
+**Commit discipline:**
+- Always on — `skillgrid:work-unit-commits` is fully active during execution
+- Ask the user: "Commit mode — (1) commit-only, (2) commit + session events (recommended)?"
+  - (2) → install the `pre-commit` + `commit-msg` hook shims; each work-unit commit feeds a `commit` event
+  - (1) → conventional commits + guards only, no session event detail
 
 **ADR style:**
 - Detect an existing `adr_style` in `.skillgrid/config.yaml` (if the file exists) → use it
@@ -240,7 +239,7 @@ If `.skillgrid/config.yaml` already exists:
 
 ## Verification
 
-- [ ] `.skillgrid/config.yaml` exists and parses (`yaml` load succeeds); every detected field (stack, testing, commands, ticketing, TDD, checkpoint, BDD) is filled
+- [ ] `.skillgrid/config.yaml` exists and parses (`yaml` load succeeds); every detected field (stack, testing, commands, ticketing, TDD, commit discipline, BDD) is filled
 - [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}` and tracker/memory lines
 - [ ] Detected test runner command runs and exits 0 (e.g. `go test ./...`, `npm test`, `pytest`)
 - [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`

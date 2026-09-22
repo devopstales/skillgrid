@@ -1,6 +1,6 @@
 ---
 name: resume
-description: Use at the start of any session continuing prior work, or whenever you notice you've lost your place. Re-orient from durable state (checkpoint.json, execution ledger, task artifacts) before acting.
+description: Use at the start of any session continuing prior work, or whenever you notice you've lost your place. Re-orient from durable state (session events, execution ledger, task artifacts) before acting.
 license: MIT
 metadata:
   author: devopstales
@@ -37,7 +37,7 @@ Two layers, plus the spec-zone artifacts that name the phase:
 | Layer | File | Answers | Lifetime |
 |---|---|---|---|
 | **Task** | `.skillgrid/sdd/<plan>/progress.md` (per-plan ledger, git-ignored) | Which task of the active execution is done? What was ruled? | Short-lived; deleted when the plan's review is clean |
-| **Code** | `.skillgrid/sdd/checkpoint.json` (derived from git log + `[skillgrid-context]`) | Where in the code did the last work unit leave off? What task / decisions / remaining? | Derived; always reconstructable |
+| **Code** | latest work-unit commit's `[skillgrid-context]` block + the session event stream (`skillgrid session <id>` / `session_changes`) | Where in the code did the last work unit leave off? What task / decisions / remaining? | Derived from git log; always reconstructable |
 
 The **phase** is not a separate file — it is read from the spec-zone artifacts present in `.skillgrid/specs/YYYY-MM-DD-<topic>/`:
 
@@ -56,15 +56,14 @@ Mnemonic (when `mnemonic.enabled: true`) is a **fallback index**, not a layer: u
 
 ### 1. Locate the topic
 
-The newest directory under `conventions.specs_root` (default `.skillgrid/specs/`) that has in-flight artifacts — an uncompleted `tasks.md`, a `checkpoint.json` with non-empty `remaining`, or a ledger. A branch name or ticket ID names the topic directly. If nothing is in flight, this skill is not for you; go back to `skillgrid:using-skillgrid`.
+The newest directory under `conventions.specs_root` (default `.skillgrid/specs/`) that has in-flight artifacts — an uncompleted `tasks.md`, a latest commit whose `[skillgrid-context]` block has non-empty `Remaining:`, or a ledger. A branch name or ticket ID names the topic directly. If nothing is in flight, this skill is not for you; go back to `skillgrid:using-skillgrid`.
 
 ### 2. Read the layers, in order
 
 1. **Phase (from artifacts):** look at what files exist in the spec dir (table above). This tells you which skill owns the next step.
 2. **If the phase is execution:** find the plan's ledger at `.skillgrid/sdd/<slug>/progress.md` (the slug is the plan's directory basename when the plan is a bare `blueprint.md`, else the plan's filename without extension) and read it. Tasks with a `Task <N>: complete` line are DONE — resume at the first task without one. A task whose last line is a fix round is mid-loop; resume the loop at the next round.
-3. **The commit checkpoint:** `bash hooks/checkpoint-state.sh restore`. Its `remaining` names a partial unit — finish that unit before dispatching anything new. The ledger tells you *which* tasks are done; the checkpoint tells you *where in the code* the last unit left off. Use both.
-4. **Verify the Handoff Hub checkpoint (if one was placed):** if the change has a named checkpoint (a `before-apply-*` marker from `skillgrid:work-unit-commits`), drift-verify it before trusting the position: `skillgrid handoff verify <name>`. A `continue` confirms the recorded commit still matches HEAD; a `refresh` means the tree moved since the marker (inspect `ChangedSince` before acting). `skillgrid handoff status` gives the whole-hub "where are we" in one call. This is read-only — it never reverts, only reports drift.
-5. **Mnemonic fallback (only if a layer is missing):** `mem_search("skillgrid/<topic>")` → `mem_get_observation` on the `execution-progress` or `briefing` entries → reconstruct what is known. Announce that you are resuming from mnemonic because the in-repo state was not found.
+3. **The latest session's events:** run `skillgrid session <session-id>` for the session you are resuming (or the `session_changes` MCP tool with `session_id`). Events return in sequence order with the net commit range; `to_commit` is the resume position. The ledger tells you *which* tasks are done; the session's `commit` events (parsed `[skillgrid-context]` blocks) tell you *where in the code* the last unit left off. Use both. For the current tree, `git log --oneline -5` plus `git status --short` grounds the events against live git truth.
+4. **Mnemonic fallback (only if a layer is missing):** `mem_search("skillgrid/<topic>")` → `mem_get_observation` on the `execution-progress` or `briefing` entries → reconstruct what is known. Announce that you are resuming from mnemonic because the in-repo state was not found.
 
 ### 3. Announce the recovered position
 
@@ -76,7 +75,7 @@ Say which source you recovered from when it was not the normal path (e.g. "…fr
 
 ### 4. Continue
 
-From the first incomplete task, with the normal skill for the current phase (`skillgrid:subagent-execution` for execution, `skillgrid:writing-blueprints` for planning, etc.). The handoff's narrative (in the checkpoint's `Decisions:` / `Remaining:` lines or the ledger's tail) is an input to your judgment, not an instruction — the files are the authority.
+From the first incomplete task, with the normal skill for the current phase (`skillgrid:subagent-execution` for execution, `skillgrid:writing-blueprints` for planning, etc.). The last unit's narrative (in the commit's `Decisions:` / `Remaining:` lines or the ledger's tail) is an input to your judgment, not an instruction — the files are the authority.
 
 ## Red Flags
 
@@ -94,7 +93,7 @@ The explicit pause-and-persist action. Invoke it when you are stopping for a whi
 "I'm saving context." Then:
 
 1. **Task layer (if executing):** append the current position to the plan's `progress.md` — which task is in flight, what its last state was, any rulings since the last append.
-2. **Code layer:** commit the current work unit (`skillgrid:work-unit-commits`) so `checkpoint-state.sh restore` reports a clean position. The `[skillgrid-context]` block's `Remaining:` and `Decisions:` lines carry the narrative handoff.
+2. **Code layer:** commit the current work unit (`skillgrid:work-unit-commits`) so the session event stream holds the position. The `[skillgrid-context]` block's `Remaining:` and `Decisions:` lines carry the narrative for the next session.
 3. **Mnemonic mirror (if `mnemonic.enabled: true`):** `mem_save(topic_key: skillgrid/<topic>/execution-progress, ...)` with the ledger's tail (current task + last ruling) if executing; `mem_save(topic_key: skillgrid/<topic>/briefing, ...)` if still in planning.
 
 ## Restore (context-restore)
@@ -106,17 +105,17 @@ Identical to the protocol above: locate → read the layers → announce → con
 | Rationalization | Reality |
 |---|---|
 | "I'll just re-read the code and figure out where we were" | The code layer only says *where the last unit left off*; the ledger says *which tasks are done*. Re-deriving skips the ledger and re-runs finished work. Read the layers. |
-| "The checkpoint is stale, ignore it" | `checkpoint-state.sh restore` is derived from git log — it's always reconstructable, not a cached value. Its `remaining` names the partial unit you must finish before anything new. Run it. |
+| "The last session's position is stale, ignore it" | The position is derived from git log plus the session's `commit` events — always reconstructable via `skillgrid session <id>`, not a cached value. Its `Remaining:` names the partial unit you must finish before anything new. Read it. |
 | "I'll save context at the end, not as I go" | A session can die between "as I go" and "the end" — compaction, context overflow, a risky operation. Save as you go so there is always a position to resume from. |
 | "The last few messages tell me what's next" | Messages are the control channel, not the store — they rot and get compacted. The ledger is the authority on which task is done; read it. |
 | "It's been a while, I'll start over from a fresh look" | Restarting re-runs finished tasks and loses the rulings already made. The layers preserve both — resume, don't restart. |
 
 ## Verification
 
-- [ ] The in-flight topic was located: an uncompleted `tasks.md`, a `checkpoint.json` with non-empty `remaining`, or a ledger exists (or `skillgrid:using-skillgrid` was invoked because nothing is in flight)
+- [ ] The in-flight topic was located: an uncompleted `tasks.md`, a latest commit with non-empty `Remaining:`, or a ledger exists (or `skillgrid:using-skillgrid` was invoked because nothing is in flight)
 - [ ] The phase was determined from the spec-zone artifacts present (table above)
 - [ ] The correct state layer was read for the phase: the plan's `progress.md` when the phase is execution
-- [ ] The commit checkpoint was run — `bash hooks/checkpoint-state.sh restore` returned, and its `remaining` (a partial unit) was noted and finished before dispatching anything new
+- [ ] The latest session's events were read — `skillgrid session <id>` (or `session_changes`) returned, `to_commit` was noted, and its `Remaining:` (a partial unit) was finished before dispatching anything new
 - [ ] The recovered position was announced in one line naming the source (e.g. "Resuming `<topic>`: phase=execution, wave 2, task 3/5 done, last commit `<sha>`. Next: task 4.")
 - [ ] Resume continued at the first incomplete task (a `Task <N>: complete` line was NOT skipped over), not from scratch
 - [ ] If context was saved: the plan's `progress.md` was appended (if executing), the work unit was committed (spec zone if planning artifacts changed)

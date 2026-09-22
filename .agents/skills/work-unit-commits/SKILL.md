@@ -2,10 +2,10 @@
 name: work-unit-commits
 description: >
   Use when committing work-unit changes during execution — the canonical commit
-  protocol: conventional-commit format, atomic + independently-revertable
-  sizing, when-to-commit, the [skillgrid-context] commit block, the git-hook
-  safety guards, and the .skillgrid/sdd/checkpoint.json resume handle. Fully
-  active by default during simple-execution and subagent-execution.
+   protocol: conventional-commit format, atomic + independently-revertable
+   sizing, when-to-commit, the [skillgrid-context] commit block, and the git-hook
+   safety guards. Fully
+   active by default during simple-execution and subagent-execution.
 license: MIT
 metadata:
   author: devopstales
@@ -20,16 +20,14 @@ metadata:
 
 Turn "commit after every task" into an *enforced* checkpoint: a conventional,
 atomic, independently-revertable commit that carries a machine-readable
-`[skillgrid-context]` block, guarded by git hooks, with a derived
-`checkpoint.json` resume handle. The commit is the durable record; the JSON is
-the resume pointer. They cannot drift because the JSON is derived from history.
+`[skillgrid-context]` block, guarded by git hooks. The commit is the durable
+record; its parsed block feeds a `commit` event on the session event stream,
+so a fresh session resumes from git log plus the session's events.
 
 **Announce at start:** "I'm using the skillgrid:work-unit-commits skill for commit discipline."
 
 **Config:** Read `.skillgrid/config.yaml`. Use `conventions.commit_style`
 (`conventional` by default) and `conventions.scratch_dir` (`.skillgrid/sdd`).
-`checkpoint.state_file` (default `<scratch_dir>/checkpoint.json`) and
-`checkpoint.enabled` (default `true`) control the resume handle.
 
 **Fully active by default** during `skillgrid:simple-execution` and
 `skillgrid:subagent-execution` — every work-unit commit follows this protocol.
@@ -39,8 +37,8 @@ Not on-demand.
 
 - Before committing after a work unit — any change during
   `skillgrid:simple-execution` or `skillgrid:subagent-execution`.
-- When wiring git hooks into a repo (`skillgrid install`) or resuming from a
-  checkpoint handle.
+- When wiring git hooks into a repo (`skillgrid install`) or resuming from the
+  session event stream.
 - When checking that a commit is atomic, conventional, and independently
   revertable before it lands.
 
@@ -52,11 +50,11 @@ revertability doesn't matter.
 | Layer | Where | What | Who writes it |
 |-------|-------|------|---------------|
 | **Durable record** | the commit's body | `[skillgrid-context]` block (Task / Decisions / Remaining / Tried) | you, at commit time |
-| **Resume handle** | `.skillgrid/sdd/checkpoint.json` | current position, derived from `git log -1` + the block | `checkpoint-state.sh snapshot` (idempotent) |
+| **Commit event** | the session event stream | parsed Task / Decisions / Remaining from the block, queryable per session | the hooks, at commit time |
 
 The `[skillgrid-context]` block is the source of truth for *decisions*; git
-history is the source of truth for *state*; `checkpoint.json` is a derived view
-of both. Never hand-edit the JSON.
+history is the source of truth for *state*. A fresh session resumes from
+`git log` plus the session's events (see `skillgrid:resume`).
 
 ## Commit format
 
@@ -113,7 +111,7 @@ checkpoint, not mid-command). Never commit broken tests or mid-edit state.
 | Layer | Path (repo → staged) | What |
 |-------|----------------------|------|
 | **Hook entrypoints (shims)** | `git-hooks/pre-commit`, `git-hooks/commit-msg`, `git-hooks/stop`, `git-hooks/gate-stop` → `~/.skillgrid/git-hooks/` | one-line shims that call the entrypoint |
-| **Implementation** | `hooks/checkpoint-state.sh` (subcommands `guard` / `guard-msg` / `post-check` / `snapshot` / `restore`), `hooks/precommit-guard.sh`, `hooks/precommit-zone-guard.sh`, `hooks/precommit-ignore-guard.sh`, `hooks/gate-lint.sh`, `hooks/gate-state.sh`, `hooks/gate-stop.sh`, `hooks/stop-tests.sh` → `~/.skillgrid/hooks/` | the actual logic |
+| **Implementation** | `hooks/checkpoint-state.sh` (subcommands `guard` / `guard-msg` / `post-check`), `hooks/precommit-guard.sh`, `hooks/precommit-zone-guard.sh`, `hooks/precommit-ignore-guard.sh`, `hooks/gate-lint.sh`, `hooks/gate-state.sh`, `hooks/gate-stop.sh`, `hooks/stop-tests.sh` → `~/.skillgrid/hooks/` | the actual logic |
 
 The shims resolve their implementation relative to themselves
 (`../hooks/checkpoint-state.sh`), so the two dirs stage together and work
@@ -164,65 +162,37 @@ staged to `~/.skillgrid/` by `skillgrid install`, which also points
 `core.hooksPath` at `~/.skillgrid/git-hooks`. The subcommand contract
 (`guard` / `guard-msg` / `post-check`) is the stable seam.
 
-## The checkpoint resume handle
+## The commit event stream
 
-After each work-unit commit, snapshot (idempotent, cheap):
+Each work-unit commit carries its `[skillgrid-context]` block into the session
+event stream as a `commit` event (parsed Task / Decisions / Remaining, keyed by
+commit id). A commit with no block still records an event, with empty detail.
 
-```bash
-bash hooks/checkpoint-state.sh snapshot
-```
-
-A fresh session resumes by reading the handle + live git state:
+A fresh session resumes by reading git state plus the session's events:
 
 ```bash
-bash hooks/checkpoint-state.sh restore
+git log --oneline -5
+skillgrid session <session-id>
 ```
 
 Resume rules (full decision tree in `references/state-schema.md`):
-- No file → fresh start.
-- File's `branch` == current branch → "Resuming from `<task>` — last commit
-  `<short>` `<subject>`."; finish `git status` remainder first.
-- File's `branch` differs → ask which branch to work on; don't guess.
-- `remaining` empty + tests green → unit done; move to the next task or
+- No commits yet → fresh start.
+- The latest commit's `Remaining:` names a partial unit — finish it first
+  (`git status` remainder first), then move to the next task.
+- `Remaining:` empty + tests green → unit done; move to the next task or
   `skillgrid:ship`.
+- For another session's position, read its events via `skillgrid session
+  <session-id>` (or the `session_changes` MCP tool): the events return in
+  sequence order with the net commit range, and `to_commit` is the resume
+  position.
 
-A human-readable view can be written from `templates/checkpoint.md` when a
-handoff is wanted, but the JSON is the source of truth.
+## Commit events (no Hub, no markers)
 
-## The Handoff Hub (change snapshots + named checkpoints)
-
-The `checkpoint.json` resume handle is the *per-change* pointer. The **Handoff
-Hub** (change 015) is the *engine-backed* change log that makes the whole
-history queryable from the admin UI and MCP. It has two layers on top of git:
-
-| Layer | Where | What | Who writes it |
-|-------|-------|------|---------------|
-| **Change snapshots** | `change_snapshots` (SQLite) | a git-derived, append-only log of EVERY commit + its parsed `[skillgrid-context]` block | `checkpoint-state.sh snapshot` (best-effort `skillgrid handoff record`) or `skillgrid handoff backfill` (first run, last 100 commits) |
-| **Named checkpoints** | `checkpoints` (SQLite) | intentional markers placed *before* risky actions, with drift verification | `skillgrid handoff checkpoint <name>` (you, before-apply / before-pause) |
-
-The change snapshots are reconstructable by replaying `git log` — they are the
-index, the commit is the durable record (same relationship as
-`checkpoint.json`). They can never be the sole source of truth.
-
-**Record a named checkpoint before a risky action** (before-apply-<change>,
-before a long pause, before validation):
-
-```bash
-skillgrid handoff checkpoint before-apply-<change> --evidence "lint ok, tests 34/34"
-```
-
-**Drift-verify a checkpoint before resuming** (no reverts — it only reports):
-
-```bash
-skillgrid handoff verify before-apply-<change>
-# -> continue | inspect-drift | refresh
-```
-
-The hook wiring is best-effort: `checkpoint-state.sh snapshot` already calls
-`skillgrid handoff record` after writing `checkpoint.json`, so the hub stays
-current with the resume handle. A missing `skillgrid` binary never blocks the
-commit. See `resume` for the verify-first resume flow and `ship` for archiving
-the change's checkpoints.
+Every commit is queryable per session from its `commit` event — there is no
+separate change log to maintain and no named markers to place or verify.
+Before a risky action, commit the current unit so the event stream holds the
+position; to resume, read the events. See `skillgrid:resume` for the
+events-first resume flow.
 
 ## Remember
 
@@ -230,10 +200,8 @@ the change's checkpoints.
 - Atomic + independently-revertable + ~100 lines.
 - Spec commit before code commit (zone rule).
 - Commit **after** a verified gate, **before** a long command.
-- Every work-unit commit carries the `[skillgrid-context]` block.
-- `snapshot` after each commit; `restore` to resume; never hand-edit the JSON.
-- The snapshot also feeds the Handoff Hub change log (best-effort `skillgrid handoff record`).
-- Place a named checkpoint (`skillgrid handoff checkpoint`) before a risky action; verify it (`skillgrid handoff verify`) before resuming.
+- Every work-unit commit carries the `[skillgrid-context]` block (it feeds the
+  session's `commit` events).
 - Never commit on a protected ref or a detached HEAD — the `pre-commit` hook stops it.
 - One-way-door decisions still get an ADR; the `Decisions:` line is the per-task record.
 
@@ -254,7 +222,7 @@ the change's checkpoints.
 - `.skillgrid/specs/` and code committed in the same commit.
 - Committing on `main`/`master`/`develop`/`trunk`/`release/*` or a detached HEAD.
 - A broken test or mid-edit state committed as a "checkpoint".
-- `checkpoint.json` hand-edited, or missing after a work-unit commit.
+- A work-unit commit with no `[skillgrid-context]` block.
 
 ## Verification
 
@@ -262,4 +230,4 @@ the change's checkpoints.
 - [ ] Each commit subject matches the conventional regex, with no AI attribution trailer.
 - [ ] Each commit body carries the `[skillgrid-context]` block (Task / Decisions / Remaining / Tried).
 - [ ] Git hooks are installed and fire on commit (`skillgrid install` ran; `pre-commit` + `commit-msg` shims present in `~/.skillgrid/git-hooks/`).
-- [ ] `checkpoint.json` exists and was derived by `checkpoint-state.sh snapshot` after the last commit.
+- [ ] `git log -1` shows the last work-unit commit with its `[skillgrid-context]` block intact.

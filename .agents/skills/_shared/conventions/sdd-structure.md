@@ -27,7 +27,7 @@ brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing
 | `structured-debugging` | Root-cause-first debugging discipline |
 | `test-driven-development` | RED → GREEN → TRIANGULATE → REFACTOR |
 | `test-driven-verification` | Evidence before any "done" claim |
-| `work-unit-commits` | Commit protocol + checkpoint resume handle |
+| `work-unit-commits` | Commit protocol + commit events for resume |
 | `isolated-workspace` | Worktree isolation before execution |
 | `ponytail` | Lazy-minimal solution discipline (auto, on coding tasks) |
 | `qa` | Quality gate → `qa-report.md` (test plan + verdict + evidence) |
@@ -59,7 +59,6 @@ brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing
 ├── archive/                    # CLOSED changes (committed, immutable); created lazily by ship
 │   └── YYYY-MM-DD-<topic>/     #   moved here by ship; reflect appends report.md
 ├── sdd/                        # scratch (gitignored)
-│   ├── checkpoint.json         # resume handle, derived from git log + [skillgrid-context]
 │   ├── <plan-basename>/
 │   │   ├── progress.md         # execution ledger
 │   │   ├── briefs/             # implementer briefs
@@ -82,7 +81,7 @@ brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing
 | writing-blueprints | plan | `specs/<topic>/blueprint.md` |
 | slicing | tickets | `specs/<topic>/tasks.md` |
 | ticketing | tracker IDs | `specs/<topic>/tasks.md` (Tracker ID fields) |
-| execution | progress | `sdd/<plan>/progress.md` + `tasks.md` `[x]` marks + `sdd/checkpoint.json` |
+| execution | progress | `sdd/<plan>/progress.md` + `tasks.md` `[x]` marks + session `commit` events |
 | qa | report | `specs/<topic>/qa-report.md` (test plan + verdict + evidence) |
 | review | findings | `specs/<topic>/` (review artifacts) |
 | ship | move | **moves** `specs/<topic>/` → `archive/YYYY-MM-DD-<topic>/` |

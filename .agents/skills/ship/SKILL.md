@@ -234,6 +234,14 @@ Record the following in your working context (it goes into reflect's `report.md`
 
 These are passed to `skillgrid:reflect` via the Return Envelope.
 
+### Step 6.5: Confirm the event stream holds the position
+
+Before the folder move, confirm the last work-unit commit carries its
+`[skillgrid-context]` block (`git log -1` shows the block): the session's
+`commit` events are the resume record, so the archived change stays resumable
+from `skillgrid session <session-id>` after the move. No separate close-out
+step — the events already hold every committed unit.
+
 ### Step 7: Mechanical Move to Archive (LAST step)
 
 The change folder moves from `specs/` (active) to a top-level `archive/` (closed historical record). This is a **mechanical filesystem operation** — file content MUST NEVER pass through the model's Read/Write path. The only acceptable move is a native shell command (`git mv` / `mv`), verified by a structural `diff -r` readback.

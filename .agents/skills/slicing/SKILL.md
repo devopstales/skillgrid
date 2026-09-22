@@ -173,7 +173,7 @@ behavior** — a ticket with none of them executes exactly as before. When prese
 Use `one-way` and `Precondition:` on migration, trust-boundary, and destructive
 tickets. Leave them off for routine, reversible work — the back-compat default
 is the point.
-4. Commit per skillgrid:work-unit-commits — conventional subject, a `[skillgrid-context]` block, then `checkpoint-state.sh snapshot`. Wave commits (between execution waves) carry the same block so a resumed session knows which wave is done and which is next.
+4. Commit per skillgrid:work-unit-commits — conventional subject, a `[skillgrid-context]` block. Wave commits (between execution waves) carry the same block so a resumed session knows which wave is done and which is next.
 
 ### Step 6: Hand Off
 

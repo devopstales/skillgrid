@@ -155,7 +155,7 @@ and run the pre-flight conflict scan. Conversation memory is the single most
 expensive failure: controllers that lost their place have re-dispatched entire
 completed task sequences. The ledger is the fix, not todos.
 
-Full workspace, ledger, checkpoint, and pre-flight-scan procedure:
+Full workspace, ledger, commit position, and pre-flight-scan procedure:
 [setup.md](references/setup.md).
 
 ### Status Guard
@@ -581,7 +581,7 @@ Use skillgrid:ship.
 
 On-demand detail for this skill, in `references/`:
 
-- [setup.md](references/setup.md) — workspace, progress ledger, commit checkpoint, and pre-flight conflict scan.
+- [setup.md](references/setup.md) — workspace, progress ledger, commit position, and pre-flight conflict scan.
 - [model-selection.md](references/model-selection.md) — per-role model-tier rules and complexity signals.
 - [final-review.md](references/final-review.md) — whole-branch review protocol, escalation threshold, fix-wave rules.
 - [example-workflow.md](references/example-workflow.md) — a worked end-to-end run of Setup → Task Loop → Final QA Gate → Final Review → Finish.
