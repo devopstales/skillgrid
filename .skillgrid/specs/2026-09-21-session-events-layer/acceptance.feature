@@ -287,11 +287,11 @@ The system SHALL keep one scratch workspace per plan with a plan-naming ledger, 
 #### Gates
 G1: per-plan-workspace happy path
    CHECK: bash scripts/test-sdd-workspace.sh
-   EXPECT: Results: 0 failed
+   EXPECT: 0 failed
    EVIDENCE: pending
 G2: per-plan-workspace-missing-plan failure path
    CHECK: bash scripts/test-sdd-workspace.sh
-   EXPECT: Results: 0 failed
+   EXPECT: 0 failed
    EVIDENCE: pending
 
 Rules (plain prose — see header note on the single-H1 rule):
