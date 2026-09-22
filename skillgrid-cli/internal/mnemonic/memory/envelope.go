@@ -19,7 +19,6 @@ import (
 //   - intent        — the classification of the current work (22.2): one of
 //                     exploration / debugging / review / refactor
 //   - matched_skills— the skill names most relevant to the intent
-//   - handoff_refs  — pointers to the step-21 handoff artifacts
 //
 // The working set is in-memory and session-scoped (a CLI process cannot rely on
 // prior in-process state, so it is built fresh per invocation from explicit
@@ -155,14 +154,13 @@ type ProjectMeta struct {
 }
 
 // ContextEnvelope is the universal context envelope (22.3). It is the
-// project-metadata + working-set + intent + matched-skills + handoff-refs
-// JSON document that is size-bounded at serialization (see MarshalJSON).
+// project-metadata + working-set + intent + matched-skills JSON document that
+// is size-bounded at serialization (see MarshalJSON).
 type ContextEnvelope struct {
 	Project       ProjectMeta   `json:"project"`
 	WorkingSet    EnvelopeWS    `json:"working_set"`
 	Intent        Intent        `json:"intent"`
 	MatchedSkills []string      `json:"matched_skills"`
-	HandoffRefs   []string      `json:"handoff_refs"`
 }
 
 // EnvelopeWS is the envelope's working-set section: the files (and their edit
@@ -174,8 +172,7 @@ type EnvelopeWS struct {
 // GenerateContextEnvelope assembles the full context envelope (22.3) for the
 // project by reading the store: the project's indexed file count and detected
 // languages (the distinct symbols.language values), the working set (session
-// edits), the classified intent, the matched skills (by intent), and the
-// handoff refs (the step-21 handoff.latest.json path under the data dir). The
+// edits), the classified intent, and the matched skills (by intent). The
 // working set is passed in (it is session-scoped in-memory state the CLI
 // process builds per invocation).
 func (s *Service) GenerateContextEnvelope(ctx context.Context, ws *WorkingSet, intent Intent, dataDir string) (*ContextEnvelope, error) {
@@ -197,9 +194,6 @@ func (s *Service) GenerateContextEnvelope(ctx context.Context, ws *WorkingSet, i
 		Languages: languages,
 	}
 	env.MatchedSkills = MatchedSkillsForIntent(intent)
-	if ref := HandoffPath(dataDir); ref != "" {
-		env.HandoffRefs = []string{ref}
-	}
 	return env, nil
 }
 
@@ -245,9 +239,9 @@ func MatchedSkillsForIntent(intent Intent) []string {
 }
 
 // NewContextEnvelope assembles a ContextEnvelope from a working set and a
-// classified intent. The project metadata, matched skills, and handoff refs are
-// filled in by the caller (or by GenerateContextEnvelope when the project store
-// is available).
+// classified intent. The project metadata and matched skills are filled in by
+// the caller (or by GenerateContextEnvelope when the project store is
+// available).
 func NewContextEnvelope(ws *WorkingSet, intent Intent) *ContextEnvelope {
 	files := ws.Files()
 	// A nil working set yields a non-nil empty files slice (JSON [] not null).
@@ -258,7 +252,6 @@ func NewContextEnvelope(ws *WorkingSet, intent Intent) *ContextEnvelope {
 		WorkingSet:    EnvelopeWS{Files: files},
 		Intent:        intent,
 		MatchedSkills: []string{},
-		HandoffRefs:   []string{},
 	}
 	return env
 }
@@ -276,7 +269,6 @@ type envelopeWire struct {
 	WorkingSet    EnvelopeWS    `json:"working_set"`
 	Intent        Intent        `json:"intent"`
 	MatchedSkills []string      `json:"matched_skills"`
-	HandoffRefs   []string      `json:"handoff_refs"`
 }
 
 // MarshalJSON serializes the envelope and enforces the size limit (22.3). If
@@ -301,7 +293,6 @@ func (e *ContextEnvelope) marshalJSON(maxSize int) ([]byte, error) {
 		WorkingSet:    EnvelopeWS{Files: files},
 		Intent:        e.Intent,
 		MatchedSkills: e.MatchedSkills,
-		HandoffRefs:   e.HandoffRefs,
 	}
 	raw, err := json.Marshal(&full)
 	if err != nil {

@@ -27,7 +27,7 @@ func TestMemContextCLI(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
 		t.Fatalf("mem context --envelope output is not valid JSON: %v\n%s", err, out)
 	}
-	for _, key := range []string{"project", "working_set", "intent", "matched_skills", "handoff_refs"} {
+	for _, key := range []string{"project", "working_set", "intent", "matched_skills"} {
 		if _, ok := decoded[key]; !ok {
 			t.Errorf("envelope JSON missing key %q\n%s", key, out)
 		}
@@ -42,7 +42,6 @@ func TestMemContextCLI(t *testing.T) {
 		} `json:"project"`
 		Intent        string   `json:"intent"`
 		MatchedSkills []string `json:"matched_skills"`
-		HandoffRefs   []string `json:"handoff_refs"`
 		WorkingSet    struct {
 			Files []map[string]any `json:"files"`
 		} `json:"working_set"`
@@ -59,9 +58,5 @@ func TestMemContextCLI(t *testing.T) {
 	// matched_skills must be non-empty for the default exploration intent.
 	if len(typed.MatchedSkills) == 0 {
 		t.Errorf("matched_skills is empty; expected skills for the exploration intent")
-	}
-	// handoff_refs must point at handoff.latest.json under the data dir.
-	if len(typed.HandoffRefs) != 1 || !strings.Contains(typed.HandoffRefs[0], "handoff.latest.json") {
-		t.Errorf("handoff_refs = %v, want [handoff.latest.json]", typed.HandoffRefs)
 	}
 }

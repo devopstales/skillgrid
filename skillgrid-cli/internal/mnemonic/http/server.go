@@ -184,12 +184,6 @@ func (s *Server) registerGraphRoutes() {
 	s.mux.HandleFunc("GET /activity/events", s.handleMnemonicActivityEvents)
 	s.mux.HandleFunc("GET /activity/stats", s.handleMnemonicActivityStats)
 	s.mux.HandleFunc("GET /activity/stream", s.handleMnemonicActivityStream)
-	// Handoff Hub (change 015): change-snapshot log + one-call hub status.
-	// The snapshot route lives under /handoff (renamed from /activity/snapshots
-	// in sessions-activity-unification — handoff data belongs in the handoff
-	// namespace, not the activity feed).
-	s.mux.HandleFunc("GET /handoff/snapshots", s.handleHandoffSnapshots)
-	s.mux.HandleFunc("GET /handoff/status", s.handleHandoffStatus)
 
 	// Phase 6 plans/specs routes (SDD aggregation from .skillgrid/*).
 	s.mux.HandleFunc("GET /plans", s.shellOrJSON(s.handlePlans))

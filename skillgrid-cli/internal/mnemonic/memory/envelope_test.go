@@ -127,7 +127,7 @@ func TestContextEnvelopeSizeLimit(t *testing.T) {
 
 // TestContextEnvelopeStructure (014 step 22.3): GenerateContextEnvelope assembles
 // a valid, size-bounded JSON envelope with the project metadata, working set,
-// intent, matched skills, and handoff refs.
+// intent and matched skills.
 func TestContextEnvelopeStructure(t *testing.T) {
 	project := "/work/proj"
 
@@ -140,7 +140,6 @@ func TestContextEnvelopeStructure(t *testing.T) {
 	env.Project.FileCount = 42
 	env.Project.Languages = []string{"go"}
 	env.MatchedSkills = []string{"debugging", "tdd"}
-	env.HandoffRefs = []string{"handoff.latest.json"}
 
 	// The envelope must serialize to valid JSON with the expected top-level
 	// keys (snake_case), and the intent must round-trip.
@@ -152,7 +151,7 @@ func TestContextEnvelopeStructure(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("envelope is not valid JSON: %v", err)
 	}
-	for _, key := range []string{"project", "working_set", "intent", "matched_skills", "handoff_refs"} {
+	for _, key := range []string{"project", "working_set", "intent", "matched_skills"} {
 		if _, ok := decoded[key]; !ok {
 			t.Errorf("envelope JSON missing key %q", key)
 		}
@@ -170,7 +169,6 @@ func TestContextEnvelopeStructure(t *testing.T) {
 			Languages []string `json:"languages"`
 		} `json:"project"`
 		MatchedSkills []string `json:"matched_skills"`
-		HandoffRefs   []string `json:"handoff_refs"`
 	}
 	if err := json.Unmarshal(raw, &typed); err != nil {
 		t.Fatalf("unmarshal typed envelope: %v", err)
@@ -186,8 +184,5 @@ func TestContextEnvelopeStructure(t *testing.T) {
 	}
 	if len(typed.MatchedSkills) != 2 || typed.MatchedSkills[0] != "debugging" {
 		t.Errorf("matched_skills = %v, want [debugging tdd]", typed.MatchedSkills)
-	}
-	if len(typed.HandoffRefs) != 1 || typed.HandoffRefs[0] != "handoff.latest.json" {
-		t.Errorf("handoff_refs = %v", typed.HandoffRefs)
 	}
 }

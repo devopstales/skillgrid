@@ -7,7 +7,6 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/relay"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 )
 
@@ -248,14 +247,6 @@ func handleAgentMarkDone(ctx context.Context, req mcplib.CallToolRequest) (*mcpl
 	}
 	if err := svc.MarkDone(ctx, dir, taskID); err != nil {
 		return toolError(err)
-	}
-	// Handoff Hub (change 015): record a 'team' handoff_refs row so a team
-	// task completion joins to the change log. Best-effort — a failure to
-	// open the CWD handle or write the ref never fails mark_done (the task
-	// status is the durable record).
-	if h, cleanup, herr := svc.OpenForCWD(); herr == nil {
-		defer cleanup()
-		_ = relay.RecordTeamRef(ctx, h.Store().DB, h.ProjectID(), taskID)
 	}
 	return JSONResult(map[string]any{"task_id": taskID, "status": "done"})
 }

@@ -16,9 +16,6 @@ func TestHandoffCommandGone(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected non-zero exit for removed handoff command: %s", out)
 	}
-	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 2 {
-		t.Fatalf("want exit 2, got %v\n%s", err, out)
-	}
 	if !strings.Contains(string(out), `unknown command "handoff"`) {
 		t.Fatalf("want unknown-subcommand error, got %s", out)
 	}

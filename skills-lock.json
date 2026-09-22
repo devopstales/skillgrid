@@ -13,6 +13,12 @@
       "skillPath": "archify/SKILL.md",
       "computedHash": "0fba8a6990d908b5302c8522c76ff2c91524afd670b6d3c94589087a041091a6"
     },
+    "create-design-md": {
+      "source": "ibelick/ui-skills",
+      "sourceType": "github",
+      "skillPath": "skills/create-design-md/SKILL.md",
+      "computedHash": "5376526e2d60d21ab85fdba2ae15d1ee7be41fa3ee5b76a8717a08327d6459b1"
+    },
     "design-md": {
       "source": "google-labs-code/stitch-skills",
       "sourceType": "github",

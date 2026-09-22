@@ -1,128 +1,30 @@
 #!/usr/bin/env bash
-# checkpoint-state.sh — skillgrid checkpoint CLI entrypoint (model B).
+# checkpoint-state.sh — skillgrid guard-hooks entrypoint.
 #
 # The durable record lives in the commit (its [skillgrid-context] body block).
-# The resume handle is .skillgrid/sdd/checkpoint.json, which is DERIVED from
-# `git log -1` + the last [skillgrid-context] block so it can never drift from
-# history. A fresh session reads it to resume; nothing is hand-maintained.
+# Resume reads the session event stream, not a checkpoint file.
 #
 # CLI-ready: the repo's .git/hooks shims call this script. skillgrid-cli later
 # rebinds the shims to its binary; the subcommand contract stays stable.
 #
 # Subcommands:
-#   snapshot     derive + write .skillgrid/sdd/checkpoint.json from the last commit
-#   restore      print the current resume state (for a fresh session)
 #   guard        pre-commit guards (delegates to precommit-guard.sh)
 #   guard-msg    validate a commit message file (conventional + no Co-Authored-By)
 #   post-check   post-commit deletion check (delegates to precommit-guard.sh)
 #
-# Env:
-#   SKILLGRID_CHECKPOINT_JSON  override the state file path
-#   (defaults to <repo-root>/.skillgrid/sdd/checkpoint.json)
+# (The snapshot/restore subcommands were removed in the session-events-layer
+# consolidation: the durable record is the commit's [skillgrid-context] block
+# and resume reads the session event stream. Both now report unknown
+# subcommand.)
+#
+# Env: none.
 set -euo pipefail
 
-SUBCMD="${1:-snapshot}"
+SUBCMD="${1:-}"
 shift || true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD="$SCRIPT_DIR/precommit-guard.sh"
-
-repo_root() { git rev-parse --show-toplevel 2>/dev/null; }
-
-state_file() {
-  if [ -n "${SKILLGRID_CHECKPOINT_JSON:-}" ]; then
-    echo "$SKILLGRID_CHECKPOINT_JSON"
-  else
-    local root; root="$(repo_root)"
-    echo "$root/.skillgrid/sdd/checkpoint.json"
-  fi
-}
-
-# Pull a field out of the last commit's [skillgrid-context] block.
-# $1 = field name (Decisions/Remaining/Tried/Task/Commit)
-context_field() {
-  local field="$1" line
-  line="$(git log -1 --pretty=%B 2>/dev/null | sed -n "/^\[skillgrid-context\]/,/\[\/skillgrid-context\]/p" | grep -E "^${field}:" || true)"
-  # strip the "Field:" prefix, keep the rest
-  printf '%s' "$line" | sed -E "s/^${field}:[[:space:]]*//"
-}
-
-now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
-
-# Build the JSON body as a single-quoted-safe string. We keep values minimal and
-# escape double-quotes/backslashes so the output is valid JSON without jq.
-json_escape() {
-  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\t' ' '
-}
-
-cmd_snapshot() {
-  local root; root="$(repo_root)"
-  [ -n "$root" ] || { echo "FATAL: not a git repository." >&2; exit 1; }
-  local sf; sf="$(state_file)"
-  mkdir -p "$(dirname "$sf")"
-
-  local branch ts commit short subject
-  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
-  ts="$(now_iso)"
-  commit="$(git rev-parse HEAD 2>/dev/null || echo "")"
-  short="$(git rev-parse --short HEAD 2>/dev/null || echo "")"
-  subject="$(git log -1 --pretty=%s 2>/dev/null || echo "")"
-
-  local decisions remaining tried task
-  decisions="$(json_escape "$(context_field Decisions)")"
-  remaining="$(json_escape "$(context_field Remaining)")"
-  tried="$(json_escape "$(context_field Tried)")"
-  task="$(json_escape "$(context_field Task)")"
-
-  # completed_tasks: tasks named in the block are unknown to the script; the
-  # skill fills this from its todo list. We record the last commit's task label.
-  local completed
-  completed="$(json_escape "$task")"
-
-  cat > "$sf" <<EOF
-{
-  "schema": "skillgrid/checkpoint/v1",
-  "updated": "$ts",
-  "branch": "$branch",
-  "last_commit": "$commit",
-  "last_commit_short": "$short",
-  "last_commit_subject": "$(json_escape "$subject")",
-  "current_task": "$task",
-  "completed_tasks": "$completed",
-  "decisions": "$decisions",
-  "remaining": "$remaining",
-  "tried": "$tried"
-}
-EOF
-  echo "CHECKPOINT_WRITTEN $sf"
-
-  # Mirror the snapshot into the Handoff Hub store (change 015-handoff-hub).
-  # Best-effort: the bash script stays the standalone source of truth; when the
-  # skillgrid binary is present it also records the commit into the
-  # change_snapshots table so the admin UI change log stays current. A missing
-  # binary or a store write failure must never block the commit.
-  #
-  local root; root="$(repo_root)"
-  if [ -n "$root" ] && command -v skillgrid >/dev/null 2>&1; then
-    ( cd "$root" && skillgrid handoff record >/dev/null 2>&1 ) || true
-  fi
-}
-
-cmd_restore() {
-  local sf; sf="$(state_file)"
-  if [ ! -f "$sf" ]; then
-    echo "NO_CHECKPOINT $sf"
-    return 0
-  fi
-  # Print the state for a fresh session to consume.
-  cat "$sf"
-  echo
-  # Plus the git truth the file may predate, so resume is grounded.
-  echo "--- GIT STATE ---"
-  echo "branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
-  echo "HEAD:   $(git rev-parse --short HEAD 2>/dev/null || echo none) $(git log -1 --pretty=%s 2>/dev/null || true)"
-  git status --short 2>/dev/null || true
-}
 
 # guard is a dispatcher: run every pre-commit guard in sequence. Each is a
 # sibling in hooks/. The shims (and skillgrid-cli later) call only
@@ -166,13 +68,11 @@ cmd_guard_msg() {
 }
 
 case "$SUBCMD" in
-  snapshot)    cmd_snapshot ;;
-  restore)     cmd_restore ;;
   guard)       cmd_guard ;;
   guard-msg)   cmd_guard_msg "$@" ;;
   post-check)  cmd_post_check ;;
   *)
-    echo "unknown subcommand: $SUBCMD (expected snapshot|restore|guard|guard-msg|post-check)" >&2
+    echo "unknown subcommand: $SUBCMD (expected guard|guard-msg|post-check)" >&2
     exit 2
     ;;
 esac

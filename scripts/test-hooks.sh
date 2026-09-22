@@ -230,19 +230,30 @@ EOF
   expect_rc "lint: malformed gate emits a warning" 0 "$?"
 }
 
-# --- snapshot (checkpoint.json derivation) -----------------------------------
+# --- snapshot/restore (removed — must report unknown subcommand) -------------
+# TICKET-07 (old-surfaces-removed): the checkpoint file is gone; resume reads
+# the session event stream. Both subcommands fail closed with exit 2 and an
+# unknown-subcommand message, and no checkpoint file is written.
 
 case_snapshot() {
   [ "$FILTER" = "snapshot" ] || [ -z "$FILTER" ] || return 0
 
   new_repo snap
   ( cd "$WORK/snap" && printf 'a\n' > a.txt && git add -A && git commit -q -m "feat(x): add a" )
-  export SKILLGRID_CHECKPOINT_JSON="$STATE"
-  ( cd "$WORK/snap" && bash "$CHECKPOINT" snapshot >/dev/null 2>&1 )
-  expect_rc "snapshot: writes checkpoint.json" 0 "$?"
-  [ -f "$STATE" ] && grep -q '"branch"' "$STATE"
-  expect_rc "snapshot: checkpoint.json has branch field" 0 "$?"
-  unset SKILLGRID_CHECKPOINT_JSON
+  out="$( cd "$WORK/snap" && bash "$CHECKPOINT" snapshot 2>&1 )"
+  expect_rc "snapshot: removed subcommand exits 2" 2 "$?"
+  case "$out" in
+    *"unknown subcommand"*) expect_rc "snapshot: reports unknown subcommand" 0 0 ;;
+    *) expect_rc "snapshot: reports unknown subcommand" 0 1 ;;
+  esac
+  out="$( cd "$WORK/snap" && bash "$CHECKPOINT" restore 2>&1 )"
+  expect_rc "restore: removed subcommand exits 2" 2 "$?"
+  case "$out" in
+    *"unknown subcommand"*) expect_rc "restore: reports unknown subcommand" 0 0 ;;
+    *) expect_rc "restore: reports unknown subcommand" 0 1 ;;
+  esac
+  [ ! -f "$STATE" ]
+  expect_rc "snapshot: no checkpoint file written" 0 "$?"
 }
 
 # --- run all (respect filter) ------------------------------------------------
