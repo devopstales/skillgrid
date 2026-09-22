@@ -47,11 +47,11 @@ The system SHALL record every agent session with its start commit and end commit
 
 #### Gates
 G1: session-lifecycle happy path
-   CHECK: cd skillgrid-cli && go test ./internal/mnemonic/memory/ -run TestSessionStartEndEvents
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./internal/mnemonic/memory/ -run TestSessionStartEndEvents
    EXPECT: --- PASS
    EVIDENCE: pending
 G2: session-lifecycle-unknown-session failure path
-   CHECK: cd skillgrid-cli && go test ./internal/mnemonic/memory/ -run TestSessionStartEndEvents
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./internal/mnemonic/memory/ -run TestSessionStartEndEvents
    EXPECT: --- PASS
    EVIDENCE: pending
 
@@ -86,11 +86,11 @@ The system SHALL append one ordered event per tool call and keep per-session cou
 
 #### Gates
 G1: tool-call-stream happy path
-   CHECK: cd skillgrid-cli && go test ./internal/mnemonic/memory/ -run TestPostToolUseAppendsOrderedEvents
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./internal/mnemonic/memory/ -run TestPostToolUseAppendsOrderedEvents
    EXPECT: --- PASS
    EVIDENCE: pending
 G2: tool-call-stream-rejected failure path
-   CHECK: cd skillgrid-cli && go test ./internal/mnemonic/memory/ -run TestPostToolUseAppendsOrderedEvents
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./internal/mnemonic/memory/ -run TestPostToolUseAppendsOrderedEvents
    EXPECT: --- PASS
    EVIDENCE: pending
 
@@ -125,11 +125,11 @@ The system SHALL flag sensitive file activity and never store sensitive content,
 
 #### Gates
 G1: sensitive-redaction happy path (positive control: hash present, preview masked)
-   CHECK: cd skillgrid-cli && go test ./internal/mnemonic/memory/ -run TestSensitiveWriteRedacted
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./internal/mnemonic/memory/ -run TestSensitiveWriteRedacted
    EXPECT: --- PASS
    EVIDENCE: pending
 G2: sensitive-redaction-absence (absence oracle with positive control above)
-   CHECK: cd skillgrid-cli && go test ./internal/mnemonic/memory/ -run TestSensitiveWriteRedacted
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./internal/mnemonic/memory/ -run TestSensitiveWriteRedacted
    EXPECT: --- PASS
    EVIDENCE: pending
 
@@ -163,11 +163,11 @@ The system SHALL record every work-unit commit as a session event carrying its p
 
 #### Gates
 G1: commit-events happy path
-   CHECK: cd skillgrid-cli && go test ./internal/mnemonic/memory/ -run TestCommitEventParsesContextBlock
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./internal/mnemonic/memory/ -run TestCommitEventParsesContextBlock
    EXPECT: --- PASS
    EVIDENCE: pending
 G2: commit-events-no-repo failure path
-   CHECK: cd skillgrid-cli && go test ./internal/mnemonic/memory/ -run TestCommitEventParsesContextBlock
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./internal/mnemonic/memory/ -run TestCommitEventParsesContextBlock
    EXPECT: --- PASS
    EVIDENCE: pending
 
@@ -201,15 +201,15 @@ The system SHALL answer what changed in a session from its event stream plus the
 
 #### Gates
 G1: resume-from-events happy path (CLI)
-   CHECK: cd skillgrid-cli && go test ./cmd/skillgrid/ -run TestSessionShow
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./cmd/skillgrid/ -run TestSessionShow
    EXPECT: --- PASS
    EVIDENCE: pending
 G2: resume-from-events happy path (MCP tool)
-   CHECK: cd skillgrid-cli && go test ./internal/mnemonic/mcp/ -run TestSessionChangesTool
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./internal/mnemonic/mcp/ -run TestSessionChangesTool
    EXPECT: --- PASS
    EVIDENCE: pending
 G3: resume-from-events-unknown-session failure path
-   CHECK: cd skillgrid-cli && go test ./cmd/skillgrid/ -run TestSessionShow
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./cmd/skillgrid/ -run TestSessionShow
    EXPECT: --- PASS
    EVIDENCE: pending
 
@@ -246,11 +246,11 @@ The system SHALL NOT offer the checkpoint file, the handoff command, the hub/rel
 
 #### Gates
 G1: old-surfaces-removed happy path (CLI surface gone — positive control: help lists session show)
-   CHECK: cd skillgrid-cli && go test ./cmd/skillgrid/ -run TestHandoffCommandGone
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./cmd/skillgrid/ -run TestHandoffCommandGone
    EXPECT: --- PASS
    EVIDENCE: pending
 G2: old-surfaces-removed-tool-call failure path
-   CHECK: cd skillgrid-cli && go test ./internal/mnemonic/mcp/ -run TestRemovedToolsAbsent
+   CHECK: cd skillgrid-cli && go test -v -count=1 ./internal/mnemonic/mcp/ -run TestRemovedToolsAbsent
    EXPECT: --- PASS
    EVIDENCE: pending
 
