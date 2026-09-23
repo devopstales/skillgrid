@@ -319,7 +319,7 @@ New tools: `fact_add`, `fact_search`, `fact_forget`, `fact_decay`, `write_skill`
 | **Module** | Deep package owning a domain Interface (facts, skills, vec) | technical |
 | **Seam** | Boundary where Adapter (sqlite-vec, FS, exec) plugs in | technical |
 
-<!-- Fold new terms here; also upsert docs/skillgrid/agents/glossary/{business,technical}.md. No companion *-glossary-reference.md. Do not edit glossary files in this migration. -->
+<!-- Glossary content lives in this document's `## Glossary` section; also upsert docs/skillgrid/agents/glossary/{business,technical}.md. -->
 
 ## Author self-review
 
