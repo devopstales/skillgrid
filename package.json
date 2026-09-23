@@ -1,0 +1,24 @@
+{
+  "name": "skillgrid-v2",
+  "version": "1.0.0",
+  "description": "Every AI-assisted change is a small bet that the agent still knows what it's doing. It doesn't, for long. The prompt that nailed the first feature is buried under twenty sessions of \"just a quick fix.\" Context fills up. Intent drifts. The agent re-derives the same design decisions you already made, and \"done\" becomes a claim with no evidence behind it.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devopstales/skillgrid.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/devopstales/skillgrid/issues"
+  },
+  "homepage": "https://github.com/devopstales/skillgrid#readme"
+}
