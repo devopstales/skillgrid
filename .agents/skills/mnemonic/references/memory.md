@@ -53,9 +53,8 @@ title/topic_key: skillgrid-init/{project}     (init-time full project context)
 | `ticketing` | ticketing | config |
 | `findings` (research/spike/sketch evidence) | research / spike / sketch | architecture |
 | `execution-progress` (cumulative, per change) | simple-execution / subagent-execution (one per batch) | architecture |
-| `qa-report` (test plan + verdict + evidence) | qa | architecture |
 | `ship` (integration + move context) | ship | architecture |
-| `report` (final close: integration + retro + lineage) | reflect | learning |
+| `report` (merged tail report — QA half by qa, retro half by reflect; one upserted slot) | qa → reflect | learning |
 | `changelog` (topic reservations + archives) | brainstorming / (archive phase) | config |
 | `tech_stack` | onboarding | config |
 | `issue_tracker` | onboarding | config |

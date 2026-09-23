@@ -24,7 +24,7 @@ Generates the human-facing prose about a finished change: the PR body, the chang
 
 - At ship time: `skillgrid:ship` invokes this skill for the PR body (type `pr`) when the user chooses "Push and create a Pull Request".
 - Standalone, after a change has shipped: "write the changelog entry", "release notes for v1.4.0", "postmortem for the auth outage".
-- When a finished change needs its human record and the planning artifacts (briefing, blueprint, qa-report) exist to argue from.
+- When a finished change needs its human record and the planning artifacts (briefing, blueprint, report) exist to argue from.
 
 **When NOT to use:** mid-change before the work is verified (the record describes what shipped, not what is in flight). For planning artifacts (briefing, blueprint, tasks) — those are `skillgrid:brainstorming` / `skillgrid:writing-blueprints` / `skillgrid:slicing`. For the terminal retrospective (`report.md`) — that is `skillgrid:reflect`, which owns the close-out document; this skill owns the *human-facing* records that outlive the change folder.
 
@@ -57,7 +57,7 @@ Collect from the real record, in this order:
    git log --oneline "BASE..HEAD"
    git diff --name-status "BASE...HEAD"
    ```
-2. **The change folder** (the "why"): the change's `briefing.md` (goal + falsifiable requirements), `blueprint.md` (approach + Build shape + Tier + Status), `tasks.md` (what shipped), `qa-report.md` (gate verdict + evidence). If the folder was already archived, read it from `.skillgrid/archive/YYYY-MM-DD-<topic>/`.
+2. **The change folder** (the "why"): the change's `briefing.md` (goal + falsifiable requirements), `blueprint.md` (approach + Build shape + Tier + Status), `tasks.md` (what shipped), `report.md` → `## Gate Decision` (gate verdict + evidence, the QA half). If the folder was already archived, read it from `.skillgrid/archive/YYYY-MM-DD-<topic>/`.
 3. **The decision record:** the 3 most recently modified ADRs in `.skillgrid/adr/` that this change touched (for the "why this design" a reviewer or future reader needs).
 4. **Postmortem only** — the incident facts: the observed vs expected behavior, the reproduction, the root cause. Read the change's debug state file (`.skillgrid/sdd/debug/<date>-<slug>/state.md`) if present; ask the user for any fact it cannot derive (when it was noticed, blast radius, user impact, timeline).
 
@@ -68,7 +68,7 @@ Read the matching template from this skill's `templates/` directory and fill it 
 - **Every claim traces to a source.** A timeline entry names its commit. A "fixed" bullet names the file. A cause names the evidence. If you cannot name the source, do not write the claim.
 - **Audience pitch.** `pr` is for the person who must approve the diff — lead with what changed and why, then the evidence. `changelog` is for developers integrating the next version — bullet the user-visible changes, group by Added/Changed/Fixed/Breaking. `release-note` is for end users — plain language, no internal names, lead with what they can now do. `postmortem` is for the team that must not repeat this — lead with the impact, then the timeline, then the root cause, then the actions.
 - **No marketing.** No "excited to announce", no "seamless", no "robust". State what is true.
-- **The gate is named, not implied.** For `pr` and `release-note`, the `qa-report.md` verdict (PASS / WAIVED / CONCERNS + override) is part of the record.
+- **The gate is named, not implied.** For `pr` and `release-note`, the `report.md` → `## Gate Decision` verdict (PASS / WAIVED / CONCERNS + override) is part of the record.
 
 ### Step 4: Deliver
 
@@ -95,14 +95,14 @@ Commit the written file with `skillgrid:work-unit-commits` (docs zone; the `docs
 - A changelog entry with "misc improvements" or "various fixes" and nothing named.
 - A release note that uses internal names (ticket IDs, module names) for an end-user audience.
 - A postmortem without a timeline or without the root cause stated with its evidence.
-- The PR body omitting the `qa-report.md` verdict — the gate result is part of the record.
+- The PR body omitting the `report.md` verdict — the gate result is part of the record.
 - Writing the document before the change folder (or its archived copy) has been read.
 
 ## Verification
 
 - [ ] The document type was determined (from the invocation, an argument, or one confirmed question).
-- [ ] The source material was gathered from git (`git log` / `git diff`) and the change folder (briefing, blueprint, tasks.md, qa-report.md) — not from memory.
+- [ ] The source material was gathered from git (`git log` / `git diff`) and the change folder (briefing, blueprint, tasks.md, report.md) — not from memory.
 - [ ] Every claim in the document traces to a named commit, file, or change-folder fact (spot-check at least three claims against their source).
 - [ ] The document was written to the correct output path per the type table (forge PR body / `CHANGELOG.md` / `.skillgrid/releases/<version>.md` / `.skillgrid/postmortems/<date>-<slug>.md`).
-- [ ] The `qa-report.md` verdict is named in the record (pr / release-note).
+- [ ] The `report.md` → `## Gate Decision` verdict is named in the record (pr / release-note).
 - [ ] The file was committed with a `docs:` conventional subject (changelog / release-note / postmortem).

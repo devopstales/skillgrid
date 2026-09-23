@@ -31,7 +31,7 @@ When working a change `{YYYY-MM-DD-<topic>}`:
 | Blueprint | `skillgrid/{YYYY-MM-DD-<topic>}/blueprint` |
 | Tasks | `skillgrid/{YYYY-MM-DD-<topic>}/tasks` |
 | Execution progress | `skillgrid/{YYYY-MM-DD-<topic>}/execution-progress` |
-| QA report | `skillgrid/{YYYY-MM-DD-<topic>}/qa-report` |
+| Report | `skillgrid/{YYYY-MM-DD-<topic>}/report` — one observation, upserted: qa saves the QA half, reflect upserts the full report (retro half) |
 | Review report | `skillgrid/{YYYY-MM-DD-<topic>}/review-report` |
 
 ## Recovery Ladder

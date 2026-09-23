@@ -88,11 +88,13 @@ Do not auto-execute. The user must confirm the slice before execution begins.
 | missing / no `tasks.md` | `brainstorming` → `writing-blueprints` → `slicing` |
 | `tasks.md` exists, no tickets started | user gate → `subagent-execution` |
 | Tickets in-progress | resume `subagent-execution` at first incomplete ticket |
-| All tickets done, no `qa-report.md` | `qa` |
-| `qa-report.md` PASS, no review | `requesting-code-review` |
+| All tickets done, `report.md` verdict EMPTY/`PENDING` (or absent) | `qa` |
+| `report.md` verdict filled (PASS/CONCERNS/FAIL/WAIVED), retro sections EMPTY | `requesting-code-review` |
 | Review clean | `receiving-code-review` → `ship` |
-| Folder moved to `archive/`, no `report.md` | `reflect` (terminal) |
-| `report.md` present in `archive/` | none — cycle complete |
+| Folder in `archive/`, verdict filled, retro EMPTY | `reflect` (terminal) |
+| Folder in `archive/`, retro sections filled (e.g. `## Acceptance Verdict` present) | none — cycle complete |
+
+Tail rows key on **markers within `report.md`** (the merged qa+retro report), not file existence — full marker definitions in `skillgrid:resume`.
 
 ## Skill Priority
 

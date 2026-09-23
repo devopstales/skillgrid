@@ -21,5 +21,5 @@ Degraded: filesystem — read-only workspace, mnemonic-only
 
 - Never fail silently. A missing write without a `Degraded:` line is a bug.
 - The filesystem copy is the recovery source of truth — when both exist and disagree, the file wins.
-- A `fail` verdict (qa-report) is **persisted**, not skipped.
+- A `FAIL` verdict (`report.md` → `## Gate Decision`) is **persisted**, not skipped.
 - Do not retry a failed Mnemonic save more than once in the same session; note the degradation and continue.

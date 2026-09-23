@@ -47,8 +47,15 @@ The **phase** is not a separate file — it is read from the spec-zone artifacts
 | `briefing.md` + `blueprint.md` (no `tasks.md` `[x]`) | blueprint done, slicing next |
 | `tasks.md` with `[ ]` items (no ledger) | slicing done, execution not started |
 | `tasks.md` with `[x]` items + ledger | execution in progress |
-| `qa-report.md` present | qa / review |
-| folder moved to `archive/` | closed (not in-flight — do not resume) |
+| `report.md` present, `## Gate Decision` verdict EMPTY/`PENDING` (or section absent) | qa not run yet → next: `qa` |
+| `report.md` verdict filled (PASS / CONCERNS / FAIL / WAIVED), retro sections (from `## Final-State Facts`) EMPTY | qa done → next: `requesting-code-review` (or `ship` per the existing tail order) |
+| folder in `archive/`, verdict filled, retro EMPTY | `reflect` (its terminal step) |
+| folder in `archive/` AND retro sections filled (e.g. `## Lessons` non-empty or `## Acceptance Verdict` present) | cycle complete → none |
+
+The tail phases key on **markers within `report.md`** (the merged qa+retro report), not on file existence. Concretely:
+
+- **Verdict marker:** grep for the `**Verdict:**` line under the `## Gate Decision` section of `report.md`. If the line is absent, still the template placeholder (`PASS / CONCERNS / FAIL / WAIVED`), or `PENDING` → qa has not rendered the gate.
+- **Retro marker:** grep for a filled `## Acceptance Verdict` section (a `**Verdict:** accepted | accepted-with-open-items | rejected` line already chosen, not the raw template line) or non-empty `## Lessons` / `## Decisions` tables. Present → reflect completed the retro half; absent/placeholder → retro half still empty.
 
 Mnemonic (when `mnemonic.enabled: true`) is a **fallback index**, not a layer: use it only when an in-repo layer is missing.
 

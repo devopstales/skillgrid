@@ -31,14 +31,16 @@ When in doubt, run the full pipeline.
 - Approved by: {user name/handle or "user gate"}
 ```
 
-Carry the same block (or `Waiver: trivial/small — see briefing.md`) into `tasks.md` top and the
-qa-report as `Fast-track: {trivial|small} (waiver in briefing.md)`.
+Carry the same block (or `Waiver: trivial/small — see briefing.md`) into `tasks.md` top and
+`report.md`'s QA half as `Fast-track: {trivial|small} (waiver in briefing.md)`.
 
 ## Phase behavior under waiver
 
 - `slicing`: light `tasks.md` allowed (fewer phases, 1–2 lines per ticket).
 - `qa`: missing briefing/blueprint artifacts are WARNING (`waived — see briefing.md`), not CRITICAL,
-  **iff** the waiver exists and no blocked-from-fast-track condition is present.
+  **iff** the waiver exists and no blocked-from-fast-track condition is present. A missing
+  `report.md` QA half (verdict empty / `## Gate Decision` absent) is the same WARNING — not CRITICAL —
+  under the same conditions.
 - `execution`: proceeds normally; TDD is still mandatory.
 - `review`: proceeds normally.
 - `ship`: light variant — the merge/PR menu still appears, but no PR-body generation. The

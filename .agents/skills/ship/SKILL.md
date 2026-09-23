@@ -40,8 +40,8 @@ Ship is the close-out phase of the tail (`qa → review → ship → reflect`): 
 
 ## What You Receive
 
-- **Change folder:** `.skillgrid/specs/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `qa-report.md`, review artifacts).
-- **`qa-report.md` verdict** — the hard gate (PASS / CONCERNS / FAIL / WAIVED) and any human override.
+- **Change folder:** `.skillgrid/specs/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` with the QA half complete, review artifacts).
+- **`report.md` → `## Gate Decision` verdict** — the hard gate (PASS / CONCERNS / FAIL / WAIVED) and any human override.
 - **`tasks.md` → `## Delivery Strategy`** — the four plain-text guard lines (`Decision needed before apply:`, `Chained PRs recommended:`, `Chain strategy:`, `400-line budget risk:`) and the work-unit table. `Chain strategy:` resolves the base branch.
 - **Fast-track waiver class** (`trivial` / `small`) if present — drives the light variant.
 
@@ -58,15 +58,17 @@ qa → review → ship → reflect
 Before any integration or move:
 
 - If you are in a **read-only planning workspace** or the change folder is outside the allowed edit roots, STOP and report — do not merge or move across an unsafe boundary.
-- If `qa-report.md` is `FAIL` or has an unresolved CRITICAL with no human override, STOP — return `blocked` with the reason. You cannot ship work the quality gate refused.
+- If `report.md` → `## Gate Decision` is `FAIL` or has an unresolved CRITICAL with no human override, STOP — return `blocked` with the reason. You cannot ship work the quality gate refused.
 
 ## Gates (all must pass before ANY mutation)
 
 ### QA Gate (hard — never overridable by a prompt claim)
 
-- `qa-report.md` **verdict `PASS`** → proceed.
-- **verdict `WAIVED`** → proceed; record the waiver (what was waived, by whom, risk accepted) in the Return Envelope (reflect persists it to `report.md`).
-- **verdict `CONCERNS`** → **advisory**: surface the open items, the human owns the decision. Proceed only on an explicit human "ship it anyway" — record that override in the Return Envelope (reflect persists it to `report.md`).
+Read `report.md` → `## Gate Decision` → `**Verdict:**` line, **PRE-MOVE** (the file is still in `specs/`):
+
+- **verdict `PASS`** → proceed.
+- **verdict `WAIVED`** → proceed; record the waiver (what was waived, by whom, risk accepted) in the Return Envelope (reflect persists it in the report's retro half).
+- **verdict `CONCERNS`** → **advisory**: surface the open items, the human owns the decision. Proceed only on an explicit human "ship it anyway" — record that override in the Return Envelope (reflect persists it in the report's retro half).
 - **verdict `FAIL`** or an unresolved **CRITICAL** → **`blocked`** (reason `qa-failed`). A launch-prompt claim "it's fixed in a later commit" does not clear it — a fresh passing `qa` run is required.
 
 ### Review Gate (advisory — never blocks on its own)
@@ -196,7 +198,7 @@ git push -u origin <feature-branch>
 # git push origin HEAD:refs/heads/<new-branch>
 ```
 
-Then create the pull/merge request against `<base-branch>` with the forge's tooling (its CLI if available, or the creation URL most forges print on push), following the repo's PR template if present, and report the URL. **The PR body is written by `skillgrid:document` (type `pr`)** — it writes from the real diff (`git log`/`git diff`) + the change folder (`briefing.md` goal, `blueprint.md` approach, `tasks.md` what shipped, `qa-report.md` gate + evidence), never from memory. Hand the body to the forge CLI or present it per `document`'s Step 4. **Keep the worktree** — the user iterates on PR feedback there.
+Then create the pull/merge request against `<base-branch>` with the forge's tooling (its CLI if available, or the creation URL most forges print on push), following the repo's PR template if present, and report the URL. **The PR body is written by `skillgrid:document` (type `pr`)** — it writes from the real diff (`git log`/`git diff`) + the change folder (`briefing.md` goal, `blueprint.md` approach, `tasks.md` what shipped, `report.md` gate + evidence), never from memory. Hand the body to the forge CLI or present it per `document`'s Step 4. **Keep the worktree** — the user iterates on PR feedback there.
 
 **Human-facing record offers (after the integration lands, before Step 6):** offer `skillgrid:document` for the record types the change warrants — `changelog` (always, if the change is user-facing or a `CHANGELOG.md` exists), `release-note` (if a tag/version is involved), `postmortem` (if the change folder contains a debug state file with a design-flaw note, or the user names an incident). The user picks; `document` writes and commits. The fast-track light variant skips the offers (the PR body is the only record).
 
@@ -270,7 +272,7 @@ diff_status=$?
 [ "$diff_status" -ne 0 ] && exit "$diff_status"
 ```
 
-Use **today's date in ISO format** (`YYYY-MM-DD`) — it is already the folder's name prefix. Compare the archived folder against the **pre-move** recursive snapshot — do not substitute a model readback, a staged tree, or the post-move source. Any non-empty `diff -r` output or non-zero status is truncation, alteration, or an operational failure — it **FAILS** the phase.
+Use **today's date in ISO format** (`YYYY-MM-DD`) — it is already the folder's name prefix. Compare the archived folder against the **pre-move** recursive snapshot — do not substitute a model readback, a staged tree, or the post-move source. The move must come out **EXACTLY equal**: `report.md`'s QA half moves with the folder, so nothing is additive at move time. Any non-empty `diff -r` output or non-zero status is truncation, alteration, or an operational failure — it **FAILS** the phase. (Reflect's retro append to `report.md` happens AFTER this readback, in the archive — it is the documented post-move completion, not part of the move.)
 
 > **If shell access is unavailable**, STOP and report `blocked` with reason `shell access required for mechanical archive move is unavailable` — do **not** fall back to Read/Write moving.
 
@@ -381,18 +383,18 @@ If the change is **trivial** (per the trivial-skip rule in `_shared/conventions/
 **Mnemonic**: observation `{id or 'none'}` · session `{sid}`
 **Open questions**: {list, or "None"}
 **Open decision debt**: {assumed blueprints owed ratification — or "None"}
-**Next**: reflect — writes `report.md` (integration + retro + archive summary) + session close
+**Next**: reflect — completes `report.md`'s retro half in the archive (integration + retro + archive summary) + session close
 ```
 
 Close the final message with a `## Key Learnings` section — 1–5 standalone factual sentences (≥ 20 chars each). Mnemonic passive capture picks these up. Do **not** call `mem_session_summary` in a sub-agent context — `reflect` owns session close.
 
 ## Rules
 
-- You integrate and close **verified** work. A `qa-report` `FAIL` or unresolved CRITICAL blocks ship — no prompt override; require a fresh passing `qa` run.
+- You integrate and close **verified** work. A `FAIL` in `report.md` → `## Gate Decision` or an unresolved CRITICAL blocks ship — no prompt override; require a fresh passing `qa` run.
 - **Do not merge, push, or move until tests are green on the integrated tree.** A green run only proves the tree it ran on.
 - **The move is mechanical.** `cp -R`/`git mv`/`mv` via the shell only, NEVER model Read/Write — and a `diff -r` readback (empty = only passing evidence, verbatim in the result) after it. A skipped or non-empty `diff -r` FAILS the phase.
-- **The move is the LAST step** — everything that must be in the archive (qa-report, review artifacts) is already written when the folder leaves `specs/`. The `report.md` is written by reflect *after* the move, in the archive.
-- **The archive is an audit trail** — `.skillgrid/archive/` is created if absent; archived changes are never deleted or modified after the move.
+- **The move is the LAST step** — everything that must be in the archive (the QA half of `report.md`, review artifacts) is already written when the folder leaves `specs/`, so the `diff -r` readback is exactly empty. Reflect completes `report.md`'s retro half (from `## Final-State Facts` onward) in place *after* the move, in the archive.
+- **The archive is an audit trail** — `.skillgrid/archive/` is created if absent; archived changes are never deleted or modified after the move, **except** the retro sections of `report.md` that reflect completes in place after the move (the QA half is pre-move and included in the `diff -r` readback; the retro half is appended after it).
 - The integration decision (merge / PR / keep / discard) is the user's — present the menu and wait. Discard happens only on the typed word `discard`.
 - No release mechanics (no VERSION/CHANGELOG bump), no docs check (no Diataxis coverage) — in any variant. The human-facing record (PR body, changelog, release note, postmortem) is written by `skillgrid:document`, which ship invokes for the PR body when the user chooses the PR option (and offers the other types where applicable).
 - **Decision debt ships, it doesn't clear.** An `ASSUMED` blueprint flag is carried into the Return Envelope and the archive — never removed by shipping.
@@ -404,7 +406,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - **"Tests passed earlier this session."** Run the suite on the tree you are about to integrate. A green run only proves the tree it ran on.
 - **"The base branch is obviously main."** Resolve it from `Chain strategy:` + the work-unit table, or confirm/ask. Merging into the wrong base is expensive to undo. For `feature-branch-chain`, ship integrates the *tracker* (last) unit to *its* base boundary — not necessarily `main`.
 - **`Chain strategy: pending`** means the base is undecided — ask before Step 4, don't guess.
-- **Reflect writes `report.md` in the archive** — ship does not write a report file; it captures context for the Return Envelope, and reflect persists it.
+- **Reflect completes `report.md` in the archive** — ship does not write the report; it captures context for the Return Envelope, and reflect completes the retro half in the archive in place.
 - **Moving before the source is gone-check** gives a meaningless empty diff. The `diff -r` compares the *pre-move snapshot* to the archived folder, after confirming the source path no longer exists.
 - **`--force` on a refused worktree removal** destroys files that exist only in that worktree. Show the user `git -C "$WORKTREE_PATH" status --porcelain -uall` and ask; never `--force` on your own initiative.
 - **Clean up only worktrees under `.worktrees/` or `worktrees/`.** Everything else belongs to the host.
@@ -414,11 +416,11 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 
 | Rationalization | Reality |
 |---|---|
-| "The gates are probably fine, ship it." | A `FAIL` or unresolved CRITICAL in `qa-report.md` is a hard block — a launch-prompt claim "it's fixed in a later commit" does not clear it. A fresh passing `qa` run is required. |
+| "The gates are probably fine, ship it." | A `FAIL` or unresolved CRITICAL in `report.md` → `## Gate Decision` is a hard block — a launch-prompt claim "it's fixed in a later commit" does not clear it. A fresh passing `qa` run is required. |
 | "I'll skip the workspace guard, it's fast." | In a read-only planning workspace or with the change folder outside the allowed edit roots, STOP and report — do not merge or move across an unsafe boundary. |
 | "I'll ship without the final review." | If the review gate recorded `review-waived` and the change is non-trivial, Step 9 runs the fan-out on the diff before rendering the GO/NO-GO. Skipping it means the verdict rests on an absence of signal. |
 | "Tests passed earlier this session, that's enough." | A green run only proves the tree it ran on. `qa` ran against the feature tree — run the suite again on the tree you are about to integrate. |
-| "I'll write the report in the archive after the move." | That's what reflect does — ship captures context in the Return Envelope, reflect writes `report.md` in the archive. Ship writes no report file. |
+| "I'll write the report in the archive after the move." | That's what reflect does — ship captures context in the Return Envelope, reflect completes `report.md`'s retro half in the archive in place. Ship writes no report. |
 
 ## Red Flags
 
@@ -440,9 +442,9 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 
 ## References
 
-- [`../qa/SKILL.md`](../qa/SKILL.md) — upstream; its `qa-report.md` verdict drives the QA Gate.
+- [`../qa/SKILL.md`](../qa/SKILL.md) — upstream; it wrote the QA half of `report.md`, whose `## Gate Decision` verdict drives the QA Gate (read pre-move).
 - [`../slicing/SKILL.md`](../slicing/SKILL.md) — upstream; the `## Delivery Strategy` guard lines + work-unit table resolve the base branch.
-- [`../reflect/SKILL.md`](../reflect/SKILL.md) — next; reads the moved folder from `.skillgrid/archive/`, writes `report.md`, owns session close.
+- [`../reflect/SKILL.md`](../reflect/SKILL.md) — next; reads the moved folder from `.skillgrid/archive/`, completes `report.md`'s retro half in place, owns session close.
 - [`../_shared/conventions/fast-track.md`](../_shared/conventions/fast-track.md) — the light-variant waiver this phase honors.
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — the `specs/` → `archive/` layout, phase order, and Mnemonic slots.
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`).

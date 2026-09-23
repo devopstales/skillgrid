@@ -70,7 +70,7 @@ Identify: every scenario name, every ticket, every `SATISFIES` mapping, the stat
 
 ### Step 2: Write the Test Plan
 
-Produce the **Test Plan** section of `.skillgrid/specs/<topic>/qa-report.md` from [templates/qa-report.md](templates/qa-report.md) (the `## Test Plan` section at the top).
+Produce the **Test Plan** section of `.skillgrid/specs/<topic>/report.md` from [templates/report.md](templates/report.md) (the `## Test Plan` section at the top). This is the QA half of the merged report; reflect completes the retro half (from `## Final-State Facts` onward) at archive time.
 
 **Process:**
 1. List every scenario from `acceptance.feature`.
@@ -147,7 +147,7 @@ Build the matrix: every scenario in `acceptance.feature` → the test that cover
 - A test that exists but was skipped or filtered = treat as `UNTESTED`.
 - **Never edit the expectation to match the code.** If a test disagrees with the matrix, fix the code.
 
-**Self-check before persisting the QA report:**
+**Self-check before persisting `report.md` (the QA half):**
 1. Every scenario lands in exactly one compliance status.
 2. Scenario totals match the actual count in `acceptance.feature`.
 3. Every CRITICAL finding names a file / test / command / exit code.
@@ -237,7 +237,7 @@ Run the commands from `config.yaml` and compare against the `quality:` threshold
 
 ### Step 10: Render the Gate
 
-Complete `.skillgrid/specs/<topic>/qa-report.md` (the Test Plan section was already written in Step 2) from [templates/qa-report.md](templates/qa-report.md).
+Complete the QA half of `.skillgrid/specs/<topic>/report.md` (the Test Plan section was already written in Step 2) from [templates/report.md](templates/report.md) — everything through `## Gate Decision` and `## Human Override`. The retro sections (from `## Final-State Facts` onward) stay empty for reflect.
 
 **Four-state gate (HARD — thresholds from config):**
 
@@ -258,7 +258,7 @@ Complete `.skillgrid/specs/<topic>/qa-report.md` (the Test Plan section was alre
 5. A code-quality gate at threshold 0 is N/A — it cannot FAIL. Do not render FAIL for a disabled gate.
 6. An `ABANDON`-ed gate is a handoff, never a pass: it keeps the gate unmet, so the gate is not **PASS** (it routes to **FAIL** or **WAIVED** on the human's explicit decision), and it is surfaced with the met / unmet / abandoned counts.
 
-**Commit the QA report** (spec zone rule).
+**Commit `report.md` (the QA half)** (spec zone rule).
 
 ### Step 11: Report and Route
 
@@ -318,7 +318,7 @@ Present the gate verdict and the finding counts. Then route:
 - [ ] Goal-backward verification ran at all four levels; every truth in the briefing is `VERIFIED` by a named test, not a grep
 - [ ] The traceability matrix is complete: every scenario in `acceptance.feature` is in exactly one compliance status, and totals match the actual count (not guessed)
 - [ ] Every CRITICAL finding (verification, TDD, test quality, security) is resolved or explicitly WAIVED with a named human and a recorded risk
-- [ ] The QA report (`qa-report.md`) is committed with concrete output — the four-state verdict, finding counts, and named evidence (file / test / command / exit code), never "looks good"
+- [ ] The QA half of `report.md` is committed with concrete output — the four-state verdict, finding counts, and named evidence (file / test / command / exit code), never "looks good" — and the retro sections (from `## Final-State Facts` onward) are left empty for reflect
 
 ## Final Rule
 

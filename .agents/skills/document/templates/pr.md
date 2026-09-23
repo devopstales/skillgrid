@@ -19,7 +19,7 @@ tasks.md. Each bullet names what changed and where.]
 
 ## Evidence
 
-[Source: qa-report.md verdict + its named evidence (test command, exit code,
+[Source: report.md → ## Gate Decision verdict + its named evidence (test command, exit code,
 coverage/mutation numbers). Name the gate, not a feeling about it.]
 
 - QA gate: [PASS | WAIVED | CONCERNS + override] — [evidence: command + result]

@@ -22,6 +22,15 @@
 
 **Spec:** [path to the spec this plan implements — the plan argues from the spec, so it travels with it; e.g., `../briefing.md` or `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`]
 
+## Glossary
+
+[Pointers only. The project's canonical terms live in `.skillgrid/glossary/`
+(maintained by skillgrid:architectural-decision-records). List here only the
+terms THIS plan introduced or relies on, each with a link to
+`.skillgrid/glossary/`, plus a one-line note if a term was sharpened during
+planning. Do not redefine terms here — the glossary is the single source of
+truth. If the plan uses no glossary terms beyond the spec's, write "None".]
+
 <!-- ASSUMED BLOCK: replace **Status:** PROPOSED above with **Status: ASSUMED** and
 uncomment + fill this block ONLY when the Owed-Decision Gate's option 3
 ("Build on the assumption") was chosen. Delete this comment when done. -->

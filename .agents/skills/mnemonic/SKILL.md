@@ -102,7 +102,7 @@ mem_context(limit: 5)                          # fast: recent session summaries
 → if empty: mem_search(query: "<phase keywords>") → mem_get_observation(id)  # previews are truncated; get_observation is the only full-content path
 ```
 
-Skillgrid naming (when working a change `{YYYY-MM-DD-<topic>}`): `title` == `topic_key` == `skillgrid/{YYYY-MM-DD-<topic>}/{artifact}` (`briefing|blueprint|findings|tasks|execution-progress|qa-report|ship|report`), `type: architecture`, `scope: project`. Same `topic_key` + `scope` → UPDATE, not INSERT.
+Skillgrid naming (when working a change `{YYYY-MM-DD-<topic>}`): `title` == `topic_key` == `skillgrid/{YYYY-MM-DD-<topic>}/{artifact}` (`briefing|blueprint|findings|tasks|execution-progress|ship|report` — `report` is the merged tail report: qa upserts the QA half, reflect upserts the full report), `type: architecture`, `scope: project`. Same `topic_key` + `scope` → UPDATE, not INSERT.
 
 ### Step 3 — Recall before doing (mandatory before new work)
 

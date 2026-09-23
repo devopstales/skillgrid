@@ -14,7 +14,7 @@ metadata:
 
 You are the **TERMINAL** phase — the close of the SDD cycle. `ship` already integrated the work and moved the change folder to `.skillgrid/archive/YYYY-MM-DD-<topic>/`. You do exactly three things:
 
-1. **Write `report.md`** — a single close document: final-state facts, gate results, sourced learnings (Decisions / Lessons / Patterns / Surprises), acceptance verdict, move evidence, lineage.
+1. **Complete `report.md`** — the merged report already exists (qa wrote the QA half in the spec folder, ship moved the folder); you complete its retro half IN PLACE in the archive: final-state facts, gate results, sourced learnings (Decisions / Lessons / Patterns / Surprises), acceptance verdict, move evidence, lineage.
 2. **Persist to Mnemonic** — the report + any high-value learning.
 3. **Close the session** — `mem_session_summary` + `mem_session_end`.
 
@@ -22,7 +22,7 @@ You are the **completion checkpoint**: you are the last chance to honestly say w
 
 ## Overview
 
-The terminal SDD phase. After `ship` has integrated the work and moved the change folder to `.skillgrid/archive/`, `reflect` closes the cycle: it writes the single `report.md` (integration evidence + retrospective + final-state facts + lineage), persists to Mnemonic, and closes the session. It is the last honest checkpoint of what shipped and the lineage endpoint a future reader consults to learn what landed and when.
+The terminal SDD phase. After `ship` has integrated the work and moved the change folder to `.skillgrid/archive/`, `reflect` closes the cycle: it completes the merged `report.md` in place in the archive (qa's QA half is already there; you write the retro half from `## Final-State Facts` onward — integration evidence + retrospective + final-state facts + lineage), persists to Mnemonic, and closes the session. It is the last honest checkpoint of what shipped and the lineage endpoint a future reader consults to learn what landed and when.
 
 ## When to Use
 
@@ -33,9 +33,9 @@ The terminal SDD phase. After `ship` has integrated the work and moved the chang
 
 ## What You Receive
 
-- **Change folder:** now at `.skillgrid/archive/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `qa-report.md`, review artifacts).
+- **Change folder:** now at `.skillgrid/archive/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` with the QA half complete, review artifacts).
 - **Ship context** — from `ship`'s Return Envelope: base branch, chain strategy, integration test evidence, PR/merge outcome, worktree state, gate results, `diff -r` readback. (If ship's envelope is unavailable, recover from `mem_search("skillgrid/YYYY-MM-DD-<topic>/ship")` or git history.)
-- **`qa-report.md` verdict** + any human override.
+- **`report.md` → `## Gate Decision` verdict** (the QA half, written by qa) + any human override.
 - **All planning artifacts** (briefing, blueprint, design/threat-matrix, tasks) — the source material for sourced learnings.
 - **Fast-track waiver class** (`trivial` / `small`) if present — drives the light variant.
 
@@ -49,24 +49,24 @@ qa → review → ship → reflect
 
 ## Final-State Authority
 
-The report is the terminal record of the cycle. It describes the state of the change **at close**, not at earlier points. `qa-report.md` and the execution ledger are **intermediate snapshots** — true for the moment written, but work routinely continues after they are persisted (verify warnings fixed in later commits, blocked tasks completed, test counts change). A snapshot's "done" stays true — work does not un-complete — but its "pending / blocked / open gap" claims are only valid for the instant they were written. **Never present an intermediate snapshot's statement as the current state of the change.**
+The report is the terminal record of the cycle. It describes the state of the change **at close**, not at earlier points. The QA half of `report.md` (written by qa) and the execution ledger are **intermediate snapshots** — true for the moment written, but work routinely continues after they are persisted (verify warnings fixed in later commits, blocked tasks completed, test counts change). A snapshot's "done" stays true — work does not un-complete — but its "pending / blocked / open gap" claims are only valid for the instant they were written. **Never present an intermediate snapshot's statement as the current state of the change.**
 
 When sources disagree about a fact, rank them — most authoritative first:
 
 1. **Current repository / filesystem state at close** — what is actually on disk and in git now. The strongest evidence of what shipped.
 2. **Ship context** — the integration + move record (base branch, merge/PR commit, `diff -r` readback). The most recent close-out account.
 3. **The persisted `tasks.md`** — completion visibility.
-4. **`qa-report.md` and the execution ledger** — intermediate snapshots. Lowest rank: valid history of what was true at their time, never evidence of final state.
+4. **The QA half of `report.md` and the execution ledger** — intermediate snapshots. Lowest rank: valid history of what was true at their time, never evidence of final state.
 
 Reporting rules that follow:
 
 - When a higher-ranked source says done/fixed/resolved and a lower-ranked snapshot says pending/blocked/open, report the final state and cite where the fix landed (commit, later evidence). Do **not** echo the stale claim.
 - When a contradiction cannot be ranked (a claim no higher-ranked source or repo evidence corroborates), record it explicitly: both statements, their sources, and when each was written. Never resolve it silently.
-- Attribute snapshot-derived claims to their source and time ("per `qa-report` at verification time …"). Do not restate them in bare present tense as current facts.
+- Attribute snapshot-derived claims to their source and time ("per `report.md` (QA half) at verification time …"). Do not restate them in bare present tense as current facts.
 - Carry final numbers (test counts, warnings, open issues) from the highest-ranked source that covers them.
 - Never merge distinct defects or failures into a single causal story. A cause is recorded as confirmed only with evidence; otherwise record the failure as undiagnosed.
 
-This hierarchy governs how the report **reports** facts. It does not weaken the gates: a `qa-report` `FAIL` / unresolved CRITICAL still blocks reflect (you did not ship), and the gates below keep their own authority.
+This hierarchy governs how the report **reports** facts. It does not weaken the gates: a `FAIL` verdict in `report.md` → `## Gate Decision` / an unresolved CRITICAL still blocks reflect (you did not ship), and the gates below keep their own authority.
 
 ## Gates (all must pass before ANY write)
 
@@ -78,7 +78,7 @@ This hierarchy governs how the report **reports** facts. It does not weaken the 
 
 ### QA Gate (hard)
 
-- **`qa-report.md` verdict `FAIL`** or an unresolved **CRITICAL** with no human override → **`blocked`** (reason `qa-failed`). You cannot close work the quality gate refused.
+- **`report.md` → `## Gate Decision` verdict `FAIL`** or an unresolved **CRITICAL** with no human override → **`blocked`** (reason `qa-failed`). You cannot close work the quality gate refused.
 - **`PASS`** / **`WAIVED`** / **`CONCERNS`** (human-owned) → proceed.
 
 ### Verdict Gate (advisory — never blocks)
@@ -91,7 +91,7 @@ If a hard gate fails, **STOP and return `blocked`** with the failing gate named.
 
 ### Step 1: Load All Artifacts (recovery + lineage)
 
-1. Read the moved folder `.skillgrid/archive/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `qa-report.md`, review artifacts, findings).
+1. Read the moved folder `.skillgrid/archive/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` — QA half complete, retro half empty, review artifacts, findings).
 2. Recover the ship context: from `ship`'s Return Envelope if available, else `mem_search(query: "skillgrid/YYYY-MM-DD-<topic>/ship")` → `mem_get_observation(id)`, else git history (`git log --oneline` on the base branch for the merge commit).
 3. Recover the Mnemonic copies (previews are not enough — always fetch full content). **Record the observation ID of every artifact you read — they go into the report for lineage.**
    - `mem_search(query: "skillgrid/YYYY-MM-DD-<topic>/blueprint")` → `mem_get_observation(id)`
@@ -105,9 +105,9 @@ If a hard gate fails, **STOP and return `blocked`** with the failing gate named.
 
 Confirm, in order: **Ship Gate** → **QA Gate** → **Verdict Gate** (advisory). If a hard gate fails, STOP and return `blocked`.
 
-### Step 3: Write `report.md`
+### Step 3: Complete `report.md` (retro half)
 
-Write into the moved folder (`.skillgrid/archive/YYYY-MM-DD-<topic>/report.md`). Use [templates/report.md](templates/report.md).
+Complete the existing file IN PLACE in the moved folder (`.skillgrid/archive/YYYY-MM-DD-<topic>/report.md`) — do not recreate it. The QA half (through `## Gate Decision` + `## Human Override`) is already written by qa; fill the retro half from `## Final-State Facts` onward. Use the merged template [../qa/templates/report.md](../qa/templates/report.md) (see [templates/report.md](templates/report.md) for the pointer).
 
 **Final-state facts** — what shipped, to which base, at which commit/PR (from ship context).
 
@@ -120,7 +120,7 @@ Write into the moved folder (`.skillgrid/archive/YYYY-MM-DD-<topic>/report.md`).
 
 **Acceptance verdict** — `accepted` / `accepted-with-open-items` / `rejected`:
 
-- Ground it in the goal stated in `briefing.md` and the evidence in `qa-report.md` (Goal-Backward Verification + Traceability Matrix).
+- Ground it in the goal stated in `briefing.md` and the evidence in `report.md`'s QA half (Goal-Backward Verification + Traceability Matrix).
 - `accepted` — goal met, no open items.
 - `accepted-with-open-items` — goal met, but name the open items (they become next-change candidates).
 - `rejected` — goal not met (a scenario unmet, a regression, the goal-backward check failed). Record why.
@@ -195,10 +195,10 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 
 ## Rules
 
-- You are **read-only over the archive** — you do not modify shipped code or the folder layout. You write exactly one file (`report.md`) into the moved folder and persist to Mnemonic.
+- You are **read-only over the archive** — you do not modify shipped code or the folder layout. You complete exactly one file in place (`report.md` — its retro half, from `## Final-State Facts` onward) in the moved folder and persist to Mnemonic.
 - **Every learning is sourced.** A finding with no file:line / commit / ticket / scenario is a guess — either cite it or mark it undiagnosed.
 - **The acceptance verdict is advisory.** `rejected` is recorded and surfaced, never a hard block. The human decides follow-up.
-- **The report reflects FINAL state** per the Final-State Authority hierarchy — never echo stale `qa-report` / ledger "pending" claims as current facts; record unrankable contradictions explicitly.
+- **The report reflects FINAL state** per the Final-State Authority hierarchy — never echo stale `report.md` (QA half) / ledger "pending" claims as current facts; record unrankable contradictions explicitly.
 - **You own session close** — `mem_session_summary` + `mem_session_end` run here and only here. Sub-agents in earlier phases emit `## Key Learnings` only and do not close the session.
 - **Record every observation ID you read** into the report — the report is the lineage endpoint.
 - If a hard gate (Ship or QA) fails, STOP and return `blocked` — do not write the report.
@@ -220,7 +220,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 
 - **A learning with no source is a guess.** "It was confusing" is not a learning. "The `feature-branch-chain` base boundary for PR #3 pointed at PR #1, not PR #2 — `tasks.md:47`" is.
 - **The verdict is not a gate.** `rejected` records a real problem; it does not stop the cycle. Surface it and let the human decide. Don't let a `rejected` verdict be mistaken for a block — and don't wave a `FAIL`/CRITICAL through as "just a verdict."
-- **Intermediate snapshots lie about "pending."** `qa-report` "open gap" lines are point-in-time. If the ship context or the repo shows the fix landed later, report the final state and cite where — do not carry the stale "pending" into the report as if it were open.
+- **Intermediate snapshots lie about "pending."** `report.md` (QA half) "open gap" lines are point-in-time. If the ship context or the repo shows the fix landed later, report the final state and cite where — do not carry the stale "pending" into the report as if it were open.
 - **Do not re-verify the move.** `ship` already did the `diff -r` readback. You *reference* that evidence in the report; you do not re-run the move or re-diff.
 - **Session close is yours.** No earlier phase closes the session. If you skip it, the next session starts blind.
 - **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`, `scope: "project"`, active `session_id`. (See `conventions/mnemonic-memory.md`.)
@@ -233,13 +233,13 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 | "Nothing changed since QA, so skip the report." | The report is where sourced learnings + the acceptance verdict land. Skipping it means the next session starts with no record of what worked or what didn't. |
 | "I'll write the report later." | It is the final-state record of what actually shipped, with observation-ID lineage. There is no "later" — the session closes here. |
 | "The discoveries are obvious, no need to source them." | Unsourced is a guess, not a learning. Every entry needs a file:line, commit, ticket, or scenario — otherwise mark it undiagnosed. |
-| "The `qa-report` says pending, so I'll carry that into the report." | Per Final-State Authority, `qa-report` is a point-in-time snapshot. Rank against ship context / the repo at close and report the final state, citing where the fix landed. |
+| "The QA half of `report.md` says pending, so I'll carry that into the retro half." | Per Final-State Authority, the QA half is a point-in-time snapshot. Rank against ship context / the repo at close and report the final state, citing where the fix landed. |
 | "A `rejected` verdict should block the cycle." | The verdict is advisory — recorded and surfaced, never a hard block. The human decides follow-up. Don't conflate it with the (hard) QA Gate. |
 
 ## Red Flags
 
 - A learning in the report with no source — no file:line, commit, ticket, or scenario cited.
-- The report restates a `qa-report` / ledger "pending / blocked / open" claim in bare present tense instead of attributing it to its source and time.
+- The report restates a `report.md` (QA half) / ledger "pending / blocked / open" claim in bare present tense instead of attributing it to its source and time.
 - The report was written even though a hard gate (Ship or QA) failed — those force `blocked` with no write.
 - A `rejected` verdict was treated as a block (or a `FAIL` waved through as "just a verdict").
 - The session was closed by an earlier phase, or not closed at all — close is `reflect`'s job and only its job.
@@ -255,9 +255,9 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 
 ## References
 
-- [templates/report.md](templates/report.md) — the `report.md` artifact shape (final-state + sourced learnings + verdict + lineage).
+- [templates/report.md](templates/report.md) — thin pointer to the merged template at [../qa/templates/report.md](../qa/templates/report.md) (the `report.md` artifact shape: qa half + retro half — final-state + sourced learnings + verdict + lineage).
 - [`../ship/SKILL.md`](../ship/SKILL.md) — upstream; moved the folder to `.skillgrid/archive/` and produced the ship context (the Ship Gate evidence).
-- [`../qa/SKILL.md`](../qa/SKILL.md) — upstream; its `qa-report.md` verdict drives the QA Gate and grounds the acceptance verdict.
+- [`../qa/SKILL.md`](../qa/SKILL.md) — upstream; it wrote the QA half of `report.md` (through `## Gate Decision`), whose verdict drives the QA Gate and grounds the acceptance verdict.
 - [`../_shared/conventions/sdd-structure.md`](../_shared/conventions/sdd-structure.md) — the `archive/` layout, terminal phase order, and Mnemonic slots.
 - [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — save shape, recovery ladder, session-close structure, and the observation-ID lineage the report must carry.
 - [`../_shared/conventions/fast-track.md`](../_shared/conventions/fast-track.md) — the light-variant waiver this phase honors.
