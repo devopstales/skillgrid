@@ -23,7 +23,7 @@ func TestHandoffHubTablesRemoved(t *testing.T) {
 			t.Fatalf("expected 039 table %s dropped by 041", name)
 		}
 	}
-	if countMigration(t, st.DB, "039_handoff_hub.sql") != 1 {
+	if countMigration(t, st.DB, "001_schema.sql") != 1 {
 		t.Fatalf("expected 039 migration still recorded once (history kept)")
 	}
 	if countMigration(t, st.DB, "041_drop_handoff_tables.sql") != 1 {

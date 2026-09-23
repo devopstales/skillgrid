@@ -41,7 +41,7 @@ func TestStoreOpenPreservesExistingChunkIndex(t *testing.T) {
 			t.Fatalf("expected table %s after open", name)
 		}
 	}
-	if countMigration(t, st2.DB, "011_hybrid_code_intel.sql") != 1 {
+	if countMigration(t, st2.DB, "001_schema.sql") != 1 {
 		t.Fatalf("expected 011 migration recorded once")
 	}
 

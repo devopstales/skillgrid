@@ -82,8 +82,8 @@ func TestStoreOpenAddsTierTablesWithoutRewritingRows(t *testing.T) {
 			t.Fatalf("expected table %s after open", name)
 		}
 	}
-	if countMigration(t, st2.DB, "010_tiered_context.sql") != 1 {
-		t.Fatalf("expected 010 migration recorded once")
+	if countMigration(t, st2.DB, "001_schema.sql") != 1 {
+		t.Fatalf("expected 001_schema migration recorded once")
 	}
 
 	var title string
@@ -137,8 +137,8 @@ func TestUpgradeFrom008IdempotentTo010(t *testing.T) {
 		t.Fatalf("second open: %v", err)
 	}
 	defer st2.Close()
-	if countMigration(t, st2.DB, "010_tiered_context.sql") != 1 {
-		t.Fatalf("010 applied more than once")
+	if countMigration(t, st2.DB, "001_schema.sql") != 1 {
+		t.Fatalf("001_schema applied more than once")
 	}
 
 	var obs, files, fts int

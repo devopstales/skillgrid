@@ -34,7 +34,7 @@ func TestStoreOpenAppliesGovernanceSchema(t *testing.T) {
 			t.Fatalf("expected 017 table %s after open", name)
 		}
 	}
-	if countMigration(t, st.DB, "017_layered_memory_governance.sql") != 1 {
+	if countMigration(t, st.DB, "001_schema.sql") != 1 {
 		t.Fatalf("expected 017 migration recorded once")
 	}
 

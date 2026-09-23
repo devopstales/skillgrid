@@ -21,7 +21,7 @@ func TestStoreOpenAddsUnresolvedRefsAndSymbolSegments(t *testing.T) {
 			t.Fatalf("expected table %s after open", name)
 		}
 	}
-	if countMigration(t, st.DB, "034_unresolved_refs.sql") != 1 {
+	if countMigration(t, st.DB, "001_schema.sql") != 1 {
 		t.Fatalf("expected 034 migration recorded once")
 	}
 	var idx int

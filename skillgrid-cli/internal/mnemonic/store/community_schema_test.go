@@ -21,7 +21,7 @@ func TestStoreOpenAppliesCommunitySchema(t *testing.T) {
 			t.Fatalf("expected 012 table %s after open", name)
 		}
 	}
-	if countMigration(t, st.DB, "012_community_knowledge_graph.sql") != 1 {
+	if countMigration(t, st.DB, "001_schema.sql") != 1 {
 		t.Fatalf("expected 012 migration recorded once")
 	}
 	// 005 tables intact (additive — never rewritten).

@@ -44,7 +44,7 @@ func TestStoreOpenReusesCachedHandle(t *testing.T) {
 		t.Fatalf("expected different projects to get different *sql.DB handles")
 	}
 	// Migration bookkeeping ran exactly once (no re-apply on cache hit).
-	if countMigration(t, stA.DB, "019_session_relay.sql") != 1 {
+	if countMigration(t, stA.DB, "001_schema.sql") != 1 {
 		t.Fatalf("expected 019 migration recorded once")
 	}
 
@@ -366,7 +366,7 @@ func TestMigration014TTLExtraction(t *testing.T) {
 			t.Fatalf("extraction_metadata column %s not present (n=%d)", col, n)
 		}
 	}
-	if countMigration(t, st.DB, "020_ttl_extraction.sql") != 1 {
+	if countMigration(t, st.DB, "001_schema.sql") != 1 {
 		t.Fatalf("expected 020 migration recorded once")
 	}
 

@@ -1,18 +1,20 @@
 package store
 
 import (
-	"sort"
-	"strings"
 	"testing"
 	"time"
 )
 
-// applyMigrationsThrough replays the embedded migrations on a raw *sql.DB up
-// to and including throughFile (e.g. "040_session_events.sql"), recording
-// each in index_meta exactly like migrate() does. It simulates a Hub-era
-// database (migrated 001→040) so the 041 upgrade path can be exercised.
+// applyMigrationsThrough simulates a pre-squash (Hub-era) database on a raw
+// *sql.DB: it creates index_meta, executes the squashed 001_schema.sql and
+// 040_session_events.sql, and records each (plus the schema_version marker)
+// exactly like migrate() does. throughFile is accepted for signature
+// compatibility; only "040_session_events.sql" is supported.
 func applyMigrationsThrough(t *testing.T, dir, project, throughFile string) {
 	t.Helper()
+	if throughFile != "040_session_events.sql" {
+		t.Fatalf("applyMigrationsThrough: unsupported throughFile %q (only 040_session_events.sql is supported)", throughFile)
+	}
 	db := rawSQLDB(t, dir, project)
 	defer db.Close()
 	if _, err := db.Exec(`
@@ -23,22 +25,7 @@ func applyMigrationsThrough(t *testing.T, dir, project, throughFile string) {
 	`); err != nil {
 		t.Fatalf("create index_meta: %v", err)
 	}
-	entries, err := migrationsFS.ReadDir("migrations")
-	if err != nil {
-		t.Fatalf("read migrations: %v", err)
-	}
-	var names []string
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
-			continue
-		}
-		if entry.Name() > throughFile {
-			continue
-		}
-		names = append(names, entry.Name())
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range []string{"001_schema.sql", "040_session_events.sql"} {
 		sqlBytes, err := migrationsFS.ReadFile("migrations/" + name)
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
@@ -54,7 +41,7 @@ func applyMigrationsThrough(t *testing.T, dir, project, throughFile string) {
 	if _, err := db.Exec(`
 		INSERT INTO index_meta (key, schema_version) VALUES ('schema_version', ?)
 		ON CONFLICT(key) DO UPDATE SET schema_version = excluded.schema_version`,
-		len(names),
+		2,
 	); err != nil {
 		t.Fatalf("record schema_version: %v", err)
 	}
@@ -122,7 +109,7 @@ func TestMigration041DropsHandoffTables(t *testing.T) {
 		t.Fatalf("expected 041 migration recorded once")
 	}
 	// Earlier migrations are still recorded exactly once (no re-run).
-	for _, m := range []string{"019_session_relay.sql", "039_handoff_hub.sql", "040_session_events.sql"} {
+	for _, m := range []string{"001_schema.sql", "040_session_events.sql"} {
 		if countMigration(t, st.DB, m) != 1 {
 			t.Fatalf("expected %s recorded once, history rewritten", m)
 		}

@@ -53,11 +53,11 @@ func TestTeamsSchemaMigrationAddsTablesSafely(t *testing.T) {
 	}
 
 	var migRecorded int
-	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM index_meta WHERE key = 'migration:009_teams_schema.sql'`).Scan(&migRecorded); err != nil {
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM index_meta WHERE key = 'migration:001_schema.sql'`).Scan(&migRecorded); err != nil {
 		t.Fatalf("index_meta: %v", err)
 	}
 	if migRecorded != 1 {
-		t.Errorf("expected migration:009_teams_schema.sql recorded, got count %d", migRecorded)
+		t.Errorf("expected migration:001_schema.sql recorded, got count %d", migRecorded)
 	}
 }
 

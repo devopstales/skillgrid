@@ -24,7 +24,7 @@ func TestSessionRelayTablesRemoved(t *testing.T) {
 			t.Fatalf("expected relay table %s dropped by 041", name)
 		}
 	}
-	if countMigration(t, st.DB, "019_session_relay.sql") != 1 {
+	if countMigration(t, st.DB, "001_schema.sql") != 1 {
 		t.Fatalf("expected 019 migration still recorded once (history kept)")
 	}
 	if countMigration(t, st.DB, "041_drop_handoff_tables.sql") != 1 {

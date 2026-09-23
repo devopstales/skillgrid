@@ -44,7 +44,7 @@ func TestStoreOpenAddsGraphEnrichmentColumns(t *testing.T) {
 	}
 	defer st.Close()
 
-	if countMigration(t, st.DB, "035_graph_enrichment.sql") != 1 {
+	if countMigration(t, st.DB, "001_schema.sql") != 1 {
 		t.Fatalf("expected 035 migration recorded once")
 	}
 	for _, col := range []struct {

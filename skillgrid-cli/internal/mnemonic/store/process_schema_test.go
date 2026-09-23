@@ -21,7 +21,7 @@ func TestStoreOpenAppliesProcessSchema(t *testing.T) {
 			t.Fatalf("expected 014 table %s after open", name)
 		}
 	}
-	if countMigration(t, st.DB, "014_process_flows.sql") != 1 {
+	if countMigration(t, st.DB, "001_schema.sql") != 1 {
 		t.Fatalf("expected 014 migration recorded once")
 	}
 	// 005 tables intact (additive — never rewritten).

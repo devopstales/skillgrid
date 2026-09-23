@@ -366,7 +366,37 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM index_meta WHERE key LIKE 'migration:%'`).Scan(&appliedCount); err != nil {
 		return fmt.Errorf("count applied: %w", err)
 	}
+	// Pre-squash upgrade shim. Databases created before the 001..039
+	// migrations were squashed into 001_schema.sql already carry a
+	// schema_version marker row (written by the old runner) but no
+	// migration:001_schema.sql row. Executing 001_schema.sql against such a
+	// database would re-fire CREATE TABLE / ALTER TABLE statements that have
+	// already landed, so we record it without executing. A fresh database has
+	// no schema_version row before the loop, so 001_schema.sql runs normally
+	// there.
+	var hasVersion int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM index_meta WHERE key = 'schema_version'`).Scan(&hasVersion); err != nil {
+		return fmt.Errorf("check schema_version: %w", err)
+	}
+	var hasSquash bool
+	if err := db.QueryRow(`SELECT COUNT(*) > 0 FROM index_meta WHERE key = ?`, "migration:001_schema.sql").Scan(&hasSquash); err != nil {
+		return fmt.Errorf("check 001_schema.sql: %w", err)
+	}
+	squashSkipped := false
+	if hasVersion > 0 && !hasSquash {
+		if _, err := db.Exec(`INSERT INTO index_meta (key, schema_version) VALUES (?, 1)`, "migration:001_schema.sql"); err != nil {
+			return fmt.Errorf("record 001_schema.sql: %w", err)
+		}
+		appliedCount++
+		squashSkipped = true
+	}
 	for _, name := range names {
+		// On a pre-squash database 001_schema.sql was already recorded above
+		// without being executed; skip it explicitly (the done check below
+		// would also skip it).
+		if name == "001_schema.sql" && squashSkipped {
+			continue
+		}
 		var done bool
 		if err := db.QueryRow(`SELECT COUNT(*) > 0 FROM index_meta WHERE key = ?`, "migration:"+name).Scan(&done); err != nil {
 			return fmt.Errorf("check %s: %w", name, err)
