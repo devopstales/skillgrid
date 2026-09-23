@@ -516,8 +516,8 @@ Then offer execution choice:
 - Batch execution with checkpoints for review
 
 **Review at the end (both options):** the default is the lightweight two-axis
-pass (`skillgrid:requesting-code-review`). For a large (50+ changed lines) or
-high-risk blueprint (auth, data migration, money, concurrency, public API),
+pass (`skillgrid:requesting-code-review`). For a large or high-risk blueprint
+(at the review escalation threshold, per `_shared/conventions/rigor-tiers.md`),
 escalate the final review to `skillgrid:parallel-code-review` — multi-reviewer
 fan-out. The execution skill decides when to escalate; you just tell the user
 the option exists when the blueprint looks risky.

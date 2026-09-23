@@ -183,27 +183,7 @@ web_cache_lookup(source: context7|exa|deepwiki|fetch|manual, ...)  # BEFORE the 
 2. mem_session_end(session_id: sid, summary: "one-line outcome")
 ```
 
-`mem_session_summary` structure (required):
-
-```
-## Goal
-[What we were working on this session]
-
-## Instructions
-[User preferences or constraints discovered — skip if none]
-
-## Discoveries
-- [Technical findings, gotchas, non-obvious learnings]
-
-## Accomplished
-- [Completed items with key details]
-
-## Next Steps
-- [What remains to be done — for the next session]
-
-## Relevant Files
-- path/to/file — [what it does or what changed]
-```
+The `mem_session_summary` body uses the **six-section structure** (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) defined in [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — all six must be filled.
 
 This is NOT optional — if you skip it, the next session starts blind.
 
@@ -238,7 +218,7 @@ Full protocol refs: [references/memory.md](references/memory.md) (Skillgrid arti
 
 ## Red Flags
 
-- A session ended without a `mem_session_summary` (or with any of the 5 sections empty).
+- A session ended without a `mem_session_summary` (or with any of the 6 sections empty).
 - A decision, bugfix, or non-obvious discovery was made but never `mem_save`'d.
 - A recall was done by re-reading code instead of `mem_context` → `mem_search` → `mem_get_observation`.
 - `mem_save` called without a live `session_id` (it fails) or a fresh session started mid-session instead of reusing the sid.
@@ -249,5 +229,5 @@ Full protocol refs: [references/memory.md](references/memory.md) (Skillgrid arti
 - [ ] `mem_session_start` was called once at session open and its `sid` reused for every `mem_save`.
 - [ ] Before new work, `mem_context` (and `mem_search`/`mem_get_observation` when needed) was used to recall prior context instead of re-deriving it.
 - [ ] Significant decisions/bugfixes/discoveries were `mem_save`'d with `**What**`/`**Why**`/`**Where**`/`**Learned**` and a live `session_id`.
-- [ ] `mem_session_summary` was called at session end with all 5 sections (Goal, Instructions, Discoveries, Accomplished, Next Steps) plus Relevant Files non-empty.
+- [ ] `mem_session_summary` was called at session end with all 6 sections (Goal, Instructions, Discoveries, Accomplished, Next Steps, Relevant Files) non-empty.
 - [ ] Each remote web lookup was bracketed by `web_cache_lookup` (before) and `web_cache_save` (after).

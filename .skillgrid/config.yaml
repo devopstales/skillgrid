@@ -26,7 +26,7 @@ testing:
   layers: [unit, integration]
   coverage: "" # no enforced minimum; verify reports changed-file coverage informationally
   mutation: "" # no mutation tooling configured
-  tdd: false # default mode is Standard; Strict-TDD branches are opt-in (rules.apply.tdd)
+  tdd: false # basic TDD (a failing test before code) is always the baseline in Skillgrid execution skills; this flag selects the strict-TDD branch machinery (see rules.apply.tdd), off by default (Standard mode)
 
 # --- QA Gates (configurable thresholds) ---
 quality:
@@ -34,6 +34,32 @@ quality:
   mutation_min: 0 # disabled (no mutation tooling)
   p0_pass_rate: 100
   p1_pass_rate: 95
+
+# --- Security Scan (Trivy) ---
+# Trivy is a multi-scanner: vulnerability (CVE), misconfiguration, secret,
+# and license. The skillgrid:qa skill runs it during the Security Audit step.
+# command: the trivy invocation ("" = disabled, falls back to manual checks)
+# target: what to scan (default: the current directory)
+# severities: minimum severity to report (comma-separated, highest first)
+#   CRITICAL (default) | CRITICAL,HIGH | CRITICAL,HIGH,MEDIUM | all
+# scan_types: which scanners to run (comma-separated)
+#   vuln (default) | vuln,misconfig | vuln,secret | vuln,secret,misconfig,license
+# fail_on: minimum severity that FAILs the QA gate ("" = Trivy findings are
+#   reported but never block; set to e.g. "CRITICAL" to hard-gate on it)
+security:
+  trivy:
+    command: "trivy fs . --scanners vuln --severity CRITICAL,HIGH,MEDIUM,LOW"
+    target: "."
+    severities: "CRITICAL,HIGH,MEDIUM,LOW"
+    scan_types: "vuln"
+    fail_on: "" # advisory only (findings reported, never blocking)
+
+# --- Commands ---
+commands:
+  build: "go build ./..."
+  lint: "" # no separate lint tool configured (go vet runs inline via rules.review)
+  format: "gofmt -w ./..."
+  typecheck: "" # no separate typecheck tool (Go compilation covers it)
 
 # --- Artifact layout (standard .skillgrid/ zones) ---
 conventions:
@@ -67,7 +93,7 @@ rules:
     guidelines:
       - Follow existing code patterns
       - Mark tasks [x] as you go (in tasks.md)
-    tdd: false
+    tdd: false # selects the strict-TDD branch machinery, off by default; basic TDD (failing test before code) is always the baseline and is not toggled by this flag (see testing.tdd)
     test_command: "go test ./..."
   verify:
     test_command: "go test ./..."
@@ -110,3 +136,72 @@ rules:
   archive:
     - Require every step in tasks.md to have PASS or PASS WITH WARNINGS before move
     - Advisory review findings (quality-security) recorded, do not block move
+  # --- Rigor Tiers (match effort to risk) ---
+  # The verification dial per change. T0 = prototype (self-check only),
+  # T1 = alpha (light blueprint + verify), T2 = beta (default: full pipeline +
+  # two-axis review), T3 = GA (mutation + security + parallel review with a
+  # fresh-model reviewer). A per-change override in briefing.md (`Tier: T<n>`)
+  # wins over the project default. Policy source:
+  # .agents/skills/_shared/conventions/rigor-tiers.md
+  tiers:
+    default: T2
+    T0: { name: Prototype, blueprint: none,  qa: self-check }
+    T1: { name: Alpha,     blueprint: light, qa: L1+verify  }
+    T2: { name: Beta,      blueprint: full,  qa: L2+L3,     review: two-axis }
+    T3: { name: GA,        blueprint: full,  qa: L4,        review: parallel+fresh-model }
+
+# --- BDD / Acceptance Testing ---
+# Always on — BDD is non-negotiable in Skillgrid (like TDD). The
+# skillgrid:acceptance-test-authoring skill and the acceptance-tests/ runner are
+# always active: brainstorming writes .skillgrid/specs/<id>/acceptance.feature
+# and execution enforces the spec zone rule (commit specs before code).
+# stack: javascript (cucumber-js) — python/behave is a follow-up.
+bdd:
+  enabled: true
+  stack: javascript
+  specs_dir: .skillgrid/specs
+  runner_dir: acceptance-tests
+  lint: gherkin
+
+# --- Mnemonic (persistent memory + code index + web cache) ---
+# Detected at onboarding via the skillgrid CLI. When enabled, the
+# skillgrid:mnemonic skill is active: mem_save for decisions, code_status
+# → code_index → code_search for code orientation, web_cache for research.
+# data_dir defaults to ~/.skillgrid/mnemonic; override if needed.
+mnemonic:
+  enabled: true
+  data_dir: ~/.skillgrid/mnemonic
+
+# --- Research ---
+# Investigate a question against primary sources into a cited `## Research:`
+# section at .skillgrid/specs/YYYY-MM-DD-<topic>/findings.md. Three skills:
+# research (single inline pass), code-research (parallel fan-out + verify +
+# red-team, for wide/high-stakes informational questions), and deep-research
+# (long-horizon experimental research: hypothesis → experiment → measure loops
+# with persistent state). Brainstorming dispatches research just-in-time when
+# the design depends on a fact not in the codebase; writing-blueprints cites
+# the findings.
+research:
+  default: research              # research | code-research
+  output_dir: .skillgrid/specs
+  code_research_preset: standard # quick | standard | deep
+
+# --- Spike (feasibility probe) ---
+# skillgrid:spike answers a falsifiable question with a VALIDATED / INVALIDATED /
+# PARTIAL verdict + evidence. A tiny probe (one library, one command) is answered
+# inline by brainstorming; a real probe (code executed, a comparison, a demo)
+# delegates here. Both append their results to the topic's consolidated
+# findings.md, which writing-blueprints reads.
+spike:
+  enabled: true
+  findings: .skillgrid/specs/{topic}/findings.md   # consolidated per-topic file
+  module_dir: .skillgrid/specs/{topic}/modules     # liftable pure modules (if any)
+
+# --- Sketch (UI/interaction variant mockup) ---
+# skillgrid:sketch builds 2-3 dramatic-difference interactive mockups for a design
+# that has 2+ meaningfully different layout/interaction options. The marked
+# winner + build constraints are appended to the topic's consolidated findings.md.
+sketch:
+  enabled: true
+  findings: .skillgrid/specs/{topic}/findings.md   # consolidated per-topic file
+  dir: .skillgrid/specs/{topic}/sketches           # HTML mockups + themes/

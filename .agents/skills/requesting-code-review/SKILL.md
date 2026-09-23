@@ -30,7 +30,7 @@ Dispatch a code reviewer subagent to catch issues before they cascade — a seco
 - When you want independent eyes on a non-trivial diff — fresh context, no assumption that your reasoning holds
 - When you're stuck on your own change and need a fresh perspective
 
-**When NOT to use:** For a large (50+ changed lines) or high-risk diff (auth, data migration, money, concurrency, public API) — use `skillgrid:parallel-code-review` instead. For the moment the *mandatory/optional* triggers below are met, see [When to Request Review](#when-to-request-review). For a quick "does this look right" sanity pass on a trivial change, this two-axis dispatch is overkill.
+**When NOT to use:** For a diff that meets the review escalation threshold (per `_shared/conventions/rigor-tiers.md`) — use `skillgrid:parallel-code-review` instead. For the moment the *mandatory/optional* triggers below are met, see [When to Request Review](#when-to-request-review). For a quick "does this look right" sanity pass on a trivial change, this two-axis dispatch is overkill.
 
 ## When to Request Review
 
@@ -45,8 +45,8 @@ Dispatch a code reviewer subagent to catch issues before they cascade — a seco
 - Before refactoring (baseline check)
 - After fixing complex bug
 
-**Escalate to fan-out:** for a large (50+ changed lines) or high-risk diff
-(auth, data migration, money, concurrency, public API), use
+**Escalate to fan-out:** for a diff at the review escalation threshold (per
+`_shared/conventions/rigor-tiers.md`), use
 `skillgrid:parallel-code-review` instead — it dispatches several specialist
 reviewers in parallel. This single-pass two-axis review is the lightweight
 default.
@@ -105,7 +105,7 @@ implement the wrong thing; the two axes are deliberately separate.
 Apply `skillgrid:receiving-code-review` triage rules to the combined findings
 from both axes — sort (fix now / defer / human look / noise), fix the
 in-scope set one at a time with tests, log the rest, validate, and loop until
-clean or capped at 3 rounds.
+clean or capped per `_shared/conventions/rigor-tiers.md` (fix loop cap).
 
 **5. Update ticket status (if tracked):**
 - If `ticketing.enabled: true` AND the reviewed work corresponds to a ticket in `tasks.md` with a tracker ID: set ticket status → `done`

@@ -14,8 +14,9 @@ metadata:
 This directory stores shared reference documents consumed by Skillgrid skills. Do not invoke it as a skill.
 
 - `conventions/` — shared contract documents every skill must honor:
-  - [conventions/skill-anatomy.md](conventions/skill-anatomy.md) — canonical SKILL.md format: section order, frontmatter, writing principles, line budget.
-  - [conventions/sdd-structure.md](conventions/sdd-structure.md) — canonical directory layout, artifact paths, phase order.
+   - [conventions/skill-anatomy.md](conventions/skill-anatomy.md) — canonical SKILL.md format: section order, frontmatter, writing principles, line budget.
+   - [conventions/sdd-structure.md](conventions/sdd-structure.md) — canonical directory layout, artifact paths, phase order.
+   - [conventions/rigor-tiers.md](conventions/rigor-tiers.md) — the per-change rigor dial (T0–T3) that sets each gate's floor.
   - [conventions/fast-track.md](conventions/fast-track.md) — trivial/small waiver policy.
   - [conventions/mnemonic-memory.md](conventions/mnemonic-memory.md) — save shape, session protocol, topic-key rules.
   - [conventions/commits.md](conventions/commits.md) — commit message contract.

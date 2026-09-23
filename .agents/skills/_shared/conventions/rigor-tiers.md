@@ -36,6 +36,22 @@ Three dials, three different questions:
 - `skillgrid:qa` — the tier selects the verification floor and which audits run (T0: self-check evidence only; T3: mutation + security mandatory). The change-classification floor still applies as the minimum.
 - `skillgrid:requesting-code-review` / `skillgrid:parallel-code-review` — the tier selects the review topology (T2: two-axis; T3: parallel fan-out with a fresh-model reviewer).
 
+## Review escalation threshold
+
+The single source for when a two-axis review escalates to fan-out. Do not restate the numbers elsewhere — reference this section.
+
+- **Escalate to `skillgrid:parallel-code-review` fan-out** when the diff has **50+ changed lines OR is high-risk** (auth, data migration, money, concurrency, public API).
+- **Trivial skip** — a change that is **≤ 2 files AND < 50 lines AND touches no auth / payments / data migration / config** skips fan-out; the decision rests on the QA gate plus a one-line rollback.
+
+`skillgrid:parallel-code-review`'s own specialist-selection rule ("< 50 changed lines → Standards + Spec only; ≥ 50 or high-risk → the core five") applies the same threshold at dispatch time.
+
+## Fix loop cap
+
+The single source for fix/review loop caps. Do not restate the round counts elsewhere — reference this section.
+
+- **Gate fix loop** (QA gate FAIL, or a review fix loop: `skillgrid:qa`, `skillgrid:requesting-code-review`, `skillgrid:receiving-code-review`, `skillgrid:parallel-code-review`, `skillgrid:simple-execution`): **3 rounds, then escalate to the human**. Past the cap the failure is structural (architectural or scope), not a test gap.
+- **Task-level fix loop** (`skillgrid:subagent-execution`, per task): **5 rounds, then the breaker adjudicates** each open finding (park with a ruling, or rule on the smallest change that unblocks dependent work). Rounds 1-3 resume the original implementer; rounds 4-5 dispatch a fresh implementer on a more capable model.
+
 ## Rules
 
 - A tier is recorded, never re-derived downstream: the briefing (or blueprint) line is the single source of truth.

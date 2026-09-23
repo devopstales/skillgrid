@@ -19,7 +19,7 @@ Execute plan by dispatching a fresh implementer subagent per task, a task review
 
 **Announce at start:** "I'm using the skillgrid:subagent-execution skill to execute this plan."
 
-**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.scratch_dir` for the ledger directory (default `.skillgrid/sdd/`). Use `testing.runner` for test commands in implementer briefs. Use the glossary vocabulary from `conventions.glossary` (default `.skillgrid/glossary/`) in briefs and rulings, and carry the in-force ADRs — per the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` — into implementer briefs so a worker doesn't re-litigate a settled decision or name things outside the ubiquitous language. `testing.tdd` is always `true` — every implementation task follows skillgrid:test-driven-development (the implementer brief already carries this; the reviewer checks the TDD evidence). **BDD is always on** — the implementer brief names the task's `SATISFIES` scenario and the reviewer checks the acceptance scenario went RED→GREEN (TDD Evidence references the scenario name); enforce the spec zone rule — commit `.skillgrid/specs/` changes before code changes, never both uncommitted (the `pre-commit` zone guard, skillgrid:work-unit-commits, blocks a mixed commit). If `ticketing.enabled: true` AND a `tasks.md` with tracker IDs exists (produced by `skillgrid:ticketing`), update ticket status at each transition: `ready` (wave start) → `in-progress` (implementer dispatched) → `review` (review started) → `done` (review clean + merged). If the file doesn't exist, use the defaults shown in this skill.
+**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.scratch_dir` for the ledger directory (default `.skillgrid/sdd/`). Use `testing.runner` for test commands in implementer briefs. Use the glossary vocabulary from `conventions.glossary` (default `.skillgrid/glossary/`) in briefs and rulings, and carry the in-force ADRs — per the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` — into implementer briefs so a worker doesn't re-litigate a settled decision or name things outside the ubiquitous language. `testing.tdd` is always `true` — every implementation task follows skillgrid:test-driven-development (basic TDD — a failing test before code — is the always-on baseline; the config's `testing.tdd` flag separately selects the strict-TDD branch machinery, see config `rules.apply.tdd`) (the implementer brief already carries this; the reviewer checks the TDD evidence). **BDD is always on** — the implementer brief names the task's `SATISFIES` scenario and the reviewer checks the acceptance scenario went RED→GREEN (TDD Evidence references the scenario name); enforce the spec zone rule — commit `.skillgrid/specs/` changes before code changes, never both uncommitted (the `pre-commit` zone guard, skillgrid:work-unit-commits, blocks a mixed commit). If `ticketing.enabled: true` AND a `tasks.md` with tracker IDs exists (produced by `skillgrid:ticketing`), update ticket status at each transition: `ready` (wave start) → `in-progress` (implementer dispatched) → `review` (review started) → `done` (review clean + merged). If the file doesn't exist, use the defaults shown in this skill.
 
 **Narration:** between tool calls, narrate at most one short line — the
 ledger and the tool results carry the record.
@@ -163,7 +163,10 @@ Full workspace, ledger, commit position, and pre-flight-scan procedure:
 Before reading implementation files or dispatching any task, confirm readiness:
 
 - If state is **`blocked`** (missing artifacts, unsafe context), STOP and return `blocked` with the missing items named.
-- If state is **`all_done`** (every ticket in `tasks.md` is `[x]`), do not dispatch. Return `success` with `Next: qa`. The full tail is `qa → review → ship → reflect` — you own only up to the `qa` handoff; `ship` (integration + archive move) and `reflect` (report + session close) run after review.
+- If state is **`all_done`**, do not dispatch. Return `success` with `Next: qa`. The full tail is `qa → review → ship → reflect` — you own only up to the `qa` handoff; `ship` (integration + archive move) and `reflect` (report + session close) run after review. Determine `all_done` from the live done-signal, in this priority order:
+  1. **Backlog tracker** (if `ticketing.enabled: true`): every ticket for this change is `status: done` in the tracker.
+  2. **Per-plan ledger**: every `Task N:` line in `.skillgrid/sdd/<plan>/progress.md` reads `Task N: complete`.
+  3. **Legacy fallback** (v1-format `tasks.md` only): every ticket is `[x]`.
 - If state is **`ready`**, proceed only on the assigned pending tickets.
 
 **Edit roots are bounded.** If the blueprint or `tasks.md` names specific directories/files as the change's affected areas, edit only under them. If a needed edit is outside, STOP and report the unsafe path. Never edit files outside the change's affected areas without a ruling.
@@ -434,7 +437,7 @@ Before the loop starts, two routes leave it immediately:
   the plan mandates it, and do not dispatch a fix that contradicts the plan
   without a recorded ruling.
 Everything else enters the loop. A fix round is one fix dispatch plus one
-scoped re-review. Five rounds maximum per task:
+scoped re-review. The task-level cap per `_shared/conventions/rigor-tiers.md` (fix loop cap):
 
 **Rounds 1-3 — resume the original implementer.** Send it the open findings
 verbatim. Its context is intact: it knows the task, the code, and its own
@@ -512,7 +515,7 @@ After all tasks are complete and before the final review, run `skillgrid:qa`. It
 
 - **PASS** → proceed to the final review below.
 - **CONCERNS** → fix the in-scope open items with tests, re-run QA (re-verification mode), then proceed.
-- **FAIL** → fix the CRITICAL findings with a failing test first, re-run QA. Cap at 3 rounds, then escalate to the human.
+- **FAIL** → fix the CRITICAL findings with a failing test first, re-run QA. Cap per `_shared/conventions/rigor-tiers.md` (fix loop cap), then escalate to the human.
 - **WAIVED** → record the waiver, proceed to the final review.
 
 The QA gate answers "was the goal achieved and would verification catch a regression?" The final review answers "does the code follow standards and implement the spec?" They are complementary — QA is the quality gate, review is the standards/spec gate.
@@ -523,7 +526,8 @@ Once every task is complete and `skillgrid:qa` has passed, run the whole-branch
 review: package the branch diff (`scripts/review-package PLAN_FILE MERGE_BASE HEAD`),
 dispatch the two-axis review (Standards + Spec) in parallel on the most capable
 model, present the two reports side by side, and escalate to
-`skillgrid:parallel-code-review` for large (50+ lines) or high-risk branches.
+`skillgrid:parallel-code-review` at the review escalation threshold (per
+`_shared/conventions/rigor-tiers.md`).
 Findings get ONE fix subagent + one scoped re-review, then the breaker
 adjudicates — there is no second fix wave.
 

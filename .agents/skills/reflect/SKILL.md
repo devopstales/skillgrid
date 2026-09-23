@@ -149,27 +149,7 @@ mem_session_summary(session_id: "{sid}", summary: <structure below>)
 mem_session_end(session_id: "{sid}", summary: "one-line outcome")
 ```
 
-`mem_session_summary` structure (required):
-
-```
-## Goal
-[What we were working on this session]
-
-## Instructions
-[User preferences or constraints discovered — skip if none]
-
-## Discoveries
-- [Technical findings, gotchas, non-obvious learnings]
-
-## Accomplished
-- [Completed items with key details]
-
-## Next Steps
-- [What remains to be done — for the next session]
-
-## Relevant Files
-- path/to/file — [what it does or what changed]
-```
+The `mem_session_summary` body uses the **six-section structure** (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) defined in [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md) — all six must be filled.
 
 > If `mnemonic.enabled` is `false`, the in-repo `report.md` is the sole record — skip the Mnemonic saves and session close (degrade explicitly, never fail silently).
 
@@ -270,7 +250,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 - [ ] All gates passed before any write: Ship Gate (folder in `archive/`, ship context present, `diff -r` empty) + QA Gate (`PASS` / `WAIVED` / `CONCERNS`, no unresolved CRITICAL) — or `blocked` returned with no write.
 - [ ] `report.md` written into the moved folder with every learning sourced (file:line / commit / ticket / scenario) and an acceptance verdict recorded.
 - [ ] `report.md` includes final-state facts, gate results, the `diff -r` reference, and the observation IDs of every artifact read.
-- [ ] Session persisted and closed: `mem_session_summary` present with all 5 sections (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) non-empty, followed by `mem_session_end`.
+- [ ] Session persisted and closed: `mem_session_summary` present with all 6 sections (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) non-empty, followed by `mem_session_end`.
 - [ ] Change marked closed: return envelope states the change, verdict, location, and "Next: none — cycle complete" (or the blocked reason, if gated).
 
 ## References

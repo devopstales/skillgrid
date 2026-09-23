@@ -266,12 +266,12 @@ Present the gate verdict and the finding counts. Then route:
 
 | Gate | Next Action |
 |------|-------------|
-| PASS | Proceed to `skillgrid:requesting-code-review` (or `skillgrid:parallel-code-review` for 50+ lines / high-risk). Update ticket status → `review`. |
+| PASS | Proceed to `skillgrid:requesting-code-review` (or `skillgrid:parallel-code-review` at the review escalation threshold, per `_shared/conventions/rigor-tiers.md`). Update ticket status → `review`. |
 | CONCERNS | List open items. For each: fix now / defer (to ticket) / human look. Fix the in-scope set with tests, re-run Steps 3-9 for the fixed items (re-verification mode: full check on failed, regression-only on passed). Re-render the gate. |
-| FAIL | List CRITICAL findings and failed gates. Fix each with a failing test first (TDD). Re-run Steps 3-9. Re-render the gate. Cap: 3 rounds, then escalate to human. |
+| FAIL | List CRITICAL findings and failed gates. Fix each with a failing test first (TDD). Re-run Steps 3-9. Re-render the gate. Cap per `_shared/conventions/rigor-tiers.md` (fix loop cap) — then escalate to human. |
 | WAIVED | Record the waiver. Proceed to review. |
 
-**Fix loop cap:** 3 rounds. If the gate is still FAIL after 3 rounds of fixes, stop and escalate. The finding is likely not a test gap — it's an architectural or scope problem that needs a human decision.
+**Fix loop cap:** per `_shared/conventions/rigor-tiers.md` (fix loop cap). If the gate is still FAIL after the cap of fixes, stop and escalate. The finding is likely not a test gap — it's an architectural or scope problem that needs a human decision.
 
 ## Common Rationalizations
 
@@ -298,7 +298,7 @@ Present the gate verdict and the finding counts. Then route:
 - Marking a truth VERIFIED based on a grep, not a test
 - A traceability matrix with "covered by existing tests" as a status
 - A `MISSING_RED` that is logged but not treated as CRITICAL
-- A fix loop that exceeds 3 rounds without escalating
+- A fix loop that exceeds the cap (per `_shared/conventions/rigor-tiers.md`) without escalating
 - Editing a test expectation to make the matrix green
 - Rendering WAIVED without a named human and a recorded risk
 - Skipping the verification-gap audit because "the tests look fine"

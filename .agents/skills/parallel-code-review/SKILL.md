@@ -20,8 +20,8 @@ fan out specialist reviewers on this diff."
 **When to use:** this is the **heavy** review. Reach for it when a single pass
 (`skillgrid:requesting-code-review`) isn't enough:
 
-- the diff is large (50+ changed lines), or
-- the diff is high-risk (auth, data migration, money, concurrency, public API)
+- the diff is large, or
+- the diff is high-risk (per `_shared/conventions/rigor-tiers.md`, review escalation threshold)
 
 For small or low-risk diffs, stay on `skillgrid:requesting-code-review` — the
 fan-out costs more than it finds.
@@ -77,7 +77,8 @@ specialist selection:
 
 - **< 50 changed lines** → run only Standards + Spec (the two-axis set). The
   other specialists are skipped; say so.
-- **≥ 50 changed lines, or high-risk** → run the core five: Standards, Spec,
+- **≥ 50 changed lines, or high-risk** (per `_shared/conventions/rigor-tiers.md`,
+  review escalation threshold) → run the core five: Standards, Spec,
   Edge cases, Verification gaps, Security.
 - **Accessibility** — add it when the diff touches **UI** (markup, components,
   styles, or interactive elements: buttons, links, forms, inputs, navigation,
@@ -184,7 +185,8 @@ that are pre-existing or out of scope → defer; anything you can't confirm →
 human look; `low`/`maybe-false` you chose to drop → noise.
 
 Then run the receiving-code-review fix loop: fix the in-scope set one at a time
-with tests, log the rest, validate, and loop until clean or capped at 3 rounds.
+with tests, log the rest, validate, and loop until clean or capped per
+`_shared/conventions/rigor-tiers.md` (fix loop cap).
 
 ### Step 5: Report
 

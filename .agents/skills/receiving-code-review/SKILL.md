@@ -26,7 +26,7 @@ Code review requires technical evaluation, not emotional performance.
 - A review produces multiple findings to triage and fix
 - You're about to agree to, or push back on, a reviewer's suggestion
 
-**When NOT to use:** No feedback exists yet — that's the `skillgrid:code-review` side. A single agreed, already-verified typo fix also doesn't need the full loop.
+**When NOT to use:** No feedback exists yet — that's the `skillgrid:requesting-code-review` side. A single agreed, already-verified typo fix also doesn't need the full loop.
 
 ## The Response Pattern
 
@@ -171,8 +171,9 @@ that item.
 ### 5. Repeat if findings remain
 
 If validation reveals new issues or a fix was incomplete, re-triage the
-residuals and loop. Cap at 3 rounds — beyond that, surface the remaining
-items to the human with the rulings you made and why.
+residuals and loop. Cap per `_shared/conventions/rigor-tiers.md` (fix loop cap) —
+beyond it, surface the remaining items to the human with the rulings you made
+and why.
 
 ## When To Push Back
 

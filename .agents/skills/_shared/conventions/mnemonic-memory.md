@@ -54,3 +54,16 @@ When working a change `{YYYY-MM-DD-<topic>}`:
 ```
 
 After compaction / "FIRST ACTION REQUIRED": FIRST call `mem_session_summary` with the compacted content, then `mem_context`, only then continue.
+
+## Session summary structure
+
+`mem_session_summary` takes a structured body with **exactly six sections** — not five. Every section must be filled (use "None" where genuinely empty, never omit a heading):
+
+1. **Goal** — what we were working on this session.
+2. **Instructions** — user preferences or constraints discovered (skip if none).
+3. **Discoveries** — technical findings, gotchas, non-obvious learnings.
+4. **Accomplished** — completed items with key details.
+5. **Next Steps** — what remains to be done, for the next session.
+6. **Relevant Files** — paths and what each does or what changed.
+
+This is the single source of truth for the shape — skills that close a session (mnemonic, reflect) reference it rather than restating it.
