@@ -146,6 +146,10 @@ Independent tickets within a wave run in parallel worktrees. A ticket in a later
     - Each ticket: title, scope, acceptance criteria, `SATISFIES` (scenario — BDD is always on), files, size, blocks, blocked by
    - Dependency graph (mermaid)
    - Execution order (waves, acceptance-first)
+   - When a ticket's scope or rationale rests on a constraint/decision it did
+     not earn (a locked constraint or a prior ADR), CITE the source rather than
+     restate it (`per 05-locked-constraints §<x>` / `per 04-adr-NNNN`) per
+     `_shared/conventions/cite-dont-restate.md`.
 3. Save to `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`
 
 ### Ticket Execution Contract (optional fields)

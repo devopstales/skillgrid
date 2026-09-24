@@ -10,7 +10,10 @@ Companion contracts (this file assumes they exist and are honored):
 - [commits.md](commits.md) — commit message contract.
 - [mnemonic-memory.md](mnemonic-memory.md) — save shape, session protocol.
 - [verification-ladder.md](verification-ladder.md) — L1–L4 evidence floors.
+- [verification-scope.md](verification-scope.md) — the scope of a verification (COMPLETE/TRUNCATED/UNSCOPED/UNREADABLE).
 - [fast-track.md](fast-track.md) — trivial/small waiver policy.
+- [cite-dont-restate.md](cite-dont-restate.md) — cite a decision/constraint by ID, don't restate it.
+- [effort-budgets.md](effort-budgets.md) — the `effort:` signal + when NOT to use the pipeline.
 - [../references/threat-matrix.md](../references/threat-matrix.md) — applicability-driven threats.
 - [../references/strict-tdd.md](../references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR.
 
@@ -32,18 +35,19 @@ Companion contracts (this file assumes they exist and are honored):
 
 ## Frontmatter
 
-```yaml
----
-name: {kebab-case-name}
-description: {What the skill does, in third person. Use when {trigger conditions}.}
-license: MIT
-metadata:
-  author: devopstales
-  version: "1.0"
-  part-of: skillgrid
-  based_on: {origin, if ported}      # or `source:` when a lighter derivation
----
-```
+ ```yaml
+ ---
+ name: {kebab-case-name}
+ description: {What the skill does, in third person. Use when {trigger conditions}.}
+ license: MIT
+ effort: {low | standard | max}       # optional — advisory context-spend signal (effort-budgets.md)
+ metadata:
+   author: devopstales
+   version: "1.0"
+   part-of: skillgrid
+   based_on: {origin, if ported}      # or `source:` when a lighter derivation
+ ---
+ ```
 
 Rules:
 - **`description` is a routing contract.** It is the *only* thing an agent sees
@@ -56,6 +60,10 @@ Rules:
   `based_on` = ported/adapted from a named upstream skill. `source` = a lighter
   "derived from X" note. Native Skillgrid skills have neither.
 - **`version` is a quoted string** (`"1.0"`), so `1.0` is not read as `1`.
+- **`effort` is optional and advisory** — a context-spend signal (`low` /
+  `standard` / `max`), never a gate. Absent = `standard`. Set it only when the
+  signal is honest (a real `max` orchestrator, a genuinely `low` status skill);
+  do not add it to every skill. See [effort-budgets.md](effort-budgets.md).
 - The `_shared` directory is the one skill with **no `license`** and the
   `disable-model-invocation: true` / `user-invocable: false` flags.
 

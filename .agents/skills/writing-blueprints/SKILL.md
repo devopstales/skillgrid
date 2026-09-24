@@ -213,12 +213,16 @@ Cite it for every design decision that rests on a research fact, a feasibility
 result (e.g. "X is liftable", "approach A is cheaper than B"), or a chosen
 layout/interaction. Omit if the change ran no research/spike/sketch.]
 
-## Global Constraints
+ ## Global Constraints
 
-[The spec's project-wide requirements — version floors, dependency limits,
-naming and copy rules, platform requirements — one line each, with exact
-values copied verbatim from the spec. Every task's requirements implicitly
-include this section.]
+ [The spec's project-wide requirements — version floors, dependency limits,
+ naming and copy rules, platform requirements — one line each, with exact
+ values copied verbatim from the spec. Every task's requirements implicitly
+ include this section. For a constraint or decision that is NOT earned by this
+ change's spec but inherited from a locked constraint or a prior ADR, CITE it
+ rather than restate it (`per 05-locked-constraints §<x>` / `per 04-adr-NNNN`)
+ per `_shared/conventions/cite-dont-restate.md` — the citation is the
+ constraint; the cited artifact keeps authority singular.]
 
 ---
 ```
