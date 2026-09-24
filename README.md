@@ -130,11 +130,13 @@ if your agent doesn't already have them:
 | [GitHub CLI](https://github.com/cli/cli) (`gh`) | GitHub issues, PRs, and code review — tracker + ship integration | `brew install gh` / `go install github.com/cli/cli@latest` |
 | [GitLab CLI](https://gitlab.com/gitlab-org/cli) (`glab`) | GitLab issues, MRs, and code review — tracker + ship integration | `brew install glab` / `go install gitlab.com/gitlab-org/cli@latest` |
 | [Jira CLI](https://github.com/ankitpokhrel/jira-cli) (`jira`) | Jira issues and boards — tracker integration | `brew install jira` / `go install github.com/ankitpokhrel/jira-cli@latest` |
+| [Backlog.md](https://github.com/nstottard/backlog.md) (`backlog`) | Local file-based issue tracker — default tracker for `ticketing` | `brew install nstottard/tap/backlog` / `go install github.com/nstottard/backlog/cmd/backlog@latest` |
+| [skills](https://github.com/vercel-labs/skills) (`npx skills`) | Open agent skills CLI — install/discover/update SKILL.md files across 75+ agents | `npx skills add <owner/repo>` |
 
 All optional — the pipeline works without them, but the relevant gates
 degrade (slower search, no security scan, BDD scenarios unexecuted, tracker
-unavailable) when missing. The tracker CLIs (`gh`, `glab`, `jira`) are only
-needed if your project uses that tracker (`ticketing.type` in config).
+unavailable) when missing. The tracker CLIs (`gh`, `glab`, `jira`, `backlog`)
+are only needed if your project uses that tracker (`ticketing.type` in config).
 
 ## Quick start
 
