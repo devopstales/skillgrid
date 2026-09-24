@@ -8,16 +8,17 @@
 # temp root is torn down on exit.
 #
 # Usage:
-#   bash scripts/test-sdd-workspace.sh          # run everything
-#   bash scripts/test-sdd-workspace.sh workspace # run only cases tagged workspace
+#   bash .agents/skills/subagent-execution/scripts/test-sdd-workspace.sh          # run everything
+#   bash .agents/skills/subagent-execution/scripts/test-sdd-workspace.sh workspace # run only cases tagged workspace
 #
 # Exit code: 0 if all pass, 1 if any fail.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORKSPACE="$ROOT/scripts/sdd-workspace"
-BRIEF="$ROOT/scripts/task-brief"
-REVIEW="$ROOT/scripts/review-package"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPTS_DIR/../../.." && pwd)"
+WORKSPACE="$SCRIPTS_DIR/sdd-workspace"
+BRIEF="$SCRIPTS_DIR/task-brief"
+REVIEW="$SCRIPTS_DIR/review-package"
 
 FILTER="${1:-}"
 

@@ -134,13 +134,13 @@ notes: "Serial development: one change at a time."
 
 ## `state.yaml` drift guard
 
-`scripts/state-drift-check.mjs` is a **read-only** verifier that compares
+`.agents/skills/qa/scripts/state-drift-check.mjs` is a **read-only** verifier that compares
 `.skillgrid/state.yaml` against the spec zone (`.skillgrid/specs/`) and
 reports a named drift verdict. It does **not** own the write — pipeline
 skills keep writing `state.yaml` directly at every phase transition; the
 guard owns the verification.
 
-**Run:** `node scripts/state-drift-check.mjs [project-root]` (defaults to
+**Run:** `node .agents/skills/qa/scripts/state-drift-check.mjs [project-root]` (defaults to
 cwd). ADR: `04-adr-0008` (Node.js + `yaml` package).
 
 **Exit codes:** 0 clean, 1 drift (prints field/stale/derived table), 2
@@ -235,9 +235,9 @@ decision; the lock surfaces conflicts without enforcing them.
 Prevents unbounded growth of skill files. Each skill has a per-tier ceiling;
 the budget JSON records the last-known size.
 
-**Budget file:** `scripts/skill-size-budget.json` — `{ ceiling, tiers, skills }`.
+**Budget file:** `.agents/skills/_shared/skill-size-budget.json` — `{ ceiling, tiers, skills }`.
 
-**CLI:** `node scripts/skill-size-budget.mjs check [--write] [project-root]`.
+**CLI:** `node .agents/skills/qa/scripts/skill-size-budget.mjs check [--write] [project-root]`.
 
 **Tiers:** `standard` 22KB (default), `large` 38KB, `xl` 40KB. Skills
 explicitly assigned a tier in the `tiers` map; unlisted skills use `standard`.
@@ -258,7 +258,7 @@ integration, while the spec is still the contract. The anticipated set is
 the union of `tasks.md` Files column and `blueprint.md` Global Constraints
 paths.
 
-**CLI:** `node scripts/ship-drift-check.mjs check <base-ref>
+**CLI:** `node .agents/skills/qa/scripts/ship-drift-check.mjs check <base-ref>
 --anticipated <dir>... [--exclude <glob>...] [project-root]`.
 
 **Default excludes:** `*.lock`, `*.sum`, `package-lock.json`, `yarn.lock`,

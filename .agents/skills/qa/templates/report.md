@@ -181,7 +181,7 @@
 
 ## State Drift
 
-> `node scripts/state-drift-check.mjs` — compares `.skillgrid/state.yaml`
+> `node .agents/skills/qa/scripts/state-drift-check.mjs` — compares `.skillgrid/state.yaml`
 > against the spec zone. Read-only; never CRITICAL, never affects the
 > verdict.
 

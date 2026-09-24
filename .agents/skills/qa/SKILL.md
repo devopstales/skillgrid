@@ -237,7 +237,7 @@ Run the commands from `config.yaml` and compare against the `quality:` threshold
 
 ### Step 9.5: State Drift Check
 
-Run `node scripts/state-drift-check.mjs` (from the project root). It compares
+Run `node .agents/skills/qa/scripts/state-drift-check.mjs` (from the project root). It compares
 `.skillgrid/state.yaml` against the spec zone and reports a named drift
 verdict. Read-only; it does not write `state.yaml`.
 
@@ -259,7 +259,7 @@ truth). Commit the fix with the report.
 
 ### Step 9.6: Structure Drift Check
 
-Run `node scripts/ship-drift-check.mjs check <base-ref> --anticipated <dir1> <dir2> ... [project-root]`.
+Run `node .agents/skills/qa/scripts/ship-drift-check.mjs check <base-ref> --anticipated <dir1> <dir2> ... [project-root]`.
 
 - **`<base-ref>`**: resolve from `tasks.md` → `## Delivery Strategy` → `Chain strategy:` (same source ship uses). If `Chain strategy: pending`, skip this step (no base to diff against).
 - **`--anticipated`**: the union of file paths/directories listed in `tasks.md` (Files column) and any paths named in `blueprint.md`'s Global Constraints. Pass each as a separate `--anticipated` value.
@@ -267,7 +267,7 @@ Run `node scripts/ship-drift-check.mjs check <base-ref> --anticipated <dir1> <di
 - **Exit 1** (drift detected) — record a **WARNING** finding in the report's `## Structure Drift` section with the table of unanticipated files. The warning names the fix: "add these paths to `tasks.md` Files or investigate why they changed." Advisory — never CRITICAL, never affects the four-state verdict.
 - **Exit 2** (usage error) — record a **WARNING** and name the error.
 
-**Byte-budget check:** run `node scripts/skill-size-budget.mjs check .`. Exit 1 (overage) → add a WARNING finding to the report for each over-budget skill ("SKILL.md size overage: {name} at {size}B, ceiling {ceiling}B"). Exit 0 → no action. Advisory — never blocks the gate.
+**Byte-budget check:** run `node .agents/skills/qa/scripts/skill-size-budget.mjs check .`. Exit 1 (overage) → add a WARNING finding to the report for each over-budget skill ("SKILL.md size overage: {name} at {size}B, ceiling {ceiling}B"). Exit 0 → no action. Advisory — never blocks the gate.
 
 ### Step 9.7: Verification Scope + Staleness Check
 

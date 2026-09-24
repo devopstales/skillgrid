@@ -13,7 +13,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BUDGET = join(HERE, "skill-size-budget.mjs");
+const BUDGET = join(HERE, "..", ".agents", "skills", "qa", "scripts", "skill-size-budget.mjs");
 
 let passed = 0;
 let failed = 0;
@@ -62,8 +62,8 @@ function run() {
   // 2. Budget file, all under ceiling → exit 0
   {
     const p = makeProject({ foo: "a".repeat(1000), bar: "b".repeat(2000) });
-    const budgetPath = join(p.root, "scripts", "skill-size-budget.json");
-    mkdirSync(join(p.root, "scripts"), { recursive: true });
+    const budgetPath = join(p.root, ".agents", "skills", "_shared", "skill-size-budget.json");
+    mkdirSync(join(p.root, ".agents", "skills", "_shared"), { recursive: true });
     writeFileSync(budgetPath, JSON.stringify({
       ceiling: { standard: 22000 },
       skills: { foo: 1000, bar: 2000 },
@@ -77,8 +77,8 @@ function run() {
   // 3. Budget file, one over ceiling → exit 1, OVER line
   {
     const p = makeProject({ foo: "a".repeat(30000), bar: "b".repeat(1000) });
-    const budgetPath = join(p.root, "scripts", "skill-size-budget.json");
-    mkdirSync(join(p.root, "scripts"), { recursive: true });
+    const budgetPath = join(p.root, ".agents", "skills", "_shared", "skill-size-budget.json");
+    mkdirSync(join(p.root, ".agents", "skills", "_shared"), { recursive: true });
     writeFileSync(budgetPath, JSON.stringify({
       ceiling: { standard: 22000 },
       skills: { foo: 1000, bar: 1000 },
@@ -92,8 +92,8 @@ function run() {
   // 4. Budget file, skill not in budget → uses default ceiling
   {
     const p = makeProject({ unknown: "x".repeat(25000) });
-    const budgetPath = join(p.root, "scripts", "skill-size-budget.json");
-    mkdirSync(join(p.root, "scripts"), { recursive: true });
+    const budgetPath = join(p.root, ".agents", "skills", "_shared", "skill-size-budget.json");
+    mkdirSync(join(p.root, ".agents", "skills", "_shared"), { recursive: true });
     writeFileSync(budgetPath, JSON.stringify({
       ceiling: { standard: 22000 },
       skills: {},
@@ -109,7 +109,7 @@ function run() {
     const p = makeProject({ foo: "a".repeat(5000), bar: "b".repeat(3000) });
     const r = runBudget(["check", "--write", p.root]);
     assert("write: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
-    const budgetPath = join(p.root, "scripts", "skill-size-budget.json");
+    const budgetPath = join(p.root, ".agents", "skills", "_shared", "skill-size-budget.json");
     assert("write: file created", readFileSync(budgetPath, "utf8").includes("foo"));
     const budget = JSON.parse(readFileSync(budgetPath, "utf8"));
     assert("write: foo size recorded", budget.skills.foo === 5000, JSON.stringify(budget.skills));
@@ -120,9 +120,9 @@ function run() {
   // 6. --write with existing budget → updates sizes, keeps ceiling
   {
     const p = makeProject({ foo: "a".repeat(5000), bar: "b".repeat(3000) });
-    const scriptsDir = join(p.root, "scripts");
-    mkdirSync(scriptsDir, { recursive: true });
-    const budgetPath = join(scriptsDir, "skill-size-budget.json");
+    const sharedDir = join(p.root, ".agents", "skills", "_shared");
+    mkdirSync(sharedDir, { recursive: true });
+    const budgetPath = join(sharedDir, "skill-size-budget.json");
     writeFileSync(budgetPath, JSON.stringify({
       ceiling: { standard: 22000, large: 38000 },
       skills: { foo: 4000 },
@@ -139,8 +139,8 @@ function run() {
   // 7. Tiered ceilings: skill in large tier doesn't trigger standard ceiling
   {
     const p = makeProject({ big: "a".repeat(35000) });
-    const budgetPath = join(p.root, "scripts", "skill-size-budget.json");
-    mkdirSync(join(p.root, "scripts"), { recursive: true });
+    const budgetPath = join(p.root, ".agents", "skills", "_shared", "skill-size-budget.json");
+    mkdirSync(join(p.root, ".agents", "skills", "_shared"), { recursive: true });
     writeFileSync(budgetPath, JSON.stringify({
       ceiling: { standard: 22000, large: 40000 },
       tiers: { big: "large" },
@@ -154,8 +154,8 @@ function run() {
   // 8. Tiered ceilings: skill in large tier still over large ceiling
   {
     const p = makeProject({ big: "a".repeat(45000) });
-    const budgetPath = join(p.root, "scripts", "skill-size-budget.json");
-    mkdirSync(join(p.root, "scripts"), { recursive: true });
+    const budgetPath = join(p.root, ".agents", "skills", "_shared", "skill-size-budget.json");
+    mkdirSync(join(p.root, ".agents", "skills", "_shared"), { recursive: true });
     writeFileSync(budgetPath, JSON.stringify({
       ceiling: { standard: 22000, large: 40000 },
       tiers: { big: "large" },

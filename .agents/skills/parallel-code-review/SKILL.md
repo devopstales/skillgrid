@@ -116,7 +116,7 @@ Standards/Spec, the shared templates):
 
 Give every specialist: the diff range (`$BASE_SHA..$HEAD_SHA`), the review
 package path if one exists (e.g. from `skillgrid:subagent-execution`'s
-`scripts/review-package`), and the spec sources (the change's
+`.agents/skills/subagent-execution/scripts/review-package`), and the spec sources (the change's
 `acceptance.feature` and blueprint) for the Spec specialist. The diff is
 passed as a **path**, not inlined text — each specialist reads it.
 

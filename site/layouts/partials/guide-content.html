@@ -36,6 +36,9 @@ Runtime state for a project lives under .skillgrid/ in the target repo:
 | .skillgrid/config.yaml | Project facts: stack, testing.runner, tracker, bdd.specs_dir, worktree_dir |
 | .skillgrid/sdd/checkpoint.json | Derived resume handle (from the last commit's [skillgrid-context] block) |
 | .skillgrid/specs/YYYY-MM-DD-&lt;topic>/ | Active change artifacts (spec zone, committed): briefing.md, acceptance.feature, blueprint.md, tasks.md, findings.md, qa-report.md |
+| .skillgrid/state.yaml | Pipeline state: current_phase, current_change, completed_changes |
+| .skillgrid/.lock | Advisory session lock (JSON: change, session_id, acquired_at) — surfaces concurrent-session conflicts |
+| .skillgrid/WINDOWS.md | Cross-change defect register — advisory findings (WARNING/SUGGESTION) not fixed before archive |
 
 Hooks and skills read these at runtime. The [skillgrid-context] block in a commit body is the **durable** record; checkpoint.json is regenerated from git log -1, so it cannot drift from history.
 
@@ -159,7 +162,7 @@ Announce pattern: Using &lt;skill> to &lt;route>.
 | Slice | slicing | tasks.md (tracer-bullet tickets, dependency edges, execution waves) |
 | **Approval gate** | — | **Go** or **Revise** — never skip |
 | Apply | simple-execution / subagent-execution / parallel-execution | Unblocked slices executed; TDD per task; commits via work-unit-commits |
-| QA | qa | 4-state gate (PASS / CONCERNS / FAIL / WAIVED) + human QA plan; findings → apply |
+| QA | qa | 4-state gate (PASS / CONCERNS / FAIL / WAIVED) + human QA plan; drift guards (state, structure, byte-budget); findings → apply |
 | Publish | ticketing | Tickets pushed to the tracker; status machine advances |
 
 ## Skill triggers (who calls who)
@@ -199,6 +202,20 @@ Blueprint (blueprint.md), slices (tasks.md), glossary/ADRs, and the ticket set l
 3. Code review as needed (requesting-code-review / parallel-code-review / receiving-code-review).
 4. Your QA or review findings become new slices → **apply** again.
 5. QA gate PASS/WAIVED, no open slices, human QA accepted or waived → **ticketing**.
+
+## Structural guards (qa)
+
+Three advisory checks run at QA (Steps 9.5–9.6) before the gate renders. All
+are WARNING-only — they never affect the four-state verdict:
+
+- **State drift** (state-drift-check.mjs) — compares state.yaml against
+  the spec-zone artifacts. Catches a pipeline skill that forgot to update
+  state.yaml at a phase transition.
+- **Structure drift** (ship-drift-check.mjs) — diffs base..HEAD against
+  the anticipated file set (tasks.md Files + blueprint.md Global
+  Constraints). Catches scope creep before integration.
+- **Byte budget** (skill-size-budget.mjs) — checks SKILL.md sizes against
+  per-tier ceilings. Catches unbounded skill-file growth.
 
 ## Close-out (ship → reflect)
 
@@ -360,8 +377,8 @@ Three idioms worth knowing (all graceful: a missing dependency or malformed inpu
 - **Hide, don't lose, model-facing noise.** A hook pair can swap large or vendor blocks for a BLOCK_&lt;hash> placeholder on Read, expand the model's edits back onto the real content after Edit/Write, and restore the true file on Stop — so the model never re-reads or re-edits the hidden block, yet nothing is lost.
 
 Skillgrid's current hooks are git + Stop; these are the patterns to reach for when you add a PreToolUse/PostToolUse hook (e.g. a tool-agnostic research cache to complement the in-skill mnemonic web cache).
-<pre><code class="language-text">hooks/                # logic (staged to ~/.skillgrid/hooks/)
-├── checkpoint-state.js        # dispatcher + snapshot/restore/guard-msg
+<pre><code class="language-text">hooks/                # logic, JavaScript (staged to ~/.skillgrid/hooks/)
+├── checkpoint-state.js        # dispatcher + guard-msg
 ├── precommit-guard.js         # cwd-drift + protected-ref/detached
 ├── precommit-zone-guard.js    # spec-zone XOR code-zone
 ├── precommit-ignore-guard.js  # generated/scratch paths (auto-fix + FATAL)
@@ -370,11 +387,11 @@ Skillgrid's current hooks are git + Stop; these are the patterns to reach for wh
 ├── gate-stop.js               # agent Stop: gate-level
 ├── stop-tests.js              # agent Stop: suite-level
 └── session-start.js           # harness SessionStart: inject the router
-git-hooks/            # thin shims (staged to ~/.skillgrid/git-hooks/)
-├── pre-commit   ──&gt; ../hooks/checkpoint-state.js guard
-├── commit-msg   ──&gt; ../hooks/checkpoint-state.js guard-msg "$1"
-├── stop         ──&gt; ../hooks/stop-tests.js        (drains stdin)
-└── gate-stop    ──&gt; ../hooks/gate-stop.js         (reads harness JSON for session_id)
+git-hooks/            # thin shims, JavaScript (staged to ~/.skillgrid/git-hooks/)
+├── pre-commit.js   ──&gt; ../hooks/checkpoint-state.js guard
+├── commit-msg.js   ──&gt; ../hooks/checkpoint-state.js guard-msg "$1"
+├── stop.js         ──&gt; ../hooks/stop-tests.js        (drains stdin)
+└── gate-stop.js    ──&gt; ../hooks/gate-stop.js         (reads harness JSON for session_id)
 plugins/              # capture-bridge plugins (installed from ~/.skillgrid/plugins/)
 ├── opencode/mnemonic.ts
 ├── kilo/mnemonic.ts
@@ -1733,6 +1750,19 @@ acceptance-test-authoring — the 6 authoring rules ("folded from the gherkin-au
 ## Isolated workspace
 
 "Detect existing isolation first. Then use native tools. Then fall back to git. **Never fight the harness.**" "A native tool (e.g. EnterWorktree) owns placement, branching, and cleanup. Bypassing it is the #1 mistake — it creates phantom state your harness can't see or manage." Step 0 detects before creating: GIT_DIR != GIT_COMMON → already in a linked worktree (skip); the **submodule guard** (git rev-parse --show-superproject-working-tree returns a path → you're in a submodule, treat as a normal repo); empty branch → detached HEAD ("cannot branch/push/PR from sandbox"). "Honor any existing declared preference without asking. If the user declines consent, work in place." "MUST verify the directory is ignored before creating a worktree: git check-ignore -q .worktrees." **Verify clean baseline:** "Run tests to ensure the workspace starts clean. A dirty baseline makes every later failure ambiguous. Proceeding past failures is your human partner's call."
+
+## Structural guards (advisory)
+
+Three read-only checks run at QA, before the gate renders. All produce
+WARNING findings — they surface, never block:
+
+- **State drift** — state.yaml must match the spec-zone artifacts. The spec zone is the deeper truth; state.yaml is a projection that can go stale at a phase transition.
+- **Structure drift** — the actual diff (base..HEAD) must fall within the anticipated file set declared in tasks.md + blueprint.md. Surfaces scope creep while it's still cheap to fix (pre-integration).
+- **Byte budget** — SKILL.md files have per-tier size ceilings (standard 22KB, large 38KB, XL 40KB). Prevents unbounded prompt growth in the skill files that shape every session.
+
+Plus one lifecycle guard: the **session lock** (.skillgrid/.lock, advisory)
+surfaces concurrent-session conflicts. brainstorming acquires, ship
+releases. Stale threshold: 2 hours. It warns, never blocks.
 
 ## Cross-cutting invariants (short reference)
 

@@ -229,8 +229,8 @@ plugins/               # agent capture-bridge plugins (opencode, kilo, cursor)
 ├── agents/            # canonical subagent definitions
 └── workflows/         # CI: IDE-sync check + hook tests + skill hygiene
 scripts/
-├── sync-ide-assets.sh # mirror canonical prompts/agents to IDE copies
-├── test-hooks.sh      # exercise the guard hooks against throwaway repos
+├── sync-ide-assets.mjs # mirror canonical prompts/agents to IDE copies
+├── test-hooks.mjs     # exercise the guard hooks against throwaway repos
 └── check-skillgrid-skills.mjs  # skill-hygiene guard (anatomy + line + hot-path budgets)
 docs/user-guide/       # the full walkthrough (layout, skills, workflow, hooks, memory, …)
 ```

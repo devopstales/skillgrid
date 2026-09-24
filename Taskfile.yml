@@ -89,7 +89,7 @@ tasks:
   site:gen:
     desc: Regenerate site/layouts/partials/guide-content.html from docs/user-guide/ (keep the guide in sync with the docs).
     cmds:
-      - python3 scripts/gen-guide-content.py
+      - node scripts/gen-guide-content.mjs
 
   site:build:
     desc: Build the Hugo docs site into site/public.

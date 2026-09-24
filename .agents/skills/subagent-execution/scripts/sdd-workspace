@@ -17,6 +17,12 @@
 # Single source of truth for the workspace location, so task-brief and
 # review-package cannot drift to different directories.
 #
+# Ledger convention: <workspace>/progress.md line 1 MUST be
+# `# SDD ledger — plan: <plan-file-path>`. The mismatch guard (a ledger
+# naming a different plan belongs to another plan — start at the first task
+# and leave the foreign ledger untouched) is skill text, not script logic;
+# these scripts just guarantee one directory per plan so the guard holds.
+#
 # Usage: sdd-workspace PLAN_FILE
 set -euo pipefail
 
@@ -28,16 +34,9 @@ fi
 plan=$1
 [ -f "$plan" ] || { echo "no such plan file: $plan" >&2; exit 2; }
 
- # Slug comes from the plan's directory when the file is a bare blueprint.md
- # (e.g. .skillgrid/specs/<YYYY-MM-DD-topic>/blueprint.md); otherwise from the
- # filename itself.
- if [ "$(basename "$plan")" = "blueprint.md" ]; then
-   slug=$(basename "$(dirname "$plan")")
- else
-   slug=$(basename "$plan" .md)
- fi
- [ -n "$slug" ] && [ "$slug" != "." ] && [ "$slug" != ".." ] \
-   || { echo "cannot derive a workspace name from: $plan" >&2; exit 2; }
+slug=$(basename "$plan" .md)
+[ -n "$slug" ] && [ "$slug" != "." ] && [ "$slug" != ".." ] \
+  || { echo "cannot derive a workspace name from: $plan" >&2; exit 2; }
 
 root=$(git rev-parse --show-toplevel)
 base="$root/.skillgrid/sdd"

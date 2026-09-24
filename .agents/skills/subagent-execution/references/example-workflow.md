@@ -9,7 +9,7 @@ You: I'm using Subagent Execution to execute this plan.
 
 [Setup: worktree verified]
 [Read plan file once: .skillgrid/specs/<YYYY-MM-DD-topic>/blueprint.md]
-[Resolve workspace: scripts/sdd-workspace .skillgrid/specs/<YYYY-MM-DD-topic>/blueprint.md — no ledger inside, fresh start]
+[Resolve workspace: .agents/skills/subagent-execution/scripts/sdd-workspace .skillgrid/specs/<YYYY-MM-DD-topic>/blueprint.md — no ledger inside, fresh start]
 [Create todos for all tasks]
 
 Task 1: Hook installation script

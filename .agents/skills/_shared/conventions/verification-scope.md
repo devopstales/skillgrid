@@ -51,8 +51,8 @@ nothing.
 
 ## Where It Applies
 
-- **Drift scripts** (`scripts/state-drift-check.mjs`,
-  `scripts/ship-drift-check.mjs`): after the `DRIFT:` verdict line, emit a
+- **Drift scripts** (`.agents/skills/qa/scripts/state-drift-check.mjs`,
+  `.agents/skills/qa/scripts/ship-drift-check.mjs`): after the `DRIFT:` verdict line, emit a
   separate `SCOPE: <atom>` line describing the scope of the enumeration that
   produced the verdict. Exit codes are unchanged — scope is additive.
 - **QA gate** (`skillgrid:qa`): the `report.md` carries a `## Verification

@@ -4,7 +4,7 @@
  *
  * Creates temp project trees (spec zone + state.yaml combos), runs the guard
  * via node, and asserts exit codes + drift output. Same shape as
- * test-hooks.sh: fixtures in, exit codes out.
+ * test-hooks.mjs: fixtures in, exit codes out.
  *
  * Usage: node scripts/test-state-drift.mjs
  * Exit: 0 all pass, 1 any fail.

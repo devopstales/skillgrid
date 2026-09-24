@@ -7,14 +7,14 @@
  * can only grow by a small delta per change (ratchet).
  *
  * Usage:
- *   node scripts/skill-size-budget.mjs check [--write] [project-root]
+ *   node .agents/skills/qa/scripts/skill-size-budget.mjs check [--write] [project-root]
  *
  * Exit codes:
  *   0 — all skills within ceiling (or no budget file)
  *   1 — one or more skills over their ceiling
  *   2 — usage error
  *
- * Budget JSON: scripts/skill-size-budget.json
+ * Budget JSON: .agents/skills/_shared/skill-size-budget.json
  * {
  *   "ceiling": { "standard": 22000, "large": 38000, "xl": 40000 },
  *   "tiers": { "subagent-execution": "xl", "brainstorming": "large" },
@@ -47,7 +47,7 @@ function listSkillFiles(skillsDir) {
 }
 
 function loadBudget(root) {
-  const budgetPath = join(root, "scripts", "skill-size-budget.json");
+  const budgetPath = join(root, ".agents", "skills", "_shared", "skill-size-budget.json");
   if (!existsSync(budgetPath)) return null;
   try {
     return JSON.parse(readFileSync(budgetPath, "utf8"));
@@ -72,7 +72,7 @@ function cmdCheck(root, doWrite) {
   }
 
   const budget = loadBudget(root);
-  const budgetPath = join(root, "scripts", "skill-size-budget.json");
+  const budgetPath = join(root, ".agents", "skills", "_shared", "skill-size-budget.json");
 
   if (!budget) {
     if (doWrite) {
@@ -123,7 +123,7 @@ function cmdCheck(root, doWrite) {
     console.log(`| ${o.name} | ${o.size} | ${o.ceiling} | +${o.delta} |`);
   }
   console.log("");
-  console.log("Trim the skill content or raise the ceiling in scripts/skill-size-budget.json.");
+  console.log("Trim the skill content or raise the ceiling in .agents/skills/_shared/skill-size-budget.json.");
   return 1;
 }
 

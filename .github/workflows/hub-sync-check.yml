@@ -12,9 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify IDE mirrors match canonical prompts and agents
-        run: ./scripts/sync-ide-assets.sh --check
+        run: node ./scripts/sync-ide-assets.mjs --check
       - name: Test the guard hooks
-        run: ./scripts/test-hooks.sh
+        run: node ./scripts/test-hooks.mjs
 
   skill-hygiene:
     # Runs on every PR (cheap, ~1s); the skills only change via PRs, so this is
