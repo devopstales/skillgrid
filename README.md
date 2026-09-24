@@ -127,10 +127,14 @@ if your agent doesn't already have them:
 | [Trivy](https://github.com/aquasecurity/trivy) (`trivy`) | Security scanning — vulnerability, secret, misconfig, and license gates in QA | `brew install trivy` / `apt install trivy` |
 | [Cucumber](https://github.com/cucumber/cucumber) (`cucumber`) | BDD test runner — executes Gherkin `acceptance.feature` scenarios | `npm install -g cucumber` / `gem install cucumber` |
 | [jscpd](https://github.com/kucherenko/jscpd) (`jscpd`) | Copy-paste detection — code-quality gate in QA (duplication threshold) | `npm install -g jscpd` |
+| [GitHub CLI](https://github.com/cli/cli) (`gh`) | GitHub issues, PRs, and code review — tracker + ship integration | `brew install gh` / `go install github.com/cli/cli@latest` |
+| [GitLab CLI](https://gitlab.com/gitlab-org/cli) (`glab`) | GitLab issues, MRs, and code review — tracker + ship integration | `brew install glab` / `go install gitlab.com/gitlab-org/cli@latest` |
+| [Jira CLI](https://github.com/ankitpokhrel/jira-cli) (`jira`) | Jira issues and boards — tracker integration | `brew install jira` / `go install github.com/ankitpokhrel/jira-cli@latest` |
 
 All optional — the pipeline works without them, but the relevant gates
-degrade (slower search, no security scan, BDD scenarios unexecuted) when
-missing.
+degrade (slower search, no security scan, BDD scenarios unexecuted, tracker
+unavailable) when missing. The tracker CLIs (`gh`, `glab`, `jira`) are only
+needed if your project uses that tracker (`ticketing.type` in config).
 
 ## Quick start
 
