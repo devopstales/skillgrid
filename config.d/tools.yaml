@@ -8,4 +8,3 @@ mcp:
   - "@playwright/cli@latest"
   - "@cucumber/cucumber"
   - "agent-browser"
-  - "@safedep/gryph"

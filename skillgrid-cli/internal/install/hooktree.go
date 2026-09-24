@@ -1,27 +1,18 @@
 package install
 
-// Full-tree mirror ($REPO/* recursively → ~/.skillgrid/).
+// Selective mirror: copies only the whitelisted directories from the repo
+// checkout into ~/.skillgrid/. Everything else stays in
+// ~/.skillgrid/repos/skillgrid/ and is accessed from there.
 //
-// The repo checkout is the source of truth. `skillgrid install` mirrors the
-// whole repo tree into ~/.skillgrid/ (remove-then-copy per top-level entry,
-// dry-run aware) and points git's global core.hooksPath at the mirrored
-// git-hooks. Consumers then read from the mirror:
+// Whitelisted dirs (remove-then-copy per dir, dry-run aware):
 //
-//	plugins from ~/.skillgrid/plugins,
-//	git hooks from ~/.skillgrid/git-hooks (shims resolve ../hooks/ relatively,
-//	so they work identically from the checkout and the mirror),
-//	implementations via copy from ~/.skillgrid/hooks.
+//	.agents/    → ~/.skillgrid/.agents/    (agent config reference)
+//	docs/       → ~/.skillgrid/docs/       (documentation)
+//	git-hooks/  → ~/.skillgrid/git-hooks/  (git hooks; core.hooksPath target)
+//	hooks/      → ~/.skillgrid/hooks/      (hook implementations; shims resolve ../hooks/ relatively)
 //
-// Safety exclusions (documented, not silent):
-//
-//	mirrorSkipAny   — never copied, at any depth: .git, node_modules
-//	mirrorSkipTop   — never copied (repo worktree state, not content):
-//	                  .skillgrid (the repo's own project state would nest as
-//	                  ~/.skillgrid/.skillgrid), dist, out (build outputs)
-//	mirrorProtectDst — never created, deleted, or overwritten at the
-//	                  destination (live operational state): mnemonic (SQLite
-//	                  data), repos (checkouts), backup, bin, tmp, logs,
-//	                  config.d (user config)
+// Operational dirs under ~/.skillgrid/ (mnemonic, repos, backup, bin, tmp,
+// logs, config.d) are never touched — they are not in the whitelist.
 
 import (
 	"io/fs"
@@ -31,104 +22,86 @@ import (
 	"strings"
 )
 
-// mirrorSkipAny are entry names never copied, at any depth.
-var mirrorSkipAny = map[string]bool{".git": true, "node_modules": true}
-
-// mirrorSkipTop are top-level entries never copied (worktree state, not content).
-// .git and node_modules are also in mirrorSkipAny so nested copies skip them.
-var mirrorSkipTop = map[string]bool{
-	".git": true, "node_modules": true,
-	".skillgrid": true, "dist": true, "out": true,
-}
-
-// mirrorProtectDst are destination names never created, deleted, or overwritten.
-var mirrorProtectDst = map[string]bool{
-	"mnemonic": true, "repos": true, "backup": true, "bin": true,
-	"tmp": true, "logs": true, "config.d": true,
-}
-
-// mirrorOp is one planned top-level mirror action.
-type mirrorOp struct {
-	name   string // top-level entry name
-	action string // "copy" | "skip-source" | "protect-dst"
-}
-
-// planMirror classifies every top-level entry of srcDir without writing.
-func planMirror(srcDir string) ([]mirrorOp, error) {
-	entries, err := os.ReadDir(srcDir)
-	if err != nil {
-		return nil, err
-	}
-	var ops []mirrorOp
-	for _, e := range entries {
-		name := e.Name()
-		switch {
-		case mirrorSkipTop[name]:
-			ops = append(ops, mirrorOp{name, "skip-source"})
-		case mirrorProtectDst[name]:
-			ops = append(ops, mirrorOp{name, "protect-dst"})
-		default:
-			ops = append(ops, mirrorOp{name, "copy"})
-		}
-	}
-	return ops, nil
-}
-
-// syncFullTree mirrors RepoDir/* → RepoHome/* per planMirror. Protected
-// destinations are left untouched; destinations for "copy" ops are replaced so
-// a re-run converges (stale files from a previous mirror disappear).
-// Dry-run prints the plan and writes nothing.
-func syncFullTree(c *Config) error {
-	ops, err := planMirror(c.RepoDir)
-	if err != nil {
-		return err
-	}
-	for _, op := range ops {
-		src := filepath.Join(c.RepoDir, op.name)
-		dst := filepath.Join(c.RepoHome, op.name)
-		switch op.action {
-		case "skip-source":
-			VerboseOut(c, "mirror skip (worktree state):", op.name)
-		case "protect-dst":
-			VerboseOut(c, "mirror protect (operational):", op.name)
-		default:
-			if c.DryRun {
-				Out("      [dry-run] mirror", src, "→", dst)
-				continue
-			}
-			if err := removeIfPresent(dst); err != nil {
-				return err
-			}
-			info, err := os.Stat(src)
-			if err != nil {
-				return err
-			}
-			if info.IsDir() {
-				if err := copyAllFiltered(src, dst, mirrorCopySkip); err != nil {
-					return err
-				}
-			} else if err := copyFile(src, dst, false); err != nil {
-				return err
-			}
-			Out("      mirrored", dst)
-		}
-	}
-	return nil
-}
+// mirrorDirs are the repo-relative directories copied to ~/.skillgrid/.
+var mirrorDirs = []string{".agents", "docs", "git-hooks", "hooks"}
 
 // mirrorCopySkip reports whether rel (relative to the copied root) must be
 // skipped: .git and node_modules at any depth.
 func mirrorCopySkip(rel string) bool {
 	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
-		if mirrorSkipAny[part] {
+		if part == ".git" || part == "node_modules" {
 			return true
 		}
 	}
 	return false
 }
 
+// mirrorProtectDst are destination names never deleted or overwritten —
+// live operational state under ~/.skillgrid/.
+var mirrorProtectDst = map[string]bool{
+	"mnemonic": true, "repos": true, "backup": true, "bin": true,
+	"tmp": true, "logs": true, "config.d": true,
+}
+
+// syncMirrorDirs copies each whitelisted dir from RepoDir → RepoHome, and
+// removes stale non-whitelisted entries at the ~/.skillgrid/ top level that
+// correspond to repo entries (leftover from a previous full-tree mirror).
+// Missing source dirs are skipped (verbose log).
+// Dry-run prints the plan and writes nothing.
+func syncMirrorDirs(c *Config) error {
+	whitelist := make(map[string]bool, len(mirrorDirs))
+	for _, name := range mirrorDirs {
+		whitelist[name] = true
+	}
+
+	// Remove stale top-level entries: present in RepoDir, not whitelisted,
+	// not protected, and present in RepoHome.
+	if entries, err := os.ReadDir(c.RepoDir); err == nil {
+		for _, e := range entries {
+			name := e.Name()
+			if whitelist[name] || mirrorProtectDst[name] || name == ".git" || name == "node_modules" {
+				continue
+			}
+			dst := filepath.Join(c.RepoHome, name)
+			if _, err := os.Stat(dst); err != nil {
+				continue
+			}
+			if c.DryRun {
+				Out("      [dry-run] remove stale", dst)
+				continue
+			}
+			if err := removeIfPresent(dst); err != nil {
+				return err
+			}
+			Out("      removed stale", dst)
+		}
+	}
+
+	// Copy each whitelisted dir.
+	for _, name := range mirrorDirs {
+		src := filepath.Join(c.RepoDir, name)
+		dst := filepath.Join(c.RepoHome, name)
+		if _, err := os.Stat(src); err != nil {
+			VerboseOut(c, "mirror skip (source missing):", name)
+			continue
+		}
+		if c.DryRun {
+			Out("      [dry-run] mirror", src, "→", dst)
+			continue
+		}
+		if err := removeIfPresent(dst); err != nil {
+			return err
+		}
+		if err := copyAllFiltered(src, dst, mirrorCopySkip); err != nil {
+			return err
+		}
+		Out("      mirrored", dst)
+	}
+	return nil
+}
+
 // copyAllFiltered recursively copies src to dst, skipping entries for which
-// skip(rel) is true. Like copyAll, it preserves permission bits.
+// skip(rel) is true. Like copyAll, it preserves permission bits and symlinks.
 func copyAllFiltered(src, dst string, skip func(rel string) bool) error {
 	os.MkdirAll(dst, 0o755)
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
@@ -148,6 +121,15 @@ func copyAllFiltered(src, dst string, skip func(rel string) bool) error {
 		target := filepath.Join(dst, rel)
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			os.MkdirAll(filepath.Dir(target), 0o755)
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			os.Remove(target)
+			return os.Symlink(link, target)
 		}
 		info, err := d.Info()
 		if err != nil {
@@ -205,23 +187,9 @@ func gitConfigSet(key, value string) error {
 	return cmd.Run()
 }
 
-// resolveAssetPath prefers the staged copy under ~/.skillgrid for assets that
-// live under plugins/ in the repo, falling back to the checkout. Non-plugin
-// relatives always resolve under repoRoot.
-func resolveAssetPath(home, repoRoot, rel string) string {
-	if home != "" && strings.HasPrefix(rel, "plugins/") {
-		staged := filepath.Join(home, ".skillgrid", "plugins", strings.TrimPrefix(rel, "plugins/"))
-		if _, err := os.Stat(staged); err == nil {
-			return staged
-		}
-	}
-	return filepath.Join(repoRoot, rel)
-}
-
-// copyAsset copies a repo-relative asset to dst, preferring the staged copy
-// under ~/.skillgrid/plugins when present (see resolveAssetPath).
-func copyAsset(home, repoRoot, relPath, dst string, dryRun bool) error {
-	return copyFile(resolveAssetPath(home, repoRoot, relPath), dst, dryRun)
+// copyAsset copies a repo-relative asset to dst.
+func copyAsset(repoRoot, relPath, dst string, dryRun bool) error {
+	return copyFile(filepath.Join(repoRoot, relPath), dst, dryRun)
 }
 
 // copyFile copies a single file to dst, overwriting.

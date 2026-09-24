@@ -63,17 +63,26 @@ func TestNormalizeNPMPackage(t *testing.T) {
 
 func TestGlobalTools(t *testing.T) {
 	got := GlobalTools()
-	if len(got) != 3 {
-		t.Fatalf("want 3 global tools, got %d", len(got))
+	if len(got) != 4 {
+		t.Fatalf("want 4 global tools, got %d", len(got))
 	}
-	want := map[string]string{
-		"skills":     "skills",
-		"cucumber":   "@cucumber/cucumber",
-		"backlog.md": "backlog.md",
+	want := map[string][2]string{
+		"skills":     {"skills", "skills"},
+		"cucumber":   {"@cucumber/cucumber", "cucumber-js"},
+		"backlog.md": {"backlog.md", "backlog"},
+		"jscpd":      {"jscpd", "jscpd"},
 	}
 	for _, tl := range got {
-		if want[tl.Name] != tl.NPM {
-			t.Errorf("tool %q npm=%q, want %q", tl.Name, tl.NPM, want[tl.Name])
+		w, ok := want[tl.Name]
+		if !ok {
+			t.Errorf("unexpected tool %q", tl.Name)
+			continue
+		}
+		if tl.NPM != w[0] {
+			t.Errorf("tool %q npm=%q, want %q", tl.Name, tl.NPM, w[0])
+		}
+		if tl.Bin != w[1] {
+			t.Errorf("tool %q bin=%q, want %q", tl.Name, tl.Bin, w[1])
 		}
 	}
 }

@@ -51,8 +51,8 @@ func Run(c *Config) error {
 		}
 	}
 
-	info("mirroring repo to ~/.skillgrid")
-	if err := syncFullTree(c); err != nil {
+	info("mirroring .agents, docs, git-hooks to ~/.skillgrid")
+	if err := syncMirrorDirs(c); err != nil {
 		return err
 	}
 	info("wiring git hooks (core.hooksPath)")
@@ -315,8 +315,25 @@ func installInstallMcp(c *Config) error {
 	return run(c, "", "npm", "install", "-g", pkg)
 }
 
+// npmPkgName strips a @version suffix from an npm package spec
+// ("@playwright/mcp@latest" → "@playwright/mcp").
+func npmPkgName(spec string) string {
+	if i := strings.LastIndex(spec, "@"); i > 0 {
+		return spec[:i]
+	}
+	return spec
+}
+
+// isGloballyInstalled reports whether an npm package is already installed
+// globally. Uses `npm ls -g <name>` (exit 0 = installed).
+func isGloballyInstalled(name string) bool {
+	cmd := exec.Command("npm", "ls", "-g", name)
+	return cmd.Run() == nil
+}
+
 // installMCPServers npm-installs MCP server packages from config.d/tools.yaml
 // once (not per agent). Client registration is left to setupAgents + mcp.yaml.
+// Packages already installed globally are skipped.
 func installMCPServers(c *Config) error {
 	toolsCfg, err := LoadToolsConfig(c.RepoDir)
 	if err != nil {
@@ -332,11 +349,16 @@ func installMCPServers(c *Config) error {
 			VerboseOut(c, "skip MCP pkg "+npmPkg+" (also a global tool)")
 			continue
 		}
-		args := npmInstallGlobalArgs(npmPkg)
 		if c.DryRun {
-			Out(append([]any{"      [dry-run] npm"}, toAny(args)...)...)
+			Out(append([]any{"      [dry-run] npm"}, toAny(npmInstallGlobalArgs(npmPkg))...)...)
 			continue
 		}
+		name := npmPkgName(npmPkg)
+		if isGloballyInstalled(name) {
+			Out("      skip", name, "(already installed)")
+			continue
+		}
+		args := npmInstallGlobalArgs(npmPkg)
 		Out(append([]any{"      npm"}, toAny(args)...)...)
 		if err := run(c, "", "npm", args...); err != nil {
 			return fmt.Errorf("npm %s: %w", strings.Join(args, " "), err)
@@ -359,6 +381,12 @@ func normalizeNPMPackage(pkg string) string {
 
 func installTools(c *Config) error {
 	for _, t := range GlobalTools() {
+		if t.Bin != "" {
+			if _, err := exec.LookPath(t.Bin); err == nil {
+				Out("      skip", t.NPM, "(already installed)")
+				continue
+			}
+		}
 		if c.DryRun {
 			Out("      [dry-run] npm install -g", t.NPM)
 			continue
@@ -411,7 +439,8 @@ func run(c *Config, dir string, name string, args ...string) error {
 	return err
 }
 
-// copyAll recursively copies src to dst.
+// copyAll recursively copies src to dst. Symlinks are recreated as symlinks
+// (dangling links are preserved rather than failing on read).
 func copyAll(src, dst string) error {
 	os.MkdirAll(dst, 0o755)
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
@@ -425,6 +454,15 @@ func copyAll(src, dst string) error {
 		target := filepath.Join(dst, rel)
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			os.MkdirAll(filepath.Dir(target), 0o755)
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			os.Remove(target)
+			return os.Symlink(link, target)
 		}
 		info, err := d.Info()
 		if err != nil {

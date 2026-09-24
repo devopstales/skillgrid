@@ -29,6 +29,9 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun b
 			return err
 		}
 	}
+	if err := upsertPluginKey(cfgPath, "opencode-command-hooks", dryRun); err != nil {
+		return err
+	}
 
 	protocol := ProtocolMarkdownFromRepo(repoRoot)
 	if protocol == "" {

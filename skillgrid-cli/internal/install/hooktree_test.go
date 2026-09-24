@@ -19,33 +19,33 @@ func writeMirrorFixture(t *testing.T, root string, files map[string]string) {
 	}
 }
 
-func TestSyncFullTree(t *testing.T) {
+func TestSyncMirrorDirs(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
 	writeMirrorFixture(t, repo, map[string]string{
-		"hooks/checkpoint-state.js":    "# impl",
-		"git-hooks/pre-commit":         "# shim",
-		"plugins/opencode/mnemonic.ts": "// plugin",
-		"README.md":                    "# readme",
+		// Whitelisted — should be mirrored.
+		".agents/opencode/skill.md":    "# agent",
 		"docs/guide.md":                "# guide",
-		// Worktree state: never mirrored.
+		"git-hooks/pre-commit.js":      "# shim",
+		"hooks/checkpoint-state.js":    "# impl",
+		// Not whitelisted — must NOT be mirrored.
+		"plugins/opencode/mnemonic.ts": "// plugin",
+		"scripts/build.sh":             "# build",
+		"README.md":                    "# readme",
+		// Skipped at any depth.
 		".git/HEAD":                    "ref: refs/heads/main",
-		".skillgrid/specs/x/brief.md":  "# spec",
-		"dist/skillgrid":               "binary",
 		"node_modules/foo/index.js":    "// dep",
-		"sub/nested/node_modules/b.js": "// nested dep",
 	})
 
 	cfg := &Config{RepoDir: repo, RepoHome: filepath.Join(home, ".skillgrid")}
-	if err := syncFullTree(cfg); err != nil {
-		t.Fatalf("syncFullTree: %v", err)
+	if err := syncMirrorDirs(cfg); err != nil {
+		t.Fatalf("syncMirrorDirs: %v", err)
 	}
 	for _, want := range []string{
-		"hooks/checkpoint-state.js",
-		"git-hooks/pre-commit",
-		"plugins/opencode/mnemonic.ts",
-		"README.md",
+		".agents/opencode/skill.md",
 		"docs/guide.md",
+		"git-hooks/pre-commit.js",
+		"hooks/checkpoint-state.js",
 	} {
 		if b, err := os.ReadFile(filepath.Join(home, ".skillgrid", want)); err != nil {
 			t.Errorf("mirrored %s missing: %v", want, err)
@@ -54,78 +54,59 @@ func TestSyncFullTree(t *testing.T) {
 		}
 	}
 	for _, absent := range []string{
-		".git", ".skillgrid", "dist", "node_modules", "sub/nested/node_modules",
+		"plugins", "scripts", "README.md",
+		".git", "node_modules",
 	} {
 		if _, err := os.Stat(filepath.Join(home, ".skillgrid", absent)); err == nil {
 			t.Errorf("%s must not be mirrored", absent)
 		}
 	}
-	// The nested non-excluded sibling survives the node_modules skip.
-	if _, err := os.Stat(filepath.Join(home, ".skillgrid", "sub")); err != nil {
-		t.Errorf("sub/ should be mirrored: %v", err)
-	}
 }
 
-func TestSyncFullTreeProtectsOperationalDirs(t *testing.T) {
+func TestSyncMirrorDirsSkipsMissingSource(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
 	writeMirrorFixture(t, repo, map[string]string{
-		"hooks/a.sh": "# impl",
+		"docs/guide.md": "# guide",
 	})
-	protected := map[string]string{
-		"mnemonic/data.sqlite": "live db",
-		"repos/old/file.txt":   "checkout",
-		"backup/x":             "backup",
-		"bin/skillgrid":        "binary",
-		"tmp/y":                "tmp",
-		"logs/z":               "log",
-		"config.d/custom.yaml": "user config",
-	}
-	for rel, content := range protected {
-		p := filepath.Join(home, ".skillgrid", rel)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+
 	cfg := &Config{RepoDir: repo, RepoHome: filepath.Join(home, ".skillgrid")}
-	if err := syncFullTree(cfg); err != nil {
-		t.Fatalf("syncFullTree: %v", err)
+	if err := syncMirrorDirs(cfg); err != nil {
+		t.Fatalf("syncMirrorDirs: %v", err)
 	}
-	for rel, content := range protected {
-		if b, err := os.ReadFile(filepath.Join(home, ".skillgrid", rel)); err != nil || string(b) != content {
-			t.Errorf("protected %s disturbed: %q, %v", rel, b, err)
-		}
+	if _, err := os.Stat(filepath.Join(home, ".skillgrid", "docs", "guide.md")); err != nil {
+		t.Errorf("docs/guide.md should be mirrored: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".skillgrid", "hooks", "a.sh")); err != nil {
-		t.Errorf("hooks/a.sh should be mirrored: %v", err)
+	if _, err := os.Stat(filepath.Join(home, ".skillgrid", ".agents")); err == nil {
+		t.Errorf(".agents/ should not be created when source is missing")
+	}
+	if _, err := os.Stat(filepath.Join(home, ".skillgrid", "git-hooks")); err == nil {
+		t.Errorf("git-hooks/ should not be created when source is missing")
 	}
 }
 
-func TestSyncFullTreeDryRunWritesNothing(t *testing.T) {
+func TestSyncMirrorDirsDryRunWritesNothing(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
 	writeMirrorFixture(t, repo, map[string]string{
-		"hooks/a.sh": "# impl",
+		"docs/guide.md": "# guide",
 	})
 	cfg := &Config{RepoDir: repo, RepoHome: filepath.Join(home, ".skillgrid"), DryRun: true}
-	if err := syncFullTree(cfg); err != nil {
-		t.Fatalf("syncFullTree dry-run: %v", err)
+	if err := syncMirrorDirs(cfg); err != nil {
+		t.Fatalf("syncMirrorDirs dry-run: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".skillgrid")); err == nil {
 		t.Errorf("dry-run must not create ~/.skillgrid")
 	}
 }
 
-func TestSyncFullTreeReplacesStaleDestination(t *testing.T) {
+func TestSyncMirrorDirsReplacesStaleDestination(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
 	writeMirrorFixture(t, repo, map[string]string{
-		"hooks/a.sh": "new",
+		"docs/guide.md": "new",
 	})
-	stale := filepath.Join(home, ".skillgrid", "hooks", "stale.sh")
+	stale := filepath.Join(home, ".skillgrid", "docs", "stale.md")
 	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -133,65 +114,32 @@ func TestSyncFullTreeReplacesStaleDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &Config{RepoDir: repo, RepoHome: filepath.Join(home, ".skillgrid")}
-	if err := syncFullTree(cfg); err != nil {
-		t.Fatalf("syncFullTree: %v", err)
+	if err := syncMirrorDirs(cfg); err != nil {
+		t.Fatalf("syncMirrorDirs: %v", err)
 	}
 	if _, err := os.Stat(stale); err == nil {
 		t.Errorf("stale file should be replaced on re-mirror")
 	}
-}
-
-func TestPlanMirror(t *testing.T) {
-	repo := t.TempDir()
-	writeMirrorFixture(t, repo, map[string]string{
-		"hooks/a.sh":       "# impl",
-		".skillgrid/x":     "# state",
-		"mnemonic/dummy":   "# would-be operational",
-	})
-	ops, err := planMirror(repo)
-	if err != nil {
-		t.Fatalf("planMirror: %v", err)
-	}
-	got := map[string]string{}
-	for _, op := range ops {
-		got[op.name] = op.action
-	}
-	if got["hooks"] != "copy" {
-		t.Errorf("hooks: got %q, want copy", got["hooks"])
-	}
-	if got[".skillgrid"] != "skip-source" {
-		t.Errorf(".skillgrid: got %q, want skip-source", got[".skillgrid"])
-	}
-	if got["mnemonic"] != "protect-dst" {
-		t.Errorf("mnemonic: got %q, want protect-dst", got["mnemonic"])
+	if _, err := os.Stat(filepath.Join(home, ".skillgrid", "docs", "guide.md")); err != nil {
+		t.Errorf("guide.md should be mirrored: %v", err)
 	}
 }
 
-func TestResolveAssetPath(t *testing.T) {
-	home := t.TempDir()
+func TestCopyAsset(t *testing.T) {
 	repo := t.TempDir()
-
-	// No staged copy → repo fallback.
-	got := resolveAssetPath(home, repo, "plugins/opencode/mnemonic.ts")
-	if got != filepath.Join(repo, "plugins/opencode/mnemonic.ts") {
-		t.Errorf("fallback: got %q", got)
-	}
-
-	// Staged copy present → staged wins.
-	staged := filepath.Join(home, ".skillgrid", "plugins", "opencode", "mnemonic.ts")
-	if err := os.MkdirAll(filepath.Dir(staged), 0o755); err != nil {
+	dst := filepath.Join(t.TempDir(), "out", "asset.tsx")
+	logoPath := filepath.Join(repo, "plugins", "opencode", "skillgrid-logo.tsx")
+	if err := os.MkdirAll(filepath.Dir(logoPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(staged, []byte("// staged"), 0o644); err != nil {
+	if err := os.WriteFile(logoPath, []byte("// logo"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := resolveAssetPath(home, repo, "plugins/opencode/mnemonic.ts"); got != staged {
-		t.Errorf("staged-first: got %q, want %q", got, staged)
+	if err := copyAsset(repo, "plugins/opencode/skillgrid-logo.tsx", dst, false); err != nil {
+		t.Fatalf("copyAsset: %v", err)
 	}
-
-	// Non-plugin relatives never consult the staged tree.
-	if got := resolveAssetPath(home, repo, "config.d/mcp.yaml"); got != filepath.Join(repo, "config.d/mcp.yaml") {
-		t.Errorf("non-plugin: got %q", got)
+	if b, err := os.ReadFile(dst); err != nil || string(b) != "// logo" {
+		t.Errorf("copyAsset: got %q, %v", b, err)
 	}
 }
 

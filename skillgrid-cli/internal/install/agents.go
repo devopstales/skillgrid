@@ -382,10 +382,13 @@ func installAgentConfig(c *Config, agent string) error {
 			return err
 		}
 		logoDst := filepath.Join(dir, "tui-plugins", "skillgrid-logo.tsx")
-		if err := copyAsset(home, repoRoot, opencodeLogoRel, logoDst, dry); err != nil {
+		if err := copyAsset(repoRoot, opencodeLogoRel, logoDst, dry); err != nil {
 			return err
 		}
 		if err := setJSON(tuiPath, "theme", "tokyonight", dry); err != nil {
+			return err
+		}
+		if err := appendJSONArrayUnique(tuiPath, "plugin", "opencode-subagent-statusline", dry); err != nil {
 			return err
 		}
 		return appendJSONArrayUnique(tuiPath, "plugin", logoDst, dry)
@@ -410,10 +413,13 @@ func installAgentConfig(c *Config, agent string) error {
 		if err := ensureConfigFile(tuiPath, dry); err != nil {
 			return err
 		}
-		if err := copyAsset(home, repoRoot, kiloLogoRel, logoDst, dry); err != nil {
+		if err := copyAsset(repoRoot, kiloLogoRel, logoDst, dry); err != nil {
 			return err
 		}
 		if err := setJSON(tuiPath, "theme", "tokyonight", dry); err != nil {
+			return err
+		}
+		if err := appendJSONArrayUnique(tuiPath, "plugin", "opencode-subagent-statusline", dry); err != nil {
 			return err
 		}
 		if err := appendJSONArrayUnique(tuiPath, "plugin", logoDst, dry); err != nil {

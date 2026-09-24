@@ -27,6 +27,9 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun b
 			return err
 		}
 	}
+	if err := upsertPluginKey(cfgPath, "opencode-command-hooks", dryRun); err != nil {
+		return err
+	}
 	pluginDst := filepath.Join(opencodeDir, "plugins", "mnemonic.ts")
 	sharedDst := filepath.Join(opencodeDir, "shared", "http-client.ts")
 

@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"gopkg.in/yaml.v3"
 
@@ -255,6 +257,36 @@ func upsertMarkerBlock(content, begin, end, body string) string {
 		return content + "\n" + block + "\n"
 	}
 	return block + "\n"
+}
+
+// upsertPluginKey sets the "plugin" array in an opencode-style JSONC config
+// (opencode.jsonc / kilo.jsonc) to include the given plugin name, preserving
+// any existing entries.
+func upsertPluginKey(cfgPath, pluginName string, dryRun bool) error {
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read config %s: %w", cfgPath, err)
+	}
+	arr := gjson.Parse(string(data)).Get("plugin").Array()
+	exists := false
+	for _, v := range arr {
+		if v.String() == pluginName {
+			exists = true
+			break
+		}
+	}
+	if exists {
+		return nil
+	}
+	updated, err := sjson.Set(string(data), "plugin."+strconv.Itoa(len(arr)), pluginName)
+	if err != nil {
+		return fmt.Errorf("set plugin: %w", err)
+	}
+	if dryRun {
+		logging.Info("[dry-run] set plugin in " + cfgPath)
+		return nil
+	}
+	return os.WriteFile(cfgPath, []byte(updated), 0o644)
 }
 
 // upsertOpenCodeMCP writes a server entry into the "mcp" object of an

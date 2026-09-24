@@ -68,6 +68,7 @@ func AvailableAgents() []Agent {
 type Tool struct {
 	Name string
 	NPM  string
+	Bin  string // PATH binary name; empty means no binary check
 }
 
 // GlobalTools returns the global npm tools installed regardless of agent selection.
@@ -75,9 +76,10 @@ type Tool struct {
 // before MCP server packages, so it never reaches installTools().
 func GlobalTools() []Tool {
 	return []Tool{
-		{Name: "skills", NPM: "skills"},
-		{Name: "cucumber", NPM: "@cucumber/cucumber"},
-		{Name: "backlog.md", NPM: "backlog.md"},
+		{Name: "skills", NPM: "skills", Bin: "skills"},
+		{Name: "cucumber", NPM: "@cucumber/cucumber", Bin: "cucumber-js"},
+		{Name: "backlog.md", NPM: "backlog.md", Bin: "backlog"},
+		{Name: "jscpd", NPM: "jscpd", Bin: "jscpd"},
 	}
 }
 
