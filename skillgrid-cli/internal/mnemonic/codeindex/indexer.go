@@ -27,7 +27,15 @@ import (
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/process"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/route"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/vectorstore"
 )
+
+// vecDim is the dimension the vec0 tables (migration 042) are pinned to
+// (float[768], the production onnx default). The dual-write mirrors a
+// vector into the vec tables only when the embedder's dimension matches; a
+// non-matching embedder leaves the vec tables empty (the BLOB tables remain
+// the source of truth for any dimension).
+const vecDim = vectorstore.Dim
 
 // MaxFileSize is the default first-class size skip threshold. Files larger
 // than this are skipped (counted in stats), not an error, not a fallback.
@@ -1086,6 +1094,16 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 		if _, err := tx.Exec(`DELETE FROM chunk_embeddings`); err != nil {
 			return fmt.Errorf("clear stale chunk embeddings: %w", err)
 		}
+		// Durable path: clear the vec tables in the same transaction so the
+		// derived index does not carry stale vectors across a model swap.
+		// (The dimension guard on the upserts below re-populates only when the
+		// new model matches vecDim.)
+		if err := vectorstore.DeleteSymbols(ctx, tx); err != nil {
+			return fmt.Errorf("clear vec_symbols: %w", err)
+		}
+		if err := vectorstore.DeleteChunks(ctx, tx); err != nil {
+			return fmt.Errorf("clear vec_chunks: %w", err)
+		}
 		if _, err := tx.Exec(`INSERT OR REPLACE INTO embed_meta (key, value) VALUES ('embedding_model', ?)`, model); err != nil {
 			return err
 		}
@@ -1144,6 +1162,14 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 			  language = excluded.language
 		`, symID, model, dim, blob, now, lang); err != nil {
 			return err
+		}
+		// Durable path: mirror the row into vec_symbols (same transaction).
+		// Dimension-gated: the vec tables are pinned to vecDim (float[768]); a
+		// non-matching embedder leaves the vec tables empty.
+		if dim == vecDim {
+			if err := vectorstore.UpsertSymbol(ctx, tx, symID, model, dim, blob); err != nil {
+				return fmt.Errorf("vec upsert symbol %d: %w", symID, err)
+			}
 		}
 		idx.embedDone++
 		if total := idx.embedTotal; total > 0 {
@@ -1212,6 +1238,14 @@ func (idx *Indexer) embedChunks(ctx context.Context, tx *sql.Tx, model string, d
 			  language = excluded.language
 		`, chunkID, model, dim, blob, now, lang); err != nil {
 			return err
+		}
+		// Durable path: mirror the row into vec_chunks (same transaction).
+		// Dimension-gated: the vec tables are pinned to vecDim (float[768]); a
+		// non-matching embedder leaves the vec tables empty.
+		if dim == vecDim {
+			if err := vectorstore.UpsertChunk(ctx, tx, chunkID, model, dim, blob); err != nil {
+				return fmt.Errorf("vec upsert chunk %d: %w", chunkID, err)
+			}
 		}
 		idx.embedDone++
 		if total := idx.embedTotal; total > 0 {

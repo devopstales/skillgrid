@@ -19,10 +19,11 @@ import (
 	_ "modernc.org/sqlite/vec"
 )
 
-// dim is the pinned embedding dimension (DefaultOnnxDim). The vec0 tables are
+// Dim is the pinned embedding dimension (DefaultOnnxDim). The vec0 tables are
 // created with float[768]; a vector of a different dimension is rejected by
-// the vec_f32 constructor (dimension-strict).
-const dim = 768
+// the vec_f32 constructor (dimension-strict). The indexer's dual-write mirrors
+// a vector into the vec tables only when the embedder's dimension matches Dim.
+const Dim = 768
 
 // TableExists reports whether the named vec0 table is present in the store.
 func TableExists(ctx context.Context, db *sql.DB, table string) (bool, error) {
