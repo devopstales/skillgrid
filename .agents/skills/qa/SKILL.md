@@ -269,6 +269,44 @@ Run `node scripts/ship-drift-check.mjs check <base-ref> --anticipated <dir1> <di
 
 **Byte-budget check:** run `node scripts/skill-size-budget.mjs check .`. Exit 1 (overage) → add a WARNING finding to the report for each over-budget skill ("SKILL.md size overage: {name} at {size}B, ceiling {ceiling}B"). Exit 0 → no action. Advisory — never blocks the gate.
 
+### Step 9.7: Verification Scope + Staleness Check
+
+Per `_shared/conventions/verification-scope.md`: a zero count is never a bare
+zero — it carries its **scope**. Two checks.
+
+**Scope of the derivations.** For each count or enumeration this QA half
+produced (the traceability matrix, the verification-gap audit, the drift
+tables), name the scope of the input it saw, on the report's `## Verification
+Scope` section:
+
+| Derivation | Scope when |
+|---|---|
+| Traceability matrix | `COMPLETE` if every scenario in `acceptance.feature` was read; `TRUNCATED` if the file was read partially; `UNREADABLE` if the file was missing/unparseable |
+| Verification-gap audit | `COMPLETE` if all changed behaviors were enumerated from the diff; `TRUNCATED` if the diff was bounded (e.g. `--since` window); `UNREADABLE` if the diff could not be read |
+| State Drift (9.5) | the `SCOPE:` line emitted by `state-drift-check.mjs` |
+| Structure Drift (9.6) | the `SCOPE:` line emitted by `ship-drift-check.mjs` |
+
+Record each as `SCOPE: <atom>`. If a derivation's scope is not `COMPLETE`, that
+is a named non-answer, not a clean bill — it is reflected in the gate per the
+fail-closed rule below.
+
+**Stale-verification check.** A verification is **stale** when the evidence it
+rests on is older than the code it is meant to cover. Concretely: if any
+code-zone file changed **after** the QA-half verdict in `report.md` was written
+(re-verification mode after a prior gate, or a fix landed after a prior PASS),
+the prior verification is stale and this run is re-verifying it. Record in the
+report's `## Verification Scope` section:
+
+- `STALE: none` — no code-zone change since the last verification; the prior
+  evidence is current.
+- `STALE: <paths>` — name the changed paths; the prior verification does not
+  cover them. This run's evidence (named tests, run commands) is what the gate
+  rests on, **not** the prior verdict.
+
+A stale check is **advisory** in itself (it never flips the verdict by itself)
+but it is what makes the fail-closed rule below meaningful: a gate that rests
+on stale evidence while its scope is not `COMPLETE` routes away from PASS.
+
 ### Step 10: Render the Gate
 
 Complete the QA half of `.skillgrid/specs/<topic>/report.md` (the Test Plan section was already written in Step 2) from [templates/report.md](templates/report.md) — everything through `## Gate Decision` and `## Human Override`. The retro sections (from `## Final-State Facts` onward) stay empty for reflect.
@@ -277,8 +315,8 @@ Complete the QA half of `.skillgrid/specs/<topic>/report.md` (the Test Plan sect
 
 | Verdict | Criteria |
 |---------|----------|
-| **PASS** | ALL of: (1) all truths VERIFIED, (2) all scenarios covered by a test that ran and passed, (3) no CRITICAL findings from any audit, (4) no MISSING_RED, (5) all code-quality gates PASS or N/A, (6) P0 pass rate ≥ `quality.p0_pass_rate`, (7) P1 pass rate ≥ `quality.p1_pass_rate`, (8) coverage ≥ `quality.coverage_min` (if > 0), (9) mutation ≥ `quality.mutation_min` (if > 0 and command set), (10) no Trivy finding at or above `security.trivy.fail_on` severity (if `fail_on` is set). |
-| **CONCERNS** | No CRITICAL findings and all hard gates PASS, BUT at least one of: a PRESENT_BEHAVIOR_UNVERIFIED level, a WARNING finding, a P0 without triangulation, a missing adoption that is low-risk, or a lint warning. Open items are named with a path to resolution. |
+| **PASS** | ALL of: (1) all truths VERIFIED, (2) all scenarios covered by a test that ran and passed, (3) no CRITICAL findings from any audit, (4) no MISSING_RED, (5) all code-quality gates PASS or N/A, (6) P0 pass rate ≥ `quality.p0_pass_rate`, (7) P1 pass rate ≥ `quality.p1_pass_rate`, (8) coverage ≥ `quality.coverage_min` (if > 0), (9) mutation ≥ `quality.mutation_min` (if > 0 and command set), (10) no Trivy finding at or above `security.trivy.fail_on` severity (if `fail_on` is set), (11) **every verification-scope derivation is `COMPLETE`** (per Step 9.7; a `TRUNCATED`/`UNSCOPED`/`UNREADABLE` scope routes away from PASS — only an explicit, total verification satisfies the gate). |
+| **CONCERNS** | No CRITICAL findings and all hard gates PASS, BUT at least one of: a PRESENT_BEHAVIOR_UNVERIFIED level, a WARNING finding, a P0 without triangulation, a missing adoption that is low-risk, a lint warning, **a verification-scope derivation that is `TRUNCATED` or `UNSCOPED` with a named re-run path, or a `STALE` verification whose changed paths are named** (these are non-answers the human can clear by re-running with full scope or current evidence — see Step 9.7). |
 | **FAIL** | ANY of: a truth UNVERIFIED, a scenario with no covering test, a test that ran and failed, a MISSING_RED, a regression gap with no covering test, a missing-oracle gap (a happy-path scenario with no `G<n>`), a CRITICAL security finding, a code-quality gate FAIL (coverage/mutation/lint/typecheck/P0/P1 below threshold), or a Trivy finding at or above `security.trivy.fail_on` severity (if `fail_on` is set). |
 | **WAIVED** | The human explicitly waived a specific gate criterion. The waiver, the criterion, and the accepted risk are recorded in the report. WAIVED is never a machine decision. |
 
@@ -291,6 +329,7 @@ Complete the QA half of `.skillgrid/specs/<topic>/report.md` (the Test Plan sect
 4. Passing tests do not substitute for running the system. The goal-backward check is the evidence, not the suite count.
 5. A code-quality gate at threshold 0 is N/A — it cannot FAIL. Do not render FAIL for a disabled gate.
 6. An `ABANDON`-ed gate is a handoff, never a pass: it keeps the gate unmet, so the gate is not **PASS** (it routes to **FAIL** or **WAIVED** on the human's explicit decision), and it is surfaced with the met / unmet / abandoned counts.
+7. **Fail-closed on scope.** Only a `COMPLETE`-scope verification satisfies the gate (per `_shared/conventions/verification-scope.md`). A `TRUNCATED`/`UNSCOPED`/`UNREADABLE` scope is a non-answer: it routes to **CONCERNS** (named re-run path) or **FAIL** (an `UNREADABLE` input the check could not work around), never a silent **PASS**. A `STALE` verification is advisory by itself but, combined with a non-`COMPLETE` scope, is what pulls the gate off PASS — the gate rests on the current run's evidence, not the prior verdict.
 
 **Broken windows (auto-append):** after rendering the gate, for each open
 WARNING or SUGGESTION finding in the report that was NOT fixed before the

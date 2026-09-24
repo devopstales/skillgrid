@@ -193,6 +193,23 @@
 
 **Fix applied:** <state.yaml patched to match / no drift / parse error: <detail>>
 
+**Scope (from the guard's `SCOPE:` line):** <COMPLETE / TRUNCATED / UNSCOPED / UNREADABLE> — a non-`COMPLETE` scope is a named non-answer, not a clean bill (see `## Verification Scope`).
+
+## Verification Scope
+
+> Per `_shared/conventions/verification-scope.md`: a zero count is never a bare
+> zero. Name the scope of every count/enumeration this QA half produced.
+> Non-`COMPLETE` scope routes the gate off PASS (Step 9.7 fail-closed rule).
+
+| Derivation | Scope | Stale? |
+|---|---|---|
+| Traceability matrix | <COMPLETE / TRUNCATED / UNREADABLE> | <none / <changed paths>> |
+| Verification-gap audit | <COMPLETE / TRUNCATED / UNREADABLE> | <none / <changed paths>> |
+| State Drift (9.5) | <from guard `SCOPE:`> | n/a |
+| Structure Drift (9.6) | <from guard `SCOPE:`> | n/a |
+
+**Stale-verification:** <`STALE: none` — no code-zone change since last verification / `STALE: <paths>` — prior verification does not cover these; this run's evidence is what the gate rests on>
+
 ## Findings
 
 > Open WARNING/SUGGESTION findings below are auto-appended to
