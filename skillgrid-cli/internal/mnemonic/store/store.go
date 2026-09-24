@@ -17,6 +17,11 @@ import (
 
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
+	// Registers the vec0 vtab module so migration 042 (CREATE VIRTUAL TABLE
+	// vec_symbols/vec_chunks) applies on every store, not just the ones that
+	// also import vectorstore. Without it a plain store open fails with
+	// "no such module: vec0".
+	_ "modernc.org/sqlite/vec"
 )
 
 //go:embed migrations/*.sql
