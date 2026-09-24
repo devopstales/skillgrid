@@ -90,7 +90,7 @@ markers) and handoffs (named checkpoints + handoff refs) are the Sessions
 **Changes** and **Handoffs** tabs. Their duplicate "activity" tab was removed.
 
 The change-log data is engine-backed (SQLite, migration
-`039_handoff_hub.sql`), populated by `checkpoint-state.sh snapshot`
+`039_handoff_hub.sql`), populated by `checkpoint-state.js snapshot`
 (best-effort `skillgrid handoff record`) and seeded on first run by
 `skillgrid handoff backfill` (last 100 commits). Named checkpoints are placed
 with `skillgrid handoff checkpoint <name>` and drift-verified with
