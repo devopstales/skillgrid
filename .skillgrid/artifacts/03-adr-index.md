@@ -14,8 +14,9 @@ Single source for the ADR in-force set. Each row points at the full record in `0
 | 0006 | Vector search: in-memory brute-force cosine, no SQLite vector extension | accepted | — | 2026-09-16 | yes | [04-adr-0006](04-adr-0006-vector-search-in-memory-brute-force.md) |
 | 0007 | SDD multi-method docs viewer with generic, existence-gated doc roots | accepted | — | 2026-09-17 | yes | [04-adr-0007](04-adr-0007-sdd-multi-method-docs-viewer.md) |
 | 0008 | State drift guard: Node.js + `yaml` package, read-only verifier | accepted | — | 2026-09-24 | yes | [04-adr-0008](04-adr-0008-state-drift-guard-js-yaml.md) |
+| 0009 | Vector search: in-SQL sqlite-vec latency corrected; viant deferred; revisit path confirmed | accepted | — | 2026-09-24 | yes | [04-adr-0009](04-adr-0009-vector-search-in-sql-latency-viant-deferred.md) |
 
-**Highest sequence in use:** 0008 (next ADR is `04-adr-0009-slug.md`).
+**Highest sequence in use:** 0009 (next ADR is `04-adr-0010-slug.md`).
 
 ## How to update
 
