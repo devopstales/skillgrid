@@ -195,6 +195,10 @@
 
 ## Findings
 
+> Open WARNING/SUGGESTION findings below are auto-appended to
+> `.skillgrid/WINDOWS.md` (the cross-change defect register) at gate-render
+> time. They survive the archive move.
+
 ### CRITICAL (must fix before merge)
 
 - <finding with file:line and evidence>

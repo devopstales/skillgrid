@@ -186,6 +186,29 @@ Pipeline skills own the write; the guard owns the verification. A drift hit
 means a skill forgot to update `state.yaml` at a phase transition — the spec
 zone is the deeper truth, and the guard names the fix.
 
+## Broken Windows ledger
+
+`.skillgrid/WINDOWS.md` is a **project-level** cross-change defect register.
+It tracks advisory findings (WARNING/SUGGESTION) that were not fixed before
+archive. It is committed and survives the archive move.
+
+**Format:** a markdown table with columns `Window | Change | Severity |
+Finding | Waived By | Date | Status`. Window IDs are sequential (`W001`,
+`W002`, …). Status is `open` until explicitly closed.
+
+**Lifecycle:**
+- **`qa`** (Step 10, after rendering the gate): auto-appends each open
+  WARNING/SUGGESTION finding to WINDOWS.md. If 0 open findings, no change.
+- **`ship`**: no change — windows are already recorded; the archive move
+  does not touch WINDOWS.md (it is project-level, not per-change).
+- **`reflect`**: no change.
+- **Future:** a `qa` pre-check or `review-backlog` skill reads WINDOWS.md
+  and surfaces open windows as context ("N open windows from prior changes").
+
+**Rule:** qa auto-appends (mechanical copy of the report's open findings).
+The human can edit WINDOWS.md to waive, fix, or close windows. The ledger is
+advisory — it never blocks a gate.
+
 ## Archive
 
 On completion, **`ship`** moves the change folder out of the active `specs/` zone into a top-level, immutable `archive/` zone:

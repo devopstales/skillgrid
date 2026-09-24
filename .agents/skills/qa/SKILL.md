@@ -280,6 +280,18 @@ Complete the QA half of `.skillgrid/specs/<topic>/report.md` (the Test Plan sect
 5. A code-quality gate at threshold 0 is N/A — it cannot FAIL. Do not render FAIL for a disabled gate.
 6. An `ABANDON`-ed gate is a handoff, never a pass: it keeps the gate unmet, so the gate is not **PASS** (it routes to **FAIL** or **WAIVED** on the human's explicit decision), and it is surfaced with the met / unmet / abandoned counts.
 
+**Broken windows (auto-append):** after rendering the gate, for each open
+WARNING or SUGGESTION finding in the report that was NOT fixed before the
+gate, append a row to `.skillgrid/WINDOWS.md` (the cross-change defect
+register). Format:
+`| W<NNN> | <change-dir-name> | <severity> | <one-line finding> | <human or "qa-auto"> | <YYYY-MM-DD> | open |`
+where `W<NNN>` is the next sequential number (read the last row's number + 1;
+start at W001 if the table is empty). If 0 open findings, do not modify
+WINDOWS.md. The finding text is the one-line summary from the report's
+`### WARNING` / `### SUGGESTION` sections. Commit WINDOWS.md with the report
+(spec zone rule). The window survives the archive move — it is project-level,
+not per-change.
+
 **Commit `report.md` (the QA half)** (spec zone rule).
 
 ### Step 11: Report and Route
