@@ -16,8 +16,9 @@ Single source for the ADR in-force set. Each row points at the full record in `0
 | 0008 | State drift guard: Node.js + `yaml` package, read-only verifier | accepted | — | 2026-09-24 | yes | [04-adr-0008](04-adr-0008-state-drift-guard-js-yaml.md) |
 | 0009 | Vector search: in-SQL sqlite-vec latency corrected; viant deferred; revisit path confirmed | accepted | — | 2026-09-24 | yes | [04-adr-0009](04-adr-0009-vector-search-in-sql-latency-viant-deferred.md) |
 | 0010 | Verification scope discriminator: a zero is never a bare zero (COMPLETE/TRUNCATED/UNSCOPED/UNREADABLE) | accepted | — | 2026-09-24 | yes | [04-adr-0010](04-adr-0010-verification-scope-discriminator.md) |
+| 0011 | Observations are bi-temporal; the save path classifies each write as Add/Update/Delete/Noop | accepted | — | 2026-09-24 | yes | [04-adr-0011](04-adr-0011-observations-are-bitemporal.md) |
 
-**Highest sequence in use:** 0010 (next ADR is `04-adr-0011-slug.md`).
+**Highest sequence in use:** 0011 (next ADR is `04-adr-0012-slug.md`).
 
 ## How to update
 
