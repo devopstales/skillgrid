@@ -271,7 +271,7 @@ Every requirement's happy-path scenario carries a `G<n>` oracle — the verifiab
 
 "The declared oracle is the oracle. A scenario is met **only** when its `G<n>` CHECK exits 0 and its output matches EXPECT, freshly run. 'I ran *some* test' is not verification. You may not claim 'done' while any happy-path scenario's gate is unmet or abandoned. Report met / unmet / abandoned counts."
 
-`test-driven-verification` authors them; `gate-state.sh` evaluates them (`--status` non-executing / `--reverify` executing); `gate-stop.sh` blocks the agent's Stop while any is unmet; `gate-lint.sh` lints structure at commit time. `ponytail` re-binds the "check" rule to these gates: "Lazy code without its check is unfinished … a non-trivial task MUST leave its happy-path scenario's gate green." See [Hooks](04-hooks.md).
+`test-driven-verification` authors them; `gate-state.js` evaluates them (`--status` non-executing / `--reverify` executing); `gate-stop.js` blocks the agent's Stop while any is unmet; `gate-lint.js` lints structure at commit time. `ponytail` re-binds the "check" rule to these gates: "Lazy code without its check is unfinished … a non-trivial task MUST leave its happy-path scenario's gate green." See [Hooks](04-hooks.md).
 
 ## BDD extraction contract (acceptance-test-authoring)
 
@@ -374,7 +374,7 @@ Tried: <failed approaches worth recording — omit line if none>
 
 **Atomic sizing:** "One logical change per commit." "**~100 lines as the soft ceiling**" (a vertical slice that must move together is fine). "**Independently revertable:** prefer additive changes; do not delete and replace in the same commit — split into a delete commit and an add commit." "**Spec before code (zone rule).**" "Commit **after** a verified gate (a green `G<n>` — not 'I think it's done'), and **before** a long-running install/build/test command."
 
-`checkpoint.json` (`skillgrid/checkpoint/v1`) is derived from `git log -1`; never hand-edit. Snapshot via `checkpoint-state.sh snapshot` (idempotent); restore via `restore`. **Commit first, then review** — "Review diffs `merge-base...HEAD`; an uncommitted change is invisible to it."
+`checkpoint.json` (`skillgrid/checkpoint/v1`) is derived from `git log -1`; never hand-edit. Snapshot via `checkpoint-state.js snapshot` (idempotent); restore via `restore`. **Commit first, then review** — "Review diffs `merge-base...HEAD`; an uncommitted change is invisible to it."
 
 ## The state layers + resume
 
@@ -563,6 +563,19 @@ subagent-execution decomposes a plan into **leaves (tasks) under branches (share
 ## Isolated workspace
 
 "Detect existing isolation first. Then use native tools. Then fall back to git. **Never fight the harness.**" "A native tool (e.g. `EnterWorktree`) owns placement, branching, and cleanup. Bypassing it is the #1 mistake — it creates phantom state your harness can't see or manage." Step 0 detects before creating: `GIT_DIR != GIT_COMMON` → already in a linked worktree (skip); the **submodule guard** (`git rev-parse --show-superproject-working-tree` returns a path → you're in a submodule, treat as a normal repo); empty branch → detached HEAD ("cannot branch/push/PR from sandbox"). "Honor any existing declared preference without asking. If the user declines consent, work in place." "MUST verify the directory is ignored before creating a worktree: `git check-ignore -q .worktrees`." **Verify clean baseline:** "Run tests to ensure the workspace starts clean. A dirty baseline makes every later failure ambiguous. Proceeding past failures is your human partner's call."
+
+## Structural guards (advisory)
+
+Three read-only checks run at QA, before the gate renders. All produce
+WARNING findings — they surface, never block:
+
+- **State drift** — `state.yaml` must match the spec-zone artifacts. The spec zone is the deeper truth; `state.yaml` is a projection that can go stale at a phase transition.
+- **Structure drift** — the actual diff (`base..HEAD`) must fall within the anticipated file set declared in `tasks.md` + `blueprint.md`. Surfaces scope creep while it's still cheap to fix (pre-integration).
+- **Byte budget** — SKILL.md files have per-tier size ceilings (standard 22KB, large 38KB, XL 40KB). Prevents unbounded prompt growth in the skill files that shape every session.
+
+Plus one lifecycle guard: the **session lock** (`.skillgrid/.lock`, advisory)
+surfaces concurrent-session conflicts. `brainstorming` acquires, `ship`
+releases. Stale threshold: 2 hours. It warns, never blocks.
 
 ## Cross-cutting invariants (short reference)
 

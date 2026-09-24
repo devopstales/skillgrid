@@ -287,14 +287,14 @@ lines it owns. It never rewrites curated prose.
 | Target | Reconcile does | Owner of the rest |
 |---|---|---|
 | `## Skillgrid` block (AGENTS.md / CLAUDE.md) | surgical update of drifted facts (stack, commands) via the sentinel upsert | onboarding (structure), human (curated prose) |
-| `.skillgrid/glossary/` (business.md + technical.md) | add one line per new term the change introduced that is absent | `architectural-decision-records` (definitions) |
-| `.skillgrid/adr/` | **flag only** — in-force ADRs the diff contradicts or supersedes, listed for the human | `architectural-decision-records` (ADRs are immutable once accepted) |
+| `.skillgrid/artifacts/` terms (01-business-terms.md + 02-technical-terms.md) | add one line per new term the change introduced that is absent | `architectural-decision-records` (definitions) |
+| `.skillgrid/artifacts/` ADRs (04-adr-*.md) | **flag only** — in-force ADRs the diff contradicts or supersedes, listed for the human | `architectural-decision-records` (ADRs are immutable once accepted) |
 | Archived change folder | read (for the debt list); never modified after the move | the archive is an audit trail |
 | `.skillgrid/config.yaml` | **flag only** — a detected stack/runner change the human should re-onboard for | onboarding (merge mode) |
 
 **Process:**
 1. Re-verify the `## Skillgrid` block facts against the repo (manifests, test runner, commands). If a line drifted (the change introduced a new dependency or changed the runner), update that line via the idempotent sentinel upsert (same sentinels as onboarding). If the drift is structural (a new area with its own conventions, a renamed runner), flag it — do not restructure.
-2. Glossary: scan the change's new/modified files for terms absent from `.skillgrid/glossary/`. Add one line each (term + one-line definition) to the right file (business.md / technical.md). If a term needs a real definition and ADR, flag for `architectural-decision-records` instead of guessing.
+2. Terms: scan the change's new/modified files for terms absent from the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`). Add one line each (term + one-line definition) to the right file. If a term needs a real definition and ADR, flag for `architectural-decision-records` instead of guessing.
 3. ADRs: list in-force ADRs the diff contradicts or supersedes. **Flag, never edit** — ADR immutability holds. The human decides whether a superseding ADR is owed.
 4. Config: if the change changed the stack or test runner in a way `config.yaml` doesn't reflect, flag "run `skillgrid:onboarding` (merge mode)" — do not edit the config.
 5. **Open decision debt:** list every `ASSUMED` blueprint in the archive (from Step 6) into the Return Envelope's `Open decision debt` line.
@@ -385,6 +385,10 @@ If the change is **trivial** (per the trivial-skip rule in `_shared/conventions/
 **Open decision debt**: {assumed blueprints owed ratification — or "None"}
 **Next**: reflect — completes `report.md`'s retro half in the archive (integration + retro + archive summary) + session close
 ```
+
+**Update `state.yaml`:** append the shipped `<topic>` to `progress.completed_changes`, and clear `pipeline.current_change` + `pipeline.current_phase` (the pipeline is now idle, awaiting the next change or `reflect`).
+
+**Release session lock:** run `node scripts/state-lock.mjs release <topic>`. Always exit 0 (no-op if the lock doesn't name this change).
 
 Close the final message with a `## Key Learnings` section — 1–5 standalone factual sentences (≥ 20 chars each). Mnemonic passive capture picks these up. Do **not** call `mem_session_summary` in a sub-agent context — `reflect` owns session close.
 

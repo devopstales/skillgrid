@@ -257,6 +257,18 @@ verdict. Read-only; it does not write `state.yaml`.
 `state.yaml` to match the derived values (the spec zone is the source of
 truth). Commit the fix with the report.
 
+### Step 9.6: Structure Drift Check
+
+Run `node scripts/ship-drift-check.mjs check <base-ref> --anticipated <dir1> <dir2> ... [project-root]`.
+
+- **`<base-ref>`**: resolve from `tasks.md` → `## Delivery Strategy` → `Chain strategy:` (same source ship uses). If `Chain strategy: pending`, skip this step (no base to diff against).
+- **`--anticipated`**: the union of file paths/directories listed in `tasks.md` (Files column) and any paths named in `blueprint.md`'s Global Constraints. Pass each as a separate `--anticipated` value.
+- **Exit 0** (`DRIFT: none`) — all changes within the anticipated set. Continue.
+- **Exit 1** (drift detected) — record a **WARNING** finding in the report's `## Structure Drift` section with the table of unanticipated files. The warning names the fix: "add these paths to `tasks.md` Files or investigate why they changed." Advisory — never CRITICAL, never affects the four-state verdict.
+- **Exit 2** (usage error) — record a **WARNING** and name the error.
+
+**Byte-budget check:** run `node scripts/skill-size-budget.mjs check .`. Exit 1 (overage) → add a WARNING finding to the report for each over-budget skill ("SKILL.md size overage: {name} at {size}B, ceiling {ceiling}B"). Exit 0 → no action. Advisory — never blocks the gate.
+
 ### Step 10: Render the Gate
 
 Complete the QA half of `.skillgrid/specs/<topic>/report.md` (the Test Plan section was already written in Step 2) from [templates/report.md](templates/report.md) — everything through `## Gate Decision` and `## Human Override`. The retro sections (from `## Final-State Facts` onward) stay empty for reflect.

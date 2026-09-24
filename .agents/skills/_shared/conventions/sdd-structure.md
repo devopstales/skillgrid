@@ -209,6 +209,69 @@ Finding | Waived By | Date | Status`. Window IDs are sequential (`W001`,
 The human can edit WINDOWS.md to waive, fix, or close windows. The ledger is
 advisory — it never blocks a gate.
 
+## Session lock (`.skillgrid/.lock`)
+
+An advisory lockfile that surfaces concurrent-session conflicts. It does not
+block — it warns.
+
+**File:** `.skillgrid/.lock` (JSON): `{ "change": "...", "session_id": "...",
+"acquired_at": "..." }`.
+
+**CLI:** `node scripts/state-lock.mjs <acquire|release|check> [args]`.
+
+**Lifecycle:**
+- **`brainstorming`** (acquire): after setting `current_change`, runs
+  `acquire <topic> [session-id]`. Exit 1 (active lock for a different
+  change) → surface the conflict warning (advisory). Exit 0 → continue.
+- **`ship`** (release): after clearing `current_change`, runs
+  `release <topic>`. Always exit 0.
+- **Stale threshold:** 2 hours. A stale lock is overwritten with a warning.
+
+**Rule:** advisory only. The serial rule ("one change at a time") is a human
+decision; the lock surfaces conflicts without enforcing them.
+
+## Byte budget (SKILL.md size ratchet)
+
+Prevents unbounded growth of skill files. Each skill has a per-tier ceiling;
+the budget JSON records the last-known size.
+
+**Budget file:** `scripts/skill-size-budget.json` — `{ ceiling, tiers, skills }`.
+
+**CLI:** `node scripts/skill-size-budget.mjs check [--write] [project-root]`.
+
+**Tiers:** `standard` 22KB (default), `large` 38KB, `xl` 40KB. Skills
+explicitly assigned a tier in the `tiers` map; unlisted skills use `standard`.
+
+**Lifecycle:**
+- **`qa`** (check): runs `check` before rendering the gate. Overages become
+  WARNING findings in the report (advisory, never blocks).
+- **`--write`**: regenerates the `skills` size map (keeps `ceiling` and
+  `tiers`). Run after intentionally growing a skill.
+
+**Rule:** advisory. The ratchet warns; a human raises the ceiling or trims
+content. It never blocks a gate.
+
+## Ship drift (structure drift check)
+
+Surfaces files changed outside the anticipated set at QA time — before
+integration, while the spec is still the contract. The anticipated set is
+the union of `tasks.md` Files column and `blueprint.md` Global Constraints
+paths.
+
+**CLI:** `node scripts/ship-drift-check.mjs check <base-ref>
+--anticipated <dir>... [--exclude <glob>...] [project-root]`.
+
+**Default excludes:** `*.lock`, `*.sum`, `package-lock.json`, `yarn.lock`,
+`pnpm-lock.yaml`.
+
+**Lifecycle:**
+- **`qa`** (Step 9.6): resolves `<base-ref>` from `tasks.md` → `Chain
+  strategy:` and runs the check. Exit 1 (drift) → WARNING finding in the
+  report's `## Structure Drift` section. Advisory — never blocks the gate.
+
+**Rule:** advisory. Surfaces scope creep at the point where it's still
+cheap to fix (before integration).
+
 ## Archive
 
 On completion, **`ship`** moves the change folder out of the active `specs/` zone into a top-level, immutable `archive/` zone:

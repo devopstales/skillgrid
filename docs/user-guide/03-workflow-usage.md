@@ -38,7 +38,7 @@ Announce pattern: `Using <skill> to <route>`.
 | Slice | `slicing` | `tasks.md` (tracer-bullet tickets, dependency edges, execution waves) |
 | **Approval gate** | — | **Go** or **Revise** — never skip |
 | Apply | `simple-execution` / `subagent-execution` / `parallel-execution` | Unblocked slices executed; TDD per task; commits via `work-unit-commits` |
-| QA | `qa` | 4-state gate (PASS / CONCERNS / FAIL / WAIVED) + human QA plan; findings → apply |
+| QA | `qa` | 4-state gate (PASS / CONCERNS / FAIL / WAIVED) + human QA plan; drift guards (state, structure, byte-budget); findings → apply |
 | Publish | `ticketing` | Tickets pushed to the tracker; status machine advances |
 
 ## Skill triggers (who calls who)
@@ -119,10 +119,24 @@ Blueprint (`blueprint.md`), slices (`tasks.md`), glossary/ADRs, and the ticket s
 ## Apply ⇄ QA loop
 
 1. Agent runs TDD and traces to acceptance scenarios.
-2. Agent runs the `#### Gates` oracles (`test-driven-verification` / `gate-state.sh --reverify`).
+2. Agent runs the `#### Gates` oracles (`test-driven-verification` / `gate-state.js --reverify`).
 3. Code review as needed (`requesting-code-review` / `parallel-code-review` / `receiving-code-review`).
 4. Your QA or review findings become new slices → **apply** again.
 5. QA gate PASS/WAIVED, no open slices, human QA accepted or waived → **ticketing**.
+
+## Structural guards (qa)
+
+Three advisory checks run at QA (Steps 9.5–9.6) before the gate renders. All
+are WARNING-only — they never affect the four-state verdict:
+
+- **State drift** (`state-drift-check.mjs`) — compares `state.yaml` against
+  the spec-zone artifacts. Catches a pipeline skill that forgot to update
+  `state.yaml` at a phase transition.
+- **Structure drift** (`ship-drift-check.mjs`) — diffs `base..HEAD` against
+  the anticipated file set (`tasks.md` Files + `blueprint.md` Global
+  Constraints). Catches scope creep before integration.
+- **Byte budget** (`skill-size-budget.mjs`) — checks SKILL.md sizes against
+  per-tier ceilings. Catches unbounded skill-file growth.
 
 ## Close-out (ship → reflect)
 
