@@ -1,0 +1,10 @@
+schema: skillgrid/state/v1
+pipeline:
+  current_phase: "execution"
+  current_change: "2026-09-21-session-events-layer"
+  status: in_progress
+progress:
+  completed_changes: 17
+  blocked_changes: 0
+constraints_ref: .skillgrid/artifacts/05-locked-constraints.md
+notes: "Serial development: one change at a time. session-events-layer is mid-flight (tickets done, awaiting QA/ship)."
