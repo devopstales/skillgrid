@@ -522,12 +522,106 @@ type existingFile struct {
 // extract/prune (symbols/edges/embeddings/LSH) runs in the SAME transaction as
 // the chunk sync so the content-hash + mtime guards stay single-path (no
 // dual-sync drift).
+// indexFile extracts, chunks and persists a single scanned file inside the run
+// transaction, updating the shared stats and target-UID set in place. Size and
+// mtime/content skips are first-class outcomes (counted, not errors) and the
+// file is left out of the index. It records the file's symbol + route UIDs in
+// targetUIDs so the end-of-tx orphan prune keeps them.
+func (idx *Indexer) indexFile(ctx context.Context, tx *sql.Tx, cfg *Config, file ScannedFile, done, total int, existing map[string]existingFile, stats *Stats, skippedFileIDs *[]int64, targetUIDs map[string]struct{}, now string) error {
+	if file.Size > maxFileSize {
+		// First-class size skip: counted in stats, not an error, not a
+		// fallback. The file is left out of the index entirely.
+		stats.FilesOversized++
+		return nil
+	}
+	prev, ok := existing[file.Path]
+	// Full-skip guard: mtime + size + content hash all unchanged. The
+	// per-file ast_hash (structure of extracted symbols/edges) is persisted
+	// alongside but NOT part of this guard — it is informational, enabling
+	// a future "skip re-embed if structure unchanged" optimization (a
+	// comment-only edit keeps the same ast_hash while the content hash
+	// changes). The skip logic itself is deliberately unchanged.
+	if ok && prev.MtimeNs == file.MtimeNs && prev.Size == file.Size && prev.ContentHash == file.Hash {
+		stats.FilesSkipped++
+		*skippedFileIDs = append(*skippedFileIDs, prev.ID)
+		return nil
+	}
+	fileID, err := upsertFile(tx, file, now)
+	if err != nil {
+		return err
+	}
+	if ok {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM chunks WHERE file_id = ?`, fileID); err != nil {
+			return fmt.Errorf("delete chunks for %s: %w", file.Path, err)
+		}
+	}
+	// Graph pass: extract symbols/edges/rationale FIRST (it has no tx
+	// dependency) so the chunking step below can split at the extracted
+	// symbol boundaries (AST-aware semantic chunking, 037). extractFile
+	// never aborts the run (regex fallback); on error we fall back to
+	// plain line chunking.
+	syms, edges, rationale, err := idx.extractFile(file)
+	if err != nil {
+		return fmt.Errorf("extract %s: %w", file.Path, err)
+	}
+	// AST-boundary chunking for the semantic tier: prefer symbol-boundary
+	// chunks (one per function/class/method, ~1000 chars); fall back to
+	// line windows when there are no function-like symbols.
+	chunks := ChunkLinesAst(file.Contents, syms)
+	if len(chunks) == 0 {
+		chunks = ChunkLines(file.Contents, cfg.ChunkLines, cfg.ChunkOverlap)
+	}
+	for _, chunk := range chunks {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO chunks (file_id, start_line, end_line, text, content_hash, kind) VALUES (?, ?, ?, ?, ?, ?)`,
+			fileID, chunk.StartLine, chunk.EndLine, chunk.Text, chunk.ContentHash, chunk.Kind,
+		); err != nil {
+			return fmt.Errorf("insert chunk for %s: %w", file.Path, err)
+		}
+		stats.ChunksAdded++
+	}
+	if n, err := writeFileGraph(tx, fileID, syms, edges, rationale); err != nil {
+		return err
+	} else {
+		stats.SymbolsAdded += n
+		stats.EdgesAdded += len(edges)
+	}
+	// (Unresolved-members + resolution-audit are persisted over the FULL index
+	// after the commit, in resolutionAuditPass, so the tables are complete even
+	// on an incremental run.)
+	// Structure hash: deterministic over the extracted symbol UIDs + edge
+	// tuples (comments/format are excluded), so a structure-only edit keeps
+	// the same value. Persisted on the files row (informational).
+	astHash := structureHash(syms, edges)
+	file.AstHash = astHash
+	if _, err := tx.Exec(`UPDATE files SET ast_hash = ? WHERE id = ?`, astHash, fileID); err != nil {
+		return fmt.Errorf("set ast_hash for %s: %w", file.Path, err)
+	}
+	// Route pass: framework routing (route nodes + references/navigates
+	// edges) is extracted AFTER the 005 symbol/edge extraction, in the
+	// SAME transaction, so a route node is always resolvable to the 005
+	// symbols it references and a single rollback undoes both. Per-file
+	// route failures are non-fatal (a malformed routing file falls back
+	// to zero route rows and the index continues).
+	routeUIDs, rerr := idx.extractRoutes(ctx, tx, fileID, file)
+	if rerr != nil {
+		fmt.Fprintf(os.Stderr, "warn: route extract %s: %v\n", file.Path, rerr)
+	}
+	// Record the file's target UIDs (005 + route nodes) for the end-of-tx
+	// global prune so the orphan prune does not delete the route nodes.
+	for _, s := range syms {
+		targetUIDs[s.UID] = struct{}{}
+	}
+	for _, uid := range routeUIDs {
+		targetUIDs[uid] = struct{}{}
+	}
+	stats.FilesIndexed++
+	idx.emit(Event{Phase: "extract", Done: done, Total: total, Detail: file.Path})
+	return nil
+}
+
 func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, error) {
 	var stats Stats
-	emit := cfg.Progress
-	if emit == nil {
-		emit = func(Event) {}
-	}
 	if idx == nil || idx.store == nil || idx.store.DB == nil {
 		return stats, fmt.Errorf("indexer not initialized")
 	}
@@ -564,96 +658,10 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 		if err := ctx.Err(); err != nil {
 			return stats, err
 		}
+		if err := idx.indexFile(ctx, tx, &cfg, file, i+1, len(scanned), existing, &stats, &skippedFileIDs, targetUIDs, now); err != nil {
+			return stats, err
+		}
 		scannedPaths[file.Path] = struct{}{}
-		if file.Size > maxFileSize {
-			// First-class size skip: counted in stats, not an error, not a
-			// fallback. The file is left out of the index entirely.
-			stats.FilesOversized++
-			continue
-		}
-		prev, ok := existing[file.Path]
-		// Full-skip guard: mtime + size + content hash all unchanged. The
-		// per-file ast_hash (structure of extracted symbols/edges) is persisted
-		// alongside but NOT part of this guard — it is informational, enabling
-		// a future "skip re-embed if structure unchanged" optimization (a
-		// comment-only edit keeps the same ast_hash while the content hash
-		// changes). The skip logic itself is deliberately unchanged.
-		if ok && prev.MtimeNs == file.MtimeNs && prev.Size == file.Size && prev.ContentHash == file.Hash {
-			stats.FilesSkipped++
-			skippedFileIDs = append(skippedFileIDs, prev.ID)
-			continue
-		}
-		fileID, err := upsertFile(tx, file, now)
-		if err != nil {
-			return stats, err
-		}
-		if ok {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM chunks WHERE file_id = ?`, fileID); err != nil {
-				return stats, fmt.Errorf("delete chunks for %s: %w", file.Path, err)
-			}
-		}
-		// Graph pass: extract symbols/edges/rationale FIRST (it has no tx
-		// dependency) so the chunking step below can split at the extracted
-		// symbol boundaries (AST-aware semantic chunking, 037). extractFile
-		// never aborts the run (regex fallback); on error we fall back to
-		// plain line chunking.
-		syms, edges, rationale, err := idx.extractFile(file)
-		if err != nil {
-			return stats, fmt.Errorf("extract %s: %w", file.Path, err)
-		}
-		// AST-boundary chunking for the semantic tier: prefer symbol-boundary
-		// chunks (one per function/class/method, ~1000 chars); fall back to
-		// line windows when there are no function-like symbols.
-		chunks := ChunkLinesAst(file.Contents, syms)
-		if len(chunks) == 0 {
-			chunks = ChunkLines(file.Contents, cfg.ChunkLines, cfg.ChunkOverlap)
-		}
-		for _, chunk := range chunks {
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO chunks (file_id, start_line, end_line, text, content_hash, kind) VALUES (?, ?, ?, ?, ?, ?)`,
-				fileID, chunk.StartLine, chunk.EndLine, chunk.Text, chunk.ContentHash, chunk.Kind,
-			); err != nil {
-				return stats, fmt.Errorf("insert chunk for %s: %w", file.Path, err)
-			}
-			stats.ChunksAdded++
-		}
-		if n, err := writeFileGraph(tx, fileID, syms, edges, rationale); err != nil {
-			return stats, err
-		} else {
-			stats.SymbolsAdded += n
-			stats.EdgesAdded += len(edges)
-		}
-		// (Unresolved-members + resolution-audit are persisted over the FULL index
-		// after the commit, in resolutionAuditPass, so the tables are complete even
-		// on an incremental run.)
-		// Structure hash: deterministic over the extracted symbol UIDs + edge
-		// tuples (comments/format are excluded), so a structure-only edit keeps
-		// the same value. Persisted on the files row (informational).
-		astHash := structureHash(syms, edges)
-		file.AstHash = astHash
-		if _, err := tx.Exec(`UPDATE files SET ast_hash = ? WHERE id = ?`, astHash, fileID); err != nil {
-			return stats, fmt.Errorf("set ast_hash for %s: %w", file.Path, err)
-		}
-		// Route pass: framework routing (route nodes + references/navigates
-		// edges) is extracted AFTER the 005 symbol/edge extraction, in the
-		// SAME transaction, so a route node is always resolvable to the 005
-		// symbols it references and a single rollback undoes both. Per-file
-		// route failures are non-fatal (a malformed routing file falls back
-		// to zero route rows and the index continues).
-		routeUIDs, rerr := idx.extractRoutes(ctx, tx, fileID, file)
-		if rerr != nil {
-			fmt.Fprintf(os.Stderr, "warn: route extract %s: %v\n", file.Path, rerr)
-		}
-		// Record the file's target UIDs (005 + route nodes) for the end-of-tx
-		// global prune so the orphan prune does not delete the route nodes.
-		for _, s := range syms {
-			targetUIDs[s.UID] = struct{}{}
-		}
-		for _, uid := range routeUIDs {
-			targetUIDs[uid] = struct{}{}
-		}
-		stats.FilesIndexed++
-		emit(Event{Phase: "extract", Done: i + 1, Total: len(scanned), Detail: file.Path})
 	}
 	// Target-state prune: a deleted file prunes its whole footprint via the
 	// file_id cascade; symbols whose file still exists but was rewritten are
@@ -708,25 +716,35 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 		return stats, err
 	}
 	// The 005 + route extraction (above) ran in one transaction, now committed.
-	// The community + process + knowledge passes run AFTER that commit, NOT in
-	// the same tx: the store's single-connection *sql.DB (MaxOpenConns=1)
-	// deadlocks a second connection once the committed tx's write lock is held
-	// (a modernc.org/sqlite constraint), so the passes cannot share the 005
-	// tx. Close the store's DB and reopen a fresh one (with foreign_keys=1 via
-	// DSN, since that pragma is per-connection not persistent) so the passes
-	// have a clean single-connection pool. The store's DB is replaced with the
-	// pass DB so the indexer (and any caller using idx.store.DB) keeps working.
-	//
-	// The passes are advisory, not transactional with 005: they do not roll
-	// back the committed 005 extraction, and a pass failure only warns and
-	// continues (the 005 graph + FTS floor are already committed).
+	// The community + process + knowledge + LSP + PDG + audit passes run AFTER
+	// that commit, NOT in the same tx: the store's single-connection *sql.DB
+	// (MaxOpenConns=1) deadlocks a second connection once the committed tx's
+	// write lock is held (a modernc.org/sqlite constraint), so the passes
+	// cannot share the 005 tx. They are advisory, not transactional with 005:
+	// a pass failure only warns and continues (the 005 graph + FTS floor are
+	// already committed).
+	if err := idx.runPostCommitPasses(ctx, root, cfg, scanned); err != nil {
+		return stats, err
+	}
+	idx.emit(Event{Phase: "complete", PhaseStart: true})
+	return stats, nil
+}
+
+// runPostCommitPasses runs the advisory knowledge-graph + LSP + PDG + audit
+// passes after the 005 extraction commit. It closes the store's single-
+// connection DB and reopens a fresh one (foreign_keys=1 via DSN, a per-
+// connection pragma) so the passes have a clean pool, swapping idx.store.DB to
+// the pass DB so the indexer and any caller using idx.store.DB keep working.
+// A close/open/rebind failure here is returned (it breaks the passes); a pass
+// failure itself only warns and continues.
+func (idx *Indexer) runPostCommitPasses(ctx context.Context, root string, cfg Config, scanned []ScannedFile) error {
 	dbPath := idx.store.Path()
 	if err := idx.store.DB.Close(); err != nil {
-		return stats, fmt.Errorf("close store db: %w", err)
+		return fmt.Errorf("close store db: %w", err)
 	}
 	passDB, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)")
 	if err != nil {
-		return stats, fmt.Errorf("open pass db: %w", err)
+		return fmt.Errorf("open pass db: %w", err)
 	}
 	// Re-register the pool with passDB BEFORE swapping idx.store.DB: the close
 	// above left the pool entry pointing at the now-closed old *sql.DB, so any
@@ -735,7 +753,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	// DB pointer to passDB (keeping the old entry's live refs) and is a no-op
 	// when the store owns its DB outright (cache disabled).
 	if err := idx.store.RebindPassDB(passDB); err != nil {
-		return stats, fmt.Errorf("rebind pass db: %w", err)
+		return fmt.Errorf("rebind pass db: %w", err)
 	}
 	idx.store.DB = passDB
 	// Knowledge-graph passes (03.8): run the community + process + knowledge
@@ -806,8 +824,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	if idx.emb != nil && idx.emb.Model() != "" {
 		hybrid.InvalidateVectorCache(idx.store.Path(), idx.emb.Model())
 	}
-	idx.emit(Event{Phase: "complete", PhaseStart: true})
-	return stats, nil
+	return nil
 }
 
 // resolutionAuditPass re-extracts every scanned file and persists the
