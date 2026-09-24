@@ -44,25 +44,6 @@ skillgrid --skip-agents             skip the ~/.agents override step
 skillgrid --sync-repo PATH          sync a local repo path into the hub instead of cloning
 ```
 
-### Build
-
-Requires [Task](https://taskfile.dev). Run from the repo root — the
-`Taskfile.yml` at the root builds the Go module in `skillgrid-cli/`.
-
-```bash
-task                 # local build          → dist/skillgrid
-task all             # linux amd64+386 + darwin amd64+arm64
-task test            # go vet + go test (in skillgrid-cli/)
-task clean           # remove dist/
-task install         # copy dist/skillgrid-linux-amd64 → ~/.skillgrid/bin/skillgrid
-```
-
-Override the version string baked in with `-ldflags`:
-
-```bash
-SKILLGRID_VERSION=v1.0.0 task all
-```
-
 ### Install
 
 Once built (and `dist/skillgrid-linux-amd64` is present), run:
@@ -133,6 +114,19 @@ reflect ← ship ← review ← qa ⇄ apply (simple / subagent / parallel)
 | **Review + QA** | Two-axis or up-to-8-specialist review (a11y + performance added when the diff touches UI or data); 4-state QA gate (PASS / CONCERNS / FAIL / WAIVED) over the **test pyramid** — layer selection, duplicate-coverage guard, mutation + P0/P1 pass-rate thresholds |
 | **Ship** | Integrate to base (merge / PR / keep) + mechanical `specs/` → `archive/` move |
 | **Reflect** | Sourced retrospective + acceptance verdict + final-state `report.md` |
+
+## External dependencies
+
+Skillgrid's skills reference two external CLI tools at runtime. Install them
+if your agent doesn't already have them:
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) | Fast content search — the skills' primary code-search primitive | `brew install ripgrep` / `apt install ripgrep` |
+| [exa](https://github.com/ogham/exa) (`exa`) | Web search and file listing — used by research skills and file exploration | `brew install exa` / `go install github.com/ogham/exa/v6@latest` |
+
+Both are optional — the pipeline works without them, but the skills
+degrade to slower `grep`/`ls` fallbacks when they're missing.
 
 ## Quick start
 
@@ -243,8 +237,8 @@ docs/user-guide/       # the full walkthrough (layout, skills, workflow, hooks, 
 | [05-memory-and-indexing](docs/user-guide/05-memory-and-indexing.md) | Mnemonic memory + code index |
 | [06-multi-agent-work](docs/user-guide/06-multi-agent-work.md) | Parallel / subagent work |
 | [07-ticketing](docs/user-guide/07-ticketing.md) | Backlog.md / GitHub / GitLab / Jira |
- | [08-concepts](docs/user-guide/08-concepts.md) | Gates, waves, clarity gate, PIV loop, ADRs, … |
- | [09-serve-dashboard](docs/user-guide/09-serve-dashboard.md) | `skillgrid serve` web dashboard + views + tracker CLI |
+| [08-concepts](docs/user-guide/08-concepts.md) | Gates, waves, clarity gate, PIV loop, ADRs, … |
+| [09-serve-dashboard](docs/user-guide/09-serve-dashboard.md) | `skillgrid serve` web dashboard + views + tracker CLI |
 
 ## License
 
