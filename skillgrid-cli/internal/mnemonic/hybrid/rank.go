@@ -288,13 +288,13 @@ func vectorLeg(ctx context.Context, db *sql.DB, query, language string, emb embe
 	// table and share the metadata join below. The in-memory hot path (the
 	// default) is byte-identical when the flag is off or the vec table is
 	// empty (durableSymbolHits returns ok=false and we fall through).
-	if durable, ok, err := durableSymbolHits(ctx, db, qVec, limit); ok {
+	if durable, warn, ok, err := durableSymbolHits(ctx, db, qVec, limit); err != nil {
+		return nil, "", err
+	} else if ok {
 		if err := symbolMetadataJoin(ctx, db, durable); err != nil {
 			return nil, "", err
 		}
-		return durable, "", nil
-	} else if err != nil {
-		return nil, "", err
+		return durable, warn, nil
 	}
 	syms, _, ok := vecCacheInstance.get(storePath(db), emb.Model())
 	if !ok {
@@ -530,14 +530,14 @@ func chunkVectorLeg(ctx context.Context, db *sql.DB, query, language string, emb
 	// vec_chunks table is non-empty, serve the top-K from the in-SQL vec table
 	// and share the chunk metadata join. The in-memory hot path (the default)
 	// is byte-identical when the flag is off or the vec table is empty.
-	if durable, ok, err := durableChunkHits(ctx, db, qVec, limit); ok {
+	if durable, warn, ok, err := durableChunkHits(ctx, db, qVec, limit); err != nil {
+		return nil, "", err
+	} else if ok {
 		joined, err := chunkMetadataJoin(ctx, db, language, durable)
 		if err != nil {
 			return nil, "", err
 		}
-		return joined, "", nil
-	} else if err != nil {
-		return nil, "", err
+		return joined, warn, nil
 	}
 	_, chunks, ok := vecCacheInstance.get(storePath(db), emb.Model())
 	if !ok {

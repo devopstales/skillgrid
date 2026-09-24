@@ -127,7 +127,7 @@ func ExactnessCheck(ctx context.Context, db *sql.DB, vecTable string, queryVec [
 		var vecID, blobID int64
 		var vecSim, blobSim float64
 		if r < len(vecIDs) {
-			vecID = vecIDs[r]
+			vecID = vecIDs[r].ID
 		}
 		if r < len(all) {
 			blobID = all[r].id

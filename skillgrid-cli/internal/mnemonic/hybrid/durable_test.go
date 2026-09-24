@@ -89,7 +89,7 @@ func TestDurablePathEquivalence(t *testing.T) {
 	}
 
 	// Query basis-0 (hot=0): the durable top-1 must be symbol_id 1.
-	hits, ok, err := durableSymbolHits(ctx, db, basisVec(0), 1)
+	hits, _, ok, err := durableSymbolHits(ctx, db, basisVec(0), 1)
 	if err != nil {
 		t.Fatalf("durableSymbolHits: %v", err)
 	}
@@ -99,10 +99,15 @@ func TestDurablePathEquivalence(t *testing.T) {
 	if len(hits) != 1 || hits[0].ID != "sym:1" {
 		t.Fatalf("durableSymbolHits top-1 = %v, want [sym:1]", hits)
 	}
+	// The in-SQL self-similarity of the top hit (a basis vector matched by
+	// itself) must be ~1 — proves Provenance.Sim is populated on the durable leg.
+	if hits[0].Sim < 0.999 {
+		t.Fatalf("durableSymbolHits top-1 Sim = %f, want ~1", hits[0].Sim)
+	}
 
 	// Query basis-1 (hot=1), limit 3: the durable top-K must rank symbol_id 2
 	// (basis-1) first, matching the brute-force ordering.
-	hits3, ok, err := durableSymbolHits(ctx, db, basisVec(1), 3)
+	hits3, _, ok, err := durableSymbolHits(ctx, db, basisVec(1), 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +137,7 @@ func TestDurableEmptyTableDegrade(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 	ctx := context.Background()
-	_, ok, err := durableSymbolHits(ctx, s.DB, basisVec(0), 1)
+	_, _, ok, err := durableSymbolHits(ctx, s.DB, basisVec(0), 1)
 	if err != nil {
 		t.Fatalf("durableSymbolHits (empty table): %v", err)
 	}
@@ -160,7 +165,7 @@ func TestDurableFlagOff(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	_, ok, err := durableSymbolHits(ctx, s.DB, basisVec(0), 1)
+	_, _, ok, err := durableSymbolHits(ctx, s.DB, basisVec(0), 1)
 	if err != nil {
 		t.Fatalf("durableSymbolHits (flag off): %v", err)
 	}

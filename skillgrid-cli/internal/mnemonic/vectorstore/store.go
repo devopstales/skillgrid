@@ -95,42 +95,53 @@ func DeleteChunks(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+// SearchHit is one top-K result: the rowid and its cosine distance from the
+// query vector (vec_distance_cosine, in [0, 2]; similarity = 1 - distance).
+type SearchHit struct {
+	ID   int64
+	Dist float64
+	Sim  float64
+}
+
 // SearchSymbols returns the top-K symbol_id by ascending vec_distance_cosine
-// (most-similar first) for the query vector.
-func SearchSymbols(ctx context.Context, db *sql.DB, queryVec []float32, limit int) ([]int64, error) {
+// (most-similar first) for the query vector, with the in-SQL cosine distance
+// (and derived similarity) so the durable leg can report Provenance.Sim.
+func SearchSymbols(ctx context.Context, db *sql.DB, queryVec []float32, limit int) ([]SearchHit, error) {
 	return search(ctx, db, "vec_symbols", queryVec, limit)
 }
 
-// SearchChunks returns the top-K chunk_id by ascending vec_distance_cosine.
-func SearchChunks(ctx context.Context, db *sql.DB, queryVec []float32, limit int) ([]int64, error) {
+// SearchChunks returns the top-K chunk_id by ascending vec_distance_cosine,
+// with the in-SQL cosine distance and derived similarity.
+func SearchChunks(ctx context.Context, db *sql.DB, queryVec []float32, limit int) ([]SearchHit, error) {
 	return search(ctx, db, "vec_chunks", queryVec, limit)
 }
 
-func search(ctx context.Context, db *sql.DB, table string, queryVec []float32, limit int) ([]int64, error) {
+func search(ctx context.Context, db *sql.DB, table string, queryVec []float32, limit int) ([]SearchHit, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 	qb := encodeF32(queryVec)
 	rows, err := db.QueryContext(ctx,
-		fmt.Sprintf(`SELECT rowid FROM %s
+		fmt.Sprintf(`SELECT rowid, vec_distance_cosine(embedding, vec_f32(?)) FROM %s
 		 ORDER BY vec_distance_cosine(embedding, vec_f32(?)) LIMIT ?`, table),
-		qb, limit)
+		qb, qb, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search %s: %w", table, err)
 	}
 	defer rows.Close()
-	ids := make([]int64, 0, limit)
+	hits := make([]SearchHit, 0, limit)
 	for rows.Next() {
 		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan %s rowid: %w", table, err)
+		var dist float64
+		if err := rows.Scan(&id, &dist); err != nil {
+			return nil, fmt.Errorf("scan %s row: %w", table, err)
 		}
-		ids = append(ids, id)
+		hits = append(hits, SearchHit{ID: id, Dist: dist, Sim: 1 - dist})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows %s: %w", table, err)
 	}
-	return ids, nil
+	return hits, nil
 }
 
 // encodeF32 is the package-local little-endian float32 encoder (same layout as

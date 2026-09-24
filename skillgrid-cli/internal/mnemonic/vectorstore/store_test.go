@@ -88,7 +88,7 @@ func TestUpsertAndSearchSymbols(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SearchSymbols: %v", err)
 	}
-	if len(ids) != 1 || ids[0] != 2 {
+	if len(ids) != 1 || ids[0].ID != 2 {
 		t.Fatalf("SearchSymbols top-1 = %v, want [2]", ids)
 	}
 	// Query top-3 for basis hot=0: all three, with symbol_id 1 (hot=0) first.
@@ -96,8 +96,12 @@ func TestUpsertAndSearchSymbols(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ids3) != 3 || ids3[0] != 1 {
+	if len(ids3) != 3 || ids3[0].ID != 1 {
 		t.Fatalf("SearchSymbols top-3 = %v, want id 1 first", ids3)
+	}
+	// The in-SQL cosine similarity of a query with itself must be ~1.
+	if ids3[0].Sim < 0.999 {
+		t.Fatalf("SearchSymbols self-similarity = %f, want ~1", ids3[0].Sim)
 	}
 }
 
@@ -120,7 +124,7 @@ func TestUpsertAndSearchChunks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SearchChunks: %v", err)
 	}
-	if len(ids) != 1 || ids[0] != 20 {
+	if len(ids) != 1 || ids[0].ID != 20 {
 		t.Fatalf("SearchChunks top-1 = %v, want [20]", ids)
 	}
 }
@@ -187,7 +191,7 @@ func TestMaxOpenConnsOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SearchSymbols under MaxOpenConns=1 (deadlock?): %v", err)
 	}
-	if len(ids) != 1 || ids[0] != 1 {
+	if len(ids) != 1 || ids[0].ID != 1 {
 		t.Fatalf("SearchSymbols = %v, want [1]", ids)
 	}
 }
