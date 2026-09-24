@@ -15,7 +15,7 @@ Break a blueprint into vertical tracer-bullet tickets that each fit a single fre
 
 **Announce at start:** "I'm using the skillgrid:slicing skill to break the blueprint into executable tickets."
 
-**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for tasks.md location. If the file doesn't exist, use the default `.skillgrid/specs/`. Ticket titles and scope use the glossary vocabulary from `conventions.glossary` (default `.skillgrid/glossary/`). A ticket that contradicts an in-force ADR — per the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` — must call it out, not silently override it.
+**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for tasks.md location. If the file doesn't exist, use the default `.skillgrid/specs/`. Ticket titles and scope use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/artifacts/01-business-terms.md` + `02-technical-terms.md`). A ticket that contradicts an in-force ADR — per the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (in-force set via `artifacts/03-adr-index.md`) — must call it out, not silently override it.
 
 ## When to Use
 
@@ -67,7 +67,7 @@ Slice the work into tickets using these rules:
 
 **Vertical, not horizontal.** Each ticket is a narrow but COMPLETE path through every layer (UI → API → DB → config). Not "all database schemas" then "all API endpoints" then "all UI." A vertical slice touches a little of each layer and produces working behavior.
 
-**Sized for one fresh context window.** A ticket is the right size when a single agent session can implement it, test it, and commit it without needing to re-read the blueprint. Rough guide: ~500-1500 lines of change (20-50% tests). If the agent needs to go back to the blueprint mid-ticket, the ticket is too big.
+**Sized for one fresh context window.** A ticket is right-sized when the *full execution context* — source files read + implementation + test output + iteration headroom — completes within ~50% of a fresh context window. The diff alone undersells the cost: a 300-line ticket that reads 8 files and runs a full test suite is easily 40-50k tokens. Practical guide: ≤5 files modified, ≤3 subsystems crossed, ≤1500 lines changed (20-50% tests). If the agent needs to go back to the blueprint mid-ticket, the ticket is too big.
 
 **Demoable on its own.** Each ticket produces something testable or verifiable independently. Not "set up the schema" (invisible) but "user can create an account and see it in the list" (visible).
 
@@ -182,6 +182,8 @@ Check if ticketing is enabled:
 **If `ticketing.enabled: true` in `.skillgrid/config.yaml`** — invoke `skillgrid:ticketing` to publish these tickets to the configured tracker.
 
 **If `ticketing.enabled: false`** — skip ticketing, execute directly from `tasks.md`.
+
+**Update `state.yaml`:** set `pipeline.current_phase: slicing`.
 
 Then present the execution choice:
 
