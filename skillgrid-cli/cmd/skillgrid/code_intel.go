@@ -392,6 +392,57 @@ func openGraphService() (*service.Service, string, error) {
 	return svc, projectID, nil
 }
 
+// jsonFlag reports whether the --json flag is set on the parsed flag set.
+func jsonFlag(fs *flag.FlagSet) bool {
+	return fs.Lookup("json") != nil && fs.Lookup("json").Value.String() == "true"
+}
+
+// emitJSONOr prints v as indented JSON to stdout when jsonOut is set, returning
+// true; otherwise (or when v is nil) it returns false and the caller renders
+// the human form. (Distinct from search_pdg_cli's emitJSON(v) error, which is
+// unconditional.)
+func emitJSONOr(jsonOut bool, v any) bool {
+	if !jsonOut || v == nil {
+		return false
+	}
+	b, _ := json.MarshalIndent(v, "", "  ")
+	fmt.Fprintln(os.Stdout, string(b))
+	return true
+}
+
+// runGraphCmd is the shared skeleton for the `openGraphService`-backed code
+// intelligence commands (neighbors, path, explain, impact, explore,
+// communities, god-nodes, explain-community): build the flag set, parse,
+// open the service, set up a signal-aware context, and hand off to render,
+// which invokes the service method, prints its error, and emits JSON (via
+// emitJSON) when --json is set or otherwise renders the human form. Keeping
+// the boilerplate here lets each command declare only its usage string and
+// its render closure.
+func runGraphCmd(version, sub, usage string, args []string, extraFlags func(fs *flag.FlagSet), render func(fs *flag.FlagSet, svc *service.Service, projectID string, ctx context.Context)) {
+	fs := flag.NewFlagSet(sub, flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Bool("json", false, "emit machine-readable JSON")
+	if extraFlags != nil {
+		extraFlags(fs)
+	}
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), usage)
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	_ = version
+	svc, projectID, err := openGraphService()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	render(fs, svc, projectID, ctx)
+}
+
 // printImpact renders a risk-tiered blast-radius result (or a candidate list).
 func printImpact(out *service.ImpactResultDTO) {
 	if out.Ambiguous {
@@ -468,9 +519,7 @@ func runOrient(version string, args []string) {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
-	if jsonOut {
-		b, _ := json.MarshalIndent(out, "", "  ")
-		fmt.Fprintln(os.Stdout, string(b))
+	if emitJSONOr(jsonOut, out) {
 		return
 	}
 	if !out.Found {
@@ -534,9 +583,7 @@ func runGrep(version string, args []string) {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
-	if jsonOut {
-		b, _ := json.MarshalIndent(res, "", "  ")
-		fmt.Fprintln(os.Stdout, string(b))
+	if emitJSONOr(jsonOut, res) {
 		return
 	}
 	for _, n := range res.Notes {
@@ -554,411 +601,263 @@ func runGrep(version string, args []string) {
 // runNeighbors implements the graph neighbor subcommands (CLI parity for the
 // Tier-2 code_get_* MCP tools).
 func runNeighbors(version, sub string, args []string) {
-	fs := flag.NewFlagSet(sub, flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	var jsonOut bool
-	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
-	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "usage: skillgrid %s SYMBOL [--json]\n", sub)
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
-	}
-	if fs.NArg() != 1 {
-		fmt.Fprintf(os.Stderr, "error: %s requires exactly one SYMBOL argument\n", sub)
-		os.Exit(2)
-	}
-	symbol := fs.Arg(0)
-	svc, projectID, err := openGraphService()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	_ = version
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	out, err := svc.GrabNeighbors(ctx, projectID, graphView(sub), symbol)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	if jsonOut {
-		b, _ := json.MarshalIndent(out, "", "  ")
-		fmt.Fprintln(os.Stdout, string(b))
-		return
-	}
-	if out.Reason != "" {
-		fmt.Fprintln(os.Stderr, "note:", out.Reason)
-	}
-	if len(out.Edges) == 0 {
-		fmt.Fprintln(os.Stderr, "no edges")
-		return
-	}
-	for _, e := range out.Edges {
-		to := e.ToName
-		if e.To.ID != 0 {
-			to = e.To.Name
+	runGraphCmd(version, sub, fmt.Sprintf("usage: skillgrid %s SYMBOL [--json]", sub), args, nil, func(fs *flag.FlagSet, svc *service.Service, projectID string, ctx context.Context) {
+		if fs.NArg() != 1 {
+			fmt.Fprintf(os.Stderr, "error: %s requires exactly one SYMBOL argument\n", sub)
+			os.Exit(2)
 		}
-		fmt.Printf("%s -> %s [%s %s] :%d\n", e.From.Name, to, e.Kind, e.Confidence, e.Line)
-	}
+		symbol := fs.Arg(0)
+		out, err := svc.GrabNeighbors(ctx, projectID, graphView(sub), symbol)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		if emitJSONOr(jsonFlag(fs), out) {
+			return
+		}
+		if out.Reason != "" {
+			fmt.Fprintln(os.Stderr, "note:", out.Reason)
+		}
+		if len(out.Edges) == 0 {
+			fmt.Fprintln(os.Stderr, "no edges")
+			return
+		}
+		for _, e := range out.Edges {
+			to := e.ToName
+			if e.To.ID != 0 {
+				to = e.To.Name
+			}
+			fmt.Printf("%s -> %s [%s %s] :%d\n", e.From.Name, to, e.Kind, e.Confidence, e.Line)
+		}
+	})
 }
 
 // runGraphPath implements `skillgrid path FROM TO`.
 func runGraphPath(version string, args []string) {
-	fs := flag.NewFlagSet("path", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	var jsonOut bool
-	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
-	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: skillgrid path FROM TO [--json]")
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
-	}
-	if fs.NArg() != 2 {
-		fmt.Fprintln(os.Stderr, "error: path requires FROM and TO arguments")
-		os.Exit(2)
-	}
-	from, to := fs.Arg(0), fs.Arg(1)
-	svc, projectID, err := openGraphService()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	_ = version
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	out, err := svc.CodePath(ctx, projectID, from, to)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	if jsonOut {
-		b, _ := json.MarshalIndent(out, "", "  ")
-		fmt.Fprintln(os.Stdout, string(b))
-		return
-	}
-	if out.Reason != "" {
-		fmt.Fprintln(os.Stderr, "note:", out.Reason)
-		return
-	}
-	if !out.Found {
-		if out.GraphStops != nil {
-			printGraphStops(out.GraphStops)
-		} else {
-			fmt.Fprintln(os.Stderr, "no path")
+	runGraphCmd(version, "path", "usage: skillgrid path FROM TO [--json]", args, nil, func(fs *flag.FlagSet, svc *service.Service, projectID string, ctx context.Context) {
+		if fs.NArg() != 2 {
+			fmt.Fprintln(os.Stderr, "error: path requires FROM and TO arguments")
+			os.Exit(2)
 		}
-		return
-	}
-	if len(out.Path) == 0 {
-		fmt.Println(from, "==", to)
-		return
-	}
-	prev := from
-	for _, e := range out.Path {
-		next := e.ToName
-		if e.To.ID != 0 {
-			next = e.To.Name
+		from, to := fs.Arg(0), fs.Arg(1)
+		out, err := svc.CodePath(ctx, projectID, from, to)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
 		}
-		fmt.Printf("%s -> %s [%s %s] :%d\n", prev, next, e.Kind, e.Confidence, e.Line)
-		prev = next
-	}
+		if emitJSONOr(jsonFlag(fs), out) {
+			return
+		}
+		if out.Reason != "" {
+			fmt.Fprintln(os.Stderr, "note:", out.Reason)
+			return
+		}
+		if !out.Found {
+			if out.GraphStops != nil {
+				printGraphStops(out.GraphStops)
+			} else {
+				fmt.Fprintln(os.Stderr, "no path")
+			}
+			return
+		}
+		if len(out.Path) == 0 {
+			fmt.Println(from, "==", to)
+			return
+		}
+		prev := from
+		for _, e := range out.Path {
+			next := e.ToName
+			if e.To.ID != 0 {
+				next = e.To.Name
+			}
+			fmt.Printf("%s -> %s [%s %s] :%d\n", prev, next, e.Kind, e.Confidence, e.Line)
+			prev = next
+		}
+	})
 }
 
 // runExplain implements `skillgrid explain SYMBOL`.
 func runExplain(version string, args []string) {
-	fs := flag.NewFlagSet("explain", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	var jsonOut bool
-	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
-	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: skillgrid explain SYMBOL [--json]")
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
-	}
-	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "error: explain requires exactly one SYMBOL argument")
-		os.Exit(2)
-	}
-	symbol := fs.Arg(0)
-	svc, projectID, err := openGraphService()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	_ = version
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	out, err := svc.CodeExplain(ctx, projectID, symbol)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	if jsonOut {
-		b, _ := json.MarshalIndent(out, "", "  ")
-		fmt.Fprintln(os.Stdout, string(b))
-		return
-	}
-	if !out.Found {
-		fmt.Fprintln(os.Stderr, "not found:", out.Reason)
-		return
-	}
-	fmt.Printf("%s degree %d\n", out.Symbol.Name, out.Degree)
-	for _, c := range out.Connections {
-		name := c.Symbol.Name
-		if name == "" {
-			name = c.ToName
+	runGraphCmd(version, "explain", "usage: skillgrid explain SYMBOL [--json]", args, nil, func(fs *flag.FlagSet, svc *service.Service, projectID string, ctx context.Context) {
+		if fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "error: explain requires exactly one SYMBOL argument")
+			os.Exit(2)
 		}
-		fmt.Printf("  %s [%s %s] :%d (degree %d)\n", name, c.Kind, c.Confidence, c.Line, c.Degree)
-	}
+		symbol := fs.Arg(0)
+		out, err := svc.CodeExplain(ctx, projectID, symbol)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		if emitJSONOr(jsonFlag(fs), out) {
+			return
+		}
+		if !out.Found {
+			fmt.Fprintln(os.Stderr, "not found:", out.Reason)
+			return
+		}
+		fmt.Printf("%s degree %d\n", out.Symbol.Name, out.Degree)
+		for _, c := range out.Connections {
+			name := c.Symbol.Name
+			if name == "" {
+				name = c.ToName
+			}
+			fmt.Printf("  %s [%s %s] :%d (degree %d)\n", name, c.Kind, c.Confidence, c.Line, c.Degree)
+		}
+	})
 }
 
 // runImpact implements `skillgrid impact SYMBOL`.
 func runImpact(version string, args []string) {
-	fs := flag.NewFlagSet("impact", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	var jsonOut bool
-	var file, uid, kind, minConf string
-	var maxDepth int
-	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
-	fs.StringVar(&file, "file", "", "narrow to a file path")
-	fs.StringVar(&uid, "uid", "", "narrow to a symbol UID")
-	fs.StringVar(&kind, "kind", "", "narrow to a symbol kind")
-	fs.StringVar(&minConf, "min-confidence", "", "minimum edge confidence (EXTRACTED|INFERRED|AMBIGUOUS)")
-	fs.IntVar(&maxDepth, "max-depth", 0, "bound the traversal depth")
-	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: skillgrid impact SYMBOL [--file F] [--uid U] [--kind K] [--min-confidence C] [--max-depth N] [--json]")
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
-	}
-	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "error: impact requires exactly one SYMBOL argument")
-		os.Exit(2)
-	}
-	symbol := fs.Arg(0)
-	svc, projectID, err := openGraphService()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	_ = version
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	out, err := svc.CodeImpact(ctx, projectID, symbol, service.ImpactOptions{
-		File: file, UID: uid, Kind: kind, MinConfidence: minConf, MaxDepth: maxDepth,
+	runGraphCmd(version, "impact", "usage: skillgrid impact SYMBOL [--file F] [--uid U] [--kind K] [--min-confidence C] [--max-depth N] [--json]", args, func(fs *flag.FlagSet) {
+		fs.String("file", "", "narrow to a file path")
+		fs.String("uid", "", "narrow to a symbol UID")
+		fs.String("kind", "", "narrow to a symbol kind")
+		fs.String("min-confidence", "", "minimum edge confidence (EXTRACTED|INFERRED|AMBIGUOUS)")
+		fs.Int("max-depth", 0, "bound the traversal depth")
+	}, func(fs *flag.FlagSet, svc *service.Service, projectID string, ctx context.Context) {
+		if fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "error: impact requires exactly one SYMBOL argument")
+			os.Exit(2)
+		}
+		symbol := fs.Arg(0)
+		maxDepth, _ := strconv.Atoi(fs.Lookup("max-depth").Value.String())
+		out, err := svc.CodeImpact(ctx, projectID, symbol, service.ImpactOptions{
+			File: fs.Lookup("file").Value.String(), UID: fs.Lookup("uid").Value.String(),
+			Kind: fs.Lookup("kind").Value.String(), MinConfidence: fs.Lookup("min-confidence").Value.String(),
+			MaxDepth: maxDepth,
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		if emitJSONOr(jsonFlag(fs), out) {
+			return
+		}
+		printImpact(out)
 	})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	if jsonOut {
-		b, _ := json.MarshalIndent(out, "", "  ")
-		fmt.Fprintln(os.Stdout, string(b))
-		return
-	}
-	printImpact(out)
 }
 
 // runExplore implements `skillgrid explore SYMBOL` (CLI parity for the
 // composite code_explore).
 func runExplore(version string, args []string) {
-	fs := flag.NewFlagSet("explore", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	var jsonOut bool
-	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
-	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: skillgrid explore SYMBOL [--json]")
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
-	}
-	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "error: explore requires exactly one SYMBOL argument")
-		os.Exit(2)
-	}
-	symbol := fs.Arg(0)
-	svc, projectID, err := openGraphService()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	_ = version
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	out, err := svc.CodeExplore(ctx, projectID, symbol)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	if jsonOut {
-		b, _ := json.MarshalIndent(out, "", "  ")
-		fmt.Fprintln(os.Stdout, string(b))
-		return
-	}
-	for path, spans := range out.Source {
-		fmt.Printf("== %s\n", path)
-		for _, sp := range spans {
-			fmt.Printf("-- %s (%d-%d)\n%s\n", sp.Symbol, sp.StartLine, sp.EndLine, sp.Content)
+	runGraphCmd(version, "explore", "usage: skillgrid explore SYMBOL [--json]", args, nil, func(fs *flag.FlagSet, svc *service.Service, projectID string, ctx context.Context) {
+		if fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "error: explore requires exactly one SYMBOL argument")
+			os.Exit(2)
 		}
-	}
-	if len(out.Flow) > 0 {
-		fmt.Println("call flow:")
-		for _, e := range out.Flow {
-			fmt.Printf("  %s -> %s [%s %s] :%d\n", e.From, e.To, e.Kind, e.Confidence, e.Line)
+		symbol := fs.Arg(0)
+		out, err := svc.CodeExplore(ctx, projectID, symbol)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
 		}
-	}
-	if out.Impact != nil {
-		fmt.Println("blast radius:")
-		printImpact(out.Impact)
-	}
+		if emitJSONOr(jsonFlag(fs), out) {
+			return
+		}
+		for path, spans := range out.Source {
+			fmt.Printf("== %s\n", path)
+			for _, sp := range spans {
+				fmt.Printf("-- %s (%d-%d)\n%s\n", sp.Symbol, sp.StartLine, sp.EndLine, sp.Content)
+			}
+		}
+		if len(out.Flow) > 0 {
+			fmt.Println("call flow:")
+			for _, e := range out.Flow {
+				fmt.Printf("  %s -> %s [%s %s] :%d\n", e.From, e.To, e.Kind, e.Confidence, e.Line)
+			}
+		}
+		if out.Impact != nil {
+			fmt.Println("blast radius:")
+			printImpact(out.Impact)
+		}
+	})
 }
 
 // runCommunities implements `skillgrid communities` (CLI parity for the
 // code_communities MCP tool).
 func runCommunities(version string, args []string) {
-	fs := flag.NewFlagSet("communities", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	var jsonOut bool
-	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
-	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: skillgrid communities [--json]")
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
-	}
-	svc, projectID, err := openGraphService()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	_ = version
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	out, err := svc.CodeCommunities(ctx, projectID, community.Options{})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	if jsonOut {
-		b, _ := json.MarshalIndent(out, "", "  ")
-		fmt.Fprintln(os.Stdout, string(b))
-		return
-	}
-	if out.Warning != "" {
-		fmt.Fprintf(os.Stderr, "note: %s\n", out.Warning)
-	}
-	for _, c := range out.Communities {
-		fmt.Printf("community %d: %s (%d symbols)\n", c.ID, c.Label, len(c.Members))
-		for _, g := range c.GodNodes {
-			fmt.Printf("  god node: %s\n", g)
+	runGraphCmd(version, "communities", "usage: skillgrid communities [--json]", args, nil, func(fs *flag.FlagSet, svc *service.Service, projectID string, ctx context.Context) {
+		out, err := svc.CodeCommunities(ctx, projectID, community.Options{})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
 		}
-	}
+		if emitJSONOr(jsonFlag(fs), out) {
+			return
+		}
+		if out.Warning != "" {
+			fmt.Fprintf(os.Stderr, "note: %s\n", out.Warning)
+		}
+		for _, c := range out.Communities {
+			fmt.Printf("community %d: %s (%d symbols)\n", c.ID, c.Label, len(c.Members))
+			for _, g := range c.GodNodes {
+				fmt.Printf("  god node: %s\n", g)
+			}
+		}
+	})
 }
 
 // runGodNodes implements `skillgrid god-nodes` (CLI parity for code_god_nodes).
 func runGodNodes(version string, args []string) {
-	fs := flag.NewFlagSet("god-nodes", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	var jsonOut, excludeHubs bool
-	var limit int
-	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
-	fs.BoolVar(&excludeHubs, "exclude-hubs", false, "suppress utility super-hubs")
-	fs.IntVar(&limit, "limit", 20, "maximum god nodes to return")
-	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: skillgrid god-nodes [--exclude-hubs] [--limit N] [--json]")
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
-	}
-	svc, projectID, err := openGraphService()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	_ = version
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	out, err := svc.CodeGodNodes(ctx, projectID, excludeHubs, limit)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	if jsonOut {
-		b, _ := json.MarshalIndent(map[string]any{"god_nodes": out, "exclude_hubs": excludeHubs}, "", "  ")
-		fmt.Fprintln(os.Stdout, string(b))
-		return
-	}
-	if len(out) == 0 {
-		fmt.Fprintln(os.Stderr, "no god nodes")
-		return
-	}
-	for _, g := range out {
-		fmt.Printf("%s  degree %d  %s:%d\n", g.Name, g.Degree, g.Path, g.SymbolID)
-	}
+	runGraphCmd(version, "god-nodes", "usage: skillgrid god-nodes [--exclude-hubs] [--limit N] [--json]", args, func(fs *flag.FlagSet) {
+		fs.Bool("exclude-hubs", false, "suppress utility super-hubs")
+		fs.Int("limit", 20, "maximum god nodes to return")
+	}, func(fs *flag.FlagSet, svc *service.Service, projectID string, ctx context.Context) {
+		excludeHubs := fs.Lookup("exclude-hubs").Value.String() == "true"
+		limit, _ := strconv.Atoi(fs.Lookup("limit").Value.String())
+		out, err := svc.CodeGodNodes(ctx, projectID, excludeHubs, limit)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		if emitJSONOr(jsonFlag(fs), map[string]any{"god_nodes": out, "exclude_hubs": excludeHubs}) {
+			return
+		}
+		if len(out) == 0 {
+			fmt.Fprintln(os.Stderr, "no god nodes")
+			return
+		}
+		for _, g := range out {
+			fmt.Printf("%s  degree %d  %s:%d\n", g.Name, g.Degree, g.Path, g.SymbolID)
+		}
+	})
 }
 
 // runExplainCommunity implements `skillgrid explain-community ID` (CLI parity
 // for code_explain_community).
 func runExplainCommunity(version string, args []string) {
-	fs := flag.NewFlagSet("explain-community", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	var jsonOut bool
-	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
-	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: skillgrid explain-community ID [--json]")
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(args); err != nil {
-		os.Exit(2)
-	}
-	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "error: explain-community requires exactly one ID argument")
-		os.Exit(2)
-	}
-	id, err := strconv.Atoi(fs.Arg(0))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: explain-community id must be an integer, got %q\n", fs.Arg(0))
-		os.Exit(2)
-	}
-	svc, projectID, err := openGraphService()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	_ = version
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	out, err := svc.CodeExplainCommunity(ctx, projectID, id)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
-	if !out.Found {
-		fmt.Fprintf(os.Stderr, "not found: %s\n", out.Reason)
-		os.Exit(1)
-	}
-	if jsonOut {
-		b, _ := json.MarshalIndent(out, "", "  ")
-		fmt.Fprintln(os.Stdout, string(b))
-		return
-	}
-	fmt.Printf("community %d: %s (%d symbols)\n", out.ID, out.Label, len(out.Members))
-	for _, m := range out.Members {
-		fmt.Printf("  %v (%v) %v:%v\n", m["name"], m["kind"], m["path"], m["start_line"])
-	}
-	if len(out.EntryPts) > 0 {
-		fmt.Println("entry points:")
-		for _, e := range out.EntryPts {
-			fmt.Printf("  %s degree %d\n", e.Name, e.Degree)
+	runGraphCmd(version, "explain-community", "usage: skillgrid explain-community ID [--json]", args, nil, func(fs *flag.FlagSet, svc *service.Service, projectID string, ctx context.Context) {
+		if fs.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "error: explain-community requires exactly one ID argument")
+			os.Exit(2)
 		}
-	}
+		id, err := strconv.Atoi(fs.Arg(0))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: explain-community id must be an integer, got %q\n", fs.Arg(0))
+			os.Exit(2)
+		}
+		out, err := svc.CodeExplainCommunity(ctx, projectID, id)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		if !out.Found {
+			fmt.Fprintf(os.Stderr, "not found: %s\n", out.Reason)
+			os.Exit(1)
+		}
+		if emitJSONOr(jsonFlag(fs), out) {
+			return
+		}
+		fmt.Printf("community %d: %s (%d symbols)\n", out.ID, out.Label, len(out.Members))
+		for _, m := range out.Members {
+			fmt.Printf("  %v (%v) %v:%v\n", m["name"], m["kind"], m["path"], m["start_line"])
+		}
+		if len(out.EntryPts) > 0 {
+			fmt.Println("entry points:")
+			for _, e := range out.EntryPts {
+				fmt.Printf("  %s degree %d\n", e.Name, e.Degree)
+			}
+		}
+	})
 }
