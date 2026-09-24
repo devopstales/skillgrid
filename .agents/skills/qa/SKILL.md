@@ -29,7 +29,7 @@ Own the quality gate. Produce a test plan with layer selection, verify the goal 
 - `quality.p0_pass_rate` — minimum P0 pass rate % (default 100)
 - `quality.p1_pass_rate` — minimum P1 pass rate % (default 95)
 - `conventions.specs_root` (default `.skillgrid/specs/`) — the change's artifacts
-- `conventions.glossary` (default `.skillgrid/glossary/`) — vocabulary for findings
+- `conventions.artifacts` (default `.skillgrid/artifacts/`) — vocabulary (terms files) for findings
 - `ticketing.enabled` — update ticket status at gate transitions
 - `security.trivy.command` — Trivy scan command ("" = disabled, use manual fallback)
 - `security.trivy.severities` — minimum Trivy severity to report (default "CRITICAL")
@@ -235,6 +235,28 @@ Run the commands from `config.yaml` and compare against the `quality:` threshold
 
 **Threshold = 0 means disabled.** A gate with threshold 0 is N/A — it cannot FAIL.
 
+### Step 9.5: State Drift Check
+
+Run `node scripts/state-drift-check.mjs` (from the project root). It compares
+`.skillgrid/state.yaml` against the spec zone and reports a named drift
+verdict. Read-only; it does not write `state.yaml`.
+
+- **Exit 0** (`DRIFT: none`) — no drift. Continue.
+- **Exit 1** (drift detected) — record a **WARNING** finding in the report's
+  `## State Drift` section with the drift table (field, stale value, derived
+  value). The warning names the fix: "update `.skillgrid/state.yaml` to match
+  the spec-zone artifacts." It is **never CRITICAL** and **never affects the
+  four-state verdict** — same treatment as decision-debt (Assumed
+  blueprints). A drift hit means a pipeline skill forgot to update
+  `state.yaml` at a phase transition; the spec zone is the deeper truth.
+- **Exit 2** (usage/parse error) — `state.yaml` is missing or unparseable.
+  Record a **WARNING** and name the error. This is a process break (the
+  state file should exist and parse), not a verification gap.
+
+**Update `state.yaml` if drifted:** if the guard reports drift, patch
+`state.yaml` to match the derived values (the spec zone is the source of
+truth). Commit the fix with the report.
+
 ### Step 10: Render the Gate
 
 Complete the QA half of `.skillgrid/specs/<topic>/report.md` (the Test Plan section was already written in Step 2) from [templates/report.md](templates/report.md) — everything through `## Gate Decision` and `## Human Override`. The retro sections (from `## Final-State Facts` onward) stay empty for reflect.
@@ -262,7 +284,11 @@ Complete the QA half of `.skillgrid/specs/<topic>/report.md` (the Test Plan sect
 
 ### Step 11: Report and Route
 
-Present the gate verdict and the finding counts. Then route:
+Present the gate verdict and the finding counts.
+
+**Update `state.yaml`:** set `pipeline.current_phase: qa`.
+
+Then route:
 
 | Gate | Next Action |
 |------|-------------|

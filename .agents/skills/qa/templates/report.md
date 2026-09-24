@@ -179,6 +179,20 @@
 
 **Dead code (if configured):** <n findings — SUGGESTION> / N/A
 
+## State Drift
+
+> `node scripts/state-drift-check.mjs` — compares `.skillgrid/state.yaml`
+> against the spec zone. Read-only; never CRITICAL, never affects the
+> verdict.
+
+**Verdict:** <DRIFT: none / DRIFT DETECTED / PARSE ERROR>
+
+| Field | Stale (state.yaml) | Derived (spec zone) |
+|-------|-------------------|---------------------|
+| <pipeline.current_phase> | <stale> | <derived> |
+
+**Fix applied:** <state.yaml patched to match / no drift / parse error: <detail>>
+
 ## Findings
 
 ### CRITICAL (must fix before merge)

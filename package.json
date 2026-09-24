@@ -20,5 +20,8 @@
   "bugs": {
     "url": "https://github.com/devopstales/skillgrid/issues"
   },
-  "homepage": "https://github.com/devopstales/skillgrid#readme"
+  "homepage": "https://github.com/devopstales/skillgrid#readme",
+  "dependencies": {
+    "yaml": "^2.9.1"
+  }
 }
