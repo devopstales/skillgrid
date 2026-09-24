@@ -1,0 +1,49 @@
+{
+  "ceiling": {
+    "standard": 22000,
+    "large": 38000,
+    "xl": 40000
+  },
+  "tiers": {
+    "subagent-execution": "xl",
+    "brainstorming": "large",
+    "writing-blueprints": "large",
+    "ship": "large",
+    "qa": "large"
+  },
+  "skills": {
+    "_shared": 2077,
+    "acceptance-test-authoring": 11028,
+    "architectural-decision-records": 14723,
+    "brainstorming": 36594,
+    "code-research": 14744,
+    "deep-research": 17284,
+    "document": 8936,
+    "interviewing": 12212,
+    "isolated-workspace": 8734,
+    "mnemonic": 15928,
+    "onboarding": 21242,
+    "parallel-code-review": 12938,
+    "parallel-execution": 9524,
+    "ponytail": 11007,
+    "qa": 27377,
+    "receiving-code-review": 10899,
+    "reflect": 20858,
+    "requesting-code-review": 8724,
+    "research": 11004,
+    "resume": 11533,
+    "ship": 29174,
+    "simple-execution": 9420,
+    "sketch": 13772,
+    "slicing": 15375,
+    "spike": 14944,
+    "structured-debugging": 14922,
+    "subagent-execution": 39195,
+    "test-driven-development": 10655,
+    "test-driven-verification": 8123,
+    "ticketing": 15837,
+    "using-skillgrid": 13581,
+    "work-unit-commits": 12795,
+    "writing-blueprints": 29344
+  }
+}
