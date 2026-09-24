@@ -13,6 +13,12 @@
       "skillPath": "archify/SKILL.md",
       "computedHash": "0fba8a6990d908b5302c8522c76ff2c91524afd670b6d3c94589087a041091a6"
     },
+    "codebase-refactoring": {
+      "source": "kucherenko/jscpd",
+      "sourceType": "github",
+      "skillPath": "skills/codebase-refactoring/SKILL.md",
+      "computedHash": "00b64acf996e8f42d248e0dbced3853a63b77c7967281d7a9845f1c2b301b24e"
+    },
     "create-design-md": {
       "source": "ibelick/ui-skills",
       "sourceType": "github",
@@ -30,6 +36,18 @@
       "sourceType": "github",
       "skillPath": "skills/taste-skill/SKILL.md",
       "computedHash": "6d838b246d0e35d0b53f4f23f98ba7a1dd561937e64f7d0c7553b0928e376c3e"
+    },
+    "dry-refactoring": {
+      "source": "kucherenko/jscpd",
+      "sourceType": "github",
+      "skillPath": "skills/dry-refactoring/SKILL.md",
+      "computedHash": "d262aa0092b5a2384e97c4c4ee5f2e4262cf2602ea16f4fe1d3cbb17ecb9d2bd"
+    },
+    "jscpd": {
+      "source": "kucherenko/jscpd",
+      "sourceType": "github",
+      "skillPath": "skills/jscpd/SKILL.md",
+      "computedHash": "22c2e70c33fed2c1a3a245d4f08fd3d13888df2e7e472685abcc0b811a4c4558"
     },
     "redesign-existing-projects": {
       "source": "Leonxlnx/taste-skill",
