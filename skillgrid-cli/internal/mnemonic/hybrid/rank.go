@@ -8,6 +8,7 @@ package hybrid
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -282,6 +283,19 @@ func vectorLeg(ctx context.Context, db *sql.DB, query, language string, emb embe
 	if len(qVec.Data) == 0 {
 		return nil, "embedder returned empty vector", nil
 	}
+	// Durable path (ADR-0009, option G): when MNEMONIC_VECTOR_DB is on and the
+	// vec_symbols table is non-empty, serve the top-K from the in-SQL vec
+	// table and share the metadata join below. The in-memory hot path (the
+	// default) is byte-identical when the flag is off or the vec table is
+	// empty (durableSymbolHits returns ok=false and we fall through).
+	if durable, ok, err := durableSymbolHits(ctx, db, qVec, limit); ok {
+		if err := symbolMetadataJoin(ctx, db, durable); err != nil {
+			return nil, "", err
+		}
+		return durable, "", nil
+	} else if err != nil {
+		return nil, "", err
+	}
 	syms, _, ok := vecCacheInstance.get(storePath(db), emb.Model())
 	if !ok {
 		s, c, err := loadVectorCache(ctx, db)
@@ -360,28 +374,78 @@ func vectorLeg(ctx context.Context, db *sql.DB, query, language string, emb embe
 	if len(hits) > limit {
 		hits = hits[:limit]
 	}
-	// Metadata join for the top-K only (indexed lookups, not a full scan).
-	// Join directly on symbols.id — no embeddings join — because a symbol can
-	// have multiple embedding rows (re-embeds) and the test schema keys
-	// chunk_embeddings on chunk_id, so an embeddings join would fan out.
-	for i := range hits {
-		var name, kind, path string
-		var startLine, endLine int
-		id, _ := strconv.ParseInt(strings.TrimPrefix(hits[i].ID, "sym:"), 10, 64)
-		_ = db.QueryRow(`
-			SELECT s.name, s.kind, f.path, s.start_line, s.end_line
-			FROM symbols s
-			JOIN files f ON f.id = s.file_id
-			WHERE s.id = ?`, id).
-			Scan(&name, &kind, &path, &startLine, &endLine)
-		hits[i].Path, hits[i].Symbol, hits[i].Kind = path, name, kind
-		hits[i].StartLine, hits[i].EndLine = startLine, endLine
+	// Metadata join for the top-K only (shared with the durable path).
+	if err := symbolMetadataJoin(ctx, db, hits); err != nil {
+		return nil, "", err
 	}
 	warn := ""
 	if degenerate > 0 {
 		warn = fmt.Sprintf("%d degenerate embeddings skipped", degenerate)
 	}
 	return hits, warn, nil
+}
+
+// symbolMetadataJoin fills the Path/Symbol/Kind/StartLine/EndLine fields of a
+// top-K vectorHit slice by joining symbols + files on symbols.id. It is shared
+// by the in-memory hot path and the durable in-SQL path (durableSymbolHits),
+// which both produce hits keyed "sym:<id>". Joining directly on symbols.id —
+// no embeddings join — because a symbol can have multiple embedding rows
+// (re-embeds), which would fan out an embeddings join.
+func symbolMetadataJoin(ctx context.Context, db *sql.DB, hits []vectorHit) error {
+	for i := range hits {
+		var name, kind, path string
+		var startLine, endLine int
+		id, _ := strconv.ParseInt(strings.TrimPrefix(hits[i].ID, "sym:"), 10, 64)
+		// The join may find no rows (an embedding for a symbol id with no
+		// matching symbols row, e.g. a degenerate test fixture) - that is not
+		// an error; the hit keeps its zero-value metadata (matching the
+		// pre-extraction behavior, which ignored the QueryRow error).
+		if err := db.QueryRowContext(ctx, `
+			SELECT s.name, s.kind, f.path, s.start_line, s.end_line
+			FROM symbols s
+			JOIN files f ON f.id = s.file_id
+			WHERE s.id = ?`, id).
+			Scan(&name, &kind, &path, &startLine, &endLine); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("symbol metadata join id %d: %w", id, err)
+		}
+		hits[i].Path, hits[i].Symbol, hits[i].Kind = path, name, kind
+		hits[i].StartLine, hits[i].EndLine = startLine, endLine
+	}
+	return nil
+}
+
+// chunkMetadataJoin fills the Path/StartLine/EndLine/Kind fields of a top-K
+// durable chunk vectorHit slice (keyed "chunk:<id>") by joining chunks + files
+// on chunks.id, re-keys the ID to the in-memory path's "chunk:<path>:<line>"
+// format, and applies the language filter (exact, when language != ""). It is
+// the durable-path counterpart of the in-memory chunk leg's metadata load, so
+// both paths produce byte-identical hit shapes for the same top-K ids. It
+// returns the (possibly filtered) slice.
+func chunkMetadataJoin(ctx context.Context, db *sql.DB, language string, hits []vectorHit) ([]vectorHit, error) {
+	out := make([]vectorHit, 0, len(hits))
+	for _, h := range hits {
+		id, _ := strconv.ParseInt(strings.TrimPrefix(h.ID, "chunk:"), 10, 64)
+		var path, lang string
+		var startLine, endLine int
+		if err := db.QueryRowContext(ctx, `
+			SELECT c.start_line, c.end_line, f.path,
+			       (SELECT s.language FROM symbols s
+			         WHERE s.file_id = c.file_id
+			         ORDER BY s.start_line, s.id LIMIT 1)
+			FROM chunks c
+			JOIN files f ON f.id = c.file_id
+			WHERE c.id = ?`, id).
+			Scan(&startLine, &endLine, &path, &lang); err != nil {
+			return nil, fmt.Errorf("chunk metadata join id %d: %w", id, err)
+		}
+		if language != "" && lang != language {
+			continue
+		}
+		h.Path, h.StartLine, h.EndLine, h.Kind = path, startLine, endLine, "chunk"
+		h.ID = fmt.Sprintf("chunk:%s:%d", path, startLine)
+		out = append(out, h)
+	}
+	return out, nil
 }
 
 // placeholders returns a comma-separated list of n SQL placeholders (no
@@ -461,6 +525,19 @@ func chunkVectorLeg(ctx context.Context, db *sql.DB, query, language string, emb
 	}
 	if len(qVec.Data) == 0 {
 		return nil, "embedder returned empty vector", nil
+	}
+	// Durable path (ADR-0009, option G): when MNEMONIC_VECTOR_DB is on and the
+	// vec_chunks table is non-empty, serve the top-K from the in-SQL vec table
+	// and share the chunk metadata join. The in-memory hot path (the default)
+	// is byte-identical when the flag is off or the vec table is empty.
+	if durable, ok, err := durableChunkHits(ctx, db, qVec, limit); ok {
+		joined, err := chunkMetadataJoin(ctx, db, language, durable)
+		if err != nil {
+			return nil, "", err
+		}
+		return joined, "", nil
+	} else if err != nil {
+		return nil, "", err
 	}
 	_, chunks, ok := vecCacheInstance.get(storePath(db), emb.Model())
 	if !ok {
