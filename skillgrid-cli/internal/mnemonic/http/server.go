@@ -68,6 +68,26 @@ func (s *Server) openHandleForDir(directory string) (*service.ProjectHandle, fun
 	return s.svc.OpenForDirectory(directory)
 }
 
+// withProjectHandle is the shared prologue for the project-scoped routes:
+// resolve the project from the request, open a handle, run the handler with it,
+// and write the standard 400/500 response on a resolve/open failure. The
+// handler owns its own work + writeJSON; it must not write a response after
+// calling withProjectHandle for a resolve/open error (the helper already did).
+func (s *Server) withProjectHandle(w http.ResponseWriter, r *http.Request, fn func(h *service.ProjectHandle, projectID string)) {
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer cleanup()
+	fn(h, projectID)
+}
+
 // scopeForSave reproduces the scope normalization service.SaveObservation
 // applied before memory.Save ("" → "project", "personal" → "user").
 func scopeForSave(scope string) string {
@@ -467,44 +487,35 @@ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
 // started_at, status), newest first. Open read: ?project= convention like
 // /context.
 func (s *Server) handleSessionList(w http.ResponseWriter, r *http.Request) {
-	projectID, err := projectFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h, cleanup, err := s.openHandleFor(projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer cleanup()
-	rows, err := h.Store().DB.QueryContext(r.Context(), `
-		SELECT id, COALESCE(NULLIF(TRIM(title), ''), ''), started_at, status
-		FROM sessions WHERE project = ? ORDER BY started_at DESC`, projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "list sessions: "+err.Error())
-		return
-	}
-	defer rows.Close()
-	sessions := []map[string]any{}
-	for rows.Next() {
-		var id, title, startedAt, status string
-		if err := rows.Scan(&id, &title, &startedAt, &status); err != nil {
+	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
+		rows, err := h.Store().DB.QueryContext(r.Context(), `
+			SELECT id, COALESCE(NULLIF(TRIM(title), ''), ''), started_at, status
+			FROM sessions WHERE project = ? ORDER BY started_at DESC`, projectID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list sessions: "+err.Error())
+			return
+		}
+		defer rows.Close()
+		sessions := []map[string]any{}
+		for rows.Next() {
+			var id, title, startedAt, status string
+			if err := rows.Scan(&id, &title, &startedAt, &status); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			sessions = append(sessions, map[string]any{
+				"id":         id,
+				"title":      title,
+				"started_at": startedAt,
+				"status":     status,
+			})
+		}
+		if err := rows.Err(); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		sessions = append(sessions, map[string]any{
-			"id":         id,
-			"title":      title,
-			"started_at": startedAt,
-			"status":     status,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+		writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+	})
 }
 
 // handleSessionSummary returns one session's stored summary (markdown),
@@ -543,27 +554,18 @@ func (s *Server) handleSessionSummary(w http.ResponseWriter, r *http.Request) {
 // handleMemoryLastSaveAt returns the newest observation timestamp so the
 // plugin can compute how long since the last save (for the debounced nudge).
 func (s *Server) handleMemoryLastSaveAt(w http.ResponseWriter, r *http.Request) {
-	projectID, err := projectFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h, cleanup, err := s.openHandleFor(projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer cleanup()
-	ts, err := h.Memory().LastObservationAt(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	out := map[string]any{"last_save_at": ""}
-	if !ts.IsZero() {
-		out["last_save_at"] = ts.UTC().Format(time.RFC3339)
-	}
-	writeJSON(w, http.StatusOK, out)
+	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
+		ts, err := h.Memory().LastObservationAt(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out := map[string]any{"last_save_at": ""}
+		if !ts.IsZero() {
+			out["last_save_at"] = ts.UTC().Format(time.RFC3339)
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
 }
 
 // handlePromptCreate persists a captured user prompt.
@@ -1164,23 +1166,14 @@ func (s *Server) handleMemoryCurrentProject(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleMemoryDoctor(w http.ResponseWriter, r *http.Request) {
-	projectID, err := projectFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h, cleanup, err := s.openHandleFor(projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer cleanup()
-	out, err := httpMemoryDoctor(r.Context(), h, projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
+	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
+		out, err := httpMemoryDoctor(r.Context(), h, projectID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
 }
 
 func parseWindow(v string, def time.Duration) time.Duration {
@@ -1195,23 +1188,14 @@ func parseWindow(v string, def time.Duration) time.Duration {
 }
 
 func (s *Server) handleMemoryStatus(w http.ResponseWriter, r *http.Request) {
-	projectID, err := projectFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h, cleanup, err := s.openHandleFor(projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer cleanup()
-	st, err := h.Memory().Status(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, st)
+	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
+		st, err := h.Memory().Status(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, st)
+	})
 }
 
 func (s *Server) handleObservationCreate(w http.ResponseWriter, r *http.Request) {
@@ -1375,63 +1359,45 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCodeStatus(w http.ResponseWriter, r *http.Request) {
-	projectID, err := projectFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h, cleanup, err := s.openHandleFor(projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer cleanup()
-	status, err := codeindex.GetStatus(h.Store())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	stale := status.FileCount == 0 || status.LastIndexed == ""
-	writeJSON(w, http.StatusOK, map[string]any{
-		"file_count":   status.FileCount,
-		"chunk_count":  status.ChunkCount,
-		"last_indexed": status.LastIndexed,
-		"stale":        stale,
+	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
+		status, err := codeindex.GetStatus(h.Store())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		stale := status.FileCount == 0 || status.LastIndexed == ""
+		writeJSON(w, http.StatusOK, map[string]any{
+			"file_count":   status.FileCount,
+			"chunk_count":  status.ChunkCount,
+			"last_indexed": status.LastIndexed,
+			"stale":        stale,
+		})
 	})
 }
 
 func (s *Server) handleCodeFiles(w http.ResponseWriter, r *http.Request) {
-	projectID, err := projectFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h, cleanup, err := s.openHandleFor(projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer cleanup()
-	rows, err := h.Store().DB.QueryContext(r.Context(), `SELECT path FROM files ORDER BY path`)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "list files: "+err.Error())
-		return
-	}
-	defer rows.Close()
-	var paths []string
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
+	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
+		rows, err := h.Store().DB.QueryContext(r.Context(), `SELECT path FROM files ORDER BY path`)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list files: "+err.Error())
+			return
+		}
+		defer rows.Close()
+		var paths []string
+		for rows.Next() {
+			var p string
+			if err := rows.Scan(&p); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			paths = append(paths, p)
+		}
+		if err := rows.Err(); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		paths = append(paths, p)
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"files": paths})
+		writeJSON(w, http.StatusOK, map[string]any{"files": paths})
+	})
 }
 
 func (s *Server) handleCodeSearch(w http.ResponseWriter, r *http.Request) {
@@ -1640,23 +1606,14 @@ func (s *Server) handleWebEntry(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWebStatus(w http.ResponseWriter, r *http.Request) {
-	projectID, err := projectFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h, cleanup, err := s.openHandleFor(projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer cleanup()
-	st, err := h.Web().CacheStatus(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, st)
+	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
+		st, err := h.Web().CacheStatus(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, st)
+	})
 }
 
 func projectFromRequest(r *http.Request) (string, error) {
