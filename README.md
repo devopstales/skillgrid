@@ -126,6 +126,7 @@ if your agent doesn't already have them:
 | [exa](https://github.com/ogham/exa) (`exa`) | Web search and file listing — used by research skills and file exploration | `brew install exa` / `go install github.com/ogham/exa/v6@latest` |
 | [Trivy](https://github.com/aquasecurity/trivy) (`trivy`) | Security scanning — vulnerability, secret, misconfig, and license gates in QA | `brew install trivy` / `apt install trivy` |
 | [Cucumber](https://github.com/cucumber/cucumber) (`cucumber`) | BDD test runner — executes Gherkin `acceptance.feature` scenarios | `npm install -g cucumber` / `gem install cucumber` |
+| [jscpd](https://github.com/kucherenko/jscpd) (`jscpd`) | Copy-paste detection — code-quality gate in QA (duplication threshold) | `npm install -g jscpd` |
 
 All optional — the pipeline works without them, but the relevant gates
 degrade (slower search, no security scan, BDD scenarios unexecuted) when
