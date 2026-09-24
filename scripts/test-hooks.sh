@@ -17,12 +17,12 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOOKS="$ROOT/hooks"
-CHECKPOINT="$HOOKS/checkpoint-state.sh"
-ZONE="$HOOKS/precommit-zone-guard.sh"
-GUARD="$HOOKS/precommit-guard.sh"
-STOP_TESTS="$HOOKS/stop-tests.sh"
-IGNORE_GUARD="$HOOKS/precommit-ignore-guard.sh"
-GATE_LINT="$HOOKS/gate-lint.sh"
+CHECKPOINT="$HOOKS/checkpoint-state.js"
+ZONE="$HOOKS/precommit-zone-guard.js"
+GUARD="$HOOKS/precommit-guard.js"
+STOP_TESTS="$HOOKS/stop-tests.js"
+IGNORE_GUARD="$HOOKS/precommit-ignore-guard.js"
+GATE_LINT="$HOOKS/gate-lint.js"
 
 FILTER="${1:-}"
 
@@ -94,15 +94,15 @@ case_guard_msg() {
   good="$TMP_ROOT/good.msg"; bad1="$TMP_ROOT/bad1.msg"; bad2="$TMP_ROOT/bad2.msg"
 
   printf 'feat(auth): add session refresh\n' > "$good"
-  ( bash "$CHECKPOINT" guard-msg "$good" >/dev/null 2>&1 )
+  ( node "$CHECKPOINT" guard-msg "$good" >/dev/null 2>&1 )
   expect_rc "guard-msg: conventional subject passes" 0 "$?"
 
   printf 'updated stuff\n' > "$bad1"
-  ( bash "$CHECKPOINT" guard-msg "$bad1" >/dev/null 2>&1 )
+  ( node "$CHECKPOINT" guard-msg "$bad1" >/dev/null 2>&1 )
   expect_rc "guard-msg: non-conventional subject fails" 1 "$?"
 
   printf 'feat(auth): add session refresh\n\nCo-Authored-By: Cursor <cursor@cursor.com>\n' > "$bad2"
-  ( bash "$CHECKPOINT" guard-msg "$bad2" >/dev/null 2>&1 )
+  ( node "$CHECKPOINT" guard-msg "$bad2" >/dev/null 2>&1 )
   expect_rc "guard-msg: Co-Authored-By trailer fails" 1 "$?"
 }
 
@@ -114,31 +114,31 @@ case_zone() {
   # spec-only commit: allow
   new_repo zone-spec
   ( cd "$WORK/zone-spec" && mkdir -p .skillgrid/specs/t1 && printf 'Feature: t1\n' > .skillgrid/specs/t1/acceptance.feature && git add -A )
-  expect "zone: spec-only commit allowed" 0 zone-spec "bash '$ZONE'"
+  expect "zone: spec-only commit allowed" 0 zone-spec "node '$ZONE'"
 
   # code-only commit: allow
   new_repo zone-code
   ( cd "$WORK/zone-code" && mkdir -p src && printf 'x=1\n' > src/a.js && git add -A )
-  expect "zone: code-only commit allowed" 0 zone-code "bash '$ZONE'"
+  expect "zone: code-only commit allowed" 0 zone-code "node '$ZONE'"
 
   # mixed spec + code: block
   new_repo zone-mixed
   ( cd "$WORK/zone-mixed" && mkdir -p .skillgrid/specs/t1 src && printf 'Feature: t1\n' > .skillgrid/specs/t1/acceptance.feature && printf 'x=1\n' > src/a.js && git add -A )
-  expect "zone: mixed spec+code commit blocked" 1 zone-mixed "bash '$ZONE'"
+  expect "zone: mixed spec+code commit blocked" 1 zone-mixed "node '$ZONE'"
 
   # archive-only commit: allow (archive is the terminal state of spec artifacts)
   new_repo zone-archive
   ( cd "$WORK/zone-archive" && mkdir -p .skillgrid/archive/t1 && printf 'Feature: t1\n' > .skillgrid/archive/t1/acceptance.feature && git add -A )
-  expect "zone: archive-only commit allowed" 0 zone-archive "bash '$ZONE'"
+  expect "zone: archive-only commit allowed" 0 zone-archive "node '$ZONE'"
 
   # archive + specs commit: allow (both spec-zone)
   new_repo zone-spec-archive
   ( cd "$WORK/zone-spec-archive" && mkdir -p .skillgrid/specs/t1 .skillgrid/archive/t1 && printf 'a\n' > .skillgrid/specs/t1/tasks.md && printf 'b\n' > .skillgrid/archive/t1/tasks.md && git add -A )
-  expect "zone: specs+archive commit allowed" 0 zone-spec-archive "bash '$ZONE'"
+  expect "zone: specs+archive commit allowed" 0 zone-spec-archive "node '$ZONE'"
 
   # nothing staged: allow (guard defers to others)
   new_repo zone-empty
-  expect "zone: nothing staged allowed" 0 zone-empty "bash '$ZONE'"
+  expect "zone: nothing staged allowed" 0 zone-empty "node '$ZONE'"
 }
 
 # --- precommit-guard (protected-ref / detached) ------------------------------
@@ -149,19 +149,19 @@ case_protected() {
   # commit on protected branch 'main' with history: block
   new_repo prot-main
   ( cd "$WORK/prot-main" && printf 'a\n' > a.txt && git add -A && git commit -q -m "chore: init" )
-  expect "protected: commit on 'main' blocked" 1 prot-main "bash '$GUARD' guard"
+  expect "protected: commit on 'main' blocked" 1 prot-main "node '$GUARD' guard"
 
   # commit on a feature branch: allow
   new_repo prot-feat
   ( cd "$WORK/prot-feat" && printf 'a\n' > a.txt && git add -A && git commit -q -m "chore: init" && git checkout -q -b feature/x )
-  expect "protected: commit on feature branch allowed" 0 prot-feat "bash '$GUARD' guard"
+  expect "protected: commit on feature branch allowed" 0 prot-feat "node '$GUARD' guard"
 
   # detached HEAD (at a non-initial commit): block. (Detaching at the *init*
   # commit makes `--abbrev-ref HEAD` report "HEAD", which the guard allows as an
   # unborn-branch edge case — that is a separate, known nuance, not this path.)
   new_repo prot-detached
   ( cd "$WORK/prot-detached" && printf 'a\n' > a.txt && git add -A && git commit -q -m "chore: init" && printf 'b\n' > b.txt && git add -A && git commit -q -m "chore: second" && git checkout -q --detach HEAD~1 )
-  expect "protected: detached HEAD blocked" 1 prot-detached "bash '$GUARD' guard"
+  expect "protected: detached HEAD blocked" 1 prot-detached "node '$GUARD' guard"
 }
 
 # --- stop-tests (Stop-phase test gate) ---------------------------------------
@@ -171,15 +171,15 @@ case_stop() {
 
   # no testing.runner configured -> allow (degrade to no-op)
   new_repo stop-none
-  expect "stop: no runner configured allows" 0 stop-none "bash '$STOP_TESTS'"
+  expect "stop: no runner configured allows" 0 stop-none "node '$STOP_TESTS'"
 
   # failing runner -> block (run inside the repo so git toplevel resolves)
   new_repo stop-fail
-  ( cd "$WORK/stop-fail" && SKILLGRID_TEST_CMD="bash -c 'exit 1'" bash "$STOP_TESTS" >/dev/null 2>&1 )
+  ( cd "$WORK/stop-fail" && SKILLGRID_TEST_CMD="bash -c 'exit 1'" node "$STOP_TESTS" >/dev/null 2>&1 )
   expect_rc "stop: failing runner blocks" 2 "$?"
 
   # passing runner -> allow
-  ( cd "$WORK/stop-fail" && SKILLGRID_TEST_CMD="bash -c 'exit 0'" bash "$STOP_TESTS" >/dev/null 2>&1 )
+  ( cd "$WORK/stop-fail" && SKILLGRID_TEST_CMD="bash -c 'exit 0'" node "$STOP_TESTS" >/dev/null 2>&1 )
   expect_rc "stop: passing runner allows" 0 "$?"
 }
 
@@ -191,7 +191,7 @@ case_ignore() {
   # staging an unignored .extracted/ path: block + auto-add to .gitignore
   new_repo ign-extracted
   ( cd "$WORK/ign-extracted" && mkdir -p acceptance-tests/.extracted && printf 'gen\n' > acceptance-tests/.extracted/t.feature && git add -A )
-  expect "ignore: staged .extracted/ blocked" 1 ign-extracted "bash '$IGNORE_GUARD'"
+  expect "ignore: staged .extracted/ blocked" 1 ign-extracted "node '$IGNORE_GUARD'"
   ( cd "$WORK/ign-extracted" && grep -qxF "acceptance-tests/.extracted/" .gitignore 2>/dev/null )
   expect_rc "ignore: auto-added .extracted/ to .gitignore" 0 "$?"
 }
@@ -212,7 +212,7 @@ G1:
   EXPECT: 5
 EOF
   )
-  expect "lint: well-formed gate exits 0" 0 lint-good "bash '$GATE_LINT'"
+  expect "lint: well-formed gate exits 0" 0 lint-good "node '$GATE_LINT'"
 
   # a malformed gate (CHECK without EXPECT): still exit 0 (advisory), but warns
   new_repo lint-bad
@@ -224,9 +224,9 @@ G1:
   CHECK: echo 5
 EOF
   )
-  expect "lint: malformed gate still exits 0 (advisory)" 0 lint-bad "bash '$GATE_LINT'"
+  expect "lint: malformed gate still exits 0 (advisory)" 0 lint-bad "node '$GATE_LINT'"
   # and it must actually warn
-  ( cd "$WORK/lint-bad" && bash "$GATE_LINT" 2>&1 | grep -q "missing EXPECT" )
+  ( cd "$WORK/lint-bad" && node "$GATE_LINT" 2>&1 | grep -q "missing EXPECT" )
   expect_rc "lint: malformed gate emits a warning" 0 "$?"
 }
 
@@ -240,13 +240,13 @@ case_snapshot() {
 
   new_repo snap
   ( cd "$WORK/snap" && printf 'a\n' > a.txt && git add -A && git commit -q -m "feat(x): add a" )
-  out="$( cd "$WORK/snap" && bash "$CHECKPOINT" snapshot 2>&1 )"
+  out="$( cd "$WORK/snap" && node "$CHECKPOINT" snapshot 2>&1 )"
   expect_rc "snapshot: removed subcommand exits 2" 2 "$?"
   case "$out" in
     *"unknown subcommand"*) expect_rc "snapshot: reports unknown subcommand" 0 0 ;;
     *) expect_rc "snapshot: reports unknown subcommand" 0 1 ;;
   esac
-  out="$( cd "$WORK/snap" && bash "$CHECKPOINT" restore 2>&1 )"
+  out="$( cd "$WORK/snap" && node "$CHECKPOINT" restore 2>&1 )"
   expect_rc "restore: removed subcommand exits 2" 2 "$?"
   case "$out" in
     *"unknown subcommand"*) expect_rc "restore: reports unknown subcommand" 0 0 ;;

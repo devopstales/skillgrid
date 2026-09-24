@@ -23,7 +23,7 @@ func TestSyncFullTree(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
 	writeMirrorFixture(t, repo, map[string]string{
-		"hooks/checkpoint-state.sh":    "# impl",
+		"hooks/checkpoint-state.js":    "# impl",
 		"git-hooks/pre-commit":         "# shim",
 		"plugins/opencode/mnemonic.ts": "// plugin",
 		"README.md":                    "# readme",
@@ -41,7 +41,7 @@ func TestSyncFullTree(t *testing.T) {
 		t.Fatalf("syncFullTree: %v", err)
 	}
 	for _, want := range []string{
-		"hooks/checkpoint-state.sh",
+		"hooks/checkpoint-state.js",
 		"git-hooks/pre-commit",
 		"plugins/opencode/mnemonic.ts",
 		"README.md",
