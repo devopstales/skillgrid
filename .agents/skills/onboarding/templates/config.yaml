@@ -83,12 +83,13 @@ commands:
 conventions:
   specs_root: .skillgrid/specs
   scratch_dir: .skillgrid/sdd
-  prd: docs/PRD.md
-  architecture: docs/ARCHITECTURE.md
-  glossary: .skillgrid/glossary
-  adr: .skillgrid/adr
+  # Durable project knowledge (PRD, architecture, terms, ADRs, constraints, research).
+  # Replaces the former docs/PRD.md, docs/ARCHITECTURE.md, .skillgrid/glossary/, .skillgrid/adr/.
+  artifacts: .skillgrid/artifacts
   worktree_dir: .worktrees
   commit_style: conventional
+  # Dynamic project state (phase, current change, progress). Updated by pipeline skills.
+  state_file: .skillgrid/state.yaml
 
 # --- Work-unit commits (commit discipline + session events) ---
 # skillgrid:work-unit-commits is fully active during execution. Each work-unit

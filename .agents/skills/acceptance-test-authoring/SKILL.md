@@ -94,7 +94,7 @@ Rules:
 
 When drafting or editing Gherkin, follow these rules (folded from the gherkin-authoring discipline):
 
-- **Domain language.** Use the project's glossary terms (`.skillgrid/glossary/`). Never use implementation jargon (class names, method names, DB column names) in steps.
+- **Domain language.** Use the project's terms (`artifacts/01-business-terms.md` / `02-technical-terms.md`). Never use implementation jargon (class names, method names, DB column names) in steps.
 - **Observable outcomes.** `Then` steps state what the user or system observes — a response, a state change, a message. Never assert internal state ("the cache is populated").
 - **One behavior per scenario.** If a scenario needs a second `And` clause that introduces a new precondition, split it.
 - **Falsifiable.** Every scenario must be able to fail. "The system works correctly" is not a step.

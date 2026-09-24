@@ -22,8 +22,8 @@ sentences. This is the "intent" the whole spec hangs from.]
 ## Context
 
 [Relevant existing flows, files, or constraints in the repo that this
-feature must respect or integrate with. Reference `docs/PRD.md` and
-`docs/ARCHITECTURE.md` sections where applicable.]
+feature must respect or integrate with. Reference `artifacts/00-prd.md` and
+`artifacts/00-architecture.md` sections where applicable.]
 
 ## Approaches Considered
 
@@ -83,12 +83,12 @@ technical planning lives:]
 
 ## Impact on Global Docs
 
-[If this feature changes `docs/PRD.md` (new feature row, changed metrics) or
-`docs/ARCHITECTURE.md` (new component, data store, integration), list the
+[If this feature changes `artifacts/00-prd.md` (new feature row, changed metrics) or
+`artifacts/00-architecture.md` (new component, data store, integration), list the
 exact edits here. If none, write "None".]
 
-- `docs/PRD.md`: [edit or "None"]
-- `docs/ARCHITECTURE.md`: [edit or "None"]
+- `artifacts/00-prd.md`: [edit or "None"]
+- `artifacts/00-architecture.md`: [edit or "None"]
 
 ## Clarity Report
 
@@ -119,17 +119,17 @@ treats it as an assumption.]
 
 ## Decisions (ADR)
 
-[Pointers to ADRs in `.skillgrid/adr/` that constrain THIS feature — the decisions
+[Pointers to ADRs in `.skillgrid/artifacts/04-adr-*.md` that constrain THIS feature — the decisions
 made during the interview that clear the bar (hard to reverse + surprising +
-real trade-off). List each as `.skillgrid/adr/NNNN-slug.md — one-line gist`. These
+real trade-off). List each as `artifacts/04-adr-NNNN-slug.md — one-line gist`. These
 are the source of truth; do not restate them here. If no decision for this
 feature cleared the ADR bar, write "None".]
 
-## Glossary
+## Terms
 
-[Pointers only. The project's canonical terms live in `.skillgrid/glossary/`
-(maintained by skillgrid:architectural-decision-records during the interview). List here only
-the terms THIS feature introduced or relied on, each with a link to
-`.skillgrid/glossary/`, plus a one-line note if a term was sharpened or split
-during this interview. Do not redefine terms here — the glossary is the single
+[Pointers only. The project's canonical terms live in `.skillgrid/artifacts/`
+(`01-business-terms.md` / `02-technical-terms.md`, maintained by skillgrid:architectural-decision-records during the interview). List here only
+the terms THIS feature introduced or relied on, each with a link to the terms
+file, plus a one-line note if a term was sharpened or split
+during this interview. Do not redefine terms here — the terms files are the single
 source of truth. If the feature added no new terms, write "None".]

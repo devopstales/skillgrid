@@ -115,7 +115,7 @@ If Step 1 shows an existing codebase (real commit history + feature code, not ju
 
 1. **Detect existing capabilities.** From the source tree, routes, manifests, and git history, list the features/capabilities that already exist (a few lines each — what it does, where it lives).
 2. **Mark them `existing`.** They are not planned-from-zero and not `planned` — they predate this workflow. Record them in the `## Skillgrid` block's context note (or the briefing of the first change) so `skillgrid:writing-blueprints` designs the next slice against them: the data they hold, the patterns they follow. The first blueprint's Build shape and File Structure start from "what's already there", not from an empty tree.
-3. **Reverse-engineer conventions.** Capture the project's actual conventions (error handling, naming, layering, test style) into the `## Skillgrid` block and the glossary (`business.md` / `technical.md`), from the code — not from assumptions about the stack. If a convention is surprising or undocumented, flag it for the user rather than guessing.
+3. **Reverse-engineer conventions.** Capture the project's actual conventions (error handling, naming, layering, test style) into the `## Skillgrid` block and the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`), from the code — not from assumptions about the stack. If a convention is surprising or undocumented, flag it for the user rather than guessing.
 4. **Nested AGENTS.md note.** Area-specific rules (a payments module, a UI kit) live in `<area>/AGENTS.md` — the root block stays global and lean. Note the areas that would warrant their own file; create them lazily (ship's reconcile creates one for a net-new area, never for a pre-existing undocumented one — it flags instead).
 
 A greenfield project (scaffold, no feature history) skips Step 1.5 — there is nothing to enroll.
@@ -130,9 +130,9 @@ Show the detected facts to the user. Confirm one at a time — don't dump everyt
 4. **Commands** — "Build: `go build ./...`. Lint: `golangci-lint run`. Format: `go fmt ./...`. Typecheck: `go vet ./...`. Correct?"
 5. **Ticketing** — "Do you want to publish tickets to a tracker? I detected GitHub — I'd use `gh`. Or Backlog.md (local), GitLab, Jira, or none (tasks.md only)?"
 6. **ADR style** — "How should I format ADRs? Options: `madr-full` (detailed tradeoff record), `madr-minimal` (context/options/decision/consequences — recommended default), `nygard` (classic status/context/decision/consequences), `y-statement` (one sentence), or `custom` (your house format). I'll store the choice and never re-ask."
-7. **Artifact paths** — "Specs: `.skillgrid/specs/`. Scratch: `.skillgrid/sdd/`. Worktrees: `.worktrees/`. PRD: `docs/PRD.md`. ARCHITECTURE: `docs/ARCHITECTURE.md`. Glossary: `.skillgrid/glossary/` (business.md + technical.md). ADRs: `.skillgrid/adr/`. Any overrides?"
+7. **Artifact paths** — "Artifacts (durable knowledge: PRD, architecture, terms, ADRs, constraints, research): `.skillgrid/artifacts/`. State (dynamic: phase, current change, progress): `.skillgrid/state.yaml`. Specs: `.skillgrid/specs/`. Scratch: `.skillgrid/sdd/`. Worktrees: `.worktrees/`. Any overrides?"
 
-8. **Domain model** — "The architectural-decision-records skill maintains a project glossary at `.skillgrid/glossary/` (business.md + technical.md) and an ADR trail at `.skillgrid/adr/`, created lazily as terms and decisions crystallize during brainstorming/interviewing. ADRs use the `{adr_style}` format you just picked. Nothing to set up — they appear on first use. OK?"
+8. **Domain model** — "The architectural-decision-records skill maintains the project vocabulary at `.skillgrid/artifacts/01-business-terms.md` + `02-technical-terms.md` and the ADR trail at `.skillgrid/artifacts/04-adr-*.md` (indexed by `03-adr-index.md`), created lazily as terms and decisions crystallize during brainstorming/interviewing. ADRs use the `{adr_style}` format you just picked. User-locked project-wide boundaries live at `.skillgrid/artifacts/05-locked-constraints.md`. Nothing to set up — they appear on first use. OK?"
 
 9. **BDD / Acceptance testing** — "Executable acceptance tests: always on (like TDD). Stack: `javascript` (cucumber-js). Specs live at `.skillgrid/specs/<id>/acceptance.feature`; the runner at `acceptance-tests/` is scaffolded on first use. The acceptance scenarios ARE the executable spec. Correct?"
 
@@ -162,8 +162,21 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - If the file already exists, merge: keep existing values the user confirmed, update changed ones
 - Do NOT overwrite `rules:` sections the user has customized
 
-**2. Write AGENTS.md block (idempotent upsert):**
-- Render the canonical `## Skillgrid` block from `../_shared/agent-config/block.md` (fill `{project}`, `{tracker_line}`, `{memory_line}`)
+**2. Write `.skillgrid/state.yaml` (create if absent; merge if present):**
+- Schema per `_shared/conventions/sdd-structure.md` (§ `state.yaml` and `artifacts/`).
+- Initialize: `pipeline.current_phase: brainstorming`, `pipeline.current_change: ""`, `pipeline.status: pending`, `progress.completed_changes: <count of `.skillgrid/archive/*/` dirs>`, `progress.blocked_changes: 0`, `constraints_ref: .skillgrid/artifacts/05-locked-constraints.md`, `notes: ""`.
+- If the file already exists (re-onboarding), keep the existing `pipeline` + `progress` values; only fill missing keys. Never reset `completed_changes`.
+
+**3. Create the `.skillgrid/artifacts/` zone (create if absent; merge if present):**
+- If `artifacts/README.md` is absent, create it from the topic-index shape in `_shared/conventions/sdd-structure.md`.
+- If `artifacts/05-locked-constraints.md` is absent, create it with an empty `## Locked` list and a `## Notes` explaining the `### Rules` render source.
+- If `artifacts/06-research-findings.md` is absent, create it with an empty `## Findings` list.
+- If a `docs/PRD.md` or `docs/ARCHITECTURE.md` exists at onboarding time and `artifacts/00-prd.md` / `00-architecture.md` do not yet exist, `git mv` them into `artifacts/` (brownfield migration of the old paths). Same for an existing `.skillgrid/glossary/` → `01/02-*-terms.md` and `.skillgrid/adr/` → `04-adr-*.md` (rebuild `03-adr-index.md` from the moved ADR headers).
+- The terms files, ADR records, `00-prd.md`, and `00-architecture.md` are created lazily by their owning skills — onboarding only guarantees the zone + index + constraints + research stubs exist.
+
+**4. Write AGENTS.md block (idempotent upsert):**
+- Render the canonical `## Skillgrid` block from `../_shared/agent-config/block.md` (fill `{project}`, `{tracker_line}`, `{memory_line}`, `{rules_block}`)
+- `{rules_block}` is rendered from `.skillgrid/artifacts/05-locked-constraints.md`: one `-` bullet per line under `## Locked`. If that section is empty, render `No locked constraints yet — see `.skillgrid/artifacts/05-locked-constraints.md`.`
 - Target decision: if `AGENTS.md` exists → update it. Else if `CLAUDE.md` exists → update it. Else → create `AGENTS.md`.
 - **Idempotent upsert** (per `../_shared/agent-config/block.md`):
   1. Search the target file for `<!-- skillgrid:start -->`.
@@ -172,19 +185,19 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - **Multi-platform rule:** if both `AGENTS.md` and `CLAUDE.md` exist, write the full block to `AGENTS.md` (source of truth) and put only a one-line pointer in `CLAUDE.md`. Two full blocks = two sources that drift.
 - The block is idempotent — running onboarding twice never duplicates it.
 
-**3. Update `.gitignore`:**
+**5. Update `.gitignore`:**
 - Ensure `.skillgrid/sdd/` is gitignored (scratch, ephemeral)
 - Ensure `.skillgrid/brainstorm/` is gitignored (visual companion state)
-- Do NOT gitignore `.skillgrid/config.yaml` or `.skillgrid/specs/` (committed artifacts)
+- Do NOT gitignore `.skillgrid/config.yaml`, `.skillgrid/state.yaml`, `.skillgrid/specs/`, or `.skillgrid/artifacts/` (committed artifacts)
 
-**4. Tracker bootstrap (if `ticketing.enabled: true`):**
+**6. Tracker bootstrap (if `ticketing.enabled: true`):**
 - If `ticketing.type: backlogmd`: run `backlog init "<project>" --integration-mode cli --backlog-dir .backlog --config-location folder --zero-padded-ids 3`, verify with `backlog status`
 - If `ticketing.type: gh`: verify `gh` CLI is available (`gh --version`)
 - If `ticketing.type: glab`: verify `glab` CLI is available (`glab --version`)
 - If `ticketing.type: jira`: verify `jira` CLI is available (`jira config`)
 - If `ticketing.enabled: false`: skip all tracker bootstrap
 
-**5. Mnemonic saves (if `mnemonic.enabled: true`):** follow the save shape + session protocol in `_shared/conventions/mnemonic-memory.md`. For onboarding specifically:
+**7. Mnemonic saves (if `mnemonic.enabled: true`):** follow the save shape + session protocol in `_shared/conventions/mnemonic-memory.md`. For onboarding specifically:
 - `mem_session_start(title: "skillgrid-init/{project}")`
 - `mem_save` topic_key: `skillgrid-init/{project}`, type: `architecture` — detected project context (name, stack, repo, deploy)
 - `mem_save` topic_key: `skillgrid/{project}/issue_tracker`, type: `config` — tracker id + CLI + storage path
@@ -192,16 +205,17 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - `mem_session_summary` + `mem_session_end`
 - If the session fails (MCP not wired yet), note it and continue — the saves will be made on first `skillgrid:mnemonic` invocation
 
-**6. Commit:**
-- `git add .skillgrid/config.yaml` + the AGENTS.md file
-- `git commit -m "chore: add Skillgrid config"`
+**8. Commit:**
+- `git add .skillgrid/config.yaml` + `.skillgrid/state.yaml` + the `.skillgrid/artifacts/` files + the AGENTS.md file
+- `git commit -m "chore: add Skillgrid config + state + artifacts"`
 
 ### Step 4: Verify
 
 Show the user:
 - The written config (summarized, not full file)
-- The AGENTS.md block
-- "Skills now read from `.skillgrid/config.yaml`. Run `skillgrid:brainstorming` to start your first project."
+- The `state.yaml` + `artifacts/` zone created
+- The AGENTS.md block (with the `### Rules` section rendered from `05-locked-constraints.md`)
+- "Skills now read from `.skillgrid/config.yaml` + `.skillgrid/state.yaml` + `.skillgrid/artifacts/`. Run `skillgrid:brainstorming` to start your first project."
 
 ## Merge Mode (Re-running)
 
@@ -210,13 +224,15 @@ If `.skillgrid/config.yaml` already exists:
 2. Re-detect facts (stack may have changed)
 3. Show what changed: "Detected changes: test runner changed from X to Y. Update?"
 4. Merge: update changed values, keep user-customized `rules:` sections
-5. Re-write AGENTS.md block (idempotent upsert)
+5. Re-write AGENTS.md block (idempotent upsert) — re-render `{rules_block}` from the current `artifacts/05-locked-constraints.md`
+6. Reconcile `state.yaml` + `artifacts/`: fill missing keys in `state.yaml` (never reset `pipeline`/`progress`); create any missing `artifacts/` stubs; migrate any still-present old paths (`docs/PRD.md`, `glossary/`, `adr/`) into `artifacts/` if the project was onboarded before this layout
 
 ## What This Does NOT Do
 
 - Does not install the Skillgrid CLI or skills — that's a machine-level concern
 - Does not create `.skillgrid/specs/` or `.skillgrid/sdd/` directories — they're created on first use
 - Does not write `.skillgrid/config.user.yaml` — there is one config file, committed
+- Does not reset `state.yaml` `pipeline`/`progress` on re-run — those are the live project state, not onboarding outputs
 
 ## Common Rationalizations
 
@@ -240,8 +256,10 @@ If `.skillgrid/config.yaml` already exists:
 ## Verification
 
 - [ ] `.skillgrid/config.yaml` exists and parses (`yaml` load succeeds); every detected field (stack, testing, commands, ticketing, TDD, commit discipline, BDD) is filled
-- [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}` and tracker/memory lines
+- [ ] `.skillgrid/state.yaml` exists, parses, and has `pipeline` + `progress` + `constraints_ref` (existing values preserved on re-run)
+- [ ] `.skillgrid/artifacts/` contains `README.md` + `05-locked-constraints.md` + `06-research-findings.md` (terms/ADR/PRD files created lazily by their owners)
+- [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}`, tracker/memory lines, and a `### Rules` section rendered from `05-locked-constraints.md`
 - [ ] Detected test runner command runs and exits 0 (e.g. `go test ./...`, `npm test`, `pytest`)
 - [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`
-- [ ] `git rev-parse --is-inside-work-tree` succeeds; onboarding artifacts are committed (`git log -1` shows `chore: add Skillgrid config`)
+- [ ] `git rev-parse --is-inside-work-tree` succeeds; onboarding artifacts are committed (`git log -1` shows `chore: add Skillgrid config + state + artifacts`)
 - [ ] If the project is brownfield (existing feature code + history), Step 1.5 ran: existing capabilities are recorded as `existing`, conventions were reverse-engineered into the block + glossary, and the first slice is planned against the existing system (reuse, not regenerate)

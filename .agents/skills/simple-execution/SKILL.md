@@ -72,6 +72,7 @@ After the QA gate passes:
 ### Step 3: Complete Development
 
 After all tasks complete and verified:
+- **Update `state.yaml`:** set `pipeline.current_phase: executing`.
 - Announce: "I'm using the skillgrid:ship skill to integrate and close this change."
 - **REQUIRED SUB-SKILL:** Use skillgrid:ship
 - Follow that skill to verify tests, present options, execute choice

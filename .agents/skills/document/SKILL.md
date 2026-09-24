@@ -58,7 +58,7 @@ Collect from the real record, in this order:
    git diff --name-status "BASE...HEAD"
    ```
 2. **The change folder** (the "why"): the change's `briefing.md` (goal + falsifiable requirements), `blueprint.md` (approach + Build shape + Tier + Status), `tasks.md` (what shipped), `report.md` → `## Gate Decision` (gate verdict + evidence, the QA half). If the folder was already archived, read it from `.skillgrid/archive/YYYY-MM-DD-<topic>/`.
-3. **The decision record:** the 3 most recently modified ADRs in `.skillgrid/adr/` that this change touched (for the "why this design" a reviewer or future reader needs).
+3. **The decision record:** the 3 most recently modified ADRs in `.skillgrid/artifacts/04-adr-*.md` that this change touched (for the "why this design" a reviewer or future reader needs).
 4. **Postmortem only** — the incident facts: the observed vs expected behavior, the reproduction, the root cause. Read the change's debug state file (`.skillgrid/sdd/debug/<date>-<slug>/state.md`) if present; ask the user for any fact it cannot derive (when it was noticed, blast radius, user impact, timeline).
 
 ### Step 3: Write the document

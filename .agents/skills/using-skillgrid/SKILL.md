@@ -42,7 +42,7 @@ The router — the skill that tells an agent which skill to use before any respo
 
 **Resume check:** if the newest `.skillgrid/specs/` directory contains in-flight artifacts (an uncompleted `tasks.md`, a latest commit whose `[skillgrid-context]` block has non-empty `Remaining:`, or a ledger under `.skillgrid/sdd/`), invoke the skillgrid:resume skill BEFORE any other skill — including clarifying questions. The files say where you left off; the conversation doesn't. A folder that has moved to `.skillgrid/archive/` is **closed**, not in-flight — do not resume it (a new change gets a new dated folder).
 
-**Domain model check:** if `.skillgrid/glossary/` exists, read `business.md` and `technical.md` for the project's vocabulary, and read the ADRs in `.skillgrid/adr/` for the area you're touching. Use that vocabulary in questions and designs, and respect ADRs that already settled decisions. When terms resolve or a hard-to-reverse decision is made, update them via skillgrid:architectural-decision-records.
+**Domain model check:** if `.skillgrid/artifacts/` exists, read `artifacts/README.md` for the topic index, `01-business-terms.md` + `02-technical-terms.md` for the project's vocabulary, `05-locked-constraints.md` for the hard boundaries, and the ADRs (`04-adr-*.md`, in-force set via `03-adr-index.md`) for the area you're touching. Use that vocabulary in questions and designs, and respect ADRs that already settled decisions. When terms resolve or a hard-to-reverse decision is made, update them via skillgrid:architectural-decision-records.
 
 Then announce "Using [skill] to [purpose]" and follow the skill exactly. If it has a checklist, create a todo per item.
 
@@ -68,7 +68,7 @@ Conversation memory does not survive compaction, and no skill may assume it will
 **Detection — initialized?**
 
 **Uninitialized** when `.skillgrid/config.yaml` does not exist.
-**Initialized** when it does. Skill-registry / glossary / ADRs are **not** init signals.
+**Initialized** when it does. Skill-registry / terms files / ADRs are **not** init signals.
 
 **Pre-blueprint gates:** hard research (external API, costly re-explore) → `research`. Taste/UI/unknown shape → `sketch` **before** locking `blueprint.md`.
 
@@ -185,7 +185,7 @@ User instructions (CLAUDE.md, AGENTS.md, GEMINI.md, etc, direct requests) take p
 ## Verification
 
 - [ ] The Router selected exactly one first skill for the task (a `Router` row matches, no guessing by name).
-- [ ] The required start gates passed: config check (`onboarding` if uninitialized), resume check (in-flight artifacts), and domain model check (glossary/ADRs read).
+- [ ] The required start gates passed: config check (`onboarding` if uninitialized), resume check (in-flight artifacts), and domain model check (artifacts/ terms + constraints + ADRs read).
 - [ ] The User Gate (mandatory) was passed — the user confirmed the slice before execution began.
 - [ ] Skill Priority was respected and no Orchestration Anti-Patterns (router executing, persona-calls-persona, depth > 1, orchestrator that edits).
 - [ ] The chosen skill was announced/invoked ("Using [skill] to [purpose]"), or its skip is documented (e.g. a meta/always-on skill).

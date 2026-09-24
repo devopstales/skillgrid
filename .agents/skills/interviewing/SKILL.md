@@ -38,17 +38,20 @@ relationship as Matt Pocock's `grill-with-docs`). The interview is where terms
 crystallize and decisions are made — so the paper trail is written *here*, in
 the conversation, not batched at the end:
 
-- **Glossary:** the moment a domain term is resolved, write it to the glossary
-  (`conventions.glossary`, default `.skillgrid/glossary/`) — challenge conflicts,
-  sharpen fuzzy language, cross-reference the code. A glossary that only changes
-  after the interview is a summary, not the session's output.
+- **Terms:** the moment a domain term is resolved, write it to the terms file
+  (`conventions.artifacts`, default `.skillgrid/artifacts/01-business-terms.md`
+  for domain/product/workflow, `02-technical-terms.md` for architecture/platform)
+  — challenge conflicts, sharpen fuzzy language, cross-reference the code. A
+  terms file that only changes after the interview is a summary, not the
+  session's output.
 - **ADRs:** the moment a decision clears the bar (hard to reverse + surprising
-  without context + real trade-off), offer to record it in `.skillgrid/adr/`. The
+  without context + real trade-off), offer to record it in
+  `.skillgrid/artifacts/04-adr-*.md` (and add a row to `03-adr-index.md`). The
   "why" is freshest right now; a future reader needs exactly this moment's
   reasoning.
 
-If `conventions.glossary` / `conventions.adr` are set in `.skillgrid/config.yaml`,
-use those paths. Both files are created lazily on first use.
+If `conventions.artifacts` is set in `.skillgrid/config.yaml`, use that path.
+Both the terms files and the ADR set are created lazily on first use.
 
 Work the tree in **rounds**. The **frontier** is every decision whose
 prerequisites are already settled — the questions you can ask _now_ without

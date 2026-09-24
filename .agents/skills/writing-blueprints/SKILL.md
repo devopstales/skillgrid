@@ -19,7 +19,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Announce at start:** "I'm using the skillgrid:writing-blueprints skill to create the implementation plan."
 
-**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for blueprint location. If the file doesn't exist, use the default `.skillgrid/specs/`. Use the glossary vocabulary from `conventions.glossary` (default `.skillgrid/glossary/`) for names and concepts. Constrain the blueprint by the in-force decisions: read the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (produced by brainstorming) and respect every in-force ADR it names — a blueprint that contradicts an in-force ADR must either follow it or record a new superseding ADR.
+**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for blueprint location. If the file doesn't exist, use the default `.skillgrid/specs/`. Use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/artifacts/01-business-terms.md` + `02-technical-terms.md`) for names and concepts. Constrain the blueprint by the in-force decisions: read the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (produced by brainstorming; in-force set via `artifacts/03-adr-index.md`) and respect every in-force ADR it names — a blueprint that contradicts an in-force ADR must either follow it or record a new superseding ADR.
 
 **Read the topic's findings before writing.** If `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` exists, read it in full before drafting the blueprint. It is the single consolidated evidence file for the topic — research findings (cited), spike verdicts + liftable modules, and the sketch's chosen winner + constraints all live there as typed sections. Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it (the header's **Findings** line carries the path). If the file is absent, the change ran no research/spike/sketch — proceed and omit that header line.
 
@@ -496,6 +496,8 @@ After the plan review gate passes, check if slicing is needed:
 **If the blueprint has 3+ tasks worth of work** — invoke `skillgrid:slicing` to break it into vertical tracer-bullet tickets with dependency edges and execution waves. Slicing produces `tasks.md` alongside the blueprint.
 
 **If the blueprint has 1-2 tasks** — skip slicing, execute directly.
+
+**Update `state.yaml`:** set `pipeline.current_change: <topic>` and `pipeline.current_phase: blueprint`.
 
 Then offer execution choice:
 

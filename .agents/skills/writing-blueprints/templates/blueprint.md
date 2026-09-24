@@ -22,14 +22,14 @@
 
 **Spec:** [path to the spec this plan implements — the plan argues from the spec, so it travels with it; e.g., `../briefing.md` or `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`]
 
-## Glossary
+## Terms
 
-[Pointers only. The project's canonical terms live in `.skillgrid/glossary/`
-(maintained by skillgrid:architectural-decision-records). List here only the
-terms THIS plan introduced or relies on, each with a link to
-`.skillgrid/glossary/`, plus a one-line note if a term was sharpened during
-planning. Do not redefine terms here — the glossary is the single source of
-truth. If the plan uses no glossary terms beyond the spec's, write "None".]
+[Pointers only. The project's canonical terms live in `.skillgrid/artifacts/`
+(`01-business-terms.md` / `02-technical-terms.md`, maintained by skillgrid:architectural-decision-records). List here only the
+terms THIS plan introduced or relies on, each with a link to the terms file,
+plus a one-line note if a term was sharpened during
+planning. Do not redefine terms here — the terms files are the single source of
+truth. If the plan uses no terms beyond the spec's, write "None".]
 
 <!-- ASSUMED BLOCK: replace **Status:** PROPOSED above with **Status: ASSUMED** and
 uncomment + fill this block ONLY when the Owed-Decision Gate's option 3

@@ -4,7 +4,7 @@ Use this template for the **Standards axis** of a two-axis review (dispatched
 in parallel with the Spec reviewer at [spec-reviewer.md](spec-reviewer.md)).
 
 **Purpose:** Check whether the code follows this repo's documented standards —
-glossary vocabulary, in-force ADRs, and the smell baseline below. It does NOT
+terms-file vocabulary, in-force ADRs, and the smell baseline below. It does NOT
 judge whether the code implements the spec (the Spec reviewer owns that).
 
 ```
@@ -51,7 +51,7 @@ Subagent (general-purpose):
     ## What to Check
 
     **Documented standards (hard when breached):**
-    - Does naming stay inside the glossary's ubiquitous language?
+    - Does naming stay inside the terms files' ubiquitous language?
     - Does the diff honor every in-force ADR it touches?
     - Any other documented repo standard (CODING_STANDARDS.md, CONTRIBUTING.md)
       the diff violates? Cite the standard (file + rule).
@@ -86,7 +86,7 @@ Subagent (general-purpose):
 
     A fixed set of Fowler code smells (_Refactoring_, ch.3) that applies even
     when the repo documents nothing. Two rules bind it:
-    - **The repo overrides.** A documented standard (glossary/ADR) always wins;
+    - **The repo overrides.** A documented standard (terms/ADR) always wins;
       where it endorses something the baseline would flag, suppress the smell.
     - **Always a judgement call.** Each is a labelled heuristic, never a hard
       violation. Skip anything tooling (lint) already enforces.
@@ -182,7 +182,7 @@ Subagent (general-purpose):
 **Placeholders:**
 - `[BASE_SHA]` — starting commit
 - `[HEAD_SHA]` — ending commit
-- `[GLOSSARY_PATH]` — the ubiquitous-language glossary (e.g. `.skillgrid/glossary/`)
+- `[TERMS_PATH]` — the ubiquitous-language terms files (e.g. `.skillgrid/artifacts/01-business-terms.md` + `02-technical-terms.md`)
 - `[ADR_LIST]` — the in-force ADRs the change's manifest names (not the whole folder)
 
 **Reviewer returns:** Strengths, Issues (Critical / Important / Minor), Assessment
@@ -191,15 +191,15 @@ Subagent (general-purpose):
 
 ```
 ### Strengths
-- Naming stays inside the glossary throughout (parser.ts, tokenizer.ts)
+- Naming stays inside the terms files throughout (parser.ts, tokenizer.ts)
 - Good error handling with named exceptions (summarizer.ts:85-92)
 
 ### Issues
 
 #### Important
-1. **Glossary drift**
+1. **Terms drift**
    - File: indexer.ts:14
-   - Issue: `fetchRecords()` — glossary defines this concept as "Retrieve"
+   - Issue: `fetchRecords()` — the terms file defines this concept as "Retrieve"
      not "Fetch"
    - Fix: Rename to `retrieveRecords()`
 

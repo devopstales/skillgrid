@@ -3,20 +3,23 @@
 
 This project is configured with Skillgrid. Project: **{project}**.
 
-Config: `.skillgrid/config.yaml` — read it before running any Skillgrid skill.
+Config: `.skillgrid/config.yaml` (static) — read it before running any Skillgrid skill.
+State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (phase, current change, progress).
 
 ### Artifacts
 
 | Artifact | Path |
 |----------|------|
+| Project knowledge (PRD, architecture, terms, ADRs, constraints, research) | `.skillgrid/artifacts/` |
+| Project state (phase, current change, progress) | `.skillgrid/state.yaml` |
 | Specs (briefing, blueprint, tasks) | `.skillgrid/specs/` |
 | Execution ledger | `.skillgrid/sdd/` (gitignored) |
-| PRD | `docs/PRD.md` |
-| Architecture | `docs/ARCHITECTURE.md` |
-| Domain glossary | `.skillgrid/glossary/` (business.md + technical.md) |
-| ADRs | `.skillgrid/adr/` |
 
-**Domain model:** Before designing or implementing, read `.skillgrid/glossary/` for the project's vocabulary and the ADRs in `.skillgrid/adr/` for the area you're touching. When terms resolve or a hard-to-reverse decision is made, update them via `skillgrid:architectural-decision-records` — the glossary is a glossary and nothing else.
+**Domain model:** Before designing or implementing, read `.skillgrid/artifacts/README.md` for the topic index, `01-business-terms.md` + `02-technical-terms.md` for vocabulary, and the ADRs (`04-adr-*.md`, in-force set via `03-adr-index.md`) for the area you're touching. When terms resolve or a hard-to-reverse decision is made, update them via `skillgrid:architectural-decision-records` — the terms files are a glossary and nothing else.
+
+### Rules
+
+{rules_block}
 
 ### Issue Tracker
 

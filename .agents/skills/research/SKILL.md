@@ -64,7 +64,7 @@ evidence is what you verify *this run*.
    `unverified` or dropped, never asserted.
 
 2. **The research firewall.** Project context — briefs, specs, code, memory,
-   the glossary — shapes *what to ask*, never *what is true*. It is inadmissible
+   the terms files — shapes *what to ask*, never *what is true*. It is inadmissible
    as evidence: every claim in the findings file traces to a source you fetched.
    The firewall is why a fact your codebase *assumes* still gets re-verified
    against the source that owns it.
@@ -149,6 +149,14 @@ collapse to a line rather than pad.
 The consolidated `findings.md` is the single downstream contract that
 `skillgrid:writing-blueprints` reads — it carries research, spike, and sketch
 evidence in one file.
+
+**Cross-change findings.** If a finding outlives this change (an external API
+fact, a version's behavior, a domain constraint, a library limitation that will
+constrain *future* work), also append it to `.skillgrid/artifacts/06-research-findings.md`
+(the durable, cross-change distillation). A finding that is only true for this
+one change stays in the per-change `findings.md` alone. `reflect` does the same
+lift at close — doing it here catches the durable facts while the sources are
+still fresh.
 
 Commit the findings (`git add` + `git commit`) — the artifact is a checkpoint the
 blueprint will cite.

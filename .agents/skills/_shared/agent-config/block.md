@@ -14,20 +14,23 @@ Copy exactly, fill the `{placeholders}`, wrap between the sentinels. Do not add 
 
 This project is configured with Skillgrid. Project: **{project}**.
 
-Config: `.skillgrid/config.yaml` — read it before running any Skillgrid skill.
+Config: `.skillgrid/config.yaml` (static) — read it before running any Skillgrid skill.
+State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (phase, current change, progress).
 
 ### Artifacts
 
 | Artifact | Path |
 |----------|------|
+| Project knowledge (PRD, architecture, terms, ADRs, constraints, research) | `.skillgrid/artifacts/` |
+| Project state (phase, current change, progress) | `.skillgrid/state.yaml` |
 | Specs (briefing, blueprint, tasks) | `.skillgrid/specs/` |
 | Execution ledger | `.skillgrid/sdd/` (gitignored) |
-| PRD | `docs/PRD.md` |
-| Architecture | `docs/ARCHITECTURE.md` |
-| Domain glossary | `.skillgrid/glossary/` (business.md + technical.md) |
-| ADRs | `.skillgrid/adr/` |
 
-**Domain model:** Before designing or implementing, read `.skillgrid/glossary/` for the project's vocabulary and the ADRs in `.skillgrid/adr/` for the area you're touching.
+**Domain model:** Before designing or implementing, read `.skillgrid/artifacts/README.md` for the topic index, `01-business-terms.md` + `02-technical-terms.md` for vocabulary, and the ADRs (`04-adr-*.md`, in-force set via `03-adr-index.md`) for the area you're touching.
+
+### Rules
+
+{rules_block}
 
 ### Issue Tracker
 
@@ -52,6 +55,7 @@ Run `skillgrid:onboarding` to update config after stack changes.
 | `{project}` | — | detected project name |
 | `{tracker_line}` | — | one-line tracker summary, chosen per active tracker |
 | `{memory_line}` | — | mnemonic status line |
+| `{rules_block}` | — | bullet list from `artifacts/05-locked-constraints.md` (one `-` per constraint); if the file is empty, `No locked constraints yet — see `.skillgrid/artifacts/05-locked-constraints.md`.` |
 
 `{tracker_line}` — pick the active tracker:
 

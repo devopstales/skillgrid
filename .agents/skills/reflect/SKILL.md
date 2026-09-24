@@ -129,6 +129,12 @@ Complete the existing file IN PLACE in the moved folder (`.skillgrid/archive/YYY
 
 **Lineage** — the observation IDs of every artifact read (the lineage endpoint).
 
+**Lift durable findings.** From the sourced learnings above (Surprises, Patterns, Decisions that constrain *future* work), append the ones that outlive this change to `.skillgrid/artifacts/06-research-findings.md` — the durable, cross-change distillation. A finding that is only true for this one change stays in `report.md` alone. This is the terminal catch: anything `research`/`spike`/`sketch` missed while the sources were fresh still lands here at close.
+
+### Step 3.5: Update `state.yaml`
+
+Set `pipeline.current_phase: reflect` (the terminal phase). `ship` already appended the topic to `progress.completed_changes` and cleared `current_change`; leave those as-is. If `current_change` was not cleared (e.g. ship degraded), clear it here so the pipeline reads idle after close.
+
 ### Step 4: Persist to Mnemonic + Close the Session (you own this)
 
 `reflect` is the **only** phase that closes the session. Follow [`../_shared/conventions/mnemonic-memory.md`](../_shared/conventions/mnemonic-memory.md).

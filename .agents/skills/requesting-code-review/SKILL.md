@@ -68,13 +68,13 @@ each other's context):
 
 Does the code follow this repo's documented standards? Pass:
 - the diff range (`{BASE_SHA}..{HEAD_SHA}`)
-- the standards sources: the glossary (`.skillgrid/glossary/`, ubiquitous
-  language), the in-force ADRs from the change's ADR Review Manifest
-  (`.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md`, or `conventions.adr`), plus
+- the standards sources: the terms files (`.skillgrid/artifacts/01-business-terms.md` /
+  `02-technical-terms.md`, ubiquitous language), the in-force ADRs from the change's ADR Review Manifest
+  (`.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md`, or `conventions.artifacts`), plus
   the template's smell baseline. Don't dump the whole ADR folder — only the
   in-force ADRs the manifest names for this change.
 - brief: cite each violated standard (file + rule) and each baseline smell
-  (name it, quote the hunk). Repo standards (glossary/ADRs) override the
+  (name it, quote the hunk). Repo standards (terms/ADRs) override the
   baseline. Skip anything tooling (lint) already enforces.
 
 **Spec reviewer** — template at [references/spec-reviewer.md](references/spec-reviewer.md)
@@ -111,6 +111,8 @@ clean or capped per `_shared/conventions/rigor-tiers.md` (fix loop cap).
 - If `ticketing.enabled: true` AND the reviewed work corresponds to a ticket in `tasks.md` with a tracker ID: set ticket status → `done`
 - If all tickets in the epic are `done`: set epic status → `done`
 - Use the tracker adapter from `skillgrid:ticketing` (Backlog.md CLI, `gh`, `glab`, `jira`)
+
+**6. Update `state.yaml`:** set `pipeline.current_phase: review`.
 
 ## Example
 
@@ -165,7 +167,7 @@ You: [triage both axes] [Fix glossary drift + add the missing scenario]
 ## Verification
 
 - [ ] The two reviewers were actually dispatched (standards + spec, in parallel) and both returned reports — not assumed
-- [ ] Each reviewer's request included the diff range (`{BASE_SHA}..{HEAD_SHA}`) plus the context it needs (glossary/ADRs for standards, `acceptance.feature`/blueprint for spec)
+- [ ] Each reviewer's request included the diff range (`{BASE_SHA}..{HEAD_SHA}`) plus the context it needs (terms/ADRs for standards, `acceptance.feature`/blueprint for spec)
 - [ ] The request names the specific risk areas to focus on (violated standards, scenarios that must pass) — per the "How to Request" briefs
 - [ ] The two reports were presented under `## Standards` and `## Spec` headings side by side, NOT merged or reranked
 - [ ] The combined findings were triaged and in-scope issues fixed with tests — not left as "reviewed, good to go"

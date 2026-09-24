@@ -110,11 +110,11 @@ checkpoint, not mid-command). Never commit broken tests or mid-edit state.
 
 | Layer | Path (repo → staged) | What |
 |-------|----------------------|------|
-| **Hook entrypoints (shims)** | `git-hooks/pre-commit`, `git-hooks/commit-msg`, `git-hooks/stop`, `git-hooks/gate-stop` → `~/.skillgrid/git-hooks/` | one-line shims that call the entrypoint |
-| **Implementation** | `hooks/checkpoint-state.sh` (subcommands `guard` / `guard-msg` / `post-check`), `hooks/precommit-guard.sh`, `hooks/precommit-zone-guard.sh`, `hooks/precommit-ignore-guard.sh`, `hooks/gate-lint.sh`, `hooks/gate-state.sh`, `hooks/gate-stop.sh`, `hooks/stop-tests.sh` → `~/.skillgrid/hooks/` | the actual logic |
+| **Hook entrypoints (shims)** | `git-hooks/pre-commit.js`, `git-hooks/commit-msg.js`, `git-hooks/stop.js`, `git-hooks/gate-stop.js` → `~/.skillgrid/git-hooks/` | one-line shims that call the entrypoint |
+| **Implementation** | `hooks/checkpoint-state.js` (subcommands `guard` / `guard-msg` / `post-check`), `hooks/precommit-guard.js`, `hooks/precommit-zone-guard.js`, `hooks/precommit-ignore-guard.js`, `hooks/gate-lint.js`, `hooks/gate-state.js`, `hooks/gate-stop.js`, `hooks/stop-tests.js` → `~/.skillgrid/hooks/` | the actual logic |
 
 The shims resolve their implementation relative to themselves
-(`../hooks/checkpoint-state.sh`), so the two dirs stage together and work
+(`../hooks/checkpoint-state.js`), so the two dirs stage together and work
 identically from the repo checkout and from `~/.skillgrid/`.
 
 ## Wiring the git hooks into a repo
@@ -127,22 +127,22 @@ Consumers then read from the mirror: plugins from `~/.skillgrid/plugins`, git
 hooks from `~/.skillgrid/git-hooks`, implementations via copy from
 `~/.skillgrid/hooks`. Re-run install after the repo updates the hook tree.
 
-What they enforce (see `hooks/precommit-guard.sh`):
+What they enforce (see `hooks/precommit-guard.js`):
 
 These guards serve **all** skillgrid skills — the commit-time invariants the
 whole family states as prose. `guard` is a dispatcher over every guard; adding
-one is a one-line change in `checkpoint-state.sh`.
+one is a one-line change in `checkpoint-state.js`.
 
 | Hook | Guard | Enforces (stated by) | Failure |
 |------|-------|----------------------|---------|
-| `pre-commit` | **cwd-drift** (precommit-guard.sh) | a prior `cd` left the worktree root; sentinel catches it | FATAL + RECOVERY `cd` |
-| `pre-commit` | **protected-ref / detached HEAD** (precommit-guard.sh) | never commit on `main`/`master`/`develop`/`trunk`/`release/*` or detached; worktree branch must be per-agent (`agent-*`, `worktree-agent-*`, `worktree-wf_*`) | FATAL + RECOVERY |
-| `pre-commit` | **spec-zone XOR code-zone** (precommit-zone-guard.sh) | BDD zone rule — commit `.skillgrid/specs/` before code, never both in one commit (simple-execution, subagent-execution, acceptance-test-authoring, qa, writing-blueprints) | FATAL + split-into-two RECOVERY |
-| `pre-commit` | **generated/scratch not tracked** (precommit-ignore-guard.sh) | `acceptance-tests/.extracted/` and the worktree dir stay untracked (acceptance-test-authoring, isolated-workspace) | auto-adds to `.gitignore` + unstages + FATAL |
+| `pre-commit` | **cwd-drift** (precommit-guard.js) | a prior `cd` left the worktree root; sentinel catches it | FATAL + RECOVERY `cd` |
+| `pre-commit` | **protected-ref / detached HEAD** (precommit-guard.js) | never commit on `main`/`master`/`develop`/`trunk`/`release/*` or detached; worktree branch must be per-agent (`agent-*`, `worktree-agent-*`, `worktree-wf_*`) | FATAL + RECOVERY |
+| `pre-commit` | **spec-zone XOR code-zone** (precommit-zone-guard.js) | BDD zone rule — commit `.skillgrid/specs/` before code, never both in one commit (simple-execution, subagent-execution, acceptance-test-authoring, qa, writing-blueprints) | FATAL + split-into-two RECOVERY |
+| `pre-commit` | **generated/scratch not tracked** (precommit-ignore-guard.js) | `acceptance-tests/.extracted/` and the worktree dir stay untracked (acceptance-test-authoring, isolated-workspace) | auto-adds to `.gitignore` + unstages + FATAL |
 | `commit-msg` | **conventional subject + no AI-attribution trailer** | commit format (work-unit-commits, branch-pr convention) | FATAL + RECOVERY |
-| `pre-commit` | **gate blocks well-formed** (gate-lint.sh) | every runnable `G<n>` carries CHECK+EXPECT, ABANDON has a reason, no happy-path requirement lacks a gate (acceptance-test-authoring, test-driven-verification) | WARNING (advisory, never blocks) |
-| `stop` (agent hook, `--with-stop`) | **tests must pass** (stop-tests.sh) | "commit after the gate is green" / "run the full suite before committing" — blocks the stop on a red `testing.runner` (execution + qa skills) | blocks stop + shows failures |
-| `gate-stop` (agent hook, `--with-stop`) | **every gate met** (gate-stop.sh → gate-state.sh) | "no done-claim while any happy-path gate is unmet or abandoned" — fresh `--reverify`; blocks the stop on an unmet `G<n>` or a happy-path requirement with no gate; HANDOFF note when only `ABANDON` remain; 6-block loop guard (test-driven-verification) | blocks stop + lists outstanding gates |
+| `pre-commit` | **gate blocks well-formed** (gate-lint.js) | every runnable `G<n>` carries CHECK+EXPECT, ABANDON has a reason, no happy-path requirement lacks a gate (acceptance-test-authoring, test-driven-verification) | WARNING (advisory, never blocks) |
+| `stop` (agent hook, `--with-stop`) | **tests must pass** (stop-tests.js) | "commit after the gate is green" / "run the full suite before committing" — blocks the stop on a red `testing.runner` (execution + qa skills) | blocks stop + shows failures |
+| `gate-stop` (agent hook, `--with-stop`) | **every gate met** (gate-stop.js → gate-state.js) | "no done-claim while any happy-path gate is unmet or abandoned" — fresh `--reverify`; blocks the stop on an unmet `G<n>` or a happy-path requirement with no gate; HANDOFF note when only `ABANDON` remain; 6-block loop guard (test-driven-verification) | blocks stop + lists outstanding gates |
 | (manual) `post-check` | **unexpected deletions** in HEAD | worth a glance, not a hard block | WARNING (document in the block) |
 
 The `stop` and `gate-stop` hooks are **agent harness hooks** (Stop events), not
@@ -154,10 +154,10 @@ for `session_id` (its loop-guard key); its shim does not drain stdin.
 Run the deletion check after committing:
 
 ```bash
-bash hooks/checkpoint-state.sh post-check
+node hooks/checkpoint-state.js post-check
 ```
 
-**CLI wiring:** the hooks are one-line shims over `hooks/checkpoint-state.sh`,
+**CLI wiring:** the hooks are one-line shims over `hooks/checkpoint-state.js`,
 staged to `~/.skillgrid/` by `skillgrid install`, which also points
 `core.hooksPath` at `~/.skillgrid/git-hooks`. The subcommand contract
 (`guard` / `guard-msg` / `post-check`) is the stable seam.
@@ -213,7 +213,7 @@ events-first resume flow.
 | "I'll add Co-Authored-By" | No `Co-Authored-By`, `Generated-By`, or any AI attribution trailer — the `commit-msg` hook rejects it. |
 | "I'll squash it all into one later" | Independently-revertable means you can revert *now*; a squashed bundle loses that the moment it lands. |
 | "I'll commit when I'm really done" | Commit after a verified gate, before a long-running command — interruption lands on a checkpoint, not mid-command. |
-| "The spec and code go together" | Zone rule: spec commit before code commit, never both in one — `precommit-zone-guard.sh` enforces it. |
+| "The spec and code go together" | Zone rule: spec commit before code commit, never both in one — `precommit-zone-guard.js` enforces it. |
 
 ## Red Flags
 

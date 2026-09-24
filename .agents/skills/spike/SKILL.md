@@ -213,7 +213,8 @@ Rules for the liftable module:
   throwaway; the module it calls is liftable.
 - **Labeled.** Mark it in `spike.md` with a `## Liftable Module` section: the file
   path, what it does, its input/output signature, and any dependencies (ideally none).
-- **Named for the real codebase.** Use the glossary's vocabulary for its names — a
+- **Named for the real codebase.** Use the terms files' vocabulary (`artifacts/01-business-terms.md` /
+  `02-technical-terms.md`) for its names — a
   module called `reducer.js` with functions named in domain terms lifts cleanly; one
   called `stuff.js` with `doIt()` needs renaming at lift time.
 - **No spike-specific constants.** If the module needs a value that's only meaningful

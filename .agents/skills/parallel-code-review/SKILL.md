@@ -58,7 +58,7 @@ finds.
 ## Config
 
 Read `.skillgrid/config.yaml` before starting. Use `testing.runner` for any
-verification the triage step needs, and the glossary/ADR paths
+verification the triage step needs, and the terms/ADR paths
 (`conventions.glossary`, the change's ADR Review Manifest at
 `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md`) for the Standards specialist.
 

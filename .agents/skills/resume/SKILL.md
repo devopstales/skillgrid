@@ -32,12 +32,15 @@ Recover your position from the two durable state layers — task and code — pl
 
 ## The State Layers
 
-Two layers, plus the spec-zone artifacts that name the phase:
+A project-level pointer, two layers, plus the spec-zone artifacts that name the phase:
 
 | Layer | File | Answers | Lifetime |
 |---|---|---|---|
+| **Project** | `.skillgrid/state.yaml` | Which change is current? What phase? What is done? (the first read — cheap and authoritative) | Durable; rewritten at every phase transition by the pipeline skills |
 | **Task** | `.skillgrid/sdd/<plan>/progress.md` (per-plan ledger, git-ignored) | Which task of the active execution is done? What was ruled? | Short-lived; deleted when the plan's review is clean |
 | **Code** | latest work-unit commit's `[skillgrid-context]` block + the session event stream (`skillgrid session <id>` / `session_changes`) | Where in the code did the last work unit leave off? What task / decisions / remaining? | Derived from git log; always reconstructable |
+
+**`state.yaml` is the first read.** It names the current change + phase in one glance. If it points at a change whose spec dir is missing or its phase is contradicted by the spec-zone artifacts, trust the spec-zone artifacts (the deeper truth) and note the drift. `state.yaml` is a pointer, not the source of truth for task detail.
 
 The **phase** is not a separate file — it is read from the spec-zone artifacts present in `.skillgrid/specs/YYYY-MM-DD-<topic>/`:
 
@@ -63,7 +66,7 @@ Mnemonic (when `mnemonic.enabled: true`) is a **fallback index**, not a layer: u
 
 ### 1. Locate the topic
 
-The newest directory under `conventions.specs_root` (default `.skillgrid/specs/`) that has in-flight artifacts — an uncompleted `tasks.md`, a latest commit whose `[skillgrid-context]` block has non-empty `Remaining:`, or a ledger. A branch name or ticket ID names the topic directly. If nothing is in flight, this skill is not for you; go back to `skillgrid:using-skillgrid`.
+Read `.skillgrid/state.yaml` first — `pipeline.current_change` + `pipeline.current_phase` name the topic and phase in one glance. If `current_change` is empty, fall back to the newest directory under `conventions.specs_root` (default `.skillgrid/specs/`) that has in-flight artifacts — an uncompleted `tasks.md`, a latest commit whose `[skillgrid-context]` block has non-empty `Remaining:`, or a ledger. A branch name or ticket ID names the topic directly. If nothing is in flight, this skill is not for you; go back to `skillgrid:using-skillgrid`.
 
 ### 2. Read the layers, in order
 
@@ -99,8 +102,9 @@ The explicit pause-and-persist action. Invoke it when you are stopping for a whi
 
 "I'm saving context." Then:
 
-1. **Task layer (if executing):** append the current position to the plan's `progress.md` — which task is in flight, what its last state was, any rulings since the last append.
-2. **Code layer:** commit the current work unit (`skillgrid:work-unit-commits`) so the session event stream holds the position. The `[skillgrid-context]` block's `Remaining:` and `Decisions:` lines carry the narrative for the next session.
+1. **Project layer:** confirm `.skillgrid/state.yaml` reflects the current change + phase (the pipeline skills write this at every transition; fix it here if drifted).
+2. **Task layer (if executing):** append the current position to the plan's `progress.md` — which task is in flight, what its last state was, any rulings since the last append.
+3. **Code layer:** commit the current work unit (`skillgrid:work-unit-commits`) so the session event stream holds the position. The `[skillgrid-context]` block's `Remaining:` and `Decisions:` lines carry the narrative for the next session.
 3. **Mnemonic mirror (if `mnemonic.enabled: true`):** `mem_save(topic_key: skillgrid/<topic>/execution-progress, ...)` with the ledger's tail (current task + last ruling) if executing; `mem_save(topic_key: skillgrid/<topic>/briefing, ...)` if still in planning.
 
 ## Restore (context-restore)

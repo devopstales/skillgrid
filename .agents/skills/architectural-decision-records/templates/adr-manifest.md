@@ -13,21 +13,21 @@
 ## In-Force ADRs Reviewed
 
 <!-- Every currently in-force ADR that constrains this change — derived by
-     walking `supersedes` links across .skillgrid/adr/. An ADR is in force when
+     walking `supersedes` links across .skillgrid/artifacts/04-adr-*.md. An ADR is in force when
      its status is `accepted` and no later ADR's `supersedes` names it. List
-     each as `.skillgrid/adr/NNNN-slug.md` with a one-line gist. If none are
+     each as `artifacts/04-adr-NNNN-slug.md` with a one-line gist. If none are
      in force, say so. -->
 
-- `.skillgrid/adr/NNNN-slug.md` — {one-line gist}
+- `artifacts/04-adr-NNNN-slug.md` — {one-line gist}
 - (or) None in force.
 
 ## New Durable ADRs Created
 
 <!-- Every repository-level ADR this change created, with its 4-digit sequence.
-     These are pointers to the durable records in .skillgrid/adr/, not copies
+     These are pointers to the durable records in .skillgrid/artifacts/04-adr-*.md, not copies
      of their content. -->
 
-- `.skillgrid/adr/NNNN-slug.md` — {decision, one line}
+- `artifacts/04-adr-NNNN-slug.md` — {decision, one line}
 - (or) None — no major durable architectural decision was introduced by this
   change.
 
