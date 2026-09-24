@@ -67,6 +67,43 @@ function hasExecutionSignal(changeDir) {
 
 // --- Completion detection from report.md ---
 
+// --- Scope derivation (verification-scope.md) ---
+// A zero count is never a bare zero: it carries the scope of the input the
+// derivation actually saw. Four atoms, worst-scope-wins when composed.
+// Severity: UNREADABLE > UNSCOPED > TRUNCATED > COMPLETE.
+const SCOPE_RANK = { COMPLETE: 0, TRUNCATED: 1, UNSCOPED: 2, UNREADABLE: 3 };
+
+function worstScope(a, b) {
+  return SCOPE_RANK[b] > SCOPE_RANK[a] ? b : a;
+}
+
+// Scope of the active-change spec-zone enumeration. The guard's drift verdict
+// is only meaningful over the set of change dirs it could actually enumerate:
+// - specs dir missing -> UNSCOPED (the enumeration the guard would run has no
+//   boundary; the "no active change" answer is a non-answer, not a clean bill)
+// - specs dir unreadable -> UNREADABLE
+// - otherwise -> COMPLETE (the listing was read in full)
+function specsDirScope(specsDir) {
+  if (!existsSync(specsDir)) return "UNSCOPED";
+  try {
+    readdirSync(specsDir, { withFileTypes: true });
+    return "COMPLETE";
+  } catch {
+    return "UNREADABLE";
+  }
+}
+
+// Scope of the single active change dir the phase/completion checks read.
+function changeDirScope(changeDir) {
+  if (!existsSync(changeDir)) return "UNREADABLE";
+  try {
+    readdirSync(changeDir, { withFileTypes: true });
+    return "COMPLETE";
+  } catch {
+    return "UNREADABLE";
+  }
+}
+
 function isShippable(reportContent) {
   const verdictMatch = reportContent.match(/\*\*Verdict:\*\*\s*(\w+)/);
   if (!verdictMatch) return false;
@@ -119,8 +156,10 @@ function main() {
 
   // No active change: if state is also clear, clean; if state names a change, drift
   if (activeDirs.length === 0) {
+    const scope = specsDirScope(specsDir);
     if (currentChange === "" || currentChange === undefined) {
       console.log("DRIFT: none");
+      console.log(`SCOPE: ${scope}`);
       process.exit(0);
     }
     // state names a change but no specs dir exists → drift
@@ -131,7 +170,7 @@ function main() {
         derived: "(none — no active change in specs/)",
       },
     ];
-    printDrift(drifts);
+    printDrift(drifts, scope);
     process.exit(1);
   }
 
@@ -187,16 +226,21 @@ function main() {
     }
   }
 
+  // Composite scope: the worst of the enumeration scope and the active change
+  // dir the phase/completion checks read (verification-scope.md: worst-scope-wins).
+  const scope = worstScope(specsDirScope(specsDir), changeDirScope(changeDir));
+
   if (drifts.length === 0) {
     console.log("DRIFT: none");
+    console.log(`SCOPE: ${scope}`);
     process.exit(0);
   }
 
-  printDrift(drifts);
+  printDrift(drifts, scope);
   process.exit(1);
 }
 
-function printDrift(drifts) {
+function printDrift(drifts, scope) {
   console.log("DRIFT DETECTED:");
   console.log("");
   console.log("| Field | Stale (state.yaml) | Derived (spec zone) |");
@@ -205,6 +249,7 @@ function printDrift(drifts) {
     console.log(`| ${d.field} | ${d.stale} | ${d.derived} |`);
   }
   console.log("");
+  console.log(`SCOPE: ${scope}`);
   console.log("Fix: update .skillgrid/state.yaml to match the spec-zone artifacts.");
 }
 

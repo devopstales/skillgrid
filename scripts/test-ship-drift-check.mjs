@@ -67,6 +67,16 @@ function run() {
     const r = runDrift(["check", base, p.root]);
     assert("clean: exit 0", r.code === 0, `got ${r.code}: ${r.stdout} ${r.stderr}`);
     assert("clean: DRIFT: none", r.stdout.includes("DRIFT: none"), r.stdout);
+    assert("clean: SCOPE: COMPLETE (diff ran)", /^SCOPE: COMPLETE$/m.test(r.stdout), r.stdout);
+    p.cleanup();
+  }
+
+  // 1b. Bad base ref → git diff fails → empty set is UNSCOPED, not a clean bill
+  {
+    const p = makeRepo();
+    const r = runDrift(["check", "nonexistent-ref-xyz", p.root]);
+    assert("bad-base: exit 0 (no files to drift on)", r.code === 0, `got ${r.code}: ${r.stdout} ${r.stderr}`);
+    assert("bad-base: SCOPE: UNSCOPED (diff did not run)", /^SCOPE: UNSCOPED$/m.test(r.stdout), r.stdout);
     p.cleanup();
   }
 

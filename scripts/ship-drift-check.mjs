@@ -35,12 +35,16 @@ function git(root, ...args) {
   return execSync(`git ${args.join(" ")}`, { cwd: root, encoding: "utf8", stdio: "pipe" }).trim();
 }
 
+// Returns { files, scope } per verification-scope.md: an empty changed-file
+// set is only a real answer (COMPLETE) when the diff actually ran. A git error
+// (bad base ref, not a repo) yields an empty set with scope UNSCOPED — a
+// non-answer, never a silent clean bill.
 function getChangedFiles(root, baseRef) {
   try {
     const out = git(root, "diff", "--name-only", baseRef, "HEAD");
-    return out.split("\n").filter(Boolean);
+    return { files: out.split("\n").filter(Boolean), scope: "COMPLETE" };
   } catch {
-    return [];
+    return { files: [], scope: "UNSCOPED" };
   }
 }
 
@@ -110,10 +114,11 @@ function main() {
     process.exit(2);
   }
 
-  const changed = getChangedFiles(root, baseRef);
+  const { files: changed, scope } = getChangedFiles(root, baseRef);
 
   if (changed.length === 0) {
     console.log("DRIFT: none");
+    console.log(`SCOPE: ${scope}`);
     process.exit(0);
   }
 
@@ -126,6 +131,7 @@ function main() {
 
   if (drift.length === 0) {
     console.log("DRIFT: none");
+    console.log(`SCOPE: ${scope}`);
     process.exit(0);
   }
 
@@ -138,6 +144,7 @@ function main() {
   }
   console.log("");
   console.log(`${drift.length} file(s) changed outside the anticipated set.`);
+  console.log(`SCOPE: ${scope}`);
   console.log("Add them to the anticipated set or investigate why they changed.");
   process.exit(1);
 }

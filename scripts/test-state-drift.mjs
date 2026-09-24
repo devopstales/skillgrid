@@ -270,6 +270,7 @@ function run() {
     const r = runGuard(p.root);
     assert("clean-spec: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
     assert("clean-spec: DRIFT: none", r.stdout.includes("DRIFT: none"), r.stdout);
+    assert("clean-spec: SCOPE: COMPLETE", /^SCOPE: COMPLETE$/m.test(r.stdout), r.stdout);
     p.cleanup();
   }
 
@@ -396,11 +397,35 @@ function run() {
     p.cleanup();
   }
 
-  // 12. No specs dir → exit 0 (no active change, nothing to check)
+  // 12. No specs dir → exit 0 (no active change, nothing to check). The specs
+  //     dir exists but is empty, so the enumeration is total → COMPLETE.
   {
     const p = makeProject({ stateYaml: STATE_SHIPPED, specs: {} });
     const r = runGuard(p.root);
     assert("no-specs: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
+    assert("no-specs: SCOPE: COMPLETE (empty-but-present specs dir)", /^SCOPE: COMPLETE$/m.test(r.stdout), r.stdout);
+    p.cleanup();
+  }
+
+  // 12b. specs dir genuinely missing (not just empty) → UNSCOPED: the
+  //      "no active change" answer is a non-answer, not a clean bill.
+  {
+    const p = makeProject({ stateYaml: STATE_SHIPPED, specs: {} });
+    rmSync(join(p.root, ".skillgrid", "specs"), { recursive: true, force: true });
+    const r = runGuard(p.root);
+    assert("specs-missing: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
+    assert("specs-missing: SCOPE: UNSCOPED", /^SCOPE: UNSCOPED$/m.test(r.stdout), r.stdout);
+    p.cleanup();
+  }
+
+  // 12c. state names a change but specs dir is missing → drift + UNSCOPED.
+  {
+    const p = makeProject({ stateYaml: STATE_CLEAN_SPEC, specs: {} });
+    rmSync(join(p.root, ".skillgrid", "specs"), { recursive: true, force: true });
+    const r = runGuard(p.root);
+    assert("specs-missing-drift: exit 1", r.code === 1, `got ${r.code}: ${r.stderr}`);
+    assert("specs-missing-drift: names current_change", r.stdout.includes("current_change"), r.stdout);
+    assert("specs-missing-drift: SCOPE: UNSCOPED", /^SCOPE: UNSCOPED$/m.test(r.stdout), r.stdout);
     p.cleanup();
   }
 
