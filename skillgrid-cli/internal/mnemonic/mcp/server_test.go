@@ -64,8 +64,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"mem_layers",
 		// Session events read (session events layer, TICKET-04).
 		"session_changes",
-		// Fact Memory add (2026-09-04-hermes-memory, TICKET-01).
-		"fact_add",
+		// Fact Memory (2026-09-04-hermes-memory, TICKET-01 + TICKET-02).
+		"fact_add", "fact_search", "fact_forget", "fact_decay",
 	}
 	if len(tools) != len(want) {
 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)

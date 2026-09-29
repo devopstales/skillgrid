@@ -111,13 +111,16 @@ func ComputeImportanceScore(retrievalCount int, age time.Duration, decayRate flo
 	if decayRate < 0 {
 		decayRate = 0
 	}
-	return float64(retrievalCount) * recencyFactor(age, decayRate)
+	return float64(retrievalCount) * RecencyFactor(age, decayRate)
 }
 
-// recencyFactor is the exponential recency decay: exp(-decay_rate * age_days).
+// RecencyFactor is the exponential recency decay: exp(-decay_rate * age_days).
 // It is the factor multiplying retrieval_count in ComputeImportanceScore and
-// is also stored as the recency_decay column for provenance.
-func recencyFactor(age time.Duration, decayRate float64) float64 {
+// is also stored as the recency_decay column for provenance. It is exported
+// so the Fact Memory decay path (facts.Store.Decay, change
+// 2026-09-04-hermes-memory TICKET-02) applies the identical 014 AKL decay
+// instead of reinventing it.
+func RecencyFactor(age time.Duration, decayRate float64) float64 {
 	if decayRate < 0 {
 		decayRate = 0
 	}
@@ -265,7 +268,7 @@ func (s *Service) stampImportance(ctx context.Context, id int64, retrievalUsage 
 	if raw >= 0 {
 		score = raw
 	}
-	decay := recencyFactor(age, cfg.DecayRate)
+	decay := RecencyFactor(age, cfg.DecayRate)
 	tier := ComputeMaturityTierWithThresholds(age, retrievalUsage, cfg.Thresholds)
 
 	var prevTier sql.NullString

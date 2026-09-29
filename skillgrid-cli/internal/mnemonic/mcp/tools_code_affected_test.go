@@ -76,9 +76,9 @@ func TestAffectedTools(t *testing.T) {
 
 	// The tool surface grows additively: 71 baseline + 2 affected/rename +
 	// 1 code_pdg_query + 1 code_taint + 2 governance + 1 mem_layers + 1 session_changes
-	// + 1 fact_add = 81 (hub/relay tools removed by the session events layer consolidation).
-	if len(tools) != 81 {
-		t.Errorf("expected 81 tools, got %d", len(tools))
+	// + 4 fact tools = 84 (hub/relay tools removed by the session events layer consolidation).
+	if len(tools) != 84 {
+		t.Errorf("expected 84 tools, got %d", len(tools))
 	}
 
 	// code_affected runs the traversal (changed -> affected test files).
