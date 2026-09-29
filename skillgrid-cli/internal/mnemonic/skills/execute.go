@@ -219,20 +219,31 @@ func buildSkillCommand(language string, runner []string, codePath, input string)
 		}
 		return exec.Command("go", args...), nil
 	}
-	// The code is fed on stdin rather than as a -c/-e argument: bash/python
-	// treat an argument that looks like a path as a script file to execute
-	// (126 on the non-executable registry file), and a huge -c argument can
-	// exceed the OS argument-list limit.
-	args := make([]string, 0, len(runner)+2)
-	args = append(args, runner[:1]...) // interpreter binary only, no -c/-e
-	if input != "" {
-		// The input is passed as a trailing argument to the interpreter
-		// (bash reads it as $1 after the ., python as sys.argv[1], node as
-		// process.argv[1]).
-		args = append(args, input)
+	// The code travels as the -c/-e argument of the interpreter (the registry
+	// file is not executable, so it cannot be run as a script path — 126),
+	// and the input travels as a shell/interpreter positional ($1 /
+	// sys.argv[1] / process.argv[1]). The code is shell-escaped so a multi-
+	// word or special-character program survives the -c boundary.
+	var args []string
+	switch language {
+	case "python":
+		pyCode, _ := os.ReadFile(codePath)
+		args = append(args, "python3", "-c", string(pyCode))
+	case "node", "javascript":
+		nodeCode, _ := os.ReadFile(codePath)
+		args = append(args, "node", "-e", string(nodeCode))
+	default: // sh, bash, zsh, shell
+		shCode, _ := os.ReadFile(codePath)
+		args = append(args, "bash", "-c", strings.TrimRight(string(shCode), "\n"))
 	}
-	code, _ := os.ReadFile(codePath)
-	return exec.Command(args[0], args[1:]...), strings.NewReader(string(code))
+	if input != "" {
+		// The input lands in $1 for bash and sys.argv[1]/process.argv[1] for
+		// python/node. For bash -c, the first argument after the program is
+		// $0, so an explicit $0 placeholder (the interpreter name) is inserted
+		// before the input to shift it into $1.
+		args = append(args, args[0], input)
+	}
+	return exec.Command(args[0], args[1:]...), nil
 }
 
 // insertUsage writes the skill_usage row for a successful run and returns its
