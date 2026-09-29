@@ -248,7 +248,7 @@ func TestExecuteSandboxTimeout(t *testing.T) {
 	}
 
 	// Shrink the deadline so the test itself stays fast; the production
-	// default stays 30s (sandbox.go).
+	// default stays 10s (execute.go).
 	s.Timeout = 2 * time.Second
 
 	start := time.Now()
@@ -259,6 +259,45 @@ func TestExecuteSandboxTimeout(t *testing.T) {
 	}
 	if !res.TimedOut {
 		t.Error("TimedOut = false, want true for a skill past the deadline")
+	}
+	if res.UsageID != 0 {
+		t.Errorf("UsageID = %d, want 0 (no usage row for a timeout)", res.UsageID)
+	}
+	if elapsed > 10*time.Second {
+		t.Errorf("Execute took %v, want bounded well under 10s", elapsed)
+	}
+}
+
+// TestExecuteSandboxTimeoutGoLanguage covers the go runner path: `go run`
+// compiles the skill to a temp binary that sits in its own process group, so
+// the process-group SIGKILL on timeout (plus Pdeathsig) must still reap it.
+// A go skill that sleeps past the deadline is killed and reported as a
+// timeout with bounded wall time. Skipped when go is absent.
+func TestExecuteSandboxTimeoutGoLanguage(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not available")
+	}
+	st, root := openTestStore(t)
+	s := New(st.DB, root)
+	ctx := context.Background()
+
+	if _, err := s.Write(ctx, "sleepy-go", "go", "sleeps too long",
+		"package main\n\nimport \"time\"\n\nfunc main() {\n\ttime.Sleep(15 * time.Second)\n}\n", false); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	// Shrink the deadline so the test itself stays fast; the production
+	// default stays 10s (execute.go).
+	s.Timeout = 2 * time.Second
+
+	start := time.Now()
+	res, err := s.Execute(ctx, "sleepy-go", "")
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.TimedOut {
+		t.Error("TimedOut = false, want true for a go skill past the deadline")
 	}
 	if res.UsageID != 0 {
 		t.Errorf("UsageID = %d, want 0 (no usage row for a timeout)", res.UsageID)

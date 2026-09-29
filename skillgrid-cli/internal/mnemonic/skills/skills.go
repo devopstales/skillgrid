@@ -27,7 +27,7 @@ type Store struct {
 	root string
 
 	// Timeout is the sandbox execution deadline; zero uses DefaultTimeout
-	// (30s). Tests shrink it to keep the suite fast.
+	// (10s). Tests shrink it to keep the suite fast.
 	Timeout time.Duration
 }
 

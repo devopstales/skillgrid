@@ -19,8 +19,8 @@ import (
 // tool surfaces it verbatim, naming the skill).
 var ErrSoftDeleted = errors.New("skill is soft-deleted and cannot be executed")
 
-// DefaultTimeout is the sandbox execution deadline (TICKET-04 scope: 30s).
-const DefaultTimeout = 30 * time.Second
+// DefaultTimeout is the sandbox execution deadline (TICKET-04 scope: 10s).
+const DefaultTimeout = 10 * time.Second
 
 // maxOutputBytes caps each captured stream (stdout/stderr) at 1MB; larger
 // output is truncated with a note appended.
@@ -59,7 +59,7 @@ var execAllowlist = map[string][]string{
 // can never outlive its deadline.
 func run(cmd *exec.Cmd, stdin io.Reader, deadline <-chan struct{}) (stdout, stderr []byte, exitCode int, err error) {
 	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.SysProcAttr = newSysProcAttr()
 	}
 	var out, errs bytes.Buffer
 	cmd.Stdout = &out

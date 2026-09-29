@@ -150,7 +150,7 @@ func handleSearchSkills(ctx context.Context, req mcplib.CallToolRequest) (*mcpli
 
 func useSkillTool() mcplib.Tool {
 	return mcplib.NewTool("use_skill",
-		mcplib.WithDescription("Execute a registered Agent Skill in the sandbox: the skill code runs under its language runner (bash/python/go) with a 30s deadline and 1MB output cap. Returns captured stdout/stderr and exit code. A skill_usage row is logged on success and a session_events trail records the call. Unknown languages, path-escaped code, and soft-deleted skills are rejected before any subprocess is spawned."),
+		mcplib.WithDescription("Execute a registered Agent Skill in the sandbox: the skill code runs under its language runner (bash/python/go) with a 10s deadline and 1MB output cap. Returns captured stdout/stderr and exit code. A skill_usage row is logged on success and a session_events trail records the call. Unknown languages, path-escaped code, and soft-deleted skills are rejected before any subprocess is spawned."),
 		mcplib.WithString("name", mcplib.Required(), mcplib.Description("Skill name (required)")),
 		mcplib.WithString("input", mcplib.Description("Optional input passed to the skill as a trailing argument")),
 		mcplib.WithString("session_id", mcplib.Description("Session id for the trail event (defaults to the active session)")),
