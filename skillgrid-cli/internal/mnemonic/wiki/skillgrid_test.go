@@ -137,6 +137,83 @@ func TestParseAssumptionsEdges(t *testing.T) {
 	}
 }
 
+func TestParseAssumptionsWikilinks(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFixture(t, dir, "ASSUMPTIONS.md", `# ASSUMPTIONS
+
+### In-force set
+
+| # | Title | Status | Supersedes | Amends | Date | In force |
+|---|-------|--------|------------|--------|------|----------|
+| 0004 | Old ADR | superseded | — | — | 2026-09-01 | no |
+| 0009 | New ADR | accepted | 0004 | — | 2026-09-02 | yes |
+
+### ADR-0004 — Old ADR
+
+**Decision.** An old decision.
+
+### ADR-0009 — New ADR
+
+**Decision.** A newer decision.
+`)
+
+	concepts, _, err := ParseAssumptions(p)
+	if err != nil {
+		t.Fatalf("ParseAssumptions: %v", err)
+	}
+	byID := map[string]Concept{}
+	for _, c := range concepts {
+		byID[c.ID] = c
+	}
+
+	// R4.1: the superseder's body links the superseded ADR.
+	if c := byID["adr-0009"]; !strings.Contains(c.Body, "[[adr-0004]]") {
+		t.Errorf("adr-0009 Body missing [[adr-0004]]: %q", c.Body)
+	}
+	// R4.2: the superseded ADR's body links the superseder.
+	if c := byID["adr-0004"]; !strings.Contains(c.Body, "[[adr-0009]]") {
+		t.Errorf("adr-0004 Body missing [[adr-0009]]: %q", c.Body)
+	}
+}
+
+func TestParseAssumptionsWikilinkIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFixture(t, dir, "ASSUMPTIONS.md", `# ASSUMPTIONS
+
+### In-force set
+
+| # | Title | Status | Supersedes | Amends | Date | In force |
+|---|-------|--------|------------|--------|------|----------|
+| 0002 | Amended ADR | accepted | — | — | 2026-09-01 | yes |
+| 0003 | Amending ADR | accepted | — | 0002 | 2026-09-02 | yes |
+
+### ADR-0002 — Amended ADR
+
+**Decision.** An old decision. See [[adr-0003]].
+
+### ADR-0003 — Amending ADR
+
+**Decision.** A refining decision.
+`)
+
+	concepts, _, err := ParseAssumptions(p)
+	if err != nil {
+		t.Fatalf("ParseAssumptions: %v", err)
+	}
+	byID := map[string]Concept{}
+	for _, c := range concepts {
+		byID[c.ID] = c
+	}
+	// The pre-existing [[adr-0003]] in adr-0002's body must not be duplicated.
+	if n := strings.Count(byID["adr-0002"].Body, "[[adr-0003]]"); n != 1 {
+		t.Errorf("adr-0002 Body has %d occurrences of [[adr-0003]], want 1: %q", n, byID["adr-0002"].Body)
+	}
+	// The amender's body gets the amended ADR's wikilink.
+	if !strings.Contains(byID["adr-0003"].Body, "[[adr-0002]]") {
+		t.Errorf("adr-0003 Body missing [[adr-0002]]: %q", byID["adr-0003"].Body)
+	}
+}
+
 func TestParseAssumptionsConstraints(t *testing.T) {
 	dir := t.TempDir()
 	p := writeFixture(t, dir, "ASSUMPTIONS.md", assumptionsFixture)

@@ -25,6 +25,10 @@ import (
 type Store struct {
 	db   *sql.DB
 	root string
+
+	// Timeout is the sandbox execution deadline; zero uses DefaultTimeout
+	// (30s). Tests shrink it to keep the suite fast.
+	Timeout time.Duration
 }
 
 // New wraps the project store's database handle and workspace root.
@@ -307,12 +311,12 @@ func buildSkillFTSQuery(query string) (string, error) {
 // supportedLanguages renders the knownLanguages set as a sorted, deduped
 // "a, b, c" string for the unknown-language error message.
 func supportedLanguages() string {
-	exts := map[string]struct{}{}
+	langs := map[string]struct{}{}
 	for lang := range knownLanguages {
-		exts[lang] = struct{}{}
+		langs[lang] = struct{}{}
 	}
-	out := make([]string, 0, len(exts))
-	for lang := range exts {
+	out := make([]string, 0, len(langs))
+	for lang := range langs {
 		out = append(out, lang)
 	}
 	// Stable order: simple insertion sort (the set is tiny).

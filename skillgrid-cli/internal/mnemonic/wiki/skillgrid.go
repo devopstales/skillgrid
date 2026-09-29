@@ -209,7 +209,35 @@ func ParseAssumptions(path string) ([]Concept, []Edge, error) {
 		}
 	}
 
+	// R4.1/4.2: every Supersedes/Amends edge must appear as a [[adr-NNNN]]
+	// wikilink in BOTH related ADR bodies (superseder links the superseded,
+	// superseded links the superseder; amender links the amended and vice
+	// versa). Idempotent: an ADR body that already contains the wikilink
+	// (written in the source markdown) is left untouched.
+	for _, e := range edges {
+		switch e.Kind {
+		case "supersedes", "amends":
+			addWikilink(&concepts, e.From, e.To)
+			addWikilink(&concepts, e.To, e.From)
+		}
+	}
+
 	return concepts, edges, nil
+}
+
+// addWikilink appends "[[targetID]]" to the body of the ADR with ID
+// fromID, unless the body already contains the wikilink (idempotent) or the
+// ADR concept is absent.
+func addWikilink(concepts *[]Concept, fromID, targetID string) {
+	link := "[[" + targetID + "]]"
+	c := findConcept(*concepts, fromID)
+	if c == nil || c.Type != "ADR" {
+		return
+	}
+	if strings.Contains(c.Body, link) {
+		return
+	}
+	c.Body = strings.TrimRight(c.Body, "\n") + "\n\n" + link
 }
 
 // ParseState parses .skillgrid/state.yaml into one State concept (status
@@ -558,7 +586,6 @@ func spikeVerdict(dir string) string {
 	}
 	sort.Strings(files)
 
-	verdict := ""
 	fallback := ""
 	for _, name := range files {
 		data, err := os.ReadFile(filepath.Join(dir, name))
@@ -592,7 +619,6 @@ func spikeVerdict(dir string) string {
 					return v
 				}
 			}
-			verdict = ""
 			continue
 		}
 		if fallback == "" {
@@ -603,9 +629,6 @@ func spikeVerdict(dir string) string {
 				}
 			}
 		}
-	}
-	if verdict != "" {
-		return verdict
 	}
 	return fallback
 }
