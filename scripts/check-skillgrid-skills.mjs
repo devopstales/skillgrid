@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // check-skillgrid-skills.mjs — skillgrid skill-hygiene guard.
 //
-// Enforces the invariants from _shared/conventions/skill-anatomy.md so the
+// Enforces the invariants from _shared/rules/skill-anatomy.md so the
 // 30+ skills stop drifting:
 //   1. frontmatter: name == dir (kebab-case), description <= 400 chars,
 //      license + metadata(version/part-of) present

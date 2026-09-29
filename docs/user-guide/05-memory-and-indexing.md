@@ -702,8 +702,8 @@ skillgrid doctor [--strict]        # functional health check (embed round-trip, 
 
 Full agent-facing conventions (not this operator reference):
 
-- `.agents/skills/_shared/conventions/mnemonic-memory.md`
-- `.agents/skills/_shared/conventions/mnemonic-code-indexing.md`
+- `.agents/skills/_shared/rules/mnemonic-memory.md`
+- `.agents/skills/_shared/rules/mnemonic-code-indexing.md`
 - Skill: `mnemonic` (memory + code index + web cache folded in; former `mnemonic-code-index` skill retired → redirect)
 
 ## Next step

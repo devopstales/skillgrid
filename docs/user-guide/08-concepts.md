@@ -189,7 +189,7 @@ Encoded in `tasks.md` as a mermaid `Dependency Graph` block plus an **Execution 
 
 ## Rigor tiers — match effort to risk
 
-A throwaway prototype shouldn't be pushed through mutation testing and an 8-specialist review, and a payment system shouldn't get away with a self-check. **Rigor tiers** (T0–T3, in `_shared/conventions/rigor-tiers.md`) are a per-change verification dial:
+A throwaway prototype shouldn't be pushed through mutation testing and an 8-specialist review, and a payment system shouldn't get away with a self-check. **Rigor tiers** (T0–T3, in `_shared/rules/rigor-tiers.md`) are a per-change verification dial:
 
 | Tier | Name | Blueprint | QA floor | Review |
 |---|---|---|---|---|
