@@ -46,7 +46,7 @@ func Emit(c Concept) (string, error) {
 		writeKey(&b, "status", c.Status)
 	}
 	if !c.StaleAfter.IsZero() {
-		writeKey(&b, "stale_after", formatTime(c.StaleAfter))
+		writeTime(&b, "stale_after", c.StaleAfter)
 	}
 	if c.SourcePath != "" {
 		writeKey(&b, "source_path", c.SourcePath)
@@ -102,7 +102,7 @@ func writeSources(b *strings.Builder, sources []SourceRef) {
 		}
 		if !s.LastModified.IsZero() {
 			b.WriteString("    last_modified: ")
-			b.WriteString(quoteYAML(formatTime(s.LastModified)))
+			b.WriteString(formatTime(s.LastModified))
 			b.WriteString("\n")
 		}
 	}
@@ -122,7 +122,7 @@ func writeVerifierMap(b *strings.Builder, key, indent string, v Verifier) {
 	b.WriteString("\n")
 	b.WriteString(indent)
 	b.WriteString("at: ")
-	b.WriteString(quoteYAML(formatTime(v.At)))
+	b.WriteString(formatTime(v.At))
 	b.WriteString("\n")
 }
 
@@ -135,7 +135,7 @@ func writeVerifierList(b *strings.Builder, key string, verifiers []Verifier) {
 		b.WriteString(quoteYAML(v.By))
 		b.WriteString("\n")
 		b.WriteString("    at: ")
-		b.WriteString(quoteYAML(formatTime(v.At)))
+		b.WriteString(formatTime(v.At))
 		b.WriteString("\n")
 	}
 }
@@ -143,8 +143,23 @@ func writeVerifierList(b *strings.Builder, key string, verifiers []Verifier) {
 // formatTime renders a time as absolute-UTC RFC3339 ("2006-01-02T15:04:05Z").
 // Zero times are formatted as the zero instant ("0001-01-01T00:00:00Z") but
 // callers omit zero-valued fields before reaching here.
+//
+// The value is written as a YAML plain scalar (no quotes): the RFC3339
+// character set ([0-9TZ:.] plus the '-' between date and time) contains no
+// YAML indicator, so the unquoted form is valid YAML. Keeping it unquoted
+// makes the emitted `at:` / `last_modified:` / `stale_after:` lines match the
+// plain-scalar form conform.go's unquoteYAML expects and keeps emitted pages
+// stable under substring assertions.
 func formatTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
+}
+
+// writeTime writes a "key: <rfc3339>" line as a plain (unquoted) scalar.
+func writeTime(b *strings.Builder, key string, t time.Time) {
+	b.WriteString(key)
+	b.WriteString(": ")
+	b.WriteString(t.UTC().Format(time.RFC3339))
+	b.WriteString("\n")
 }
 
 // yamlSpecial reports whether a string contains any character that requires

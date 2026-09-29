@@ -118,7 +118,7 @@ func TestEmit_SourcesList(t *testing.T) {
   - resource: "https://example.com"
     author: "team:x"
     title: Doc
-    last_modified: "2026-09-29T14:00:00Z"
+    last_modified: 2026-09-29T14:00:00Z
   - resource: internal/note.md`
 	if !strings.Contains(out, want) {
 		t.Errorf("sources block mismatch\nwant contains:\n%s\n---\nactual:\n%s", want, out)
@@ -153,7 +153,7 @@ func TestEmit_VerifiedSingleBareMap(t *testing.T) {
 	}
 	want := `verified:
   by: "team:x"
-  at: "2026-09-29T14:00:00Z"`
+  at: 2026-09-29T14:00:00Z`
 	if !strings.Contains(out, want) {
 		t.Errorf("single verified must be a bare map\nwant contains:\n%s\n---\nactual:\n%s", want, out)
 	}
@@ -175,9 +175,9 @@ func TestEmit_VerifiedList(t *testing.T) {
 	}
 	want := `verified:
   - by: "team:x"
-    at: "2026-09-29T14:00:00Z"
+    at: 2026-09-29T14:00:00Z
   - by: "agent:y"
-    at: "2026-09-29T15:00:00Z"`
+    at: 2026-09-29T15:00:00Z`
 	if !strings.Contains(out, want) {
 		t.Errorf("multi verified must be a list\nwant contains:\n%s\n---\nactual:\n%s", want, out)
 	}
@@ -197,7 +197,7 @@ func TestEmit_Generated(t *testing.T) {
 	}
 	want := `generated:
   by: skillgrid
-  at: "2026-09-29T14:00:00Z"`
+  at: 2026-09-29T14:00:00Z`
 	if !strings.Contains(out, want) {
 		t.Errorf("generated block mismatch\nwant contains:\n%s\n---\nactual:\n%s", want, out)
 	}
