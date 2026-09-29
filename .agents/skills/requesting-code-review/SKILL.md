@@ -66,7 +66,10 @@ each other's context):
 
 **Standards reviewer** — template at [references/code-reviewer.md](references/code-reviewer.md)
 
-Does the code follow this repo's documented standards? Pass:
+Does the code follow this repo's documented standards? The two-axis contract
+and the smell baseline are canonically defined in
+`_shared/conventions/code-standards.md` ("Reviewing"); this template inlines
+them for the reviewer. Pass:
 - the diff range (`{BASE_SHA}..{HEAD_SHA}`)
 - the standards sources: the terms files (`.skillgrid/artifacts/01-business-terms.md` /
   `02-technical-terms.md`, ubiquitous language), the in-force ADRs from the change's ADR Review Manifest

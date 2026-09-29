@@ -92,7 +92,10 @@ Prefer existing project terms (README, domain docs, code names) over new jargon.
 
 ### Offer ADRs sparingly
 
-Only offer to create an ADR when all three are true:
+This is the ADR-sparingly test the global code standard (`_shared/conventions/code-standards.md`)
+references: the ADR is the home for the *per-language idioms* and *hard-to-reverse
+decisions* that the global layer deliberately defers. Only offer to create an ADR
+when all three are true:
 
 1. **Hard to reverse**: the cost of changing your mind later is meaningful
 2. **Surprising without context**: a future reader will wonder "why did they do it this way?"

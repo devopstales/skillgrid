@@ -103,6 +103,11 @@ others. Use a `general-purpose` subagent per specialist. Each specialist's
 prompt is the template in this skill's `reviewers/` directory (or, for
 Standards/Spec, the shared templates):
 
+The two-axis contract (Standards vs Spec, never cross-reranked) and the smell
+baseline are canonically defined in
+`_shared/conventions/code-standards.md` ("Reviewing"); the templates below
+instantiate them.
+
 | Specialist | Template | Lens | Selected when |
 |------------|----------|------|---------------|
 | Standards | [../requesting-code-review/references/code-reviewer.md](../requesting-code-review/references/code-reviewer.md) | glossary, in-force ADRs, smell baseline | always (core) |

@@ -16,6 +16,7 @@ Companion contracts (this file assumes they exist and are honored):
 - [effort-budgets.md](effort-budgets.md) — the `effort:` signal + when NOT to use the pipeline.
 - [../references/threat-matrix.md](../references/threat-matrix.md) — applicability-driven threats.
 - [../references/strict-tdd.md](../references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR.
+- [code-standards.md](code-standards.md) — global, language-agnostic code standards for any skill that writes or reviews code.
 
 ## File location
 
