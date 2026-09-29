@@ -212,7 +212,8 @@ func (s *Store) Forget(ctx context.Context, sessionID string, factID int64) erro
 // recency_decay column keeps its 014 contract (the decay RATE, not the
 // factor). A zero rate (the fresh-fact default) is a no-op that still logs
 // the trail row; an unknown id is an error. The success trail row
-// (action_type="fact_decay") carries the fact id and the new score.
+// (action_type="fact_decay") carries the fact id, the old score (importance
+// before decay), the new score, and the mode ("akl").
 func (s *Store) Decay(ctx context.Context, sessionID string, factID int64) (float64, error) {
 	if s == nil || s.db == nil {
 		return 0, errors.New("facts store not initialized")
@@ -241,7 +242,9 @@ func (s *Store) Decay(ctx context.Context, sessionID string, factID int64) (floa
 	}
 	if err := s.insertEvent(ctx, sessionID, "fact_decay", map[string]any{
 		"fact_id":   factID,
+		"old_score": score,
 		"new_score": newScore,
+		"mode":      "akl",
 	}); err != nil {
 		return 0, err
 	}

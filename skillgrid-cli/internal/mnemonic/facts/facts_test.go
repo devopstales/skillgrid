@@ -339,7 +339,8 @@ func TestForgetUnknownFactFails(t *testing.T) {
 // importance and logs events): Decay applies the 014 AKL formula
 // (importance_score *= exp(-decay_rate * age_days)) via the shared memory
 // helpers, refreshes recency_decay, and logs a session_events row
-// (action_type="fact_decay") with the fact id and the new score.
+// (action_type="fact_decay") with the fact id, the old score, the new score,
+// and mode "akl".
 func TestDecayLowersImportanceAndLogsEvent(t *testing.T) {
 	st := openTestStore(t)
 	sid := "sess-fact-decay"
@@ -390,7 +391,8 @@ func TestDecayLowersImportanceAndLogsEvent(t *testing.T) {
 		t.Errorf("maturity_tier = %q, want new (facts tier is stable in TICKET-02)", tier)
 	}
 
-	// Session trail: action_type=fact_decay with the fact id + new score.
+	// Session trail: action_type=fact_decay with the fact id, the old score
+	// (importance before decay), the new score, and mode "akl".
 	var actionType, payload string
 	if err := st.DB.QueryRow(`
 		SELECT action_type, payload FROM session_events
@@ -400,13 +402,17 @@ func TestDecayLowersImportanceAndLogsEvent(t *testing.T) {
 	}
 	var ev struct {
 		FactID   int64   `json:"fact_id"`
+		OldScore float64 `json:"old_score"`
 		NewScore float64 `json:"new_score"`
+		Mode     string  `json:"mode"`
 	}
 	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
 		t.Fatalf("parse decay payload %q: %v", payload, err)
 	}
-	if ev.FactID != id || math.Abs(ev.NewScore-want) > 1e-6 {
-		t.Errorf("payload = %+v, want fact_id %d new_score %v", ev, id, want)
+	if ev.FactID != id || math.Abs(ev.OldScore-1.0) > 1e-6 ||
+		math.Abs(ev.NewScore-want) > 1e-6 || ev.Mode != "akl" {
+		t.Errorf("payload = %+v, want fact_id %d old_score 1 new_score %v mode akl",
+			ev, id, want)
 	}
 }
 
