@@ -25,7 +25,7 @@ Turns a raw idea into an approved design and spec before any implementation begi
 
 **When NOT to use:** For a fully-specified, small, well-understood change where the design is already obvious and there is an existing flow to read — that is the **Bounded** path: a short design in chat and an approval, not this full interview → approaches → spec process. And the spike path stops at "present the probe, get a nod."
 
-**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for spec location, `conventions.artifacts` for the durable-knowledge zone (PRD at `artifacts/00-prd.md`, architecture at `artifacts/00-architecture.md`, terms at `01/02-*-terms.md`, ADRs at `04-adr-*.md` indexed by `03-adr-index.md`, constraints at `05-locked-constraints.md`). If the file doesn't exist, use the defaults shown in this skill.
+**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for spec location, `conventions.artifacts` for the terms zone (`01/02-*-terms.md`), and the root `.skillgrid/ASSUMPTIONS.md` for the understanding + decisions record (VERIFIED product facts, the ADR `### ADR-NNNN` entries in `## LOCKED`, and the locked constraints) and `.skillgrid/ARCHITECTURE.md` for the live repo/program structure. If the file doesn't exist, use the defaults shown in this skill.
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
 
@@ -75,27 +75,29 @@ override it:
   No spec file, no implementation plan document.
 - **New Project** — a greenfield project, a new subsystem, or a change
   that restructures how components fit together or alters interfaces
-  others depend on. There is no existing flow to read — you are
-   creating the architecture. Follow the full process: interview the user
-   (`skillgrid:interviewing` skill — design tree, rounds, clarity gate), approaches,
-   sectioned design, then write the two global artifacts
-   `artifacts/00-prd.md` (product requirements) and
-    `artifacts/00-architecture.md` (system architecture) and the spec
-    `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`, all from the templates in
-    `templates/` (`templates/PRD.md`, `templates/ARCHITECTURE.md`,
-    `templates/briefing.md`). If the global files already exist (a second
-    project in the repo), merge rather than overwrite. Then the
-    skillgrid:writing-blueprints skill.
+   others depend on. There is no existing flow to read — you are
+    creating the architecture. Follow the full process: interview the user
+    (`skillgrid:interviewing` skill — design tree, rounds, clarity gate), approaches,
+    sectioned design, then write the root understanding + decisions record
+    `.skillgrid/ASSUMPTIONS.md` (VERIFIED product facts + INFERRED hypotheses +
+    LOCKED decisions/constraints — the product requirements that used to live in a
+    separate PRD) and the live structure record `.skillgrid/ARCHITECTURE.md` (repo /
+    program structure), both from the templates in `templates/`
+    (`templates/PRD.md` → ASSUMPTIONS.md, `templates/ARCHITECTURE.md`), plus the spec
+    `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` from `templates/briefing.md`.
+    If the global files already exist (a second project in the repo), merge rather
+    than overwrite. Then the skillgrid:writing-blueprints skill.
 - **New Function** — a new feature, endpoint, or capability added to an
    existing project whose architecture is already in place. Follow the
    full process: interview the user (`skillgrid:interviewing` skill — design tree,
    rounds, clarity gate), approaches, sectioned design, then write the
-   spec `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` from
-   `templates/briefing.md`. If
-    the feature changes the global `artifacts/00-prd.md` (new feature row, changed
-    metrics) or `artifacts/00-architecture.md` (new component, data store,
-    integration), update those too — only when they exist AND the feature
-    actually changes them. Then the skillgrid:writing-blueprints skill.
+    spec `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` from
+    `templates/briefing.md`. If
+     the feature changes the global `.skillgrid/ASSUMPTIONS.md` (new VERIFIED product
+     fact, changed metric, a new `### ADR-NNNN` entry) or
+     `.skillgrid/ARCHITECTURE.md` (new component, data store, integration), update
+     those too — only when they exist AND the feature actually changes them. Then the
+     skillgrid:writing-blueprints skill.
 
 When in doubt between two paths, take the heavier one. The ratchet is
 one-way: hidden complexity discovered mid-task upgrades the path —
@@ -134,6 +136,15 @@ change — the design may be two sentences in chat, but you MUST present
 it and get approval. "Simple" tasks are where unexamined assumptions
 cause the most wasted work. What scales with simplicity is the
 artifact, never the approval.
+
+## How to measure it
+
+Per `_shared/conventions/measurement.md`.
+
+| | Indicator | Data source | Direction |
+|---|-----------|-------------|-----------|
+| Leading | Time from first interview to a committed `briefing.md` | Git history (two commit timestamps) | should fall |
+| Lagging | Rework: `briefing.md` commits dated after the first `blueprint.md` commit for the same change | Git history | should fall |
 
 ## Common Rationalizations
 
@@ -192,31 +203,31 @@ your path and complete them in order.
   2. **Offer the visual companion just-in-time** — NOT upfront. The first time a question would genuinely be clearer shown than described, offer it then (its own message); on approval its browser tab opens for you. If no visual question ever arises, never offer it. See the Visual Companion section below.
   3. **Offer a sketch just-in-time** — NOT upfront, and only when the design has **2+ meaningfully different layout or interaction options** whose choice depends on *feeling* it, not reading a description. The first time that is true, offer it then (its own message): "This has a few different layout options — I can build throwaway interactive mockups so you can feel which one works. Want me to?" On approval, invoke the `skillgrid:sketch` skill; the marked winner + constraints land in the topic's consolidated `findings.md`, which the blueprint reads. If the design never has 2+ genuinely different visual options, never offer it.
   4. **Research external facts just-in-time** — NOT upfront. The first time the design depends on a fact not in the codebase (a library's current API, a version's behavior, a domain constraint, a competitor's offering), dispatch `skillgrid:research` (one inline pass) or `skillgrid:code-research` (wide or high-stakes) and let the design read the resulting `## Research:` section in `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md`. The research answers the question; the interview still owns the decisions. If no external fact ever comes up, never offer it.
-   5. **Interview the user** — invoke the `skillgrid:interviewing` skill. Work the design tree in rounds: map the decision tree, ask the whole frontier per round (numbered, with your recommended answer), look up facts yourself, put decisions to the user. Repeat until the frontier is empty AND the clarity gate passes (see the interviewing skill's exit check). This replaces one-at-a-time questioning — the frontier rounds are the structure. As the interview runs, `skillgrid:architectural-decision-records` maintains the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`) and offers ADRs (`artifacts/04-adr-*.md`) — the paper trail is written during the interview, not after.
-   6. **Propose 2-3 approaches** — with trade-offs and your recommendation
-   7. **Present design** — in sections scaled to their complexity, get user approval after each section
-    8. **Codebase feasibility check** — read the repo's existing structure and `artifacts/00-architecture.md` / `artifacts/00-prd.md` (if present); verify the proposed architecture fits existing patterns; record a 2-line verdict in the spec's Context section. If the design doesn't fit and there's no justification, revise before writing the spec.
-    9. **Reconcile the domain model + write the ADR manifest** — before writing the spec: (a) confirm the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`) reflect every term the interview resolved; (b) run the per-change ADR Review Manifest from `skillgrid:architectural-decision-records` — read `artifacts/03-adr-index.md` for the in-force set, create any qualifying repo ADRs at `artifacts/04-adr-*.md` (4-digit, monotonic, fixed header) + index rows, and write `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` listing the in-force ADRs reviewed + the new ADRs created (or "none"). Commit the terms, any new ADRs, and the manifest with the spec.
-    10. **Write the acceptance contract** (BDD is always on) — copy `skillgrid:acceptance-test-authoring/templates/acceptance.feature` → `.skillgrid/specs/YYYY-MM-DD-<topic>/acceptance.feature`. One `Rule:` (`### Requirement:`) per briefing requirement, with happy/edge/failure scenarios in domain language (use the terms files). Happy-path scenarios must cover the Definition of Done. Commit the spec before any code.
-    11. **Write the global artifacts** — copy `templates/PRD.md` → `artifacts/00-prd.md` and `templates/ARCHITECTURE.md` → `artifacts/00-architecture.md`, fill in every section; also copy `templates/briefing.md` → `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` and fill it in (including the Clarity Report from the interview). If the global files already exist, merge rather than overwrite. Commit.
-    12. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope, falsifiability (see below); run it on the PRD, ARCHITECTURE, and briefing
-    13. **User reviews the artifacts** — ask user to review `artifacts/00-prd.md`, `artifacts/00-architecture.md`, the spec, the acceptance contract, and the updated terms/ADRs before proceeding
-   14. **Transition to implementation** — invoke skillgrid:writing-blueprints skill to create implementation plan
+    5. **Interview the user** — invoke the `skillgrid:interviewing` skill. Work the design tree in rounds: map the design tree, ask the whole frontier per round (numbered, with your recommended answer), look up facts yourself, put decisions to the user. Repeat until the frontier is empty AND the clarity gate passes (see the interviewing skill's exit check). This replaces one-at-a-time questioning — the frontier rounds are the structure. As the interview runs, write VERIFIED facts to `.skillgrid/ASSUMPTIONS.md` and INFERRED hypotheses as they are confirmed, and `skillgrid:architectural-decision-records` maintains the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`) and offers ADRs (`### ADR-NNNN` entries in `ASSUMPTIONS.md`) — the paper trail is written during the interview, not after.
+    6. **Propose 2-3 approaches** — with trade-offs and your recommendation
+    7. **Present design** — in sections scaled to their complexity, get user approval after each section
+     8. **Codebase feasibility check** — read the repo's existing structure and `.skillgrid/ARCHITECTURE.md` / `.skillgrid/ASSUMPTIONS.md` (if present); verify the proposed architecture fits existing patterns; record a 2-line verdict in the spec's Context section. If the design doesn't fit and there's no justification, revise before writing the spec.
+     9. **Reconcile the domain model + write the ADR manifest** — before writing the spec: (a) confirm the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`) reflect every term the interview resolved; (b) run the per-change ADR Review Manifest from `skillgrid:architectural-decision-records` — read the `### In-force set` table in `.skillgrid/ASSUMPTIONS.md` for the in-force set, author any qualifying ADRs as `### ADR-NNNN` entries (4-digit, monotonic, fixed heading) + in-force-set table rows, and write `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` listing the in-force ADRs reviewed + the new ADRs created (or "none"). Commit the terms, any new ADRs, and the manifest with the spec.
+     10. **Write the acceptance contract** (BDD is always on) — copy `skillgrid:acceptance-test-authoring/templates/acceptance.feature` → `.skillgrid/specs/YYYY-MM-DD-<topic>/acceptance.feature`. One `Rule:` (`### Requirement:`) per briefing requirement, with happy/edge/failure scenarios in domain language (use the terms files). Happy-path scenarios must cover the Definition of Done. Commit the spec before any code.
+     11. **Write the global artifacts** — create `.skillgrid/ASSUMPTIONS.md` from `templates/PRD.md` and `.skillgrid/ARCHITECTURE.md` from `templates/ARCHITECTURE.md`, filling in every section; also copy `templates/briefing.md` → `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` and fill it in (including the Clarity Report from the interview). If the global files already exist, merge rather than overwrite. Commit.
+     12. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope, falsifiability (see below); run it on ASSUMPTIONS.md, ARCHITECTURE.md, and the briefing
+     13. **User reviews the artifacts** — ask user to review `.skillgrid/ASSUMPTIONS.md`, `.skillgrid/ARCHITECTURE.md`, the spec, the acceptance contract, and the updated terms/ADRs before proceeding
+    14. **Transition to implementation** — invoke skillgrid:writing-blueprints skill to create implementation plan
 
 **New Function:**
-1. **Explore project context** — check files, docs, recent commits; read `artifacts/00-prd.md` and `artifacts/00-architecture.md` if present
- 2. **Offer the visual companion just-in-time** — NOT upfront. The first time a question would genuinely be clearer shown than described, offer it then (its own message); on approval its browser tab opens for you. If no visual question ever arises, never offer it. See the Visual Companion section below.
-  3. **Offer a sketch just-in-time** — NOT upfront, and only when the design has **2+ meaningfully different layout or interaction options** whose choice depends on *feeling* it, not reading a description. The first time that is true, offer it then (its own message): "This has a few different layout options — I can build throwaway interactive mockups so you can feel which one works. Want me to?" On approval, invoke the `skillgrid:sketch` skill; the marked winner + constraints land in the topic's consolidated `findings.md`, which the blueprint reads. If the design never has 2+ genuinely different visual options, never offer it.
-   4. **Interview the user** — invoke the `skillgrid:interviewing` skill. Work the design tree in rounds: map the decision tree, ask the whole frontier per round (numbered, with your recommended answer), look up facts yourself, put decisions to the user. Repeat until the frontier is empty AND the clarity gate passes (see the interviewing skill's exit check). This replaces one-at-a-time questioning — the frontier rounds are the structure. As the interview runs, `skillgrid:architectural-decision-records` maintains the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`) and offers ADRs (`artifacts/04-adr-*.md`) — the paper trail is written during the interview, not after.
-  5. **Propose 2-3 approaches** — with trade-offs and your recommendation
-  6. **Present design** — in sections scaled to their complexity, get user approval after each section
-  7. **Codebase feasibility check** — read the files and flows the feature touches; verify the design follows existing patterns (naming, layering, data access, error handling, testing); record a 2-line verdict in the spec's Context section. If the design doesn't fit and there's no justification, revise before writing the spec.
-    8. **Reconcile the domain model + write the ADR manifest** — before writing the spec: (a) confirm the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`) reflect every term the interview resolved; (b) run the per-change ADR Review Manifest from `skillgrid:architectural-decision-records` — read `artifacts/03-adr-index.md` for the in-force set, create any qualifying repo ADRs at `artifacts/04-adr-*.md` (4-digit, monotonic, fixed header) + index rows, and write `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` listing the in-force ADRs reviewed + the new ADRs created (or "none"). Commit the terms, any new ADRs, and the manifest with the spec.
-    9. **Write the acceptance contract** (BDD is always on) — copy `skillgrid:acceptance-test-authoring/templates/acceptance.feature` → `.skillgrid/specs/YYYY-MM-DD-<topic>/acceptance.feature`. One `Rule:` (`### Requirement:`) per briefing requirement, with happy/edge/failure scenarios in domain language (use the terms files). Happy-path scenarios must cover the Definition of Done. Commit the spec before any code.
-    10. **Write the spec** — copy `templates/briefing.md` → `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`, fill it in (including the Clarity Report from the interview), and commit. If the feature changes the global `artifacts/00-prd.md` (new feature row, metrics) or `artifacts/00-architecture.md` (new component/store/integration), update those too — only when they exist AND the feature actually changes them.
-    11. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope, falsifiability (see below)
-    12. **User reviews the spec** — ask user to review the spec file, the acceptance contract, the updated terms/ADRs, and any global updates before proceeding
-   13. **Transition to implementation** — invoke skillgrid:writing-blueprints skill to create implementation plan
+1. **Explore project context** — check files, docs, recent commits; read `.skillgrid/ASSUMPTIONS.md` and `.skillgrid/ARCHITECTURE.md` if present
+  2. **Offer the visual companion just-in-time** — NOT upfront. The first time a question would genuinely be clearer shown than described, offer it then (its own message); on approval its browser tab opens for you. If no visual question ever arises, never offer it. See the Visual Companion section below.
+   3. **Offer a sketch just-in-time** — NOT upfront, and only when the design has **2+ meaningfully different layout or interaction options** whose choice depends on *feeling* it, not reading a description. The first time that is true, offer it then (its own message): "This has a few different layout options — I can build throwaway interactive mockups so you can feel which one works. Want me to?" On approval, invoke the `skillgrid:sketch` skill; the marked winner + constraints land in the topic's consolidated `findings.md`, which the blueprint reads. If the design never has 2+ genuinely different visual options, never offer it.
+    4. **Interview the user** — invoke the `skillgrid:interviewing` skill. Work the design tree in rounds: map the decision tree, ask the whole frontier per round (numbered, with your recommended answer), look up facts yourself, put decisions to the user. Repeat until the frontier is empty AND the clarity gate passes (see the interviewing skill's exit check). This replaces one-at-a-time questioning — the frontier rounds are the structure. As the interview runs, write VERIFIED facts to `.skillgrid/ASSUMPTIONS.md` and INFERRED hypotheses as they are confirmed, and `skillgrid:architectural-decision-records` maintains the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`) and offers ADRs (`### ADR-NNNN` entries in `ASSUMPTIONS.md`) — the paper trail is written during the interview, not after.
+   5. **Propose 2-3 approaches** — with trade-offs and your recommendation
+   6. **Present design** — in sections scaled to their complexity, get user approval after each section
+   7. **Codebase feasibility check** — read the files and flows the feature touches; verify the design follows existing patterns (naming, layering, data access, error handling, testing); record a 2-line verdict in the spec's Context section. If the design doesn't fit and there's no justification, revise before writing the spec.
+     8. **Reconcile the domain model + write the ADR manifest** — before writing the spec: (a) confirm the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`) reflect every term the interview resolved; (b) run the per-change ADR Review Manifest from `skillgrid:architectural-decision-records` — read the `### In-force set` table in `.skillgrid/ASSUMPTIONS.md` for the in-force set, author any qualifying ADRs as `### ADR-NNNN` entries (4-digit, monotonic, fixed heading) + in-force-set table rows, and write `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` listing the in-force ADRs reviewed + the new ADRs created (or "none"). Commit the terms, any new ADRs, and the manifest with the spec.
+     9. **Write the acceptance contract** (BDD is always on) — copy `skillgrid:acceptance-test-authoring/templates/acceptance.feature` → `.skillgrid/specs/YYYY-MM-DD-<topic>/acceptance.feature`. One `Rule:` (`### Requirement:`) per briefing requirement, with happy/edge/failure scenarios in domain language (use the terms files). Happy-path scenarios must cover the Definition of Done. Commit the spec before any code.
+     10. **Write the spec** — copy `templates/briefing.md` → `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`, fill it in (including the Clarity Report from the interview), and commit. If the feature changes the global `.skillgrid/ASSUMPTIONS.md` (new VERIFIED fact, metric, a new `### ADR-NNNN` entry) or `.skillgrid/ARCHITECTURE.md` (new component/store/integration), update those too — only when they exist AND the feature actually changes them.
+     11. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope, falsifiability (see below)
+     12. **User reviews the spec** — ask user to review the spec file, the acceptance contract, the updated terms/ADRs, and any global updates before proceeding
+    13. **Transition to implementation** — invoke skillgrid:writing-blueprints skill to create implementation plan
 
 ## Process Flow
 
@@ -235,7 +246,7 @@ digraph brainstorming {
     "Present design sections" [shape=box];
     "User approves design?" [shape=diamond];
     "Codebase feasibility check\n(fits existing patterns?)" [shape=diamond];
-    "Write artifacts/00-prd.md + 00-architecture.md\n+ briefing.md (new project)" [shape=box];
+    "Write .skillgrid/ASSUMPTIONS.md (VERIFIED/INFERRED\n+ LOCKED on user OK) + ARCHITECTURE.md\n+ briefing.md (new project)" [shape=box];
     "Write briefing.md (+ update global\nartifacts if changed) (new function)" [shape=box];
     "Spec self-review\n(fix inline)" [shape=box];
     "User reviews artifacts?" [shape=diamond];
@@ -258,12 +269,12 @@ digraph brainstorming {
     "User approves design?" -> "Present design sections" [label="no, revise"];
     "User approves design?" -> "Codebase feasibility check\n(fits existing patterns?)" [label="yes"];
     "Codebase feasibility check\n(fits existing patterns?)" -> "Present design sections" [label="no, revise design"];
-    "Codebase feasibility check\n(fits existing patterns?)" -> "Write artifacts/00-prd.md + 00-architecture.md\n+ briefing.md (new project)" [label="yes, new project"];
+    "Codebase feasibility check\n(fits existing patterns?)" -> "Write .skillgrid/ASSUMPTIONS.md (VERIFIED/INFERRED\n+ LOCKED on user OK) + ARCHITECTURE.md\n+ briefing.md (new project)" [label="yes, new project"];
     "Codebase feasibility check\n(fits existing patterns?)" -> "Write briefing.md (+ update global\nartifacts if changed) (new function)" [label="yes, new function"];
-    "Write artifacts/00-prd.md + 00-architecture.md\n+ briefing.md (new project)" -> "Spec self-review\n(fix inline)";
+    "Write .skillgrid/ASSUMPTIONS.md (VERIFIED/INFERRED\n+ LOCKED on user OK) + ARCHITECTURE.md\n+ briefing.md (new project)" -> "Spec self-review\n(fix inline)";
     "Write briefing.md (+ update global\nartifacts if changed) (new function)" -> "Spec self-review\n(fix inline)";
     "Spec self-review\n(fix inline)" -> "User reviews artifacts?";
-    "User reviews artifacts?" -> "Write artifacts/00-prd.md + 00-architecture.md\n+ briefing.md (new project)" [label="changes requested"];
+    "User reviews artifacts?" -> "Write .skillgrid/ASSUMPTIONS.md (VERIFIED/INFERRED\n+ LOCKED on user OK) + ARCHITECTURE.md\n+ briefing.md (new project)" [label="changes requested"];
     "User reviews artifacts?" -> "Write briefing.md (+ update global\nartifacts if changed) (new function)" [label="changes requested"];
     "User reviews artifacts?" -> "Invoke skillgrid:writing-blueprints skill" [label="approved"];
 }
@@ -326,9 +337,9 @@ design is the whole process.
 Before writing the spec, verify the proposed design fits the codebase it will
 live in. This is a gate, not a suggestion:
 
-1. **Read the relevant existing code.** For New Function: the files and flows
-   the feature touches. For New Project: the repo's existing structure,
-   `artifacts/00-architecture.md`, and `artifacts/00-prd.md` (if present).
+ 1. **Read the relevant existing code.** For New Function: the files and flows
+    the feature touches. For New Project: the repo's existing structure,
+    `.skillgrid/ARCHITECTURE.md`, and `.skillgrid/ASSUMPTIONS.md` (if present).
 2. **Check against existing patterns.** Does the proposed architecture follow
    how the codebase is already organized? Naming, layering, data access,
    error handling, testing conventions?
@@ -348,24 +359,24 @@ works.
 
 **Documentation:**
 
-- **New Project:** copy `templates/PRD.md` → `artifacts/00-prd.md` and
-  `templates/ARCHITECTURE.md` → `artifacts/00-architecture.md`, fill in every
+- **New Project:** create `.skillgrid/ASSUMPTIONS.md` from `templates/PRD.md` and
+  `.skillgrid/ARCHITECTURE.md` from `templates/ARCHITECTURE.md`, filling in every
   section; also copy `templates/briefing.md` →
   `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` and fill it in. If
   the global files already exist (a second project in the repo), merge
   rather than overwrite.
 - **New Function:** copy `templates/briefing.md` →
   `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` and fill it in. If
-  the feature changes the global `artifacts/00-prd.md` (new feature row, changed
-  metrics) or `artifacts/00-architecture.md` (new component, data store,
-  integration), update those too — only when they exist AND the feature
-  actually changes them.
+  the feature changes the global `.skillgrid/ASSUMPTIONS.md` (new VERIFIED fact,
+  changed metric, a new `### ADR-NNNN` entry) or `.skillgrid/ARCHITECTURE.md`
+  (new component, data store, integration), update those too — only when they exist
+  AND the feature actually changes them.
   - (User preferences for spec location override this default)
 - If a writing-clarity skill is available, use it for the design document
 - Commit the design document (and any updated global docs) to git
 
 **Spec Self-Review:**
-After writing the spec (and the global PRD/ARCHITECTURE for a new
+After writing the spec (and the global ASSUMPTIONS.md/ARCHITECTURE.md for a new
 project), look at it with fresh eyes:
 
 1. **Placeholder scan:** Any "TBD", "TODO", incomplete sections, or vague requirements? Fix them.
@@ -376,11 +387,12 @@ project), look at it with fresh eyes:
 6. **Ambiguity check:** Could any requirement be interpreted two different ways? If so, pick one and make it explicit.
 7. **Feasibility verdict present:** Does the spec's Context section contain the 2-line codebase feasibility verdict? If not, add it.
 
-For a **new project**, also verify `artifacts/00-prd.md` and `artifacts/00-architecture.md`
-are complete: no template placeholders left, the feature table in the PRD
-matches the components in the architecture, and the two documents agree
-on scope. For a **new function**, verify any global artifacts updates
-(`00-prd.md` / `00-architecture.md`) are consistent with the briefing.
+For a **new project**, also verify `.skillgrid/ASSUMPTIONS.md` and
+`.skillgrid/ARCHITECTURE.md` are complete: no template placeholders left, the
+feature/product facts in ASSUMPTIONS.md match the components in ARCHITECTURE.md,
+and the two documents agree on scope. For a **new function**, verify any global
+artifacts updates (`ASSUMPTIONS.md` / `ARCHITECTURE.md`) are consistent with the
+briefing.
 
 Fix any issues inline. No need to re-review — just fix and move on.
 
@@ -389,8 +401,8 @@ After the spec review loop passes, ask the user to review the written
 spec (and the global PRD/ARCHITECTURE for a new project) before
 proceeding:
 
-> "Spec written and committed to `<path>` (plus `artifacts/00-prd.md` and
-> `artifacts/00-architecture.md` for a new project). Please review and let me
+> "Spec written and committed to `<path>` (plus `.skillgrid/ASSUMPTIONS.md` and
+> `.skillgrid/ARCHITECTURE.md` for a new project). Please review and let me
 > know if you want to make any changes before we start writing out the
 > implementation plan."
 

@@ -19,7 +19,9 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Announce at start:** "I'm using the skillgrid:writing-blueprints skill to create the implementation plan."
 
-**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for blueprint location. If the file doesn't exist, use the default `.skillgrid/specs/`. Use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/artifacts/01-business-terms.md` + `02-technical-terms.md`) for names and concepts. Constrain the blueprint by the in-force decisions: read the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (produced by brainstorming; in-force set via `artifacts/03-adr-index.md`) and respect every in-force ADR it names — a blueprint that contradicts an in-force ADR must either follow it or record a new superseding ADR.
+**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for blueprint location. If the file doesn't exist, use the default `.skillgrid/specs/`. Use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/artifacts/01-business-terms.md` + `02-technical-terms.md`) for names and concepts. Constrain the blueprint by the in-force decisions: read the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (produced by brainstorming; in-force set from the `### In-force set` table in `.skillgrid/ASSUMPTIONS.md`) and respect every in-force ADR it names — a blueprint that contradicts an in-force ADR must either follow it or record a new superseding ADR entry.
+
+**The blueprint is pure-technical.** It is the *how*: architecture, file layout, tasks, tests, constraints. The product *why* — user value, personas, success metrics — lives in the spec (`briefing.md`) and in `.skillgrid/ASSUMPTIONS.md`; the blueprint **cites** those (a `Spec:` line, a `per ASSUMPTIONS.md §<x>` constraint) and does not restate them (per `_shared/conventions/cite-dont-restate.md`).
 
 **Read the topic's findings before writing.** If `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` exists, read it in full before drafting the blueprint. It is the single consolidated evidence file for the topic — research findings (cited), spike verdicts + liftable modules, and the sketch's chosen winner + constraints all live there as typed sections. Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it (the header's **Findings** line carries the path). If the file is absent, the change ran no research/spike/sketch — proceed and omit that header line.
 
@@ -215,14 +217,15 @@ layout/interaction. Omit if the change ran no research/spike/sketch.]
 
  ## Global Constraints
 
- [The spec's project-wide requirements — version floors, dependency limits,
- naming and copy rules, platform requirements — one line each, with exact
- values copied verbatim from the spec. Every task's requirements implicitly
- include this section. For a constraint or decision that is NOT earned by this
- change's spec but inherited from a locked constraint or a prior ADR, CITE it
- rather than restate it (`per 05-locked-constraints §<x>` / `per 04-adr-NNNN`)
- per `_shared/conventions/cite-dont-restate.md` — the citation is the
- constraint; the cited artifact keeps authority singular.]
+  [The spec's project-wide requirements — version floors, dependency limits,
+  naming and copy rules, platform requirements — one line each, with exact
+  values copied verbatim from the spec. Every task's requirements implicitly
+  include this section. For a constraint or decision that is NOT earned by this
+  change's spec but inherited from a locked constraint or a prior ADR, CITE it
+  rather than restate it (`per ASSUMPTIONS.md § Locked constraints <x>` /
+  `per ASSUMPTIONS.md § ### ADR-NNNN`) per
+  `_shared/conventions/cite-dont-restate.md` — the citation is the
+  constraint; the cited artifact keeps authority singular.]
 
 ---
 ```
@@ -527,6 +530,15 @@ pass (`skillgrid:requesting-code-review`). For a large or high-risk blueprint
 escalate the final review to `skillgrid:parallel-code-review` — multi-reviewer
 fan-out. The execution skill decides when to escalate; you just tell the user
 the option exists when the blueprint looks risky.
+
+## How to measure it
+
+Per `_shared/conventions/measurement.md`.
+
+| | Indicator | Data source | Direction |
+|---|-----------|-------------|-----------|
+| Leading | % of changes whose merged diff matches `blueprint.md` with no out-of-scope files | PR metadata (files changed) vs. `blueprint.md` scope | should rise |
+| Lagging | Rework cycles: commits touching the change's files after the first merge that revert or re-scope them | Git history | should fall |
 
 ## Common Rationalizations
 
