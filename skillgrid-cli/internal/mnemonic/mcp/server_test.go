@@ -68,6 +68,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"fact_add", "fact_search", "fact_forget", "fact_decay",
 		// Agent Skill registry (2026-09-04-hermes-memory, TICKET-03).
 		"write_skill", "list_skills", "search_skills",
+		// Agent Skill sandbox executor (2026-09-04-hermes-memory, TICKET-04).
+		"use_skill",
 	}
 	if len(tools) != len(want) {
 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)

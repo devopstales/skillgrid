@@ -74,8 +74,8 @@ func TestBudgetedRetrievalMCP(t *testing.T) {
 	// 005 mem_* tools keep their names + required params unchanged (budgeted
 	// behavior is additive).
 	tools := NewServer().ListTools()
-	if len(tools) != 87 {
-		t.Fatalf("expected 87 tools, got %d", len(tools))
+	if len(tools) != 88 {
+		t.Fatalf("expected 88 tools, got %d", len(tools))
 	}
 	for name, wantRequired := range expectedMemToolSurface {
 		st, ok := tools[name]

@@ -2,6 +2,10 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -13,6 +17,7 @@ func registerSkillTools(s *server.MCPServer) {
 	s.AddTool(writeSkillTool(), handleWriteSkill)
 	s.AddTool(listSkillsTool(), handleListSkills)
 	s.AddTool(searchSkillsTool(), handleSearchSkills)
+	s.AddTool(useSkillTool(), handleUseSkill)
 }
 
 func writeSkillTool() mcplib.Tool {
@@ -141,4 +146,111 @@ func handleSearchSkills(ctx context.Context, req mcplib.CallToolRequest) (*mcpli
 		"skills": out,
 		"count":  len(out),
 	})
+}
+
+func useSkillTool() mcplib.Tool {
+	return mcplib.NewTool("use_skill",
+		mcplib.WithDescription("Execute a registered Agent Skill in the sandbox: the skill code runs under its language runner (bash/python/go) with a 30s deadline and 1MB output cap. Returns captured stdout/stderr and exit code. A skill_usage row is logged on success and a session_events trail records the call. Unknown languages, path-escaped code, and soft-deleted skills are rejected before any subprocess is spawned."),
+		mcplib.WithString("name", mcplib.Required(), mcplib.Description("Skill name (required)")),
+		mcplib.WithString("input", mcplib.Description("Optional input passed to the skill as a trailing argument")),
+		mcplib.WithString("session_id", mcplib.Description("Session id for the trail event (defaults to the active session)")),
+		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
+	)
+}
+
+func handleUseSkill(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, err := rootService()
+	if err != nil {
+		return toolError(err)
+	}
+	projectID, err := projectIDFor(svc, req.GetString("project", ""))
+	if err != nil {
+		return toolError(err)
+	}
+	name, err := req.RequireString("name")
+	if err != nil {
+		return toolError(err)
+	}
+	input := req.GetString("input", "")
+	sessionID := req.GetString("session_id", "")
+
+	h, cleanup, err := svc.Open(projectID)
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+
+	db := h.Store().DB
+	res, err := skills.New(db, h.Root()).Execute(ctx, name, input)
+	if err != nil {
+		return toolError(err)
+	}
+
+	if sessionID != "" {
+		if err := insertSkillUseEvent(ctx, db, projectID, sessionID, name, res); err != nil {
+			return toolError(fmt.Errorf("skill ran but logging session_events failed: %w", err))
+		}
+	}
+
+	return JSONResult(map[string]any{
+		"stdout":    res.Stdout,
+		"stderr":    res.Stderr,
+		"exit_code": res.ExitCode,
+		"timed_out": res.TimedOut,
+		"usage_id":  res.UsageID,
+		"status":    statusFor(res),
+	})
+}
+
+// insertSkillUseEvent appends the skill_use trail row to the session event
+// stream, mirroring the facts trail convention (next sequence in-session).
+func insertSkillUseEvent(ctx context.Context, db *sql.DB, projectID, sessionID, name string, res skills.SkillResult) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	payload, err := json.Marshal(map[string]any{
+		"skill":     name,
+		"exit_code": res.ExitCode,
+		"timed_out": res.TimedOut,
+		"usage_id":  res.UsageID,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal skill_use payload: %w", err)
+	}
+	var seq int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(sequence),-1)+1 FROM session_events WHERE session_id = ?`,
+		sessionID,
+	).Scan(&seq); err != nil {
+		return fmt.Errorf("next event sequence: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO session_events (session_id, project, sequence, action_type, result_status, tool_name, payload, timestamp)
+		VALUES (?, ?, ?, 'skill_use', ?, 'use_skill', ?, ?)`,
+		sessionID, projectID, seq, statusFor(res), string(payload), now,
+	); err != nil {
+		return fmt.Errorf("insert skill_use event: %w", err)
+	}
+	return nil
+}
+
+func statusFor(res skills.SkillResult) string {
+	if res.ExitCode != 0 || res.TimedOut {
+		return "failure"
+	}
+	return "success"
+}
+
+// rootDB returns the active test/production store DB handle for direct
+// assertions in tests. It delegates to the service's current project store.
+func rootDB() *sql.DB {
+	svc, err := rootService()
+	if err != nil {
+		return nil
+	}
+	h, cleanup, err := svc.OpenForCWD()
+	if err != nil {
+		cleanup()
+		return nil
+	}
+	defer cleanup()
+	return h.Store().DB
 }
