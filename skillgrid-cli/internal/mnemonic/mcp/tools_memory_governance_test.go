@@ -38,8 +38,8 @@ func TestMemGovernanceTools(t *testing.T) {
 
 	// Tool surface: 80 (hub/relay tools removed by the session events layer
 	// consolidation; session_changes remains).
-	if len(tools) != 88 {
-		t.Errorf("expected 88 tools, got %d", len(tools))
+	if len(tools) != 89 {
+		t.Errorf("expected 89 tools, got %d", len(tools))
 	}
 
 	// Existing 005 mem_* tools keep their names + required params unchanged.
@@ -120,10 +120,10 @@ func TestMemGovernanceRoundTrip(t *testing.T) {
 
 	// Save an observation.
 	saveRes, err := handleMemSave(context.Background(), newCallTool("mem_save", map[string]any{
-	"title":      "gov roundtrip",
-	"type":       "decision",
-	"content":    "original body",
-	"session_id": startOut.SessionID,
+		"title":      "gov roundtrip",
+		"type":       "decision",
+		"content":    "original body",
+		"session_id": startOut.SessionID,
 	}))
 	if err != nil {
 		t.Fatalf("handleMemSave: %v", err)
@@ -329,24 +329,24 @@ func TestMemSearchGetOwnerEnforcedWiring(t *testing.T) {
 // must never rename a 005 mem_* tool or change its required params — this map
 // is the baseline lock that fails when they do.
 var expectedMemToolSurface = map[string][]string{
-	"mem_save":            {"title", "type", "content", "session_id"},
-	"mem_search":          {"query"},
-	"mem_context":         {},
-	"mem_get_observation": {"id"},
-	"mem_timeline":        {"id"},
-	"mem_update":          {"id"},
-	"mem_delete":          {"id"},
-	"mem_stats":           {},
-	"mem_save_prompt":     {"content", "session_id"},
-	"mem_current_project": {},
-	"mem_doctor":          {},
-	"mem_review":          {},
-	"mem_judge":           {"src_id", "dst_id", "verdict"},
-	"mem_compare":         {"src_id", "dst_id"},
-	"mem_merge_projects":  {"source", "canonical"},
-	"mem_session_start":   {},
-	"mem_session_end":     {"session_id"},
-	"mem_session_summary": {"session_id", "summary"},
+	"mem_save":              {"title", "type", "content", "session_id"},
+	"mem_search":            {"query"},
+	"mem_context":           {},
+	"mem_get_observation":   {"id"},
+	"mem_timeline":          {"id"},
+	"mem_update":            {"id"},
+	"mem_delete":            {"id"},
+	"mem_stats":             {},
+	"mem_save_prompt":       {"content", "session_id"},
+	"mem_current_project":   {},
+	"mem_doctor":            {},
+	"mem_review":            {},
+	"mem_judge":             {"src_id", "dst_id", "verdict"},
+	"mem_compare":           {"src_id", "dst_id"},
+	"mem_merge_projects":    {"source", "canonical"},
+	"mem_session_start":     {},
+	"mem_session_end":       {"session_id"},
+	"mem_session_summary":   {"session_id", "summary"},
 	"mem_session_set_title": {"session_id", "title"},
 	"mem_suggest_topic_key": {"type"},
 	"mem_capture_passive":   {"content"},

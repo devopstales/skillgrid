@@ -30,14 +30,14 @@ func New(db *sql.DB, project string) *Store {
 
 // Fact is one durable fact row (TICKET-02 read model).
 type Fact struct {
-	ID               int64   `json:"id"`
-	Content          string  `json:"content"`
-	ImportanceScore  float64 `json:"importance_score"`
-	RecencyDecay     float64 `json:"recency_decay"`
-	MaturityTier     string  `json:"maturity_tier"`
-	RetrievalUsage   int     `json:"retrieval_usage"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
+	ID              int64   `json:"id"`
+	Content         string  `json:"content"`
+	ImportanceScore float64 `json:"importance_score"`
+	RecencyDecay    float64 `json:"recency_decay"`
+	MaturityTier    string  `json:"maturity_tier"`
+	RetrievalUsage  int     `json:"retrieval_usage"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
 }
 
 // defaultSearchLimit caps a Search call when the caller passes limit <= 0.
@@ -152,7 +152,7 @@ func (s *Store) SearchWith(ctx context.Context, sessionID, query string, limit i
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate fact search: %w", err)
 	}
-	if len(out) > 0 {
+	if len(out) > 0 && sessionID != "" {
 		ids := make([]int64, len(out))
 		for i, f := range out {
 			ids[i] = f.ID
@@ -164,6 +164,53 @@ func (s *Store) SearchWith(ctx context.Context, sessionID, query string, limit i
 		}); err != nil {
 			return nil, err
 		}
+	}
+	return out, nil
+}
+
+// List returns every live (non-soft-deleted) fact, newest first (the CLI
+// `memory list` read path; it writes no session_events trail, mirroring the
+// no-trail convention of the other read-only registry listing). Soft-deleted
+// rows are omitted by default.
+func (s *Store) List(ctx context.Context, limit int) ([]Fact, error) {
+	return s.ListWith(ctx, limit, false)
+}
+
+// ListWith is List with an explicit soft-delete filter: includeDeleted lifts
+// the deleted_at IS NULL clause (the audit/escape-hatch read).
+func (s *Store) ListWith(ctx context.Context, limit int, includeDeleted bool) ([]Fact, error) {
+	if s == nil || s.db == nil {
+		return nil, errors.New("facts store not initialized")
+	}
+	if limit <= 0 {
+		limit = defaultSearchLimit
+	}
+	deletedClause := ""
+	if !includeDeleted {
+		deletedClause = " AND deleted_at IS NULL"
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, content, importance_score, recency_decay, maturity_tier,
+		       retrieval_usage, created_at, updated_at
+		FROM facts
+		WHERE 1 = 1`+deletedClause+`
+		ORDER BY created_at DESC, id DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list facts: %w", err)
+	}
+	defer rows.Close()
+	var out []Fact
+	for rows.Next() {
+		var f Fact
+		if err := rows.Scan(&f.ID, &f.Content, &f.ImportanceScore, &f.RecencyDecay,
+			&f.MaturityTier, &f.RetrievalUsage, &f.CreatedAt, &f.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan fact: %w", err)
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate fact list: %w", err)
 	}
 	return out, nil
 }

@@ -78,8 +78,9 @@ func TestAffectedTools(t *testing.T) {
 	// 1 code_pdg_query + 1 code_taint + 2 governance + 1 mem_layers + 1 session_changes
 	// + 4 fact tools = 84 (hub/relay tools removed by the session events layer consolidation).
 	// + 1 use_skill (TICKET-04 sandbox executor).
-	if len(tools) != 88 {
-		t.Errorf("expected 88 tools, got %d", len(tools))
+	// + 1 hybrid_search (TICKET-05 memory search over facts and skills).
+	if len(tools) != 89 {
+		t.Errorf("expected 89 tools, got %d", len(tools))
 	}
 
 	// code_affected runs the traversal (changed -> affected test files).

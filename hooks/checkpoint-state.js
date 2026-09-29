@@ -45,6 +45,8 @@ function cmdGuard() {
   if (rc !== 0) return process.exit(rc);
   rc = runJs(path.join(SCRIPT_DIR, 'precommit-ignore-guard.js'));
   if (rc !== 0) return process.exit(rc);
+  rc = runJs(path.join(SCRIPT_DIR, 'precommit-go-vet.js')); // vet staged Go packages
+  if (rc !== 0) return process.exit(rc);
   rc = runJs(path.join(SCRIPT_DIR, 'gate-lint.js')); // advisory: warn on malformed gate blocks
   process.exit(rc);
 }

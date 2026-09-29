@@ -70,6 +70,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"write_skill", "list_skills", "search_skills",
 		// Agent Skill sandbox executor (2026-09-04-hermes-memory, TICKET-04).
 		"use_skill",
+		// Hybrid BM25+vector fact/skill search (2026-09-04-hermes-memory, TICKET-05).
+		"hybrid_search",
 	}
 	if len(tools) != len(want) {
 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)

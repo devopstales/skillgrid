@@ -51,12 +51,12 @@ type pdgDependence struct {
 }
 
 type pdgQueryResult struct {
-	Symbol      string          `json:"symbol"`
-	Statement   int             `json:"statement"`
-	Found       bool            `json:"found"`
-	Dependents  []pdgDependence `json:"dependents"`
-	PdgEnabled  bool            `json:"pdg_enabled"`
-	Message     string          `json:"message,omitempty"`
+	Symbol     string          `json:"symbol"`
+	Statement  int             `json:"statement"`
+	Found      bool            `json:"found"`
+	Dependents []pdgDependence `json:"dependents"`
+	PdgEnabled bool            `json:"pdg_enabled"`
+	Message    string          `json:"message,omitempty"`
 }
 
 func handleCodePdgQuery(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
@@ -115,12 +115,12 @@ func handleCodePdgQuery(ctx context.Context, req mcplib.CallToolRequest) (*mcpli
 	}
 	if !pdgEnabled || hasPdg == 0 {
 		return JSONResult(pdgQueryResult{
-			Symbol:      symbol,
-			Statement:   line,
-			Found:       false,
-			Dependents:  []pdgDependence{},
-			PdgEnabled:  pdgEnabled,
-			Message:     "run `index --pdg` to build the per-function CFG/PDG for this symbol",
+			Symbol:     symbol,
+			Statement:  line,
+			Found:      false,
+			Dependents: []pdgDependence{},
+			PdgEnabled: pdgEnabled,
+			Message:    "run `index --pdg` to build the per-function CFG/PDG for this symbol",
 		})
 	}
 	var blockCount int
@@ -129,12 +129,12 @@ func handleCodePdgQuery(ctx context.Context, req mcplib.CallToolRequest) (*mcpli
 	}
 	if blockCount == 0 {
 		return JSONResult(pdgQueryResult{
-			Symbol:      symbol,
-			Statement:   line,
-			Found:       false,
-			Dependents:  []pdgDependence{},
-			PdgEnabled:  true,
-			Message:     fmt.Sprintf("not found: statement at line %d is not in the CFG of %q", line, symbol),
+			Symbol:     symbol,
+			Statement:  line,
+			Found:      false,
+			Dependents: []pdgDependence{},
+			PdgEnabled: true,
+			Message:    fmt.Sprintf("not found: statement at line %d is not in the CFG of %q", line, symbol),
 		})
 	}
 
@@ -160,12 +160,12 @@ func handleCodePdgQuery(ctx context.Context, req mcplib.CallToolRequest) (*mcpli
 		return toolError(fmt.Errorf("code_pdg_query: iterate pdg_edges: %w", err))
 	}
 	return JSONResult(pdgQueryResult{
-		Symbol:      symbol,
-		Statement:   line,
-		Found:       true,
-		Dependents:  dependents,
-		PdgEnabled:  true,
-		Message:     fmt.Sprintf("%d dependence(s) of %s (kind=%s, line %d)", len(dependents), symbol, symKind, line),
+		Symbol:     symbol,
+		Statement:  line,
+		Found:      true,
+		Dependents: dependents,
+		PdgEnabled: true,
+		Message:    fmt.Sprintf("%d dependence(s) of %s (kind=%s, line %d)", len(dependents), symbol, symKind, line),
 	})
 }
 
@@ -235,11 +235,8 @@ func resolveFunctionSymbol(db *sql.DB, name, kind string) (int64, string, bool, 
 	if len(callable) == 0 {
 		return 0, "", false, nil
 	}
-	if len(callable) > 1 {
-		// Ambiguous across files; return the first by id (stable) — the caller
-		// gets a definite answer, and the kind filter is the disambiguator.
-		callable[0] = callable[0]
-	}
+	// Ambiguous across files: return the first by id (stable) — the caller
+	// gets a definite answer, and the kind filter is the disambiguator.
 	return callable[0].id, callable[0].kind, true, nil
 }
 
