@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/wiki"
 )
 
@@ -120,10 +123,17 @@ func runWikiCompile(args []string) int {
 		outDir = filepath.Join(proj, ".wiki")
 	}
 
+	webRows, err := loadFreshWebRows(proj)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: web_cache: %v (continuing without web rows)\n", err)
+	}
+
 	res, err := wiki.Compile(wiki.CompileInput{
 		ProjectDir: proj,
 		OutDir:     outDir,
 		Now:        time.Now(),
+		WebRows:    webRows,
+		RawRoot:    filepath.Join(proj, "raw"),
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -141,6 +151,67 @@ func runWikiCompile(args []string) int {
 // flag is accepted but has no effect; it is present for CLI parity and so a
 // future LLM-driven pillar can honor it without a breaking change.
 var _blankNoLLM bool
+
+// loadFreshWebRows reads fresh web_cache rows for the project at proj (R5):
+// source in {context7, exa, deepwiki, fetch}, expires_at IS NULL or in the
+// future. A missing store or project yields no rows (not an error), so
+// compiling a project without mnemonic data still works.
+func loadFreshWebRows(proj string) ([]wiki.WebRow, error) {
+	dd, err := service.DefaultDataDir()
+	if err != nil {
+		return nil, err
+	}
+	svc := service.New(dd)
+	h, cleanup, err := svc.OpenForDirectory(proj)
+	if err != nil {
+		if isMissingStore(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer cleanup()
+
+	rows, err := h.Store().DB.QueryContext(context.Background(), `
+		SELECT source, url, title, query, library_id, version_tag,
+		       content_hash, fetched_at, expires_at
+		FROM web_cache
+		WHERE project = ?
+		  AND source IN ('context7', 'exa', 'deepwiki', 'fetch')
+		  AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))
+		ORDER BY id`, h.ProjectID())
+	if err != nil {
+		return nil, fmt.Errorf("query web_cache: %w", err)
+	}
+	defer rows.Close()
+
+	var out []wiki.WebRow
+	for rows.Next() {
+		var r wiki.WebRow
+		var url, title, query, libraryID, versionTag, contentHash, expiresAt sql.NullString
+		if err := rows.Scan(&r.Source, &url, &title, &query, &libraryID, &versionTag,
+			&contentHash, &r.FetchedAt, &expiresAt); err != nil {
+			return nil, fmt.Errorf("scan web_cache row: %w", err)
+		}
+		r.URL = url.String
+		r.Title = title.String
+		r.Query = query.String
+		r.LibraryID = libraryID.String
+		r.VersionTag = versionTag.String
+		r.ContentHash = contentHash.String
+		r.ExpiresAt = expiresAt.String
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate web_cache rows: %w", err)
+	}
+	return out, nil
+}
+
+// isMissingStore reports whether err indicates the project's store file is
+// absent (a project that has never been opened with mnemonic).
+func isMissingStore(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such file")
+}
 
 // runWikiLint is the testable body of `wiki lint`. It returns the exit code
 // (0 clean, 1 conformance failures, 2 usage error).

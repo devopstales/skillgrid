@@ -23,10 +23,16 @@ const logRel = "wiki/log.md"
 
 // CompileInput is the full input to one compile. All paths are absolute (the
 // CLI resolves them from the flags); Now is the injected compile clock.
+//
+// WebRows are the fresh web_cache rows read by the CLI (the wiki package stays
+// pure: no database import). The CLI fetches only fresh rows of the indexed
+// sources; Compile re-filters them defensively via ParseWebCache.
 type CompileInput struct {
-	ProjectDir string // root of the project (where .skillgrid/ lives)
-	OutDir     string // where to write .wiki/ (default: ProjectDir/.wiki)
+	ProjectDir string    // root of the project (where .skillgrid/ lives)
+	OutDir     string    // where to write .wiki/ (default: ProjectDir/.wiki)
 	Now        time.Time
+	WebRows    []WebRow  // fresh web_cache rows (CLI-populated)
+	RawRoot    string    // root of user-dropped raw/ (default: ProjectDir/raw)
 }
 
 // CompileResult reports what a compile wrote.
@@ -57,10 +63,11 @@ type priorState struct {
 	Log         string
 }
 
-// Compile reads the project's pillar-1 sources (ADRs + State for this slice),
-// renders every concept to an OKF v0.2 page, and writes the .wiki/ tree with a
-// content-hash gate: unchanged files are not rewritten and their generated.at
-// is preserved (R8.1–R8.3).
+// Compile reads the project's pillar-1 sources (ADRs, State, Terms, Specs,
+// Spikes, Architecture), the indexed web_cache rows, and the user-dropped
+// raw/ tree; renders every concept to an OKF v0.2 page; and writes the .wiki/
+// tree with a content-hash gate: unchanged files are not rewritten and their
+// generated.at is preserved (R8.1–R8.3).
 func Compile(in CompileInput) (CompileResult, error) {
 	if in.ProjectDir == "" {
 		return CompileResult{}, fmt.Errorf("wiki: Compile: ProjectDir is required")
@@ -69,12 +76,16 @@ func Compile(in CompileInput) (CompileResult, error) {
 	if outDir == "" {
 		outDir = filepath.Join(in.ProjectDir, ".wiki")
 	}
+	rawRoot := in.RawRoot
+	if rawRoot == "" {
+		rawRoot = filepath.Join(in.ProjectDir, "raw")
+	}
 	now := in.Now.UTC()
 	var result CompileResult
 
 	skillgridDir := filepath.Join(in.ProjectDir, ".skillgrid")
 
-	// 1. Read sources (Pillar 1 slice: ADRs + State only).
+	// 1. Read all sources.
 	assumptionsPath := filepath.Join(skillgridDir, "ASSUMPTIONS.md")
 	concepts, _, err := ParseAssumptions(assumptionsPath)
 	if err != nil {
@@ -85,6 +96,21 @@ func Compile(in CompileInput) (CompileResult, error) {
 	} else if sc != nil {
 		concepts = append(concepts, *sc)
 	}
+	concepts = append(concepts, ParseTerms(
+		filepath.Join(skillgridDir, "artifacts", "01-business-terms.md"),
+		filepath.Join(skillgridDir, "artifacts", "02-technical-terms.md"),
+	)...)
+	concepts = append(concepts, ParseSpecs(filepath.Join(skillgridDir, "specs"))...)
+	concepts = append(concepts, ParseSpikes(filepath.Join(skillgridDir, "spikes"))...)
+	if arch := ParseArchitecture(filepath.Join(skillgridDir, "ARCHITECTURE.md")); arch != nil {
+		concepts = append(concepts, *arch)
+	}
+	concepts = append(concepts, ParseWebCache(in.WebRows)...)
+	rawConcepts, err := ParseRaw(rawRoot)
+	if err != nil {
+		return CompileResult{}, fmt.Errorf("wiki: parse raw/: %w", err)
+	}
+	concepts = append(concepts, rawConcepts...)
 
 	// 2. Stable sort by (TypeDir, Slug) — deterministic order (R8.3).
 	sort.Slice(concepts, func(i, j int) bool {
@@ -95,14 +121,20 @@ func Compile(in CompileInput) (CompileResult, error) {
 		return conceptSlug(concepts[i]) < conceptSlug(concepts[j])
 	})
 
-	// 3. Load the prior manifest (absent → empty).
+	// 4. Load the prior manifest (absent → empty).
 	manifestPath := filepath.Join(outDir, manifestFile)
 	prior, err := loadManifest(manifestPath)
 	if err != nil {
 		return CompileResult{}, fmt.Errorf("wiki: load manifest: %w", err)
 	}
 
-	// 4. Render every concept. The gate hash is the content hash minus
+	// 5. Split web findings (R5.1/R5.2): a row is cited when its url appears
+	// as sources[].resource in any other emitted concept; uncited rows are
+	// demoted to draft and route to wiki/research/.
+	cited := citedResources(concepts)
+	splitWebFindings(concepts, cited)
+
+	// 6. Render every concept. The gate hash is the content hash minus
 	// generated.at; the preserved generated.at is carried from the prior
 	// manifest when the hash is unchanged (R8.2).
 	var plans []filePlan
@@ -111,7 +143,12 @@ func Compile(in CompileInput) (CompileResult, error) {
 		if slug == "" {
 			continue
 		}
-		relPath := filepath.ToSlash(filepath.Join("wiki", TypeDir(c.Type), slug+".md"))
+		dir := TypeDir(c.Type)
+		if c.Type == "Finding" && c.Status == "draft" && len(c.Sources) > 0 && webSourced(c.Sources) {
+			// Uncited web_cache research → wiki/research/ (R5.2).
+			dir = "research"
+		}
+		relPath := filepath.ToSlash(filepath.Join("wiki", dir, slug+".md"))
 		h := conceptContentHash(c, now)
 		ga := manifestGenerated{At: now.Format(time.RFC3339)}
 		if old, ok := prior.Hashes[relPath]; ok && old == h {
@@ -138,7 +175,7 @@ func Compile(in CompileInput) (CompileResult, error) {
 		Hash:    hashContent(indexContent),
 	})
 
-	// 5. First pass: decide written vs unchanged for every file (excluding
+	// 7. First pass: decide written vs unchanged for every file (excluding
 	// the log, which depends on the set of changed pages).
 	type decision struct {
 		plan   filePlan
@@ -163,7 +200,7 @@ func Compile(in CompileInput) (CompileResult, error) {
 		})
 	}
 
-	// 6. Log: the bundle always carries a log.md (R: "log.md — change log").
+	// 8. Log: the bundle always carries a log.md (R: "log.md — change log").
 	// On the first compile (no prior log) seed the header so the file exists;
 	// an empty change set otherwise leaves the log untouched (no-op compile →
 	// no log churn, R8).
@@ -186,7 +223,7 @@ func Compile(in CompileInput) (CompileResult, error) {
 	// is "" then). A no-op recompile has newLog == prior.Log, so no write.
 	logWrite := newLog != prior.Log
 
-	// 7. Write phase: every plan file, then the log when it changed.
+	// 9. Write phase: every plan file, then the log when it changed.
 	for _, d := range decisions {
 		if !d.write {
 			if d.unchg {
@@ -208,7 +245,7 @@ func Compile(in CompileInput) (CompileResult, error) {
 		result.Paths = append(result.Paths, filepath.Join(outDir, logRel))
 	}
 
-	// 8. Save the manifest (last, so a crash never loses a prior manifest).
+	// 10. Save the manifest (last, so a crash never loses a prior manifest).
 	// Rebuild the new hash/generated-at maps from the freshly rendered plans,
 	// dropping files that no longer exist and updating the ones we just
 	// (re)wrote.
@@ -262,6 +299,57 @@ func conceptSlug(c Concept) string {
 		return c.ID
 	}
 	return Slugify(c.Title)
+}
+
+// citedResources collects every sources[].resource referenced by any concept
+// except the web-sourced findings themselves. A web_cache row is "cited" (R5.1)
+// when its url appears here — i.e. some other emitted page already references
+// the same upstream resource.
+func citedResources(concepts []Concept) map[string]bool {
+	cited := map[string]bool{}
+	for _, c := range concepts {
+		if c.Type != "Finding" || !webSourced(c.Sources) {
+			for _, s := range c.Sources {
+				if s.Resource != "" {
+					cited[s.Resource] = true
+				}
+			}
+		}
+	}
+	return cited
+}
+
+// splitWebFindings marks web-sourced findings as uncited (status draft → they
+// route to wiki/research/) when none of their source resources are cited by
+// another page (R5.2). Cited findings keep status stable (R5.1).
+func splitWebFindings(concepts []Concept, cited map[string]bool) {
+	for i := range concepts {
+		c := &concepts[i]
+		if c.Type != "Finding" || !webSourced(c.Sources) {
+			continue
+		}
+		webCited := false
+		for _, s := range c.Sources {
+			if s.Resource != "" && cited[s.Resource] {
+				webCited = true
+				break
+			}
+		}
+		if !webCited {
+			c.Status = "draft"
+		}
+	}
+}
+
+// webSourced reports whether any source carries a web-process actor
+// ("process:<source>"), i.e. the concept was produced from a web_cache row.
+func webSourced(sources []SourceRef) bool {
+	for _, s := range sources {
+		if strings.HasPrefix(s.Author, "process:") {
+			return true
+		}
+	}
+	return false
 }
 
 // conceptContentHash hashes the concept's source-derived output minus every

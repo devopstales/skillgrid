@@ -586,7 +586,7 @@ func spikeVerdict(dir string) string {
 	}
 	sort.Strings(files)
 
-	fallback := ""
+	var fallback string
 	for _, name := range files {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
@@ -632,3 +632,4 @@ func spikeVerdict(dir string) string {
 	}
 	return fallback
 }
+

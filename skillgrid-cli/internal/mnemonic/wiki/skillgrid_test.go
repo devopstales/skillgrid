@@ -288,9 +288,9 @@ func TestParseAssumptionsRealRepo(t *testing.T) {
 			constraints = append(constraints, c)
 		}
 	}
-	// The real repo holds 14 ADR entries and 11 locked constraints.
-	if len(adrs) != 14 {
-		t.Errorf("ADR count = %d, want 14", len(adrs))
+	// The real repo holds 15 ADR entries and 11 locked constraints.
+	if len(adrs) != 15 {
+		t.Errorf("ADR count = %d, want 15", len(adrs))
 	}
 	if len(constraints) != 11 {
 		t.Errorf("Constraint count = %d, want 11", len(constraints))
