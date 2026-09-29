@@ -36,7 +36,7 @@ Mnemonic is active (`skillgrid:mnemonic`) — `mem_save` decisions and `mem_code
 
 ### Workflow
 
-`brainstorming` → `writing-blueprints` → `slicing` → `ticketing` → execution (`subagent-execution` or `simple-execution`) → `requesting-code-review` → `receiving-code-review`
+`brainstorming` → `writing-blueprints` → `slicing` → `ticketing` → execution (`subagent-execution` or `simple-execution`) → `qa` → `requesting-code-review` → `receiving-code-review`
 
 Run `skillgrid:onboarding` to update config after stack changes.
 <!-- skillgrid:end -->
