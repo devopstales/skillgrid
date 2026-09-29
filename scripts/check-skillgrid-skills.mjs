@@ -9,7 +9,7 @@
 //      ## Common Rationalizations, ## Red Flags, ## Verification
 //   3. per-file line budgets by tier (standard/heavy/orchestrator/reference)
 //   4. cross-skill references use skillgrid:{name} or a _shared path — never a
-//      raw .agents/skills/<other-skill>/ path into another skill's dir
+//      raw .agents/skills/[<group>/]<other-skill>/ path into another skill's dir
 //   5. hot-path budgets: the cumulative SKILL.md load of the canonical change
 //      paths (blueprint / execution / qa / close) stays within a ratcheted
 //      ceiling
@@ -118,16 +118,45 @@ function parseName(fm) {
 
 // --- per-skill checks -------------------------------------------------------
 
-const skillDirs = readdirSync(SKILLS, { withFileTypes: true })
-  .filter((d) => d.isDirectory() && d.name !== "_shared" && existsSync(join(SKILLS, d.name, "SKILL.md")))
-  .map((d) => d.name)
-  .sort();
+// Skills live either flat (a dir with SKILL.md) or one level deep inside a
+// group dir (a dir with DESCRIPTION.md, Hermes-style). _shared is infra,
+// not a skill. Group names never collide with skill names.
+const GROUP_DESC = "DESCRIPTION.md";
+const skillEntries = []; // { name, group: string|null }
+for (const d of readdirSync(SKILLS, { withFileTypes: true })) {
+  if (!d.isDirectory() || d.name === "_shared" || d.name.startsWith(".")) continue;
+  if (existsSync(join(SKILLS, d.name, "SKILL.md"))) {
+    skillEntries.push({ name: d.name, group: null });
+    continue;
+  }
+  if (existsSync(join(SKILLS, d.name, GROUP_DESC))) {
+    for (const s of readdirSync(join(SKILLS, d.name), { withFileTypes: true })) {
+      if (s.isDirectory() && existsSync(join(SKILLS, d.name, s.name, "SKILL.md"))) {
+        skillEntries.push({ name: s.name, group: d.name });
+      }
+    }
+  }
+}
+skillEntries.sort((a, b) => a.name.localeCompare(b.name));
+const skillDirs = skillEntries.map((e) => e.name);
+const groupNames = new Set(skillEntries.map((e) => e.group).filter(Boolean));
+const skillFile = (e) =>
+  e.group ? join(SKILLS, e.group, e.name, "SKILL.md") : join(SKILLS, e.name, "SKILL.md");
+const skillRel = (e) =>
+  e.group ? `.agents/skills/${e.group}/${e.name}/SKILL.md` : `.agents/skills/${e.name}/SKILL.md`;
+const skillRefsDir = (e) =>
+  e.group ? join(SKILLS, e.group, e.name, "references") : join(SKILLS, e.name, "references");
+const skillRefsRel = (e, file) =>
+  e.group
+    ? `.agents/skills/${e.group}/${e.name}/references/${file}`
+    : `.agents/skills/${e.name}/references/${file}`;
 
 const lineCounts = {}; // skill name -> SKILL.md line count (for hot paths)
 
-for (const name of skillDirs) {
-  const f = join(SKILLS, name, "SKILL.md");
-  const rel = `.agents/skills/${name}/SKILL.md`;
+for (const e of skillEntries) {
+  const name = e.name;
+  const f = skillFile(e);
+  const rel = skillRel(e);
   const text = readFileSync(f, "utf8");
   const nLines = text.split("\n").length;
   lineCounts[name] = nLines;
@@ -165,25 +194,35 @@ for (const name of skillDirs) {
     err(rel, `is ${nLines} lines (> ${tier} budget ${budget}) — push tail to references/`);
   }
 
-  // 4. cross-skill refs: no raw path into another skill's dir
-  const rawRef = text.match(/\.agents\/skills\/([a-z0-9-]+)\//g);
+  // 4. cross-skill refs: no raw path into another skill's dir (flat or grouped).
+  // A grouped path contributes its skill segment (the second one); a flat
+  // path contributes its only segment.
+  const rawRef = text.match(/\.agents\/skills\/[a-z0-9-]+(?:\/[a-z0-9-]+)?\//g);
   if (rawRef) {
-    const bad = [...new Set(rawRef.map((r) => r.replace(".agents/skills/", "").replace("/", "")))].filter(
-      (other) => other !== name
-    );
+    const bad = [
+      ...new Set(
+        rawRef.map((r) => {
+          const segs = r
+            .replace(/\.agents\/skills\//, "")
+            .replace(/\/$/, "")
+            .split("/");
+          return groupNames.has(segs[0]) && segs.length > 1 ? segs[1] : segs[0];
+        })
+      ),
+    ].filter((other) => other !== name);
     if (bad.length) err(rel, `raw cross-skill ref into: ${bad.join(", ")} — use skillgrid:{name} or a _shared path`);
   }
 }
 
 // reference/ files: <= 250 lines each
-for (const name of skillDirs) {
-  const refs = join(SKILLS, name, "references");
+for (const e of skillEntries) {
+  const refs = skillRefsDir(e);
   if (!existsSync(refs)) continue;
   for (const file of readdirSync(refs)) {
     if (!file.endsWith(".md")) continue;
     const p = join(refs, file);
     if (!statSync(p).isFile()) continue;
-    const rel = `.agents/skills/${name}/references/${file}`;
+    const rel = skillRefsRel(e, file);
     const n = linesOf(p);
     if (n > BUDGET.reference) err(rel, `is ${n} lines (> reference budget ${BUDGET.reference})`);
   }

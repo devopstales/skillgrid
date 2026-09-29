@@ -55,7 +55,7 @@ Run `skillgrid:onboarding` to update config after stack changes.
 | `{project}` | — | detected project name |
 | `{tracker_line}` | — | one-line tracker summary, chosen per active tracker |
 | `{memory_line}` | — | mnemonic status line |
-| `{rules_block}` | — | bullet list from `artifacts/05-locked-constraints.md` (one `-` per constraint); if the file is empty, `No locked constraints yet — see `.skillgrid/artifacts/05-locked-constraints.md`.` |
+| `{rules_block}` | — | bullet list from `ASSUMPTIONS.md` § `### Locked constraints` (one `-` per constraint); if the section is empty, `No locked constraints yet — see `.skillgrid/ASSUMPTIONS.md`.` |
 
 `{tracker_line}` — pick the active tracker:
 

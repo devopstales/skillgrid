@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sketch — NNN-name</title>
+  <link rel="stylesheet" data-theme href="../themes/default.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    /* Shared chrome lives OUTSIDE the variants so it doesn't reset on switch. */
+
+    /* --- Variant tab bar --- */
+    .variant-tabs {
+      display: flex;
+      gap: var(--space-1);
+      padding: var(--space-3);
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .variant-tab {
+      padding: var(--space-2) var(--space-4);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+      font-size: var(--text-sm);
+      cursor: pointer;
+      transition: background-color var(--transition), color var(--transition);
+    }
+    .variant-tab:hover { background: var(--surface); }
+    .variant-tab.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .variant-tab.winner::after { content: " ★"; }
+
+    /* --- Variant sections --- */
+    .variant { padding: var(--space-8); }
+
+    /* --- Toolbar --- */
+    .sketch-toolbar {
+      position: fixed;
+      bottom: var(--space-4);
+      right: var(--space-4);
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: var(--space-1);
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+    }
+    .sketch-toolbar__handle {
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: var(--radius-full);
+      background: rgba(20, 20, 20, 0.75);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(8px);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      font-size: 1rem;
+      transition: opacity var(--transition);
+    }
+    .sketch-toolbar__panel {
+      display: none;
+      flex-direction: column;
+      gap: var(--space-2);
+      padding: var(--space-3);
+      background: rgba(20, 20, 20, 0.85);
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(8px);
+      color: #fff;
+      width: 11rem;
+    }
+    .sketch-toolbar:hover .sketch-toolbar__panel { display: flex; }
+    .sketch-toolbar:hover .sketch-toolbar__handle { opacity: 0.3; }
+    .toolbar-field { display: flex; flex-direction: column; gap: var(--space-1); }
+    .toolbar-field--group {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .toolbar-field select {
+      font: inherit;
+      padding: var(--space-1);
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(0, 0, 0, 0.3);
+      color: #fff;
+    }
+    .toolbar-field button {
+      font: inherit;
+      font-size: 0.7rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: transparent;
+      color: #fff;
+      cursor: pointer;
+    }
+    .toolbar-field button.active {
+      background: var(--primary);
+      border-color: var(--primary);
+    }
+    .annotation-overlay {
+      position: fixed;
+      z-index: 10000;
+      padding: 0.25rem 0.5rem;
+      background: rgba(0, 0, 0, 0.9);
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      border-radius: var(--radius-sm);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    body.annotating [data-sketch-content] *:hover {
+      outline: 1px dashed var(--primary);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Variant tab bar (shared chrome) -->
+  <nav class="variant-tabs">
+    <button class="variant-tab active" data-variant="a">A — [name]</button>
+    <button class="variant-tab" data-variant="b">B — [name]</button>
+    <button class="variant-tab" data-variant="c">C — [name]</button>
+  </nav>
+
+  <!-- Sketch content wrapper (the viewport preview constrains this) -->
+  <main data-sketch-content>
+    <section class="variant" data-variant="a">
+      <!-- Variant A markup -->
+    </section>
+    <section class="variant" data-variant="b" hidden>
+      <!-- Variant B markup -->
+    </section>
+    <section class="variant" data-variant="c" hidden>
+      <!-- Variant C markup -->
+    </section>
+  </main>
+
+  <!-- Toolbar (viewing aid, not part of the design) -->
+  <div class="sketch-toolbar">
+    <div class="sketch-toolbar__panel">
+      <label class="toolbar-field">
+        Theme
+        <select data-theme-select>
+          <option value="default" selected>Default</option>
+          <!-- add one <option> per theme file in ../themes/ -->
+        </select>
+      </label>
+      <div class="toolbar-field toolbar-field--group" data-viewport-group>
+        <span>Viewport</span>
+        <span style="display:flex;gap:0.25rem">
+          <button data-viewport="375">375</button>
+          <button data-viewport="768">768</button>
+          <button data-viewport="1280" class="active">1280</button>
+        </span>
+      </div>
+      <label class="toolbar-field">
+        <span style="display:flex;align-items:center;gap:0.5rem">
+          <input type="checkbox" data-annotation-toggle> Annotate
+        </span>
+      </label>
+    </div>
+    <button class="sketch-toolbar__handle" aria-label="Sketch tools">⚙</button>
+  </div>
+
+  <script>
+    // --- Variant tab switching ---
+    document.querySelectorAll('.variant-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.variant;
+        document.querySelectorAll('.variant-tab').forEach(t =>
+          t.classList.toggle('active', t === tab));
+        document.querySelectorAll('.variant').forEach(v =>
+          v.hidden = v.dataset.variant !== target);
+      });
+    });
+
+    // --- Toolbar: theme switcher ---
+    document.querySelector('[data-theme-select]').addEventListener('change', (e) => {
+      document.querySelector('link[data-theme]').href =
+        `../themes/${e.target.value}.css`;
+    });
+
+    // --- Toolbar: viewport preview ---
+    const content = document.querySelector('[data-sketch-content]');
+    document.querySelectorAll('[data-viewport]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-viewport]').forEach(b =>
+          b.classList.toggle('active', b === btn));
+        const w = btn.dataset.viewport;
+        content.style.maxWidth = w === '1280' ? '1280px' : w + 'px';
+        content.style.margin = w === '1280' ? '' : '0 auto';
+      });
+    });
+
+    // --- Toolbar: annotation mode ---
+    const annOverlay = document.createElement('div');
+    annOverlay.className = 'annotation-overlay';
+    annOverlay.style.display = 'none';
+    document.body.appendChild(annOverlay);
+    let annotating = false;
+    document.querySelector('[data-annotation-toggle]').addEventListener('change', (e) => {
+      annotating = e.target.checked;
+      document.body.classList.toggle('annotating', annotating);
+      if (!annotating) annOverlay.style.display = 'none';
+    });
+    document.addEventListener('mouseover', (e) => {
+      if (!annotating) return;
+      const el = e.target.closest('[data-sketch-content] *');
+      if (!el) return;
+      const cs = getComputedStyle(el);
+      annOverlay.innerHTML = [
+        `bg ${cs.backgroundColor}`,
+        `color ${cs.color}`,
+        `font ${cs.fontSize} ${cs.fontWeight} ${cs.fontFamily.split(',')[0]}`,
+        `pad ${cs.padding}`,
+        `radius ${cs.borderRadius}`,
+      ].join(' · ');
+      const r = el.getBoundingClientRect();
+      annOverlay.style.display = 'block';
+      annOverlay.style.left = r.left + 'px';
+      annOverlay.style.top = Math.max(0, r.top - 28) + 'px';
+    });
+    document.addEventListener('mouseout', (e) => {
+      if (annotating && !e.target.closest('[data-sketch-content] *'))
+        annOverlay.style.display = 'none';
+    });
+
+    // --- Winner marking (call after the user picks) ---
+    function markWinner(variant) {
+      document.querySelectorAll('.variant-tab').forEach(t => {
+        t.classList.toggle('winner', t.dataset.variant === variant);
+        t.setAttribute('aria-label',
+          t.dataset.variant === variant ? t.textContent + ' (selected)' : t.textContent);
+      });
+    }
+    // markWinner('b'); // uncomment + set after the verdict
+  </script>
+
+</body>
+</html>

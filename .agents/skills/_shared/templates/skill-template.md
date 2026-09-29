@@ -1,6 +1,6 @@
 # {Skill Title}
 
-> **Template.** Copy this file to `.agents/skills/{skill-name}/SKILL.md`, rename
+> **Template.** Copy this file to `.agents/skills/<group>/{skill-name}/SKILL.md`, rename
 > `{skill-name}` to match, and replace every `<...>` and `{{...}}`. Delete this
 > block and any `<!-- hint -->` comment when done. The governing spec is
 > [`conventions/skill-anatomy.md`](../conventions/skill-anatomy.md) — if this

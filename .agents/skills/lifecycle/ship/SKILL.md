@@ -1,0 +1,464 @@
+---
+name: ship
+description: "Use when a change has passed qa and review and you need to integrate it to its base branch and close its change folder. The integration + archive-move step of the tail (qa → review → ship → reflect)."
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.1"
+  part-of: skillgrid
+---
+
+# Ship
+
+**Announce at start:** "I'm using the skillgrid:ship skill to integrate and close this change."
+
+You are the **INTEGRATION + ARCHIVE-MOVE** phase — the close-out step after `qa` and `review`, before the terminal `reflect`. You do two things:
+
+1. **Integrate the work** to its base branch (merge / PR / keep) — proven green on the *integrated* tree.
+2. **Close the change folder** — move `.skillgrid/specs/YYYY-MM-DD-<topic>/` to `.skillgrid/archive/YYYY-MM-DD-<topic>/` with a mechanical, verifiable move.
+
+The ship decision (GO / NO-GO + rollback plan) and the final `report.md` are written by `skillgrid:reflect` in the archived folder. Ship renders the decision in its Return Envelope; reflect persists it.
+
+**Iron law:**
+
+```
+DO NOT MERGE, PUSH, OR MOVE THE FOLDER UNTIL THE TEST SUITE IS GREEN ON THE INTEGRATED TREE
+```
+
+A green run only proves the tree it ran on. `qa` ran against the feature tree — run the suite again on the tree you are about to integrate.
+
+## Overview
+
+Ship is the close-out phase of the tail (`qa → review → ship → reflect`): it integrates verified work to its base branch, mechanically archives the change folder, and renders a GO / NO-GO ship decision with a mandatory rollback plan. It matters because shipping is where unverified work leaks into the base branch and the archive — the point of no return. The core principle: **do not merge, push, or move the folder until the test suite is green on the integrated tree.**
+
+## When to Use
+
+- When a change has passed QA/verification and is ready to be shipped/merged to its base branch.
+- At the end of the skillgrid flow, before closing the change folder and handing off to `reflect`.
+
+**When NOT to use:** mid-change before the gates pass — ship is the final phase, not a mid-task step.
+
+## What You Receive
+
+- **Change folder:** `.skillgrid/specs/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` with the QA half complete, `review.md` — the committed code-review audit record).
+- **`report.md` → `## Gate Decision` verdict** — the hard gate (PASS / CONCERNS / FAIL / WAIVED) and any human override.
+- **`review.md` → `## Verdict` floor** — the review gate (met / met-with-fixes / not met, the floor across both axes) + the independence grade; `not met` or a Grade C axis blocks the same way an unresolved CRITICAL does.
+- **`tasks.md` → `## Delivery Strategy`** — the four plain-text guard lines (`Decision needed before apply:`, `Chained PRs recommended:`, `Chain strategy:`, `400-line budget risk:`) and the work-unit table. `Chain strategy:` resolves the base branch.
+- **Fast-track waiver class** (`trivial` / `small`) if present — drives the light variant.
+
+## Phase Order
+
+```
+qa → review → ship → reflect
+```
+
+`prev-phase: [review]` · `next-phase: [reflect]` · `artifact: none` (the `report.md` is written by reflect in the archive).
+
+## Status and Workspace Guard
+
+Before any integration or move:
+
+- If you are in a **read-only planning workspace** or the change folder is outside the allowed edit roots, STOP and report — do not merge or move across an unsafe boundary.
+- If `report.md` → `## Gate Decision` is `FAIL` or has an unresolved CRITICAL with no human override, STOP — return `blocked` with the reason. You cannot ship work the quality gate refused.
+
+## Gates (all must pass before ANY mutation)
+
+### QA Gate (hard — never overridable by a prompt claim)
+
+Read `report.md` → `## Gate Decision` → `**Verdict:**` line, **PRE-MOVE** (the file is still in `specs/`):
+
+- **verdict `PASS`** → proceed.
+- **verdict `WAIVED`** → proceed; record the waiver (what was waived, by whom, risk accepted) in the Return Envelope (reflect persists it in the report's retro half).
+- **verdict `CONCERNS`** → **advisory**: surface the open items, the human owns the decision. Proceed only on an explicit human "ship it anyway" — record that override in the Return Envelope (reflect persists it in the report's retro half).
+- **verdict `FAIL`** or an unresolved **CRITICAL** → **`blocked`** (reason `qa-failed`). A launch-prompt claim "it's fixed in a later commit" does not clear it — a fresh passing `qa` run is required.
+
+### Review Gate (advisory — never blocks on its own)
+
+- No review verdict in `tasks.md` → record `review-waived`; **Step 9 runs the fan-out** on the diff to obtain one before rendering the GO/NO-GO (skip only if the change is trivial).
+- Verdict `BACK-TO-APPLY` with unresolved items → surface as a WARNING, proceed (the human accepted this state).
+- Verdict `REVIEW-PASS` → proceed (reuse; Step 9 does not re-review).
+
+If a hard gate fails, **STOP and return `blocked`** with the failing gate named. Do not integrate, do not move.
+
+## What to Do
+
+### Step 1: Verify Tests on the Integrated Tree
+
+Run the project's full test suite (`testing.runner` from `config.yaml`).
+
+**If tests fail**, report the failures and stop — the menu comes after a green suite:
+
+```
+Tests failing (<N> failures). Must fix before shipping:
+
+[show failures]
+```
+
+**If tests pass:** continue to Step 2.
+
+### Step 2: Detect Environment
+
+```bash
+GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
+GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
+# Capture now, while still inside the workspace — Step 5 changes directory
+# before cleanup (Step 7) needs this value.
+WORKTREE_PATH=$(git rev-parse --show-toplevel)
+```
+
+This determines which menu to show and how cleanup works:
+
+| State | Menu | Cleanup |
+|-------|------|---------|
+| `GIT_DIR == GIT_COMMON` (normal repo) | Standard 3 options | No worktree to clean up |
+| `GIT_DIR != GIT_COMMON`, named branch | Standard 3 options | Provenance-based (Step 7) |
+| `GIT_DIR != GIT_COMMON`, detached HEAD | Reduced 2 options (no merge) | Externally managed — leave in place |
+
+**Submodule guard:** before concluding "already in a worktree," verify you are not in a submodule:
+
+```bash
+git rev-parse --show-superproject-working-tree 2>/dev/null
+```
+
+If it prints a path, you are in a submodule — treat as a normal repo.
+
+### Step 3: Determine Base Branch
+
+The base branch is whatever this work forked from. Resolve it from `tasks.md` `## Delivery Strategy` → **`Chain strategy:`**:
+
+| `Chain strategy:` | Base branch |
+|---|---|
+| `stacked-to-main` | `main` (each PR merges to main in order) |
+| `feature-branch-chain` | The work-unit table's **base boundary** for the final work unit (PR #1 base = main/tracker; PR #2 base = PR #1 branch; …). Ship integrates the **tracker** (last) unit to its base boundary. |
+| `size-exception` | The single PR's target (usually `main`) — record the accepted exception. |
+| `pending` | Not decided — **ask** the user which chain strategy / base to use before proceeding. |
+
+If it is still not known, ask: "This branch split from `<your best guess>` — is that correct?"
+
+**Confirm before merging: merging into the wrong base is expensive to undo.**
+
+### Step 4: Present Options
+
+**Normal repo and named-branch worktree — present exactly these 3 options:**
+
+```
+Implementation complete. What would you like to do?
+
+1. Merge back to <base-branch> locally
+2. Push and create a Pull Request
+3. Keep the branch as-is (I'll handle it later)
+
+Which option?
+```
+
+**Detached HEAD — present exactly these 2 options:**
+
+```
+Implementation complete. You're on a detached HEAD (externally managed workspace).
+
+1. Push as new branch and create a Pull Request
+2. Keep as-is (I'll handle it later)
+
+Which option?
+```
+
+Present the menu exactly as written. Discarding the work happens only in response to an explicit request to throw the work away (below). **The integration decision is the user's** — wait for the answer.
+
+> **Fast-track variant (`trivial` / `small`):** the menu still appears, but the expected answer is merge (or PR); there is no PR-body generation step and the reflect `report.md` is the light form (one verdict line + the move readback). No release mechanics, no docs check — in any variant.
+
+### Step 5: Execute Choice
+
+**Option 1 — Merge Locally:**
+
+```bash
+MAIN_ROOT=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
+cd "$MAIN_ROOT"
+
+# Merge first — verify success before removing anything.
+git checkout <base-branch>
+git pull
+git merge <feature-branch>
+
+# Verify tests on the merged result.
+<test command>
+```
+
+If tests fail on the merged result: stop, leave the worktree and branch in place, and investigate — nothing has been pushed, so the merge is local and recoverable.
+
+Once the merged result is green: clean up the worktree (Step 7), then delete the branch:
+
+```bash
+git branch -d <feature-branch>
+```
+
+**Option 2 — Push and Create PR:**
+
+```bash
+git push -u origin <feature-branch>
+# From a detached HEAD, name the new branch on the remote:
+# git push origin HEAD:refs/heads/<new-branch>
+```
+
+Then create the pull/merge request against `<base-branch>` with the forge's tooling (its CLI if available, or the creation URL most forges print on push), following the repo's PR template if present, and report the URL. **The PR body is written by `skillgrid:document` (type `pr`)** — it writes from the real diff (`git log`/`git diff`) + the change folder (`briefing.md` goal, `blueprint.md` approach, `tasks.md` what shipped, `report.md` gate + evidence), never from memory. Hand the body to the forge CLI or present it per `document`'s Step 4. **Keep the worktree** — the user iterates on PR feedback there.
+
+**Human-facing record offers (after the integration lands, before Step 6):** offer `skillgrid:document` for the record types the change warrants — `changelog` (always, if the change is user-facing or a `CHANGELOG.md` exists), `release-note` (if a tag/version is involved), `postmortem` (if the change folder contains a debug state file with a design-flaw note, or the user names an incident). The user picks; `document` writes and commits. The fast-track light variant skips the offers (the PR body is the only record).
+
+**Option 3 — Keep As-Is:**
+
+Report: "Keeping branch `<name>`. Worktree preserved at `<path>`."
+
+**If the user asks to discard the work** (explicit request only). Confirm first:
+
+```
+This will permanently delete:
+- Branch <name>
+- All commits: <commit-list>
+- Worktree at <path>
+
+Type 'discard' to confirm.
+```
+
+Wait for that exact confirmation. Then clean up the worktree (Step 7) and force-delete the branch:
+
+```bash
+git branch -D <feature-branch>
+```
+
+### Step 6: Capture Ship Context (for reflect)
+
+Record the following in your working context (it goes into reflect's `report.md`):
+
+- Base branch + chain strategy + work-unit table reference.
+- Integration test evidence (the green run on the integrated tree).
+- PR/merge outcome (URL, or merge commit, or "kept").
+- Worktree state (cleaned up / preserved / host-managed).
+- Gate results (QA verdict + any waiver/override; review status).
+- **Open decision debt:** if the change's `blueprint.md` carried `**Status: ASSUMED**`, list it — "assumed decision (blueprint <path>) owes ratification". The flag survives the merge into the archive and the final `report.md`; shipping never clears it (only Ratify does).
+
+These are passed to `skillgrid:reflect` via the Return Envelope.
+
+### Step 6.5: Confirm the event stream holds the position
+
+Before the folder move, confirm the last work-unit commit carries its
+`[skillgrid-context]` block (`git log -1` shows the block): the session's
+`commit` events are the resume record, so the archived change stays resumable
+from `skillgrid session <session-id>` after the move. No separate close-out
+step — the events already hold every committed unit.
+
+### Step 7: Mechanical Move to Archive (LAST step)
+
+The change folder moves from `specs/` (active) to a top-level `archive/` (closed historical record). This is a **mechanical filesystem operation** — file content MUST NEVER pass through the model's Read/Write path. The only acceptable move is a native shell command (`git mv` / `mv`), verified by a structural `diff -r` readback.
+
+```bash
+# Run as ONE shell transaction so the EXIT trap stays active.
+# The snapshot is recursive and MUST be created BEFORE the move.
+snapshot_root="$(mktemp -d "${TMPDIR:-/tmp}/ship.move.XXXXXX")"
+trap 'rm -rf -- "$snapshot_root"' EXIT
+cp -R ".skillgrid/specs/YYYY-MM-DD-<topic>" "$snapshot_root/source"
+
+# Mechanical move (MANDATORY): git mv when tracked, mv otherwise.
+mkdir -p .skillgrid/archive
+if ! git mv ".skillgrid/specs/YYYY-MM-DD-<topic>" ".skillgrid/archive/YYYY-MM-DD-<topic>"; then
+  mv ".skillgrid/specs/YYYY-MM-DD-<topic>" ".skillgrid/archive/YYYY-MM-DD-<topic>" || exit $?
+fi
+
+# The source must be gone before comparing the archived tree to its snapshot.
+if [ -e ".skillgrid/specs/YYYY-MM-DD-<topic>" ] || [ -L ".skillgrid/specs/YYYY-MM-DD-<topic>" ]; then
+  printf 'archive move left the source directory in place\n' >&2; exit 1
+fi
+
+# MANDATORY readback: only an empty diff passes.
+diff -r "$snapshot_root/source" ".skillgrid/archive/YYYY-MM-DD-<topic>"
+diff_status=$?
+[ "$diff_status" -ne 0 ] && exit "$diff_status"
+```
+
+Use **today's date in ISO format** (`YYYY-MM-DD`) — it is already the folder's name prefix. Compare the archived folder against the **pre-move** recursive snapshot — do not substitute a model readback, a staged tree, or the post-move source. The move must come out **EXACTLY equal**: `report.md`'s QA half moves with the folder, so nothing is additive at move time. Any non-empty `diff -r` output or non-zero status is truncation, alteration, or an operational failure — it **FAILS** the phase. (Reflect's retro append to `report.md` happens AFTER this readback, in the archive — it is the documented post-move completion, not part of the move.)
+
+> **If shell access is unavailable**, STOP and report `blocked` with reason `shell access required for mechanical archive move is unavailable` — do **not** fall back to Read/Write moving.
+
+### Step 7.5: Reconcile (knowledge stays current after the change)
+
+The change just merged — the durable knowledge must match the repo now, or it
+rots. Reconcile is **surgical**: it adds lines and rewrites only the single
+lines it owns. It never rewrites curated prose.
+
+**Boundaries (the exact contract — reconcile touches nothing outside it):**
+
+| Target | Reconcile does | Owner of the rest |
+|---|---|---|
+| `## Skillgrid` block (AGENTS.md / CLAUDE.md) | surgical update of drifted facts (stack, commands) via the sentinel upsert | onboarding (structure), human (curated prose) |
+| `.skillgrid/artifacts/` terms (01-business-terms.md + 02-technical-terms.md) | add one line per new term the change introduced that is absent | `architectural-decision-records` (definitions) |
+ | `.skillgrid/ASSUMPTIONS.md` ADR entries (### ADR-NNNN under § LOCKED) | **flag only** — in-force ADRs the diff contradicts or supersedes, listed for the human | `architectural-decision-records` (ADR entries are never deleted once accepted — supersede, don't edit) |
+| Archived change folder | read (for the debt list); never modified after the move | the archive is an audit trail |
+| `.skillgrid/config.yaml` | **flag only** — a detected stack/runner change the human should re-onboard for | onboarding (merge mode) |
+
+**Process:**
+1. Re-verify the `## Skillgrid` block facts against the repo (manifests, test runner, commands). If a line drifted (the change introduced a new dependency or changed the runner), update that line via the idempotent sentinel upsert (same sentinels as onboarding). If the drift is structural (a new area with its own conventions, a renamed runner), flag it — do not restructure.
+2. Terms: scan the change's new/modified files for terms absent from the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`). Add one line each (term + one-line definition) to the right file. If a term needs a real definition and ADR, flag for `architectural-decision-records` instead of guessing.
+3. ADRs: list in-force ADRs the diff contradicts or supersedes. **Flag, never edit** — ADR immutability holds. The human decides whether a superseding ADR is owed.
+4. Config: if the change changed the stack or test runner in a way `config.yaml` doesn't reflect, flag "run `skillgrid:onboarding` (merge mode)" — do not edit the config.
+5. **Open decision debt:** list every `ASSUMED` blueprint in the archive (from Step 6) into the Return Envelope's `Open decision debt` line.
+
+Record what reconcile changed (or "nothing to reconcile") in the ship context
+for reflect's `report.md`.
+
+### Step 8: Persist to Mnemonic (hybrid)
+
+The filesystem move is already done (Step 7); persist the ship context as an index/backup so reflect can resume if interrupted.
+
+```
+mem_save(
+  title:      "ship — YYYY-MM-DD-<topic>",
+  topic_key:  "skillgrid/YYYY-MM-DD-<topic>/ship",
+  type:       "architecture",
+  scope:      "project",
+  session_id: "{sid}",
+  content:    "{ship context: base branch, chain strategy, integration test evidence, PR/merge outcome, worktree state, gate results, diff -r readback}"
+)
+```
+
+> If `mnemonic.enabled` is `false`, the in-repo artifacts + git history are the sole record — skip this step (degrade explicitly, never fail silently).
+
+### Step 9: Render the Ship Decision
+
+The integration and the move are mechanical; the **decision** is the artifact. Synthesize the gates into a single **GO / NO-GO**, and write the **rollback plan** — both go into the Return Envelope (reflect persists them to `report.md` in the archive).
+
+**Gather the review signal first.** If the change is **non-trivial** and the review gate above recorded `review-waived` (no prior `parallel-code-review` verdict in `tasks.md`), run **skillgrid:parallel-code-review** on the diff now, before rendering the verdict — the ship decision should rest on a fresh fan-out, not an absence of one. Its output (`REVIEW-PASS` / `BACK-TO-APPLY` + Critical/Warn counts) feeds Verdict rules 2 and 3. Two cases skip the fan-out:
+
+- **Trivial change** (the trivial-skip rule per `_shared/conventions/rigor-tiers.md`, review escalation threshold) → no fan-out; the decision rests on the QA gate + a one-line rollback. This is the explicit **skip threshold**.
+- **Prior verdict exists** (`REVIEW-PASS` or an accepted `BACK-TO-APPLY` already in `tasks.md`) → reuse it; don't re-review.
+
+Fan-out selection, per-file lenses, and the red-team pass all follow `parallel-code-review/SKILL.md` — ship does not re-implement them. Record the fan-out result in `tasks.md` so the verdict below cites a real signal.
+
+**Verdict rules (apply in order; the first that matches wins):**
+
+1. **QA `FAIL`, or an unresolved CRITICAL** → **NO-GO**. Nothing downstream overrides a hard gate.
+2. **Any Critical review finding** → **NO-GO**, unless the human explicitly accepted the risk (record the acceptance).
+3. **QA `CONCERNS` or a `BACK-TO-APPLY` review verdict** → **NO-GO** by default; the human can override to GO. Record the override and what was accepted.
+4. **Everything else (QA `PASS`/`WAIVED`, review clean or waived)** → **GO**, with the rollback plan attached.
+
+**Rollback plan (mandatory before any GO).** Name the trigger conditions and the procedure:
+
+- **Merge already landed** → `git revert <merge-commit> -m 1` (or `git reset --hard <pre-merge> ` only if nothing else has landed on the base). Verify tests green after the revert.
+- **PR open, not merged** → close the PR; the branch stays until the work lands or is re-based.
+- **Branch kept** → the branch is the rollback (it never left the repo).
+- **Folder already moved to `archive/`** → the move is the *last* step, so a NO-GO discovered before the move leaves it untouched. A NO-GO discovered *after* the move is corrected in the next change's `reflect`, not by un-archiving.
+
+If the change is **trivial** (per the trivial-skip rule in `_shared/conventions/rigor-tiers.md`, review escalation threshold), the rollback plan may be one line: "revert the single commit." The full plan is required otherwise.
+
+### Step 10: Return Envelope
+
+**Your FINAL output MUST be text — not a tool call.** Do the `mem_save` (Step 8) *before* this text. Reflect reads this envelope to write `report.md`.
+
+```markdown
+## Shipped
+
+**Change**: YYYY-MM-DD-<topic>
+**Base branch**: {base-branch} · **Chain strategy**: {strategy}
+**Integration**: {merged to {base} @ {commit} | PR {url} | kept branch {name}}
+**Archived**: `.skillgrid/archive/YYYY-MM-DD-<topic>/` · Mnemonic `skillgrid/YYYY-MM-DD-<topic>/ship`
+**Status**: success | blocked
+
+### Ship Decision
+**Verdict**: {GO | NO-GO}
+**Basis**: {QA {verdict} + review {verdict} + {human override, if any}}
+**Rollback plan**: {trigger → procedure, per the verdict's integration state}
+
+### Gates
+| Gate | Result |
+|------|--------|
+| QA gate | ✅ {PASS \| WAIVED \| CONCERNS — human override recorded} |
+| Review gate (advisory) | ✅ {REVIEW-PASS \| waived \| BACK-TO-APPLY notes} |
+
+### Integration Test Evidence
+- {test command} on integrated tree: {N passed, M failed} → {green}
+
+### Mechanical Move
+- Pre-move snapshot → `git mv`/`mv` → `.skillgrid/archive/YYYY-MM-DD-<topic>/`
+- `diff -r` readback: {empty → ✅ | verbatim output → FAIL}
+
+### Overrides / Waivers
+{QA waiver, human CONCERNS override, size-exception — or "None"}
+
+**Mnemonic**: observation `{id or 'none'}` · session `{sid}`
+**Open questions**: {list, or "None"}
+**Open decision debt**: {assumed blueprints owed ratification — or "None"}
+**Next**: reflect — completes `report.md`'s retro half in the archive (integration + retro + archive summary) + session close
+```
+
+**Update `state.yaml`:** append the shipped `<topic>` to `progress.completed_changes`, and clear `pipeline.current_change` + `pipeline.current_phase` (the pipeline is now idle, awaiting the next change or `reflect`).
+
+**Release session lock:** run `node scripts/state-lock.mjs release <topic>`. Always exit 0 (no-op if the lock doesn't name this change).
+
+Close the final message with a `## Key Learnings` section — 1–5 standalone factual sentences (≥ 20 chars each). Mnemonic passive capture picks these up. Do **not** call `mem_session_summary` in a sub-agent context — `reflect` owns session close.
+
+## Rules
+
+- You integrate and close **verified** work. A `FAIL` in `report.md` → `## Gate Decision` or an unresolved CRITICAL blocks ship — no prompt override; require a fresh passing `qa` run.
+- **Do not merge, push, or move until tests are green on the integrated tree.** A green run only proves the tree it ran on.
+- **The move is mechanical.** `cp -R`/`git mv`/`mv` via the shell only, NEVER model Read/Write — and a `diff -r` readback (empty = only passing evidence, verbatim in the result) after it. A skipped or non-empty `diff -r` FAILS the phase.
+- **The move is the LAST step** — everything that must be in the archive (the QA half of `report.md`, review artifacts) is already written when the folder leaves `specs/`, so the `diff -r` readback is exactly empty. Reflect completes `report.md`'s retro half (from `## Final-State Facts` onward) in place *after* the move, in the archive.
+- **The archive is an audit trail** — `.skillgrid/archive/` is created if absent; archived changes are never deleted or modified after the move, **except** the retro sections of `report.md` that reflect completes in place after the move (the QA half is pre-move and included in the `diff -r` readback; the retro half is appended after it).
+- The integration decision (merge / PR / keep / discard) is the user's — present the menu and wait. Discard happens only on the typed word `discard`.
+- No release mechanics (no VERSION/CHANGELOG bump), no docs check (no Diataxis coverage) — in any variant. The human-facing record (PR body, changelog, release note, postmortem) is written by `skillgrid:document`, which ship invokes for the PR body when the user chooses the PR option (and offers the other types where applicable).
+- **Decision debt ships, it doesn't clear.** An `ASSUMED` blueprint flag is carried into the Return Envelope and the archive — never removed by shipping.
+- If shell access is unavailable, STOP and report `blocked` — do not fall back to Read/Write moving.
+- Return envelope per Step 9 — final action is text, not a tool call. `reflect` is next.
+
+## Gotchas
+
+- **"Tests passed earlier this session."** Run the suite on the tree you are about to integrate. A green run only proves the tree it ran on.
+- **"The base branch is obviously main."** Resolve it from `Chain strategy:` + the work-unit table, or confirm/ask. Merging into the wrong base is expensive to undo. For `feature-branch-chain`, ship integrates the *tracker* (last) unit to *its* base boundary — not necessarily `main`.
+- **`Chain strategy: pending`** means the base is undecided — ask before Step 4, don't guess.
+- **Reflect completes `report.md` in the archive** — ship does not write the report; it captures context for the Return Envelope, and reflect completes the retro half in the archive in place.
+- **Moving before the source is gone-check** gives a meaningless empty diff. The `diff -r` compares the *pre-move snapshot* to the archived folder, after confirming the source path no longer exists.
+- **`--force` on a refused worktree removal** destroys files that exist only in that worktree. Show the user `git -C "$WORKTREE_PATH" status --porcelain -uall` and ask; never `--force` on your own initiative.
+- **Clean up only worktrees under `.worktrees/` or `worktrees/`.** Everything else belongs to the host.
+- **`CONCERNS` is not a block.** It is advisory — surface open items, the human decides. But `FAIL` / unresolved CRITICAL is a hard block.
+
+## How to measure it
+
+Per `_shared/conventions/measurement.md`.
+
+| | Indicator | Data source | Direction |
+|---|-----------|-------------|-----------|
+| Leading | Time from `report.md` `## Verdict` to merge commit | Git history | should fall |
+| Lagging | Rollbacks or reverts within N days of the merge | Git history (revert commits) | should fall |
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "The gates are probably fine, ship it." | A `FAIL` or unresolved CRITICAL in `report.md` → `## Gate Decision` is a hard block — a launch-prompt claim "it's fixed in a later commit" does not clear it. A fresh passing `qa` run is required. |
+| "I'll skip the workspace guard, it's fast." | In a read-only planning workspace or with the change folder outside the allowed edit roots, STOP and report — do not merge or move across an unsafe boundary. |
+| "I'll ship without the final review." | If the review gate recorded `review-waived` and the change is non-trivial, Step 9 runs the fan-out on the diff before rendering the GO/NO-GO. Skipping it means the verdict rests on an absence of signal. |
+| "Tests passed earlier this session, that's enough." | A green run only proves the tree it ran on. `qa` ran against the feature tree — run the suite again on the tree you are about to integrate. |
+| "I'll write the report in the archive after the move." | That's what reflect does — ship captures context in the Return Envelope, reflect completes `report.md`'s retro half in the archive in place. Ship writes no report. |
+
+## Red Flags
+
+- A merge, push, or folder move happens before a fresh green test run on the integrated tree.
+- The Return Envelope is missing the ship context (base branch, integration evidence, gate results) that reflect needs.
+- The QA gate shows `FAIL` or an unresolved CRITICAL but the phase proceeds instead of returning `blocked`.
+- The workspace guard was skipped in a read-only planning workspace or across an unsafe boundary.
+- The archive move used model Read/Write instead of `git mv`/`mv`, or the `diff -r` readback is non-empty or absent.
+- The ship decision renders a GO with no rollback plan.
+
+## Verification
+
+- [ ] All gates in `Gates (all must pass before ANY mutation)` show PASS (or a recorded waiver/override).
+- [ ] Workspace/status guard confirms clean state — not a read-only workspace, change folder inside allowed edit roots, no `FAIL`/unresolved CRITICAL.
+- [ ] The test suite is green on the integrated tree (fresh run, not the `qa` run).
+- [ ] The archive move is mechanical (`git mv`/`mv`) with an empty `diff -r` readback against the pre-move snapshot.
+- [ ] The change folder is at `.skillgrid/archive/YYYY-MM-DD-<topic>/` and the source is gone.
+- [ ] The Return Envelope is rendered with a GO/NO-GO verdict, basis, rollback plan, and ship context (base branch, integration evidence, gate results) for reflect.
+
+## References
+
+- [`../../verification/qa/SKILL.md`](../../verification/qa/SKILL.md) — upstream; it wrote the QA half of `report.md`, whose `## Gate Decision` verdict drives the QA Gate (read pre-move).
+- [`../../planning/slicing/SKILL.md`](../../planning/slicing/SKILL.md) — upstream; the `## Delivery Strategy` guard lines + work-unit table resolve the base branch.
+- [`../reflect/SKILL.md`](../reflect/SKILL.md) — next; reads the moved folder from `.skillgrid/archive/`, completes `report.md`'s retro half in place, owns session close.
+- [`../../_shared/conventions/fast-track.md`](../../_shared/conventions/fast-track.md) — the light-variant waiver this phase honors.
+- [`../../_shared/conventions/sdd-structure.md`](../../_shared/conventions/sdd-structure.md) — the `specs/` → `archive/` layout, phase order, and Mnemonic slots.
+- [`../../_shared/conventions/mnemonic-memory.md`](../../_shared/conventions/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`).
