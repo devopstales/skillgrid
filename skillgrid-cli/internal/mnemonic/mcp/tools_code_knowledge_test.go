@@ -123,8 +123,8 @@ func TestKnowledgeTools(t *testing.T) {
 	// affected/rename + 1 code_pdg_query + 1 code_taint + 2 governance +
 	// 1 mem_layers + 1 session_changes = 80 (hub/relay tools removed by the
 	// session events layer consolidation; all keep their names + required params).
-	if len(tools) != 80 {
-		t.Errorf("expected 80 tools, got %d", len(tools))
+	if len(tools) != 81 {
+		t.Errorf("expected 81 tools, got %d", len(tools))
 	}
 
 	// code_docs returns the indexed docs (a query, not an error).
