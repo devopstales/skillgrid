@@ -26,7 +26,7 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 | Specs (briefing, blueprint, tasks) | `.skillgrid/specs/` |
 | Execution ledger | `.skillgrid/sdd/` (gitignored) |
 
-**Domain model:** Before designing or implementing, read `.skillgrid/artifacts/README.md` for the topic index, `01-business-terms.md` + `02-technical-terms.md` for vocabulary, and the ADRs (`04-adr-*.md`, in-force set via `03-adr-index.md`) for the area you're touching.
+**Domain model:** read the vocabulary + ADRs under `.skillgrid/artifacts/` (index: `08-concepts.md` → Domain model) before designing or implementing.
 
 ### Rules
 
@@ -81,3 +81,14 @@ Run `skillgrid:onboarding` to update config after stack changes.
 
 - The sentinels are HTML comments — invisible in rendered markdown.
 - If both `AGENTS.md` and `CLAUDE.md` exist, write the full block to `AGENTS.md` (source of truth) and put only a one-line pointer in `CLAUDE.md`. Two full blocks = two sources that drift.
+
+## Keep this block lean (the block is injected into every request)
+
+The `## Skillgrid` block loads into context on **every** prompt in most agents, so it is a *navigation spine*, not a knowledge dump. Rules for editing it:
+
+- **Navigation, not conventions.** The block points at where things live (`.skillgrid/…`, tracker, memory). Project conventions, framework rules, delivery/PR steps, and how-to detail belong in the referenced files (`.skillgrid/artifacts/`, the skills, `docs/user-guide/`) — never inlined here.
+- **No "getting started / setup" section.** Onboarding, install, and first-run steps are not what the agent file is for; the agent already has the repo.
+- **Grow it only on an observed failure.** Add a line to the block only when the agent actually did something wrong that this file can prevent. Don't preemptively document mistakes it hasn't made. (See `skillgrid:onboarding` → *Keep the AGENTS.md block lean*.)
+- **Layout stays high-level.** A one-line "what's here" map is fine; never point at individual files or paths that churn — they go stale and mislead.
+- **The spine is non-negotiable.** The `Workflow` line and the "read config before any Skillgrid skill" line are the entrypoint for the whole pipeline — keep them even though they're the only "how the system works" content here.
+- **Nested files for areas.** Area-specific rules (a payments module, a UI kit) live in a nested `<area>/AGENTS.md`; the root block stays global and lean.

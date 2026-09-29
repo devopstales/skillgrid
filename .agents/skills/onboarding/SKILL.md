@@ -25,6 +25,23 @@ Detect project facts, confirm with the user, write `.skillgrid/config.yaml` and 
 
 **When NOT to use:** the project already has a valid `.skillgrid/config.yaml` and nothing about the stack changed — onboarding re-detects and confirms, it's not a per-task step. (Re-running to pick up a stack change IS a use, via merge mode.)
 
+## Keep the AGENTS.md block lean
+
+The `## Skillgrid` block is injected into the agent's context on **every** request, so bloat in it poisons *all* prompts. Treat it as a **navigation spine** — it points at where things live — not a knowledge dump. Source: the "configure your AI so it doesn't suck" discipline (WebDev Simplified), folded in here.
+
+Apply these when rendering the block and whenever the user asks to extend the AGENTS.md:
+
+1. **Keep it small.** Every line here ships with every prompt. If a section isn't needed for *most* requests, it does not belong inline.
+2. **Split section-specific conventions out** into the files the block already references (`.skillgrid/artifacts/`, the skills, `docs/user-guide/`) and *link* to them, instead of inlining CSS/API/TS/delivery rules. A one-line "reference →" beats a ten-line dump.
+3. **No "getting started / setup" section.** Onboarding, install, and first-run steps are not what the agent file is for — the agent already has the repo.
+4. **Grow only on an observed failure (observe → fix).** Add a line to the block only when the agent *actually* did something wrong that this file can prevent. Don't preemptively document mistakes it hasn't made — you don't know which it will make. Notice a problem → record it in the right place → it stops repeating.
+5. **High-level layout only.** A one-line "what's here" map is fine; never point at individual files or churning paths — they go stale and mislead the agent.
+6. **Start minimal.** On a greenfield project, a couple of sentences (what the project is, the package manager if non-standard) + the references is the right size. Never "read the repo and generate a giant AGENTS.md" — that yields verbose, hard-to-use files.
+7. **One source of truth across platforms.** `AGENTS.md` is the source of truth. `CLAUDE.md` / `GEMINI.md` get a **one-line pointer** (Skillgrid's choice over a symlink, which breaks under git/CI on some systems). Never two full blocks — they drift.
+8. **Nested AGENTS.md for monorepos/areas.** Area-specific rules (a payments module, a UI kit, a `apps/api` vs `apps/web` split) live in a nested `<area>/AGENTS.md`; the agent loads root + the nested file for the folder it's working in. The root block stays global and lean.
+
+These principles govern *what goes in the block*. The block's exact shape and the idempotent upsert rule stay authoritative in `_shared/agent-config/block.md`.
+
 ## The Process
 
 ### Step 1: Detect
@@ -163,12 +180,12 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - Do NOT overwrite `rules:` sections the user has customized
 
 **2. Write `.skillgrid/state.yaml` (create if absent; merge if present):**
-- Schema per `_shared/conventions/sdd-structure.md` (§ `state.yaml` and `artifacts/`).
+- Schema per `_shared/rules/sdd-structure.md` (§ `state.yaml` and `artifacts/`).
 - Initialize: `pipeline.current_phase: brainstorming`, `pipeline.current_change: ""`, `pipeline.status: pending`, `progress.completed_changes: <count of `.skillgrid/archive/*/` dirs>`, `progress.blocked_changes: 0`, `constraints_ref: .skillgrid/artifacts/05-locked-constraints.md`, `notes: ""`.
 - If the file already exists (re-onboarding), keep the existing `pipeline` + `progress` values; only fill missing keys. Never reset `completed_changes`.
 
 **3. Create the `.skillgrid/artifacts/` zone (create if absent; merge if present):**
-- If `artifacts/README.md` is absent, create it from the topic-index shape in `_shared/conventions/sdd-structure.md`.
+- If `artifacts/README.md` is absent, create it from the topic-index shape in `_shared/rules/sdd-structure.md`.
 - If `artifacts/05-locked-constraints.md` is absent, create it with an empty `## Locked` list and a `## Notes` explaining the `### Rules` render source.
 - If `artifacts/06-research-findings.md` is absent, create it with an empty `## Findings` list.
 - If a `docs/PRD.md` or `docs/ARCHITECTURE.md` exists at onboarding time and `artifacts/00-prd.md` / `00-architecture.md` do not yet exist, `git mv` them into `artifacts/` (brownfield migration of the old paths). Same for an existing `.skillgrid/glossary/` → `01/02-*-terms.md` and `.skillgrid/adr/` → `04-adr-*.md` (rebuild `03-adr-index.md` from the moved ADR headers).
@@ -183,7 +200,9 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
   2. **Found** → replace everything from that marker to `<!-- skillgrid:end -->` (inclusive) with the freshly rendered block. Never append a second copy.
   3. **Not found** → append the block at the end of the file.
 - **Multi-platform rule:** if both `AGENTS.md` and `CLAUDE.md` exist, write the full block to `AGENTS.md` (source of truth) and put only a one-line pointer in `CLAUDE.md`. Two full blocks = two sources that drift.
+  - **Pointer, not symlink.** Skillgrid's choice is a one-line pointer (`See AGENTS.md — the Skillgrid block there is the source of truth.`), not a symlink (`ln -s AGENTS.md CLAUDE.md`), because symlinks can break under git/CI and some editors. A symlink is a fine user-side alternative if they insist — but onboarding writes a pointer by default and never creates a second full block.
 - The block is idempotent — running onboarding twice never duplicates it.
+- **Nested AGENTS.md:** for monorepos or distinct areas (a `payments` module, `apps/api` vs `apps/web`), create a nested `<area>/AGENTS.md` for that area's specific rules — the agent loads root + nested for the folder it's in. The root block stays global and lean; do not push area-specific conventions up into it.
 
 **5. Update `.gitignore`:**
 - Ensure `.skillgrid/sdd/` is gitignored (scratch, ephemeral)
@@ -197,7 +216,7 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - If `ticketing.type: jira`: verify `jira` CLI is available (`jira config`)
 - If `ticketing.enabled: false`: skip all tracker bootstrap
 
-**7. Mnemonic saves (if `mnemonic.enabled: true`):** follow the save shape + session protocol in `_shared/conventions/mnemonic-memory.md`. For onboarding specifically:
+**7. Mnemonic saves (if `mnemonic.enabled: true`):** follow the save shape + session protocol in `_shared/rules/mnemonic-memory.md`. For onboarding specifically:
 - `mem_session_start(title: "skillgrid-init/{project}")`
 - `mem_save` topic_key: `skillgrid-init/{project}`, type: `architecture` — detected project context (name, stack, repo, deploy)
 - `mem_save` topic_key: `skillgrid/{project}/issue_tracker`, type: `config` — tracker id + CLI + storage path
@@ -242,6 +261,8 @@ If `.skillgrid/config.yaml` already exists:
 | "The manifests are obvious — no need to confirm with the user" | Step 2 is explicit: present each fact, confirm one at a time. A wrong `tdd` or tracker value silently breaks every later phase. |
 | "I'll bootstrap the tracker after onboarding is done" | If `ticketing.enabled: true`, the CLI must be verified during onboarding (`gh --version`, `backlog status`, etc.). A tracker that isn't verified can't be trusted later. |
 | "Both AGENTS.md and CLAUDE.md exist — write the block to both" | Two full blocks are two sources that drift. Write full to `AGENTS.md`, one-line pointer in `CLAUDE.md`. |
+| "I'll add a bunch of conventions to the block up front so the agent doesn't get anything wrong" | The block ships with every prompt. Grow it only on an observed failure (observe → fix); split the rest into the referenced files. See *Keep the AGENTS.md block lean*. |
+| "Let me read the whole repo and write a comprehensive AGENTS.md" | "Read the repo and generate a giant AGENTS.md" yields a verbose, hard-to-use file. Start minimal (a couple sentences + references) and let it grow on evidence. |
 | "The user said 'looks good' — skip re-reading their corrections" | "Looks good" is only valid once every detected fact has been presented and confirmed individually. |
 
 ## Red Flags
@@ -252,6 +273,8 @@ If `.skillgrid/config.yaml` already exists:
 - Skip the confirmation step — always present detected facts
 - Create both AGENTS.md and CLAUDE.md — pick the first that exists, or create AGENTS.md
 - Hard-code paths that the config already defines
+- Inline convention/how-to content into the `## Skillgrid` block — it is a navigation spine; point at the referenced files instead
+- Add a "getting started / setup" section to the block, or point it at individual churning file paths
 
 ## Verification
 
@@ -259,6 +282,7 @@ If `.skillgrid/config.yaml` already exists:
 - [ ] `.skillgrid/state.yaml` exists, parses, and has `pipeline` + `progress` + `constraints_ref` (existing values preserved on re-run)
 - [ ] `.skillgrid/artifacts/` contains `README.md` + `05-locked-constraints.md` + `06-research-findings.md` (terms/ADR/PRD files created lazily by their owners)
 - [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}`, tracker/memory lines, and a `### Rules` section rendered from `05-locked-constraints.md`
+- [ ] The block is lean: no inlined conventions/how-to or "getting started" section, no per-file path pointers, and (if both exist) `CLAUDE.md` holds only a one-line pointer to `AGENTS.md`
 - [ ] Detected test runner command runs and exits 0 (e.g. `go test ./...`, `npm test`, `pytest`)
 - [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`
 - [ ] `git rev-parse --is-inside-work-tree` succeeds; onboarding artifacts are committed (`git log -1` shows `chore: add Skillgrid config + state + artifacts`)

@@ -178,7 +178,7 @@ rules:
   # two-axis review), T3 = GA (mutation + security + parallel review with a
   # fresh-model reviewer). A per-change override in briefing.md (`Tier: T<n>`)
   # wins over the project default. Policy source:
-  # .agents/skills/_shared/conventions/rigor-tiers.md
+  # .agents/skills/_shared/rules/rigor-tiers.md
   tiers:
     default: {tiers_default}
     T0: { name: Prototype, blueprint: none,  qa: self-check }
@@ -199,7 +199,7 @@ rules:
   reflect:
     verdict_gate: advisory
   # --- Fast-Track (trivial / small changes) ---
-  # Policy source of truth: .agents/skills/_shared/conventions/fast-track.md
+  # Policy source of truth: .agents/skills/_shared/rules/fast-track.md
   # standard/risky changes always run the full pipeline; only trivial/small may waive.
   fast_track:
     enabled: true
