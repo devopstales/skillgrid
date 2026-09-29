@@ -104,6 +104,16 @@ that's the reranking the separation exists to prevent. A change can be
 spec-perfect but violate every convention, or beautifully written but
 implement the wrong thing; the two axes are deliberately separate.
 
+Then **write the durable audit record** — `.skillgrid/specs/<topic>/review.md`
+— from [templates/review.md](templates/review.md), next to `report.md` (which
+owns the QA gate; `review.md` owns this review). It records the two axes side
+by side, the explicit "What Important means" threshold, the capped Minor
+findings, each axis's **independence grade** (the no-leaks proof), and the
+floor verdict. **Commit `review.md` in the spec zone** before continuing
+code-zone work (spec-zone rule). It survives the session — a review that
+lives only in the transcript is not an audit record, and a Grade C review
+that never got written down is even harder to audit later.
+
 **4. Triage and fix findings:**
 Apply `skillgrid:receiving-code-review` triage rules to the combined findings
 from both axes — sort (fix now / defer / human look / noise), fix the
@@ -147,6 +157,15 @@ You: [triage both axes] [Fix glossary drift + add the missing scenario]
 [Continue to Task 3]
 ```
 
+## How to measure it
+
+Per `_shared/conventions/measurement.md`.
+
+| | Indicator | Data source | Direction |
+|---|-----------|-------------|-----------|
+| Leading | Time from PR open to first review `review.md` commit | Git history | should fall |
+| Lagging | Defects caught pre-merge (in `review.md`) vs. escaping to an incident | `review.md` findings + incident records | caught/rising, escaped/falling |
+
 ## Common Rationalizations
 
 | Excuse | Reality |
@@ -173,6 +192,7 @@ You: [triage both axes] [Fix glossary drift + add the missing scenario]
 - [ ] Each reviewer's request included the diff range (`{BASE_SHA}..{HEAD_SHA}`) plus the context it needs (terms/ADRs for standards, `acceptance.feature`/blueprint for spec)
 - [ ] The request names the specific risk areas to focus on (violated standards, scenarios that must pass) — per the "How to Request" briefs
 - [ ] The two reports were presented under `## Standards` and `## Spec` headings side by side, NOT merged or reranked
+- [ ] `review.md` was written to `.skillgrid/specs/<topic>/review.md` and committed (spec zone) — the durable audit record with both axes side by side, the "What Important means" threshold, capped Minor findings, each axis's independence grade, and the floor verdict
 - [ ] The combined findings were triaged and in-scope issues fixed with tests — not left as "reviewed, good to go"
 - [ ] The review was actually received (a report exists for each axis) before proceeding to the next task or merge
 

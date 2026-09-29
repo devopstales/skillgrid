@@ -33,9 +33,10 @@ The terminal SDD phase. After `ship` has integrated the work and moved the chang
 
 ## What You Receive
 
-- **Change folder:** now at `.skillgrid/archive/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` with the QA half complete, review artifacts).
+- **Change folder:** now at `.skillgrid/archive/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` with the QA half complete, `review.md` — the committed code-review audit record).
 - **Ship context** — from `ship`'s Return Envelope: base branch, chain strategy, integration test evidence, PR/merge outcome, worktree state, gate results, `diff -r` readback. (If ship's envelope is unavailable, recover from `mem_search("skillgrid/YYYY-MM-DD-<topic>/ship")` or git history.)
 - **`report.md` → `## Gate Decision` verdict** (the QA half, written by qa) + any human override.
+- **`review.md` → `## Verdict` floor + `## Independence`** — the review gate and the independence grade, to cite in the lineage (which findings were caught pre-merge, and on which grade).
 - **All planning artifacts** (briefing, blueprint, design/threat-matrix, tasks) — the source material for sourced learnings.
 - **Fast-track waiver class** (`trivial` / `small`) if present — drives the light variant.
 
@@ -127,7 +128,7 @@ Complete the existing file IN PLACE in the moved folder (`.skillgrid/archive/YYY
 
 **Prior-change follow-through** — scan this change's own open items and the most recent archived changes' `report.md` open items: which did this change address? Which are still open? Name them.
 
-**Lineage** — the observation IDs of every artifact read (the lineage endpoint).
+**Lineage** — the observation IDs of every artifact read (the lineage endpoint), **plus** the `review.md` facts: the review verdict floor, each axis's independence grade, and the Critical/Important findings caught pre-merge (so a future reader can see what review caught vs. what escaped).
 
 **Lift durable findings.** From the sourced learnings above (Surprises, Patterns, Decisions that constrain *future* work), append the ones that outlive this change to `.skillgrid/artifacts/06-research-findings.md` — the durable, cross-change distillation. A finding that is only true for this one change stays in `report.md` alone. This is the terminal catch: anything `research`/`spike`/`sketch` missed while the sources were fresh still lands here at close.
 

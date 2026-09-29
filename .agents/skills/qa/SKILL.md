@@ -253,6 +253,15 @@ their exit codes + SCOPE lines, and prints a JSON summary. Read the JSON.
   Exit 0 with `lines[0]` starting "skipped" → no base ref; note it.
 - **`checks.size_budget`** — exit 1 (overage) → WARNING per over-budget
   skill. Exit 0 → no action. Advisory.
+- **Review evidence (advisory, not a script check)** — at the point QA routes
+  to review (PASS / CONCERNS / WAIVED), a later change's `review.md`
+  (written by `skillgrid:requesting-code-review`) is the durable audit record of
+  that review. QA does not read or gate on a not-yet-existing `review.md` — but
+  if `review.md` is **absent** in the spec folder when QA re-runs in
+  re-verification mode (a code-zone change after a prior review), note a
+  WARNING: "review evidence stale — `review.md` predates the latest code-zone
+  change; re-run `skillgrid:requesting-code-review`." Advisory, never CRITICAL,
+  never affects the four-state verdict.
 
 **Scope:** read `scopes.composite`. This is the worst scope across all
 checks (worst-scope-wins, per `verification-scope.md`). Step 9.7 uses this

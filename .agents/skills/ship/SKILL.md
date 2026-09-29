@@ -40,8 +40,9 @@ Ship is the close-out phase of the tail (`qa → review → ship → reflect`): 
 
 ## What You Receive
 
-- **Change folder:** `.skillgrid/specs/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` with the QA half complete, review artifacts).
+- **Change folder:** `.skillgrid/specs/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` with the QA half complete, `review.md` — the committed code-review audit record).
 - **`report.md` → `## Gate Decision` verdict** — the hard gate (PASS / CONCERNS / FAIL / WAIVED) and any human override.
+- **`review.md` → `## Verdict` floor** — the review gate (met / met-with-fixes / not met, the floor across both axes) + the independence grade; `not met` or a Grade C axis blocks the same way an unresolved CRITICAL does.
 - **`tasks.md` → `## Delivery Strategy`** — the four plain-text guard lines (`Decision needed before apply:`, `Chained PRs recommended:`, `Chain strategy:`, `400-line budget risk:`) and the work-unit table. `Chain strategy:` resolves the base branch.
 - **Fast-track waiver class** (`trivial` / `small`) if present — drives the light variant.
 
