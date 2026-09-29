@@ -235,39 +235,28 @@ Run the commands from `config.yaml` and compare against the `quality:` threshold
 
 **Threshold = 0 means disabled.** A gate with threshold 0 is N/A — it cannot FAIL.
 
-### Step 9.5: State Drift Check
+### Step 9.5: Deterministic Gate Checks
 
-Run `node .agents/skills/qa/scripts/state-drift-check.mjs` (from the project root). It compares
-`.skillgrid/state.yaml` against the spec zone and reports a named drift
-verdict. Read-only; it does not write `state.yaml`.
+Run `node .agents/skills/qa/scripts/qa-gate.mjs .` from the project root. It
+runs the three sub-checks (state drift, structure drift, size budget), captures
+their exit codes + SCOPE lines, and prints a JSON summary. Read the JSON.
 
-- **Exit 0** (`DRIFT: none`) — no drift. Continue.
-- **Exit 1** (drift detected) — record a **WARNING** finding in the report's
-  `## State Drift` section with the drift table (field, stale value, derived
-  value). The warning names the fix: "update `.skillgrid/state.yaml` to match
-  the spec-zone artifacts." It is **never CRITICAL** and **never affects the
-  four-state verdict** — same treatment as decision-debt (Assumed
-  blueprints). A drift hit means a pipeline skill forgot to update
-  `state.yaml` at a phase transition; the spec zone is the deeper truth.
-- **Exit 2** (usage/parse error) — `state.yaml` is missing or unparseable.
-  Record a **WARNING** and name the error. This is a process break (the
-  state file should exist and parse), not a verification gap.
+**Reading the JSON:**
 
-**Update `state.yaml` if drifted:** if the guard reports drift, patch
-`state.yaml` to match the derived values (the spec zone is the source of
-truth). Commit the fix with the report.
+- **`checks.state_drift`** — exit 1 (drift) → WARNING in the report's
+  `## State Drift` section with the drift table from `lines[]`. Never
+  CRITICAL, never affects the four-state verdict. Exit 2 (parse error) →
+  WARNING naming the error. If drifted, patch `state.yaml` to match the
+  derived values (spec zone is source of truth). Commit the fix.
+- **`checks.ship_drift`** — exit 1 (drift) → WARNING in the report's
+  `## Structure Drift` section with the table from `lines[]`. Advisory.
+  Exit 0 with `lines[0]` starting "skipped" → no base ref; note it.
+- **`checks.size_budget`** — exit 1 (overage) → WARNING per over-budget
+  skill. Exit 0 → no action. Advisory.
 
-### Step 9.6: Structure Drift Check
-
-Run `node .agents/skills/qa/scripts/ship-drift-check.mjs check <base-ref> --anticipated <dir1> <dir2> ... [project-root]`.
-
-- **`<base-ref>`**: resolve from `tasks.md` → `## Delivery Strategy` → `Chain strategy:` (same source ship uses). If `Chain strategy: pending`, skip this step (no base to diff against).
-- **`--anticipated`**: the union of file paths/directories listed in `tasks.md` (Files column) and any paths named in `blueprint.md`'s Global Constraints. Pass each as a separate `--anticipated` value.
-- **Exit 0** (`DRIFT: none`) — all changes within the anticipated set. Continue.
-- **Exit 1** (drift detected) — record a **WARNING** finding in the report's `## Structure Drift` section with the table of unanticipated files. The warning names the fix: "add these paths to `tasks.md` Files or investigate why they changed." Advisory — never CRITICAL, never affects the four-state verdict.
-- **Exit 2** (usage error) — record a **WARNING** and name the error.
-
-**Byte-budget check:** run `node .agents/skills/qa/scripts/skill-size-budget.mjs check .`. Exit 1 (overage) → add a WARNING finding to the report for each over-budget skill ("SKILL.md size overage: {name} at {size}B, ceiling {ceiling}B"). Exit 0 → no action. Advisory — never blocks the gate.
+**Scope:** read `scopes.composite`. This is the worst scope across all
+checks (worst-scope-wins, per `verification-scope.md`). Step 9.7 uses this
+value directly — do not re-derive it from the individual `SCOPE:` lines.
 
 ### Step 9.7: Verification Scope + Staleness Check
 
@@ -283,8 +272,9 @@ Scope` section:
 |---|---|
 | Traceability matrix | `COMPLETE` if every scenario in `acceptance.feature` was read; `TRUNCATED` if the file was read partially; `UNREADABLE` if the file was missing/unparseable |
 | Verification-gap audit | `COMPLETE` if all changed behaviors were enumerated from the diff; `TRUNCATED` if the diff was bounded (e.g. `--since` window); `UNREADABLE` if the diff could not be read |
-| State Drift (9.5) | the `SCOPE:` line emitted by `state-drift-check.mjs` |
-| Structure Drift (9.6) | the `SCOPE:` line emitted by `ship-drift-check.mjs` |
+| State Drift (9.5) | `scopes.state_drift` from the `qa-gate.mjs` JSON |
+| Structure Drift (9.5) | `scopes.ship_drift` from the `qa-gate.mjs` JSON |
+| Composite (all) | `scopes.composite` from the `qa-gate.mjs` JSON (worst-scope-wins) |
 
 Record each as `SCOPE: <atom>`. If a derivation's scope is not `COMPLETE`, that
 is a named non-answer, not a clean bill — it is reflected in the gate per the
