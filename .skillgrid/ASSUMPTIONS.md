@@ -27,11 +27,11 @@ Confirmed against the code, a spike, or a primary source. These are the facts th
 | **Installer** | `install` / `sync-repo` / `setup`; wires agents, MCP, Hub Content | Writes to `~/.skillgrid/`, `~/.agents/`, and agent config files; the only writer of agent MCP config |
 | **Mnemonic Engine** | Memory (observations, search, provenance, governance, session relay) + Code Intelligence (indexing, orientation, graph, hybrid search, taint) + shared project resolution | Owns the per-project SQLite store; no transport concerns |
 | **Distribution Surface** | MCP stdio (`mcp`), HTTP/REST + embedded SPA + OpenAPI/Swagger (`serve`), and the CLI command group | Owns the transports; no data ownership; the one real trust boundary lives here (MCP-spawn model, ADR-0005) |
-| **Hub Content** | `.agents/skills/` (30 skills), `hooks/` + `git-hooks/` + `plugins/`, `config.d/` | Shipped by the Installer (staged to `~/.skillgrid/`); not a runtime component of the binary |
+| **Hub Content** | `.agents/skills/` (37 skills as of 2026-09-29), `hooks/` + `git-hooks/` + `plugins/`, `config.d/` | Shipped by the Installer (staged to `~/.skillgrid/`); not a runtime component of the binary |
 
 **Stack (measured from the repo).** Go 1.26 (module `github.com/devopstales/skillgrid/skillgrid-cli`); pure-Go SQLite (`modernc.org/sqlite`, cgo-free — `skillgrid doctor` reports `cgo: free`); tree-sitter (`odvcencio/gotreesitter`); ONNX inference in-process (`benedoc-inc/onnxer`, nomic-embed-code default); MCP server (`mark3labs/mcp-go`); Leiden community detection (`bluuewhale/loom`); fsnotify watcher; `charmbracelet/huh` for the interactive multiselect. Embedded SPA is Vite + React 19 + TypeScript + Tailwind 4 + TanStack Router, built into `skillgrid-cli/internal/mnemonic/http/ui/dist` and embedded via `//go:embed`.
 
-**Store.** Per-project SQLite (WAL) under `~/.skillgrid/mnemonic/`, pure-Go driver (no CGo), embedded migrations (001→043), store pooling (refcounted `ProjectHandle` by project ID), TTL soft-expiry + distill/dream consolidation bound the store. No unbounded growth.
+**Store.** Per-project SQLite (WAL) under `~/.skillgrid/mnemonic/`, pure-Go driver (no CGo), embedded migrations (verified 2026-09-29: `001_schema.sql` with 002–039 squashed in, plus `040_session_events.sql`, `041_drop_handoff_tables.sql`, `042_vec0_tables.sql` — migration 043 (bi-temporal, ADR-0011) is pending apply), store pooling (refcounted `ProjectHandle` by project ID), TTL soft-expiry + distill/dream consolidation bound the store. No unbounded growth.
 
 **HTTP surface.** Binds `127.0.0.1:7438` (or `SKILLGRID_MNEMONIC_PORT`); REST routes for memory/code/sessions/web/health/tracker; embedded SPA served at `/`; `/openapi.yaml` + Swagger UI present. HTTP write routes are protected by the `SKILLGRID_HTTP_TOKEN` bearer check (`requireWriteAuth`); read routes stay open.
 
@@ -39,13 +39,13 @@ Confirmed against the code, a spike, or a primary source. These are the facts th
 
 **Vector search (measured, ADR-0006 + ADR-0009).** The live `aiskillgrid` store held 3,905 symbol + 18,676 chunk vectors (768-dim, 54.7 MB of BLOBs). The semantic leg is an **in-memory brute-force cosine over a process-global vector cache** (`hybrid/vectorcache.go`), invalidated on re-index / model swap. Measured cost: pre-cache ~220 ms/query, of which ~190 ms (87%) was the SQLite BLOB scan + row decode through the pure-Go reader — not the cosine math (~28 ms). Post-cache the warm semantic leg is ~28 ms. The cgo-free single-binary invariant is preserved. A spike (`.skillgrid/spikes/001-cgo-free-vector-db`) measured the in-SQL `modernc.org/sqlite/vec` path at ~6.9 s median top-K at 100K vectors (~1.4 s at 20K) and `viant/sqlite-vec` as blocked (packaging bug + `ensureIndex` query deadlock).
 
-**Bi-temporal observations (implemented, ADR-0011).** `observations` carries `valid_at`, `invalid_at`, `superseded_by` (migration 043); the save path (`SaveWithAction`) classifies each write as Add/Update/Delete/Noop and produces the supersede chain automatically; `mem_save` returns `action` + `superseded_id`. The 7 primary read sites filter `invalid_at` so superseded observations do not leak into results.
+**Bi-temporal observations (ADR-0011 — decision committed, implementation not in HEAD).** The ADR specifies that `observations` carries `valid_at`, `invalid_at`, `superseded_by` (planned migration 043); that the save path (`SaveWithAction`) classifies each write as Add/Update/Delete/Noop and produces the supersede chain automatically; that `mem_save` returns `action` + `superseded_id`; and that the 7 primary read sites filter `invalid_at` so superseded observations do not leak into results. The ADR + spec are committed, but at the 2026-09-29 verification the code tree shows none of it (no columns, no migration 043, no `SaveWithAction`) — the apply is pending. Promote this bullet back to "implemented" when the code lands.
 
 **Drift guards (implemented, ADR-0008 + ADR-0010).** `scripts/state-drift-check.mjs` and `scripts/ship-drift-check.mjs` are read-only Node verifiers (the `yaml` npm package is the repo's first and only npm dependency). Each emits a `SCOPE: <atom>` line (`COMPLETE`/`TRUNCATED`/`UNSCOPED`/`UNREADABLE`) after its `DRIFT:` verdict; the QA gate fails closed on any non-`COMPLETE` scope.
 
 **v1.0 line (ADR-0003).** v1.0 is "the engine is trustworthy" — verifiable with the existing tools (`install_test.go`, `doctor --strict`, `eval`, the staleness gate). The embedded dashboard ships as stubs in v1.0; it is Phase 2 (v1.1).
 
-**Known gaps (current state, committed as roadmap).** UI dashboard pages are all `StubPage` (Phase 2, v1.1); the `ui:build` Taskfile task is missing and `go build` requires a pre-built `ui/dist` (v1.1); tracker provider 501s on some `/tracker/*` providers (v1.1); the process-pass LLM labeler is a deterministic stub `processLLMStub` (v1.2); the README is stale (installer-first framing, smaller command surface, "bare `skillgrid` = install") — a follow-up ticket; housekeeping: a stray `internal/mnemonic/mcp/.git` nested repo (remove) and a migration 032 numbering gap (known, no action).
+**Known gaps (current state, verified against the tree 2026-09-29).** UI dashboard: 10 feature modules are real (decisions, docs, git, kanban, mnemonic, plans, prototypes, sessions, tracker) but `SettingsPage` is still `StubPage` (Phase 2, v1.1); the `ui:build` Taskfile task now exists and `build:all` depends on it — `go build` alone still requires a pre-built `ui/dist`; tracker providers 501 on unknown `/tracker/*` providers (v1.1); the process-pass LLM labeler is a deterministic stub `processLLMStub` (v1.2); the ADR-0011 bi-temporal save path is decided + specified but not yet in the code (see above); the ADR-0014 `wiki` compiler is decided + specified (`specs/2026-09-29-llmwiki-okf-wiki/`) but not yet implemented (no `internal/mnemonic/wiki/`, no `.wiki/`); the README is stale (installer-first framing, smaller command surface, "bare `skillgrid` = install") — a follow-up ticket; housekeeping: a stray `internal/mnemonic/mcp/.git` nested repo (still present; remove) and a migration numbering gap (002–039 squashed into `001_schema.sql`, so 032 was never a file — known, no action).
 
 ---
 
@@ -55,8 +55,8 @@ Treated as true but not yet confirmed. Each rests on a named assumption; promote
 
 - **H1 — the secondary persona is real but small.** The "AI-tooling builder who embeds the capability" persona falls out of the MCP/HTTP surface and is not a separate product. Assumed (PRD Question 2): no explicit MCP tool-contract semver in v1.0; the OpenAPI is the de-facto contract for the HTTP surface. *Not confirmed* by external demand.
 - **H2 — the advisory-only posture carries into `eval`.** The config's `coverage_min: 0` / no hard thresholds means `eval` reports a baseline, it does not gate (PRD Assumption 1). *Not confirmed* that a future release won't add a hard threshold; that would be a change, not a reframe.
-- **H3 — the v1.1 dashboard prioritization is undecided.** Memories+Sessions-first vs. Graph+Tracker-first is assumed to be decided at v1.1 scoping, not now (PRD Question 1). *Not confirmed* either way.
-- **H4 — the 30 skills + hooks ship as content, their behavior is out of PRD scope.** Their *shipping* is in scope (Installer section); their *behavior* is covered in the user guide (PRD Assumption 3). This is the assumption that lets the engine PRD and the pipeline skills stay separate documents.
+- **H3 — the v1.1 dashboard prioritization is undecided.** Memories+Sessions-first vs. Graph+Tracker-first was assumed to be decided at v1.1 scoping (PRD Question 1). *Partially overtaken*: as of 2026-09-29 the dashboard ships both families (mnemonic/memories/sessions/graph + tracker) as real feature modules — only `SettingsPage` is a `StubPage`. Revisit whether H3 still carries a decision.
+- **H4 — the shipped skills + hooks ship as content, their behavior is out of PRD scope.** Their *shipping* is in scope (Installer section); their *behavior* is covered in the user guide (PRD Assumption 3). This is the assumption that lets the engine PRD and the pipeline skills stay separate documents. (Skill count is 37 as of 2026-09-29; the assumption is about scope, not count.)
 - **H5 — the `Distribution Surface` term is stable enough to use in the component map.** The code does not use the term (it has `internal/mnemonic/mcp`, `internal/mnemonic/http`, and the CLI command group as separate packages). The term is in the glossary; if it drifts, ADR-0004's component map needs a re-word, not a re-decomposition.
 
 ---
@@ -84,8 +84,10 @@ Single source for what is **currently in force**. **In force** = `status: accept
 | 0011 | Observations are bi-temporal; the save path classifies each write as Add/Update/Delete/Noop | accepted | — | — | 2026-09-24 | yes |
 | 0012 | ASSUMPTIONS consolidation: PRD + ADRs + locked constraints fold into one root file | accepted | — | — | 2026-09-29 | yes |
 | 0013 | Source of truth: the repo is authoritative; Backlog task ID ↔ commit SHA is the linkage | accepted | — | — | 2026-09-29 | yes |
+| 0014 | Knowledge projection: a pure-Go `wiki` compiler emits a dual-compat OKF v0.2 + Obsidian + llmwiki `.wiki/` | accepted | — | — | 2026-09-29 | yes |
+| 0015 | Hermes skill ports: pygount toolchain dep + MIT ports with attribution + three-wiki topology (skill curates, compiler exports) | accepted | — | 0014 | 2026-09-29 | yes |
 
-**Highest sequence in use:** 0013 (next ADR is `### ADR-0014` below).
+**Highest sequence in use:** 0015 (next ADR is `### ADR-0016` below).
 
 ### ADR-0001 — PRD scope is the whole Hub Product, not the binary alone
 
@@ -172,6 +174,28 @@ Single source for what is **currently in force**. **In force** = `status: accept
 
 **Revisit.** When a hosted Backlog/sync lands that would re-introduce a second authoritative tracker (then this becomes linkage-as-minimum-bar, not repo-as-truth), or when the `[skillgrid-context]` block gains a machine-checkable task-reference field (then the linkage moves from convention to schema).
 
+### ADR-0014 — Knowledge projection: a pure-Go `wiki` compiler emits a dual-compat OKF v0.2 + Obsidian + llmwiki `.wiki/`
+
+*Status note (2026-09-29): decision + spec committed; implementation not yet applied — there is no `internal/mnemonic/wiki/` package, no `cmd/skillgrid/wiki.go`, and no `.wiki/` directory in the tree. The change is `specs/2026-09-29-llmwiki-okf-wiki/` (briefing/design/spec/tasks/acceptance all present, status `draft`).*
+
+**Decision.** Add a `wiki` capability to the Mnemonic Engine: a pure-Go, stdlib-only compiler (`skillgrid wiki compile` + `skillgrid wiki lint`) that projects the project's knowledge into a single `.wiki/` directory that is **simultaneously** (a) an OKF v0.2 knowledge bundle, (b) an Obsidian vault, and (c) a microsoft/llmwiki workspace. The compiler is **read-mostly and offline**: it reads `.skillgrid/` (source of truth, read directly — *not* mirrored), `web_cache` SQLite (fresh `context7|exa|deepwiki|fetch` rows, read directly — *no `raw/` middle step*), and user-dropped `raw/**/*.md` (indexed, never rewritten), and writes only `.wiki/wiki/` + `.wiki/AGENTS.md` (+ a gitignored `.wiki/.wiki-manifest.json`). It is **deterministic** (injected clock, stable sort, content-hash gate, preserved `generated.at`) so a no-op recompile is byte-identical (empty `git diff`).
+
+**Why.** `.skillgrid/` is the human-authored source of truth and Mnemonic SQLite is the AI-only derived store, but (at decision time) there was no human-readable, portable artifact of the project's knowledge — an agent (or a fresh clone) leaving the repo had no bundle of "what we decided, what we learned, what we researched." A single `.wiki/` that is OKF-conformant (portable to any consumer), an Obsidian vault (human-readable, `[[wikilink]]` graph), and an llmwiki workspace (LLM-readable, `raw/`+`index.md`+`log.md`+`AGENTS.md`) collapses three projection targets into one artifact with one writer. Pure-Go + stdlib-only keeps it inside the no-new-deps lock; determinism makes `.wiki/` a clean git commit (a projection you can diff, not a cache you regenerate and ignore).
+
+**Consequences.** Good: one artifact, one writer, three consumers; the compile is a pure function of committed sources + the local store (local-first preserved); `.skillgrid/` and `web_cache` stay untouched (read-only); the no-churn invariant means the git history of `.wiki/` is meaningful (a change in a page = a real change in a source). Bad: the compiler is a *projection* — it can drift from the sources if someone hand-edits `.wiki/` (mitigated by `wiki lint` + the determinism contract treating `.wiki/` as compiler-owned); `web_cache`-derived Findings have no `raw/` file, so they appear in the page tree and backlink via `sources` but are absent from llmwiki's "Raw Sources" tree (accepted tradeoff — provenance is carried by `sources: [url]`).
+
+**Pillar 1 scope.** Sources: `.skillgrid/` (ADRs, Terms, State, Specs, Spikes, Constraints, Architecture existence-gated) + `web_cache` (cited → `Finding`, uncited → `research/` draft) + `raw/` (Finding/Source). Edges: explicit (EXTRACTED) only — no LLM-inferred pass (a follow-up adds INFERRED edges + a `wiki_inferred_edges` table). The `skillgrid-vscode` extension and the dashboard `features/wiki/` view are separate follow-up changes that *read* the `.wiki/` this produces. `stale_after` horizon: 90 days (absolute instant = `generated.at`/`fetched_at` + 90d).
+
+**Revisit.** When Pillar 2 (Mnemonic `observations` + distilled memory as sources) lands, when the LLM-inferred-edge pass + `wiki_inferred_edges` persistence lands, when `wiki` subcommands beyond `compile`/`lint` (`graph`, `list`) are wanted, or when a non-stdlib YAML emitter becomes unavoidable (then a dep ADR).
+
+### ADR-0015 — Hermes skill ports: pygount toolchain dep + MIT ports with attribution + three-wiki topology
+
+**Decision.** (a) `pygount` (pip) is an approved toolchain dependency for the ported `codebase-inspection` skill — installed on demand by the agent, never vendored, never on the Go build path. (b) Six Hermes skills (`codebase-inspection`, `obsidian`, `dogfood`, `grounded-citations`, `simplify-code`, `llm-wiki`) are ported into `.agents/skills/` under their MIT licenses with author attribution lines preserved (Hermes Agent; Teknium where credited upstream). Ported skills follow skillgrid anatomy (frontmatter, budgets, `skillgrid:` cross-refs) and live in the grouped layout; behavioral deltas from upstream are documented in each SKILL.md. (c) Three-wiki topology: the ported `llm-wiki` skill **curates** three targets — the personal `~/wiki` vault, the machine `~/.skillgrid/wiki` store, and (as read context) the project `.wiki/` — while the ADR-0014 Go `wiki` compiler is **just the export function**: it alone writes project `.wiki/`, the skill never writes there directly. The `obsidian-headless` + Sync-subscription tail of the upstream skill is explicitly out of scope (paid account, machine-level concern).
+
+**Why.** The survey of `~/.hermes/skills` (58 skills, 12 groups) showed six with no skillgrid equivalent and a clean license story (all MIT). Rewriting them from zero would lose tested edge-case knowledge (pygount exclusion lists, citation-verification gates, the 4-reviewer fan-out protocol); porting with attribution keeps the knowledge and honors the license. The three-wiki ruling settles the one real collision in the batch: without it, an agent-curated wiki skill and a compiler-projected `.wiki/` would both claim to own project knowledge pages.
+
+**Consequences.** Good: onboarding brownfield enrollment, exploratory QA, citation-grounded research, diff-driven cleanup, and vault curation arrive tested instead of invented; the `.wiki/` single-writer invariant from ADR-0014 survives. Bad: `pygount` availability varies by machine (Windows/macOS pip friction — mitigated by the skill's install fallback); six new model-invoked descriptions add context tax on every request (`dogfood` is the documented first candidate to flip user-invoked if it bites).
+
 ### Locked constraints
 
 These override per-change decisions and are the hard limits a change must respect. A constraint is locked only when the user says so — inferred limits belong in VERIFIED or an ADR entry, not here. The `### Rules` section of `AGENTS.md` is rendered from this list, one bullet per constraint. `state.yaml constraints_ref` points at this file.
@@ -194,7 +218,7 @@ These override per-change decisions and are the hard limits a change must respec
 
 - The config's advisory-only posture (coverage_min 0, no hard thresholds) carries into `eval`: it reports a baseline, it does not gate. *(see INFERRED H2 — treat as an assumption, not a confirmed constraint, until a release changes it.)*
 - "Local-first" means no network except install-time npm/git and an optional external embedder; a future hosted mode is a v2.0 exploration, not a v1.x commitment.
-- The 30 skills + hooks are repo content shipped by the Installer; their *behavior* is out of scope for the PRD (covered in the user guide), but their *shipping* is in scope. *(see INFERRED H4.)*
+- The shipped skills + hooks are repo content shipped by the Installer; their *behavior* is out of scope for the PRD (covered in the user guide), but their *shipping* is in scope. *(see INFERRED H4. Count is 37 as of 2026-09-29 — it moves as skills are added.)*
 
 ---
 
@@ -202,7 +226,8 @@ These override per-change decisions and are the hard limits a change must respec
 
 Questions that are not yet decided and not yet spiked.
 
-1. **v1.1 dashboard prioritization** — Memories+Sessions-first vs. Graph+Tracker-first. Decided at v1.1 scoping, not now (see INFERRED H3).
+1. **v1.1 dashboard prioritization** — Memories+Sessions-first vs. Graph+Tracker-first. Decided at v1.1 scoping, not now (see INFERRED H3). (Partially answered in practice: the dashboard already ships 10 feature modules, including both Memories+Sessions and Graph; what remains is settings + polish.)
 2. **MCP tool-contract versioning** — is the secondary persona strong enough to warrant stable, versioned MCP tool contract (semver on the tool surface)? Assumed no in v1.0 (see INFERRED H1).
 3. **README alignment** — the README is still installer-first; aligning it to the engine-first PRD is a follow-up ticket, not part of this consolidation.
-4. **Housekeeping** — remove the stray `internal/mnemonic/mcp/.git` nested repo; the migration 032 numbering gap is a known issue with no action.
+4. **Housekeeping** — remove the stray `internal/mnemonic/mcp/.git` nested repo (still present as of 2026-09-29); the migration numbering gap (002–039 squashed into `001_schema.sql`) is a known issue with no action.
+5. **ADR-0014 apply sequencing** — the `wiki` compiler spec is complete but unapplied; decide whether it ships before or after the ADR-0011 bi-temporal apply (both are independent; ADR-0014 reads `web_cache` + `.skillgrid/`, not `observations`).
