@@ -74,6 +74,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"use_skill",
 		// Hybrid BM25+vector fact/skill search (2026-09-04-hermes-memory, TICKET-05).
 		"hybrid_search",
+		// On-demand session context injection (2026-09-24-mnemonic-session-inject, TICKET-05).
+		"mem_inject_session",
 	}
 	if len(tools) != len(want) {
 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)

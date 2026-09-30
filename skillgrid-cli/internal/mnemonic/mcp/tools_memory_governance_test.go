@@ -38,8 +38,8 @@ func TestMemGovernanceTools(t *testing.T) {
 
 	// Tool surface: 80 (hub/relay tools removed by the session events layer
 	// consolidation; session_changes remains).
-	if len(tools) != 92 {
-		t.Errorf("expected 92 tools, got %d", len(tools))
+	if len(tools) != 93 {
+		t.Errorf("expected 93 tools, got %d", len(tools))
 	}
 
 	// Existing 005 mem_* tools keep their names + required params unchanged.
