@@ -239,14 +239,14 @@ func TestSensitiveWriteRedacted(t *testing.T) {
 		"/home/u/.ssh/config", "~/.aws/credentials",
 	}
 	for _, p := range sensitivePaths {
-		if !isSensitivePath(p) {
-			t.Errorf("isSensitivePath(%q) = false, want true", p)
+		if !IsSensitivePath(p) {
+			t.Errorf("IsSensitivePath(%q) = false, want true", p)
 		}
 	}
 	cleanPaths := []string{"src/main.go", "README.md", "my.aws.backup", "src/keyboard.go"}
 	for _, p := range cleanPaths {
-		if isSensitivePath(p) {
-			t.Errorf("isSensitivePath(%q) = true, want false", p)
+		if IsSensitivePath(p) {
+			t.Errorf("IsSensitivePath(%q) = true, want false", p)
 		}
 	}
 }

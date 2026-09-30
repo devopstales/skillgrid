@@ -801,6 +801,31 @@ func (s *Service) Recent(ctx context.Context, limit int) ([]Observation, error) 
 	return scanObservations(rows)
 }
 
+// RecentObservations returns the project's most recent observations, newest
+// first, up to limit, excluding soft-deleted rows. It is the project-scoped
+// read path behind session-inject L1 summary distillation.
+func (s *Service) RecentObservations(ctx context.Context, limit int) ([]Observation, error) {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return nil, errors.New("memory service not initialized")
+	}
+	if limit <= 0 {
+		limit = defaultSearchLimit
+	}
+	rows, err := s.store.DB.QueryContext(ctx, `
+		SELECT `+obsSelectCols+`
+		FROM observations
+		WHERE deleted_at IS NULL AND project = ?
+		ORDER BY created_at DESC, id DESC
+		LIMIT ?`,
+		s.projectID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("recent observations: %w", err)
+	}
+	defer rows.Close()
+	return scanObservations(rows)
+}
+
 // RecentWithType is like Recent but restricted to observations whose fine
 // granularity memory_type matches the given one of the 10 typed categories
 // (014 step 18). This is the read path behind `mem list --type <category>`.

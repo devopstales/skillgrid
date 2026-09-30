@@ -536,7 +536,7 @@ func (s *Service) hookSessionStop(ctx context.Context, payload HookPayload) (Hoo
 // file_read→files_read, command_exec→commands_exec, an error result→errors, a
 // sensitive path→sensitive_actions (on top of the action counter).
 //
-// Sensitive paths (isSensitivePath) never persist raw content: the payload
+// Sensitive paths (IsSensitivePath) never persist raw content: the payload
 // stores only {"content_hash","preview"} — the SHA-256 of the full content
 // plus the masked first-200-chars preview from redactPreview.
 func (s *Service) hookPostToolUse(ctx context.Context, payload HookPayload) (HookResult, error) {
@@ -559,7 +559,7 @@ func (s *Service) hookPostToolUse(ctx context.Context, payload HookPayload) (Hoo
 	}
 	isErr := isErrorStatus(status)
 	path := strings.TrimSpace(payload.File)
-	sensitive := isSensitivePath(path)
+	sensitive := IsSensitivePath(path)
 
 	storedPayload := strings.TrimSpace(payload.ContentPreview)
 	if sensitive && storedPayload != "" {

@@ -25,7 +25,7 @@ const previewMaxChars = 200
 // like an assignment is masked, whether or not the key looks secret-y.
 var envValueRe = regexp.MustCompile(`(?m)^(\s*[A-Za-z_][A-Za-z0-9_.\-]*\s*=).*$`)
 
-// isSensitivePath reports whether path touches secret-bearing material:
+// IsSensitivePath reports whether path touches secret-bearing material:
 //   - a `.env` file (exactly, or `.env.<suffix>` variants)
 //   - a `*.pem` / `*.key` private key file
 //   - any path containing a `secret` segment
@@ -34,7 +34,7 @@ var envValueRe = regexp.MustCompile(`(?m)^(\s*[A-Za-z_][A-Za-z0-9_.\-]*\s*=).*$`
 //
 // Matching is case-insensitive and slash-normalized so Windows-style
 // separators behave the same.
-func isSensitivePath(path string) bool {
+func IsSensitivePath(path string) bool {
 	p := strings.ToLower(filepath.ToSlash(strings.TrimSpace(path)))
 	if p == "" {
 		return false
