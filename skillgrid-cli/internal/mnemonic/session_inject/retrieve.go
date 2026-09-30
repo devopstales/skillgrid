@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -15,6 +16,9 @@ const (
 	injectSnippetMaxChars  = 200
 	injectDefaultMaxTokens = 800
 	injectSearchLimit      = 20
+	// rrfK is the standard Reciprocal Rank Fusion constant, matching the
+	// k=60 used by memory.ReciprocalRankFusion.
+	rrfK = 60
 )
 
 // InjectItem is one ranked observation projected into the injected context:
@@ -52,7 +56,10 @@ func HybridRetrieve(ctx context.Context, mem *memory.Service, projectID, query s
 	}
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return &RetrieveResult{Degraded: !memory.EmbeddingEnabled()}, nil
+		// An empty query produces no query vector, so the vector leg cannot
+		// contribute regardless of embedder config (consistent with the
+		// embedder-aware queryVector contract).
+		return &RetrieveResult{Degraded: true}, nil
 	}
 
 	queryVec, degraded := queryVector(ctx, mem, query)
@@ -82,41 +89,70 @@ func queryVector(ctx context.Context, mem *memory.Service, query string) (memory
 }
 
 func crossProjectSearch(ctx context.Context, mem *memory.Service, projectID, query string, queryVec memory.Vector) ([]memory.Observation, error) {
+	// Cross-bucket fusion: each bucket (the primary project plus every sibling
+	// project) contributes one ranked list from its own BlendedSearch, already
+	// RRF-fused internally (FTS+vector). Concatenating the lists would hide
+	// sibling hits whenever the primary has >= injectSearchLimit matches, so
+	// we fuse across buckets with RRF:
+	//   score(key) = sum over buckets of 1/(rrfK + rank_in_bucket + 1)
+	// The same formula/constant as memory.ReciprocalRankFusion (that helper
+	// only blends two lists; here we have N bucket lists), keyed by
+	// "project:id" because ids collide across buckets. Ties break on key
+	// string (deterministic).
+	ranked := [][]memory.Observation{}
 	primary, err := mem.BlendedSearch(ctx, query, "any", "", queryVec, injectSearchLimit)
 	if err != nil {
 		return nil, err
 	}
-	var out []memory.Observation
-	seen := map[string]bool{}
-	for _, o := range primary {
-		seen[o.Project+":"+itoa(o.ID)] = true
-		out = append(out, o)
-	}
-	dir, e := dataDirFromService(mem)
-	if e != nil {
-		return out, nil
-	}
-	for _, name := range siblingProjects(dir, projectID) {
-		st, oErr := store.Open(dir, name)
-		if oErr != nil {
-			continue
-		}
-		svc := memory.New(st, name)
-		if emb := mem.DirEmbedder(); emb != nil {
-			svc.SetDirEmbedder(emb)
-		}
-		hits, sErr := svc.BlendedSearch(ctx, query, "any", "", queryVec, injectSearchLimit)
-		st.Close()
-		if sErr != nil {
-			continue
-		}
-		for _, o := range hits {
-			key := o.Project + ":" + itoa(o.ID)
-			if !seen[key] {
-				seen[key] = true
-				out = append(out, o)
+	ranked = append(ranked, primary)
+	if dir, e := dataDirFromService(mem); e == nil {
+		for _, name := range siblingProjects(dir, projectID) {
+			st, oErr := store.Open(dir, name)
+			if oErr != nil {
+				continue
 			}
+			svc := memory.New(st, name)
+			if emb := mem.DirEmbedder(); emb != nil {
+				svc.SetDirEmbedder(emb)
+			}
+			hits, sErr := svc.BlendedSearch(ctx, query, "any", "", queryVec, injectSearchLimit)
+			st.Close()
+			if sErr != nil {
+				continue
+			}
+			ranked = append(ranked, hits)
 		}
+	}
+
+	byKey := map[string]memory.Observation{}
+	keys := []string{}
+	scores := map[string]float64{}
+	for _, list := range ranked {
+		for rank, o := range list {
+			key := o.Project + ":" + itoa(o.ID)
+			if _, ok := byKey[key]; !ok {
+				byKey[key] = o
+				keys = append(keys, key)
+			}
+			scores[key] += 1.0 / float64(rrfK+rank+1)
+		}
+	}
+	// keys[i] corresponds to out[i]; sort both together by fused score (desc),
+	// key string (asc) on ties.
+	idx := make([]int, len(keys))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool {
+		sa, sb := scores[keys[idx[a]]], scores[keys[idx[b]]]
+		if sa != sb {
+			return sa > sb
+		}
+		return keys[idx[a]] < keys[idx[b]]
+	})
+	out := make([]memory.Observation, len(keys))
+	for i, k := range idx {
+		out[i] = byKey[keys[k]]
 	}
 	return out, nil
 }

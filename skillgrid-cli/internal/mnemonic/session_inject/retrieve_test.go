@@ -46,8 +46,16 @@ func encodeVectorBytes(v memory.Vector) []byte {
 
 func seedObservation(t *testing.T, st *store.Store, project, title, content string) {
 	t.Helper()
+	seedObservationAt(t, st, project, title, content, time.Now().UTC())
+}
+
+// seedObservationAt is seedObservation with an explicit timestamp, so tests
+// can make one observation strictly older than another (FTS ties break on
+// created_at, which is what cross-bucket RRF rank order depends on).
+func seedObservationAt(t *testing.T, st *store.Store, project, title, content string, at time.Time) {
+	t.Helper()
 	ctx := context.Background()
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := at.UTC().Format(time.RFC3339)
 	if _, err := st.DB.ExecContext(ctx,
 		`INSERT OR REPLACE INTO sessions (id, project, directory, started_at) VALUES (?,?,?,?)`,
 		"sess-t3", project, t.TempDir(), now); err != nil {
@@ -167,11 +175,27 @@ func TestHybridRetrieve_ProjectScope(t *testing.T) {
 func TestHybridRetrieve_AllProjects(t *testing.T) {
 	t.Setenv("MNEMONIC_EMBED", "")
 	dir := t.TempDir()
-	seedObservations(t, dir, "project-a", 5)
-	seedObservations(t, dir, "project-b", 5)
+	// Seed >= injectSearchLimit (20) project-a hits, all matching "auth" and
+	// all timestamped before the project-b hit. Under concatenation the primary
+	// top-20 (all project-a) precedes the project-b hit (b's only match, so it
+	// ranks last under RRF too); with maxTokens=205 the token budget fits
+	// exactly the 20 project-a items (~10 tokens each, 200 total) but drops the
+	// 21st (project-b). Cross-bucket RRF re-ranks b (1/61 vs 1/79..1/99) to the
+	// front, so b only surfaces via the fusion.
+	base := time.Now().UTC().Add(-time.Hour)
+	seedObservations(t, dir, "project-a", 20)
+	bSt, err := store.Open(dir, "project-b")
+	if err != nil {
+		t.Fatalf("open store project-b: %v", err)
+	}
+	t.Cleanup(func() { bSt.Close() })
+	seedObservationAt(t, bSt, "project-b",
+		"auth vault rotation",
+		"authentication token rotation detail vault",
+		base.Add(time.Hour).Add(30*time.Second)) // strictly after every project-a row
 	svc := memoryNew(dir, "project-a")
 
-	res, err := HybridRetrieve(context.Background(), svc, "project-a", "auth", true, 800)
+	res, err := HybridRetrieve(context.Background(), svc, "project-a", "auth", true, 205)
 	if err != nil {
 		t.Fatalf("HybridRetrieve: %v", err)
 	}
@@ -179,13 +203,23 @@ func TestHybridRetrieve_AllProjects(t *testing.T) {
 		t.Fatal("expected items spanning projects, got none")
 	}
 	seen := map[string]bool{}
+	sawB := false
 	for _, it := range res.Items {
 		if it.Project != "project-a" && it.Project != "project-b" {
 			t.Errorf("item from unexpected project %q", it.Project)
 		}
 		seen[it.Project] = true
+		if it.Project == "project-b" {
+			sawB = true
+		}
 	}
 	if !seen["project-a"] || !seen["project-b"] {
 		t.Errorf("expected items from both projects, saw %v", seen)
+	}
+	// Fusion proof: the project-b hit outranked enough project-a hits to make
+	// the fused top 20. Concatenation (primary first, no cross-list RRF) puts
+	// all 20 project-a hits before it, and the token cap drops the rest.
+	if !sawB {
+		t.Error("project-b hit did not surface despite cross-bucket fusion: concatenation would have hidden it")
 	}
 }
