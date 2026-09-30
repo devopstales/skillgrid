@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"sync/atomic"
 	"time"
 )
 
@@ -315,16 +316,16 @@ func runCLI(ctx context.Context, cli string, args ...string) (stdout string, run
 	if err := cmd.Start(); err != nil {
 		return "", &errCLIFailed{CLI: cli, Stderr: truncate200(err.Error())}
 	}
-	timedOut := false
+	var timedOut atomic.Bool
 	timer := time.AfterFunc(timeout, func() {
-		timedOut = true
+		timedOut.Store(true)
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	})
 	err := cmd.Wait()
 	timer.Stop()
 	stderr := truncate200(errBuf.String())
 	output := truncate200(outBuf.String())
-	if timedOut || ctx.Err() == context.DeadlineExceeded {
+	if timedOut.Load() || ctx.Err() == context.DeadlineExceeded {
 		return "", &errCLIFailed{CLI: cli, Stderr: stderr, Output: output, Timeout: true}
 	}
 	if err != nil {
