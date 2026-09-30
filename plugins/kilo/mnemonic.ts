@@ -32,6 +32,7 @@
 //   SKILLGRID_MNEMONIC_HTTP_TOKEN (bearer for write routes, empty = open)
 //   SKILLGRID_MNEMONIC_BIN        (default "skillgrid")
 //   SKILLGRID_MNEMONIC_NUDGE_COOLDOWN_SECS (default 900)
+//   SKILLGRID_MNEMONIC_PRIVATE_TOOLS (comma-separated always-private tools)
 
 const BASE_URL = (
   process.env.SKILLGRID_MNEMONIC_HTTP_URL ?? "http://127.0.0.1:7438"
@@ -71,6 +72,92 @@ async function health(): Promise<boolean> {
     const res = await fetch(BASE_URL + "/health", { signal: AbortSignal.timeout(500) })
     return res.ok
   } catch { return false }
+}
+
+// ─────────────────────── Tool-call capture ──────────────────────────
+// Fire-and-forget POST of every tool call's summary to the monitoring
+// route. Never blocks or fails the tool call: errors are swallowed.
+
+const AGENT: string = "kilo"
+const MAX_PREVIEW_LENGTH = 500
+
+function contentHash(str: string): string {
+  let h = 0
+  for (let i = 0; i < str.length; i++) {
+    h = (h << 5) - h + str.charCodeAt(i)
+    h |= 0
+  }
+  return `h${(h >>> 0).toString(16).padStart(8, "0")}`
+}
+
+function mapToolType(tool: string): string {
+  switch (String(tool ?? "").toLowerCase()) {
+    case "bash":
+    case "shell":
+      return "shell"
+    case "read":
+    case "glob":
+    case "grep":
+      return "file_read"
+    case "write":
+    case "edit":
+      return "file_write"
+    default:
+      return "other"
+  }
+}
+
+// Always-private allowlist: tools named in SKILLGRID_MNEMONIC_PRIVATE_TOOLS
+// have their output scrubbed before the summary hits the wire (the tool call
+// itself is still recorded, with path/command only).
+function alwaysPrivateTools(): Set<string> {
+  return new Set(
+    String(process.env.SKILLGRID_MNEMONIC_PRIVATE_TOOLS ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  )
+}
+
+function isSensitiveToolPath(p: string): boolean {
+  return /(^|\/)\.(git|ssh|aws|config)(\/|$)/i.test(p)
+}
+
+function resultStatus(result: any): string {
+  if (result === null || result === undefined) return "success"
+  if (typeof result === "string") return "success"
+  if (result.error !== undefined && result.error !== null) return "error"
+  if (typeof result.status === "string" && result.status !== "") return result.status
+  if (typeof result.ok === "boolean") return result.ok ? "success" : "error"
+  if (typeof result.success === "boolean") return result.success ? "success" : "error"
+  if (typeof result.exitCode === "number") return result.exitCode === 0 ? "success" : "error"
+  return "success"
+}
+
+function postToolCall(directory: string, sessionId: string, tool: string, args: any, result: any): void {
+  try {
+    if (!sessionId || !tool) return
+    const path = String(args?.filePath ?? args?.path ?? args?.file ?? args?.target ?? "")
+    const command = String(args?.command ?? "")
+    // Always-private tools: scrub the result entirely (path/command are kept —
+    // they are structural, not output).
+    const resultText = alwaysPrivateTools().has(String(tool).toLowerCase())
+      ? ""
+      : (typeof result === "string" ? result : result === undefined ? "" : String(JSON.stringify(result) ?? ""))
+    const content = stripPrivateTags([path, command, resultText].join("\n"))
+    const body = {
+      session_id: sessionId,
+      agent: AGENT,
+      type: mapToolType(tool),
+      tool_name: String(tool),
+      path: isSensitiveToolPath(path) ? "[REDACTED]" : path,
+      command: isSensitiveToolPath(command) ? "[REDACTED]" : command,
+      result_status: resultStatus(result),
+      content_hash: content === "" ? "" : contentHash(content),
+      content_preview: truncate(content, MAX_PREVIEW_LENGTH),
+    }
+    void req("POST", `/sessions/${encodeURIComponent(sessionId)}/tool-calls?project=${encodeURIComponent(projectFor(directory))}`, body)
+  } catch { /* observe-mode: capture never fails the tool call */ }
 }
 
 // ─────────────────────────── Privacy strip ───────────────────────────
@@ -447,11 +534,19 @@ export const Mnemonic: Plugin = async (ctx) => {
       output.args.session_id = sessionId
     },
 
-    // ── Task passive capture (fail-open): attribute to the authoritative root ──
+    // ── Task passive capture + tool-call summary (fail-open) ──
     "tool.execute.after": async (input: any, output: any) => {
-      if (String(input?.tool ?? "") !== "Task" || output === undefined || output === null) return
+      const tool = String(input?.tool ?? "")
       const client = String(input?.sessionID ?? "")
-      const sessionId = await resolveRoot(client)
+      const sessionId = await resolveRoot(client).catch(() => "")
+      // Tool-call summary: observe-mode, fire-and-forget, never fails the call.
+      // Always-private allowlisted tools are captured with their output scrubbed.
+      if (sessionId && tool) {
+        void Promise.resolve()
+          .then(() => postToolCall(directory, sessionId, tool, input?.args, output))
+          .catch(() => {})
+      }
+      if (tool !== "Task" || output === undefined || output === null) return
       if (!sessionId) return
       const text = typeof output === "string" ? output : JSON.stringify(output)
       if (text.length <= 50) return
