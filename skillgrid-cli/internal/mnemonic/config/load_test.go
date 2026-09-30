@@ -203,9 +203,7 @@ func TestLoad_HooksDefaultOn(t *testing.T) {
 		[]byte("mnemonic:\n  hooks:\n    enabled: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := Load(dir)
-	t.Logf("debug enabled=%v", got.Hooks.Enabled)
-	if got.Hooks.Enabled {
+	if got := Load(dir); got.Hooks.Enabled {
 		t.Fatalf("hooks.enabled: false must opt out, got true")
 	}
 	// Explicit opt-in stays on (and a malformed timeout keeps the zero
@@ -214,7 +212,7 @@ func TestLoad_HooksDefaultOn(t *testing.T) {
 		[]byte("mnemonic:\n  hooks:\n    enabled: true\n    timeout: 45s\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got = Load(dir)
+	got := Load(dir)
 	if !got.Hooks.Enabled {
 		t.Fatalf("hooks.enabled: true must stay on, got false")
 	}

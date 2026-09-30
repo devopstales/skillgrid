@@ -11,9 +11,10 @@ package memory
 // MatchSkills filters skills by intent first, then ranks language-matched
 // skills ahead of language-unspecific ones.
 //
-// LIFECYCLE HOOKS are opt-in per project (mnemonic.hooks.enabled, default
-// false) and each runs under a per-hook timeout (mnemonic.hooks.timeout,
-// default 30s). The four hook types:
+// LIFECYCLE HOOKS are on by default per project (mnemonic.hooks.enabled,
+// default true — observe-mode: writes rows, never blocks) and each runs
+// under a per-hook timeout (mnemonic.hooks.timeout, default 30s). The four
+// hook types:
 //
 //   - session-start  — inject the project's recent memories + the skills
 //     matched by the query's classified intent.
@@ -246,9 +247,10 @@ const (
 const DefaultHookTimeout = 30 * time.Second
 
 // HooksConfig tunes the lifecycle hooks (014 step 24.3). Enabled is the
-// opt-in switch (default false — no hook runs until enabled). Timeout is the
-// per-hook budget; a non-positive value falls back to DefaultHookTimeout
-// inside SetHooks.
+// switch (config-level default true — observe-mode; the memory-package zero
+// value is false, so a fresh Service has hooks off until the service layer
+// routes the config via SetHooks). Timeout is the per-hook budget; a
+// non-positive value falls back to DefaultHookTimeout inside SetHooks.
 type HooksConfig struct {
 	Enabled bool
 	Timeout time.Duration

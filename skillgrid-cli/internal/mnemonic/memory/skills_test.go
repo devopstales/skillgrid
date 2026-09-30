@@ -134,7 +134,8 @@ func TestLifecycleHookSessionStart(t *testing.T) {
 	st, svc := newTestStore(t, "hookproj")
 	sid := newSession(t, svc)
 	ctx := context.Background()
-	// Hooks are opt-in (default off): enable them for this project.
+	// The config-level default is true (observe-mode); the memory-package
+	// zero value is off, so enable them explicitly for this test.
 	svc.SetHooks(HooksConfig{Enabled: true})
 	// Wire the session-close distillation seam (in production the service
 	// layer wires the real layer.Distill; here we record the call).
@@ -237,16 +238,18 @@ func TestLifecycleHookSessionStart(t *testing.T) {
 	}
 }
 
-// TestHooksOptInWithTimeout is 24.3 [AFK]: hooks are opt-in per project
-// (default off → no hook runs) and each hook runs under a configurable
-// timeout (default 30s) that returns a descriptive timeout error when the
-// hook work exceeds the budget.
+// TestHooksOptInWithTimeout is 24.3 [AFK]: the memory-package hooks switch
+// is off until SetHooks is called (config-level default is true, observe-
+// mode; the zero value here is what a fresh Service starts with) and each
+// hook runs under a configurable timeout (default 30s) that returns a
+// descriptive timeout error when the hook work exceeds the budget.
 func TestHooksOptInWithTimeout(t *testing.T) {
 	t.Run("disabled by default", func(t *testing.T) {
 		_, svc := newTestStore(t, "hooksoff")
 		sid := newSession(t, svc)
 		ctx := context.Background()
-		// No SetHooks call: Enabled defaults to false.
+		// No SetHooks call: the config-level default is true, but this tests
+		// the memory-package default (zero value = false).
 		_, err := svc.RunHook(ctx, "prompt-submit", HookPayload{Query: "fix the bug"})
 		if err == nil {
 			t.Fatalf("hooks disabled: RunHook should fail, got nil")
