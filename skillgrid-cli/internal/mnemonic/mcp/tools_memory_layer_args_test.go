@@ -53,8 +53,8 @@ func TestMemLayersRegisteredAndStable(t *testing.T) {
 	}
 	// The surface count: 80 (hub/relay tools removed by the session events
 	// layer consolidation).
-	if len(tools) != 90 {
-		t.Errorf("expected 90 tools, got %d", len(tools))
+	if len(tools) != 92 {
+		t.Errorf("expected 92 tools, got %d", len(tools))
 	}
 	for name, wantRequired := range expectedMemToolSurface {
 		st, ok := tools[name]

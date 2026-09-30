@@ -64,6 +64,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"mem_layers",
 		// Session events read (session events layer, TICKET-04).
 		"session_changes",
+		// Cross-session event query + JSONL export (TICKET-03).
+		"mem_query_events", "mem_export_events",
 		// Fact Memory (2026-09-04-hermes-memory, TICKET-01 + TICKET-02).
 		"fact_add", "fact_search", "fact_forget", "fact_decay", "fact_decay_all",
 		// Agent Skill registry (2026-09-04-hermes-memory, TICKET-03).
