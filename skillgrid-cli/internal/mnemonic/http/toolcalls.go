@@ -10,7 +10,7 @@ import (
 
 type toolCallBody struct {
 	SessionID      string `json:"session_id"`
-	Agent          string `json:"agent"`
+	Agent          string `json:"agent"` // accepted but not yet persisted (HookPayload has no Agent field)
 	Type           string `json:"type"`
 	ToolName       string `json:"tool_name"`
 	Path           string `json:"path"`

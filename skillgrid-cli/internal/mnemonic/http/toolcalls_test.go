@@ -16,23 +16,20 @@ import (
 
 func newToolCallsServer(t *testing.T) (*Server, string) {
 	t.Helper()
+	// Isolate config.d/indexing.yaml in a throwaway directory so parallel
+	// tests (and SIGKILL) never mutate the repo CWD.
+	workDir := t.TempDir()
+	t.Chdir(workDir)
 	dataDir := t.TempDir()
 	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
 	seedStore(t, dataDir)
-	// Config resolves from CWD via openProject(id, "."), so write
-	// config.d/indexing.yaml in the current working directory.
-	cfgDir := filepath.Join(".", "config.d")
+	cfgDir := filepath.Join(workDir, "config.d")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatalf("mkdir config.d: %v", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "indexing.yaml")
-	if err := os.WriteFile(cfgPath, []byte("mnemonic:\n  hooks:\n    enabled: true\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cfgDir, "indexing.yaml"), []byte("mnemonic:\n  hooks:\n    enabled: true\n"), 0o644); err != nil {
 		t.Fatalf("write indexing.yaml: %v", err)
 	}
-	t.Cleanup(func() {
-		os.Remove(cfgPath)
-		os.Remove(cfgDir)
-	})
 	s := NewServer(service.New(dataDir))
 	return s, dataDir
 }
