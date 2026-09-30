@@ -106,6 +106,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /sessions", s.requireWriteAuth(s.handleSessionCreate))
 	s.mux.HandleFunc("POST /sessions/{id}/end", s.requireWriteAuth(s.handleSessionEnd))
 	s.mux.HandleFunc("POST /sessions/{id}/title", s.requireWriteAuth(s.handleSessionSetTitle))
+	s.mux.HandleFunc("POST /sessions/{id}/tool-calls", s.requireWriteAuth(s.handleToolCallCreate))
 	s.mux.HandleFunc("GET /sessions/{id}", s.handleSessionGet)
 	// P6 Sessions entry: open list read + per-session summary read.
 	s.mux.HandleFunc("GET /sessions", s.handleSessionList)
