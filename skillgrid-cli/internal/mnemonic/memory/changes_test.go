@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,76 @@ func runGit(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// TestSessionChangesIgnoresStaleCheckpoint: a checkpoint.json left on disk from
+// before the events-layer consolidation is ignored — a session's position comes
+// from its event stream, not the stale file. A positive control proves the read
+// path returns the real commit range, and an unknown session still errors with
+// the file present. SATISFIES old-surfaces-removed-stale-file.
+//
+// Runs in its own process: openTracerService pins MNEMONIC_PROJECT via
+// t.Setenv, which is not goroutine-safe under the parallel test scheduler — a
+// leaked override from a sibling test would flip project.Resolve and shift
+// from_commit. A dedicated process keeps the env pin intact for this test.
+func TestSessionChangesIgnoresStaleCheckpoint(t *testing.T) {
+	t.Setenv("GO_TEST_PROCESS", "1")
+	svc, _ := openTracerService(t)
+	ctx := context.Background()
+
+	repoDir := initGitRepo(t)
+	head1 := runGit(t, repoDir, "rev-parse", "HEAD")
+	commitFile(t, repoDir, "b.txt", "two\n")
+	head2 := runGit(t, repoDir, "rev-parse", "HEAD")
+
+	sid, err := svc.SessionStart(ctx, repoDir, "stale-checkpoint")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := svc.SessionEnd(ctx, sid, ""); err != nil {
+		t.Fatalf("end: %v", err)
+	}
+
+	// Stale checkpoint from before the consolidation. from_commit carries the
+	// PRE-session commit (head1) — a reader of the file would resume at head1
+	// instead of the session's real event-derived from_commit, so the
+	// distinction is non-tautological (head1 != head2).
+	stale := map[string]any{
+		"version":     1,
+		"from_commit": head1,
+		"to_commit":   head2,
+	}
+	staleJSON, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatalf("marshal stale checkpoint: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "checkpoint.json"), staleJSON, 0o644); err != nil {
+		t.Fatalf("write stale checkpoint.json: %v", err)
+	}
+
+	// Position comes from the event stream, not the stale file.
+	evts, from, to, err := svc.SessionChanges(ctx, sid)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if from != head2 || to != head2 {
+		t.Errorf("change range = (%q, %q), want (%q, %q) from events — stale checkpoint.json (from=%s) was not ignored",
+			from, to, head2, head2, head1)
+	}
+	if len(evts) != 2 {
+		t.Errorf("events = %d, want 2 (start + end) from the event stream", len(evts))
+	}
+	if evts[0].ActionType != "session_start" || evts[1].ActionType != "session_end" {
+		t.Errorf("event stream = (%q, %q), want (session_start, session_end)",
+			evts[0].ActionType, evts[1].ActionType)
+	}
+
+	// Unknown session still errors with the stale file present (the file is not
+	// a fallback source for session position).
+	if _, _, _, err := svc.SessionChanges(ctx, "no-such-session"); err == nil ||
+		!strings.Contains(err.Error(), "not found") {
+		t.Errorf("unknown session err = %v, want session-not-found (stale file present)", err)
+	}
 }
 
 // initGitRepo creates a temp git repo with one commit and returns its dir.

@@ -6,7 +6,9 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -102,6 +104,66 @@ func TestPostToolUseAppendsOrderedEvents(t *testing.T) {
 		SessionID: "no-such-session", ToolName: "Read", File: "x.go",
 	}); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("unknown session err = %v, want session-not-found", err)
+	}
+}
+
+// TestPostToolUseConcurrentAppendsUniqueSequences: N parallel subagents report
+// tool calls on one session concurrently. Each appendSessionEvent takes its
+// next sequence from MAX(sequence)+1 inside its own write transaction, so the
+// WAL write lock serializes them — every recorded entry must land a unique,
+// gap-free position, and the per-session counters must exactly match the event
+// count (the event row and its counter bump commit in one tx, so they can never
+// diverge). SATISFIES tool-call-stream-concurrent.
+func TestPostToolUseConcurrentAppendsUniqueSequences(t *testing.T) {
+	const n = 24
+	svc, sid := enableToolHooks(t)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = svc.RunHook(ctx, HookPostToolUse, HookPayload{
+				SessionID: sid, ToolName: "Write",
+				File: fmt.Sprintf("gen/file_%02d.go", i), ContentPreview: "package gen\n",
+			})
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent hook %d: %v", i, err)
+		}
+	}
+
+	evts, _, _, err := svc.SessionChanges(ctx, sid)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	// session_start (seq 0) + n tool calls.
+	if len(evts) != n+1 {
+		t.Fatalf("expected %d events (start + %d tool calls), got %d", n+1, n, len(evts))
+	}
+
+	seen := make(map[int]bool, n)
+	for i, e := range evts {
+		if e.Sequence != i {
+			t.Errorf("event[%d].Sequence = %d, want %d (gap or duplicate in order)", i, e.Sequence, i)
+		}
+		if seen[e.Sequence] {
+			t.Errorf("duplicate sequence %d", e.Sequence)
+		}
+		seen[e.Sequence] = true
+		if i > 0 && e.ActionType != "file_write" {
+			t.Errorf("event[%d].ActionType = %q, want file_write", i, e.ActionType)
+		}
+	}
+
+	_, filesWritten, _, _, _ := sessionCounters(t, svc, sid)
+	if filesWritten != n {
+		t.Errorf("files_written = %d, want %d (counters must match the event count)", filesWritten, n)
 	}
 }
 
