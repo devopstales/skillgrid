@@ -1,6 +1,6 @@
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: "idle"
+  current_phase: "reflect"
   current_change: ""
   status: idle
 progress:
