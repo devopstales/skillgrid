@@ -1,7 +1,7 @@
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: "planning"
-  current_change: "2026-09-30-mnemonic-second-brain"
+  current_phase: "slicing"
+  current_change: "2026-09-24-mnemonic-monitoring"
   status: in_progress
 progress:
   completed_changes: 17
