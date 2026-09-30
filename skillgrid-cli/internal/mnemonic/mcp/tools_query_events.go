@@ -84,13 +84,3 @@ func handleExportEvents(ctx context.Context, req mcplib.CallToolRequest) (*mcpli
 	}
 	return JSONResult(map[string]any{"jsonl": jsonl})
 }
-
-// HandleQueryEventsForTest exposes the mem_query_events handler to tests.
-func HandleQueryEventsForTest(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	return handleQueryEvents(ctx, req)
-}
-
-// HandleExportEventsForTest exposes the mem_export_events handler to tests.
-func HandleExportEventsForTest(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	return handleExportEvents(ctx, req)
-}
