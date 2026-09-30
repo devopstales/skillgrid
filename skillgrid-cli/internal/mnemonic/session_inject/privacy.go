@@ -7,8 +7,7 @@ import (
 )
 
 // Injectable reports whether a session event is safe to include in the
-// injected context. Sensitive events (is_sensitive=1) are excluded; the
-// underlying path classification is memory.IsSensitivePath.
+// injected context, returning !e.IsSensitive.
 func Injectable(e memory.Event) bool {
 	return !e.IsSensitive
 }

@@ -111,14 +111,35 @@ func TestDistillSummary_TokenCap(t *testing.T) {
 	}
 }
 
+func TestDistillSummary_TokenCapSmallCap(t *testing.T) {
+	svc := newTestService(t)
+	sessionID := seedSessionWithEvents(t, svc, 60)
+
+	ctx := context.Background()
+	summary, err := DistillSummary(ctx, svc, sessionID, 40)
+	if err != nil {
+		t.Fatalf("DistillSummary: %v", err)
+	}
+	tokens := EstimateTokens(summary)
+	if tokens > 40 {
+		t.Errorf("summary exceeds small token cap: %d > 40", tokens)
+	}
+}
+
 func TestDistillSummary_ExcludesSensitive(t *testing.T) {
 	svc := newTestService(t)
-	sessionID := seedSessionWithSensitiveEvents(t, svc, 5, 3)
+	sessionID := seedSessionWithSensitiveEvents(t, svc, 10, 3)
 
 	ctx := context.Background()
 	summary, err := DistillSummary(ctx, svc, sessionID, 2000)
 	if err != nil {
 		t.Fatalf("DistillSummary: %v", err)
+	}
+	if summary == "" {
+		t.Fatalf("expected non-empty summary with 5 non-sensitive events")
+	}
+	if !strings.Contains(summary, "src/file3.go") {
+		t.Errorf("expected non-sensitive path src/file3.go to be present in summary")
 	}
 	for _, secret := range []string{".env", ".pem", ".ssh/", ".aws/"} {
 		if strings.Contains(summary, secret) {

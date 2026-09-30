@@ -132,7 +132,18 @@ func truncateToTokens(s string, maxTokens int) string {
 	if len(s) <= maxChars {
 		return s
 	}
-	kept := s[:maxChars]
 	omitted := EstimateTokens(s[maxChars:])
-	return kept + fmt.Sprintf("\n… (%d tokens truncated)", omitted)
+	suffix := fmt.Sprintf("\n… (%d tokens truncated)", omitted)
+	budget := maxTokens - EstimateTokens(suffix)
+	if budget < 0 {
+		budget = 0
+	}
+	cut := budget * 4
+	if cut > len(s) {
+		cut = len(s)
+	}
+	if budget <= 0 {
+		return s[:cut]
+	}
+	return s[:cut] + suffix
 }
