@@ -1,6 +1,6 @@
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: "slicing"
+  current_phase: "qa"
   current_change: "2026-09-24-mnemonic-monitoring"
   status: in_progress
 progress:
