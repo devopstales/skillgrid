@@ -101,3 +101,47 @@ func TestPruneOldEvents_BestEffort(t *testing.T) {
 		t.Fatalf("PruneOldEvents on a closed DB: got no error, deleted=%d", deleted)
 	}
 }
+
+// TestPruneOldEvents_TimestampFormatInvariant locks an implicit cross-module
+// contract: PruneOldEvents compares timestamps by RFC3339 string, so every
+// writer must store a second-granularity UTC instant. If a writer ever emits
+// fractional seconds, a mixed offset, or a non-UTC zone, the string compare
+// silently mis-prunes. This asserts a freshly-written event's stored timestamp
+// is exactly time.RFC3339 (UTC, no fractional seconds).
+func TestPruneOldEvents_TimestampFormatInvariant(t *testing.T) {
+	_, svc := newTestStore(t, "retformat")
+	sid := newSession(t, svc)
+	ctx := context.Background()
+	// The memory-package zero value is off; enable hooks so RunHook does the
+	// real post_tool_use work (the writer seam retention.go compares against).
+	svc.SetHooks(HooksConfig{Enabled: true})
+
+	_, err := svc.RunHook(ctx, HookPostToolUse, HookPayload{
+		SessionID: sid, ToolName: "Write", File: "a.go", ResultStatus: "success",
+	})
+	if err != nil {
+		t.Fatalf("RunHook(post_tool_use): %v", err)
+	}
+	// Read back the event the hook just wrote (the row appended by the writer,
+	// not the session_start seed).
+	var ts string
+	if err := svc.store.DB.QueryRowContext(ctx,
+		`SELECT timestamp FROM session_events WHERE session_id = ? ORDER BY sequence DESC LIMIT 1`,
+		sid,
+	).Scan(&ts); err != nil {
+		t.Fatalf("read back event timestamp: %v", err)
+	}
+	// Must parse as RFC3339 and carry a UTC zone (no mixed/non-UTC offset).
+	parsed, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		t.Fatalf("stored timestamp %q is not RFC3339: %v", ts, err)
+	}
+	if !parsed.UTC().Equal(parsed) {
+		t.Fatalf("stored timestamp %q is not a UTC instant", ts)
+	}
+	// The exact invariant: round-trips through time.RFC3339 with no fractional
+	// seconds (a writer using RFC3339Nano or an offset would fail this).
+	if got := parsed.UTC().Format(time.RFC3339); got != ts {
+		t.Fatalf("stored timestamp %q does not round-trip as time.RFC3339 UTC (got %q) — fractional seconds or non-UTC offset would break the SQL string compare", ts, got)
+	}
+}
