@@ -80,7 +80,7 @@ convention is written to be portable to a Go leaf later without rework.
 - `scripts/test-state-drift.mjs`, `scripts/test-ship-drift-check.mjs` —
   fixtures asserting the scope line on the clean, missing-specs, and bad-base
   paths.
-- `.agents/skills/qa/SKILL.md` — Step 9.7 (Verification Scope + Staleness
+- `.agents/skills/verification/SKILL.md` — Step 9.7 (Verification Scope + Staleness
   Check), a `## Verification Scope` section in `templates/report.md`, and a
   fail-closed rule in the four-state gate (only `COMPLETE` scope satisfies PASS).
 - `.agents/skills/qa/templates/report.md` — the `## Verification Scope` table.

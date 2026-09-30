@@ -28,7 +28,7 @@ A good contribution names the behavior it fixes or improves and shows the before
 - **Description.** Trigger-based, third person, no process steps (see [docs/skill-anatomy.md](docs/skill-anatomy.md)).
 - **Relative links.** Every `../` link in a skill must resolve. Verify before committing.
 - **Zone rule (BDD).** Commit `.skillgrid/specs/` changes before the code that satisfies them — never both in one commit. The `precommit-zone-guard` blocks mixed commits.
-- **Test pyramid.** `qa` picks the highest test layer that fits each behavior and guards against duplicate coverage. Don't add a test at a higher layer when a cheaper layer covers the same behavior — see [`.agents/skills/qa/references/test-strategy.md`](.agents/skills/qa/references/test-strategy.md).
+- **Test pyramid.** `qa` picks the highest test layer that fits each behavior and guards against duplicate coverage. Don't add a test at a higher layer when a cheaper layer covers the same behavior — see [`.agents/skills/verification/qa/references/test-strategy.md`](.agents/skills/qa/references/test-strategy.md).
 - **Review lens contract.** Each `parallel-code-review/reviewers/*.md` lens promises a specific output shape (a JSON array with required keys, or a structured block). The **single source of truth** for that contract is the `LENS_CONTRACTS` table in [`scripts/check-lens-contract.mjs`](scripts/check-lens-contract.mjs). Change a lens's output shape and you MUST update the matching row — `check-lens-contract.mjs` fails otherwise. A stale contract is a broken guarantee.
 
 ## Layout
