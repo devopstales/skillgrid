@@ -136,13 +136,15 @@ func boardFor(provider, status string) string {
 		default:
 			return "todo"
 		}
-	default: // backlogmd + unknown: triage-ish → todo, active → in_progress
+	default: // backlogmd + unknown: triage-ish → todo, ready → ready, active → in_progress
 		switch s {
 		case "blocked":
 			return "blocked"
 		case "done", "wontfix":
 			return "done"
-		case "ready-for-agent", "ready-for-human", "in-progress", "in_progress":
+		case "ready-for-agent", "ready-for-human":
+			return "ready"
+		case "in-progress", "in_progress":
 			return "in_progress"
 		default:
 			return "todo"

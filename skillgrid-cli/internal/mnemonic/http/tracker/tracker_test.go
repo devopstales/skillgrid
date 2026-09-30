@@ -474,11 +474,14 @@ func TestPhase2_NotFoundNonZeroExit(t *testing.T) {
 func TestPhase2_BoardMapping(t *testing.T) {
 	cases := []struct{ provider, status, want string }{
 		{ProviderBacklogMD, "needs-triage", "todo"},
-		{ProviderBacklogMD, "ready-for-agent", "in_progress"},
+		{ProviderBacklogMD, "ready-for-agent", "ready"},
+		{ProviderBacklogMD, "ready-for-human", "ready"},
 		{ProviderBacklogMD, "in-progress", "in_progress"},
 		{ProviderBacklogMD, "blocked", "blocked"},
 		{ProviderBacklogMD, "done", "done"},
 		{ProviderBacklogMD, "wontfix", "done"},
+		{ProviderBacklogMD, "ready", "todo"}, // literal "ready" is not a status → default
+		{ProviderBacklogMD, "needs-info", "todo"},
 		{ProviderGitHub, "OPEN", "todo"},
 		{ProviderGitHub, "CLOSED", "done"},
 		{ProviderGitLab, "opened", "todo"},

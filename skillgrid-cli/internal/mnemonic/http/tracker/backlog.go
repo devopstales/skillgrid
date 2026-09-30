@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -136,8 +137,41 @@ func firstKey(fm map[string]string, keys ...string) string {
 	return ""
 }
 
+var (
+	acBeginRE = regexp.MustCompile(`(?i)<!--\s*AC:BEGIN\s*-->`)
+	acEndRE   = regexp.MustCompile(`(?i)<!--\s*AC:END\s*-->`)
+	acItemRE  = regexp.MustCompile(`^\s*[-*]\s*\[[ xX]\]`)
+	acDoneRE  = regexp.MustCompile(`^\s*[-*]\s*\[[xX]\]`)
+)
+
+// countAC parses the AC:BEGIN/AC:END block in a task body and returns the
+// number of checked and total checkbox items. Returns (0, 0) when the block
+// is absent.
+func countAC(body string) (completed, total int) {
+	begin := acBeginRE.FindStringIndex(body)
+	if begin == nil {
+		return 0, 0
+	}
+	rest := body[begin[1]:]
+	end := acEndRE.FindStringIndex(rest)
+	if end == nil {
+		return 0, 0
+	}
+	block := rest[:end[0]]
+	for _, line := range strings.Split(block, "\n") {
+		if acItemRE.MatchString(line) {
+			total++
+			if acDoneRE.MatchString(line) {
+				completed++
+			}
+		}
+	}
+	return completed, total
+}
+
 func backlogTaskFrom(fm map[string]string, fmLists map[string][]string, body string) UnifiedTask {
 	status := strings.TrimSpace(fm["status"])
+	acCompleted, acTotal := countAC(body)
 	return UnifiedTask{
 		ID:           strings.TrimSpace(fm["id"]),
 		Title:        strings.TrimSpace(fm["title"]),
@@ -150,6 +184,8 @@ func backlogTaskFrom(fm map[string]string, fmLists map[string][]string, body str
 		DocRefs:      fmLists["references"],
 		Board:        boardFor(ProviderBacklogMD, status),
 		Dependencies: fmLists["dependencies"],
+		ACCompleted:  acCompleted,
+		ACTotal:      acTotal,
 		Milestone:    strings.TrimSpace(fm["milestone"]),
 		Parent:       strings.TrimSpace(fm["parent"]),
 		DueDate:      strings.TrimSpace(firstKey(fm, "due_date", "dueDate")),
