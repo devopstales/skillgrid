@@ -427,6 +427,145 @@ func TestDecayUnknownFactFails(t *testing.T) {
 	}
 }
 
+// TestDecayAllDecaysAllAndPurgesBelowThreshold covers acceptance scenario 5
+// ("Decay via 014 AKL, logs event, purge below threshold"): DecayAll applies
+// the 014 AKL decay to every live fact, soft-deletes the ones whose
+// post-decay importance_score drops below the threshold, keeps the ones above
+// it, and logs a single fact_decay_batch event with the correct counts.
+func TestDecayAllDecaysAllAndPurgesBelowThreshold(t *testing.T) {
+	st := openTestStore(t)
+	sid := "sess-fact-decay-all"
+	seedTestSession(t, st, sid)
+	s := New(st.DB, "factstest")
+
+	ctx := context.Background()
+	kept, err := s.Add(ctx, sid, "fresh fact that survives the decay purge")
+	if err != nil {
+		t.Fatalf("Add kept: %v", err)
+	}
+	purged, err := s.Add(ctx, sid, "old fact that decays below the threshold")
+	if err != nil {
+		t.Fatalf("Add purged: %v", err)
+	}
+	purgedOld, err := s.Add(ctx, sid, "old fact already below the threshold")
+	if err != nil {
+		t.Fatalf("Add purgedOld: %v", err)
+	}
+
+	now := time.Now().UTC()
+	// The purged facts are 30 days old with a 0.1/day decay rate:
+	// 1.0 * exp(-0.1 * 30) ≈ 0.0498 — below the 0.5 purge threshold.
+	backdate := now.Add(-30 * 24 * time.Hour).Format(time.RFC3339)
+	const decayRate = 0.1
+	if _, err := st.DB.Exec(`
+		UPDATE facts SET created_at = ?, recency_decay = ?
+		WHERE id IN (?, ?)`, backdate, decayRate, purged, purgedOld); err != nil {
+		t.Fatalf("backdate purged facts: %v", err)
+	}
+	// The kept fact is fresh (age ≈ 0 → factor ≈ 1.0) and stays above 0.5.
+
+	decayed, purgedN, err := s.DecayAll(ctx, sid, 0.5)
+	if err != nil {
+		t.Fatalf("DecayAll: %v", err)
+	}
+	if decayed != 3 {
+		t.Errorf("decayed = %d, want 3 (every live fact)", decayed)
+	}
+	if purgedN != 2 {
+		t.Errorf("purged = %d, want 2 (the two below-threshold facts)", purgedN)
+	}
+
+	// The kept fact is still live, its score lowered by the decay pass
+	// (a fresh fact's factor is ≈ 1.0, so the score is just under 1.0).
+	var keptDeleted sql.NullString
+	var keptScore float64
+	if err := st.DB.QueryRow(`
+		SELECT deleted_at, importance_score FROM facts WHERE id = ?`, kept).
+		Scan(&keptDeleted, &keptScore); err != nil {
+		t.Fatalf("read kept fact: %v", err)
+	}
+	if keptDeleted.Valid {
+		t.Errorf("kept fact should survive (score above threshold)")
+	}
+	if keptScore <= 0.5 {
+		t.Errorf("kept fact score = %v, want above the 0.5 threshold", keptScore)
+	}
+
+	// The below-threshold facts are soft-deleted (row survives, deleted_at set).
+	for _, id := range []int64{purged, purgedOld} {
+		var content string
+		var deletedAt sql.NullString
+		if err := st.DB.QueryRow(`
+			SELECT content, deleted_at FROM facts WHERE id = ?`, id).
+			Scan(&content, &deletedAt); err != nil {
+			t.Fatalf("read purged fact %d: %v", id, err)
+		}
+		if content == "" {
+			t.Errorf("purged fact %d row should survive for the audit trail", id)
+		}
+		if !deletedAt.Valid || deletedAt.String == "" {
+			t.Errorf("purged fact %d should be soft-deleted (deleted_at set)", id)
+		}
+	}
+
+	// Default search no longer returns the purged facts.
+	got, err := s.Search(ctx, sid, "fact", 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	for _, f := range got {
+		if f.ID == purged || f.ID == purgedOld {
+			t.Errorf("soft-deleted fact %d present in default search", f.ID)
+		}
+	}
+
+	// The batch event carries the correct counts and the threshold.
+	var payload string
+	if err := st.DB.QueryRow(`
+		SELECT payload FROM session_events
+		WHERE session_id = ? AND action_type = 'fact_decay_batch'`, sid).
+		Scan(&payload); err != nil {
+		t.Fatalf("fact_decay_batch session event missing: %v", err)
+	}
+	var ev struct {
+		Decayed   int     `json:"decayed"`
+		Purged    int     `json:"purged"`
+		Threshold float64 `json:"threshold"`
+	}
+	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
+		t.Fatalf("parse batch payload %q: %v", payload, err)
+	}
+	if ev.Decayed != 3 || ev.Purged != 2 || ev.Threshold != 0.5 {
+		t.Errorf("batch payload = %+v, want decayed 3 purged 2 threshold 0.5", ev)
+	}
+}
+
+// TestDecayAllEmptyStoreIsNoOp: an empty store decays nothing, purges nothing,
+// and still logs the batch event with zero counts (the pass ran and found
+// nothing to do).
+func TestDecayAllEmptyStoreIsNoOp(t *testing.T) {
+	st := openTestStore(t)
+	sid := "sess-fact-decay-all-empty"
+	seedTestSession(t, st, sid)
+	s := New(st.DB, "factstest")
+	decayed, purged, err := s.DecayAll(context.Background(), sid, 0.5)
+	if err != nil {
+		t.Fatalf("DecayAll empty: %v", err)
+	}
+	if decayed != 0 || purged != 0 {
+		t.Errorf("DecayAll empty = (%d, %d), want (0, 0)", decayed, purged)
+	}
+	var n int
+	if err := st.DB.QueryRow(`
+		SELECT COUNT(*) FROM session_events
+		WHERE session_id = ? AND action_type = 'fact_decay_batch'`, sid).Scan(&n); err != nil {
+		t.Fatalf("count batch events: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("batch events = %d, want 1 (the pass still logs its result)", n)
+	}
+}
+
 // TestSessionEventSequenceIsMonotonic guards the events trail: three
 // consecutive fact tool calls append strictly increasing sequences in the
 // session's event stream, and the stream stays readable in sequence order

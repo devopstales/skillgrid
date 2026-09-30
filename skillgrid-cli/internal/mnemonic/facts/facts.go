@@ -1,7 +1,8 @@
 // Package facts is the Fact Memory module: durable, retrievable facts kept
 // beside observations (change 2026-09-04-hermes-memory). TICKET-01 ships Add;
 // TICKET-02 adds Search (lexical FTS + soft-delete filter), Forget (soft
-// delete), and Decay (014 AKL importance reuse).
+// delete), Decay (014 AKL importance reuse), and DecayAll (batch decay +
+// below-threshold purge, acceptance scenario 5).
 package facts
 
 import (
@@ -250,6 +251,13 @@ func (s *Store) Forget(ctx context.Context, sessionID string, factID int64) erro
 	return nil
 }
 
+// DefaultPurgeThreshold is the below-threshold purge cutoff for DecayAll:
+// facts whose post-decay importance_score drops below this are soft-deleted.
+// It mirrors the 0.5 prune threshold the Dream Executor uses for observations
+// (memory.dream.go, 014 step 12.3) — the same "low-importance" bar, so a fact
+// and an observation both have to clear 0.5 to survive decay+purge.
+const DefaultPurgeThreshold = 0.5
+
 // Decay applies the 014 AKL importance decay to one fact (TICKET-02):
 //
 //	importance_score = importance_score * exp(-decay_rate * age_days)
@@ -296,6 +304,80 @@ func (s *Store) Decay(ctx context.Context, sessionID string, factID int64) (floa
 		return 0, err
 	}
 	return newScore, nil
+}
+
+// DecayAll runs the batch decay + below-threshold purge the acceptance
+// scenario requires ("Decay via 014 AKL, logs event, purge below threshold").
+// It applies the same 014 AKL decay as Decay to every live (non-soft-deleted)
+// fact, then soft-deletes (deleted_at = now) every fact whose post-decay
+// importance_score is below threshold, and logs ONE session_events trail
+// (action_type="fact_decay_batch", payload carries decayed, purged, and
+// threshold). It returns the number of facts decayed and the number purged.
+//
+// The purge mirrors the Dream Executor's observation prune (memory.dream.go,
+// 014 step 12.3): the below-threshold row is soft-deleted, never hard-deleted,
+// and the row's FTS entry is left in place (FTS rows are external-content and
+// carry no deleted flag; default fact search joins deleted_at IS NULL to
+// exclude them). An empty store is a no-op that still logs the batch event
+// with zero counts (the pass ran and found nothing to do).
+func (s *Store) DecayAll(ctx context.Context, sessionID string, threshold float64) (decayed int, purged int, err error) {
+	if s == nil || s.db == nil {
+		return 0, 0, errors.New("facts store not initialized")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, importance_score, recency_decay, created_at
+		FROM facts WHERE deleted_at IS NULL`)
+	if err != nil {
+		return 0, 0, fmt.Errorf("decay all query: %w", err)
+	}
+	defer rows.Close()
+	type liveFact struct {
+		id      int64
+		score   float64
+		rate    float64
+		created string
+	}
+	var live []liveFact
+	for rows.Next() {
+		var f liveFact
+		if err := rows.Scan(&f.id, &f.score, &f.rate, &f.created); err != nil {
+			return 0, 0, fmt.Errorf("decay all scan: %w", err)
+		}
+		live = append(live, f)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, fmt.Errorf("decay all iterate: %w", err)
+	}
+	for _, f := range live {
+		created, parseErr := time.Parse(time.RFC3339, f.created)
+		if parseErr != nil || created.IsZero() {
+			created = time.Now().UTC()
+		}
+		newScore := f.score * memory.RecencyFactor(time.Since(created), f.rate)
+		if _, err := s.db.ExecContext(ctx, `
+			UPDATE facts SET importance_score = ?, updated_at = ? WHERE id = ?`,
+			newScore, now, f.id); err != nil {
+			return 0, 0, fmt.Errorf("decay all update %d: %w", f.id, err)
+		}
+		if newScore < threshold {
+			if _, err := s.db.ExecContext(ctx, `
+				UPDATE facts SET deleted_at = ?, updated_at = ?
+				WHERE id = ? AND deleted_at IS NULL`, now, now, f.id); err != nil {
+				return 0, 0, fmt.Errorf("purge fact %d: %w", f.id, err)
+			}
+			purged++
+		}
+		decayed++
+	}
+	if err := s.insertEvent(ctx, sessionID, "fact_decay_batch", map[string]any{
+		"decayed":   decayed,
+		"purged":    purged,
+		"threshold": threshold,
+	}); err != nil {
+		return 0, 0, err
+	}
+	return decayed, purged, nil
 }
 
 // insertEvent appends one session_events trail row with the next sequence
