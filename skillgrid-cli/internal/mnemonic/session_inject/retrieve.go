@@ -79,6 +79,10 @@ func HybridRetrieve(ctx context.Context, mem *memory.Service, projectID, query s
 func queryVector(ctx context.Context, mem *memory.Service, query string) (memory.Vector, bool) {
 	degraded := true
 	var vec memory.Vector
+	// The vector leg runs only when an embedder is attached AND embeddings are
+	// enabled (BlendedSearch gates its vector leg on the same two), AND the
+	// embed succeeds. Any miss means the vector leg did not contribute, so the
+	// result is degraded.
 	if mem.DirEmbedder() != nil && memory.EmbeddingEnabled() {
 		if v, err := mem.DirEmbedder().EmbedQuery(ctx, query); err == nil && len(v.Data) > 0 {
 			vec = v
