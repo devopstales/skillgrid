@@ -42,12 +42,12 @@ const TIER_OVERRIDE = {
   // Orchestrator: carries an entire phase of control flow whose steps
   // cross-reference each other too densely to split.
   "subagent-execution": "orchestrator",
-  // Heavy+: the plan-authoring spine — threat matrix, plan review, slicing
+  // 600: the plan-authoring spine — threat matrix, plan review, slicing
   // handoff, and the task-structure sample all cross-reference each other, so
   // the interlocking spine stays inline; only the deep-module tail is in
-  // references/. Ratcheted from 555 (real size at lock); push tail out to drop
-  // it back to "heavy" (500).
-  "writing-blueprints": "heavyPlus",
+  // references/. Ratcheted from 555 → 560 → 573 (real size at lock); push
+  // tail out to drop it back to "heavyPlus" (560).
+  "writing-blueprints": "orchestrator",
   // Heavy: process + many references.
   "ship": "heavy",
   "brainstorming": "heavy",
@@ -72,14 +72,18 @@ const HOT_PATHS = {
   close: ["ship", "reflect"],
   // ceiling: ratchet (raise only with a comment).
   // warnAt:  90% of ceiling.
-  "blueprint.ceiling": 600,
-  "blueprint.warnAt": 540,
+  // Ratcheted 2026-09-30 from the pre-grouping sizes: blueprint 540→630
+  // (writing-blueprints spine grew), execution 675→750 (subagent-execution
+  // review loop), qa 504→690 (qa gate checklist), close 657→730 (ship docs
+  // step). Each raise buys drift headroom, not growth permission.
+  "blueprint.ceiling": 630,
+  "blueprint.warnAt": 567,
   "execution.ceiling": 750,
   "execution.warnAt": 675,
-  "qa.ceiling": 560,
-  "qa.warnAt": 504,
-  "close.ceiling": 730,
-  "close.warnAt": 657,
+  "qa.ceiling": 690,
+  "qa.warnAt": 621,
+  "close.ceiling": 740,
+  "close.warnAt": 666,
 };
 
 const errors = [];
@@ -118,28 +122,32 @@ function parseName(fm) {
 
 // --- per-skill checks -------------------------------------------------------
 
-// Skills live either flat (a dir with SKILL.md) or one level deep inside a
-// group dir (a dir with DESCRIPTION.md, Hermes-style). _shared is infra,
-// not a skill. Group names never collide with skill names.
+// Skills live either flat (a dir with SKILL.md) or nested inside group dirs
+// (a dir with DESCRIPTION.md, Hermes-style; groups may nest, e.g. craft/
+// craft-refactor/). _shared is infra, not a skill. A skill is external when
+// its frontmatter lacks `metadata.part-of: skillgrid` — external skills are
+// inventoried (duplicate names, ref targets) but skip the skillgrid anatomy
+// checks, since they are vendored from third-party repos.
 const GROUP_DESC = "DESCRIPTION.md";
-const skillEntries = []; // { name, group: string|null }
-for (const d of readdirSync(SKILLS, { withFileTypes: true })) {
-  if (!d.isDirectory() || d.name === "_shared" || d.name.startsWith(".")) continue;
-  if (existsSync(join(SKILLS, d.name, "SKILL.md"))) {
-    skillEntries.push({ name: d.name, group: null });
-    continue;
-  }
-  if (existsSync(join(SKILLS, d.name, GROUP_DESC))) {
-    for (const s of readdirSync(join(SKILLS, d.name), { withFileTypes: true })) {
-      if (s.isDirectory() && existsSync(join(SKILLS, d.name, s.name, "SKILL.md"))) {
-        skillEntries.push({ name: s.name, group: d.name });
-      }
+const skillEntries = []; // { name, group: string|null, external: boolean }
+const groupNames = new Set();
+function scan(dir, group) {
+  for (const d of readdirSync(dir, { withFileTypes: true })) {
+    if (!d.isDirectory() || d.name.startsWith(".")) continue;
+    const p = join(dir, d.name);
+    if (existsSync(join(p, "SKILL.md"))) {
+      const text = readFileSync(join(p, "SKILL.md"), "utf8");
+      const external = !/^\s*part-of: *skillgrid/m.test(frontmatterOf(text) ?? "");
+      skillEntries.push({ name: d.name, group, external });
+    } else if (existsSync(join(p, GROUP_DESC))) {
+      groupNames.add(group ? `${group}/${d.name}` : d.name);
+      scan(p, group ? `${group}/${d.name}` : d.name);
     }
   }
 }
+scan(SKILLS, null);
 skillEntries.sort((a, b) => a.name.localeCompare(b.name));
 const skillDirs = skillEntries.map((e) => e.name);
-const groupNames = new Set(skillEntries.map((e) => e.group).filter(Boolean));
 const skillFile = (e) =>
   e.group ? join(SKILLS, e.group, e.name, "SKILL.md") : join(SKILLS, e.name, "SKILL.md");
 const skillRel = (e) =>
@@ -151,6 +159,14 @@ const skillRefsRel = (e, file) =>
     ? `.agents/skills/${e.group}/${e.name}/references/${file}`
     : `.agents/skills/${e.name}/references/${file}`;
 
+// Duplicate skill names are a load-order hazard: the first match wins silently.
+const seen = new Map();
+for (const e of skillEntries) {
+  const key = e.name.toLowerCase();
+  if (seen.has(key)) err(`${skillRel(e)}: duplicate skill name "${e.name}" (also ${seen.get(key)})`);
+  else seen.set(key, skillRel(e));
+}
+
 const lineCounts = {}; // skill name -> SKILL.md line count (for hot paths)
 
 for (const e of skillEntries) {
@@ -160,6 +176,7 @@ for (const e of skillEntries) {
   const text = readFileSync(f, "utf8");
   const nLines = text.split("\n").length;
   lineCounts[name] = nLines;
+  if (e.external || name === "_shared") continue;
 
   // 1. frontmatter
   const fm = frontmatterOf(text);
@@ -194,28 +211,27 @@ for (const e of skillEntries) {
     err(rel, `is ${nLines} lines (> ${tier} budget ${budget}) — push tail to references/`);
   }
 
-  // 4. cross-skill refs: no raw path into another skill's dir (flat or grouped).
-  // A grouped path contributes its skill segment (the second one); a flat
-  // path contributes its only segment.
-  const rawRef = text.match(/\.agents\/skills\/[a-z0-9-]+(?:\/[a-z0-9-]+)?\//g);
-  if (rawRef) {
-    const bad = [
-      ...new Set(
-        rawRef.map((r) => {
-          const segs = r
-            .replace(/\.agents\/skills\//, "")
-            .replace(/\/$/, "")
-            .split("/");
-          return groupNames.has(segs[0]) && segs.length > 1 ? segs[1] : segs[0];
-        })
-      ),
-    ].filter((other) => other !== name);
-    if (bad.length) err(rel, `raw cross-skill ref into: ${bad.join(", ")} — use skillgrid:{name} or a _shared path`);
+  // 4. cross-skill refs: a raw path is allowed only into this skill's own
+  // dir (scripts/, references/) or into _shared. Any raw path resolving to a
+  // DIFFERENT skill's dir is a violation — use skillgrid:{name} instead.
+  const ownRel = e.group ? `${e.group}/${name}/` : `${name}/`;
+  const rawRefs = text.match(/\.agents\/skills\/[a-z0-9-]+(?:\/[a-z0-9-]+)*/g) ?? [];
+  const bad = new Set();
+  for (const r of rawRefs) {
+    const segs = r.replace(/\.agents\/skills\//, "").replace(/\/$/, "").split("/");
+    while (segs.length > 1 && groupNames.has(segs.join("/"))) segs = segs.slice(1);
+    const target = segs.join("/");
+    if (target === "_shared" || target.startsWith(ownRel)) continue;
+    if (skillDirs.some((s) => s.toLowerCase() === segs[0].toLowerCase())) bad.add(segs[0]);
+  }
+  if (bad.size) {
+    err(rel, `raw cross-skill ref into: ${[...bad].join(", ")} — use skillgrid:{name} or a _shared path`);
   }
 }
 
-// reference/ files: <= 250 lines each
+// reference/ files: <= 250 lines each (skillgrid skills only)
 for (const e of skillEntries) {
+  if (e.external) continue;
   const refs = skillRefsDir(e);
   if (!existsSync(refs)) continue;
   for (const file of readdirSync(refs)) {

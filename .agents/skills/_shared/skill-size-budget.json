@@ -2,7 +2,8 @@
   "ceiling": {
     "standard": 22000,
     "large": 38000,
-    "xl": 40000
+    "xl": 40000,
+    "external": 90000
   },
   "tiers": {
     "subagent-execution": "xl",
@@ -10,7 +11,12 @@
     "writing-blueprints": "large",
     "ship": "large",
     "qa": "large",
-    "onboarding": "large"
+    "onboarding": "large",
+    "design-taste-frontend": "external",
+    "image-to-code": "external",
+    "imagegen-frontend-mobile": "external",
+    "imagegen-frontend-web": "external",
+    "ui-ux-pro-max": "external"
   },
   "skills": {
     "_shared": 2422,

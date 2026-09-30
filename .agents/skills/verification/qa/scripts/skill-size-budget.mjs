@@ -36,22 +36,21 @@ function findSkillsDir(root) {
 function listSkillFiles(skillsDir) {
   const results = [];
   if (!existsSync(skillsDir)) return results;
-  for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    if (entry.name === "_shared") continue;
-    const skillFile = join(skillsDir, entry.name, "SKILL.md");
-    if (existsSync(skillFile)) {
-      results.push({ name: entry.name, size: statSync(skillFile).size });
-      continue;
-    }
-    // Group dir (Hermes-style: a DESCRIPTION.md with skill subdirs) — recurse one level.
-    for (const sub of readdirSync(join(skillsDir, entry.name), { withFileTypes: true })) {
-      if (!sub.isDirectory()) continue;
-      const subFile = join(skillsDir, entry.name, sub.name, "SKILL.md");
-      if (!existsSync(subFile)) continue;
-      results.push({ name: sub.name, size: statSync(subFile).size });
+  // Skills may be flat or nested in group dirs (DESCRIPTION.md, Hermes-style);
+  // groups may themselves nest (e.g. craft/craft-refactor/), so recurse.
+  function walk(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      const p = join(dir, entry.name);
+      const skillFile = join(p, "SKILL.md");
+      if (existsSync(skillFile)) {
+        results.push({ name: entry.name, size: statSync(skillFile).size });
+      } else if (existsSync(join(p, "DESCRIPTION.md"))) {
+        walk(p);
+      }
     }
   }
+  walk(skillsDir);
   return results;
 }
 
