@@ -53,7 +53,7 @@ func RunSetup(agent, repoRoot string, mcpEntries []MCPServerConfig, home string,
 		// or malformed indexing.yaml just means no env var (no allowlist).
 		return SetupOpenCode(home, repoRoot, mcpEntries, config.Load(home).PrivateTools, dryRun)
 	case "kilocode", "kilo":
-		return SetupKiloCode(home, repoRoot, mcpEntries, dryRun)
+		return SetupKiloCode(home, repoRoot, mcpEntries, config.Load(home).PrivateTools, dryRun)
 	case "cursor":
 		return SetupCursor(home, repoRoot, mcpEntries, dryRun)
 	default:

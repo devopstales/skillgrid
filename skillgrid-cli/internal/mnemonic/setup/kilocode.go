@@ -12,7 +12,10 @@ import (
 // memory-protocol block, and the mnemonic.ts plugin. Harness config (TUI
 // logo/theme, plugin-path append, kilo→opencode bridges) is owned by
 // internal/install (installAgentConfig), not the memory component.
-func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun bool) error {
+// privateTools mirrors the config always-private allowlist into the harness
+// env map (SKILLGRID_MNEMONIC_PRIVATE_TOOLS) so the plugin strips the same
+// tools the Go config redacts.
+func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateTools []string, dryRun bool) error {
 	if repoRoot == "" {
 		return fmt.Errorf("repo root not found (run from skillgrid checkout or sync repo)")
 	}
@@ -28,6 +31,9 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun b
 		if err := upsertOpenCodeMCP(cfgPath, entry, dryRun); err != nil {
 			return err
 		}
+	}
+	if err := upsertPrivateToolsEnv(cfgPath, privateTools, dryRun); err != nil {
+		return err
 	}
 	if err := upsertPluginKey(cfgPath, "opencode-command-hooks", dryRun); err != nil {
 		return err

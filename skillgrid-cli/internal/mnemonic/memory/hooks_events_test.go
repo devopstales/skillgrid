@@ -250,3 +250,50 @@ func TestSensitiveWriteRedacted(t *testing.T) {
 		}
 	}
 }
+
+// TestPostToolUseBashPluginShape drives the ACTUAL plugin body shape through
+// RunHook: the kilo/opencode plugin's mapToolType("bash") returns "shell",
+// which is sent as the JSON "type" field and lands in HookPayload.ActionType.
+// The stored action_type must be "command_exec" (not "tool_use"), and the
+// commands_exec counter must bump. Without the canonical-action fix the
+// explicit "shell" is ignored (toolName is non-empty) and the row stores
+// "tool_use" with no counter bump.
+func TestPostToolUseBashPluginShape(t *testing.T) {
+	svc, sid := enableToolHooks(t)
+	ctx := context.Background()
+
+	// Exactly what postToolCall in plugins/kilo/mnemonic.ts sends for bash:
+	//   tool_name: "bash", type: mapToolType("bash") = "shell"
+	if _, err := svc.RunHook(ctx, HookPostToolUse, HookPayload{
+		SessionID:    sid,
+		ToolName:     "bash",
+		ActionType:   "shell",
+		Command:      "go test ./...",
+		ResultStatus: "success",
+	}); err != nil {
+		t.Fatalf("bash hook: %v", err)
+	}
+
+	evts, _, _, err := svc.SessionChanges(ctx, sid)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if len(evts) != 2 {
+		t.Fatalf("expected 2 events (start + 1 tool call), got %d", len(evts))
+	}
+	if evts[1].ActionType != "command_exec" {
+		t.Errorf("event[1].ActionType = %q, want command_exec (plugin sends type=shell)",
+			evts[1].ActionType)
+	}
+	if evts[1].ToolName != "bash" {
+		t.Errorf("event[1].ToolName = %q, want bash", evts[1].ToolName)
+	}
+	if evts[1].Command != "go test ./..." {
+		t.Errorf("event[1].Command = %q, want go test ./...", evts[1].Command)
+	}
+
+	_, _, commandsExec, _, _ := sessionCounters(t, svc, sid)
+	if commandsExec != 1 {
+		t.Errorf("commands_exec = %d, want 1", commandsExec)
+	}
+}

@@ -636,9 +636,14 @@ func (s *Service) hookPostToolUse(ctx context.Context, payload HookPayload) (Hoo
 // actionForTool maps a tool name to its session event action type:
 // Write→file_write, Read→file_read, Shell→command_exec, everything
 // else→tool_use. Matching is case-insensitive substring so "Write"/"write
-// file" style names all map. An explicitly supplied, valid action type is
-// honored only when no tool name was given.
+// file" style names all map. An explicitly supplied canonical action type
+// (file_write, file_read, command_exec, tool_use, or the harness alias
+// "shell") is honored even when a tool name is present, so the plugin's
+// mapToolType output (e.g. "bash"→"shell") drives the stored action.
 func actionForTool(toolName, actionType string) string {
+	if at := canonicalAction(strings.ToLower(strings.TrimSpace(actionType))); at != "" {
+		return at
+	}
 	t := strings.ToLower(strings.TrimSpace(toolName))
 	switch {
 	case strings.Contains(t, "write"):
@@ -648,13 +653,23 @@ func actionForTool(toolName, actionType string) string {
 	case strings.Contains(t, "shell"):
 		return "command_exec"
 	}
-	if t == "" {
-		switch strings.ToLower(strings.TrimSpace(actionType)) {
-		case "file_write", "file_read", "command_exec", "tool_use":
-			return strings.ToLower(strings.TrimSpace(actionType))
-		}
-	}
 	return "tool_use"
+}
+
+// canonicalAction normalizes a harness-supplied action type to its stored
+// form: "shell"→command_exec, "other"→tool_use, and the four stored names
+// pass through. Returns "" for anything else so the caller falls back to
+// tool-name derivation.
+func canonicalAction(s string) string {
+	switch s {
+	case "file_write", "file_read", "command_exec", "tool_use":
+		return s
+	case "shell":
+		return "command_exec"
+	case "other":
+		return "tool_use"
+	}
+	return ""
 }
 
 // isErrorStatus reports whether a result status counts as an error for the
