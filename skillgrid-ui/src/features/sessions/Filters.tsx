@@ -46,7 +46,7 @@ export function Filters({
         <button
           type="button"
           onClick={() => onChange(EMPTY_FILTERS)}
-          className="rounded-md border border-edge px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200"
+          className="rounded border border-edge-soft px-2 py-1 font-mono text-[12px] text-ink-4 hover:text-ink-2"
         >
           Clear
         </button>
@@ -67,12 +67,12 @@ function Select({
   onChange: (v: string) => void
 }) {
   return (
-    <label className="flex items-center gap-1 text-xs text-zinc-500">
+    <label className="flex items-center gap-1 font-mono text-[11px] text-ink-6">
       {label}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-md border border-edge bg-card px-2 py-1 text-xs text-zinc-200 focus:border-accent focus:outline-none"
+        className="rounded border border-edge-soft bg-inset px-2 py-1 text-[12px] text-ink-3 focus:border-accent focus:outline-none"
       >
         <option value="">all</option>
         {options.map((o) => (

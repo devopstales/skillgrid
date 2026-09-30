@@ -51,7 +51,7 @@ export function OnThisPage({ entries }: { entries: TocEntry[] }) {
   return (
     <nav className="w-56 shrink-0 border-l border-edge bg-card">
       <div className="sticky top-0 px-3 py-3">
-        <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+        <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-5">
           On this page
         </h4>
         <ul className="space-y-1">
@@ -64,10 +64,10 @@ export function OnThisPage({ entries }: { entries: TocEntry[] }) {
                   document.getElementById(e.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                 }}
                 className={[
-                  'block truncate rounded px-1.5 py-0.5 text-xs transition-colors',
+                  'block truncate rounded px-1.5 py-0.5 text-[12px] transition-colors',
                   active === e.id
                     ? 'bg-accent/15 text-accent'
-                    : 'text-zinc-500 hover:text-zinc-300',
+                    : 'text-ink-5 hover:text-ink-3',
                 ].join(' ')}
               >
                 {e.text}

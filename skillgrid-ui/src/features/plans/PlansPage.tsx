@@ -92,11 +92,11 @@ export function PlansPage() {
       <div className="h-full overflow-y-auto p-8">
         <div className="mx-auto max-w-4xl">
           {specError ? (
-            <div className="rounded-md border border-red-900/60 bg-red-950/30 p-4 text-sm text-red-300">
+            <div className="rounded border border-danger-ink bg-danger/10 p-4 text-[13px] text-danger">
               {specError}
             </div>
           ) : specContent === null ? (
-            <div className="p-8 text-center text-sm text-zinc-500">Loading…</div>
+            <div className="p-8 text-center text-[13px] text-ink-5">Loading…</div>
           ) : (
             <SpecViewer path={specPath} content={specContent} onBack={() => setSpecPath(null)} />
           )}
@@ -108,23 +108,23 @@ export function PlansPage() {
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-8">
       <div>
-        <h1 className="text-2xl font-semibold text-zinc-100">Plans</h1>
-        <p className="mt-1 text-sm text-zinc-500">SDD plans &amp; specs from .skillgrid/</p>
+        <h1 className="text-[14px] font-semibold text-ink">Plans</h1>
+        <p className="mt-1 text-[13px] text-ink-5">SDD plans &amp; specs from .skillgrid/</p>
       </div>
 
       {error ? (
-        <div className="rounded-md border border-red-900/60 bg-red-950/30 p-4 text-sm text-red-300">
+        <div className="rounded border border-danger-ink bg-danger/10 p-4 text-[13px] text-danger">
           {error}
         </div>
       ) : (
         <div className="grid flex-1 gap-6 lg:grid-cols-[1fr_360px]">
           <div className="space-y-6">
             <section>
-              <h2 className="mb-3 text-xs font-medium uppercase tracking-widest text-zinc-500">
+              <h2 className="mb-3 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-5">
                 All plans
               </h2>
               {plans.length === 0 ? (
-                <div className="rounded-md border border-edge bg-card p-8 text-center text-sm text-zinc-500">
+                <div className="rounded border border-edge bg-card p-8 text-center text-[13px] text-ink-5">
                   No plans found in .skillgrid/specs/.
                 </div>
               ) : (
@@ -146,29 +146,29 @@ export function PlansPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xs font-medium uppercase tracking-widest text-zinc-500">
+              <h2 className="mb-3 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-5">
                 Pipeline
               </h2>
-              <div className="rounded-lg border border-edge bg-card p-4">
+              <div className="rounded-md border border-edge bg-card p-4">
                 <PlanDependencyGraph plans={plans} />
               </div>
             </section>
           </div>
 
-          <aside className="h-fit rounded-lg border border-edge bg-card p-4">
-            <h2 className="mb-3 text-xs font-medium uppercase tracking-widest text-zinc-500">
+          <aside className="h-fit rounded-md border border-edge bg-card p-4">
+            <h2 className="mb-3 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-5">
               Selected plan
             </h2>
             {!selected ? (
-              <p className="text-sm text-zinc-500">Select a plan to see its ledger and files.</p>
+              <p className="text-[13px] text-ink-5">Select a plan to see its ledger and files.</p>
             ) : detailError ? (
-              <div className="rounded-md border border-red-900/60 bg-red-950/30 p-3 text-sm text-red-300">
+              <div className="rounded border border-danger-ink bg-danger/10 p-3 text-[13px] text-danger">
                 {detailError}
               </div>
             ) : detail ? (
               <PlanDetailPanel plan={detail} onOpenSpec={(path) => setSpecPath(path)} />
             ) : (
-              <p className="text-sm text-zinc-500">Loading…</p>
+              <p className="text-[13px] text-ink-5">Loading…</p>
             )}
           </aside>
         </div>

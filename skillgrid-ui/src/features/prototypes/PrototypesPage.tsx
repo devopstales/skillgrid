@@ -60,23 +60,23 @@ export function PrototypesPage() {
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-8">
       <div>
-        <h1 className="text-2xl font-semibold text-zinc-100">Prototypes</h1>
-        <p className="mt-1 text-sm text-zinc-500">Sandboxed .stitch/ design-prototype gallery</p>
+        <h1 className="text-[14px] font-semibold text-ink">Prototypes</h1>
+        <p className="mt-1 text-[13px] text-ink-5">Sandboxed .stitch/ design-prototype gallery</p>
       </div>
 
       {error ? (
-        <div className="rounded-md border border-red-900/60 bg-red-950/30 p-4 text-sm text-red-300">
+        <div className="rounded border border-danger-ink bg-danger/10 p-4 text-[13px] text-danger">
           {error}
         </div>
       ) : prototypes.length === 0 ? (
-        <div className="rounded-md border border-edge bg-card p-8 text-center text-sm text-zinc-500">
+        <div className="rounded border border-edge bg-card p-8 text-center text-[13px] text-ink-5">
           No prototypes found in .stitch/ (add self-contained .html files to the gallery).
         </div>
       ) : (
         <div className="grid flex-1 gap-6 lg:grid-cols-[240px_1fr]">
           {/* gallery list */}
-          <aside className="h-fit rounded-lg border border-edge bg-card p-2">
-            <h2 className="px-2 py-1.5 text-xs font-medium uppercase tracking-widest text-zinc-500">
+          <aside className="h-fit rounded-md border border-edge bg-card p-2">
+            <h2 className="px-2 py-1.5 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-5">
               Gallery
             </h2>
             <ul className="space-y-1">
@@ -85,8 +85,8 @@ export function PrototypesPage() {
                   <button
                     type="button"
                     onClick={() => setSelected(p)}
-                    className={`w-full truncate rounded-md px-3 py-2 text-left text-xs ${
-                      p === selected ? 'bg-accent/15 text-accent' : 'text-zinc-300 hover:text-accent'
+                    className={`w-full truncate rounded px-3 py-2 text-left text-[12px] ${
+                      p === selected ? 'bg-accent/15 text-accent' : 'text-ink-3 hover:text-accent'
                     }`}
                     title={p}
                   >
@@ -101,7 +101,7 @@ export function PrototypesPage() {
           <section className="min-w-0 space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               {/* Review B5: tablist/tab semantics so the active view is announced. */}
-              <div className="flex rounded-md border border-edge p-0.5" role="tablist" aria-label="Preview or code">
+              <div className="flex rounded border border-edge p-0.5" role="tablist" aria-label="Preview or code">
                 {(['preview', 'code'] as const).map((v) => (
                   <button
                     key={v}
@@ -109,8 +109,8 @@ export function PrototypesPage() {
                     role="tab"
                     aria-selected={view === v}
                     onClick={() => setView(v)}
-                    className={`rounded px-3 py-1 text-xs ${
-                      view === v ? 'bg-accent text-white' : 'text-zinc-400 hover:text-zinc-200'
+                    className={`rounded px-3 py-1 text-[12px] ${
+                      view === v ? 'bg-accent text-bg' : 'text-ink-4 hover:text-ink-2'
                     }`}
                   >
                     {v}
@@ -118,7 +118,7 @@ export function PrototypesPage() {
                 ))}
               </div>
               {view === 'preview' && (
-                <div className="flex rounded-md border border-edge p-0.5" role="tablist" aria-label="Device viewport">
+                <div className="flex rounded border border-edge p-0.5" role="tablist" aria-label="Device viewport">
                   {(Object.keys(DEVICE_WIDTHS) as Device[]).map((d) => (
                     <button
                       key={d}
@@ -126,8 +126,8 @@ export function PrototypesPage() {
                       role="tab"
                       aria-selected={device === d}
                       onClick={() => setDevice(d)}
-                      className={`rounded px-3 py-1 text-xs ${
-                        device === d ? 'bg-accent text-white' : 'text-zinc-400 hover:text-zinc-200'
+                      className={`rounded px-3 py-1 text-[12px] ${
+                        device === d ? 'bg-accent text-bg' : 'text-ink-4 hover:text-ink-2'
                       }`}
                     >
                       {d}
@@ -138,7 +138,7 @@ export function PrototypesPage() {
             </div>
 
             {loading ? (
-              <p className="p-8 text-center text-sm text-zinc-500">Loading prototype…</p>
+              <p className="p-8 text-center text-[13px] text-ink-5">Loading prototype…</p>
             ) : view === 'preview' ? (
               <SandboxPreview html={html} device={device} />
             ) : (

@@ -11,13 +11,13 @@ export function Legend({ nodes }: Props) {
   const entries = [...stats.entries()].sort((a, b) => b[1] - a[1])
 
   return (
-    <div className="max-h-52 w-44 overflow-auto rounded-lg border border-slate-700 bg-slate-900/80 p-2">
-      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+    <div className="max-h-52 w-44 overflow-auto rounded border border-edge bg-surface-2/90 p-2">
+      <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-5">
         Communities
       </div>
       <ul className="space-y-0.5">
         {entries.map(([id, count]) => (
-          <li key={id} className="flex items-center gap-2 text-xs text-slate-300">
+          <li key={id} className="flex items-center gap-2 text-[12px] text-ink-3">
             <span
               className="inline-block h-3 w-3 rounded-full"
               style={{
@@ -28,7 +28,7 @@ export function Legend({ nodes }: Props) {
             <span className="truncate">
               {id < 0 ? 'no community' : `community ${id}`}
             </span>
-            <span className="ml-auto text-[10px] text-slate-500">{count}</span>
+            <span className="ml-auto text-[10px] text-ink-6">{count}</span>
           </li>
         ))}
       </ul>

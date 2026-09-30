@@ -74,14 +74,14 @@ export function MermaidBlock({ code, securityLevel }: { code: string; securityLe
   }, [code, key])
 
   return (
-    <div className="my-3 overflow-x-auto rounded-md border border-edge bg-black/30 p-3">
+    <div className="my-3 overflow-x-auto rounded border border-edge bg-black/30 p-3">
       {cached === undefined && !error && (
-        <span className="text-xs text-zinc-500">rendering diagram…</span>
+        <span className="text-[12px] text-ink-5">rendering diagram…</span>
       )}
       {error && (
         <div className="space-y-2">
-          <pre className="whitespace-pre-wrap text-xs text-red-300">{error}</pre>
-          <pre className="whitespace-pre-wrap text-xs text-zinc-400">{code}</pre>
+          <pre className="whitespace-pre-wrap text-[12px] text-danger">{error}</pre>
+          <pre className="whitespace-pre-wrap text-[12px] text-ink-4">{code}</pre>
         </div>
       )}
       <div ref={ref} className="flex justify-center [&>svg]:max-w-full" />

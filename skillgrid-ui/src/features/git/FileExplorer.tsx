@@ -26,17 +26,17 @@ function FileHistory({ path }: { path: string }) {
       cancelled = true
     }
   }, [path])
-  if (error) return <p className="text-sm text-red-300">{error}</p>
-  if (!history) return <p className="text-sm text-zinc-500">Loading…</p>
+  if (error) return <p className="text-[13px] text-danger">{error}</p>
+  if (!history) return <p className="text-[13px] text-ink-5">Loading…</p>
   return (
     <ul className="space-y-1">
       {history.map((c) => (
-        <li key={c.sha} className="flex items-center gap-2 rounded-md border border-edge bg-card px-3 py-1.5 text-xs">
-          <code className="shrink-0 rounded bg-edge/50 px-1.5 py-0.5 text-zinc-300">{c.sha.slice(0, 7)}</code>
-          <span className="min-w-0 flex-1 truncate text-zinc-300" title={c.message}>
+        <li key={c.sha} className="flex items-center gap-2 rounded border border-edge bg-card px-3 py-1.5 text-[12px]">
+          <code className="shrink-0 rounded bg-edge/50 px-1.5 py-0.5 text-ink-3">{c.sha.slice(0, 7)}</code>
+          <span className="min-w-0 flex-1 truncate text-ink-3" title={c.message}>
             {c.message}
           </span>
-          <span className="shrink-0 text-zinc-600">{c.author}</span>
+          <span className="shrink-0 text-ink-6">{c.author}</span>
         </li>
       ))}
     </ul>
@@ -62,20 +62,20 @@ function BlameView({ path }: { path: string }) {
       cancelled = true
     }
   }, [path])
-  if (error) return <p className="text-sm text-red-300">{error}</p>
-  if (!lines) return <p className="text-sm text-zinc-500">Loading…</p>
+  if (error) return <p className="text-[13px] text-danger">{error}</p>
+  if (!lines) return <p className="text-[13px] text-ink-5">Loading…</p>
   return (
-    <div className="overflow-x-auto rounded-md border border-edge bg-[#0a0a0d] text-xs">
+    <div className="overflow-x-auto rounded border border-edge bg-inset text-[12px]">
       {lines.map((l) => (
-        <div key={l.line} className="flex items-stretch gap-2 border-b border-edge/40 last:border-0">
-          <span className="w-10 shrink-0 select-none px-2 text-right text-zinc-600">{l.line}</span>
-          <code className="w-16 shrink-0 self-center rounded bg-edge/40 px-1.5 text-[10px] text-zinc-400" title={l.sha}>
+        <div key={l.line} className="flex items-stretch gap-2 border-b border-edge-soft last:border-0">
+          <span className="w-10 shrink-0 select-none px-2 text-right text-ink-6">{l.line}</span>
+          <code className="w-16 shrink-0 self-center rounded bg-edge/40 px-1.5 text-[10px] text-ink-4" title={l.sha}>
             {l.sha.slice(0, 7)}
           </code>
-          <span className="w-28 shrink-0 self-center truncate text-zinc-500" title={`${l.author}: ${l.summary}`}>
+          <span className="w-28 shrink-0 self-center truncate text-ink-5" title={`${l.author}: ${l.summary}`}>
             {l.author}
           </span>
-          <pre className="min-w-0 flex-1 whitespace-pre px-2 py-0.5 text-zinc-300">{l.text}</pre>
+          <pre className="min-w-0 flex-1 whitespace-pre px-2 py-0.5 text-ink-3">{l.text}</pre>
         </div>
       ))}
     </div>
@@ -95,10 +95,10 @@ export function FileExplorer() {
           onChange={(e) => setPath(e.target.value)}
           placeholder="file path (e.g. skillgrid-cli/main.go)"
           aria-label="File path"
-          className="min-w-0 flex-1 rounded-md border border-edge bg-card px-3 py-1.5 text-xs text-zinc-200 focus:border-accent focus:outline-none"
+          className="min-w-0 flex-1 rounded border border-edge bg-inset px-3 py-1.5 text-[12px] text-ink-2 focus:border-accent focus:outline-none"
         />
         {/* Review B5: tablist/tab semantics so the selected tab is announced. */}
-        <div className="flex rounded-md border border-edge p-0.5" role="tablist" aria-label="File view">
+        <div className="flex rounded border border-edge p-0.5" role="tablist" aria-label="File view">
           {(['history', 'blame'] as const).map((t) => (
             <button
               key={t}
@@ -106,8 +106,8 @@ export function FileExplorer() {
               role="tab"
               aria-selected={tab === t}
               onClick={() => setTab(t)}
-              className={`rounded px-3 py-1 text-xs ${
-                tab === t ? 'bg-accent text-white' : 'text-zinc-400 hover:text-zinc-200'
+              className={`rounded px-3 py-1 text-[12px] ${
+                tab === t ? 'bg-accent text-bg' : 'text-ink-4 hover:text-ink-2'
               }`}
             >
               {t}
@@ -118,7 +118,7 @@ export function FileExplorer() {
       {path.trim() ? (
         tab === 'history' ? <FileHistory path={path.trim()} /> : <BlameView path={path.trim()} />
       ) : (
-        <p className="text-sm text-zinc-500">Enter a file path to view its history or blame.</p>
+        <p className="text-[13px] text-ink-5">Enter a file path to view its history or blame.</p>
       )}
     </div>
   )

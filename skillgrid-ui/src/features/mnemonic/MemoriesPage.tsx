@@ -92,26 +92,26 @@ export function MemoriesPage() {
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-edge px-4 py-2">
-        <h1 className="text-sm font-semibold text-zinc-100">Memories</h1>
-        <span className="text-xs text-zinc-500">{total} observations · pinned first</span>
+    <div className="flex h-full min-h-0 flex-col font-mono">
+      <div className="flex items-center gap-2 border-b border-edge-soft px-4 py-2">
+        <h1 className="text-[14px] font-semibold text-ink">Memories</h1>
+        <span className="text-[12px] text-ink-5">{total} observations · pinned first</span>
       </div>
 
       {error && (
-        <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">
+        <div className="border-b border-danger-ink bg-danger/10 px-4 py-2 text-[12px] text-danger">
           {error}
         </div>
       )}
 
       <div className="flex min-h-0 flex-1">
         {/* Grid */}
-        <aside className="flex w-96 shrink-0 flex-col border-r border-edge">
+        <aside className="flex w-96 shrink-0 flex-col border-r border-edge-soft">
           <div className="min-h-0 flex-1 overflow-y-auto">
             {loading ? (
-              <div className="p-4 text-xs text-zinc-500">Loading…</div>
+              <div className="p-4 text-[12px] text-ink-5">Loading…</div>
             ) : memories.length === 0 ? (
-              <div className="p-4 text-xs text-zinc-600">No memories yet.</div>
+              <div className="p-4 text-[12px] text-ink-6">No memories yet.</div>
             ) : (
               <ul className="divide-y divide-edge">
                 {memories.map((m) => (
@@ -120,7 +120,7 @@ export function MemoriesPage() {
               </ul>
             )}
           </div>
-          <div className="flex items-center justify-between border-t border-edge px-3 py-2 text-xs text-zinc-500">
+          <div className="flex items-center justify-between border-t border-edge px-3 py-2 text-[12px] text-ink-5">
             <button
               type="button"
               disabled={offset === 0}
@@ -147,12 +147,12 @@ export function MemoriesPage() {
         <main className="min-h-0 flex-1 overflow-y-auto">
           {selectedId == null && (
             <div className="flex h-full items-center justify-center p-8 text-center">
-              <span className="text-sm text-zinc-400">Select a memory to view its details and governance.</span>
+              <span className="text-[13px] text-ink-5">Select a memory to view its details and governance.</span>
             </div>
           )}
           {selectedId != null && detailError && (
             <div className="flex h-full items-center justify-center p-8">
-              <span className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300">
+              <span className="rounded border border-danger-ink bg-danger/10 px-4 py-2 text-[13px] text-danger">
                 {detailError}
               </span>
             </div>
@@ -181,16 +181,16 @@ function MemoryRow({
         type="button"
         onClick={() => onSelect(m.id)}
         className={[
-          'flex w-full items-start gap-2 px-3 py-2.5 text-left',
-          active ? 'bg-accent/15' : 'hover:bg-card',
+          'flex w-full items-start gap-2 border-l-2 px-3 py-2.5 text-left',
+          active ? 'border-accent bg-accent/10' : 'border-transparent hover:bg-card',
         ].join(' ')}
       >
         {m.pinned && <PinIcon />}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-medium text-zinc-200">{m.title || '(untitled)'}</span>
+            <span className="truncate text-[13px] font-medium text-ink-2">{m.title || '(untitled)'}</span>
           </div>
-          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-500">
+          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-5">
             <TypeChip type={m.type} />
             {m.topic_key && <span className="truncate">{m.topic_key}</span>}
             <span className="ml-auto shrink-0">{m.created_at.slice(0, 10)}</span>
@@ -203,7 +203,7 @@ function MemoryRow({
 
 function TypeChip({ type }: { type: string }) {
   return (
-    <span className="rounded bg-zinc-700/60 px-1 py-0.5 text-[10px] text-zinc-400">{type}</span>
+    <span className="rounded bg-edge/60 px-1 py-0.5 text-[10px] text-ink-4">{type}</span>
   )
 }
 
@@ -244,18 +244,18 @@ function MemoryDetailPane({
   }
 
   return (
-    <div className="px-6 py-5">
+    <div className="px-6 py-5 font-mono">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-semibold text-zinc-100">{detail.title || '(untitled)'}</h1>
+        <h1 className="text-[19px] font-semibold text-ink">{detail.title || '(untitled)'}</h1>
         <TypeChip type={detail.type} />
         {detail.topic_key && (
-          <span className="text-xs text-zinc-500">{detail.topic_key}</span>
+          <span className="text-[12px] text-ink-5">{detail.topic_key}</span>
         )}
         {detail.pinned && <PinIcon />}
       </div>
 
       {/* Governance facts */}
-      <div className="mb-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-4">
         <Fact label="Visibility" value={detail.visibility || '—'} />
         <Fact label="Status" value={detail.status || '—'} />
         <Fact label="Owner" value={detail.owner || '—'} />
@@ -263,12 +263,12 @@ function MemoryDetailPane({
       </div>
 
       {editError && (
-        <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+        <div className="mb-3 rounded border border-danger-ink bg-danger/10 px-3 py-2 text-[12px] text-danger">
           {editError}
         </div>
       )}
       {msg && (
-        <div className="mb-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+        <div className="mb-3 rounded border border-accent-ink bg-accent/10 px-3 py-2 text-[12px] text-accent">
           {msg}
         </div>
       )}
@@ -278,24 +278,24 @@ function MemoryDetailPane({
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         rows={10}
-        className="w-full rounded-md border border-edge bg-card/40 p-3 font-mono text-xs leading-relaxed text-zinc-300 focus:border-accent/60 focus:outline-none"
+        className="w-full rounded border border-edge bg-surface-2/60 p-3 text-[12px] leading-relaxed text-ink-3 focus:border-accent/60 focus:outline-none"
       />
       <div className="mt-2 flex items-center gap-2">
         <button
           type="button"
           disabled={busy || draft === detail.content}
           onClick={() => run(() => onEdit(draft))}
-          className="rounded-md bg-accent/80 px-3 py-1.5 text-xs font-medium text-zinc-950 hover:bg-accent disabled:opacity-40"
+          className="rounded border border-accent bg-accent/15 px-3 py-1.5 text-[12px] font-medium text-accent hover:bg-accent/25 disabled:opacity-40"
         >
           Save content
         </button>
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="text-xs text-zinc-500">Set visibility</span>
+          <span className="text-[12px] text-ink-5">Set visibility</span>
           <select
             value={detail.visibility || ''}
             disabled={busy}
             onChange={(e) => run(() => onShare(e.target.value))}
-            className="rounded-md border border-edge bg-card px-2 py-1 text-xs text-zinc-300"
+            className="rounded border border-edge-soft bg-inset px-2 py-1 text-[12px] text-ink-3"
           >
             <option value="">—</option>
             <option value="private">private</option>
@@ -303,12 +303,12 @@ function MemoryDetailPane({
             <option value="restricted">restricted</option>
             <option value="agent">agent</option>
           </select>
-          <span className="text-xs text-zinc-500">Status</span>
+          <span className="text-[12px] text-ink-5">Status</span>
           <select
             value={detail.status || ''}
             disabled={busy}
             onChange={(e) => run(() => onStatus(e.target.value))}
-            className="rounded-md border border-edge bg-card px-2 py-1 text-xs text-zinc-300"
+            className="rounded border border-edge-soft bg-inset px-2 py-1 text-[12px] text-ink-3"
           >
             <option value="">—</option>
             <option value="active">active</option>
@@ -321,13 +321,13 @@ function MemoryDetailPane({
       {/* Version history */}
       {detail.versions && detail.versions.length > 0 && (
         <section className="mt-6">
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-6">
             Version history ({detail.versions.length})
           </h4>
           <ul className="space-y-1">
             {detail.versions.map((v) => (
-              <li key={v.revision} className="flex items-center gap-2 text-xs text-zinc-400">
-                <span className="rounded bg-zinc-700/60 px-1.5 py-0.5 text-[10px] text-zinc-500">
+              <li key={v.revision} className="flex items-center gap-2 text-[12px] text-ink-4">
+                <span className="rounded bg-edge/60 px-1.5 py-0.5 text-[10px] text-ink-5">
                   rev {v.revision}
                 </span>
                 <span>{v.created_at}</span>
@@ -340,13 +340,13 @@ function MemoryDetailPane({
       {/* ACL grants */}
       {detail.grants && detail.grants.length > 0 && (
         <section className="mt-6">
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-6">
             Grants ({detail.grants.length})
           </h4>
           <ul className="space-y-1">
             {detail.grants.map((g) => (
-              <li key={g.grantee} className="text-xs text-zinc-400">
-                {g.grantee} <span className="text-zinc-600">({g.grant_type})</span>
+              <li key={g.grantee} className="text-[12px] text-ink-4">
+                {g.grantee} <span className="text-ink-6">({g.grant_type})</span>
               </li>
             ))}
           </ul>
@@ -354,7 +354,7 @@ function MemoryDetailPane({
       )}
 
       {/* Provenance footer */}
-      <div className="mt-6 flex flex-wrap gap-x-4 gap-y-1 border-t border-edge pt-3 text-[11px] text-zinc-600">
+      <div className="mt-6 flex flex-wrap gap-x-4 gap-y-1 border-t border-edge pt-3 text-[11px] text-ink-6">
         <span>id {detail.id}</span>
         <span>scope {detail.scope || '—'}</span>
         <span>source {detail.source || '—'}</span>
@@ -367,16 +367,16 @@ function MemoryDetailPane({
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-edge bg-card/40 px-2.5 py-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-zinc-600">{label}</div>
-      <div className="truncate text-sm text-zinc-200">{value}</div>
+    <div className="rounded border border-edge bg-surface-2/60 px-2.5 py-1.5">
+      <div className="text-[10px] uppercase tracking-[0.1em] text-ink-6">{label}</div>
+      <div className="truncate text-[13px] text-ink-3">{value}</div>
     </div>
   )
 }
 
 function PinIcon() {
   return (
-    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 text-amber-400" fill="currentColor">
+    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 text-warn" fill="currentColor">
       <path d="M9.5 2 14 6.5l-2 .5L9 12l-1.5-1.5L4 14l-1-1 3.5-3.5L5 8z" />
     </svg>
   )

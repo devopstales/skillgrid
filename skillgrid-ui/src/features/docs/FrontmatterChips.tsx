@@ -2,20 +2,20 @@ import type { DocsContent, DocsDocType } from './types'
 
 // Doc-type badge label + accent class (schema-aware rendering cue).
 const DOCTYPE_META: Record<DocsDocType, { label: string; cls: string }> = {
-  adr: { label: 'ADR', cls: 'bg-violet-500/15 text-violet-300 border-violet-500/30' },
-  prd: { label: 'PRD', cls: 'bg-sky-500/15 text-sky-300 border-sky-500/30' },
-  task: { label: 'Task', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
-  doc: { label: 'Doc', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
-  spec: { label: 'Spec', cls: 'bg-zinc-500/15 text-zinc-300 border-zinc-500/30' },
-  note: { label: 'Note', cls: 'bg-zinc-500/10 text-zinc-400 border-zinc-600/30' },
+  adr: { label: 'ADR', cls: 'bg-violet/15 text-violet border-violet/30' },
+  prd: { label: 'PRD', cls: 'bg-info/10 text-info border-info/30' },
+  task: { label: 'Task', cls: 'bg-warn/10 text-warn border-warn-ink' },
+  doc: { label: 'Doc', cls: 'bg-accent/10 text-accent border-accent-ink' },
+  spec: { label: 'Spec', cls: 'bg-edge/60 text-ink-4 border-edge-soft' },
+  note: { label: 'Note', cls: 'bg-edge/40 text-ink-5 border-edge-soft' },
 }
 
 // ADR lifecycle status → chip class.
 const ADR_STATUS_CLS: Record<string, string> = {
-  proposed: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  accepted: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-  rejected: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
-  superseded: 'bg-zinc-500/15 text-zinc-400 border-zinc-600/30',
+  proposed: 'bg-warn/10 text-warn border-warn-ink',
+  accepted: 'bg-accent/10 text-accent border-accent-ink',
+  rejected: 'bg-danger/10 text-danger border-danger-ink',
+  superseded: 'bg-edge/60 text-ink-5 border-edge-soft',
 }
 
 function DocTypeChip({ docType, decisionStatus }: { docType?: DocsDocType; decisionStatus?: string }) {
@@ -24,12 +24,12 @@ function DocTypeChip({ docType, decisionStatus }: { docType?: DocsDocType; decis
   const isAadr = docType === 'adr'
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold ${meta.cls}`}>
+      <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[11px] font-semibold ${meta.cls}`}>
         {meta.label}
       </span>
       {isAadr && decisionStatus ? (
         <span
-          className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+          className={`inline-flex items-center rounded border px-2 py-0.5 text-[11px] font-medium ${
             ADR_STATUS_CLS[decisionStatus] ?? ADR_STATUS_CLS.proposed
           }`}
         >
@@ -60,10 +60,10 @@ export function FrontmatterChips({ content }: { content: DocsContent }) {
       {order.map(([k, v]) => (
         <span
           key={k}
-          className="inline-flex items-center gap-1 rounded-md border border-edge bg-black/20 px-2 py-0.5 text-[11px]"
+          className="inline-flex items-center gap-1 rounded border border-edge bg-black/20 px-2 py-0.5 text-[11px]"
         >
-          <span className="text-zinc-500">{k}:</span>
-          <span className="font-medium text-zinc-200">{v}</span>
+          <span className="text-ink-5">{k}:</span>
+          <span className="font-medium text-ink-2">{v}</span>
         </span>
       ))}
     </div>

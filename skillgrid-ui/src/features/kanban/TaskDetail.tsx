@@ -53,31 +53,31 @@ export function TaskDetail({
         aria-hidden
       />
       {/* 1/3-width detail sidebar. */}
-      <aside className="relative right-0 top-0 flex h-full w-full max-w-[33vw] min-w-72 flex-col border-l border-edge bg-card shadow-2xl">
-        <div className="flex items-center justify-between border-b border-edge px-4 py-3">
-          <span className="font-mono text-xs text-zinc-500">{task}</span>
+      <aside className="relative right-0 top-0 flex h-full w-full max-w-[33vw] min-w-72 flex-col border-l border-edge-soft bg-card">
+        <div className="flex items-center justify-between border-b border-edge-soft px-4 py-3">
+          <span className="font-mono text-[12px] text-ink-5">{task}</span>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-2 py-1 text-zinc-500 hover:bg-edge/40 hover:text-zinc-300"
+            className="rounded px-2 py-1 text-ink-5 hover:bg-edge/40 hover:text-ink-2"
             aria-label="Close"
           >
             ✕
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {loading && <p className="text-sm text-zinc-500">Loading…</p>}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 font-mono">
+          {loading && <p className="text-[13px] text-ink-5">Loading…</p>}
           {error && (
-            <p className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+            <p className="rounded border border-danger-ink bg-danger/10 p-3 text-[13px] text-danger">
               {error}
             </p>
           )}
           {t && (
             <>
-              <h2 className="text-base font-semibold text-zinc-100">
+              <h2 className="text-[15px] font-semibold text-ink">
                 {t.title}
               </h2>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
                 <Meta label="Status" value={t.status} />
                 <Meta label="Type" value={t.type} />
                 <Meta label="Priority" value={t.priority} />
@@ -98,7 +98,7 @@ export function TaskDetail({
                   {t.labels.map((l) => (
                     <span
                       key={l}
-                      className="rounded bg-edge/40 px-1.5 py-0.5 text-[10px] text-zinc-500"
+                      className="rounded bg-edge/40 px-1.5 py-0.5 text-[10px] text-ink-5"
                     >
                       {l}
                     </span>
@@ -106,15 +106,15 @@ export function TaskDetail({
                 </div>
               )}
               <div className="mt-4">
-                <h3 className="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-6">
                   Description
                 </h3>
-                <pre className="whitespace-pre-wrap rounded-md border border-edge bg-bg/40 p-3 text-xs leading-relaxed text-zinc-300">
+                <pre className="whitespace-pre-wrap rounded border border-edge bg-surface-2/60 p-3 text-[12px] leading-relaxed text-ink-3">
                   {t.description || '—'}
                 </pre>
               </div>
               <div className="mt-4">
-                <h3 className="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-6">
                   Dependencies
                 </h3>
                 <DependencyGraph task={{ id: t.id }} deps={deps} />
@@ -129,11 +129,11 @@ export function TaskDetail({
 
 function Meta({ label, value }: { label: string; value?: string }) {
   return (
-    <div className="rounded-md border border-edge bg-bg/40 px-2.5 py-1.5">
-      <div className="text-[10px] uppercase tracking-wide text-zinc-600">
+    <div className="rounded border border-edge bg-surface-2/60 px-2.5 py-1.5">
+      <div className="text-[10px] uppercase tracking-[0.1em] text-ink-6">
         {label}
       </div>
-      <div className="mt-0.5 truncate text-zinc-300">{value || '—'}</div>
+      <div className="mt-0.5 truncate text-ink-3">{value || '—'}</div>
     </div>
   )
 }

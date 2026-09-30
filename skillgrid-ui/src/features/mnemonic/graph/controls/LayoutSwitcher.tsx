@@ -13,17 +13,17 @@ interface Props {
 
 export function LayoutSwitcher({ value, onChange }: Props) {
   return (
-    <div className="flex gap-1 rounded-lg border border-slate-700 bg-slate-900/80 p-1">
+    <div className="flex gap-1 rounded border border-edge bg-surface-2/90 p-1">
       {OPTIONS.map((o) => (
         <button
           key={o.kind}
           type="button"
           onClick={() => onChange(o.kind)}
           className={
-            'rounded-md px-3 py-1 text-xs font-medium transition-colors ' +
+            'rounded px-3 py-1 text-[12px] font-medium transition-colors ' +
             (value === o.kind
-              ? 'bg-accent text-white'
-              : 'text-slate-300 hover:bg-slate-800')
+              ? 'bg-accent/15 text-accent'
+              : 'text-ink-4 hover:bg-surface-2')
           }
         >
           {o.label}

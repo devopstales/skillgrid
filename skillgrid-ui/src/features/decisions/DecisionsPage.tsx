@@ -44,7 +44,7 @@ export function DecisionsPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 border-b border-edge px-4 py-2">
-        <h1 className="text-sm font-semibold text-zinc-100">Decisions</h1>
+        <h1 className="text-[14px] font-semibold text-ink">Decisions</h1>
         <div className="flex gap-1" role="tablist" aria-label="Decision state">
           {(['pending', 'answered', 'all'] as const).map((t) => (
             <button
@@ -53,10 +53,10 @@ export function DecisionsPage() {
               role="tab"
               aria-selected={tab === t}
               onClick={() => setTab(t)}
-              className={[
-                'rounded px-2.5 py-1 text-xs transition-colors',
-                tab === t ? 'bg-accent/20 text-accent' : 'text-zinc-500 hover:bg-card hover:text-zinc-300',
-              ].join(' ')}
+                className={[
+                  'rounded px-2.5 py-1 text-[12px] transition-colors',
+                  tab === t ? 'bg-accent/20 text-accent' : 'text-ink-5 hover:bg-card hover:text-ink-3',
+                ].join(' ')}
             >
               {t}
             </button>
@@ -65,14 +65,14 @@ export function DecisionsPage() {
       </div>
 
       {error && (
-        <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">
+        <div className="border-b border-danger-ink bg-danger/10 px-4 py-2 text-[12px] text-danger">
           {error}
         </div>
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {rows.length === 0 ? (
-          <div className="text-sm text-zinc-500">No {tab} decisions.</div>
+          <div className="text-[13px] text-ink-5">No {tab} decisions.</div>
         ) : (
           <div className="mx-auto flex max-w-2xl flex-col gap-3">
             {rows.map((d) => (

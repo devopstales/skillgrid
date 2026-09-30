@@ -20,7 +20,7 @@ export function SearchPanel({ labels, onSelect, onClear }: Props) {
   }, [labels, q])
 
   return (
-    <div className="w-64 rounded-lg border border-slate-700 bg-slate-900/80 p-2">
+    <div className="w-64 rounded border border-edge bg-surface-2/90 p-2">
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
@@ -31,7 +31,7 @@ export function SearchPanel({ labels, onSelect, onClear }: Props) {
           }
         }}
         placeholder="Search nodes…"
-        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 outline-none placeholder:text-slate-500 focus:border-accent"
+        className="w-full rounded border border-edge-soft bg-inset px-2 py-1 text-[12px] text-ink-2 outline-none placeholder:text-ink-6 focus:border-accent"
       />
       {suggestions.length > 0 && (
         <ul className="mt-1 max-h-40 overflow-auto">
@@ -43,7 +43,7 @@ export function SearchPanel({ labels, onSelect, onClear }: Props) {
                   onSelect(s)
                   setQ('')
                 }}
-                className="w-full truncate rounded px-2 py-1 text-left text-xs text-slate-300 hover:bg-slate-800"
+                className="w-full truncate rounded px-2 py-1 text-left text-[12px] text-ink-3 hover:bg-surface-2"
               >
                 {s}
               </button>
@@ -58,7 +58,7 @@ export function SearchPanel({ labels, onSelect, onClear }: Props) {
             setQ('')
             onClear()
           }}
-          className="mt-1 text-[11px] text-slate-500 hover:text-slate-300"
+          className="mt-1 text-[11px] text-ink-6 hover:text-ink-3"
         >
           clear highlight
         </button>

@@ -97,14 +97,14 @@ export function BoardView({
         {BOARD_COLUMNS.map((col) => (
           <div
             key={col}
-            className="flex w-72 shrink-0 flex-col rounded-lg border border-edge bg-bg/40"
+            className="flex w-72 shrink-0 flex-col rounded-md border border-edge bg-surface-2/60"
           >
             <div className="flex items-center gap-2 border-b border-edge px-3 py-2.5">
               <span className={`h-2 w-2 rounded-full ${COLUMN_COLOR[col]}`} />
-              <span className="text-sm font-medium text-zinc-300">
+              <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-3">
                 {COLUMN_LABEL[col]}
               </span>
-              <span className="ml-auto rounded bg-edge/50 px-1.5 text-xs text-zinc-500">
+              <span className="ml-auto rounded bg-edge/60 px-1.5 text-[11px] text-ink-5">
                 {byColumn[col].length}
               </span>
             </div>
@@ -122,7 +122,7 @@ export function BoardView({
                   />
                 ))}
                 {byColumn[col].length === 0 && (
-                  <div className="rounded-md border border-dashed border-edge/60 p-4 text-center text-xs text-zinc-600">
+                  <div className="rounded border border-dashed border-edge/70 p-4 text-center font-mono text-[11px] text-ink-6">
                     {disabled ? '—' : 'No tasks'}
                   </div>
                 )}

@@ -10,11 +10,11 @@ const STATUS_ORDER: Record<string, number> = {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  done: 'border-emerald-700 bg-emerald-950/40 text-emerald-300',
-  in_progress: 'border-amber-700 bg-amber-950/40 text-amber-300',
-  planning: 'border-sky-700 bg-sky-950/40 text-sky-300',
-  draft: 'border-zinc-700 bg-zinc-900/40 text-zinc-300',
-  paused: 'border-zinc-800 bg-zinc-900/30 text-zinc-500',
+  done: 'border-accent-ink bg-accent/15 text-accent',
+  in_progress: 'border-warn-ink bg-warn/10 text-warn',
+  planning: 'border-info/50 bg-surface-2/60 text-info',
+  draft: 'border-edge-soft bg-surface-2/60 text-ink-3',
+  paused: 'border-edge-soft bg-surface-2/60 text-ink-5',
 }
 
 // PlanDependencyGraph — a lightweight DAG of the plans by status. The backend
@@ -25,7 +25,7 @@ const STATUS_COLOR: Record<string, string> = {
 // doesn't provide.
 export function PlanDependencyGraph({ plans }: { plans: PlanSummary[] }) {
   if (plans.length === 0) {
-    return <p className="text-sm text-zinc-500">No plans yet.</p>
+    return <p className="text-[13px] text-ink-5">No plans yet.</p>
   }
   const ordered = [...plans].sort(
     (a, b) =>
@@ -35,7 +35,7 @@ export function PlanDependencyGraph({ plans }: { plans: PlanSummary[] }) {
   return (
     <div className="flex flex-col gap-2">
       {ordered.map((p, i) => {
-        const color = STATUS_COLOR[p.status] ?? 'border-zinc-800 bg-zinc-900/30 text-zinc-400'
+        const color = STATUS_COLOR[p.status] ?? 'border-edge-soft bg-surface-2/60 text-ink-4'
         return (
           <div key={p.name} className="relative flex items-center gap-3">
             {i < ordered.length - 1 && (
@@ -45,7 +45,7 @@ export function PlanDependencyGraph({ plans }: { plans: PlanSummary[] }) {
               className={`relative z-10 h-3.5 w-3.5 shrink-0 rounded-full border-2 ${color.split(' ')[0]} ${color.split(' ')[1]}`}
               aria-hidden
             />
-            <div className={`flex-1 rounded-md border px-3 py-2 text-xs ${color}`}>
+            <div className={`flex-1 rounded border px-3 py-2 text-[12px] ${color}`}>
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate font-medium">{p.name}</span>
                 <span className="shrink-0 opacity-70">{p.status}</span>

@@ -11,10 +11,10 @@ export function StopLayoutButton({ visible, onStop }: Props) {
     <button
       type="button"
       onClick={onStop}
-      className="flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-200 hover:bg-amber-500/25"
+      className="flex items-center gap-1.5 rounded border border-warn-ink bg-warn/15 px-3 py-1 text-[12px] font-medium text-warn hover:bg-warn/25"
       title="Stop the layout animation and freeze the graph in place"
     >
-      <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-300" aria-hidden />
+      <span className="inline-block h-2.5 w-2.5 rounded-sm bg-warn" aria-hidden />
       Stop Layout
     </button>
   )

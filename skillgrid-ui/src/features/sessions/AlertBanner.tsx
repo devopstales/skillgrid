@@ -16,17 +16,17 @@ export function AlertBanner({
       {recent.map((e) => (
         <div
           key={e.id}
-          className="flex items-center gap-2 rounded-md border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs"
+          className="flex items-center gap-2 rounded border border-danger-ink bg-danger/10 px-3 py-2 font-mono text-[12px]"
         >
-          <span className="text-red-400" aria-hidden>
+          <span className="text-danger" aria-hidden>
             ⚑
           </span>
-          <span className="min-w-0 flex-1 truncate text-red-200">{e.summary}</span>
-          <span className="shrink-0 text-red-400/70">{e.type}</span>
+          <span className="min-w-0 flex-1 truncate text-ink-2">{e.summary}</span>
+          <span className="shrink-0 text-danger/70">{e.type}</span>
           <button
             type="button"
             onClick={() => onDismiss(e.id)}
-            className="shrink-0 text-red-400/60 hover:text-red-200"
+            className="shrink-0 text-danger/60 hover:text-danger"
             aria-label="dismiss alert"
           >
             ✕

@@ -47,16 +47,16 @@ export function MarkdownView({ body, securityLevel }: Props) {
       },
       // Pre-wrap the fenced block container so mermaid SVG has room.
       pre({ children }: { children?: React.ReactNode }) {
-        return <pre className="overflow-x-auto rounded-md border border-edge bg-black/30 p-3 text-sm">{children}</pre>
+        return <pre className="overflow-x-auto rounded border border-edge bg-black/30 p-3 text-[13px]">{children}</pre>
       },
       h1: ({ children }: { children?: React.ReactNode }) => (
-        <h1 id={slugify(String(children ?? ''))} className="mb-3 mt-6 border-b border-edge pb-2 text-2xl font-semibold text-zinc-100 first:mt-0">{children}</h1>
+        <h1 id={slugify(String(children ?? ''))} className="mb-3 mt-6 border-b border-edge-soft pb-2 text-2xl font-semibold text-ink first:mt-0">{children}</h1>
       ),
       h2: ({ children }: { children?: React.ReactNode }) => (
-        <h2 id={slugify(String(children ?? ''))} className="mb-2 mt-6 text-xl font-semibold text-zinc-100">{children}</h2>
+        <h2 id={slugify(String(children ?? ''))} className="mb-2 mt-6 text-xl font-semibold text-ink">{children}</h2>
       ),
       h3: ({ children }: { children?: React.ReactNode }) => (
-        <h3 id={slugify(String(children ?? ''))} className="mb-2 mt-4 text-lg font-semibold text-zinc-100">{children}</h3>
+        <h3 id={slugify(String(children ?? ''))} className="mb-2 mt-4 text-lg font-semibold text-ink">{children}</h3>
       ),
       a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
         <a href={href} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/40 hover:decoration-accent">
@@ -64,29 +64,29 @@ export function MarkdownView({ body, securityLevel }: Props) {
         </a>
       ),
       table: ({ children }: { children?: React.ReactNode }) => (
-        <table className="my-3 w-full border-collapse text-sm">{children}</table>
+        <table className="my-3 w-full border-collapse text-[13px]">{children}</table>
       ),
       th: ({ children }: { children?: React.ReactNode }) => (
-        <th className="border border-edge px-2 py-1 text-left font-medium text-zinc-200">{children}</th>
+        <th className="border border-edge px-2 py-1 text-left font-medium text-ink-2">{children}</th>
       ),
       td: ({ children }: { children?: React.ReactNode }) => (
-        <td className="border border-edge px-2 py-1 text-zinc-300">{children}</td>
+        <td className="border border-edge px-2 py-1 text-ink-3">{children}</td>
       ),
       blockquote: ({ children }: { children?: React.ReactNode }) => (
-        <blockquote className="my-3 border-l-2 border-accent/50 pl-3 text-zinc-400">{children}</blockquote>
+        <blockquote className="my-3 border-l-2 border-accent/50 pl-3 text-ink-4">{children}</blockquote>
       ),
       ul: ({ children }: { children?: React.ReactNode }) => (
-        <ul className="my-2 list-disc space-y-1 pl-5 text-zinc-300">{children}</ul>
+        <ul className="my-2 list-disc space-y-1 pl-5 text-ink-3">{children}</ul>
       ),
       ol: ({ children }: { children?: React.ReactNode }) => (
-        <ol className="my-2 list-decimal space-y-1 pl-5 text-zinc-300">{children}</ol>
+        <ol className="my-2 list-decimal space-y-1 pl-5 text-ink-3">{children}</ol>
       ),
     }),
     [securityLevel],
   )
 
   return (
-    <div className="max-w-3xl text-sm leading-relaxed">
+    <div className="max-w-3xl text-[13px] leading-relaxed">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeSanitize, sanitizeSchema]]}

@@ -83,17 +83,17 @@ export function KanbanView() {
   return (
     <div className="flex h-full flex-col">
       {/* Provider tabs + view toggle + live indicator */}
-      <div className="flex items-center gap-1 border-b border-edge px-4 pt-3">
+      <div className="flex items-center gap-1 border-b border-edge-soft px-4 pt-3 font-mono">
         {PROVIDERS.map((p) => (
           <button
             key={p}
             type="button"
             onClick={() => switchProvider(p)}
             className={[
-              'rounded-t-md px-3 py-1.5 text-sm transition-colors',
+              'rounded-t px-3 py-1.5 text-[13px] transition-colors',
               provider === p
-                ? 'bg-card text-zinc-100'
-                : 'text-zinc-500 hover:text-zinc-300',
+                ? 'bg-card text-ink'
+                : 'text-ink-5 hover:text-ink-3',
             ].join(' ')}
           >
             {PROVIDER_LABEL[p]}
@@ -101,22 +101,22 @@ export function KanbanView() {
         ))}
         <div className="ml-auto flex items-center gap-3">
           {live && (
-            <span className="flex items-center gap-1.5 text-[11px] text-emerald-400">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+            <span className="flex items-center gap-1.5 text-[11px] text-accent">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
               live
             </span>
           )}
-          <div className="flex overflow-hidden rounded-md border border-edge">
+          <div className="flex overflow-hidden rounded border border-edge">
             {(['board', 'list'] as const).map((v) => (
               <button
                 key={v}
                 type="button"
                 onClick={() => setView(v)}
                 className={[
-                  'px-2.5 py-1 text-xs capitalize',
+                  'px-2.5 py-1 text-[11px] capitalize',
                   view === v
-                    ? 'bg-edge/60 text-zinc-100'
-                    : 'text-zinc-500 hover:text-zinc-300',
+                    ? 'bg-edge/60 text-ink'
+                    : 'text-ink-5 hover:text-ink-3',
                 ].join(' ')}
               >
                 {v}
@@ -132,33 +132,33 @@ export function KanbanView() {
       )}
 
       {moveError && (
-        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-300">
+        <div className="border-b border-warn-ink bg-warn/10 px-4 py-2 text-[12px] text-warn">
           {moveError}
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto font-mono">
         {state.status === 'loading' && (
-          <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+          <div className="flex h-full items-center justify-center text-[13px] text-ink-5">
             Loading {PROVIDER_LABEL[provider]}…
           </div>
         )}
 
         {degraded && (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-            <span className="text-sm font-medium text-zinc-300">
+            <span className="text-[13px] font-semibold text-ink-3">
               {PROVIDER_LABEL[provider]} not connected
             </span>
-            <span className="max-w-md text-xs text-zinc-500">
+            <span className="max-w-md text-[12px] text-ink-5">
               {state.status === 'degraded' ? state.reason : ''}
             </span>
-            <span className="mt-2 text-[11px] text-zinc-600">
+            <span className="mt-2 text-[11px] text-ink-6">
               Install &amp; authenticate the provider CLI, then retry.
             </span>
             <button
               type="button"
               onClick={() => void reload()}
-              className="mt-3 rounded-md border border-edge bg-card px-3 py-1.5 text-xs text-zinc-300 hover:border-accent/50"
+              className="mt-3 rounded border border-edge bg-card px-3 py-1.5 text-[12px] text-ink-3 hover:border-accent/50"
             >
               Retry
             </button>
@@ -167,7 +167,7 @@ export function KanbanView() {
 
         {state.status === 'error' && (
           <div className="flex h-full items-center justify-center p-8">
-            <span className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300">
+            <span className="rounded border border-danger-ink bg-danger/10 px-4 py-2 text-[13px] text-danger">
               {state.message}
             </span>
           </div>

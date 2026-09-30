@@ -98,8 +98,8 @@ export function DocsPage() {
             type="button"
             onClick={() => setRoot(r)}
             className={[
-              'rounded-t-md px-3 py-1.5 text-sm transition-colors',
-              root === r ? 'bg-card text-zinc-100' : 'text-zinc-500 hover:text-zinc-300',
+              'rounded-t px-3 py-1.5 text-[13px] transition-colors',
+              root === r ? 'bg-card text-ink' : 'text-ink-5 hover:text-ink-3',
             ].join(' ')}
           >
             {ROOT_LABEL[r]}
@@ -118,25 +118,25 @@ export function DocsPage() {
         {/* Content pane */}
         <main className="flex min-h-0 flex-1 flex-col">
           {treeError && (
-            <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">
+            <div className="border-b border-danger-ink bg-danger/10 px-4 py-2 text-[12px] text-danger">
               {treeError}
             </div>
           )}
 
           {!selected && (
             <div className="flex flex-1 flex-col items-center justify-center gap-1 p-8 text-center">
-              <span className="text-sm text-zinc-400">Select a document from the tree to read it.</span>
-              <span className="text-xs text-zinc-600">Or use the search box above to find one.</span>
+              <span className="text-[13px] text-ink-4">Select a document from the tree to read it.</span>
+              <span className="text-[12px] text-ink-6">Or use the search box above to find one.</span>
             </div>
           )}
 
           {selected && loadingContent && (
-            <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">Loading…</div>
+            <div className="flex flex-1 items-center justify-center text-[13px] text-ink-5">Loading…</div>
           )}
 
           {selected && contentError && (
             <div className="flex flex-1 items-center justify-center p-8">
-              <span className="rounded-md border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300">
+              <span className="rounded border border-danger-ink bg-danger/10 px-4 py-2 text-[13px] text-danger">
                 {contentError}
               </span>
             </div>
@@ -146,7 +146,7 @@ export function DocsPage() {
             <>
               {/* Toolbar */}
               <div className="flex items-center gap-2 border-b border-edge px-4 py-2">
-                <p className="min-w-0 flex-1 truncate text-sm text-zinc-400">{content.path}</p>
+                <p className="min-w-0 flex-1 truncate text-[13px] text-ink-4">{content.path}</p>
                 <div className="flex shrink-0 items-center gap-1">
                   <ToolBtn label="Copy markdown" onClick={copyMarkdown}>
                     <CopyIcon />
@@ -165,13 +165,13 @@ export function DocsPage() {
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
                     {/* ADR lifecycle banner (3b) — schema-aware decision view */}
                     {content.docType === 'adr' && content.decisionStatus && (
-                      <div className="mb-4 flex items-center gap-2 rounded-md border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-xs text-violet-200">
+                      <div className="mb-4 flex items-center gap-2 rounded border border-edge-soft bg-surface-2/60 px-3 py-2 text-[12px] text-ink-2">
                         <span className="font-semibold">Decision record</span>
-                        <span className="text-violet-400/70">·</span>
+                        <span className="text-ink-5/70">·</span>
                         <span>
                           status: <b className="capitalize">{content.decisionStatus}</b>
                         </span>
-                        <span className="ml-auto text-violet-400/70">
+                        <span className="ml-auto text-ink-5/70">
                           Context → Decision → Consequences
                         </span>
                       </div>
@@ -181,13 +181,13 @@ export function DocsPage() {
                     {isPlan && relatedPlanName && (
                       <a
                         href={`/plans?change=${encodeURIComponent(relatedPlanName)}`}
-                        className="mb-4 inline-flex items-center gap-1 rounded-md border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs text-accent hover:bg-accent/20"
+                        className="mb-4 inline-flex items-center gap-1 rounded border border-accent/40 bg-accent/10 px-3 py-1.5 text-[12px] text-accent hover:bg-accent/20"
                       >
                         View plan progress →
                       </a>
                     )}
 
-                  <h1 className="mb-3 text-2xl font-semibold text-zinc-100">{content.title}</h1>
+                  <h1 className="mb-3 text-[14px] font-semibold text-ink">{content.title}</h1>
                   <div className="mb-5">
                     <FrontmatterChips content={content} />
                   </div>
@@ -196,7 +196,7 @@ export function DocsPage() {
                   {/* Related plans cross-links */}
                   {content.relatedPlans && content.relatedPlans.length > 0 && (
                     <div className="mt-8 border-t border-edge pt-4">
-                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.1em] text-ink-5">
                         Related plans
                       </h4>
                       <div className="flex flex-wrap gap-2">
@@ -209,7 +209,7 @@ export function DocsPage() {
                                 `.skillgrid/specs/${p}/briefing.md`,
                               )
                             }
-                            className="rounded-md border border-edge bg-card px-2.5 py-1 text-xs text-zinc-300 hover:border-accent/50"
+                            className="rounded border border-edge bg-card px-2.5 py-1 text-[12px] text-ink-3 hover:border-accent/50"
                           >
                             {p}
                           </button>
@@ -244,7 +244,7 @@ function ToolBtn({
       title={label}
       aria-label={label}
       onClick={onClick}
-      className="rounded-md border border-edge p-1.5 text-zinc-400 hover:border-accent/50 hover:text-zinc-200"
+      className="rounded border border-edge p-1.5 text-ink-4 hover:border-accent/50 hover:text-ink-2"
     >
       {children}
     </button>

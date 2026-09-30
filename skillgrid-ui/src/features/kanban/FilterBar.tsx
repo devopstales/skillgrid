@@ -35,7 +35,7 @@ export function FilterBar({
     <select
       value={value}
       onChange={(e) => onChange({ ...filters, [key]: e.target.value })}
-      className="rounded-md border border-edge bg-card px-2 py-1.5 text-xs text-zinc-300 focus:border-accent focus:outline-none"
+      className="rounded border border-edge-soft bg-inset px-2 py-1.5 text-[12px] text-ink-3 focus:border-accent focus:outline-none"
     >
       <option value="">{placeholder}</option>
       {options.map((o) => (
@@ -47,13 +47,13 @@ export function FilterBar({
   )
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-edge px-4 py-3">
+    <div className="flex flex-wrap items-center gap-2 border-b border-edge-soft px-4 py-3 font-mono">
       <input
         type="text"
-        placeholder="Filter (title, id, or label)…"
+        placeholder="filter (title, id, label)…"
         value={filters.query}
         onChange={(e) => onChange({ ...filters, query: e.target.value })}
-        className="w-56 rounded-md border border-edge bg-card px-2.5 py-1.5 text-xs text-zinc-300 placeholder:text-zinc-600 focus:border-accent focus:outline-none"
+        className="w-56 rounded border border-edge-soft bg-inset px-2.5 py-1.5 text-[12px] text-ink-3 placeholder:text-ink-6 focus:border-accent focus:outline-none"
       />
       {select(filters.assignee, assignees, 'assignee', 'All assignees')}
       {select(filters.label, labels, 'label', 'All labels')}
@@ -65,7 +65,7 @@ export function FilterBar({
           onClick={() =>
             onChange({ query: '', assignee: '', label: '', milestone: '', priority: '' })
           }
-          className="rounded-md px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-300"
+          className="rounded px-2 py-1.5 text-[12px] text-ink-5 hover:text-ink-2"
         >
           Clear
         </button>

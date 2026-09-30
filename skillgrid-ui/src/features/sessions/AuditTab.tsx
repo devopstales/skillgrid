@@ -15,13 +15,13 @@ export function AuditTab({
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {error && (
-        <div className="border-b border-red-500/30 bg-red-500/10 px-6 py-2 text-xs text-red-300">
+        <div className="border-b border-danger-ink bg-danger/10 px-6 py-2 font-mono text-[12px] text-danger">
           {error}
         </div>
       )}
-      <div className="flex items-center gap-2 border-b border-edge px-6 py-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Audit trail</h2>
-        <span className="text-xs text-zinc-600">
+      <div className="flex items-center gap-2 border-b border-edge-soft px-6 py-2 font-mono">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-6">Audit trail</h2>
+        <span className="text-[12px] text-ink-6">
           {entries.length} entries · hash-chained · {chainValid ? 'valid' : 'broken'}
         </span>
         <span className="ml-auto">
@@ -29,7 +29,7 @@ export function AuditTab({
         </span>
       </div>
       {entries.length === 0 ? (
-        <div className="p-8 text-center text-sm text-zinc-500">
+        <div className="p-8 text-center font-mono text-[13px] text-ink-5">
           No memory changes recorded yet.
         </div>
       ) : (
@@ -41,11 +41,11 @@ export function AuditTab({
 
 function ChainBadge({ valid }: { valid: boolean }) {
   return valid ? (
-    <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
+    <span className="rounded border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[11px] text-accent">
       chain valid
     </span>
   ) : (
-    <span className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-red-300">
+    <span className="rounded border border-danger-ink bg-danger/10 px-2 py-0.5 font-mono text-[11px] text-danger">
       chain broken
     </span>
   )
@@ -53,26 +53,26 @@ function ChainBadge({ valid }: { valid: boolean }) {
 
 function AuditTable({ entries }: { entries: AuditEntry[] }) {
   return (
-    <table className="w-full text-left text-xs">
-      <thead className="sticky top-0 bg-background">
-        <tr className="text-[10px] uppercase tracking-wide text-zinc-600">
-          <th className="px-4 py-2">seq</th>
-          <th className="px-4 py-2">obs</th>
-          <th className="px-4 py-2">rev</th>
-          <th className="px-4 py-2">time</th>
-          <th className="px-4 py-2">hash</th>
+    <table className="w-full text-left text-[12px]">
+      <thead className="sticky top-0 bg-bg">
+        <tr className="text-[10px] uppercase tracking-[0.1em] text-ink-6">
+          <th className="px-4 py-2 font-medium">seq</th>
+          <th className="px-4 py-2 font-medium">obs</th>
+          <th className="px-4 py-2 font-medium">rev</th>
+          <th className="px-4 py-2 font-medium">time</th>
+          <th className="px-4 py-2 font-medium">hash</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-edge">
         {entries.map((e) => (
-          <tr key={e.seq} className="font-mono text-[11px] text-zinc-400 hover:bg-card">
-            <td className="px-4 py-1.5 text-zinc-600">{e.seq}</td>
+          <tr key={e.seq} className="font-mono text-[11px] text-ink-4 hover:bg-card/60">
+            <td className="px-4 py-1.5 text-ink-6">{e.seq}</td>
             <td className="px-4 py-1.5">{e.observation_id}</td>
             <td className="px-4 py-1.5">{e.revision}</td>
             <td className="px-4 py-1.5">{e.created_at}</td>
             <td className="px-4 py-1.5">
-              <span className="text-emerald-400/80">{e.hash.slice(0, 10)}</span>
-              <span className="text-zinc-700">…</span>
+              <span className="text-accent/80">{e.hash.slice(0, 10)}</span>
+              <span className="text-ink-6">…</span>
             </td>
           </tr>
         ))}

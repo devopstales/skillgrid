@@ -2,9 +2,9 @@ import { memo } from 'react'
 import type { ActivityEvent } from './api'
 
 const SEVERITY_BORDER: Record<string, string> = {
-  high: 'border-l-red-500',
-  medium: 'border-l-amber-500',
-  info: 'border-l-zinc-600',
+  high: 'border-l-danger',
+  medium: 'border-l-warn',
+  info: 'border-l-ink-6',
 }
 
 const TYPE_ICON: Record<string, string> = {
@@ -39,32 +39,30 @@ export const EventCard = memo(function EventCard({ event }: { event: ActivityEve
   const icon = TYPE_ICON[event.type] ?? '•'
   return (
     // animate-stream-in: SSE-prepended items fade/slide in from the top (7.4).
-    <div className={`animate-stream-in rounded-md border border-edge ${border} border-l-4 bg-card px-3 py-2`}>
+    <div className={`animate-stream-in rounded border border-edge ${border} border-l-4 bg-card px-3 py-2 font-mono`}>
       <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 text-sm text-accent" aria-hidden>
+        <span className="mt-0.5 text-[15px] text-accent" aria-hidden>
           {icon}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="truncate text-sm font-medium text-zinc-100">{event.summary}</span>
-            {/* review B5: zinc-400 (was zinc-500) for ≥4.5:1 contrast at 11px */}
-            <span className="shrink-0 text-[11px] tabular-nums text-zinc-400">
+            <span className="truncate text-[13px] font-medium text-ink">{event.summary}</span>
+            <span className="shrink-0 text-[11px] tabular-nums text-ink-5">
               {timeAgo(event.ts)}
             </span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
-            <span className="rounded bg-edge/60 px-1.5 py-0.5 text-zinc-300">{event.type}</span>
+            <span className="rounded bg-edge/60 px-1.5 py-0.5 text-ink-3">{event.type}</span>
             {event.actor && (
-              <span className="rounded bg-edge/40 px-1.5 py-0.5 text-zinc-400">
+              <span className="rounded bg-edge/40 px-1.5 py-0.5 text-ink-4">
                 {event.actor}
               </span>
             )}
-            <span className="rounded bg-edge/40 px-1.5 py-0.5 text-zinc-400">
+            <span className="rounded bg-edge/40 px-1.5 py-0.5 text-ink-4">
               {event.source}
             </span>
-            {/* review B5: zinc-500 (was zinc-600, ~4.0:1) for ≥4.5:1 contrast */}
             {event.topicKey && (
-              <span className="truncate text-zinc-500" title={event.topicKey}>
+              <span className="truncate text-ink-5" title={event.topicKey}>
                 {event.topicKey}
               </span>
             )}

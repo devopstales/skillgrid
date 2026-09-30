@@ -34,12 +34,12 @@ export function CommitList({
             key={c.sha}
             type="button"
             onClick={() => onSelect(c.sha)}
-            className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors ${
+            className={`flex w-full items-center gap-3 rounded border px-3 py-2 text-left transition-colors ${
               sel ? 'border-accent/70 bg-accent/10' : 'border-edge bg-card hover:border-accent/40'
             }`}
           >
             <code
-              className="shrink-0 rounded bg-edge/50 px-1.5 py-0.5 text-[11px] text-zinc-300"
+              className="shrink-0 rounded bg-edge/50 px-1.5 py-0.5 text-[11px] text-ink-3"
               title={c.sha}
               onClick={(e) => {
                 e.stopPropagation()
@@ -49,16 +49,16 @@ export function CommitList({
               {shortSha(c.sha)}
             </code>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm text-zinc-100" title={c.message}>
+              <div className="truncate text-[13px] text-ink" title={c.message}>
                 {c.message}
               </div>
-              <div className="text-[11px] text-zinc-500">
+              <div className="text-[11px] text-ink-5">
                 {c.author} · {timeAgo(c.date)}
               </div>
             </div>
             <span className="shrink-0 text-[11px] tabular-nums">
-              <span className="text-emerald-400">+{c.additions}</span>{' '}
-              <span className="text-red-400">-{c.deletions}</span>
+              <span className="text-accent">+{c.additions}</span>{' '}
+              <span className="text-danger">-{c.deletions}</span>
             </span>
           </button>
         )

@@ -31,23 +31,23 @@ export function GitPage() {
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-8">
       <div>
-        <h1 className="text-2xl font-semibold text-zinc-100">Git</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <h1 className="text-[14px] font-semibold text-ink">Git</h1>
+        <p className="mt-1 text-[13px] text-ink-5">
           Read-only commit log, diff, file history &amp; blame
         </p>
       </div>
 
       {error ? (
         <div
-          className={`rounded-md border p-4 text-sm ${
+          className={`rounded border p-4 text-[13px] ${
             notRepo
-              ? 'border-amber-900/60 bg-amber-950/30 text-amber-300'
-              : 'border-red-900/60 bg-red-950/30 text-red-300'
+              ? 'border-warn-ink bg-warn/10 text-warn'
+              : 'border-danger-ink bg-danger/10 text-danger'
           }`}
         >
           {error}
           {notRepo && (
-            <p className="mt-1 text-xs opacity-80">
+            <p className="mt-1 text-[12px] opacity-80">
               Run the server from a git repository root to enable the Git view.
             </p>
           )}
@@ -55,11 +55,11 @@ export function GitPage() {
       ) : (
         <div className="grid flex-1 gap-6 lg:grid-cols-2">
           <section>
-            <h2 className="mb-3 text-xs font-medium uppercase tracking-widest text-zinc-500">
+            <h2 className="mb-3 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-5">
               Commits
             </h2>
             {commits.length === 0 ? (
-              <div className="rounded-md border border-edge bg-card p-8 text-center text-sm text-zinc-500">
+              <div className="rounded border border-edge bg-card p-8 text-center text-[13px] text-ink-5">
                 No commits.
               </div>
             ) : (
@@ -69,23 +69,23 @@ export function GitPage() {
 
           <section className="space-y-6">
             <div>
-              <h2 className="mb-3 text-xs font-medium uppercase tracking-widest text-zinc-500">
+              <h2 className="mb-3 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-5">
                 Commit detail
               </h2>
-              <div className="rounded-lg border border-edge bg-card p-4">
+              <div className="rounded-md border border-edge bg-card p-4">
                 {selectedSha ? (
                   <CommitDetail sha={selectedSha} />
                 ) : (
-                  <p className="text-sm text-zinc-500">Select a commit.</p>
+                  <p className="text-[13px] text-ink-5">Select a commit.</p>
                 )}
               </div>
             </div>
 
             <div>
-              <h2 className="mb-3 text-xs font-medium uppercase tracking-widest text-zinc-500">
+              <h2 className="mb-3 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-5">
                 File history &amp; blame
               </h2>
-              <div className="rounded-lg border border-edge bg-card p-4">
+              <div className="rounded-md border border-edge bg-card p-4">
                 <FileExplorer />
               </div>
             </div>

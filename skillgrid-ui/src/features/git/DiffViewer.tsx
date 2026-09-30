@@ -3,31 +3,31 @@
 // (cyan), and file headers (bold). No syntax highlighting beyond that.
 export function DiffViewer({ diff }: { diff: string }) {
   if (!diff.trim()) {
-    return <p className="text-sm text-zinc-500">No diff for this commit.</p>
+    return <p className="text-[13px] text-ink-5">No diff for this commit.</p>
   }
   const lines = diff.split('\n')
   return (
-    <pre className="overflow-x-auto rounded-md border border-edge bg-[#0a0a0d] p-3 text-xs leading-relaxed">
+    <pre className="overflow-x-auto rounded border border-edge bg-inset p-3 text-[12px] leading-relaxed">
       {lines.map((line, i) => {
-        let cls = 'text-zinc-400'
+        let cls = 'text-ink-4'
         let prefix = ' '
-        if (line.startsWith('+++') || line.startsWith('---')) cls = 'text-zinc-500'
-        else if (line.startsWith('diff ') || line.startsWith('index ')) cls = 'text-zinc-600'
+        if (line.startsWith('+++') || line.startsWith('---')) cls = 'text-ink-5'
+        else if (line.startsWith('diff ') || line.startsWith('index ')) cls = 'text-ink-6'
         else if (line.startsWith('@@')) {
-          cls = 'text-sky-400'
+          cls = 'text-info'
           prefix = ''
         } else if (line.startsWith('+')) {
-          cls = 'text-emerald-400 bg-emerald-950/30'
+          cls = 'text-accent bg-accent/10'
           prefix = '+'
         } else if (line.startsWith('-')) {
-          cls = 'text-red-400 bg-red-950/30'
+          cls = 'text-danger bg-danger/10'
           prefix = '-'
         } else {
           prefix = ' '
         }
         return (
           <div key={i} className={`whitespace-pre ${cls}`}>
-            <span className="inline-block w-3 select-none text-zinc-600">{prefix}</span>
+            <span className="inline-block w-3 select-none text-ink-6">{prefix}</span>
             {line}
           </div>
         )

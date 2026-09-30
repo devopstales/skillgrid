@@ -105,9 +105,9 @@ export function ActivityPane({
   )
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
-      <div className="flex items-center gap-2 text-xs text-zinc-500">
-        <span className={live ? 'text-emerald-500' : ''}>
+    <div className="flex h-full flex-col gap-4 overflow-y-auto p-6 font-mono">
+      <div className="flex items-center gap-2 text-[12px] text-ink-5">
+        <span className={live ? 'text-accent' : ''}>
           {live ? '● live' : '○ offline'}
         </span>
         <span>{sessionId ? 'session-scoped feed' : 'project-wide feed'}</span>
@@ -126,11 +126,11 @@ export function ActivityPane({
       </div>
 
       {error ? (
-        <div className="rounded-md border border-red-900/60 bg-red-950/30 p-4 text-sm text-red-300">
+        <div className="rounded border border-danger-ink bg-danger/10 p-4 text-[13px] text-danger">
           {error}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-md border border-edge bg-card p-8 text-center text-sm text-zinc-500">
+        <div className="rounded border border-edge bg-card p-8 text-center text-[13px] text-ink-5">
           {events.length === 0 ? 'No activity recorded yet.' : 'No events match the current filters.'}
         </div>
       ) : (

@@ -18,19 +18,19 @@ export function AgentHealth({
   // or active sessions > 0.
   const active = live || (stats?.activeSessions ?? 0) > 0 || (age !== null && age < 300)
 
-  const dot = active ? 'bg-emerald-500' : 'bg-zinc-600'
+  const dot = active ? 'bg-accent' : 'bg-ink-6'
   const label = active ? (age !== null && age < 60 ? 'active now' : 'recently active') : 'idle'
 
   return (
-    <div className="flex items-center gap-2 rounded-md border border-edge bg-card px-3 py-2 text-xs">
+    <div className="flex items-center gap-2 rounded border border-edge bg-card px-3 py-2 font-mono text-[12px]">
       <span className={`h-2 w-2 rounded-full ${dot}`} aria-hidden />
-      <span className="font-medium text-zinc-200">Agent</span>
-      <span className="text-zinc-500">{label}</span>
+      <span className="font-medium text-ink-2">Agent</span>
+      <span className="text-ink-5">{label}</span>
       {age !== null && (
-        <span className="text-zinc-600">· last event {age}s ago</span>
+        <span className="text-ink-6">· last event {age}s ago</span>
       )}
       {stats && (
-        <span className="ml-auto text-zinc-500">
+        <span className="ml-auto text-ink-5">
           {stats.activeSessions} active session{stats.activeSessions === 1 ? '' : 's'}
         </span>
       )}

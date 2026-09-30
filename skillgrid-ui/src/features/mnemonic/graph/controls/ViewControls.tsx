@@ -14,7 +14,7 @@ export function ViewControls() {
   }
 
   const btn =
-    'flex h-7 w-7 items-center justify-center rounded-md border border-slate-700 bg-slate-900/80 text-sm text-slate-200 hover:bg-slate-800'
+    'flex h-7 w-7 items-center justify-center rounded border border-edge bg-surface-2/90 text-sm text-ink-2 hover:bg-surface-2'
 
   return (
     <div className="absolute top-3 left-1/2 z-10 flex -translate-x-1/2 gap-1">

@@ -19,12 +19,12 @@ function Stat({ label, value, subtle }: { label: string; value: number; subtle?:
   return (
     <div
       className={
-        'rounded-md border border-edge px-3 py-1.5 text-xs ' +
-        (subtle ? 'bg-card text-zinc-400' : 'bg-accent/10 text-accent')
+        'rounded border border-edge px-3 py-1.5 font-mono text-[12px] ' +
+        (subtle ? 'bg-card text-ink-4' : 'bg-accent/10 text-accent')
       }
     >
       <span className="font-semibold tabular-nums">{value}</span>{' '}
-      <span className="uppercase tracking-wider text-zinc-500">{label}</span>
+      <span className="uppercase tracking-[0.1em] text-ink-6">{label}</span>
     </div>
   )
 }

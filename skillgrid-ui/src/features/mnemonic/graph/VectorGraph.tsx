@@ -169,7 +169,7 @@ function HoverTooltip() {
   if (!tip) return null
   return (
     <div
-      className="pointer-events-none absolute top-2 z-10 rounded bg-slate-950/90 px-2 py-1 text-[11px] text-slate-200 shadow"
+      className="pointer-events-none absolute top-2 z-10 rounded border border-edge bg-inset/95 px-2 py-1 text-[11px] text-ink-2"
       style={{ left: tip.x + 12 }}
     >
       {tip.text}
@@ -223,11 +223,11 @@ var s = new Sigma.default(g, document.getElementById('g'));
 // phase. tree/circles are instant.)
 function LoadingState() {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-[#06060a] p-6">
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-bg p-6">
       <div className="relative h-10 w-10">
-        <div className="absolute inset-0 animate-spin rounded-full border-2 border-slate-700 border-t-violet-400" />
+        <div className="absolute inset-0 animate-spin rounded-full border-2 border-edge border-t-accent" />
       </div>
-      <div className="text-sm text-slate-300">Loading graph…</div>
+      <div className="text-[13px] text-ink-4">Loading graph…</div>
     </div>
   )
 }
@@ -307,19 +307,19 @@ export function VectorGraph({ selectedFile, activeAgents, graphState }: VectorGr
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#06060a]">
+    <div className="relative h-full w-full overflow-hidden bg-bg">
       <SigmaContainer
         className="mnemonic-sigma h-full w-full"
         // Sigma reads the canvas background from the --sigma-background-color
         // CSS var (its style.css sets background: var(--sigma-background-color)).
         // Setting it inline on the co-occurring .react-sigma element overrides
         // the shipped default (light) without a specificity fight.
-        style={{ ['--sigma-background-color' as string]: '#06060a' }}
+        style={{ ['--sigma-background-color' as string]: '#0f172a' }}
         settings={{
           allowInvalidContainer: true,
           defaultEdgeType: 'arrow',
-          defaultNodeColor: '#06060a',
-          labelColor: { color: '#e2e8f0' },
+          defaultNodeColor: '#0f172a',
+          labelColor: { color: '#f8fafc' },
           labelRenderedSizeThreshold: 6,
         }}
       >
@@ -347,7 +347,7 @@ export function VectorGraph({ selectedFile, activeAgents, graphState }: VectorGr
         <button
           type="button"
           onClick={() => exportHtml(g)}
-          className="rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800"
+          className="rounded border border-edge bg-surface-2/90 px-3 py-1 text-[12px] text-ink-2 hover:bg-surface-2"
         >
           Export HTML
         </button>
@@ -359,20 +359,20 @@ export function VectorGraph({ selectedFile, activeAgents, graphState }: VectorGr
       </div>
 
       {/* bottom-right: status */}
-      <div className="absolute bottom-3 right-3 z-10 flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-1 text-[11px] text-slate-400">
+      <div className="absolute bottom-3 right-3 z-10 flex items-center gap-3 rounded border border-edge bg-surface-2/90 px-3 py-1 text-[11px] text-ink-5">
         <span>
           {raw.nodes.length} nodes · {raw.edges.length} edges
-          {truncated && <span className="ml-2 text-amber-400">truncated</span>}
+          {truncated && <span className="ml-2 text-warn">truncated</span>}
         </span>
         <span
           className={
             optimizing
-              ? 'flex items-center gap-1.5 text-amber-300'
-              : 'text-emerald-400'
+              ? 'flex items-center gap-1.5 text-warn'
+              : 'text-accent'
           }
         >
           {optimizing && (
-            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-300" aria-hidden />
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-warn" aria-hidden />
           )}
           {optimizing ? 'Layout optimizing…' : 'Ready'}
         </span>
