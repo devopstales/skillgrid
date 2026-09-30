@@ -121,6 +121,39 @@ func startAutoSync(svc *service.Service) {
 	fmt.Fprintln(os.Stderr, "auto-sync watcher: on (debounce", codeindex.DefaultDebounce, ")")
 }
 
+// pruneRetentionAtStartup runs the 90-day retention pass over every project
+// store at serve startup (2026-09-24 monitoring): session_events rows older
+// than mnemonic.retention_days (default 90) are deleted (one-way — approved).
+// Best-effort and never fatal: a store that cannot be opened, or a prune that
+// errors, is logged and skipped so the server still comes up.
+func pruneRetentionAtStartup(svc *service.Service) {
+	if svc == nil {
+		return
+	}
+	cfg := config.Load(".")
+	days := cfg.RetentionDays
+	projects, err := svc.ListProjects()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mnemonic: retention prune: list projects:", err)
+		return
+	}
+	ctx := context.Background()
+	for _, pid := range projects {
+		h, cleanup, oerr := svc.Open(pid)
+		if oerr != nil {
+			fmt.Fprintf(os.Stderr, "mnemonic: retention prune: skip %s: %v\n", pid, oerr)
+			continue
+		}
+		n, perr := h.Memory().PruneOldEvents(ctx, days)
+		if perr != nil {
+			fmt.Fprintf(os.Stderr, "mnemonic: retention prune: %v\n", perr)
+		} else if n > 0 {
+			fmt.Fprintf(os.Stderr, "mnemonic: retention pruned %d old events (%s)\n", n, pid)
+		}
+		cleanup()
+	}
+}
+
 // runServe starts the Mnemonic HTTP API.
 func runServe(version string, args []string) {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
@@ -149,6 +182,8 @@ func runServe(version string, args []string) {
 		os.Exit(1)
 	}
 	_ = version
+
+	pruneRetentionAtStartup(svc)
 
 	mux := mnemonichttp.NewServer(svc).Handler()
 	listenAddr := net.JoinHostPort(bind, addr)
