@@ -513,6 +513,17 @@ func (s *Service) SetDirEmbedder(e interface{ EmbedQuery(ctx context.Context, te
 	}
 }
 
+// DirEmbedder returns the attached query-embedding seam, or nil when none is
+// set (the FTS5-only default). An additive reader seam so a composing layer
+// (e.g. session-inject hybrid retrieval) can detect and reuse the embedder
+// without re-plumbing it.
+func (s *Service) DirEmbedder() interface{ EmbedQuery(ctx context.Context, text string) (Vector, error) } {
+	if s == nil {
+		return nil
+	}
+	return s.dirEmb
+}
+
 // recordRetrievalTrail persists the trajectory to retrieval_trails (19.2)
 // and returns the row's query id. It is best-effort: a recording failure is
 // logged, never propagated (the retrieval result is still valid).

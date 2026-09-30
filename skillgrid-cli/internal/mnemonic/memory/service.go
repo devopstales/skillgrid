@@ -421,6 +421,16 @@ func (s *Service) ProjectID() string {
 	return s.projectID
 }
 
+// StorePath returns the SQLite data file path backing this service's store. It
+// is exposed so a composing layer (session-inject all-projects retrieval) can
+// discover the data directory and open sibling project buckets.
+func (s *Service) StorePath() (string, error) {
+	if s == nil || s.store == nil {
+		return "", errors.New("memory service not initialized")
+	}
+	return s.store.Path(), nil
+}
+
 // Save stores an observation, deduplicating by hash within 24h or upserting by topic_key.
 func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	if s == nil || s.store == nil || s.store.DB == nil {
