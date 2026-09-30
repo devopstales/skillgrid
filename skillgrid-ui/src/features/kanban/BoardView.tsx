@@ -18,6 +18,7 @@ import {
   type UnifiedTask,
 } from './types'
 import { TaskCard } from './TaskCard'
+import { groupColumnTasks } from './epicTree'
 
 function SortableCard({
   task,
@@ -64,6 +65,7 @@ export function BoardView({
 
   const byColumn: Record<BoardColumn, UnifiedTask[]> = {
     todo: [],
+    ready: [],
     in_progress: [],
     blocked: [],
     done: [],
@@ -113,14 +115,38 @@ export function BoardView({
               strategy={rectSortingStrategy}
             >
               <div className="flex flex-col gap-2 p-2">
-                {byColumn[col].map((t) => (
-                  <SortableCard
-                    key={t.id}
-                    task={t}
-                    onClick={() => onOpenTask(t.id)}
-                    disabled={disabled}
-                  />
-                ))}
+                {groupColumnTasks(byColumn[col]).map((group) =>
+                  'parent' in group ? (
+                    <div key={group.parent.id} className="flex flex-col gap-2">
+                      <SortableCard
+                        task={group.parent}
+                        onClick={() => onOpenTask(group.parent.id)}
+                        disabled={disabled}
+                      />
+                      <div className="ml-3 flex flex-col gap-2 border-l border-edge/70 pl-2">
+                        <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-6">
+                          {group.parent.id} · {group.children.length}{' '}
+                          {group.children.length === 1 ? 'child' : 'children'}
+                        </div>
+                        {group.children.map((c) => (
+                          <SortableCard
+                            key={c.id}
+                            task={c}
+                            onClick={() => onOpenTask(c.id)}
+                            disabled={disabled}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <SortableCard
+                      key={group.task.id}
+                      task={group.task}
+                      onClick={() => onOpenTask(group.task.id)}
+                      disabled={disabled}
+                    />
+                  ),
+                )}
                 {byColumn[col].length === 0 && (
                   <div className="rounded border border-dashed border-edge/70 p-4 text-center font-mono text-[11px] text-ink-6">
                     {disabled ? '—' : 'No tasks'}

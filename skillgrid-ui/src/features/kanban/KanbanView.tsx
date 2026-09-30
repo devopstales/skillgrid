@@ -17,11 +17,13 @@ import { TaskDetail } from './TaskDetail'
 // dropped into a column. Only Backlog.md has rich statuses; for CLI-backed
 // providers we map done→closed/close and everything else→open/reopen so the
 // round-trip always hits a supported transition (501 otherwise).
-function statusForMove(provider: ProviderName, to: BoardColumn): string {
+export function statusForMove(provider: ProviderName, to: BoardColumn): string {
   if (provider === 'backlogmd') {
     switch (to) {
       case 'todo':
         return 'needs-triage'
+      case 'ready':
+        return 'ready-for-agent'
       case 'in_progress':
         return 'ready-for-agent'
       case 'blocked':

@@ -1,10 +1,11 @@
 // Phase 2 Kanban — shared types mirroring the Go tracker.UnifiedTask DTO.
 
-export const BOARD_COLUMNS = ['todo', 'in_progress', 'blocked', 'done'] as const
+export const BOARD_COLUMNS = ['todo', 'ready', 'in_progress', 'blocked', 'done'] as const
 export type BoardColumn = (typeof BOARD_COLUMNS)[number]
 
 export const COLUMN_LABEL: Record<BoardColumn, string> = {
   todo: 'Todo',
+  ready: 'Ready',
   in_progress: 'In Progress',
   blocked: 'Blocked',
   done: 'Done',
@@ -12,6 +13,7 @@ export const COLUMN_LABEL: Record<BoardColumn, string> = {
 
 export const COLUMN_COLOR: Record<BoardColumn, string> = {
   todo: 'bg-zinc-500',
+  ready: 'bg-amber-500',
   in_progress: 'bg-accent',
   blocked: 'bg-red-500',
   done: 'bg-emerald-500',
