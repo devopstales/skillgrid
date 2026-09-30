@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>skillgrid — Terminal Ops design system</title>
+<style>
+  /* ===================================================================
+     TOKENS — the source of truth. Everything below derives from :root.
+     Port these custom properties into skillgrid-ui/src/index.css.
+     =================================================================== */
+  :root {
+    /* surfaces */
+    --bg: #0f172a;            /* app canvas (OLED slate) */
+    --surface-1: #1b2336;     /* card */
+    --surface-2: #0d1526;     /* sidebar / recessed */
+    --surface-inset: #0b1120; /* inputs, tracks, wells */
+    /* lines */
+    --line: #272f42;          /* hairline borders */
+    --line-soft: #1e293b;     /* structural borders (panels, topbar) */
+    /* text */
+    --text: #f8fafc;          /* primary */
+    --text-2: #e2e8f0;        /* secondary / values */
+    --text-3: #cbd5e1;        /* body */
+    --text-4: #94a3b8;        /* muted */
+    --text-5: #64748b;        /* faint / labels */
+    --text-6: #475569;        /* faintest / timestamps */
+    /* brand + status */
+    --accent: #22c55e;        /* run-green: active, ok, live */
+    --accent-ink: #14532d;    /* accent-tinted border */
+    --accent-soft: rgba(34,197,94,.07);
+    --accent-tint: rgba(34,197,94,.12);
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --warn-ink: #78350f;
+    --warn-soft: rgba(245,158,11,.08);
+    --danger: #ef4444;
+    --danger-ink: #7f1d1d;
+    --danger-soft: rgba(239,68,68,.08);
+    --info: #38bdf8;          /* link / keyword / user scope */
+    --violet: #a78bfa;        /* global scope */
+    /* type */
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    /* type scale */
+    --fs-kpi: 26px; --fs-h1: 30px; --fs-title: 13px; --fs-body: 13px;
+    --fs-sub: 12px; --fs-meta: 11px; --fs-tag: 10px;
+    /* radius */
+    --r-1: 3px; --r-2: 4px; --r-3: 6px;
+    /* rhythm */
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-5: 20px; --space-6: 24px;
+    --grid-gap: 12px; --card-pad: 12px;
+    /* layout */
+    --side-w: 220px; --topbar-h: 44px; --cols: 12;
+  }
+
+  /* base */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: var(--font-mono); background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5; }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; cursor: pointer; }
+
+  /* chrome */
+  .layout { display: flex; min-height: 100vh; }
+  .side { width: var(--side-w); border-right: 1px solid var(--line-soft); background: var(--surface-2); flex-shrink: 0; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
+  .brand { padding: 14px 16px; font-weight: 700; font-size: 13px; letter-spacing: .04em; border-bottom: 1px solid var(--line-soft); }
+  .brand .g { color: var(--accent); }
+  nav { padding: 10px 0; flex: 1; overflow: auto; }
+  nav a { display: flex; align-items: center; gap: 9px; padding: 7px 16px; color: var(--text-4); border-left: 2px solid transparent; }
+  nav a:hover { color: var(--text-2); }
+  nav a.on { color: var(--text); border-left-color: var(--accent); background: var(--accent-soft); }
+  nav .sec { padding: 12px 16px 4px; font-size: 10px; letter-spacing: .14em; color: var(--text-6); }
+  .foot { padding: 12px 16px; border-top: 1px solid var(--line-soft); font-size: 11px; color: var(--text-6); }
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .topbar { height: var(--topbar-h); border-bottom: 1px solid var(--line-soft); display: flex; align-items: center; gap: 14px; padding: 0 16px; flex-shrink: 0; }
+  .topbar .path { color: var(--text-4); font-size: var(--fs-sub); }
+  .topbar .path b { color: var(--text); font-weight: 600; }
+  .topbar .grow { flex: 1; }
+  .scroll { padding: var(--space-4); overflow: auto; flex: 1; }
+
+  /* page */
+  .page { display: none; }
+  .page.on { display: block; }
+  .pagehead { margin-bottom: var(--space-5); }
+  .pagehead h1 { font-size: var(--fs-h1); font-weight: 700; letter-spacing: -.02em; }
+  .pagehead p { font-size: var(--fs-sub); color: var(--text-4); margin-top: var(--space-2); max-width: 70ch; }
+
+  /* card */
+  .card { background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--r-3); }
+  .card h3 { font-size: var(--fs-meta); letter-spacing: .1em; text-transform: uppercase; color: var(--text-5); padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+  .card .body { padding: var(--card-pad); }
+  .grid { display: grid; grid-template-columns: repeat(var(--cols), 1fr); gap: var(--grid-gap); align-content: start; }
+  .s4 { grid-column: span 4; } .s6 { grid-column: span 6; } .s8 { grid-column: span 8; } .s12 { grid-column: span 12; }
+  @media (max-width: 1100px) { .s4,.s6,.s8 { grid-column: span 12; } }
+
+  /* tokens: swatches */
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--grid-gap); }
+  .swatch { background: var(--surface-inset); border: 1px solid var(--line); border-radius: var(--r-2); overflow: hidden; }
+  .swatch .chip { height: 52px; }
+  .swatch .meta { padding: 8px 10px; font-size: 11px; }
+  .swatch .name { color: var(--text); font-weight: 600; }
+  .swatch .hex { color: var(--text-5); margin-top: 2px; }
+  .swatch .var { color: var(--info); margin-top: 2px; }
+  .swatch .role { color: var(--text-4); margin-top: 5px; font-size: 10.5px; line-height: 1.4; }
+
+  /* type scale */
+  .tscale .row { display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: baseline; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .tscale .row:last-child { border-bottom: 0; }
+  .tscale .meta { font-size: 11px; color: var(--text-5); }
+  .tscale .meta code { color: var(--info); }
+
+  /* spacing + radius demos */
+  .space-demo .row { display: flex; align-items: center; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .space-demo .row:last-child { border-bottom: 0; }
+  .space-demo .lab { width: 100px; font-size: 11px; color: var(--text-5); }
+  .space-demo .box { height: 14px; background: var(--accent); border-radius: 2px; }
+  .radius-demo { display: flex; gap: 20px; flex-wrap: wrap; }
+  .radius-demo .rc { text-align: center; font-size: 11px; color: var(--text-5); }
+  .radius-demo .rc .b { width: 64px; height: 64px; background: var(--accent-tint); border: 1px solid var(--accent); margin-bottom: 6px; }
+
+  /* components */
+  .comp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--grid-gap); }
+  @media (max-width: 900px) { .comp-grid { grid-template-columns: 1fr; } }
+
+  .pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-soft); border-radius: var(--r-2); padding: 3px 9px; font-size: 11px; color: var(--text-4); background: var(--surface-inset); }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .kpi .num { font-size: var(--fs-kpi); font-weight: 700; line-height: 1.1; }
+  .kpi .delta { font-size: 11px; color: var(--accent); }
+  .kpi .delta.warn { color: var(--warn); }
+  .kpi .lbl { font-size: 11px; color: var(--text-5); margin-top: 2px; }
+
+  .btn { border: 1px solid var(--line); background: var(--surface-inset); color: var(--text-2); border-radius: var(--r-2); padding: 7px 14px; font-size: 12px; }
+  .btn:hover { border-color: var(--text-5); color: var(--text); }
+  .btn.primary { border-color: var(--accent-ink); background: var(--accent-soft); color: var(--accent); }
+  .btn.primary:hover { background: var(--accent-tint); }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+  .chipst { border-radius: var(--r-1); padding: 2px 8px; font-size: 11px; display: inline-block; }
+  .chipst.pass { color: var(--ok); border: 1px solid var(--accent-ink); background: var(--accent-soft); }
+  .chipst.active { color: var(--warn); border: 1px solid var(--warn-ink); background: var(--warn-soft); }
+  .chipst.blocked { color: var(--danger); border: 1px solid var(--danger-ink); background: var(--danger-soft); }
+
+  .input { width: 100%; background: var(--surface-inset); border: 1px solid var(--line); border-radius: var(--r-2); color: var(--text); padding: 8px 10px; font: inherit; font-size: var(--fs-sub); }
+  .input:focus { outline: none; border-color: var(--accent); }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 11px; color: var(--text-5); margin-bottom: 5px; letter-spacing: .04em; }
+
+  .toggle { display: flex; align-items: center; gap: 10px; padding: 10px 0; font-size: 12px; color: var(--text-3); cursor: pointer; }
+  .toggle .grow { flex: 1; }
+  .toggle .sw { width: 30px; height: 16px; border-radius: 8px; background: #334155; position: relative; transition: background .15s; flex-shrink: 0; }
+  .toggle .sw i { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-4); transition: transform .15s, background .15s; }
+  .toggle.on .sw { background: var(--accent-ink); }
+  .toggle.on .sw i { transform: translateX(14px); background: var(--accent); }
+
+  .bar { height: 6px; background: var(--surface-inset); border-radius: 3px; position: relative; overflow: hidden; }
+  .bar i { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 3px; }
+  .bar .target { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text); }
+  .bullet { margin-bottom: 12px; }
+  .bullet .lbl { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-4); margin-bottom: 5px; }
+  .bullet .lbl b { color: var(--text); font-weight: 600; }
+
+  .status-row { display: flex; justify-content: space-between; font-size: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .status-row:last-child { border-bottom: 0; }
+  .status-row .ok { color: var(--ok); } .status-row .warn { color: var(--warn); } .status-row .dim { color: var(--text-5); }
+
+  .feed .row { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .feed .row:last-child { border-bottom: 0; }
+  .feed .t { color: var(--text-6); flex-shrink: 0; }
+  .feed .k { color: var(--accent); flex-shrink: 0; }
+  .feed .m { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .tag { border: 1px solid var(--line); border-radius: var(--r-1); padding: 1px 6px; font-size: var(--fs-tag); color: var(--text-4); display: inline-block; }
+  .tag.t { color: var(--accent); border-color: var(--accent-ink); }
+
+  .spark { display: block; width: 100%; height: 90px; }
+  .spark .grid-line { stroke: var(--line); stroke-width: 1; }
+  .spark .area { fill: var(--accent-tint); }
+  .spark .line { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+
+  .seg { display: flex; gap: 3px; }
+  .seg span { flex: 1; height: 8px; border-radius: 2px; background: var(--surface-inset); }
+  .seg span.p { background: var(--accent); }
+  .seg span.u { background: var(--info); }
+  .seg span.gl { background: var(--violet); }
+
+  .list-row { display: grid; grid-template-columns: 130px 1fr 90px 70px; gap: 10px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .list-row:last-child { border-bottom: 0; }
+  .list-row .id { color: var(--accent); }
+  .list-row .n { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list-row .p { color: var(--text-5); }
+  .list-row .t { color: var(--text-6); text-align: right; }
+  .list-row .live { color: var(--accent); text-align: right; }
+
+  .detail { display: flex; gap: 8px; font-size: 12px; padding: 4px 0; }
+  .detail b { color: var(--text-3); }
+
+  .kv2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; }
+  .kv2 .r { display: flex; justify-content: space-between; font-size: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .kv2 .r .k { color: var(--text-5); }
+  .kv2 .r .v { color: var(--text-2); }
+
+  .gate { display: flex; align-items: center; gap: 16px; }
+  .gate .big { font-size: 30px; font-weight: 700; color: var(--ok); }
+  .gate .sub { font-size: 11.5px; color: var(--text-5); margin-top: 3px; }
+  .gate .grow { flex: 1; }
+
+  .check { display: flex; gap: 8px; font-size: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); color: var(--text-4); }
+  .check:last-child { border-bottom: 0; }
+  .check .ok { color: var(--ok); flex-shrink: 0; }
+  .check .warn { color: var(--warn); flex-shrink: 0; }
+
+  .adr { display: grid; grid-template-columns: 64px 1fr 90px 70px; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .adr:last-child { border-bottom: 0; }
+  .adr .n { color: var(--accent); }
+  .adr .t { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .adr .d { color: var(--text-6); text-align: right; }
+  .adr .st { text-align: right; color: var(--accent); }
+  .adr .st.out { color: var(--text-5); }
+
+  .obs { padding: 11px 0; border-bottom: 1px solid var(--line); }
+  .obs:last-child { border-bottom: 0; }
+  .obs .top { display: flex; gap: 8px; align-items: center; font-size: 12px; margin-bottom: 5px; }
+  .obs .pin { color: var(--warn); }
+  .obs .title { font-size: var(--fs-title); color: var(--text); font-weight: 600; }
+  .obs .body { font-size: 11.5px; color: var(--text-4); line-height: 1.5; }
+  .obs .t { margin-left: auto; color: var(--text-6); font-size: 11px; flex-shrink: 0; }
+
+  .code { font-family: var(--font-mono); background: var(--surface-inset); border: 1px solid var(--line); border-radius: var(--r-2); padding: 2px 6px; font-size: 11.5px; color: var(--info); }
+  .note { font-size: 12px; color: var(--text-4); line-height: 1.6; }
+  .note b { color: var(--text-2); }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand">skillgrid<span class="g">:ds</span></div>
+    <nav id="nav">
+      <div class="sec">FUNDAMENTALS</div>
+      <a class="on" href="#" data-page="overview">overview</a>
+      <a href="#" data-page="color">color</a>
+      <a href="#" data-page="type">typography</a>
+      <a href="#" data-page="space">spacing &amp; radius</a>
+      <div class="sec">COMPONENTS</div>
+      <a href="#" data-page="layout">layout &amp; grid</a>
+      <a href="#" data-page="cards">cards &amp; kpi</a>
+      <a href="#" data-page="controls">controls &amp; states</a>
+      <a href="#" data-page="charts">charts &amp; data</a>
+      <div class="sec">PATTERNS</div>
+      <a href="#" data-page="memory">memory</a>
+      <a href="#" data-page="sessions">sessions</a>
+      <a href="#" data-page="pipeline">pipeline &amp; adr</a>
+      <div class="sec">REFERENCE</div>
+      <a href="#" data-page="tokens">token table</a>
+    </nav>
+    <div class="foot">terminal-ops v1.0<br/>source of truth</div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <span class="path">~/skillgrid / design-system / <b id="crumb">overview</b></span>
+      <span class="grow"></span>
+      <span class="pill"><span class="dot"></span>terminal-ops</span>
+      <span class="pill">12-col · 8px</span>
+    </div>
+    <div class="scroll">
+
+      <!-- ===== OVERVIEW ===== -->
+      <section class="page on" id="pg-overview">
+        <div class="pagehead"><h1>Terminal Ops</h1>
+        <p>The selected skillgrid dashboard design system. Dense mono console on an OLED slate canvas, one run-green accent for everything that is live or passing, an 8px rhythm, and a 12-column grid. Every value on this page is a <span class="code">:root</span> custom property — port the token table into <span class="code">skillgrid-ui/src/index.css</span> and the real build matches this.</p></div>
+        <div class="grid">
+          <div class="card s6"><h3>identity</h3><div class="body">
+            <div class="kv2">
+              <div class="r"><span class="k">name</span><span class="v">Terminal Ops</span></div>
+              <div class="r"><span class="k">mood</span><span class="v">dense · instrument</span></div>
+              <div class="r"><span class="k">font</span><span class="v">mono-first</span></div>
+              <div class="r"><span class="k">canvas</span><span class="v">#0f172a</span></div>
+              <div class="r"><span class="k">accent</span><span class="v">#22c55e</span></div>
+              <div class="r"><span class="k">rhythm</span><span class="v">8px</span></div>
+            </div>
+          </div></div>
+          <div class="card s6"><h3>how it works</h3><div class="body">
+            <div class="note"><b>One accent, three states.</b> Run-green is the only brand hue — it carries active, ok, live, and success. Amber is the single warning hue, red is reserved for failure, and sky/violet are scope colors (user / global) used only in memory breakdowns and links. No gradients, no glass, no shadows: separation comes from hairline borders and the one-step surface elevation.</div>
+            <div class="note" style="margin-top:10px"><b>Density is the feature.</b> 11px labels, 12–13px body, tight card padding. The layout reads like a terminal because the type is small, the grid is fine-grained, and status is encoded in color + tiny chips, not big cards.</div>
+          </div></div>
+          <div class="card s12"><h3>page patterns at a glance</h3><div class="body" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+            <div><div class="kpi"><div class="num">1,284</div><div class="lbl">observations</div><div class="delta">+42 this week</div></div></div>
+            <div><div class="bullet"><div class="lbl"><span>index freshness</span><b>2m old</b></div><div class="bar"><i style="width:90%"></i><span class="target" style="left:95%"></span></div></div><div style="margin-top:8px"><span class="chipst pass">pass</span> <span class="chipst active">in progress</span> <span class="chipst blocked">blocked</span></div></div>
+            <div><div class="status-row"><span>completed</span><span class="ok">17</span></div><div class="status-row"><span>in progress</span><span class="warn">1</span></div><div class="status-row"><span>blocked</span><span class="ok">0</span></div></div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- ===== COLOR ===== -->
+      <section class="page" id="pg-color">
+        <div class="pagehead"><h1>Color</h1><p>OLED slate surfaces with a single run-green accent. Surfaces elevate one step; lines are hairlines; status is encoded in four semantic hues.</p></div>
+        <div class="grid">
+          <div class="card s12"><h3>surfaces &amp; lines</h3><div class="body"><div class="swatches" id="sw-surfaces"></div></div></div>
+          <div class="card s12"><h3>text scale (6 steps)</h3><div class="body"><div class="swatches" id="sw-text"></div></div></div>
+          <div class="card s12"><h3>semantic &amp; brand</h3><div class="body"><div class="swatches" id="sw-sem"></div></div></div>
+        </div>
+      </section>
+
+      <!-- ===== TYPE ===== -->
+      <section class="page" id="pg-type">
+        <div class="pagehead"><h1>Typography</h1><p>Monospace-first. The whole console is set in the mono stack; a system sans is available for long prose but the UI defaults to mono. Numerals use tabular figures for alignment.</p></div>
+        <div class="grid">
+          <div class="card s8"><h3>scale</h3><div class="body tscale">
+            <div class="row"><div class="meta"><code>--fs-h1</code><br/>30px / 700</div><div style="font-size:30px;font-weight:700;letter-spacing:-.02em">qa gate</div></div>
+            <div class="row"><div class="meta"><code>--fs-kpi</code><br/>26px / 700</div><div style="font-size:26px;font-weight:700">1,284</div></div>
+            <div class="row"><div class="meta"><code>--fs-body</code><br/>13px / 400</div><div style="font-size:13px">mem_save · Fixed N+1 query in UserList</div></div>
+            <div class="row"><div class="meta"><code>--fs-sub</code><br/>12px / 400</div><div style="font-size:12px;color:var(--text-3)">re-index 128 files, 4.2s · warm leg 28ms</div></div>
+            <div class="row"><div class="meta"><code>--fs-meta</code><br/>11px / 600 caps</div><div style="font-size:11px;color:var(--text-5);letter-spacing:.1em;text-transform:uppercase">pipeline state</div></div>
+            <div class="row"><div class="meta"><code>--fs-tag</code><br/>10px / 400</div><div style="font-size:10px;color:var(--text-4)">bugfix · project</div></div>
+          </div></div>
+          <div class="card s4"><h3>families</h3><div class="body">
+            <div class="kv2">
+              <div class="r"><span class="k">primary</span><span class="v">var(--font-mono)</span></div>
+              <div class="r"><span class="k">prose</span><span class="v">var(--font-sans)</span></div>
+              <div class="r"><span class="k">numerals</span><span class="v">tabular-nums</span></div>
+              <div class="r"><span class="k">tracking</span><span class="v">.1em labels</span></div>
+            </div>
+            <div class="note" style="margin-top:12px">Use the mono stack for every UI string. Reach for <span class="code">--font-sans</span> only inside long-form prose bodies (memory observation text) to ease reading density.</div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- ===== SPACE ===== -->
+      <section class="page" id="pg-space">
+        <div class="pagehead"><h1>Spacing &amp; radius</h1><p>8px base rhythm. Card padding is 12px, grid gap is 12px. Radii are small (3–6px) — this is a console, not a card deck.</p></div>
+        <div class="grid">
+          <div class="card s6"><h3>spacing scale</h3><div class="body space-demo">
+            <div class="row"><div class="lab">--space-1 · 4px</div><div class="box" style="width:4px"></div></div>
+            <div class="row"><div class="lab">--space-2 · 8px</div><div class="box" style="width:8px"></div></div>
+            <div class="row"><div class="lab">--space-3 · 12px</div><div class="box" style="width:12px"></div></div>
+            <div class="row"><div class="lab">--space-4 · 16px</div><div class="box" style="width:16px"></div></div>
+            <div class="row"><div class="lab">--space-5 · 20px</div><div class="box" style="width:20px"></div></div>
+            <div class="row"><div class="lab">--space-6 · 24px</div><div class="box" style="width:24px"></div></div>
+          </div></div>
+          <div class="card s6"><h3>radius</h3><div class="body"><div class="radius-demo">
+            <div class="rc"><div class="b" style="border-radius:3px"></div>--r-1 · 3px<br/>tags, chips</div>
+            <div class="rc"><div class="b" style="border-radius:4px"></div>--r-2 · 4px<br/>inputs, pills</div>
+            <div class="rc"><div class="b" style="border-radius:6px"></div>--r-3 · 6px<br/>cards</div>
+          </div></div></div>
+          <div class="card s12"><h3>layout constants</h3><div class="body"><div class="kv2">
+            <div class="r"><span class="k">--side-w</span><span class="v">220px</span></div>
+            <div class="r"><span class="k">--topbar-h</span><span class="v">44px</span></div>
+            <div class="r"><span class="k">--grid-gap</span><span class="v">12px</span></div>
+            <div class="r"><span class="k">--card-pad</span><span class="v">12px</span></div>
+            <div class="r"><span class="k">--cols</span><span class="v">12</span></div>
+            <div class="r"><span class="k">--space-0 (base)</span><span class="v">8px</span></div>
+          </div></div></div>
+        </div>
+      </section>
+
+      <!-- ===== LAYOUT ===== -->
+      <section class="page" id="pg-layout">
+        <div class="pagehead"><h1>Layout &amp; grid</h1><p>Fixed 220px sidebar + fluid 12-column content grid. Cards span by 3/4/6/8/12. Below 1100px everything stacks to full width.</p></div>
+        <div class="grid">
+          <div class="card s12"><h3>12-column spans</h3><div class="body">
+            <div class="grid" style="margin-bottom:12px">
+              <div class="s3" style="background:var(--surface-inset);border:1px solid var(--line);border-radius:4px;padding:8px;font-size:11px;color:var(--text-4)">span 3 · KPI</div>
+              <div class="s3" style="background:var(--surface-inset);border:1px solid var(--line);border-radius:4px;padding:8px;font-size:11px;color:var(--text-4)">span 3</div>
+              <div class="s3" style="background:var(--surface-inset);border:1px solid var(--line);border-radius:4px;padding:8px;font-size:11px;color:var(--text-4)">span 3</div>
+              <div class="s3" style="background:var(--surface-inset);border:1px solid var(--line);border-radius:4px;padding:8px;font-size:11px;color:var(--text-4)">span 3</div>
+            </div>
+            <div class="grid">
+              <div class="s8" style="background:var(--surface-inset);border:1px solid var(--line);border-radius:4px;padding:8px;font-size:11px;color:var(--text-4)">span 8 · trend / code intelligence</div>
+              <div class="s4" style="background:var(--surface-inset);border:1px solid var(--line);border-radius:4px;padding:8px;font-size:11px;color:var(--text-4)">span 4 · feed</div>
+            </div>
+            <div class="note" style="margin-top:12px">KPI strip = four × span 3. Wide panels = span 8 paired with a span 4 side panel. Full-width list pages (memory, sessions, changes, adr) use span 12.</div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- ===== CARDS ===== -->
+      <section class="page" id="pg-cards">
+        <div class="pagehead"><h1>Cards &amp; KPI</h1><p>A card is a one-step elevation: <span class="code">--surface-1</span> on <span class="code">--bg</span>, a <span class="code">--line</span> border, 6px radius, an uppercase 11px header with a hairline divider, 12px body padding.</p></div>
+        <div class="grid">
+          <div class="card s12"><h3>card anatomy</h3><div class="body"><div class="note">Header = <b>uppercase label</b> (11px, .1em tracking, muted) + optional right-aligned status. Body = 12px padding. No shadow — the 1px border and surface step do the separation.</div></div></div>
+          <div class="card s6"><h3>kpi card</h3><div class="body kpi">
+            <div class="num">1,284</div><div class="lbl">total stored</div><div class="delta">+42 this week</div>
+            <div style="margin-top:14px"><div class="num" style="color:var(--text-5)">3 files <span class="delta warn">stale</span></div><div class="lbl">code index · 22,581 symbols + chunks</div></div>
+          </div></div>
+          <div class="card s6"><h3>status card</h3><div class="body">
+            <div class="status-row"><span>completed changes</span><span class="ok">17</span></div>
+            <div class="status-row"><span>in progress</span><span class="warn">1 · monitoring</span></div>
+            <div class="status-row"><span>blocked</span><span class="ok">0</span></div>
+            <div class="status-row"><span>adrs in force</span><span>13 / 16</span></div>
+            <div class="status-row"><span>current phase</span><span class="dim">executing</span></div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- ===== CONTROLS ===== -->
+      <section class="page" id="pg-controls">
+        <div class="pagehead"><h1>Controls &amp; states</h1><p>Buttons, inputs, toggles, pills and status chips. Default = recessed inset; primary = green-tinted border + soft green fill.</p></div>
+        <div class="grid">
+          <div class="card s6"><h3>buttons</h3><div class="body"><div class="btn-row">
+            <button class="btn primary">primary</button>
+            <button class="btn">default</button>
+            <button class="btn">ghost</button>
+            <button class="btn" disabled>disabled</button>
+          </div></div></div>
+          <div class="card s6"><h3>inputs</h3><div class="body">
+            <div class="field"><label>search</label><input class="input" placeholder="search observations…"/></div>
+            <div class="field"><label>jump to symbol</label><input class="input" value="exploreSymbol" autofocus style="border-color:var(--accent)"/></div>
+          </div></div>
+          <div class="card s6"><h3>toggle</h3><div class="body">
+            <div class="toggle on" data-toggle><span>passive capture</span><span class="grow"></span><span class="sw"><i></i></span></div>
+            <div class="toggle" data-toggle><span>staleness gate</span><span class="grow"></span><span class="sw"><i></i></span></div>
+          </div></div>
+          <div class="card s6"><h3>pills &amp; chips</h3><div class="body" style="display:flex;flex-direction:column;gap:12px">
+            <div><span class="pill"><span class="dot"></span>engine online</span> <span class="pill">127.0.0.1:7438</span></div>
+            <div><span class="chipst pass">pass</span> <span class="chipst active">in progress</span> <span class="chipst blocked">blocked</span></div>
+            <div><span class="tag t">bugfix</span> <span class="tag">project</span> <span class="tag">user</span></div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- ===== CHARTS ===== -->
+      <section class="page" id="pg-charts">
+        <div class="pagehead"><h1>Charts &amp; data</h1><p>Three data idioms: streaming area (index health / trends), bullet chart (KPI vs target), segmented ratio (memory scope). All stroke/fill derive from the accent and line tokens.</p></div>
+        <div class="grid">
+          <div class="card s8"><h3>streaming area</h3><div class="body">
+            <svg class="spark" viewBox="0 0 560 90" preserveAspectRatio="none">
+              <line class="grid-line" x1="0" y1="22" x2="560" y2="22"/><line class="grid-line" x1="0" y1="45" x2="560" y2="45"/><line class="grid-line" x1="0" y1="68" x2="560" y2="68"/>
+              <path class="area" d="M0,72 L40,66 L80,68 L120,58 L160,60 L200,48 L240,52 L280,40 L320,44 L360,32 L400,36 L440,24 L480,28 L520,16 L560,20 L560,90 L0,90 Z"/>
+              <path class="line" d="M0,72 L40,66 L80,68 L120,58 L160,60 L200,48 L240,52 L280,40 L320,44 L360,32 L400,36 L440,24 L480,28 L520,16 L560,20"/>
+            </svg>
+            <div class="note" style="margin-top:8px">stroke <span class="code">--accent</span> 1.5px, fill <span class="code">--accent-tint</span> 12%, grid lines <span class="code">--line</span>.</div>
+          </div></div>
+          <div class="card s4"><h3>segmented ratio</h3><div class="body">
+            <div class="seg"><span class="p" style="flex:612"></span><span class="u" style="flex:390"></span><span class="gl" style="flex:282"></span></div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-6);margin-top:6px"><span>■ project</span><span>■ user</span><span>■ global</span></div>
+            <div class="note" style="margin-top:10px">project = accent, user = info, global = violet. Track = inset.</div>
+          </div></div>
+          <div class="card s12"><h3>bullet chart (KPI vs target)</h3><div class="body">
+            <div class="bullet"><div class="lbl"><span>symbols indexed</span><b>3,905</b></div><div class="bar"><i style="width:82%"></i></div></div>
+            <div class="bullet"><div class="lbl"><span>chunks embedded</span><b>18,676</b></div><div class="bar"><i style="width:94%"></i></div></div>
+            <div class="bullet"><div class="lbl"><span>index freshness</span><b>2m old</b></div><div class="bar"><i style="width:90%"></i><span class="target" style="left:95%"></span></div></div>
+            <div class="bullet"><div class="lbl"><span>semantic leg (warm)</span><b>28ms</b></div><div class="bar"><i style="width:18%"></i><span class="target" style="left:50%"></span></div></div>
+            <div class="note">Bar = accent on inset track; the white <b>target</b> tick marks the threshold. Amber <span class="code">--warn</span> fill for at-risk values.</div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- ===== MEMORY ===== -->
+      <section class="page" id="pg-memory">
+        <div class="pagehead"><h1>Memory</h1><p>Observation list: type tag + scope tag + optional pin + relative time, a 13px title, and 11.5px body. Live search filters the list.</p></div>
+        <div class="grid">
+          <div class="card s12"><h3>observation rows</h3><div class="body" style="padding:6px 12px">
+            <div class="field" style="padding:6px 0 10px"><input class="input" id="memFilter" placeholder="filter observations…"/></div>
+            <div id="memRows">
+              <div class="obs"><div class="top"><span class="tag t">bugfix</span><span class="tag">project</span><span class="pin">★ pinned</span><span class="t">2m</span></div><div class="title">Fixed N+1 query in UserList</div><div class="body">batched the per-row user fetch into one IN query — 1,200 round-trips gone.</div></div>
+              <div class="obs"><div class="top"><span class="tag t">architecture</span><span class="tag">project</span><span class="t">14m</span></div><div class="title">ADR-0016 second-brain capability drafted</div><div class="body">passive-capture pipeline so agents stop re-deriving known facts.</div></div>
+              <div class="obs"><div class="top"><span class="tag t">decision</span><span class="tag">project</span><span class="t">41m</span></div><div class="title">Adopt TanStack Router over React Router</div><div class="body">type-safe routes with schema-validated query state for the graph.</div></div>
+              <div class="obs"><div class="top"><span class="tag t">pattern</span><span class="tag">project</span><span class="t">3h</span></div><div class="title">Container/presentational split for graph views</div><div class="body">Sigma canvas in a presentational leaf; data flows from the container.</div></div>
+              <div class="obs"><div class="top"><span class="tag t">discovery</span><span class="tag">global</span><span class="t">1d</span></div><div class="title">nomic-embed-code 768-dim beats 384 on Go symbols</div><div class="body">measured recall@10 across both; 28ms warm leg is the cost of 768 dims.</div></div>
+            </div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- ===== SESSIONS ===== -->
+      <section class="page" id="pg-sessions">
+        <div class="pagehead"><h1>Sessions</h1><p>Row list: session id (green) · name · project · time or live indicator.</p></div>
+        <div class="grid">
+          <div class="card s12"><h3>active sessions · 14 running · 3 pinned</h3><div class="body" style="padding:6px 12px">
+            <div class="list-row"><span class="id">s_ad1c5e6e</span><span class="n">Fix login race in session store</span><span class="p">aiskillgrid</span><span class="live">● live</span></div>
+            <div class="list-row"><span class="id">s_9f2c11</span><span class="n">Refactor graph legend to container</span><span class="p">aiskillgrid</span><span class="live">● live</span></div>
+            <div class="list-row"><span class="id">s_4b8e20</span><span class="n">Wire QA gate into pre-commit</span><span class="p">aiskillgrid</span><span class="t">28m</span></div>
+            <div class="list-row"><span class="id">s_c03d77</span><span class="n">Migrate routes to TanStack Router</span><span class="p">skillgrid-ui</span><span class="t">1h</span></div>
+            <div class="list-row"><span class="id">s_77a1f0</span><span class="n">Spike: Sigma vs 3d-force-graph</span><span class="p">spikes</span><span class="t">3h</span></div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- ===== PIPELINE ===== -->
+      <section class="page" id="pg-pipeline">
+        <div class="pagehead"><h1>Pipeline &amp; ADR</h1><p>QA gate banner (big green PASS + verification ladder) and the ADR table (number, title, date, status).</p></div>
+        <div class="grid">
+          <div class="card s12"><h3>qa gate</h3><div class="body gate"><div><div class="big">PASS</div><div class="sub">last run 2026-09-29 · 17 changes shipped</div></div><span class="grow"></span><span class="pill"><span class="dot"></span>4-state gate</span></div></div>
+          <div class="card s6"><h3>verification ladder</h3><div class="body" style="padding:6px 12px">
+            <div class="check"><span class="ok">✓</span><span>test suite · go test ./… + vitest — 412 passed</span></div>
+            <div class="check"><span class="ok">✓</span><span>tdd evidence — failing-then-passing per ticket</span></div>
+            <div class="check"><span class="warn">!</span><span>trivy — 1 advisory (advisory-only, non-blocking)</span></div>
+          </div></div>
+          <div class="card s6"><h3>adr · 13 / 16 in force</h3><div class="body" style="padding:6px 12px">
+            <div class="adr"><span class="n">ADR-0016</span><span class="t">second-brain passive capture</span><span class="d">2026-09-24</span><span class="st">draft</span></div>
+            <div class="adr"><span class="n">ADR-0015</span><span class="t">TanStack Router over React Router</span><span class="d">2026-09-18</span><span class="st">in force</span></div>
+            <div class="adr"><span class="n">ADR-0014</span><span class="t">Sigma for graph rendering</span><span class="d">2026-09-11</span><span class="st">in force</span></div>
+            <div class="adr"><span class="n">ADR-0009</span><span class="t">SQLite WAL for local store</span><span class="d">2026-08-20</span><span class="st out">superseded</span></div>
+          </div></div>
+          <div class="card s12"><h3>event feed</h3><div class="body feed" style="padding:6px 12px">
+            <div class="row"><span class="t">14:32:08</span><span class="k">mem_save</span><span class="m">Fixed N+1 query in UserList</span></div>
+            <div class="row"><span class="t">14:29:51</span><span class="k">code_index</span><span class="m">re-index 128 files, 4.2s</span></div>
+            <div class="row"><span class="t">14:25:13</span><span class="k">mem_search</span><span class="m">"auth model" → 6 hits, 12ms</span></div>
+            <div class="row"><span class="t">14:21:40</span><span class="k">web_cache</span><span class="m">context7 /tanstack/query hit</span></div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- ===== TOKENS ===== -->
+      <section class="page" id="pg-tokens">
+        <div class="pagehead"><h1>Token table</h1><p>The complete flat map. Copy this block into <span class="code">skillgrid-ui/src/index.css</span> under <span class="code">:root</span> — every component on this page resolves from it.</p></div>
+        <div class="grid">
+          <div class="card s12"><h3>css custom properties</h3><div class="body" style="padding:0">
+            <div id="tokenTable" style="padding:12px;font-size:12px;overflow-x:auto"></div>
+          </div></div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---- swatch data ----
+  const surfaces = [
+    ['--bg','#0f172a','app canvas','OLED slate; the base background'],
+    ['--surface-1','#1b2336','card','one-step elevation for cards'],
+    ['--surface-2','#0d1526','sidebar','recessed; sidebar & wells'],
+    ['--surface-inset','#0b1120','inset','inputs, tracks, pill fill'],
+    ['--line','#272f42','hairline','card & row borders'],
+    ['--line-soft','#1e293b','structural','panel & topbar borders'],
+  ];
+  const textc = [
+    ['--text','#f8fafc','primary','headings, KPI, active nav'],
+    ['--text-2','#e2e8f0','secondary','values, secondary titles'],
+    ['--text-3','#cbd5e1','body','list names, prose'],
+    ['--text-4','#94a3b8','muted','labels, descriptions'],
+    ['--text-5','#64748b','faint','card headers, hints'],
+    ['--text-6','#475569','faintest','timestamps, section labels'],
+  ];
+  const sem = [
+    ['--accent','#22c55e','run-green','active, ok, live, success'],
+    ['--accent-ink','#14532d','accent border','tinted chip/toggle borders'],
+    ['--accent-soft','rgba(34,197,94,.07)','accent fill','nav active, primary btn'],
+    ['--accent-tint','rgba(34,197,94,.12)','chart fill','area fill, hover'],
+    ['--warn','#f59e0b','warning','in-progress, at-risk, pin'],
+    ['--warn-ink','#78350f','warn border','warn chip borders'],
+    ['--warn-soft','rgba(245,158,11,.08)','warn fill','active chip fill'],
+    ['--danger','#ef4444','danger','failure, blocked'],
+    ['--danger-ink','#7f1d1d','danger border','danger chip borders'],
+    ['--danger-soft','rgba(239,68,68,.08)','danger fill','blocked chip fill'],
+    ['--info','#38bdf8','info / link','user scope, code, links'],
+    ['--violet','#a78bfa','global scope','memory global segment'],
+  ];
+  function renderSwatches(id, rows) {
+    const el = document.getElementById(id);
+    el.innerHTML = rows.map(([v,hex,name,role]) =>
+      `<div class="swatch"><div class="chip" style="background:${hex.startsWith('rgba')?hex:hex}"></div>
+      <div class="meta"><div class="name">${name}</div><div class="hex">${hex}</div><div class="var">${v}</div><div class="role">${role}</div></div></div>`
+    ).join('');
+  }
+  renderSwatches('sw-surfaces', surfaces);
+  renderSwatches('sw-text', textc);
+  renderSwatches('sw-sem', sem);
+
+  // ---- token table (all :root vars) ----
+  const tokenGroups = {
+    'surfaces': ['--bg','--surface-1','--surface-2','--surface-inset'],
+    'lines': ['--line','--line-soft'],
+    'text': ['--text','--text-2','--text-3','--text-4','--text-5','--text-6'],
+    'brand/status': ['--accent','--accent-ink','--accent-soft','--accent-tint','--ok','--warn','--warn-ink','--warn-soft','--danger','--danger-ink','--danger-soft','--info','--violet'],
+    'type': ['--font-mono','--font-sans','--fs-kpi','--fs-h1','--fs-title','--fs-body','--fs-sub','--fs-meta','--fs-tag'],
+    'radius': ['--r-1','--r-2','--r-3'],
+    'rhythm': ['--space-1','--space-2','--space-3','--space-4','--space-5','--space-6','--grid-gap','--card-pad'],
+    'layout': ['--side-w','--topbar-h','--cols'],
+  };
+  const css = getComputedStyle(document.documentElement);
+  function tokenTable() {
+    let html = '<div style="display:grid;grid-template-columns:140px 220px 1fr;gap:0;font-family:var(--font-mono)">';
+    html += '<div style="padding:6px 8px;color:var(--text-6);font-size:11px;text-transform:uppercase;letter-spacing:.1em">group</div><div style="padding:6px 8px;color:var(--text-6);font-size:11px">token</div><div style="padding:6px 8px;color:var(--text-6);font-size:11px">value</div>';
+    for (const [group, vars] of Object.entries(tokenGroups)) {
+      vars.forEach((v,i) => {
+        if (i===0) html += `<div style="padding:8px;border-top:1px solid var(--line);color:var(--text-4);font-size:11px;align-self:start">${group}</div>`;
+        else html += '<div></div>';
+        html += `<div style="padding:8px 0;border-top:1px solid var(--line);color:var(--info);font-size:11.5px">${v}</div>`;
+        html += `<div style="padding:8px 0;border-top:1px solid var(--line);color:var(--text-2);font-size:11.5px;white-space:nowrap">${css.getPropertyValue(v).trim()||'—'}</div>`;
+      });
+    }
+    html += '</div>';
+    return html;
+  }
+  document.getElementById('tokenTable').innerHTML = tokenTable();
+
+  // ---- working menus ----
+  function go(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === 'pg-'+page));
+    const crumb = document.getElementById('crumb');
+    if (crumb) crumb.textContent = page;
+    document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.page === page));
+  }
+  document.querySelectorAll('#nav a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); go(a.dataset.page); }));
+
+  // ---- toggles ----
+  document.querySelectorAll('[data-toggle]').forEach(t => t.addEventListener('click', () => t.classList.toggle('on')));
+
+  // ---- memory filter ----
+  const mf = document.getElementById('memFilter');
+  if (mf) mf.addEventListener('input', () => {
+    const q = mf.value.toLowerCase();
+    document.querySelectorAll('#memRows .obs').forEach(o => { o.style.display = (!q || o.textContent.toLowerCase().includes(q)) ? '' : 'none'; });
+  });
+
+  go('overview');
+</script>
+</body>
+</html>
