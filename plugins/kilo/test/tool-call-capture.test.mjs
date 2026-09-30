@@ -151,3 +151,23 @@ test("private spans are stripped from tool-call content before hashing/preview",
   assert.match(call.body.content_preview, /\[REDACTED\]/)
   assert.ok(call.body.content_hash.length > 0, "a hash of the stripped content is expected")
 })
+
+// SATISFIES plugin-posts-per-tool-call (result_status normalization)
+test("result_status is normalized to success|error only", async (t) => {
+  const runtime = await createRuntime(t)
+  await runtime.event("session.created", { id: "rs-root", projectID: PROJECT_ID })
+  // Non-canonical statuses must not pass through verbatim.
+  await runtime.after(
+    { tool: "bash", sessionID: "rs-root", args: { command: "echo 1" } },
+    { output: "1", status: "done" },
+  )
+  await runtime.after(
+    { tool: "bash", sessionID: "rs-root", args: { command: "echo 2" } },
+    { output: "2", status: "failed" },
+  )
+  await new Promise((r) => setTimeout(r, 25))
+  const calls = runtime.requests.filter(({ path }) => path === "/sessions/rs-root/tool-calls")
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0].body.result_status, "success", "non-canonical status must normalize to success")
+  assert.equal(calls[1].body.result_status, "error", "'failed' must map to error")
+})

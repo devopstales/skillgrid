@@ -127,7 +127,8 @@ function resultStatus(result: any): string {
   if (result === null || result === undefined) return "success"
   if (typeof result === "string") return "success"
   if (result.error !== undefined && result.error !== null) return "error"
-  if (typeof result.status === "string" && result.status !== "") return result.status
+  const status = typeof result.status === "string" ? result.status : ""
+  if (status === "error" || status === "failed" || status === "failure") return "error"
   if (typeof result.ok === "boolean") return result.ok ? "success" : "error"
   if (typeof result.success === "boolean") return result.success ? "success" : "error"
   if (typeof result.exitCode === "number") return result.exitCode === 0 ? "success" : "error"
