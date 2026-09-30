@@ -2,7 +2,7 @@
 
 **Type:** comparison (3 variants, same content, different visual system)
 **Date:** 2026-09-30
-**Status:** awaiting user selection
+**Status:** complete — variant A selected; A's nav is now fully wired
 
 ## Hypothesis
 
@@ -78,16 +78,28 @@ mock data inlined. Variant switcher in the top bar: **A / B / C**.
       on #0f172a; B bg `(25,60,76)` = cyan aurora bleed at (1300,500) and
       `(43,8,29)` rose bleed bottom-center — glassmorphism field confirmed;
       C bg `(13,13,18)` = neutral #0d0d12, no gradient.
+- [x] Wired variant A's sidebar nav into working per-section pages (overview,
+      memory, sessions, code graph, changes, qa gate, adr, settings). Each nav
+      item swaps the visible `.page`, updates the breadcrumb, and moves the active
+      highlight. Verified in Chrome: all 8 pages flip correctly; breadcrumb text
+      matches the selected section.
+- [x] Memory page: live search filter over 6 inlined observations (verified
+      "adr"→1, "n+1"→1, blank→6).
+- [x] Code graph page: symbol list → click populates a definition/callers/callees/
+      blast-radius detail pane (verified detail renders).
+- [x] Settings page: 4 interactive toggles flip on/off (verified state change).
 
 ## Verdict
 
-_**PENDING** — set after user selects (or rejects all)._
+_**SELECTED: A — Terminal Ops.**_ The dense mono console matches the skillgrid
+developer audience and the mnemonic "terminal/engine" identity. B and C are kept
+as documented alternatives.
 
 | Variant | Screenshot | Notes |
 |---------|------------|-------|
-| A Terminal Ops | `shots/A-terminal-ops.png` | |
-| B Glass Aurora | `shots/B-glass-aurora.png` | |
-| C Linear Mono | `shots/C-linear-mono.png` | |
+| A Terminal Ops ✓ | `shots/A-terminal-ops.png` | **Selected.** Working menus added. Page shots: `shots/A-page-graph.png`, `shots/A-page-memory.png`. |
+| B Glass Aurora | `shots/B-glass-aurora.png` | Rejected (kept as alternative) — ambient/glass, softer, less data-dense. |
+| C Linear Mono | `shots/C-linear-mono.png` | Rejected (kept as alternative) — closest to current product but less distinctive. |
 
 ## Liftable Module
 
@@ -97,6 +109,18 @@ custom properties the real build would port into `skillgrid-ui/src/index.css`.
 
 ## Decision (filled after selection)
 
-- Selected variant:
+- Selected variant: **A — Terminal Ops**
 - Rejected variants + reason:
+  - B Glass Aurora — ambient glassmorphism is prettier but lower data-density and
+    less aligned with the terminal/engine identity.
+  - C Linear Mono — closest to the current product, but least distinctive; does not
+    signal the "dense console" direction the user wanted to explore.
 - Constraints carried into the build:
+  - Port A's token table (bg #0f172a, slate surfaces, `#22c55e` run-green, mono
+    numerals, 8px rhythm, bullet-chart + streaming-area conventions) into
+    `skillgrid-ui/src/index.css`.
+  - Nav structure (OBSERVE / PIPELINE / SYSTEM groups → overview, memory, sessions,
+    code graph, changes, qa gate, adr, settings) is the real `skillgrid-ui` route
+    map; the working-menu JS in `index.html` is the interaction reference for the
+    router.
+  - Keep bullet charts for KPI-vs-target and the streaming area for index health.

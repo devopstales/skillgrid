@@ -80,6 +80,81 @@
   #vA .seg span.p { background: #22c55e; }
   #vA .seg span.u { background: #38bdf8; }
   #vA .seg span.gl { background: #a78bfa; }
+  #vA .page { display: none; grid-column: 1 / -1; }
+  #vA .page.on { display: block; }
+  #vA .grid.on-page { display: block; }
+  #vA .full { grid-column: span 12; }
+  #vA .half { grid-column: span 6; }
+  #vA .searchbar { display: flex; gap: 8px; padding: 12px; border-bottom: 1px solid #272f42; }
+  #vA .searchbar input { flex: 1; background: #0b1120; border: 1px solid #272f42; border-radius: 4px; color: #f8fafc; padding: 8px 10px; font: inherit; font-size: 12px; }
+  #vA .searchbar input:focus { outline: none; border-color: #22c55e; }
+  #vA .obs { border-bottom: 1px solid #272f42; padding: 11px 12px; }
+  #vA .obs:last-child { border-bottom: 0; }
+  #vA .obs .top { display: flex; gap: 8px; align-items: center; font-size: 12px; margin-bottom: 5px; }
+  #vA .obs .tag { border: 1px solid #272f42; border-radius: 3px; padding: 1px 6px; font-size: 10px; color: #94a3b8; }
+  #vA .obs .tag.t { color: #22c55e; border-color: #14532d; }
+  #vA .obs .pin { color: #f59e0b; }
+  #vA .obs .title { font-size: 13px; color: #f8fafc; font-weight: 600; }
+  #vA .obs .body { font-size: 11.5px; color: #94a3b8; line-height: 1.5; }
+  #vA .obs .t { margin-left: auto; color: #475569; font-size: 11px; flex-shrink: 0; }
+  #vA .sess { display: grid; grid-template-columns: 130px 1fr 90px 70px; gap: 10px; align-items: center; padding: 11px 12px; border-bottom: 1px solid #272f42; font-size: 12px; }
+  #vA .sess:last-child { border-bottom: 0; }
+  #vA .sess .id { color: #22c55e; }
+  #vA .sess .n { color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vA .sess .p { color: #64748b; }
+  #vA .sess .t { color: #475569; text-align: right; }
+  #vA .sess .live { color: #22c55e; text-align: right; }
+  #vA .ghead { display: flex; align-items: center; gap: 14px; padding: 12px; border-bottom: 1px solid #272f42; font-size: 12px; color: #94a3b8; }
+  #vA .ghead b { color: #f8fafc; }
+  #vA .ghead .grow { flex: 1; }
+  #vA .ghead input { background: #0b1120; border: 1px solid #272f42; border-radius: 4px; color: #f8fafc; padding: 6px 10px; font: inherit; font-size: 12px; width: 220px; }
+  #vA .sym { display: grid; grid-template-columns: 1.4fr 1fr 60px; gap: 10px; padding: 9px 12px; border-bottom: 1px solid #272f42; font-size: 12px; cursor: pointer; }
+  #vA .sym:hover { background: rgba(34,197,94,.05); }
+  #vA .sym .n { color: #e2e8f0; }
+  #vA .sym .n .k { color: #38bdf8; }
+  #vA .sym .f { color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vA .sym .d { color: #475569; text-align: right; }
+  #vA .detail { padding: 12px; border-top: 1px solid #272f42; font-size: 12px; color: #94a3b8; }
+  #vA .detail .row { display: flex; gap: 8px; padding: 4px 0; }
+  #vA .detail .row b { color: #cbd5e1; }
+  #vA .det-empty { color: #475569; padding: 12px; text-align: center; }
+  #vA .ch { display: grid; grid-template-columns: 1fr 110px 80px 90px; gap: 10px; align-items: center; padding: 11px 12px; border-bottom: 1px solid #272f42; font-size: 12px; }
+  #vA .ch:last-child { border-bottom: 0; }
+  #vA .ch .n { color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vA .ch .ph { color: #64748b; }
+  #vA .ch .t { color: #475569; text-align: right; }
+  #vA .ch .st { text-align: right; }
+  #vA .chipst { border-radius: 3px; padding: 2px 8px; font-size: 11px; }
+  #vA .chipst.pass { color: #22c55e; border: 1px solid #14532d; background: rgba(34,197,94,.08); }
+  #vA .chipst.active { color: #f59e0b; border: 1px solid #78350f; background: rgba(245,158,11,.08); }
+  #vA .chipst.blocked { color: #ef4444; border: 1px solid #7f1d1d; background: rgba(239,68,68,.08); }
+  #vA .gate { display: flex; align-items: center; gap: 16px; padding: 16px; }
+  #vA .gate .big { font-size: 30px; font-weight: 700; color: #22c55e; }
+  #vA .gate .sub { font-size: 11.5px; color: #64748b; margin-top: 3px; }
+  #vA .gate .grow { flex: 1; }
+  #vA .check { display: flex; gap: 8px; font-size: 12px; padding: 8px 12px; border-bottom: 1px solid #272f42; color: #94a3b8; }
+  #vA .check:last-child { border-bottom: 0; }
+  #vA .check .ok { color: #22c55e; flex-shrink: 0; }
+  #vA .check .warn { color: #f59e0b; flex-shrink: 0; }
+  #vA .adr { display: grid; grid-template-columns: 64px 1fr 90px 70px; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #272f42; font-size: 12px; }
+  #vA .adr:last-child { border-bottom: 0; }
+  #vA .adr .n { color: #22c55e; }
+  #vA .adr .t { color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vA .adr .d { color: #475569; text-align: right; }
+  #vA .adr .st { text-align: right; color: #22c55e; }
+  #vA .adr .st.out { color: #64748b; }
+  #vA .kv2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; padding: 14px 12px; }
+  #vA .kv2 .r { display: flex; justify-content: space-between; font-size: 12px; padding: 7px 0; border-bottom: 1px solid #272f42; }
+  #vA .kv2 .r .k { color: #64748b; }
+  #vA .kv2 .r .v { color: #e2e8f0; }
+  #vA .stubnote { padding: 14px 12px; font-size: 11.5px; color: #64748b; }
+  #vA .toggle { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #272f42; font-size: 12px; color: #cbd5e1; cursor: pointer; }
+  #vA .toggle:last-child { border-bottom: 0; }
+  #vA .toggle .grow { flex: 1; }
+  #vA .toggle .sw { width: 30px; height: 16px; border-radius: 8px; background: #334155; position: relative; transition: background .15s; flex-shrink: 0; }
+  #vA .toggle .sw i { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #94a3b8; transition: transform .15s, background .15s; }
+  #vA .toggle.on .sw { background: #14532d; }
+  #vA .toggle.on .sw i { transform: translateX(14px); background: #22c55e; }
 
   /* ===================================================================
      VARIANT B — GLASS AURORA (frosted glass, ambient gradient field)
@@ -134,6 +209,56 @@
   #vB .ring .val { stroke: url(#gradB); stroke-linecap: round; }
   #vB .ring .mid { position: absolute; inset: 0; display: grid; place-items: center; font-size: 24px; font-weight: 700; }
   #vB .ring .mid small { display: block; font-size: 10.5px; color: rgba(255,255,255,.45); font-weight: 500; text-align: center; }
+  #vB .page { display: none; }
+  #vB .page.on { display: block; }
+  #vB .hero.on { display: grid; }
+  #vB .cols.on { display: grid; }
+  #vB .grid2.on { display: grid; }
+  #vB .pagehead { margin-bottom: 20px; }
+  #vB .pagehead h1 { font-size: 22px; font-weight: 700; letter-spacing: -.02em; color: #fff; }
+  #vB .pagehead p { font-size: 13px; color: rgba(255,255,255,.5); margin-top: 5px; }
+  #vB .obsgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  #vB .obs { padding: 18px 20px; border-radius: 16px; }
+  #vB .obs .top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  #vB .obs .tag { border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); border-radius: 6px; padding: 2px 9px; font-size: 11px; color: rgba(255,255,255,.7); }
+  #vB .obs .pin { margin-left: auto; font-size: 11.5px; color: #6ee7b7; }
+  #vB .obs .title { font-size: 14.5px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+  #vB .obs .body { font-size: 12.5px; color: rgba(255,255,255,.55); line-height: 1.55; }
+  #vB .obs .t { font-size: 11.5px; color: rgba(255,255,255,.35); margin-top: 12px; }
+  #vB .searchglass { padding: 16px 20px; margin-bottom: 18px; border-radius: 16px; display: flex; gap: 10px; }
+  #vB .searchglass input { flex: 1; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; padding: 11px 16px; color: #fff; font-size: 14px; }
+  #vB .searchglass input::placeholder { color: rgba(255,255,255,.4); }
+  #vB .searchglass input:focus { outline: none; border-color: rgba(103,232,249,.5); }
+  #vB .sessrow { display: flex; align-items: center; gap: 14px; padding: 15px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+  #vB .sessrow:last-child { border-bottom: 0; }
+  #vB .sessrow .ic { width: 40px; height: 40px; border-radius: 14px; background: rgba(109,40,217,.3); border: 1px solid rgba(255,255,255,.14); display: grid; place-items: center; flex-shrink: 0; }
+  #vB .sessrow .ic svg { width: 18px; height: 18px; }
+  #vB .sessrow .txt { flex: 1; min-width: 0; }
+  #vB .sessrow .txt .n { font-size: 13.5px; font-weight: 600; color: #fff; }
+  #vB .sessrow .txt small { color: rgba(255,255,255,.4); font-size: 12px; }
+  #vB .sessrow .t { font-size: 12px; color: rgba(255,255,255,.4); flex-shrink: 0; }
+  #vB .sessrow .live { font-size: 11.5px; color: #34d399; flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+  #vB .sessrow .live .dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; box-shadow: 0 0 7px #34d399; }
+  #vB .gcanvas { position: relative; height: 340px; border-radius: 16px; overflow: hidden; }
+  #vB .gcanvas svg { width: 100%; height: 100%; }
+  #vB .glegend { display: flex; gap: 18px; padding: 14px 0 0; font-size: 12px; color: rgba(255,255,255,.55); }
+  #vB .glegend span { display: flex; align-items: center; gap: 7px; }
+  #vB .glegend .sw { width: 10px; height: 10px; border-radius: 3px; }
+  #vB .gstats { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 18px; }
+  #vB .gstat { padding: 16px 18px; border-radius: 16px; }
+  #vB .gstat .v { font-size: 24px; font-weight: 700; color: #fff; letter-spacing: -.02em; }
+  #vB .gstat .k { font-size: 12px; color: rgba(255,255,255,.5); margin-top: 3px; }
+  #vB .chrow { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+  #vB .chrow:last-child { border-bottom: 0; }
+  #vB .chrow .txt { flex: 1; min-width: 0; }
+  #vB .chrow .n { font-size: 13.5px; font-weight: 600; color: #fff; }
+  #vB .chrow small { color: rgba(255,255,255,.4); font-size: 12px; }
+  #vB .chrow .t { font-size: 12px; color: rgba(255,255,255,.4); flex-shrink: 0; }
+  #vB .badge { border-radius: 999px; padding: 4px 12px; font-size: 11.5px; font-weight: 600; flex-shrink: 0; }
+  #vB .badge.pass { background: rgba(52,211,153,.18); color: #6ee7b7; border: 1px solid rgba(52,211,153,.35); }
+  #vB .badge.active { background: rgba(251,191,36,.15); color: #fcd34d; border: 1px solid rgba(251,191,36,.35); }
+  #vB .badge.out { background: rgba(255,255,255,.08); color: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.16); }
+  #vB .badge.draft { background: rgba(167,139,250,.18); color: #c4b5fd; border: 1px solid rgba(167,139,250,.35); }
 
   /* ===================================================================
      VARIANT C — LINEAR MONO (minimal, spacious, single violet accent)
@@ -180,6 +305,46 @@
   #vC .meta .m { border: 1px solid #23232f; border-radius: 10px; background: #12121a; padding: 12px 14px; }
   #vC .meta .m .k { font-size: 11.5px; color: #6a6a78; }
   #vC .meta .m .v { font-size: 14px; font-weight: 600; color: #f4f4f8; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  #vC .page { display: none; }
+  #vC .page.on { display: block; }
+  #vC .body.on { display: block; }
+  #vC .pagehead { margin-bottom: 22px; }
+  #vC .pagehead h1 { font-size: 21px; font-weight: 600; color: #f4f4f8; letter-spacing: -.02em; }
+  #vC .pagehead p { font-size: 13px; color: #7a7a88; margin-top: 5px; }
+  #vC .csearch { padding: 10px 14px; border: 1px solid #23232f; border-radius: 10px; background: #12121a; color: #e4e4e7; font-size: 13.5px; width: 100%; margin-bottom: 16px; }
+  #vC .csearch:focus { outline: none; border-color: #7c3aed; }
+  #vC .cobs { border: 1px solid #23232f; border-radius: 10px; background: #12121a; padding: 15px 16px; margin-bottom: 8px; }
+  #vC .cobs .top { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+  #vC .cobs .tag { border: 1px solid #27272a; border-radius: 6px; padding: 1px 8px; font-size: 11px; color: #a1a1aa; }
+  #vC .cobs .pin { margin-left: auto; color: #7c3aed; font-size: 11.5px; }
+  #vC .cobs .title { font-size: 14px; font-weight: 600; color: #e4e4e7; margin-bottom: 4px; }
+  #vC .cobs .body { font-size: 12.5px; color: #8b8b98; line-height: 1.5; }
+  #vC .cobs .t { font-size: 11.5px; color: #5b5b68; margin-top: 10px; }
+  #vC .csess { display: grid; grid-template-columns: 130px 1fr 80px 70px; align-items: center; gap: 14px; padding: 13px 16px; border: 1px solid #23232f; border-radius: 10px; background: #12121a; margin-bottom: 8px; font-size: 13px; }
+  #vC .csess .id { color: #a78bfa; }
+  #vC .csess .n { color: #d4d4dc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vC .csess .p { color: #6a6a78; }
+  #vC .csess .t { color: #5b5b68; text-align: right; }
+  #vC .csess .live { color: #7c3aed; text-align: right; }
+  #vC .cgraph { border: 1px solid #23232f; border-radius: 12px; background: #12121a; padding: 16px; }
+  #vC .cgraph .head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; font-size: 12.5px; color: #8b8b98; }
+  #vC .cgraph .head b { color: #e4e4e7; }
+  #vC .cgraph .head .grow { flex: 1; }
+  #vC .cgraph .head input { background: #09090b; border: 1px solid #27272a; border-radius: 8px; color: #e4e4e7; padding: 7px 11px; font-size: 12.5px; width: 220px; }
+  #vC .csym { display: grid; grid-template-columns: 1.4fr 1fr 60px; gap: 14px; padding: 9px 6px; border-bottom: 1px solid #1c1c1f; font-size: 13px; cursor: pointer; }
+  #vC .csym:hover { background: rgba(124,58,237,.05); }
+  #vC .csym .n { color: #d4d4dc; }
+  #vC .csym .n .k { color: #a78bfa; }
+  #vC .csym .f { color: #6a6a78; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vC .csym .d { color: #5b5b68; text-align: right; }
+  #vC .cch { display: grid; grid-template-columns: 1fr 110px 90px; align-items: center; gap: 14px; padding: 13px 16px; border: 1px solid #23232f; border-radius: 10px; background: #12121a; margin-bottom: 8px; font-size: 13px; }
+  #vC .cch .n { color: #e4e4e7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vC .cch .ph { color: #6a6a78; }
+  #vC .cch .t { color: #5b5b68; text-align: right; }
+  #vC .cadr { display: grid; grid-template-columns: 70px 1fr 90px; align-items: center; gap: 14px; padding: 13px 16px; border: 1px solid #23232f; border-radius: 10px; background: #12121a; margin-bottom: 8px; font-size: 13px; }
+  #vC .cadr .n { color: #a78bfa; }
+  #vC .cadr .t { color: #d4d4dc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vC .cadr .d { color: #5b5b68; text-align: right; }
 </style>
 </head>
 <body>
@@ -197,27 +362,27 @@
     <div class="brand">skillgrid<span class="g">:engine</span></div>
     <nav>
       <div class="sec">OBSERVE</div>
-      <a class="on" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>overview</a>
-      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 012-2h12a2 2 0 012 2v14l-6-4-6 4z"/></svg>memory</a>
-      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>sessions</a>
-      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 7l4 9M17 7l-4 9"/></svg>code graph</a>
+      <a class="on" href="#" data-page="overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>overview</a>
+      <a href="#" data-page="memory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 012-2h12a2 2 0 012 2v14l-6-4-6 4z"/></svg>memory</a>
+      <a href="#" data-page="sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>sessions</a>
+      <a href="#" data-page="graph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 7l4 9M17 7l-4 9"/></svg>code graph</a>
       <div class="sec">PIPELINE</div>
-      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>changes</a>
-      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14l-3-3"/></svg>qa gate</a>
-      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>adr</a>
+      <a href="#" data-page="changes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>changes</a>
+      <a href="#" data-page="qa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14l-3-3"/></svg>qa gate</a>
+      <a href="#" data-page="adr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>adr</a>
       <div class="sec">SYSTEM</div>
-      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>settings</a>
+      <a href="#" data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>settings</a>
     </nav>
     <div class="foot">mnemonic v1.0<br/>cgo: free · wal</div>
   </aside>
   <div class="main">
     <div class="topbar">
-      <span class="path">~/skillgrid / <b>overview</b></span>
+      <span class="path">~/skillgrid / <b id="vAPath">overview</b></span>
       <span class="grow"></span>
       <span class="pill"><span class="dot"></span>engine online</span>
       <span class="pill">127.0.0.1:7438</span>
     </div>
-    <div class="grid">
+    <div class="grid page on" id="pg-overview">
       <div class="card kpi"><h3>observations</h3><div class="body"><div class="num">1,284</div><div class="lbl">total stored</div><div class="delta">+42 this week</div></div></div>
       <div class="card kpi"><h3>active sessions</h3><div class="body"><div class="num">14</div><div class="lbl">across 3 projects</div><div class="delta">3 pinned</div></div></div>
       <div class="card kpi"><h3>code index</h3><div class="body"><div class="num">22,581</div><div class="lbl">symbols + chunks</div><div class="delta warn">3 files stale</div></div></div>
@@ -276,6 +441,117 @@
           <div class="status-row"><span>global</span><span>282</span></div>
           <div style="margin-top:10px"><div class="seg"><span class="p" style="flex:612"></span><span class="u" style="flex:390"></span><span class="gl" style="flex:282"></span></div>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;margin-top:5px"><span>■ project</span><span>■ user</span><span>■ global</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="pg-memory">
+      <div class="card full">
+        <h3>memory store</h3>
+        <div class="searchbar"><input id="memSearch" type="text" placeholder="search observations · e.g. auth, n+1, adr"/><span class="pill" id="memCount">6</span></div>
+        <div class="body" style="padding:0" id="memList">
+          <div class="obs"><div class="top"><span class="tag t">bugfix</span><span class="tag">project</span><span class="pin">★ pinned</span><span class="t">2m</span></div><div class="title">Fixed N+1 query in UserList</div><div class="body">What: batched the per-row user fetch into one IN query. Why: 1,200 round-trips on the dashboard. Where: internal/userstore/list.go. Learned: cache the join, don't fan out.</div></div>
+          <div class="obs"><div class="top"><span class="tag t">architecture</span><span class="tag">project</span><span class="t">14m</span></div><div class="title">ADR-0016 second-brain capability drafted</div><div class="body">What: introduced a passive-capture pipeline. Why: agents stop re-deriving known facts. Where: .skillgrid/ASSUMPTIONS.md. Learned: keep ADRs append-only.</div></div>
+          <div class="obs"><div class="top"><span class="tag t">decision</span><span class="tag">project</span><span class="t">41m</span></div><div class="title">Adopt TanStack Router over React Router</div><div class="body">What: type-safe routes with search params. Why: schema-validated query state for the graph. Where: skillgrid-ui/src/app.tsx. Learned: loaders beat useEffect data-fetching.</div></div>
+          <div class="obs"><div class="top"><span class="tag t">config</span><span class="tag">user</span><span class="t">1h</span></div><div class="title">LazyVim + Tmux setup documented</div><div class="body">What: tmux-resurrect + session-lens defaults. Why: reproducible dev environment. Where: ~/.config. Learned: pin plugin versions.</div></div>
+          <div class="obs"><div class="top"><span class="tag t">pattern</span><span class="tag">project</span><span class="t">3h</span></div><div class="title">Container/presentational split for graph views</div><div class="body">What: Sigma graph in a presentational leaf, data via container. Why: keeps re-renders off the canvas. Where: skillgrid-ui/src/features/mnemonic. Learned: memoize node arrays.</div></div>
+          <div class="obs"><div class="top"><span class="tag t">discovery</span><span class="tag">global</span><span class="t">1d</span></div><div class="title">nomic-embed-code 768-dim beats 384 on Go symbols</div><div class="body">What: measured recall@10 across both. Why: semantic leg quality. Where: spikes/001. Learned: 28ms warm leg is the cost of 768 dims.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="pg-sessions">
+      <div class="card full">
+        <h3>active sessions <span style="color:#475569;letter-spacing:0">14 running · 3 pinned</span></h3>
+        <div class="body" style="padding:0">
+          <div class="sess"><span class="id">s_ad1c5e6e</span><span class="n">Fix login race in session store</span><span class="p">aiskillgrid</span><span class="live">● live</span></div>
+          <div class="sess"><span class="id">s_9f2c11</span><span class="n">Refactor graph legend to container</span><span class="p">aiskillgrid</span><span class="live">● live</span></div>
+          <div class="sess"><span class="id">s_4b8e20</span><span class="n">Wire QA gate into pre-commit</span><span class="p">aiskillgrid</span><span class="t">28m</span></div>
+          <div class="sess"><span class="id">s_c03d77</span><span class="n">Migrate routes to TanStack Router</span><span class="p">skillgrid-ui</span><span class="t">1h</span></div>
+          <div class="sess"><span class="id">s_77a1f0</span><span class="n">Spike: Sigma vs 3d-force-graph</span><span class="p">spikes</span><span class="t">3h</span></div>
+          <div class="sess"><span class="id">s_2e91b3</span><span class="n">TDD: bullet-chart component</span><span class="p">skillgrid-ui</span><span class="t">4h</span></div>
+          <div class="sess"><span class="id">s_f00d92</span><span class="n">Docs: mnemonic MCP reference</span><span class="p">docs</span><span class="t">1d</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="pg-graph">
+      <div class="card full">
+        <h3>code graph explorer</h3>
+        <div class="ghead"><b id="gSel">no symbol selected</b><span>3,905 symbols · 18,676 chunks · 768-dim</span><span class="grow"></span><input id="gSearch" type="text" placeholder="jump to symbol…"/></div>
+        <div id="gList">
+          <div class="sym" data-sym="exploreSymbol" data-file="internal/mnemonic/graph.go" data-kind="function" data-depth="3"><span class="n"><span class="k">func</span> exploreSymbol</span><span class="f">internal/mnemonic/graph.go:142</span><span class="d">depth 3</span></div>
+          <div class="sym" data-sym="blastRadius" data-file="internal/mnemonic/impact.go" data-kind="function" data-depth="4"><span class="n"><span class="k">func</span> blastRadius</span><span class="f">internal/mnemonic/impact.go:88</span><span class="d">depth 4</span></div>
+          <div class="sym" data-sym="indexRepo" data-file="internal/mnemonic/index.go" data-kind="function" data-depth="2"><span class="n"><span class="k">func</span> indexRepo</span><span class="f">internal/mnemonic/index.go:51</span><span class="d">depth 2</span></div>
+          <div class="sym" data-sym="hybridSearch" data-file="internal/mnemonic/search.go" data-kind="function" data-depth="5"><span class="n"><span class="k">func</span> hybridSearch</span><span class="f">internal/mnemonic/search.go:203</span><span class="d">depth 5</span></div>
+          <div class="sym" data-sym="GraphStore" data-file="internal/mnemonic/store.go" data-kind="struct" data-depth="6"><span class="n"><span class="k">type</span> GraphStore</span><span class="f">internal/mnemonic/store.go:12</span><span class="d">depth 6</span></div>
+          <div class="sym" data-sym="renderGraph" data-file="skillgrid-ui/src/features/mnemonic/graph.tsx" data-kind="component" data-depth="2"><span class="n"><span class="k">const</span> renderGraph</span><span class="f">skillgrid-ui/src/features/mnemonic/graph.tsx:64</span><span class="d">depth 2</span></div>
+        </div>
+        <div class="detail" id="gDetail"><div class="det-empty">select a symbol to see callers, callees &amp; blast radius</div></div>
+      </div>
+    </div>
+
+    <div class="page" id="pg-changes">
+      <div class="card full">
+        <h3>changes</h3>
+        <div class="body" style="padding:0">
+          <div class="ch"><span class="n">2026-09-24-mnemonic-monitoring</span><span class="ph">executing</span><span class="t">in progress</span><span class="st"><span class="chipst active">2026-09-24</span></span></div>
+          <div class="ch"><span class="n">2026-09-21-graph-legend-container</span><span class="ph">qa</span><span class="t">shipped</span><span class="st"><span class="chipst pass">pass</span></span></div>
+          <div class="ch"><span class="n">2026-09-18-tanstack-router-migration</span><span class="ph">archived</span><span class="t">shipped</span><span class="st"><span class="chipst pass">pass</span></span></div>
+          <div class="ch"><span class="n">2026-09-15-bullet-chart</span><span class="ph">archived</span><span class="t">shipped</span><span class="st"><span class="chipst pass">pass</span></span></div>
+          <div class="ch"><span class="n">2026-09-12-session-store-race</span><span class="ph">archived</span><span class="t">shipped</span><span class="st"><span class="chipst pass">pass</span></span></div>
+          <div class="ch"><span class="n">2026-09-10-web-cache-warm-leg</span><span class="ph">archived</span><span class="t">shipped</span><span class="st"><span class="chipst pass">pass</span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="pg-qa">
+      <div class="card full">
+        <h3>qa gate</h3>
+        <div class="gate"><div><div class="big">PASS</div><div class="sub">last run 2026-09-29 · 17 changes shipped</div></div><span class="grow"></span><span class="pill"><span class="dot"></span>4-state gate</span></div>
+      </div>
+      <div class="card full">
+        <h3>verification ladder</h3>
+        <div class="body" style="padding:0">
+          <div class="check"><span class="ok">✓</span><span>test suite · go test ./… + vitest — 412 passed, 0 failed</span></div>
+          <div class="check"><span class="ok">✓</span><span>tdd evidence — every ticket has a failing-then-passing test</span></div>
+          <div class="check"><span class="ok">✓</span><span>verification-gap audit — no untested public symbols</span></div>
+          <div class="check"><span class="warn">!</span><span>trivy — 1 advisory (advisory-only, non-blocking)</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="pg-adr">
+      <div class="card full">
+        <h3>architectural decision records <span style="color:#475569;letter-spacing:0">13 / 16 in force</span></h3>
+        <div class="body" style="padding:0">
+          <div class="adr"><span class="n">ADR-0016</span><span class="t">second-brain passive capture</span><span class="d">2026-09-24</span><span class="st">draft</span></div>
+          <div class="adr"><span class="n">ADR-0015</span><span class="t">TanStack Router over React Router</span><span class="d">2026-09-18</span><span class="st">in force</span></div>
+          <div class="adr"><span class="n">ADR-0014</span><span class="t">Sigma for graph rendering</span><span class="d">2026-09-11</span><span class="st">in force</span></div>
+          <div class="adr"><span class="n">ADR-0013</span><span class="t">nomic-embed-code 768-dim</span><span class="d">2026-09-08</span><span class="st">in force</span></div>
+          <div class="adr"><span class="n">ADR-0012</span><span class="t">cgo: free mnemonic core</span><span class="d">2026-09-02</span><span class="st">in force</span></div>
+          <div class="adr"><span class="n">ADR-0009</span><span class="t">SQLite WAL for local store</span><span class="d">2026-08-20</span><span class="st out">superseded</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="pg-settings">
+      <div class="card full">
+        <h3>settings</h3>
+        <div class="body" style="padding:0">
+          <div class="toggle on" data-toggle><span>passive capture</span><span class="grow"></span><span class="sw"><i></i></span></div>
+          <div class="toggle on" data-toggle><span>web cache (TTL 4h)</span><span class="grow"></span><span class="sw"><i></i></span></div>
+          <div class="toggle" data-toggle><span>staleness gate ~5s</span><span class="grow"></span><span class="sw"><i></i></span></div>
+          <div class="toggle on" data-toggle><span>strict TDD mode</span><span class="grow"></span><span class="sw"><i></i></span></div>
+        </div>
+      </div>
+      <div class="card full">
+        <h3>engine</h3>
+        <div class="kv2">
+          <div class="r"><span class="k">mnemonic version</span><span class="v">v1.0</span></div>
+          <div class="r"><span class="k">cgo</span><span class="v">free · wal</span></div>
+          <div class="r"><span class="k">bind address</span><span class="v">127.0.0.1:7438</span></div>
+          <div class="r"><span class="k">embed model</span><span class="v">nomic-embed-code</span></div>
         </div>
       </div>
     </div>
@@ -420,6 +696,58 @@
   }
   document.querySelectorAll('#switcher button').forEach(b => b.addEventListener('click', () => show(b.dataset.v)));
   window.addEventListener('keydown', e => { if (e.key === '1') show('vA'); if (e.key === '2') show('vB'); if (e.key === '3') show('vC'); });
+
+  // ---- Variant A: working menus ----
+  function goPageA(page) {
+    const root = document.getElementById('vA');
+    root.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === 'pg-' + page));
+    const label = { overview:'overview', memory:'memory', sessions:'sessions', graph:'code graph', changes:'changes', qa:'qa gate', adr:'adr', settings:'settings' }[page] || page;
+    const el = document.getElementById('vAPath'); if (el) el.textContent = label;
+    root.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.dataset.page === page));
+  }
+  document.querySelectorAll('#vA nav a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); goPageA(a.dataset.page); }));
+
+  // memory search filter
+  const memSearch = document.getElementById('memSearch');
+  if (memSearch) memSearch.addEventListener('input', () => {
+    const q = memSearch.value.toLowerCase();
+    let n = 0;
+    document.querySelectorAll('#memList .obs').forEach(o => {
+      const hit = !q || o.textContent.toLowerCase().includes(q);
+      o.style.display = hit ? '' : 'none'; if (hit) n++;
+    });
+    const c = document.getElementById('memCount'); if (c) c.textContent = n;
+  });
+
+  // code graph symbol select
+  const gDetail = document.getElementById('gDetail');
+  const gSel = document.getElementById('gSel');
+  function pickSym(s) {
+    const name = s.dataset.sym, file = s.dataset.file, kind = s.dataset.kind, depth = s.dataset.depth;
+    document.querySelectorAll('#gList .sym').forEach(x => x.style.background = '');
+    s.style.background = 'rgba(34,197,94,.08)';
+    gSel.textContent = name;
+    gDetail.innerHTML =
+      '<div class="row"><b>definition</b><span>' + file + ' · ' + kind + '</span></div>' +
+      '<div class="row"><b>callers</b><span>indexRepo, hybridSearch, main</span></div>' +
+      '<div class="row"><b>callees</b><span>GraphStore.load, embed.lookup, fts.query</span></div>' +
+      '<div class="row"><b>blast radius</b><span>depth ' + depth + ' · ' + (depth * 3) + ' files WILL BREAK / ' + (depth * 7) + ' likely affected</span></div>';
+  }
+  document.querySelectorAll('#gList .sym').forEach(s => s.addEventListener('click', () => pickSym(s)));
+  const gSearch = document.getElementById('gSearch');
+  if (gSearch) gSearch.addEventListener('input', () => {
+    const q = gSearch.value.toLowerCase();
+    let first = null;
+    document.querySelectorAll('#gList .sym').forEach(x => {
+      const hit = !q || x.textContent.toLowerCase().includes(q);
+      x.style.display = hit ? '' : 'none';
+      if (hit && !first) first = x;
+    });
+  });
+
+  // settings toggles
+  document.querySelectorAll('#vA [data-toggle]').forEach(t => t.addEventListener('click', () => t.classList.toggle('on')));
+
   show('vA');
 </script>
 </body>
