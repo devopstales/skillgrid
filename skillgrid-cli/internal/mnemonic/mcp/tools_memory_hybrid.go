@@ -56,7 +56,7 @@ func handleMemoryHybridSearch(ctx context.Context, req mcplib.CallToolRequest) (
 	db := h.Store().DB
 	res, err := hybrid.SearchMemory(ctx,
 		facts.New(db, projectID),
-		skills.New(db, h.Root()),
+		skills.New(db, h.Root(), projectID),
 		query, limit,
 		hybrid.MemoryOptions{
 			Embedder:       embedder.Default(),

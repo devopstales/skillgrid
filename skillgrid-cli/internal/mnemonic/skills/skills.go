@@ -21,19 +21,23 @@ import (
 
 // Store is the Agent Skill registry handle over one project store. db is the
 // 011-migrated project store; root is the workspace directory that owns the
-// .skillgrid/ scratch tree (the ContentPlane convention).
+// .skillgrid/ scratch tree (the ContentPlane convention); project is stamped
+// on the session_events skill_use trail rows (mirroring the facts store, which
+// stamps its trail rows from its own project field).
 type Store struct {
-	db   *sql.DB
-	root string
+	db      *sql.DB
+	root    string
+	project string
 
 	// Timeout is the sandbox execution deadline; zero uses DefaultTimeout
 	// (10s). Tests shrink it to keep the suite fast.
 	Timeout time.Duration
 }
 
-// New wraps the project store's database handle and workspace root.
-func New(db *sql.DB, root string) *Store {
-	return &Store{db: db, root: root}
+// New wraps the project store's database handle and workspace root. project
+// (the CWD-resolved id) is stamped on the skill_use session trail rows.
+func New(db *sql.DB, root, project string) *Store {
+	return &Store{db: db, root: root, project: project}
 }
 
 // Skill is one registry row (the read model for List/Search).

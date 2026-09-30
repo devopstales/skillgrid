@@ -3,9 +3,6 @@ package mcp
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"fmt"
-	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -61,7 +58,7 @@ func handleWriteSkill(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 	}
 	defer cleanup()
 
-	id, err := skills.New(h.Store().DB, h.Root()).Write(ctx, name, language, req.GetString("description", ""), code, overwrite)
+	id, err := skills.New(h.Store().DB, h.Root(), projectID).Write(ctx, name, language, req.GetString("description", ""), code, overwrite)
 	if err != nil {
 		return toolError(err)
 	}
@@ -96,7 +93,7 @@ func handleListSkills(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 	}
 	defer cleanup()
 
-	out, err := skills.New(h.Store().DB, h.Root()).List(ctx)
+	out, err := skills.New(h.Store().DB, h.Root(), projectID).List(ctx)
 	if err != nil {
 		return toolError(err)
 	}
@@ -138,7 +135,7 @@ func handleSearchSkills(ctx context.Context, req mcplib.CallToolRequest) (*mcpli
 	}
 	defer cleanup()
 
-	out, err := skills.New(h.Store().DB, h.Root()).SearchWith(ctx, query, limit, includeDeleted)
+	out, err := skills.New(h.Store().DB, h.Root(), projectID).SearchWith(ctx, query, limit, includeDeleted)
 	if err != nil {
 		return toolError(err)
 	}
@@ -180,16 +177,12 @@ func handleUseSkill(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Ca
 	}
 	defer cleanup()
 
-	db := h.Store().DB
-	res, err := skills.New(db, h.Root()).Execute(ctx, name, input)
+	// The store owns the skill_use trail now (ExecuteWith writes it when
+	// sessionID is non-empty), mirroring the facts trail convention — the MCP
+	// tool no longer logs the event itself.
+	res, err := skills.New(h.Store().DB, h.Root(), projectID).ExecuteWith(ctx, name, input, sessionID)
 	if err != nil {
 		return toolError(err)
-	}
-
-	if sessionID != "" {
-		if err := insertSkillUseEvent(ctx, db, projectID, sessionID, name, res); err != nil {
-			return toolError(fmt.Errorf("skill ran but logging session_events failed: %w", err))
-		}
 	}
 
 	return JSONResult(map[string]any{
@@ -200,36 +193,6 @@ func handleUseSkill(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Ca
 		"usage_id":  res.UsageID,
 		"status":    statusFor(res),
 	})
-}
-
-// insertSkillUseEvent appends the skill_use trail row to the session event
-// stream, mirroring the facts trail convention (next sequence in-session).
-func insertSkillUseEvent(ctx context.Context, db *sql.DB, projectID, sessionID, name string, res skills.SkillResult) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	payload, err := json.Marshal(map[string]any{
-		"skill":     name,
-		"exit_code": res.ExitCode,
-		"timed_out": res.TimedOut,
-		"usage_id":  res.UsageID,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal skill_use payload: %w", err)
-	}
-	var seq int
-	if err := db.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(sequence),-1)+1 FROM session_events WHERE session_id = ?`,
-		sessionID,
-	).Scan(&seq); err != nil {
-		return fmt.Errorf("next event sequence: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, `
-		INSERT INTO session_events (session_id, project, sequence, action_type, result_status, tool_name, payload, timestamp)
-		VALUES (?, ?, ?, 'skill_use', ?, 'use_skill', ?, ?)`,
-		sessionID, projectID, seq, statusFor(res), string(payload), now,
-	); err != nil {
-		return fmt.Errorf("insert skill_use event: %w", err)
-	}
-	return nil
 }
 
 func statusFor(res skills.SkillResult) string {

@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"os/exec"
@@ -11,6 +12,18 @@ import (
 	"time"
 )
 
+// seedSession inserts a sessions row so the session_events FK (which
+// REFERENCES sessions(id)) resolves for trail-row tests.
+func seedSession(t *testing.T, db *sql.DB, id string) {
+	t.Helper()
+	if _, err := db.Exec(
+		`INSERT OR IGNORE INTO sessions (id, project, directory, started_at) VALUES (?, ?, ?, ?)`,
+		id, "skilltest", "/", time.Now().UTC().Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+}
+
 // TestExecuteBashSkillCapturesStdoutAndUsage covers @step-03 (execute
 // portion): a live bash skill runs in the sandbox, stdout/stderr are captured,
 // the exit code is reported, and a skill_usage row is written.
@@ -19,7 +32,7 @@ func TestExecuteBashSkillCapturesStdoutAndUsage(t *testing.T) {
 		t.Skip("bash not available")
 	}
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	ctx := context.Background()
 
 	id, err := s.Write(ctx, "hello-bash", "bash", "greets the operator", "echo hello\n", false)
@@ -70,7 +83,7 @@ func TestExecuteBashSkillStderrAndExitCode(t *testing.T) {
 		t.Skip("bash not available")
 	}
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	ctx := context.Background()
 
 	if _, err := s.Write(ctx, "fail-bash", "bash", "always fails",
@@ -105,7 +118,7 @@ func TestExecutePythonSkill(t *testing.T) {
 		t.Skip("python3 not available")
 	}
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	ctx := context.Background()
 
 	if _, err := s.Write(ctx, "hello-py", "python", "greets in python",
@@ -134,7 +147,7 @@ func TestExecuteGoSkill(t *testing.T) {
 		t.Skip("go not available")
 	}
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	ctx := context.Background()
 
 	if _, err := s.Write(ctx, "hello-go", "go", "greets in go",
@@ -165,7 +178,7 @@ func TestExecuteGoSkill(t *testing.T) {
 // allowlist) to reach the dispatch boundary.
 func TestExecuteUnknownLanguageRejectsWithoutExec(t *testing.T) {
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	ctx := context.Background()
 
 	if _, err := s.Write(ctx, "doc-skill", "markdown", "documentation only", "# doc\n", false); err != nil {
@@ -194,7 +207,7 @@ func TestExecuteUnknownLanguageRejectsWithoutExec(t *testing.T) {
 // it, with no exec and no skill_usage row.
 func TestExecuteSoftDeletedSkillErrors(t *testing.T) {
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	ctx := context.Background()
 
 	id, err := s.Write(ctx, "gone-skill", "bash", "gone", "echo gone\n", false)
@@ -226,7 +239,7 @@ func TestExecuteSoftDeletedSkillErrors(t *testing.T) {
 // TestExecuteUnknownSkillErrors guards the not-found boundary.
 func TestExecuteUnknownSkillErrors(t *testing.T) {
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	if _, err := s.Execute(context.Background(), "nope", ""); err == nil {
 		t.Fatal("Execute on a missing skill should fail")
 	}
@@ -240,7 +253,7 @@ func TestExecuteSandboxTimeout(t *testing.T) {
 		t.Skip("bash not available")
 	}
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	ctx := context.Background()
 
 	if _, err := s.Write(ctx, "sleepy", "bash", "sleeps too long", "sleep 15\n", false); err != nil {
@@ -278,7 +291,7 @@ func TestExecuteSandboxTimeoutGoLanguage(t *testing.T) {
 		t.Skip("go not available")
 	}
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	ctx := context.Background()
 
 	if _, err := s.Write(ctx, "sleepy-go", "go", "sleeps too long",
@@ -312,7 +325,7 @@ func TestExecuteSandboxTimeoutGoLanguage(t *testing.T) {
 // .skillgrid/files/skills/ is rejected before any subprocess is spawned.
 func TestExecuteRejectsCodePathOutsideSkillDir(t *testing.T) {
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	ctx := context.Background()
 
 	id, err := s.Write(ctx, "escaper", "bash", "escaped path", "echo esc\n", false)
@@ -350,7 +363,7 @@ func TestExecuteTruncatesOversizedOutput(t *testing.T) {
 		t.Skip("bash not available")
 	}
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	ctx := context.Background()
 
 	s.Timeout = 5 * time.Second
@@ -371,5 +384,112 @@ func TestExecuteTruncatesOversizedOutput(t *testing.T) {
 	}
 	if res.ExitCode != 0 {
 		t.Errorf("ExitCode = %d, want 0", res.ExitCode)
+	}
+}
+
+// TestExecuteWithSessionIDWritesTrailRow covers the CLI/MCP parity fix:
+// ExecuteWith with a seeded session id stamps skill_usage.session_id AND
+// appends a skill_use session_events trail row (the store logs the trail,
+// so `skill execute --session-id` writes the same event the MCP use_skill
+// tool does).
+func TestExecuteWithSessionIDWritesTrailRow(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	st, root := openTestStore(t)
+	s := New(st.DB, root, "skilltest")
+	ctx := context.Background()
+	sessionID := "sess-skill-use-1"
+	seedSession(t, st.DB, sessionID)
+
+	if _, err := s.Write(ctx, "trail-bash", "bash", "trail check", "echo trail\n", false); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	res, err := s.ExecuteWith(ctx, "trail-bash", "", sessionID)
+	if err != nil {
+		t.Fatalf("ExecuteWith: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("ExitCode = %d, want 0", res.ExitCode)
+	}
+	if res.UsageID <= 0 {
+		t.Fatalf("UsageID = %d, want > 0", res.UsageID)
+	}
+
+	// skill_usage.session_id is stamped when a session id is supplied.
+	var usageSession sql.NullString
+	if err := st.DB.QueryRow(
+		`SELECT session_id FROM skill_usage WHERE id = ?`, res.UsageID).
+		Scan(&usageSession); err != nil {
+		t.Fatalf("read skill_usage.session_id: %v", err)
+	}
+	if !usageSession.Valid || usageSession.String != sessionID {
+		t.Errorf("skill_usage.session_id = %q, want %q", usageSession.String, sessionID)
+	}
+
+	// session_events trail row: skill_use for this session.
+	var n int
+	var actionType, toolName, resultStatus, project string
+	if err := st.DB.QueryRow(
+		`SELECT COUNT(*) FROM session_events WHERE session_id = ? AND action_type = 'skill_use'`,
+		sessionID).Scan(&n); err != nil {
+		t.Fatalf("count skill_use events: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("skill_use events = %d, want 1", n)
+	}
+	if err := st.DB.QueryRow(
+		`SELECT action_type, tool_name, result_status, project FROM session_events WHERE session_id = ?`,
+		sessionID).Scan(&actionType, &toolName, &resultStatus, &project); err != nil {
+		t.Fatalf("read skill_use event: %v", err)
+	}
+	if actionType != "skill_use" || toolName != "use_skill" || resultStatus != "success" {
+		t.Errorf("event = %q/%q/%q, want skill_use/use_skill/success", actionType, toolName, resultStatus)
+	}
+	if project != "skilltest" {
+		t.Errorf("event project = %q, want the store project", project)
+	}
+}
+
+// TestExecuteWithEmptySessionIDSkipsTrailRow guards the empty-session-id
+// boundary: no session_events row is written, but the skill_usage row is
+// still logged with a NULL session_id.
+func TestExecuteWithEmptySessionIDSkipsTrailRow(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	st, root := openTestStore(t)
+	s := New(st.DB, root, "skilltest")
+	ctx := context.Background()
+
+	if _, err := s.Write(ctx, "notrail-bash", "bash", "no trail", "echo nt\n", false); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	res, err := s.ExecuteWith(ctx, "notrail-bash", "", "")
+	if err != nil {
+		t.Fatalf("ExecuteWith: %v", err)
+	}
+	if res.UsageID <= 0 {
+		t.Fatalf("UsageID = %d, want > 0 (usage row still logged)", res.UsageID)
+	}
+
+	var usageSession sql.NullString
+	if err := st.DB.QueryRow(
+		`SELECT session_id FROM skill_usage WHERE id = ?`, res.UsageID).
+		Scan(&usageSession); err != nil {
+		t.Fatalf("read skill_usage.session_id: %v", err)
+	}
+	if usageSession.Valid {
+		t.Errorf("skill_usage.session_id = %q, want NULL for an empty session id", usageSession.String)
+	}
+
+	var n int
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM session_events`).Scan(&n); err != nil {
+		t.Fatalf("count session_events: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("session_events rows = %d, want 0 for an empty session id", n)
 	}
 }

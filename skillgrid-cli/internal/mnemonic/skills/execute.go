@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -116,14 +117,24 @@ func isNoRows(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
 }
 
-// Execute runs a live Agent Skill in the sandbox: the code file is read from
-// its registry code_path (which must stay under .skillgrid/files/skills/),
-// the language-specific runner is dispatched with a per-call deadline, and
-// stdout/stderr are captured with a 1MB cap. On a zero-exit run a
-// skill_usage row is written and its id returned. Rejections (unknown
-// language, path escape, soft-deleted, missing skill) error before any
-// subprocess is spawned.
+// Execute is ExecuteWith with no session id: the skill runs and a
+// skill_usage row is logged on success, but no skill_use session trail row
+// is written (the CLI default when --session-id / SKILLGRID_SESSION_ID are
+// unset).
 func (s *Store) Execute(ctx context.Context, name, input string) (SkillResult, error) {
+	return s.ExecuteWith(ctx, name, input, "")
+}
+
+// ExecuteWith runs a live Agent Skill in the sandbox: the code file is read
+// from its registry code_path (which must stay under .skillgrid/files/skills/),
+// the language-specific runner is dispatched with a per-call deadline, and
+// stdout/stderr are captured with a 1MB cap. On a zero-exit run a skill_usage
+// row is written (stamping session_id when one is supplied) and, when
+// sessionID is non-empty, a skill_use session_events trail row is appended
+// (mirroring the facts store, which logs its trail inside the store so both
+// the MCP tool and the CLI write it). Rejections (unknown language, path
+// escape, soft-deleted, missing skill) error before any subprocess is spawned.
+func (s *Store) ExecuteWith(ctx context.Context, name, input, sessionID string) (SkillResult, error) {
 	if s == nil || s.db == nil {
 		return SkillResult{}, errors.New("skills store not initialized")
 	}
@@ -199,11 +210,19 @@ func (s *Store) Execute(ctx context.Context, name, input string) (SkillResult, e
 	}
 
 	if exitCode == 0 && !timedOut {
-		uid, err := s.insertUsage(ctx, id)
+		uid, err := s.insertUsage(ctx, id, sessionID)
 		if err != nil {
 			return result, fmt.Errorf("skill ran (exit 0) but logging skill_usage failed: %w", err)
 		}
 		result.UsageID = uid
+		if sessionID != "" {
+			// The trail row is logged here (not in the MCP layer) so the CLI
+			// `skill execute --session-id` writes the same skill_use event the
+			// MCP use_skill tool does — parity with the facts trail.
+			if err := s.insertSkillUseEvent(ctx, sessionID, name, result); err != nil {
+				return result, fmt.Errorf("skill ran (exit 0) but logging the skill_use trail failed: %w", err)
+			}
+		}
 	}
 	return result, nil
 }
@@ -247,12 +266,17 @@ func buildSkillCommand(language string, runner []string, codePath, input string)
 }
 
 // insertUsage writes the skill_usage row for a successful run and returns its
-// id.
-func (s *Store) insertUsage(ctx context.Context, skillID int64) (int64, error) {
+// id. sessionID is stamped on the row when non-empty (it was previously always
+// NULL, which is what this plumb fixes).
+func (s *Store) insertUsage(ctx context.Context, skillID int64, sessionID string) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
+	var sid any
+	if sessionID != "" {
+		sid = sessionID
+	}
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO skill_usage (skill_id, session_id, timestamp)
-		VALUES (?, NULL, ?)`, skillID, now)
+		VALUES (?, ?, ?)`, skillID, sid, now)
 	if err != nil {
 		return 0, fmt.Errorf("insert skill_usage: %w", err)
 	}
@@ -261,6 +285,47 @@ func (s *Store) insertUsage(ctx context.Context, skillID int64) (int64, error) {
 		return 0, fmt.Errorf("skill_usage id: %w", err)
 	}
 	return id, nil
+}
+
+// insertSkillUseEvent appends the skill_use trail row to the session event
+// stream, mirroring the facts trail convention (next sequence in-session). It
+// is the store-owned counterpart of what the MCP layer used to do, so the CLI
+// and the MCP tool both write the same trail.
+func (s *Store) insertSkillUseEvent(ctx context.Context, sessionID, name string, res SkillResult) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	payload, err := json.Marshal(map[string]any{
+		"skill":     name,
+		"exit_code": res.ExitCode,
+		"timed_out": res.TimedOut,
+		"usage_id":  res.UsageID,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal skill_use payload: %w", err)
+	}
+	var seq int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(sequence),-1)+1 FROM session_events WHERE session_id = ?`,
+		sessionID,
+	).Scan(&seq); err != nil {
+		return fmt.Errorf("next event sequence: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO session_events (session_id, project, sequence, action_type, result_status, tool_name, payload, timestamp)
+		VALUES (?, ?, ?, 'skill_use', ?, 'use_skill', ?, ?)`,
+		sessionID, s.project, seq, statusFor(res), string(payload), now,
+	); err != nil {
+		return fmt.Errorf("insert skill_use event: %w", err)
+	}
+	return nil
+}
+
+// statusFor maps a sandbox result to the session_events result_status
+// column value (success on a zero-exit run, failure otherwise).
+func statusFor(res SkillResult) string {
+	if res.ExitCode != 0 || res.TimedOut {
+		return "failure"
+	}
+	return "success"
 }
 
 // truncateOutput caps a captured stream at maxOutputBytes and appends a

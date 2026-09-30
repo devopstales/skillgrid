@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -14,6 +15,7 @@ func registerFactTools(s *server.MCPServer) {
 	s.AddTool(factSearchTool(), handleFactSearch)
 	s.AddTool(factForgetTool(), handleFactForget)
 	s.AddTool(factDecayTool(), handleFactDecay)
+	s.AddTool(factDecayAllTool(), handleFactDecayAll)
 }
 
 func factAddTool() mcplib.Tool {
@@ -191,5 +193,50 @@ func handleFactDecay(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		"fact_id":    int64(factID),
 		"new_score":  newScore,
 		"event":      "fact_decay",
+	})
+}
+
+func factDecayAllTool() mcplib.Tool {
+	return mcplib.NewTool("fact_decay_all",
+		mcplib.WithDescription("Run the batch decay + below-threshold purge over ALL live facts (acceptance scenario 5: 'Decay via 014 AKL, logs event, purge below threshold'). Applies the 014 AKL decay to every non-deleted fact, then soft-deletes facts whose post-decay importance_score drops below threshold. Returns {decayed, purged} and records a single session_events trail (action_type=fact_decay_batch)."),
+		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Session id to attribute the batch trail event to (must exist in this project)")),
+		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
+		mcplib.WithNumber("threshold", mcplib.Description("Purge cutoff for importance_score (default 0.5, the 014 dream prune threshold). Facts decaying below this are soft-deleted.")),
+	)
+}
+
+func handleFactDecayAll(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, err := rootService()
+	if err != nil {
+		return toolError(err)
+	}
+	projectID, err := projectIDFor(svc, req.GetString("project", ""))
+	if err != nil {
+		return toolError(err)
+	}
+	sessionID, err := req.RequireString("session_id")
+	if err != nil {
+		return toolError(err)
+	}
+	threshold := req.GetFloat("threshold", facts.DefaultPurgeThreshold)
+	if threshold < 0 {
+		return toolError(fmt.Errorf("threshold must be >= 0, got %v", threshold))
+	}
+
+	h, cleanup, err := svc.Open(projectID)
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+
+	decayed, purged, err := facts.New(h.Store().DB, projectID).DecayAll(ctx, sessionID, threshold)
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{
+		"decayed":   decayed,
+		"purged":    purged,
+		"threshold": threshold,
+		"event":     "fact_decay_batch",
 	})
 }

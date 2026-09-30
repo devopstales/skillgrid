@@ -39,7 +39,7 @@ func seedFactsAndSkills(t *testing.T, st *store.Store) {
 	if err != nil {
 		t.Fatalf("fact add: %v", err)
 	}
-	ss := skills.New(st.DB, t.TempDir())
+	ss := skills.New(st.DB, t.TempDir(), "testproj")
 	if _, err := ss.Write(ctx, "go-testing", "go", "write table-driven go tests with t.Run subtests", "func TestX(t *testing.T){}", true); err != nil {
 		t.Fatalf("skill write: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestSearchMemoryBM25OnlyNoEmbedder(t *testing.T) {
 	st := openTestStore(t)
 	seedFactsAndSkills(t, st)
 	fs := facts.New(st.DB, "testproj")
-	ss := skills.New(st.DB, t.TempDir())
+	ss := skills.New(st.DB, t.TempDir(), "testproj")
 
 	res, err := SearchMemory(context.Background(), fs, ss, "connection pool", 10, MemoryOptions{})
 	if err != nil {
@@ -76,7 +76,7 @@ func TestSearchMemoryVectorLegActive(t *testing.T) {
 	st := openTestStore(t)
 	seedFactsAndSkills(t, st)
 	fs := facts.New(st.DB, "testproj")
-	ss := skills.New(st.DB, t.TempDir())
+	ss := skills.New(st.DB, t.TempDir(), "testproj")
 	emb := embedder.NewHash(32)
 
 	res, err := SearchMemory(context.Background(), fs, ss, "password hashing", 10, MemoryOptions{Embedder: emb})
@@ -101,7 +101,7 @@ func TestSearchMemoryDegradesWhenEmbedderDown(t *testing.T) {
 	st := openTestStore(t)
 	seedFactsAndSkills(t, st)
 	fs := facts.New(st.DB, "testproj")
-	ss := skills.New(st.DB, t.TempDir())
+	ss := skills.New(st.DB, t.TempDir(), "testproj")
 
 	// A zero-dim HashEmbedder whose Model() is non-empty but whose vectors are
 	// effectively degenerate still returns a vector; use a stub that errors.
@@ -125,7 +125,7 @@ func TestSearchMemoryDegradesWhenEmbedderDown(t *testing.T) {
 func TestSearchMemoryRequiresQuery(t *testing.T) {
 	st := openTestStore(t)
 	fs := facts.New(st.DB, "testproj")
-	ss := skills.New(st.DB, t.TempDir())
+	ss := skills.New(st.DB, t.TempDir(), "testproj")
 	if _, err := SearchMemory(context.Background(), fs, ss, "   ", 10, MemoryOptions{}); err == nil {
 		t.Fatalf("empty query must error")
 	}

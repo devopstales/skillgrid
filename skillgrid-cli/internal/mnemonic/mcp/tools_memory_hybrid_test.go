@@ -58,7 +58,7 @@ func TestHybridSearchMCPBM25Only(t *testing.T) {
 	seedHybridSession(t, st, project, dataDir, sid)
 
 	id := factAddID(t, project, sid, "the database connection pool max size is 50")
-	if _, err := skills.New(st.DB, dataDir).Write(context.Background(), "go-testing", "go", "write table-driven go tests with t.Run subtests", "func TestX(t *testing.T){}", true); err != nil {
+	if _, err := skills.New(st.DB, dataDir, project).Write(context.Background(), "go-testing", "go", "write table-driven go tests with t.Run subtests", "func TestX(t *testing.T){}", true); err != nil {
 		t.Fatalf("skill write: %v", err)
 	}
 

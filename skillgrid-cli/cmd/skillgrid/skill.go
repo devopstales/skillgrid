@@ -7,6 +7,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/facts"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/hybrid"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/skills"
 )
 
@@ -42,6 +45,7 @@ func runSkill(version string, args []string) {
 		input       string
 		asJSON      bool
 		mode        string
+		sessionID   string
 	)
 	fs.StringVar(&dir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
 	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
@@ -55,6 +59,7 @@ func runSkill(version string, args []string) {
 	fs.IntVar(&limit, "limit", 20, "max results (list|search)")
 	fs.BoolVar(&includeDel, "include-deleted", false, "list|search: include soft-deleted skills")
 	fs.StringVar(&input, "input", "", "input passed to the skill as a trailing argument (execute)")
+	fs.StringVar(&sessionID, "session-id", envOr("SKILLGRID_SESSION_ID", ""), "session id for the skill_use trail event (execute)")
 	fs.BoolVar(&asJSON, "json", false, "print JSON instead of a table")
 	fs.StringVar(&mode, "mode", "", "search: FTS match mode (fts|hybrid; hybrid degrades to fts with no embedder)")
 	if err := fs.Parse(reorderSkillArgs(args[1:])); err != nil {
@@ -120,7 +125,7 @@ func runSkill(version string, args []string) {
 			os.Exit(1)
 		}
 	}
-	st := skills.New(h.Store().DB, storeRoot)
+	st := skills.New(h.Store().DB, storeRoot, projID)
 	ctx := hCtx()
 	switch cmd {
 	case "write":
@@ -168,6 +173,22 @@ func runSkill(version string, args []string) {
 			writeSkillTable(w, out)
 		})
 	case "search":
+		if mode == "hybrid" {
+			factSt := facts.New(h.Store().DB, projID)
+			res, err := hybrid.SearchMemory(ctx, factSt, st, query, limit, hybrid.MemoryOptions{
+				Embedder:       embedder.Default(),
+				IncludeDeleted: includeDel,
+			})
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			hybridNote(asJSON, res.Legs)
+			printSkillOut(asJSON, map[string]any{"skills": res.Skills, "count": len(res.Skills), "legs": res.Legs}, func(w *tabwriter.Writer) {
+				writeHybridSkillTable(w, res.Skills)
+			})
+			break
+		}
 		out, err := st.SearchWith(ctx, query, limit, includeDel)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
@@ -177,7 +198,7 @@ func runSkill(version string, args []string) {
 			writeSkillTable(w, out)
 		})
 	case "execute":
-		res, err := st.Execute(ctx, name, input)
+		res, err := st.ExecuteWith(ctx, name, input, sessionID)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
@@ -266,6 +287,24 @@ func reorderSkillArgs(args []string) []string {
 		pos = append(pos, a)
 	}
 	return append(flags, pos...)
+}
+
+// writeHybridSkillTable renders the hybrid RRF-fused skill list as a table
+// (id, score, source, name, language, description).
+func writeHybridSkillTable(w *tabwriter.Writer, out []hybrid.MemorySkill) {
+	if len(out) == 0 {
+		fmt.Fprintln(w, "no skills")
+		return
+	}
+	fmt.Fprintln(w, "ID\tSCORE\tSOURCE\tNAME\tLANGUAGE\tDESCRIPTION")
+	for _, s := range out {
+		desc := strings.ReplaceAll(s.Description, "\n", " ")
+		src := "fts"
+		if s.Provenance.Semantic {
+			src = "semantic"
+		}
+		fmt.Fprintf(w, "%d\t%.4f\t%s\t%s\t%s\t%s\n", s.ID, s.Score, src, s.Name, s.Language, desc)
+	}
 }
 
 func printSkillUsage() {

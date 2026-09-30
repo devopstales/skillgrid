@@ -65,7 +65,7 @@ func TestAllToolsRegistered(t *testing.T) {
 		// Session events read (session events layer, TICKET-04).
 		"session_changes",
 		// Fact Memory (2026-09-04-hermes-memory, TICKET-01 + TICKET-02).
-		"fact_add", "fact_search", "fact_forget", "fact_decay",
+		"fact_add", "fact_search", "fact_forget", "fact_decay", "fact_decay_all",
 		// Agent Skill registry (2026-09-04-hermes-memory, TICKET-03).
 		"write_skill", "list_skills", "search_skills",
 		// Agent Skill sandbox executor (2026-09-04-hermes-memory, TICKET-04).

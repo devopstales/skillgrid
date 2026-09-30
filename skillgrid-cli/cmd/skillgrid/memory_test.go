@@ -124,6 +124,39 @@ func TestMemoryFactSearch(t *testing.T) {
 	}
 }
 
+// TestMemoryFactSearchHybridDegraded is the --mode hybrid leg with no embedder
+// active: it must route through hybrid.SearchMemory (RRF-fused output), print
+// the fused table (ID/SCORE/SOURCE columns), and note the FTS-only degradation
+// on stderr. The --json form carries the legs bookkeeping instead of a note.
+func TestMemoryFactSearchHybridDegraded(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-fact-hybrid"
+	st := seedMemoryCLIStore(t, dataDir, project)
+	defer st.Close()
+	st.DB.Exec(`INSERT INTO facts (content, created_at, updated_at) VALUES ('k8s ingress uses nginx upstream', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z')`)
+
+	// Table form: fused RRF columns + the no-embedder note on stderr.
+	out := runMemoryCLI(t, dataDir, project, "fact", "search", "ingress", "--mode", "hybrid")
+	if !strings.Contains(out, "k8s ingress") {
+		t.Fatalf("hybrid search did not find the seeded fact: %s", out)
+	}
+	if !strings.Contains(out, "hybrid mode: no embedder available, using FTS-only") {
+		t.Fatalf("hybrid search without an embedder must note the degradation: %s", out)
+	}
+	if !strings.Contains(out, "ID\tSCORE") && !strings.Contains(out, "SCORE") {
+		t.Fatalf("hybrid search table should carry the fused score column: %s", out)
+	}
+
+	// JSON form: fused facts + legs bookkeeping, no stderr note in the object.
+	out = runMemoryCLI(t, dataDir, project, "fact", "search", "ingress", "--mode", "hybrid", "--json")
+	if !strings.Contains(out, `"legs":`) || !strings.Contains(out, `"fts"`) {
+		t.Fatalf("hybrid search --json missing the legs bookkeeping: %s", out)
+	}
+	if !strings.Contains(out, `"facts":`) || !strings.Contains(out, "k8s ingress") {
+		t.Fatalf("hybrid search --json missing the fused facts: %s", out)
+	}
+}
+
 // TestMemoryFactForget is 04 [failure] — `memory fact forget` matches the
 // fact_forget MCP: it soft-deletes the fact, the fact disappears from the
 // default list, and a non-numeric fact id fails before any store is opened.

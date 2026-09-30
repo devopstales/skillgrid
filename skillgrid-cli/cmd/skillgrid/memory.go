@@ -8,7 +8,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/facts"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/hybrid"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/skills"
 )
 
 // runMemory handles `skillgrid memory fact <add|search|forget|decay|list>` —
@@ -138,6 +141,23 @@ func runMemory(version string, args []string) {
 			fmt.Fprintf(w, "added fact %d\n", id)
 		})
 	case "search":
+		if mode == "hybrid" {
+			skillSt := skills.New(h.Store().DB, h.Root(), projID)
+			res, err := hybrid.SearchMemory(ctx, st, skillSt, query, limit, hybrid.MemoryOptions{
+				Embedder:       embedder.Default(),
+				IncludeDeleted: includeDel,
+				ReadingSession: sessionID,
+			})
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			hybridNote(asJSON, res.Legs)
+			printMemoryOut(asJSON, map[string]any{"facts": res.Facts, "count": len(res.Facts), "legs": res.Legs}, func(w *tabwriter.Writer) {
+				writeHybridFactTable(w, res.Facts)
+			})
+			break
+		}
 		out, err := st.SearchWith(ctx, sessionID, query, limit, includeDel)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
@@ -203,6 +223,44 @@ func printMemoryOut(asJSON bool, obj map[string]any, tableFn func(w *tabwriter.W
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	tableFn(w)
 	w.Flush()
+}
+
+// writeHybridFactTable renders the hybrid RRF-fused fact list as a table
+// (id, score, provenance, content).
+func writeHybridFactTable(w *tabwriter.Writer, out []hybrid.MemoryFact) {
+	if len(out) == 0 {
+		fmt.Fprintln(w, "no facts")
+		return
+	}
+	fmt.Fprintln(w, "ID\tSCORE\tSOURCE\tCONTENT")
+	for _, f := range out {
+		content := strings.ReplaceAll(f.Content, "\n", " ")
+		src := "fts"
+		if f.Provenance.Semantic {
+			src = "semantic"
+		}
+		fmt.Fprintf(w, "%d\t%.4f\t%s\t%s\n", f.ID, f.Score, src, content)
+	}
+}
+
+// hybridNote prints the "no embedder available" note (to stderr for tables,
+// folded into the JSON object for --json) when hybrid mode degraded to
+// BM25-only — i.e. the legs do not include "semantic".
+func hybridNote(asJSON bool, legs []string) {
+	semantic := false
+	for _, l := range legs {
+		if l == "semantic" {
+			semantic = true
+			break
+		}
+	}
+	if semantic {
+		return
+	}
+	if asJSON {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "hybrid mode: no embedder available, using FTS-only")
 }
 
 func printMemoryUsage() {

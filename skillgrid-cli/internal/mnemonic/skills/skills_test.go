@@ -29,7 +29,7 @@ func openTestStore(t *testing.T) (*store.Store, string) {
 func TestWriteCreatesFSFileSQLRowAndFTS(t *testing.T) {
 	st, root := openTestStore(t)
 
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	id, err := s.Write(context.Background(), "deploy-check", "sh", "pre-deploy checklist", "echo ok\n", false)
 	if err != nil {
 		t.Fatalf("Write: %v", err)
@@ -83,7 +83,7 @@ func TestWriteCreatesFSFileSQLRowAndFTS(t *testing.T) {
 // and overwrite=false is a clear error, writes nothing, and touches no FS file.
 func TestWriteRejectsNameCollisionWithoutOverwrite(t *testing.T) {
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 
 	if _, err := s.Write(context.Background(), "dupe", "sh", "first", "echo 1\n", false); err != nil {
 		t.Fatalf("Write first: %v", err)
@@ -113,7 +113,7 @@ func TestWriteRejectsNameCollisionWithoutOverwrite(t *testing.T) {
 // metadata, and (via the update trigger) the FTS index.
 func TestWriteOverwriteReplaces(t *testing.T) {
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 
 	id1, err := s.Write(context.Background(), "rev", "sh", "v1", "echo 1\n", false)
 	if err != nil {
@@ -169,7 +169,7 @@ func TestWriteOverwriteReplaces(t *testing.T) {
 // returns live skills with metadata and omits soft-deleted ones.
 func TestListReturnsNonDeletedSkills(t *testing.T) {
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 
 	ctx := context.Background()
 	if _, err := s.Write(ctx, "keep", "sh", "kept skill", "echo keep\n", false); err != nil {
@@ -202,7 +202,7 @@ func TestListReturnsNonDeletedSkills(t *testing.T) {
 // soft-deleted skills stay absent from the default search.
 func TestSearchReturnsMatchesExcludingSoftDeleted(t *testing.T) {
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	ctx := context.Background()
 
 	keptID, err := s.Write(ctx, "cache-warm", "sh", "warm the registry cache", "echo warm\n", false)
@@ -246,7 +246,7 @@ func TestSearchReturnsMatchesExcludingSoftDeleted(t *testing.T) {
 // TestSearchBlankQueryReturnsNoMatches guards the empty-query boundary.
 func TestSearchBlankQueryReturnsNoMatches(t *testing.T) {
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	if _, err := s.Write(context.Background(), "s", "sh", "searchable", "echo s\n", false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestSearchBlankQueryReturnsNoMatches(t *testing.T) {
 // outside the known set is rejected before any FS write or SQL row exists.
 func TestWriteRejectsUnknownLanguage(t *testing.T) {
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	if _, err := s.Write(context.Background(), "badlang", "cobol", "desc", "x\n", false); err == nil {
 		t.Fatal("Write with unknown language should fail")
 	}
@@ -283,7 +283,7 @@ func TestWriteRejectsUnknownLanguage(t *testing.T) {
 // could escape the skills directory is rejected with no FS or SQL side effect.
 func TestWriteRejectsNamePathEscape(t *testing.T) {
 	st, root := openTestStore(t)
-	s := New(st.DB, root)
+	s := New(st.DB, root, "skilltest")
 	for _, name := range []string{"../evil", "a/b", "x\\y", ""} {
 		if _, err := s.Write(context.Background(), name, "sh", "desc", "x\n", false); err == nil {
 			t.Errorf("Write name %q should fail (path escape / blank)", name)

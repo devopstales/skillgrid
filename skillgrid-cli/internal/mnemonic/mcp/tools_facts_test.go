@@ -242,6 +242,76 @@ func TestFactDecayMCP(t *testing.T) {
 	}
 }
 
+// TestFactDecayAllRegistered covers acceptance scenario 5 (tool portion):
+// fact_decay_all is listed alongside the other fact tools.
+func TestFactDecayAllRegistered(t *testing.T) {
+	s := NewServer()
+	tools := s.ListTools()
+	if _, ok := tools["fact_decay_all"]; !ok {
+		t.Fatal("fact_decay_all not registered")
+	}
+}
+
+// TestFactDecayAllMCP covers acceptance scenario 5 (tool portion): the tool
+// decays every live fact in the session, purges the ones below the threshold,
+// returns the counts, and records a fact_decay_batch session event.
+func TestFactDecayAllMCP(t *testing.T) {
+	dataDir, project, st := openFactMCPStore(t)
+	sid := "sess-fact-mcp-decay-all"
+	seedFactMCPSession(t, st, project, dataDir, sid)
+
+	// Two fresh facts that survive the decay pass.
+	factAddID(t, project, sid, "mcp decay-all fact one that survives")
+	factAddID(t, project, sid, "mcp decay-all fact two that survives")
+	// One old fact with a decay rate that drops it below the 0.5 threshold.
+	oldID := factAddID(t, project, sid, "mcp decay-all old fact that is purged")
+
+	now := time.Now().UTC()
+	backdate := now.Add(-30 * 24 * time.Hour).Format(time.RFC3339)
+	if _, err := st.DB.Exec(`
+		UPDATE facts SET created_at = ?, recency_decay = ?
+		WHERE id = ?`, backdate, 0.1, oldID); err != nil {
+		t.Fatalf("backdate old fact: %v", err)
+	}
+
+	res, err := handleFactDecayAll(context.Background(), callReq("fact_decay_all", map[string]any{
+		"project":    project,
+		"session_id": sid,
+		"threshold":  0.5,
+	}))
+	if err != nil {
+		t.Fatalf("handleFactDecayAll: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("fact_decay_all error: %s", callResultText(t, res))
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(callResultText(t, res)), &out); err != nil {
+		t.Fatalf("parse result: %v", err)
+	}
+	if out["decayed"] != float64(3) {
+		t.Errorf("decayed = %v, want 3", out["decayed"])
+	}
+	if out["purged"] != float64(1) {
+		t.Errorf("purged = %v, want 1", out["purged"])
+	}
+	if out["threshold"] != float64(0.5) {
+		t.Errorf("threshold = %v, want 0.5", out["threshold"])
+	}
+
+	// Session trail: action_type=fact_decay_batch with the counts.
+	var payload string
+	if err := st.DB.QueryRow(`
+		SELECT payload FROM session_events
+		WHERE session_id = ? AND action_type = 'fact_decay_batch'`, sid).
+		Scan(&payload); err != nil {
+		t.Fatalf("fact_decay_batch session event missing: %v", err)
+	}
+	if !strings.Contains(payload, `"decayed":3`) || !strings.Contains(payload, `"purged":1`) {
+		t.Errorf("payload %q does not carry the correct counts", payload)
+	}
+}
+
 // factAddID drives the fact_add handler and returns the new fact id.
 func factAddID(t *testing.T, project, sid, content string) int64 {
 	t.Helper()

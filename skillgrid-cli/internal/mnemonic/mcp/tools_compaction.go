@@ -97,7 +97,7 @@ func handleMnemonicCommit(ctx context.Context, req mcplib.CallToolRequest) (*mcp
 	// Auto-skill: only a lesson that states a reusable pattern — a
 	// [language] tag plus an imperative pattern statement — qualifies.
 	if lang, pattern, ok := autoSkillFrom(bullets); ok {
-		if _, err := skills.New(h.Store().DB, h.Root()).Write(ctx, skillNameFromPattern(pattern), lang, pattern, "", true); err != nil {
+		if _, err := skills.New(h.Store().DB, h.Root(), projectID).Write(ctx, skillNameFromPattern(pattern), lang, pattern, "", true); err != nil {
 			warnings = append(warnings, "auto-skill skipped: "+err.Error())
 		} else {
 			res["skill_name"] = skillNameFromPattern(pattern)

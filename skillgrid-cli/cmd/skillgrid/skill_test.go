@@ -97,6 +97,44 @@ func TestSkillWriteListSearch(t *testing.T) {
 	}
 }
 
+// TestSkillSearchHybridDegraded is the --mode hybrid leg with no embedder
+// active: it must route through hybrid.SearchMemory over the skills scope,
+// print the fused table (ID/SCORE/SOURCE columns), and note the FTS-only
+// degradation on stderr. The --json form carries the legs bookkeeping.
+func TestSkillSearchHybridDegraded(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "skillcli-hybrid"
+	st := seedSkillCLIStore2(t, dataDir, project)
+	defer st.Close()
+	root := t.TempDir()
+
+	runSkillCLI(t, dataDir, project, "write",
+		"--name", "greet", "--language", "sh",
+		"--code", "echo greets $1", "--description", "prints a greeting",
+		"--root", root)
+
+	// Table form: fused RRF columns + the no-embedder note on stderr.
+	out := runSkillCLI(t, dataDir, project, "search", "greeting", "--mode", "hybrid", "--root", root)
+	if !strings.Contains(out, "greet") {
+		t.Fatalf("hybrid skill search did not find the matching skill: %s", out)
+	}
+	if !strings.Contains(out, "hybrid mode: no embedder available, using FTS-only") {
+		t.Fatalf("hybrid skill search without an embedder must note the degradation: %s", out)
+	}
+	if !strings.Contains(out, "SCORE") {
+		t.Fatalf("hybrid skill search table should carry the fused score column: %s", out)
+	}
+
+	// JSON form: fused skills + legs bookkeeping.
+	out = runSkillCLI(t, dataDir, project, "search", "greeting", "--mode", "hybrid", "--root", root, "--json")
+	if !strings.Contains(out, `"legs":`) || !strings.Contains(out, `"fts"`) {
+		t.Fatalf("hybrid skill search --json missing the legs bookkeeping: %s", out)
+	}
+	if !strings.Contains(out, `"skills":`) || !strings.Contains(out, "greet") {
+		t.Fatalf("hybrid skill search --json missing the fused skills: %s", out)
+	}
+}
+
 // TestSkillExecute is 04 [failure] — `skill execute` matches the use_skill
 // MCP: it runs the skill in the sandbox and reports stdout/stderr/exit code.
 // Scenario: CLI memory and skill match MCP or fail cleanly.
@@ -158,6 +196,16 @@ func TestSkillInvalidAction(t *testing.T) {
 	out, err = runSkillCLIExpectError(t, dataDir, project, "execute")
 	if err == nil || !strings.Contains(out, "skill execute requires") {
 		t.Fatalf("skill execute without a name should fail: %s (err=%v)", out, err)
+	}
+	// `skill execute` with --session-id but no sessions row → clean failure
+	// (FK violation), reported as an error, not a panic.
+	out, err = runSkillCLIExpectError(t, dataDir, project, "execute", "greet",
+		"--session-id", "no-such-session", "--root", t.TempDir())
+	if err == nil {
+		t.Fatalf("skill execute with an unknown session id should fail:\n%s", out)
+	}
+	if !strings.Contains(out, "error:") {
+		t.Fatalf("skill execute with an unknown session id should print a clear error: %s", out)
 	}
 	// Bare `skill` with no command → usage on stderr.
 	out, err = runSkillCLIExpectError(t, dataDir, project)

@@ -117,7 +117,7 @@ func TestMnemonicCommitAutoSkill(t *testing.T) {
 		if _, ok := out["skill_name"].(string); !ok {
 			t.Fatalf("no skill_name in %v, want an auto-skill for the reusable pattern", out)
 		}
-		list, err := skills.New(st.DB, dataDir).List(context.Background())
+		list, err := skills.New(st.DB, dataDir, project).List(context.Background())
 		if err != nil {
 			t.Fatalf("skill list: %v", err)
 		}
@@ -153,7 +153,7 @@ func TestMnemonicCommitAutoSkill(t *testing.T) {
 		if len(warns) == 0 {
 			t.Fatalf("warnings = 0, want a skip-auto-skill warning")
 		}
-		list, err := skills.New(st.DB, dataDir).List(context.Background())
+		list, err := skills.New(st.DB, dataDir, project).List(context.Background())
 		if err != nil {
 			t.Fatalf("skill list: %v", err)
 		}
