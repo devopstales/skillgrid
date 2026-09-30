@@ -2,8 +2,8 @@
 
 **Owner:** skillgrid dashboard
 **Status:** selected (spike 002 winner) — v1.0
-**Interactive spec:** `design-system.html` (token tables auto-generated from `:root`)
-**Build target:** port the token block into `skillgrid-ui/src/index.css` under `:root`.
+**Interactive spec:** `./design-system.html` (token tables auto-generated from `:root`)
+**Build target:** port the token block into `../../src/index.css` under `:root`.
 
 A dense monospace console on an OLED slate canvas. One run-green accent carries
 everything that is live or passing. An 8px rhythm, a 12-column grid, hairline
