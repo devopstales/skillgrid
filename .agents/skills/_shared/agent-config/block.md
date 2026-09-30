@@ -26,9 +26,18 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 | Specs (briefing, blueprint, tasks) | `.skillgrid/specs/` |
 | Execution ledger | `.skillgrid/sdd/` (gitignored) |
 
-**Domain model:** read the vocabulary + ADRs under `.skillgrid/artifacts/` (index: `08-concepts.md` → Domain model) before designing or implementing.
+**Domain model:** read the vocabulary + ADRs under `.skillgrid/artifacts/` (index: `README.md`) before designing or implementing.
+
+**Rules & standards:** locked project constraints render under `### Rules` below. Shared standards are referenced, never inlined — each loads via the skills that apply it.
+
+- **Coding conventions** — reference `.agents/skills/_shared/rules/code-standards.md` for detailed coding conventions.
+- **Testing conventions** — reference `.agents/skills/_shared/references/strict-tdd.md` for the TDD cycle and testing conventions.
+- **Commits & verification** — reference `.agents/skills/_shared/rules/` for the commit contract, verification ladder, and rigor tiers.
+- **Memory, code index & web cache** — reference the `skillgrid:mnemonic` skill (shared rules: `.agents/skills/_shared/rules/mnemonic-memory.md`).
 
 ### Rules
+
+*Locked constraints only (source of truth: `### Locked constraints` in `.skillgrid/ASSUMPTIONS.md` — edit there, then mirror here).*
 
 {rules_block}
 
@@ -87,6 +96,7 @@ Run `skillgrid:onboarding` to update config after stack changes.
 The `## Skillgrid` block loads into context on **every** prompt in most agents, so it is a *navigation spine*, not a knowledge dump. Rules for editing it:
 
 - **Navigation, not conventions.** The block points at where things live (`.skillgrid/…`, tracker, memory). Project conventions, framework rules, delivery/PR steps, and how-to detail belong in the referenced files (`.skillgrid/artifacts/`, the skills, `docs/user-guide/`) — never inlined here.
+- **Reference, don't write.** A standards line in the block names ONE canonical file (or skill) and says "reference X for Y" — e.g. `**Coding conventions** — reference `.agents/skills/_shared/rules/code-standards.md` for detailed coding conventions.`. Never restate the standard's content; if you find yourself summarizing it in the block, delete the summary and keep the pointer.
 - **No "getting started / setup" section.** Onboarding, install, and first-run steps are not what the agent file is for; the agent already has the repo.
 - **Grow it only on an observed failure.** Add a line to the block only when the agent actually did something wrong that this file can prevent. Don't preemptively document mistakes it hasn't made. (See `skillgrid:onboarding` → *Keep the AGENTS.md block lean*.)
 - **Layout stays high-level.** A one-line "what's here" map is fine; never point at individual files or paths that churn — they go stale and mislead.

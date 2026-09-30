@@ -1,6 +1,6 @@
 # Memory and indexing
 
-**Mnemonic** is Skillgrid's local-first persistent memory engine — a single SQLite + FTS5 store embedded in the `skillgrid` CLI, exposed to agents over MCP (`skillgrid mcp`), over HTTP + a web dashboard (`skillgrid serve`), and as direct CLI commands.
+**Mnemonic** is the second brain of your project — Skillgrid's local-first store of durable knowledge, not a scratchpad for chat. It is a single SQLite + FTS5 store embedded in the `skillgrid` CLI, exposed to agents over MCP (`skillgrid mcp`), over HTTP + a web dashboard (`skillgrid serve`), and as direct CLI commands. A chat window is a working set: it fills, compacts, and dies. Mnemonic is what survives — the decisions, a live map of the code, and the research — so a fresh session opens already oriented instead of blind.
 
 **Storage stack:** the SQLite database is provided by [`modernc.org/sqlite`](https://modernc.org/sqlite) (pure-Go build of SQLite, **cgo-free**, v1.45.0 in `skillgrid-cli/go.mod`) — the only SQLite extension in use is **FTS5**, compiled into the driver; no `json1`, `rtree`, `vec0`, or loadable extensions (verified against `internal/mnemonic/store/`).
 
@@ -38,7 +38,7 @@ The rest of this page is a reference: the full MCP tool tables, the database sch
 
 ## 1.1 What memory is for
 
-Memory persists what an agent learned, so a future session starts oriented instead of blind. It is **project-scoped** by default (an observation tagged with the CWD-resolved project is visible only in that project) and **scope-tiered** for the few facts that should cross projects: `project` → `user` → `global`.
+Memory is the recall half of the second brain. It persists what an agent learned — the decisions, the discoveries, the preferences — so a future session starts oriented instead of blind. It is **project-scoped** by default (an observation tagged with the CWD-resolved project is visible only in that project) and **scope-tiered** for the few facts that should cross projects: `project` → `user` → `global`.
 
 Save after: bug fixes (with root cause), architecture/design decisions, non-obvious discoveries, config/env setup, established patterns, and user preferences. Use a stable `topic_key` for evolving topics (upsert, don't duplicate). End sessions with `mem_session_summary` — the next session reads it.
 

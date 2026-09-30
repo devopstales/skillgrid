@@ -24,7 +24,6 @@ This directory stores shared reference documents consumed by Skillgrid skills. D
    - [rules/hybrid-degradation.md](rules/hybrid-degradation.md) — dual-write contract + degradation line.
     - [rules/deterministic-boundary.md](rules/deterministic-boundary.md) — the script/prose split: deterministic logic belongs in a script, not skill prose.
      - [rules/code-standards.md](rules/code-standards.md) — global, language-agnostic code standards: design principles, deep modules (module/interface/depth/seam/adapter/leverage/locality), structure, naming, errors, concurrency, testing, and the two-axis review contract + smell baseline.
-    - [rules/wiki-structure.md](rules/wiki-structure.md) — `.wiki/` bundle layout, OKF v0.2 frontmatter rules, type taxonomy, link syntax, determinism rules, source adapters, conformance gate, write boundaries, CLI.
 - `references/` — canonical single-source references:
   - [references/threat-matrix.md](references/threat-matrix.md) — applicability-driven threat matrix.
   - [references/strict-tdd.md](references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR cycle.

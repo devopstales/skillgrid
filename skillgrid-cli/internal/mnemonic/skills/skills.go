@@ -315,12 +315,12 @@ func buildSkillFTSQuery(query string) (string, error) {
 // supportedLanguages renders the knownLanguages set as a sorted, deduped
 // "a, b, c" string for the unknown-language error message.
 func supportedLanguages() string {
-	langs := map[string]struct{}{}
+	exts := map[string]struct{}{}
 	for lang := range knownLanguages {
-		langs[lang] = struct{}{}
+		exts[lang] = struct{}{}
 	}
-	out := make([]string, 0, len(langs))
-	for lang := range langs {
+	out := make([]string, 0, len(exts))
+	for lang := range exts {
 		out = append(out, lang)
 	}
 	// Stable order: simple insertion sort (the set is tiny).

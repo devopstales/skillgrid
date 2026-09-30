@@ -69,7 +69,6 @@ func main() {
 		fmt.Fprintln(w, `  mem           Memory tools (layers|governance|share|search|context|timeline)`)
 		fmt.Fprintln(w, `  memory        Fact Memory (fact add|search|forget|decay|list)`)
 		fmt.Fprintln(w, `  skill         Agent Skill registry (write|list|search|execute)`)
-		fmt.Fprintln(w, `  wiki          Compile and lint the llmwiki-okf wiki bundle (compile|lint)`)
 		fmt.Fprintln(w, `  embedding-status  Report active embedder provider/model and embedded counts`)
 		fmt.Fprintln(w, `  doctor        Functional health check (embed round-trip, capabilities; --strict for CI)`)
 		fmt.Fprintln(w, `  eval          Retrieval-eval ablation (--corpus self | name=path; leak-free git queries)`)
@@ -172,9 +171,6 @@ func main() {
 		return
 	case "skill":
 		runSkill(version, rest[1:])
-		return
-	case "wiki":
-		runWiki(version, rest[1:])
 		return
 	case "session":
 		runSession(version, rest[1:])

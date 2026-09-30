@@ -14,7 +14,7 @@ Documentation for the **skillgrid** CLI and ecosystem.
 | [07-hooks.md](07-hooks.md) | Agent hooks |
 | [08-mcp.md](08-mcp.md) | MCP merge, shapes, backups |
 | [09-plugins.md](09-plugins.md) | Superpowers plugin for OpenCode and Kilo |
-| [10-mnemonic.md](10-mnemonic.md) | Mnemonic persistent memory engine |
+| [10-mnemonic.md](10-mnemonic.md) | Mnemonic — the project's second brain (memory + code index + research cache) |
 | [11-workflow.md](11-workflow.md) | SDD workflow and artifact map |
 | [12-ticketing.md](12-ticketing.md) | Mapping OpenSpec changes to GitHub/Jira |
 | [13-plan.md](13-plan.md) | Skillgrid plan and roadmap |

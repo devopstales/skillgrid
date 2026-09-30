@@ -14,7 +14,7 @@ Five mechanisms turn the verbs into something that doesn't collapse under a long
 2. **A hard approval gate** — brainstorming and QA stop and ask; agents do not auto-ship.
 3. **Evidence-based QA** — `G<n>` gates with `CHECK:`/`EXPECT:` oracles; a gate is met only when freshly run; effort scaled to risk via rigor tiers (T0–T3).
 4. **Hooks that guarantee** — git + agent Stop hooks block bad commits and red stops; "a rule asks, a hook guarantees."
-5. **Memory outside the chat** — Mnemonic stores decisions, code search, and research cache so sessions stay lean.
+5. **A second brain outside the chat** — Mnemonic holds the project's decisions, a live code map, and the research cache, so the next agent starts from what the project already knows instead of a blank chat.
 
 ## Main logics
 
