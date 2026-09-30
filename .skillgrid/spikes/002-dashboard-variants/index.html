@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>skillgrid dashboard — variant selection</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #0a0a0f; color: #e5e7eb; overflow: hidden; }
+  button { font: inherit; cursor: pointer; }
+  .hidden { display: none !important; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  /* ============ VARIANT SWITCHER (spike chrome, not part of design) ============ */
+  #switcher { position: fixed; top: 14px; right: 14px; z-index: 999; display: flex; gap: 6px; background: rgba(0,0,0,.7); border: 1px solid rgba(255,255,255,.15); border-radius: 999px; padding: 4px; backdrop-filter: blur(8px); }
+  #switcher button { border: 0; background: transparent; color: #9ca3af; padding: 6px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600; letter-spacing: .02em; }
+  #switcher button.active { background: #fff; color: #111; }
+  #variantTag { position: fixed; top: 14px; left: 14px; z-index: 999; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #6b7280; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.1); padding: 6px 10px; border-radius: 8px; }
+
+  /* ===================================================================
+     VARIANT A — TERMINAL OPS (dense mono console, OLED dark, run-green)
+     =================================================================== */
+  #vA { height: 100vh; display: flex; background: #0f172a; color: #f8fafc; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  #vA .side { width: 220px; border-right: 1px solid #1e293b; background: #0d1526; display: flex; flex-direction: column; flex-shrink: 0; }
+  #vA .brand { padding: 14px 16px; font-weight: 700; font-size: 13px; letter-spacing: .04em; border-bottom: 1px solid #1e293b; }
+  #vA .brand .g { color: #22c55e; }
+  #vA nav { padding: 10px 0; flex: 1; }
+  #vA nav a { display: flex; align-items: center; gap: 9px; padding: 7px 16px; color: #94a3b8; text-decoration: none; border-left: 2px solid transparent; }
+  #vA nav a svg { width: 15px; height: 15px; flex-shrink: 0; }
+  #vA nav a.on { color: #f8fafc; border-left-color: #22c55e; background: rgba(34,197,94,.07); }
+  #vA nav .sec { padding: 12px 16px 4px; font-size: 10px; letter-spacing: .14em; color: #475569; }
+  #vA .foot { padding: 12px 16px; border-top: 1px solid #1e293b; font-size: 11px; color: #475569; }
+  #vA .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #vA .topbar { height: 44px; border-bottom: 1px solid #1e293b; display: flex; align-items: center; gap: 14px; padding: 0 16px; }
+  #vA .topbar .path { color: #94a3b8; font-size: 12px; }
+  #vA .topbar .path b { color: #f8fafc; font-weight: 600; }
+  #vA .topbar .grow { flex: 1; }
+  #vA .pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #1e293b; border-radius: 4px; padding: 3px 9px; font-size: 11px; color: #94a3b8; background: #0b1120; }
+  #vA .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }
+  #vA .grid { flex: 1; overflow: auto; padding: 14px; display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; align-content: start; }
+  #vA .card { background: #1b2336; border: 1px solid #272f42; border-radius: 6px; }
+  #vA .card h3 { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #64748b; padding: 10px 12px; border-bottom: 1px solid #272f42; display: flex; justify-content: space-between; align-items: center; }
+  #vA .card .body { padding: 12px; }
+  #vA .kpi { grid-column: span 3; }
+  #vA .kpi .num { font-size: 26px; font-weight: 700; color: #f8fafc; line-height: 1.1; }
+  #vA .kpi .num .unit { font-size: 12px; color: #64748b; font-weight: 400; }
+  #vA .kpi .delta { font-size: 11px; color: #22c55e; }
+  #vA .kpi .delta.warn { color: #f59e0b; }
+  #vA .kpi .lbl { font-size: 11px; color: #64748b; margin-top: 2px; }
+  #vA .trend { grid-column: span 8; }
+  #vA .feed { grid-column: span 4; }
+  #vA .codeidx { grid-column: span 8; }
+  #vA .pip { grid-column: span 4; }
+  #vA .membreak { grid-column: span 4; }
+  #vA .spark { display: block; width: 100%; height: 90px; }
+  #vA .spark .grid-line { stroke: #272f42; stroke-width: 1; }
+  #vA .spark .area { fill: rgba(34,197,94,.12); }
+  #vA .spark .line { fill: none; stroke: #22c55e; stroke-width: 1.5; }
+  #vA .feed .row { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid #272f42; font-size: 12px; }
+  #vA .feed .row:last-child { border-bottom: 0; }
+  #vA .feed .t { color: #475569; flex-shrink: 0; }
+  #vA .feed .k { color: #22c55e; flex-shrink: 0; }
+  #vA .feed .m { color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #vA .bullet { margin-bottom: 12px; }
+  #vA .bullet:last-child { margin-bottom: 0; }
+  #vA .bullet .lbl { display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-bottom: 5px; }
+  #vA .bullet .lbl b { color: #f8fafc; font-weight: 600; }
+  #vA .bar { height: 6px; background: #0b1120; border-radius: 3px; position: relative; overflow: hidden; }
+  #vA .bar i { position: absolute; inset: 0 auto 0 0; background: #22c55e; border-radius: 3px; }
+  #vA .bar i.amber { background: #f59e0b; }
+  #vA .bar .target { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #f8fafc; }
+  #vA .status-row { display: flex; justify-content: space-between; font-size: 12px; padding: 6px 0; border-bottom: 1px solid #272f42; }
+  #vA .status-row:last-child { border-bottom: 0; }
+  #vA .status-row .ok { color: #22c55e; }
+  #vA .status-row .warn { color: #f59e0b; }
+  #vA .status-row .dim { color: #64748b; }
+  #vA .seg { display: flex; gap: 3px; }
+  #vA .seg span { flex: 1; height: 8px; border-radius: 2px; background: #0b1120; }
+  #vA .seg span.p { background: #22c55e; }
+  #vA .seg span.u { background: #38bdf8; }
+  #vA .seg span.gl { background: #a78bfa; }
+
+  /* ===================================================================
+     VARIANT B — GLASS AURORA (frosted glass, ambient gradient field)
+     =================================================================== */
+  #vB { height: 100vh; overflow: auto; position: relative; background: #050510; color: #eef0ff; font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
+  #vB .aurora { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+  #vB .aurora i { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .5; }
+  #vB .aurora .b1 { width: 560px; height: 560px; background: #6d28d9; top: -180px; left: -120px; }
+  #vB .aurora .b2 { width: 480px; height: 480px; background: #0e7490; top: 20%; right: -140px; opacity: .4; }
+  #vB .aurora .b3 { width: 420px; height: 420px; background: #9d174d; bottom: -160px; left: 32%; opacity: .35; }
+  #vB .topnav { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 26px; padding: 16px 32px; background: rgba(255,255,255,.05); border-bottom: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+  #vB .topnav .brand { font-size: 16px; font-weight: 700; letter-spacing: -.01em; background: linear-gradient(90deg, #c4b5fd, #67e8f9); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #vB .topnav a { color: rgba(255,255,255,.65); text-decoration: none; font-size: 13.5px; font-weight: 500; padding: 6px 2px; }
+  #vB .topnav a.on { color: #fff; }
+  #vB .topnav .grow { flex: 1; }
+  #vB .chip { display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.08); border-radius: 999px; padding: 6px 14px; font-size: 12.5px; color: rgba(255,255,255,.85); }
+  #vB .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; box-shadow: 0 0 8px #34d399; }
+  #vB .wrap { position: relative; z-index: 1; max-width: 1240px; margin: 0 auto; padding: 28px 32px 56px; }
+  #vB .hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 20px; }
+  #vB .glass { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.16); border-radius: 20px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 8px 32px rgba(0,0,0,.35); }
+  #vB .stat { padding: 22px 24px; }
+  #vB .stat .lbl { font-size: 12.5px; color: rgba(255,255,255,.55); font-weight: 500; margin-bottom: 8px; }
+  #vB .stat .num { font-size: 34px; font-weight: 700; letter-spacing: -.02em; line-height: 1; }
+  #vB .stat .sub { font-size: 12px; margin-top: 8px; color: rgba(255,255,255,.45); }
+  #vB .stat .sub b { color: #6ee7b7; font-weight: 600; }
+  #vB .cols { display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; }
+  #vB .panel { padding: 22px 24px; border-radius: 20px; }
+  #vB .panel h2 { font-size: 14px; font-weight: 600; letter-spacing: .01em; margin-bottom: 4px; }
+  #vB .panel .hint { font-size: 12px; color: rgba(255,255,255,.45); margin-bottom: 16px; }
+  #vB .spark { width: 100%; height: 150px; display: block; }
+  #vB .spark .area { fill: url(#gradA); }
+  #vB .spark .line { fill: none; stroke: #67e8f9; stroke-width: 2; stroke-linecap: round; }
+  #vB .events .row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+  #vB .events .row:last-child { border-bottom: 0; }
+  #vB .ev { width: 34px; height: 34px; border-radius: 12px; display: grid; place-items: center; flex-shrink: 0; border: 1px solid rgba(255,255,255,.14); }
+  #vB .ev svg { width: 16px; height: 16px; }
+  #vB .ev.v { background: rgba(109,40,217,.35); }
+  #vB .ev.c { background: rgba(14,116,144,.35); }
+  #vB .ev.r { background: rgba(157,23,77,.35); }
+  #vB .ev.g { background: rgba(5,150,105,.3); }
+  #vB .events .txt { font-size: 13px; color: rgba(255,255,255,.8); min-width: 0; flex: 1; }
+  #vB .events .txt small { display: block; color: rgba(255,255,255,.4); font-size: 11.5px; margin-top: 1px; }
+  #vB .events .t { font-size: 11.5px; color: rgba(255,255,255,.4); flex-shrink: 0; }
+  #vB .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+  #vB .kv { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.08); font-size: 13.5px; }
+  #vB .kv:last-child { border-bottom: 0; }
+  #vB .kv .k { color: rgba(255,255,255,.55); flex: 1; }
+  #vB .kv .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  #vB .ring { position: relative; width: 120px; height: 120px; margin: 8px auto; }
+  #vB .ring svg { transform: rotate(-90deg); }
+  #vB .ring .track { stroke: rgba(255,255,255,.1); }
+  #vB .ring .val { stroke: url(#gradB); stroke-linecap: round; }
+  #vB .ring .mid { position: absolute; inset: 0; display: grid; place-items: center; font-size: 24px; font-weight: 700; }
+  #vB .ring .mid small { display: block; font-size: 10.5px; color: rgba(255,255,255,.45); font-weight: 500; text-align: center; }
+
+  /* ===================================================================
+     VARIANT C — LINEAR MONO (minimal, spacious, single violet accent)
+     =================================================================== */
+  #vC { height: 100vh; display: flex; background: #0d0d12; color: #d4d4dc; font-family: -apple-system, "Segoe UI", system-ui, sans-serif; font-size: 14px; }
+  #vC .side { width: 232px; border-right: 1px solid #1e1e28; flex-shrink: 0; display: flex; flex-direction: column; padding: 20px 12px; }
+  #vC .brand { display: flex; align-items: center; gap: 9px; padding: 4px 10px 18px; font-size: 15px; font-weight: 600; color: #f4f4f8; letter-spacing: -.01em; }
+  #vC .brand .mark { width: 22px; height: 22px; border-radius: 6px; background: #7c3aed; display: grid; place-items: center; }
+  #vC .brand .mark svg { width: 12px; height: 12px; }
+  #vC nav a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: #8b8b98; text-decoration: none; font-size: 13.5px; font-weight: 500; margin-bottom: 2px; }
+  #vC nav a svg { width: 16px; height: 16px; opacity: .7; }
+  #vC nav a.on { background: #1a1a24; color: #f4f4f8; }
+  #vC nav a.on svg { opacity: 1; }
+  #vC nav .cnt { margin-left: auto; font-size: 11px; color: #5b5b68; font-variant-numeric: tabular-nums; }
+  #vC .foot { margin-top: auto; padding: 12px 10px 0; border-top: 1px solid #1e1e28; font-size: 12px; color: #5b5b68; display: flex; align-items: center; gap: 8px; }
+  #vC .foot .dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; }
+  #vC .main { flex: 1; overflow: auto; min-width: 0; }
+  #vC .head { padding: 26px 40px 0; }
+  #vC .head h1 { font-size: 21px; font-weight: 600; color: #f4f4f8; letter-spacing: -.02em; }
+  #vC .head p { font-size: 13px; color: #7a7a88; margin-top: 5px; }
+  #vC .body { padding: 22px 40px 60px; max-width: 980px; }
+  #vC .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 26px; }
+  #vC .st { border: 1px solid #23232f; border-radius: 12px; padding: 16px 18px; background: #12121a; }
+  #vC .st .lbl { font-size: 12px; color: #7a7a88; font-weight: 500; }
+  #vC .st .num { font-size: 25px; font-weight: 650; color: #f4f4f8; margin-top: 6px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  #vC .st .sub { font-size: 11.5px; color: #5b5b68; margin-top: 4px; }
+  #vC .st .sub b { color: #a78bfa; font-weight: 600; }
+  #vC .blk { margin-bottom: 30px; }
+  #vC .blk > h2 { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #6a6a78; margin-bottom: 12px; }
+  #vC .chart { border: 1px solid #23232f; border-radius: 12px; background: #12121a; padding: 18px; }
+  #vC .chart svg { width: 100%; height: 130px; display: block; }
+  #vC .chart .area { fill: rgba(124,58,237,.12); }
+  #vC .chart .line { fill: none; stroke: #7c3aed; stroke-width: 1.75; }
+  #vC .rows .row { display: grid; grid-template-columns: 110px 1fr 90px 70px; align-items: center; gap: 14px; padding: 12px 16px; border: 1px solid #23232f; border-radius: 10px; background: #12121a; margin-bottom: 8px; }
+  #vC .rows .row .t { font-size: 12px; color: #6a6a78; font-variant-numeric: tabular-nums; }
+  #vC .rows .row .m { font-size: 13.5px; color: #d4d4dc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #vC .rows .row .m small { color: #6a6a78; font-size: 12px; }
+  #vC .rows .row .k { font-size: 11.5px; color: #8b8b98; text-align: right; }
+  #vC .rows .row .st { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; color: #8b8b98; }
+  #vC .rows .row .dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; }
+  #vC .rows .row .dot.v { background: #a78bfa; }
+  #vC .rows .row .dot.w { background: #fbbf24; }
+  #vC .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  #vC .meta .m { border: 1px solid #23232f; border-radius: 10px; background: #12121a; padding: 12px 14px; }
+  #vC .meta .m .k { font-size: 11.5px; color: #6a6a78; }
+  #vC .meta .m .v { font-size: 14px; font-weight: 600; color: #f4f4f8; margin-top: 3px; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<div id="variantTag">variant —</div>
+<div id="switcher">
+  <button data-v="vA" class="active">A · Terminal Ops</button>
+  <button data-v="vB">B · Glass Aurora</button>
+  <button data-v="vC">C · Linear Mono</button>
+</div>
+
+<!-- ============================================================ A -->
+<div id="vA">
+  <aside class="side">
+    <div class="brand">skillgrid<span class="g">:engine</span></div>
+    <nav>
+      <div class="sec">OBSERVE</div>
+      <a class="on" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>overview</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 012-2h12a2 2 0 012 2v14l-6-4-6 4z"/></svg>memory</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>sessions</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 7l4 9M17 7l-4 9"/></svg>code graph</a>
+      <div class="sec">PIPELINE</div>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>changes</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14l-3-3"/></svg>qa gate</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>adr</a>
+      <div class="sec">SYSTEM</div>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>settings</a>
+    </nav>
+    <div class="foot">mnemonic v1.0<br/>cgo: free · wal</div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <span class="path">~/skillgrid / <b>overview</b></span>
+      <span class="grow"></span>
+      <span class="pill"><span class="dot"></span>engine online</span>
+      <span class="pill">127.0.0.1:7438</span>
+    </div>
+    <div class="grid">
+      <div class="card kpi"><h3>observations</h3><div class="body"><div class="num">1,284</div><div class="lbl">total stored</div><div class="delta">+42 this week</div></div></div>
+      <div class="card kpi"><h3>active sessions</h3><div class="body"><div class="num">14</div><div class="lbl">across 3 projects</div><div class="delta">3 pinned</div></div></div>
+      <div class="card kpi"><h3>code index</h3><div class="body"><div class="num">22,581</div><div class="lbl">symbols + chunks</div><div class="delta warn">3 files stale</div></div></div>
+      <div class="card kpi"><h3>qa gate</h3><div class="body"><div class="num" style="color:#22c55e">PASS</div><div class="lbl">last run 2026-09-29</div><div class="delta">17 changes shipped</div></div></div>
+
+      <div class="card trend">
+        <h3>observations / 14d <span style="color:#475569;letter-spacing:0">streaming · warm leg 28ms</span></h3>
+        <div class="body">
+          <svg class="spark" viewBox="0 0 560 90" preserveAspectRatio="none">
+            <line class="grid-line" x1="0" y1="22" x2="560" y2="22"/>
+            <line class="grid-line" x1="0" y1="45" x2="560" y2="45"/>
+            <line class="grid-line" x1="0" y1="68" x2="560" y2="68"/>
+            <path class="area" d="M0,72 L40,66 L80,68 L120,58 L160,60 L200,48 L240,52 L280,40 L320,44 L360,32 L400,36 L440,24 L480,28 L520,16 L560,20 L560,90 L0,90 Z"/>
+            <path class="line" d="M0,72 L40,66 L80,68 L120,58 L160,60 L200,48 L240,52 L280,40 L320,44 L360,32 L400,36 L440,24 L480,28 L520,16 L560,20"/>
+          </svg>
+        </div>
+      </div>
+      <div class="card feed">
+        <h3>event feed</h3>
+        <div class="body" style="padding:6px 12px">
+          <div class="row"><span class="t">14:32:08</span><span class="k">mem_save</span><span class="m">Fixed N+1 query in UserList</span></div>
+          <div class="row"><span class="t">14:29:51</span><span class="k">code_index</span><span class="m">re-index 128 files, 4.2s</span></div>
+          <div class="row"><span class="t">14:25:13</span><span class="k">mem_search</span><span class="m">"auth model" → 6 hits, 12ms</span></div>
+          <div class="row"><span class="t">14:21:40</span><span class="k">web_cache</span><span class="m">context7 /tanstack/query hit</span></div>
+          <div class="row"><span class="t">14:18:02</span><span class="k">mem_save</span><span class="m">ADR-0016 second-brain drafted</span></div>
+          <div class="row"><span class="t">14:11:27</span><span class="k">session</span><span class="m">s_9f2 ended · summary saved</span></div>
+          <div class="row"><span class="t">13:58:44</span><span class="k">code_index</span><span class="m">staleness gate armed (~5s)</span></div>
+        </div>
+      </div>
+
+      <div class="card codeidx">
+        <h3>code intelligence</h3>
+        <div class="body">
+          <div class="bullet"><div class="lbl"><span>symbols indexed</span><b>3,905 / target ∞</b></div><div class="bar"><i style="width:82%"></i></div></div>
+          <div class="bullet"><div class="lbl"><span>chunks embedded</span><b>18,676</b></div><div class="bar"><i style="width:94%"></i></div></div>
+          <div class="bullet"><div class="lbl"><span>index freshness</span><b>2m old</b></div><div class="bar"><i style="width:90%"></i><span class="target" style="left:95%"></span></div></div>
+          <div class="bullet"><div class="lbl"><span>semantic leg (warm)</span><b>28ms</b></div><div class="bar"><i style="width:18%"></i><span class="target" style="left:50%"></span></div></div>
+        </div>
+      </div>
+      <div class="card pip">
+        <h3>pipeline state</h3>
+        <div class="body" style="padding:6px 12px">
+          <div class="status-row"><span>completed changes</span><span class="ok">17</span></div>
+          <div class="status-row"><span>in progress</span><span class="warn">1 · monitoring</span></div>
+          <div class="status-row"><span>blocked</span><span class="ok">0</span></div>
+          <div class="status-row"><span>adrs in force</span><span>13 / 16</span></div>
+          <div class="status-row"><span>current phase</span><span class="dim">executing</span></div>
+        </div>
+      </div>
+
+      <div class="card membreak">
+        <h3>memory scope</h3>
+        <div class="body">
+          <div class="status-row"><span>project</span><span>612</span></div>
+          <div class="status-row"><span>user</span><span>390</span></div>
+          <div class="status-row"><span>global</span><span>282</span></div>
+          <div style="margin-top:10px"><div class="seg"><span class="p" style="flex:612"></span><span class="u" style="flex:390"></span><span class="gl" style="flex:282"></span></div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;margin-top:5px"><span>■ project</span><span>■ user</span><span>■ global</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ B -->
+<div id="vB" class="hidden">
+  <div class="aurora"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
+  <div class="topnav">
+    <span class="brand">skillgrid</span>
+    <a class="on" href="#">Overview</a><a href="#">Memory</a><a href="#">Sessions</a><a href="#">Graph</a><a href="#">Pipeline</a>
+    <span class="grow"></span>
+    <span class="chip"><span class="dot"></span>engine online · 127.0.0.1:7438</span>
+  </div>
+  <div class="wrap">
+    <svg width="0" height="0"><defs>
+      <linearGradient id="gradA" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#67e8f9" stop-opacity=".35"/><stop offset="100%" stop-color="#67e8f9" stop-opacity="0"/></linearGradient>
+      <linearGradient id="gradB" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#a78bfa"/><stop offset="100%" stop-color="#22d3ee"/></linearGradient>
+    </defs></svg>
+    <div class="hero">
+      <div class="glass stat"><div class="lbl">Observations</div><div class="num">1,284</div><div class="sub"><b>+42</b> this week · 3 pinned</div></div>
+      <div class="glass stat"><div class="lbl">Active sessions</div><div class="num">14</div><div class="sub">across 3 projects</div></div>
+      <div class="glass stat"><div class="lbl">Code index</div><div class="num">22.5k</div><div class="sub">symbols + chunks · 2m old</div></div>
+      <div class="glass stat"><div class="lbl">QA gate</div><div class="num" style="background:linear-gradient(90deg,#6ee7b7,#22d3ee);-webkit-background-clip:text;background-clip:text;color:transparent">PASS</div><div class="sub">17 changes shipped</div></div>
+    </div>
+    <div class="cols">
+      <div class="glass panel">
+        <h2>Memory activity</h2>
+        <div class="hint">observations written · last 14 days</div>
+        <svg class="spark" viewBox="0 0 700 150" preserveAspectRatio="none">
+          <path class="area" d="M0,118 L50,108 L100,112 L150,92 L200,98 L250,72 L300,80 L350,58 L400,66 L450,44 L500,52 L550,30 L600,38 L650,18 L700,26 L700,150 L0,150 Z"/>
+          <path class="line" d="M0,118 L50,108 L100,112 L150,92 L200,98 L250,72 L300,80 L350,58 L400,66 L450,44 L500,52 L550,30 L600,38 L650,18 L700,26"/>
+        </svg>
+      </div>
+      <div class="glass panel events">
+        <h2>Recent events</h2>
+        <div class="hint">live event stream</div>
+        <div class="row"><div class="ev v"><svg viewBox="0 0 24 24" fill="none" stroke="#c4b5fd" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></div><div class="txt">mem_save · Fixed N+1 query in UserList<small>project scope · 14:32</small></div><span class="t">2m</span></div>
+        <div class="row"><div class="ev c"><svg viewBox="0 0 24 24" fill="none" stroke="#67e8f9" stroke-width="2"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><path d="M7 7l4 9M17 7l-4 9"/></svg></div><div class="txt">code_index · re-index 128 files<small>4.2s · warm leg 28ms</small></div><span class="t">5m</span></div>
+        <div class="row"><div class="ev r"><svg viewBox="0 0 24 24" fill="none" stroke="#fda4af" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></div><div class="txt">mem_search · "auth model"<small>6 hits · 12ms</small></div><span class="t">11m</span></div>
+        <div class="row"><div class="ev g"><svg viewBox="0 0 24 24" fill="none" stroke="#6ee7b7" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20 15 15 0 010-20z"/></svg></div><div class="txt">web_cache · context7 /tanstack/query<small>hit · saved to store</small></div><span class="t">15m</span></div>
+        <div class="row"><div class="ev v"><svg viewBox="0 0 24 24" fill="none" stroke="#c4b5fd" stroke-width="2"><path d="M4 19V5a2 2 0 012-2h12a2 2 0 012 2v14l-6-4-6 4z"/></svg></div><div class="txt">ADR-0016 · second-brain capability drafted<small>status: draft</small></div><span class="t">21m</span></div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="glass panel">
+        <h2>Code intelligence</h2>
+        <div class="hint">index health</div>
+        <div class="kv"><span class="k">Symbols indexed</span><span class="v">3,905</span></div>
+        <div class="kv"><span class="k">Chunks embedded (768-dim)</span><span class="v">18,676</span></div>
+        <div class="kv"><span class="k">Model</span><span class="v">nomic-embed-code</span></div>
+        <div class="kv"><span class="k">Last index</span><span class="v">2m ago</span></div>
+        <div class="kv"><span class="k">Stale files</span><span class="v">3</span></div>
+      </div>
+      <div class="glass panel" style="text-align:center">
+        <h2 style="margin-bottom:0">Pipeline health</h2>
+        <div class="ring">
+          <svg width="120" height="120" viewBox="0 0 120 120">
+            <circle class="track" cx="60" cy="60" r="52" fill="none" stroke-width="10"/>
+            <circle class="val" cx="60" cy="60" r="52" fill="none" stroke-width="10" stroke-dasharray="326.7" stroke-dashoffset="24"/>
+          </svg>
+          <div class="mid">93%<small>17 done · 1 active<br/>0 blocked</small></div>
+        </div>
+        <div class="kv" style="justify-content:center;gap:20px"><span class="k">adrs in force</span><span class="v">13/16</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ C -->
+<div id="vC" class="hidden">
+  <aside class="side">
+    <div class="brand"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg></span>skillgrid</div>
+    <nav>
+      <a class="on" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4l8 4-8 4-8-4 8-4z"/><path d="M4 12l8 4 8-4"/><path d="M4 16l8 4 8-4"/></svg>Memory</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>Sessions</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8 7.5l3 8M16 7.5l-3 8"/></svg>Graph</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 11-9-9"/><path d="M21 3v6h-6"/></svg>Pipeline</a>
+      <a href="#" style="margin-top:14px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Settings<span class="cnt">stub</span></a>
+    </nav>
+    <div class="foot"><span class="dot"></span>online · 127.0.0.1:7438</div>
+  </aside>
+  <div class="main">
+    <div class="head">
+      <h1>Overview</h1>
+      <p>Local engine status — memory, code intelligence, and pipeline for this project.</p>
+    </div>
+    <div class="body">
+      <div class="stats">
+        <div class="st"><div class="lbl">Observations</div><div class="num">1,284</div><div class="sub"><b>+42</b> this week</div></div>
+        <div class="st"><div class="lbl">Active sessions</div><div class="num">14</div><div class="sub">3 projects</div></div>
+        <div class="st"><div class="lbl">Indexed symbols</div><div class="num">3,905</div><div class="sub">18,676 chunks</div></div>
+        <div class="st"><div class="lbl">QA gate</div><div class="num" style="color:#a78bfa">PASS</div><div class="sub">17 shipped</div></div>
+      </div>
+
+      <div class="blk">
+        <h2>Memory activity — 14 days</h2>
+        <div class="chart">
+          <svg viewBox="0 0 900 130" preserveAspectRatio="none">
+            <path class="area" d="M0,104 L64,96 L129,100 L194,84 L258,88 L323,64 L388,72 L452,52 L517,58 L581,40 L646,46 L710,28 L775,34 L839,18 L900,24 L900,130 L0,130 Z"/>
+            <path class="line" d="M0,104 L64,96 L129,100 L194,84 L258,88 L323,64 L388,72 L452,52 L517,58 L581,40 L646,46 L710,28 L775,34 L839,18 L900,24"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="blk">
+        <h2>Recent activity</h2>
+        <div class="rows">
+          <div class="row"><span class="t">14:32</span><span class="m">mem_save · Fixed N+1 query in UserList <small>— project</small></span><span class="k">observation</span><span class="st"><span class="dot"></span>stored</span></div>
+          <div class="row"><span class="t">14:29</span><span class="m">code_index · re-indexed 128 files <small>— 4.2s</small></span><span class="k">index</span><span class="st"><span class="dot"></span>fresh</span></div>
+          <div class="row"><span class="t">14:25</span><span class="m">mem_search · "auth model" <small>— 6 hits in 12ms</small></span><span class="k">search</span><span class="st"><span class="dot"></span>ok</span></div>
+          <div class="row"><span class="t">14:21</span><span class="m">web_cache · context7 /tanstack/query <small>— cache hit</small></span><span class="k">web</span><span class="st"><span class="dot"></span>hit</span></div>
+          <div class="row"><span class="t">14:18</span><span class="m">ADR-0016 · second-brain capability <small>— drafted</small></span><span class="k">adr</span><span class="st"><span class="dot v"></span>draft</span></div>
+          <div class="row"><span class="t">14:11</span><span class="m">session s_9f2 ended <small>— summary persisted</small></span><span class="k">session</span><span class="st"><span class="dot"></span>closed</span></div>
+          <div class="row"><span class="t">13:58</span><span class="m">staleness gate armed <small>— ~5s window</small></span><span class="k">watcher</span><span class="st"><span class="dot w"></span>3 stale</span></div>
+        </div>
+      </div>
+
+      <div class="blk">
+        <h2>Engine detail</h2>
+        <div class="meta">
+          <div class="m"><div class="k">Semantic leg (warm)</div><div class="v">28ms</div></div>
+          <div class="m"><div class="k">Embedding model</div><div class="v">nomic-embed-code · 768d</div></div>
+          <div class="m"><div class="k">Last index</div><div class="v">2m ago</div></div>
+          <div class="m"><div class="k">Memory scope</div><div class="v">612 / 390 / 282</div></div>
+          <div class="m"><div class="k">ADRs in force</div><div class="v">13 of 16</div></div>
+          <div class="m"><div class="k">Current phase</div><div class="v">executing</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const names = { vA: 'a · terminal ops', vB: 'b · glass aurora', vC: 'c · linear mono' };
+  function show(id) {
+    for (const k of Object.keys(names)) document.getElementById(k).classList.toggle('hidden', k !== id);
+    document.getElementById('variantTag').textContent = 'variant ' + names[id];
+    document.querySelectorAll('#switcher button').forEach(b => b.classList.toggle('active', b.dataset.v === id));
+  }
+  document.querySelectorAll('#switcher button').forEach(b => b.addEventListener('click', () => show(b.dataset.v)));
+  window.addEventListener('keydown', e => { if (e.key === '1') show('vA'); if (e.key === '2') show('vB'); if (e.key === '3') show('vC'); });
+  show('vA');
+</script>
+</body>
+</html>
