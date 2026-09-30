@@ -59,15 +59,15 @@ export function AppLayout() {
         ref={asideRef}
         id="app-nav"
         className={[
-          'fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-edge bg-card transition-transform',
+          'fixed inset-y-0 left-0 z-30 flex w-[220px] shrink-0 flex-col border-r border-edge-soft bg-surface-2 font-mono transition-transform',
           'lg:static lg:translate-x-0',
           navOpen ? 'translate-x-0' : '-translate-x-full',
         ].join(' ')}
       >
-        <div className="flex h-14 items-center justify-between gap-2 border-b border-edge px-4">
+        <div className="flex h-14 items-center justify-between gap-2 border-b border-edge-soft px-4">
           <span className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-accent" />
-            <span className="text-sm font-semibold tracking-wide text-zinc-100">Skillgrid</span>
+            <span className="text-[13px] font-bold tracking-[0.04em] text-ink">Skillgrid</span>
           </span>
           {/* review B4: visible, labelled close button (mobile only) */}
           <button
@@ -85,10 +85,13 @@ export function AppLayout() {
         <nav className="flex-1 overflow-y-auto p-3">
           <ul className="space-y-0.5 text-sm">
             <li>
+              <div className="px-4 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-6">
+                Observe
+              </div>
               <NavLink to="/tracker" label="Tracker" onNavigate={() => setNavOpen(false)} />
             </li>
             <li className="pt-3">
-              <div className="px-3 pb-1 text-xs font-medium uppercase tracking-widest text-zinc-500">
+              <div className="px-4 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-6">
                 Mnemonic
               </div>
             </li>
@@ -97,17 +100,27 @@ export function AppLayout() {
                 <NavLink to={item.to} label={item.label} nested onNavigate={() => setNavOpen(false)} />
               </li>
             ))}
-            <li className="pt-3" />
-            {STANDALONE_ITEMS.map((item) => (
-              <li key={item.to}>
-                <NavLink to={item.to} label={item.label} onNavigate={() => setNavOpen(false)} />
-              </li>
-            ))}
+            <li className="pt-3">
+              <div className="px-4 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-6">
+                Pipeline
+              </div>
+              {STANDALONE_ITEMS.slice(0, 5).map((item) => (
+                <NavLink key={item.to} to={item.to} label={item.label} onNavigate={() => setNavOpen(false)} />
+              ))}
+            </li>
+            <li className="pt-3">
+              <div className="px-4 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-6">
+                System
+              </div>
+              {STANDALONE_ITEMS.slice(5).map((item) => (
+                <NavLink key={item.to} to={item.to} label={item.label} onNavigate={() => setNavOpen(false)} />
+              ))}
+            </li>
           </ul>
         </nav>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-edge bg-card px-4">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-edge-soft bg-bg px-4">
           <div className="flex items-center gap-2">
             {/* hamburger — mobile only. Review B4: aria-expanded + aria-controls
                 so assistive tech knows whether navigation is open. */}
@@ -115,7 +128,7 @@ export function AppLayout() {
               ref={hamburgerRef}
               type="button"
               onClick={() => setNavOpen((v) => !v)}
-              className="rounded-md p-1.5 text-zinc-400 hover:text-zinc-100 lg:hidden"
+              className="rounded-md p-1.5 text-ink-4 hover:text-ink lg:hidden"
               aria-label="Toggle navigation"
               aria-expanded={navOpen}
               aria-controls="app-nav"
@@ -124,7 +137,11 @@ export function AppLayout() {
                 <path d="M3 6h18M3 12h18M3 18h18" />
               </svg>
             </button>
-            <div className="hidden text-sm text-zinc-500 sm:block">Skillgrid</div>
+            <div className="hidden items-center gap-2 font-mono text-[12px] text-ink-4 sm:flex">
+              <span>~/skillgrid</span>
+              <span className="text-ink-6">/</span>
+              <span className="font-semibold text-ink">dashboard</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <DensityToggle />
@@ -155,7 +172,7 @@ function DensityToggle() {
       // Review B5: expose the toggle state (aria-pressed) — the visible text
       // alone does not announce the on/off semantic to assistive tech.
       aria-pressed={density === 'compact'}
-      className="rounded-md border border-edge px-2 py-1 text-xs text-zinc-400 transition-colors hover:text-zinc-100"
+      className="rounded border border-edge-soft bg-inset px-2 py-1 text-[11px] text-ink-4 transition-colors hover:text-ink"
     >
       {density === 'comfortable' ? 'Comfortable' : 'Compact'}
     </button>
@@ -181,9 +198,9 @@ function NavLink({
       aria-current={active ? 'page' : undefined}
       onClick={onNavigate}
       className={[
-        'block rounded-md px-3 py-1.5 text-zinc-400 transition-colors hover:bg-edge/40 hover:text-zinc-200',
-        nested ? 'pl-6' : '',
-        active ? 'bg-accent/15 text-zinc-100' : '',
+        'block border-l-2 border-transparent px-4 py-1.5 text-[13px] text-ink-4 transition-colors hover:text-ink-2',
+        nested ? 'pl-7' : '',
+        active ? 'border-accent bg-accent/7 text-ink' : '',
       ].join(' ')}
     >
       {label}

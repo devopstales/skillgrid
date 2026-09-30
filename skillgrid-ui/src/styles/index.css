@@ -1,13 +1,60 @@
 @import "tailwindcss";
 
+/* ===================================================================
+   Terminal Ops — design tokens (source of truth: DESIGN.md).
+   A dense monospace console on an OLED slate canvas. One run-green
+   accent carries everything that is live or passing; separation comes
+   from hairline borders + one-step surface elevation (no shadows).
+   The @theme block maps the design system onto the token names the
+   existing components already use (bg/card/edge/accent), so the whole
+   app re-themes from here. Semantic state colors are added below so
+   future work can stop ad-hoc-ing emerald/amber/red.
+   =================================================================== */
 @theme {
-  --color-bg: #06060a;
-  --color-card: #101014;
-  --color-edge: #27272a;
-  --color-accent: #7c3aed;
+  /* surfaces (one-step elevation only) */
+  --color-bg: #0f172a;        /* app canvas (OLED slate) */
+  --color-card: #1b2336;      /* card */
+  --color-edge: #272f42;      /* hairline: card & row borders */
+  --color-edge-soft: #1e293b; /* structural: panel & topbar borders */
+  --color-surface-2: #0d1526; /* sidebar / recessed */
+  --color-inset: #0b1120;     /* inputs, tracks, pill fill */
 
-  --font-sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* brand + status */
+  --color-accent: #22c55e;    /* run-green: active, ok, live, success */
+  --color-accent-ink: #14532d;/* accent-tinted border */
+  --color-ok: #22c55e;
+  --color-warn: #f59e0b;
+  --color-warn-ink: #78350f;
+  --color-danger: #ef4444;
+  --color-danger-ink: #7f1d1d;
+  --color-info: #38bdf8;      /* link / code / user scope */
+  --color-violet: #a78bfa;    /* global scope */
+
+  /* text scale (6 steps) — bg/card/edge aliases above are the only
+     surface tokens; these are the type ramp for the console. */
+  --color-ink: #f8fafc;       /* primary */
+  --color-ink-2: #e2e8f0;     /* secondary / values */
+  --color-ink-3: #cbd5e1;     /* body / list names */
+  --color-ink-4: #94a3b8;     /* muted / labels */
+  --color-ink-5: #64748b;     /* faint / card headers */
+  --color-ink-6: #475569;     /* faintest / timestamps (decorative) */
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+  /* Terminal Ops layout constants. */
+  --topbar-h: 2.75rem;
+  /* Phase 7.4 density tokens — comfortable is the default. Compact reduces
+     padding/gap/font by ~25% so more rows fit (toggled from Settings). */
+  --density-pad: 0.75rem;
+  --density-gap: 1rem;
+  --density-row: 0.625rem;
+  --density-text: 0.875rem;
+  /* Phase 7.4 motion token — a single 150ms ease curve for UI transitions. */
+  --motion-ease: 150ms ease;
 }
 
 :root {
@@ -32,8 +79,8 @@
 
 body {
   background-color: var(--color-bg);
-  color: #e4e4e7;
-  font-family: var(--font-sans);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -65,8 +112,8 @@ body {
    var inline (VectorGraph.tsx); this rule is the fallback if the inline style
    is ever stripped. Keep the canvas transparent so the dark bg shows through. */
 .mnemonic-sigma.react-sigma {
-  --sigma-background-color: #06060a;
-  background-color: #06060a !important;
+  --sigma-background-color: #0f172a;
+  background-color: #0f172a !important;
 }
 .mnemonic-sigma.react-sigma canvas {
   background: transparent;
