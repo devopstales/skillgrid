@@ -17,8 +17,10 @@ Single source for the ADR in-force set. Each row points at the full record in `0
 | 0009 | Vector search: in-SQL sqlite-vec latency corrected; viant deferred; revisit path confirmed | accepted | — | 2026-09-24 | yes | [04-adr-0009](04-adr-0009-vector-search-in-sql-latency-viant-deferred.md) |
 | 0010 | Verification scope discriminator: a zero is never a bare zero (COMPLETE/TRUNCATED/UNSCOPED/UNREADABLE) | accepted | — | 2026-09-24 | yes | [04-adr-0010](04-adr-0010-verification-scope-discriminator.md) |
 | 0011 | Observations are bi-temporal; the save path classifies each write as Add/Update/Delete/Noop | accepted | — | 2026-09-24 | yes | [04-adr-0011](04-adr-0011-observations-are-bitemporal.md) |
+| 0012 | SQLite as the second-brain store; llm-wiki markdown files rejected | accepted | — | 2026-09-30 | yes | [04-adr-0012](04-adr-0012-sqlite-as-second-brain.md) |
+| 0016 | Mnemonic second-brain capability layer: `mem_ask` synthesis, `mem_save.infer`, `mem_lifecycle`, MCP response-shape convention | accepted | — | 2026-09-30 | yes | [04-adr-0016](04-adr-0016-second-brain-capability-layer.md) |
 
-**Highest sequence in use:** 0011 (next ADR is `04-adr-0012-slug.md`).
+**Highest sequence in use:** 0016 (0013/0014/0015 rolled back with the wiki attempt; next ADR is `04-adr-0017-slug.md`).
 
 ## How to update
 

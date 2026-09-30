@@ -27,6 +27,8 @@ Durable project knowledge: what you need to know to work on this project, organi
 ## REFERENCE
 
 - `07-mnemonic-tool-surface.md` — planned function areas for `skillgrid-mnemonic` (memory/observations/decisions, code index/semantic/vector, monitoring/session tracking/tool calls, web cache, session handoff) + session-inject design grounded in 5 reference projects
+- `08-second-brain-roadmap.md` — capability roadmap for making mnemonic *feel* like a second brain (autonomous capture, `mem_ask` synthesis, knowledge lifecycle, passive learning); claude-os reference mapping + P0–P3 change list
+- `09-claude-os-deep-dive.md` — verified deep-dive of the claude-os repo (MCP/SQLite/installer/dashboard/integrations); steal list ranked by "brain feel" per effort; headline: we already beat it on real vec0 + real FTS5
 
 ## What is NOT here
 

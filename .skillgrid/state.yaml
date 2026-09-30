@@ -1,10 +1,10 @@
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: "executing"
-  current_change: "2026-09-29-llmwiki-okf-wiki"
+  current_phase: "planning"
+  current_change: "2026-09-30-mnemonic-second-brain"
   status: in_progress
 progress:
   completed_changes: 17
   blocked_changes: 0
 constraints_ref: .skillgrid/ASSUMPTIONS.md
-  notes: "llmwiki-okf-wiki executing: all 7 tickets implemented + reviewed. Commits bb2510b→c3d43647. Door check PASS (29 files, 0 on recompile, lint exit 0, [[adr-0006]] resolves). QA gate: wiki pkg 138 tests green, go mod tidy no-op. cmd/skillgrid build has pre-existing WIP breakage (memorysearch.go untracked). Next: QA phase, then review/ship. hermes-memory archived 2026-09-30. bitemporal-audn + memory-improvements + session-events-layer pending."
+notes: "2026-09-30: the knowledge-projection (wiki) attempt ROLLED BACK — code (bb2510b→c3d43647) removed, spec moved to archive/, ADR-0014 + ADR-0015 removed. Direction: source knowledge from Mnemonic SQLite (observations + web_cache) for fast/cheap agent retrieval + ingest local .skillgrid/ files into the store; needs a fresh ADR before re-attempt. 2026-09-30: second-brain capability spec (briefing+acceptance+blueprint) WRITTEN in .skillgrid/specs/2026-09-30-mnemonic-second-brain/ — mem_ask (cited floor + fail-open LLM), mem_save.infer, mem_lifecycle (health/dedup/consolidate/archive + lifecycle_log), MCP response-shape convention; 7 TDD tasks, zero new deps. ADR-0016 (second-brain capability layer) DRAFTED + in ADR index. Ready for apply. Pending: bitemporal-audn + memory-improvements + session-events-layer. hermes-memory archived 2026-09-30."
