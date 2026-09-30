@@ -119,9 +119,16 @@ func DefaultFederated() Federated {
 	return Federated{RankWeight: 0.5, ImportanceWeight: 0.5}
 }
 
+// DefaultRetentionDays is the mnemonic.retention_days default (2026-09-24
+// monitoring): session_events rows older than this window are pruned by the
+// retention pass. One-way: 90-day auto-deletion of the audit trail.
+const DefaultRetentionDays = 90
+
 // Hooks is the mnemonic.hooks section (014 step 24): the lifecycle hooks
-// (session-start / pre-edit / prompt-submit / session-stop). OPT-IN: Enabled
-// defaults to false so no hook runs unless an operator enables it. Timeout is
+// (session-start / pre-edit / prompt-submit / session-stop). Enabled DEFAULTS
+// TO TRUE (2026-09-24 monitoring, one-way flip): observe-mode is safe — it
+// writes an audit row per tool call and never blocks — so a config without the
+// section has hooks on. An explicit enabled: false still opts out. Timeout is
 // the per-hook execution budget (default 30s); zero falls back to the memory
 // package default (DefaultHookTimeout) inside SetHooks.
 type Hooks struct {
@@ -175,8 +182,20 @@ type Indexing struct {
 	// memory package default" (10).
 	SnapshotRetention int
 	// Hooks is the mnemonic.hooks section (014 step 24): the lifecycle hooks
-	// opt-in switch + per-hook timeout.
+	// switch (defaults to TRUE — observe-mode, 2026-09-24 monitoring) +
+	// per-hook timeout.
 	Hooks Hooks
+	// RetentionDays is the mnemonic.retention_days key (2026-09-24
+	// monitoring): the audit-trail retention window — session_events rows
+	// older than this are pruned by the retention pass. Zero/negative means
+	// "use DefaultRetentionDays" (90).
+	RetentionDays int
+	// PrivateTools is the mnemonic.private_tools list (2026-09-24
+	// monitoring): the always-private allowlist — tool names whose captured
+	// output is always redacted (content_preview never stored). Empty by
+	// default. The installer mirrors this list into the plugin's
+	// SKILLGRID_MNEMONIC_PRIVATE_TOOLS env var.
+	PrivateTools []string
 }
 
 type indexingFile struct {
@@ -219,8 +238,17 @@ type mnemonicSection struct {
 	// keep after each capture).
 	Snapshot snapshotSection `yaml:"snapshot"`
 	// Hooks is the mnemonic.hooks section (014 step 24): the lifecycle hooks
-	// opt-in switch + per-hook timeout (a Go duration string, e.g. "30s").
+	// switch + per-hook timeout (a Go duration string, e.g. "30s"). Enabled is
+	// a pointer so "absent" (→ default true, observe-mode) is distinguishable
+	// from an explicit false (→ opt-out).
 	Hooks hooksSection `yaml:"hooks"`
+	// RetentionDays is the mnemonic.retention_days key (2026-09-24
+	// monitoring): the audit-trail retention window in days. Non-positive
+	// keeps DefaultRetentionDays (90).
+	RetentionDays int `yaml:"retention_days"`
+	// PrivateTools is the mnemonic.private_tools list (2026-09-24
+	// monitoring): the always-private allowlist of tool names.
+	PrivateTools []string `yaml:"private_tools"`
 }
 
 type retrievalBudgetSection struct {
@@ -444,18 +472,36 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	// Snapshot retention (014 step 20.3): a non-positive value is left zero so
 	// SetSnapshotRetention applies the memory package default (10).
 	out.SnapshotRetention = section.Snapshot.Retention
-	// Hooks (014 step 24): the opt-in switch applies as-is (absent → false =
-	// hooks off). A blank or malformed timeout is left zero so SetHooks
-	// applies the memory package default (30s).
+	// Hooks (014 step 24): Enabled defaults to TRUE when absent (observe-mode
+	// one-way flip, 2026-09-24 monitoring); an explicit value wins. A blank
+	// or malformed timeout is left zero so SetHooks applies the memory
+	// package default (30s).
 	out.Hooks = mergeHooks(section.Hooks)
+	// Retention window (2026-09-24 monitoring): non-positive keeps the 90-day
+	// default so a malformed key never widens the auto-deletion window.
+	if section.RetentionDays <= 0 {
+		out.RetentionDays = DefaultRetentionDays
+	} else {
+		out.RetentionDays = section.RetentionDays
+	}
+	// Always-private allowlist (2026-09-24 monitoring): applied as-is; absent
+	// → empty (no always-redacted tools).
+	if len(section.PrivateTools) > 0 {
+		out.PrivateTools = append([]string(nil), section.PrivateTools...)
+	}
 	return out
 }
 
 // mergeHooks maps the mnemonic.hooks YAML section (014 step 24) to the Hooks
-// struct. Enabled is applied as-is (absent → false, hooks opt-in off). A
-// non-positive parsed timeout is left zero so SetHooks applies its default.
+// struct. Enabled defaults to TRUE when the key is absent (nil pointer —
+// observe-mode one-way flip); an explicit false opts out. A non-positive
+// parsed timeout is left zero so SetHooks applies its default.
 func mergeHooks(section hooksSection) Hooks {
-	out := Hooks{Enabled: section.Enabled}
+	enabled := true
+	if section.Enabled != nil {
+		enabled = *section.Enabled
+	}
+	out := Hooks{Enabled: enabled}
 	if section.Timeout != "" {
 		if d, err := time.ParseDuration(section.Timeout); err == nil && d > 0 {
 			out.Timeout = d
@@ -550,11 +596,12 @@ type snapshotSection struct {
 }
 
 // hooksSection is the mnemonic.hooks section (014 step 24): the lifecycle
-// hooks opt-in switch (Enabled defaults to false) + per-hook timeout (a Go
-// duration string, e.g. "30s"; blank/malformed keeps the memory package
-// default of 30s).
+// hooks switch + per-hook timeout (a Go duration string, e.g. "30s";
+// blank/malformed keeps the memory package default of 30s). Enabled is a
+// pointer: nil means "absent" → default true (observe-mode, 2026-09-24
+// monitoring one-way flip); a non-nil value is the operator's explicit choice.
 type hooksSection struct {
-	Enabled bool   `yaml:"enabled"`
+	Enabled *bool  `yaml:"enabled"`
 	Timeout string `yaml:"timeout"`
 }
 

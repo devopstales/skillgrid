@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/logging"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
 )
 
 const (
@@ -28,10 +29,16 @@ const (
 )
 
 // RunSetup configures Mnemonic for the given agent (opencode, kilocode, cursor).
-func RunSetup(agent, repoRoot string, mcpEntries []MCPServerConfig, dryRun bool) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+// home is the harness home dir the agent config and config.d/indexing.yaml
+// resolve under (os.UserHomeDir when empty) — it is what the installer passes
+// so the private-tools env mirror reads the same config the operator installed.
+func RunSetup(agent, repoRoot string, mcpEntries []MCPServerConfig, home string, dryRun bool) error {
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return err
+		}
 	}
 	if repoRoot == "" {
 		repoRoot = FindRepoRoot("")
@@ -41,7 +48,10 @@ func RunSetup(agent, repoRoot string, mcpEntries []MCPServerConfig, dryRun bool)
 	}
 	switch agent {
 	case "opencode":
-		return SetupOpenCode(home, repoRoot, mcpEntries, dryRun)
+		// Mirror the config always-private allowlist into the plugin env
+		// (2026-09-24 monitoring). Config load is best-effort here: a missing
+		// or malformed indexing.yaml just means no env var (no allowlist).
+		return SetupOpenCode(home, repoRoot, mcpEntries, config.Load(home).PrivateTools, dryRun)
 	case "kilocode", "kilo":
 		return SetupKiloCode(home, repoRoot, mcpEntries, dryRun)
 	case "cursor":

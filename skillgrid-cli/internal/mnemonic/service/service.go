@@ -387,10 +387,11 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 	// retention.
 	mem.SetSnapshotRetention(cfg.SnapshotRetention)
 	// Lifecycle hooks (014 step 24): route the mnemonic.hooks config key to the
-	// memory service. OPT-IN — Enabled defaults to false, so a config without
-	// the section keeps hooks off (RunHook returns HooksDisabledError). A
-	// non-positive Timeout falls back to the memory package default (30s)
-	// inside SetHooks.
+	// memory service. Enabled DEFAULTS TO TRUE (2026-09-24 monitoring, one-way
+	// flip): observe-mode is safe (writes rows, never blocks), so a config
+	// without the section has hooks on; an explicit enabled: false still opts
+	// out (RunHook returns HooksDisabledError). A non-positive Timeout falls
+	// back to the memory package default (30s) inside SetHooks.
 	mem.SetHooks(memory.HooksConfig{
 		Enabled: cfg.Hooks.Enabled,
 		Timeout: cfg.Hooks.Timeout,

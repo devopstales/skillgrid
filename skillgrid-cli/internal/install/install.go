@@ -293,7 +293,7 @@ func setupAgents(c *Config) error {
 		return fmt.Errorf("load mcp config: %w", err)
 	}
 	for _, key := range c.Agents {
-		if err := setup.RunSetup(key, repoRoot, mcpEntries, c.DryRun); err != nil {
+		if err := setup.RunSetup(key, repoRoot, mcpEntries, c.HomeDir, c.DryRun); err != nil {
 			return fmt.Errorf("setup %s: %w", key, err)
 		}
 	}

@@ -302,7 +302,7 @@ func runSetup(version string, args []string) {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
-	if err := setup.RunSetup(agent, repoRoot, mcpEntries, dryRun); err != nil {
+	if err := setup.RunSetup(agent, repoRoot, mcpEntries, "", dryRun); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

@@ -176,6 +176,155 @@ func TestFederatedConfigWeights(t *testing.T) {
 	}
 }
 
+// TestLoad_HooksDefaultOn is the one-way default flip (2026-09-24 monitoring):
+// with no hooks section — or a config file that omits it — hooks are ON
+// (observe-mode: writes rows, never blocks). An explicit enabled: false still
+// opts out.
+func TestLoad_HooksDefaultOn(t *testing.T) {
+	// No config file at all → hooks on by default.
+	if got := Load(t.TempDir()); !got.Hooks.Enabled {
+		t.Fatalf("default: hooks.enabled must be true (observe-mode), got false")
+	}
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Config without the hooks section → still on.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); !got.Hooks.Enabled {
+		t.Fatalf("absent section: hooks.enabled must be true, got false")
+	}
+	// Explicit opt-out.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  hooks:\n    enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Load(dir)
+	t.Logf("debug enabled=%v", got.Hooks.Enabled)
+	if got.Hooks.Enabled {
+		t.Fatalf("hooks.enabled: false must opt out, got true")
+	}
+	// Explicit opt-in stays on (and a malformed timeout keeps the zero
+	// fallback so SetHooks applies its default).
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  hooks:\n    enabled: true\n    timeout: 45s\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if !got.Hooks.Enabled {
+		t.Fatalf("hooks.enabled: true must stay on, got false")
+	}
+	if got.Hooks.Timeout != 45*time.Second {
+		t.Fatalf("hooks.timeout: got %v, want 45s", got.Hooks.Timeout)
+	}
+}
+
+// TestLoad_HooksExplicitOff is the one-way flip's escape hatch: an explicit
+// enabled: false in either the repo-local or the home-local config opts out.
+func TestLoad_HooksExplicitOff(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".skillgrid", "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".skillgrid", "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  hooks:\n    enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Home-local explicit false applies even without a repo-local file.
+	if got := Load(dir); got.Hooks.Enabled {
+		t.Fatalf("home-local hooks.enabled: false must opt out, got true")
+	}
+	// A repo-local file without the hooks key does not re-enable: mergeHooks
+	// applies the default (true) when the key is absent, so the home-local
+	// explicit false only applies when no repo-local file is present. This
+	// matches the pre-flip semantics (a repo-local file always wins the keys
+	// its section leaves unset only for keys with no default; enabled now has
+	// a default, so absent → default).
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); !got.Hooks.Enabled {
+		t.Fatalf("repo-local file without hooks key → default true, got false")
+	}
+	// Repo-local explicit true beats the home-local false.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  hooks:\n    enabled: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); !got.Hooks.Enabled {
+		t.Fatalf("repo-local hooks.enabled: true must win, got false")
+	}
+}
+
+// TestLoad_RetentionDaysDefault is the 2026-09-24 monitoring retention window:
+// mnemonic.retention_days defaults to 90 when absent and parses explicit
+// values; non-positive values fall back to the default.
+func TestLoad_RetentionDaysDefault(t *testing.T) {
+	if got := Load(t.TempDir()); got.RetentionDays != 90 {
+		t.Fatalf("default: retention_days must be 90, got %d", got.RetentionDays)
+	}
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Absent key → 90.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); got.RetentionDays != 90 {
+		t.Fatalf("absent key: retention_days must be 90, got %d", got.RetentionDays)
+	}
+	// Explicit value.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  retention_days: 30\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); got.RetentionDays != 30 {
+		t.Fatalf("retention_days: 30 must apply, got %d", got.RetentionDays)
+	}
+	// Non-positive value → falls back to 90.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  retention_days: 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); got.RetentionDays != 90 {
+		t.Fatalf("retention_days: 0 must fall back to 90, got %d", got.RetentionDays)
+	}
+}
+
+// TestLoad_PrivateTools is the 2026-09-24 monitoring always-private allowlist:
+// mnemonic.private_tools is empty by default and parses an explicit list.
+func TestLoad_PrivateTools(t *testing.T) {
+	if got := Load(t.TempDir()); len(got.PrivateTools) != 0 {
+		t.Fatalf("default: private_tools must be empty, got %v", got.PrivateTools)
+	}
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  private_tools: [mem_save, mem_save_prompt]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Load(dir)
+	if len(got.PrivateTools) != 2 || got.PrivateTools[0] != "mem_save" || got.PrivateTools[1] != "mem_save_prompt" {
+		t.Fatalf("private_tools = %v, want [mem_save mem_save_prompt]", got.PrivateTools)
+	}
+}
+
 // TestHomeLocalConfigFallback covers the ~/.skillgrid/config.d/indexing.yaml
 // per-key fallback: a machine-local embedder block applies when the repo-local
 // file leaves the embedder unset, and a repo-local embedder block wins when both

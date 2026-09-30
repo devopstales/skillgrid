@@ -2,14 +2,22 @@ package setup
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/tidwall/sjson"
+
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/logging"
 )
 
 // SetupOpenCode registers Mnemonic for OpenCode: the MCP servers from
 // mcp.yaml plus the mnemonic.ts plugin. Harness config (TUI logo/theme,
 // plugin-path append) is owned by internal/install (installAgentConfig), not
-// the memory component.
-func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun bool) error {
+// the memory component. privateTools mirrors the config always-private
+// allowlist into the harness env map (SKILLGRID_MNEMONIC_PRIVATE_TOOLS) so the
+// plugin strips the same tools the Go config redacts.
+func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateTools []string, dryRun bool) error {
 	if repoRoot == "" {
 		return fmt.Errorf("repo root not found (run from skillgrid checkout or sync repo)")
 	}
@@ -27,6 +35,9 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun b
 			return err
 		}
 	}
+	if err := upsertPrivateToolsEnv(cfgPath, privateTools, dryRun); err != nil {
+		return err
+	}
 	if err := upsertPluginKey(cfgPath, "opencode-command-hooks", dryRun); err != nil {
 		return err
 	}
@@ -37,4 +48,27 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun b
 		return err
 	}
 	return copyFromRepo(repoRoot, kiloPluginRel, sharedDst, dryRun)
+}
+
+// upsertPrivateToolsEnv writes SKILLGRID_MNEMONIC_PRIVATE_TOOLS (comma-joined)
+// into the opencode JSONC env map when the config allowlist is non-empty,
+// keeping the Go config and the plugin env in sync. An empty allowlist leaves
+// the config untouched (no env key is created).
+func upsertPrivateToolsEnv(cfgPath string, privateTools []string, dryRun bool) error {
+	if len(privateTools) == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read config %s: %w", cfgPath, err)
+	}
+	updated, err := sjson.SetBytes(data, "env.SKILLGRID_MNEMONIC_PRIVATE_TOOLS", strings.Join(privateTools, ","))
+	if err != nil {
+		return fmt.Errorf("set env.SKILLGRID_MNEMONIC_PRIVATE_TOOLS: %w", err)
+	}
+	if dryRun {
+		logging.Info("[dry-run] set env.SKILLGRID_MNEMONIC_PRIVATE_TOOLS in " + cfgPath)
+		return nil
+	}
+	return os.WriteFile(cfgPath, updated, 0o644)
 }
