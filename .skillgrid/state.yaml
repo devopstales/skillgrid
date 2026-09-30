@@ -1,10 +1,10 @@
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: "slicing"
+  current_phase: "executing"
   current_change: "2026-09-29-llmwiki-okf-wiki"
   status: in_progress
 progress:
   completed_changes: 17
   blocked_changes: 0
 constraints_ref: .skillgrid/ASSUMPTIONS.md
-notes: "llmwiki-okf-wiki sliced: 7 tickets in 5 waves, High risk (~1100 lines), single-pr (size:exception requested), 3 work units. Door check at TICKET-06 (run thinnest slice on real repo, verify Obsidian link resolution before expanding adapters). hermes-memory + bitemporal-audn + memory-improvements + session-events-layer pending."
+  notes: "llmwiki-okf-wiki executing: all 7 tickets implemented + reviewed. Commits bb2510b→c3d43647. Door check PASS (29 files, 0 on recompile, lint exit 0, [[adr-0006]] resolves). QA gate: wiki pkg 138 tests green, go mod tidy no-op. cmd/skillgrid build has pre-existing WIP breakage (memorysearch.go untracked). Next: QA phase, then review/ship. hermes-memory archived 2026-09-30. bitemporal-audn + memory-improvements + session-events-layer pending."

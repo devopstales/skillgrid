@@ -1,10 +1,10 @@
 ---
 id: TASK-004
 title: '[FEATURE] SDD acceptance spec for 004-hermes-memory (mnemonic)'
-status: ready-for-agent
+status: done
 assignee: []
 created_date: '2026-09-04'
-updated_date: '2026-09-21 07:13'
+updated_date: '2026-09-30 07:30'
 labels: []
 dependencies:
   - TASK-001
@@ -22,24 +22,32 @@ type: feature
 
 ## Description
 
-Track the SDD **acceptance.feature** specs for change **004-hermes-memory** (Hermes Fact Memory & Agent Skills, steps 01–05). Tasks punch-lists exist; implementation waits on human choice between `sdd-apply` and `sdd-propose`.
+<!-- SECTION:DESCRIPTION:BEGIN -->
+Track the SDD **acceptance.feature** specs for change **004-hermes-memory** (Hermes Fact Memory & Agent Skills, **revised 4 steps**). Implementation waits on session-events-layer shipping + human choice between `sdd-apply` and `sdd-propose`.
 
 **Current State:**
-- Plan tracked by TASK-001; step folders and `tasks.md` exist under `.skillgrid/specs/2026-09-04-hermes-memory/`
-- Per-step `acceptance.feature` written (spec phase); no production Fact Memory / Agent Skill code yet
+- Plan tracked by TASK-001 (revised 2026-09-29); `tasks.md` + `acceptance.feature` updated
+- Per-step `acceptance.feature` rewritten for 4 steps (was 5); no production Fact Memory / Agent Skill code yet
+- Blocker: session-events-layer must ship (QA → ship → archive) before implementation starts
 
 **Expected State:**
-- Steps 01–05 task checkboxes completed during `sdd-apply` against these acceptance scenarios
-- Threat RED scenarios covered: path escape / unknown language (04); Mnemonic tool surface (02, 03, 04)
+- Steps 01-04 task checkboxes completed during `sdd-apply` against these acceptance scenarios
+- Threat RED scenarios covered: path escape / unknown language (03); Mnemonic tool surface (02, 03); session_events integrity (02, 03)
 - `go test ./...` passes for touched packages
 
-## Acceptance Criteria
+**Key revisions from original:**
+- 5→4 steps (sandbox merged into step 03)
+- "Retrieval Trail" → "session_events" in all scenarios
+- "fails closed" → "degrades gracefully" for vec0 absent
+- Hybrid search moved to step 04 (was step 04, now still step 04 but with CLI)
+<!-- SECTION:DESCRIPTION:END -->
 
+## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Acceptance features exist for steps 01–05 (filesystem + Engram `sdd/004-hermes-memory/spec`)
-- [ ] #2 Each step has @happy / @edge / @failure; threat-matrix scenarios in 02, 03, 04
-- [ ] #3 Apply marks tasks `[x]` in dependency order (01 → 02|03 → 04 → 05)
-- [ ] #4 Soft-after 003 `010_*`; `go test ./...` passes for touched packages
+- [ ] #1 Acceptance features exist for steps 01-04 (filesystem + Engram sdd/004-hermes-memory/spec)
+- [ ] #2 Each step has @happy / @edge / @failure; threat-matrix scenarios in 02, 03
+- [ ] #3 Apply marks tasks [x] in dependency order (01 → 02|03 → 04)
+- [ ] #4 Depends on session-events (040) + vector-db (042); go test ./... passes for touched packages
 <!-- AC:END -->
 
 ## Definition of Done
@@ -57,10 +65,10 @@ Track the SDD **acceptance.feature** specs for change **004-hermes-memory** (Her
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
-1. Gate on TASK-001 plan readiness and human Implement vs Revise decision.
-2. On Implement: run `sdd-apply` against step acceptance features in order 01 → 02|03 → 04 → 05.
-3. Keep per-step `acceptance.feature` and Engram `sdd/004-hermes-memory/spec` aligned as scenarios pass.
-4. Prioritize threat RED: path escape / unknown language (04); Mnemonic tool surface (02, 03, 04).
+1. Gate on session-events-layer shipping (QA → ship → archive) and TASK-001 plan readiness.
+2. On Implement: run sdd-apply against step acceptance features in order 01 → 02|03 → 04.
+3. Keep per-step acceptance.feature and Engram sdd/004-hermes-memory/spec aligned as scenarios pass.
+4. Prioritize threat RED: path escape / unknown language (03); Mnemonic tool surface (02, 03); session_events integrity (02, 03).
 5. Close when all AC scenarios + change DoD are green; archive with TASK-001.
 <!-- SECTION:PLAN:END -->
 
@@ -70,6 +78,11 @@ Track the SDD **acceptance.feature** specs for change **004-hermes-memory** (Her
 created: 2026-09-21 07:13
 ---
 2026-09-21: spec flagged STALLED (see .skillgrid/specs/2026-09-04-hermes-memory/tasks.md). Kept open for a future resume; not archived.
+---
+
+created: 2026-09-29 11:21
+---
+2026-09-29: Acceptance.feature rewritten for 4-step structure (was 5). Blocker confirmed: session-events-layer must ship first. All scenario names updated to match revised tasks.md.
 ---
 <!-- COMMENTS:END -->
 
