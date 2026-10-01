@@ -533,3 +533,4 @@ verdict. The change is ready to route to review.
 - Ship commit `32461bb8` (archive move + state) · fix `49ec4ce5` · re-verify `744b4ccf` · integration range `0c116740..744b4ccf` on `release/2`.
 - Review session `ses_f0df70985ffenkuM534qKl0B0b` (spec-conformance, 2 IMPORTANT + 8 minor/low).
 - Mnemonic observations: **not available at close** — `mem_search`/`mem_get_observation` returned no rows for `skillgrid/2026-09-21-session-events-layer/*` (store FTS returned 0 for all queries); git history + in-repo artifacts are the lineage record. The ship context was recovered from `.skillgrid/state.yaml` notes (base branch, range, deferred debt).
+- Ship close (this session): observation **69** — `skillgrid/2026-09-21-session-events-layer/ship` (base branch `release/2`, integration range, rollback plan, gate results); reflect observation `skillgrid/2026-09-21-session-events-layer/report` persisted by this pass.
