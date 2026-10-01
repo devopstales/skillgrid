@@ -252,6 +252,68 @@ func TestSupersededExcludedFromSearch(t *testing.T) {
 	}
 }
 
+// TestMarkSupersededChain covers the AUDN "delete arm" (ADR-0011): marking an
+// observation as superseded stamps invalid_at, superseded_by, and
+// status='superseded' on the old row, and records a `supersedes` edge
+// (src=old, dst=new) in memory_relations so the chain is walkable.
+func TestMarkSupersededChain(t *testing.T) {
+	fx := newBitempFixture(t, "bitemp-supersede")
+	ctx := context.Background()
+
+	idA, err := fx.svc.Save(ctx, SaveInput{
+		SessionID: fx.sessionID,
+		Type:      "learning",
+		Title:     "ChainAlpha",
+		Content:   "chainfact old fact",
+		Owner:     fx.owner,
+	})
+	if err != nil {
+		t.Fatalf("save A: %v", err)
+	}
+	idB, err := fx.svc.Save(ctx, SaveInput{
+		SessionID: fx.sessionID,
+		Type:      "learning",
+		Title:     "ChainBravo",
+		Content:   "chainfact current fact",
+		Owner:     fx.owner,
+	})
+	if err != nil {
+		t.Fatalf("save B: %v", err)
+	}
+
+	if err := fx.svc.MarkSuperseded(ctx, idA, idB); err != nil {
+		t.Fatalf("mark_superseded: %v", err)
+	}
+
+	obs, err := fx.svc.Get(ctx, idA)
+	if err != nil {
+		t.Fatalf("get A: %v", err)
+	}
+	if obs.InvalidAt == "" {
+		t.Errorf("invalid_at = %q, want set (superseded)", obs.InvalidAt)
+	}
+	if !obs.SupersededBy.Valid || obs.SupersededBy.Int64 != idB {
+		t.Errorf("superseded_by = %v, want %d", obs.SupersededBy, idB)
+	}
+	if obs.Status != StatusSuperseded {
+		t.Errorf("status = %q, want %q", obs.Status, StatusSuperseded)
+	}
+
+	// The supersedes edge must exist: src=A, dst=B.
+	var count int
+	err = fx.st.DB.QueryRow(`
+		SELECT COUNT(*) FROM memory_relations
+		WHERE src_obs_id = ? AND dst_obs_id = ? AND relation = 'supersedes' AND deleted_at IS NULL`,
+		idA, idB,
+	).Scan(&count)
+	if err != nil {
+		t.Fatalf("query supersedes edge: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("supersedes edge count = %d, want exactly 1", count)
+	}
+}
+
 func mustObs(t *testing.T, obs []Observation, err error) []Observation {
 	t.Helper()
 	if err != nil {
