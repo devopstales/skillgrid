@@ -110,6 +110,12 @@ const prototypesRoute = createRoute({
   component: lazyPage(() => import('./features/prototypes/PrototypesPage').then((m) => ({ default: m.PrototypesPage }))),
 })
 
+const swaggerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/swagger-ui',
+  component: lazyPage(() => import('./features/swagger/SwaggerPage').then((m) => ({ default: m.SwaggerPage }))),
+})
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
@@ -136,6 +142,7 @@ const routeTree = rootRoute.addChildren([
   adrRoute,
   gitRoute,
   prototypesRoute,
+  swaggerRoute,
   settingsRoute,
   notFoundRoute,
 ])

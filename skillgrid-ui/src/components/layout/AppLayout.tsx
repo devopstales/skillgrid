@@ -41,7 +41,7 @@ const NAV_GROUPS: Array<{ title: string; items: NavItem[] }> = [
       { to: '/git', label: 'Git' },
       { to: '/prototypes', label: 'Prototypes' },
       { to: '/settings', label: 'Settings' },
-      { to: '/swagger-ui', label: 'Swagger', href: '/swagger/' },
+      { to: '/swagger-ui', label: 'Swagger' },
     ],
   },
 ]
