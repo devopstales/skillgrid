@@ -480,12 +480,56 @@ verdict. The change is ready to route to review.
 
 ## Final-State Facts
 
-> (Completed by `skillgrid:reflect` at archive time — left empty for the retro half.)
+- **What shipped:** the session→events layer replaced `checkpoint.json` + the Handoff Hub. One `sessions` table (extended with `from_commit`/`to_commit` + 6 counters) + an append-only `session_events` stream ordered by `(session_id, sequence)`; capture via the existing `RunHook` seam; `SessionChanges(sid)` derives "what changed" on demand (`ORDER BY sequence` + `git diff --stat from..to`). The old layer is gone: `internal/mnemonic/handoff/`, `relay/`, `http/handoff.go`, 9 MCP tools, `checkpoint-state.sh snapshot|restore`, the hub UI panes, and migrations 039/019 tables (dropped by 041).
+- **Base branch:** `release/2` · **Chain strategy:** integrated directly to `release/2` (the work-unit table named `release/2` as PR 1's base; the change landed as a range, not chained PRs).
+- **Integration commit range:** `0c116740..744b4ccf` on `release/2` (per ship, recorded in `.skillgrid/state.yaml` notes). Fix commit `49ec4ce5` (code-review findings) is inside the range; re-verification commit `744b4ccf` is the range head.
+- **Migrations:** `040_session_events.sql` (additive, shipped) + `041_drop_handoff_tables.sql` (drops 039/019, shipped).
+- **QA gate:** PASS — 12/12 truths VERIFIED, 21/21 scenarios covered by a passing test, 0 CRITICAL, P0/P1 at 100 (report.md `## Gate Decision`).
+- **Review gate:** post-QA two-axis spec-conformance review (`.skillgrid/sdd/tasks/review-session-events.diff`) found **2 IMPORTANT + 8 minor/low**, 0 CRITICAL; the user directed "fix important + trivial minors." Fixed in `49ec4ce5`; re-verification PASS, no CRITICAL introduced.
+- **One-way doors executed (each carried a human checkpoint in tasks.md):** 9 MCP tool removals (TICKET-06), 5-table drop migration 041 (TICKET-10), and the `checkpoint-state.sh snapshot|restore` removal (TICKET-07). All cleared.
+- **Rollback plan (branch kept, not merged to main):** `git revert 0c116740..744b4ccf` on `release/2`; the branch never left the repo, so it is itself the rollback boundary.
+- **Folder:** moved `.skillgrid/specs/` → `.skillgrid/archive/` by ship (`32461bb8`), `diff -r` readback empty.
 
 ## Retro
 
-> (Completed by `skillgrid:reflect`.)
+**Decisions**
+- **Git is the durable record; the DB is the index** (gryph model). The event stream answers "what changed in session N" without re-deriving per-change handles; `from_commit`/`to_commit` + `git diff` recover the net change on demand. Rationale: two overlapping derived resume mechanisms (`checkpoint.json` Model B + Handoff Hub) both drifted from the `sessions` table. Source: `briefing.md` Goal/Intent; `blueprint.md` Architecture.
+- **Fused the tracer thread into one ticket (TICKET-01 = blueprint Tasks 1+2).** The migration alone is not demoable; schema→write→read is the door check. Splitting would have stranded an invisible schema ticket. Source: `tasks.md` Slicing Notes.
+- **Split the deletion wave by seam** (TICKET-05 Go/CLI, -06 MCP, -07 relay/HTTP/bash, -07b UI) so a reviewer can reject one surface's removal without blocking the others, and each ticket stays in one context window. Source: `tasks.md` Slicing Notes + Dependency Graph.
+- **Sequence max+1 and the counter bump in ONE transaction** (`nextSequence` inside the writer txn) — the parallel-subagent safety invariant. Driven to proof by `TestPostToolUseConcurrentAppendsUniqueSequences` (24 parallel `RunHook` → gap-free sequences 0..24). Source: `blueprint.md` Key links; report `## Goal-Backward Verification` row "Key Link".
 
-## Key Learnings
+**Lessons**
+- **Scope write-back to the exact event row, not "the latest."** The code review's two IMPORTANT findings were both `MAX(sequence)`/`DESC LIMIT 1` read-backs that crossed over under concurrency: `RecordCommitEvent`'s payload UPDATE and post-commit read, and `SessionSummary`'s `to_commit` stamp (which also had a cross-project-bucket side effect). Fix `49ec4ce5` scopes both to `WHERE session_id=? AND sequence=?` (and project-scopes the summary stamp). Root cause: the old single-writer hub assumed one commit at a time; the events layer is multi-writer by design. Source: report `## Re-verification` "Fixed in 49ec4ce5."
+- **A "flaky" test that fails only under `-race` is a data race, not a flake.** `TestTrackerFlake` (runCLI) was reliably 3/3 FAIL under `-race`, 15/15 pass without — the `timedOut` bool was written in a `time.AfterFunc` goroutine and read unsynchronized. Fixed with `sync/atomic.Bool`. Don't paper over a race-condition test with a retry. Source: report `## Gate Decision` "Cleared this run" W-TRACKER-FLAKE.
+- **Close out the terminal phase in the same change, not a later one.** This archive's retro half was left empty at ship time (reflect did not run); the close-out is being completed now from ship context in `.skillgrid/state.yaml` + git history. The lineage endpoint is incomplete if the session never closes. Source: this retro; `reflect/SKILL.md` "You own session close."
 
-> (Completed by `skillgrid:reflect`.)
+**Patterns**
+- **`appendSessionEvent` returns the inserted `sequence`** so callers scope their follow-up UPDATE by `(session_id, sequence)` — the reusable shape for any post-insert row reference in a concurrent writer. Source: `49ec4ce5` `RecordCommitEvent`.
+- **The `[skillgrid-context]` commit block is now the resume record** — work-unit-commits still write it; the `commit` event parses Task/Decisions/Remaining/Tried into the payload (the old Hub `context_json`, now session-scoped). Block-less commits still yield a row with NULL payload, no error. Source: `blueprint.md` Key links; report Truth row "commit event."
+- **Deletion tasks are their own tests** — the `rg`/registry assertions (9 tool names absent + `session_changes` present; `skillgrid handoff` → unknown-subcommand; five table names + `cleave` absent in Go sources) are the green. Source: `tasks.md` TICKET-05/06/07 acceptance.
+
+**Surprises**
+- **Migration 040's `ALTER TABLE ADD COLUMN` is one-way** (SQLite has no clean downgrade); the schema test sidesteps it by migrating a fresh temp DB rather than downgrading. Source: `tasks.md` TICKET-01 Reversibility.
+- **The old hub UI history is reconstructable from `git log` but the index is gone** — the 041 drop erases `change_snapshots`/`checkpoints`/`handoff_refs`/`session_handoffs`/`session_archives`; the events layer is the new index and git remains the durable record. Source: `briefing.md` §Data model 041; `blueprint.md` One-way-door decisions.
+- **`TestSessionChangesIgnoresStaleCheckpoint`** — a stale `checkpoint.json` carrying the pre-session commit is ignored; `SessionChanges` returns the event-derived range even when a legacy checkpoint file is present. This is the cutover backstop (a leftover Model B file must not skew the new read path). Source: report `## Gate Decision` "Cleared this run" W-G2.
+
+**Acceptance verdict: `accepted`** — the briefing goal (replace `checkpoint.json` + Handoff Hub with a single session→events layer; session's changes are its ordered events; git is the durable record, DB is the index) is met: all 12 truths VERIFIED, 21/21 scenarios COMPLIANT, all three one-way doors cleared, old surfaces verified absent. Open items are deferred hardening (named below), not goal-unmet.
+
+**Open items (→ next change):**
+- 1 medium: `toolcalls` `RunHook` project-scoping (report `## Re-verification` "Deferred").
+- 3 low security hardening: sensitive-payload disclosure on read; git-ref validation for `--show-diff`; non-sensitive preview size cap (report "Deferred").
+- 1 minor: deleted `mem handoff` CLI test; 1 minor: `session.go` arg-parsing defensive branch (report "Deferred").
+- **Cursor command hooks** (`.cursor/hooks.json` + `hooks/mnemonic-hook.sh`) — deferred to a follow-up change per `blueprint.md` Self-Review (the `plugins/` rule files exist; the command-hook pair is not wired).
+- **Live end-to-end adapter firing** — the opencode/Kilo `mnemonic.ts` capture adapters are committed but not exercised in a real IDE (no IDE harness in `testing.layers`); consider a smoke harness in a follow-up.
+- **W-TDD** (advisory): 6 tickets landed as combined commits (no separate RED commits) under Standard mode (`testing.tdd: false`); re-run RED-first per `_shared/references/strict-tdd.md` if strict-TDD provenance is wanted. Does not change the PASS verdict.
+
+**Prior-change follow-through:**
+- The 2 HIGH Trivy CVEs (golang.org/x/text, lodash-es) flagged in this change's QA Security Audit were **fixed, not waived** (`x/text` → 0.39.0, `lodash-es` → 4.18.0); re-scan → 0 HIGH/CRITICAL on both packages (report `## Human Override`).
+- No prior-change open items were carried in as blockers; the two verification gaps (G1 concurrent, G2 stale-file) that had forced a prior CONCERNS state were closed by added tests this run, not waived (report `## Gate Decision`).
+
+**Move evidence:** ship `32461bb8` — `git mv` of the 5-folder spec dir to `.skillgrid/archive/` + `state.yaml` update; `diff -r` readback empty (source path confirmed gone). This reflect completes the retro half in place after the move (the documented post-move completion, per `ship` Step 7).
+
+**Lineage (git + session evidence):**
+- Ship commit `32461bb8` (archive move + state) · fix `49ec4ce5` · re-verify `744b4ccf` · integration range `0c116740..744b4ccf` on `release/2`.
+- Review session `ses_f0df70985ffenkuM534qKl0B0b` (spec-conformance, 2 IMPORTANT + 8 minor/low).
+- Mnemonic observations: **not available at close** — `mem_search`/`mem_get_observation` returned no rows for `skillgrid/2026-09-21-session-events-layer/*` (store FTS returned 0 for all queries); git history + in-repo artifacts are the lineage record. The ship context was recovered from `.skillgrid/state.yaml` notes (base branch, range, deferred debt).
