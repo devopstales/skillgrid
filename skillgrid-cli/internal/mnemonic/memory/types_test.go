@@ -186,6 +186,8 @@ func (d *dedupLLM) candidateID() int { return 1 }
 // flagged and is stored. When the LLM is unavailable, hash-based (exact
 // normalized content) dedup is the fallback: an exact duplicate is caught, a
 // reworded one is not.
+// Note: this test exercises the Classify path via the fake's binary bridge
+// (duplicate=true → VerdictDelete), not the legacy Dedup seam directly.
 func TestLLMDedupDetectsSemanticDuplicates(t *testing.T) {
 	ctx := context.Background()
 

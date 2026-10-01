@@ -526,12 +526,20 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	// content into the target (bump duplicate_count, return that id, no new
 	// row). An update verdict notes the target but proceeds with a normal save
 	// (real routing is TICKET-04). add / noop / zero proceed with a normal save.
-	if d := s.runDedupCheck(ctx, in.Content); d.CandidateID > 0 {
+	if d := s.runDedupCheck(ctx, in.Content); d.Verdict != "" {
 		switch d.Verdict {
 		case VerdictDelete:
-			s.BumpDuplicate(ctx, d.CandidateID)
-			return d.CandidateID, nil
+			// A delete verdict supersedes a specific existing observation;
+			// with no candidate there is nothing to supersede, so fall
+			// through to a normal save.
+			if d.CandidateID > 0 {
+				s.BumpDuplicate(ctx, d.CandidateID)
+				return d.CandidateID, nil
+			}
 		case VerdictUpdate:
+			// Always fires, even with CandidateID=0: an update verdict is a
+			// signal the LLM thinks this refines something, which makes the
+			// TICKET-04 bridge visible in the log.
 			fmt.Fprintf(logWriter(),
 				"mnemonic: dedup update verdict for candidate %d (TICKET-03; routing in TICKET-04)\n",
 				d.CandidateID)
