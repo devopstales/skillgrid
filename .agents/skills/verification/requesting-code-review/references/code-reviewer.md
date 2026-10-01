@@ -1,11 +1,13 @@
 # Standards Reviewer Prompt Template
 
-Use this template for the **Standards axis** of a two-axis review (dispatched
-in parallel with the Spec reviewer at [spec-reviewer.md](spec-reviewer.md)).
+Use this template for the **Standards axis** of a three-axis review (dispatched
+in parallel with the Spec reviewer at [spec-reviewer.md](spec-reviewer.md) and
+the Security reviewer at [security-reviewer.md](security-reviewer.md)).
 
 **Purpose:** Check whether the code follows this repo's documented standards —
 terms-file vocabulary, in-force ADRs, and the smell baseline below. It does NOT
-judge whether the code implements the spec (the Spec reviewer owns that).
+judge whether the code implements the spec (the Spec reviewer owns that) or
+whether the code is exploitable (the Security reviewer owns that).
 
 ```
 Subagent (general-purpose):
@@ -72,8 +74,13 @@ Subagent (general-purpose):
     **Architecture:**
     - Sound design decisions?
     - Reasonable scalability and performance?
-    - Security concerns?
     - Integrates cleanly with surrounding code?
+
+    (Security is NOT your axis — the Security reviewer at
+    [security-reviewer.md](security-reviewer.md) owns exploitable-vulnerability
+    findings using OWASP Top 10:2025 + ASVS 5.0 + LLM/Agentic 2026. Do not
+    re-report a vulnerability; note only a security-relevant design decision if
+    it is also a standards concern, e.g. "centralized authz" vs "per-route".)
 
     **Testing:**
     - Tests verify real behavior, not mocks?
@@ -177,6 +184,7 @@ Subagent (general-purpose):
 
     **DON'T:**
     - Judge whether the code implements the spec (that's the Spec reviewer)
+    - Report exploitable vulnerabilities (that's the Security reviewer)
     - Flag anything tooling (lint) already enforces
     - Let a documented standard lose to the smell baseline
     - Say "looks good" without checking

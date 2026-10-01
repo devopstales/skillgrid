@@ -31,3 +31,8 @@ servers:
     command:
       - trivy
       - mcp
+  codescene:
+    type: local
+    command:
+      - npx
+      - "@codescene/codehealth-mcp"

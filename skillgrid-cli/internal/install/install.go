@@ -24,7 +24,8 @@ const installMcpPkg = "install-mcp"
 //  6. npm install -g install-mcp, then npm install -g each MCP package from tools.yaml
 //  7. configure selected agents (plugins + mcp.yaml merge) — sole writer of agent MCP config
 //  8. npm install -g for the remaining shared tools
-//  9. override ~/.agents from the repo's .agents/
+//  9. install security scanners (uv tool install wapiti3; go install akca, nuclei)
+// 10. override ~/.agents from the repo's .agents/
 //
 // Any hard failure stops the run with a descriptive error; individual
 // non-fatal issues are reported but the run continues.
@@ -113,6 +114,10 @@ func Run(c *Config) error {
 	} else {
 		info("installing remaining global tools (skills, cucumber, backlog.md)")
 		if err := installTools(c); err != nil {
+			return err
+		}
+		info("installing security tools (wapiti3, akca, nuclei)")
+		if err := installSecurityTools(c); err != nil {
 			return err
 		}
 	}
@@ -394,6 +399,35 @@ func installTools(c *Config) error {
 		Out("      npm install -g", t.NPM)
 		if err := run(c, "", "npm", "install", "-g", t.NPM); err != nil {
 			return fmt.Errorf("npm install -g %s: %w", t.NPM, err)
+		}
+	}
+	return nil
+}
+
+// installSecurityTools brings up the security scanners (SecurityTools) with
+// their own managers: `uv tool install` for wapiti3 and `go install` for the
+// Go-based scanners. These are non-fatal: a missing manager warns and skips its
+// tools with the manual fallback, rather than aborting the whole install (which
+// is gated on node + npm, not on go/uv).
+func installSecurityTools(c *Config) error {
+	for _, t := range SecurityTools() {
+		if t.Bin != "" {
+			if _, err := exec.LookPath(t.Bin); err == nil {
+				Out("      skip", t.Name, "(already installed)")
+				continue
+			}
+		}
+		if _, err := exec.LookPath(t.Manager); err != nil {
+			Out("      warn", t.Name, "skipped —", t.Manager, "not on PATH; "+t.Hint)
+			continue
+		}
+		if c.DryRun {
+			Out(append([]any{"      [dry-run]", t.Manager}, toAny(t.InstallArgs)...)...)
+			continue
+		}
+		Out(append([]any{"      ", t.Manager}, toAny(t.InstallArgs)...)...)
+		if err := run(c, "", t.Manager, t.InstallArgs...); err != nil {
+			return fmt.Errorf("%s %s: %w", t.Manager, strings.Join(t.InstallArgs, " "), err)
 		}
 	}
 	return nil

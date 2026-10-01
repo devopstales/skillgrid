@@ -8,3 +8,4 @@ mcp:
   - "@playwright/cli@latest"
   - "@cucumber/cucumber"
   - "agent-browser"
+  - "@codescene/codehealth-mcp"

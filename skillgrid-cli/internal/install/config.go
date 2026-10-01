@@ -98,6 +98,30 @@ type MCPServer struct {
 	Command []string `yaml:"command"`
 }
 
+// SecTool describes a security scanning tool the installer can bring up. It is
+// installed with its own manager (not npm), so it sits beside GlobalTools.
+type SecTool struct {
+	Name   string
+	Manager string // "uv" or "go"
+	// InstallArgs are the exact arguments passed to the manager, after its name.
+	// The manager binary is prepended by the caller.
+	InstallArgs []string
+	// Bin is the resulting PATH binary; when present and found, the install is skipped.
+	Bin string
+	// Hint is the manual fallback shown when the manager is missing from PATH.
+	Hint string
+}
+
+// SecurityTools returns the security scanners installed with their own
+// managers, run after the npm tools.
+func SecurityTools() []SecTool {
+	return []SecTool{
+		{Name: "wapiti3", Manager: "uv", InstallArgs: []string{"tool", "install", "wapiti3"}, Bin: "wapiti3", Hint: "curl -LsSf https://astral.sh/uv/install.sh | sh"},
+		{Name: "akca", Manager: "go", InstallArgs: []string{"install", "github.com/akha-security/akca/engine/cmd/akca@latest"}, Bin: "akca", Hint: "install Go, then: " + "go install github.com/akha-security/akca/engine/cmd/akca@latest"},
+		{Name: "nuclei", Manager: "go", InstallArgs: []string{"install", "-v", "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"}, Bin: "nuclei", Hint: "install Go, then: " + "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"},
+	}
+}
+
 func LoadToolsConfig(repoDir string) (*ToolsConfig, error) {
 	path := filepath.Join(repoDir, "config.d", "tools.yaml")
 	data, err := os.ReadFile(path)

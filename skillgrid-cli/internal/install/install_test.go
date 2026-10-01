@@ -87,6 +87,65 @@ func TestGlobalTools(t *testing.T) {
 	}
 }
 
+func TestSecurityTools(t *testing.T) {
+	got := SecurityTools()
+	if len(got) != 3 {
+		t.Fatalf("want 3 security tools, got %d", len(got))
+	}
+	want := map[string]struct {
+		manager string
+		bin     string
+		args    []string
+	}{
+		"wapiti3": {
+			manager: "uv",
+			bin:     "wapiti3",
+			args:    []string{"tool", "install", "wapiti3"},
+		},
+		"akca": {
+			manager: "go",
+			bin:     "akca",
+			args:    []string{"install", "github.com/akha-security/akca/engine/cmd/akca@latest"},
+		},
+		"nuclei": {
+			manager: "go",
+			bin:     "nuclei",
+			args:    []string{"install", "-v", "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"},
+		},
+	}
+	for _, s := range got {
+		w, ok := want[s.Name]
+		if !ok {
+			t.Errorf("unexpected security tool %q", s.Name)
+			continue
+		}
+		if s.Manager != w.manager {
+			t.Errorf("tool %q manager=%q, want %q", s.Name, s.Manager, w.manager)
+		}
+		if s.Bin != w.bin {
+			t.Errorf("tool %q bin=%q, want %q", s.Name, s.Bin, w.bin)
+		}
+		if len(s.InstallArgs) != len(w.args) {
+			t.Errorf("tool %q args=%v, want %v", s.Name, s.InstallArgs, w.args)
+			continue
+		}
+		for i := range w.args {
+			if s.InstallArgs[i] != w.args[i] {
+				t.Errorf("tool %q args[%d]=%q, want %q", s.Name, i, s.InstallArgs[i], w.args[i])
+			}
+		}
+	}
+}
+
+func TestInstallSecurityToolsDryRun(t *testing.T) {
+	// Dry-run exercises the full loop (skip-if-present, manager-present check,
+	// and the dry-run branch) without invoking go/uv.
+	cfg := Config{DryRun: true}
+	if err := installSecurityTools(&cfg); err != nil {
+		t.Fatalf("installSecurityTools (dry-run): %v", err)
+	}
+}
+
 func TestEnsureHomeStruct(t *testing.T) {
 	home := t.TempDir()
 	cfg := Config{

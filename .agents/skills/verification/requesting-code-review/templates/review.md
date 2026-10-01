@@ -9,7 +9,7 @@
 > The durable audit record of the code review. **requesting-code-review** writes this into
 > the spec folder, next to `report.md` (which owns the QA gate). It is committed in the spec
 > zone before code-zone work continues. **ship** archives it with the folder; **reflect**
-> cites it for lineage. The two review axes are reported **side by side, never merged** —
+> cites it for lineage. The three review axes are reported **side by side, never merged** —
 > that separation is the point.
 
 ## What Important means
@@ -44,9 +44,10 @@
 
 ## Passes
 
-> Two axes, reported side by side. Never merge them into one verdict — a change can be
-> spec-perfect and violate every convention, or beautifully written and implement the wrong
-> thing. Each axis carries its own worst issue and its own verdict.
+> Three axes, reported side by side. Never merge them into one verdict — a change can be
+> spec-perfect and violate every convention, beautifully written and implement the wrong
+> thing, or conventionally clean and spec-complete and still one SQLi away from a data
+> breach. Each axis carries its own worst issue and its own verdict.
 
 ### Standards
 
@@ -59,6 +60,12 @@
 - **Worst issue (within this axis):** <one line, or "none">
 - **Findings:** <n> Critical / <n> Important / <n> Minor (capped to 5 listed)
 - **Verdict:** met / met-with-fixes / not met
+
+### Security
+
+- **Worst issue (within this axis):** <one line, or "none">
+- **Findings:** <n> Critical / <n> High / <n> Medium / <n> Low / <n> Info (capped to 5 listed)
+- **Verdict:** secure / secure-with-fixes / not secure
 
 ## Findings
 
@@ -89,6 +96,7 @@
 |------|-------|-----------|
 | Standards | A / B / C | fresh context / same-model-family / inline-or-leaked |
 | Spec | A / B / C | fresh context / same-model-family / inline-or-leaked |
+| Security | A / B / C | fresh context / same-model-family / inline-or-leaked |
 
 **Reading the grade:** **A** = fresh subagent, no shared history (independent). **B** = fresh
 context but same model family / toolchain as the implementer (independent, weaker). **C** =
@@ -97,12 +105,13 @@ as the independent evidence that `ship` or a merge requires.
 
 ## Verdict
 
-> The overall review verdict is the **floor** across the two axes (per
+> The overall review verdict is the **floor** across the three axes (per
 > `_shared/conventions/floor.md`): the weaker axis caps the whole review. Never average the
-> two axes into a single "overall."
+> three axes into a single "overall."
 
 - **Standards:** met / met-with-fixes / not met
 - **Spec:** met / met-with-fixes / not met
+- **Security:** secure / secure-with-fixes / not secure
 - **Floor (decides):** met / met-with-fixes / not met
-- **Worst issue (across both axes):** <one line>
+- **Worst issue (across all three axes):** <one line>
 - **Unfixed Important count (must be 0 to proceed):** <n>
