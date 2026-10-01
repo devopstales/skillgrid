@@ -124,6 +124,74 @@ func TestValidAtTimeWindow(t *testing.T) {
 	if len(got) != 1 || got[0].ID != idB {
 		t.Errorf("ValidAtTime(T3) = %v, want B only", btIDs(got))
 	}
+
+	// At exactly T2 the window is half-open [valid_at, invalid_at):
+	// A (valid [T1,T2)) is out, B (valid [T2,∞)) is in.
+	got, err = fx.svc.ValidAtTime(ctx, "windowedalpha windowedbravo", t2)
+	if err != nil {
+		t.Fatalf("valid_at_time T2: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != idB {
+		t.Errorf("ValidAtTime(T2) = %v, want B only", btIDs(got))
+	}
+}
+
+// TestSupersededExcludedFromRecent covers the soft-invalid exclusion on the
+// recent-family read paths: a row whose invalid_at is in the past (superseded)
+// is absent from Recent, RecentObservations, and RecentWithType, while the
+// still-active row remains.
+func TestSupersededExcludedFromRecent(t *testing.T) {
+	fx := newBitempFixture(t, "bitemp-recent")
+	ctx := context.Background()
+
+	idA, err := fx.svc.Save(ctx, SaveInput{
+		SessionID:  fx.sessionID,
+		Type:       "preference",
+		MemoryType: "preferences",
+		Title:      "RecentAlpha",
+		Content:    "recentfact old preference",
+		Owner:      fx.owner,
+	})
+	if err != nil {
+		t.Fatalf("save A: %v", err)
+	}
+	idB, err := fx.svc.Save(ctx, SaveInput{
+		SessionID:  fx.sessionID,
+		Type:       "preference",
+		MemoryType: "preferences",
+		Title:      "RecentBravo",
+		Content:    "recentfact current preference",
+		Owner:      fx.owner,
+	})
+	if err != nil {
+		t.Fatalf("save B: %v", err)
+	}
+	// Supersede A: its validity window closed in the past.
+	if _, err := fx.st.DB.Exec(`
+		UPDATE observations SET invalid_at = ? WHERE id = ?`,
+		time.Now().UTC().Format(time.RFC3339), idA); err != nil {
+		t.Fatalf("supersede A: %v", err)
+	}
+
+	type pathResult struct {
+		name string
+		obs  []Observation
+	}
+	pathObs := make([]pathResult, 0, 3)
+	obs, err := fx.svc.Recent(ctx, 20)
+	pathObs = append(pathObs, pathResult{"Recent", mustObs(t, obs, err)})
+	obs, err = fx.svc.RecentObservations(ctx, 20)
+	pathObs = append(pathObs, pathResult{"RecentObservations", mustObs(t, obs, err)})
+	obs, err = fx.svc.RecentWithType(ctx, "preferences", 20)
+	pathObs = append(pathObs, pathResult{"RecentWithType", mustObs(t, obs, err)})
+	for _, p := range pathObs {
+		if btContainsID(p.obs, idA) {
+			t.Errorf("%s returned superseded row %d", p.name, idA)
+		}
+		if !btContainsID(p.obs, idB) {
+			t.Errorf("%s missing active row %d", p.name, idB)
+		}
+	}
 }
 
 // TestSupersededExcludedFromSearch covers the soft-invalid exclusion on every

@@ -384,6 +384,9 @@ type Observation struct {
 	InvalidAt string `json:"invalid_at,omitempty"`
 	// SupersededBy is the ID of the observation that superseded this one
 	// (ADR-0011). NULL = not superseded.
+	// SupersededBy is an internal audit pointer (the observation that superseded
+	// this one). json:"-" keeps it out of the JSON contract: a NULL would
+	// serialize as 0, reading as "superseded by id 0" (a false signal).
 	SupersededBy sql.NullInt64 `json:"-"`
 }
 
@@ -817,6 +820,7 @@ func (s *Service) Recent(ctx context.Context, limit int) ([]Observation, error) 
 		SELECT `+obsSelectCols+`
 		FROM observations
 		WHERE deleted_at IS NULL AND project = ?
+		AND (invalid_at IS NULL OR invalid_at = '' OR strftime('%s', invalid_at) > strftime('%s', 'now'))
 		ORDER BY created_at DESC, id DESC
 		LIMIT ?`,
 		s.projectID, limit,
@@ -842,6 +846,7 @@ func (s *Service) RecentObservations(ctx context.Context, limit int) ([]Observat
 		SELECT `+obsSelectCols+`
 		FROM observations
 		WHERE deleted_at IS NULL AND project = ?
+		AND (invalid_at IS NULL OR invalid_at = '' OR strftime('%s', invalid_at) > strftime('%s', 'now'))
 		ORDER BY created_at DESC, id DESC
 		LIMIT ?`,
 		s.projectID, limit,
@@ -877,6 +882,7 @@ func (s *Service) RecentWithType(ctx context.Context, memoryType string, limit i
 		SELECT `+obsSelectCols+`
 		FROM observations
 		WHERE deleted_at IS NULL AND project = ? AND memory_type = ?
+		AND (invalid_at IS NULL OR invalid_at = '' OR strftime('%s', invalid_at) > strftime('%s', 'now'))
 		ORDER BY created_at DESC, id DESC
 		LIMIT ?`,
 		s.projectID, memoryType, limit,
