@@ -1,5 +1,7 @@
 # Briefing — Mnemonic Memory Improvements (from Mnemon + mnemonic-ai comparison)
 
+> **STATUS:** `draft` (2026-09-24)
+
 **Topic:** 2026-09-24-mnemonic-memory-improvements
 **Date:** 2026-09-24
 **Classification:** standard (T2)

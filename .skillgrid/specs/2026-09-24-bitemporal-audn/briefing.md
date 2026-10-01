@@ -1,5 +1,7 @@
 # Briefing — Bi-temporal Observations + AUDN Save Classification
 
+> **STATUS:** `draft` (2026-09-24)
+
 **Topic:** 2026-09-24-bitemporal-audn
 **Date:** 2026-09-24
 **Classification:** risky (T2) — schema migration + save-path contract change

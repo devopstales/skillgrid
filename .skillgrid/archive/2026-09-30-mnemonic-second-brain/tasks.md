@@ -1,5 +1,7 @@
 # Tasks — Mnemonic Second Brain
 
+> **STATUS:** `sliced` (2026-09-30)
+
 > Sliced from `.skillgrid/specs/2026-09-30-mnemonic-second-brain/blueprint.md`.
 > Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.
 

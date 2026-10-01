@@ -1,5 +1,7 @@
 # Briefing — Mnemonic Second Brain (the "gets smarter every conversation" loop)
 
+> **STATUS:** `draft` (2026-09-30)
+
 **Topic:** 2026-09-30-mnemonic-second-brain
 **Date:** 2026-09-30
 **Classification:** standard (T2)
