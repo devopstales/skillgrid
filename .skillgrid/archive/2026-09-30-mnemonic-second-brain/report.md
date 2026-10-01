@@ -290,75 +290,96 @@ Most likely production break: the `mem_ask` cited floor returns zero citations o
 
 ## Final-State Facts
 
-**Shipped:** <what actually shipped>
-**Base branch:** <base-branch> · **Chain strategy:** <strategy>
-**Integration:** <merged @ <commit> | PR <url> | kept branch <name>> (from ship context)
+**Shipped:** the second-brain capability loop on the existing store — `mem_ask` (deterministic cited floor + fail-open llm mode), `mem_save.infer` (opt-in deterministic metadata inference), the NL-capture skill (`mnemonic-second-brain`), `mem_lifecycle` (health / dedup_scan / dedup_merge / consolidate / archive with `lifecycle_log` audit, migration 043), and inline `_health_warnings` on `mem_search` + `mem_ask`. Zero new dependencies.
+**Base branch:** `release/2` · **Chain strategy:** release/2 direct (serial development, no feature branches)
+**Integration:** committed on `release/2` — code `fde6d2bc..ed4904a5` (6 tickets), review fixes `b3e1fb58`, terms reconcile `4fa32c8`, archive move `0b979bd`, state `6ce72a9`. Not pushed (kept on the long-lived branch, per house convention).
 
 ## Gates
 
 | Gate | Result |
 |------|--------|
-| Ship gate | ✅ success + `diff -r` empty (or: blocked — {reason}) |
-| QA gate | ✅ {PASS \| WAIVED \| CONCERNS — human override recorded} |
-| Verdict gate (advisory) | {accepted \| accepted-with-open-items \| rejected} — recorded, not enforced |
+| Ship gate | ✅ success + `diff -r` empty (`0b979bd`) |
+| QA gate | ✅ PASS (27/27 scenarios traced; re-verified post-fix — `## Re-Verification`) |
+| Verdict gate (advisory) | accepted-with-open-items — recorded, not enforced |
 
 ## Decisions
 
 | Decision | Tradeoff | Why | Source |
 |----------|----------|-----|--------|
-| <choice made> | <what was given up> | <why it won> | <file:line / commit / ADR / ticket> |
+| `mem_ask` ships a deterministic cited floor FIRST; llm mode is a fail-open add-on | llm prose is absent until an LLM seam is configured | the answer must work with no LLM and no embedder (door check `TestAskCited_NoEmbedder`); fail-open means an LLM outage degrades to citations, never to an error | `secondbrain/ask_llm.go` (`a4300a02`); blueprint Task 2 |
+| Package-level LLM seams (`service.AskLLM`/`SetAskLLM`) mirroring `ExtractionLLM` | one LLM backend per CLI process, no per-service accessor | matches the established composing-seam convention; mutex-guarded with `t.Cleanup` restore keeps test doubles from leaking | `secondbrain/ask_llm.go` (`a4300a02`); review finding 3 clean |
+| 3s LLM budget via `ctx.WithDeadline`, not `WithTimeout` | slightly more code | `WithTimeout` returns the EARLIER of parent deadline and now+3s, so a 1s caller deadline would silently extend to 3s; `WithDeadline` is a hard cap that never extends | `secondbrain/ask_llm.go` TICKET-02 report; Key Learnings |
+| `mem_lifecycle` registered in TICKET-01 with an errors-as-values "not yet implemented" stub; full dispatch in TICKET-05 | stub shipped briefly | resolves the Task 5 ↔ Task 6 mutual dependency while keeping every response errors-as-values from day one | `mcp/tools_secondbrain.go` (`fde6d2bc` → `538087cd`) |
+| `_health_warnings` wired as an empty-slice field in TICKET-01, populated in TICKET-06 | response field existed before it had data | frozen response contract: strict-schema consumers can validate from the first commit; the field is additive, never breaking | `mcp/tools_memory.go` (`fde6d2bc` → `ed4904a5`) |
+| Scoped `mem_search` uses `ForProjectOn` (reuses the open handle) instead of `ForProject` | first-call-per-24h health cost is paid inside the search path | `store.OpenCount()` counts every `Open`; a second open would break `TestMemSearchSingleOpen` (the single-open contract) | `mcp/tools_memory.go` (`ed4904a5`); TICKET-06 report |
+| `infer` defaults OFF; fill-when-empty only | no behavior change for existing callers | opt-in preserves byte-identical `mem_save` behavior; agent-provided `type`/`topic_key` never overwritten | `secondbrain/infer.go` `ApplyInfer` (`c0221461`) |
 
 ## Lessons
 
 | Lesson | Root Cause | Do Differently | Source |
 |--------|-----------|----------------|--------|
-| <what to do differently> | <why it went wrong — root, not symptom> | <the concrete change> | <file:line / commit / ticket> |
+| A new migration that `ALTER TABLE`s a table absent from the squash-shim fixture breaks `TestSquashShimUpgrade` | SQLite has no guarded `ADD COLUMN`; the pre-squash fixture must contain the target table | add the table to the fixture, don't make the ALTER idempotent | TICKET-01 report (`fde6d2bc`); `store/migrations_squash_test.go` |
+| `memory.Service.Save()` dedups on `sha256(title+content+type)` within 24h — identical triples return the existing id | tests that need N rows with the same hash fail silently | insert via raw SQL when a test needs duplicate-hash rows | TICKET-05 report (`538087cd`) |
+| The 24h health cache is keyed `sha256(projectID)[:16]` in `$TMPDIR` — a prior run's file pre-seeds a later run | cache key is project-scoped, not test-scoped | tests asserting computed values use unique project names or clear the cache dir | TICKET-05 report; `secondbrain/lifecycle.go` `healthCacheRead` |
+| `openProject` mints a fresh `memory.Service` per `Open()` — a DirEmbedder set on one handle is invisible to another | service handles are not shared across opens | the additive `SetDirEmbedderOverride` package seam is the clean fix (what TICKET-01 landed) | TICKET-01 report; `service` override seam |
 
 ## Patterns
 
 | Pattern | Reuse | Source |
 |---------|-------|--------|
-| <named reusable approach / convention> | <when a future change should apply it> | <file:line / commit / ticket> |
+| **Cited floor + fail-open LLM** — deterministic retrieval/citation path is always available; the LLM layer fails open to it on error/timeout/nil-seam | any future tool that can be LLM-powered but must survive without one | `secondbrain/ask.go` + `ask_llm.go` (`fde6d2bc`, `a4300a02`) |
+| **Package-level composing seam with `t.Cleanup` restore** (`SetAskLLM`/`AskLLMSeam` mirroring `ExtractionLLM`) | any new LLM/backend dependency in `service` or `secondbrain` | `service` (`a4300a02`) |
+| **Audit row pending → completed, errors-as-values, never throws** (`logLifecycle` + `defer recover()` in `Health`) | any future mutating `mem_lifecycle` action or health computation | `secondbrain/lifecycle.go` (`538087cd`) |
+| **Opt-in param defaulting off + fill-when-empty inference** | any future enrichment of an existing tool that must not change default behavior | `secondbrain/infer.go` `ApplyInfer` (`c0221461`) |
 
 ## Surprises
 
 | Surprise | Signal | Source |
 |----------|--------|--------|
-| <non-obvious gotcha / edge case / behavior> | <what the evidence shows> | <file:line / commit / ticket> |
+| `observations.source` is `TEXT NOT NULL DEFAULT 'agent'` — plain text, NOT JSON — so a JSON merge into it must `json.Valid` the pre-existing value or the column invariant breaks | review found `fmt.Sprintf`-based merge unsafe; fixed `b3e1fb58` | `lifecycle.go:819-829` pre-fix; review finding 2 |
+| `store.OpenCount()` counts EVERY `Open` call, not just the first — any secondary open in a query path breaks the single-open contract | `ForProjectOn` added specifically to avoid a second open in scoped `mem_search` | TICKET-06 report; `single_open_test.go:218` |
+| The `lifecycle_log` `failed` status is unreachable — a failed mutation after the INSERT leaves a permanent `pending` row | review finding 1; documented as best-effort, deferred | `lifecycle.go` `logLifecycle` pre-`b3e1fb58` |
+| A ctx-aware LLM fake (select on `ctx.Done` vs buffered result) makes the 3s-timeout fail-open test run in ~1s instead of blocking | without it the timeout test was ~10s | `secondbrain/ask_test.go` (`a4300a02`) |
 
 ## Acceptance Verdict
 
-**Verdict:** accepted | accepted-with-open-items | rejected
+**Verdict:** accepted-with-open-items
 
-**Grounding:** <goal from briefing.md + the Goal-Backward Verification / Traceability Matrix evidence above that supports the verdict>
+**Grounding:** the briefing goal is the "gets smarter every conversation" loop — capture (B) → cited answers (C) → keep it clean/trustworthy (D) — in an agent-reasonable response shape (S4). Goal-Backward Verification in the QA half: all 27/27 acceptance scenarios traced to named passing tests (capture = `mem_save.infer` + skill; answers = `mem_ask` cited floor + llm; clean = `mem_lifecycle` + `_health_warnings`; shape = underscore meta fields + errors-as-values). Door check (`mem_ask` works with no LLM and no embedder) is a named passing test. The loop is complete on the existing store with zero new dependencies.
 
-**Reasoning:** <2–3 sentences: what drove the verdict>
+**Reasoning:** Every capability in the loop shipped and is test-covered; the no-LLM/no-embedder floor is a hard door check. Open items are small, documented, and non-blocking (an unreachable audit status and a first-call latency cost), so the verdict is accepted-with-open-items rather than accepted.
 
 ## Open Items (→ next change)
 
-- <item + path to resolution> (or "None")
+- `lifecycle_log` `failed` status unreachable — a `defer` that flips the row to `failed` when the caller's mutation returns an error (review finding 1, deferred as best-effort). Path: small fix in `secondbrain/lifecycle.go` `logLifecycle` + a test.
+- Scoped `mem_search` pays a ~O(n²) first-call health cost per 24h window when an embedder is active (single-open trade). Path: document in the tool description, or compute warnings off-path/async in a follow-up.
+- `mem_lifecycle` `consolidate` and `dedup_merge` are live but have no end-to-end smoke against a large real store — add to the live IDE adapter smoke harness (carried from session-events-layer debt).
 
 ## Prior-Change Follow-Through
 
 | Prior open item (from previous archived change) | Addressed by this change? | Evidence |
 |--------------------------------------------------|---------------------------|----------|
-| <item> | yes / no / partially | <commit / file:line / scenario, or "still open"> |
+| session-events-layer: live IDE adapter smoke harness | no | still open — listed above as a follow-up |
+| session-events-layer: 1 medium + 3 low + 2 minor review findings | no | still open — separate change's debt |
+| second-brain spec: resolve 043 migration double-booking | yes | `49fb1a5` (bitemporal-audn → 044) |
+| second-brain spec: resolve ADR-0011 double-claim | yes | `49fb1a5` (memory-improvements → ADR-0017) |
 
 ## Move Evidence (from ship context)
 
 **From:** `.skillgrid/specs/2026-09-30-mnemonic-second-brain/` → **To:** `.skillgrid/archive/2026-09-30-mnemonic-second-brain/`
-**`diff -r` readback:** <empty → PASS | verbatim output → FAIL>
+**`diff -r` readback:** empty → PASS (`0b979bd`)
 
 ## Overrides / Waivers / Contradictions
 
-- <QA waiver, human CONCERNS override, size-exception, or "None">
-- <Unrankable contradiction: both statements + sources + when written — or "None">
+- None (QA PASS, no waiver, no human CONCERNS override, no size-exception).
+- None (no unrankable contradictions).
 
 ## Lineage (observation IDs)
 
-- briefing: {id}
-- blueprint: {id}
-- tasks: {id}
-- ship: {id}
-- report (QA half): {id}
-- research / findings / ADRs: {ids or "none"}
+- briefing: in-repo only (`.skillgrid/archive/2026-09-30-mnemonic-second-brain/briefing.md`) — not separately saved to Mnemonic
+- blueprint: in-repo only (`blueprint.md`)
+- tasks: in-repo only (`tasks.md`)
+- ship: 80 (`skillgrid/2026-09-30-mnemonic-second-brain/ship`)
+- report (QA half): 79 (QA gate observation)
+- research / findings / ADRs: ADR-0016 (second-brain capability layer); `06-research-findings.md` (lifted below)
+- Review: final review CLEAN, 0 critical / 0 important / 5 low (3 fixed `b3e1fb58`, 2 deferred) — no `review.md` artifact (inline review, advisory gate clean)
