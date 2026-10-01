@@ -32,6 +32,19 @@ export function DocsPage() {
     }
   }, [root])
 
+  // Honor a ?file= deep-link (from task doc_refs cross-links): on first load,
+  // pre-select the doc if it is present in the tree.
+  useEffect(() => {
+    const file = new URLSearchParams(window.location.search).get('file')
+    if (!file) return
+    setNodes((prev) => {
+      const found = findNodePath(prev, file)
+      if (found) setSelected(found)
+      return prev
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // load content when a doc is selected
   useEffect(() => {
     if (!selected) {
@@ -227,6 +240,20 @@ export function DocsPage() {
       </div>
     </div>
   )
+}
+
+// findNodePath returns the file path of a node matching `want` (exact path
+// match, case-sensitive), searching the tree depth-first. Used by the ?file=
+// deep-link to pre-select a doc after the tree loads.
+function findNodePath(nodes: DocsTreeNode[], want: string): string | null {
+  for (const n of nodes) {
+    if (!n.dir && n.path === want) return n.path
+    if (n.children) {
+      const hit = findNodePath(n.children, want)
+      if (hit) return hit
+    }
+  }
+  return null
 }
 
 function ToolBtn({

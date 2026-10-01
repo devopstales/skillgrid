@@ -105,6 +105,26 @@ export function TaskDetail({
                   ))}
                 </div>
               )}
+              {t.doc_refs && t.doc_refs.length > 0 && (
+                <div className="mt-4">
+                  <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-6">
+                    Documents
+                  </h3>
+                  <ul className="space-y-1">
+                    {t.doc_refs.map((ref) => (
+                      <li key={ref}>
+                        <a
+                          href={`/docs?file=${encodeURIComponent(ref)}`}
+                          className="block truncate rounded border border-edge bg-surface-2/60 px-2.5 py-1.5 text-[12px] text-ink-3 hover:border-accent/60 hover:text-accent"
+                          title={ref}
+                        >
+                          {ref}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="mt-4">
                 <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-6">
                   Description

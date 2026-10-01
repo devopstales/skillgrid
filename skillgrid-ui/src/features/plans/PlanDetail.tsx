@@ -1,4 +1,5 @@
 import type { PlanDetail } from './api'
+import { linkifyTaskRefs } from './taskLinks'
 
 const STATUS_COLOR: Record<string, string> = {
   COMPLETE: 'text-accent',
@@ -34,6 +35,18 @@ export function PlanDetailPanel({
         </p>
       </div>
 
+      {plan.briefing.trim() !== '' && (
+        <section>
+          <h3 className="mb-2 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-5">
+            Briefing
+          </h3>
+          <p
+            className="whitespace-pre-wrap text-[12px] text-ink-3"
+            dangerouslySetInnerHTML={{ __html: linkifyTaskRefs(plan.briefing) }}
+          />
+        </section>
+      )}
+
       {(plan.steps?.length ?? 0) > 0 && (
         <section>
           <h3 className="mb-2 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-5">
@@ -48,7 +61,12 @@ export function PlanDetailPanel({
                 <span className={`shrink-0 ${STATUS_COLOR[s.status] ?? 'text-ink-4'}`}>
                   {s.status === 'COMPLETE' || s.status === 'DONE' ? '✓' : '○'}
                 </span>
-                <span className="min-w-0 flex-1 text-ink-3">{s.raw.replace(/^[-*]\s+/, '')}</span>
+                <span
+                  className="min-w-0 flex-1 text-ink-3"
+                  dangerouslySetInnerHTML={{
+                    __html: linkifyTaskRefs(s.raw.replace(/^[-*]\s+/, '')),
+                  }}
+                />
               </li>
             ))}
           </ul>
