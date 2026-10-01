@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ComponentType } from 'react'
-import { createRootRoute, createRoute, createRouter, redirect, RouterProvider } from '@tanstack/react-router'
+import { createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { AppLayout } from './components/layout/AppLayout'
 import { Stub } from './components/Stub'
 
@@ -29,12 +29,13 @@ const rootRoute = createRootRoute({
   component: AppLayout,
 })
 
+// `/` is the Overview landing page. It reuses the Tracker view (the
+// project's observe surface) so the root route has a real page rather than
+// redirecting.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: () => {
-    throw redirect({ to: '/tracker' })
-  },
+  component: lazyPage(() => import('./features/tracker/TrackerPage').then((m) => ({ default: m.TrackerPage }))),
 })
 
 const trackerRoute = createRoute({
@@ -91,6 +92,12 @@ const decisionsRoute = createRoute({
   component: lazyPage(() => import('./features/decisions/DecisionsPage').then((m) => ({ default: m.DecisionsPage }))),
 })
 
+const adrRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/adr',
+  component: lazyPage(() => import('./features/adr/AdrsPage').then((m) => ({ default: m.AdrsPage }))),
+})
+
 const gitRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/git',
@@ -126,6 +133,7 @@ const routeTree = rootRoute.addChildren([
   docsRoute,
   plansRoute,
   decisionsRoute,
+  adrRoute,
   gitRoute,
   prototypesRoute,
   settingsRoute,

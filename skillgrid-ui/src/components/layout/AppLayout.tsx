@@ -3,21 +3,47 @@ import { Link, Outlet, useLocation } from '@tanstack/react-router'
 import { ProjectSelector } from './ProjectSelector'
 import { getDensity, setDensity, type Density } from '../../lib/density'
 
-const MNEMONIC_ITEMS: Array<{ to: string; label: string }> = [
-  { to: '/mnemonic/graph', label: 'Graph' },
-  { to: '/mnemonic/files', label: 'Files' },
-  { to: '/mnemonic/memories', label: 'Memories' },
-  { to: '/mnemonic/sessions', label: 'Sessions' },
-  { to: '/mnemonic/search', label: 'Search' },
-]
+type NavItem = { to: string; label: string; nested?: boolean; href?: string }
 
-const STANDALONE_ITEMS: Array<{ to: string; label: string }> = [
-  { to: '/docs', label: 'Docs' },
-  { to: '/plans', label: 'Plans' },
-  { to: '/decisions', label: 'Decisions' },
-  { to: '/git', label: 'Git' },
-  { to: '/prototypes', label: 'Prototypes' },
-  { to: '/settings', label: 'Settings' },
+// The sidebar is organized into four functional groups. `href` marks items
+// that are real browser links to server-served pages (Swagger UI) rather than
+// SPA routes, so the router does not intercept the navigation.
+const NAV_GROUPS: Array<{ title: string; items: NavItem[] }> = [
+  {
+    title: 'Observe',
+    items: [
+      { to: '/', label: 'Overview' },
+      { to: '/tracker', label: 'Tracker' },
+    ],
+  },
+  {
+    title: 'Mnemonic',
+    items: [
+      { to: '/mnemonic/graph', label: 'Graph', nested: true },
+      { to: '/mnemonic/files', label: 'Files', nested: true },
+      { to: '/mnemonic/memories', label: 'Memories', nested: true },
+      { to: '/mnemonic/sessions', label: 'Sessions', nested: true },
+      { to: '/mnemonic/search', label: 'Search', nested: true },
+    ],
+  },
+  {
+    title: 'Pipeline',
+    items: [
+      { to: '/plans', label: 'Plans' },
+      { to: '/adr', label: 'ADRs' },
+      { to: '/decisions', label: 'Decisions' },
+    ],
+  },
+  {
+    title: 'System',
+    items: [
+      { to: '/docs', label: 'Docs' },
+      { to: '/git', label: 'Git' },
+      { to: '/prototypes', label: 'Prototypes' },
+      { to: '/settings', label: 'Settings' },
+      { to: '/swagger-ui', label: 'Swagger', href: '/swagger/' },
+    ],
+  },
 ]
 
 export function AppLayout() {
@@ -84,38 +110,23 @@ export function AppLayout() {
         </div>
         <nav className="flex-1 overflow-y-auto p-3">
           <ul className="space-y-0.5 text-sm">
-            <li>
-              <div className="px-4 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-6">
-                Observe
-              </div>
-              <NavLink to="/tracker" label="Tracker" onNavigate={() => setNavOpen(false)} />
-            </li>
-            <li className="pt-3">
-              <div className="px-4 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-6">
-                Mnemonic
-              </div>
-            </li>
-            {MNEMONIC_ITEMS.map((item) => (
-              <li key={item.to}>
-                <NavLink to={item.to} label={item.label} nested onNavigate={() => setNavOpen(false)} />
+            {NAV_GROUPS.map((group) => (
+              <li key={group.title} className="pt-3 first:pt-0">
+                <div className="px-4 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-6">
+                  {group.title}
+                </div>
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    label={item.label}
+                    nested={item.nested}
+                    href={item.href}
+                    onNavigate={() => setNavOpen(false)}
+                  />
+                ))}
               </li>
             ))}
-            <li className="pt-3">
-              <div className="px-4 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-6">
-                Pipeline
-              </div>
-              {STANDALONE_ITEMS.slice(0, 5).map((item) => (
-                <NavLink key={item.to} to={item.to} label={item.label} onNavigate={() => setNavOpen(false)} />
-              ))}
-            </li>
-            <li className="pt-3">
-              <div className="px-4 pb-1 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-6">
-                System
-              </div>
-              {STANDALONE_ITEMS.slice(5).map((item) => (
-                <NavLink key={item.to} to={item.to} label={item.label} onNavigate={() => setNavOpen(false)} />
-              ))}
-            </li>
           </ul>
         </nav>
       </aside>
@@ -183,26 +194,33 @@ function NavLink({
   to,
   label,
   nested = false,
+  href,
   onNavigate,
 }: {
   to: string
   label: string
   nested?: boolean
+  href?: string
   onNavigate?: () => void
 }) {
   const { pathname } = useLocation()
   const active = pathname === to
+  const classes = [
+    'block border-l-2 border-transparent px-4 py-1.5 text-[13px] text-ink-4 transition-colors hover:text-ink-2',
+    nested ? 'pl-7' : '',
+    active ? 'border-accent bg-accent/7 text-ink' : '',
+  ].join(' ')
+  // Server-served pages (Swagger UI) are plain anchors — a TanStack Link would
+  // let the router own the navigation and the SPA 404 instead of the server page.
+  if (href) {
+    return (
+      <a href={href} onClick={onNavigate} className={classes}>
+        {label}
+      </a>
+    )
+  }
   return (
-    <Link
-      to={to}
-      aria-current={active ? 'page' : undefined}
-      onClick={onNavigate}
-      className={[
-        'block border-l-2 border-transparent px-4 py-1.5 text-[13px] text-ink-4 transition-colors hover:text-ink-2',
-        nested ? 'pl-7' : '',
-        active ? 'border-accent bg-accent/7 text-ink' : '',
-      ].join(' ')}
-    >
+    <Link to={to} aria-current={active ? 'page' : undefined} onClick={onNavigate} className={classes}>
       {label}
     </Link>
   )
