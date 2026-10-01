@@ -16,6 +16,7 @@ import (
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/secondbrain"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 )
 
@@ -65,6 +66,7 @@ func memSaveTool() mcplib.Tool {
 		mcplib.WithString("topic_key", mcplib.Description("Stable key for upserts, e.g. architecture/auth-model")),
 		mcplib.WithString("project", mcplib.Description("Optional explicit project name to record under (defaults to the CWD-resolved project). Surfaced as a drift warning if a prior mem_merge_projects retired it.")),
 		mcplib.WithBoolean("capture_prompt", mcplib.Description("Link the session's latest user prompt to this observation (default true). Pass false for SDD artifacts / automated saves that should not carry prompt context.")),
+		mcplib.WithBoolean("infer", mcplib.Description("Deterministically infer empty metadata (default false). When true, an empty type is filled from the type heuristic and an empty topic_key from the stable segment; agent-provided values are never overwritten. type stays required — inference fills it, it does not waive it.")),
 		mcplib.WithString("tool_name", mcplib.Description("Optional provenance for which tool produced the save (e.g. mem_save).")),
 		mcplib.WithString("owner", mcplib.Description("Optional creating user/agent identity. Blank falls back to the session_id, so the same session that saved can read it back and a different owner is gated by mem_search / mem_get_observation.")),
 	)
@@ -241,7 +243,16 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 		owner = sessionID
 	}
 
-	id, err := h.Memory().Save(ctx, memory.SaveInput{
+	// infer (change 2026-09-30-mnemonic-second-brain, Task 3): opt-in (default
+	// false) deterministic metadata floor. When set, an empty type/topic_key is
+	// filled from the existing type heuristic + SuggestTopicKey seam; agent-
+	// provided values are never overwritten. The topic key is computed through
+	// the SAME SuggestTopicKey the mem_suggest_topic_key tool uses, so the
+	// inferred key is byte-identical to a manual suggestion (one implementation).
+	// With infer unset the heuristic never runs (default-off = byte-identical
+	// behaviour for existing callers).
+	infer := req.GetBool("infer", false)
+	saveInput := memory.SaveInput{
 		Title:         title,
 		Type:          typ,
 		Content:       content,
@@ -252,7 +263,14 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 		ProjectName:   projectName,
 		ToolName:      req.GetString("tool_name", ""),
 		Owner:         owner,
-	})
+	}
+	if infer {
+		secondbrain.ApplyInfer(&saveInput, secondbrain.InferType, func(typ, title string) string {
+			return SuggestTopicKey(typ, title, content)
+		})
+	}
+
+	id, err := h.Memory().Save(ctx, saveInput)
 	if err != nil {
 		return toolError(err)
 	}
@@ -303,11 +321,11 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 			return toolError(err)
 		}
 		out := map[string]any{
-			"project":           "all",
-			"all_projects":      true,
-			"count":             len(res.Hits),
-			"observations":      budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
-			"_health_warnings":  memHealthWarnings(),
+			"project":          "all",
+			"all_projects":     true,
+			"count":            len(res.Hits),
+			"observations":     budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
+			"_health_warnings": memHealthWarnings(),
 		}
 		if res.Truncated {
 			out["truncated"] = true
@@ -345,10 +363,10 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		return toolError(err)
 	}
 	out := map[string]any{
-		"project":           projectID,
-		"observations":      budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
-		"count":             len(res.Hits),
-		"_health_warnings":  memHealthWarnings(),
+		"project":          projectID,
+		"observations":     budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
+		"count":            len(res.Hits),
+		"_health_warnings": memHealthWarnings(),
 	}
 	if res.Truncated {
 		out["truncated"] = true
@@ -435,8 +453,8 @@ func handleMemGetObservation(ctx context.Context, req mcplib.CallToolRequest) (*
 	if err != nil {
 		if errors.Is(err, memory.ErrNotFoundForReader) {
 			return JSONResult(map[string]any{
-				"id":            int64(id),
-				"not_found":     true,
+				"id":                   int64(id),
+				"not_found":            true,
 				"not_found_for_reader": true,
 			})
 		}
