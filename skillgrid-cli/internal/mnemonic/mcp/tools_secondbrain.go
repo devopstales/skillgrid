@@ -32,9 +32,9 @@ func cwd() (string, error) {
 
 // registerSecondBrainTools wires the second-brain tools (change
 // 2026-09-30-mnemonic-second-brain). mem_ask is LIVE (the deterministic
-// cited floor over BlendedSearch); mem_lifecycle is a not-yet-implemented
-// dispatch stub — the action dispatch lands in TICKET-03 — returned as a
-// value error, never thrown.
+// cited floor over BlendedSearch; llm mode fails open to it). mem_lifecycle
+// dispatches the full 5-action surface (TICKET-05) — every error is returned
+// as a value, never thrown.
 func registerSecondBrainTools(s *server.MCPServer) {
 	s.AddTool(memAskTool(), handleMemAsk)
 	s.AddTool(memLifecycleTool(), handleMemLifecycle)
@@ -53,7 +53,7 @@ func memAskTool() mcplib.Tool {
 
 func memLifecycleTool() mcplib.Tool {
 	return mcplib.NewTool("mem_lifecycle",
-		mcplib.WithDescription("Lifecycle actions over the memory store: health report, dedup scan/merge, consolidate, archive/restore. Every mutating op is audited. TICKET-01 registers the tool; the action dispatch lands in TICKET-03, so calls currently return a not-implemented value error."),
+		mcplib.WithDescription("Lifecycle actions over the memory store: health report, dedup scan/merge, consolidate, archive/restore. Every mutating op is audited in the lifecycle_log table. Action: health | dedup_scan | dedup_merge | consolidate | archive."),
 		mcplib.WithString("action", mcplib.Required(), mcplib.Description("Action: health | dedup_scan | dedup_merge | consolidate | archive")),
 		mcplib.WithString("subaction", mcplib.Description("Archive subaction: archive | restore | list | stale")),
 		mcplib.WithString("project", mcplib.Description("Optional project name to scope the action under (defaults to the CWD-resolved project).")),

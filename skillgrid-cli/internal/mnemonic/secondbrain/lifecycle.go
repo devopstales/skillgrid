@@ -81,7 +81,7 @@ type DedupScanResult struct {
 // action touched (archived / restored / listed / flagged stale); Stale is set
 // only by the stale subaction (same shape as Affected).
 type ArchiveResult struct {
-	Affected []int64    `json:"affected"`
+	Affected []int64    `json:"affected,omitempty"`
 	Stale    []int64    `json:"stale,omitempty"`
 	Listed   []Archived `json:"listed,omitempty"`
 }
@@ -818,8 +818,15 @@ func setConsolidatedFrom(ctx context.Context, mem *memory.Service, id int64, pro
 	}
 	source := fmt.Sprintf(`{"consolidated_from":%s}`, string(idsJSON))
 	if existing != "" {
-		// Merge conservatively: keep the old source as source_source.
-		source = fmt.Sprintf(`{"consolidated_from":%s,"source_source":%s}`, string(idsJSON), existing)
+		// Merge conservatively: keep the old source as source_source. Only
+		// embed it raw when it is already valid JSON; otherwise store it as a
+		// JSON string so the merged value stays valid for consumers.
+		if json.Valid([]byte(existing)) {
+			source = fmt.Sprintf(`{"consolidated_from":%s,"source_source":%s}`, string(idsJSON), existing)
+		} else {
+			escaped, _ := json.Marshal(existing)
+			source = fmt.Sprintf(`{"consolidated_from":%s,"source_source":%s}`, string(idsJSON), string(escaped))
+		}
 	}
 	_, err = db.ExecContext(ctx, `UPDATE observations SET source = ? WHERE id = ? AND project = ?`,
 		source, id, projectID)
@@ -903,9 +910,6 @@ func logLifecycle(ctx context.Context, mem *memory.Service, projectID string, ac
 		return fmt.Errorf("memory service not initialized")
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	var res interface {
-		LastInsertId() (int64, error)
-	}
 	insert, err := db.ExecContext(ctx, `
 		INSERT INTO lifecycle_log (project, action, subaction, status, input_ids, output_ids, details, created_at)
 		VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)`,
@@ -918,7 +922,6 @@ func logLifecycle(ctx context.Context, mem *memory.Service, projectID string, ac
 	// write). status=completed + completed_at.
 	_, err = db.ExecContext(ctx, `
 		UPDATE lifecycle_log SET status = 'completed', completed_at = ? WHERE id = ?`, now, rowID)
-	_ = res
 	return err
 }
 
