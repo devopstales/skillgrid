@@ -366,7 +366,12 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		"project":          projectID,
 		"observations":     budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
 		"count":            len(res.Hits),
-		"_health_warnings": memHealthWarnings(),
+		// _health_warnings (TICKET-06): the inline, non-breaking lifecycle
+		// warnings for the concrete project this search ran under. It uses the
+		// zero-store-open ForProjectOn over the handle the read path already
+		// opened — a second svc.Open here would break the single-open contract
+		// (see TestMemSearchSingleOpen). The all-projects branch above keeps [].
+		"_health_warnings": secondbrain.ForProjectOn(ctx, svc, h.Memory(), projectID),
 	}
 	if res.Truncated {
 		out["truncated"] = true
@@ -378,11 +383,11 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 	return JSONResult(out)
 }
 
-// memHealthWarnings is the placeholder lifecycle-health surface for the
-// mem_search response (change 2026-09-30-mnemonic-second-brain, Task 7): it
-// always returns an empty list in TICKET-01 and is populated by the
-// mem_lifecycle health report in TICKET-03. It is a no-throw placeholder, so
-// a missing store never surfaces as a search failure.
+// memHealthWarnings is the empty lifecycle-warnings surface for the
+// all-projects mem_search response (change 2026-09-30-mnemonic-second-brain,
+// Task 7). The all-projects path does not know a single project, so it keeps
+// [] — only the scoped branch carries secondbrain.ForProject output. Kept as
+// a named helper so the two branches stay self-documenting.
 func memHealthWarnings() []string {
 	return []string{}
 }

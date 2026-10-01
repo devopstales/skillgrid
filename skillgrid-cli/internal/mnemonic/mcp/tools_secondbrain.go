@@ -112,6 +112,14 @@ func handleMemAsk(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Call
 		"project":      projectID,
 		"all_projects": allProjects,
 	}
+	// _health_warnings (TICKET-06): the inline, non-breaking lifecycle
+	// warnings for this project. Only when the handler knows a concrete
+	// project — the all-projects path does not, so it stays [].
+	if !allProjects && projectID != "" {
+		out["_health_warnings"] = secondbrain.ForProject(svc, projectID)
+	} else {
+		out["_health_warnings"] = []secondbrain.HealthWarning{}
+	}
 	applyAskResult(out, res)
 	return JSONResult(out)
 }
