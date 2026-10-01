@@ -140,7 +140,7 @@ A comparison against two external memory systems — Mnemon (mnemon-dev/mnemon, 
 
 ## ADR needed
 
-ADR-0011: "MCP mem_search response includes per-signal score breakdown (additive `signals` field; `matched_via` discriminator; RRF fusion when embedder active)."
+ADR-0017 (next free sequence; 0011 was double-claimed by bitemporal-audn and is now owned by it): "MCP mem_search response includes per-signal score breakdown (additive `signals` field; `matched_via` discriminator; RRF fusion when embedder active)."
 
 ## Out of scope (listed but not in this change)
 

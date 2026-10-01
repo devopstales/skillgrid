@@ -36,9 +36,9 @@ columns are never populated.
 
 ### C1: Bi-temporal columns
 
-**New columns** (migration 043, separate file `store/migrations/043_bitemporal.sql`):
+**New columns** (migration 044, separate file `store/migrations/044_bitemporal.sql`):
 ```sql
--- ===== 043_bitemporal.sql =====
+-- ===== 044_bitemporal.sql =====
 ALTER TABLE observations ADD COLUMN valid_at TEXT;
 ALTER TABLE observations ADD COLUMN invalid_at TEXT;
 ALTER TABLE observations ADD COLUMN superseded_by INTEGER;
@@ -211,7 +211,7 @@ Config key: `mnemonic.dedup.llm` (default `false`).
 
 | # | Decision | Risk | Mitigation |
 |---|---|---|---|
-| 1 | Migration 043: 3 new columns on `observations` | Additive, nullable. No data migration. | `ALTER TABLE ADD COLUMN` pattern (separate file, matching 040-042). Existing rows read back with NULLs. |
+| 1 | Migration 044: 3 new columns on `observations` | Additive, nullable. No data migration. | `ALTER TABLE ADD COLUMN` pattern (separate file, matching 040-042). Existing rows read back with NULLs. |
 | 2 | `DedupLLM` interface change (binary → 4-way) | Existing test mocks break. | Keep `Dedup` as deprecated wrapper. Add `Classify` as new method. Existing implementations keep compiling. |
 | 3 | `mem_save` MCP response shape (adds `action`, `superseded_id`) | Additive fields. Old consumers ignore unknown fields. | Purely additive JSON. No existing field removed or renamed. |
 
