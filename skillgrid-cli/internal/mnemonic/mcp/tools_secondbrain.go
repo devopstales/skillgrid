@@ -12,12 +12,18 @@ import (
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/secondbrain"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 )
 
 var (
-	errNoQuery                 = errors.New("query is required")
-	errNoAction                = errors.New("action is required")
-	errLifecycleNotImplemented = errors.New("mem_lifecycle: action dispatch not yet implemented (lands in TICKET-03)")
+	errNoQuery      = errors.New("query is required")
+	errNoAction     = errors.New("action is required")
+	errNoSubaction  = errors.New("subaction is required for archive")
+	errNoObsIDs     = errors.New("obs_ids is required")
+	errNoReason     = errors.New("reason is required for archive subaction")
+	errNoCanonical  = errors.New("canonical obs_id is required for dedup_merge")
+	errNoNewTitle   = errors.New("new_title is required for consolidate")
+	errBadAction    = errors.New("unknown action")
 )
 
 func cwd() (string, error) {
@@ -55,6 +61,7 @@ func memLifecycleTool() mcplib.Tool {
 		mcplib.WithString("reason", mcplib.Description("Archive reason (archive subaction).")),
 		mcplib.WithNumber("stale_days", mcplib.Description("Stale threshold in days (archive stale subaction; default 90).")),
 		mcplib.WithBoolean("dry_run", mcplib.Description("For dedup_scan: return clusters without writing (default true).")),
+		mcplib.WithString("new_title", mcplib.Description("Title for the consolidated observation (consolidate action).")),
 	)
 }
 
@@ -133,14 +140,159 @@ func applyAskResult(out map[string]any, res *secondbrain.AskResult) {
 	out["_total_tokens"] = res.TotalTokens
 }
 
-// handleMemLifecycle is the TICKET-01 stub: the tool is registered and the
-// action is parsed, but the dispatch (health/dedup/consolidate/archive) lands
-// in TICKET-03. It returns a not-implemented value error so a call never
-// throws and never claims success.
-func handleMemLifecycle(_ context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+// intArray extracts a []int64 from the request arguments for the given key.
+// Returns nil when the key is absent or not an array.
+func intArray(req mcplib.CallToolRequest, key string) []int64 {
+	raw, ok := req.GetArguments()[key]
+	if !ok {
+		return nil
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]int64, 0, len(arr))
+	for _, v := range arr {
+		switch n := v.(type) {
+		case float64:
+			out = append(out, int64(n))
+		case int64:
+			out = append(out, n)
+		case int:
+			out = append(out, int64(n))
+		}
+	}
+	return out
+}
+
+// resolveProject extracts the project from the request (explicit name or
+// CWD-resolved) and returns a normalized project ID.
+func resolveProject(svc *service.Service, req mcplib.CallToolRequest) (string, error) {
+	explicitProject := strings.TrimSpace(req.GetString("project", ""))
+	if explicitProject != "" {
+		return project.NormalizeID(explicitProject), nil
+	}
+	cwd, err := cwd()
+	if err != nil {
+		return "", err
+	}
+	return svc.ResolveProject(cwd)
+}
+
+// handleMemLifecycle dispatches the mem_lifecycle action to the secondbrain
+// lifecycle functions. Every mutating op is audited in the 043 lifecycle_log
+// table. Errors are returned as values, never thrown.
+func handleMemLifecycle(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, err := rootService()
+	if err != nil {
+		return toolError(err)
+	}
 	action := strings.TrimSpace(req.GetString("action", ""))
 	if action == "" {
 		return toolError(errNoAction)
 	}
-	return toolError(errLifecycleNotImplemented)
+
+	projectID, err := resolveProject(svc, req)
+	if err != nil {
+		return toolError(err)
+	}
+
+	switch action {
+	case "health":
+		rep, err := secondbrain.Health(ctx, svc, projectID)
+		if err != nil {
+			return toolError(err)
+		}
+		return JSONResult(map[string]any{
+			"project": projectID,
+			"health":  rep,
+		})
+
+	case "dedup_scan":
+		dryRun := req.GetBool("dry_run", true)
+		clusters, density, err := secondbrain.DedupScan(ctx, svc, projectID, dryRun)
+		if err != nil {
+			return toolError(err)
+		}
+		degraded := false
+		for i := range clusters {
+			if clusters[i].Degraded {
+				degraded = true
+				break
+			}
+		}
+		return JSONResult(map[string]any{
+			"project":  projectID,
+			"clusters": clusters,
+			"density":  density,
+			"degraded": degraded,
+		})
+
+	case "dedup_merge":
+		obsIDs := intArray(req, "obs_ids")
+		if len(obsIDs) == 0 {
+			return toolError(errNoCanonical)
+		}
+		canonical := obsIDs[0]
+		if err := secondbrain.DedupMerge(ctx, svc, projectID, canonical); err != nil {
+			return toolError(err)
+		}
+		return JSONResult(map[string]any{
+			"project":  projectID,
+			"merged":   true,
+			"canonical": canonical,
+		})
+
+	case "consolidate":
+		obsIDs := intArray(req, "obs_ids")
+		if len(obsIDs) == 0 {
+			return toolError(errNoObsIDs)
+		}
+		newTitle := strings.TrimSpace(req.GetString("new_title", ""))
+		if newTitle == "" {
+			return toolError(errNoNewTitle)
+		}
+		newID, err := secondbrain.Consolidate(ctx, svc, projectID, obsIDs, newTitle)
+		if err != nil {
+			return toolError(err)
+		}
+		return JSONResult(map[string]any{
+			"project":   projectID,
+			"new_id":    newID,
+			"consolidated": obsIDs,
+		})
+
+	case "archive":
+		subaction := strings.TrimSpace(req.GetString("subaction", ""))
+		if subaction == "" {
+			return toolError(errNoSubaction)
+		}
+		obsIDs := intArray(req, "obs_ids")
+		reason := strings.TrimSpace(req.GetString("reason", ""))
+		staleDays := int(req.GetFloat("stale_days", 90))
+		if subaction == "archive" && reason == "" {
+			return toolError(errNoReason)
+		}
+		result, err := secondbrain.Archive(ctx, svc, projectID, subaction, obsIDs, reason, staleDays)
+		if err != nil {
+			return toolError(err)
+		}
+		out := map[string]any{
+			"project":   projectID,
+			"subaction": subaction,
+		}
+		if result != nil {
+			out["affected"] = result.Affected
+			if result.Stale != nil {
+				out["stale"] = result.Stale
+			}
+			if result.Listed != nil {
+				out["listed"] = result.Listed
+			}
+		}
+		return JSONResult(out)
+
+	default:
+		return toolError(fmt.Errorf("%w: %q", errBadAction, action))
+	}
 }
