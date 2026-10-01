@@ -155,10 +155,14 @@ func TestBlendedSearchFallbackToFTS(t *testing.T) {
 	if _, err := svc.Save(ctx, SaveInput{Title: "authentication design", Type: "decision", Content: "JWT sessions", SessionID: sid, Scope: "project"}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	// No embeddings present + empty vector → must still find the row via FTS.
-	hits, err := svc.BlendedSearch(ctx, "authentication design", "any", "", Vector{}, 10)
+	// No embeddings present + empty vector → must still find the row via FTS
+	// and report the degraded (FTS-floor) match path.
+	hits, degraded, err := svc.BlendedSearch(ctx, "authentication design", "any", "", Vector{}, 10)
 	if err != nil {
 		t.Fatalf("blended: %v", err)
+	}
+	if !degraded {
+		t.Error("expected degraded=true with an empty query vector")
 	}
 	if len(hits) == 0 {
 		t.Fatalf("expected FTS fallback to return the saved row")

@@ -68,6 +68,7 @@ func Start() error {
 	registerFactTools(s)
 	registerSkillTools(s)
 	registerMemoryHybridTools(s)
+	registerSecondBrainTools(s)
 	return server.ServeStdio(s)
 }
 
@@ -105,5 +106,6 @@ func NewServer() *Server {
 	registerFactTools(s)
 	registerSkillTools(s)
 	registerMemoryHybridTools(s)
+	registerSecondBrainTools(s)
 	return s
 }

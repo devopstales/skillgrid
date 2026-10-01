@@ -74,6 +74,42 @@ type Service struct {
 	// zero-fallback in federatedWeights.
 	federatedMu      sync.Mutex
 	federatedWeights FederatedConfig
+	// dirEmbOv is an optional query-embedding seam attached to every
+	// freshly-opened project memory service. Nil (the default) preserves the
+	// exact pre-existing behavior (no dir embedder → FTS5-only scoring); when
+	// set, openProject reuses it so a composing layer can exercise the vector
+	// leg without per-handle plumbing. Guarded by dirEmbMu.
+	dirEmbMu sync.Mutex
+	dirEmbOv interface {
+		EmbedQuery(ctx context.Context, text string) (memory.Vector, error)
+	}
+}
+
+// dirEmbOverride returns the attached query-embedding seam (nil = default).
+func (s *Service) dirEmbOverride() interface {
+	EmbedQuery(ctx context.Context, text string) (memory.Vector, error)
+} {
+	if s == nil {
+		return nil
+	}
+	s.dirEmbMu.Lock()
+	defer s.dirEmbMu.Unlock()
+	return s.dirEmbOv
+}
+
+// SetDirEmbedderOverride attaches an optional query-embedding seam that
+// openProject forwards to every freshly-opened project memory service.
+// Passing nil restores the default (no dir embedder → FTS5-only scoring).
+// Additive: with the override nil, behavior is byte-for-byte unchanged.
+func (s *Service) SetDirEmbedderOverride(e interface {
+	EmbedQuery(ctx context.Context, text string) (memory.Vector, error)
+}) {
+	if s == nil {
+		return
+	}
+	s.dirEmbMu.Lock()
+	s.dirEmbOv = e
+	s.dirEmbMu.Unlock()
 }
 
 // federatedCfg returns the active federated merge weights: the test/CLI
@@ -386,6 +422,12 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 	// SetSnapshotRetention, so a config without the key keeps the production
 	// retention.
 	mem.SetSnapshotRetention(cfg.SnapshotRetention)
+	// Optional query-embedding seam (nil = default FTS5-only scoring). A
+	// composing layer (mem_ask / session-inject hybrid) can exercise the
+	// vector leg across freshly-opened handles without per-handle plumbing.
+	if s.dirEmbOverride() != nil {
+		mem.SetDirEmbedder(s.dirEmbOverride())
+	}
 	// Lifecycle hooks (014 step 24): route the mnemonic.hooks config key to the
 	// memory service. Enabled DEFAULTS TO TRUE (2026-09-24 monitoring, one-way
 	// flip): observe-mode is safe (writes rows, never blocks), so a config

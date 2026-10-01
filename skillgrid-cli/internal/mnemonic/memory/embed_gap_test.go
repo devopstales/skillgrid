@@ -33,9 +33,12 @@ func TestBlendedSearchFusesWhenEmbedOn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hits, err := svc.BlendedSearch(ctx, "authentication login password", "any", "", Vector{Data: []float32{1, 0}}, 10)
+	hits, degraded, err := svc.BlendedSearch(ctx, "authentication login password", "any", "", Vector{Data: []float32{1, 0}}, 10)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if degraded {
+		t.Error("expected a non-degraded (vector-fused) search")
 	}
 	if len(hits) < 2 {
 		t.Fatalf("want fused hits, got %d", len(hits))
@@ -62,9 +65,12 @@ func TestMissingEmbedderDegradesToKeywordOnly(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := svc.BlendedSearch(ctx, "degrade keyword hit", "any", "", Vector{Data: []float32{1, 0, 0}}, 10)
+	hits, degraded, err := svc.BlendedSearch(ctx, "degrade keyword hit", "any", "", Vector{Data: []float32{1, 0, 0}}, 10)
 	if err != nil {
 		t.Fatalf("must not hard-fail when vectors absent: %v", err)
+	}
+	if !degraded {
+		t.Error("expected degraded=true when the vector leg has no candidates")
 	}
 	if len(hits) == 0 {
 		t.Fatal("expected FTS-only results")
@@ -95,7 +101,7 @@ func TestDisabledFlagYieldsNoVectorRecall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	blended, err := svc.BlendedSearch(ctx, "embed off", "any", "", Vector{Data: []float32{1, 0}}, 10)
+	blended, _, err := svc.BlendedSearch(ctx, "embed off", "any", "", Vector{Data: []float32{1, 0}}, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

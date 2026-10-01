@@ -64,6 +64,19 @@ func TestSquashShimUpgrade(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO sessions (id, project, directory, started_at, status) VALUES ('s1','presquash','/tmp','2026-01-01T00:00:00Z','active')`); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
+	// A real pre-squash DB at schema_version 41 always has observations
+	// (created in 001_schema.sql). 043 ALTERs it, so the minimal footprint
+	// needs the table to exist.
+	if _, err := db.Exec(`
+		CREATE TABLE observations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT, type TEXT, title TEXT, content TEXT,
+			project TEXT, scope TEXT, topic_key TEXT,
+			normalized_hash TEXT, revision_count INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT, updated_at TEXT, deleted_at TEXT
+		)`); err != nil {
+		t.Fatalf("create observations: %v", err)
+	}
 	if _, err := db.Exec(`
 		INSERT INTO index_meta (key, schema_version) VALUES ('migration:019_session_relay.sql', 1)`); err != nil {
 		t.Fatalf("record old migration row: %v", err)

@@ -68,12 +68,41 @@ func HybridRetrieve(ctx context.Context, mem *memory.Service, projectID, query s
 	if allProjects {
 		obs, err = crossProjectSearch(ctx, mem, projectID, query, queryVec)
 	} else {
-		obs, err = mem.BlendedSearch(ctx, query, "any", "", queryVec, injectSearchLimit)
+		obs, _, err = mem.BlendedSearch(ctx, query, "any", "", queryVec, injectSearchLimit)
 	}
 	if err != nil {
 		return nil, err
 	}
 	return mapItems(obs, maxTokens, degraded), nil
+}
+
+// HybridObservations is the observation-level form of HybridRetrieve's gather
+// step: it runs the fused search (BM25 FTS floor + semantic vector, RRF-fused,
+// degrading to FTS-only when no embedder contributes) and returns the ranked,
+// full observation rows (no injectability filter, no token mapping) so a caller
+// can render its own projection. project-scoped; allProjects widens to every
+// project bucket in the store's data directory. The second return reports
+// whether the vector leg was skipped (degraded=true).
+func HybridObservations(ctx context.Context, mem *memory.Service, projectID, query string, allProjects bool) ([]memory.Observation, bool, error) {
+	if mem == nil {
+		return nil, false, fmt.Errorf("memory service is nil")
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, true, nil
+	}
+	queryVec, degraded := queryVector(ctx, mem, query)
+	var obs []memory.Observation
+	var err error
+	if allProjects {
+		obs, err = crossProjectSearch(ctx, mem, projectID, query, queryVec)
+	} else {
+		obs, _, err = mem.BlendedSearch(ctx, query, "any", "", queryVec, injectSearchLimit)
+	}
+	if err != nil {
+		return nil, degraded, err
+	}
+	return obs, degraded, nil
 }
 
 func queryVector(ctx context.Context, mem *memory.Service, query string) (memory.Vector, bool) {
@@ -104,7 +133,7 @@ func crossProjectSearch(ctx context.Context, mem *memory.Service, projectID, que
 	// "project:id" because ids collide across buckets. Ties break on key
 	// string (deterministic).
 	ranked := [][]memory.Observation{}
-	primary, err := mem.BlendedSearch(ctx, query, "any", "", queryVec, injectSearchLimit)
+	primary, _, err := mem.BlendedSearch(ctx, query, "any", "", queryVec, injectSearchLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +148,7 @@ func crossProjectSearch(ctx context.Context, mem *memory.Service, projectID, que
 			if emb := mem.DirEmbedder(); emb != nil {
 				svc.SetDirEmbedder(emb)
 			}
-			hits, sErr := svc.BlendedSearch(ctx, query, "any", "", queryVec, injectSearchLimit)
+			hits, _, sErr := svc.BlendedSearch(ctx, query, "any", "", queryVec, injectSearchLimit)
 			st.Close()
 			if sErr != nil {
 				continue

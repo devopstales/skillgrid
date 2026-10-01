@@ -111,27 +111,33 @@ func (s *Service) SearchByVector(ctx context.Context, queryVec Vector, limit int
 // vector leg (SearchByVector), then merges the two ranked lists with
 // ReciprocalRankFusion before truncating to limit.
 //
+// The second return value reports whether the vector leg was skipped
+// (degraded=true): the FTS floor held because no vector was supplied,
+// embeddings are disabled, or the vector leg produced no candidates. The
+// FTS5 floor guarantee is unchanged (results never depend on the vector
+// leg); the flag only tells callers (mem_ask) which match path to surface.
+//
 // Degradation guarantees (the "FTS5 is the floor" rule):
-//   - queryVec empty  → returns the FTS leg unchanged (RRF is a no-op).
-//   - no embeddings    → vector leg empty → RRF reduces to FTS ordering.
-func (s *Service) BlendedSearch(ctx context.Context, query, matchMode, scope string, queryVec Vector, limit int) ([]Observation, error) {
+//   - queryVec empty  → returns the FTS leg unchanged (RRF is a no-op), degraded=true.
+//   - no embeddings    → vector leg empty → RRF reduces to FTS ordering, degraded=true.
+func (s *Service) BlendedSearch(ctx context.Context, query, matchMode, scope string, queryVec Vector, limit int) ([]Observation, bool, error) {
 	if s == nil || s.store == nil || s.store.DB == nil {
-		return nil, errors.New("memory service not initialized")
+		return nil, false, errors.New("memory service not initialized")
 	}
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
 	fts, err := s.SearchWithScope(ctx, query, matchMode, scope, limit)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if len(queryVec.Data) == 0 || !EmbeddingEnabled() {
-		return fts, nil // FTS floor: no vector leg to blend with
+		return fts, true, nil // FTS floor: no vector leg to blend with
 	}
 
 	vecHits, err := s.SearchByVector(ctx, queryVec, limit*3) // grab a wider net before blending
 	if err != nil || len(vecHits) == 0 {
-		return fts, nil // floor: keep FTS when vector leg has no candidates
+		return fts, true, nil // floor: keep FTS when vector leg has no candidates
 	}
 
 	key := func(o Observation) string {
@@ -171,5 +177,5 @@ func (s *Service) BlendedSearch(ctx context.Context, query, matchMode, scope str
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	return out, nil
+	return out, false, nil
 }

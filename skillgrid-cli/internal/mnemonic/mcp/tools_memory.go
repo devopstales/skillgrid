@@ -303,10 +303,11 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 			return toolError(err)
 		}
 		out := map[string]any{
-			"project":      "all",
-			"all_projects": true,
-			"count":        len(res.Hits),
-			"observations": budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
+			"project":           "all",
+			"all_projects":      true,
+			"count":             len(res.Hits),
+			"observations":      budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
+			"_health_warnings":  memHealthWarnings(),
 		}
 		if res.Truncated {
 			out["truncated"] = true
@@ -344,9 +345,10 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		return toolError(err)
 	}
 	out := map[string]any{
-		"project":      projectID,
-		"observations": budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
-		"count":        len(res.Hits),
+		"project":           projectID,
+		"observations":      budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
+		"count":             len(res.Hits),
+		"_health_warnings":  memHealthWarnings(),
 	}
 	if res.Truncated {
 		out["truncated"] = true
@@ -356,6 +358,15 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		out["project_drift"] = drift
 	}
 	return JSONResult(out)
+}
+
+// memHealthWarnings is the placeholder lifecycle-health surface for the
+// mem_search response (change 2026-09-30-mnemonic-second-brain, Task 7): it
+// always returns an empty list in TICKET-01 and is populated by the
+// mem_lifecycle health report in TICKET-03. It is a no-throw placeholder, so
+// a missing store never surfaces as a search failure.
+func memHealthWarnings() []string {
+	return []string{}
 }
 
 func handleMemContext(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
@@ -527,7 +538,7 @@ func handleMemSuggestTopicKey(_ context.Context, req mcplib.CallToolRequest) (*m
 	if err != nil {
 		return toolError(err)
 	}
-	key := suggestTopicKey(typ, req.GetString("title", ""), req.GetString("content", ""))
+	key := SuggestTopicKey(typ, req.GetString("title", ""), req.GetString("content", ""))
 	return JSONResult(map[string]string{"topic_key": key})
 }
 
@@ -1307,7 +1318,11 @@ func sessionDTOs(sessions []memory.Session) []map[string]any {
 
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
-func suggestTopicKey(typ, title, content string) string {
+// SuggestTopicKey derives a stable upsert key (family/segment) from an
+// observation's type and title (falling back to content). It is the shared
+// seam behind mem_suggest_topic_key and the second-brain upsert inference:
+// export so an evolving topic keeps one key across saves.
+func SuggestTopicKey(typ, title, content string) string {
 	family := topicFamily(typ)
 	segment := slugSegment(title)
 	if segment == "" {

@@ -76,6 +76,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"hybrid_search",
 		// On-demand session context injection (2026-09-24-mnemonic-session-inject, TICKET-05).
 		"mem_inject_session",
+		// Second-brain ask + lifecycle (2026-09-30-mnemonic-second-brain, TICKET-01).
+		"mem_ask", "mem_lifecycle",
 	}
 	if len(tools) != len(want) {
 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)

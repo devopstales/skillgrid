@@ -200,7 +200,7 @@ func (s *Service) rrfFallback(ctx context.Context, query string, limit int) ([]L
 		// a specific-fact query with no fact is a no-op, not a hang.
 		return nil, nil
 	}
-	hits, err := s.BlendedSearch(ctx, query, "any", "", Vector{}, limit)
+	hits, _, err := s.BlendedSearch(ctx, query, "any", "", Vector{}, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +230,7 @@ func (s *Service) rrfFallbackOwnerScopedFTS(ctx context.Context, readerOwner, qu
 	if query == "" {
 		return nil, nil
 	}
-	hits, err := s.BlendedSearch(ctx, query, matchMode, "", Vector{}, limit*3)
+	hits, _, err := s.BlendedSearch(ctx, query, matchMode, "", Vector{}, limit*3)
 	if err != nil {
 		return nil, err
 	}

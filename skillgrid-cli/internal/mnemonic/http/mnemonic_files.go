@@ -773,7 +773,7 @@ func (s *Server) handleMnemonicSearch(w http.ResponseWriter, r *http.Request) {
 	if mode == "fts" {
 		obsList, err = h.Memory().SearchWithScope(r.Context(), q, "", projectID, limit)
 	} else { // hybrid — without a query vector this degrades to the FTS leg.
-		obsList, err = h.Memory().BlendedSearch(r.Context(), q, "", "", memory.Vector{}, limit)
+		obsList, _, err = h.Memory().BlendedSearch(r.Context(), q, "", "", memory.Vector{}, limit)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

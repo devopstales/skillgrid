@@ -81,8 +81,8 @@ func TestAffectedTools(t *testing.T) {
 	// + 1 hybrid_search (TICKET-05 memory search over facts and skills).
 	// + 1 fact_decay_all (TICKET-02 batch decay + purge).
 	// + 2 mem_query_events / mem_export_events (TICKET-03 event query + export).
-	if len(tools) != 93 {
-		t.Errorf("expected 93 tools, got %d", len(tools))
+	if len(tools) != 95 {
+		t.Errorf("expected 95 tools, got %d", len(tools))
 	}
 
 	// code_affected runs the traversal (changed -> affected test files).
