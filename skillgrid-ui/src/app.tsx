@@ -29,13 +29,13 @@ const rootRoute = createRootRoute({
   component: AppLayout,
 })
 
-// `/` is the Overview landing page. It reuses the Tracker view (the
-// project's observe surface) so the root route has a real page rather than
-// redirecting.
+// `/` is the Overview landing page: a Terminal Ops dashboard of project health
+// (KPI cards, recent activity, pipeline status). Wave 3 pointed the "Overview"
+// nav here; this wires the route to the OverviewPage.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  component: lazyPage(() => import('./features/tracker/TrackerPage').then((m) => ({ default: m.TrackerPage }))),
+  component: lazyPage(() => import('./features/overview/OverviewPage').then((m) => ({ default: m.OverviewPage }))),
 })
 
 const trackerRoute = createRoute({
