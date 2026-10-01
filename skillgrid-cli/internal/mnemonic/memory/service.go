@@ -374,6 +374,17 @@ type Observation struct {
 	// (014 step 18). Empty = the row was not given a type (pre-028 rows read
 	// back empty — the pre-028 contract is unchanged). Additive + omitempty.
 	MemoryType string `json:"memory_type,omitempty"`
+	// ValidAt is the bi-temporal "valid from" timestamp (ADR-0011). Stamped
+	// at save time with created_at. Empty = pre-migration row (treated as
+	// valid from the beginning).
+	ValidAt string `json:"valid_at,omitempty"`
+	// InvalidAt is the bi-temporal "valid until" timestamp (ADR-0011).
+	// NULL/empty = still true. A past value means the observation was
+	// superseded and is excluded from live read paths.
+	InvalidAt string `json:"invalid_at,omitempty"`
+	// SupersededBy is the ID of the observation that superseded this one
+	// (ADR-0011). NULL = not superseded.
+	SupersededBy sql.NullInt64 `json:"-"`
 }
 
 // Status holds aggregate memory statistics.
@@ -583,10 +594,12 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 			session_id, type, title, content, project, scope, topic_key,
 			normalized_hash, revision_count, created_at, updated_at, source, prompt_id, tool_name,
 			owner, visibility, status, retrieval_usage, expires_at,
-			importance_score, recency_decay, maturity_tier, provenance, memory_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?, 0, 1, 'fresh', ?, ?)`,
+			importance_score, recency_decay, maturity_tier, provenance, memory_type,
+			valid_at, invalid_at, superseded_by
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?, 0, 1, 'fresh', ?, ?, ?, NULL, NULL)`,
 		in.SessionID, in.Type, in.Title, in.Content, s.projectID, in.Scope, nullString(in.TopicKey),
 		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt), provenanceJSON, nullString(memoryType),
+		now, nullString(""),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert observation: %w", err)
@@ -700,12 +713,14 @@ func (s *Service) SearchWithScope(ctx context.Context, query, matchMode, scope s
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type
+		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
+		       o.valid_at, o.invalid_at, o.superseded_by
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
- 		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
- 		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
+  		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
+  		  AND (o.invalid_at IS NULL OR o.invalid_at = '' OR strftime('%s', o.invalid_at) > strftime('%s', 'now'))
+  		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
 		LIMIT ?`,
 		args...,
 	)
@@ -759,17 +774,19 @@ func (s *Service) SearchOwnerScoped(ctx context.Context, readerOwner, readerAgen
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type
+		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
+		       o.valid_at, o.invalid_at, o.superseded_by
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
+		  AND (o.invalid_at IS NULL OR o.invalid_at = '' OR strftime('%s', o.invalid_at) > strftime('%s', 'now'))
 		  AND `+clause+`
 		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
 		LIMIT ?`,
 		args...,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("owner-scoped search: %w", err)
+		return nil, fmt.Errorf("owner scoped search: %w", err)
 	}
 	defer rows.Close()
 	out, err := scanObservations(rows)
@@ -885,7 +902,7 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	var obs Observation
 	var topicKey sql.NullString
 	var promptID sql.NullInt64
-	var lastSeen, expires, toolName, owner, tier, prov, memType sql.NullString
+	var lastSeen, expires, toolName, owner, tier, prov, memType, validAt, invalidAt sql.NullString
 	var pinned, dups, usage int
 	var score, decay sql.NullFloat64
 	err := row.Scan(
@@ -893,6 +910,7 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 		&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 		&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
 		&score, &decay, &tier, &prov, &memType,
+		&validAt, &invalidAt, &obs.SupersededBy,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -902,6 +920,12 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	}
 	if memType.Valid {
 		obs.MemoryType = memType.String
+	}
+	if validAt.Valid {
+		obs.ValidAt = validAt.String
+	}
+	if invalidAt.Valid {
+		obs.InvalidAt = invalidAt.String
 	}
 	obs.setImportanceColumns(score, decay, tier)
 	if p, ok, perr := parseProvenanceColumn(prov); perr != nil {
@@ -2102,7 +2126,8 @@ const obsSelectCols = `
 	topic_key, source, normalized_hash, revision_count, prompt_id, created_at, updated_at,
 	COALESCE(pinned, 0), COALESCE(duplicate_count, 0), last_seen_at, expires_at, tool_name,
 	owner, COALESCE(visibility, 'private'), COALESCE(status, 'active'), COALESCE(retrieval_usage, 0),
-	importance_score, recency_decay, maturity_tier, provenance, memory_type`
+	importance_score, recency_decay, maturity_tier, provenance, memory_type,
+	valid_at, invalid_at, superseded_by`
 
 func scanObservations(rows *sql.Rows) ([]Observation, error) {
 	var out []Observation
@@ -2110,7 +2135,7 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
 		var obs Observation
 		var topicKey sql.NullString
 		var promptID sql.NullInt64
-		var lastSeen, expires, toolName, owner, tier, prov, memType sql.NullString
+		var lastSeen, expires, toolName, owner, tier, prov, memType, validAt, invalidAt sql.NullString
 		var pinned, dups, usage int
 		var score, decay sql.NullFloat64
 		if err := rows.Scan(
@@ -2118,11 +2143,18 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
 			&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 			&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
 			&score, &decay, &tier, &prov, &memType,
+			&validAt, &invalidAt, &obs.SupersededBy,
 		); err != nil {
 			return nil, fmt.Errorf("scan observation: %w", err)
 		}
 		if memType.Valid {
 			obs.MemoryType = memType.String
+		}
+		if validAt.Valid {
+			obs.ValidAt = validAt.String
+		}
+		if invalidAt.Valid {
+			obs.InvalidAt = invalidAt.String
 		}
 		obs.setImportanceColumns(score, decay, tier)
 		if p, ok, perr := parseProvenanceColumn(prov); perr != nil {
@@ -2191,4 +2223,42 @@ func scanSessions(rows *sql.Rows) ([]Session, error) {
 		return nil, fmt.Errorf("iterate sessions: %w", err)
 	}
 	return out, nil
+}
+
+// ValidAtTime returns observations whose bi-temporal validity window
+// [valid_at, invalid_at) contains `since` (ADR-0011 C1.5):
+// valid_at <= since AND (invalid_at IS NULL OR invalid_at > since).
+// Rows with no valid_at (pre-migration) are treated as valid from the
+// beginning. `query` is FTS5-matched against the observation text.
+func (s *Service) ValidAtTime(ctx context.Context, query, since string) ([]Observation, error) {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return nil, errors.New("memory service not initialized")
+	}
+	ftsQuery := buildFTSQuery(query, "any")
+	if ftsQuery == "" {
+		return nil, nil
+	}
+	const btSelectCols = `
+		o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
+		o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
+		COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
+		o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
+		o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
+		o.valid_at, o.invalid_at, o.superseded_by`
+	rows, err := s.store.DB.QueryContext(ctx, `
+		SELECT `+btSelectCols+`
+		FROM observations o
+		INNER JOIN observations_fts ON observations_fts.rowid = o.id
+		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?
+		  AND (o.valid_at IS NULL OR o.valid_at = '' OR strftime('%s', o.valid_at) <= strftime('%s', ?))
+		  AND (o.invalid_at IS NULL OR o.invalid_at = '' OR strftime('%s', o.invalid_at) > strftime('%s', ?))
+		ORDER BY o.created_at DESC, o.id DESC
+		LIMIT 100`,
+		ftsQuery, s.projectID, since, since,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("valid at time: %w", err)
+	}
+	defer rows.Close()
+	return scanObservations(rows)
 }

@@ -12,10 +12,10 @@ import (
 // Observation visibility levels (change 013, step 01). Private-by-default:
 // a new observation is `private` until an explicit mem_share.
 const (
-	VisibilityPrivate     = "private"
-	VisibilityTeam        = "team"
-	VisibilityRestricted  = "restricted"
-	VisibilityAgent       = "agent"
+	VisibilityPrivate    = "private"
+	VisibilityTeam       = "team"
+	VisibilityRestricted = "restricted"
+	VisibilityAgent      = "agent"
 )
 
 // Observation lifecycle statuses. `active` by default; `superseded` /
@@ -259,14 +259,14 @@ type Grant struct {
 
 // Governance is the mem_governance <id> result: the asset fields.
 type Governance struct {
-	ID            int64     `json:"id"`
-	Owner         string    `json:"owner"`
-	Visibility    string    `json:"visibility"`
-	Status        string    `json:"status"`
-	RevisionCount int       `json:"revision_count"`
-	RetrievalUsage int      `json:"retrieval_usage"`
-	Versions      []Version `json:"versions"`
-	Grants        []Grant   `json:"grants,omitempty"`
+	ID             int64     `json:"id"`
+	Owner          string    `json:"owner"`
+	Visibility     string    `json:"visibility"`
+	Status         string    `json:"status"`
+	RevisionCount  int       `json:"revision_count"`
+	RetrievalUsage int       `json:"retrieval_usage"`
+	Versions       []Version `json:"versions"`
+	Grants         []Grant   `json:"grants,omitempty"`
 	// RestrictedNoGrants is true when visibility is restricted and no ACL
 	// grants exist — the observation is owner-only. It is a condition to be
 	// surfaced, not an error.
@@ -447,11 +447,13 @@ func (s *Service) SearchOwner(ctx context.Context, readerOwner, query, matchMode
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
 		   COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type
+		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
+		       o.valid_at, o.invalid_at, o.superseded_by
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.project = ? AND o.deleted_at IS NULL
 		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
+		  AND (o.invalid_at IS NULL OR o.invalid_at = '' OR strftime('%s', o.invalid_at) > strftime('%s', 'now'))
 		  AND `+clause+`
 		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
 		LIMIT ?`,
@@ -493,10 +495,12 @@ func (s *Service) AdminCrossOwnerList(ctx context.Context, adminOwner string) ([
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
 		   COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type
+		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
+		       o.valid_at, o.invalid_at, o.superseded_by
 		FROM observations o
 		WHERE o.deleted_at IS NULL AND o.project = ?
 		  AND (o.owner = ? OR COALESCE(o.visibility, 'private') != 'private')
+		  AND (o.invalid_at IS NULL OR o.invalid_at = '' OR strftime('%s', o.invalid_at) > strftime('%s', 'now'))
 		ORDER BY o.created_at DESC, o.id DESC
 		LIMIT 500`, s.projectID, adminOwner)
 	if err != nil {

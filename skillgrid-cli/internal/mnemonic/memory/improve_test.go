@@ -14,15 +14,15 @@ func newImproveFixture(t *testing.T, project string) *ownerFixture {
 	t.Helper()
 	fx := newOwnerFixture(t, project)
 	fx.svc.SetImprove(ImproveConfig{
-		Enabled:     true,
-		Threshold:   5,
-		MaxUsage:    50,
-		BoostRate:   0.1,
-		DecayRate:   0.25,
+		Enabled:   true,
+		Threshold: 5,
+		MaxUsage:  50,
+		BoostRate: 0.1,
+		DecayRate: 0.25,
 		// Cooldown: 1ns → the default 1-minute fallback does not kick in, so
 		// consecutive searches in a test are never blocked by the cooldown.
-		Cooldown:    time.Nanosecond,
-		Now:         func() time.Time { return time.Now().UTC() },
+		Cooldown: time.Nanosecond,
+		Now:      func() time.Time { return time.Now().UTC() },
 	})
 	return fx
 }
@@ -305,13 +305,13 @@ func TestImproveDisabledNoRegression(t *testing.T) {
 	// Re-enabling the loop (the config opt-in) must change the order — proof
 	// the disabled path skipped the re-rank entirely.
 	fx.svc.SetImprove(ImproveConfig{
-		Enabled:     true,
-		Threshold:   5,
-		MaxUsage:    50,
-		BoostRate:   0.1,
-		DecayRate:   0.25,
-		Cooldown:    time.Nanosecond,
-		Now:         func() time.Time { return time.Now().UTC() },
+		Enabled:   true,
+		Threshold: 5,
+		MaxUsage:  50,
+		BoostRate: 0.1,
+		DecayRate: 0.25,
+		Cooldown:  time.Nanosecond,
+		Now:       func() time.Time { return time.Now().UTC() },
 	})
 	enabled, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent",
 		"disablalpha disablbeta disablgamma", "any", "", 10)
@@ -333,13 +333,13 @@ func TestImproveDisabledNoRegression(t *testing.T) {
 	seedImproveObs(t, fx2, "disablbeta hot used", "disablbeta filler body two", fx2.ownerA, 100, 1*time.Hour)
 	seedImproveObs(t, fx2, "disablgamma mid used", "disablgamma filler body three", fx2.ownerA, 10, 1*time.Hour)
 	fx2.svc.SetImprove(ImproveConfig{
-		Enabled:     true,
-		Threshold:   5,
-		MaxUsage:    50,
-		BoostRate:   0.1,
-		DecayRate:   0.25,
-		Cooldown:    time.Hour,
-		Now:         func() time.Time { return time.Now().UTC() },
+		Enabled:   true,
+		Threshold: 5,
+		MaxUsage:  50,
+		BoostRate: 0.1,
+		DecayRate: 0.25,
+		Cooldown:  time.Hour,
+		Now:       func() time.Time { return time.Now().UTC() },
 	})
 	first, err := fx2.svc.SearchOwnerScoped(ctx, fx2.ownerA, "agent",
 		"disablalpha disablbeta disablgamma", "any", "", 10)
@@ -390,11 +390,12 @@ func rawSQLSearch(ctx context.Context, fx *ownerFixture, query string) ([]Observ
 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type
+		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
+		       o.valid_at, o.invalid_at, o.superseded_by
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?
- 		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
+  		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
 		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
 		LIMIT 10`,
 		ftsQuery, fx.svc.ProjectID(),
