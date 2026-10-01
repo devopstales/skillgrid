@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// relSupersedes is the memory_relations edge recorded by MarkSuperseded
+// (the AUDN "delete" arm, ADR-0011). Kept as a constant so the relation name
+// is never a bare literal in SQL.
+const relSupersedes = "supersedes"
+
 // Pin marks an observation so it sorts ahead of everything else in
 // mem_context and boosts mem_search ordering. Pinned state is local to this
 // device store (not synced), matching Engram's local pin semantics.
@@ -148,32 +153,28 @@ func (s *Service) MarkSuperseded(ctx context.Context, oldID, newID int64) error 
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("mark_superseded: observation %d not found", oldID)
 	}
-	// Upsert the supersedes edge (src=old → dst=new) within the same
+	// Record the supersedes edge (src=old → dst=new) within the same
 	// transaction for atomicity. modernc.org/sqlite does not support
-	// ON CONFLICT against a partial unique index, so look up a live row,
-	// UPDATE in place if present, INSERT if not (same idiom as
-	// RecordRelation in relations.go).
+	// ON CONFLICT against a partial unique index, so SELECT a live row first
+	// and INSERT only if absent. created_at is immutable: an existing edge is
+	// left untouched, so a re-supersede never rewrites its original
+	// created_at.
 	var existingID int64
 	err = tx.QueryRowContext(ctx, `
 		SELECT id FROM memory_relations
 		WHERE src_obs_id = ? AND dst_obs_id = ? AND relation = ? AND deleted_at IS NULL
 		LIMIT 1`,
-		oldID, newID, "supersedes",
+		oldID, newID, relSupersedes,
 	).Scan(&existingID)
 	if err == nil {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE memory_relations SET created_at = ? WHERE id = ?`,
-			now, existingID,
-		); err != nil {
-			return fmt.Errorf("mark_superseded: %w", err)
-		}
+		// Edge already exists: leave it (and its created_at) alone.
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("mark_superseded: %w", err)
 	} else {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO memory_relations (src_obs_id, dst_obs_id, relation, project, created_at)
 			VALUES (?, ?, ?, ?, ?)`,
-			oldID, newID, "supersedes", s.projectID, now,
+			oldID, newID, relSupersedes, s.projectID, now,
 		); err != nil {
 			return fmt.Errorf("mark_superseded: %w", err)
 		}
