@@ -337,15 +337,58 @@ this change; recorded as WARNING (pre-existing flake).
 | State Drift (9.5) | `SCOPE: COMPLETE` (emitted by the guard) |
 | Structure Drift (9.6) | `SCOPE: SKIPPED` (Chain strategy pending — no base ref) |
 
-**Stale-verification check:** `STALE: none` — no code-zone file changed after this run's
-evidence was gathered; this run's named tests + run commands are the gate's evidence (the
-change is fully committed; `git status` clean).
+**Stale-verification check:** `STALE: 49ec4ce5 (code-review fix commit)` — a code-zone change
+landed after the initial PASS evidence (the 2 important + trivial-minor review fixes). This
+re-verification run's named tests + run commands are the gate's evidence, not the prior
+verdict. See `## Re-verification (code-review fixes)` below.
 
 **Note:** `state.yaml` currently points at `2026-09-24-mnemonic-monitoring` (a different,
 later change). Per the locked constraint "the repo is the source of truth," the spec zone
 wins; the state-drift guard reports `DRIFT: none` because it compares `state.yaml` against
 the *current* spec-zone change it tracks, not this change. Setting
 `pipeline.current_phase: qa` for this change is the Step-11 routing action.
+
+## Re-verification (code-review fixes)
+
+> Triggered by the post-QA two-axis code review (`review-session-events.diff`), which found
+> 2 IMPORTANT + 8 minor/low. The user directed "fix important + trivial minors." Fix commit
+> `49ec4ce5` addressed them; this section is the re-verification evidence (re-verification
+> mode — full check on the changed code, regression-only on the rest).
+
+**Fixed in `49ec4ce5`:**
+- **IMPORTANT (correctness):** `RecordCommitEvent` — `appendSessionEvent` now returns the
+  inserted `sequence`; the payload `UPDATE` and the post-commit read-back are scoped to
+  `WHERE session_id=? AND sequence=?` instead of `MAX(sequence)`/`DESC LIMIT 1`, so two
+  concurrent commits in one session can no longer cross sha/payload.
+- **IMPORTANT (correctness):** `SessionSummary` — the `to_commit` stamp is now scoped to
+  `s.projectID` and runs AFTER the project-scoped existence check, so a not-found session has
+  no cross-bucket side effect.
+- **Minor (standards):** stale old-model comments on `ProjectHandle.Root()` (cleave bundle)
+  and `openSessionService` (read-path "partial cleave bundle").
+- **Minor (maintainability):** removed the orphaned UI snapshot types (`SnapshotContext`,
+  `ChangeSnapshot`, `Checkpoint`, `SnapshotsResponse`) and the stale OpenAPI
+  `/handoff/snapshots` route + `ChangeSnapshot` schema (+ its phase-6 test pins).
+
+**Deferred (recorded, not fixed):** 1 medium (toolcalls `RunHook` project-scoping) + 3 low
+security hardening items (sensitive-payload disclosure on read, git ref validation for
+`--show-diff`, non-sensitive preview size cap) + 1 minor (deleted `mem handoff` CLI test) +
+1 minor (session.go arg-parsing defensive branch) — all non-blocking, edge-case/hardening.
+
+**Re-run evidence (this run):**
+| Package / check | Command | Result |
+|-----------------|---------|--------|
+| memory (named regression set) | `go test -run 'TestSessionStartEndEvents\|TestPostToolUse\|TestSensitiveWrite\|TestCommitEventParsesContextBlock\|TestSessionChangesIgnoresStaleCheckpoint' ./internal/mnemonic/memory/` | ok 15.5s — all PASS (incl. 8 commit sub-cases, concurrent seq) |
+| memory (full pkg) | `go test ./internal/mnemonic/memory/` | ok (cached) |
+| mcp | `go test ./internal/mnemonic/mcp/` | ok (cached) |
+| cmd/skillgrid | `go test ./cmd/skillgrid/` | ok 156.7s |
+| http (openapi embed + phase-6) | `go test ./internal/mnemonic/http/` | ok 29.2s |
+| service | `go test ./internal/mnemonic/service/` | ok 104.8s |
+| UI typecheck | `npx tsc --noEmit` (skillgrid-ui) | rc 0 (api.ts edit) |
+| build + vet | `go build ./...`; `go vet ./internal/mnemonic/memory ./internal/mnemonic/service ./cmd/skillgrid` | clean (budget.go pre-existing note excluded) |
+
+**Re-verification verdict:** PASS — no new findings; all 5 changed Go packages green, UI
+typecheck clean, 21/21 scenarios still COMPLIANT, 12/12 truths still VERIFIED (the commit-event
+truth is now sequence-scoped). No CRITICAL introduced. The gate below stands at **PASS**.
 
 ## Gate Decision
 
@@ -372,6 +415,8 @@ Four-state criteria check (thresholds from config):
 21 scenarios have a runnable covering test that ran and passed this run. No CRITICAL, no
 failed named test, every code-quality gate PASS or N/A, P0/P1 at 100. The two verification
 gaps (G1 concurrent, G2 stale-file) that previously forced CONCERNS are closed.
+**Re-verified** after the code-review fix commit `49ec4ce5`: all 5 changed Go packages green,
+UI typecheck clean, no CRITICAL introduced (see `## Re-verification` above).
 
 **Why not WAIVED / FAIL:** no waiver is needed (no gap left to waive); no CRITICAL finding,
 no failed run, no gate below threshold, all scopes COMPLETE.
