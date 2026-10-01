@@ -102,45 +102,6 @@ export interface ActivityStats {
   activeSessions: number
 }
 
-export interface SnapshotContext {
-  task?: string
-  decisions?: string
-  remaining?: string
-  tried?: string
-}
-
-export interface ChangeSnapshot {
-  id: number
-  branch: string
-  commit: string
-  commitShort: string
-  subject: string
-  author: string
-  committedAt: string
-  changedFiles: string
-  context?: SnapshotContext
-}
-
-export interface Checkpoint {
-  id: number
-  name: string
-  branch: string
-  commit: string
-  dirty: boolean
-  prdPath: string
-  specDir: string
-  evidence: string
-  status: 'open' | 'verified' | 'stale' | 'archived'
-  createdAt: string
-  verifiedAt: string
-}
-
-export interface SnapshotsResponse {
-  project: string
-  snapshots: ChangeSnapshot[]
-  limit: number
-}
-
 export interface MnemonicSession {
   id: string
   title: string

@@ -69,19 +69,19 @@ func nextSequenceTx(ctx context.Context, tx *sql.Tx, sessionID string) (int, err
 
 // appendSessionEvent inserts one session_events row on tx at the next sequence.
 // commit carries the git HEAD the event was captured at ("" when unknown).
-func appendSessionEvent(ctx context.Context, tx *sql.Tx, project, sessionID, actionType, commit, now string) error {
+func appendSessionEvent(ctx context.Context, tx *sql.Tx, project, sessionID, actionType, commit, now string) (int, error) {
 	seq, err := nextSequenceTx(ctx, tx, sessionID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO session_events (session_id, project, sequence, action_type, result_status, "commit", timestamp)
 		VALUES (?, ?, ?, ?, 'success', ?, ?)`,
 		sessionID, project, seq, actionType, commit, now,
 	); err != nil {
-		return fmt.Errorf("insert %s event: %w", actionType, err)
+		return 0, fmt.Errorf("insert %s event: %w", actionType, err)
 	}
-	return nil
+	return seq, nil
 }
 
 // stampToCommit best-effort sets sessions.to_commit to the git HEAD in dir,
@@ -290,15 +290,15 @@ func (s *Service) RecordCommitEvent(ctx context.Context, sessionID, repoDir stri
 			_ = tx.Rollback()
 		}
 	}()
-	if err := appendSessionEvent(ctx, tx, rowProject, sid, "commit", sha, now); err != nil {
+	seq, err := appendSessionEvent(ctx, tx, rowProject, sid, "commit", sha, now)
+	if err != nil {
 		return nil, err
 	}
 	if payload != "" {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE session_events SET payload = ?
-			WHERE session_id = ? AND sequence = (
-				SELECT MAX(sequence) FROM session_events WHERE session_id = ?)`,
-			payload, sid, sid,
+			WHERE session_id = ? AND sequence = ?`,
+			payload, sid, seq,
 		); err != nil {
 			return nil, fmt.Errorf("commit event payload: %w", err)
 		}
@@ -315,9 +315,8 @@ func (s *Service) RecordCommitEvent(ctx context.Context, sessionID, repoDir stri
 		       COALESCE(result_status, 'success'), COALESCE(is_sensitive, 0),
 		       COALESCE(tool_name, ''), COALESCE(path, ''), COALESCE(command, ''),
 		       COALESCE("commit", ''), COALESCE(payload, ''), timestamp
-		FROM session_events WHERE session_id = ?
-		ORDER BY sequence DESC LIMIT 1`,
-		sid,
+		FROM session_events WHERE session_id = ? AND sequence = ?`,
+		sid, seq,
 	).Scan(
 		&e.ID, &e.SessionID, &e.Project, &e.Sequence, &e.ActionType,
 		&e.ResultStatus, &sensitive,

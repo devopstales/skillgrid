@@ -1017,7 +1017,7 @@ func (s *Service) SessionStartByClientID(ctx context.Context, clientSessionID, d
 	); err != nil {
 		return "", "", false, fmt.Errorf("insert session: %w", err)
 	}
-	if err = appendSessionEvent(ctx, tx, projectID, clientSessionID, "session_start", head, now); err != nil {
+	if _, err = appendSessionEvent(ctx, tx, projectID, clientSessionID, "session_start", head, now); err != nil {
 		return "", "", false, err
 	}
 	if err = tx.Commit(); err != nil {
@@ -1069,7 +1069,7 @@ func (s *Service) SessionStart(ctx context.Context, directory, title string) (st
 	); err != nil {
 		return "", fmt.Errorf("insert session: %w", err)
 	}
-	if err = appendSessionEvent(ctx, tx, projectID, sessionID, "session_start", head, now); err != nil {
+	if _, err = appendSessionEvent(ctx, tx, projectID, sessionID, "session_start", head, now); err != nil {
 		return "", err
 	}
 	if err = tx.Commit(); err != nil {
@@ -1194,17 +1194,8 @@ func (s *Service) SessionSummary(ctx context.Context, sessionID, summary string)
 			return fmt.Errorf("update session summary: %w", err)
 		}
 	}
-	// Best-effort end-commit stamp (session events layer): a summary carries
-	// the session's current HEAD as the end of its range. Never clobbers a
-	// recorded range; skipped when the directory has no HEAD.
-	if rowProject, dir, lerr := lookupSessionRow(ctx, s.store.DB, sessionID); lerr == nil {
-		if head := gitHead(dir); head != "" {
-			_, _ = s.store.DB.ExecContext(ctx, `
-				UPDATE sessions SET to_commit = ?
-				WHERE id = ? AND project = ? AND (to_commit IS NULL OR to_commit = '')`,
-				head, sessionID, rowProject)
-		}
-	}
+	// Existence check (project-scoped) before any side effect, so a session
+	// that is not found in this project mutates nothing.
 	var n int
 	if err := s.store.DB.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM sessions WHERE id = ? AND project = ?`,
@@ -1214,6 +1205,22 @@ func (s *Service) SessionSummary(ctx context.Context, sessionID, summary string)
 	}
 	if n == 0 {
 		return fmt.Errorf("session %s not found", sessionID)
+	}
+	// Best-effort end-commit stamp (session events layer): a summary carries
+	// the session's current HEAD as the end of its range. Never clobbers a
+	// recorded range; skipped when the directory has no HEAD. Scoped to this
+	// project (rowProject == s.projectID) so it can't mutate another bucket.
+	var dir string
+	if derr := s.store.DB.QueryRowContext(ctx,
+		`SELECT directory FROM sessions WHERE id = ? AND project = ?`,
+		sessionID, s.projectID,
+	).Scan(&dir); derr == nil {
+		if head := gitHead(dir); head != "" {
+			_, _ = s.store.DB.ExecContext(ctx, `
+				UPDATE sessions SET to_commit = ?
+				WHERE id = ? AND project = ? AND (to_commit IS NULL OR to_commit = '')`,
+				head, sessionID, s.projectID)
+		}
 	}
 	return nil
 }
@@ -1290,7 +1297,7 @@ func (s *Service) SessionEnd(ctx context.Context, sessionID, summary string) err
 	}
 	// End of range (best-effort, never clobbers) + the closing stream entry.
 	stampToCommit(ctx, tx, sessionID, rowProject, dir)
-	if err := appendSessionEvent(ctx, tx, rowProject, sessionID, "session_end", head, now); err != nil {
+	if _, err := appendSessionEvent(ctx, tx, rowProject, sessionID, "session_end", head, now); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {

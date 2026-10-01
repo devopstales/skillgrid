@@ -103,7 +103,7 @@ Flags:
 // openSessionService resolves the project store the SAME way the MCP server
 // does (CWD-resolved when no --project, explicit --project otherwise) and
 // opens it once. Any resolution / open failure is returned so the caller fails
-// closed (no usable store -> non-zero exit, no partial cleave bundle).
+// closed (no usable store -> non-zero exit + stderr).
 func openSessionService(dataDir, projectName string) (*service.ProjectHandle, func(), error) {
 	dd := dataDir
 	if dd == "" {

@@ -590,7 +590,7 @@ func (s *Service) hookPostToolUse(ctx context.Context, payload HookPayload) (Hoo
 		}
 	}()
 	// Single insert path: the changes.go writer assigns the next sequence.
-	if err := appendSessionEvent(ctx, tx, rowProject, sessionID, action, "", now); err != nil {
+	if _, err := appendSessionEvent(ctx, tx, rowProject, sessionID, action, "", now); err != nil {
 		return HookResult{}, err
 	}
 	var seq int

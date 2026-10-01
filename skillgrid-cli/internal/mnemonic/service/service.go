@@ -2055,9 +2055,8 @@ func (h *ProjectHandle) Web() *webcache.Service { return h.web }
 func (h *ProjectHandle) Store() *store.Store { return h.store }
 
 // Root returns the workspace directory this handle was opened for (the
-// project root that owns the .skillgrid/ scratch tree, including the relay
-// cleave bundle under .skillgrid/.cleave/). Used by the Session Relay to know
-// where on disk the cleave files live.
+// project root that owns the .skillgrid/ scratch tree). Used to locate
+// on-disk artifacts such as the skills store and to resolve git diff roots.
 func (h *ProjectHandle) Root() string { return h.root }
 
 // CommunityResult is the code_communities answer (LLM-free labeled

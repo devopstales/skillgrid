@@ -715,26 +715,6 @@ paths:
         relatedIds:
           type: array
           items: { type: integer, format: int64 }
-    ChangeSnapshot:
-      type: object
-      description: A git-derived change log entry (Handoff Hub) with its parsed [skillgrid-context] block.
-      properties:
-        id: { type: integer, format: int64 }
-        branch: { type: string }
-        commit: { type: string }
-        commitShort: { type: string }
-        subject: { type: string }
-        author: { type: string }
-        committedAt: { type: string }
-        changedFiles: { type: string }
-        context:
-          type: object
-          nullable: true
-          properties:
-            task: { type: string }
-            decisions: { type: string }
-            remaining: { type: string }
-            tried: { type: string }
     PlanSummary:
       type: object
       properties:
@@ -2546,39 +2526,6 @@ paths:
                   events:
                     type: array
                     items: { $ref: "#/components/schemas/ActivityEvent" }
-                  limit: { type: integer }
-        "400": { $ref: "#/components/responses/Bad" }
-
-  /handoff/snapshots:
-    get:
-      tags: [handoff]
-      operationId: handoffSnapshots
-      summary: Change-snapshot log (newest first)
-      description: |-
-        The Handoff Hub change log — every commit as a git-derived snapshot
-        (change_snapshots) with its parsed [skillgrid-context] block, newest
-        first. Renamed from /activity/snapshots in sessions-activity-unification.
-        limit is clamped to 1..500.
-      parameters:
-        - name: project
-          in: query
-          required: true
-          schema: { type: string }
-        - name: limit
-          in: query
-          schema: { type: integer, default: 100 }
-      responses:
-        "200":
-          description: Change snapshots
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  project: { type: string }
-                  snapshots:
-                    type: array
-                    items: { $ref: "#/components/schemas/ChangeSnapshot" }
                   limit: { type: integer }
         "400": { $ref: "#/components/responses/Bad" }
 
