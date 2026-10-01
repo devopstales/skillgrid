@@ -112,6 +112,36 @@ func (s *Service) SetDirEmbedderOverride(e interface {
 	s.dirEmbMu.Unlock()
 }
 
+// AskLLM is the pluggable LLM seam for mem_ask llm-mode synthesis
+// (2026-09-30-mnemonic-second-brain, TICKET-02). It mirrors the
+// ExtractionLLM seam pattern: a small function interface a backend
+// implements, NO CGo LLM client in this package. The caller (secondbrain)
+// decides the fallback: a nil seam (or one that errors) leaves the answer on
+// the deterministic cited floor — the fallback is always available.
+type AskLLM interface {
+	Complete(ctx context.Context, system, user string) (string, error)
+}
+
+var askLLM AskLLM
+var askLLMMu sync.RWMutex
+
+// SetAskLLM attaches the optional LLM seam for mem_ask llm-mode synthesis.
+// Passing nil restores the default (no LLM → llm mode degrades to the cited
+// floor). Package-level, like the other composing seams: a single CLI process
+// has one LLM backend.
+func SetAskLLM(l AskLLM) {
+	askLLMMu.Lock()
+	askLLM = l
+	askLLMMu.Unlock()
+}
+
+// AskLLMSeam returns the attached LLM seam (nil = no LLM).
+func AskLLMSeam() AskLLM {
+	askLLMMu.RLock()
+	defer askLLMMu.RUnlock()
+	return askLLM
+}
+
 // federatedCfg returns the active federated merge weights: the test/CLI
 // override when set, else the config defaults (0.5/0.5).
 func (s *Service) federatedCfg() FederatedConfig {

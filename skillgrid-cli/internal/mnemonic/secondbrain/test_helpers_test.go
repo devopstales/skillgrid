@@ -10,6 +10,44 @@ import (
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 )
 
+// fakeLLM is the test double for the AskLLM seam (TICKET-02). It records the
+// last prompt pair so tests can assert on what reached the LLM, and it
+// honors ctx cancellation like a real LLM call would (a fn that sleeps past
+// the budget is cut at the deadline).
+type fakeLLM struct {
+	fn   func(ctx context.Context, system, user string) (string, error)
+	lastSystem, lastUser string
+}
+
+func (f *fakeLLM) Complete(ctx context.Context, system, user string) (string, error) {
+	f.lastSystem, f.lastUser = system, user
+	if f.fn == nil {
+		return "", nil
+	}
+	type outcome struct {
+		s string
+		e error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		s, e := f.fn(ctx, system, user)
+		done <- outcome{s, e}
+	}()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case o := <-done:
+		return o.s, o.e
+	}
+}
+
+func setAskLLM(t *testing.T, l service.AskLLM) {
+	t.Helper()
+	prev := service.AskLLMSeam()
+	service.SetAskLLM(l)
+	t.Cleanup(func() { service.SetAskLLM(prev) })
+}
+
 // newTestService builds a real *service.Service over a temp data dir. When
 // embedder is true, MNEMONIC_EMBED is on so BlendedSearch's vector leg is not
 // structurally degraded; a seeded query-aligned vector then drives a true

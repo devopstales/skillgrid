@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -37,6 +38,7 @@ func memAskTool() mcplib.Tool {
 	return mcplib.NewTool("mem_ask",
 		mcplib.WithDescription("Ask the brain a question and get a cited answer. Deterministic no-LLM floor: gathers relevant observations via blended search (FTS5 + vector RRF; degrades to keyword-only when no embedder) and returns token-bounded, citation-bearing results. matched_via is keyword or hybrid; degraded is true when the vector leg was skipped. Pass project to scope, or all_projects=true to span every store."),
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("The question or keywords to ask the brain")),
+		mcplib.WithString("mode", mcplib.Description("Answer mode: cited (default, deterministic no-LLM floor) or llm (prose with [obs:<id>] citations, failing open to the cited floor on LLM error/timeout).")),
 		mcplib.WithString("project", mcplib.Description("Optional project name to scope the answer under (defaults to the CWD-resolved project).")),
 		mcplib.WithBoolean("all_projects", mcplib.Description("Span every project store (default false).")),
 		mcplib.WithNumber("max_tokens", mcplib.Description("Token budget for the citations (default 2000).")),
@@ -56,8 +58,10 @@ func memLifecycleTool() mcplib.Tool {
 	)
 }
 
-// handleMemAsk resolves the project (explicit name or CWD), runs AskCited over
-// the existing blended search, and returns the cited floor as raw JSON.
+// handleMemAsk resolves the project (explicit name or CWD), routes through
+// secondbrain.Ask (mode "cited" is the deterministic floor, "llm" adds prose
+// with [obs:<id>] citations, failing open to the cited floor), and returns the
+// result as raw JSON.
 func handleMemAsk(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 	svc, err := rootService()
 	if err != nil {
@@ -66,6 +70,10 @@ func handleMemAsk(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Call
 	query := strings.TrimSpace(req.GetString("query", ""))
 	if query == "" {
 		return toolError(errNoQuery)
+	}
+	mode := strings.ToLower(strings.TrimSpace(req.GetString("mode", "cited")))
+	if mode != "cited" && mode != "llm" {
+		return toolError(fmt.Errorf("mode must be 'cited' or 'llm', got %q", mode))
 	}
 
 	explicitProject := strings.TrimSpace(req.GetString("project", ""))
@@ -86,7 +94,7 @@ func handleMemAsk(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Call
 	allProjects := req.GetBool("all_projects", false)
 	maxTokens := int(req.GetFloat("max_tokens", 0))
 
-	res, err := secondbrain.AskCited(ctx, svc, query, projectID, allProjects, maxTokens)
+	res, err := secondbrain.Ask(ctx, svc, mode, query, projectID, allProjects, maxTokens)
 	if err != nil {
 		return toolError(err)
 	}
