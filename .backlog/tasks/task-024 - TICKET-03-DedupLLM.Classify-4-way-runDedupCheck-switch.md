@@ -1,10 +1,10 @@
 ---
 id: TASK-024
 title: 'TICKET-03: DedupLLM.Classify 4-way + runDedupCheck switch'
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-10-01 18:18'
-updated_date: '2026-10-01 18:19'
+updated_date: '2026-10-01 20:25'
 labels:
   - bitemporal-audn
 dependencies:

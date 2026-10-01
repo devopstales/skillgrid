@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,10 +40,10 @@ func TestMemoryTypeCategories(t *testing.T) {
 	// (1) Every one of the 9 types is stored and read back correctly.
 	for i, mt := range allMemoryTypes {
 		id, err := svc.Save(ctx, SaveInput{
-			SessionID: sid,
-			Type:      "learning",
-			Title:     "typed note " + mt,
-			Content:   "content for the " + mt + " category",
+			SessionID:  sid,
+			Type:       "learning",
+			Title:      "typed note " + mt,
+			Content:    "content for the " + mt + " category",
 			MemoryType: mt,
 		})
 		if err != nil {
@@ -105,10 +106,10 @@ func TestMemoryTypeCategories(t *testing.T) {
 		t.Fatalf("count before invalid: %v", err)
 	}
 	_, err = svc.Save(ctx, SaveInput{
-		SessionID: sid,
-		Type:      "learning",
-		Title:     "bad type note",
-		Content:   "content",
+		SessionID:  sid,
+		Type:       "learning",
+		Title:      "bad type note",
+		Content:    "content",
 		MemoryType: "quantum",
 	})
 	if err == nil {
@@ -130,8 +131,11 @@ func TestMemoryTypeCategories(t *testing.T) {
 // mirroring the step-05 ExtractionLLM pattern. The test implements it to
 // return a fixed JSON verdict.
 type dedupLLM struct {
-	candidates []string // existing observation contents to "compare against"
-	duplicate  bool     // the LLM's verdict for this pair
+	candidates []string     // existing observation contents to "compare against"
+	duplicate  bool         // the LLM's verdict for this pair
+	verdict    DedupVerdict // the LLM's 4-way verdict (used by Classify)
+	candidate  int          // the LLM's candidate observation id (used by Classify)
+	err        error        // the LLM's error (used by Classify)
 	called     int
 }
 
@@ -140,6 +144,36 @@ func (d *dedupLLM) Dedup(ctx context.Context, newContent string, candidates []st
 	_ = newContent
 	_ = candidates
 	return d.duplicate, int64(d.candidateID()), nil
+}
+
+func (d *dedupLLM) Classify(ctx context.Context, newContent string, candidates []string) (DedupDecision, error) {
+	d.called++
+	_ = newContent
+	_ = candidates
+	if d.err != nil {
+		return DedupDecision{}, d.err
+	}
+	// When the 4-way verdict is not set, the legacy binary `duplicate` flag
+	// drives the decision: a flagged duplicate maps to a delete verdict against
+	// the most recent candidate (the pre-existing TestLLMDedupDetectsSemanticDuplicates
+	// relies on this merge path).
+	verdict := d.verdict
+	if verdict == "" {
+		if d.duplicate {
+			verdict = VerdictDelete
+		} else {
+			verdict = VerdictAdd
+		}
+	}
+	cand := d.candidate
+	if cand == 0 && (verdict == VerdictDelete || verdict == VerdictUpdate) {
+		cand = d.candidateID()
+	}
+	return DedupDecision{
+		Verdict:     verdict,
+		CandidateID: int64(cand),
+		Reason:      "llm",
+	}, nil
 }
 
 func (d *dedupLLM) candidateID() int { return 1 }
@@ -291,15 +325,92 @@ func TestLLMDedupDetectsSemanticDuplicates(t *testing.T) {
 	})
 }
 
+// TestRunDedupCheckClassify covers TICKET-03: the pre-write dedup check is
+// 4-way (add/update/delete/noop) via the DedupLLM.Classify seam. Each verdict
+// surfaces its DedupDecision verbatim; an LLM error or a missing seam falls
+// back to the deterministic hash decision (zero decision, Reason "hash")
+// without panicking.
+func TestRunDedupCheckClassify(t *testing.T) {
+	ctx := context.Background()
+
+	newSvcWith := func(project string, verdict DedupVerdict, cand int, err error) *Service {
+		st, svc := newTestStore(t, project)
+		// Seed one observation so dedupPreFilter yields a candidate (an empty
+		// project short-circuits the LLM pass before Classify is consulted).
+		sid := newSession(t, svc)
+		if _, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "bugfix", Title: "seed", Content: "seed content",
+		}); err != nil {
+			t.Fatalf("seed save: %v", err)
+		}
+		_ = st
+		llm := &dedupLLM{verdict: verdict, candidate: cand, err: err}
+		svc.SetDedupLLM(llm)
+		svc.EnableDedupLLM(true)
+		return svc
+	}
+
+	t.Run("verdicts surface verbatim", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			verdict DedupVerdict
+			cand    int
+		}{
+			{"add", VerdictAdd, 0},
+			{"update", VerdictUpdate, 42},
+			{"delete", VerdictDelete, 7},
+			{"noop", VerdictNoop, 0},
+		}
+		for i, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				svc := newSvcWith(fmt.Sprintf("classifyproj-case%d", i), tc.verdict, tc.cand, nil)
+				got := svc.runDedupCheck(ctx, "some new content")
+				if got.Verdict != tc.verdict {
+					t.Fatalf("verdict = %q, want %q", got.Verdict, tc.verdict)
+				}
+				if got.CandidateID != int64(tc.cand) {
+					t.Fatalf("candidateID = %d, want %d", got.CandidateID, tc.cand)
+				}
+				if got.Reason != "llm" {
+					t.Fatalf("reason = %q, want llm", got.Reason)
+				}
+			})
+		}
+	})
+
+	t.Run("llm error falls back to hash", func(t *testing.T) {
+		svc := newSvcWith("classifyproj-err", VerdictUpdate, 42, context.DeadlineExceeded)
+		got := svc.runDedupCheck(ctx, "some new content")
+		if got.Verdict != "" || got.CandidateID != 0 {
+			t.Fatalf("expected no verdict on LLM error, got %+v", got)
+		}
+		if got.Reason != "hash" {
+			t.Fatalf("reason = %q, want hash", got.Reason)
+		}
+	})
+
+	t.Run("nil seam falls back to hash", func(t *testing.T) {
+		_, svc := newTestStore(t, "classifyproj-nil")
+		// dedupLLMEnabled defaults to false and no seam is attached.
+		got := svc.runDedupCheck(ctx, "some new content")
+		if got.Verdict != "" || got.CandidateID != 0 {
+			t.Fatalf("expected no verdict with no seam, got %+v", got)
+		}
+		if got.Reason != "hash" {
+			t.Fatalf("reason = %q, want hash", got.Reason)
+		}
+	})
+}
+
 // extractionLLMStub is a mockable LLM seam for the async two-phase commit test
 // (18.3). It records how many times Extract was called and returns a fixed JSON
 // extraction result (or an error) so the test can observe the async phase ran
 // the LLM.
 type extractionLLMStub struct {
-	mu        sync.Mutex
-	calls     int
-	respond   string
-	err       error
+	mu      sync.Mutex
+	calls   int
+	respond string
+	err     error
 }
 
 func (e *extractionLLMStub) Extract(ctx context.Context, text string) (string, error) {

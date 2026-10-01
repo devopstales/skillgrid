@@ -38,7 +38,50 @@ type DedupLLM interface {
 	// Dedup reports whether newContent is a semantic duplicate of any of the
 	// candidate contents. duplicateID is the observation id to merge into when
 	// duplicate is true (0 when false / unknown).
+	//
+	// Deprecated: retained for the binary async-extraction dedup path
+	// (isExtractedDuplicate). Pre-write dedup now uses Classify.
 	Dedup(ctx context.Context, newContent string, candidates []string) (duplicate bool, duplicateID int64, err error)
+	// Classify 4-way classifies newContent against the candidate contents and
+	// returns a DedupDecision: how the new observation relates to an existing
+	// one (add / update / delete / noop), the candidate observation id when
+	// relevant, and the decision's provenance reason.
+	Classify(ctx context.Context, newContent string, candidates []string) (DedupDecision, error)
+}
+
+// DedupVerdict is the LLM's 4-way classification of a new observation against
+// existing candidates (TICKET-03). The zero value is not a valid verdict.
+type DedupVerdict string
+
+// The four dedup verdicts.
+const (
+	// VerdictAdd: the new observation is genuinely new — store it.
+	VerdictAdd DedupVerdict = "add"
+	// VerdictUpdate: the new observation updates an existing one (CandidateID
+	// names the target).
+	VerdictUpdate DedupVerdict = "update"
+	// VerdictDelete: the new observation supersedes / deletes an existing one
+	// (CandidateID names the target).
+	VerdictDelete DedupVerdict = "delete"
+	// VerdictNoop: the new observation matches an existing one and changes
+	// nothing — no action required.
+	VerdictNoop DedupVerdict = "noop"
+)
+
+// DedupDecision is the outcome of the 4-way pre-write dedup check (TICKET-03).
+// A zero DedupDecision (empty Ver, CandidateID 0) means "no dedup decision" —
+// the caller proceeds with a normal save (the hash fallback does the work).
+type DedupDecision struct {
+	// Verdict is the LLM's verdict (VerdictAdd / VerdictUpdate / VerdictDelete /
+	// VerdictNoop). Empty on the deterministic hash fallback.
+	Verdict DedupVerdict
+	// CandidateID is the observation id the verdict applies to (for
+	// VerdictUpdate / VerdictDelete; 0 otherwise).
+	CandidateID int64
+	// Reason is the decision's provenance: "llm" when the LLM decided, "hash"
+	// when the deterministic hash fallback is left to the caller, "" when no
+	// dedup mechanism is armed.
+	Reason string
 }
 
 // dedupPreFilterLimit caps how many candidate observations the SQL pre-filter
@@ -113,46 +156,36 @@ func (s *Service) dedupCandidateID(ctx context.Context, llmID int64, candidates 
 	return 0
 }
 
-// runDedupCheck performs the pre-write dedup (18.2): when the LLM pass is
-// enabled and a seam is attached, pre-filter candidates and ask the LLM; on a
-// duplicate verdict return the merge target so the caller absorbs the new save
-// into it (no new row). When the LLM is disabled, absent, or errors, fall back
-// to the deterministic hash dedup (the existing 24h normalized-hash path) —
-// the caller then proceeds normally and the hash check does the work.
-//
-// It returns (mergeInto, reason): mergeInto > 0 means "do not write a new row;
-// bump duplicate_count on this id". reason is "llm" when the LLM decided, "hash"
-// when the hash fallback path is left to the caller, and "" when no dedup
-// mechanism is armed.
-func (s *Service) runDedupCheck(ctx context.Context, content string) (int64, string) {
+// runDedupCheck performs the pre-write 4-way dedup check (TICKET-03): when the
+// LLM pass is enabled and a seam is attached, pre-filter candidates and ask the
+// LLM to Classify the new content, returning its DedupDecision verbatim. When
+// the LLM is disabled, absent, or errors, it returns a zero DedupDecision with
+// Reason "hash" so the caller proceeds with a normal save and the
+// deterministic hash fallback does the work. It never panics and never
+// propagates the LLM error (mirrors the step-05 LLM-failure fallback).
+func (s *Service) runDedupCheck(ctx context.Context, content string) DedupDecision {
 	if s == nil || s.store == nil || s.store.DB == nil {
-		return 0, ""
+		return DedupDecision{Reason: "hash"}
 	}
 	// LLM pass: OPT-IN. Armed only when enabled AND a seam is attached.
 	if s.dedupLLMEnabled && s.dedupLLM != nil {
 		candidates := s.dedupPreFilter(ctx, dedupPreFilterLimit)
 		if len(candidates) == 0 {
-			return 0, ""
+			return DedupDecision{Reason: "hash"}
 		}
-		dup, llmID, err := s.dedupLLM.Dedup(ctx, content, candidates)
+		decision, err := s.dedupLLM.Classify(ctx, content, candidates)
 		if err != nil {
 			// Best-effort warning: the hash fallback still runs, so no error is
 			// propagated to the caller (mirrors the step-05 LLM-failure
 			// fallback).
 			fmt.Fprintf(logWriter(), "mnemonic: dedup LLM failed, falling back to hash: %v\n", err)
-			return 0, "hash"
+			return DedupDecision{Reason: "hash"}
 		}
-		if dup {
-			id := s.dedupCandidateID(ctx, llmID, candidates)
-			if id > 0 {
-				return id, "llm"
-			}
-			return 0, "llm"
-		}
-		return 0, "llm"
+		decision.Reason = "llm"
+		return decision
 	}
 	// No LLM armed: the caller's existing hash dedup is the fallback.
-	return 0, "hash"
+	return DedupDecision{Reason: "hash"}
 }
 
 // SessionCommit is the two-phase session commit entry point (014, step 18.3).
@@ -161,7 +194,7 @@ func (s *Service) runDedupCheck(ctx context.Context, content string) (int64, str
 //     messages/observations and increment the session's compression_index. The
 //     caller's write is durable the moment SessionCommit returns.
 //   - ASYNC phase (non-blocking, best-effort): a goroutine runs LLM extraction
-//     + dedup over the session content and writes memory_diff.json (in the
+//   - dedup over the session content and writes memory_diff.json (in the
 //     project's data directory) for auditing. It never blocks the sync path
 //     and never fails the commit.
 //

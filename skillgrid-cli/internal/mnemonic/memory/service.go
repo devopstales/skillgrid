@@ -520,11 +520,22 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	// semantic near-duplicates the hash misses. When the LLM pass is armed and
 	// it flags the new content as a duplicate, the save is MERGED into the
 	// existing observation (bump duplicate_count, no new row) and returns that
-	// id. When the LLM is disabled, absent, or errors, runDedupCheck returns 0
-	// and the save proceeds exactly as before (the hash path is the fallback).
-	if mergeInto, _ := s.runDedupCheck(ctx, in.Content); mergeInto > 0 {
-		s.BumpDuplicate(ctx, mergeInto)
-		return mergeInto, nil
+	// id. When the LLM is disabled, absent, or errors, runDedupCheck returns a
+	// zero decision (empty Ver) and the save proceeds exactly as before (the
+	// hash path is the fallback). TICKET-03: a delete verdict absorbs the new
+	// content into the target (bump duplicate_count, return that id, no new
+	// row). An update verdict notes the target but proceeds with a normal save
+	// (real routing is TICKET-04). add / noop / zero proceed with a normal save.
+	if d := s.runDedupCheck(ctx, in.Content); d.CandidateID > 0 {
+		switch d.Verdict {
+		case VerdictDelete:
+			s.BumpDuplicate(ctx, d.CandidateID)
+			return d.CandidateID, nil
+		case VerdictUpdate:
+			fmt.Fprintf(logWriter(),
+				"mnemonic: dedup update verdict for candidate %d (TICKET-03; routing in TICKET-04)\n",
+				d.CandidateID)
+		}
 	}
 
 	if in.TopicKey != "" {
