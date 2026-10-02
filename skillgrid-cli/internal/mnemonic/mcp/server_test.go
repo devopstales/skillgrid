@@ -31,7 +31,7 @@ func TestAllToolsRegistered(t *testing.T) {
 		"code_orient", "code_signature", "code_file_toc", "code_rationale",
 		"code_grep",
 		// Step 03 graph + composite tools.
-		"code_explore", "code_impact", "code_path", "code_explain",
+		"code_explore", "code_impact", "code_diff_impact", "code_path", "code_explain",
 		"code_get_callers", "code_get_callees", "code_get_dependents",
 		"code_get_implementors", "code_get_hierarchy", "code_get_tests_for",
 		// Step 04 hybrid search tools.

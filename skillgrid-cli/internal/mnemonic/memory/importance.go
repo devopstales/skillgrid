@@ -73,8 +73,8 @@ const defaultImportanceDecay = 0.05
 
 // defaultTierThresholds are the brief's tier cutoffs, in days.
 var defaultTierThresholds = TierThresholds{
-	MatureAgeDays:    7,
-	ArchivalAgeDays:  30,
+	MatureAgeDays:      7,
+	ArchivalAgeDays:    30,
 	UnusedArchivalDays: 14,
 }
 
@@ -416,6 +416,56 @@ func (s *Service) importanceRerank(_ context.Context, results []Observation) []O
 		out[i] = results[j]
 	}
 	return out
+}
+
+// rankByUse is the default search order: pinned rows stay first (immune to
+// decay), and the rest reorder by importance when any score is positive.
+// All-zero scores keep the SQL order so an unstamped store does not move.
+func (s *Service) rankByUse(results []Observation) []Observation {
+	if s == nil || len(results) < 2 {
+		return results
+	}
+	pinned := make([]Observation, 0, len(results))
+	rest := make([]Observation, 0, len(results))
+	for _, o := range results {
+		if o.Pinned {
+			pinned = append(pinned, o)
+		} else {
+			rest = append(rest, o)
+		}
+	}
+	scores := make([]float64, len(rest))
+	maxScore := 0.0
+	for i, o := range rest {
+		sc := storedImportance(o)
+		scores[i] = sc
+		if sc > maxScore {
+			maxScore = sc
+		}
+	}
+	if maxScore <= 0 {
+		return results
+	}
+	idx := make([]int, len(rest))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool {
+		return scores[idx[a]] > scores[idx[b]]
+	})
+	ordered := make([]Observation, 0, len(results))
+	ordered = append(ordered, pinned...)
+	for _, i := range idx {
+		ordered = append(ordered, rest[i])
+	}
+	return ordered
+}
+
+func storedImportance(o Observation) float64 {
+	if o.ImportanceScore.Valid && o.ImportanceScore.Float64 > 0 {
+		return o.ImportanceScore.Float64
+	}
+	return 0
 }
 
 // errors_IsNoRows wraps errors.Is for the single stampImportance call site.

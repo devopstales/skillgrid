@@ -19,15 +19,15 @@ hooks:
       - bash:
           command: |
             SID="${OPENCODE_SESSION_ID}"
-            [ -z "$SID" ] && exit 0
+            DIR="${OPENCODE_PROJECT_DIR:-$PWD}"
+            [ -z "$SID" ] && SID=""
             BASE="${SKILLGRID_MNEMONIC_HTTP_URL:-http://127.0.0.1:7438}"
-            # Ensure server is up (best-effort, non-blocking)
             curl -sf --max-time 1 "$BASE/health" >/dev/null 2>&1 || \
               (command -v skillgrid >/dev/null 2>&1 && \
                nohup skillgrid serve >/dev/null 2>&1 & disown 2>/dev/null) || true
-            # Run session-start hook if present
-            [ -f "$HOME/.skillgrid/hooks/session-start.js" ] && \
-              node "$HOME/.skillgrid/hooks/session-start.js" 2>/dev/null || true
+            if command -v skillgrid >/dev/null 2>&1; then
+              skillgrid prime --dir "$DIR" --session "$SID" 2>/dev/null || true
+            fi
             exit 0
           timeout: 10000
 
@@ -41,6 +41,11 @@ hooks:
               node "$HOME/.skillgrid/hooks/stop-tests.js" 2>/dev/null || true
             [ -f "$HOME/.skillgrid/hooks/gate-stop.js" ] && \
               node "$HOME/.skillgrid/hooks/gate-stop.js" 2>/dev/null || true
+            DIR="${OPENCODE_PROJECT_DIR:-$PWD}"
+            SID="${OPENCODE_SESSION_ID:-}"
+            if command -v skillgrid >/dev/null 2>&1; then
+              skillgrid compact --dir "$DIR" --session "$SID" >/dev/null 2>&1 || true
+            fi
             exit 0
           timeout: 15000
 

@@ -60,10 +60,24 @@ function stripPrivateTags(str) {
 
 function truncate(str, max) {
   if (!str) return ""
-  return str.length > max ? str.slice(0, max) + "…" : str
+  return str.length > max ? str.slice(0, max) + "\n[truncated]" : str
+}
+
+function readActiveProject() {
+  try {
+    const fs = require("fs")
+    const path = require("path")
+    const os = require("os")
+    const root = process.env.SKILLGRID_MNEMONIC_DATA_DIR || path.join(os.homedir(), ".skillgrid", "mnemonic")
+    return fs.readFileSync(path.join(root, "active-project"), "utf8").trim()
+  } catch {
+    return ""
+  }
 }
 
 function resolveProject(directory) {
+  const pinned = readActiveProject()
+  if (pinned) return pinned
   try {
     const remote = require("child_process")
       .execSync(`git -C ${JSON.stringify(directory)} remote get-url origin`, {
@@ -110,9 +124,8 @@ async function main() {
     process.cwd()
   const path = String(args.filePath ?? args.path ?? args.file ?? args.target ?? "")
   const command = String(args.command ?? "")
-  const resultText = privateTools().has(tool.toLowerCase())
-    ? ""
-    : String(payload.tool_output ?? "").slice(0, MAX_PREVIEW)
+  const rawOut = privateTools().has(tool.toLowerCase()) ? "" : String(payload.tool_output ?? "")
+  const resultText = truncate(rawOut, MAX_PREVIEW)
   const content = stripPrivateTags([path, command, resultText].join("\n"))
 
   const body = {

@@ -470,6 +470,18 @@ type SaveResult struct {
 	// SupersededID is the id of the observation marked superseded by this save
 	// (set only when Action is VerdictDelete; the new ObservationID supersedes it).
 	SupersededID int64
+	// Candidates are live neighbors the save did not merge: the same topic_key
+	// or a title that shares a word with this write. The caller links or
+	// conflicts them. They are advisory.
+	Candidates []SaveCandidate `json:"candidates,omitempty"`
+}
+
+// SaveCandidate is one observation a save might relate to.
+type SaveCandidate struct {
+	ID       int64  `json:"id"`
+	Title    string `json:"title"`
+	TopicKey string `json:"topic_key,omitempty"`
+	Reason   string `json:"reason"`
 }
 
 // SaveWithAction performs the full 4-way AUDN routing table (TICKET-04, ADR-0011).
@@ -554,7 +566,7 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 	).Scan(&existingID)
 	if err == nil {
 		s.BumpDuplicate(ctx, existingID)
-		return SaveResult{Action: VerdictNoop, ObservationID: existingID}, nil
+		return s.withCandidates(ctx, in, SaveResult{Action: VerdictNoop, ObservationID: existingID}), nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return SaveResult{}, fmt.Errorf("dedup lookup: %w", err)
@@ -568,12 +580,12 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 	switch {
 	case d.Reason == "llm" && d.Verdict == VerdictNoop && d.CandidateID > 0:
 		s.BumpDuplicate(ctx, d.CandidateID)
-		return SaveResult{Action: VerdictNoop, ObservationID: d.CandidateID}, nil
+		return s.withCandidates(ctx, in, SaveResult{Action: VerdictNoop, ObservationID: d.CandidateID}), nil
 	case d.Reason == "llm" && d.Verdict == VerdictUpdate && d.CandidateID > 0:
 		if err := s.applyUpdateToCandidate(ctx, d.CandidateID, in, source, hash, now); err != nil {
 			return SaveResult{}, err
 		}
-		return SaveResult{Action: VerdictUpdate, ObservationID: d.CandidateID}, nil
+		return s.withCandidates(ctx, in, SaveResult{Action: VerdictUpdate, ObservationID: d.CandidateID}), nil
 	case d.Reason == "llm" && d.Verdict == VerdictDelete && d.CandidateID > 0:
 		newID, err := s.insertObservation(ctx, in, source, owner, hash, now, memoryType)
 		if err != nil {
@@ -585,7 +597,7 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 		if err := s.MarkSuperseded(ctx, d.CandidateID, newID); err != nil {
 			return SaveResult{Action: VerdictDelete, ObservationID: newID}, fmt.Errorf("mark superseded: %w", err)
 		}
-		return SaveResult{Action: VerdictDelete, ObservationID: newID, SupersededID: d.CandidateID}, nil
+		return s.withCandidates(ctx, in, SaveResult{Action: VerdictDelete, ObservationID: newID, SupersededID: d.CandidateID}), nil
 	}
 
 	// add arm (and the add-fallback for every other case: zero decision, hash
@@ -605,7 +617,7 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 			if err := s.applyUpdateToCandidate(ctx, topicID, in, source, hash, now); err != nil {
 				return SaveResult{}, err
 			}
-			return SaveResult{Action: VerdictUpdate, ObservationID: topicID}, nil
+			return s.withCandidates(ctx, in, SaveResult{Action: VerdictUpdate, ObservationID: topicID}), nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return SaveResult{}, fmt.Errorf("topic_key lookup: %w", err)
@@ -616,7 +628,63 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 	if err != nil {
 		return SaveResult{}, err
 	}
-	return SaveResult{Action: VerdictAdd, ObservationID: newID}, nil
+	return s.withCandidates(ctx, in, SaveResult{Action: VerdictAdd, ObservationID: newID}), nil
+}
+
+// withCandidates attaches link/conflict neighbors without merging them.
+func (s *Service) withCandidates(ctx context.Context, in SaveInput, res SaveResult) SaveResult {
+	res.Candidates = s.linkCandidates(ctx, res.ObservationID, in.TopicKey, in.Title)
+	return res
+}
+
+// linkCandidates returns other live observations that share topic_key or a
+// title token with this save. The save itself is excluded. Errors degrade
+// to an empty list so a candidate lookup never fails the write.
+func (s *Service) linkCandidates(ctx context.Context, self int64, topicKey, title string) []SaveCandidate {
+	if s == nil || s.store == nil || s.store.DB == nil || self == 0 {
+		return nil
+	}
+	topicKey = strings.TrimSpace(topicKey)
+	token := titleToken(title)
+	rows, err := s.store.DB.QueryContext(ctx, `
+		SELECT id, title, COALESCE(topic_key, '')
+		FROM observations
+		WHERE project = ? AND deleted_at IS NULL AND id != ?
+		  AND (invalid_at IS NULL OR invalid_at = '')
+		  AND (
+		    (? != '' AND topic_key = ?)
+		    OR (? != '' AND LOWER(title) LIKE '%' || ? || '%')
+		  )
+		ORDER BY id DESC
+		LIMIT 5`,
+		s.projectID, self, topicKey, topicKey, token, token)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []SaveCandidate
+	for rows.Next() {
+		var c SaveCandidate
+		if err := rows.Scan(&c.ID, &c.Title, &c.TopicKey); err != nil {
+			return out
+		}
+		if topicKey != "" && c.TopicKey == topicKey {
+			c.Reason = "topic_key"
+		} else {
+			c.Reason = "title"
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+func titleToken(title string) string {
+	for _, w := range strings.Fields(strings.ToLower(title)) {
+		if len(w) >= 4 {
+			return w
+		}
+	}
+	return ""
 }
 
 // applyUpdateToCandidate upserts the new content into an existing observation
@@ -886,13 +954,13 @@ func (s *Service) SearchOwnerScoped(ctx context.Context, readerOwner, readerAgen
 	for _, o := range out {
 		s.BumpRetrievalUsage(ctx, o.ID)
 	}
-	// AKL importance scoring (014 step 13.3): opt-in in-memory re-rank by
-	// importance_score — a multiplicative boost on the base relevance
-	// (normalized to 0..1 against the result-set max). It replaces the
-	// step-08 binary retrieval-usage boost/decay re-rank; the improve()
-	// opt-in gate (mnemonic.improve.enabled) is shared, so with the config
-	// off the raw SQL order is returned byte-identical.
-	return s.importanceRerank(ctx, out), nil
+	// AKL importance scoring (014 step 13.3) stays opt-in via mnemonic.improve.
+	// The default path still re-ranks by stored importance, keeping pinned rows
+	// first so a pin is immune to decay. Zero scores leave SQL order intact.
+	if s.improveCfg.Enabled {
+		return s.importanceRerank(ctx, out), nil
+	}
+	return s.rankByUse(out), nil
 }
 
 // Recent returns stored observations, newest first, without FTS.

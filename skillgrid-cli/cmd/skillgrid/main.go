@@ -50,6 +50,10 @@ func main() {
 		fmt.Fprintln(w, `  mcp           Run the Mnemonic MCP stdio server`)
 		fmt.Fprintln(w, `  serve         Run the Mnemonic HTTP API (default :7438)`)
 		fmt.Fprintln(w, `  index         Incremental code indexing`)
+		fmt.Fprintln(w, `  prime         Session-start context (last task, diff, impact)`)
+		fmt.Fprintln(w, `  compact       Session-close one-liner`)
+		fmt.Fprintln(w, `  pages         Regenerate gitignored architecture and decisions pages`)
+		fmt.Fprintln(w, `  diff-impact   Caller counts for files in the current diff`)
 		fmt.Fprintln(w, `  orient        Tier-1 code orientation (signature, TOC, map, list, metadata)`)
 		fmt.Fprintln(w, `  grep          Structural by-example grep (index-free, per-language AST)`)
 		fmt.Fprintln(w, `  callers       Graph callers for a symbol (confidence-labeled)`)
@@ -139,6 +143,18 @@ func main() {
 		return
 	case "index":
 		runIndex(version, rest[1:])
+		return
+	case "prime":
+		runPrime(rest[1:])
+		return
+	case "compact":
+		runCompact(rest[1:])
+		return
+	case "pages":
+		runPages(rest[1:])
+		return
+	case "diff-impact":
+		runDiffImpact(rest[1:])
 		return
 	case "orient":
 		runCodeIntel(version, rest)

@@ -1,0 +1,8 @@
+#!/bin/sh
+# post-commit — incremental reindex of the repo that just changed.
+# Fail-open: a down indexer never blocks the commit.
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+command -v skillgrid >/dev/null 2>&1 || exit 0
+skillgrid index --dir "$root" >/dev/null 2>&1 || true
+skillgrid pages --dir "$root" >/dev/null 2>&1 || true
+exit 0

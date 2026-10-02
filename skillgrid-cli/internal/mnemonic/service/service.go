@@ -1804,6 +1804,30 @@ func (s *Service) RunCodeIndex(ctx context.Context, directory string) (codeindex
 	return idx.Run(ctx, directory, idxCfg)
 }
 
+// RunCodeIndexAt indexes directory into an already-named project. The id is
+// not re-resolved from directory, so a parent cwd with several git repos
+// cannot replace the project the caller named.
+func (s *Service) RunCodeIndexAt(ctx context.Context, projectID, directory string) (codeindex.Stats, error) {
+	h, cleanup, err := s.OpenAt(projectID, directory)
+	if err != nil {
+		return codeindex.Stats{}, err
+	}
+	defer cleanup()
+	cfg := config.Load(directory)
+	idxCfg := codeindex.Config{
+		Include:      cfg.Include,
+		Exclude:      cfg.Exclude,
+		ChunkLines:   cfg.ChunkLines,
+		ChunkOverlap: cfg.ChunkOverlap,
+		MaxFileSize:  cfg.MaxFileSize,
+	}
+	idx := codeindex.New(h.store)
+	if emb := resolveEmbedder(h.root); emb != nil {
+		idx = idx.WithEmbedder(emb)
+	}
+	return idx.Run(ctx, directory, idxCfg)
+}
+
 // RunCodeIndexPDG runs incremental code indexing for directory with the opt-in
 // --pdg (per-function CFG + PDG) and --lsp (LSP-resolved member-call edges)
 // passes toggled. It mirrors RunCodeIndex so the CLI `index --pdg/--lsp` flags
@@ -2078,6 +2102,17 @@ func resolveEmbedder(configRoot string) embedder.Embedder {
 // partial handle.
 func (s *Service) Open(projectID string) (*ProjectHandle, func(), error) {
 	return s.openProject(projectID, ".")
+}
+
+// OpenAt opens projectID with directory as the config root. The id is
+// explicit: directory is not re-resolved, so an ambiguous parent cwd cannot
+// replace a project the caller already named.
+func (s *Service) OpenAt(projectID, directory string) (*ProjectHandle, func(), error) {
+	id := project.NormalizeID(projectID)
+	if strings.TrimSpace(directory) == "" {
+		directory = "."
+	}
+	return s.openProject(id, directory)
 }
 
 // RunTTLExpiry sweeps every project store under the data dir, soft-deleting

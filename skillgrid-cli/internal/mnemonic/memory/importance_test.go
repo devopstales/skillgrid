@@ -251,7 +251,15 @@ func TestImportanceScoreQueryRanking(t *testing.T) {
 		}
 	}
 
-	// Raw SQL order (improve off): the low doc leads (3 token matches).
+	// Raw SQL order: the low doc leads (3 token matches). Default search
+	// reorders by stored importance, so high leads with improve() off.
+	sqlHits, err := rawSQLSearch(ctx, fx, "improvranks")
+	if err != nil {
+		t.Fatalf("sql: %v", err)
+	}
+	if len(sqlHits) != 3 || sqlHits[0].ID != low {
+		t.Fatalf("setup: raw SQL order must be led by the low-importance doc, got %v", ids(sqlHits))
+	}
 	fx.svc.SetImprove(ImproveConfig{Enabled: false})
 	raw, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent", "improvranks", "any", "", 10)
 	if err != nil {
@@ -264,8 +272,8 @@ func TestImportanceScoreQueryRanking(t *testing.T) {
 	if len(raw) != 3 {
 		t.Fatalf("expected 3 hits, got %d", len(raw))
 	}
-	if ids(raw)[0] != low {
-		t.Fatalf("setup: raw SQL order must be led by the low-importance doc, got %v", ids(raw))
+	if !slices.Equal(ids(raw), []int64{high, mid, low}) {
+		t.Fatalf("default search must order by stored importance high→mid→low, got %v", ids(raw))
 	}
 
 	// Enabled: the importance re-rank must put high first, and the order must
@@ -281,9 +289,6 @@ func TestImportanceScoreQueryRanking(t *testing.T) {
 	wantOrder := []int64{high, mid, low}
 	if !slices.Equal(got, wantOrder) {
 		t.Fatalf("importance boost must re-rank high→mid→low: raw %v, got %v, want %v", ids(raw), got, wantOrder)
-	}
-	if got[0] == ids(raw)[0] {
-		t.Fatalf("boosted order must differ from the raw SQL order (low doc must not lead)")
 	}
 
 	// Disabled again → the raw SQL order is restored verbatim (byte-identical

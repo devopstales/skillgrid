@@ -25,6 +25,7 @@ skillgrid-cli/out/
 .skillgrid/sdd/
 .skillgrid/.cleave/
  .skillgrid/brainstorm/
+.skillgrid/cache/
 
  ###############################
 # CocoIndex Code (ccc)

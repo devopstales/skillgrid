@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -248,6 +249,7 @@ func webHitDTOs(hits []webcache.WebHit) []map[string]any {
 			"library_id": hit.LibraryID,
 			"fetched_at": hit.FetchedAt,
 			"expires_at": hit.ExpiresAt,
+			"_retrieve":  fmt.Sprintf("web_cache_get id=%d", hit.ID),
 		}
 	}
 	return out

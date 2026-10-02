@@ -14,6 +14,7 @@ import (
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/graph"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/hybrid"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/loop"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
 )
 
@@ -26,6 +27,7 @@ func registerCodeTools(s *server.MCPServer) {
 		{codeIndexTool(), handleCodeIndex},
 		{codeSearchTool(), handleCodeSearch},
 		{codeReadTool(), handleCodeRead},
+		{codeDiffImpactTool(), handleCodeDiffImpact},
 	}
 	for _, entry := range tools {
 		s.AddTool(entry.tool, entry.handler)
@@ -35,12 +37,14 @@ func registerCodeTools(s *server.MCPServer) {
 func codeStatusTool() mcplib.Tool {
 	return mcplib.NewTool("code_status",
 		mcplib.WithDescription("Check code index health before searching. Call when the index may be stale (after clone, branch switch, or large refactors). If stale=true, run code_index before code_search. v1 ladder: code_status → code_search → code_read."),
+		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),
 	)
 }
 
 func codeIndexTool() mcplib.Tool {
 	return mcplib.NewTool("code_index",
 		mcplib.WithDescription("Run incremental code index for the cwd git root (respects indexing.yaml). Call after clone or when code_status reports stale. Do not grep the whole repo until indexed."),
+		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),
 	)
 }
 
@@ -49,6 +53,7 @@ func codeSearchTool() mcplib.Tool {
 		mcplib.WithDescription("BM25 full-text search over indexed code chunks. Prefer this over grep/rg when exploring unknown areas of a large repo. Use code_read only after search narrows path and line range. Check code_status first if results seem outdated."),
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search terms (FTS5)")),
 		mcplib.WithNumber("limit", mcplib.Description("Maximum hits (default 20)")),
+		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),
 	)
 }
 
@@ -58,14 +63,14 @@ func codeReadTool() mcplib.Tool {
 		mcplib.WithString("path", mcplib.Required(), mcplib.Description("Repo-relative file path from code_search")),
 		mcplib.WithNumber("start_line", mcplib.Description("Start line (1-based); omit to read all indexed chunks for path")),
 		mcplib.WithNumber("end_line", mcplib.Description("End line (1-based); defaults to start_line")),
+		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),
 	)
 }
 
 func handleCodeStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 	_ = ctx
-	_ = req
 
-	_, h, cleanup, err := openService()
+	_, h, cleanup, err := openNamed(req.GetString("project", ""))
 	if err != nil {
 		return toolError(err)
 	}
@@ -159,8 +164,6 @@ func handleCodeStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 }
 
 func handleCodeIndex(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	_ = req
-
 	svc, err := rootService()
 	if err != nil {
 		return toolError(err)
@@ -176,7 +179,18 @@ func handleCodeIndex(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		root = gitRoot
 	}
 
-	stats, err := svc.RunCodeIndex(ctx, root)
+	explicit := strings.TrimSpace(req.GetString("project", ""))
+	var stats codeindex.Stats
+	if explicit != "" {
+		stats, err = svc.RunCodeIndexAt(ctx, explicit, root)
+	} else {
+		stats, err = svc.RunCodeIndex(ctx, root)
+		if err != nil {
+			if id := loop.ReadActiveProject(); id != "" {
+				stats, err = svc.RunCodeIndexAt(ctx, id, root)
+			}
+		}
+	}
 	if err != nil {
 		return toolError(err)
 	}
@@ -190,7 +204,7 @@ func handleCodeIndex(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 }
 
 func handleCodeSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	_, h, cleanup, err := openService()
+	_, h, cleanup, err := openNamed(req.GetString("project", ""))
 	if err != nil {
 		return toolError(err)
 	}
@@ -215,7 +229,7 @@ func handleCodeSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 }
 
 func handleCodeRead(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	_, h, cleanup, err := openService()
+	_, h, cleanup, err := openNamed(req.GetString("project", ""))
 	if err != nil {
 		return toolError(err)
 	}
@@ -402,4 +416,34 @@ func gitRoot(cwd string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func codeDiffImpactTool() mcplib.Tool {
+	return mcplib.NewTool("code_diff_impact",
+		mcplib.WithDescription("Changed files in the working tree (or the last commit when the tree is clean) with caller counts for the first indexed symbol in each file."),
+		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),
+		mcplib.WithString("dir", mcplib.Description("Repository directory. Defaults to the project root.")),
+	)
+}
+
+func handleCodeDiffImpact(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	_, h, cleanup, err := openNamed(req.GetString("project", ""))
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	dir := strings.TrimSpace(req.GetString("dir", ""))
+	if dir == "" {
+		dir = h.Root()
+	}
+	files := loop.ChangedFiles(dir)
+	lines, err := loop.DiffImpact(ctx, h.Store().DB, files)
+	if err != nil {
+		return toolError(err)
+	}
+	out := make([]map[string]any, len(lines))
+	for i, line := range lines {
+		out[i] = map[string]any{"file": line.File, "symbol": line.Symbol, "callers": line.Callers}
+	}
+	return JSONResult(map[string]any{"files": out})
 }

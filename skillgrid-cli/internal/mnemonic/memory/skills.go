@@ -630,7 +630,43 @@ func (s *Service) hookPostToolUse(ctx context.Context, payload HookPayload) (Hoo
 		return HookResult{}, fmt.Errorf("post_tool_use commit: %w", err)
 	}
 	committed = true
+	s.promoteToolCall(ctx, sessionID, action, path, payload, isErr)
 	return HookResult{}, nil
+}
+
+// promoteToolCall writes an observation for an interesting tool outcome.
+// The event row is already committed. A save failure is ignored so capture
+// never fails the hook.
+func (s *Service) promoteToolCall(ctx context.Context, sessionID, action, path string, payload HookPayload, isErr bool) {
+	if s == nil || IsSensitivePath(path) {
+		return
+	}
+	writes := 0
+	if action == "file_write" && path != "" {
+		_ = s.store.DB.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM session_events
+			WHERE session_id = ? AND path = ? AND action_type = 'file_write'`,
+			sessionID, path).Scan(&writes)
+	}
+	if !shouldPromote(isErr, action, writes, payload.ContentPreview, payload.Command) {
+		return
+	}
+	title := promoteTitle(isErr, action, path, payload.Command)
+	body := strings.TrimSpace(payload.ContentPreview)
+	if body == "" {
+		body = strings.TrimSpace(payload.Command)
+	}
+	if body == "" {
+		body = title
+	}
+	_, _ = s.Save(ctx, SaveInput{
+		SessionID: sessionID,
+		Title:     title,
+		Content:   "**What**: " + title + "\n**Why**: tool outcome\n**Where**: " + path + "\n**Learned**: " + body,
+		Type:      promoteType(isErr, action, payload.ContentPreview, payload.Command),
+		TopicKey:  "loop/" + action,
+		Scope:     "project",
+	})
 }
 
 // actionForTool maps a tool name to its session event action type:

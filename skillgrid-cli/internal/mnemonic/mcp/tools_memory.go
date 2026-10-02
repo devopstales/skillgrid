@@ -14,6 +14,7 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/loop"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/secondbrain"
@@ -83,6 +84,7 @@ func memSearchTool() mcplib.Tool {
 		mcplib.WithBoolean("all_projects", mcplib.Description("Span every project store and merge results by cross-project rank (default false). Useful when the CWD is a parent of several repositories or when you don't know which bucket the memory is in.")),
 		mcplib.WithString("reader_owner", mcplib.Description("Optional reader identity for per-owner visibility enforcement. Blank means the current session's owner. A private observation is invisible to a different owner until shared via mem_share.")),
 		mcplib.WithString("reader_agent", mcplib.Description("Optional reader agent id for restricted/agent ACL grants.")),
+		mcplib.WithString("unfold", mcplib.Description("Comma-separated observation ids to return in full. Other hits stay a preview plus a retrieve id.")),
 	)
 }
 
@@ -181,7 +183,12 @@ func memSuggestTopicKeyTool() mcplib.Tool {
 }
 
 func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, h, cleanup, err := openService()
+	explicitProject := strings.TrimSpace(req.GetString("project", ""))
+	svc, h, cleanup, err := openNamed(explicitProject)
+	if err != nil {
+		return toolError(err)
+	}
+	h, cleanup, err = retargetAlias(ctx, svc, h, cleanup, explicitProject)
 	if err != nil {
 		return toolError(err)
 	}
@@ -204,7 +211,6 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 		return toolError(err)
 	}
 
-	explicitProject := strings.TrimSpace(req.GetString("project", ""))
 	projectName := explicitProject
 	projectID := h.ProjectID()
 	var drift *service.ProjectDrift
@@ -285,11 +291,23 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 	if res.SupersededID > 0 {
 		out["superseded_id"] = res.SupersededID
 	}
+	if len(res.Candidates) > 0 {
+		cands := make([]map[string]any, len(res.Candidates))
+		for i, c := range res.Candidates {
+			cands[i] = map[string]any{"id": c.ID, "title": c.Title, "topic_key": c.TopicKey, "reason": c.Reason}
+		}
+		out["candidates"] = cands
+	}
 	return JSONResult(out)
 }
 
 func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	svc, h, cleanup, err := openService()
+	explicitProject := strings.TrimSpace(req.GetString("project", ""))
+	svc, h, cleanup, err := openNamed(explicitProject)
+	if err != nil {
+		return toolError(err)
+	}
+	h, cleanup, err = retargetAlias(ctx, svc, h, cleanup, explicitProject)
 	if err != nil {
 		return toolError(err)
 	}
@@ -304,6 +322,7 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 	limit := int(req.GetFloat("limit", 20))
 	scope := strings.TrimSpace(req.GetString("scope", ""))
 	allProjects := req.GetBool("all_projects", false)
+	unfold := req.GetString("unfold", "")
 	// Reader identity (change 013 step 01). The per-owner read-enforcement seam
 	// (canRead/visibilityFilter) is wired here so a live reader is gated by
 	// owner/visibility end-to-end, not just at the service layer. It mirrors
@@ -330,7 +349,7 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 			"project":          "all",
 			"all_projects":     true,
 			"count":            len(res.Hits),
-			"observations":     budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
+			"observations":     budgetedObservationDTOs(h.Memory().Budget(), res.Hits, unfold),
 			"_health_warnings": memHealthWarnings(),
 		}
 		if res.Truncated {
@@ -340,7 +359,6 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		return JSONResult(out)
 	}
 
-	explicitProject := strings.TrimSpace(req.GetString("project", ""))
 	projectID := h.ProjectID()
 	var drift *service.ProjectDrift
 	if explicitProject != "" {
@@ -370,7 +388,7 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 	}
 	out := map[string]any{
 		"project":      projectID,
-		"observations": budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
+		"observations": budgetedObservationDTOs(h.Memory().Budget(), res.Hits, unfold),
 		"count":        len(res.Hits),
 		// _health_warnings (TICKET-06): the inline, non-breaking lifecycle
 		// warnings for the concrete project this search ran under. It uses the
@@ -1170,21 +1188,66 @@ func projectIDFor(svc *service.Service, name string) (string, error) {
 	return svc.ResolveProject(cwd)
 }
 
-// openService resolves the CWD project and opens its store exactly once,
-// returning the handle plus the root service. Handlers perform their domain
-// ops through the handle (h.Memory()/h.Web()/h.Store()) so the project is not
-// opened a second time inside a service facade method. svc is kept for
-// cross-store ops (drift, all-projects search) and ops with no handle method.
+// openService resolves the project and opens its store exactly once.
+// An explicit name wins. Otherwise the cwd (which already honors
+// MNEMONIC_PROJECT) wins. An ambiguous cwd falls back to the project
+// the last prime pinned.
 func openService() (*service.Service, *service.ProjectHandle, func(), error) {
+	return openNamed("")
+}
+
+func openNamed(explicit string) (*service.Service, *service.ProjectHandle, func(), error) {
 	svc, err := rootService()
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	h, cleanup, err := svc.OpenForCWD()
-	if err != nil {
-		return nil, nil, nil, err
+	explicit = strings.TrimSpace(explicit)
+	if explicit != "" {
+		h, cleanup, err := openProjectID(svc, explicit)
+		return svc, h, cleanup, err
 	}
-	return svc, h, cleanup, nil
+	h, cleanup, err := svc.OpenForCWD()
+	if err == nil {
+		return svc, h, cleanup, nil
+	}
+	if id := loop.ReadActiveProject(); id != "" {
+		h, cleanup, err2 := openProjectID(svc, id)
+		if err2 == nil {
+			return svc, h, cleanup, nil
+		}
+	}
+	return nil, nil, nil, err
+}
+
+// retargetAlias moves a handle opened on a retired project name onto the
+// canonical store. The session and its observations live there.
+func retargetAlias(ctx context.Context, svc *service.Service, h *service.ProjectHandle, cleanup func(), explicit string) (*service.ProjectHandle, func(), error) {
+	explicit = strings.TrimSpace(explicit)
+	if explicit == "" || svc == nil || h == nil {
+		return h, cleanup, nil
+	}
+	d, err := svc.CheckProjectDrift(ctx, explicit)
+	if err != nil || d == nil {
+		return h, cleanup, nil
+	}
+	canon := project.NormalizeID(d.CanonicalName)
+	if canon == "" || canon == h.ProjectID() {
+		return h, cleanup, nil
+	}
+	if cleanup != nil {
+		cleanup()
+	}
+	return openProjectID(svc, canon)
+}
+
+func openProjectID(svc *service.Service, id string) (*service.ProjectHandle, func(), error) {
+	dir := "."
+	if cwd, err := os.Getwd(); err == nil {
+		if _, rerr := project.ResolveDetailed(cwd); rerr == nil {
+			dir = cwd
+		}
+	}
+	return svc.OpenAt(id, dir)
 }
 
 func rootService() (*service.Service, error) {
@@ -1313,17 +1376,58 @@ func observationDTO(o memory.Observation) map[string]any {
 	if o.PromptID != nil {
 		m["prompt_id"] = *o.PromptID
 	}
+	m["_rank"] = map[string]any{
+		"pinned":          o.Pinned,
+		"importance":      importanceValue(o),
+		"retrieval_usage": o.RetrievalUsage,
+	}
+	m["_retrieve"] = fmt.Sprintf("mem_get_observation id=%d", o.ID)
 	return m
+}
+
+func importanceValue(o memory.Observation) float64 {
+	if o.ImportanceScore.Valid {
+		return o.ImportanceScore.Float64
+	}
+	return 0
+}
+
+const previewRunes = 400
+
+// previewContent keeps list payloads small and reversible. Ids named in
+// unfold are returned in full. The suffix is stable (no timestamp).
+func previewContent(content, unfold string, id int64) string {
+	if unfoldHas(unfold, id) {
+		return content
+	}
+	suffix := fmt.Sprintf("\n[retrieve mem_get_observation id=%d]", id)
+	if strings.Contains(content, "chars omitted") {
+		return content + suffix
+	}
+	if len(content) <= previewRunes {
+		return content
+	}
+	return content[:previewRunes] + suffix
+}
+
+func unfoldHas(unfold string, id int64) bool {
+	want := strconv.FormatInt(id, 10)
+	for _, part := range strings.Split(unfold, ",") {
+		if strings.TrimSpace(part) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // budgetedObservationDTOs shapes in-list results for a budgeted read: the char
 // budget is applied to each snippet (explicit "N chars omitted"), and every
 // result carries its full-content fetch id (mem_get_observation is the only
 // full-content path).
-func budgetedObservationDTOs(b *memory.Budget, obs []memory.Observation) []map[string]any {
+func budgetedObservationDTOs(b *memory.Budget, obs []memory.Observation, unfold string) []map[string]any {
 	out := make([]map[string]any, len(obs))
 	for i, o := range obs {
-		o.Content = inListContent(b, o.Content)
+		o.Content = previewContent(inListContent(b, o.Content), unfold, o.ID)
 		out[i] = observationDTO(o)
 	}
 	return out

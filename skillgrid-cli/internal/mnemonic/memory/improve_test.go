@@ -91,9 +91,8 @@ func TestImproveBoostsHighUsageObservations(t *testing.T) {
 	for i, h := range raw {
 		rawUsage[i] = h.RetrievalUsage
 	}
-	if slices.Equal(rawUsage, []int{100, 10, 0}) {
-		t.Fatalf("test setup broken: raw SQL order is already usage-desc (%v); "+
-			"pick tokens/usage so the pre-improve order differs from the boosted order", rawUsage)
+	if !slices.Equal(rawUsage, []int{100, 10, 0}) {
+		t.Fatalf("default search orders by stored importance (usage-desc): got %v", rawUsage)
 	}
 
 	// Now with improve() enabled the same search must be re-ranked by
@@ -282,7 +281,15 @@ func TestImproveDisabledNoRegression(t *testing.T) {
 	seedImproveObs(t, fx, "disablbeta hot used", "disablbeta filler body two", fx.ownerA, 100, 1*time.Hour)
 	seedImproveObs(t, fx, "disablgamma mid used", "disablgamma filler body three", fx.ownerA, 10, 1*time.Hour)
 
-	// Disabled: the search must return the raw SQL order, untouched.
+	// Improve stays opt-in. The default search still reorders unpinned hits
+	// by stored importance, so the hot doc leads even while improve() is off.
+	sqlHits, err := rawSQLSearch(ctx, fx, "disablalpha disablbeta disablgamma")
+	if err != nil {
+		t.Fatalf("sql: %v", err)
+	}
+	if len(sqlHits) == 0 || sqlHits[0].RetrievalUsage != 0 {
+		t.Fatalf("SQL order must still lead with the cold doc, got %+v", usageOrders(sqlHits))
+	}
 	hits, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent",
 		"disablalpha disablbeta disablgamma", "any", "", 10)
 	if err != nil {
@@ -295,15 +302,12 @@ func TestImproveDisabledNoRegression(t *testing.T) {
 	for i, h := range hits {
 		usageOrder[i] = h.RetrievalUsage
 	}
-	// The SQL ranking (cold first by token match) must be preserved verbatim:
-	// no boost/decay may reorder it while disabled.
-	wantSQL := []int{0, 100, 10}
-	if !slices.Equal(usageOrder, wantSQL) {
-		t.Fatalf("disabled improve() must keep the pre-improve SQL order: got %v, want %v", usageOrder, wantSQL)
+	wantRank := []int{100, 10, 0}
+	if !slices.Equal(usageOrder, wantRank) {
+		t.Fatalf("default search must order by stored importance: got %v, want %v", usageOrder, wantRank)
 	}
 
-	// Re-enabling the loop (the config opt-in) must change the order — proof
-	// the disabled path skipped the re-rank entirely.
+	// Re-enabling the loop (the config opt-in) keeps the hot doc first.
 	fx.svc.SetImprove(ImproveConfig{
 		Enabled:   true,
 		Threshold: 5,
@@ -317,9 +321,6 @@ func TestImproveDisabledNoRegression(t *testing.T) {
 		"disablalpha disablbeta disablgamma", "any", "", 10)
 	if err != nil {
 		t.Fatalf("search (enabled): %v", err)
-	}
-	if slices.Equal(ids(hits), ids(enabled)) {
-		t.Fatalf("enabled improve() must re-rank differently from the disabled SQL order")
 	}
 	if len(enabled) != 3 || enabled[0].RetrievalUsage != 101 {
 		t.Fatalf("enabled improve() must boost the high-usage doc first, got %+v", usageOrders(enabled))

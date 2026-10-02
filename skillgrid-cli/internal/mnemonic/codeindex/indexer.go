@@ -723,7 +723,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	// cannot share the 005 tx. They are advisory, not transactional with 005:
 	// a pass failure only warns and continues (the 005 graph + FTS floor are
 	// already committed).
-	if err := idx.runPostCommitPasses(ctx, root, cfg, scanned); err != nil {
+	if err := idx.runPostCommitPasses(ctx, root, cfg, scanned, stats.FilesIndexed+stats.FilesDeleted > 0); err != nil {
 		return stats, err
 	}
 	idx.emit(Event{Phase: "complete", PhaseStart: true})
@@ -737,7 +737,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 // the pass DB so the indexer and any caller using idx.store.DB keep working.
 // A close/open/rebind failure here is returned (it breaks the passes); a pass
 // failure itself only warns and continues.
-func (idx *Indexer) runPostCommitPasses(ctx context.Context, root string, cfg Config, scanned []ScannedFile) error {
+func (idx *Indexer) runPostCommitPasses(ctx context.Context, root string, cfg Config, scanned []ScannedFile, changed bool) error {
 	dbPath := idx.store.Path()
 	if err := idx.store.DB.Close(); err != nil {
 		return fmt.Errorf("close store db: %w", err)
@@ -756,6 +756,10 @@ func (idx *Indexer) runPostCommitPasses(ctx context.Context, root string, cfg Co
 		return fmt.Errorf("rebind pass db: %w", err)
 	}
 	idx.store.DB = passDB
+	if !changed {
+		reportUnresolvedMembers(passDB)
+		return nil
+	}
 	// Knowledge-graph passes (03.8): run the community + process + knowledge
 	// passes at index time so code_processes / code_communities / code_docs /
 	// code_configs / code_sql_* are populated. Each pass is advisory and
@@ -824,7 +828,22 @@ func (idx *Indexer) runPostCommitPasses(ctx context.Context, root string, cfg Co
 	if idx.emb != nil && idx.emb.Model() != "" {
 		hybrid.InvalidateVectorCache(idx.store.Path(), idx.emb.Model())
 	}
+	reportUnresolvedMembers(passDB)
 	return nil
+}
+
+// reportUnresolvedMembers prints a stable count of receiver calls the index
+// could not bind. Community, LSP, and PDG stay advisory; this line is the
+// status the operator sees after a run.
+func reportUnresolvedMembers(db *sql.DB) {
+	if db == nil {
+		return
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM unresolved_members`).Scan(&n); err != nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "index: unresolved member calls: %d\n", n)
 }
 
 // resolutionAuditPass re-extracts every scanned file and persists the
@@ -1892,9 +1911,10 @@ func upsertFile(tx *sql.Tx, file ScannedFile, indexedAt string) (int64, error) {
 
 // Status reports aggregate index statistics.
 type Status struct {
-	FileCount   int    `json:"file_count"`
-	ChunkCount  int    `json:"chunk_count"`
-	LastIndexed string `json:"last_indexed,omitempty"`
+	FileCount         int    `json:"file_count"`
+	ChunkCount        int    `json:"chunk_count"`
+	LastIndexed       string `json:"last_indexed,omitempty"`
+	UnresolvedMembers int    `json:"unresolved_members"`
 }
 
 // WatchStatus reports the auto-sync watcher state for the index status section.
@@ -1933,5 +1953,6 @@ func GetStatus(st *store.Store) (Status, error) {
 	if last.Valid {
 		status.LastIndexed = last.String
 	}
+	_ = st.DB.QueryRow(`SELECT COUNT(*) FROM unresolved_members`).Scan(&status.UnresolvedMembers)
 	return status, nil
 }
