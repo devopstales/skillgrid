@@ -146,3 +146,59 @@ type compactBoom struct{}
 func (compactBoom) Error() string { return "compact boom" }
 
 var errCompactBoom = compactBoom{}
+
+// TestCompactHookExcludesOtherSessions: the compact observation lists only the
+// compacting session's titles. A second session's title must not leak in, and
+// CompactionContext with a session id is session-scoped (an empty id stays
+// project-wide).
+func TestCompactHookExcludesOtherSessions(t *testing.T) {
+	st, svc := newTestStore(t, "compactscope")
+	sidA := newSession(t, svc)
+	sidB := newSession(t, svc)
+	if sidA == sidB {
+		t.Fatalf("test premise: sessions must differ, got %q twice", sidA)
+	}
+	ctx := context.Background()
+	svc.SetHooks(HooksConfig{Enabled: true})
+
+	for _, in := range []SaveInput{
+		{SessionID: sidA, Type: "learning", Title: "alpha session finding", Content: "alpha body", Scope: "project"},
+		{SessionID: sidB, Type: "learning", Title: "bravo session finding", Content: "bravo body", Scope: "project"},
+	} {
+		if _, err := svc.Save(ctx, in); err != nil {
+			t.Fatalf("save %q: %v", in.Title, err)
+		}
+	}
+
+	cc, err := svc.CompactionContext(ctx, sidA, 5)
+	if err != nil {
+		t.Fatalf("CompactionContext: %v", err)
+	}
+	if len(cc.Observations) != 1 || !strings.Contains(cc.Observations[0], "alpha session finding") {
+		t.Fatalf("session-scoped observations = %q, want only alpha", cc.Observations)
+	}
+	all, err := svc.CompactionContext(ctx, "", 5)
+	if err != nil {
+		t.Fatalf("CompactionContext project-wide: %v", err)
+	}
+	if len(all.Observations) != 2 {
+		t.Fatalf("empty session id observations = %d, want project-wide 2", len(all.Observations))
+	}
+
+	if _, err := svc.RunHook(ctx, HookCompact, HookPayload{SessionID: sidA}); err != nil {
+		t.Fatalf("RunHook(compact): %v", err)
+	}
+	var content string
+	if err := st.DB.QueryRow(`
+		SELECT content FROM observations
+		WHERE project = ? AND topic_key = ? AND deleted_at IS NULL`,
+		"compactscope", "compaction/"+sidA).Scan(&content); err != nil {
+		t.Fatalf("read compaction row: %v", err)
+	}
+	if !strings.Contains(content, "alpha session finding") {
+		t.Errorf("compact content missing own session title: %q", content)
+	}
+	if strings.Contains(content, "bravo session finding") {
+		t.Errorf("compact content leaked another session's title: %q", content)
+	}
+}

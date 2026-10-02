@@ -1464,8 +1464,8 @@ func stampKeywordSignals(dtos []map[string]any) []map[string]any {
 	for i := range dtos {
 		dtos[i]["matched_via"] = "keyword"
 		dtos[i]["signals"] = map[string]any{
-			"keyword": 1 / float64(1+i), "vector": 0.0, "recency": 1.0,
-			"entity": 0.0, "decay": 1.0, "importance": 0.0,
+			"keyword": 1 / float64(1+i), "vector": 0.0, "recency": 0.0,
+			"entity": 0.0, "decay": 0.0, "importance": 0.0,
 		}
 	}
 	return dtos

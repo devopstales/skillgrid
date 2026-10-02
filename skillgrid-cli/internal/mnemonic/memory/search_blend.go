@@ -60,6 +60,8 @@ func (s *Service) SearchOwnerScopedBlend(ctx context.Context, readerOwner, reade
 		if wider < limit {
 			wider = limit
 		}
+		reqScope := strings.TrimSpace(scope)
+		nowUTC := time.Now().UTC()
 		vecHits, vErr := s.SearchByVector(ctx, queryVec, wider)
 		if vErr != nil || len(vecHits) == 0 {
 			useVec = false
@@ -71,6 +73,17 @@ func (s *Service) SearchOwnerScopedBlend(ctx context.Context, readerOwner, reade
 					continue
 				}
 				k := keyOf(vh.ID, vh.Project)
+				o, seen := byKey[k]
+				if !seen {
+					// Vector-only hit: Get does not apply the scope, invalid_at
+					// or expires_at filters the FTS leg already enforced.
+					var gErr error
+					o, gErr = s.Get(ctx, vh.ID)
+					if gErr != nil || !vectorHitLive(o, reqScope, nowUTC) {
+						continue
+					}
+					byKey[k] = o
+				}
 				vecRank[k] = placed
 				sim := vh.Sim
 				if sim < 0 {
@@ -81,15 +94,6 @@ func (s *Service) SearchOwnerScopedBlend(ctx context.Context, readerOwner, reade
 				}
 				cosine[k] = sim
 				placed++
-				if _, seen := byKey[k]; !seen {
-					o, gErr := s.Get(ctx, vh.ID)
-					if gErr != nil {
-						delete(vecRank, k)
-						delete(cosine, k)
-						continue
-					}
-					byKey[k] = o
-				}
 			}
 			if len(vecRank) == 0 {
 				useVec = false
@@ -163,6 +167,30 @@ func (s *Service) SearchOwnerScopedBlend(ctx context.Context, readerOwner, reade
 		hits = hits[:limit]
 	}
 	return hits, nil
+}
+
+// vectorHitLive reports whether a vector-only hit may be returned: it must
+// match a non-empty request scope and be neither invalidated nor expired.
+func vectorHitLive(o Observation, reqScope string, now time.Time) bool {
+	if reqScope != "" && o.Scope != reqScope {
+		return false
+	}
+	return !timestampReached(o.InvalidAt, now) && !timestampReached(o.ExpiresAt, now)
+}
+
+// timestampReached is true when value parses as a timestamp at or before now.
+// Empty or unparseable values are treated as unset.
+func timestampReached(value string, now time.Time) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, value); err == nil {
+			return !t.After(now)
+		}
+	}
+	return false
 }
 
 func sortHitsByDecay(hits []SearchHit, now time.Time, cfg DecayConfig) []SearchHit {

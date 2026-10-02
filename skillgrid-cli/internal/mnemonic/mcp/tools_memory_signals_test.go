@@ -126,3 +126,51 @@ func TestMemSearchEmbedderError(t *testing.T) {
 		t.Fatalf("query_cache rows = %d, want 0 (embedder error must not be stored)", n)
 	}
 }
+
+// TestMemSearchAllProjectsSignalsAreKeywordOnly: the all_projects path has no
+// ranker, so it reports matched_via=keyword with only the keyword rank proxy
+// set. Recency, decay, importance, vector and entity are 0 rather than
+// invented values.
+func TestMemSearchAllProjectsSignalsAreKeywordOnly(t *testing.T) {
+	t.Setenv("MNEMONIC_EMBED", "")
+	memRetrievalFixture(t)
+	ctx := context.Background()
+	sid := startMCPSession(t)
+	saveRes, err := handleMemSave(ctx, newCallTool("mem_save", map[string]any{
+		"title": "signal banana", "type": "learning", "content": "signal banana", "session_id": sid,
+	}))
+	if err != nil || saveRes.IsError {
+		t.Fatalf("save: %v %s", err, callResultText(t, saveRes))
+	}
+	res, err := handleMemSearch(ctx, newCallTool("mem_search", map[string]any{
+		"query": "banana", "all_projects": true, "reader_owner": sid,
+	}))
+	if err != nil || res.IsError {
+		t.Fatalf("search: %v %s", err, callResultText(t, res))
+	}
+	var body struct {
+		Observations []struct {
+			MatchedVia string             `json:"matched_via"`
+			Signals    map[string]float64 `json:"signals"`
+		} `json:"observations"`
+	}
+	if err := json.Unmarshal([]byte(callResultText(t, res)), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(body.Observations) != 1 {
+		t.Fatalf("observations = %d", len(body.Observations))
+	}
+	o := body.Observations[0]
+	if o.MatchedVia != "keyword" {
+		t.Fatalf("matched_via = %q", o.MatchedVia)
+	}
+	if o.Signals["keyword"] != 1 {
+		t.Fatalf("signals.keyword = %v, want 1 (rank proxy for first hit)", o.Signals["keyword"])
+	}
+	for _, key := range []string{"vector", "recency", "entity", "decay", "importance"} {
+		v, ok := o.Signals[key]
+		if !ok || v != 0 {
+			t.Fatalf("signals.%s = %v ok=%v, want 0", key, v, ok)
+		}
+	}
+}

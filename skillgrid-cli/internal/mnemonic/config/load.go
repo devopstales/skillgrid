@@ -524,8 +524,9 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	out.Improvement = mergeImprovement(section.Improvement)
 	// Decay (ADR-0018): query-time reinforcement decay. ON when the section is
 	// absent (Enabled true, 30-day half-life). An explicit enabled: false stays
-	// false. Non-positive knobs keep DefaultDecay.
-	out.Decay = mergeDecay(section.Decay)
+	// false. An omitted section keeps the already-merged base (home opt-out
+	// survives a repo file without a decay key). Non-positive knobs keep it too.
+	out.Decay = mergeDecay(defaults.Decay, section.Decay)
 	// Promotion (014 step 09): the session-close graph promotion threshold.
 	// Zero fields fall back to the memory package defaults in SetPromotion.
 	out.Promotion = mergePromotion(section.Promotion)
@@ -632,12 +633,14 @@ func mergeImprovement(section improvementSection) Improvement {
 	return out
 }
 
-// mergeDecay maps the mnemonic.decay YAML section to the Decay struct.
-// Enabled defaults to true when the key is absent (nil pointer); an explicit
-// false opts out and is stored as given. Non-positive half-life and immunity
-// floors keep DefaultDecay so a blank key never disables the ranker knobs.
-func mergeDecay(section decaySection) Decay {
-	out := DefaultDecay()
+// mergeDecay layers the mnemonic.decay YAML section over the already-merged
+// base Decay (defaults, then home, then repo). An omitted section or key keeps
+// the base value, so a home-level opt-out survives a repo file that does not
+// mention decay. An explicit enabled value (true or false) wins. Non-positive
+// half-life and immunity floors keep the base so a blank key never disables
+// the ranker knobs.
+func mergeDecay(base Decay, section decaySection) Decay {
+	out := base
 	if section.Enabled != nil {
 		out.Enabled = *section.Enabled
 	}

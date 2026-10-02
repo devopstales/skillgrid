@@ -68,9 +68,9 @@ func TestMemSkillsAndHookCLI(t *testing.T) {
 		t.Fatalf("mem skills list missing the added skill: %s", out)
 	}
 
-	// mem hook list: shows the 4 configured hook types + the enabled state.
+	// mem hook list: shows the 5 configured hook types + the enabled state.
 	out = runMemCLI(t, dataDir, "hook", "list", "--project", project, "--dir", dataDir)
-	for _, h := range []string{"session-start", "pre-edit", "prompt-submit", "session-stop"} {
+	for _, h := range []string{"session-start", "pre-edit", "prompt-submit", "session-stop", "compact"} {
 		if !strings.Contains(out, h) {
 			t.Fatalf("mem hook list missing hook type %q: %s", h, out)
 		}

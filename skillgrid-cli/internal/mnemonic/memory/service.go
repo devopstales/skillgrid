@@ -2007,7 +2007,9 @@ type CompactionContext struct {
 
 // CompactionContext builds a compact, session-scoped context block for the
 // compaction prompt. Observations are capped by limit (default 5) and trimmed
-// to one line each — full content is not needed at compaction time.
+// to one line each — full content is not needed at compaction time. A
+// non-empty sessionID restricts the observation list to that session; an
+// empty one keeps the project-wide recent list.
 func (s *Service) CompactionContext(ctx context.Context, sessionID string, limit int) (CompactionContext, error) {
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return CompactionContext{}, errors.New("memory service not initialized")
@@ -2034,7 +2036,7 @@ func (s *Service) CompactionContext(ctx context.Context, sessionID string, limit
 			}
 		}
 	}
-	obs, err := s.Recent(ctx, limit)
+	obs, err := s.recentForCompaction(ctx, sessionID, limit)
 	if err != nil {
 		return out, nil
 	}
@@ -2049,6 +2051,28 @@ func (s *Service) CompactionContext(ctx context.Context, sessionID string, limit
 		out.Observations = append(out.Observations, line)
 	}
 	return out, nil
+}
+
+// recentForCompaction is Recent, narrowed to one session when sessionID is
+// non-empty.
+func (s *Service) recentForCompaction(ctx context.Context, sessionID string, limit int) ([]Observation, error) {
+	if sessionID == "" {
+		return s.Recent(ctx, limit)
+	}
+	rows, err := s.store.DB.QueryContext(ctx, `
+		SELECT `+obsSelectCols+`
+		FROM observations
+		WHERE deleted_at IS NULL AND project = ? AND session_id = ?
+		AND (invalid_at IS NULL OR invalid_at = '' OR strftime('%s', invalid_at) > strftime('%s', 'now'))
+		ORDER BY created_at DESC, id DESC
+		LIMIT ?`,
+		s.projectID, sessionID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("recent session observations: %w", err)
+	}
+	defer rows.Close()
+	return scanObservations(rows)
 }
 
 var validTypes = map[string]struct{}{

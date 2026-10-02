@@ -175,6 +175,39 @@ func TestLoadDecayConfig(t *testing.T) {
 	}
 }
 
+// TestLoadDecayHomeOptOutSurvivesRepoWithoutDecay: a home-level
+// decay.enabled: false must survive a repo file that omits the decay key.
+func TestLoadDecayHomeOptOutSurvivesRepoWithoutDecay(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".skillgrid", "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".skillgrid", "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  decay:\n    enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repoFile := filepath.Join(dir, "config.d", "indexing.yaml")
+	if err := os.WriteFile(repoFile, []byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); got.Decay.Enabled {
+		t.Fatalf("home decay.enabled: false lost to a repo file without decay: %+v", got.Decay)
+	}
+
+	// An explicit repo enabled: true still wins over the home opt-out.
+	if err := os.WriteFile(repoFile, []byte("mnemonic:\n  decay:\n    enabled: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); !got.Decay.Enabled {
+		t.Fatalf("repo decay.enabled: true must override home opt-out: %+v", got.Decay)
+	}
+}
+
 // TestImportanceConfigurableDecay covers 014 step 13.4 (config side): the
 // mnemonic.importance.decay key defaults to 0.05/day, parses from the YAML
 // section, falls back to the default on a malformed value, and the
