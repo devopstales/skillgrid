@@ -201,6 +201,9 @@ func (de *DreamExecutor) consolidate(ctx context.Context, observations []Observa
 		if err != nil {
 			return res, err
 		}
+		// Save applies StripPrivate (incl. TrimSpace) to content; keep the
+		// persisted body and MergedContent identical.
+		body = StripPrivate(body)
 		title := dreamDerivedTitle(topic)
 		mergedID, err := de.svc.Save(ctx, SaveInput{
 			Title:     title,
