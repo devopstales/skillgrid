@@ -1,0 +1,1580 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mnemonic — Enterprise Admin Console</title>
+<script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        surface: { 900: '#0a0a0f', 800: '#111118', 700: '#1a1a24', 600: '#22222e', 500: '#2a2a38' },
+        edge: '#2e2e3e',
+        accent: { DEFAULT: '#6366f1', light: '#818cf8', dim: '#4f46e5' },
+        success: '#22c55e',
+        warning: '#eab308',
+        danger: '#ef4444',
+        text: { primary: '#e2e8f0', secondary: '#94a3b8', muted: '#64748b' }
+      },
+      fontFamily: {
+        mono: ['JetBrains Mono', 'Fira Code', 'SF Mono', 'monospace'],
+        sans: ['Inter', 'system-ui', 'sans-serif']
+      }
+    }
+  }
+}
+</script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+* { scrollbar-width: thin; scrollbar-color: #2e2e3e transparent; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2e2e3e; border-radius: 3px; }
+body { font-family: 'Inter', system-ui, sans-serif; background: #0a0a0f; color: #e2e8f0; }
+.nav-group { padding: 4px 0; }
+.nav-group-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #475569; padding: 12px 16px 4px; }
+.nav-item { transition: all 0.15s ease; border-left: 2px solid transparent; }
+.nav-item:hover { background: #1a1a24; }
+.nav-item.active { background: #1a1a24; border-left: 2px solid #6366f1; }
+.nav-item.active .nav-icon { color: #818cf8; }
+.nav-item.top { font-size: 13px; font-weight: 500; padding: 8px 16px; display: flex; align-items: center; gap: 10px; }
+.nav-item.sub { font-size: 12px; padding: 6px 16px 6px 42px; display: flex; align-items: center; gap: 8px; color: #94a3b8; }
+.nav-item.sub:hover { color: #e2e8f0; }
+.nav-item.sub.active { color: #e2e8f0; }
+.badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 6px; border-radius: 4px; }
+.badge-architecture { background: rgba(99,102,241,0.15); color: #818cf8; }
+.badge-bugfix { background: rgba(239,68,68,0.15); color: #f87171; }
+.badge-config { background: rgba(34,197,94,0.15); color: #4ade80; }
+.badge-decision { background: rgba(234,179,8,0.15); color: #facc15; }
+.badge-discovery { background: rgba(168,85,247,0.15); color: #c084fc; }
+.badge-pattern { background: rgba(20,184,166,0.15); color: #2dd4bf; }
+.badge-learning { background: rgba(59,130,246,0.15); color: #60a5fa; }
+.badge-convention { background: rgba(245,158,11,0.15); color: #fbbf24; }
+.badge-standing { background: rgba(99,102,241,0.15); color: #818cf8; }
+.badge-preference { background: rgba(236,72,153,0.15); color: #f472b6; }
+.badge-lesson { background: rgba(59,130,246,0.15); color: #60a5fa; }
+.badge-session_log { background: rgba(100,116,139,0.15); color: #94a3b8; }
+.badge-correction { background: rgba(245,158,11,0.15); color: #fbbf24; }
+.badge-unknown { background: rgba(100,116,139,0.15); color: #94a3b8; }
+.status-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+.status-fresh { background: rgba(34,197,94,0.15); color: #4ade80; }
+.status-stale { background: rgba(234,179,8,0.15); color: #facc15; }
+.status-active { background: rgba(99,102,241,0.15); color: #818cf8; }
+.status-ended { background: rgba(100,116,139,0.15); color: #94a3b8; }
+.status-published { background: rgba(34,197,94,0.15); color: #4ade80; }
+.status-failed { background: rgba(239,68,68,0.15); color: #f87171; }
+.status-in_progress { background: rgba(234,179,8,0.15); color: #facc15; }
+.status-blocked { background: rgba(239,68,68,0.15); color: #f87171; }
+.status-done { background: rgba(34,197,94,0.15); color: #4ade80; }
+.status-draft { background: rgba(100,116,139,0.15); color: #94a3b8; }
+.status-archived { background: rgba(148,163,184,0.1); color: #94a3b8; }
+.status-idle { background: rgba(100,116,139,0.15); color: #94a3b8; }
+.chat-msg { animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.tree-node { transition: background 0.1s; }
+.tree-node:hover { background: #1a1a24; }
+.kpi-card { background: #111118; border: 1px solid #1e1e2e; border-radius: 8px; padding: 16px; }
+.kpi-value { font-size: 28px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.kpi-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; margin-top: 4px; }
+.section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; }
+.table-row { border-bottom: 1px solid #1a1a24; transition: background 0.1s; }
+.table-row:hover { background: #161620; }
+.ch { display: grid; grid-template-columns: 1fr 110px 80px 90px; gap: 10px; align-items: center; padding: 11px 12px; border-bottom: 1px solid #1a1a24; font-size: 12px; }
+.ch:last-child { border-bottom: 0; }
+.ch .n { color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch .ph { color: #64748b; }
+.ch .t { color: #475569; text-align: right; }
+.ch .st { text-align: right; }
+.chipst { border-radius: 3px; padding: 2px 8px; font-size: 11px; display: inline-block; }
+.chipst.pass { color: #22c55e; border: 1px solid #14532d; background: rgba(34,197,94,.08); }
+.chipst.active { color: #f59e0b; border: 1px solid #78350f; background: rgba(245,158,11,.08); }
+.chipst.blocked { color: #ef4444; border: 1px solid #7f1d1d; background: rgba(239,68,68,.08); }
+.chipst.draft { color: #94a3b8; border: 1px solid #334155; background: rgba(100,116,139,.08); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+const API = 'http://127.0.0.1:7438';
+const PROJECT = 'skillgrid';
+
+async function api(path) {
+  const res = await fetch(API + path, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+  return res.json();
+}
+async function apiGet(path, params) {
+  const all = { project: PROJECT, ...params };
+  const qs = new URLSearchParams(all).toString();
+  return api(qs ? `${path}?${qs}` : path);
+}
+
+// ─── SHARED COMPONENTS ───
+function TypeBadge({ type }) {
+  const cls = `badge badge-${type || 'unknown'}`;
+  return <span className={cls}>{type || 'unknown'}</span>;
+}
+function StatusBadge({ status }) {
+  const cls = `status-badge status-${status || 'idle'}`;
+  return <span className={cls}>{status}</span>;
+}
+function LoadingState() {
+  return <div className="flex items-center justify-center py-8"><div className="h-4 w-4 animate-spin rounded-full border-2 border-edge border-t-accent" /></div>;
+}
+function EmptyState({ message }) {
+  return <div className="text-center py-8 text-sm text-text-muted">{message || 'No data'}</div>;
+}
+function ErrorState({ error }) {
+  return <div className="bg-red-950/30 border border-red-900/50 rounded-lg p-3 text-sm text-red-300">{error}</div>;
+}
+function KpiCard({ label, value, sub }) {
+  return (
+    <div className="kpi-card">
+      <div className="kpi-value">{typeof value === 'number' ? value.toLocaleString() : value}</div>
+      <div className="kpi-label">{label}</div>
+      {sub && <div className="text-xs text-text-muted mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+// ─── 1. OVERVIEW ───
+function OverviewPanel() {
+  const [stats, setStats] = useState(null);
+  const [codeStatus, setCodeStatus] = useState(null);
+  const [events, setEvents] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    Promise.all([
+      apiGet('/activity/stats', {}),
+      apiGet('/code/status', {}),
+      apiGet('/activity/events', { limit: 12 })
+    ]).then(([a, c, e]) => {
+      setStats(a); setCodeStatus(c); setEvents(e.events || []);
+    }).catch(err => setError(err.message));
+  }, []);
+
+  return (
+    <div className="p-6">
+      {error && <ErrorState error={error} />}
+      <div className="mb-6">
+        <h1 className="text-lg font-bold">Overview</h1>
+        <p className="text-sm text-text-muted">Project: {PROJECT} — Persistent memory, code intelligence, and web research</p>
+      </div>
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        <KpiCard label="Observations" value={stats?.total || 0} />
+        <KpiCard label="Active Sessions" value={stats?.activeSessions || 0} />
+        <KpiCard label="Indexed Files" value={codeStatus?.file_count || 0} />
+        <KpiCard label="Code Chunks" value={codeStatus?.chunk_count?.toLocaleString() || 0} />
+      </div>
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="kpi-card">
+          <div className="section-title mb-3">Code Index Health</div>
+          {codeStatus ? (
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-text-muted">Status</span><StatusBadge status={codeStatus.stale ? 'stale' : 'fresh'} /></div>
+              <div className="flex justify-between"><span className="text-text-muted">Last indexed</span><span className="text-text-primary font-mono text-xs">{codeStatus.last_indexed?.slice(0, 16) || 'never'}</span></div>
+              <div className="flex justify-between"><span className="text-text-muted">Chunks</span><span className="text-text-primary font-mono text-xs">{codeStatus.chunk_count?.toLocaleString()}</span></div>
+            </div>
+          ) : <LoadingState />}
+        </div>
+        <div className="kpi-card">
+          <div className="section-title mb-3">Memory Types</div>
+          {stats?.byType ? (
+            <div className="space-y-1.5">
+              {Object.entries(stats.byType).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
+                <div key={type} className="flex items-center gap-2 text-xs">
+                  <TypeBadge type={type} />
+                  <div className="flex-1 h-1 bg-surface-700 rounded overflow-hidden">
+                    <div className="h-full bg-accent" style={{ width: `${count / (stats.total || 1) * 100}%` }} />
+                  </div>
+                  <span className="text-text-muted w-6 text-right">{count}</span>
+                </div>
+              ))}
+            </div>
+          ) : <LoadingState />}
+        </div>
+      </div>
+      <div className="kpi-card">
+        <div className="section-title mb-3">Recent Activity</div>
+        {events ? (
+          <div className="space-y-1">
+            {events.map(ev => (
+              <div key={ev.id} className="flex items-center gap-3 py-1.5">
+                <span className="text-xs font-mono text-text-muted shrink-0">{ev.ts?.slice(0, 16).replace('T', ' ')}</span>
+                <TypeBadge type={ev.type} />
+                <span className="text-sm text-text-primary truncate">{ev.summary}</span>
+                <span className="ml-auto text-xs text-text-muted shrink-0">{ev.actor}</span>
+              </div>
+            ))}
+            {events.length === 0 && <EmptyState message="No recent activity" />}
+          </div>
+        ) : <LoadingState />}
+      </div>
+    </div>
+  );
+}
+
+// ─── 2. PROJECT: KANBAN ───
+function KanbanPanel() {
+  const [tasks, setTasks] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    apiGet('/tracker/tasks', {}).then(d => setTasks(d.tasks || [])).catch(err => setError(err.message));
+  }, []);
+
+  const columns = [
+    { key: 'needs-triage', label: 'Triage' },
+    { key: 'ready-for-agent', label: 'Ready (Agent)' },
+    { key: 'ready-for-human', label: 'Ready (Human)' },
+    { key: 'in-progress', label: 'In Progress' },
+    { key: 'blocked', label: 'Blocked' },
+    { key: 'done', label: 'Done' }
+  ];
+
+  if (error) return <div className="p-6"><ErrorState error={error} /></div>;
+  if (!tasks) return <div className="p-6"><LoadingState /></div>;
+
+  const byStatus = (key) => tasks.filter(t => t.status === key);
+  const total = tasks.length;
+  const openCount = byStatus('needs-triage').length + byStatus('ready-for-agent').length + byStatus('ready-for-human').length + byStatus('in-progress').length + byStatus('blocked').length;
+  const doneCount = byStatus('done').length;
+
+  const typeChip = (type) => {
+    if (!type) return null;
+    const cls = type === 'bug' ? 'text-danger' : type === 'feature' ? 'text-accent' : type === 'docs' ? 'text-text-muted' : 'text-warning';
+    return <span className={`text-[10px] uppercase tracking-wide ${cls}`}>{type}</span>;
+  };
+  const acLabel = (t) => {
+    if (t.ac_total == null) return null;
+    const done = t.ac_completed || 0;
+    const all = done >= t.ac_total && t.ac_total > 0;
+    return <span className={all ? 'text-accent' : 'text-text-muted'}>{done}/{t.ac_total} ac</span>;
+  };
+
+  return (
+    <div className="p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold">Kanban</h2>
+          <p className="text-xs text-text-muted">{total} tasks · {openCount} open · {doneCount} done — provider: backlogmd</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-6 gap-2 min-h-[420px] items-start">
+        {columns.map(col => {
+          const colTasks = byStatus(col.key);
+          const isDone = col.key === 'done';
+          return (
+            <div key={col.key} className={`rounded-lg p-2 ${isDone ? 'bg-surface-800/60' : 'bg-surface-800'}`}>
+              <div className="flex items-center gap-2 mb-2 px-1">
+                <span className="text-xs font-semibold">{col.label}</span>
+                <span className="text-[10px] text-text-muted bg-surface-700 rounded-full px-1.5 py-0.5">{colTasks.length}</span>
+              </div>
+              <div className="space-y-1.5">
+                {colTasks.map(t => (
+                  <div key={t.id} className={`rounded p-2 text-xs ${isDone ? 'bg-surface-700/50 opacity-70' : 'bg-surface-700'}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-medium text-text-primary leading-snug line-clamp-2">{t.title}</div>
+                      {t.priority && t.priority !== 'medium' && (
+                        <span className={`shrink-0 text-[9px] uppercase ${t.priority === 'high' ? 'text-danger' : 'text-warning'}`}>{t.priority}</span>
+                      )}
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] text-text-muted/70 font-mono">{t.id}</span>
+                      {typeChip(t.type)}
+                      {acLabel(t)}
+                      {t.updated_at && <span className="text-[10px] text-text-muted/50">{t.updated_at}</span>}
+                      {t.dependencies && t.dependencies.length > 0 && (
+                        <span className="text-[10px] text-text-muted/50" title={t.dependencies.join(', ')}>→ {t.dependencies.length} dep</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {colTasks.length === 0 && <div className="text-[10px] text-text-muted/40 text-center py-2">empty</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── 3. PROJECT: CHANGES ───
+function ChangesPanel() {
+  const [changes, setChanges] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      apiGet('/docs/changes', {}).catch(() => ({ changes: [] })),
+      apiGet('/plans', {}).catch(() => ({ plans: [] })),
+    ]).then(([docsRes, plansRes]) => {
+      const planMap = {};
+      (plansRes.plans || []).forEach(p => { planMap[p.name] = p; });
+      const merged = (docsRes.changes || []).map(c => {
+        const p = planMap[c.name] || {};
+        return {
+          name: c.name,
+          status: c.status || p.status || '',
+          ticket: c.ticket || '',
+          progress: p.progress || 0,
+          tasksDone: p.tasksDone || 0,
+          tasksTotal: p.tasksTotal || 0,
+          hasLedger: p.hasLedger || false,
+          archived: !planMap[c.name],
+        };
+      });
+      setChanges(merged);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="p-6"><LoadingState /></div>;
+
+  const sorted = (changes || []).slice().sort((a, b) => b.name.localeCompare(a.name));
+  const activeCount = sorted.filter(c => !c.archived).length;
+  const archivedCount = sorted.filter(c => c.archived).length;
+
+  const chipClass = (c) => {
+    if (c.archived) return 'pass';
+    if (!c.status) return 'draft';
+    if (c.status === 'shipped' || c.status === 'archived' || c.status === 'done' || c.status === 'pass') return 'pass';
+    if (c.status === 'blocked' || c.status === 'failed') return 'blocked';
+    return 'active';
+  };
+  const phaseLabel = (c) => {
+    if (c.archived) return 'archived';
+    if (!c.status) return 'draft';
+    if (c.status === 'shipped' || c.status === 'archived') return 'shipped';
+    if (c.hasLedger && c.tasksTotal > 0 && c.tasksDone >= c.tasksTotal) return 'shipped';
+    if (c.hasLedger) return 'executing';
+    if (c.tasksTotal > 0) return 'in progress';
+    return c.status;
+  };
+  const dateFrom = (name) => name.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] || '';
+
+  return (
+    <div className="p-6">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold">Changes</h2>
+        <p className="text-xs text-text-muted">Pipeline changes — {sorted.length} total, {activeCount} active, {archivedCount} archived</p>
+      </div>
+
+      {sorted.length > 0 ? (
+        <div className="kpi-card" style={{ padding: 0 }}>
+          {sorted.map(c => (
+            <div key={c.name} className="ch">
+              <span className="n font-mono">{c.name}</span>
+              <span className="ph">{phaseLabel(c)}</span>
+              <span className="t">{c.tasksTotal > 0 ? `${c.tasksDone}/${c.tasksTotal}` : '—'}</span>
+              <span className="st"><span className={`chipst ${chipClass(c)}`}>{dateFrom(c.name)}</span></span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="kpi-card">
+          <div className="text-sm text-text-muted">
+            <p>No change files found in <code className="font-mono text-xs bg-surface-700 px-1 rounded">.skillgrid/specs/</code> or <code className="font-mono text-xs bg-surface-700 px-1 rounded">.skillgrid/archive/</code>.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 4. PROJECT: DECISIONS (ADR) ───
+function DecisionsPanel() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [openId, setOpenId] = useState(null);
+
+  useEffect(() => {
+    apiGet('/docs/adrs', {})
+      .then(d => setData(d))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="p-6"><LoadingState /></div>;
+
+  const adrs = data?.adrs || [];
+  const summary = data?.summary || {};
+  const inForce = adrs.filter(a => !a.removed);
+
+  if (adrs.length === 0) {
+    return (
+      <div className="p-6">
+        <div className="kpi-card">
+          <div className="text-sm text-text-muted">
+            <p>No ADRs found.</p>
+            <p className="text-xs mt-1">ADR entries live in <code className="font-mono text-xs bg-surface-700 px-1 rounded">.skillgrid/ASSUMPTIONS.md</code> as <code className="font-mono text-xs bg-surface-700 px-1 rounded">### ADR-NNNN</code> blocks — the <code className="font-mono text-xs bg-surface-700 px-1 rounded">/docs/adrs</code> endpoint parses them.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold">Architectural Decisions</h2>
+        <p className="text-xs text-text-muted">
+          {summary.in_force ?? inForce.length} in force, {summary.removed ?? 0} removed — next number ADR-{String(summary.next_number ?? 0).padStart(4, '0')} · source: <span className="font-mono">{data?.source}</span>
+        </p>
+      </div>
+
+      <div className="space-y-2 max-h-[640px] overflow-y-auto">
+        {adrs.map(a => {
+          const isOpen = openId === a.id;
+          return (
+            <div key={a.id} className="kpi-card" style={a.removed ? { opacity: 0.6 } : {}}>
+              <div className="flex items-start gap-3 cursor-pointer" onClick={() => setOpenId(isOpen ? null : a.id)}>
+                <span className={`chipst ${a.removed ? 'draft' : 'pass'}`}>{a.removed ? 'removed' : 'in force'}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-text-primary truncate">
+                    <span className="font-mono text-accent mr-2">{a.id}</span>{a.title || 'Untitled decision'}
+                  </div>
+                  {a.decision && !isOpen && (
+                    <div className="text-xs text-text-muted mt-1 truncate">{a.decision}</div>
+                  )}
+                </div>
+                <span className="text-text-muted text-xs mt-1">{isOpen ? '▴' : '▾'}</span>
+              </div>
+              {isOpen && (
+                <div className="mt-3 pt-3 border-t border-edge text-xs space-y-2">
+                  {a.decision && <p><span className="text-accent font-medium">Decision. </span>{a.decision}</p>}
+                  {a.why && <p className="text-text-muted"><span className="text-accent font-medium">Why. </span>{a.why}</p>}
+                  {a.conseq && <p className="text-text-muted"><span className="text-accent font-medium">Consequences. </span>{a.conseq}</p>}
+                  {a.removed && !a.decision && <p className="italic">Retired ADR — sequence number preserved, no active decision.</p>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── 5. PROJECT: PROTOTYPES ───
+function PrototypesPanel() {
+  const [prototypes, setPrototypes] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiGet('/prototypes', {}).then(d => setPrototypes(d.prototypes || [])).catch(err => setError(err.message)).finally(() => setLoading(false));
+  }, []);
+
+  if (error) return <div className="p-6"><ErrorState error={error} /></div>;
+  if (loading) return <div className="p-6"><LoadingState /></div>;
+
+  return (
+    <div className="p-6">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold">Prototypes</h2>
+        <p className="text-xs text-text-muted">{(prototypes || []).length} throwaway feasibility experiments — verdicts in prototype.md</p>
+      </div>
+      {(prototypes || []).length > 0 ? (
+        <div className="space-y-2">
+          {prototypes.map(s => (
+            <div key={s.name} className="kpi-card">
+              <div className="flex items-start justify-between gap-3">
+                <span className="font-mono text-sm text-text-primary">{s.name}</span>
+                {s.date && <span className="text-xs text-text-muted shrink-0">{s.date}</span>}
+              </div>
+              {s.venue && <div className="mt-1 text-xs text-accent">{s.venue}</div>}
+              {s.hypothesis && <p className="mt-1.5 text-xs text-text-secondary leading-relaxed line-clamp-2">{s.hypothesis}</p>}
+              {s.files && s.files.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {s.files.map(f => (
+                    <span key={f} className="text-[10px] font-mono text-text-muted bg-surface-700 px-1.5 py-0.5 rounded">{f}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="kpi-card">
+          <div className="text-sm text-text-muted">
+            <p>No prototypes found under <code className="font-mono text-xs bg-surface-700 px-1 rounded">.skillgrid/prototypes/</code>.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 6. MEMORY: SESSIONS ───
+function SessionsPanel() {
+  const [sessions, setSessions] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    apiGet('/mnemonic/sessions', {}).then(d => setSessions(d.sessions || [])).catch(err => setError(err.message));
+  }, []);
+
+  if (error) return <div className="p-6"><ErrorState error={error} /></div>;
+  if (!sessions) return <div className="p-6"><LoadingState /></div>;
+
+  return (
+    <div className="p-6">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold">Sessions</h2>
+        <p className="text-xs text-text-muted">{sessions.length} sessions — memory write activity by agent</p>
+      </div>
+      <div className="kpi-card overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-text-muted border-b border-edge">
+              <th className="py-2 px-2 font-medium">Session</th>
+              <th className="py-2 px-2 font-medium">Project</th>
+              <th className="py-2 px-2 font-medium">Status</th>
+              <th className="py-2 px-2 font-medium">Memory</th>
+              <th className="py-2 px-2 font-medium">Summary</th>
+              <th className="py-2 px-2 font-medium">Last Active</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sessions.map(s => (
+              <tr key={s.id} className="table-row">
+                <td className="py-2 px-2 font-mono text-xs text-text-secondary truncate max-w-[200px]">{s.id?.slice(0, 16)}...</td>
+                <td className="py-2 px-2 text-xs">{s.project}</td>
+                <td className="py-2 px-2"><StatusBadge status={s.status} /></td>
+                <td className="py-2 px-2 text-xs font-mono">{s.memories_writes}</td>
+                <td className="py-2 px-2 text-xs">{s.has_summary ? '✓' : '—'}</td>
+                <td className="py-2 px-2 text-xs font-mono text-text-muted">{s.last_active?.slice(0, 16)?.replace('T', ' ')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {sessions.length === 0 && <EmptyState message="No sessions" />}
+      </div>
+    </div>
+  );
+}
+
+// ─── 7. MEMORY: CODE GRAPH ───
+const GRAPH_TYPE_COLORS = { function: '#60a5fa', method: '#34d399', type: '#fbbf24', class: '#f472b6', route: '#c084fc', reference: '#94a3b8' };
+
+function CodeGraphPanel() {
+  const [graph, setGraph] = useState(null);
+  const [codeStatus, setCodeStatus] = useState(null);
+  const [error, setError] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const graphRef = useRef(null);
+  const [zoom, setZoom] = useState(1);
+
+  useEffect(() => {
+    Promise.all([
+      apiGet('/mnemonic/graph/data', { project: PROJECT, limit: 500 }),
+      apiGet('/code/status', { project: PROJECT })
+    ]).then(([g, c]) => {
+      setGraph(g); setCodeStatus(c);
+    }).catch(err => setError(err.message));
+  }, []);
+
+  // Build adjacency lookup: incoming (callers) + outgoing (callees) per node id.
+  const adjacency = useMemo(() => {
+    const map = {};
+    (graph?.edges || []).forEach(e => {
+      const s = typeof e.source === 'object' ? e.source.id : e.source;
+      const t = typeof e.target === 'object' ? e.target.id : e.target;
+      if (!map[s]) map[s] = { incoming: [], outgoing: [] };
+      if (!map[t]) map[t] = { incoming: [], outgoing: [] };
+      map[t].incoming.push({ id: s, edge: e });
+      map[s].outgoing.push({ id: t, edge: e });
+    });
+    return map;
+  }, [graph]);
+
+  useEffect(() => {
+    if (!graph || !graphRef.current) return;
+    const container = graphRef.current;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const nodes = graph.nodes || [];
+    const edges = graph.edges || [];
+
+    const svg = d3.select(container).append('svg').attr('width', width).attr('height', height);
+    const g = svg.append('g');
+    svg.call(d3.zoom().scaleExtent([0.1, 5]).on('zoom', (e) => { g.attr('transform', e.transform); setZoom(e.transform.k); }));
+
+    const simulation = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(edges).id(d => d.id).distance(60))
+      .force('charge', d3.forceManyBody().strength(-2))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collision', d3.forceCollide().radius(4));
+
+    const link = g.append('g').selectAll('line').data(edges).enter().append('line')
+      .attr('stroke', '#2e2e3e').attr('stroke-width', 0.5);
+
+    const node = g.append('g').selectAll('circle').data(nodes).enter().append('circle')
+      .attr('r', 3).attr('fill', d => GRAPH_TYPE_COLORS[d.type] || '#64748b')
+      .style('cursor', 'pointer')
+      .call(d3.drag()
+        .on('start', (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+        .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+        .on('end', (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }))
+      .on('click', (e, d) => { e.stopPropagation(); setSelected(d); });
+
+    node.append('title').text(d => `${d.label} (${d.type})\n${d.path}`);
+
+    // Native listener on the g element — d3.zoom only clobbers d3-managed
+    // listeners, not native addEventListener, so canvas clicks clear selection.
+    g.node().addEventListener('click', () => setSelected(null));
+
+    simulation.on('tick', () => {
+      link.attr('x1', d => d.source.x).attr('y1', d => d.source.y).attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      node.attr('cx', d => d.x).attr('cy', d => d.y);
+    });
+
+    return () => { simulation.stop(); svg.remove(); };
+  }, [graph]);
+
+  // keep a ref of the selected node so the (graph-scoped) effect can read it
+  // without re-running the whole force layout on every selection.
+  const selectedRef = useRef(null);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+
+  // Re-apply node/edge highlighting whenever the selection changes (the
+  // layout above only runs once per graph load).
+  useEffect(() => {
+    const container = graphRef.current;
+    if (!container || !selected) return;
+    const svg = d3.select(container).select('svg');
+    const node = svg.selectAll('circle');
+    const link = svg.selectAll('line');
+    const selId = selected.id;
+    const neighborIds = new Set([selId]);
+    (graph?.edges || []).forEach(e => {
+      const s = e.source.id ?? e.source, t = e.target.id ?? e.target;
+      if (s === selId || t === selId) { neighborIds.add(s); neighborIds.add(t); }
+    });
+    node
+      .attr('stroke', d => d.id === selId ? '#fff' : null)
+      .attr('stroke-width', d => d.id === selId ? 2 : null)
+      .attr('r', d => d.id === selId ? 5 : (neighborIds.has(d.id) ? 4 : 3))
+      .attr('opacity', d => neighborIds.has(d.id) ? 1 : 0.15);
+    link
+      .attr('stroke', e => (e.source.id === selId || e.target.id === selId) ? '#60a5fa' : '#2e2e3e')
+      .attr('stroke-width', e => (e.source.id === selId || e.target.id === selId) ? 1.5 : 0.5)
+      .attr('opacity', e => (e.source.id === selId || e.target.id === selId) ? 1 : 0.1);
+  }, [selected, graph]);
+
+  const nodeById = useMemo(() => {
+    const m = {};
+    (graph?.nodes || []).forEach(n => { m[n.id] = n; });
+    return m;
+  }, [graph]);
+
+  if (error) return <div className="p-6"><ErrorState error={error} /></div>;
+  if (!graph) return <div className="p-6"><LoadingState /></div>;
+
+  const typeCounts = {};
+  (graph.nodes || []).forEach(n => { typeCounts[n.type] = (typeCounts[n.type] || 0) + 1; });
+
+  // Resolve selected node's connections to display in the sidebar.
+  const selConn = selected ? adjacency[selected.id] || { incoming: [], outgoing: [] } : null;
+  const connRow = (dir, c) => {
+    const other = nodeById[c.id];
+    if (!other) return null;
+    const verb = dir === 'incoming' ? '← called by' : '→ calls';
+    return (
+      <div key={dir + c.id} className="flex items-start gap-1.5 py-0.5">
+        <span className={`shrink-0 text-[10px] ${dir === 'incoming' ? 'text-warning' : 'text-accent'}`}>{verb}</span>
+        <div className="min-w-0">
+          <div className="font-mono text-[11px] text-text-primary truncate">{other.label}</div>
+          <div className="font-mono text-[10px] text-text-muted/70 truncate">{other.path}</div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="p-4 border-b border-edge flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold">Code Graph</h2>
+          <p className="text-xs text-text-muted">{(graph.nodes || []).length} nodes / {(graph.edges || []).length} edges (limited to 500) — full graph: {graph.totalNodes || 'unknown'} nodes</p>
+        </div>
+        <div className="flex gap-4 text-xs">
+          {Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
+            <span key={type} className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full" style={{ background: GRAPH_TYPE_COLORS[type] || '#64748b' }} />
+              {type} ({count})
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="flex-1 flex">
+        <div ref={graphRef} className="flex-1 bg-surface-900" style={{ minHeight: 400 }} />
+        <div className="w-64 border-l border-edge p-4 space-y-4 overflow-y-auto">
+          {/* Node inspector — what a node represents + its connections */}
+          <div>
+            <div className="section-title mb-2">Node Inspector</div>
+            {selected ? (
+              <div className="space-y-3">
+                <div className="bg-surface-800 rounded p-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: GRAPH_TYPE_COLORS[selected.type] || '#64748b' }} />
+                    <span className="font-mono text-sm text-text-primary break-all">{selected.label}</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-y-1 text-[11px]">
+                    <span className="text-text-muted">Type</span><span className="text-text-secondary">{selected.type}</span>
+                    <span className="text-text-muted">Language</span><span className="text-text-secondary">{selected.language}</span>
+                    <span className="text-text-muted">Degree</span><span className="text-text-secondary">{selected.degree} connections</span>
+                    <span className="text-text-muted">Community</span><span className="text-text-secondary">{selected.community}</span>
+                    <span className="text-text-muted col-span-2">File</span>
+                    <span className="font-mono text-[10px] text-accent break-all col-span-2">{selected.path}</span>
+                    <span className="text-text-muted">UID</span><span className="font-mono text-[10px] text-text-muted/60">{selected.uid}</span>
+                  </div>
+                </div>
+                {selConn && (selConn.incoming.length > 0 || selConn.outgoing.length > 0) ? (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-text-muted mb-1">Connections ({selConn.incoming.length + selConn.outgoing.length})</div>
+                    <div className="max-h-64 overflow-y-auto space-y-0.5">
+                      {selConn.incoming.slice(0, 30).map(c => connRow('incoming', c))}
+                      {selConn.incoming.length > 30 && <div className="text-[10px] text-text-muted">… {selConn.incoming.length - 30} more callers</div>}
+                      {selConn.outgoing.slice(0, 30).map(c => connRow('outgoing', c))}
+                      {selConn.outgoing.length > 30 && <div className="text-[10px] text-text-muted">… {selConn.outgoing.length - 30} more callees</div>}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-text-muted">No edges in the loaded window (graph limited to 500 nodes).</div>
+                )}
+              </div>
+            ) : (
+              <div className="text-xs text-text-muted">
+                <p>Click a node to see what it is (symbol, type, file) and what connects to it (callers / callees).</p>
+                <p className="mt-2 text-text-muted/60">Edges in this view are all <code className="font-mono">calls</code> (directed: source → target), EXTRACTED confidence.</p>
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="section-title mb-2">Index Status</div>
+            {codeStatus ? (
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between"><span className="text-text-muted">Status</span><StatusBadge status={codeStatus.stale ? 'stale' : 'fresh'} /></div>
+                <div className="flex justify-between"><span className="text-text-muted">Files</span><span className="font-mono">{codeStatus.file_count}</span></div>
+                <div className="flex justify-between"><span className="text-text-muted">Chunks</span><span className="font-mono">{codeStatus.chunk_count?.toLocaleString()}</span></div>
+              </div>
+            ) : <LoadingState />}
+          </div>
+          <div>
+            <div className="section-title mb-2">Controls</div>
+            <div className="text-xs text-text-muted space-y-1">
+              <div>Zoom: {zoom.toFixed(1)}x</div>
+              <div>Click node → inspect + highlight</div>
+              <div>Drag nodes to reposition</div>
+              <div>Scroll to zoom, drag to pan</div>
+              <div>Click canvas to clear selection</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 8. MEMORY: MEMFS ───
+// ─── MEMFS: MINIMAL MARKDOWN RENDERER ───
+// Converts the L2 markdown (headings, bold, inline code, fenced code blocks,
+// bullet lists) to safe HTML. Text is HTML-escaped first so raw < > & never
+// pass through; inline spans are rebuilt with explicit tags.
+function mdInline(s) {
+  return s
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/`([^`]+)`/g, '<code class="text-accent bg-surface-700 px-1 rounded">$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong class="text-text-primary">$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+function mdToHtml(md) {
+  const lines = String(md).split('\n');
+  const out = [];
+  let inCode = false, codeBuf = [];
+  let inList = false;
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+  for (const raw of lines) {
+    if (/^```/.test(raw)) {
+      if (inCode) { out.push(`<pre class="bg-surface-800 rounded p-2 my-1.5 text-[11px] font-mono overflow-x-auto">${codeBuf.join('\n').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`); codeBuf = []; }
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) { codeBuf.push(raw); continue; }
+    const h = raw.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      closeList();
+      const lvl = Math.min(h[1].length, 4);
+      const size = {1:'text-base',2:'text-sm',3:'text-xs',4:'text-xs'}[lvl];
+      out.push(`<div class="${size} font-semibold text-text-primary mt-2 mb-1">${mdInline(h[2])}</div>`);
+      continue;
+    }
+    const li = raw.match(/^\s*[-*]\s+(.*)$/);
+    if (li) {
+      if (!inList) { out.push('<ul class="list-disc pl-4 my-1 space-y-0.5">'); inList = true; }
+      out.push(`<li class="text-xs text-text-secondary leading-relaxed">${mdInline(li[1])}</li>`);
+      continue;
+    }
+    if (raw.trim() === '') { closeList(); continue; }
+    closeList();
+    out.push(`<p class="text-xs text-text-secondary leading-relaxed mb-1">${mdInline(raw)}</p>`);
+  }
+  if (inCode) out.push(`<pre class="bg-surface-800 rounded p-2 my-1.5 text-[11px] font-mono overflow-x-auto">${codeBuf.join('\n').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>`);
+  closeList();
+  return out.join('\n');
+}
+
+function MemFSPanel() {
+  const [tree, setTree] = useState(null);
+  const [content, setContent] = useState(null);
+  const [selectedPath, setSelectedPath] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    apiGet('/mnemonic/files/tree', { root: 'all' }).then(d => setTree(d)).catch(err => setError(err.message));
+  }, []);
+
+  const selectFile = async (path) => {
+    setSelectedPath(path);
+    setContent(null);
+    try {
+      // Server expects `uri` (not `path`); response is layered L0/L1/L2.
+      const d = await apiGet('/mnemonic/files/content', { uri: path });
+      const layers = [];
+      const layer = (label, node) => {
+        if (node && node.content && node.content.trim()) {
+          layers.push({ label, content: node.content });
+        }
+      };
+      layer('L0 · Abstract', d.l0);
+      layer('L1 · Overview', d.l1);
+      layer('L2 · Details', d.l2);
+      setContent(layers.length ? layers : null);
+    } catch (err) { setContent(`Error: ${err.message}`); }
+  };
+
+  if (error) return <div className="p-6"><ErrorState error={error} /></div>;
+  if (!tree) return <div className="p-6"><LoadingState /></div>;
+
+  const renderTree = (node, depth = 0) => {
+    const isDir = node.children && node.children.length > 0;
+    return (
+      <div key={node.path}>
+        <div
+          className={`tree-node flex items-center gap-1.5 py-1 cursor-pointer text-xs ${selectedPath === node.path ? 'bg-surface-700 text-accent' : 'text-text-secondary hover:text-text-primary'}`}
+          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          onClick={() => !isDir && selectFile(node.path)}
+        >
+          <span className="text-text-muted">{isDir ? '▸' : '·'}</span>
+          <span className="truncate">{node.name}</span>
+          {isDir && <span className="text-[10px] text-text-muted/50 ml-auto">{node.children?.length}</span>}
+        </div>
+        {isDir && node.children.map(c => renderTree(c, depth + 1))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex h-full">
+      <div className="w-72 border-r border-edge overflow-y-auto p-2">
+        <div className="section-title px-2 pb-2">Topic Hierarchy</div>
+        {tree.root ? renderTree(tree.root) : <EmptyState message="Empty" />}
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="section-title mb-2">Content {selectedPath && <span className="font-mono text-text-secondary normal-case">— {selectedPath}</span>}</div>
+        {content ? (
+          typeof content === 'string' ? (
+            <pre className={`text-xs font-mono whitespace-pre-wrap leading-relaxed ${content.startsWith('Error') ? 'text-danger' : 'text-text-primary'}`}>{content}</pre>
+          ) : (
+            <div className="space-y-3">
+              {content.map((l, i) => (
+                <div key={i}>
+                  <div className="text-[10px] uppercase tracking-wide text-text-muted border-b border-edge pb-1 mb-2">{l.label}</div>
+                  <div className="md-body" dangerouslySetInnerHTML={{ __html: mdToHtml(l.content) }} />
+                </div>
+              ))}
+            </div>
+          )
+        ) : (
+          <EmptyState message="Select a file to view content" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── 9. OBSERVE: TELEMETRY ───
+function TelemetryPanel() {
+  const [sessions, setSessions] = useState(null);
+  const [events, setEvents] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    Promise.all([
+      apiGet('/mnemonic/sessions', {}),
+      apiGet('/activity/events', { limit: 50 })
+    ]).then(([s, e]) => {
+      setSessions(s.sessions || []);
+      setEvents(e.events || []);
+    }).catch(err => setError(err.message));
+  }, []);
+
+  if (error) return <div className="p-6"><ErrorState error={error} /></div>;
+  if (!sessions && !events) return <div className="p-6"><LoadingState /></div>;
+
+  return (
+    <div className="p-6">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold">Telemetry</h2>
+        <p className="text-xs text-text-muted">Agent observation: session activity + event stream</p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <KpiCard label="Total Sessions" value={sessions?.length || 0} />
+        <KpiCard label="Active" value={(sessions || []).filter(s => s.status === 'active').length} />
+        <KpiCard label="Events (50)" value={(events || []).length} />
+      </div>
+
+      <div className="kpi-card mb-4">
+        <div className="section-title mb-2">Event Stream</div>
+        <div className="max-h-[300px] overflow-y-auto space-y-0.5">
+          {(events || []).map(ev => (
+            <div key={ev.id} className="flex items-center gap-3 py-1.5 px-1 text-xs">
+              <span className="font-mono text-text-muted shrink-0 w-[130px]">{ev.ts?.slice(0, 19).replace('T', ' ')}</span>
+              <TypeBadge type={ev.type} />
+              <span className="text-text-primary truncate flex-1">{ev.summary}</span>
+              <span className="text-text-muted shrink-0">{ev.actor}</span>
+            </div>
+          ))}
+          {(!events || events.length === 0) && <EmptyState message="No events" />}
+        </div>
+      </div>
+
+      <div className="kpi-card">
+        <div className="section-title mb-2">Sessions</div>
+        <div className="max-h-[300px] overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-text-muted border-b border-edge">
+                <th className="py-1.5 px-2">Session</th>
+                <th className="py-1.5 px-2">Status</th>
+                <th className="py-1.5 px-2">Writes</th>
+                <th className="py-1.5 px-2">Summary</th>
+                <th className="py-1.5 px-2">Last Active</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(sessions || []).map(s => (
+                <tr key={s.id} className="table-row">
+                  <td className="py-1.5 px-2 font-mono text-text-secondary truncate max-w-[180px]">{s.id?.slice(0, 16)}...</td>
+                  <td className="py-1.5 px-2"><StatusBadge status={s.status} /></td>
+                  <td className="py-1.5 px-2 font-mono">{s.memories_writes}</td>
+                  <td className="py-1.5 px-2">{s.has_summary ? '✓' : '—'}</td>
+                  <td className="py-1.5 px-2 font-mono text-text-muted">{s.last_active?.slice(0, 16)?.replace('T', ' ')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 10. OBSERVE: COMPACTION ───
+function CompactionPanel() {
+  const [compaction, setCompaction] = useState(null);
+  const [context, setContext] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    Promise.all([
+      apiGet('/context/compaction', {}),
+      apiGet('/context', {})
+    ]).then(([c, ctx]) => {
+      setCompaction(c); setContext(ctx);
+    }).catch(err => setError(err.message));
+  }, []);
+
+  if (error) return <div className="p-6"><ErrorState error={error} /></div>;
+  if (!compaction && !context) return <div className="p-6"><LoadingState /></div>;
+
+  return (
+    <div className="p-6">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold">Compaction</h2>
+        <p className="text-xs text-text-muted">Session context injection and compaction state</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="kpi-card">
+          <div className="section-title mb-3">Compaction Status</div>
+          {compaction ? (
+            <div className="space-y-3">
+              {compaction.blocks && compaction.blocks.length > 0 ? (
+                compaction.blocks.map((b, i) => (
+                  <div key={i} className="border border-edge rounded p-3">
+                    <div className="text-xs font-semibold text-text-primary mb-1">Block {i + 1}</div>
+                    {b.timestamp && <div className="text-[10px] font-mono text-text-muted mb-1">{b.timestamp}</div>}
+                    {b.summary && <div className="text-xs text-text-secondary whitespace-pre-wrap">{b.summary.slice(0, 300)}</div>}
+                    {b.observations && b.observations.length > 0 && (
+                      <div className="text-[10px] text-text-muted mt-1">{b.observations.length} observations</div>
+                    )}
+                  </div>
+                ))
+              ) : <EmptyState message="No compaction blocks" />}
+            </div>
+          ) : <LoadingState />}
+        </div>
+
+        <div className="kpi-card">
+          <div className="section-title mb-3">Context</div>
+          {context ? (
+            <div className="space-y-2 text-sm">
+              {context.session_id && (
+                <div className="flex justify-between">
+                  <span className="text-text-muted">Session</span>
+                  <span className="font-mono text-xs text-text-primary truncate max-w-[200px]">{context.session_id}</span>
+                </div>
+              )}
+              {context.project && (
+                <div className="flex justify-between">
+                  <span className="text-text-muted">Project</span>
+                  <span className="font-mono text-xs">{context.project}</span>
+                </div>
+              )}
+              {context.generated_at && (
+                <div className="flex justify-between">
+                  <span className="text-text-muted">Generated</span>
+                  <span className="font-mono text-xs text-text-muted">{context.generated_at?.slice(0, 19).replace('T', ' ')}</span>
+                </div>
+              )}
+              {context.blocks && context.blocks.length > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-text-muted">Context Blocks</span>
+                  <span className="font-mono text-xs">{context.blocks.length}</span>
+                </div>
+              )}
+              {context.observations && context.observations.length > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-text-muted">Observations</span>
+                  <span className="font-mono text-xs">{context.observations.length}</span>
+                </div>
+              )}
+            </div>
+          ) : <EmptyState message="No context data" />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 11. OBSERVE: WEB CACHE ───
+function WebCachePanel() {
+  const [status, setStatus] = useState(null);
+  const [entries, setEntries] = useState(null);
+  const [source, setSource] = useState('all');
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    apiGet('/web/status', {}).then(setStatus).catch(err => setError(err.message));
+  }, []);
+
+  useEffect(() => {
+    if (!status) return;
+    const params = source !== 'all' ? { source } : {};
+    apiGet('/web/search', { q: '', ...params }).then(d => setEntries(d.results || [])).catch(() => setEntries([]));
+  }, [status, source]);
+
+  if (error) return <div className="p-6"><ErrorState error={error} /></div>;
+  if (!status) return <div className="p-6"><LoadingState /></div>;
+
+  const sources = ['all', 'context7', 'exa', 'deepwiki', 'fetch', 'manual'];
+
+  return (
+    <div className="p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold">Web Cache</h2>
+          <p className="text-xs text-text-muted">Cached web research snapshots</p>
+        </div>
+        <select value={source} onChange={e => setSource(e.target.value)} className="bg-surface-700 border border-edge rounded px-3 py-1.5 text-xs focus:outline-none focus:border-accent">
+          {sources.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-4 gap-4 mb-4">
+        <KpiCard label="Total Entries" value={status.total_entries || 0} />
+        <KpiCard label="Context7" value={status.by_source?.context7 || 0} />
+        <KpiCard label="Exa" value={status.by_source?.exa || 0} />
+        <KpiCard label="Fetch" value={status.by_source?.fetch || 0} />
+      </div>
+
+      <div className="kpi-card">
+        <div className="section-title mb-2">Entries</div>
+        {entries ? (
+          entries.length > 0 ? (
+            <div className="space-y-1">
+              {entries.map(e => (
+                <div key={e.id} className="table-row flex items-center gap-3 py-2 px-1 text-sm">
+                  <TypeBadge type={e.source} />
+                  <span className="text-text-primary truncate flex-1">{e.title || e.query || 'untitled'}</span>
+                  {e.url && <span className="text-xs text-text-muted font-mono truncate max-w-[300px]">{e.url}</span>}
+                  {e.cached_at && <span className="text-xs text-text-muted font-mono shrink-0">{e.cached_at?.slice(0, 10)}</span>}
+                </div>
+              ))}
+            </div>
+          ) : <EmptyState message={status.total_entries === 0 ? 'Cache is empty — no web research cached yet' : 'No entries match filter'} />
+        ) : <LoadingState />}
+      </div>
+    </div>
+  );
+}
+
+// ─── 12. DOCS ───
+function DocsPanel() {
+  const [tree, setTree] = useState(null);
+  const [content, setContent] = useState(null);
+  const [selectedPath, setSelectedPath] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    apiGet('/docs/tree', {}).then(setTree).catch(err => setError(err.message));
+  }, []);
+
+  const selectFile = async (path) => {
+    setSelectedPath(path);
+    setContent(null);
+    try {
+      const d = await apiGet('/docs/content', { project: PROJECT, path });
+      setContent(d.content || '');
+    } catch (err) { setContent(`Error: ${err.message}`); }
+  };
+
+  if (error) return <div className="p-6"><ErrorState error={error} /></div>;
+  if (!tree) return <div className="p-6"><LoadingState /></div>;
+
+  const renderTree = (node, depth = 0) => {
+    const isDir = node.children && node.children.length > 0;
+    return (
+      <div key={node.path}>
+        <div
+          className={`tree-node flex items-center gap-1.5 py-1 cursor-pointer text-xs ${selectedPath === node.path ? 'bg-surface-700 text-accent' : 'text-text-secondary hover:text-text-primary'}`}
+          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          onClick={() => !isDir && selectFile(node.path)}
+        >
+          <span className="text-text-muted">{isDir ? '▸' : '·'}</span>
+          <span className="truncate">{node.name}</span>
+        </div>
+        {isDir && node.children.map(c => renderTree(c, depth + 1))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="flex h-full">
+      <div className="w-64 border-r border-edge overflow-y-auto p-2">
+        <div className="section-title px-2 pb-2">Documentation</div>
+        {tree.nodes && tree.nodes.length > 0 ? tree.nodes.map(n => renderTree(n)) : <EmptyState message="No docs found" />}
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="section-title mb-2">Content {selectedPath && <span className="font-mono text-text-secondary normal-case">— {selectedPath}</span>}</div>
+        {content ? (
+          <pre className="text-xs font-mono text-text-primary whitespace-pre-wrap leading-relaxed">{content}</pre>
+        ) : (
+          <EmptyState message="Select a document to view" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── 13. SYSTEM: SETTINGS ───
+function yamlClean(val) {
+  let v = val.trim();
+  v = v.replace(/\s+#.*$/, '');
+  if (v.startsWith('"') && v.endsWith('"') && v.length >= 2) v = v.slice(1, -1);
+  return v;
+}
+
+function parseYamlFlat(text) {
+  if (!text) return {};
+  const flat = {};
+  let stack = [];
+  for (const line of text.split('\n')) {
+    if (line.startsWith('#') || line.trim() === '') continue;
+    const indent = line.match(/^ */)[0].length;
+    const m = line.match(/^(\s*)([a-zA-Z_][\w-]*):\s*(.*)$/);
+    if (!m) continue;
+    while (stack.length > 0 && stack[stack.length - 1].indent >= indent) stack.pop();
+    const parent = stack.length > 0 ? stack[stack.length - 1].key : '';
+    const fullKey = parent ? parent + '.' + m[2] : m[2];
+    stack.push({ indent, key: fullKey });
+    const v = m[3].trim();
+    if (v && !v.startsWith('>') && !v.startsWith('|') && v !== '[]' && v !== '{}') {
+      flat[fullKey] = yamlClean(v);
+    }
+  }
+  return flat;
+}
+
+function BoolPill({ value }) {
+  const on = value === 'true' || value === true;
+  return (
+    <span className={`badge ${on ? 'badge-config' : 'badge-unknown'}`}>
+      {on ? 'enabled' : 'off'}
+    </span>
+  );
+}
+
+function SettingsPanel() {
+  const [config, setConfig] = useState(null);
+  const [state, setState] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    apiGet('/docs/content', { path: '.skillgrid/config.yaml' }).then(d => setConfig(d.body || '')).catch(() => {}).finally(() => setLoaded(true));
+    apiGet('/docs/content', { path: '.skillgrid/state.yaml' }).then(d => setState(d.body || '')).catch(() => {});
+  }, []);
+
+  if (!loaded) return <div className="p-6"><LoadingState /></div>;
+  if (!config && !state) {
+    return (
+      <div className="p-6">
+        <div className="mb-4">
+          <h2 className="text-sm font-semibold">Settings</h2>
+          <p className="text-xs text-text-muted">Project configuration and pipeline state</p>
+        </div>
+        <div className="kpi-card">
+          <div className="text-sm text-text-muted">
+            <p>Failed to load <code className="font-mono text-xs bg-surface-700 px-1 rounded">.skillgrid/config.yaml</code> or <code className="font-mono text-xs bg-surface-700 px-1 rounded">.skillgrid/state.yaml</code>.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const c = parseYamlFlat(config);
+  const s = parseYamlFlat(state);
+
+  const phase = (s['pipeline.current_phase'] || '').replace(/"/g, '');
+  const currentChange = (s['pipeline.current_change'] || '').replace(/"/g, '');
+  const pipelineStatus = (s['pipeline.status'] || '').replace(/"/g, '');
+  const completedChanges = s['progress.completed_changes'] || '0';
+  const blockedChanges = s['progress.blocked_changes'] || '0';
+  const inProgressChanges = s['progress.in_progress_changes'] || '0';
+
+  const phaseBadge = {
+    explore: 'badge-discovery', propose: 'badge-decision', spec: 'badge-learning',
+    apply: 'badge-config', verify: 'badge-pattern', review: 'badge-correction',
+    archive: 'badge-session_log', reflect: 'badge-standing'
+  }[phase] || 'badge-unknown';
+
+  const rows = [
+    { label: 'Project', value: <span className="font-semibold text-sm">{c['project'] || '—'}</span> },
+    { label: 'Schema', value: <span className="font-mono text-xs text-text-secondary">{c['schema'] || '—'}</span> },
+    { label: 'Phase', value: phase ? <span className={`badge ${phaseBadge}`}>{phase}</span> : <span className="text-xs text-text-muted">—</span> },
+    { label: 'Pipeline', value: pipelineStatus ? <span className="text-xs">{pipelineStatus}</span> : <span className="text-xs text-text-muted">—</span> },
+    { label: 'Current Change', value: currentChange ? <span className="font-mono text-xs">{currentChange}</span> : <span className="text-xs text-text-muted">idle</span> },
+    { label: 'Completed', value: <span className="font-mono text-xs text-green-400">{completedChanges}</span> },
+    { label: 'In Progress', value: <span className="font-mono text-xs text-yellow-400">{inProgressChanges}</span> },
+    { label: 'Blocked', value: <span className="font-mono text-xs text-red-400">{blockedChanges}</span> },
+    { label: 'Ticketing', value: c['ticketing.enabled'] ? <span className="text-xs">{c['ticketing.type'] || '—'} <span className="text-text-muted">({c['ticketing.backlogmd.dir'] || ''})</span></span> : <BoolPill value={c['ticketing.enabled']} /> },
+    { label: 'Testing', value: c['testing.runner'] ? <span className="font-mono text-xs">{c['testing.runner']}</span> : <span className="text-xs text-text-muted">—</span> },
+    { label: 'TDD', value: <BoolPill value={c['testing.tdd']} /> },
+    { label: 'Coverage Min', value: <span className="font-mono text-xs">{c['quality.coverage_min'] || '0'}%</span> },
+    { label: 'P0 Pass Rate', value: <span className="font-mono text-xs">{c['quality.p0_pass_rate'] || '—'}%</span> },
+    { label: 'P1 Pass Rate', value: <span className="font-mono text-xs">{c['quality.p1_pass_rate'] || '—'}%</span> },
+    { label: 'Trivy', value: c['security.trivy.command'] ? <span className="text-xs">on <span className="text-text-muted">({c['security.trivy.severities'] || ''})</span></span> : <BoolPill value={false} /> },
+    { label: 'BDD', value: <BoolPill value={c['bdd.enabled']} /> },
+    { label: 'Mnemonic', value: <BoolPill value={c['mnemonic.enabled']} /> },
+    { label: 'Rigor Tier', value: <span className="font-mono text-xs">{c['rules.tiers.default'] || '—'}</span> },
+  ];
+
+  return (
+    <div className="p-6">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold">Settings</h2>
+        <p className="text-xs text-text-muted">Project configuration and pipeline state</p>
+      </div>
+      <div className="kpi-card">
+        <div className="section-title mb-3">Project</div>
+        <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+          {rows.map((r, i) => (
+            <div key={i} className="flex items-center justify-between py-1">
+              <span className="text-xs text-text-muted">{r.label}</span>
+              {r.value}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 14. SECURITY: TRIVY ───
+function SevBadge({ level, count }) {
+  const colors = {
+    CRITICAL: 'bg-red-900/60 text-red-300 border-red-700',
+    HIGH: 'bg-orange-900/60 text-orange-300 border-orange-700',
+    MEDIUM: 'bg-yellow-900/60 text-yellow-300 border-yellow-700',
+    LOW: 'bg-blue-900/60 text-blue-300 border-blue-700',
+  };
+  const cls = colors[level] || 'bg-surface-700 text-text-muted border-edge';
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${cls}`}>
+      <div className="text-xl font-bold">{count}</div>
+      <div className="text-[10px] uppercase tracking-wider">{level}</div>
+    </div>
+  );
+}
+
+function SecurityPanel() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [expanded, setExpanded] = useState(new Set());
+
+  const load = useCallback(async () => {
+    setScanning(true);
+    setError('');
+    try {
+      const d = await api('/security/trivy');
+      setData(d);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setScanning(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggle = (id) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  if (error) {
+    return (
+      <div className="p-4">
+        <div className="kpi-card">
+          <div className="text-sm font-semibold">Security</div>
+          <div className="text-xs text-red-400 mt-2">{error}</div>
+          <button onClick={load} className="mt-3 px-3 py-1 text-xs bg-surface-700 hover:bg-surface-600 rounded">Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="p-4">
+        <div className="kpi-card">
+          <div className="text-sm font-semibold">Security</div>
+          <div className="text-xs text-text-muted mt-2">{scanning ? 'Scanning…' : 'Loading…'}</div>
+        </div>
+      </div>
+    );
+  }
+
+  const verdictCls = data.verdict === 'PASS' ? 'bg-green-900/60 text-green-300 border-green-700' : data.verdict === 'FAIL' ? 'bg-red-900/60 text-red-300 border-red-700' : 'bg-surface-700 text-text-muted border-edge';
+
+  return (
+    <div className="h-full overflow-y-auto p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold">Security</h2>
+          <p className="text-xs text-text-muted">Trivy {data.version} · scanned {data.scanned_at?.slice(0,19) || '—'}</p>
+        </div>
+        <button onClick={load} className="px-3 py-1.5 text-xs bg-surface-700 hover:bg-surface-600 rounded" disabled={scanning}>
+          {scanning ? 'Scanning…' : 'Re-scan'}
+        </button>
+      </div>
+
+      <div className={`rounded-lg border px-4 py-3 ${verdictCls} flex items-center justify-between`}>
+        <div>
+          <span className="text-lg font-bold">{data.verdict}</span>
+          {data.fail_on && <span className="ml-2 text-xs opacity-70">fail_on: {data.fail_on}</span>}
+        </div>
+        <span className="text-xs opacity-70">{data.total} finding{data.total !== 1 ? 's' : ''}</span>
+      </div>
+
+      <div className="grid grid-cols-4 gap-3">
+        <SevBadge level="CRITICAL" count={data.critical} />
+        <SevBadge level="HIGH" count={data.high} />
+        <SevBadge level="MEDIUM" count={data.medium} />
+        <SevBadge level="LOW" count={data.low} />
+      </div>
+
+      {data.findings && data.findings.length > 0 && (
+        <div className="kpi-card">
+          <div className="section-title mb-3">Findings</div>
+          <div className="space-y-2">
+            {data.findings.map((f, i) => {
+              const key = `${f.id}-${i}`;
+              const isOpen = expanded.has(key);
+              const sevCls = {
+                CRITICAL: 'text-red-400',
+                HIGH: 'text-orange-400',
+                MEDIUM: 'text-yellow-400',
+                LOW: 'text-blue-400',
+              }[f.severity] || 'text-text-muted';
+              return (
+                <div key={key} className="border border-edge rounded-lg overflow-hidden">
+                  <button onClick={() => toggle(key)} className="w-full flex items-center gap-3 px-3 py-2 hover:bg-surface-700/50 text-left">
+                    <span className={`text-xs font-mono font-bold ${sevCls} w-20 shrink-0`}>{f.severity}</span>
+                    <span className="text-xs font-mono text-text-muted shrink-0">{f.id}</span>
+                    <span className="text-xs truncate flex-1">{f.package} {f.installed_version}</span>
+                    <span className="text-[10px] text-text-muted">{isOpen ? '−' : '+'}</span>
+                  </button>
+                  {isOpen && (
+                    <div className="px-3 pb-3 text-xs space-y-1">
+                      <div><span className="text-text-muted">Title:</span> {f.title || '—'}</div>
+                      <div><span className="text-text-muted">Package:</span> <span className="font-mono">{f.package}</span> <span className="text-text-muted">({f.installed_version})</span></div>
+                      {f.fixed_version && <div><span className="text-text-muted">Fixed in:</span> <span className="font-mono text-green-400">{f.fixed_version}</span></div>}
+                      <div><span className="text-text-muted">Target:</span> <span className="font-mono text-text-muted">{f.target}</span></div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {!data.findings || data.findings.length === 0 ? (
+        <div className="kpi-card text-center py-6">
+          <div className="text-sm text-green-400 font-semibold">No vulnerabilities found</div>
+          <div className="text-xs text-text-muted mt-1">Trivy scan completed in {data.duration_ms}ms</div>
+        </div>
+      ) : null}
+
+      <div className="text-[10px] text-text-muted">
+        Scan duration: {data.duration_ms}ms · Advisory only — findings are reported, never blocking.
+      </div>
+    </div>
+  );
+}
+
+// ─── 15. SYSTEM: SWAGGER ───
+function SwaggerPanel() {
+  return (
+    <div className="h-full flex flex-col">
+      <div className="p-4 border-b border-edge">
+        <h2 className="text-sm font-semibold">API Documentation</h2>
+        <p className="text-xs text-text-muted">Live OpenAPI 3.0 spec — served by the Go API at /openapi.json</p>
+      </div>
+      <iframe
+        src={`${API}/swagger/`}
+        className="flex-1 border-0 bg-surface-800"
+        style={{ minHeight: 500 }}
+        title="Swagger UI"
+      />
+    </div>
+  );
+}
+
+// ─── APP SHELL ───
+const NAV = [
+  { id: 'overview', label: 'Overview', icon: '◉', top: true },
+  { group: 'Project' },
+  { id: 'kanban', label: 'Kanban', icon: '▦' },
+  { id: 'changes', label: 'Changes', icon: '📋' },
+  { id: 'decisions', label: 'Decisions (ADR)', icon: '⚖' },
+  { id: 'prototypes', label: 'Prototypes', icon: '🔬' },
+  { group: 'Memory' },
+  { id: 'sessions', label: 'Sessions', icon: '💬' },
+  { id: 'code-graph', label: 'Code Graph', icon: '⚙' },
+  { id: 'memfs', label: 'MemFS', icon: '📁' },
+  { group: 'Observe' },
+  { id: 'telemetry', label: 'Telemetry', icon: '📊' },
+  { id: 'compaction', label: 'Compaction', icon: '📦' },
+  { id: 'web-cache', label: 'Web Cache', icon: '🌐' },
+  { id: 'docs', label: 'Docs', icon: '📄', top: true },
+  { group: 'System' },
+  { id: 'security', label: 'Security', icon: '🛡' },
+  { id: 'settings', label: 'Settings', icon: '⚙' },
+  { id: 'swagger', label: 'Swagger Docs', icon: '📖' },
+];
+
+function App() {
+  const [active, setActive] = useState('overview');
+
+  const renderPanel = () => {
+    switch (active) {
+      case 'overview': return <OverviewPanel />;
+      case 'kanban': return <KanbanPanel />;
+      case 'changes': return <ChangesPanel />;
+      case 'decisions': return <DecisionsPanel />;
+      case 'prototypes': return <PrototypesPanel />;
+      case 'sessions': return <SessionsPanel />;
+      case 'code-graph': return <CodeGraphPanel />;
+      case 'memfs': return <MemFSPanel />;
+      case 'telemetry': return <TelemetryPanel />;
+      case 'compaction': return <CompactionPanel />;
+      case 'web-cache': return <WebCachePanel />;
+      case 'docs': return <DocsPanel />;
+      case 'security': return <SecurityPanel />;
+      case 'settings': return <SettingsPanel />;
+      case 'swagger': return <SwaggerPanel />;
+      default: return <OverviewPanel />;
+    }
+  };
+
+  return (
+    <div className="flex h-screen">
+      <aside className="w-56 bg-surface-800 border-r border-edge flex flex-col shrink-0">
+        <div className="p-4 border-b border-edge">
+          <div className="text-sm font-bold text-accent">Mnemonic</div>
+          <div className="text-[10px] text-text-muted mt-0.5">Enterprise Admin Console</div>
+        </div>
+        <nav className="flex-1 overflow-y-auto py-2">
+          {NAV.map(item => {
+            if (item.group) {
+              return <div key={item.group} className="nav-group-label">{item.group}</div>;
+            }
+            const cls = item.top ? 'nav-item top' : 'nav-item sub';
+            return (
+              <div
+                key={item.id}
+                className={`${cls} ${active === item.id ? 'active' : ''}`}
+                onClick={() => setActive(item.id)}
+              >
+                <span className="nav-icon text-sm">{item.icon}</span>
+                <span>{item.label}</span>
+              </div>
+            );
+          })}
+        </nav>
+        <div className="p-3 border-t border-edge text-[10px] text-text-muted">
+          <div>Project: <span className="text-text-secondary">{PROJECT}</span></div>
+          <div>API: <span className="font-mono">127.0.0.1:7438</span></div>
+        </div>
+      </aside>
+      <main className="flex-1 overflow-y-auto bg-surface-900">
+        {renderPanel()}
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
