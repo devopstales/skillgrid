@@ -2,7 +2,7 @@
 
 > Change: `.skillgrid/specs/2026-09-24-mnemonic-memory-improvements/`
 > Generated: 2026-10-02T11:40:00+02:00 (qa)
-> Gate: CONCERNS
+> Gate: PASS
 > Tier: T2 (blueprint). Floor: L3 (classification risky: migration + MCP contract). `testing.tdd: false`.
 
 ## Test Plan
@@ -21,7 +21,7 @@ The load-bearing risks are a private row leaking through the new blend, keyword 
 | 2 | No embedder keeps BM25 and matched_via=keyword | mem_search + blend | integration | TestOwnerScopedBlendKeywordFloor, mcp/tools_memory_signals_test.go::TestMemSearchSignalsKeyword | P0 | pr | covered |
 | 3 | Empty query is a tool error | handleMemSearch | integration | mcp/tools_memory_retrieval_test.go::TestBudgetedRetrievalMCP | P0 | pr | covered |
 | 4 | Embedder on fuses both legs and signals stay in [0,1] | SearchOwnerScopedBlend | integration | TestOwnerScopedBlendHybrid | P0 | pr | covered |
-| 5 | Embedder error stays on the keyword floor | blend empty vector | integration | TestOwnerScopedBlendEmbedderError | P0 | pr | covered |
+| 5 | Embedder error stays on the keyword floor | mem_search | integration | TestOwnerScopedBlendEmbedderError, mcp/tools_memory_signals_test.go::TestMemSearchEmbedderError | P0 | pr | covered |
 | 6 | Hot retrieval_usage outranks a cold twin | Reinforcement | unit | memory/decay_test.go::TestReinforcementDecayRanksHotRow | P0 | pr | covered |
 | 7 | Decay disabled keeps BM25 | SearchOwnerScopedBlend | integration | TestDecayDisabledKeepsBM25 | P0 | pr | covered |
 | 8 | Identical query within 7 days skips the embedder | CachedEmbedQuery | integration | memory/query_cache_test.go::TestQueryCacheHit | P0 | pr | covered |
@@ -71,7 +71,7 @@ The load-bearing risks are a private row leaking through the new blend, keyword 
 | Truth | No embedder: BM25, matched_via=keyword, signals in [0,1] | TestOwnerScopedBlendKeywordFloor, TestMemSearchSignalsKeyword | VERIFIED |
 | Truth | Embedder on: hybrid or vector, signals in [0,1] | TestOwnerScopedBlendHybrid | VERIFIED |
 | Truth | Reader B does not see reader A's private row | TestOwnerScopedBlendHidesPrivate | VERIFIED |
-| Truth | Embedder error returns the FTS leg as keyword | TestOwnerScopedBlendEmbedderError (empty vector). MCP `if eErr == nil` in tools_memory.go is not entered by a test | PRESENT_BEHAVIOR_UNVERIFIED |
+| Truth | Embedder error returns the FTS leg as keyword | TestOwnerScopedBlendEmbedderError, TestMemSearchEmbedderError | VERIFIED |
 | Truth | Hot usage outranks a cold twin; disabled decay keeps BM25 | TestReinforcementDecayRanksHotRow, TestDecayDisabledKeepsBM25 | VERIFIED |
 | Truth | Immunity freezes half-life at importance ≥ 4 or usage ≥ 3 | TestDecayImmunityFreezesHalfLife | VERIFIED |
 | Truth | Cache hit within 7 days; miss when stale or other model | TestQueryCacheHit, TestQueryCacheMiss | VERIFIED |
@@ -80,7 +80,7 @@ The load-bearing risks are a private row leaking through the new blend, keyword 
 | Truth | C6 has no task | briefing out-of-scope; no code added | VERIFIED |
 | Artifact | decay.go, search_blend.go, query_cache.go, aliases.go, 045 + 046 | files present; tests open the store and call the functions | VERIFIED |
 | Key Link | handleMemSearch uses SearchOwnerScopedBlend for one project | TestMemSearchSignalsKeyword returns signals | VERIFIED |
-| Key Link | MCP drops EmbedQuery error before the blend | branch at tools_memory.go around the CachedEmbedQuery call; no test sets MNEMONIC_EMBED and a failing Default() | PRESENT_BEHAVIOR_UNVERIFIED |
+| Key Link | MCP drops EmbedQuery error before the blend | TestMemSearchEmbedderError: external embedder with no base URL, matched_via=keyword, query_cache rows = 0 | VERIFIED |
 | Key Link | Decay on only when config says so | TestLoadDecayConfig, TestDecayDisabledKeepsBM25; service open calls SetDecay | VERIFIED |
 | Key Link | SymbolFTS prepends alias hits | TestEntityAliasPrepended | VERIFIED |
 | Data Flow | query text is not stored in query_cache | TestQueryCacheHit assertQueryTextNotStored | VERIFIED |
@@ -93,7 +93,7 @@ The load-bearing risks are a private row leaking through the new blend, keyword 
 | owner blend hides another owner's private row | TestOwnerScopedBlendHidesPrivate | yes | pass |
 | mem_search without a query is rejected | TestBudgetedRetrievalMCP | yes | pass |
 | mem_search with an embedder returns hybrid signals | TestOwnerScopedBlendHybrid | yes | pass |
-| embedder error degrades to keyword | TestOwnerScopedBlendEmbedderError | yes | pass |
+| embedder error degrades to keyword | TestOwnerScopedBlendEmbedderError, TestMemSearchEmbedderError | yes | pass |
 | high retrieval_usage outranks a cold twin | TestReinforcementDecayRanksHotRow | yes | pass |
 | decay disabled keeps BM25 order | TestDecayDisabledKeepsBM25 | yes | pass |
 | second identical query is a cache hit | TestQueryCacheHit | yes | pass |
@@ -111,7 +111,7 @@ G2's named test `TestMemSearchRequiresQuery` does not exist. The same assertion 
 
 Changed behavior enumerated from the commits `b9ab00de`..`30fac16b` on this change (decay, blend, config, query cache, compact, aliases, embedder-error tests).
 
-- MCP embed-error drop is the one behavior in the diff with no direct test. The two functions it sits between are tested.
+- MCP embed-error drop is covered by `TestMemSearchEmbedderError` (re-verification). A failed `EmbedQuery` leaves `query_cache` empty and the hit on the keyword floor.
 - `entity_aliases` is migration `046`, not a second statement inside the already-committed `045`. Fresh stores and stores that already recorded the query-cache-only `045` both get the table. `TestMigration045` asserts both filenames once.
 
 ## TDD Evidence Audit
@@ -168,25 +168,26 @@ Run evidence (2026-10-02, `skillgrid-cli`, exit 0):
 
 - Traceability matrix: SCOPE: COMPLETE (every scenario in acceptance.feature was read).
 - Verification-gap audit: SCOPE: COMPLETE (commits for this change, not a truncated since-window).
-- State drift: script not found (qa-gate.mjs exit 2). WARNING.
-- Structure drift: skipped, no --anticipated paths.
-- Composite from qa-gate.mjs: SCOPE: COMPLETE.
-- STALE: none. This is the first QA half. The embedder-error tests in `30fac16b` are part of this run's evidence.
+- State drift: `state-drift-check.mjs` run directly — DRIFT: none, SCOPE: COMPLETE, exit 0.
+- Skill size budget: `skill-size-budget.mjs check` — all 69 skills within ceiling, exit 0.
+- Structure drift: skipped. `qa-gate.mjs` looks for scripts under `.agents/skills/qa/scripts`; they live under `.agents/skills/verification/qa/scripts`. The checks were run at the real path.
+- Composite: SCOPE: COMPLETE.
+- STALE: none for the prior scenarios. This re-verification adds `TestMemSearchEmbedderError` and rests on this run.
 
 ## Floor
 
 | Dimension | Verdict |
 |---|---|
-| Goal-backward verification (weakest truth) | PRESENT_BEHAVIOR_UNVERIFIED |
+| Goal-backward verification (weakest truth) | VERIFIED |
 | Traceability (weakest scenario) | COMPLIANT |
-| Verification-gap audit | WARNING |
+| Verification-gap audit | none |
 | TDD evidence (weakest ticket) | MISSING_RED (reclassified WARNING; strict-TDD off) |
 | Test quality audit | SUGGESTION |
 | Code-quality gates (weakest gate) | PASS |
 | Security audit | N/A |
 | Verification scope (composite) | COMPLETE |
 
-**FLOOR:** goal-backward key link "MCP drops EmbedQuery error" is PRESENT_BEHAVIOR_UNVERIFIED. The gate cannot be PASS.
+**FLOOR:** PASS-eligible. Every truth is VERIFIED, every scenario ran and passed, and the deterministic checks that exist are clean. `MISSING_RED` stays a provenance note because `testing.tdd` is false; it does not cap the gate.
 
 ## Findings
 
@@ -196,26 +197,27 @@ Run evidence (2026-10-02, `skillgrid-cli`, exit 0):
 
 ### WARNING (should fix before archive)
 
-- `handleMemSearch` ignores an `EmbedQuery` error and keeps an empty query vector (`skillgrid-cli/internal/mnemonic/mcp/tools_memory.go`). No test enters that branch. The blend contract and the cache error return are tested on either side of it.
-- Six tickets have no separable RED commit. Strict-TDD is off, so this is provenance, not a missing behavior test.
-- `qa-gate.mjs` could not run state-drift or size-budget (script not found, exit 2).
+- Six tickets have no separable RED commit. Strict-TDD is off (`testing.tdd: false`), so this is provenance, not a missing behavior test. Same classification as the session-events PASS gate. It does not cap this verdict.
 
 ### SUGGESTION (nice to have)
 
 - `memory.Service` comment says a zero `decayCfg` is treated as the default-on config. `SearchOwnerScopedBlend` reranks only when `Enabled` is true. Production open calls `SetDecay` from config, whose absent section is enabled.
 - `go vet` context leak in `budget.go:114` is pre-existing and outside this change.
+- `qa-gate.mjs` looks for its helpers in `.agents/skills/qa/scripts`. The files are in `.agents/skills/verification/qa/scripts`. Invoked there, state drift and the size budget both exit 0.
 - Private-row hiding has one test, not a second input shape.
 
 ## Gate Decision
 
-**Verdict: CONCERNS**
+**Verdict: PASS**
+
+Re-verification (2026-10-02): `TestMemSearchEmbedderError` enters `handleMemSearch` with `MNEMONIC_EMBED=1` and an external embedder that has no base URL. The tool returns one hit, `matched_via=keyword`, `signals.vector=0`, and `query_cache` stays empty. Acceptance packages re-ran exit 0 (memory 5.3s, mcp 4.1s, config 0.7s, codeindex 5.9s, store 3.8s). State drift: none. Skill size budget: 69 skills within ceiling.
 
 | # | Criterion | Result |
 |---|-----------|--------|
-| 1 | all truths VERIFIED | one key link PRESENT_BEHAVIOR_UNVERIFIED |
+| 1 | all truths VERIFIED | 10/10 VERIFIED, including the embedder-error key link |
 | 2 | all scenarios covered by a test that ran and passed | 13/13 |
 | 3 | no CRITICAL findings | yes |
-| 4 | no MISSING_RED (strict-TDD) | reclassified WARNING; `testing.tdd: false` |
+| 4 | no MISSING_RED (strict-TDD) | reclassified; `testing.tdd: false` |
 | 5 | code-quality gates PASS or N/A | yes |
 | 6 | P0 pass rate ≥ 100 | 100 |
 | 7 | P1 pass rate ≥ 95 | 100 |
@@ -223,8 +225,6 @@ Run evidence (2026-10-02, `skillgrid-cli`, exit 0):
 | 9 | mutation ≥ min | N/A |
 | 10 | Trivy ≥ fail_on | N/A (fail_on empty) |
 | 11 | verification scope COMPLETE | yes |
-
-The floor is the unverified MCP embed-error drop. Scenarios pass. Nothing here is a broken behavior that was observed.
 
 ## Human Override
 
