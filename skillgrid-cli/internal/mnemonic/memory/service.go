@@ -446,24 +446,65 @@ func (s *Service) StorePath() (string, error) {
 }
 
 // Save stores an observation, deduplicating by hash within 24h or upserting by topic_key.
+// It is a thin delegate to SaveWithAction (TICKET-04) and preserves its
+// (int64, error) contract: the returned id is the observation the save landed on
+// (a new row for add, the candidate for noop/update/delete).
 func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
+	res, err := s.SaveWithAction(ctx, in)
+	if err != nil {
+		return 0, err
+	}
+	return res.ObservationID, nil
+}
+
+// SaveResult is the outcome of SaveWithAction (TICKET-04, ADR-0011). It reports
+// which AUDN arm the save took and the row ids involved, so callers can branch
+// on the actual routing decision rather than inferring it from the returned id.
+type SaveResult struct {
+	// Action is the dedup verdict that routed the save (VerdictNoop / VerdictAdd /
+	// VerdictUpdate / VerdictDelete).
+	Action DedupVerdict
+	// ObservationID is the id of the observation the save landed on: the new row
+	// for add/delete, the candidate row for noop/update.
+	ObservationID int64
+	// SupersededID is the id of the observation marked superseded by this save
+	// (set only when Action is VerdictDelete; the new ObservationID supersedes it).
+	SupersededID int64
+}
+
+// SaveWithAction performs the full 4-way AUDN routing table (TICKET-04, ADR-0011).
+// It is the single source of truth for how a save is routed; Save delegates to it.
+//
+// Routing:
+//   - deterministic hash floor first: an exact (normalized) duplicate within the
+//     24h window is a noop — BumpDuplicate the existing row, return its id, no
+//     new row. This floor always runs and is the non-fatal fallback when the LLM
+//     pass is disabled, absent, or errors.
+//   - when the LLM pass is armed and returns a verdict (Reason "llm"), it routes:
+//     noop   → BumpDuplicate(candidate), return candidate, no new row
+//     add    → insert a new row
+//     update → upsert the new content into candidate (same row, no new row)
+//     delete → insert a new row, then MarkSuperseded(old=candidate, new=newRow)
+//   - a delete verdict with no candidate, or a zero decision (no dedup armed),
+//     falls through to a normal insert.
+func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult, error) {
 	if s == nil || s.store == nil || s.store.DB == nil {
-		return 0, errors.New("memory service not initialized")
+		return SaveResult{}, errors.New("memory service not initialized")
 	}
 	if strings.TrimSpace(in.SessionID) == "" {
-		return 0, errors.New("session_id is required")
+		return SaveResult{}, errors.New("session_id is required")
 	}
 	if strings.TrimSpace(in.Title) == "" {
-		return 0, errors.New("title is required")
+		return SaveResult{}, errors.New("title is required")
 	}
 	if strings.TrimSpace(in.Content) == "" {
-		return 0, errors.New("content is required")
+		return SaveResult{}, errors.New("content is required")
 	}
 	if strings.TrimSpace(in.Type) == "" {
-		return 0, errors.New("type is required")
+		return SaveResult{}, errors.New("type is required")
 	}
 	if !IsValidType(in.Type) {
-		return 0, fmt.Errorf("invalid type %q (allowed: standing, preference, convention, decision, architecture, bugfix, pattern, config, correction, discovery, learning, lesson, session_log)", in.Type)
+		return SaveResult{}, fmt.Errorf("invalid type %q (allowed: standing, preference, convention, decision, architecture, bugfix, pattern, config, correction, discovery, learning, lesson, session_log)", in.Type)
 	}
 	// Typed memory category (014 step 18): when a fine-grained memory_type is
 	// supplied it must be one of the 10 valid categories. Empty is allowed
@@ -472,7 +513,7 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	// category.
 	memoryType := strings.ToLower(strings.TrimSpace(in.MemoryType))
 	if in.MemoryType != "" && !IsValidMemoryType(in.MemoryType) {
-		return 0, fmt.Errorf("invalid memory_type %q (allowed: profile, preferences, entities, events, identity, soul, cases, trajectories, experiences, skill)", in.MemoryType)
+		return SaveResult{}, fmt.Errorf("invalid memory_type %q (allowed: profile, preferences, entities, events, identity, soul, cases, trajectories, experiences, skill)", in.MemoryType)
 	}
 
 	source := in.Source
@@ -499,6 +540,10 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 		owner = legacyOwnerID
 	}
 
+	// Deterministic hash floor (always runs, non-fatal): an exact normalized
+	// duplicate within the 24h window is a noop — bump the existing row and
+	// return its id (preserving the historical Save contract of returning the
+	// existing row's id, not 0).
 	var existingID int64
 	err := s.store.DB.QueryRowContext(ctx, `
 		SELECT id FROM observations
@@ -509,43 +554,45 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 	).Scan(&existingID)
 	if err == nil {
 		s.BumpDuplicate(ctx, existingID)
-		return existingID, nil
+		return SaveResult{Action: VerdictNoop, ObservationID: existingID}, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("dedup lookup: %w", err)
+		return SaveResult{}, fmt.Errorf("dedup lookup: %w", err)
 	}
 
-	// LLM semantic dedup (014 step 18.2): OPT-IN pre-write check. The hash
-	// dedup above already catches exact (normalized) duplicates; this catches
-	// semantic near-duplicates the hash misses. When the LLM pass is armed and
-	// it flags the new content as a duplicate, the save is MERGED into the
-	// existing observation (bump duplicate_count, no new row) and returns that
-	// id. When the LLM is disabled, absent, or errors, runDedupCheck returns a
-	// zero decision (empty Ver) and the save proceeds exactly as before (the
-	// hash path is the fallback). TICKET-03: a delete verdict absorbs the new
-	// content into the target (bump duplicate_count, return that id, no new
-	// row). An update verdict notes the target but proceeds with a normal save
-	// (real routing is TICKET-04). add / noop / zero proceed with a normal save.
-	if d := s.runDedupCheck(ctx, in.Content); d.Verdict != "" {
-		switch d.Verdict {
-		case VerdictDelete:
-			// A delete verdict supersedes a specific existing observation;
-			// with no candidate there is nothing to supersede, so fall
-			// through to a normal save.
-			if d.CandidateID > 0 {
-				s.BumpDuplicate(ctx, d.CandidateID)
-				return d.CandidateID, nil
-			}
-		case VerdictUpdate:
-			// Always fires, even with CandidateID=0: an update verdict is a
-			// signal the LLM thinks this refines something, which makes the
-			// TICKET-04 bridge visible in the log.
-			fmt.Fprintf(logWriter(),
-				"mnemonic: dedup update verdict for candidate %d (TICKET-03; routing in TICKET-04)\n",
-				d.CandidateID)
+	// LLM semantic dedup (014 step 18.2) drives the 4-way routing. When the LLM
+	// pass is armed and returns a verdict (Reason "llm"), route on it; when it is
+	// disabled, absent, or errors, runDedupCheck returns the hash floor
+	// (Reason "hash", zero verdict) and the save proceeds to a normal insert.
+	d := s.runDedupCheck(ctx, in.Content)
+	switch {
+	case d.Reason == "llm" && d.Verdict == VerdictNoop && d.CandidateID > 0:
+		s.BumpDuplicate(ctx, d.CandidateID)
+		return SaveResult{Action: VerdictNoop, ObservationID: d.CandidateID}, nil
+	case d.Reason == "llm" && d.Verdict == VerdictUpdate && d.CandidateID > 0:
+		if err := s.applyUpdateToCandidate(ctx, d.CandidateID, in, source, hash, now); err != nil {
+			return SaveResult{}, err
 		}
+		return SaveResult{Action: VerdictUpdate, ObservationID: d.CandidateID}, nil
+	case d.Reason == "llm" && d.Verdict == VerdictDelete && d.CandidateID > 0:
+		newID, err := s.insertObservation(ctx, in, source, owner, hash, now, memoryType)
+		if err != nil {
+			return SaveResult{}, err
+		}
+		// The new row supersedes the candidate: stamp the old row invalid and
+		// record the supersedes edge. A failure here is surfaced (the routing
+		// decision is the point of this ticket), but the new row stays live.
+		if err := s.MarkSuperseded(ctx, d.CandidateID, newID); err != nil {
+			return SaveResult{Action: VerdictDelete, ObservationID: newID}, fmt.Errorf("mark superseded: %w", err)
+		}
+		return SaveResult{Action: VerdictDelete, ObservationID: newID, SupersededID: d.CandidateID}, nil
 	}
 
+	// add arm (and the add-fallback for every other case: zero decision, hash
+	// floor after a hash-miss, llm add, or delete-without-candidate). A save
+	// carrying a topic_key that already resolves to a live row is an upsert into
+	// that row (no new row, action "update") — the deterministic topic-key path
+	// that predates the 4-way LLM routing. Otherwise write a new row.
 	if in.TopicKey != "" {
 		var topicID int64
 		err := s.store.DB.QueryRowContext(ctx, `
@@ -555,36 +602,57 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
 			s.projectID, in.Scope, in.TopicKey,
 		).Scan(&topicID)
 		if err == nil {
-			// Governance (013): a topic-key upsert that changes the content is
-			// an append, not a silent overwrite — capture the prior state into
-			// observation_versions before rewriting (best-effort, never blocks).
-			// revision 1 = the pre-update state; the upsert below advances
-			// revision_count to 1, so the history row matches.
-			if appErr := s.AppendVersion(ctx, topicID, 1); appErr == nil {
-				// recorded
+			if err := s.applyUpdateToCandidate(ctx, topicID, in, source, hash, now); err != nil {
+				return SaveResult{}, err
 			}
-			// last_seen_at mirrors Engram's last_seen_at semantics here: any
-			// save that matches an existing topic_key refreshes "last seen".
-			_, err = s.store.DB.ExecContext(ctx, `
-				UPDATE observations SET
-					source = ?,
-					session_id = ?, type = ?, title = ?, content = ?,
-					normalized_hash = ?, revision_count = revision_count + 1,
-					last_seen_at = ?,
-					updated_at = ?
-				WHERE id = ?`,
-				source, in.SessionID, in.Type, in.Title, in.Content, hash, now, now, topicID,
-			)
-			if err != nil {
-				return 0, fmt.Errorf("topic_key upsert: %w", err)
-			}
-			return topicID, nil
+			return SaveResult{Action: VerdictUpdate, ObservationID: topicID}, nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			return 0, fmt.Errorf("topic_key lookup: %w", err)
+			return SaveResult{}, fmt.Errorf("topic_key lookup: %w", err)
 		}
 	}
 
+	newID, err := s.insertObservation(ctx, in, source, owner, hash, now, memoryType)
+	if err != nil {
+		return SaveResult{}, err
+	}
+	return SaveResult{Action: VerdictAdd, ObservationID: newID}, nil
+}
+
+// applyUpdateToCandidate upserts the new content into an existing observation
+// (the AUDN "update" arm). It mirrors the topic-key upsert path in Save: record
+// the prior state into observation_versions (best-effort), then rewrite the row
+// in place, advancing revision_count and refreshing last_seen_at/updated_at. No
+// new row is written.
+func (s *Service) applyUpdateToCandidate(ctx context.Context, candidateID int64, in SaveInput, source, hash, now string) error {
+	// Governance (013): a content-changing upsert is an append, not a silent
+	// overwrite — capture the prior state before rewriting (best-effort).
+	if appErr := s.AppendVersion(ctx, candidateID, 1); appErr == nil {
+		// recorded
+	}
+	_, err := s.store.DB.ExecContext(ctx, `
+		UPDATE observations SET
+			source = ?,
+			session_id = ?, type = ?, title = ?, content = ?,
+			normalized_hash = ?, revision_count = revision_count + 1,
+			last_seen_at = ?,
+			updated_at = ?
+		WHERE id = ?`,
+		source, in.SessionID, in.Type, in.Title, in.Content, hash, now, now, candidateID,
+	)
+	if err != nil {
+		return fmt.Errorf("candidate upsert: %w", err)
+	}
+	return nil
+}
+
+// insertObservation writes a brand-new observation row and returns its id. It is
+// the extracted INSERT half of Save (TICKET-04): the FTS index is kept in sync by
+// the observations_fts trigger, so only the INSERT (plus the post-insert best-
+// effort stamping of importance and graph_ref) lives here. valid_at is stamped to
+// now (ADR-0011: a new row is valid from creation); invalid_at and superseded_by
+// start NULL.
+func (s *Service) insertObservation(ctx context.Context, in SaveInput, source, owner, hash, now, memoryType string) (int64, error) {
 	var promptID sql.NullInt64
 	if in.CapturePrompt {
 		promptID = s.latestPromptForSession(ctx, in.SessionID)

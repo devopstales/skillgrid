@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -514,4 +515,387 @@ func openStoreFor(t *testing.T, project string) (*store.Store, error) {
 	t.Helper()
 	dataDir := t.TempDir()
 	return store.Open(dataDir, project)
+}
+
+// saveResultObservationID is a test helper that pulls the row count out of the
+// observations table for the active project, used to assert whether SaveWithAction
+// wrote a new row or not.
+func obsCount(t *testing.T, st *store.Store, project string) int {
+	t.Helper()
+	var n int
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM observations WHERE project = ?`, project).Scan(&n); err != nil {
+		t.Fatalf("count observations: %v", err)
+	}
+	return n
+}
+
+// TestSaveWithActionRouting covers the real 4-way AUDN routing table
+// (TICKET-04, ADR-0011). With the LLM pass armed, each verdict routes to its
+// documented behavior:
+//   - noop   → BumpDuplicate(candidateID), no new row
+//   - add    → new row (insertObservation)
+//   - update → topic-key-style upsert into candidateID (same row, no new row)
+//   - delete → new row THEN MarkSuperseded(old=candidate, new=newRow)
+func TestSaveWithActionRouting(t *testing.T) {
+	ctx := context.Background()
+	project := "audn-routing"
+
+	t.Run("noop bumps duplicate, no new row", func(t *testing.T) {
+		_, svc := newTestStore(t, project)
+		sid := newSession(t, svc)
+		// Seed one observation so the pre-filter returns a candidate.
+		seed, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "seed note", Content: "seed content",
+		})
+		if err != nil {
+			t.Fatalf("seed save: %v", err)
+		}
+		_ = seed
+		before := obsCount(t, svc.store, project)
+
+		llm := &dedupLLM{verdict: VerdictNoop, candidate: int(seed)}
+		svc.SetDedupLLM(llm)
+		svc.EnableDedupLLM(true)
+
+		res, err := svc.SaveWithAction(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "noop note", Content: "noop content",
+		})
+		if err != nil {
+			t.Fatalf("save with action: %v", err)
+		}
+		if res.Action != VerdictNoop {
+			t.Errorf("action = %q, want noop", res.Action)
+		}
+		if res.ObservationID != seed {
+			t.Errorf("observationID = %d, want candidate %d", res.ObservationID, seed)
+		}
+		if res.SupersededID != 0 {
+			t.Errorf("supersededID = %d, want 0 for noop", res.SupersededID)
+		}
+		after := obsCount(t, svc.store, project)
+		if after != before {
+			t.Errorf("row count changed: %d -> %d, want no new row", before, after)
+		}
+		// Verify duplicate_count was bumped on the seed row.
+		var dup int
+		if err := svc.store.DB.QueryRow(
+			`SELECT COALESCE(duplicate_count,0) FROM observations WHERE id = ?`, seed,
+		).Scan(&dup); err != nil {
+			t.Fatalf("read dup count: %v", err)
+		}
+		if dup < 1 {
+			t.Errorf("duplicate_count = %d, want >=1 after noop", dup)
+		}
+	})
+
+	t.Run("add writes a new row", func(t *testing.T) {
+		_, svc := newTestStore(t, project)
+		sid := newSession(t, svc)
+		// Seed one observation so the pre-filter returns a candidate (so the
+		// LLM pass is actually armed and called).
+		seed, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "learning",
+			Title: "seed other", Content: "seed other content",
+		})
+		if err != nil {
+			t.Fatalf("seed save: %v", err)
+		}
+		_ = seed
+		before := obsCount(t, svc.store, project)
+
+		llm := &dedupLLM{verdict: VerdictAdd, candidate: 0}
+		svc.SetDedupLLM(llm)
+		svc.EnableDedupLLM(true)
+
+		res, err := svc.SaveWithAction(ctx, SaveInput{
+			SessionID: sid, Type: "learning",
+			Title: "add note", Content: "add content",
+		})
+		if err != nil {
+			t.Fatalf("save with action: %v", err)
+		}
+		if res.Action != VerdictAdd {
+			t.Errorf("action = %q, want add", res.Action)
+		}
+		if res.ObservationID <= 0 {
+			t.Errorf("observationID = %d, want a new positive id", res.ObservationID)
+		}
+		if res.SupersededID != 0 {
+			t.Errorf("supersededID = %d, want 0 for add", res.SupersededID)
+		}
+		after := obsCount(t, svc.store, project)
+		if after != before+1 {
+			t.Errorf("row count: %d -> %d, want %d (new row)", before, after, before+1)
+		}
+	})
+
+	t.Run("update upserts into candidate, no new row", func(t *testing.T) {
+		_, svc := newTestStore(t, project)
+		sid := newSession(t, svc)
+		// Seed the target observation.
+		seed, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "target note", Content: "target content",
+		})
+		if err != nil {
+			t.Fatalf("seed save: %v", err)
+		}
+		before := obsCount(t, svc.store, project)
+
+		llm := &dedupLLM{verdict: VerdictUpdate, candidate: int(seed)}
+		svc.SetDedupLLM(llm)
+		svc.EnableDedupLLM(true)
+
+		res, err := svc.SaveWithAction(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "updated title", Content: "updated content",
+		})
+		if err != nil {
+			t.Fatalf("save with action: %v", err)
+		}
+		if res.Action != VerdictUpdate {
+			t.Errorf("action = %q, want update", res.Action)
+		}
+		// Update routes into the candidate row: the returned id IS the
+		// candidate (no new row), and the candidate's content/title is
+		// rewritten in place.
+		if res.ObservationID != seed {
+			t.Errorf("observationID = %d, want candidate %d", res.ObservationID, seed)
+		}
+		if res.SupersededID != 0 {
+			t.Errorf("supersededID = %d, want 0 for update", res.SupersededID)
+		}
+		after := obsCount(t, svc.store, project)
+		if after != before {
+			t.Errorf("row count changed: %d -> %d, want no new row", before, after)
+		}
+		// The candidate row now holds the updated content.
+		var newContent string
+		if err := svc.store.DB.QueryRow(
+			`SELECT content FROM observations WHERE id = ?`, seed,
+		).Scan(&newContent); err != nil {
+			t.Fatalf("read content: %v", err)
+		}
+		if newContent != "updated content" {
+			t.Errorf("candidate content = %q, want %q", newContent, "updated content")
+		}
+	})
+
+	t.Run("delete inserts new row then supersedes candidate", func(t *testing.T) {
+		_, svc := newTestStore(t, project)
+		sid := newSession(t, svc)
+		seed, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "superseded note", Content: "superseded content",
+		})
+		if err != nil {
+			t.Fatalf("seed save: %v", err)
+		}
+		before := obsCount(t, svc.store, project)
+
+		llm := &dedupLLM{verdict: VerdictDelete, candidate: int(seed)}
+		svc.SetDedupLLM(llm)
+		svc.EnableDedupLLM(true)
+
+		res, err := svc.SaveWithAction(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "newer note", Content: "newer content",
+		})
+		if err != nil {
+			t.Fatalf("save with action: %v", err)
+		}
+		if res.Action != VerdictDelete {
+			t.Errorf("action = %q, want delete", res.Action)
+		}
+		if res.ObservationID <= 0 || res.ObservationID == seed {
+			t.Errorf("observationID = %d, want a new positive id distinct from candidate %d", res.ObservationID, seed)
+		}
+		if res.SupersededID != seed {
+			t.Errorf("supersededID = %d, want candidate %d", res.SupersededID, seed)
+		}
+		after := obsCount(t, svc.store, project)
+		if after != before+1 {
+			t.Errorf("row count: %d -> %d, want %d (new row)", before, after, before+1)
+		}
+		// The old row is now marked superseded.
+		var oldStatus, oldSupersededBy string
+		if err := svc.store.DB.QueryRow(
+			`SELECT status, COALESCE(CAST(superseded_by AS TEXT), '') FROM observations WHERE id = ?`, seed,
+		).Scan(&oldStatus, &oldSupersededBy); err != nil {
+			t.Fatalf("read old row: %v", err)
+		}
+		if oldStatus != "superseded" {
+			t.Errorf("old status = %q, want superseded", oldStatus)
+		}
+		if oldSupersededBy != fmt.Sprintf("%d", res.ObservationID) {
+			t.Errorf("old superseded_by = %q, want %d", oldSupersededBy, res.ObservationID)
+		}
+		// The supersedes edge (old -> new) exists.
+		var edgeN int
+		if err := svc.store.DB.QueryRow(
+			`SELECT COUNT(*) FROM memory_relations
+			 WHERE src_obs_id = ? AND dst_obs_id = ? AND relation = 'supersedes' AND deleted_at IS NULL`,
+			seed, res.ObservationID,
+		).Scan(&edgeN); err != nil {
+			t.Fatalf("read edge: %v", err)
+		}
+		if edgeN != 1 {
+			t.Errorf("supersedes edge count = %d, want 1", edgeN)
+		}
+	})
+
+	t.Run("hash floor: LLM error is non-fatal, falls to add", func(t *testing.T) {
+		_, svc := newTestStore(t, project)
+		sid := newSession(t, svc)
+		seed, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "learning",
+			Title: "seed x", Content: "seed x content",
+		})
+		if err != nil {
+			t.Fatalf("seed save: %v", err)
+		}
+		_ = seed
+		before := obsCount(t, svc.store, project)
+
+		// LLM errors: runDedupCheck must return the hash floor (Reason="hash",
+		// Verdict=""), and SaveWithAction must fall through to add — no panic,
+		// no error.
+		llm := &dedupLLM{err: fmt.Errorf("llm down")}
+		svc.SetDedupLLM(llm)
+		svc.EnableDedupLLM(true)
+
+		res, err := svc.SaveWithAction(ctx, SaveInput{
+			SessionID: sid, Type: "learning",
+			Title: "floor note", Content: "floor content",
+		})
+		if err != nil {
+			t.Fatalf("save with action (llm error): %v", err)
+		}
+		if res.Action != VerdictAdd {
+			t.Errorf("action = %q, want add (hash floor)", res.Action)
+		}
+		if res.ObservationID <= 0 {
+			t.Errorf("observationID = %d, want a new positive id", res.ObservationID)
+		}
+		after := obsCount(t, svc.store, project)
+		if after != before+1 {
+			t.Errorf("row count: %d -> %d, want %d (new row)", before, after, before+1)
+		}
+	})
+
+	t.Run("hash floor: exact duplicate is noop+bump", func(t *testing.T) {
+		_, svc := newTestStore(t, project)
+		sid := newSession(t, svc)
+		first, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "dup note", Content: "dup content",
+		})
+		if err != nil {
+			t.Fatalf("first save: %v", err)
+		}
+		before := obsCount(t, svc.store, project)
+
+		// No LLM armed (default): the deterministic hash floor fires. An exact
+		// duplicate is a noop + BumpDuplicate, returning the existing id.
+		res, err := svc.SaveWithAction(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "dup note", Content: "dup content",
+		})
+		if err != nil {
+			t.Fatalf("save with action: %v", err)
+		}
+		if res.Action != VerdictNoop {
+			t.Errorf("action = %q, want noop (hash floor)", res.Action)
+		}
+		if res.ObservationID != first {
+			t.Errorf("observationID = %d, want existing %d", res.ObservationID, first)
+		}
+		after := obsCount(t, svc.store, project)
+		if after != before {
+			t.Errorf("row count changed: %d -> %d, want no new row", before, after)
+		}
+	})
+}
+
+// TestSaveDelegatesToSaveWithAction asserts that Service.Save is now a thin
+// delegate to SaveWithAction: for the common (non-LLM) path it must return the
+// same (id, error) it always did, and the underlying row state must be identical
+// to a direct SaveWithAction call.
+func TestSaveDelegatesToSaveWithAction(t *testing.T) {
+	ctx := context.Background()
+	project := "audn-delegate"
+
+	t.Run("hash-hit returns existing id (preserves old Save contract)", func(t *testing.T) {
+		_, svc := newTestStore(t, project)
+		sid := newSession(t, svc)
+		first, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "delegate dup", Content: "delegate content",
+		})
+		if err != nil {
+			t.Fatalf("first save: %v", err)
+		}
+		// Second identical save: old Save returned the EXISTING row id. The
+		// delegate must preserve that exact contract.
+		second, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "delegate dup", Content: "delegate content",
+		})
+		if err != nil {
+			t.Fatalf("second save: %v", err)
+		}
+		if second != first {
+			t.Errorf("delegate Save returned %d, want existing %d", second, first)
+		}
+	})
+
+	t.Run("new row returns new id", func(t *testing.T) {
+		_, svc := newTestStore(t, project)
+		sid := newSession(t, svc)
+		id, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "learning",
+			Title: "delegate new", Content: "delegate new content",
+		})
+		if err != nil {
+			t.Fatalf("save: %v", err)
+		}
+		if id <= 0 {
+			t.Errorf("save returned id %d, want positive", id)
+		}
+		obs, err := svc.Get(ctx, id)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		if obs.Title != "delegate new" {
+			t.Errorf("title = %q, want %q", obs.Title, "delegate new")
+		}
+	})
+
+	t.Run("delegate matches direct SaveWithAction (add path)", func(t *testing.T) {
+		_, svc := newTestStore(t, project)
+		sid := newSession(t, svc)
+		// No LLM armed: both Save and SaveWithAction take the add path.
+		id, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "parity note", Content: "parity content",
+		})
+		if err != nil {
+			t.Fatalf("save: %v", err)
+		}
+		res, err := svc.SaveWithAction(ctx, SaveInput{
+			SessionID: sid, Type: "decision",
+			Title: "parity note 2", Content: "parity content 2",
+		})
+		if err != nil {
+			t.Fatalf("save with action: %v", err)
+		}
+		if res.Action != VerdictAdd {
+			t.Errorf("action = %q, want add", res.Action)
+		}
+		if res.ObservationID == id {
+			t.Errorf("SaveWithAction returned the same id %d as the prior Save; expected a distinct new row", id)
+		}
+	})
 }

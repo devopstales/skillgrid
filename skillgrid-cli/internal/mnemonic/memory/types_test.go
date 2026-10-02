@@ -178,11 +178,12 @@ func (d *dedupLLM) Classify(ctx context.Context, newContent string, candidates [
 
 func (d *dedupLLM) candidateID() int { return 1 }
 
-// TestLLMDedupDetectsSemanticDuplicates covers 18.2: with the LLM dedup pass
-// enabled, saving "The build fails on macOS because of the missing SDK" and
-// then "macOS build broken due to absent SDK package" is flagged by the LLM as
-// a semantic duplicate — the second is not stored as a new row (it merges into
-// the first, bumping duplicate_count). A genuinely different observation is NOT
+// TestLLMDedupDetectsSemanticDuplicates covers 18.2 + TICKET-04: with the LLM
+// dedup pass enabled, saving "The build fails on macOS because of the missing
+// SDK" and then "macOS build broken due to absent SDK package" is flagged by the
+// LLM as a semantic duplicate — the reworded second is stored as a NEW row that
+// supersedes the first (AUDN delete arm: the original is marked superseded, a
+// supersedes edge is recorded). A genuinely different observation is NOT
 // flagged and is stored. When the LLM is unavailable, hash-based (exact
 // normalized content) dedup is the fallback: an exact duplicate is caught, a
 // reworded one is not.
@@ -191,7 +192,7 @@ func (d *dedupLLM) candidateID() int { return 1 }
 func TestLLMDedupDetectsSemanticDuplicates(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("LLM flags semantic duplicate and merges", func(t *testing.T) {
+	t.Run("LLM flags semantic duplicate and supersedes", func(t *testing.T) {
 		st, svc := newTestStore(t, "dedupproj")
 		sid := newSession(t, svc)
 
@@ -227,25 +228,32 @@ func TestLLMDedupDetectsSemanticDuplicates(t *testing.T) {
 		if llm.called == 0 {
 			t.Fatalf("LLM dedup was not invoked")
 		}
-		// The second is merged into the first, not stored as a new row.
-		if second != first {
-			t.Fatalf("semantic duplicate should merge into existing id %d, got %d", first, second)
+		// TICKET-04: a flagged semantic duplicate takes the 4-way AUDN delete
+		// arm — the reworded content is stored as a NEW row that supersedes the
+		// candidate (not merged into it). The second save returns the new id.
+		if second == first {
+			t.Fatalf("semantic duplicate should supersede into a new row, got the same id %d", first)
 		}
-		// Exactly one observation row exists (no new row for the duplicate).
+		// Two observation rows exist: the original + the superseding reword.
 		var n int
 		if err := st.DB.QueryRow(`SELECT COUNT(*) FROM observations`).Scan(&n); err != nil {
 			t.Fatalf("count: %v", err)
 		}
-		if n != 1 {
-			t.Fatalf("expected 1 observation after merge, got %d", n)
+		if n != 2 {
+			t.Fatalf("expected 2 observations after supersede, got %d", n)
 		}
-		// The merge bumped the duplicate count on the surviving row.
-		var dups int
-		if err := st.DB.QueryRow(`SELECT duplicate_count FROM observations WHERE id = ?`, first).Scan(&dups); err != nil {
-			t.Fatalf("dup count: %v", err)
+		// The original row is now marked superseded by the new row.
+		var oldStatus, oldSupersededBy string
+		if err := st.DB.QueryRow(
+			`SELECT status, COALESCE(CAST(superseded_by AS TEXT), '') FROM observations WHERE id = ?`, first,
+		).Scan(&oldStatus, &oldSupersededBy); err != nil {
+			t.Fatalf("read original row: %v", err)
 		}
-		if dups != 1 {
-			t.Errorf("expected duplicate_count 1 after LLM merge, got %d", dups)
+		if oldStatus != "superseded" {
+			t.Errorf("original status = %q, want superseded", oldStatus)
+		}
+		if oldSupersededBy != fmt.Sprintf("%d", second) {
+			t.Errorf("original superseded_by = %q, want %d", oldSupersededBy, second)
 		}
 
 		// A genuinely different observation is NOT flagged: the LLM says no,
@@ -267,8 +275,8 @@ func TestLLMDedupDetectsSemanticDuplicates(t *testing.T) {
 		if err := st.DB.QueryRow(`SELECT COUNT(*) FROM observations`).Scan(&n2); err != nil {
 			t.Fatalf("count2: %v", err)
 		}
-		if n2 != 2 {
-			t.Fatalf("expected 2 observations (original + non-dup), got %d", n2)
+		if n2 != 3 {
+			t.Fatalf("expected 3 observations (original + superseding reword + non-dup), got %d", n2)
 		}
 	})
 
