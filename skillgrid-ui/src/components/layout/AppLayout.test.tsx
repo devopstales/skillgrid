@@ -3,19 +3,14 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { AppLayout } from './AppLayout'
 
-// jsdom lacks scrollTo; TanStack router's scroll restoration calls it on route
-// change. Stub it to silence the "Not implemented" warning.
 beforeAll(() => {
   window.scrollTo = vi.fn() as unknown as typeof window.scrollTo
 })
 
-// Stub pages — AppLayout renders <Outlet />, so each nav target needs a route.
 function Page({ name }: { name: string }) {
   return <div data-testid={`page-${name}`}>{name} page</div>
 }
 
-// Build a real TanStack router with AppLayout as the root component and one
-// route per nav target, so NavLink (Link + useLocation) resolves correctly.
 function makeRouter() {
   const root = createRootRoute({ component: AppLayout })
   const route = (path: string, name: string) =>
@@ -25,78 +20,68 @@ function makeRouter() {
       component: () => <Page name={name} />,
     })
   const routeTree = root.addChildren([
-    route('/tracker', 'tracker'),
+    route('/', 'overview'),
+    route('/tracker', 'kanban'),
+    route('/plans', 'changes'),
+    route('/adr', 'adr'),
+    route('/project/spikes', 'spikes'),
     route('/mnemonic/graph', 'graph'),
     route('/mnemonic/files', 'files'),
-    route('/mnemonic/memories', 'memories'),
     route('/mnemonic/sessions', 'sessions'),
-    route('/mnemonic/search', 'search'),
-    route('/plans', 'plans'),
-    route('/adr', 'adr'),
-    route('/decisions', 'decisions'),
+    route('/observe/telemetry', 'telemetry'),
+    route('/observe/compaction', 'compaction'),
+    route('/observe/web-cache', 'web-cache'),
     route('/docs', 'docs'),
-    route('/git', 'git'),
-    route('/prototypes', 'prototypes'),
+    route('/system/security', 'security'),
     route('/settings', 'settings'),
+    route('/swagger-ui', 'swagger'),
   ])
-  const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ['/tracker'] }) })
+  const router = createRouter({
+    routeTree,
+    history: createMemoryHistory({ initialEntries: ['/tracker'] }),
+  })
   return RouterProvider({ router }) as unknown as React.ReactElement
 }
 
 describe('AppLayout navigation', () => {
-  it('groups nav into Observe / Mnemonic / Pipeline / System', async () => {
+  it('groups nav into Project / Memory / Observe / System', async () => {
     render(makeRouter())
-    const text = await screen.findByText('Tracker').then(() => document.body.textContent ?? '')
+    const text = await screen.findByText('Kanban').then(() => document.body.textContent ?? '')
 
-    // All four group headers are present.
-    for (const group of ['Observe', 'Mnemonic', 'Pipeline', 'System']) {
+    for (const group of ['Project', 'Memory', 'Observe', 'System']) {
       expect(text).toContain(group)
     }
-    // The newly-added items are present (these fail until the regroup lands).
-    for (const item of ['Overview', 'ADRs', 'Swagger']) {
+    for (const item of ['Overview', 'Code Graph', 'Swagger Docs', 'Security']) {
       expect(text).toContain(item)
     }
   })
 
-  it('Observe group contains Overview and Tracker', async () => {
+  it('Project group contains Kanban and Spikes', async () => {
     render(makeRouter())
-    await screen.findByText('Tracker')
+    await screen.findByText('Kanban')
 
-    const overview = screen.getByText('Overview')
+    const projectHeader = screen.getByText('Project')
+    for (const label of ['Kanban', 'Changes', 'Decisions (ADR)', 'Spikes']) {
+      const el = screen.getByText(label)
+      expect(el.compareDocumentPosition(projectHeader) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    }
+  })
+
+  it('Observe group contains Telemetry, Compaction, Web Cache', async () => {
+    render(makeRouter())
+    await screen.findByText('Kanban')
+
     const observeHeader = screen.getByText('Observe')
-    // Overview sits inside the Observe group: after the header, before Mnemonic.
-    expect(overview.compareDocumentPosition(observeHeader) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
-  })
-
-  it('Pipeline group contains Plans, ADRs and Decisions', async () => {
-    render(makeRouter())
-    await screen.findByText('Tracker')
-
-    for (const label of ['Plans', 'ADRs', 'Decisions']) {
+    for (const label of ['Telemetry', 'Compaction', 'Web Cache']) {
       const el = screen.getByText(label)
-      const pipelineHeader = screen.getByText('Pipeline')
-      // Each Pipeline item appears after the Pipeline header.
-      expect(el.compareDocumentPosition(pipelineHeader) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+      expect(el.compareDocumentPosition(observeHeader) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
     }
   })
 
-  it('System group contains Docs, Git, Prototypes, Settings and Swagger', async () => {
+  it('brand reads Mnemonic Enterprise Admin Console', async () => {
     render(makeRouter())
-    await screen.findByText('Tracker')
-
-    for (const label of ['Docs', 'Git', 'Prototypes', 'Settings', 'Swagger']) {
-      const el = screen.getByText(label)
-      const systemHeader = screen.getByText('System')
-      expect(el.compareDocumentPosition(systemHeader) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
-    }
-  })
-
-  it('renders an /adr nav link that points at the ADRs route', async () => {
-    render(makeRouter())
-    await screen.findByText('Tracker')
-
-    const link = screen.getByText('ADRs').closest('a')
-    expect(link).toBeTruthy()
-    expect(link?.getAttribute('href')).toBe('/adr')
+    await screen.findByText('Kanban')
+    expect(screen.getAllByText('Mnemonic').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('Enterprise Admin Console')).toBeTruthy()
   })
 })

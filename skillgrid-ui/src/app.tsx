@@ -3,11 +3,6 @@ import { createRootRoute, createRoute, createRouter, RouterProvider } from '@tan
 import { AppLayout } from './components/layout/AppLayout'
 import { Stub } from './components/Stub'
 
-// Phase 7.3: per-feature-route code-splitting. Each feature page is a lazy
-// chunk so the initial bundle stays small; the heavy views (graph, git, docs,
-// activity, plans, prototypes, tracker, mnemonic) only load their JS when the
-// route is visited. A shared Suspense fallback (spinner) covers the gap.
-// Returns a component (not an Element) so it satisfies TanStack's RouteComponent.
 function lazyPage(factory: () => Promise<{ default: ComponentType }>) {
   const Lazy = lazy(factory)
   return function LazyRoutePage() {
@@ -29,9 +24,6 @@ const rootRoute = createRootRoute({
   component: AppLayout,
 })
 
-// `/` is the Overview landing page: a Terminal Ops dashboard of project health
-// (KPI cards, recent activity, pipeline status). Wave 3 pointed the "Overview"
-// nav here; this wires the route to the OverviewPage.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
@@ -122,6 +114,36 @@ const settingsRoute = createRoute({
   component: lazyPage(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage }))),
 })
 
+const spikesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/project/spikes',
+  component: lazyPage(() => import('./features/spikes/SpikesPage').then((m) => ({ default: m.SpikesPage }))),
+})
+
+const telemetryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/observe/telemetry',
+  component: lazyPage(() => import('./features/observe/TelemetryPage').then((m) => ({ default: m.TelemetryPage }))),
+})
+
+const compactionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/observe/compaction',
+  component: lazyPage(() => import('./features/observe/CompactionPage').then((m) => ({ default: m.CompactionPage }))),
+})
+
+const webCacheRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/observe/web-cache',
+  component: lazyPage(() => import('./features/observe/WebCachePage').then((m) => ({ default: m.WebCachePage }))),
+})
+
+const securityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/system/security',
+  component: lazyPage(() => import('./features/security/SecurityPage').then((m) => ({ default: m.SecurityPage }))),
+})
+
 const notFoundRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/__404__',
@@ -144,6 +166,11 @@ const routeTree = rootRoute.addChildren([
   prototypesRoute,
   swaggerRoute,
   settingsRoute,
+  spikesRoute,
+  telemetryRoute,
+  compactionRoute,
+  webCacheRoute,
+  securityRoute,
   notFoundRoute,
 ])
 

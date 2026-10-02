@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchDeps, fetchTask } from './api'
 import type { TrackerDeps, UnifiedTask } from './types'
 import { DependencyGraph } from './DependencyGraph'
+import { MarkdownView } from '../docs/MarkdownView'
 
 // TaskDetail is the slide-in drawer: markdown description, a metadata grid,
 // and the dependency mini-graph. Fetches lazily when a task is selected.
@@ -129,9 +130,13 @@ export function TaskDetail({
                 <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-6">
                   Description
                 </h3>
-                <pre className="whitespace-pre-wrap rounded border border-edge bg-surface-2/60 p-3 text-[12px] leading-relaxed text-ink-3">
-                  {t.description || '—'}
-                </pre>
+                <div className="rounded border border-edge bg-surface-2/60 p-3">
+                  {t.description?.trim() ? (
+                    <MarkdownView body={t.description} />
+                  ) : (
+                    <span className="text-[12px] text-ink-5">—</span>
+                  )}
+                </div>
               </div>
               <div className="mt-4">
                 <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-ink-6">

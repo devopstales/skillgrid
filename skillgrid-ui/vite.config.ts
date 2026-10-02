@@ -8,7 +8,48 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:7438',
+      // Proxy JSON API calls to live mnemonic serve. Bypass HTML navigations so
+      // SPA routes (/mnemonic/graph, /docs, /plans, /project/spikes, …) stay on Vite.
+      // Swagger is always proxied (never HTML-bypassed) — the iframe must load
+      // the Go Swagger UI, not the Vite SPA shell.
+      '/swagger': 'http://127.0.0.1:7438',
+      '/openapi.yaml': 'http://127.0.0.1:7438',
+      ...(Object.fromEntries(
+        [
+          '/api',
+          '/activity',
+          '/code',
+          '/context',
+          '/docs',
+          '/git',
+          '/health',
+          '/memory',
+          '/mnemonic',
+          '/observations',
+          '/plans',
+          '/project',
+          '/projects',
+          '/prototypes',
+          '/search',
+          '/security',
+          '/sessions',
+          '/specs',
+          '/spikes',
+          '/tracker',
+          '/web',
+        ].map((prefix) => [
+          prefix,
+          {
+            target: 'http://127.0.0.1:7438',
+            bypass(req: { headers: { accept?: string }; url?: string }) {
+              const accept = req.headers.accept ?? ''
+              // SPA navigations (text/html) stay on Vite; JSON/API stay proxied.
+              if (accept.includes('text/html')) return req.url
+              return undefined
+            },
+          },
+        ]),
+      ) as Record<string, { target: string; bypass: (req: { headers: { accept?: string }; url?: string }) => string | undefined }>),
     },
   },
   test: {
@@ -40,7 +81,7 @@ export default defineConfig({
         // Rollup keeps it as its own lazy chunk loaded only on demand.
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
-          'vendor-sigma': ['sigma', '@react-sigma/core', 'graphology', 'graphology-layout-forceatlas2', 'graphology-communities-louvain', 'graphology-types'],
+          'vendor-d3': ['d3'],
           'vendor-elk': ['elkjs'],
           'vendor-cytoscape': ['cytoscape'],
           'vendor-katex': ['katex'],

@@ -58,6 +58,15 @@ export function MarkdownView({ body, securityLevel }: Props) {
       h3: ({ children }: { children?: React.ReactNode }) => (
         <h3 id={slugify(String(children ?? ''))} className="mb-2 mt-4 text-lg font-semibold text-ink">{children}</h3>
       ),
+      p: ({ children }: { children?: React.ReactNode }) => (
+        <p className="my-2 text-ink-3">{children}</p>
+      ),
+      strong: ({ children }: { children?: React.ReactNode }) => (
+        <strong className="font-semibold text-ink">{children}</strong>
+      ),
+      li: ({ children }: { children?: React.ReactNode }) => (
+        <li className="text-ink-3">{children}</li>
+      ),
       a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
         <a href={href} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/40 hover:decoration-accent">
           {children}

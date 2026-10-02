@@ -6,6 +6,7 @@ import {
   type FileContentResponse,
   type FileTreeNode,
 } from './api'
+import { MarkdownView } from '../docs/MarkdownView'
 
 // FilesPage is the OpenViking view: a topic_key-derived file tree on the left,
 // and an L0/L1/L2 content pane on the right (abstract → overview → details).
@@ -192,7 +193,9 @@ function ContentPanel({ content }: { content: FileContentResponse }) {
 
       {l0 && (
         <Tier label="Abstract" tint="violet">
-          <p className="text-[13px] text-ink-3">{l0.content}</p>
+          <div className="font-sans text-[13px]">
+            <MarkdownView body={l0.content} />
+          </div>
         </Tier>
       )}
 
@@ -212,19 +215,17 @@ function ContentPanel({ content }: { content: FileContentResponse }) {
 
       {l2 && (
         <Tier label={`Details · ${l2.count} memories`} tint="accent">
-          <div className="space-y-4">
+          <div className="space-y-4 font-sans">
             {(l2.items ?? []).map((it) => (
               <article key={it.id} className="rounded border border-edge bg-surface-2/60 p-3">
-                <div className="mb-1 flex items-center gap-2">
+                <div className="mb-1 flex items-center gap-2 font-mono">
                   <span className="rounded bg-edge/60 px-1.5 py-0.5 text-[10px] text-ink-4">
                     {it.type}
                   </span>
                   <span className="text-[13px] font-medium text-ink-2">{it.title}</span>
                   <span className="ml-auto text-[12px] text-ink-6">{it.created_at}</span>
                 </div>
-                <pre className="whitespace-pre-wrap text-[12px] leading-relaxed text-ink-4">
-                  {it.content}
-                </pre>
+                <MarkdownView body={it.content || ''} />
               </article>
             ))}
           </div>

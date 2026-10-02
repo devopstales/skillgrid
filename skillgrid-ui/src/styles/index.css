@@ -1,75 +1,59 @@
 @import "tailwindcss";
 
 /* ===================================================================
-   Terminal Ops — design tokens (source of truth: DESIGN.md).
-   A dense monospace console on an OLED slate canvas. One run-green
-   accent carries everything that is live or passing; separation comes
-   from hairline borders + one-step surface elevation (no shadows).
-   The @theme block maps the design system onto the token names the
-   existing components already use (bg/card/edge/accent), so the whole
-   app re-themes from here. Semantic state colors are added below so
-   future work can stop ad-hoc-ing emerald/amber/red.
+   Mnemonic Admin Console — design tokens from spike 001 mockup.
+   Surfaces + indigo accent. Legacy token aliases (bg/card/ink-*) keep
+   existing feature pages compiling during the rewrite.
    =================================================================== */
 @theme {
-  /* surfaces (one-step elevation only) */
-  --color-bg: #0f172a;        /* app canvas (OLED slate) */
-  --color-card: #1b2336;      /* card */
-  --color-edge: #272f42;      /* hairline: card & row borders */
-  --color-edge-soft: #1e293b; /* structural: panel & topbar borders */
-  --color-surface-2: #0d1526; /* sidebar / recessed */
-  --color-inset: #0b1120;     /* inputs, tracks, pill fill */
+  /* mockup surfaces */
+  --color-surface-900: #0a0a0f;
+  --color-surface-800: #111118;
+  --color-surface-700: #1a1a24;
+  --color-surface-600: #22222e;
+  --color-surface-500: #2a2a38;
 
-  /* brand + status */
-  --color-accent: #22c55e;    /* run-green: active, ok, live, success */
-  --color-accent-ink: #14532d;/* accent-tinted border */
+  /* aliases used by existing components */
+  --color-bg: #0a0a0f;
+  --color-card: #111118;
+  --color-edge: #2e2e3e;
+  --color-edge-soft: #1e1e2e;
+  --color-surface-2: #111118;
+  --color-inset: #1a1a24;
+
+  --color-accent: #6366f1;
+  --color-accent-light: #818cf8;
+  --color-accent-dim: #4f46e5;
+  --color-accent-ink: #312e81;
   --color-ok: #22c55e;
-  --color-warn: #f59e0b;
+  --color-warn: #eab308;
   --color-warn-ink: #78350f;
   --color-danger: #ef4444;
   --color-danger-ink: #7f1d1d;
-  --color-info: #38bdf8;      /* link / code / user scope */
-  --color-violet: #a78bfa;    /* global scope */
+  --color-info: #60a5fa;
+  --color-violet: #c084fc;
 
-  /* text scale (6 steps) — bg/card/edge aliases above are the only
-     surface tokens; these are the type ramp for the console. */
-  --color-ink: #f8fafc;       /* primary */
-  --color-ink-2: #e2e8f0;     /* secondary / values */
-  --color-ink-3: #cbd5e1;     /* body / list names */
-  --color-ink-4: #94a3b8;     /* muted / labels */
-  --color-ink-5: #64748b;     /* faint / card headers */
-  --color-ink-6: #475569;     /* faintest / timestamps (decorative) */
+  --color-ink: #e2e8f0;
+  --color-ink-2: #e2e8f0;
+  --color-ink-3: #94a3b8;
+  --color-ink-4: #94a3b8;
+  --color-ink-5: #64748b;
+  --color-ink-6: #475569;
 
-  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, monospace;
 }
 
 :root {
   color-scheme: dark;
-  /* Terminal Ops layout constants. */
   --topbar-h: 2.75rem;
-  /* Phase 7.4 density tokens — comfortable is the default. Compact reduces
-     padding/gap/font by ~25% so more rows fit (toggled from Settings). */
   --density-pad: 0.75rem;
   --density-gap: 1rem;
   --density-row: 0.625rem;
   --density-text: 0.875rem;
-  /* Phase 7.4 motion token — a single 150ms ease curve for UI transitions. */
   --motion-ease: 150ms ease;
 }
 
-:root {
-  color-scheme: dark;
-  /* Phase 7.4 density tokens — comfortable is the default. Compact reduces
-     padding/gap/font by ~25% so more rows fit (toggled from Settings). */
-  --density-pad: 0.75rem;
-  --density-gap: 1rem;
-  --density-row: 0.625rem;
-  --density-text: 0.875rem;
-  /* Phase 7.4 motion token — a single 150ms ease curve for UI transitions. */
-  --motion-ease: 150ms ease;
-}
-
-/* Compact density: applied on <html data-density="compact"> (Settings toggle). */
 :root[data-density="compact"] {
   --density-pad: 0.5rem;
   --density-gap: 0.625rem;
@@ -80,11 +64,26 @@
 body {
   background-color: var(--color-bg);
   color: var(--color-ink);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* Phase 7.4 motion — activity stream items animate in from the top. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2e2e3e transparent;
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2e2e3e;
+  border-radius: 3px;
+}
+
 @keyframes stream-in {
   from {
     opacity: 0;
@@ -98,23 +97,277 @@ body {
 .animate-stream-in {
   animation: stream-in var(--motion-ease);
 }
-/* Review B5: respect prefers-reduced-motion — no fade/slide for motion-sensitive users. */
 @media (prefers-reduced-motion: reduce) {
   .animate-stream-in {
     animation: none;
   }
 }
 
-/* Sigma.js ships a white canvas via its imported style.css:
-   `.react-sigma { background: var(--sigma-background-color) }`. The shorthand
-   sets `background-color`, so a plain `background-color` longhand on the same
-   element loses to it — set the CSS var instead. The container also sets the
-   var inline (VectorGraph.tsx); this rule is the fallback if the inline style
-   is ever stripped. Keep the canvas transparent so the dark bg shows through. */
-.mnemonic-sigma.react-sigma {
-  --sigma-background-color: #0f172a;
-  background-color: #0f172a !important;
+/* mockup shared classes */
+.nav-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #475569;
+  padding: 12px 16px 4px;
 }
-.mnemonic-sigma.react-sigma canvas {
-  background: transparent;
+.nav-item {
+  transition: all 0.15s ease;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+.nav-item:hover {
+  background: #1a1a24;
+}
+.nav-item.active {
+  background: #1a1a24;
+  border-left: 2px solid #6366f1;
+}
+.nav-item.active .nav-icon {
+  color: #818cf8;
+}
+.nav-item.top {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #e2e8f0;
+}
+.nav-item.sub {
+  font-size: 12px;
+  padding: 6px 16px 6px 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+}
+.nav-item.sub:hover {
+  color: #e2e8f0;
+}
+.nav-item.sub.active {
+  color: #e2e8f0;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.badge-architecture {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+}
+.badge-bugfix {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+.badge-config {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+.badge-decision {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+}
+.badge-discovery {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
+.badge-pattern {
+  background: rgba(20, 184, 166, 0.15);
+  color: #2dd4bf;
+}
+.badge-learning {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+.badge-convention {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+.badge-standing {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+}
+.badge-preference {
+  background: rgba(236, 72, 153, 0.15);
+  color: #f472b6;
+}
+.badge-lesson {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+.badge-session_log {
+  background: rgba(100, 116, 139, 0.15);
+  color: #94a3b8;
+}
+.badge-correction {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+.badge-unknown {
+  background: rgba(100, 116, 139, 0.15);
+  color: #94a3b8;
+}
+
+.status-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.status-fresh {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+.status-stale {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+}
+.status-active {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+}
+.status-ended {
+  background: rgba(100, 116, 139, 0.15);
+  color: #94a3b8;
+}
+.status-published {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+.status-failed {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+.status-in_progress {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+}
+.status-blocked {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+.status-done {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+.status-draft {
+  background: rgba(100, 116, 139, 0.15);
+  color: #94a3b8;
+}
+.status-archived {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+}
+.status-idle {
+  background: rgba(100, 116, 139, 0.15);
+  color: #94a3b8;
+}
+.status-PASS {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+.status-FAIL {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.kpi-card {
+  background: #111118;
+  border: 1px solid #1e1e2e;
+  border-radius: 8px;
+  padding: 16px;
+}
+.kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+.kpi-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  margin-top: 4px;
+}
+.section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #64748b;
+}
+.table-row {
+  border-bottom: 1px solid #1a1a24;
+  transition: background 0.1s;
+}
+.table-row:hover {
+  background: #161620;
+}
+.tree-node {
+  transition: background 0.1s;
+}
+.tree-node:hover {
+  background: #1a1a24;
+}
+.ch {
+  display: grid;
+  grid-template-columns: 1fr 110px 80px 90px;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 12px;
+  border-bottom: 1px solid #1a1a24;
+  font-size: 12px;
+}
+.ch:last-child {
+  border-bottom: 0;
+}
+.ch .n {
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ch .ph {
+  color: #64748b;
+}
+.ch .t {
+  color: #475569;
+  text-align: right;
+}
+.ch .st {
+  text-align: right;
+}
+.chipst {
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-size: 11px;
+  display: inline-block;
+}
+.chipst.pass {
+  color: #22c55e;
+  border: 1px solid #14532d;
+  background: rgba(34, 197, 94, 0.08);
+}
+.chipst.active {
+  color: #f59e0b;
+  border: 1px solid #78350f;
+  background: rgba(245, 158, 11, 0.08);
+}
+.chipst.blocked {
+  color: #ef4444;
+  border: 1px solid #7f1d1d;
+  background: rgba(239, 68, 68, 0.08);
+}
+.chipst.draft {
+  color: #94a3b8;
+  border: 1px solid #334155;
+  background: rgba(100, 116, 139, 0.08);
 }

@@ -11,7 +11,15 @@ export function DocsPage() {
   const [root, setRoot] = useState<DocsRoot>('all')
   const [nodes, setNodes] = useState<DocsTreeNode[]>([])
   const [treeError, setTreeError] = useState('')
-  const [selected, setSelected] = useState('')
+  // Pre-select from ?file= deep-link (kanban doc_refs) immediately — do not wait
+  // for the tree. Content is fetched by path; the tree only highlights when ready.
+  const [selected, setSelected] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('file') ?? ''
+    } catch {
+      return ''
+    }
+  })
   const [content, setContent] = useState<DocsContent | null>(null)
   const [contentError, setContentError] = useState('')
   const [loadingContent, setLoadingContent] = useState(false)
@@ -32,17 +40,23 @@ export function DocsPage() {
     }
   }, [root])
 
-  // Honor a ?file= deep-link (from task doc_refs cross-links): on first load,
-  // pre-select the doc if it is present in the tree.
+  // Keep ?file= in the URL when the user picks a doc from the tree (shareable).
+  const selectFile = useCallback((path: string) => {
+    setSelected(path)
+    const url = new URL(window.location.href)
+    if (!url.pathname.endsWith('/docs') && url.pathname !== '/docs') return
+    url.searchParams.set('file', path)
+    window.history.replaceState(null, '', `${url.pathname}${url.search}`)
+  }, [])
+
+  // Keep selection in sync if the URL ?file= changes (back/forward).
   useEffect(() => {
-    const file = new URLSearchParams(window.location.search).get('file')
-    if (!file) return
-    setNodes((prev) => {
-      const found = findNodePath(prev, file)
-      if (found) setSelected(found)
-      return prev
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const onNav = () => {
+      const file = new URLSearchParams(window.location.search).get('file')
+      if (file) setSelected(file)
+    }
+    window.addEventListener('popstate', onNav)
+    return () => window.removeEventListener('popstate', onNav)
   }, [])
 
   // load content when a doc is selected
@@ -71,13 +85,16 @@ export function DocsPage() {
 
   const toc = useMemo(() => (content ? extractToc(content.body) : []), [content])
   const isPlan = useMemo(
-    () => content?.path.includes('.skillgrid/specs/') && (content.path.endsWith('/briefing.md') || content.path.endsWith('/tasks.md')),
+    () =>
+      !!content &&
+      (content.path.includes('.skillgrid/specs/') || content.path.includes('.skillgrid/archive/')) &&
+      (content.path.endsWith('/briefing.md') || content.path.endsWith('/tasks.md')),
     [content],
   )
 
   const relatedPlanName = useMemo(() => {
     if (!isPlan || !content) return null
-    const m = /specs\/([^/]+)\//.exec(content.path)
+    const m = /(?:specs|archive)\/([^/]+)\//.exec(content.path)
     return m ? m[1] : null
   }, [isPlan, content])
 
@@ -122,11 +139,11 @@ export function DocsPage() {
 
       {/* Search bar */}
       <div className="border-b border-edge px-4 py-3">
-        <DocSearch onSelect={setSelected} />
+        <DocSearch onSelect={selectFile} />
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <DocsTree nodes={nodes} root={root} selected={selected} onSelect={setSelected} />
+        <DocsTree nodes={nodes} root={root} selected={selected} onSelect={selectFile} />
 
         {/* Content pane */}
         <main className="flex min-h-0 flex-1 flex-col">
@@ -217,11 +234,7 @@ export function DocsPage() {
                           <button
                             key={p}
                             type="button"
-                            onClick={() =>
-                              setSelected(
-                                `.skillgrid/specs/${p}/briefing.md`,
-                              )
-                            }
+                            onClick={() => selectFile(`.skillgrid/specs/${p}/briefing.md`)}
                             className="rounded border border-edge bg-card px-2.5 py-1 text-[12px] text-ink-3 hover:border-accent/50"
                           >
                             {p}
@@ -240,20 +253,6 @@ export function DocsPage() {
       </div>
     </div>
   )
-}
-
-// findNodePath returns the file path of a node matching `want` (exact path
-// match, case-sensitive), searching the tree depth-first. Used by the ?file=
-// deep-link to pre-select a doc after the tree loads.
-function findNodePath(nodes: DocsTreeNode[], want: string): string | null {
-  for (const n of nodes) {
-    if (!n.dir && n.path === want) return n.path
-    if (n.children) {
-      const hit = findNodePath(n.children, want)
-      if (hit) return hit
-    }
-  }
-  return null
 }
 
 function ToolBtn({

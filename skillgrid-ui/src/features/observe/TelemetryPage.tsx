@@ -1,0 +1,127 @@
+import { useEffect, useState } from 'react'
+import { apiGet } from '../../lib/api'
+import {
+  EmptyState,
+  ErrorState,
+  KpiCard,
+  LoadingState,
+  PageHeader,
+  SectionTitle,
+  StatusBadge,
+  TypeBadge,
+} from '../../components/ui/Badges'
+
+interface Session {
+  id: string
+  status?: string
+  memories_writes?: number
+  has_summary?: boolean
+  last_active?: string
+}
+
+interface Event {
+  id: string
+  ts?: string
+  type?: string
+  summary?: string
+  actor?: string
+}
+
+export function TelemetryPage() {
+  const [sessions, setSessions] = useState<Session[] | null>(null)
+  const [events, setEvents] = useState<Event[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    Promise.all([
+      apiGet<{ sessions?: Session[] }>('/mnemonic/sessions'),
+      apiGet<{ events?: Event[] }>('/activity/events', { limit: 50 }),
+    ])
+      .then(([s, e]) => {
+        setSessions(s.sessions || [])
+        setEvents(e.events || [])
+      })
+      .catch((err: Error) => setError(err.message))
+  }, [])
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <ErrorState error={error} />
+      </div>
+    )
+  }
+  if (!sessions && !events) {
+    return (
+      <div className="p-6">
+        <LoadingState />
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-6">
+      <PageHeader title="Telemetry" subtitle="Agent observation: session activity + event stream" />
+
+      <div className="mb-4 grid grid-cols-3 gap-4">
+        <KpiCard label="Total Sessions" value={sessions?.length || 0} />
+        <KpiCard
+          label="Active"
+          value={(sessions || []).filter((s) => s.status === 'active').length}
+        />
+        <KpiCard label="Events (50)" value={events?.length || 0} />
+      </div>
+
+      <div className="kpi-card mb-4">
+        <SectionTitle>Event Stream</SectionTitle>
+        <div className="max-h-[300px] space-y-0.5 overflow-y-auto">
+          {(events || []).map((ev) => (
+            <div key={ev.id} className="flex items-center gap-3 px-1 py-1.5 text-xs">
+              <span className="w-[130px] shrink-0 font-mono text-ink-4">
+                {ev.ts?.slice(0, 19).replace('T', ' ')}
+              </span>
+              <TypeBadge type={ev.type} />
+              <span className="flex-1 truncate text-ink">{ev.summary}</span>
+              <span className="shrink-0 text-ink-4">{ev.actor}</span>
+            </div>
+          ))}
+          {(!events || events.length === 0) && <EmptyState message="No events" />}
+        </div>
+      </div>
+
+      <div className="kpi-card">
+        <SectionTitle>Sessions</SectionTitle>
+        <div className="max-h-[300px] overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-edge text-left text-ink-4">
+                <th className="px-2 py-1.5">Session</th>
+                <th className="px-2 py-1.5">Status</th>
+                <th className="px-2 py-1.5">Writes</th>
+                <th className="px-2 py-1.5">Summary</th>
+                <th className="px-2 py-1.5">Last Active</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(sessions || []).map((s) => (
+                <tr key={s.id} className="table-row">
+                  <td className="max-w-[180px] truncate px-2 py-1.5 font-mono text-ink-3">
+                    {s.id?.slice(0, 16)}…
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <StatusBadge status={s.status} />
+                  </td>
+                  <td className="px-2 py-1.5 font-mono">{s.memories_writes}</td>
+                  <td className="px-2 py-1.5">{s.has_summary ? '✓' : '—'}</td>
+                  <td className="px-2 py-1.5 font-mono text-ink-4">
+                    {s.last_active?.slice(0, 16)?.replace('T', ' ')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}

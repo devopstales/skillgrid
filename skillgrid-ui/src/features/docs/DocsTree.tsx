@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { DocsRoot, DocsTreeNode } from './types'
 import { ROOT_LABEL } from './types'
 
@@ -122,6 +122,24 @@ export function DocsTree({
   const [filter, setFilter] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
+  // Expand ancestors so a ?file= deep-link is visible in the tree.
+  useEffect(() => {
+    if (!selected || nodes.length === 0) return
+    const ancestors = ancestorDirs(nodes, selected)
+    if (ancestors.length === 0) return
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      let changed = false
+      for (const p of ancestors) {
+        if (!next.has(p)) {
+          next.add(p)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [selected, nodes])
+
   function toggle(path: string) {
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -173,4 +191,25 @@ export function DocsTree({
 
 function countFiles(nodes: DocsTreeNode[]): number {
   return nodes.reduce((acc, n) => (n.dir ? acc + countFiles(n.children ?? []) : acc + 1), 0)
+}
+
+/** Directory paths that must be expanded to reveal `filePath` in the tree. */
+function ancestorDirs(nodes: DocsTreeNode[], filePath: string): string[] {
+  const out: string[] = []
+  function walk(list: DocsTreeNode[], trail: string[]): boolean {
+    for (const n of list) {
+      if (n.dir) {
+        const next = [...trail, n.path]
+        if (walk(n.children ?? [], next)) {
+          out.push(...next)
+          return true
+        }
+      } else if (n.path === filePath) {
+        return true
+      }
+    }
+    return false
+  }
+  walk(nodes, [])
+  return out
 }

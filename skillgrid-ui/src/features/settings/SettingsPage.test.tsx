@@ -57,7 +57,7 @@ describe('SettingsPage', () => {
     render(<SettingsPage />)
     expect(screen.getByText('About')).toBeTruthy()
     expect(screen.getByText('Skillgrid Dashboard')).toBeTruthy()
-    expect(screen.getByText('Terminal Ops design variant A')).toBeTruthy()
+    expect(screen.getByText('Mnemonic Admin Console (spike 001)')).toBeTruthy()
     expect(screen.getByText('Powered by Skillgrid')).toBeTruthy()
   })
 })

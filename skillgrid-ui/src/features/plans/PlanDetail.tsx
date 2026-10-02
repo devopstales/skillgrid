@@ -1,4 +1,5 @@
 import type { PlanDetail } from './api'
+import { MarkdownView } from '../docs/MarkdownView'
 import { linkifyTaskRefs } from './taskLinks'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -40,10 +41,7 @@ export function PlanDetailPanel({
           <h3 className="mb-2 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-5">
             Briefing
           </h3>
-          <p
-            className="whitespace-pre-wrap text-[12px] text-ink-3"
-            dangerouslySetInnerHTML={{ __html: linkifyTaskRefs(plan.briefing) }}
-          />
+          <MarkdownView body={plan.briefing} />
         </section>
       )}
 
