@@ -186,4 +186,44 @@ describe('SessionsPage (live session home)', () => {
     expect(tabButton('audit')).toBeTruthy()
     expect(screen.queryByText('deadbeefcafe')).toBeFalsy()
   })
+
+  it('appends a live observation row and bumps the session observation count', async () => {
+    vi.mocked(api.fetchSessionEvents).mockResolvedValue({
+      events: [toolEvent()],
+      observations: [],
+    })
+    window.history.replaceState({}, '', '/mnemonic/sessions?id=sess-a')
+    render(<SessionsPage />)
+    await screen.findByText('src/main.go')
+    const row = screen.getByRole('button', { name: /Session A/ })
+    expect(within(row).getByText(/2 mem/)).toBeTruthy()
+
+    streamCallbacks?.onActivity?.({
+      id: 99,
+      ts: '2026-09-10T09:06:00Z',
+      type: 'discovery',
+      source: 'agent',
+      actor: null,
+      severity: 'low',
+      summary: 'found-index-gap',
+      topicKey: null,
+      sessionId: 'sess-a',
+      relatedIds: [],
+    })
+
+    const log = screen.getByRole('log', { name: 'Tool calls' })
+    await waitFor(() => expect(within(log).getByText('found-index-gap')).toBeTruthy())
+    await waitFor(() => expect(within(row).getByText(/3 mem/)).toBeTruthy())
+  })
+
+  it('shows offline when the activity stream errors', async () => {
+    render(<SessionsPage />)
+    await screen.findByRole('button', { name: /Session A/ })
+    streamCallbacks?.onReady?.()
+    await waitFor(() => expect(screen.getAllByText(/● live/).length).toBeGreaterThan(0))
+    streamCallbacks?.onError?.(new Error('activity stream error'))
+    await waitFor(() => {
+      expect(screen.getAllByText(/○ offline/).length).toBeGreaterThan(0)
+    })
+  })
 })

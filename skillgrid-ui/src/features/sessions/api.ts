@@ -113,6 +113,15 @@ export interface ActivityStats {
   activeSessions: number
 }
 
+export type ObservationRow = {
+  id: number
+  type: string
+  title: string
+  created_at: string
+  tokens?: number
+  pinned?: boolean
+}
+
 export interface MnemonicSession {
   id: string
   title: string
@@ -120,6 +129,7 @@ export interface MnemonicSession {
   ended_at?: string
   status: string
   memory_count: number
+  observations?: number
   has_summary: boolean
   // Harness observability (Gryph-style). Older servers omit these.
   agent?: string
@@ -272,11 +282,12 @@ export async function fetchSessionEvents(
   id: string,
   filter: ToolFilter = {},
   limit = 300,
-): Promise<{ events: ToolEvent[] }> {
+): Promise<{ events: ToolEvent[]; observations?: ObservationRow[] }> {
   const project = await resolveProject()
-  return get(
+  const r = await get<{ events: ToolEvent[]; observations?: ObservationRow[] }>(
     `/sessions/${encodeURIComponent(id)}/events?${qs(project, { ...filterParams(filter), limit })}`,
   )
+  return { ...r, observations: r.observations ?? [] }
 }
 
 // Project-wide tool query: GET /events.

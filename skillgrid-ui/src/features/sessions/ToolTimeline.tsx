@@ -4,6 +4,7 @@ import {
   fetchSessionEvents,
   matchesFilter,
   SessionsError,
+  type ObservationRow,
   type ToolEvent,
   type ToolFilter,
 } from './api'
@@ -42,6 +43,23 @@ function clock(ts: string): string {
   return Number.isNaN(d.getTime()) ? ts : d.toLocaleTimeString([], { hour12: false })
 }
 
+type TimelineItem =
+  | { kind: 'tool'; key: string; ts: string; tool: ToolEvent }
+  | { kind: 'observation'; key: string; ts: string; row: ObservationRow }
+
+function mergeTimeline(tools: ToolEvent[], observations: ObservationRow[]): TimelineItem[] {
+  const items: TimelineItem[] = [
+    ...tools.map((t) => ({ kind: 'tool' as const, key: `tool-${t.id}`, ts: t.ts, tool: t })),
+    ...observations.map((o) => ({
+      kind: 'observation' as const,
+      key: `obs-${o.id}`,
+      ts: o.created_at,
+      row: o,
+    })),
+  ]
+  return items.sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 500)
+}
+
 // ToolTimeline — the live tool-call stream for one session (sessionId) or the
 // whole project (no sessionId). The page owns the single SSE connection and
 // hands live frames in through registerTool; frames are filtered client-side
@@ -51,26 +69,39 @@ export function ToolTimeline({
   agents,
   live,
   registerTool,
+  registerObservation,
 }: {
   sessionId?: string | null
   agents: string[]
   live: boolean
   registerTool: (h: ((e: ToolEvent) => void) | null) => void
+  registerObservation: (h: ((o: ObservationRow) => void) | null) => void
 }) {
   const [filter, setFilter] = useState<ToolFilter>({})
   const [events, setEvents] = useState<ToolEvent[]>([])
+  const [observations, setObservations] = useState<ObservationRow[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+
+  const timeline = mergeTimeline(events, sessionId ? observations : [])
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError('')
     const t = setTimeout(() => {
-      const load = sessionId ? fetchSessionEvents(sessionId, filter) : fetchEvents(filter)
+      const load = sessionId
+        ? fetchSessionEvents(sessionId, filter).then((r) => ({
+            events: r.events ?? [],
+            observations: r.observations ?? [],
+          }))
+        : fetchEvents(filter).then((r) => ({ events: r.events ?? [], observations: [] as ObservationRow[] }))
       load
         .then((r) => {
-          if (!cancelled) setEvents(r.events ?? [])
+          if (!cancelled) {
+            setEvents(r.events)
+            setObservations(r.observations)
+          }
         })
         .catch((e) => {
           if (!cancelled) setError(e instanceof SessionsError ? e.message : 'failed to load tool calls')
@@ -97,6 +128,17 @@ export function ToolTimeline({
     return () => registerTool(null)
   }, [registerTool])
 
+  const onObservationRef = useRef<(o: ObservationRow) => void>(() => {})
+  onObservationRef.current = (o) => {
+    if (!sessionId) return
+    if (filter.since) return
+    setObservations((prev) => (prev.some((p) => p.id === o.id) ? prev : [o, ...prev].slice(0, 500)))
+  }
+  useEffect(() => {
+    registerObservation((o) => onObservationRef.current(o))
+    return () => registerObservation(null)
+  }, [registerObservation])
+
   return (
     <div className="flex h-full flex-col font-mono">
       <div className="flex flex-wrap items-center gap-2 border-b border-edge-soft px-4 py-2">
@@ -104,14 +146,14 @@ export function ToolTimeline({
           {live ? '● live' : '○ offline'}
         </span>
         <span className="text-[12px] text-ink-5">
-          {sessionId ? 'session tool calls' : 'all agents, all sessions'} · {events.length}
+          {sessionId ? 'session tool calls' : 'all agents, all sessions'} · {timeline.length}
         </span>
         <ToolFilterBar value={filter} onChange={setFilter} agents={agents} showAgent={!sessionId} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-2" role="log" aria-live="polite" aria-label="Tool calls">
         {error ? (
           <div className="rounded border border-danger-ink bg-danger/10 p-3 text-[12px] text-danger">{error}</div>
-        ) : events.length === 0 ? (
+        ) : timeline.length === 0 ? (
           <div className="p-8 text-center text-[12px] text-ink-5">
             {loading
               ? 'Loading…'
@@ -119,15 +161,38 @@ export function ToolTimeline({
           </div>
         ) : (
           <ul className="divide-y divide-edge-soft">
-            {events.map((e) => (
-              <ToolRow key={e.id} e={e} showAgent={!sessionId} />
-            ))}
+            {timeline.map((item) =>
+              item.kind === 'tool' ? (
+                <ToolRow key={item.key} e={item.tool} showAgent={!sessionId} />
+              ) : (
+                <ObservationRowView key={item.key} row={item.row} />
+              ),
+            )}
           </ul>
         )}
       </div>
     </div>
   )
 }
+
+const ObservationRowView = memo(function ObservationRowView({ row }: { row: ObservationRow }) {
+  return (
+    <li className="animate-stream-in">
+      <a
+        href={`/mnemonic/memories?id=${row.id}`}
+        className="flex w-full items-center gap-2 py-1.5 text-left text-[12px] hover:bg-card"
+        data-testid="observation-row"
+      >
+        <span className="w-16 shrink-0 tabular-nums text-ink-6">{clock(row.created_at)}</span>
+        <span className="w-4 shrink-0 text-center text-accent-light" title="observation">
+          ◆
+        </span>
+        <span className="shrink-0 rounded bg-edge/60 px-1.5 text-[10px] uppercase text-ink-4">{row.type}</span>
+        <span className="min-w-0 flex-1 truncate font-medium text-ink-2">{row.title}</span>
+      </a>
+    </li>
+  )
+})
 
 const ToolRow = memo(function ToolRow({ e, showAgent }: { e: ToolEvent; showAgent: boolean }) {
   const [open, setOpen] = useState(false)

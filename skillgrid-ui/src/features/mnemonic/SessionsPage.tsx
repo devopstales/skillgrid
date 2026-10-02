@@ -9,6 +9,7 @@ import {
   type AuditEntry,
   type MnemonicSession,
   type SessionSummary,
+  type ObservationRow,
   type ToolEvent,
 } from '../sessions/api'
 import { ActivityPane } from '../sessions/ActivityPane'
@@ -22,6 +23,10 @@ const TAB_LABEL: Record<Tab, string> = { tools: 'tool calls', memory: 'memory', 
 
 // A session is "live" when its last recorded action is this recent.
 const LIVE_WINDOW_MS = 2 * 60 * 1000
+
+function observationCount(s: MnemonicSession): number {
+  return s.observations ?? s.memory_count ?? 0
+}
 
 // SessionsPage — the single "what happened" home. Left: every session, tagged
 // with the harness that owns it (cursor, opencode, kilo) and its last tool.
@@ -77,6 +82,12 @@ export function SessionsPage() {
   const registerTool = useCallback((h: ((e: ToolEvent) => void) | null) => {
     toolHandlerRef.current = h
   }, [])
+  const observationHandlerRef = useRef<((o: ObservationRow) => void) | null>(null)
+  const registerObservation = useCallback((h: ((o: ObservationRow) => void) | null) => {
+    observationHandlerRef.current = h
+  }, [])
+  const selectedIdRef = useRef<string | null>(selectedId)
+  selectedIdRef.current = selectedId
 
   const selected = sessions.find((s) => s.id === selectedId) ?? null
   const agents = useMemo(
@@ -130,10 +141,33 @@ export function SessionsPage() {
     setNow(Date.now())
   }
 
+  const onActivityForList = useRef<(e: ActivityEvent) => void>(() => {})
+  onActivityForList.current = (e) => {
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === e.sessionId
+          ? { ...s, observations: observationCount(s) + 1 }
+          : s,
+      ),
+    )
+  }
+
   useEffect(() => {
     const close = openActivityStream({
       onReady: () => setLive(true),
-      onActivity: (e) => activityHandlerRef.current?.(e),
+      onActivity: (e) => {
+        activityHandlerRef.current?.(e)
+        onActivityForList.current(e)
+        const sel = selectedIdRef.current
+        if (!sel || e.sessionId === sel) {
+          observationHandlerRef.current?.({
+            id: e.id,
+            type: e.type,
+            title: e.summary,
+            created_at: e.ts,
+          })
+        }
+      },
       onTool: (e) => {
         onToolForList.current(e)
         toolHandlerRef.current?.(e)
@@ -232,7 +266,13 @@ export function SessionsPage() {
           )}
           <div className="min-h-0 flex-1">
             {tab === 'tools' && (
-              <ToolTimeline sessionId={selectedId} agents={agents} live={live} registerTool={registerTool} />
+              <ToolTimeline
+                sessionId={selectedId}
+                agents={agents}
+                live={live}
+                registerTool={registerTool}
+                registerObservation={registerObservation}
+              />
             )}
             {tab === 'memory' && (
               <ActivityPane sessionId={selectedId} live={live} registerActivity={registerActivity} />
@@ -284,7 +324,7 @@ function SessionHeader({
             {session.policy_decisions} policy
           </span>
         )}
-        <span>{session.memory_count} memories</span>
+        <span>{observationCount(session)} memories</span>
         <span title={session.model || undefined}>
           {formatTokens(tokens)} tokens · {formatCost(session.cost_usd)}
         </span>
@@ -328,7 +368,7 @@ function SessionRow({
             <span>{(s.last_active || s.started_at).slice(5, 16).replace('T', ' ')}</span>
             {s.last_tool && <span className="truncate text-accent-light">{s.last_tool}</span>}
             <span className="rounded bg-edge/60 px-1 text-[10px] text-ink-4">{s.tool_calls ?? 0} calls</span>
-            <span className="rounded bg-edge/60 px-1 text-[10px] text-ink-4">{s.memory_count} mem</span>
+            <span className="rounded bg-edge/60 px-1 text-[10px] text-ink-4">{observationCount(s)} mem</span>
             {(s.errors ?? 0) > 0 && <span className="text-danger">{s.errors} err</span>}
             {s.cost_usd != null && <span>{formatCost(s.cost_usd)}</span>}
           </div>
