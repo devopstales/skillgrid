@@ -284,3 +284,33 @@ func TestInitIndexFailureIsNonFatal(t *testing.T) {
 		t.Fatalf("Errors = %q, want index failed", joined)
 	}
 }
+
+func TestOnboardingSkillCallsSkillgridInit(t *testing.T) {
+	body, err := os.ReadFile(onboardingSkillPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte("skillgrid init")) {
+		t.Fatal("onboarding must name skillgrid init")
+	}
+}
+
+func TestOnboardingSkillHasNoSecondIngest(t *testing.T) {
+	body, err := os.ReadFile(onboardingSkillPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(body, []byte("walk docs/ and mem_save each file")) {
+		t.Fatal("skill must not re-specify ingest")
+	}
+}
+
+func onboardingSkillPath(t *testing.T) string {
+	t.Helper()
+	// repo root: this file is skillgrid-cli/cmd/skillgrid
+	p := filepath.Join("..", "..", "..", ".agents", "skills", "lifecycle", "onboarding", "SKILL.md")
+	if _, err := os.Stat(p); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}

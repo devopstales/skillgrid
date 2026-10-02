@@ -230,6 +230,12 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - `git add .skillgrid/config.yaml` + `.skillgrid/state.yaml` + the `.skillgrid/artifacts/` files + the AGENTS.md file
 - `git commit -m "chore: add Skillgrid config + state + artifacts"`
 
+**9. Project init (deterministic finish):**
+- Run `skillgrid init` from the project root (add `--force` only if the user asked to rebuild the preamble).
+- If the user named extra documentation paths, pass each as `--docs <path>`.
+- Do not walk files or call `mem_save` for docs here — the CLI owns ingest and the code index.
+- If `skillgrid` is not on PATH, tell the user to install the CLI and re-run `skillgrid init`; continue the rest of onboarding.
+
 ### Step 4: Verify
 
 Show the user:
