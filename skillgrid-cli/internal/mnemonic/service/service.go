@@ -435,6 +435,17 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 		DecayRate: impr.DecayRate,
 		Cooldown:  impr.Cooldown,
 	})
+	// Reinforcement decay (ADR-0018): route the mnemonic.decay config key to
+	// the memory service. Absent section is enabled with a 30-day half-life;
+	// an explicit enabled: false stays off (SetDecay preserves Enabled).
+	// Non-positive half-life and immunity floors fall back inside SetDecay.
+	dec := cfg.Decay
+	mem.SetDecay(memory.DecayConfig{
+		Enabled:               dec.Enabled,
+		HalfLifeDays:          dec.HalfLifeDays,
+		ImmunityMinImportance: dec.ImmunityMinImportance,
+		ImmunityMinAccess:     dec.ImmunityMinAccess,
+	})
 	// Session-to-graph promotion threshold (014 step 09): route the
 	// mnemonic.promotion config key to the memory service. The promotion
 	// itself is always on when a summary meets the threshold; the config

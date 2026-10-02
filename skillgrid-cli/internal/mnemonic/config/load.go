@@ -89,6 +89,27 @@ type Improvement struct {
 	Cooldown  time.Duration
 }
 
+// Decay is the mnemonic.decay section (ADR-0018): query-time reinforcement
+// decay on mem_search. Enabled defaults to true when the section is absent.
+// Zero half-life and immunity floors fall back to a 30-day half-life,
+// importance 4, and 3 accesses.
+type Decay struct {
+	Enabled               bool
+	HalfLifeDays          float64
+	ImmunityMinImportance float64
+	ImmunityMinAccess     int
+}
+
+// DefaultDecay is the production default: decay on, 30-day half-life.
+func DefaultDecay() Decay {
+	return Decay{
+		Enabled:               true,
+		HalfLifeDays:          30,
+		ImmunityMinImportance: 4,
+		ImmunityMinAccess:     3,
+	}
+}
+
 // Promotion is the mnemonic.promotion section (014 step 09): the quality
 // threshold for the session-close graph promotion. Zero fields fall back to
 // the memory package defaults (MinLength 100 runes, MinSections 1 heading).
@@ -178,6 +199,10 @@ type Indexing struct {
 	// Improvement is the mnemonic.improve section (014 step 08): the
 	// self-improvement feedback loop. OPT-IN (Enabled defaults to false).
 	Improvement Improvement
+	// Decay is the mnemonic.decay section (ADR-0018): query-time reinforcement
+	// decay. ON by default (Enabled true, 30-day half-life) when the section
+	// is absent; an explicit enabled: false opts out.
+	Decay Decay
 	// Promotion is the mnemonic.promotion section (014 step 09): the
 	// session-close graph promotion quality threshold.
 	Promotion Promotion
@@ -238,6 +263,10 @@ type mnemonicSection struct {
 	// Improvement is the mnemonic.improve section (014 step 08): the
 	// self-improvement feedback loop opt-in + tunable rates.
 	Improvement improvementSection `yaml:"improve"`
+	// Decay is the mnemonic.decay section (ADR-0018): query-time reinforcement
+	// decay. Enabled is a pointer so an absent key stays the default true
+	// while an explicit false opts out.
+	Decay decaySection `yaml:"decay"`
 	// Promotion is the mnemonic.promotion section (014 step 09): the
 	// session-close graph promotion quality threshold.
 	Promotion promotionSection `yaml:"promotion"`
@@ -295,6 +324,16 @@ type improvementSection struct {
 	BoostRate string `yaml:"boost_rate"`
 	DecayRate string `yaml:"decay_rate"`
 	Cooldown  string `yaml:"cooldown"` // Go duration string, e.g. "60s"
+}
+
+// decaySection is the mnemonic.decay section (ADR-0018). Enabled is a pointer
+// so an absent key (nil) keeps the default true, while an explicit false opts
+// out. Non-positive half-life and immunity floors keep DefaultDecay.
+type decaySection struct {
+	Enabled               *bool   `yaml:"enabled"`
+	HalfLifeDays          float64 `yaml:"half_life_days"`
+	ImmunityMinImportance float64 `yaml:"immunity_min_importance"`
+	ImmunityMinAccess     int     `yaml:"immunity_min_access"`
 }
 
 type embedderSection struct {
@@ -365,6 +404,7 @@ func DefaultIndexing() Indexing {
 		Embedder:     DefaultEmbedder(),
 		TTL:          DefaultMemoryTTL,
 		Federated:    DefaultFederated(),
+		Decay:        DefaultDecay(),
 	}
 }
 
@@ -482,6 +522,10 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	// Enabled defaults to false (absent → byte-identical search). Zero rate
 	// fields fall back to the memory package defaults in SetImprove.
 	out.Improvement = mergeImprovement(section.Improvement)
+	// Decay (ADR-0018): query-time reinforcement decay. ON when the section is
+	// absent (Enabled true, 30-day half-life). An explicit enabled: false stays
+	// false. Non-positive knobs keep DefaultDecay.
+	out.Decay = mergeDecay(section.Decay)
 	// Promotion (014 step 09): the session-close graph promotion threshold.
 	// Zero fields fall back to the memory package defaults in SetPromotion.
 	out.Promotion = mergePromotion(section.Promotion)
@@ -584,6 +628,27 @@ func mergeImprovement(section improvementSection) Improvement {
 		if d, err := time.ParseDuration(section.Cooldown); err == nil && d > 0 {
 			out.Cooldown = d
 		}
+	}
+	return out
+}
+
+// mergeDecay maps the mnemonic.decay YAML section to the Decay struct.
+// Enabled defaults to true when the key is absent (nil pointer); an explicit
+// false opts out and is stored as given. Non-positive half-life and immunity
+// floors keep DefaultDecay so a blank key never disables the ranker knobs.
+func mergeDecay(section decaySection) Decay {
+	out := DefaultDecay()
+	if section.Enabled != nil {
+		out.Enabled = *section.Enabled
+	}
+	if section.HalfLifeDays > 0 {
+		out.HalfLifeDays = section.HalfLifeDays
+	}
+	if section.ImmunityMinImportance > 0 {
+		out.ImmunityMinImportance = section.ImmunityMinImportance
+	}
+	if section.ImmunityMinAccess > 0 {
+		out.ImmunityMinAccess = section.ImmunityMinAccess
 	}
 	return out
 }

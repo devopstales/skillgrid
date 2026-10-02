@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestOwnerScopedBlendKeywordFloor(t *testing.T) {
@@ -95,5 +96,68 @@ func TestOwnerScopedBlendHybrid(t *testing.T) {
 	}
 	if via[semID] != "vector" {
 		t.Fatalf("semantic hit matched_via = %q, want vector", via[semID])
+	}
+}
+
+// TestDecayDisabledKeepsBM25 is TICKET-03: with decay explicitly off, blend
+// order matches SearchOwnerScoped (BM25) on an equivalent pair. The hot row
+// would outrank the cold row if decay ran; it must not.
+func TestDecayDisabledKeepsBM25(t *testing.T) {
+	t.Setenv("MNEMONIC_EMBED", "")
+	ctx := context.Background()
+	seen := time.Now().UTC().Add(-40 * 24 * time.Hour).Format(time.RFC3339)
+
+	seed := func(t *testing.T, project string) (fx *ownerFixture, coldID, hotID int64) {
+		t.Helper()
+		fx = newOwnerFixture(t, project)
+		var err error
+		coldID, err = fx.svc.Save(ctx, SaveInput{
+			SessionID: fx.sessionID, Type: "decision",
+			Title: "banana banana banana", Content: "banana banana banana", Owner: fx.ownerA,
+		})
+		if err != nil {
+			t.Fatalf("save cold: %v", err)
+		}
+		hotID, err = fx.svc.Save(ctx, SaveInput{
+			SessionID: fx.sessionID, Type: "decision",
+			Title: "banana", Content: "banana", Owner: fx.ownerA,
+		})
+		if err != nil {
+			t.Fatalf("save hot: %v", err)
+		}
+		if _, err := fx.svc.DB().Exec(`UPDATE observations SET retrieval_usage = 0, last_seen_at = ? WHERE id = ?`, seen, coldID); err != nil {
+			t.Fatalf("stamp cold: %v", err)
+		}
+		if _, err := fx.svc.DB().Exec(`UPDATE observations SET retrieval_usage = 20, last_seen_at = ? WHERE id = ?`, seen, hotID); err != nil {
+			t.Fatalf("stamp hot: %v", err)
+		}
+		return fx, coldID, hotID
+	}
+
+	plain, _, _ := seed(t, "decay-off-bm25")
+	raw, err := plain.svc.SearchOwnerScoped(ctx, plain.ownerA, "", "banana", "any", "", 10)
+	if err != nil {
+		t.Fatalf("bm25: %v", err)
+	}
+	if len(raw) != 2 {
+		t.Fatalf("bm25 hits = %d, want 2", len(raw))
+	}
+
+	fx, coldID, hotID := seed(t, "decay-off-blend")
+	fx.svc.SetDecay(DecayConfig{Enabled: false})
+	hits, err := fx.svc.SearchOwnerScopedBlend(ctx, fx.ownerA, "", "banana", "any", "", 10, Vector{})
+	if err != nil {
+		t.Fatalf("blend: %v", err)
+	}
+	if len(hits) != len(raw) {
+		t.Fatalf("blend hits = %d, bm25 hits = %d", len(hits), len(raw))
+	}
+	for i := range raw {
+		if hits[i].Observation.Title != raw[i].Title {
+			t.Fatalf("decay reordered hit %d: blend %q, bm25 %q", i, hits[i].Observation.Title, raw[i].Title)
+		}
+	}
+	if hits[0].Observation.ID != coldID {
+		t.Fatalf("first hit = %d, want cold %d (hot %d must stay second)", hits[0].Observation.ID, coldID, hotID)
 	}
 }

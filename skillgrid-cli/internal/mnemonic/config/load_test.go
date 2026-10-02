@@ -115,6 +115,66 @@ func TestImprovementConfigDefaultOff(t *testing.T) {
 	}
 }
 
+// TestLoadDecayConfig is TICKET-03: mnemonic.decay is on by default. An absent
+// section yields Enabled true and a 30-day half-life; an explicit enabled
+// false stays false.
+func TestLoadDecayConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	// No config file at all → defaults: decay on, 30-day half-life.
+	got := Load(dir)
+	if !got.Decay.Enabled {
+		t.Fatalf("default: decay.enabled must be true, got false")
+	}
+	if got.Decay.HalfLifeDays != 30 {
+		t.Fatalf("default: decay.half_life_days = %v, want 30", got.Decay.HalfLifeDays)
+	}
+	if got.Decay.ImmunityMinImportance != 4 || got.Decay.ImmunityMinAccess != 3 {
+		t.Fatalf("default: immunity = %v/%d, want 4/3", got.Decay.ImmunityMinImportance, got.Decay.ImmunityMinAccess)
+	}
+
+	// A config without the decay section → still the defaults.
+	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if !got.Decay.Enabled {
+		t.Fatalf("absent section: decay.enabled must be true, got false")
+	}
+	if got.Decay.HalfLifeDays != 30 {
+		t.Fatalf("absent section: decay.half_life_days = %v, want 30", got.Decay.HalfLifeDays)
+	}
+
+	// Explicit opt-out stays off.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  decay:\n    enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(dir); got.Decay.Enabled {
+		t.Fatalf("decay.enabled: false must stay false")
+	}
+
+	// Explicit knobs parse through.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  decay:\n    enabled: true\n    half_life_days: 14\n    immunity_min_importance: 5\n    immunity_min_access: 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if !got.Decay.Enabled {
+		t.Fatalf("decay.enabled: true must stay on")
+	}
+	if got.Decay.HalfLifeDays != 14 {
+		t.Fatalf("decay.half_life_days = %v, want 14", got.Decay.HalfLifeDays)
+	}
+	if got.Decay.ImmunityMinImportance != 5 || got.Decay.ImmunityMinAccess != 2 {
+		t.Fatalf("decay immunity = %v/%d, want 5/2", got.Decay.ImmunityMinImportance, got.Decay.ImmunityMinAccess)
+	}
+}
+
 // TestImportanceConfigurableDecay covers 014 step 13.4 (config side): the
 // mnemonic.importance.decay key defaults to 0.05/day, parses from the YAML
 // section, falls back to the default on a malformed value, and the
