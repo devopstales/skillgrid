@@ -22,7 +22,7 @@ Max 5 Minor findings listed per axis. The rest are counted.
 
 - **Worst issue (within this axis):** failed reads render as empty data (graph index status, web-cache search, settings YAML), and a failed project resolve is cached as the literal `project`.
 - **Findings:** 0 Critical / 3 Important / 5 Minor listed (2 further Minor collapsed)
-- **Verdict:** met-with-fixes
+- **Verdict:** met
 
 ### Spec
 
@@ -66,9 +66,9 @@ Max 5 Minor findings listed per axis. The rest are counted.
 
 | Finding | Bucket | Ruling |
 |---------|--------|--------|
-| Swallowed reads (graph status, web search, settings YAML) | Fix now | Confirmed in the working tree. Empty copy is not Per-Widget Error Isolation. |
-| Cached failed project name | Fix now | `currentProjectName` falls through to `'project'` and `resolveProject` stores it. |
-| Observe `Promise.all` blanks the page | Fix now | One rejection replaces both widgets. |
+| Swallowed reads (graph status, web search, settings YAML) | Fixed | `d883fcf6`. Each widget renders `ErrorState`. Tests: `GraphPage.test.tsx`, `WebCachePage.test.tsx`, `SettingsPage.test.tsx`. |
+| Cached failed project name | Fixed | `d883fcf6`. `resolveProject` caches only a name `/project/current` returned. `api.test.ts` expects two fetches after a 503. |
+| Observe `Promise.all` blanks the page | Fixed | `d883fcf6`. Telemetry and Compaction fetch each widget alone. Tests keep the healthy widget when the other rejects. |
 | Spec: mux + L2 floor fail inside the three commits | Noise | The review was limited to `aa0aa791`, `ffd83337`, `d35d28d3`. `0bc899a6` registers `GET /prototypes` and `GET /security/trivy`. Acceptance G7, G10, G11 are PASS at `f5085493`. |
 | Spec: RED→GREEN missing on the as-built rewrite | Noise | `tasks.md` records the as-built exemption: those scenarios were already green at `aa0aa791`, which predates the spec because the user said execute on landed code. The briefing-link fix (`ffd83337`) has a real RED (87/88). |
 | Spec scope extras (`?file=`, markdown on task/memory, `/code/status`, about copy) | Defer | They do not fail a scenario. Reverting them is a separate change. Logged here; not a standards breach. |
@@ -85,12 +85,12 @@ Max 5 Minor findings listed per axis. The rest are counted.
 
 ## Verdict
 
-- **Standards:** met-with-fixes
+- **Standards:** met (fixes in `d883fcf6`)
 - **Spec:** met (after triage; the in-range misses are closed on the integrated tree)
 - **Security:** secure
-- **Floor (decides):** met-with-fixes
-- **Worst issue (across all three axes):** failed reads render as empty data
-- **Unfixed Important count (must be 0 to proceed):** 3 (the standards rows above; fix loop owns them)
+- **Floor (decides):** met
+- **Worst issue (across all three axes):** none unfixed. The standards Important rows were fixed in `d883fcf6`.
+- **Unfixed Important count (must be 0 to proceed):** 0
 
 ## Security report (verbatim summary)
 
