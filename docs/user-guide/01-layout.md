@@ -10,7 +10,8 @@ skillgrid/
 │   └── skills/        # 28 skills (SKILL.md + references/ + templates/ + scripts/)
 ├── hooks/             # 9 hook scripts (bash) — the enforcement logic
 ├── git-hooks/         # 4 thin shims (2 git hooks + 2 agent Stop hooks)
-├── plugins/           # agent capture-bridge plugins (opencode, kilo, cursor)
+├── agents/            # per-harness personas (cursor, opencode)
+├── plugins/           # agent capture-bridge plugins (opencode, kilo); cursor mcp.json
 ├── docs/
 │   ├── user-guide/    # this guide
 │   ├── plans/         # planning notes (workflow plan, companion)
@@ -56,6 +57,12 @@ Harness adapters (opencode, kilo) plus shared memory protocol. Cursor’s plugin
 surface lives at the **repo root** (`.cursor-plugin/`, `rules/mnemonic.mdc`,
 `hooks/hooks-cursor.json`) — add-from-folder selects the skillgrid checkout.
 OpenCode/Kilo adapters install from the staged copy at `~/.skillgrid/plugins/`.
+
+## `agents/`
+
+Dispatch-role personas, one markdown file per role (`implementer`, `reviewer`, `researcher`, `verifier`, `debugger`). `agents/cursor/` and `agents/opencode/` share the role and point at the existing skill prompts; the frontmatter is harness-specific.
+
+`skillgrid install` flattens the selected harness's files into `~/.cursor/agents/` or `~/.config/opencode/agents/`. The Cursor plugin also ships `agents/cursor/` and the skill catalog at `.agents/skills/**/SKILL.md` (see `.cursor-plugin/plugin.json`). `plugins/cursor/mcp.json` is that plugin's mnemonic MCP server (`skillgrid mcp`); other MCP servers stay on `skillgrid setup cursor`.
 
 ## Project config
 

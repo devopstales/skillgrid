@@ -1,17 +1,18 @@
 {
   "name": "skillgrid-cursor",
   "owner": {
-    "name": "skillgrid"
+    "name": "devopstales",
+    "email": "devopstales2@gmail.com"
   },
   "metadata": {
-    "description": "Skillgrid Cursor plugins (Mnemonic companion)",
+    "description": "Skillgrid Cursor plugins (Mnemonic companion: rules, hooks, skills, subagents, mnemonic MCP)",
     "version": "0.1.0"
   },
   "plugins": [
     {
       "name": "skillgrid-mnemonic",
       "source": "./",
-      "description": "Mnemonic companion — memory protocol rule and session/tool hooks"
+      "description": "Mnemonic companion — memory protocol rule, session/tool hooks, the skill catalog, dispatch-role subagents, and the mnemonic MCP server"
     }
   ]
 }
