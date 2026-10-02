@@ -75,11 +75,21 @@ Specialists: Standards, Spec, Edge cases, Verification gaps, Security, Performan
 | Security | B | Fresh subagent, Claude, no session history. Same toolchain. |
 | Edge, verification, performance, red team | B | Fresh subagents (Claude, Gemini, GPT). Same toolchain. |
 
+## Re-review
+
+Scoped re-review of `17e42788..3e1390db` ([re-review](6600c29d-ff2c-4ba4-8b19-91330fbc536c)), Grade B. All six findings ADDRESSED. No new Critical or Important breakage. The new vector-leg, decay-blend, compact-session, config-layering, and all-projects signal tests were run and passed.
+
+Parked, not a second fix wave:
+
+- The keyword leg still does not filter `expires_at`, and the new comment at `search_blend.go` says that leg already does. Pre-existing gap; the comment overclaims.
+- Session-scoped `CompactionContext` also changes the HTTP compaction endpoint, which already described itself as session-scoped.
+- Other config sections still replace a home layer when the repo file omits them. The decay fix was scoped to `mnemonic.decay`.
+
 ## Verdict
 
 - **Standards:** met-with-fixes
 - **Spec:** met-with-fixes
 - **Security:** secure-with-fixes
-- **Floor (decides):** not met until the vector-leg filter and the continuity-note session limit land
-- **Worst issue:** superseded observations resurface on the vector leg of `mem_search`
-- **Unfixed Important count:** 6
+- **Floor (decides):** met
+- **Worst issue:** none open
+- **Unfixed Important count:** 0
