@@ -37,21 +37,19 @@ interface CodeStatus {
 export function GraphPage() {
   const [graph, setGraph] = useState<GraphResponse | null>(null)
   const [codeStatus, setCodeStatus] = useState<CodeStatus | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<SimNode | null>(null)
   const [zoom, setZoom] = useState(1)
   const graphRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    Promise.all([
-      fetchGraph({ limit: 500 }),
-      apiGet<CodeStatus>('/code/status').catch(() => null),
-    ])
-      .then(([g, c]) => {
-        setGraph(g)
-        setCodeStatus(c)
-      })
+    fetchGraph({ limit: 500 })
+      .then(setGraph)
       .catch((err: Error) => setError(err.message))
+    apiGet<CodeStatus>('/code/status')
+      .then(setCodeStatus)
+      .catch((err: Error) => setStatusError(err.message))
   }, [])
 
   const adjacency = useMemo(() => {
@@ -337,7 +335,9 @@ export function GraphPage() {
           </div>
           <div>
             <SectionTitle>Index Status</SectionTitle>
-            {codeStatus ? (
+            {statusError ? (
+              <ErrorState error={statusError} />
+            ) : codeStatus ? (
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between">
                   <span className="text-ink-4">Status</span>

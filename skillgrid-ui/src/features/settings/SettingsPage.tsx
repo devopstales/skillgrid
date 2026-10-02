@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { apiGet } from '../../lib/api'
-import { LoadingState, PageHeader, SectionTitle } from '../../components/ui/Badges'
+import { ErrorState, LoadingState, PageHeader, SectionTitle } from '../../components/ui/Badges'
 
 const TOKEN_KEY = 'skillgrid.httpToken'
 
@@ -42,6 +42,8 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [config, setConfig] = useState<string | null>(null)
   const [state, setState] = useState<string | null>(null)
+  const [configError, setConfigError] = useState<string | null>(null)
+  const [stateError, setStateError] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -53,23 +55,19 @@ export function SettingsPage() {
   }, [])
 
   useEffect(() => {
+    const load = (
+      path: string,
+      setBody: (body: string) => void,
+      setErr: (msg: string) => void,
+    ) =>
+      apiGet<{ body?: string; content?: string }>('/docs/content', { path }, { project: false })
+        .then((doc) => setBody(doc.body || doc.content || ''))
+        .catch((err: Error) => setErr(err.message))
+
     Promise.all([
-      apiGet<{ body?: string; content?: string }>(
-        '/docs/content',
-        { path: '.skillgrid/config.yaml' },
-        { project: false },
-      ).catch((): { body: string; content?: string } => ({ body: '' })),
-      apiGet<{ body?: string; content?: string }>(
-        '/docs/content',
-        { path: '.skillgrid/state.yaml' },
-        { project: false },
-      ).catch((): { body: string; content?: string } => ({ body: '' })),
-    ])
-      .then(([c, s]) => {
-        setConfig(c.body || c.content || '')
-        setState(s.body || s.content || '')
-      })
-      .finally(() => setLoaded(true))
+      load('.skillgrid/config.yaml', setConfig, setConfigError),
+      load('.skillgrid/state.yaml', setState, setStateError),
+    ]).finally(() => setLoaded(true))
   }, [])
 
   function save() {
@@ -176,6 +174,13 @@ export function SettingsPage() {
       ) : (
         <div className="kpi-card">
           <SectionTitle>Project</SectionTitle>
+          {(configError || stateError) && (
+            <ErrorState
+              error={[configError && `config.yaml: ${configError}`, stateError && `state.yaml: ${stateError}`]
+                .filter(Boolean)
+                .join('; ')}
+            />
+          )}
           {config || state ? (
             <div className="grid grid-cols-1 gap-x-8 gap-y-2 md:grid-cols-2">
               {rows.map((r) => (

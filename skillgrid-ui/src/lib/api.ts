@@ -1,6 +1,4 @@
 // Shared JSON fetch for dashboard panels. Injects `project` on every call.
-import { currentProjectName } from './projects'
-
 export class ApiError extends Error {
   status: number
   constructor(message: string, status: number) {
@@ -13,7 +11,13 @@ let cachedProject: string | null = null
 
 export async function resolveProject(): Promise<string> {
   if (cachedProject) return cachedProject
-  cachedProject = await currentProjectName()
+  const res = await fetch('/project/current', { headers: { Accept: 'application/json' } })
+  if (!res.ok) throw new ApiError(res.statusText || 'project resolve failed', res.status)
+  const data = (await res.json()) as { project?: unknown }
+  if (typeof data.project !== 'string' || !data.project) {
+    throw new ApiError('project missing', res.status)
+  }
+  cachedProject = data.project
   return cachedProject
 }
 

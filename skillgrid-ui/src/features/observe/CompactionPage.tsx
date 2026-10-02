@@ -29,28 +29,19 @@ interface ContextResponse {
 export function CompactionPage() {
   const [compaction, setCompaction] = useState<CompactionResponse | null>(null)
   const [context, setContext] = useState<ContextResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [compactionError, setCompactionError] = useState<string | null>(null)
+  const [contextError, setContextError] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([
-      apiGet<CompactionResponse>('/context/compaction'),
-      apiGet<ContextResponse>('/context'),
-    ])
-      .then(([c, ctx]) => {
-        setCompaction(c)
-        setContext(ctx)
-      })
-      .catch((err: Error) => setError(err.message))
+    apiGet<CompactionResponse>('/context/compaction')
+      .then(setCompaction)
+      .catch((err: Error) => setCompactionError(err.message))
+    apiGet<ContextResponse>('/context')
+      .then(setContext)
+      .catch((err: Error) => setContextError(err.message))
   }, [])
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <ErrorState error={error} />
-      </div>
-    )
-  }
-  if (!compaction && !context) {
+  if (!compaction && !context && !compactionError && !contextError) {
     return (
       <div className="p-6">
         <LoadingState />
@@ -64,7 +55,9 @@ export function CompactionPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="kpi-card">
           <SectionTitle>Compaction Status</SectionTitle>
-          {compaction?.blocks && compaction.blocks.length > 0 ? (
+          {compactionError ? (
+            <ErrorState error={compactionError} />
+          ) : compaction?.blocks && compaction.blocks.length > 0 ? (
             <div className="space-y-3">
               {compaction.blocks.map((b, i) => (
                 <div key={i} className="rounded border border-edge p-3">
@@ -91,7 +84,9 @@ export function CompactionPage() {
         </div>
         <div className="kpi-card">
           <SectionTitle>Context</SectionTitle>
-          {context ? (
+          {contextError ? (
+            <ErrorState error={contextError} />
+          ) : context ? (
             <div className="space-y-2 text-sm">
               {context.session_id && (
                 <div className="flex justify-between gap-2">

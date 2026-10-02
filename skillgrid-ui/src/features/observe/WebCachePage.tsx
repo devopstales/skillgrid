@@ -31,6 +31,7 @@ export function WebCachePage() {
   const [entries, setEntries] = useState<WebEntry[] | null>(null)
   const [source, setSource] = useState('all')
   const [error, setError] = useState<string | null>(null)
+  const [searchError, setSearchError] = useState<string | null>(null)
 
   useEffect(() => {
     apiGet<WebStatus>('/web/status')
@@ -41,9 +42,10 @@ export function WebCachePage() {
   useEffect(() => {
     if (!status) return
     const params = source !== 'all' ? { source, q: '' } : { q: '' }
+    setSearchError(null)
     apiGet<{ results?: WebEntry[] }>('/web/search', params)
       .then((d) => setEntries(d.results || []))
-      .catch(() => setEntries([]))
+      .catch((err: Error) => setSearchError(err.message))
   }, [status, source])
 
   if (error) {
@@ -87,7 +89,9 @@ export function WebCachePage() {
 
       <div className="kpi-card">
         <SectionTitle>Entries</SectionTitle>
-        {entries ? (
+        {searchError ? (
+          <ErrorState error={searchError} />
+        ) : entries ? (
           entries.length > 0 ? (
             <div className="space-y-1">
               {entries.map((e) => (

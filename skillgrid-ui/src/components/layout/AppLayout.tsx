@@ -39,7 +39,7 @@ export function AppLayout() {
   const asideRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
-    resolveProject().then(setProject).catch(() => setProject('project'))
+    resolveProject().then(setProject).catch((err: Error) => setProject(err.message || 'project resolve failed'))
   }, [])
 
   useEffect(() => {

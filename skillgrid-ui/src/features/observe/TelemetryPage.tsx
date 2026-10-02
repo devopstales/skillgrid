@@ -33,28 +33,19 @@ interface Event {
 export function TelemetryPage() {
   const [sessions, setSessions] = useState<Session[] | null>(null)
   const [events, setEvents] = useState<Event[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [sessionsError, setSessionsError] = useState<string | null>(null)
+  const [eventsError, setEventsError] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([
-      apiGet<{ sessions?: Session[] }>('/mnemonic/sessions'),
-      apiGet<{ events?: Event[] }>('/activity/events', { limit: 50 }),
-    ])
-      .then(([s, e]) => {
-        setSessions(s.sessions || [])
-        setEvents(e.events || [])
-      })
-      .catch((err: Error) => setError(err.message))
+    apiGet<{ sessions?: Session[] }>('/mnemonic/sessions')
+      .then((s) => setSessions(s.sessions || []))
+      .catch((err: Error) => setSessionsError(err.message))
+    apiGet<{ events?: Event[] }>('/activity/events', { limit: 50 })
+      .then((e) => setEvents(e.events || []))
+      .catch((err: Error) => setEventsError(err.message))
   }, [])
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <ErrorState error={error} />
-      </div>
-    )
-  }
-  if (!sessions && !events) {
+  if (!sessions && !events && !sessionsError && !eventsError) {
     return (
       <div className="p-6">
         <LoadingState />
@@ -77,6 +68,9 @@ export function TelemetryPage() {
 
       <div className="kpi-card mb-4">
         <SectionTitle>Event Stream</SectionTitle>
+        {eventsError ? (
+          <ErrorState error={eventsError} />
+        ) : (
         <div className="max-h-[300px] space-y-0.5 overflow-y-auto">
           {(events || []).map((ev) => (
             <div key={ev.id} className="flex items-center gap-3 px-1 py-1.5 text-xs">
@@ -90,10 +84,14 @@ export function TelemetryPage() {
           ))}
           {(!events || events.length === 0) && <EmptyState message="No events" />}
         </div>
+        )}
       </div>
 
       <div className="kpi-card">
         <SectionTitle>Sessions</SectionTitle>
+        {sessionsError ? (
+          <ErrorState error={sessionsError} />
+        ) : (
         <div className="max-h-[300px] overflow-y-auto">
           <table className="w-full text-xs">
             <thead>
@@ -135,6 +133,7 @@ export function TelemetryPage() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   )

@@ -54,7 +54,10 @@ describe('TeamsPage', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
-        const body = String(url).includes('/mnemonic/sessions')
+        const u = String(url)
+        const body = u.includes('/project/current')
+          ? { project: 'skillgrid' }
+          : u.includes('/mnemonic/sessions')
           ? { sessions: [] }
           : {
               count: 1,
@@ -101,7 +104,10 @@ describe('TeamsPage', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
-        const body = String(url).includes('/mnemonic/sessions')
+        const u = String(url)
+        const body = u.includes('/project/current')
+          ? { project: 'skillgrid' }
+          : u.includes('/mnemonic/sessions')
           ? {
               sessions: [
                 {
@@ -133,7 +139,10 @@ describe('TeamsPage', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
-        const body = String(url).includes('/mnemonic/sessions')
+        const u = String(url)
+        const body = u.includes('/project/current')
+          ? { project: 'skillgrid' }
+          : u.includes('/mnemonic/sessions')
           ? {
               sessions: [
                 {

@@ -1,12 +1,18 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { SettingsPage } from './SettingsPage'
+import { apiGet } from '../../lib/api'
+
+vi.mock('../../lib/api', () => ({
+  apiGet: vi.fn(),
+}))
 
 const TOKEN_KEY = 'skillgrid.httpToken'
 
 describe('SettingsPage', () => {
   beforeEach(() => {
     localStorage.clear()
+    vi.mocked(apiGet).mockResolvedValue({ body: '' })
   })
 
   afterEach(() => {
@@ -51,6 +57,16 @@ describe('SettingsPage', () => {
 
     await new Promise((r) => setTimeout(r, 2500))
     expect(screen.queryByText(/token saved/i)).toBeNull()
+  })
+
+  it('names the file whose read failed', async () => {
+    vi.mocked(apiGet).mockImplementation(async (_path: string, params?: { path?: string }) => {
+      if (params?.path === '.skillgrid/config.yaml') throw new Error('config missing')
+      return { body: 'pipeline:\n  status: in_progress\n' }
+    })
+    render(<SettingsPage />)
+    expect(await screen.findByText(/config.yaml: config missing/)).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('in_progress')).toBeTruthy())
   })
 
   it('renders the About section', () => {

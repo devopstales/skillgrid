@@ -43,4 +43,12 @@ describe('GraphPage', () => {
     expect(screen.getByText('Node Inspector')).toBeTruthy()
     await waitFor(() => expect(document.querySelector('svg')).toBeTruthy())
   })
+
+  it('shows an index-status error without hiding the graph', async () => {
+    vi.mocked(apiGet).mockRejectedValue(new Error('index down'))
+    render(<GraphPage />)
+    expect(await screen.findByText('index down')).toBeTruthy()
+    expect(screen.getByText('Node Inspector')).toBeTruthy()
+    expect(screen.queryByText('No index status')).toBeNull()
+  })
 })
