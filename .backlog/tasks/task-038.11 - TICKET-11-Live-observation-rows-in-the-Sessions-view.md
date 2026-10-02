@@ -1,9 +1,10 @@
 ---
 id: TASK-038.11
 title: 'TICKET-11: Live observation rows in the Sessions view'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-02 14:47'
+updated_date: '2026-10-02 16:04'
 labels: []
 dependencies:
   - TASK-038.10
@@ -26,8 +27,8 @@ ToolTimeline interleaves observation rows; SessionsPage appends from activity SS
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Observation row appears by timestamp and links to detail
-- [ ] #2 Mocked activity frame increments the card count
+- [x] #1 Observation row appears by timestamp and links to detail
+- [x] #2 Mocked activity frame increments the card count
 <!-- AC:END -->
 
 ## Definition of Done

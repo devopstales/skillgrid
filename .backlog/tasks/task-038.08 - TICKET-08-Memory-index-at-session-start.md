@@ -1,9 +1,10 @@
 ---
 id: TASK-038.08
 title: 'TICKET-08: Memory index at session start'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-02 14:47'
+updated_date: '2026-10-02 15:56'
 labels: []
 dependencies:
   - TASK-038.01
@@ -26,8 +27,8 @@ RenderIndex plus prime ## Memory. Index only; AutoPrepend stays resume-only. SAT
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Pinned first; empty store has no section; over cap drops oldest
-- [ ] #2 Footer names mem_get_observation mem_timeline mem_search
+- [x] #1 Pinned first; empty store has no section; over cap drops oldest
+- [x] #2 Footer names mem_get_observation mem_timeline mem_search
 <!-- AC:END -->
 
 ## Definition of Done

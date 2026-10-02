@@ -1,9 +1,10 @@
 ---
 id: TASK-038.05
 title: 'TICKET-05: Cursor stop follow-up door check'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-02 14:47'
+updated_date: '2026-10-02 15:51'
 labels: []
 dependencies:
   - TASK-038.04
@@ -26,8 +27,8 @@ checkpoint mode on capture script; stop hook followup_message; loop_limit 2. SAT
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Due plus loop_count 0 prints followup_message
-- [ ] #2 loop_count 2 or dead port prints empty object exit 0
+- [x] #1 Due plus loop_count 0 prints followup_message
+- [x] #2 loop_count 2 or dead port prints empty object exit 0
 <!-- AC:END -->
 
 ## Definition of Done

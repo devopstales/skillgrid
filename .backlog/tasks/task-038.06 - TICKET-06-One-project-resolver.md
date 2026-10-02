@@ -1,9 +1,10 @@
 ---
 id: TASK-038.06
 title: 'TICKET-06: One project resolver'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-02 14:47'
+updated_date: '2026-10-02 15:29'
 labels: []
 dependencies: []
 references:
@@ -25,8 +26,8 @@ Hooks send directory only; server resolves via project.Resolve. SATISFIES prime-
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 POST with only directory stores under project.Resolve(dir)
-- [ ] #2 prime and HTTP agree; resolveProject gone from capture script
+- [x] #1 POST with only directory stores under project.Resolve(dir)
+- [x] #2 prime and HTTP agree; resolveProject gone from capture script
 <!-- AC:END -->
 
 ## Definition of Done

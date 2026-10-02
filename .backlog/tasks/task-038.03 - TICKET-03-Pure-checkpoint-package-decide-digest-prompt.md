@@ -1,9 +1,10 @@
 ---
 id: TASK-038.03
 title: 'TICKET-03: Pure checkpoint package decide digest prompt'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-02 14:46'
+updated_date: '2026-10-02 15:37'
 labels: []
 dependencies:
   - TASK-038.01
@@ -26,8 +27,8 @@ internal/mnemonic/checkpoint Decide, BuildDigest, RenderPrompt. Structured field
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Decide table covers disabled unknown below-min cooldown due
-- [ ] #2 Digest never contains preview text and stays within 1500 chars
+- [x] #1 Decide table covers disabled unknown below-min cooldown due
+- [x] #2 Digest never contains preview text and stays within 1500 chars
 <!-- AC:END -->
 
 ## Definition of Done

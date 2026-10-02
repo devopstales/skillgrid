@@ -1,9 +1,10 @@
 ---
 id: TASK-038
 title: 'Epic: Memory checkpoint and memory index'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-02 14:46'
+updated_date: '2026-10-02 16:04'
 labels: []
 dependencies: []
 references:

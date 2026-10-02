@@ -1,9 +1,10 @@
 ---
 id: TASK-038.04
 title: 'TICKET-04: Claim route'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-02 14:47'
+updated_date: '2026-10-02 15:44'
 labels: []
 dependencies:
   - TASK-038.01
@@ -29,8 +30,8 @@ POST /sessions/{id}/checkpoint/claim returns due reason prompt. SATISFIES claim-
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Five tool calls then claim is due; immediate re-claim is cooldown
-- [ ] #2 Unknown session is 200 with reason unknown_session
+- [x] #1 Five tool calls then claim is due; immediate re-claim is cooldown
+- [x] #2 Unknown session is 200 with reason unknown_session
 <!-- AC:END -->
 
 ## Definition of Done

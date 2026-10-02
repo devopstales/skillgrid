@@ -1,9 +1,10 @@
 ---
 id: TASK-038.10
 title: 'TICKET-10: Observations in the session event feed'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-02 14:47'
+updated_date: '2026-10-02 15:33'
 labels: []
 dependencies: []
 references:
@@ -25,8 +26,8 @@ GET /sessions/{id}/events gains observations; list gains count. SATISFIES observ
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Saved observation appears with id type title; list count is 1
-- [ ] #2 OpenAPI documents the additive fields
+- [x] #1 Saved observation appears with id type title; list count is 1
+- [x] #2 OpenAPI documents the additive fields
 <!-- AC:END -->
 
 ## Definition of Done

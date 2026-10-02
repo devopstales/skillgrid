@@ -1,9 +1,10 @@
 ---
 id: TASK-038.09
 title: 'TICKET-09: OpenCode and Kilo checkpoint plugin'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-02 14:47'
+updated_date: '2026-10-02 15:59'
 labels: []
 dependencies:
   - TASK-038.04
@@ -26,8 +27,8 @@ skillgrid-checkpoint.ts claims on session.idle; setup copies it. SATISFIES setup
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 After setup the plugin file exists; dry-run writes nothing
-- [ ] #2 Not-due and no-server send no prompt
+- [x] #1 After setup the plugin file exists; dry-run writes nothing
+- [x] #2 Not-due and no-server send no prompt
 <!-- AC:END -->
 
 ## Definition of Done
