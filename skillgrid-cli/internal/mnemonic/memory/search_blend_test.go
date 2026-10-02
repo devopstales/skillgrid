@@ -161,3 +161,33 @@ func TestDecayDisabledKeepsBM25(t *testing.T) {
 		t.Fatalf("first hit = %d, want cold %d (hot %d must stay second)", hits[0].Observation.ID, coldID, hotID)
 	}
 }
+
+// TestOwnerScopedBlendEmbedderError is the caller contract for an embedder
+// failure: mem_search drops the error and passes an empty query vector.
+// Embedding stays enabled so a non-empty vector would have taken the hybrid
+// leg; the empty vector must still return hits as keyword.
+func TestOwnerScopedBlendEmbedderError(t *testing.T) {
+	t.Setenv("MNEMONIC_EMBED", "1")
+	fx := newOwnerFixture(t, "blend-emb-err")
+	ctx := context.Background()
+	id, err := fx.svc.Save(ctx, SaveInput{
+		SessionID: fx.sessionID, Type: "decision",
+		Title: "banana stand", Content: "banana stand notes", Owner: fx.ownerA,
+	})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	hits, err := fx.svc.SearchOwnerScopedBlend(ctx, fx.ownerA, "", "banana", "any", "", 10, Vector{})
+	if err != nil {
+		t.Fatalf("blend: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Observation.ID != id {
+		t.Fatalf("hits = %+v", hits)
+	}
+	if hits[0].MatchedVia != "keyword" {
+		t.Fatalf("matched_via = %q", hits[0].MatchedVia)
+	}
+	if hits[0].Signals.Vector != 0 {
+		t.Fatalf("signals.vector = %v", hits[0].Signals.Vector)
+	}
+}

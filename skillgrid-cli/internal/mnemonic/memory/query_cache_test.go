@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -146,5 +147,28 @@ func assertQueryTextNotStored(t *testing.T, db *sql.DB, query string) {
 	}
 	if n == 0 {
 		t.Fatal("expected a query_cache row")
+	}
+}
+
+// TestQueryCacheEmbedderError covers an inner embedder failure: the error
+// is returned and no cache row is written, so a later call can try again.
+func TestQueryCacheEmbedderError(t *testing.T) {
+	st, _ := newTestStore(t, "qcacheerr")
+	db := st.DB
+	ctx := context.Background()
+	innerErr := errors.New("model unavailable")
+	inner := func(context.Context, string) (Vector, error) {
+		return Vector{}, innerErr
+	}
+	_, err := CachedEmbedQuery(ctx, db, "embed-v1", inner, "banana")
+	if !errors.Is(err, innerErr) {
+		t.Fatalf("err = %v, want inner error", err)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM query_cache`).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("query_cache rows = %d, want 0", n)
 	}
 }
