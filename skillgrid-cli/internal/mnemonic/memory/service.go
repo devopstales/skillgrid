@@ -511,17 +511,19 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 	if strings.TrimSpace(in.SessionID) == "" {
 		return SaveResult{}, errors.New("session_id is required")
 	}
-	if strings.TrimSpace(in.Title) == "" {
-		return SaveResult{}, errors.New("title is required")
-	}
-	if strings.TrimSpace(in.Content) == "" {
-		return SaveResult{}, errors.New("content is required")
-	}
 	if strings.TrimSpace(in.Type) == "" {
 		return SaveResult{}, errors.New("type is required")
 	}
 	if !IsValidType(in.Type) {
 		return SaveResult{}, fmt.Errorf("invalid type %q (allowed: standing, preference, convention, decision, architecture, bugfix, pattern, config, correction, discovery, learning, lesson, session_log)", in.Type)
+	}
+	in.Title = StripPrivate(in.Title)
+	in.Content = StripPrivate(in.Content)
+	if strings.TrimSpace(in.Title) == "" {
+		return SaveResult{}, errors.New("title is required")
+	}
+	if strings.TrimSpace(in.Content) == "" {
+		return SaveResult{}, errors.New("content is required")
 	}
 	// Typed memory category (014 step 18): when a fine-grained memory_type is
 	// supplied it must be one of the 10 valid categories. Empty is allowed
@@ -1430,6 +1432,10 @@ func (s *Service) SessionSummary(ctx context.Context, sessionID, summary string)
 	if strings.TrimSpace(summary) == "" {
 		return errors.New("summary is required")
 	}
+	summary = StripPrivate(summary)
+	if strings.TrimSpace(summary) == "" {
+		return errors.New("summary is required")
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	title := deriveSessionTitle(summary)
 	if title != "" {
@@ -1729,7 +1735,7 @@ func (s *Service) SavePrompt(ctx context.Context, in PromptInput) (int64, error)
 	if sessionID == "" {
 		return 0, errors.New("session_id is required")
 	}
-	content := strings.TrimSpace(in.Content)
+	content := StripPrivate(strings.TrimSpace(in.Content))
 	if len(content) < minPromptLength {
 		return 0, ErrPromptTooSmall
 	}

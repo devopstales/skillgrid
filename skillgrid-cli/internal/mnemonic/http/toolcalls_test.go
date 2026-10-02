@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
@@ -155,6 +156,48 @@ func TestSessionCreate_HarnessRegistration(t *testing.T) {
 	}
 	if agent != "opencode" {
 		t.Errorf("agent = %q, want opencode (first registration wins)", agent)
+	}
+}
+
+func TestToolCalls_PrivateSpan(t *testing.T) {
+	s, _ := newToolCallsServer(t)
+	secret := "abc123"
+	body := map[string]any{
+		"session_id":      "s-private",
+		"tool_name":       "Shell",
+		"command":         "echo <private>" + secret + "</private> test",
+		"content_preview": "token=<private>" + secret + "</private> ok",
+		"result_status":   "success",
+	}
+	res := postToolCall(t, s, "s-private", body)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200: %s", res.Code, res.Body.String())
+	}
+
+	h, cleanup, err := s.svc.Open(proj)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer cleanup()
+	events, _, _, err := h.Memory().SessionChanges(context.Background(), "s-private")
+	if err != nil {
+		t.Fatalf("SessionChanges: %v", err)
+	}
+	var payload, command string
+	for _, e := range events {
+		if e.ActionType == "command_exec" {
+			payload = e.Payload
+			command = e.Command
+		}
+	}
+	if payload == "" {
+		t.Fatalf("no command_exec event; events: %+v", events)
+	}
+	if strings.Contains(payload, secret) || strings.Contains(command, secret) {
+		t.Errorf("stored tool call leaked %q: payload=%q command=%q", secret, payload, command)
+	}
+	if !strings.Contains(payload, "token= ok") {
+		t.Errorf("payload = %q, want stripped preview containing %q", payload, "token= ok")
 	}
 }
 

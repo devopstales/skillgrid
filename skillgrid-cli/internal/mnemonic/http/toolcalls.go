@@ -54,10 +54,10 @@ func (s *Server) handleToolCallCreate(w http.ResponseWriter, r *http.Request) {
 		ToolName:       b.ToolName,
 		ActionType:     b.Type,
 		File:           b.Path,
-		Command:        b.Command,
+		Command:        memory.StripPrivate(b.Command),
 		ResultStatus:   b.ResultStatus,
 		ContentHash:    b.ContentHash,
-		ContentPreview: b.ContentPreview,
+		ContentPreview: memory.StripPrivate(b.ContentPreview),
 	}
 	if _, err := h.Memory().RunHook(r.Context(), memory.HookPostToolUse, payload); err != nil {
 		if strings.Contains(err.Error(), "not found") {

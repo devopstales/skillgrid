@@ -64,7 +64,13 @@ function sensitivePath(p) {
 
 function stripPrivateTags(str) {
   if (!str) return ""
-  return str.replace(/<private>[\s\S]*?<\/private>/gi, "[REDACTED]").trim()
+  let s = str
+  let prev
+  do {
+    prev = s
+    s = s.replace(/<private>[\s\S]*?(<\/private>|$)/gi, "")
+  } while (s !== prev)
+  return s.replace(/[ \t]{2,}/g, " ").trim()
 }
 
 function truncate(str, max) {

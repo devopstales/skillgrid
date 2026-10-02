@@ -15,6 +15,7 @@
 // Exit code: 0 if all pass, 1 if any fail.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +28,7 @@ const GUARD = path.join(HOOKS, 'precommit-guard.js');
 const STOP_TESTS = path.join(HOOKS, 'stop-tests.js');
 const IGNORE_GUARD = path.join(HOOKS, 'precommit-ignore-guard.js');
 const GATE_LINT = path.join(HOOKS, 'gate-lint.js');
+const TOOL_CAPTURE = path.join(HOOKS, 'tool-call-capture.js');
 
 const FILTER = process.argv[2] || '';
 
@@ -267,6 +269,67 @@ function caseLint() {
   expectRC('lint: malformed gate emits a warning', 0, out.includes('missing EXPECT') ? 0 : 1);
 }
 
+// --- tool-call-capture private span strip (fake Mnemonic HTTP) ---------------
+
+async function casePrivate() {
+  if (FILTER && FILTER !== 'private') return;
+
+  let captured = null;
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url && req.url.includes('/tool-calls')) {
+      const chunks = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        try {
+          captured = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch {
+          captured = null;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{"ok":true}');
+      });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const addr = server.address();
+  const port = typeof addr === 'object' && addr ? addr.port : 0;
+  const secret = 'abc123';
+  const stdin = JSON.stringify({
+    session_id: 'priv-hook-1',
+    cwd: WORK,
+    tool_name: 'Shell',
+    tool_output: `token=<private>${secret}</private> ok`,
+    tool_args: { command: 'echo hi' },
+  });
+  const r = spawnSync(process.execPath, [TOOL_CAPTURE], {
+    encoding: 'utf8',
+    input: stdin,
+    env: {
+      ...process.env,
+      SKILLGRID_MNEMONIC_HTTP_URL: `http://127.0.0.1:${port}`,
+      SKILLGRID_AGENT: 'hook-test',
+    },
+  });
+  const waitUntil = Date.now() + 3000;
+  while (!captured && Date.now() < waitUntil) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  await new Promise((resolve) => server.close(resolve));
+
+  expectRC('private: capture hook exits 0', 0, r.status === null ? 1 : r.status);
+  expectRC('private: POST body received', 0, captured ? 0 : 1);
+  const preview = captured?.content_preview ?? '';
+  expectRC('private: preview lacks inner secret', 0, preview.includes(secret) ? 1 : 0);
+  expectRC('private: preview stripped to token= ok', 0, preview.includes('token= ok') ? 0 : 1);
+}
+
 // --- snapshot/restore (removed — must report unknown subcommand) -------------
 // TICKET-07 (old-surfaces-removed): the checkpoint file is gone; resume reads
 // the session event stream. Both subcommands fail closed with exit 2 and an
@@ -298,18 +361,21 @@ function caseSnapshot() {
 
 // --- run all (respect filter) ------------------------------------------------
 
-caseGuardMsg();
-caseZone();
-caseProtected();
-caseStop();
-caseIgnore();
-caseLint();
-caseSnapshot();
+async function runAll() {
+  caseGuardMsg();
+  caseZone();
+  caseProtected();
+  caseStop();
+  caseIgnore();
+  caseLint();
+  await casePrivate();
+  caseSnapshot();
 
-// --- report ------------------------------------------------------------------
+  process.stdout.write('\n');
+  for (const line of RESULTS) process.stdout.write(`${line}\n`);
+  process.stdout.write('\n========================================\n');
+  process.stdout.write(`Results: ${PASS} passed, ${FAIL} failed\n`);
+  process.exit(FAIL === 0 ? 0 : 1);
+}
 
-process.stdout.write('\n');
-for (const line of RESULTS) process.stdout.write(`${line}\n`);
-process.stdout.write('\n========================================\n');
-process.stdout.write(`Results: ${PASS} passed, ${FAIL} failed\n`);
-process.exit(FAIL === 0 ? 0 : 1);
+await runAll();
