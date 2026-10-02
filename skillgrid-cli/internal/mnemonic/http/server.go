@@ -35,12 +35,13 @@ type Server struct {
 	svc   *service.Service
 	token string
 	mux   *http.ServeMux
+	now   func() time.Time
 }
 
 // NewServer builds the v1 HTTP API handler tree.
 func NewServer(svc *service.Service) *Server {
 	token := os.Getenv("SKILLGRID_HTTP_TOKEN")
-	s := &Server{svc: svc, token: token, mux: http.NewServeMux()}
+	s := &Server{svc: svc, token: token, mux: http.NewServeMux(), now: time.Now}
 	s.registerRoutes()
 	return s
 }
@@ -108,6 +109,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /sessions/{id}/end", s.requireWriteAuth(s.handleSessionEnd))
 	s.mux.HandleFunc("POST /sessions/{id}/title", s.requireWriteAuth(s.handleSessionSetTitle))
 	s.mux.HandleFunc("POST /sessions/{id}/tool-calls", s.requireWriteAuth(s.handleToolCallCreate))
+	s.mux.HandleFunc("POST /sessions/{id}/checkpoint/claim", s.requireWriteAuth(s.handleCheckpointClaim))
 	s.mux.HandleFunc("POST /sessions/{id}/usage", s.requireWriteAuth(s.handleSessionUsage))
 	s.mux.HandleFunc("POST /policy/evaluate", s.requireWriteAuth(s.handlePolicyEvaluate))
 	s.mux.HandleFunc("GET /policy", s.handlePolicyGet)

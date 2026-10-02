@@ -67,7 +67,9 @@ type toolEventFilter struct {
 	File    string // glob: * and ** match any run, ? one char
 	Command string // glob, same syntax as File
 	Since   string // RFC3339 or a relative window (30m, 24h, 7d, 1w)
-	Until   string
+	// SinceExclusive is RFC3339; when set, rows with timestamp > value match.
+	SinceExclusive string
+	Until          string
 	AfterID int64
 	Limit   int
 	// Asc returns oldest-first (SSE poll and follow); default is newest-first.
@@ -162,6 +164,10 @@ func queryToolEvents(ctx context.Context, db *sql.DB, projectID string, f toolEv
 	if f.Command != "" {
 		where = append(where, `COALESCE(e.command,'') LIKE ? ESCAPE '\'`)
 		args = append(args, globToLike(f.Command))
+	}
+	if f.SinceExclusive != "" {
+		where = append(where, "e.timestamp > ?")
+		args = append(args, f.SinceExclusive)
 	}
 	now := time.Now()
 	if since, err := parseSince(f.Since, now); err != nil {

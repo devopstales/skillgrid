@@ -204,6 +204,37 @@ paths:
                     items: { $ref: "#/components/schemas/ActivityEvent" }
                   limit: { type: integer }
         "400": { $ref: "#/components/responses/Bad" }
+  /sessions/{id}/checkpoint/claim:
+    post:
+      tags: [session]
+      operationId: sessionCheckpointClaim
+      summary: Claim a memory checkpoint when due
+      description: |-
+        Host-agent hook (Cursor stop, OpenCode idle) asks whether a memory
+        checkpoint is due for this session. Always returns 200 with a structured
+        body — unknown sessions report `due: false` and `reason: unknown_session`.
+        When `due` is true, the server stamps the claim before responding and
+        returns a follow-up prompt for mem_save / mem_session_summary.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: project, in: query, schema: { type: string } }
+        - { name: directory, in: query, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project: { type: string }
+                directory: { type: string }
+      responses:
+        "200":
+          description: Claim decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckpointClaimResponse"
+        "400": { $ref: "#/components/responses/Bad" }
   /sessions/{id}/tool-calls:
     post:
       tags: [session]
@@ -3671,6 +3702,19 @@ components:
         status:
           type: string
           enum: [active, ended]
+    CheckpointClaimResponse:
+      type: object
+      required: [due, reason, prompt]
+      properties:
+        due:
+          type: boolean
+          description: True when a checkpoint prompt should be shown to the host agent.
+        reason:
+          type: string
+          description: Empty when due; otherwise below_min_events, cooldown, disabled, or unknown_session.
+        prompt:
+          type: string
+          description: Non-empty only when due is true — follow-up text for mem_save and mem_session_summary.
     SessionSummary:
       type: object
       required: [id, summary, status, ended_at]
