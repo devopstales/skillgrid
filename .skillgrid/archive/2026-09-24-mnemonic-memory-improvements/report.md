@@ -234,3 +234,104 @@ None.
 
 - `entity_aliases` is `046_entity_aliases.sql`. `045` was already committed as `query_cache` only, and the runner applies each filename once. Cost if wrong: an extra migration file versus a store that already applied `045` never gaining the alias table.
 - MISSING_RED on combined commits is WARNING because `testing.tdd` is false. Cost if wrong: a later audit treats these tests as if they had been proven red.
+
+## Final-State Facts
+
+**Shipped:** C1–C5 and C7 on `release/2`. Owner-scoped RRF signals on `mem_search` (`aeefb5e7`), reinforcement decay ranking (`b9ab00de`) gated from config (`596958c9`), a seven-day query-embedding cache (`f5b25b22`, migration `045_search_aids.sql`), a fail-open compact hook (`5da7fb13`), and entity aliases (`a0d05555`, migration `046_entity_aliases.sql`). Review fixes landed in `3e1390db`. A clean `go test ./...` then needed `d569ab16` (fallback dashboard embed) and `4d93a5b7` (tracker fixture warm-up). C6 (auto-learning observer) stayed out of scope, as the execute request set.
+**Base branch:** main · **Chain strategy:** size-exception (one branch; the locked constraint forbids parallel branches)
+**Integration:** kept branch `release/2` (option 3, not pushed). Suite green on a clean worktree of `4d93a5b7` (`go test ./... -count=1`, 37 packages `ok`). Archive commit `a16f8d5e`.
+
+## Gates
+
+| Gate | Result |
+|------|--------|
+| Ship gate | ✅ success + `diff -r` empty (`/usr/bin/diff -r` against the pre-move tree; this shell's `diff` is delta. Git records `R100`.) |
+| QA gate | ✅ PASS |
+| Verdict gate (advisory) | accepted-with-open-items — recorded, not enforced |
+
+## Decisions
+
+**Every entry MUST cite a source** — a file:line, a commit, a ticket ID, or a scenario name. No source = undiagnosed, not a learning.
+
+| Decision | Tradeoff | Why | Source |
+|----------|----------|-----|--------|
+| `mem_search` uses `SearchOwnerScopedBlend`, not `BlendedSearch` | A second fusion path instead of reusing the CLI blend | `BlendedSearch` skips `visibilityFilter` | ADR-0018; briefing C1 |
+| `entity_aliases` is its own migration `046`, not an append to `045` | An extra file | The runner applies each filename once; `045` was already committed as `query_cache` only | `report.md` Rulings; `a0d05555` |
+| Untagged `go build` / `go test` embed `ui/fallback`; `task build` passes `-tags ui` and embeds `ui/dist` | A plain `go run` serves the fallback shell until `-tags ui` | `ui/dist` is gitignored, so `//go:embed all:ui/dist` fails on a clean checkout | `d569ab16`; `embed_fs_fallback.go` |
+| Decay config overlays the already-merged section; other sections still replace | Home opt-out for decay survives a repo file that omits it; other sections can still wipe a home layer | The review fix was scoped to `mnemonic.decay` | `3e1390db`; `review.md` parked list |
+| Keep `release/2` (option 3) | No merge to `main`, no PR | The work was already on `release/2`; merging it would merge the whole branch | ship Return Envelope, 2026-10-02 |
+
+## Lessons
+
+| Lesson | Root Cause | Do Differently | Source |
+|--------|-----------|----------------|--------|
+| Do not append SQL to a migration filename that has already been applied | The store records the filename and skips it | New table → new file, and a test that both filenames are recorded once | `046_entity_aliases.sql`; `TestMigration045` |
+| A 10s "CLI timed out" on a one-line stub is not job control until measured | macOS assesses a newly written executable on first launch; under full-suite build load that exceeds 10s | Warm the fixture once before the timed call. The `SIGTTIN`/`SIGTTOU` ignore in `d569ab16` was reverted in `4d93a5b7` | `tracker_test.go` `mkbin`; `4d93a5b7` |
+| Ship `go test ./...` on a clean worktree, not on the dirty tree that built the UI | `ui/dist` exists only after `task ui:build` and is gitignored | Treat a missing embed input as a suite failure, and give untagged builds a committed fallback | clean worktree of `790dfe73` (embed error); `d569ab16` |
+
+## Patterns
+
+| Pattern | Reuse | Source |
+|---------|-------|--------|
+| Overlay, don't replace, when merging a config section that has an explicit-false | Any future home-then-repo merge of a boolean that must survive an omitted repo key (`enabled` as a pointer) | `config/load.go` `mergeDecay`; `TestLoadDecayHomeOptOutSurvivesRepoWithoutDecay` |
+| Vector-only hits pass a liveness check the FTS leg already applied | Any new search leg that reads rows `SearchByVector` did not filter (`invalid_at`, `expires_at`, scope) | `search_blend.go` `vectorHitLive`; `3e1390db` |
+| Warm a freshly written test binary before asserting its runtime | Any test that `exec`s a script it just wrote, on macOS, inside a suite that is also compiling | `4d93a5b7` |
+
+## Surprises
+
+| Surprise | Signal | Source |
+|----------|--------|--------|
+| `Setsid` on the tracker child returns `EPERM` on this darwin host | `fork/exec … operation not permitted` as soon as `SysProcAttr.Setsid` is set; `Setpgid` alone starts the process | local `go test` of `TestPhase2_CLI_Failure` after the Setsid attempt (reverted before `4d93a5b7`) |
+| First exec of a new `#!/bin/sh` fixture costs ~0.5s idle and more than the 10s timeout while `go test ./...` is compiling | A throwaway program under `/tmp/exectime` measured start+wait; the second exec of the same file was ~10–30ms | measurement before `4d93a5b7`; suite failure on clean `d569ab16` |
+| `ProtocolMarkdownFromRepo` ignored the repo file the test wrote | HEAD looked at `plugins/opencode` and `plugins/kilo` first; the committed test expects `plugins/_shared` | `TestProtocolMarkdownFromRepoPrefersShared`; `d569ab16` |
+| Keyword search still does not filter `expires_at`, and a comment says it does | Review parked this; the fix wave did not change the FTS SQL | `review.md` parked list; `search_blend.go` |
+
+## Acceptance Verdict
+
+**Verdict:** accepted-with-open-items
+
+**Grounding:** Briefing goal is C1–C5 and C7 (C6 out of scope). QA half: 13/13 scenarios passed, 10/10 truths VERIFIED, verdict PASS (`report.md` Gate Decision, 2026-10-02). Review floor met after `3e1390db`.
+
+**Reasoning:** The in-scope capabilities shipped and the clean suite is green. Open items are the parked review notes plus the deferred C6 observer. They do not reopen a failed scenario. The verdict is accepted-with-open-items rather than accepted because those items are still true at close.
+
+## Open Items (→ next change)
+
+- Keyword/FTS leg does not filter `expires_at`, and the comment in `search_blend.go` says it does. Path: filter in `ownerScopedFTS` and correct the comment.
+- Config sections other than decay still replace a home layer when the repo file omits them. Path: the same overlay as `mergeDecay`, per section.
+- `entity_aliases` rows are not pruned on rename or delete. Path: a follow-up ticket; the blueprint deferred it.
+- `query_cache` is not purged after the seven-day TTL. Path: a sweep next to the cache read.
+- `hybrid_search` still calls `EmbedQuery` directly; the cache wraps `mem_search` only. Path: blueprint narrowed the cache to `mem_search`.
+- MCP `code_search` may not go through `SymbolFTS`, so the alias prepend can miss that tool. Path: confirm the handler and add a test if it does not.
+- G7 still omits `TestEntityAliasPrepended`. Path: point the gate at that test.
+- C6 auto-learning observer was out of scope. Path: a new change, not a fix to this one.
+- The Entity Alias glossary row still cites migration `045`. The table is `046_entity_aliases.sql`. Path: one-line terms edit.
+- `.skillgrid/ASSUMPTIONS.md` still says a plain `go build` requires `ui/dist`. Untagged builds embed `ui/fallback`. Path: update the known-gap sentence.
+
+## Prior-Change Follow-Through
+
+| Prior open item (from previous archived change) | Addressed by this change? | Evidence |
+|--------------------------------------------------|---------------------------|----------|
+| `lifecycle_log` `failed` status unreachable (second-brain `report.md` Open Items) | no | still open; this change does not edit `secondbrain/lifecycle.go` |
+| Scoped `mem_search` first-call health cost (second-brain `report.md` Open Items) | no | still open; this change adds signals and decay on the same path and does not move the health computation |
+| FOLLOWUP task-029 shared LLM client (state note, bitemporal wave) | no | still needs-triage; not part of C1–C7 |
+| Five deferred bi-temporal read-path items (state note) | no | still open |
+
+## Move Evidence (from ship context)
+
+**From:** `.skillgrid/specs/2026-09-24-mnemonic-memory-improvements/` → **To:** `.skillgrid/archive/2026-09-24-mnemonic-memory-improvements/`
+**`diff -r` readback:** empty → PASS (`/usr/bin/diff -r` of the pre-move tree against the archive; `git` name-status `R100` on all seven files). Commit `a16f8d5e`.
+
+## Overrides / Waivers / Contradictions
+
+- None. Size-exception stayed on one branch.
+- No unrankable contradiction. The QA half's "next: ship" is the state at verification time (2026-10-02); close state is this retro half.
+
+## Lineage (observation IDs)
+
+- briefing: none (mnemonic save/search failed: server cwd resolves to several git repos)
+- blueprint: none
+- tasks: none
+- ship: none
+- report (QA half): none
+- research / findings / ADRs: none
+- review record (in-repo, not mnemonic): `.skillgrid/archive/2026-09-24-mnemonic-memory-improvements/review.md`. Floor met. Independence Grade B on every axis (fresh subagents, different model families, same Cursor toolchain). Pre-merge Important findings (vector leg returned superseded rows, compact copied other sessions, `mergeDecay` wiped a home opt-out, decay test hit dead `rankByDecay`, gate G2 named a missing test, all-projects signals fabricated recency/decay) were addressed in `3e1390db` and confirmed by re-review `6600c29d-ff2c-4ba4-8b19-91330fbc536c`. Unfixed Important count at close: 0.
