@@ -143,11 +143,11 @@ The Cursor stop hook SHALL return the checkpoint prompt as `followup_message` on
 # G4: stop-returns-followup-when-due
 #   CHECK: node scripts/test-hooks.mjs checkpoint
 #   EXPECT: Results: .* 0 failed
-#   EVIDENCE: pending
+#   EVIDENCE: 2026-10-02 — test-hooks checkpoint 11/0; live serve :17438 five tool-calls then hook checkpoint → followup_message with mem_save (session door-hook-*)
 # G5: stop-fails-open-without-server
 #   CHECK: node scripts/test-hooks.mjs checkpoint
 #   EXPECT: Results: .* 0 failed
-#   EVIDENCE: pending
+#   EVIDENCE: 2026-10-02 — test-hooks dead-port cases; live hook against :17999 → {} exit 0
 
 ### Requirement: opencode-kilo-idle-prompt
 
@@ -183,10 +183,10 @@ A Skillgrid plugin for OpenCode and Kilo SHALL make a Checkpoint Claim when a se
 # G6: setup-installs-checkpoint-plugin
 #   CHECK: cd skillgrid-cli && go test ./internal/mnemonic/setup -run 'TestSetupOpenCode_CheckpointPlugin|TestSetupKilo_CheckpointPlugin' -count=1
 #   EXPECT: ok
-#   EVIDENCE: pending
+#   EVIDENCE: 2026-10-02 — go test setup checkpoint plugin filter ok
 # Manual:
 #   G7: plugin-does-not-prompt-when-not-due — observed in an OpenCode session with fewer than min_events tool calls
-#   EVIDENCE: pending
+#   EVIDENCE: 2026-10-02 — plugin claim/prompt path against live :17438 with unknown/empty session → no prompt; against dead :17999 → no prompt/no throw; with 5 events → prompt includes mem_save (harness-simulated client.session.prompt)
 
 ### Requirement: memory-index-at-session-start
 

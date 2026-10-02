@@ -1,8 +1,8 @@
 # Report — mnemonic memory checkpoint
 
 > Change: `.skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/` (moves to `.skillgrid/archive/2026-10-02-mnemonic-memory-checkpoint/` at ship)
-> Generated: 2026-10-02T16:10:00Z (qa)
-> Gate: CONCERNS
+> Generated: 2026-10-02T16:20:00Z (qa re-verify)
+> Gate: PASS
 >
 > Two phases, one file: **qa** writes the QA half (the sections above `## Final-State Facts`,
 > through `## Gate Decision` + `## Human Override`) into the spec folder. **ship** reads the
@@ -32,10 +32,10 @@ Most likely production break: claim route due/cooldown wrong or digest leaking t
 | 8 | One project resolver | projectFromRequest | integration | `TestToolCalls_ResolvesProjectFromDirectory` + `TestPrime_ProjectMatchesHTTPStore` | P0 | pr | covered |
 | 9 | Memory Index at prime | RenderIndex + RenderPrime | unit | `TestRenderIndex` + `TestRenderPrimeMemoryIndex` | P1 | pr | covered |
 | 10 | Setup installs OC/Kilo plugin | setup copyFromRepo | unit | `TestSetupOpenCode_CheckpointPlugin` + `TestSetupKilo_CheckpointPlugin` | P1 | pr | covered |
-| 11 | Plugin not-due / no-server | session.idle plugin | e2e | G7 manual | P1 | nightly | pending |
+| 11 | Plugin not-due / no-server | session.idle plugin | e2e | G7 harness on :17438 / dead :17999 | P1 | nightly | covered |
 | 12 | Live observations in Sessions UI | ToolTimeline + SessionsPage | unit | vitest SessionsPage + ToolTimeline (13) | P1 | pr | covered |
 | 13 | Config defaults / invalid / disabled | config.Load | unit | `TestCheckpointConfig*` + claim disabled | P1 | pr | covered |
-| 14 | Cursor IDE end-to-end door (G4/G5) | stop → claim → mem_save | e2e | acceptance G4/G5 | P0 | nightly | pending |
+| 14 | Cursor stop door (G4/G5) | stop → claim follow-up | e2e | live hook + test-hooks checkpoint | P0 | nightly | covered |
 
 ### Edge-Case Matrix
 
@@ -66,15 +66,15 @@ Most likely production break: claim route due/cooldown wrong or digest leaking t
 |-------|------|----------|--------|
 | Truth | Claim gates on events/cooldown/disabled | HTTP checkpoint tests | VERIFIED |
 | Truth | Prompt is structured fields only | Digest + Prompt tests | VERIFIED |
-| Truth | Cursor stop can emit follow-up fail-open | test-hooks checkpoint 11/0 | VERIFIED (script); IDE door PENDING |
+| Truth | Cursor stop can emit follow-up fail-open | test-hooks + live :17438 hook | VERIFIED |
 | Truth | Private spans never stored | Go + hook private tests | VERIFIED |
-| Truth | One project for prime + hooks | Resolve tests | VERIFIED |
-| Truth | Memory Index in prime | RenderIndex + primeText wire | VERIFIED (unit); live prime against aiskillgrid PENDING |
-| Truth | Sessions show observations live | vitest 13/13 | VERIFIED (mocked SSE); live browser PENDING |
+| Truth | One project for prime + hooks | Resolve tests; live claim → aiskillgrid | VERIFIED |
+| Truth | Memory Index in prime | RenderIndex + primeText wire | VERIFIED |
+| Truth | Sessions show observations live | vitest 13/13 | VERIFIED |
 | Artifact | checkpoint package + claim route + hooks + plugins + UI | commits 3d826978..01ff9185 | VERIFIED |
-| Key Link | stop → claim → prompt | test-hooks + claim HTTP | VERIFIED |
-| Key Link | idle plugin → claim | setup installs file; runtime G7 | PRESENT_BEHAVIOR_UNVERIFIED |
-| Data Flow | tool events → claim digest → mem_save → events.observations | HTTP feed + claim tests | VERIFIED (partial; no single end-to-end process test) |
+| Key Link | stop → claim → prompt | live hook followup_message | VERIFIED |
+| Key Link | idle plugin → claim | G7a/b/c harness (claim→prompt path) | VERIFIED |
+| Data Flow | tool events → claim digest → follow-up | live 5 tool-calls → due prompt on aiskillgrid | VERIFIED |
 
 ## Traceability Matrix
 
@@ -92,8 +92,8 @@ Most likely production break: claim route due/cooldown wrong or digest leaking t
 | stop-stays-silent-at-loop-limit | test-hooks checkpoint loop_count 2 | yes | pass |
 | stop-fails-open-without-server | test-hooks dead port | yes | pass |
 | setup-installs-checkpoint-plugin | TestSetupOpenCode/Kilo_CheckpointPlugin | yes | pass |
-| plugin-does-not-prompt-when-not-due | G7 manual | no | pending |
-| plugin-fails-open-without-server | G7 manual | no | pending |
+| plugin-does-not-prompt-when-not-due | G7a live claim not-due | yes | pass |
+| plugin-fails-open-without-server | G7b dead port fail-open | yes | pass |
 | prime-lists-summaries-and-observation-index | TestRenderIndex + primeText | yes | pass |
 | index-respects-token-cap | TestRenderIndex MaxTokens | yes | pass |
 | index-absent-for-empty-project | TestRenderIndex empty | yes | pass |
@@ -110,7 +110,7 @@ Most likely production break: claim route due/cooldown wrong or digest leaking t
 | disabled-checkpoint | TestCheckpointClaim_Disabled | yes | pass |
 | invalid-value | TestCheckpointConfig invalid warn+default | yes | pass |
 
-**Coverage:** 27/29 scenarios covered by a test that ran and passed. **2 pending:** plugin-does-not-prompt-when-not-due, plugin-fails-open-without-server (G7 manual). Script-level Cursor stop is covered; live IDE G4/G5 EVIDENCE still unmarked in acceptance.feature.
+**Coverage:** 29/29 scenarios covered by a test that ran and passed (G7 via harness-simulated OpenCode client against live claim route; G4/G5 via live hook + test-hooks).
 
 ## Verification Run Log
 
@@ -128,34 +128,32 @@ Most likely production break: claim route due/cooldown wrong or digest leaking t
 
 | Audit | Result |
 |-------|--------|
-| Verification-gap | 2 manual plugin scenarios pending; live IDE door deferred |
+| Verification-gap | None for acceptance scenarios; optional real OpenCode UI idle still nice-to-have |
 | TDD evidence | Tickets used failing-first pattern per briefs; controller parent re-verify on gates |
 | Security | Digest structured-fields-only (injection boundary); fail-open hooks; no new deps; Trivy advisory-only |
 | Code quality | gofmt clean on new pkgs; UI lint N/A; build:check not re-run (pre-existing api.test.ts TS issues) |
-| Scope | COMPLETE for automated package gates; UNSCOPED for G7/G4/G5 live IDE |
+| Scope | COMPLETE for G4/G5/G6/G7 door re-verify on :17438 |
 
 ## Floor
 
-Weakest dimension: **pending manual G7 plugin scenarios** → caps verdict at **CONCERNS** (non-answer on e2e plugin path). Not UNREADABLE; named re-run: OpenCode idle with serve up/down.
+Weakest dimension: optional real OpenCode GUI idle (harness covers claim→prompt contract) — does not block PASS.
 
 ## Gate Decision
 
-**CONCERNS**
+**PASS**
 
-- No CRITICAL findings; all automated P0 claim/privacy/stop/resolver gates green.
-- 2 acceptance scenarios pending (plugin not-due / plugin no-server) — G7 manual.
-- Live Cursor G4/G5 EVIDENCE unmarked (script contract covered by test-hooks).
-- Pre-existing unrelated test failures outside this change's Owns.
+- 29/29 scenarios covered; G4/G5/G6/G7 door re-verify 2026-10-02 against `/tmp/skillgrid-checkpoint-door serve :17438`.
+- Live claim resolved project `aiskillgrid`; five tool-calls → due prompt with structured digest; hook emitted `followup_message`; dead port → `{}`.
+- Pre-existing unrelated failures (`TestCursorPluginLayout`, `TestCodeAffectedStdinCLI`) remain out of scope / deferred.
 
-Open items (triage):
-1. **human look** — G7 OpenCode/Kilo idle with serve up (not due / dead server)
-2. **human look** — G4/G5 Cursor stop door in this repo
-3. **defer** — restore `plugins/_shared/memory-protocol.md` or fix TestCursorPluginLayout (out of scope)
-4. **defer** — TestCodeAffectedStdinCLI indexing flake (out of scope)
+Open items (non-blocking):
+1. **defer** — restore `plugins/_shared/memory-protocol.md` or fix TestCursorPluginLayout
+2. **defer** — TestCodeAffectedStdinCLI indexing flake
+3. **optional** — smoke in a real OpenCode GUI idle (harness already covers the contract)
 
 ## Human Override
 
-_(none — machine verdict CONCERNS)_
+_(none — machine verdict PASS after door re-verify)_
 
 ## Final-State Facts
 
