@@ -35,7 +35,7 @@ func SetDedupLLMFunc(f dedupLLMFunc) {
 // JSON verdict (add / update / delete / noop) plus the candidate index the
 // verdict applies to, so the parse is deterministic (mirrors extractionPrompt).
 const dedupPrompt = `You are classifying a new observation against existing candidates.
-Return ONLY a JSON object: {"verdict": "add"|"update"|"delete"|"noop", "candidate": <0-based index or 0>}.
+Return ONLY a JSON object: {"verdict": "add"|"update"|"delete"|"noop", "candidate": <0-based index>}.
 - "add": the new observation is genuinely new.
 - "update": it updates an existing candidate (set candidate to that index).
 - "delete": it supersedes/deletes an existing candidate (set candidate to that index).

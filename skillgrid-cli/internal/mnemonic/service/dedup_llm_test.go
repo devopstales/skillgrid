@@ -38,6 +38,11 @@ func TestDedupLLMBackendClassify(t *testing.T) {
 		{"update-first-candidate", `{"verdict":"update","candidate":0}`, memory.VerdictUpdate, 1, false},
 		{"update-no-candidate", `{"verdict":"update","candidate":null}`, memory.VerdictUpdate, 0, false},
 		{"update-candidate-out-of-range", `{"verdict":"update","candidate":9}`, memory.VerdictUpdate, 0, false},
+		// add / noop arms ignore the candidate id in SaveWithAction, so a
+		// non-null candidate on those verdicts is dropped to 0 (documented, not
+		// an error).
+		{"add-with-candidate-dropped", `{"verdict":"add","candidate":2}`, memory.VerdictAdd, 0, false},
+		{"noop-with-candidate-dropped", `{"verdict":"noop","candidate":1}`, memory.VerdictNoop, 0, false},
 		{"unknown-verdict", `{"verdict":"maybe"}`, "", 0, true},
 	}
 	for _, tc := range cases {
