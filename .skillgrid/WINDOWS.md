@@ -20,3 +20,5 @@
 | W009 | 2026-10-02-mnemonic-webui-rewrite | SUGGESTION | lib/api.ts and lib/apiBase.ts have no direct unit test | qa-auto | 2026-10-02 | closed |
 | W010 | 2026-10-02-mnemonic-webui-rewrite | SUGGESTION | dompurify 3.4.15 → 3.4.16 (GHSA-p98j-92pf-mc4p, LOW, not reachable) | qa-auto | 2026-10-02 | open |
 | W011 | 2026-10-02-mnemonic-webui-rewrite | SUGGESTION | L3 browser walk of /mnemonic/graph against skillgrid serve was not run | qa-auto | 2026-10-02 | open |
+| W012 | 2026-10-02-mnemonic-memory-checkpoint | WARNING | G7 OpenCode/Kilo plugin not-due and no-server paths are manual-only | qa-auto | 2026-10-02 | open |
+| W013 | 2026-10-02-mnemonic-memory-checkpoint | WARNING | Live Cursor stop door G4/G5 EVIDENCE not recorded (script contract covered by test-hooks) | qa-auto | 2026-10-02 | open |
