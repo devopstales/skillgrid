@@ -131,7 +131,7 @@ describe('SessionsPage (live session home)', () => {
     streamCallbacks?.onTool?.(
       toolEvent({ id: 9, tool: 'mcp__mnemonic__mem_search', action: 'tool_use', path: '', command: 'mem_search q', mcp: true }),
     )
-    const log = screen.getByRole('log', { name: 'Tool calls' })
+    const log = screen.getByRole('log', { name: 'Tool calls and observations' })
     await waitFor(() => expect(within(log).getByText('mcp__mnemonic__mem_search')).toBeTruthy())
     expect(within(log).getByText('MCP')).toBeTruthy()
     // The list row picks up the new last tool live, too.
@@ -153,7 +153,7 @@ describe('SessionsPage (live session home)', () => {
         preview: 'no-secret-writes: secrets are read-only',
       }),
     )
-    const log = screen.getByRole('log', { name: 'Tool calls' })
+    const log = screen.getByRole('log', { name: 'Tool calls and observations' })
     const note = await within(log).findByTestId('policy-note')
     expect(note.textContent).toContain('no-secret-writes: secrets are read-only')
     expect(note.className).toContain('text-danger')
@@ -211,7 +211,7 @@ describe('SessionsPage (live session home)', () => {
       relatedIds: [],
     })
 
-    const log = screen.getByRole('log', { name: 'Tool calls' })
+    const log = screen.getByRole('log', { name: 'Tool calls and observations' })
     await waitFor(() => expect(within(log).getByText('found-index-gap')).toBeTruthy())
     await waitFor(() => expect(within(row).getByText(/3 mem/)).toBeTruthy())
   })
