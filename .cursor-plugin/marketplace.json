@@ -1,0 +1,17 @@
+{
+  "name": "skillgrid-cursor",
+  "owner": {
+    "name": "skillgrid"
+  },
+  "metadata": {
+    "description": "Skillgrid Cursor plugins (Mnemonic companion)",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "skillgrid-mnemonic",
+      "source": "./",
+      "description": "Mnemonic companion — memory protocol rule and session/tool hooks"
+    }
+  ]
+}

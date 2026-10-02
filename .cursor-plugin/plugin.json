@@ -1,0 +1,20 @@
+{
+  "name": "skillgrid-mnemonic",
+  "displayName": "Skillgrid Mnemonic",
+  "version": "0.1.0",
+  "description": "Mnemonic companion for Cursor — always-on memory protocol rule and session/tool hooks. MCP is installed separately via skillgrid setup cursor.",
+  "author": {
+    "name": "skillgrid"
+  },
+  "license": "MIT",
+  "keywords": [
+    "skillgrid",
+    "mnemonic",
+    "memory",
+    "hooks"
+  ],
+  "homepage": "https://github.com/devopstales/skillgrid",
+  "repository": "https://github.com/devopstales/skillgrid",
+  "hooks": "./hooks/hooks-cursor.json",
+  "rules": "./rules/"
+}

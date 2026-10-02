@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "./hooks/cursor-session-start.sh"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "./hooks/cursor-session-end.sh"
+      }
+    ],
+    "stop": [
+      {
+        "command": "./hooks/cursor-session-end.sh"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "./hooks/cursor-tool-capture.sh"
+      }
+    ]
+  }
+}

@@ -1,0 +1,62 @@
+# Skillgrid Mnemonic hooks — consumed by opencode-yaml-hooks.
+# Installed to ~/.config/kilo/hook/hooks.yaml by `skillgrid setup kilocode`.
+#
+# Every bash action is fail-open: failures exit 0, never block the agent.
+# opencode-yaml-hooks provides:
+#   - OPENCODE_SESSION_ID env var
+#   - OPENCODE_PROJECT_DIR env var
+#   - JSON on stdin: { session_id, event, cwd, tool_name?, tool_args?, files?, changes? }
+#
+# The Mnemonic HTTP API (skillgrid serve) listens on 127.0.0.1:7438 by default.
+# Override with SKILLGRID_MNEMONIC_HTTP_URL.
+
+hooks:
+  # ── Session lifecycle ──────────────────────────────────────────────
+  # Ensure the Mnemonic server is running and capture session start context.
+  - id: mnemonic-session-start
+    event: session.created
+    actions:
+      - bash:
+          command: |
+            SID="${OPENCODE_SESSION_ID}"
+            [ -z "$SID" ] && exit 0
+            BASE="${SKILLGRID_MNEMONIC_HTTP_URL:-http://127.0.0.1:7438}"
+            # Ensure server is up (best-effort, non-blocking)
+            curl -sf --max-time 1 "$BASE/health" >/dev/null 2>&1 || \
+              (command -v skillgrid >/dev/null 2>&1 && \
+               nohup skillgrid serve >/dev/null 2>&1 & disown 2>/dev/null) || true
+            # Run session-start hook if present
+            [ -f "$HOME/.skillgrid/hooks/session-start.js" ] && \
+              node "$HOME/.skillgrid/hooks/session-start.js" 2>/dev/null || true
+            exit 0
+          timeout: 10000
+
+  # Run stop-tests and gate-stop when a session goes idle.
+  - id: mnemonic-session-stop
+    event: session.idle
+    actions:
+      - bash:
+          command: |
+            [ -f "$HOME/.skillgrid/hooks/stop-tests.js" ] && \
+              node "$HOME/.skillgrid/hooks/stop-tests.js" 2>/dev/null || true
+            [ -f "$HOME/.skillgrid/hooks/gate-stop.js" ] && \
+              node "$HOME/.skillgrid/hooks/gate-stop.js" 2>/dev/null || true
+            exit 0
+          timeout: 15000
+
+  # ── Tool-call monitoring ───────────────────────────────────────────
+  # Fire-and-forget POST of every tool call to the Mnemonic monitoring route.
+  # Never blocks or fails the tool call: async + fail-open.
+  - id: mnemonic-tool-capture
+    event: tool.after.*
+    async: true
+    actions:
+      - bash:
+          command: |
+            SID="${OPENCODE_SESSION_ID}"
+            [ -z "$SID" ] && exit 0
+            BASE="${SKILLGRID_MNEMONIC_HTTP_URL:-http://127.0.0.1:7438}"
+            [ -f "$HOME/.skillgrid/hooks/tool-call-capture.js" ] && \
+              node "$HOME/.skillgrid/hooks/tool-call-capture.js" 2>/dev/null || true
+            exit 0
+          timeout: 5000
