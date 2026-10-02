@@ -9,3 +9,9 @@
 
 | Window | Change | Severity | Finding | Waived By | Date | Status |
 |--------|--------|----------|---------|-----------|------|--------|
+| W001 | 2026-09-24-mnemonic-memory-improvements | WARNING | handleMemSearch drops an EmbedQuery error with no test that enters that branch | qa-auto | 2026-10-02 | open |
+| W002 | 2026-09-24-mnemonic-memory-improvements | WARNING | six tickets have no separable RED commit (strict-TDD off) | qa-auto | 2026-10-02 | open |
+| W003 | 2026-09-24-mnemonic-memory-improvements | WARNING | qa-gate.mjs state-drift and size-budget scripts not found | qa-auto | 2026-10-02 | open |
+| W004 | 2026-09-24-mnemonic-memory-improvements | SUGGESTION | Service decayCfg comment says zero config enables decay; blend reranks only when Enabled is true | qa-auto | 2026-10-02 | open |
+| W005 | 2026-09-24-mnemonic-memory-improvements | SUGGESTION | go vet context leak in budget.go:114 is pre-existing | qa-auto | 2026-10-02 | open |
+| W006 | 2026-09-24-mnemonic-memory-improvements | SUGGESTION | private-row hiding has a single test | qa-auto | 2026-10-02 | open |
