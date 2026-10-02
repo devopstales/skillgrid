@@ -63,7 +63,7 @@ describe('ToolTimeline observations', () => {
         registerObservation={registerObservation}
       />,
     )
-    const log = await screen.findByRole('log', { name: 'Tool calls' })
+    const log = await screen.findByRole('log', { name: 'Tool calls and observations' })
     await waitFor(() => expect(within(log).getByText('late.go')).toBeTruthy())
     const rows = within(log).getAllByRole('listitem')
     expect(rows).toHaveLength(3)

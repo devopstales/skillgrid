@@ -53,7 +53,7 @@ func (s *Server) handleToolCallCreate(w http.ResponseWriter, r *http.Request) {
 		SessionID:      b.SessionID,
 		ToolName:       b.ToolName,
 		ActionType:     b.Type,
-		File:           b.Path,
+		File:           memory.StripPrivate(b.Path),
 		Command:        memory.StripPrivate(b.Command),
 		ResultStatus:   b.ResultStatus,
 		ContentHash:    b.ContentHash,

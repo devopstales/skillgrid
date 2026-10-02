@@ -30,6 +30,16 @@ func TestCheckpointState(t *testing.T) {
 			t.Fatalf("insert event %d: %v", i, err)
 		}
 	}
+	for i, action := range []string{"session_start", "session_end", "commit"} {
+		ts := time.Date(2026, 1, 1, 12, 1, i, 0, time.UTC).Format(time.RFC3339)
+		if _, err := st.DB.ExecContext(ctx,
+			`INSERT INTO session_events (session_id, project, sequence, action_type, result_status, timestamp)
+			 VALUES (?, 'checkpoint-proj', ?, ?, 'success', ?)`,
+			sid, 100+i, action, ts,
+		); err != nil {
+			t.Fatalf("insert lifecycle %s: %v", action, err)
+		}
+	}
 
 	st0, err := svc.CheckpointState(ctx, sid)
 	if err != nil {

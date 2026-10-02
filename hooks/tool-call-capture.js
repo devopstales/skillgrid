@@ -383,7 +383,7 @@ async function main() {
     directory,
     type: mapToolType(tool),
     tool_name: tool,
-    path: sensitivePath(path) ? "[REDACTED]" : path,
+    path: sensitivePath(path) ? "[REDACTED]" : stripPrivateTags(path),
     command: sensitivePath(command) ? "[REDACTED]" : command,
     result_status: "success",
     content_hash: content === "" ? "" : contentHash(content),

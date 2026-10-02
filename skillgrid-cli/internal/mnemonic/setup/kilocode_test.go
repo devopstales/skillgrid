@@ -24,6 +24,13 @@ func TestSetupKilo_CheckpointPlugin(t *testing.T) {
 	if !strings.Contains(string(data), checkpointPluginMarker) {
 		t.Fatalf("checkpoint plugin missing marker %q", checkpointPluginMarker)
 	}
+	cfgData, err := os.ReadFile(AgentConfigPath(home, "kilo"))
+	if err != nil {
+		t.Fatalf("read kilo config: %v", err)
+	}
+	if !strings.Contains(string(cfgData), "./plugin/skillgrid-checkpoint.ts") {
+		t.Fatalf("kilo config missing checkpoint plugin entry: %s", cfgData)
+	}
 
 	homeDry := t.TempDir()
 	cfgPath := AgentConfigPath(homeDry, "kilo")

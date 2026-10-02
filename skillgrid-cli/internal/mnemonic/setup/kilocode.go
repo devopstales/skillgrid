@@ -70,5 +70,8 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 		return err
 	}
 	checkpointDst := filepath.Join(kiloDir, "plugin", "skillgrid-checkpoint.ts")
-	return copyFromRepo(repoRoot, kiloCheckpointPluginRel, checkpointDst, dryRun)
+	if err := copyFromRepo(repoRoot, kiloCheckpointPluginRel, checkpointDst, dryRun); err != nil {
+		return err
+	}
+	return upsertPluginKey(cfgPath, "./plugin/skillgrid-checkpoint.ts", dryRun)
 }

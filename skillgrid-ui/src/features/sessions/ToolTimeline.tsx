@@ -150,7 +150,12 @@ export function ToolTimeline({
         </span>
         <ToolFilterBar value={filter} onChange={setFilter} agents={agents} showAgent={!sessionId} />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-2" role="log" aria-live="polite" aria-label="Tool calls">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-2"
+        role="log"
+        aria-live="polite"
+        aria-label={sessionId ? 'Tool calls and observations' : 'Tool calls'}
+      >
         {error ? (
           <div className="rounded border border-danger-ink bg-danger/10 p-3 text-[12px] text-danger">{error}</div>
         ) : timeline.length === 0 ? (
@@ -184,7 +189,7 @@ const ObservationRowView = memo(function ObservationRowView({ row }: { row: Obse
         data-testid="observation-row"
       >
         <span className="w-16 shrink-0 tabular-nums text-ink-6">{clock(row.created_at)}</span>
-        <span className="w-4 shrink-0 text-center text-accent-light" title="observation">
+        <span className="w-4 shrink-0 text-center text-accent-light" title="observation" aria-hidden="true">
           ◆
         </span>
         <span className="shrink-0 rounded bg-edge/60 px-1.5 text-[10px] uppercase text-ink-4">{row.type}</span>

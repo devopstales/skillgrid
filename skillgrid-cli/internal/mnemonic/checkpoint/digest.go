@@ -83,8 +83,11 @@ func formatEventLine(e Event) string {
 	if target == "" {
 		target = strings.TrimSpace(e.Command)
 	}
-	target = truncateRunes(target, maxTargetFieldLen)
-	return fmt.Sprintf("#%d %s %s %s → %s", e.Sequence, e.Action, e.Tool, target, e.Result)
+	target = sanitizePromptField(truncateRunes(target, maxTargetFieldLen))
+	action := sanitizePromptField(e.Action)
+	tool := sanitizePromptField(e.Tool)
+	result := sanitizePromptField(e.Result)
+	return fmt.Sprintf("#%d %s %s %s → %s", e.Sequence, action, tool, target, result)
 }
 
 func truncateRunes(s string, max int) string {

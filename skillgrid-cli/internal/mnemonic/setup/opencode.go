@@ -46,7 +46,10 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 		return err
 	}
 	checkpointDst := filepath.Join(opencodeDir, "plugin", "skillgrid-checkpoint.ts")
-	return copyFromRepo(repoRoot, opencodeCheckpointPluginRel, checkpointDst, dryRun)
+	if err := copyFromRepo(repoRoot, opencodeCheckpointPluginRel, checkpointDst, dryRun); err != nil {
+		return err
+	}
+	return upsertPluginKey(cfgPath, "./plugin/skillgrid-checkpoint.ts", dryRun)
 }
 
 // upsertPrivateToolsEnv writes SKILLGRID_MNEMONIC_PRIVATE_TOOLS (comma-joined)

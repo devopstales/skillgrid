@@ -27,7 +27,7 @@ func (s *Server) handleCheckpointClaim(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		cfg := config.Load(".").Checkpoint
+		cfg := config.Load(h.Root()).Checkpoint
 		now := s.now()
 		due, reason := checkpoint.Decide(st, cfg, now)
 		if !due {
@@ -45,10 +45,14 @@ func (s *Server) handleCheckpointClaim(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		const maxExistingTitles = 20
 		titles := make([]string, 0, len(obs))
 		for _, o := range obs {
 			if t := o.Title; t != "" {
 				titles = append(titles, t)
+			}
+			if len(titles) >= maxExistingTitles {
+				break
 			}
 		}
 		digest := checkpoint.BuildDigest(events, 1500)

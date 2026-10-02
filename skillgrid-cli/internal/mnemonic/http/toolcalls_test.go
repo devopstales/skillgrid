@@ -207,6 +207,46 @@ func TestToolCalls_PrivateSpan(t *testing.T) {
 	}
 }
 
+func TestToolCalls_PrivateSpanInPath(t *testing.T) {
+	s, _ := newToolCallsServer(t)
+	secret := "path-secret-xyz"
+	body := map[string]any{
+		"session_id":    "s-private-path",
+		"tool_name":     "Read",
+		"path":            "/tmp/<private>" + secret + "</private>/file.go",
+		"result_status":   "success",
+	}
+	res := postToolCall(t, s, "s-private-path", body)
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status %d, want 201: %s", res.Code, res.Body.String())
+	}
+
+	h, cleanup, err := s.svc.Open(proj)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer cleanup()
+	events, _, _, err := h.Memory().SessionChanges(context.Background(), "s-private-path")
+	if err != nil {
+		t.Fatalf("SessionChanges: %v", err)
+	}
+	var filePath string
+	for _, e := range events {
+		if e.ActionType == "file_read" {
+			filePath = e.Path
+		}
+	}
+	if filePath == "" {
+		t.Fatalf("no file_read event; events: %+v", events)
+	}
+	if strings.Contains(filePath, secret) {
+		t.Errorf("stored path leaked %q: file=%q", secret, filePath)
+	}
+	if !strings.Contains(filePath, "/tmp/") || !strings.Contains(filePath, "file.go") {
+		t.Errorf("path = %q, want stripped path with /tmp/ and file.go", filePath)
+	}
+}
+
 func initTempGitRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

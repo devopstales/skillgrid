@@ -704,16 +704,17 @@ func (s *Service) CheckpointState(ctx context.Context, sessionID string) (Checkp
 			out.LastWriteAt = t.UTC()
 		}
 	}
+	lifecycleExclude := ` AND action_type NOT IN ('session_start','session_end','commit')`
 	if writeAt.Valid && strings.TrimSpace(writeAt.String) != "" {
 		err = s.store.DB.QueryRowContext(ctx, `
 			SELECT COUNT(*) FROM session_events
-			WHERE session_id = ? AND project = ? AND timestamp > ?`,
+			WHERE session_id = ? AND project = ? AND timestamp > ?`+lifecycleExclude,
 			sessionID, s.projectID, writeAt.String,
 		).Scan(&out.EventsSinceWrite)
 	} else {
 		err = s.store.DB.QueryRowContext(ctx, `
 			SELECT COUNT(*) FROM session_events
-			WHERE session_id = ? AND project = ?`,
+			WHERE session_id = ? AND project = ?`+lifecycleExclude,
 			sessionID, s.projectID,
 		).Scan(&out.EventsSinceWrite)
 	}

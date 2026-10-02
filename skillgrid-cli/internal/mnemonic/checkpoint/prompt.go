@@ -26,12 +26,16 @@ func RenderPrompt(in PromptInput) string {
 	b.WriteString("```\n\n")
 
 	if len(in.ExistingTitles) > 0 {
+		safe := make([]string, len(in.ExistingTitles))
+		for i, t := range in.ExistingTitles {
+			safe[i] = sanitizePromptField(t)
+		}
 		b.WriteString("Already saved: ")
-		b.WriteString(strings.Join(in.ExistingTitles, "; "))
+		b.WriteString(strings.Join(safe, "; "))
 		b.WriteString("\n\n")
 	}
 
-	fmt.Fprintf(&b, "Save up to %d typed observations with mem_save (types: decision, bugfix, feature, discovery, refactor, change). Skip anything already covered by an existing title.\n", in.MaxObservations)
+	fmt.Fprintf(&b, "Save up to %d typed observations with mem_save (types: decision, bugfix, discovery, learning, pattern, architecture). Skip anything already covered by an existing title.\n", in.MaxObservations)
 	b.WriteString("Then call mem_session_summary with a 2-4 sentence summary of this session.\n")
 	b.WriteString("Reply with one line: checkpoint saved: N observations\n")
 	return b.String()
