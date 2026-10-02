@@ -1,9 +1,10 @@
 ---
 id: TASK-036
-title: 'TICKET-04: Prototypes panel on a registered endpoint'
+title: 'TICKET-04: Security + Prototypes panels on registered endpoints'
 status: needs-triage
 assignee: []
 created_date: '2026-10-02 13:13'
+updated_date: '2026-10-02 13:22'
 labels:
   - >-
     webui-rewrite --priority high --type feature -p TASK-031 --ref
@@ -17,7 +18,7 @@ dependencies:
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Project → Prototypes must fetch a path the Go mux registers as JSON and list .skillgrid/prototypes/NNN-name/ entries. BLOCKED: depends on the uncommitted repo-wide spikes→prototypes rename in the main working tree (staged renames + docs_prototypes.go + PrototypesPage.tsx). Precondition: git status --short | rg -c '^R  .skillgrid/spikes/' prints 0. SATISFIES panels-fetch-live-endpoints (Prototypes).
+System → Security must fetch GET /security/trivy and Project → Prototypes must fetch a registered JSON path listing .skillgrid/prototypes/NNN-name/. At HEAD both pages exist but neither endpoint is registered (panels render ErrorState). BLOCKED: both halves exist uncommitted in the main working tree (docs.NewTrivy shells out to the trivy CLI — needs its own review; docs.NewPrototypes is part of the spikes→prototypes rename) in a server.go that also carries unrelated routes. Precondition: rename committed and server.go clean. SATISFIES panels-fetch-live-endpoints (Security and Prototypes).
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

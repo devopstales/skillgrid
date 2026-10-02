@@ -6,6 +6,7 @@ title: >-
 status: needs-triage
 assignee: []
 created_date: '2026-10-02 13:13'
+updated_date: '2026-10-02 13:22'
 labels:
   - >-
     webui-rewrite --priority high --type feature -p TASK-031 --ref
@@ -19,7 +20,7 @@ dependencies:
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Confirm Compaction, Web Cache, Security, Settings, Swagger pages exist and their fetch paths are registered on the Go mux. SATISFIES panels-fetch-live-endpoints (Observe/System).
+Confirm Compaction, Web Cache, Telemetry, Settings, Swagger pages exist and their fetch paths are registered on the Go mux (G6 = 4). SATISFIES panels-fetch-live-endpoints (Observe).
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
