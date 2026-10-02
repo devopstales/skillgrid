@@ -18,3 +18,13 @@ export function linkifyTaskRefs(text: string): string {
     },
   )
 }
+
+// linkifyTaskRefsMarkdown is the same scan for text that still goes through a
+// markdown renderer (briefing). It emits markdown links so the renderer, not
+// raw HTML, produces the anchors.
+export function linkifyTaskRefsMarkdown(text: string): string {
+  return text.replace(
+    new RegExp(TASK_REF_RE.source, 'g'),
+    (match, id: string) => `[${match}](/tracker?task=${id})`,
+  )
+}

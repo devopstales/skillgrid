@@ -1,6 +1,6 @@
 import type { PlanDetail } from './api'
 import { MarkdownView } from '../docs/MarkdownView'
-import { linkifyTaskRefs } from './taskLinks'
+import { linkifyTaskRefs, linkifyTaskRefsMarkdown } from './taskLinks'
 
 const STATUS_COLOR: Record<string, string> = {
   COMPLETE: 'text-accent',
@@ -41,7 +41,7 @@ export function PlanDetailPanel({
           <h3 className="mb-2 text-[12px] font-medium uppercase tracking-[0.1em] text-ink-5">
             Briefing
           </h3>
-          <MarkdownView body={plan.briefing} />
+          <MarkdownView body={linkifyTaskRefsMarkdown(plan.briefing)} />
         </section>
       )}
 

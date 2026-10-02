@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { linkifyTaskRefs, TASK_REF_RE } from './taskLinks'
+import { linkifyTaskRefs, linkifyTaskRefsMarkdown, TASK_REF_RE } from './taskLinks'
 
 function matchId(text: string): string | undefined {
   const m = new RegExp(TASK_REF_RE.source, 'g').exec(text)
@@ -33,6 +33,12 @@ describe('linkifyTaskRefs', () => {
 
   it('wraps #NNN in a tracker deep link', () => {
     expect(linkifyTaskRefs('see #012')).toContain('href="/tracker?task=012"')
+  })
+
+  it('emits a markdown link for text that a markdown renderer will display', () => {
+    expect(linkifyTaskRefsMarkdown('See #012 for the design.')).toBe(
+      'See [#012](/tracker?task=012) for the design.',
+    )
   })
 
   it('keeps surrounding text intact', () => {
