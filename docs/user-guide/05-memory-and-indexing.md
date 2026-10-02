@@ -49,6 +49,8 @@ mem_context  →  mem_search  →  mem_timeline  →  mem_get_observation
    summaries)  keyword)        context)        untruncated)
 ```
 
+**Session start (`skillgrid prime`):** when the project store has recent summaries or observations, prime appends a `## Memory` index (index-only inject — not the full AutoPrepend resume block). Lines list recent session summaries (short id, date, first sentence) then observation rows (pinned first, then newest: `#id type title · date · ~tok`), capped by `mnemonic.inject.max_tokens` by dropping the oldest observation lines first and stating how many were omitted. The footer names `mem_get_observation`, `mem_timeline`, and `mem_search`. An empty store omits the section entirely. Budgets come from `mnemonic.inject` in `config.d/indexing.yaml` (see [Configuration & operations](#configuration--operations)).
+
 **Layered memory (L0 → L3):** raw observations (L0) are distilled upward into progressively more durable, more abstract layers. `mem_layers` returns the chain for a session or topic, with each layer's provenance link back to its resolvable L0 source:
 
 ```mermaid

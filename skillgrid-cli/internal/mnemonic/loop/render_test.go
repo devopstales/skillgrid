@@ -34,6 +34,24 @@ func TestRenderPrimeEmptyDiff(t *testing.T) {
 	}
 }
 
+func TestRenderPrimeMemoryIndex(t *testing.T) {
+	got := RenderPrime(PrimeInput{MemoryIndex: "- #1 decision test · 2026-10-02 · ~3\n"})
+	if !contains(got, "## Memory\n- #1 decision test") {
+		t.Fatalf("expected ## Memory section:\n%s", got)
+	}
+}
+
+func TestRenderPrimeNoMemoryIndex(t *testing.T) {
+	got := RenderPrime(PrimeInput{})
+	if contains(got, "## Memory") {
+		t.Fatalf("empty MemoryIndex must not add section:\n%s", got)
+	}
+	got = RenderPrime(PrimeInput{MemoryIndex: "   \n  "})
+	if contains(got, "## Memory") {
+		t.Fatalf("whitespace MemoryIndex must not add section:\n%s", got)
+	}
+}
+
 func TestOneLinerFromSummary(t *testing.T) {
 	summary := "## Goal\nwire the hooks\n\n## Next Steps\nlater\n"
 	if got := OneLinerFromSummary(summary); got != "wire the hooks" {

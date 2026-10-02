@@ -8,9 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/loop"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/session_inject"
 )
 
 func runPrime(args []string) {
@@ -90,6 +93,25 @@ func primeText(dir, session string) string {
 	if lines, ierr := loop.DiffImpact(context.Background(), h.Store().DB, files); ierr == nil {
 		impact = loop.FormatImpact(lines)
 	}
+	ctx := context.Background()
+	inject := config.Load(dir).Inject
+	var summaries []memory.Session
+	if inject.Summaries > 0 {
+		if s, err := h.Memory().RecentContext(ctx, inject.Summaries); err == nil {
+			summaries = s
+		}
+	}
+	var obs []memory.Observation
+	if inject.Observations > 0 {
+		if o, err := h.Memory().RecentObservations(ctx, inject.Observations); err == nil {
+			obs = o
+		}
+	}
+	memoryIndex := session_inject.RenderIndex(summaries, obs, session_inject.IndexConfig{
+		Summaries:    inject.Summaries,
+		Observations: inject.Observations,
+		MaxTokens:    inject.MaxTokens,
+	})
 	return loop.RenderPrime(loop.PrimeInput{
 		Project:      h.ProjectID(),
 		Task:         step.Task,
@@ -98,6 +120,7 @@ func primeText(dir, session string) string {
 		OneLiner:     step.OneLiner,
 		ChangedFiles: files,
 		ImpactLines:  impact,
+		MemoryIndex:  memoryIndex,
 	})
 }
 

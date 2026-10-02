@@ -19,6 +19,7 @@ type PrimeInput struct {
 	OneLiner     string
 	ChangedFiles []string
 	ImpactLines  []string
+	MemoryIndex  string
 }
 
 // RenderPrime formats the block injected at session start.
@@ -47,6 +48,13 @@ func RenderPrime(in PrimeInput) string {
 		}
 	}
 	b.WriteString("Call code_explore before rg. rg is the escape hatch when code_explore is empty.\n")
+	if idx := strings.TrimSpace(in.MemoryIndex); idx != "" {
+		b.WriteString("\n## Memory\n")
+		b.WriteString(idx)
+		if !strings.HasSuffix(idx, "\n") {
+			b.WriteByte('\n')
+		}
+	}
 	return b.String()
 }
 
