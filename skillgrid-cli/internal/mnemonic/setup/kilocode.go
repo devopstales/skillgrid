@@ -66,5 +66,9 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 
 	kiloDir := filepath.Join(home, ".config", "kilo")
 	hooksDst := filepath.Join(kiloDir, "hook", "hooks.yaml")
-	return copyFromRepo(repoRoot, kiloPluginRel, hooksDst, dryRun)
+	if err := copyFromRepo(repoRoot, kiloPluginRel, hooksDst, dryRun); err != nil {
+		return err
+	}
+	checkpointDst := filepath.Join(kiloDir, "plugin", "skillgrid-checkpoint.ts")
+	return copyFromRepo(repoRoot, kiloCheckpointPluginRel, checkpointDst, dryRun)
 }

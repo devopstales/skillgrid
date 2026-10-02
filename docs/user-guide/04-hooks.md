@@ -60,6 +60,15 @@ point at the same `~/.skillgrid/hooks/` scripts:
 | OpenCode | `~/.config/opencode/hook/hooks.yaml` — `session.created`, `session.idle`, `tool.before.*`, `tool.after.*` | `skillgrid setup opencode` |
 | Kilo | `~/.config/kilo/hook/hooks.yaml` — same events | `skillgrid setup kilo` |
 
+OpenCode and Kilo also install **`skillgrid-checkpoint.ts`** under
+`~/.config/opencode/plugin/` and `~/.config/kilo/plugin/`. On **`session.idle`**
+the plugin claims a memory checkpoint from `skillgrid serve` (same route as the
+Cursor **stop** hook) and, when the server says the checkpoint is due, prompts
+the session with the rendered instructions. Errors and unreachable servers are
+swallowed (fail-open). The yaml **`session.idle`** hooks still run compact and
+usage; the plugin owns the conditional prompt. Turn checkpoints off with
+`mnemonic.checkpoint.enabled: false` in `.skillgrid/config.yaml`.
+
 `skillgrid setup cursor` copies the hook scripts into `~/.skillgrid/hooks/`
 itself, merges into an existing `hooks.json`, and leaves other tools' entries
 alone; re-running it adds nothing twice. Pass `--dry-run` after the agent name

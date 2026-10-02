@@ -20,8 +20,10 @@ import (
 const (
 	mcpServerName = "skillgrid-mnemonic"
 
-	opencodePluginRel = "plugins/opencode/hooks.yaml"
-	kiloPluginRel     = "plugins/kilo/hooks.yaml"
+	opencodePluginRel            = "plugins/opencode/hooks.yaml"
+	opencodeCheckpointPluginRel  = "plugins/opencode/skillgrid-checkpoint.ts"
+	kiloPluginRel                = "plugins/kilo/hooks.yaml"
+	kiloCheckpointPluginRel      = "plugins/kilo/skillgrid-checkpoint.ts"
 	cursorPluginRel   = ".cursor-plugin/plugin.json"
 	cursorRuleRel     = "rules/mnemonic.mdc"
 
