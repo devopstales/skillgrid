@@ -177,6 +177,70 @@ describe('TeamsPage', () => {
     )
   })
 
+  it('shows a dispatched row with an idle harness as stalled', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            count: 1,
+            runs: [
+              {
+                name: 'wave',
+                members: [
+                  {
+                    agent: 'decay-config',
+                    task: 'TICKET-03',
+                    status: 'dispatched',
+                    session: { id: 'sess-idle', agent: 'cursor', live: 'idle' },
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+
+    render(<TeamsPage />)
+    const row = (await screen.findByText('decay-config')).closest('tr') as HTMLElement
+    expect(row.textContent).toContain('stalled')
+    expect(row.textContent).toContain('dispatched')
+  })
+
+  it('keeps a finished row idle when its harness is quiet', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            count: 1,
+            runs: [
+              {
+                name: 'shipped',
+                members: [
+                  {
+                    agent: 'decay-config',
+                    task: 'TICKET-03',
+                    status: 'complete',
+                    session: { id: 'sess-idle', agent: 'cursor', live: 'idle' },
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+
+    render(<TeamsPage />)
+    const row = (await screen.findByText('decay-config')).closest('tr') as HTMLElement
+    expect(row.textContent).toContain('idle')
+    expect(row.textContent).not.toContain('stalled')
+  })
+
   it('shows an empty state when no ledgers exist', async () => {
     vi.stubGlobal(
       'fetch',

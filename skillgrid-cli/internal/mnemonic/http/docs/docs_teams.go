@@ -31,11 +31,18 @@ type TeamMember struct {
 	Task    string         `json:"task,omitempty"`
 	Status  string         `json:"status,omitempty"`
 	Owns    string         `json:"owns,omitempty"`
+	Needs   string         `json:"needs,omitempty"`
 	Test    string         `json:"test,omitempty"`
 	Session *MemberSession `json:"session,omitempty"`
 }
 
 var progressTaskRE = regexp.MustCompile(`(?m)^[ \t]*[-*]?[ \t]*Task[ \t]+(\S+):[ \t]*(\S+)`)
+
+// ticketLineRE matches the as-built ledger shape:
+// "- TICKET-01 (TASK-032): complete — verified at …"
+var ticketLineRE = regexp.MustCompile(`(?m)^[ \t]*[-*][ \t]*(TICKET-\d+)(?:[ \t]*\((TASK-[\d.]+)\))?[ \t]*:[ \t]*([A-Za-z0-9_-]+)`)
+
+var progressNeedsRE = regexp.MustCompile(`(?m)^[ \t]*[-*]?[ \t]*Task[ \t]+(\S+):[ \t]*Needs:[ \t]*(.+)$`)
 
 // NewTeamRuns returns GET /sdd/runs. A missing .skillgrid/sdd directory is an
 // empty list, so the Teams page can render its empty state.
@@ -89,11 +96,26 @@ func ListTeamRuns(ctx context.Context, cwd string) ([]TeamRun, error) {
 		}
 		run, ok := readTeamRun(filepath.Join(root, e.Name()), e.Name())
 		if ok {
+			markShipped(cwd, e.Name(), &run)
 			out = append(out, run)
 		}
 	}
 	sortRuns(out)
 	return out, nil
+}
+
+// markShipped closes ledger rows once the change has a directory under
+// .skillgrid/archive. The ledger file stays as written; the board shows done.
+func markShipped(cwd, name string, run *TeamRun) {
+	info, err := os.Stat(filepath.Join(cwd, ".skillgrid", "archive", name))
+	if err != nil || !info.IsDir() {
+		return
+	}
+	for i := range run.Members {
+		run.Members[i].Status = "complete"
+	}
+	run.InFlight = 0
+	run.Done = len(run.Members)
 }
 
 func readTeamRun(dir, name string) (TeamRun, bool) {
@@ -117,6 +139,7 @@ func readTeamRun(dir, name string) (TeamRun, bool) {
 			newest = mod
 		}
 	}
+	run.Members = applyDependencyGate(run.Members)
 	if run.Ledger == "" && run.WaveLedger == "" {
 		return TeamRun{}, false
 	}
@@ -191,6 +214,8 @@ func memberFromRow(header, cells []string) TeamMember {
 			m.Status = val
 		case "owns":
 			m.Owns = val
+		case "needs":
+			m.Needs = val
 		case "test result", "test":
 			m.Test = val
 		}
@@ -199,13 +224,92 @@ func memberFromRow(header, cells []string) TeamMember {
 }
 
 func parseProgressMembers(text string) []TeamMember {
+	needs := map[string]string{}
+	for _, m := range progressNeedsRE.FindAllStringSubmatch(text, -1) {
+		id := strings.TrimRight(strings.TrimSpace(m[1]), ":")
+		needs[id] = strings.TrimSpace(m[2])
+	}
 	var out []TeamMember
 	for _, m := range progressTaskRE.FindAllStringSubmatch(text, -1) {
 		status := strings.TrimRight(m[2], ":")
 		if isCoordToken(status) || !knownStatus(status) {
 			continue
 		}
-		out = append(out, TeamMember{Task: strings.TrimRight(m[1], ":"), Status: status})
+		task := strings.TrimRight(m[1], ":")
+		out = append(out, TeamMember{Task: task, Status: status, Needs: needs[task]})
+	}
+	for _, m := range ticketLineRE.FindAllStringSubmatch(text, -1) {
+		status := m[3]
+		if !knownStatus(status) {
+			continue
+		}
+		task := m[1]
+		if m[2] != "" {
+			task = m[1] + " (" + m[2] + ")"
+		}
+		out = append(out, TeamMember{Task: task, Status: status})
+	}
+	return out
+}
+
+// applyDependencyGate marks a row blocked while any task named in Needs is
+// not complete. A finished row keeps its status.
+func applyDependencyGate(members []TeamMember) []TeamMember {
+	done := map[string]bool{}
+	for _, m := range members {
+		if !isDoneStatus(m.Status) {
+			continue
+		}
+		for _, id := range taskIDs(m.Task) {
+			done[id] = true
+		}
+	}
+	for i, m := range members {
+		if m.Needs == "" || isDoneStatus(m.Status) {
+			continue
+		}
+		for _, id := range splitNeedIDs(m.Needs) {
+			if !done[id] {
+				members[i].Status = "blocked"
+				break
+			}
+		}
+	}
+	return members
+}
+
+func isDoneStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "done", "complete", "completed":
+		return true
+	default:
+		return false
+	}
+}
+
+func taskIDs(task string) []string {
+	var out []string
+	for _, part := range strings.FieldsFunc(task, func(r rune) bool {
+		return r == ' ' || r == '(' || r == ')' || r == ','
+	}) {
+		part = strings.ToLower(strings.TrimSpace(part))
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func splitNeedIDs(needs string) []string {
+	var out []string
+	for _, part := range strings.FieldsFunc(needs, func(r rune) bool {
+		return r == ',' || r == ' ' || r == ';'
+	}) {
+		part = strings.ToLower(strings.Trim(strings.TrimSpace(part), "."))
+		if part == "" || part == "and" {
+			continue
+		}
+		out = append(out, part)
 	}
 	return out
 }
@@ -256,7 +360,7 @@ func tallyStatus(status string) (inFlight, done int) {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "done", "complete", "completed":
 		return 0, 1
-	case "dispatched", "in-progress", "in_progress", "review", "review_spec":
+	case "dispatched", "in-progress", "in_progress", "review", "review_spec", "blocked", "failed":
 		return 1, 0
 	default:
 		return 0, 0

@@ -77,6 +77,17 @@ export function agentLiveStatus(
   return 'idle'
 }
 
+const OPEN_LEDGER = /^(dispatched|in-progress|in_progress|review|review_spec)$/i
+
+// A row still open on the ledger, whose harness has gone quiet, is stalled.
+// The ledger status stays as written. Only the live reading changes.
+export function memberLive(member: TeamMember): string | undefined {
+  const live = member.session?.live
+  if (!live) return undefined
+  if (live === 'idle' && OPEN_LEDGER.test(member.status || '')) return 'stalled'
+  return live
+}
+
 function liveAgents(sessions: LiveSession[]): LiveSession[] {
   const rank = { working: 0, idle: 1, finished: 2 }
   return sessions
@@ -226,41 +237,44 @@ export function TeamsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(run.members || []).map((m, i) => (
-                        <tr key={`${m.agent}-${m.task}-${i}`} className="border-t border-edge">
-                          <td className="py-1.5 pr-3 font-mono text-ink">{m.agent || '—'}</td>
-                          <td className="py-1.5 pr-3 text-ink-3">
-                            <TaskCell task={m.task} />
-                          </td>
-                          <td className="py-1.5 pr-3 font-mono">
-                            {m.session ? (
-                              <a
-                                href={sessionHref(m.session.id, m.session.project)}
-                                className="text-accent hover:underline"
-                                title={m.session.title}
-                              >
-                                {m.session.agent || m.session.id.slice(0, 8)}
-                              </a>
-                            ) : (
-                              <span className="text-ink-4">—</span>
-                            )}
-                          </td>
-                          <td className="py-1.5 pr-3">
-                            {m.session?.live ? (
-                              <StatusBadge status={m.session.live} />
-                            ) : (
-                              <span className="text-ink-4">—</span>
-                            )}
-                          </td>
-                          <td className="py-1.5 pr-3">
-                            <StatusBadge status={m.status} />
-                          </td>
-                          <td className="max-w-[240px] truncate py-1.5 pr-3 font-mono text-[10px] text-ink-4" title={m.owns}>
-                            {m.owns || '—'}
-                          </td>
-                          <td className="py-1.5 text-ink-4">{m.test || '—'}</td>
-                        </tr>
-                      ))}
+                      {(run.members || []).map((m, i) => {
+                        const live = memberLive(m)
+                        return (
+                          <tr key={`${m.agent}-${m.task}-${i}`} className="border-t border-edge">
+                            <td className="py-1.5 pr-3 font-mono text-ink">{m.agent || '—'}</td>
+                            <td className="py-1.5 pr-3 text-ink-3">
+                              <TaskCell task={m.task} />
+                            </td>
+                            <td className="py-1.5 pr-3 font-mono">
+                              {m.session ? (
+                                <a
+                                  href={sessionHref(m.session.id, m.session.project)}
+                                  className="text-accent hover:underline"
+                                  title={m.session.title}
+                                >
+                                  {m.session.agent || m.session.id.slice(0, 8)}
+                                </a>
+                              ) : (
+                                <span className="text-ink-4">—</span>
+                              )}
+                            </td>
+                            <td className="py-1.5 pr-3">
+                              {live ? (
+                                <StatusBadge status={live} />
+                              ) : (
+                                <span className="text-ink-4">—</span>
+                              )}
+                            </td>
+                            <td className="py-1.5 pr-3">
+                              <StatusBadge status={m.status} />
+                            </td>
+                            <td className="max-w-[240px] truncate py-1.5 pr-3 font-mono text-[10px] text-ink-4" title={m.owns}>
+                              {m.owns || '—'}
+                            </td>
+                            <td className="py-1.5 text-ink-4">{m.test || '—'}</td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>

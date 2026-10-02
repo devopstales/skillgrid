@@ -83,6 +83,170 @@ func TestListTeamRuns_ParsesLedgersAndSkipsEmptyDirs(t *testing.T) {
 	}
 }
 
+func TestListTeamRuns_ParsesTicketLines(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".skillgrid", "sdd", "2026-10-02-webui")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	progress := `# SDD ledger — plan: tasks.md
+
+- TICKET-01 (TASK-032): complete — verified at d5e01985
+- TICKET-04 (TASK-036): blocked — halted at precondition
+`
+	if err := os.WriteFile(filepath.Join(dir, "progress.md"), []byte(progress), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := ListTeamRuns(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || len(runs[0].Members) != 2 {
+		t.Fatalf("runs = %+v", runs)
+	}
+	if runs[0].Members[0].Task != "TICKET-01 (TASK-032)" || runs[0].Members[0].Status != "complete" {
+		t.Fatalf("first = %+v", runs[0].Members[0])
+	}
+	if runs[0].Members[1].Task != "TICKET-04 (TASK-036)" || runs[0].Members[1].Status != "blocked" {
+		t.Fatalf("second = %+v", runs[0].Members[1])
+	}
+	if runs[0].Done != 1 || runs[0].InFlight != 1 {
+		t.Fatalf("counts in_flight=%d done=%d", runs[0].InFlight, runs[0].Done)
+	}
+}
+
+func TestListTeamRuns_TicketLineWithoutTaskID(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".skillgrid", "sdd", "bare-ticket")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	progress := "- TICKET-9: complete\n- TICKET-8: verified at HEAD\n"
+	if err := os.WriteFile(filepath.Join(dir, "progress.md"), []byte(progress), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := ListTeamRuns(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || len(runs[0].Members) != 1 {
+		t.Fatalf("members = %+v", runs)
+	}
+	if runs[0].Members[0].Task != "TICKET-9" || runs[0].Members[0].Status != "complete" || runs[0].Done != 1 {
+		t.Fatalf("member = %+v done=%d", runs[0].Members[0], runs[0].Done)
+	}
+}
+
+func TestListTeamRuns_NeedsBlocksUntilDependencyCompletes(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".skillgrid", "sdd", "coupled")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	progress := `# Coupled
+
+- Task 1: in-progress
+- Task 2: Needs: 1
+- Task 2: dispatched
+`
+	if err := os.WriteFile(filepath.Join(dir, "progress.md"), []byte(progress), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := ListTeamRuns(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || len(runs[0].Members) != 2 {
+		t.Fatalf("runs = %+v", runs)
+	}
+	var task2 TeamMember
+	for _, m := range runs[0].Members {
+		if m.Task == "2" {
+			task2 = m
+		}
+	}
+	if task2.Status != "blocked" {
+		t.Fatalf("task 2 = %+v, want blocked while task 1 is in progress", task2)
+	}
+}
+
+func TestListTeamRuns_NeedsAllowsDispatchWhenDependencyIsDone(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".skillgrid", "sdd", "coupled-done")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	progress := "- Task 1: complete\n- Task 2: Needs: 1\n- Task 2: dispatched\n"
+	if err := os.WriteFile(filepath.Join(dir, "progress.md"), []byte(progress), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := ListTeamRuns(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task2 TeamMember
+	for _, m := range runs[0].Members {
+		if m.Task == "2" {
+			task2 = m
+		}
+	}
+	if task2.Status != "dispatched" || task2.Needs != "1" {
+		t.Fatalf("task 2 = %+v, want dispatched with needs 1", task2)
+	}
+}
+
+func TestListTeamRuns_ArchiveMarksMembersDone(t *testing.T) {
+	root := t.TempDir()
+	name := "2026-09-24-mnemonic-memory-improvements"
+	dir := filepath.Join(root, ".skillgrid", "sdd", name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ledger := `| agent | task | status | Owns |
+|---|---|---|---|
+| decay-config | TICKET-03 | dispatched | config/load.go |
+`
+	if err := os.WriteFile(filepath.Join(dir, "parallel-ledger.md"), []byte(ledger), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".skillgrid", "archive", name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := ListTeamRuns(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || len(runs[0].Members) != 1 {
+		t.Fatalf("runs = %+v", runs)
+	}
+	if runs[0].Members[0].Status != "complete" || runs[0].InFlight != 0 || runs[0].Done != 1 {
+		t.Fatalf("shipped run = %+v", runs[0])
+	}
+}
+
+func TestListTeamRuns_OtherArchiveDoesNotCloseRun(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".skillgrid", "sdd", "still-open")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ledger := "| agent | task | status |\n|---|---|---|\n| scout | TICKET-01 | dispatched |\n"
+	if err := os.WriteFile(filepath.Join(dir, "parallel-ledger.md"), []byte(ledger), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".skillgrid", "archive", "some-other-change"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := ListTeamRuns(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runs[0].Members[0].Status != "dispatched" || runs[0].InFlight != 1 || runs[0].Done != 0 {
+		t.Fatalf("open run = %+v", runs[0])
+	}
+}
+
 func TestTeamRunsHandler_MissingRootIsEmpty(t *testing.T) {
 	h := NewTeamRuns(t.TempDir())
 	rr := httptest.NewRecorder()
