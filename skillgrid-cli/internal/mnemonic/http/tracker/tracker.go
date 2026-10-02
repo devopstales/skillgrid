@@ -12,9 +12,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
-	"syscall"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -311,6 +312,14 @@ func runCLI(ctx context.Context, cli string, args ...string) (stdout string, run
 	}
 	timeout := commandTimeout()
 	cmd := exec.Command(cli, args...)
+	// Setpgid puts the child in its own process group so the timeout can kill
+	// the whole group (fixture scripts spawn children like sleep). A background
+	// process group that touches the terminal is stopped by SIGTTOU/SIGTTIN
+	// and then sits until the timeout — fixture scripts that should exit
+	// immediately surface as "CLI timed out". Ignore those signals so the
+	// disposition is inherited and the child is not stopped. Setsid is not
+	// used: on darwin it returns EPERM from this process.
+	signal.Ignore(syscall.SIGTTIN, syscall.SIGTTOU)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf

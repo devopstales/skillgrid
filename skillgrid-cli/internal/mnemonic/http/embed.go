@@ -7,12 +7,11 @@ import (
 	"strings"
 )
 
-// uiDistFS embeds the Vite build output (built by `task ui:build` into
-// ui/dist/). The directory must exist at `go build` time — build:all orders
-// ui:build first; a plain `go build` without a prior ui:build fails by design.
-//
-//go:embed all:ui/dist
-var uiDistFS embed.FS
+// uiDistFS is the embedded dashboard. Plain `go test` / `go build` embed the
+// committed fallback shell (ui/fallback) so a clean checkout compiles.
+// `task build` passes -tags ui and embeds ui/dist from `task ui:build`;
+// that tag still fails if the Vite output is missing.
+// The FS variable and uiRoot live in embed_fs_fallback.go / embed_fs_dist.go.
 
 //go:embed ui/openapi.yaml
 var uiOpenAPISpec []byte
@@ -56,7 +55,7 @@ func (s *Server) registerUIRoutes() {
 			writeError(w, http.StatusNotFound, "not found")
 		})
 	}
-		// The mux clean-path rule redirects a bare "/tracker" (or "/docs") to the
+	// The mux clean-path rule redirects a bare "/tracker" (or "/docs") to the
 	// trailing-slash form before the wildcard can serve it; the explicit
 	// routes win over the redirect.
 	s.mux.HandleFunc("GET /tracker", s.handleShellPage)
@@ -71,7 +70,7 @@ func (s *Server) registerUIRoutes() {
 
 // handleShellPage serves the embedded SPA index.html.
 func (s *Server) handleShellPage(w http.ResponseWriter, r *http.Request) {
-	data, err := uiDistFS.ReadFile("ui/dist/index.html")
+	data, err := uiDistFS.ReadFile(uiRoot + "/index.html")
 	if err != nil {
 		http.Error(w, "dashboard shell missing from binary (run task ui:build)", http.StatusInternalServerError)
 		return
@@ -89,7 +88,7 @@ func (s *Server) handleUIAsset(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	data, err := uiDistFS.ReadFile("ui/dist/assets/" + rest)
+	data, err := uiDistFS.ReadFile(uiRoot + "/assets/" + rest)
 	if err != nil {
 		http.NotFound(w, r)
 		return

@@ -11,7 +11,7 @@ const protocolRelPath = "memory-protocol.md"
 // Prefers the synced repo copy at ~/.skillgrid/repos/skillgrid when present.
 func ProtocolMarkdown() string {
 	if home, err := os.UserHomeDir(); err == nil {
-		for _, rel := range []string{"plugins/opencode/" + protocolRelPath, "plugins/kilo/" + protocolRelPath} {
+		for _, rel := range protocolRelPaths() {
 			path := filepath.Join(home, ".skillgrid", "repos", "skillgrid", rel)
 			if data, err := os.ReadFile(path); err == nil {
 				return string(data)
@@ -21,19 +21,28 @@ func ProtocolMarkdown() string {
 	return ""
 }
 
+func protocolRelPaths() []string {
+	return []string{
+		"plugins/_shared/" + protocolRelPath,
+		"plugins/opencode/" + protocolRelPath,
+		"plugins/kilo/" + protocolRelPath,
+	}
+}
+
 // ProtocolMarkdownFromRepo reads protocol text from repoRoot when the file exists.
+// The repo copy wins over a staged install under ~/.skillgrid/plugins.
 func ProtocolMarkdownFromRepo(repoRoot string) string {
-	for _, rel := range []string{"plugins/opencode/" + protocolRelPath, "plugins/kilo/" + protocolRelPath} {
-		if staged := stagedPluginPath(rel); staged != "" {
-			if data, err := os.ReadFile(staged); err == nil {
+	if repoRoot != "" {
+		for _, rel := range protocolRelPaths() {
+			path := filepath.Join(repoRoot, rel)
+			if data, err := os.ReadFile(path); err == nil {
 				return string(data)
 			}
 		}
 	}
-	if repoRoot != "" {
-		for _, rel := range []string{"plugins/opencode/" + protocolRelPath, "plugins/kilo/" + protocolRelPath} {
-			path := filepath.Join(repoRoot, rel)
-			if data, err := os.ReadFile(path); err == nil {
+	for _, rel := range protocolRelPaths() {
+		if staged := stagedPluginPath(rel); staged != "" {
+			if data, err := os.ReadFile(staged); err == nil {
 				return string(data)
 			}
 		}

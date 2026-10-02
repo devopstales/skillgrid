@@ -14,9 +14,9 @@ import (
 // so the choice is deterministic and survives content-hash rebuilds.
 func firstDistJS(t *testing.T) string {
 	t.Helper()
-	sub, err := fs.Sub(uiDistFS, "ui/dist/assets")
+	sub, err := fs.Sub(uiDistFS, uiRoot+"/assets")
 	if err != nil {
-		t.Fatalf("fs.Sub ui/dist/assets: %v", err)
+		t.Fatalf("fs.Sub %s/assets: %v", uiRoot, err)
 	}
 	var names []string
 	err = fs.WalkDir(sub, ".", func(path string, d fs.DirEntry, err error) error {
@@ -32,7 +32,7 @@ func firstDistJS(t *testing.T) string {
 		t.Fatalf("walk dist/assets: %v", err)
 	}
 	if len(names) == 0 {
-		t.Fatalf("no .js assets found in ui/dist/assets")
+		t.Fatalf("no .js assets found in %s/assets", uiRoot)
 	}
 	sort.Strings(names)
 	return names[0]
@@ -58,7 +58,7 @@ func TestPhase1_Embed(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /%s: expected 200, got %d", asset, rr.Code)
 	}
-	f, err := uiDistFS.Open("ui/dist/assets/" + asset)
+	f, err := uiDistFS.Open(uiRoot + "/assets/" + asset)
 	if err != nil {
 		t.Fatalf("open %s: %v", asset, err)
 	}

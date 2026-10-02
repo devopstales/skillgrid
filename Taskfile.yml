@@ -47,7 +47,7 @@ tasks:
     desc: Build the local platform binary into dist/.
     cmds:
       - cd {{.MODULE_DIR}} && mkdir -p ../{{.OUT}}
-      - cd {{.MODULE_DIR}} && go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}} {{.PKG}}
+      - cd {{.MODULE_DIR}} && go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}} {{.PKG}}
       - rm -f ~/.local/bin/skillgrid
       - cp dist/skillgrid ~/.local/bin/
 
@@ -61,14 +61,14 @@ tasks:
   build-linux:
     desc: Build linux binaries (amd64 + 386).
     cmds:
-      - cd {{.MODULE_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-linux-amd64 {{.PKG}}
-      - cd {{.MODULE_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-linux-386 {{.PKG}}
+      - cd {{.MODULE_DIR}} && GOOS=linux GOARCH=amd64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-linux-amd64 {{.PKG}}
+      - cd {{.MODULE_DIR}} && GOOS=linux GOARCH=386 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-linux-386 {{.PKG}}
 
   build-darwin:
     desc: Build macOS binaries (amd64 + arm64).
     cmds:
-      - cd {{.MODULE_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-darwin-amd64 {{.PKG}}
-      - cd {{.MODULE_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-darwin-arm64 {{.PKG}}
+      - cd {{.MODULE_DIR}} && GOOS=darwin GOARCH=amd64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-darwin-amd64 {{.PKG}}
+      - cd {{.MODULE_DIR}} && GOOS=darwin GOARCH=arm64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-darwin-arm64 {{.PKG}}
 
   test:
     desc: Run go vet and go test ./... in skillgrid-cli/.
