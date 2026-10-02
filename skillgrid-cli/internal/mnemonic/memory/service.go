@@ -571,7 +571,7 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 	).Scan(&existingID)
 	if err == nil {
 		s.BumpDuplicate(ctx, existingID)
-		return s.withCandidates(ctx, in, SaveResult{Action: VerdictNoop, ObservationID: existingID}), nil
+		return s.completeSaveWithAction(ctx, in, SaveResult{Action: VerdictNoop, ObservationID: existingID})
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return SaveResult{}, fmt.Errorf("dedup lookup: %w", err)
@@ -585,12 +585,12 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 	switch {
 	case d.Reason == "llm" && d.Verdict == VerdictNoop && d.CandidateID > 0:
 		s.BumpDuplicate(ctx, d.CandidateID)
-		return s.withCandidates(ctx, in, SaveResult{Action: VerdictNoop, ObservationID: d.CandidateID}), nil
+		return s.completeSaveWithAction(ctx, in, SaveResult{Action: VerdictNoop, ObservationID: d.CandidateID})
 	case d.Reason == "llm" && d.Verdict == VerdictUpdate && d.CandidateID > 0:
 		if err := s.applyUpdateToCandidate(ctx, d.CandidateID, in, source, hash, now); err != nil {
 			return SaveResult{}, err
 		}
-		return s.withCandidates(ctx, in, SaveResult{Action: VerdictUpdate, ObservationID: d.CandidateID}), nil
+		return s.completeSaveWithAction(ctx, in, SaveResult{Action: VerdictUpdate, ObservationID: d.CandidateID})
 	case d.Reason == "llm" && d.Verdict == VerdictDelete && d.CandidateID > 0:
 		newID, err := s.insertObservation(ctx, in, source, owner, hash, now, memoryType)
 		if err != nil {
@@ -602,7 +602,7 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 		if err := s.MarkSuperseded(ctx, d.CandidateID, newID); err != nil {
 			return SaveResult{Action: VerdictDelete, ObservationID: newID}, fmt.Errorf("mark superseded: %w", err)
 		}
-		return s.withCandidates(ctx, in, SaveResult{Action: VerdictDelete, ObservationID: newID, SupersededID: d.CandidateID}), nil
+		return s.completeSaveWithAction(ctx, in, SaveResult{Action: VerdictDelete, ObservationID: newID, SupersededID: d.CandidateID})
 	}
 
 	// add arm (and the add-fallback for every other case: zero decision, hash
@@ -622,7 +622,7 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 			if err := s.applyUpdateToCandidate(ctx, topicID, in, source, hash, now); err != nil {
 				return SaveResult{}, err
 			}
-			return s.withCandidates(ctx, in, SaveResult{Action: VerdictUpdate, ObservationID: topicID}), nil
+			return s.completeSaveWithAction(ctx, in, SaveResult{Action: VerdictUpdate, ObservationID: topicID})
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return SaveResult{}, fmt.Errorf("topic_key lookup: %w", err)
@@ -633,7 +633,119 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 	if err != nil {
 		return SaveResult{}, err
 	}
-	return s.withCandidates(ctx, in, SaveResult{Action: VerdictAdd, ObservationID: newID}), nil
+	return s.completeSaveWithAction(ctx, in, SaveResult{Action: VerdictAdd, ObservationID: newID})
+}
+
+func (s *Service) completeSaveWithAction(ctx context.Context, in SaveInput, res SaveResult) (SaveResult, error) {
+	out := s.withCandidates(ctx, in, res)
+	if strings.TrimSpace(in.SessionID) == "" {
+		return out, nil
+	}
+	if err := s.touchMemoryWrite(ctx, in.SessionID, time.Now().UTC()); err != nil {
+		return SaveResult{}, err
+	}
+	return out, nil
+}
+
+func (s *Service) touchMemoryWrite(ctx context.Context, sessionID string, at time.Time) error {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return errors.New("memory service not initialized")
+	}
+	ts := at.UTC().Format(time.RFC3339)
+	_, err := s.store.DB.ExecContext(ctx, `
+		UPDATE sessions SET last_memory_write_at = ?
+		WHERE id = ? AND project = ?`,
+		ts, sessionID, s.projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("touch memory write: %w", err)
+	}
+	return nil
+}
+
+// CheckpointState reports checkpoint bookkeeping for a harness session.
+type CheckpointState struct {
+	SessionID        string
+	Exists           bool
+	EventsSinceWrite int
+	LastClaimedAt    time.Time // zero when NULL
+	LastWriteAt      time.Time // zero when NULL
+}
+
+// CheckpointState returns checkpoint counters for sessionID in this project.
+// Unknown sessions return Exists == false with no error.
+func (s *Service) CheckpointState(ctx context.Context, sessionID string) (CheckpointState, error) {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return CheckpointState{}, errors.New("memory service not initialized")
+	}
+	out := CheckpointState{SessionID: sessionID}
+	var claimedAt, writeAt sql.NullString
+	err := s.store.DB.QueryRowContext(ctx, `
+		SELECT checkpoint_claimed_at, last_memory_write_at
+		FROM sessions WHERE id = ? AND project = ?`,
+		sessionID, s.projectID,
+	).Scan(&claimedAt, &writeAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return out, nil
+	}
+	if err != nil {
+		return CheckpointState{}, fmt.Errorf("checkpoint state: %w", err)
+	}
+	out.Exists = true
+	if claimedAt.Valid && strings.TrimSpace(claimedAt.String) != "" {
+		if t, perr := time.Parse(time.RFC3339, claimedAt.String); perr == nil {
+			out.LastClaimedAt = t.UTC()
+		}
+	}
+	if writeAt.Valid && strings.TrimSpace(writeAt.String) != "" {
+		if t, perr := time.Parse(time.RFC3339, writeAt.String); perr == nil {
+			out.LastWriteAt = t.UTC()
+		}
+	}
+	if writeAt.Valid && strings.TrimSpace(writeAt.String) != "" {
+		err = s.store.DB.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM session_events
+			WHERE session_id = ? AND project = ? AND timestamp > ?`,
+			sessionID, s.projectID, writeAt.String,
+		).Scan(&out.EventsSinceWrite)
+	} else {
+		err = s.store.DB.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM session_events
+			WHERE session_id = ? AND project = ?`,
+			sessionID, s.projectID,
+		).Scan(&out.EventsSinceWrite)
+	}
+	if err != nil {
+		return CheckpointState{}, fmt.Errorf("checkpoint events count: %w", err)
+	}
+	return out, nil
+}
+
+// ClaimCheckpoint records that the harness acknowledged a checkpoint at at.
+func (s *Service) ClaimCheckpoint(ctx context.Context, sessionID string, at time.Time) error {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return errors.New("memory service not initialized")
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return errors.New("session_id is required")
+	}
+	ts := at.UTC().Format(time.RFC3339)
+	res, err := s.store.DB.ExecContext(ctx, `
+		UPDATE sessions SET checkpoint_claimed_at = ?
+		WHERE id = ? AND project = ?`,
+		ts, sessionID, s.projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("claim checkpoint: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("claim checkpoint rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	return nil
 }
 
 // withCandidates attaches link/conflict neighbors without merging them.
@@ -1352,6 +1464,9 @@ func (s *Service) SessionSummary(ctx context.Context, sessionID, summary string)
 	}
 	if n == 0 {
 		return fmt.Errorf("session %s not found", sessionID)
+	}
+	if err := s.touchMemoryWrite(ctx, sessionID, time.Now().UTC()); err != nil {
+		return err
 	}
 	// Best-effort end-commit stamp (session events layer): a summary carries
 	// the session's current HEAD as the end of its range. Never clobbers a
