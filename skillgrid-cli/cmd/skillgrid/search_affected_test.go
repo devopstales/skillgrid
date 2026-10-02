@@ -40,8 +40,11 @@ func affectedCLIFixture(t *testing.T, svc *service.Service) string {
 
 // runSearchAffectedCapture runs runSearchAffected with stdin pointed at
 // inPath and returns its stdout.
-func runSearchAffectedCapture(t *testing.T, inPath string, args []string) string {
+func runSearchAffectedCapture(t *testing.T, svc *service.Service, inPath string, args []string) string {
 	t.Helper()
+	oldSvc := cliService
+	cliService = svc
+	defer func() { cliService = oldSvc }()
 	in, err := os.Open(inPath)
 	if err != nil {
 		t.Fatalf("open stdin file: %v", err)
@@ -82,7 +85,7 @@ func TestCodeAffectedStdinCLI(t *testing.T) {
 	if err := os.WriteFile(stdinFile, []byte("src/base.go\nsrc/mid.go\n"), 0o644); err != nil {
 		t.Fatalf("write stdin file: %v", err)
 	}
-	out := runSearchAffectedCapture(t, stdinFile, []string{"search", "affected", "--stdin"})
+	out := runSearchAffectedCapture(t, svc, stdinFile, []string{"search", "affected", "--stdin"})
 	if !strings.Contains(out, "src/base_test.go") {
 		t.Fatalf("CLI affected --stdin must print the affected test file, got: %s", out)
 	}
@@ -92,7 +95,7 @@ func TestCodeAffectedStdinCLI(t *testing.T) {
 	if err := os.WriteFile(emptyFile, []byte(""), 0o644); err != nil {
 		t.Fatalf("write empty: %v", err)
 	}
-	out2 := runSearchAffectedCapture(t, emptyFile, []string{"search", "affected", "--stdin"})
+	out2 := runSearchAffectedCapture(t, svc, emptyFile, []string{"search", "affected", "--stdin"})
 	if !strings.Contains(out2, "no changed") {
 		t.Fatalf("CLI affected --stdin on an empty diff must print a clear message, got: %s", out2)
 	}
