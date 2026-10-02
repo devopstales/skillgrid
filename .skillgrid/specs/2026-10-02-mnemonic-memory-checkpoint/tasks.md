@@ -38,6 +38,7 @@ Chain strategy: pending
 
 ### TICKET-01 — Checkpoint and inject config sections
 
+- **Tracker ID:** TASK-038.01
 - **Scope:** Load `mnemonic.checkpoint` and `mnemonic.inject` with the defaults and validation named in the briefing.
 - **Acceptance:** No keys → defaults `enabled, 5, 10m, 5` and `5, 20, 800`. `min_events: 0` errors naming `mnemonic.checkpoint.min_events`. Documented in `docs/user-guide/05-memory.md`.
 - **SATISFIES:** defaults-apply-without-keys, invalid-value
@@ -50,6 +51,7 @@ Chain strategy: pending
 
 ### TICKET-02 — Session checkpoint state in the store
 
+- **Tracker ID:** TASK-038.02
 - **Scope:** Migration 049 adds `checkpoint_claimed_at` and `last_memory_write_at`; `CheckpointState` / `ClaimCheckpoint` / `touchMemoryWrite` on `memory.Service`.
 - **Acceptance:** Six events → `EventsSinceWrite == 6`; after `SessionSummary` → `0`; `ClaimCheckpoint` sets `LastClaimedAt`; unknown id → `Exists == false`, no error.
 - **SATISFIES:** claim-resets-after-summary, claim-for-unknown-session
@@ -63,6 +65,7 @@ Chain strategy: pending
 
 ### TICKET-03 — Pure checkpoint package: decide, digest, prompt
 
+- **Tracker ID:** TASK-038.03
 - **Scope:** `internal/mnemonic/checkpoint` — `Decide`, `BuildDigest`, `RenderPrompt`. No I/O. Digest is structured fields only (per ASSUMPTIONS.md § Locked constraints — no new dependency; prompt-injection boundary in the blueprint).
 - **Acceptance:** Decide table covers disabled / unknown / below min / cooldown / due. Digest ≤ 1500 chars with `(+N more)`. Digest never contains preview text. Prompt lists session id, digest, existing titles, `mem_save`, `mem_session_summary`.
 - **SATISFIES:** prompt-lists-new-events-and-existing-titles, prompt-digest-is-bounded, prompt-excludes-tool-output-text
@@ -75,6 +78,7 @@ Chain strategy: pending
 
 ### TICKET-04 — Claim route
 
+- **Tracker ID:** TASK-038.04
 - **Scope:** `POST /sessions/{id}/checkpoint/claim` returns `{due, reason, prompt}`; claims on due; 200 for unknown session; OpenAPI.
 - **Acceptance:** Five tool calls → due + prompt; immediate re-claim → cooldown; disabled → not due; unknown → `reason: unknown_session`, no 404; prompt omits `content_preview`.
 - **SATISFIES:** claim-due-after-enough-events, claim-not-due-below-threshold, claim-for-unknown-session, disabled-checkpoint
@@ -87,6 +91,7 @@ Chain strategy: pending
 
 ### TICKET-05 — Cursor stop follow-up (door check)
 
+- **Tracker ID:** TASK-038.05
 - **Scope:** `tool-call-capture.js checkpoint` mode; `cursor-session-end.sh` emits `followup_message` on `stop` only; `loop_limit: 2` on the Cursor stop entry (plugin + `setup cursor`).
 - **Acceptance:** Fake server due + `loop_count: 0` → `{followup_message}`. `loop_count: 2` or cooldown or dead port → `{}` within 2s, exit 0. `TestUpsertCursorHooks` asserts `loop_limit: 2`.
 - **SATISFIES:** stop-returns-followup-when-due, stop-stays-silent-at-loop-limit, stop-fails-open-without-server
@@ -99,6 +104,7 @@ Chain strategy: pending
 
 ### TICKET-06 — One project resolver
 
+- **Tracker ID:** TASK-038.06
 - **Scope:** Hooks send `directory` only; `projectFromRequest` resolves via `project.Resolve`; delete `resolveProject` / active-project pin read from the capture script.
 - **Acceptance:** POST with only `directory` stores under `project.Resolve(dir)`. `prime` and HTTP agree on the id. `rg resolveProject hooks/tool-call-capture.js` is empty.
 - **SATISFIES:** prime-and-hooks-share-one-project, directory-without-project-param, prime-in-another-repository
@@ -111,6 +117,7 @@ Chain strategy: pending
 
 ### TICKET-07 — Private spans never stored
 
+- **Tracker ID:** TASK-038.07
 - **Scope:** `memory.StripPrivate` on every write seam (save, summary, prompt, tool-call preview) and in the capture hook before POST. Reuse/move any existing inject-time stripper so there is one implementation.
 - **Acceptance:** Stored preview/summary/content never contains span inner text; unterminated tag strips to end; hook request body is clean.
 - **SATISFIES:** tool-call-with-private-span, unterminated-private-tag, private-span-in-summary, prompt-omits-private-spans
@@ -123,6 +130,7 @@ Chain strategy: pending
 
 ### TICKET-08 — Memory index at session start
 
+- **Tracker ID:** TASK-038.08
 - **Scope:** `session_inject.RenderIndex` + `skillgrid prime` appends `## Memory` (5 summaries, 20 observations, pinned first, 800-token cap, progressive-disclosure footer). Index only — AutoPrepend stays resume-only (per ASSUMPTIONS.md § Locked constraints).
 - **Acceptance:** Pinned first; empty store → no section; over cap drops oldest and states omitted count; footer names `mem_get_observation`, `mem_timeline`, `mem_search`.
 - **SATISFIES:** prime-lists-summaries-and-observation-index, index-respects-token-cap, index-absent-for-empty-project
@@ -135,6 +143,7 @@ Chain strategy: pending
 
 ### TICKET-09 — OpenCode and Kilo checkpoint plugin
 
+- **Tracker ID:** TASK-038.09
 - **Scope:** `skillgrid-checkpoint.ts` claims on `session.idle` and prompts when due; `setup opencode|kilo` copies it once.
 - **Acceptance:** After setup the plugin file exists; dry-run writes nothing; not-due and no-server send no prompt (fail-open). G7 is manual.
 - **SATISFIES:** setup-installs-checkpoint-plugin, plugin-does-not-prompt-when-not-due, plugin-fails-open-without-server
@@ -147,6 +156,7 @@ Chain strategy: pending
 
 ### TICKET-10 — Observations in the session event feed
 
+- **Tracker ID:** TASK-038.10
 - **Scope:** `GET /sessions/{id}/events` gains `observations[]`; sessions list gains `observations` count. Additive.
 - **Acceptance:** A saved observation appears with id/type/title; list count is 1; OpenAPI updated.
 - **SATISFIES:** observation-row-links-to-full-text
@@ -159,6 +169,7 @@ Chain strategy: pending
 
 ### TICKET-11 — Live observation rows in the Sessions view
 
+- **Tracker ID:** TASK-038.11
 - **Scope:** `ToolTimeline` interleaves observation rows; `SessionsPage` appends from `activity` SSE and bumps the card count.
 - **Acceptance:** Observation row appears between tool rows by timestamp and links to detail; mocked `activity` frame increments count; disconnect shows existing "live paused".
 - **SATISFIES:** observation-appears-live, observation-row-links-to-full-text, stream-disconnected
