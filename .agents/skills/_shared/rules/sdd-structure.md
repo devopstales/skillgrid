@@ -4,9 +4,13 @@ Single source of truth for filesystem layout, artifact names, and phase order. I
 
 ## Phase Order
 
+This is the only full chain. Other skills cite this section in one line and restate only their own previous and next step.
+
 ```
-brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing → ticketing → execution → qa → review → ship → reflect
+brainstorming → [research | spike | sketch] → writing-blueprints → slicing → (user gate) → ticketing → execution → qa → requesting-code-review → receiving-code-review → ship → reflect
 ```
+
+`research`, `spike`, and `sketch` are optional pre-blueprint gates. The user gate after `slicing` is mandatory: the user confirms the slice before execution. Fast-track waivers skip earlier planning skills only as `fast-track.md` allows; they do not skip the tail (`qa` through `reflect`).
 
 | Skill | Role |
 |---|---|
@@ -31,7 +35,7 @@ brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing
 | `isolated-workspace` | Worktree isolation before execution |
 | `ponytail` | Lazy-minimal solution discipline (auto, on coding tasks) |
 | `qa` | Quality gate → `report.md` (QA half: test plan + verdict + evidence) |
-| `requesting-code-review` / `parallel-code-review` | Review |
+| `requesting-code-review` / `parallel-code-review` | Review → `review.md` |
 | `receiving-code-review` | Process findings |
 | `ship` | Integrate to base + move change folder to `archive/` |
 | `reflect` | **Terminal** — completes `report.md`'s retro half in place in the archive + session close |
@@ -40,7 +44,7 @@ brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing
 ## Naming
 
 - **Change**: `YYYY-MM-DD-<topic>` (e.g. `2025-03-01-dark-mode`). Never reused.
-- **Mnemonic slot**: `skillgrid/{YYYY-MM-DD-<topic>}/<artifact>` (`briefing|blueprint|findings|tasks|execution-progress|report`).
+- **Mnemonic slot**: `skillgrid/{YYYY-MM-DD-<topic>}/<artifact>` (`briefing|blueprint|findings|tasks|execution-progress|report|review`).
 
 ## Directory Structure
 
@@ -65,7 +69,8 @@ brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing
 │       ├── tasks.md            # slicing (tickets, waves, dependencies)
 │       ├── adr.md              # ADR Review Manifest (per-change; pointers to ASSUMPTIONS.md ### ADR-NNNN entries)
 │       ├── findings.md         # research/spike/sketch consolidated evidence (optional)
-│       └── report.md           # two-phase: qa writes the QA half (test plan + gate verdict + evidence)
+│       ├── report.md           # two-phase: qa writes the QA half (test plan + gate verdict + evidence)
+│       └── review.md           # requesting-code-review audit record; read by ship and reflect
 ├── archive/                    # CLOSED changes (committed, immutable); created lazily by ship
 │   └── YYYY-MM-DD-<topic>/     #   moved here by ship; reflect completes report.md's retro half in place
 ├── sdd/                        # scratch (gitignored)
@@ -76,6 +81,20 @@ brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing
 │   └── debug/<date>-<slug>/    # structured-debugging trail (state.md here is a debug artifact)
 └── brainstorm/                 # visual companion state (gitignored)
 ```
+
+## Resume markers
+
+`resume` and `using-skillgrid` read these markers to pick the next skill. If another skill's table disagrees with this section, this section wins.
+
+| Marker | Next |
+|---|---|
+| `report.md` absent, or `## Gate Decision` verdict empty / `PENDING` / still the template placeholder | `qa` |
+| QA verdict filled (`PASS` / `CONCERNS` / `FAIL` / `WAIVED`) and `review.md` missing or its `## Verdict` floor not met | `requesting-code-review` |
+| `review.md` floor met (`met` or `met-with-fixes`) and the folder is still under `specs/` | `receiving-code-review`, then `ship` |
+| Folder in `archive/`, QA verdict filled, retro sections empty | `reflect` |
+| Folder in `archive/` and retro sections filled (`## Acceptance Verdict` already chosen, or `## Lessons` / `## Decisions` non-empty) | none — cycle complete |
+
+Planning-phase detection (which spec files exist, whether `tasks.md` is checked) stays in `skillgrid:resume`. The tail above is the part that used to collapse review and ship into one step.
 
 ## STATUS Banner
 

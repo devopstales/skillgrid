@@ -50,10 +50,13 @@ The **phase** is not a separate file — it is read from the spec-zone artifacts
 | `briefing.md` + `blueprint.md` (no `tasks.md` `[x]`) | blueprint done, slicing next |
 | `tasks.md` with `[ ]` items (no ledger) | slicing done, execution not started |
 | `tasks.md` with `[x]` items + ledger | execution in progress |
-| `report.md` present, `## Gate Decision` verdict EMPTY/`PENDING` (or section absent) | qa not run yet → next: `qa` |
-| `report.md` verdict filled (PASS / CONCERNS / FAIL / WAIVED), retro sections (from `## Final-State Facts`) EMPTY | qa done → next: `requesting-code-review` (or `ship` per the existing tail order) |
-| folder in `archive/`, verdict filled, retro EMPTY | `reflect` (its terminal step) |
+| `report.md` absent, or `## Gate Decision` verdict EMPTY/`PENDING` (or section absent) | next: `qa` |
+| QA verdict filled (`PASS` / `CONCERNS` / `FAIL` / `WAIVED`) and `review.md` missing or its `## Verdict` floor not met | next: `requesting-code-review` |
+| `review.md` floor met (`met` or `met-with-fixes`) and the folder is still under `specs/` | next: `receiving-code-review`, then `ship` |
+| folder in `archive/`, verdict filled, retro sections EMPTY | next: `reflect` |
 | folder in `archive/` AND retro sections filled (e.g. `## Lessons` non-empty or `## Acceptance Verdict` present) | cycle complete → none |
+
+The tail rows are the resume markers in `_shared/rules/sdd-structure.md`. If this table disagrees with that section, that section wins.
 
 The tail phases key on **markers within `report.md`** (the merged qa+retro report), not on file existence. Concretely:
 

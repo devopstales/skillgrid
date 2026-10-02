@@ -2,7 +2,7 @@
 
 Single source of truth for what a `SKILL.md` *looks like*. Every Skillgrid skill
 conforms to this file. If a skill disagrees with it, **this file wins**. This is
-the contract that keeps 31 skills from drifting — when you add or edit a skill,
+the contract that keeps the skill catalog from drifting — when you add or edit a skill,
 you shape it here first, not ad hoc.
 
 Companion contracts (this file assumes they exist and are honored):
@@ -22,11 +22,12 @@ Companion contracts (this file assumes they exist and are honored):
 
 ```
 .agents/skills/
-  skill-name/           # kebab-case, matches frontmatter `name` exactly
-    SKILL.md            # required — the skill definition (entry point)
-    references/         # optional — on-demand detail, loaded only when needed
-    templates/          # optional — fill-in artifacts the skill writes
-    scripts/            # optional — executable helpers
+  <category>/           # planning, execution, verification, lifecycle, knowledge, design, craft
+    skill-name/         # kebab-case, matches frontmatter `name` exactly
+      SKILL.md          # required — the skill definition (entry point)
+      references/       # optional — on-demand detail, loaded only when needed
+      templates/        # optional — fill-in artifacts the skill writes
+      scripts/          # optional — executable helpers
 ```
 
 - `SKILL.md` is always uppercase, always the entry point.
@@ -205,29 +206,18 @@ re-specify the whole chain.
 
 | Tier | Budget | Examples |
 |---|---|---|
-| Standard | **≤ 400 lines** | most skills |
-| Heavy (process + many references) | ≤ 500, then push tail to `references/` | `qa`, `brainstorming` |
-| Orchestrator (a whole phase of control flow) | ≤ 600, tail must live in `references/` | `subagent-execution` |
-| Reference-only (a `references/` file) | ≤ 250 | reviewer prompts, technique notes |
+| Every `SKILL.md` | **≤ 400 lines** | pipeline skills and specialists alike |
+| Reference-only (a `references/` file) | ≤ 250 | reviewer prompts, technique notes, procedure tails |
 
-The **Orchestrator** tier exists for exactly one reason: a skill like
-`subagent-execution` carries an entire phase of control flow (Setup → Task
-Loop → Final QA Gate → Final Review → Finish) whose steps cross-reference
-each other so densely that splitting them into `references/` severs the
-concept net the agent reasons with. Its *tails* — worked examples, per-role
-rules, detailed procedures — still move out; only the interlocking spine
-stays inline.
+There is no heavy or orchestrator exception. A long control flow (setup, task loop, final review) keeps a short spine in `SKILL.md` and puts the procedure in `references/`. The spine names the decision and the handoff; the reference holds the steps.
 
-Crossing the budget is a code smell, not a permission. Split, don't bloat.
-When a skill is genuinely over its tier, the fix is to push detail into
-`references/` first — not to widen the tier. A skill that cannot reach its
-budget by pushing tail out is the wrong skill and should be split into two.
+Crossing the budget is a code smell, not a permission. Split, don't bloat. Push detail into `references/` first. A skill that cannot reach 400 lines by pushing the tail out should be split into two.
 
 ## Starting a new skill
 
 Copy the fill-in skeleton at
 [`../templates/skill-template.md`](../templates/skill-template.md) to
-`skills/{skill-name}/SKILL.md`. It is this anatomy made concrete — every
+`.agents/skills/<category>/{skill-name}/SKILL.md`. It is this anatomy made concrete — every
 required section is present in order with `<!-- hint -->` comments and a
 compliance gate at the bottom. Replace the placeholders, delete the hints, and
 run the checklist below. If the template and this file ever drift, this file

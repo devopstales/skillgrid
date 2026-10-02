@@ -1,6 +1,6 @@
 ---
 name: reflect
-description: "Use when a change has been shipped (folder moved to .skillgrid/archive/) and you need to close the cycle with a sourced retrospective and the final-state archive report. The terminal phase (qa → review → ship → reflect)."
+description: "Use when a change has been shipped (folder moved to .skillgrid/archive/) and you need to close the cycle with a sourced retrospective and the final-state archive report. The terminal phase after ship."
 license: MIT
 metadata:
   author: devopstales
@@ -42,9 +42,7 @@ The terminal SDD phase. After `ship` has integrated the work and moved the chang
 
 ## Phase Order
 
-```
-qa → review → ship → reflect
-```
+After `ship`. Terminal. The full chain is in `_shared/rules/sdd-structure.md`.
 
 `prev-phase: [ship]` · `next-phase: []` (terminal) · `artifact: report`.
 

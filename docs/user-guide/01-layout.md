@@ -74,7 +74,7 @@ Hooks and skills read these at runtime. The `[skillgrid-context]` block in a com
 
 ### Multi-phase changes
 
-When a blueprint covers multiple independent phases (each with its own tasks, deliverables, and execution wave), it splits into **one change folder per phase** as siblings under `.skillgrid/specs/`, plus a parent folder holding the shared blueprint index and shared context:
+When a blueprint covers multiple independent phases (each with its own tasks, deliverables, and execution wave), it splits into **one change folder per phase** as siblings under `.skillgrid/specs/`, plus a parent folder holding the shared blueprint index and shared context. The contract is `.agents/skills/_shared/rules/sdd-structure.md`. A phase folder is a normal change folder: `briefing.md`, not `spec.md`.
 
 ```text
 .skillgrid/specs/
@@ -88,24 +88,23 @@ When a blueprint covers multiple independent phases (each with its own tasks, de
                                             constraints, file structure (shared
                                             across all phases)
   2026-10-01-kubedash-5.0-phase-1/      ← change: Phase 1 (e.g. MVP)
-    spec.md                              ← phase header (back-links to
+    briefing.md                          ← phase goal (back-links to
                                             ../<parent>/blueprint.md and
-                                            ../<parent>/shared/context.md) +
-                                            phase goal + all tasks for this phase
+                                            ../<parent>/shared/context.md)
   2026-10-01-kubedash-5.0-phase-2/      ← change: Phase 2
-    spec.md
+    briefing.md
   2026-10-01-kubedash-5.0-phase-3/      ← change: Phase 3
-    spec.md
+    briefing.md
   2026-10-01-kubedash-5.0-phase-4/      ← change: Phase 4
-    spec.md
+    briefing.md
 ```
 
 Rules:
 
-- Each phase folder is a **valid standalone change** — it has its own `spec.md` with the phase's tasks (TDD shape, SATISFIES BDD links, one-way-door tags).
+- Each phase folder is a **valid standalone change**. `briefing.md` holds the phase goal. `blueprint.md`, `tasks.md`, and `review.md` appear when those phases run, following the spec-folder tree in `sdd-structure.md`.
 - The parent folder is **not a change** — it holds the blueprint index and `shared/context.md` that every phase links to.
 - Phase folder naming: `<parent-change-name>-phase-<N>` (e.g. `2026-10-01-kubedash-5.0-phase-1`).
-- Back-links in each phase `spec.md` use relative paths: `../<parent>/blueprint.md` and `../<parent>/shared/context.md`.
+- Back-links in each phase `briefing.md` use relative paths: `../<parent>/blueprint.md` and `../<parent>/shared/context.md`.
 - The phases table in the parent `blueprint.md` uses relative links: `../<parent>-phase-N/`.
 - Do **not** nest phase folders inside the parent — they must be siblings at the `.skillgrid/specs/` level.
 - Each phase is sliced, executed, and shipped independently via its own change folder.

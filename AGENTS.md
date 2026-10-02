@@ -48,7 +48,7 @@ Mnemonic is active — protocol in the `skillgrid:mnemonic` skill; shared rules 
 
 ### Workflow
 
-`brainstorming` → `writing-blueprints` → `slicing` → `ticketing` → execution (`subagent-execution` or `simple-execution`) → `qa` → `requesting-code-review` → `receiving-code-review`
+`brainstorming` → `writing-blueprints` → `slicing` → `ticketing` → execution (`subagent-execution` or `simple-execution`) → `qa` → `requesting-code-review` → `receiving-code-review` → `ship` → `reflect`
 
 Run `skillgrid:onboarding` to update config after stack changes.
 <!-- skillgrid:end -->
