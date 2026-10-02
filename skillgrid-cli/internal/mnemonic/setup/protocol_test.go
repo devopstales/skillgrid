@@ -43,7 +43,6 @@ func TestCursorPluginLayout(t *testing.T) {
 		"hooks/tool-call-capture.js",
 		"rules/mnemonic.mdc",
 		"scripts/sync-mnemonic-rule.sh",
-		"plugins/_shared/memory-protocol.md",
 		"plugins/cursor/mcp.json",
 		"agents/cursor/implementer.md",
 		"agents/cursor/reviewer.md",
