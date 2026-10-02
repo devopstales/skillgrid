@@ -1,6 +1,6 @@
 # Briefing — Mnemonic Memory Improvements (from Mnemon + mnemonic-ai comparison)
 
-> **STATUS:** `draft` (2026-09-24)
+> **STATUS:** `approved` (2026-10-02) — execute request authorizes the design below, including the three one-way doors. ADR number in the briefing body said 0017; 0017 is the D3 graph decision, so the signals ADR is **ADR-0018**.
 
 **Topic:** 2026-09-24-mnemonic-memory-improvements
 **Date:** 2026-09-24
@@ -29,8 +29,8 @@ A comparison against two external memory systems — Mnemon (mnemon-dev/mnemon, 
 | Intent detection (`ClassifyIntent`) | `memory/retrieval.go:70-80` | Built (4 intents, not wired into search) |
 | `observation_relations` table (014 step 14) | migration 026 | Partial (PENDING) |
 | Temporal graph edges (014 step 10) | migration 025 | Partial (PENDING) |
-| Session events + monitoring | session-events-layer + monitoring spec | In-flight |
-| Session inject (L1 + hybrid retrieval) | session-inject spec | In-flight |
+| Session events + monitoring | session-events-layer + monitoring spec | Shipped |
+| Session inject (L1 + hybrid retrieval) | session-inject spec | Shipped |
 
 ## Capabilities to add
 
@@ -142,7 +142,7 @@ A comparison against two external memory systems — Mnemon (mnemon-dev/mnemon, 
 
 ## ADR needed
 
-ADR-0017 (next free sequence; 0011 was double-claimed by bitemporal-audn and is now owned by it): "MCP mem_search response includes per-signal score breakdown (additive `signals` field; `matched_via` discriminator; RRF fusion when embedder active)."
+ADR-0018 (0017 is the D3 graph decision): "MCP mem_search response includes per-signal score breakdown (additive `signals` field; `matched_via` discriminator; RRF fusion when embedder active), and the fusion runs through an owner-scoped blend so `visibilityFilter` still applies."
 
 ## Out of scope (listed but not in this change)
 
