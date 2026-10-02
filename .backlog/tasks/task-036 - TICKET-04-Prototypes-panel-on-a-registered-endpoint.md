@@ -1,10 +1,10 @@
 ---
 id: TASK-036
 title: 'TICKET-04: Security + Prototypes panels on registered endpoints'
-status: needs-triage
+status: blocked
 assignee: []
 created_date: '2026-10-02 13:13'
-updated_date: '2026-10-02 13:22'
+updated_date: '2026-10-02 13:33'
 labels:
   - >-
     webui-rewrite --priority high --type feature -p TASK-031 --ref
@@ -36,3 +36,9 @@ System → Security must fetch GET /security/trivy and Project → Prototypes mu
 - [ ] #4 No new warnings introduced
 - [ ] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+BLOCKED at precondition: rename committed (ef32d593) but server.go, app.tsx, AppLayout.tsx, PrototypesPage.tsx, docs_prototypes.go, security.go remain uncommitted. G7 = 0/0 at HEAD.
+<!-- SECTION:NOTES:END -->

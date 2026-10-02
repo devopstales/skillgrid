@@ -1,9 +1,10 @@
 ---
 id: TASK-037
 title: 'TICKET-06: Verification floor L2'
-status: needs-triage
+status: blocked
 assignee: []
 created_date: '2026-10-02 13:14'
+updated_date: '2026-10-02 13:33'
 labels:
   - >-
     webui-rewrite --priority high --type feature -p TASK-031 --ref
@@ -36,3 +37,9 @@ Whole-change gate on the integrated tree. SATISFIES verification-floor.
 - [ ] #4 No new warnings introduced
 - [ ] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+BLOCKED: HEAD ffd83337 does not build (go: handlePrototypes undefined; tsc: features/spikes/SpikesPage missing) due to external staged-only rename commit ef32d593. Last green floor at d5e01985 + fix.
+<!-- SECTION:NOTES:END -->

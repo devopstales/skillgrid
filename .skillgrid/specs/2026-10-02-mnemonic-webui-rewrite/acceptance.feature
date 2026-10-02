@@ -34,11 +34,11 @@ The primary nav SHALL render the mockup's groups in order — Overview · Projec
 G1: AppLayout nav groups
   CHECK: cd skillgrid-ui && npx vitest run src/components/layout/AppLayout.test.tsx
   EXPECT: PASS
-  EVIDENCE: pending
+  EVIDENCE: PASS — 4 passed at d5e01985 (clean worktree)
 G2: demoted routes present in the route tree
   CHECK: rg -c "path: '/(git|mnemonic/memories|mnemonic/search|decisions|prototypes)'" skillgrid-ui/src/app.tsx
   EXPECT: 5
-  EVIDENCE: pending
+  EVIDENCE: PASS — 5 at d5e01985
 
 ### Requirement: theme-tokens
 
@@ -58,7 +58,7 @@ The SPA SHALL use the mockup's dark console tokens (indigo accent on surface-800
 G3: theme tokens
   CHECK: rg -n "surface-800|surface-900|--color-accent" skillgrid-ui/src/styles/index.css | head -3
   EXPECT: at least three matching lines, accent is not a green hex
-  EVIDENCE: pending
+  EVIDENCE: PASS — --color-accent: #6366f1, surface-800/900 defined at d5e01985
 
 ### Requirement: d3-code-graph
 
@@ -88,11 +88,11 @@ The Code Graph page SHALL render `/mnemonic/graph/data` with a D3 v7 force layou
 G4: D3 graph wiring
   CHECK: rg -n "fetchGraph\(\{ limit: 500 \}\)|forceSimulation|Node Inspector" skillgrid-ui/src/features/mnemonic/GraphPage.tsx
   EXPECT: three matching lines
-  EVIDENCE: pending
+  EVIDENCE: PASS — 3 lines at d5e01985
 G5: dependency swap
   CHECK: rg -c '"(sigma|graphology|@react-sigma/core)"' skillgrid-ui/package.json; rg -c '"d3"' skillgrid-ui/package.json
   EXPECT: 0 then 1
-  EVIDENCE: pending
+  EVIDENCE: PASS — 0 then 1 at d5e01985; build:check 298.2 kB/400 kB with vendor-d3 chunk
 
 ### Requirement: panels-fetch-live-endpoints
 
@@ -121,11 +121,11 @@ Compaction, Web Cache, Security, and Prototypes SHALL fetch their Go endpoints t
 G6: Observe endpoints exist
   CHECK: cd skillgrid-cli && rg -c '"GET /(context|context/compaction|web/status|web/search)"' internal/mnemonic/http/server.go
   EXPECT: 4
-  EVIDENCE: pending
+  EVIDENCE: PASS — 4 at d5e01985 and ffd83337
 G7: Security + Prototypes endpoints exist
   CHECK: cd skillgrid-cli && rg -c '"GET /security/trivy"' internal/mnemonic/http/server.go; p=$(rg -o "apiGet<[^>]*>\('[^']+'" ../skillgrid-ui/src/features/prototypes/PrototypesPage.tsx ../skillgrid-ui/src/features/spikes/SpikesPage.tsx 2>/dev/null | head -1 | sed "s/.*('//;s/'//"); rg -c "\"GET $p\"" internal/mnemonic/http/server.go
   EXPECT: 1 then 1
-  EVIDENCE: pending
+  EVIDENCE: FAIL (expected, TICKET-04 blocked) — 0 then 0 at ffd83337; routes live only in uncommitted server.go
 
 ### Requirement: relative-api-urls
 
@@ -144,7 +144,7 @@ Production API calls SHALL be same-origin relative URLs with `project` injected;
 G8: no hardcoded origin outside apiBase
   CHECK: rg -l "127\.0\.0\.1:7438" skillgrid-ui/src --glob '!**/apiBase.ts' --glob '!**/*.test.*'
   EXPECT: only files where the string is display text (AppLayout footer label), no fetch() call sites
-  EVIDENCE: pending
+  EVIDENCE: PASS — only AppLayout.tsx footer display label at d5e01985; no fetch() site
 
 ### Requirement: briefing-task-refs-linkified
 
@@ -163,7 +163,7 @@ A plan briefing rendered through MarkdownView SHALL still turn `#NNN` / `task-NN
 G9: linked tasks regression
   CHECK: cd skillgrid-ui && npx vitest run src/features/plans
   EXPECT: PASS (PlansPage.linkedTasks.test.tsx green)
-  EVIDENCE: pending
+  EVIDENCE: PASS — 2 files, 11 passed at ffd83337 (RED 87/88 at d5e01985 before the fix)
 
 ### Requirement: verification-floor
 
@@ -191,8 +191,8 @@ G9: linked tasks regression
 G10: UI suite + budget
   CHECK: cd skillgrid-ui && npm test && npm run build:check
   EXPECT: exit 0, "Bundle-size budget OK."
-  EVIDENCE: pending
+  EVIDENCE: BLOCKED — tsc -b fails at ffd83337: app.tsx imports deleted features/spikes/SpikesPage; PrototypesPage export mismatch (external commit ef32d593); last green at d5e01985 + fix
 G11: Go embed
   CHECK: cd skillgrid-cli && go build ./... && go build -tags ui ./...
   EXPECT: exit 0
-  EVIDENCE: pending
+  EVIDENCE: BLOCKED — go build fails at ffd83337: server.go:224/225 handlePrototypes/handlePrototype undefined (external commit ef32d593); last green at d5e01985

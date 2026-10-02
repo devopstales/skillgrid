@@ -1,9 +1,10 @@
 ---
 id: TASK-034
 title: 'TICKET-02: D3 force code graph with inspector (ADR-0017) — door check'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-02 13:13'
+updated_date: '2026-10-02 13:33'
 labels:
   - >-
     webui-rewrite --priority high --type feature -p TASK-031 --ref
@@ -24,9 +25,9 @@ Confirm GraphPage is the mockup D3 force layout (limit=500, Node Inspector) and 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 G4 three matching lines in GraphPage.tsx
-- [ ] #2 G5 0 Sigma deps / 1 d3
-- [ ] #3 npm run build:check prints Bundle-size budget OK with vendor-d3 chunk
+- [x] #1 G4 three matching lines in GraphPage.tsx
+- [x] #2 G5 0 Sigma deps / 1 d3
+- [x] #3 npm run build:check prints Bundle-size budget OK with vendor-d3 chunk
 <!-- AC:END -->
 
 ## Definition of Done
@@ -37,3 +38,9 @@ Confirm GraphPage is the mockup D3 force layout (limit=500, Node Inspector) and 
 - [ ] #4 No new warnings introduced
 - [ ] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Verified at d5e01985: G4 3 lines, G5 0/1, build:check 298.2 kB/400 kB with vendor-d3 chunk. Door check held.
+<!-- SECTION:NOTES:END -->
