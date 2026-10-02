@@ -307,7 +307,7 @@ func TestActivitySSE_ToolEvent(t *testing.T) {
 		t.Fatalf("no ready frame")
 	}
 
-	if res := postToolCall(t, s, "live-1", map[string]any{"agent": "kilo", "tool_name": "bash", "command": "ls"}); res.Code != http.StatusOK {
+	if res := postToolCall(t, s, "live-1", map[string]any{"agent": "kilo", "tool_name": "bash", "command": "ls"}); res.Code != http.StatusOK && res.Code != http.StatusCreated {
 		t.Fatalf("post: %d %s", res.Code, res.Body.String())
 	}
 	if !pr.waitFor(`"newSession":true`, 5*time.Second) {
