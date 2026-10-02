@@ -386,7 +386,7 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		queryVec := memory.Vector{}
 		if memory.EmbeddingEnabled() {
 			if emb := embedder.Default(); emb != nil {
-				if v, eErr := emb.EmbedQuery(bctx, query); eErr == nil {
+				if v, eErr := memory.CachedEmbedQuery(bctx, h.Store().DB, emb.Model(), emb.EmbedQuery, query); eErr == nil {
 					queryVec = v
 				}
 			}
