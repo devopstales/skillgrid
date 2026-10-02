@@ -409,6 +409,18 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 	// without further config. When the key is false (the default) the pass
 	// stays off and capture is exactly the regex-only behavior.
 	mem.EnableExtractionLLM(cfg.Extraction.LLM)
+	// LLM pre-write semantic dedup (TICKET-05): the opt-in switch from the
+	// mnemonic.dedup.llm config key. When true, a dedup LLM backend is
+	// attached to the memory service and the 4-way Classify seam is armed, so
+	// SaveWithAction's pre-write check runs the LLM 4-way classification
+	// (add/update/delete/noop) and merges into the candidate on an
+	// update/delete verdict. When false (the default) the seam is left nil and
+	// SaveWithAction stays on the deterministic hash dedup floor — no behavior
+	// change. Mirrors the mnemonic.extraction.llm wiring above.
+	if cfg.Dedup.LLM {
+		mem.SetDedupLLM(newDedupLLMBackend())
+		mem.EnableDedupLLM(true)
+	}
 	// Self-improvement feedback loop (014 step 08): route the mnemonic.improve
 	// config key to the memory service. OPT-IN — Enabled defaults to false, so
 	// a config without the section keeps the exact pre-improve search ordering

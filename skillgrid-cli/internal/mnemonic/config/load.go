@@ -67,6 +67,14 @@ type Extraction struct {
 	LLM bool
 }
 
+// Dedup is the mnemonic.dedup section (TICKET-05). The LLM pre-write
+// semantic-dedup pass is OPT-IN: LLM defaults to false so saves stay on the
+// deterministic hash dedup floor unless an operator enables it. Mirrors the
+// mnemonic.extraction.llm opt-in pattern.
+type Dedup struct {
+	LLM bool
+}
+
 // Improvement is the mnemonic.improve section (014 step 08): the
 // self-improvement feedback loop (retrieval-usage boost/decay re-ranking in
 // mem_search). OPT-IN: Enabled defaults to false so the default search
@@ -164,6 +172,9 @@ type Indexing struct {
 	// Extraction is the mnemonic.extraction section (014 step 05): LLM passive
 	// extraction is opt-in (LLM defaults to false → regex floor).
 	Extraction Extraction
+	// Dedup is the mnemonic.dedup section (TICKET-05): LLM pre-write
+	// semantic-dedup is opt-in (LLM defaults to false → hash floor).
+	Dedup Dedup
 	// Improvement is the mnemonic.improve section (014 step 08): the
 	// self-improvement feedback loop. OPT-IN (Enabled defaults to false).
 	Improvement Improvement
@@ -221,6 +232,9 @@ type mnemonicSection struct {
 	// Extraction is the mnemonic.extraction section (014 step 05): the LLM
 	// passive-extraction opt-in switch.
 	Extraction extractionSection `yaml:"extraction"`
+	// Dedup is the mnemonic.dedup section (TICKET-05): the LLM pre-write
+	// semantic-dedup opt-in switch.
+	Dedup dedupSection `yaml:"dedup"`
 	// Improvement is the mnemonic.improve section (014 step 08): the
 	// self-improvement feedback loop opt-in + tunable rates.
 	Improvement improvementSection `yaml:"improve"`
@@ -261,6 +275,13 @@ type retrievalBudgetSection struct {
 // defaults to false: passive capture stays on the deterministic regex floor
 // unless an operator opts into the LLM pass.
 type extractionSection struct {
+	LLM bool `yaml:"llm"`
+}
+
+// dedupSection is the mnemonic.dedup section (TICKET-05). LLM defaults to
+// false: saves stay on the deterministic hash dedup floor unless an operator
+// opts into the LLM 4-way pre-write semantic-dedup check.
+type dedupSection struct {
 	LLM bool `yaml:"llm"`
 }
 
@@ -453,6 +474,10 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	// Extraction (014 step 05): the LLM opt-in switch. The section has no
 	// non-zero default, so the YAML value applies as-is (absent → false).
 	out.Extraction = Extraction{LLM: section.Extraction.LLM}
+	// Dedup (TICKET-05): the LLM pre-write semantic-dedup opt-in switch. The
+	// section has no non-zero default, so the YAML value applies as-is
+	// (absent → false, the deterministic hash floor).
+	out.Dedup = Dedup{LLM: section.Dedup.LLM}
 	// Improvement (014 step 08): the self-improvement feedback loop. OPT-IN —
 	// Enabled defaults to false (absent → byte-identical search). Zero rate
 	// fields fall back to the memory package defaults in SetImprove.
