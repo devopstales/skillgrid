@@ -86,11 +86,12 @@ technical planning lives:]
 
 ## Impact on Global Docs
 
-[If this feature changes `.skillgrid/ASSUMPTIONS.md` (a new VERIFIED/INFERRED
-fact, a new ADR entry, a changed metric) or `.skillgrid/ARCHITECTURE.md`
-(new component, data store, integration), list the exact edits here. If none,
-write "None".]
+[If this feature changes `.skillgrid/artifacts/00-prd.md` (scope, feature, metric),
+`.skillgrid/ASSUMPTIONS.md` (a new VERIFIED/INFERRED fact, a new ADR path row),
+or `.skillgrid/ARCHITECTURE.md` (new component, data store, integration), list
+the exact edits here. If none, write "None".]
 
+- `.skillgrid/artifacts/00-prd.md`: [edit or "None"]
 - `.skillgrid/ASSUMPTIONS.md`: [edit or "None"]
 - `.skillgrid/ARCHITECTURE.md`: [edit or "None"]
 
@@ -123,9 +124,9 @@ treats it as an assumption.]
 
 ## Decisions (ADR)
 
-[Pointers to ADR entries in `.skillgrid/ASSUMPTIONS.md` (§ LOCKED) that constrain THIS feature —
+[Pointers to ADR files (`.skillgrid/artifacts/04-adr-NNNN-slug.md`) that constrain THIS feature —
 the decisions made during the interview that clear the bar (hard to reverse +
-surprising + real trade-off). List each as `### ADR-NNNN — one-line gist`.
+surprising + real trade-off). List each as the Record path plus a one-line gist.
 These are the source of truth; do not restate them here. If no decision for this
 feature cleared the ADR bar, write "None".]
 

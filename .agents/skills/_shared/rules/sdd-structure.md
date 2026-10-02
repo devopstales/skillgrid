@@ -52,14 +52,16 @@ brainstorming → [research | spike | sketch] → writing-blueprints → slicing
 .skillgrid/
 ├── config.yaml                 # REQUIRED static SoT — stack, testing, tracker, rules.*
 ├── state.yaml                  # DYNAMIC project state — phase, current change, progress (updated by pipeline skills)
-├── ASSUMPTIONS.md              # DURABLE root record (committed) — project understanding + ALL architectural decisions (### ADR-NNNN entries) + locked constraints (the "bible")
+├── ASSUMPTIONS.md              # DURABLE root record (committed) — project understanding + in-force ADR index (path only) + locked constraints (the "bible")
 ├── ARCHITECTURE.md             # DURABLE root record (committed, created lazily) — live repo/program structure
 ├── spikes/                     # DURABLE feasibility probes (committed, permanently retained) — NNN-name/ dirs (spike.md + throwaway code)
 │   └── NNN-name/
 ├── artifacts/                  # DURABLE project knowledge (committed, cross-change, topic-indexed)
 │   ├── README.md               #   topic index (what lives here, what's where)
+│   ├── 00-prd.md               #   product requirements (reference; ASSUMPTIONS.md links here)
 │   ├── 01-business-terms.md    #   domain/product/workflow vocabulary (was glossary/business.md)
 │   ├── 02-technical-terms.md   #   architecture/platform/protocol vocabulary (was glossary/technical.md)
+│   ├── 04-adr-NNNN-slug.md     #   one locked decision per file (body). ASSUMPTIONS.md stores the path
 │   └── 06-research-findings.md #   cross-change distilled research (carried forward from specs/)
 ├── specs/                      # ACTIVE change artifacts (committed); closed changes move to archive/
 │   └── YYYY-MM-DD-<topic>/
@@ -67,7 +69,7 @@ brainstorming → [research | spike | sketch] → writing-blueprints → slicing
 │       ├── acceptance.feature  # BDD scenarios (the traceability oracle)
 │       ├── blueprint.md        # writing-blueprints (technical plan)
 │       ├── tasks.md            # slicing (tickets, waves, dependencies)
-│       ├── adr.md              # ADR Review Manifest (per-change; pointers to ASSUMPTIONS.md ### ADR-NNNN entries)
+│       ├── adr.md              # ADR Review Manifest (per-change; pointers to artifacts/04-adr-NNNN-slug.md)
 │       ├── findings.md         # research/spike/sketch consolidated evidence (optional)
 │       ├── report.md           # two-phase: qa writes the QA half (test plan + gate verdict + evidence)
 │       └── review.md           # requesting-code-review audit record; read by ship and reflect
@@ -134,19 +136,19 @@ notes: "Serial development: one change at a time."
 - `constraints_ref` points at `.skillgrid/ASSUMPTIONS.md`; it does not duplicate the constraints.
 - Onboarding creates it. `ship` increments `completed_changes` and clears `current_change`. `reflect` writes the terminal phase.
 
-**`ASSUMPTIONS.md`** (root) is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`, where `## LOCKED` holds the in-force ADR set (`### In-force set` table + `### ADR-NNNN` entries), the user-locked project-wide boundaries (`### Locked constraints`, which render into the AGENTS.md `### Rules` section), and the locked assumptions. It replaces the former `docs/PRD.md`, `artifacts/04-adr-*.md`, `artifacts/03-adr-index.md`, and `artifacts/05-locked-constraints.md` — decisions now live as `### ADR-NNNN` *entries*, never as separate files.
+**`ASSUMPTIONS.md`** (root) is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` holds the in-force ADR index (`### In-force set` table: number, title, status, supersedes, date, in force, and the path to the record), the user-locked project-wide boundaries (`### Locked constraints`, which render into the AGENTS.md `### Rules` section), and the locked assumptions. The table stores the path only. The decision body is the file.
 
 **`ARCHITECTURE.md`** (root) is the *live* repo/program structure record — created lazily as the repo takes shape.
 
-**`artifacts/`** is the *durable* topic-indexed knowledge that is not decisions: the terms glossary (`01/02-*-terms.md`) and cross-change distilled research (`06-research-findings.md`). It is the single SoT for vocabulary and research; decisions and structure live at the root. The per-change `findings.md` stays in `specs/` for traceability; `reflect` lifts the durable, still-relevant findings into `artifacts/06-research-findings.md` so they survive the archive.
+**`artifacts/`** holds the product requirements reference (`00-prd.md`), the terms glossary (`01/02-*-terms.md`), cross-change research (`06-research-findings.md`), and one ADR file per locked decision (`04-adr-NNNN-slug.md`). The per-change `findings.md` stays in `specs/` for traceability; `reflect` lifts the durable, still-relevant findings into `artifacts/06-research-findings.md` so they survive the archive.
 
 ## Artifact File Paths
 
 | Skill | Creates / updates | Path |
 |---|---|---|
 | onboarding | skeleton | `config.yaml`, `state.yaml`, `ASSUMPTIONS.md`, `ARCHITECTURE.md` (lazy), `artifacts/` zone (README + 06-research-findings), AGENTS block, `.gitignore` |
-| brainstorming | briefing + scenarios + state | `specs/<topic>/briefing.md`, `specs/<topic>/acceptance.feature`, `specs/<topic>/adr.md`, `ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (phase + current_change) |
-| architectural-decision-records | terms + ADRs | `artifacts/01-business-terms.md`, `artifacts/02-technical-terms.md`, `ASSUMPTIONS.md` (`### ADR-NNNN` entries under § LOCKED + `### In-force set` table) |
+| brainstorming | briefing + scenarios + state | `specs/<topic>/briefing.md`, `specs/<topic>/acceptance.feature`, `specs/<topic>/adr.md`, `artifacts/00-prd.md` (new project, or when scope changes), `ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (phase + current_change) |
+| architectural-decision-records | terms + ADRs | `artifacts/01-business-terms.md`, `artifacts/02-technical-terms.md`, `artifacts/04-adr-NNNN-slug.md`, `ASSUMPTIONS.md` (`### In-force set` path row only) |
 | research | findings | `specs/<topic>/findings.md` (`## Research:` section) + durable findings to `artifacts/06-research-findings.md` |
 | spike | findings + probe | `spikes/NNN-name/` (`spike.md` + throwaway code, permanently retained) + `specs/<topic>/findings.md` (`## Spike:` section) |
 | sketch | findings | `specs/<topic>/findings.md` (`## Sketch:` section) |
@@ -164,7 +166,7 @@ notes: "Serial development: one change at a time."
 - Create the change folder **before** writing the briefing.
 - READ before UPDATE; never blind overwrite.
 - Commit spec-zone changes (`.skillgrid/specs/`) before code changes — the `pre-commit` zone guard enforces it.
-- ADRs live as `### ADR-NNNN` entries under `## LOCKED` in `ASSUMPTIONS.md` — created lazily on first use; global, not per-change. The per-change `specs/<topic>/adr.md` is a manifest of *pointers* to these entries, never a copy.
+- ADRs live as `artifacts/04-adr-NNNN-slug.md` — one file per decision, created lazily, global, not per-change. `ASSUMPTIONS.md` § `### In-force set` stores the path only. The per-change `specs/<topic>/adr.md` is a manifest of pointers to those files, never a copy.
 - Terms live in `artifacts/01-business-terms.md` / `02-technical-terms.md` — a glossary and nothing else.
 - `state.yaml` is updated on every phase transition (see the Artifact File Paths table); it is the dynamic counterparty to `artifacts/` (the durable knowledge).
 - `artifacts/` files are committed (durable knowledge that survives across machines); `state.yaml` is committed (the change log of phase transitions lives in its git history).
@@ -178,7 +180,7 @@ skills keep writing `state.yaml` directly at every phase transition; the
 guard owns the verification.
 
 **Run:** `node .agents/skills/verification/qa/scripts/state-drift-check.mjs [project-root]` (defaults to
-cwd). ADR: `ASSUMPTIONS.md` § `### ADR-0008` (Node.js + `yaml` package).
+cwd). ADR: `.skillgrid/artifacts/04-adr-0008-state-drift-guard-js-yaml.md` (Node.js + `yaml` package).
 
 **Exit codes:** 0 clean, 1 drift (prints field/stale/derived table), 2
 usage/parse error.

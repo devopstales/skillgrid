@@ -10,7 +10,9 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 
 | Artifact | Path |
 |----------|------|
-| Understanding + decisions (PRD facts, ADRs, locked constraints) | `.skillgrid/ASSUMPTIONS.md` |
+| Understanding (facts, in-force ADR index, locked constraints) | `.skillgrid/ASSUMPTIONS.md` |
+| Product requirements (reference) | `.skillgrid/artifacts/00-prd.md` |
+| Locked decisions (one file each; the index stores the path) | `.skillgrid/artifacts/04-adr-NNNN-slug.md` |
 | Live repo/program structure | `.skillgrid/ARCHITECTURE.md` |
 | Terms glossary + research + tool-surface docs | `.skillgrid/artifacts/` (index: `README.md`) |
 | Feasibility spikes (permanently retained) | `.skillgrid/spikes/NNN-name/` |

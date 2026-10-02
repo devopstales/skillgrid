@@ -1,31 +1,32 @@
 # ADR entry template — madr-minimal
 
-> ADR entries live as `### ADR-NNNN` sections inside `.skillgrid/ASSUMPTIONS.md` § `## LOCKED`.
-> Copy the body below directly under the entry's heading line — no `#` title, no
-> `---` frontmatter. The heading line is the fixed machine-readable part; the body
-> follows this shape. Also append a row to the `### In-force set` table in the same edit.
+> Write this file as `.skillgrid/artifacts/04-adr-NNNN-slug.md`.
+> Add one path row to the `### In-force set` table in `.skillgrid/ASSUMPTIONS.md`.
+> Do not paste this body into `ASSUMPTIONS.md`.
 
-### ADR-NNNN — {short title, representative of solved problem and found solution}
+# {short title}
 
-**Status.** {proposed | accepted | deprecated | superseded}
-**Date.** {YYYY-MM-DD}
-**Supersedes.** {ADR-NNNN or `—` — required only when this decision replaces a prior in-force ADR}
+---
+status: "{proposed | accepted | deprecated | superseded}"
+date: {YYYY-MM-DD}
+supersedes: {ADR-NNNN or none}
+---
 
-#### Context and Problem Statement
+## Context and Problem Statement
 
 {Describe the context and problem statement.}
 
-#### Considered Options
+## Considered Options
 
 - {option 1}
 - {option 2}
 - {option 3}
 
-#### Decision Outcome
+## Decision Outcome
 
 Chosen option: "{option 1}", because {justification}.
 
-##### Consequences
+### Consequences
 
 - Good, because {positive consequence}
 - Bad, because {negative consequence}

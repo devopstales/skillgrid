@@ -136,7 +136,7 @@ Score each dimension 0.0 (completely unclear) to 1.0 (crystal clear):
 |------|------------|----------------|
 | **Spike** | A feasibility question ("can we…") whose output is an answer, not code you keep. **Tiny** (answer inline, no file) or **Real probe** (delegate to `spike`; anything built stays throwaway). | A reported recommendation. |
 | **Bounded** | A well-scoped change to code that already exists (a flag, small endpoint, one-file fix). "If there is no existing flow to change, the task is not bounded." | Implement directly; no spec/plan doc. |
-| **New Project** | Greenfield, a new subsystem, or a restructure of how components fit. | `docs/PRD.md` + `docs/ARCHITECTURE.md` + spec `briefing.md`. |
+| **New Project** | Greenfield, a new subsystem, or a restructure of how components fit. | `.skillgrid/artifacts/00-prd.md` + `.skillgrid/ASSUMPTIONS.md` + `.skillgrid/ARCHITECTURE.md` + spec `briefing.md`. |
 | **New Function** | A new feature/endpoint/capability in a project whose architecture is in place. | Spec `briefing.md` (+ update global PRD/ARCHITECTURE only if they exist AND change). |
 
 **The ratchet:** "When in doubt between two paths, take the heavier one. The ratchet is one-way: hidden complexity discovered mid-task upgrades the path — stop, say so, and step up. Nothing downgrades mid-task."

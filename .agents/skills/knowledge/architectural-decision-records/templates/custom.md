@@ -1,20 +1,24 @@
 # Custom ADR entry template
 
 `adr_style: custom` is set in `.skillgrid/config.yaml`. Record the project's
-house format below, then draft every ADR entry to match it. ADR entries live as
-`### ADR-NNNN` sections inside `.skillgrid/ASSUMPTIONS.md` § `## LOCKED`. Keep the
-invariants from `SKILL.md` regardless of shape: one decision per entry, known facts
-only (mark unknowns, don't invent), explicit rationale tied to requirements, honest
-consequences, a status, and supersede-don't-rewrite (never delete an entry).
+house format below, then draft every ADR as `.skillgrid/artifacts/04-adr-NNNN-slug.md`.
+Add a path row to `.skillgrid/ASSUMPTIONS.md` § `### In-force set`. Do not paste
+the body into `ASSUMPTIONS.md`. Keep the invariants from `SKILL.md` regardless of
+shape: one decision per file, known facts only (mark unknowns, don't invent),
+explicit rationale tied to requirements, honest consequences, a status, and
+supersede-don't-rewrite (never delete a file).
 
-**Fixed heading line (required, independent of house body style):** every ADR entry
-carries a machine-readable heading so the in-force set stays computable:
+**Fixed heading (required, independent of house body style):** every ADR file
+carries frontmatter so the in-force set stays computable:
 
 ```
-### ADR-NNNN — {title}
-**Status.** {proposed | accepted | deprecated | superseded}
-**Date.** {YYYY-MM-DD}
-**Supersedes.** {ADR-NNNN or `—` — only when replacing a prior in-force ADR}
+# {title}
+
+---
+status: "{proposed | accepted | deprecated | superseded}"
+date: {YYYY-MM-DD}
+supersedes: {ADR-NNNN or none}
+---
 ```
 
 ## House format
@@ -24,9 +28,12 @@ carries a machine-readable heading so the in-force set stays computable:
 ## Example
 
 ```md
-### ADR-NNNN — {a filled-in example in the house format}
-**Status.** accepted
-**Date.** YYYY-MM-DD
-**Supersedes.** —
+# {a filled-in example in the house format}
+
+---
+status: accepted
+date: YYYY-MM-DD
+supersedes: none
+---
 ...
 ```

@@ -12,7 +12,8 @@ that still has authority.
 1. **Cite, don't copy.** When a blueprint's Global Constraints, a task's
    rationale, or a report's decision references a decision that already has an
    identifier, write the reference, not the text:
-    - ADR: `per ASSUMPTIONS.md § ### ADR-0008` (or `per ADR-0008`)
+    - ADR: `per .skillgrid/artifacts/04-adr-NNNN-slug.md` (or `per ADR-NNNN`)
+    - Product requirements: `per .skillgrid/artifacts/00-prd.md`
     - Locked constraint: `per ASSUMPTIONS.md § Locked constraints <section-or-bullet>`
     - Prior change: `per .skillgrid/archive/2026-09-21-session-events-layer`
 2. **Restate only when the citation is not enough to act.** If a reader must
@@ -32,8 +33,8 @@ that still has authority.
 ## Why
 
 This is the "cite the predicate by ID, never paraphrase" discipline, applied
-to our ADR + locked-constraint model. The ADR entries and `### Locked
-constraints` in `ASSUMPTIONS.md` are already the single authority; the failure
+to our ADR + locked-constraint model. The ADR files (`artifacts/04-adr-NNNN-slug.md`), the product requirements (`artifacts/00-prd.md`), and `### Locked
+constraints` in `ASSUMPTIONS.md` are already the authority; the failure
 is not in the authority, it is in the *downstream paraphrase* that quietly
 disagrees with it. A citation makes
 the downstream artifact a *pointer*, so the authority stays singular.

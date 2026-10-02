@@ -1,15 +1,18 @@
 # ADR entry template — madr-full
 
-> ADR entries live as `### ADR-NNNN` sections inside `.skillgrid/ASSUMPTIONS.md` § `## LOCKED`.
-> Copy the body below directly under the entry's heading line — no `#` title, no
-> `---` frontmatter. The heading line is the fixed machine-readable part; the body
-> follows this shape. Also append a row to the `### In-force set` table in the same edit.
+> Write this file as `.skillgrid/artifacts/04-adr-NNNN-slug.md`.
+> Add one path row to the `### In-force set` table in `.skillgrid/ASSUMPTIONS.md`.
+> Do not paste this body into `ASSUMPTIONS.md`. The `#` title and the frontmatter
+> (`status`, `date`, `supersedes`) are the machine-readable heading.
 
-### ADR-NNNN — {short title, representative of solved problem and found solution}
+# {short title, representative of solved problem and found solution}
 
-**Status.** {proposed | rejected | accepted | deprecated | superseded}
-**Date.** {YYYY-MM-DD}
-**Supersedes.** {ADR-NNNN or `—` — required only when this decision replaces a prior in-force ADR}
+---
+status: "{proposed | rejected | accepted | deprecated | superseded}"
+date: {YYYY-MM-DD}
+supersedes: {ADR-NNNN or none}
+---
+
 **Decision-makers.** {people involved in the decision}
 **Consulted.** {people consulted}
 **Informed.** {people informed}

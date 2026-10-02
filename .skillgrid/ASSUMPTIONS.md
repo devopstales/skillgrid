@@ -1,16 +1,16 @@
 # ASSUMPTIONS
 
-The live, single-file record of what skillgrid *is*, what we have *decided*, and what is *locked*. This is the AI's understanding of the project plus its decisions, consolidated into one file. The terms glossaries (`.skillgrid/artifacts/01-business-terms.md`, `02-technical-terms.md`) are a separate glossary — nothing else lives in this file's place.
+The live record of what skillgrid *is*, which decisions are in force, and what is *locked*. Decision bodies live in `.skillgrid/artifacts/04-adr-NNNN-slug.md`; this file stores the path. The terms glossaries (`.skillgrid/artifacts/01-business-terms.md`, `02-technical-terms.md`) are a separate glossary.
 
 **Read order:** VERIFIED (what we know to be true) → INFERRED (hypotheses we are acting on) → LOCKED (decisions + user-locked boundaries) → Open Questions.
 
 **How this file is maintained:**
 - **VERIFIED** — facts confirmed against the code, a spike, or a primary source. Brainstorming writes these during the interview as they are confirmed.
 - **INFERRED (HYPOTHESIS)** — things we are treating as true but have not confirmed. Mark each with the assumption it rests on. Never let an INFERRED item carry a decision; promote it to VERIFIED (with evidence) or to LOCKED (with a user OK) before it does.
-- **LOCKED** — decisions (ADRs) and user-locked constraints. Requires an explicit user OK to add. Supersede by link + table flip; **never delete an ADR entry** (the IRON RULE).
+- **LOCKED** — the in-force table (path only) and user-locked constraints. Requires an explicit user OK to add a row. Supersede by a new file + table flip; **never delete an ADR file or its row** (the IRON RULE).
 - **Open Questions** — questions that are not yet decided and not yet spiked.
 
-The full PRD, ADR files, and locked-constraints file were folded into this file on 2026-09-29 and archived to `.skillgrid/archive/`.
+Product requirements live in `.skillgrid/artifacts/00-prd.md` (reference). Locked decisions are files under `.skillgrid/artifacts/04-adr-NNNN-slug.md`. This file's in-force table stores the path only (ADR-0019).
 
 ---
 
@@ -47,6 +47,10 @@ Confirmed against the code, a spike, or a primary source. These are the facts th
 
 **Known gaps (current state, verified against the tree 2026-09-29).** UI dashboard: 10 feature modules are real (decisions, docs, git, kanban, mnemonic, plans, prototypes, sessions, tracker) but `SettingsPage` is still `StubPage` (Phase 2, v1.1); the `ui:build` Taskfile task now exists and `build:all` depends on it — `go build` alone still requires a pre-built `ui/dist`; tracker providers 501 on unknown `/tracker/*` providers (v1.1); the process-pass LLM labeler is a deterministic stub `processLLMStub` (v1.2); the ADR-0011 bi-temporal save path is decided + specified but not yet in the code (see above); the README is stale (installer-first framing, smaller command surface, "bare `skillgrid` = install") — a follow-up ticket; housekeeping: a stray `internal/mnemonic/mcp/.git` nested repo (still present; remove) and a migration numbering gap (002–039 squashed into `001_schema.sql`, so 032 was never a file — known, no action).
 
+### Product requirements
+
+The target users, personas, MoSCoW feature table, user flows, non-functional requirements, release line, and competitive position are in `.skillgrid/artifacts/00-prd.md`. Open it when a change touches scope or acceptance. The one-paragraph product statement is the **Product** bullet at the top of this tier.
+
 ---
 
 ## INFERRED (HYPOTHESIS)
@@ -67,172 +71,32 @@ Decisions (ADRs) and user-locked constraints. Adding here requires an explicit u
 
 ### In-force set
 
-Single source for what is **currently in force**. **In force** = `status: accepted` AND no later ADR's `supersedes` names it. Superseded / deprecated entries stay in the table (frozen) but are marked out of force. **IRON RULE: never delete an ADR entry — supersede by adding a new entry that names it and flipping its row here.**
+Single source for what is **currently in force**. **In force** = `status: accepted` AND no later ADR's `supersedes` names it. Superseded / deprecated rows stay in the table (frozen) but are marked out of force. **IRON RULE: never delete an ADR file or its row — supersede by adding a new file that names it and flipping its row here.** The Record column is the path. The body is the file.
 
-| # | Title | Status | Supersedes | Amends | Date | In force |
-|---|-------|--------|------------|--------|------|----------|
-| 0001 | PRD scope is the whole Hub Product, not the binary alone | accepted | — | — | 2026-09-16 | yes |
-| 0002 | PRD framing is engine-first, not installer-first | accepted | — | — | 2026-09-16 | yes |
-| 0003 | v1.0 line is "the engine is trustworthy"; UI is Phase 2 | accepted | — | — | 2026-09-16 | yes |
-| 0004 | PRD component map is a 4-way decomposition | accepted | — | — | 2026-09-16 | yes |
-| 0005 | Trust boundary: MCP-spawned process with project read access | accepted | — | — | 2026-09-16 | yes |
-| 0006 | Vector search: in-memory brute-force cosine, no SQLite vector extension | accepted | — | — | 2026-09-16 | yes (amended by 0009) |
-| 0007 | SDD multi-method docs viewer with generic, existence-gated doc roots | accepted | — | — | 2026-09-17 | yes |
-| 0008 | State drift guard: Node.js + `yaml` package, read-only verifier | accepted | — | — | 2026-09-24 | yes |
-| 0009 | Vector search: in-SQL sqlite-vec latency corrected; viant deferred; revisit path confirmed | accepted | — | 0006 | 2026-09-24 | yes |
-| 0010 | Verification scope discriminator: a zero is never a bare zero | accepted | — | — | 2026-09-24 | yes |
-| 0011 | Observations are bi-temporal; the save path classifies each write as Add/Update/Delete/Noop | accepted | — | — | 2026-09-24 | yes |
-| 0012 | ASSUMPTIONS consolidation: PRD + ADRs + locked constraints fold into one root file | accepted | — | — | 2026-09-29 | yes |
-| 0013 | Source of truth: the repo is authoritative; Backlog task ID ↔ commit SHA is the linkage | accepted | — | — | 2026-09-29 | yes |
-| 0014 | (removed 2026-09-30) | superseded | — | — | 2026-09-29 | no |
-| 0015 | (removed 2026-09-30) | superseded | — | — | 2026-09-29 | no |
-| 0017 | Embedded SPA code graph uses D3 force layout (replaces Sigma) | accepted | — | — | 2026-10-02 | yes |
-| 0018 | mem_search returns additive per-signal scores; RRF runs only on the owner-scoped path | accepted | — | — | 2026-10-02 | yes |
+| # | Title | Status | Supersedes | Date | In force | Record |
+|---|-------|--------|------------|------|----------|--------|
+| 0001 | PRD scope is the whole Hub Product, not the binary alone | accepted | — | 2026-09-16 | yes | `.skillgrid/artifacts/04-adr-0001-prd-scope-whole-hub.md` |
+| 0002 | PRD framing is engine-first, not installer-first | accepted | — | 2026-09-16 | yes | `.skillgrid/artifacts/04-adr-0002-prd-engine-first-framing.md` |
+| 0003 | v1.0 line is "the engine is trustworthy"; UI is Phase 2 | accepted | — | 2026-09-16 | yes | `.skillgrid/artifacts/04-adr-0003-v1.0-line-engine-trustworthy.md` |
+| 0004 | PRD component map is a 4-way decomposition | accepted | — | 2026-09-16 | yes | `.skillgrid/artifacts/04-adr-0004-four-component-decomposition.md` |
+| 0005 | Trust boundary: MCP-spawned process with project read access | accepted | — | 2026-09-16 | yes | `.skillgrid/artifacts/04-adr-0005-trust-boundary-mcp-spawn-model.md` |
+| 0006 | Vector search: in-memory brute-force cosine, no SQLite vector extension | accepted | — | 2026-09-16 | yes (amended by 0009) | `.skillgrid/artifacts/04-adr-0006-vector-search-in-memory-brute-force.md` |
+| 0007 | SDD multi-method docs viewer with generic, existence-gated doc roots | accepted | — | 2026-09-17 | yes | `.skillgrid/artifacts/04-adr-0007-sdd-multi-method-docs-viewer.md` |
+| 0008 | State drift guard: Node.js + `yaml` package, read-only verifier | accepted | — | 2026-09-24 | yes | `.skillgrid/artifacts/04-adr-0008-state-drift-guard-js-yaml.md` |
+| 0009 | Vector search: in-SQL sqlite-vec latency corrected; viant deferred; revisit path confirmed | accepted | — | 2026-09-24 | yes | `.skillgrid/artifacts/04-adr-0009-vector-search-in-sql-latency-viant-deferred.md` |
+| 0010 | Verification scope discriminator: a zero is never a bare zero | accepted | — | 2026-09-24 | yes | `.skillgrid/artifacts/04-adr-0010-verification-scope-discriminator.md` |
+| 0011 | Observations are bi-temporal; the save path classifies each write as Add/Update/Delete/Noop | accepted | — | 2026-09-24 | yes | `.skillgrid/artifacts/04-adr-0011-observations-are-bitemporal.md` |
+| 0012 | SQLite as the second-brain store; llm-wiki markdown files rejected | accepted | — | 2026-09-30 | yes | `.skillgrid/artifacts/04-adr-0012-sqlite-as-second-brain.md` |
+| 0013 | Source of truth: the repo is authoritative; Backlog task ID ↔ commit SHA is the linkage | accepted | — | 2026-09-29 | yes | `.skillgrid/artifacts/04-adr-0013-repo-source-of-truth.md` |
+| 0014 | (removed 2026-09-30) | superseded | — | 2026-09-29 | no | `.skillgrid/artifacts/04-adr-0014-removed.md` |
+| 0015 | (removed 2026-09-30) | superseded | — | 2026-09-29 | no | `.skillgrid/artifacts/04-adr-0015-removed.md` |
+| 0016 | Mnemonic second-brain capability layer | accepted | — | 2026-09-30 | yes | `.skillgrid/artifacts/04-adr-0016-second-brain-capability-layer.md` |
+| 0017 | Embedded SPA code graph uses D3 force layout (replaces Sigma) | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0017-d3-force-graph.md` |
+| 0018 | mem_search returns additive per-signal scores; RRF runs only on the owner-scoped path | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0018-mem-search-additive-signals.md` |
+| 0019 | Locked decisions are ADR files; ASSUMPTIONS.md holds the path | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0019-decisions-are-files.md` |
+| 0020 | Execution coordination lives in the SDD ledger; Mnemonic stores an index | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0020-sdd-ledger-owns-execution.md` |
 
-**Highest sequence in use:** 0018 (next ADR is `### ADR-0019`). ADR-0016 (second-brain capability layer) is in force; record at `.skillgrid/artifacts/04-adr-0016-second-brain-capability-layer.md`. Note: this in-force table's 0012/0013 are the consolidation + source-of-truth ADRs; `03-adr-index.md` numbers 0012 as the SQLite-as-second-brain store ADR — the two trackers have a numbering gap to reconcile (housekeeping, not blocking).
-
-### ADR-0001 — PRD scope is the whole Hub Product, not the binary alone
-
-**Decision.** The PRD is scoped to the whole Hub Product (CLI binary + Mnemonic Engine + Distribution Surface + Hub Content), one product document — not the binary alone, not the installer alone.
-**Why.** The README describes skillgrid as "an installer that sets up AI-agent tooling," but the binary now ships 20+ subcommands across install, sync, setup, doctor, serve/mcp, index/search/code-intel, mem/session/trail/eval. A PRD scoped to "the `skillgrid-cli/` directory" or "the installer" under-describes the product the code actually is. The PRD is a product description, not a module description: the user installs one thing (`skillgrid`) and gets the engine + surface + content together. Hub Content (skills/hooks) is repo content shipped *by* the installer, so it is covered in the Installer section, not as a peer component.
-**Consequences.** Good: the PRD matches what a user receives; the 4-way component map is a clean reference for future changes. Bad: the PRD is larger than a binary-only doc and must stay honest about current state — a "Known gaps" section is mandatory, not optional.
-
-### ADR-0002 — PRD framing is engine-first, not installer-first
-
-**Decision.** The product is framed as "a local-first engine for agent memory + code intelligence, distributed as a CLI/MCP/HTTP server" — engine-first, not installer-first and not "opinionated pipeline"-first.
-**Why.** The README's one-paragraph framing is installer-first. The code has drifted engine-first and the PRD should name the product for what it is, not for what the README says. Leading with "opinionated pipeline" makes the PRD sound like a methodology rather than a product. Engine-first keeps the user's primary pain (agent context doesn't survive sessions; "done" is a claim without evidence) as the through-line.
-**Consequences.** Good: product vision, personas, and success metrics all derive from a single through-line, making the PRD internally consistent; the secondary persona falls out naturally from the MCP/HTTP surface. Bad: the README is now stale by construction; aligning it is a follow-up ticket (ADR-0001 scope).
-
-### ADR-0003 — v1.0 line is "the engine is trustworthy"; UI is Phase 2
-
-**Decision.** v1.0 is "core engine + installer solid": install idempotent on 3 agents, `doctor --strict` green, `mcp`/`serve` stable, index/search/code-intel reliable, mem/session/trail working; the UI is still stubs (explicitly "Phase 2").
-**Why.** The PRD commits to a target state. The embedded dashboard is a shell with every page a `StubPage`; the tracker has 501s; the process-pass LLM labeler is a deterministic stub. Shipping those as "v1.0" would make the target-state claim false. "The engine is trustworthy" is verifiable with the tools that already exist; a v1.0 gate on UI or LLM labeling would either expand the PRD beyond "engine trustworthy" or lower the claim to "engine works, UI is decorative."
-**Consequences.** Good: v1.0 is testable — each claim maps to an existing test or a fresh-machine install run; the roadmap is a clean "Phase 2+" list. Bad: users installing v1.0 see stub dashboard pages and must trust the engine underneath is the real product.
-
-### ADR-0004 — PRD component map is a 4-way decomposition
-
-**Decision.** The component map is 4 components: Installer, Mnemonic Engine (memory + code-intel + search), Distribution Surface (MCP stdio + HTTP/REST + embedded UI + CLI), Hub Content (skills + hooks + config.d, shipped as repo).
-**Why.** The code has ~25 `internal/` packages, but those are implementation units, not product components. The Distribution Surface is a distinct concern (three transports, each with different auth, embedding, and lifecycle implications). Folding the UI into the engine (3-way) hides that the embedded SPA + OpenAPI/Swagger are a serving concern, not a data concern. Splitting memory from code-intel (5-way) over-decomposes: they share the same per-project SQLite store and the same project-resolution layer, and "memory + code intelligence" is one user experience.
-**Consequences.** Good: each component has one clear purpose and a testable boundary; the trust-boundary section maps cleanly (the one real boundary lives between Surface and Engine). Bad: "Distribution Surface" is a term the code does not use; a glossary entry is required to keep it from drifting.
-
-### ADR-0005 — Trust boundary: MCP-spawned process with project read access
-
-**Decision.** The trust section states local-first (data stays in `~/.skillgrid/mnemonic/`, HTTP binds 127.0.0.1, no telemetry, no network except install-time npm/git and an optional external embedder) **plus** names the one real boundary: the agent process spawns the binary (`skillgrid mcp`), which then has full read access to the project it indexes.
-**Why.** The MCP-spawn model is the one boundary that is (a) surprising without context (a local CLI that "just indexes code" is actually a process the agent spawns with project read access) and (b) hard to reverse (changing who spawns whom is an interface change across the Surface). The `doctor --strict` redaction guarantee is a `doctor` detail that belongs in the command reference, not the trust section.
-**Consequences.** Good: the PRD names the one real boundary in one sentence, grounding the threat-matrix rows; the local-first posture is stated as a positive claim (what the product does NOT do). Bad: the redaction guarantee is in the command reference, not the trust section.
-
-### ADR-0006 — Vector search: in-memory brute-force cosine, no SQLite vector extension
-
-**Decision.** The semantic leg of hybrid code search ranks stored embeddings by cosine over an **in-memory vector cache** (`hybrid/vectorcache.go`), not a SQLite vector extension. No driver change, no new dependency, exact top-K.
-**Why.** At the current ~20K-vector scale the bottleneck is BLOB I/O, not the search algorithm — 87% of the 220 ms is re-reading 55 MB of vectors out of SQLite per query. Caching the decoded vectors in RAM eliminates that cost with zero driver risk, zero new dependencies, and exact (not approximate) top-K ranking, which the RRF fusion in `hybrid/rank.go` is built around. The cgo-free invariant is preserved (no driver swap).
-**Consequences.** Good: the semantic leg drops ~220 ms → ~28 ms cosine + ~55 ms FTS/signal; the cgo-free invariant is untouched; invalidation keys on the embedding model (already tracked in `embed_meta`). Bad: the cache is process-global (one slot) — correct for one project per MCP session, would need per-store keying for multi-project concurrent semantic search; the cold-cache build is a one-time ~7 s decode of 55 MB.
-**Revisit (amended by ADR-0009).** When a single store crosses ~100K vectors, or cross-project (`all_projects`) semantic search lands, or the ncruces driver migration is done for an unrelated reason. Default revisit path is **option G** (`modernc.org/sqlite/vec`): same-module, cgo-free, a real `go.mod` dependency, transactional, exact top-K — only a `modernc.org/sqlite` bump to ≥ v1.59.0, not a driver swap. B′ (ncruces) is the fallback. sqlite-vss (E) and vectorlite (F) were evaluated and rejected.
-
-### ADR-0007 — SDD multi-method docs viewer with generic, existence-gated doc roots
-
-**Decision.** The Web Admin Dashboard Docs view declares its doc roots as `map[string][]string` (selector → candidate repo-relative paths) and walks only the directories that exist in the current repo. One binary serves Skillgrid, OpenSpec, SpecKit, Superpowers, and Backlog.md artifacts from whatever repo it runs in, with zero config.
-**Why.** `skillgrid serve` is a single Go binary that must work from any repo it is started in. Each SDD method lives at a different canonical on-disk location, and not every repo uses every method. A single hard-coded root broke the moment the dashboard was pointed at a SpecKit or Superpowers repo; a per-repo config file degrades "works from anywhere" to "works once configured."
-**Consequences.** Good: one binary serves all five methods with zero config; ADRs and PRDs get first-class schema-aware rendering (status lifecycle, Context/Decision/Consequences) with no backend schema migration; empty/absent methods degrade to a clean empty state. Tension: the root vocabulary is fixed (a novel method needs one line added to `mdRoots`); existence-gating means a repo mid-initialization shows nothing for that method until real files land. Reads stay sandboxed (`..`/absolute → 400, unknown → 404, read-only, rendered never executed).
-
-### ADR-0008 — State drift guard: Node.js + `yaml` package, read-only verifier
-
-**Decision.** The drift guard is `scripts/state-drift-check.mjs`, a read-only Node script that uses the `yaml` npm package (the repo's first npm dependency) to compare `state.yaml` against the spec zone and report a named drift verdict. It owns the verification, not the write (pipeline skills keep writing `state.yaml` directly).
-**Why.** Nothing verifies that `state.yaml` (the resume pointer hand-edited by ten pipeline skills) agrees with the spec-zone artifacts it summarizes. A skill that forgets to update it produces a silent pointer that misleads resume. The repo had no YAML library; a real parser beats regex for a schema we own and will extend (`sdd-structure.md` is the source of truth and grows). The `yaml` package is zero-transitive, MIT, and works in both ESM and CJS. Option B (regex) was rejected as the lazy path; option C (Python) rejected as a larger footprint than one npm package.
-**Consequences.** Good: robust to schema evolution; zero-transitive dependency. Bad: the repo now has its first npm dependency (`npm install` is a prerequisite; `node_modules` gitignored) — mitigated by the guard being invoked from `skillgrid:qa` and `skillgrid:resume`, both Node-equipped.
-**Revisit.** When the repo adopts a Node test runner (port the fixtures), when the `state.yaml` schema grows beyond a flat read (revisit the derivation logic, not the parser), or when `yaml` ships a breaking major.
-
-### ADR-0009 — Vector search: in-SQL sqlite-vec latency corrected; viant deferred; revisit path confirmed
-
-**Decision (amends ADR-0006).** ADR-0006's current decision (in-memory option A at ~20K) is unchanged. The ~40 ms-at-100K figure in ADR-0006's revisit analysis is corrected to **~6.9 s median for the in-SQL G path** (the ~40 ms was in-memory Go cosine; the in-SQL `ORDER BY vec_distance_cosine` is ~170× slower). **viant is deferred, not rejected** (packaging bug + `ensureIndex` query deadlock). G remains the default revisit path.
-**Why.** A comparison spike (`.skillgrid/spikes/001-cgo-free-vector-db`) tested the two cgo-free non-memory candidates head-to-head at 768-dim / 100K vectors. The spike produced two findings: (1) G's in-SQL top-K at 100K is ~6.9 s median, not ~40 ms; (2) all four released viant versions and `main` fail to build, and viant's lazy-index query path deadlocks (`ensureIndex` re-enters `db.Exec` from inside the vtab `Filter` callback, blocked by `SetMaxOpenConns(1)`).
-**Consequences.** Good: the revisit path is grounded in a measured latency rather than an extrapolation; viant's deferral is evidence-based. Bad: G's in-SQL latency (~6.9 s at 100K) is far higher than the ~40 ms originally cited; the modernc v1.45.0 → v1.59.0 bump has not yet been validated against the existing 39 migrations, WAL-retry, and store pooling (a prerequisite for the real build). The design question at the threshold is *which path serves which query* (in-memory = hot path, in-SQL = durable path), not a single latency number.
-
-### ADR-0010 — Verification scope discriminator: a zero is never a bare zero
-
-**Decision.** A shared convention (`_shared/conventions/verification-scope.md`) defines `COMPLETE` / `TRUNCATED` / `UNSCOPED` / `UNREADABLE`; the two drift scripts emit a separate `SCOPE: <atom>` line after their `DRIFT:` verdict (worst-scope-wins); the QA gate names the scope of its own derivations in `report.md` and **fails closed on non-`COMPLETE` scope**.
-**Why.** A count of zero is the most ambiguous output a verifier can produce: a real answer ("I looked at all of my input and there genuinely was nothing") and a non-answer ("I couldn't see all of my input, so the zero tells me nothing") are byte-identical. `DRIFT: none` from a guard whose base ref didn't exist read exactly the same as `DRIFT: none` from a guard that checked a clean tree. Verifiers must emit the scope where it is consumed (stdout, `report.md`), not in a human's head. A frozen enum beats a free-form message string because a consumer can branch on the atom.
-**Consequences.** Good: a verifier that can't see its input now says so (`DRIFT: none, SCOPE: UNSCOPED` is a non-answer a consumer can act on); the gate fails closed on scope, so "done" can never rest on a check that didn't look at everything; exit codes are unchanged (scope is additive). Bad: the scope derivation is deliberately cheap (reflects what the script already read); a human reading the report must understand four atoms.
-**Revisit.** When a drift script gains a partial-read path (then `TRUNCATED` becomes reachable and the derivation counts seen-vs-expected), when the Go CLI takes on scope-bearing verification (then a shared Go leaf enum is the right home), or when the gate needs more than four atoms.
-
-### ADR-0011 — Observations are bi-temporal; the save path classifies each write as Add/Update/Delete/Noop
-
-**Decision.** Add `valid_at`, `invalid_at`, `superseded_by` columns to `observations` (migration 043); extend the `DedupLLM` seam from a binary `(bool, int64)` to a 4-way `DedupDecision`; the `SaveWithAction` save path routes noop → `BumpDuplicate`, add → INSERT, update → topic-key upsert, delete → `MarkSuperseded` + INSERT new; the `mem_save` response gains `action` + `superseded_id`. The 7 primary read sites filter `invalid_at`.
-**Why.** A memory system that only appends facts never answers "what was true when?" The codebase had the lifecycle flag (`status = 'superseded'`) and the forward pointer (`supersedes` edge), but neither was temporal, and there was no back-pointer or auto-supersede on save — supersession was manual. Two reference systems (mnemonic-ai/Rust, Mnemon/Go) both converged on the same fix. The bi-temporal columns make the supersede chain *queryable* (time-travel, "what was true at T"); the AUDN classifier makes it *automatic* (the save path produces it, the agent doesn't have to remember).
-**Consequences.** Good: the agent can answer "what was true at time T?"; the save path produces the supersede chain automatically; the `action` field tells the agent what happened. Bad: the `DedupLLM` interface changes (binary → 4-way; existing test mocks break — mitigated by keeping `Dedup` as a deprecated wrapper); 7 read sites need the filter (a missed site is a test failure, caught by the "superseded observations do not appear in search results" acceptance test); 4 inline FTS SELECTs duplicate the column list (a missed one is a runtime column-count mismatch — the migration task lists all 5 SELECT sites).
-
-### ADR-0012 — ASSUMPTIONS consolidation: PRD + ADRs + locked constraints fold into one root file
-
-**Decision.** Consolidate `.skillgrid/artifacts/00-prd.md`, the 11 ADR files (`04-adr-*.md`), `03-adr-index.md`, and `05-locked-constraints.md` into a single live root file, `.skillgrid/ASSUMPTIONS.md`, with the VERIFIED / INFERRED / LOCKED / Open-Questions tiers. Architecture becomes a standalone live root `.skillgrid/ARCHITECTURE.md`. Spikes live in `.skillgrid/spikes/NNN-name/`. Blueprints become pure-technical (the product why lives in the spec `briefing.md` + this file). The 14 source files are `git mv`'d to `.skillgrid/archive/`.
-**Why.** The PRD, the ADR set, and the locked constraints were four separate files that together answered "what is this project and what have we decided." They were read as a set, updated as a set, and their cross-references (index → records → constraints → AGENTS.md `### Rules`) added a generation of staleness every time one moved. One file with an in-force table and an IRON RULE (never delete an ADR entry; supersede by link + table flip) removes that seam and gives the AI one authoritative record of its own understanding plus its decisions. ADR-0012 records this consolidation itself, so the trail that "the ADRs used to be separate files" is preserved here.
-**Consequences.** Good: one root file is the single source for the in-force ADR set, the locked constraints, and the verified/assumed product facts; the load-bearing re-points are `AGENTS.md` `### Rules` (rendered from `### Locked constraints`), `state.yaml constraints_ref`, and the skill re-points. Bad: the file is large; it is a consolidation, not a loss — the full ADR records (Context/Options/Consequences for the load-bearing ones) are inlined here, and the originals are archived, not deleted.
-
-### ADR-0013 — Source of truth: the repo is authoritative; Backlog task ID ↔ commit SHA is the linkage
-
-**Decision.** The **repo is the single source of truth** for project state: `.skillgrid/ASSUMPTIONS.md` (facts + decisions + locked constraints), the spec-zone artifacts under `.skillgrid/specs/`, the committed `state.yaml`, and the git history. When an external tracker, a session memory, or a dashboard disagrees with a committed artifact, **the committed artifact wins and the other source is reconciled to it.** Backlog.md tasks live under `.backlog/` in the repo, so the tracker is already in-repo — it is not an external system to defer to. The required linkage is **Backlog task ID ↔ commit SHA**: every commit that closes a task names that task ID in the conventional-commit subject or body (`[skillgrid-context]` block), so the audit chain `task → commit → diff` is recoverable from git alone.
-
-**Why.** The Claude Academy AI-native SDLC playbook names three coexistence modes for projects with legacy trackers: repo-as-truth, legacy-as-truth, and linkage-as-minimum-bar. skillgrid was running repo-as-truth *by accident* — nothing had ever locked it, so a future reader could not tell whether Backlog.md or an in-session memory was authoritative, and the commit chain was the audit trail without anyone having said so. Locking it as an ADR makes the assumption explicit and gives the task↔commit linkage a named home, so the "is this done?" question is answered by reading git, not by remembering a conversation.
-
-**Consequences.** Good: any reviewer, agent, or future session can reconstruct the full `task → decision → commit → diff` chain from the repo alone; the ADR set, the specs, and the commit history are mutually reconcilable; resume and reflect read from the same authoritative record. Bad: the in-session memory (`mem_*`) is explicitly *subordinate* — a saved observation that contradicts a committed artifact is stale, not new information, and must be updated, not treated as a correction. The commit-message linkage is now a load-bearing invariant: a merge that closes a task without naming its ID breaks the chain (the QA gate's commit-audit is where that would be caught).
-
-**Revisit.** When a hosted Backlog/sync lands that would re-introduce a second authoritative tracker (then this becomes linkage-as-minimum-bar, not repo-as-truth), or when the `[skillgrid-context]` block gains a machine-checkable task-reference field (then the linkage moves from convention to schema).
-
-### ADR-0014 — (removed 2026-09-30)
-
-*This ADR was removed on 2026-09-30 by user request: no filesystem or document reference to the rolled-back knowledge-projection attempt should remain to mislead the agent. The sequence number is retired to preserve ADR numbering.*
-
-### ADR-0015 — (removed 2026-09-30)
-
-*This ADR was removed on 2026-09-30 by user request: no filesystem or document reference to the rolled-back knowledge-projection attempt should remain to mislead the agent. The sequence number is retired to preserve ADR numbering.*
-
-### ADR-0017 — Embedded SPA code graph uses D3 force layout (replaces Sigma)
-
-**Status.** accepted
-**Date.** 2026-10-02
-**Supersedes.** —
-
-#### Context and Problem Statement
-
-Spike 001 (`.skillgrid/spikes/001-mnemonic-webui-mockup`) validated a D3 v7 force-directed code graph with node inspector (callers/callees highlight) against live `/mnemonic/graph/data`. The production SPA used Sigma.js + graphology instead. The operator preference is the mockup's D3 graph. Adding `d3` is a new npm dependency and requires an ADR under the locked "no new dependencies without an ADR" constraint; Sigma/graphology/`@react-sigma` can then be removed.
-
-#### Considered Options
-
-- Keep Sigma + graphology (status quo)
-- Port mockup D3 force layout into the Vite SPA; add `d3` (+ `@types/d3`); drop Sigma stack
-- Build a custom canvas force layout with no new dependency
-
-#### Decision Outcome
-
-Chosen option: "Port mockup D3 force layout into the Vite SPA; add `d3` (+ `@types/d3`); drop Sigma stack", because the spike already proved D3 at the 500-node cap, the inspector UX is preferred, and removing Sigma/graphology/react-sigma is a net dependency simplification after the swap.
-
-##### Consequences
-
-- Good, because one viz stack matches the approved mockup; force simulation + selection highlight ship without Sigma-specific layout plumbing
-- Bad, because `d3` is a new npm dependency (mitigated by removing the larger Sigma/graphology set); large graphs still require the server `limit` param
-
-### ADR-0018 — mem_search returns additive per-signal scores; RRF runs only on the owner-scoped path
-
-**Status.** accepted
-**Date.** 2026-10-02
-**Supersedes.** —
-
-#### Context and Problem Statement
-
-MCP `mem_search` calls `SearchOwnerScoped`, which is BM25 plus optional importance re-rank. `BlendedSearch` already fuses FTS and vector ranks with `ReciprocalRankFusion` (k=60), but it calls `SearchWithScope` and `SearchByVector`, neither of which applies `visibilityFilter`. Wiring that function into the MCP handler would let a reader see another owner's private observations. The comparison briefing also asks each hit to explain itself (`signals` + `matched_via`) and to rank frequently accessed observations higher. ADR-0017 is the D3 graph decision, so this record is 0018.
-
-#### Considered Options
-
-- Call `BlendedSearch` from `handleMemSearch` and attach scores in the handler
-- Add `SearchOwnerScopedBlend` that runs both legs under `visibilityFilter`, fuses with the existing RRF (k=60), applies reinforcement decay, and returns a `SearchHit` the DTO copies additively
-- Leave `mem_search` BM25-only and put signals only on `mem_ask`
-
-#### Decision Outcome
-
-Chosen option: "`SearchOwnerScopedBlend` under the existing visibility filter", because the private-observation boundary is already enforced on `SearchOwnerScoped` and must not be bypassed to gain a vector leg. `signals` and `matched_via` are additive JSON fields. With no embedder (`MNEMONIC_EMBED` unset) the vector leg is skipped, `matched_via` is `keyword`, and equal decay factors keep BM25 order. Reinforcement decay is Option A from the briefing: query-time, config `mnemonic.decay` default enabled, half-life 30 days, immunity at importance ≥ 4 or retrieval_usage ≥ 3. `edge_factor` is the constant 1 because the observation graph is out of scope. Days-since-access reads `LastSeenAt` only; an empty timestamp is 0 days so existing fixtures that never stamp `last_seen_at` keep their order.
-
-##### Consequences
-
-- Good, because hybrid recall and a per-signal explanation land without opening private rows, and the no-embedder path stays a BM25 floor
-- Bad, because result order changes when decay factors differ or an embedder is active; consumers that reject unknown JSON fields must be updated
+**Highest sequence in use:** 0020 (next ADR is `04-adr-0021-slug.md`). The body of each decision is the Record file. This table stores the path only (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 
 ### Locked constraints
 

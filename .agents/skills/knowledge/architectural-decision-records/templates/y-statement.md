@@ -1,17 +1,18 @@
 # ADR entry template — y-statement
 
-> ADR entries live as `### ADR-NNNN` sections inside `.skillgrid/ASSUMPTIONS.md` § `## LOCKED`.
-> Copy the body below directly under the entry's heading line — no `#` title, no
-> blockquote header (the heading line is now the fixed machine-readable part).
-> The body follows this shape. Also append a row to the `### In-force set` table in the same edit.
+> Write this file as `.skillgrid/artifacts/04-adr-NNNN-slug.md`.
+> Add one path row to the `### In-force set` table in `.skillgrid/ASSUMPTIONS.md`.
+> Do not paste this body into `ASSUMPTIONS.md`.
 
-### ADR-NNNN — {short title}
+# {short title}
 
-**Status.** {proposed | accepted | deprecated | superseded}
-**Date.** {YYYY-MM-DD}
-**Supersedes.** {ADR-NNNN or `—`}
+---
+status: "{proposed | accepted | deprecated | superseded}"
+date: {YYYY-MM-DD}
+supersedes: {ADR-NNNN or none}
+---
 
-#### Short Form
+## Short Form
 
 In the context of {use case/user story}, facing {concern}, we decided for {option} to achieve {quality}, accepting {downside}.
 

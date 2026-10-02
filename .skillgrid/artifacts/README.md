@@ -2,11 +2,11 @@
 
 Durable project knowledge: what you need to know to work on this project, organized by topic and surviving across changes. This zone replaces the former `docs/PRD.md`, `docs/ARCHITECTURE.md`, `.skillgrid/glossary/`, and `.skillgrid/adr/`.
 
-**Read order at session start:** this index → `05-locked-constraints.md` (the hard boundaries) → the terms files and ADR index for the area you're touching.
+**Read order at session start:** `.skillgrid/ASSUMPTIONS.md` (product statement, verified facts, the in-force table) → the Record path for a decision you are touching → this index → the terms files. Open `00-prd.md` when a change touches scope or acceptance.
 
 ## CANON (do not change without a locked constraint or an ADR)
 
-- `00-prd.md` — product requirements (scope, features, target state)
+- `00-prd.md` — product requirements (users, personas, MoSCoW features, flows, NFRs, release line). Reference; `ASSUMPTIONS.md` § VERIFIED wins on conflict.
 - `00-architecture.md` — system architecture (components, boundaries, data flow) — created lazily on first use
 - `05-locked-constraints.md` — user-locked project-wide boundaries (the "bible")
 
@@ -17,8 +17,9 @@ Durable project knowledge: what you need to know to work on this project, organi
 
 ## DECISIONS
 
-- `03-adr-index.md` — ADR index (in-force set: number, title, status, supersedes, gist)
-- `04-adr-NNNN-slug.md` — ADR records (global, immutable, `supersedes` trail). Read the index first.
+The in-force set is the table in `.skillgrid/ASSUMPTIONS.md` § `### In-force set`. Each row's Record column is the path. The body is the file.
+
+- `04-adr-NNNN-slug.md` — one locked decision (global, immutable, `supersedes` trail). `ASSUMPTIONS.md` stores the path only.
 
 ## RESEARCH
 

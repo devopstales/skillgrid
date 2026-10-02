@@ -20,7 +20,7 @@
 
 **Tech Stack:** [Key technologies/libraries]
 
-**Spec:** [path to the spec this plan implements — the plan argues from the spec, so it travels with it; e.g., `../briefing.md` or `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`. The product *why* (user value, personas, success) lives in the spec + `.skillgrid/ASSUMPTIONS.md`; this blueprint is pure-technical and cites them rather than restating.]
+**Spec:** [path to the spec this plan implements — the plan argues from the spec, so it travels with it; e.g., `../briefing.md` or `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`. The product *why* (user value, personas, success) lives in the spec + `.skillgrid/artifacts/00-prd.md`; decisions are `artifacts/04-adr-NNNN-slug.md`. This blueprint is pure-technical and cites them rather than restating.]
 
 ## Terms
 

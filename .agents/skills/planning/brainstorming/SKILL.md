@@ -25,7 +25,7 @@ Turns a raw idea into an approved design and spec before any implementation begi
 
 **When NOT to use:** For a fully-specified, small, well-understood change where the design is already obvious and there is an existing flow to read — that is the **Bounded** path: a short design in chat and an approval, not this full interview → approaches → spec process. And the spike path stops at "present the probe, get a nod."
 
-**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for spec location, `conventions.artifacts` for the terms zone (`01/02-*-terms.md`), and the root `.skillgrid/ASSUMPTIONS.md` for the understanding + decisions record (VERIFIED product facts, the ADR `### ADR-NNNN` entries in `## LOCKED`, and the locked constraints) and `.skillgrid/ARCHITECTURE.md` for the live repo/program structure. If the file doesn't exist, use the defaults shown in this skill.
+**Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for spec location, `conventions.artifacts` for the terms zone (`01/02-*-terms.md`) and the requirements reference (`00-prd.md`), and the root `.skillgrid/ASSUMPTIONS.md` for the understanding record (the product statement, VERIFIED facts, the in-force ADR index in `## LOCKED` — open the Record path for the body — and the locked constraints) and `.skillgrid/ARCHITECTURE.md` for the live repo/program structure. Open `artifacts/00-prd.md` when the change touches scope or acceptance. If the file doesn't exist, use the defaults shown in this skill.
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
 
@@ -78,12 +78,12 @@ override it:
    others depend on. There is no existing flow to read — you are
     creating the architecture. Follow the full process: interview the user
     (`skillgrid:interviewing` skill — design tree, rounds, clarity gate), approaches,
-    sectioned design, then write the root understanding + decisions record
-    `.skillgrid/ASSUMPTIONS.md` (VERIFIED product facts + INFERRED hypotheses +
-    LOCKED decisions/constraints — the product requirements that used to live in a
-    separate PRD) and the live structure record `.skillgrid/ARCHITECTURE.md` (repo /
-    program structure), both from the templates in `templates/`
-    (`templates/PRD.md` → ASSUMPTIONS.md, `templates/ARCHITECTURE.md`), plus the spec
+    sectioned design, then write the product requirements reference
+    `.skillgrid/artifacts/00-prd.md` (from `templates/PRD.md`), the root
+    understanding record `.skillgrid/ASSUMPTIONS.md` (from `templates/ASSUMPTIONS.md`:
+    VERIFIED product statement + INFERRED hypotheses + LOCKED in-force table and
+    constraints; it links to `00-prd.md`), and the live structure record `.skillgrid/ARCHITECTURE.md`
+    (repo / program structure, from `templates/ARCHITECTURE.md`), plus the spec
     `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` from `templates/briefing.md`.
     If the global files already exist (a second project in the repo), merge rather
     than overwrite. Then the skillgrid:writing-blueprints skill.
@@ -93,8 +93,9 @@ override it:
    rounds, clarity gate), approaches, sectioned design, then write the
     spec `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` from
     `templates/briefing.md`. If
-     the feature changes the global `.skillgrid/ASSUMPTIONS.md` (new VERIFIED product
-     fact, changed metric, a new `### ADR-NNNN` entry) or
+     the feature changes `.skillgrid/artifacts/00-prd.md` (scope, feature, metric),
+     the global `.skillgrid/ASSUMPTIONS.md` (new VERIFIED fact, a new ADR file under
+     `artifacts/04-adr-NNNN-slug.md`) or
      `.skillgrid/ARCHITECTURE.md` (new component, data store, integration), update
      those too — only when they exist AND the feature actually changes them. Then the
      skillgrid:writing-blueprints skill.

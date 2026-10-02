@@ -1,27 +1,13 @@
-# ASSUMPTIONS — [Product Name]
+# Product Requirements: [Product Name]
 
-> Create this as the root `.skillgrid/ASSUMPTIONS.md` (the understanding +
-> decisions record) and fill in every section before implementation. For a
-> multi-project repo, merge rather than overwrite: keep existing content and add
-> the new project's scope alongside it.
->
-> The file has four tiers — **VERIFIED**, **INFERRED (HYPOTHESIS)**, **LOCKED**,
-> and **Open Questions** (plus the in-force ADR set). Everything below is the
-> VERIFIED product-facts content that used to live in a separate PRD; the
-> decisions (ADRs) live as `### ADR-NNNN` entries in the `## LOCKED` section
-> (see the `skillgrid:architectural-decision-records` templates), and the locked
-> constraints live in `## LOCKED → ### Locked constraints`.
->
-> Maintenance: VERIFIED is written by brainstorming as facts are confirmed during
-> the interview. INFERRED is a hypothesis (name the assumption it rests on).
-> LOCKED requires an explicit user OK. Supersede ADRs by link + table flip —
-> never delete an ADR entry.
+> Create this as `.skillgrid/artifacts/00-prd.md`. It is the reference for
+> scope, features, and target state. The one-paragraph product statement, the
+> VERIFIED facts, the in-force ADR index, and the locked constraints live in
+> `.skillgrid/ASSUMPTIONS.md` (see `templates/ASSUMPTIONS.md`), which links
+> here. Where this file and `ASSUMPTIONS.md` § VERIFIED disagree, VERIFIED wins.
+> For a multi-project repo, merge rather than overwrite.
 
-## VERIFIED
-
-Confirmed against the code, a spike, or a primary source. These are the facts the rest of the record stands on.
-
-### Product Overview
+## Product Overview
 
 **Product Vision:** [1-2 sentence description of what this product is and why it exists]
 
@@ -128,65 +114,6 @@ Prioritize with MoSCoW: **M**ust-have / **S**hould-have / **C**ould-have / **W**
 - **v1.2:** [Feature set and expected timeline]
 - **v2.0:** [Feature set and expected timeline]
 
-## INFERRED (HYPOTHESIS)
-
-Treated as true but not yet confirmed. Each rests on a named assumption; promote
-to VERIFIED (with evidence) or LOCKED (with a user OK) before it carries a
-decision.
-
-- **H1:** [Hypothesis] — Assumed [what]. *Not confirmed* by [what].
-
-## LOCKED
-
-Decisions (ADRs) and user-locked constraints. Adding here requires an explicit
-user OK.
-
-### In-force set
-
-Single source for what is **currently in force**. **In force** = `status: accepted`
-AND no later ADR's `supersedes` names it. Superseded / deprecated entries stay in
-the table (frozen) but are marked out of force. **IRON RULE: never delete an ADR
-entry — supersede by adding a new entry that names it and flipping its row here.**
-
-| # | Title | Status | Supersedes | Amends | Date | In force |
-|---|-------|--------|------------|--------|------|----------|
-| 0001 | [title] | accepted | — | — | YYYY-MM-DD | yes |
-
-**Highest sequence in use:** 0001 (next ADR is `### ADR-0002` below).
-
-### ADR-0001 — [title]
-
-**Status.** accepted
-**Date.** YYYY-MM-DD
-**Supersedes.** —
-
-[Body per the `skillgrid:architectural-decision-records` `adr_style` template.]
-
-### Locked constraints
-
-These override per-change decisions and are the hard limits a change must respect.
-A constraint is locked only when the user says so — inferred limits belong in
-VERIFIED or an ADR entry, not here. The `### Rules` section of `AGENTS.md` is
-rendered from this list, one bullet per constraint. `state.yaml constraints_ref`
-points at this file.
-
-- [constraint 1]
-- [constraint 2]
-
-*Unlocked (historical):* (none yet). A constraint that is later unlocked gets moved
-here with the date — it is not deleted, so the boundary history stays readable.
-
-### Locked assumptions
-
-- [locked assumption 1]
-
-## Open Questions
-
-Questions that are not yet decided and not yet spiked.
-
-- **Question 1:** [Open question]
-- **Question 2:** [Open question]
-
 ## Appendix
 
 ### Competitive Analysis
@@ -198,5 +125,4 @@ Questions that are not yet decided and not yet spiked.
 - **Finding 2:** [Key insight from research]
 
 ### Glossary
-- **Term 1:** [Definition]
-- **Term 2:** [Definition]
+- Terms live in `.skillgrid/artifacts/01-business-terms.md` and `02-technical-terms.md`.

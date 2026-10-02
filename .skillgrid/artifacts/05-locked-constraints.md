@@ -1,6 +1,6 @@
 # Locked Constraints
 
-Project-wide boundaries locked by the user. These override per-change decisions and are the hard limits a change must respect. A constraint is locked only when the user says so — inferred limits belong in `00-prd.md` or an ADR, not here.
+Project-wide boundaries locked by the user. These override per-change decisions and are the hard limits a change must respect. A constraint is locked only when the user says so — inferred limits belong in `.skillgrid/ASSUMPTIONS.md` or an ADR, not here.
 
 The `### Rules` section of the agent config block (`AGENTS.md`) is rendered from this file, one bullet per constraint. `state.yaml` `constraints_ref` points here.
 

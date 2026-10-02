@@ -45,13 +45,13 @@ the conversation, not batched at the end:
   terms file that only changes after the interview is a summary, not the
   session's output.
 - **ADRs:** the moment a decision clears the bar (hard to reverse + surprising
-  without context + real trade-off), offer to record it as a `### ADR-NNNN`
-  entry in `.skillgrid/ASSUMPTIONS.md` (§ LOCKED) and add a row to the
-  `### In-force set` table. The "why" is freshest right now; a future reader
+  without context + real trade-off), offer to record it as
+  `.skillgrid/artifacts/04-adr-NNNN-slug.md` and add a path row to the
+  `### In-force set` table in `.skillgrid/ASSUMPTIONS.md`. The "why" is freshest right now; a future reader
   needs exactly this moment's reasoning.
 
 If `conventions.artifacts` is set in `.skillgrid/config.yaml`, use that path
-for the terms files. The terms files and the ADR entries are created lazily on
+for the terms files. The terms files, `artifacts/00-prd.md`, and the ADR files are created lazily on
 first use.
 
 Work the tree in **rounds**. The **frontier** is every decision whose

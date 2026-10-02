@@ -55,7 +55,7 @@ layout/interaction. Omit if the change ran no research/spike/sketch.]
   include this section. For a constraint or decision that is NOT earned by this
   change's spec but inherited from a locked constraint or a prior ADR, CITE it
   rather than restate it (`per ASSUMPTIONS.md § Locked constraints <x>` /
-  `per ASSUMPTIONS.md § ### ADR-NNNN`) per
+  `per .skillgrid/artifacts/04-adr-NNNN-slug.md`) per
   `_shared/conventions/cite-dont-restate.md` — the citation is the
   constraint; the cited artifact keeps authority singular.]
 

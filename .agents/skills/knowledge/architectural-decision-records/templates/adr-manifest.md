@@ -12,31 +12,27 @@
 
 ## In-Force ADRs Reviewed
 
-<!-- Every currently in-force ADR that constrains this change — derived by
-     walking `supersedes` links across the `### In-force set` table in
-     .skillgrid/ASSUMPTIONS.md. An ADR is in force when its status is `accepted`
-     and no later ADR's `supersedes` names it. List each as
-     `ASSUMPTIONS.md § ### ADR-NNNN` with a one-line gist. If none are in force,
+<!-- Every currently in-force ADR that constrains this change — the rows in
+     `.skillgrid/ASSUMPTIONS.md` § `### In-force set` marked "In force: yes".
+     List each as the Record path with a one-line gist. If none are in force,
      say so. -->
 
-- `ASSUMPTIONS.md § ### ADR-NNNN` — {one-line gist}
+- `.skillgrid/artifacts/04-adr-NNNN-slug.md` — {one-line gist}
 - (or) None in force.
 
 ## New Durable ADRs Created
 
-<!-- Every ADR entry this change created, with its 4-digit sequence. These are
-     pointers to the durable entries in .skillgrid/ASSUMPTIONS.md, not copies of
-     their content. -->
+<!-- Every ADR file this change created. Pointers only — never copy the body. -->
 
-- `ASSUMPTIONS.md § ### ADR-NNNN` — {decision, one line}
+- `.skillgrid/artifacts/04-adr-NNNN-slug.md` — {decision, one line}
 - (or) None — no major durable architectural decision was introduced by this
   change.
 
 ## Supersessions
 
 <!-- If this change superseded a prior in-force ADR, name the pair. The prior
-     entry is untouched (IRON RULE); the new entry's `**Supersedes.**` field
-     points at it. -->
+     file is untouched (IRON RULE); the new file's `supersedes` frontmatter
+     points at it, and the prior table row flips to "In force: no". -->
 
 - `NNNN` supersedes `MMMM` — {why revisited, one line}
 - (or) None.

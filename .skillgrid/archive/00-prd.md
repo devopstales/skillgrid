@@ -1,3 +1,5 @@
+> Archived 2026-10-02. The live product requirements are `.skillgrid/artifacts/00-prd.md`; the product statement and verified facts are in `.skillgrid/ASSUMPTIONS.md`. This file is the 2026-09-16 draft.
+
 # Product Requirements Document: skillgrid (Hub Product)
 
 > Product requirements for the `skillgrid` Hub Product — the local-first
