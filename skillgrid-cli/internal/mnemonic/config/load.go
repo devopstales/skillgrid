@@ -2,6 +2,7 @@
 package config
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -65,6 +66,41 @@ const DefaultMemoryTTL = 7 * 24 * time.Hour
 // stays on the deterministic regex floor unless an operator enables it.
 type Extraction struct {
 	LLM bool
+}
+
+// Checkpoint is the mnemonic.checkpoint section (ADR-0022): host-agent
+// memory checkpoint gating (min events, cooldown, observation cap).
+type Checkpoint struct {
+	Enabled         bool
+	MinEvents       int
+	Cooldown        time.Duration
+	MaxObservations int
+}
+
+// Inject is the mnemonic.inject section: session-start Memory Index budgets.
+type Inject struct {
+	Summaries    int
+	Observations int
+	MaxTokens    int
+}
+
+// DefaultCheckpoint is the production default for mnemonic.checkpoint.
+func DefaultCheckpoint() Checkpoint {
+	return Checkpoint{
+		Enabled:         true,
+		MinEvents:       5,
+		Cooldown:        10 * time.Minute,
+		MaxObservations: 5,
+	}
+}
+
+// DefaultInject is the production default for mnemonic.inject.
+func DefaultInject() Inject {
+	return Inject{
+		Summaries:    5,
+		Observations: 20,
+		MaxTokens:    800,
+	}
 }
 
 // Dedup is the mnemonic.dedup section (TICKET-05). The LLM pre-write
@@ -232,6 +268,10 @@ type Indexing struct {
 	// default. The installer mirrors this list into the plugin's
 	// SKILLGRID_MNEMONIC_PRIVATE_TOOLS env var.
 	PrivateTools []string
+	// Checkpoint is the mnemonic.checkpoint section (ADR-0022).
+	Checkpoint Checkpoint
+	// Inject is the mnemonic.inject section (session-start Memory Index).
+	Inject Inject
 }
 
 type indexingFile struct {
@@ -292,6 +332,10 @@ type mnemonicSection struct {
 	// PrivateTools is the mnemonic.private_tools list (2026-09-24
 	// monitoring): the always-private allowlist of tool names.
 	PrivateTools []string `yaml:"private_tools"`
+	// Checkpoint is the mnemonic.checkpoint section (ADR-0022).
+	Checkpoint checkpointSection `yaml:"checkpoint"`
+	// Inject is the mnemonic.inject section (session-start Memory Index).
+	Inject injectSection `yaml:"inject"`
 }
 
 type retrievalBudgetSection struct {
@@ -305,6 +349,82 @@ type retrievalBudgetSection struct {
 // unless an operator opts into the LLM pass.
 type extractionSection struct {
 	LLM bool `yaml:"llm"`
+}
+
+// checkpointSection is the mnemonic.checkpoint section (ADR-0022). Pointer
+// fields distinguish absent keys from explicit values; invalid values log a
+// warning and keep the merged defaults.
+type checkpointSection struct {
+	Enabled         *bool `yaml:"enabled"`
+	MinEvents       *int  `yaml:"min_events"`
+	CooldownMinutes *int  `yaml:"cooldown_minutes"`
+	MaxObservations *int  `yaml:"max_observations"`
+}
+
+// injectSection is the mnemonic.inject section (session-start Memory Index).
+type injectSection struct {
+	Summaries    *int `yaml:"summaries"`
+	Observations *int `yaml:"observations"`
+	MaxTokens    *int `yaml:"max_tokens"`
+}
+
+// mergeCheckpoint maps mnemonic.checkpoint YAML onto Checkpoint. Invalid
+// knobs warn and fall back to base defaults; Load never hard-fails.
+func mergeCheckpoint(base Checkpoint, section checkpointSection) Checkpoint {
+	out := base
+	if section.Enabled != nil {
+		out.Enabled = *section.Enabled
+	}
+	if section.MinEvents != nil {
+		if *section.MinEvents >= 1 {
+			out.MinEvents = *section.MinEvents
+		} else {
+			log.Printf("warning: mnemonic.checkpoint.min_events must be >= 1 (got %d), using default %d", *section.MinEvents, base.MinEvents)
+		}
+	}
+	if section.CooldownMinutes != nil {
+		if *section.CooldownMinutes > 0 {
+			out.Cooldown = time.Duration(*section.CooldownMinutes) * time.Minute
+		} else {
+			log.Printf("warning: mnemonic.checkpoint.cooldown_minutes must be > 0 (got %d), using default %s", *section.CooldownMinutes, base.Cooldown)
+		}
+	}
+	if section.MaxObservations != nil {
+		if *section.MaxObservations >= 1 {
+			out.MaxObservations = *section.MaxObservations
+		} else {
+			log.Printf("warning: mnemonic.checkpoint.max_observations must be >= 1 (got %d), using default %d", *section.MaxObservations, base.MaxObservations)
+		}
+	}
+	return out
+}
+
+// mergeInject maps mnemonic.inject YAML onto Inject. Invalid max_tokens warns
+// and falls back; summaries and observations allow zero when explicitly set.
+func mergeInject(base Inject, section injectSection) Inject {
+	out := base
+	if section.Summaries != nil {
+		if *section.Summaries >= 0 {
+			out.Summaries = *section.Summaries
+		} else {
+			log.Printf("warning: mnemonic.inject.summaries must be >= 0 (got %d), using default %d", *section.Summaries, base.Summaries)
+		}
+	}
+	if section.Observations != nil {
+		if *section.Observations >= 0 {
+			out.Observations = *section.Observations
+		} else {
+			log.Printf("warning: mnemonic.inject.observations must be >= 0 (got %d), using default %d", *section.Observations, base.Observations)
+		}
+	}
+	if section.MaxTokens != nil {
+		if *section.MaxTokens >= 100 {
+			out.MaxTokens = *section.MaxTokens
+		} else {
+			log.Printf("warning: mnemonic.inject.max_tokens must be >= 100 (got %d), using default %d", *section.MaxTokens, base.MaxTokens)
+		}
+	}
+	return out
 }
 
 // dedupSection is the mnemonic.dedup section (TICKET-05). LLM defaults to
@@ -405,6 +525,8 @@ func DefaultIndexing() Indexing {
 		TTL:          DefaultMemoryTTL,
 		Federated:    DefaultFederated(),
 		Decay:        DefaultDecay(),
+		Checkpoint:   DefaultCheckpoint(),
+		Inject:       DefaultInject(),
 	}
 }
 
@@ -559,6 +681,8 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	if len(section.PrivateTools) > 0 {
 		out.PrivateTools = append([]string(nil), section.PrivateTools...)
 	}
+	out.Checkpoint = mergeCheckpoint(defaults.Checkpoint, section.Checkpoint)
+	out.Inject = mergeInject(defaults.Inject, section.Inject)
 	return out
 }
 

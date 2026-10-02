@@ -449,6 +449,69 @@ func TestLoad_PrivateTools(t *testing.T) {
 	}
 }
 
+// TestCheckpointConfig is TICKET-01: mnemonic.checkpoint and mnemonic.inject
+// parse from indexing.yaml with production defaults; invalid checkpoint knobs
+// fall back without failing Load.
+func TestCheckpointConfig(t *testing.T) {
+	dir := t.TempDir()
+	wantCheckpoint := DefaultCheckpoint()
+	wantInject := DefaultInject()
+
+	// No config file at all → briefing defaults.
+	got := Load(dir)
+	if got.Checkpoint != wantCheckpoint {
+		t.Fatalf("default checkpoint: got %+v, want %+v", got.Checkpoint, wantCheckpoint)
+	}
+	if got.Inject != wantInject {
+		t.Fatalf("default inject: got %+v, want %+v", got.Inject, wantInject)
+	}
+
+	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Config without checkpoint/inject keys → still defaults.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if got.Checkpoint != wantCheckpoint {
+		t.Fatalf("absent section checkpoint: got %+v, want %+v", got.Checkpoint, wantCheckpoint)
+	}
+	if got.Inject != wantInject {
+		t.Fatalf("absent section inject: got %+v, want %+v", got.Inject, wantInject)
+	}
+
+	// Valid YAML for both sections.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  checkpoint:\n    enabled: false\n    min_events: 8\n    cooldown_minutes: 15\n    max_observations: 3\n  inject:\n    summaries: 2\n    observations: 10\n    max_tokens: 1200\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if got.Checkpoint.Enabled {
+		t.Fatalf("checkpoint.enabled: false must apply, got true")
+	}
+	if got.Checkpoint.MinEvents != 8 || got.Checkpoint.Cooldown != 15*time.Minute || got.Checkpoint.MaxObservations != 3 {
+		t.Fatalf("checkpoint knobs: got %+v, want min_events=8 cooldown=15m max_obs=3", got.Checkpoint)
+	}
+	if got.Inject.Summaries != 2 || got.Inject.Observations != 10 || got.Inject.MaxTokens != 1200 {
+		t.Fatalf("inject knobs: got %+v, want 2/10/1200", got.Inject)
+	}
+
+	// Invalid min_events → defaults for that field, Load still succeeds.
+	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  checkpoint:\n    min_events: 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if got.Checkpoint.MinEvents != wantCheckpoint.MinEvents {
+		t.Fatalf("invalid min_events must fall back to default %d, got %d", wantCheckpoint.MinEvents, got.Checkpoint.MinEvents)
+	}
+	if got.Checkpoint != wantCheckpoint {
+		t.Fatalf("invalid min_events: expected full checkpoint defaults %+v, got %+v", wantCheckpoint, got.Checkpoint)
+	}
+}
+
 // TestHomeLocalConfigFallback covers the ~/.skillgrid/config.d/indexing.yaml
 // per-key fallback: a machine-local embedder block applies when the repo-local
 // file leaves the embedder unset, and a repo-local embedder block wins when both

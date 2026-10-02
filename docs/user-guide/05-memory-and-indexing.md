@@ -698,6 +698,20 @@ WAL-locked opens are retried with backoff (50ms → 100ms → 200ms, 3 attempts)
 | `chunk_overlap` | `10` | Overlap between line windows |
 | `max_file_size_kb` | `512` | Hard cap; larger files skipped |
 
+**Mnemonic checkpoint & inject** (`mnemonic.checkpoint`, `mnemonic.inject` in the same file):
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `checkpoint.enabled` | `true` | Host-agent checkpoint claims (ADR-0022); `false` makes every claim not due |
+| `checkpoint.min_events` | `5` | Tool events since last memory write before a claim can be due (≥ 1) |
+| `checkpoint.cooldown_minutes` | `10` | Minimum minutes between checkpoint claims (> 0) |
+| `checkpoint.max_observations` | `5` | Cap on observations written per checkpoint pass (≥ 1) |
+| `inject.summaries` | `5` | Session-start Memory Index: recent summaries to inject (≥ 0) |
+| `inject.observations` | `20` | Observations to inject at session start (≥ 0) |
+| `inject.max_tokens` | `800` | Token budget for injected context (≥ 100) |
+
+Out-of-range values log a warning and fall back to the default; config load does not fail.
+
 `skillgrid index` flags: `--dir` (default `.`), `--project`, `--pdg` (CFG/PDG + taint), `--lsp` (LSP edge tier). No `--embeddings` flag — the semantic tier is config-driven via `mnemonic.embedder` (see [Code index](#code-index)).
 
 ### Environment variables
