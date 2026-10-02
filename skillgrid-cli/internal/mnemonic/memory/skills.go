@@ -13,8 +13,8 @@ package memory
 //
 // LIFECYCLE HOOKS are on by default per project (mnemonic.hooks.enabled,
 // default true — observe-mode: writes rows, never blocks) and each runs
-// under a per-hook timeout (mnemonic.hooks.timeout, default 30s). The four
-// hook types:
+// under a per-hook timeout (mnemonic.hooks.timeout, default 30s). The hook
+// types:
 //
 //   - session-start  — inject the project's recent memories + the skills
 //     matched by the query's classified intent.
@@ -23,6 +23,9 @@ package memory
 //   - prompt-submit  — classify the prompt's work intent (ClassifyWorkIntent).
 //   - session-stop   — run the session-close distillation (layer.Distill) for
 //     the session.
+//   - compact        — before compaction, save one upserted continuity
+//     observation. Its budget is min(configured timeout, 3s) and it fails
+//     open: a timeout or save error returns a result, never hookTimeoutError.
 //
 // RunHook is the single entry point: it checks the opt-in switch, wraps the
 // hook work in a context.WithTimeout budget, and dispatches by hook type. A
@@ -236,6 +239,10 @@ const (
 	HookPreEdit      = "pre-edit"
 	HookPromptSubmit = "prompt-submit"
 	HookSessionStop  = "session-stop"
+	// HookCompact writes one continuity observation before the runtime
+	// compacts the conversation. A repeat upserts on topic_key
+	// compaction/<session>.
+	HookCompact = "compact"
 	// HookPostToolUse records one finished tool call as an ordered session
 	// event plus its per-session counter bump, in a single transaction.
 	HookPostToolUse = "post_tool_use"
@@ -245,6 +252,20 @@ const (
 // hook that exceeds it is cut off and RunHook returns a descriptive timeout
 // error. Tunable via the mnemonic.hooks.timeout config key (SetHooks).
 const DefaultHookTimeout = 30 * time.Second
+
+// compactHookBudget caps the compact hook. The configured per-hook timeout
+// still applies when it is shorter; compact never waits longer than this,
+// and a deadline is fail-open rather than hookTimeoutError.
+const compactHookBudget = 3 * time.Second
+
+// compactObservationType is the continuity row's coarse type. Save rejects
+// anything outside validTypes, and session_summary is the compact contract,
+// so the hook registers it on that map (same package) instead of a second writer.
+const compactObservationType = "session_summary"
+
+func init() {
+	validTypes[compactObservationType] = struct{}{}
+}
 
 // HooksConfig tunes the lifecycle hooks (014 step 24.3). Enabled is the
 // switch (config-level default true — observe-mode; the memory-package zero
@@ -395,7 +416,10 @@ func (s *Service) SetDistillRunner(fn distillRunner) {
 // switch (disabled → hooksDisabledError, no work runs), then wraps the hook
 // work in a context.WithTimeout budget (the configured per-hook timeout) and
 // dispatches by hook type. On timeout it returns a descriptive
-// hookTimeoutError. Unknown hook types are rejected before any work runs.
+// hookTimeoutError, except compact, which uses min(configured, 3s) and fails
+// open (DeadlineExceeded → Distilled false and a nil error; any other compact
+// error → an empty result and a nil error). Unknown hook types are rejected
+// before any work runs.
 func (s *Service) RunHook(ctx context.Context, hookType string, payload HookPayload) (HookResult, error) {
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return HookResult{}, fmt.Errorf("memory service not initialized")
@@ -406,9 +430,9 @@ func (s *Service) RunHook(ctx context.Context, hookType string, payload HookPayl
 	}
 	var fn hookFunc
 	switch hookType {
-	case HookSessionStart, HookPreEdit, HookPromptSubmit, HookSessionStop, HookPostToolUse:
+	case HookSessionStart, HookPreEdit, HookPromptSubmit, HookSessionStop, HookPostToolUse, HookCompact:
 	default:
-		return HookResult{}, fmt.Errorf("unknown hook type %q (valid: session-start, pre-edit, prompt-submit, session-stop)", hookType)
+		return HookResult{}, fmt.Errorf("unknown hook type %q (valid: session-start, pre-edit, prompt-submit, session-stop, compact)", hookType)
 	}
 	hooksMu.Lock()
 	if s.hookFns != nil {
@@ -419,9 +443,18 @@ func (s *Service) RunHook(ctx context.Context, hookType string, payload HookPayl
 		fn = s.defaultHook
 	}
 
+	if hookType == HookCompact && timeout > compactHookBudget {
+		timeout = compactHookBudget
+	}
 	hctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	res, err := fn(hctx, hookType, payload)
+	if err != nil && hookType == HookCompact {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return HookResult{Distilled: false}, nil
+		}
+		return HookResult{}, nil
+	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return HookResult{}, hookTimeoutError{hook: hookType}
@@ -442,7 +475,7 @@ func (s *Service) hooksState() (bool, time.Duration) {
 	return s.hooksEnabled, to
 }
 
-// defaultHook is the production dispatch for the four built-in hook types.
+// defaultHook is the production dispatch for the built-in hook types.
 func (s *Service) defaultHook(ctx context.Context, hookType string, payload HookPayload) (HookResult, error) {
 	switch hookType {
 	case HookSessionStart:
@@ -453,6 +486,8 @@ func (s *Service) defaultHook(ctx context.Context, hookType string, payload Hook
 		return s.hookPromptSubmit(ctx, payload)
 	case HookSessionStop:
 		return s.hookSessionStop(ctx, payload)
+	case HookCompact:
+		return s.hookCompact(ctx, payload)
 	case HookPostToolUse:
 		return s.hookPostToolUse(ctx, payload)
 	default:
@@ -522,6 +557,58 @@ func (s *Service) hookSessionStop(ctx context.Context, payload HookPayload) (Hoo
 		return HookResult{}, err
 	}
 	return HookResult{Distilled: distilled}, nil
+}
+
+// hookCompact persists one continuity observation before compaction. An empty
+// session is a no-op. The body is the short list of titles from
+// CompactionContext. Save upserts on topic_key compaction/<session>, so a
+// repeat updates the same row. Errors propagate to RunHook, which fails this
+// hook open.
+func (s *Service) hookCompact(ctx context.Context, payload HookPayload) (HookResult, error) {
+	sessionID := strings.TrimSpace(payload.SessionID)
+	if sessionID == "" {
+		return HookResult{}, nil
+	}
+	cc, err := s.CompactionContext(ctx, sessionID, 5)
+	if err != nil {
+		return HookResult{}, err
+	}
+	_, err = s.Save(ctx, SaveInput{
+		SessionID: sessionID,
+		Type:      compactObservationType,
+		Title:     "compaction continuity",
+		Content:   compactTitles(cc),
+		TopicKey:  "compaction/" + sessionID,
+		Owner:     sessionID,
+		Scope:     "project",
+	})
+	if err != nil {
+		return HookResult{}, err
+	}
+	return HookResult{}, nil
+}
+
+// compactTitles is the short continuity body: the session title, then each
+// compaction observation's title. Save requires non-empty content, so a
+// context with no titles still carries the continuity title.
+func compactTitles(cc CompactionContext) string {
+	var lines []string
+	if title := strings.TrimSpace(cc.Title); title != "" {
+		lines = append(lines, title)
+	}
+	for _, obs := range cc.Observations {
+		title := obs
+		if i := strings.Index(obs, " — "); i > 0 {
+			title = obs[:i]
+		}
+		if title = strings.TrimSpace(title); title != "" {
+			lines = append(lines, title)
+		}
+	}
+	if len(lines) == 0 {
+		return "compaction continuity"
+	}
+	return strings.Join(lines, "\n")
 }
 
 // hookPostToolUse records one finished tool call (TICKET-02): an ordered

@@ -994,7 +994,7 @@ func runMemSkills(svc *service.Service, projID string, pos []string) {
 }
 
 // runMemHook is the CLI for `mem hook` (014 step 24.4): `mem hook list` shows
-// the 4 configured hook types + the project's enabled state; `mem hook run
+// the configured hook types + the project's enabled state; `mem hook run
 // <type> [--file F] [--query Q]` executes one hook and prints its result.
 func runMemHook(svc *service.Service, projID string, pos []string, query, hookFile string) {
 	sub := ""
@@ -1020,7 +1020,7 @@ func runMemHook(svc *service.Service, projID string, pos []string, query, hookFi
 			"project": projID,
 			"enabled": enabled,
 			"timeout": timeout.String(),
-			"hooks":   []string{"session-start", "pre-edit", "prompt-submit", "session-stop"},
+			"hooks":   []string{"session-start", "pre-edit", "prompt-submit", "session-stop", "compact"},
 		})
 	case "run":
 		hookType := ""
@@ -1051,7 +1051,7 @@ func runMemHook(svc *service.Service, projID string, pos []string, query, hookFi
 
   list                            show the configured hooks + enabled state
   run <type> [--file F] [--query Q]
-                                  run a hook (session-start|pre-edit|prompt-submit|session-stop)
+                                  run a hook (session-start|pre-edit|prompt-submit|session-stop|compact)
 `)
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown hook subcommand %q\n", sub)
