@@ -8,12 +8,13 @@
     ],
     "sessionEnd": [
       {
-        "command": "./hooks/cursor-session-end.sh"
+        "command": "./hooks/cursor-session-end.sh sessionEnd"
       }
     ],
     "stop": [
       {
-        "command": "./hooks/cursor-session-end.sh"
+        "command": "./hooks/cursor-session-end.sh stop",
+        "loop_limit": 2
       }
     ],
     "beforeShellExecution": [

@@ -16,6 +16,14 @@
 // that may block: Cursor gets {"permission":"deny"}, OpenCode/Kilo exit 2.
 
 const BASE = (process.env.SKILLGRID_MNEMONIC_HTTP_URL || "http://127.0.0.1:7438").replace(/\/+$/, "")
+
+function checkpointBase() {
+  return (process.env.SKILLGRID_CHECKPOINT_URL || BASE).replace(/\/+$/, "")
+}
+
+function policyTimeoutMs() {
+  return Number(process.env.SKILLGRID_POLICY_TIMEOUT_MS) || 1500
+}
 const AGENT = process.env.SKILLGRID_AGENT || "opencode"
 const MAX_PREVIEW = 500
 
@@ -267,7 +275,7 @@ async function evaluatePolicy(payload) {
   const allow = { effect: "allow", message: "", rule: "" }
   const directory = directoryOf(payload)
   if (!hasPolicyFile(directory)) return allow
-  const timeout = Number(process.env.SKILLGRID_POLICY_TIMEOUT_MS) || 1500
+  const timeout = policyTimeoutMs()
   try {
     const res = await fetch(`${BASE}/policy/evaluate?directory=${encodeURIComponent(directory)}`, {
       method: "POST",
@@ -307,9 +315,44 @@ async function policyHook() {
   process.exit(0)
 }
 
+// checkpoint: Cursor stop hook claims a memory checkpoint; may emit followup_message.
+async function checkpoint() {
+  const empty = () => {
+    process.stdout.write("{}\n")
+    process.exit(0)
+  }
+  const payload = await readPayload()
+  const loopCount = Number(payload.loop_count) || 0
+  if (loopCount >= 2) return empty()
+  const sessionId = sessionIdOf(payload)
+  if (!sessionId) return empty()
+  const directory = directoryOf(payload)
+  const base = checkpointBase()
+  try {
+    const url = `${base}/sessions/${encodeURIComponent(sessionId)}/checkpoint/claim?directory=${encodeURIComponent(directory)}`
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ directory }),
+      signal: AbortSignal.timeout(policyTimeoutMs()),
+    })
+    if (!res.ok) return empty()
+    const d = await res.json()
+    if (d && d.due === true && typeof d.prompt === "string" && d.prompt) {
+      process.stdout.write(JSON.stringify({ followup_message: d.prompt }) + "\n")
+      process.exit(0)
+    }
+  } catch {}
+  return empty()
+}
+
 async function main() {
   if (process.argv[2] === "policy") {
     await policyHook()
+    return
+  }
+  if (process.argv[2] === "checkpoint") {
+    await checkpoint()
     return
   }
   if (process.argv[2] === "register") {

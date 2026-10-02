@@ -67,6 +67,20 @@ to preview. All capture hooks fail open; only the
 `tool.before.*` / `before*` policy hooks can block, and only when
 `.skillgrid/policy.yaml` has `enabled: true` (ADR-0021).
 
+### Memory checkpoints (Cursor `stop`)
+
+When `skillgrid serve` is running and checkpoints are enabled, the Cursor
+**stop** hook may return a `followup_message` asking the agent to save typed
+observations and a short session summary via Mnemonic tools. The server decides
+whether a checkpoint is due; the hook always fails open (`{}` on errors or when
+not due). **`sessionEnd`** runs the same teardown (compact, usage) but never
+emits a follow-up.
+
+The stop entry in `hooks/hooks-cursor.json` (and `skillgrid setup cursor`)
+sets **`loop_limit`: 2** so Cursor will not loop follow-ups indefinitely. Turn
+checkpoints off in config: `mnemonic.checkpoint.enabled: false` in
+`.skillgrid/config.yaml`.
+
 ## The pre-commit chain
 
 `checkpoint-state.js guard` runs, in order:

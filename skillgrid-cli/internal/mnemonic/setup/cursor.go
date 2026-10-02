@@ -76,7 +76,23 @@ var cursorHookScripts = map[string]string{
 
 // CursorHookCommand is the hooks.json command for one skillgrid script.
 func CursorHookCommand(home, script string) string {
-	return "bash " + filepath.Join(home, ".skillgrid", "hooks", script)
+	return cursorHookCommand(home, script, "")
+}
+
+func cursorHookCommand(home, script, event string) string {
+	cmd := "bash " + filepath.Join(home, ".skillgrid", "hooks", script)
+	if script == "cursor-session-end.sh" && event != "" {
+		cmd += " " + event
+	}
+	return cmd
+}
+
+func cursorHookEntry(home, script, event string) map[string]any {
+	entry := map[string]any{"command": cursorHookCommand(home, script, event)}
+	if event == "stop" {
+		entry["loop_limit"] = 2
+	}
+	return entry
 }
 
 // upsertCursorHooks adds the skillgrid entries to ~/.cursor/hooks.json,
@@ -154,10 +170,22 @@ func upsertCursorHooks(home string, dryRun bool) error {
 	for _, ev := range events {
 		script := cursorHookScripts[ev]
 		entries, _ := hooks[ev].([]any)
-		if cursorHookPresent(entries, script) {
+		if idx := cursorSkillgridHookIndex(entries, script); idx >= 0 {
+			if ev == "stop" {
+				m, _ := entries[idx].(map[string]any)
+				if m == nil {
+					m = map[string]any{}
+				}
+				if _, ok := m["loop_limit"]; !ok {
+					m["loop_limit"] = 2
+					entries[idx] = m
+					hooks[ev] = entries
+					changed = true
+				}
+			}
 			continue
 		}
-		hooks[ev] = append(entries, map[string]any{"command": CursorHookCommand(home, script)})
+		hooks[ev] = append(entries, cursorHookEntry(home, script, ev))
 		changed = true
 	}
 	if !changed {
@@ -182,16 +210,16 @@ func upsertCursorHooks(home string, dryRun bool) error {
 	return nil
 }
 
-func cursorHookPresent(entries []any, script string) bool {
+func cursorSkillgridHookIndex(entries []any, script string) int {
 	want := filepath.Join(".skillgrid", "hooks", script)
-	for _, e := range entries {
+	for i, e := range entries {
 		m, _ := e.(map[string]any)
 		cmd, _ := m["command"].(string)
 		if strings.Contains(cmd, want) {
-			return true
+			return i
 		}
 	}
-	return false
+	return -1
 }
 
 func upsertCursorMCP(mcpPath string, entry MCPServerConfig, dryRun bool) error {

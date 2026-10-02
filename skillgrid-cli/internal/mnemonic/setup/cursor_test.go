@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,8 +73,18 @@ func TestUpsertCursorHooks(t *testing.T) {
 	if len(post) != 2 || post[0].Get("command").String() != "/opt/other/hook.sh" {
 		t.Fatalf("postToolUse = %s, want the other hook first and ours once", doc.Get("hooks.postToolUse").Raw)
 	}
-	if got, want := post[1].Get("command").String(), CursorHookCommand(home, "cursor-tool-capture.sh"); got != want {
+	if got, want := post[1].Get("command").String(), cursorHookCommand(home, "cursor-tool-capture.sh", ""); got != want {
 		t.Errorf("capture command = %q, want %q", got, want)
+	}
+	stop := doc.Get("hooks.stop").Array()
+	if len(stop) != 1 {
+		t.Fatalf("stop hooks = %s", doc.Get("hooks.stop").Raw)
+	}
+	if stop[0].Get("loop_limit").Int() != 2 {
+		t.Errorf("stop loop_limit = %s, want 2", stop[0].Get("loop_limit").Raw)
+	}
+	if got, want := stop[0].Get("command").String(), cursorHookCommand(home, "cursor-session-end.sh", "stop"); got != want {
+		t.Errorf("stop command = %q, want %q", got, want)
 	}
 	if n := len(doc.Get("hooks.beforeSubmitPrompt").Array()); n != 1 {
 		t.Errorf("beforeSubmitPrompt entries = %d, want 1 (untouched)", n)
@@ -81,8 +92,9 @@ func TestUpsertCursorHooks(t *testing.T) {
 	for ev, script := range cursorHookScripts {
 		arr := doc.Get("hooks." + ev).Array()
 		hits := 0
+		wantFragment := filepath.Join(".skillgrid", "hooks", script)
 		for _, e := range arr {
-			if strings.HasSuffix(e.Get("command").String(), filepath.Join(".skillgrid", "hooks", script)) {
+			if strings.Contains(e.Get("command").String(), wantFragment) {
 				hits++
 			}
 		}
@@ -99,6 +111,38 @@ func TestUpsertCursorHooks(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dry, ".cursor", "hooks.json")); err == nil {
 		t.Error("dry-run must not create hooks.json")
 	}
+}
+
+func TestUpsertCursorHooks_StopLoopLimitMerge(t *testing.T) {
+	home := t.TempDir()
+	hooksPath := filepath.Join(home, ".cursor", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existingStop := cursorHookCommand(home, "cursor-session-end.sh", "stop")
+	pre := `{"version":1,"hooks":{"stop":[{"command":` + strconvQuote(existingStop) + `}]}}`
+	if err := os.WriteFile(hooksPath, []byte(pre), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := upsertCursorHooks(home, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(hooksPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := gjson.ParseBytes(data).Get("hooks.stop").Array()
+	if len(stop) != 1 {
+		t.Fatalf("stop = %s", gjson.ParseBytes(data).Get("hooks.stop").Raw)
+	}
+	if stop[0].Get("loop_limit").Int() != 2 {
+		t.Errorf("loop_limit = %s, want 2", stop[0].Get("loop_limit").Raw)
+	}
+}
+
+func strconvQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
 func TestUpsertCursorMCP_LocalKeepsCommandArgs(t *testing.T) {

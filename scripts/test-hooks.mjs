@@ -13,7 +13,7 @@
 //   node scripts/test-hooks.mjs guard-msg # run only cases tagged guard-msg
 //
 // Exit code: 0 if all pass, 1 if any fail.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -330,6 +330,128 @@ async function casePrivate() {
   expectRC('private: preview stripped to token= ok', 0, preview.includes('token= ok') ? 0 : 1);
 }
 
+// --- tool-call-capture checkpoint (fake claim server) ------------------------
+
+function runCheckpoint(stdinObj, env = {}, serverHandler) {
+  return new Promise((resolve, reject) => {
+    let requests = 0;
+    const server = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url && req.url.includes('/checkpoint/claim')) {
+        requests += 1;
+        const chunks = [];
+        req.on('data', (chunk) => chunks.push(chunk));
+        req.on('end', async () => {
+          const body = Buffer.concat(chunks).toString('utf8');
+          let reply = { due: false, reason: 'unexpected' };
+          if (serverHandler) {
+            try {
+              reply = await serverHandler({ url: req.url, body, requests });
+            } catch {
+              reply = { due: false, reason: 'handler-error' };
+            }
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(reply));
+        });
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
+      const base = env.SKILLGRID_CHECKPOINT_URL || `http://127.0.0.1:${port}`;
+      const child = spawn(process.execPath, [TOOL_CAPTURE, 'checkpoint'], {
+        env: {
+          ...process.env,
+          SKILLGRID_CHECKPOINT_URL: base,
+          SKILLGRID_AGENT: 'cursor',
+          ...env,
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      child.stdin.write(JSON.stringify(stdinObj));
+      child.stdin.end();
+      let stdout = '';
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+      });
+      child.on('close', (code) => {
+        server.close(() => {
+          resolve({ r: { status: code, stdout }, requests, port });
+        });
+      });
+      child.on('error', (err) => {
+        server.close(() => reject(err));
+      });
+    });
+  });
+}
+
+async function caseCheckpoint() {
+  if (FILTER && FILTER !== 'checkpoint') return;
+
+  const prompt = 'Memory checkpoint…';
+  {
+    const { r, requests } = await runCheckpoint(
+      { conversation_id: 's1', loop_count: 0, cwd: WORK },
+      {},
+      async () => ({ due: true, prompt }),
+    );
+    expectRC('checkpoint: due + loop_count 0 exits 0', 0, r.status === null ? 1 : r.status);
+    let out;
+    try {
+      out = JSON.parse((r.stdout || '').trim() || '{}');
+    } catch {
+      out = {};
+    }
+    expectRC('checkpoint: stdout has followup_message', 0, out.followup_message === prompt ? 0 : 1);
+    expectRC('checkpoint: server was called', 0, requests === 1 ? 0 : 1);
+  }
+
+  {
+    const { r, requests } = await runCheckpoint(
+      { conversation_id: 's1', loop_count: 2, cwd: WORK },
+      {},
+      async () => ({ due: true, prompt }),
+    );
+    expectRC('checkpoint: loop_count 2 exits 0', 0, r.status === null ? 1 : r.status);
+    expectRC('checkpoint: loop_count 2 prints {}', 0, (r.stdout || '').trim() === '{}' ? 0 : 1);
+    expectRC('checkpoint: loop_count 2 skips server', 0, requests === 0 ? 0 : 1);
+  }
+
+  {
+    const { r } = await runCheckpoint(
+      { conversation_id: 's1', loop_count: 0, cwd: WORK },
+      {},
+      async () => ({ due: false, reason: 'cooldown' }),
+    );
+    expectRC('checkpoint: not due exits 0', 0, r.status === null ? 1 : r.status);
+    expectRC('checkpoint: not due prints {}', 0, (r.stdout || '').trim() === '{}' ? 0 : 1);
+  }
+
+  {
+    const t0 = Date.now();
+    const r = spawnSync(process.execPath, [TOOL_CAPTURE, 'checkpoint'], {
+      encoding: 'utf8',
+      input: JSON.stringify({ conversation_id: 's1', loop_count: 0, cwd: WORK }),
+      env: {
+        ...process.env,
+        SKILLGRID_CHECKPOINT_URL: 'http://127.0.0.1:1',
+        SKILLGRID_AGENT: 'cursor',
+        SKILLGRID_POLICY_TIMEOUT_MS: '500',
+      },
+    });
+    const elapsed = Date.now() - t0;
+    expectRC('checkpoint: dead port exits 0', 0, r.status === null ? 1 : r.status);
+    expectRC('checkpoint: dead port prints {}', 0, (r.stdout || '').trim() === '{}' ? 0 : 1);
+    expectRC('checkpoint: dead port within 2s', 0, elapsed < 2000 ? 0 : 1);
+  }
+}
+
 // --- snapshot/restore (removed — must report unknown subcommand) -------------
 // TICKET-07 (old-surfaces-removed): the checkpoint file is gone; resume reads
 // the session event stream. Both subcommands fail closed with exit 2 and an
@@ -369,6 +491,7 @@ async function runAll() {
   caseIgnore();
   caseLint();
   await casePrivate();
+  await caseCheckpoint();
   caseSnapshot();
 
   process.stdout.write('\n');
