@@ -1,10 +1,10 @@
 ---
 id: TASK-024
 title: 'TICKET-03: DedupLLM.Classify 4-way + runDedupCheck switch'
-status: in-progress
+status: done
 assignee: []
 created_date: '2026-10-01 18:18'
-updated_date: '2026-10-01 20:25'
+updated_date: '2026-10-01 21:17'
 labels:
   - bitemporal-audn
 dependencies:
@@ -60,3 +60,9 @@ Blocked by: TICKET-02 (task-023).
 5. GREEN: go test ./internal/mnemonic/memory/ -run 'TestRunDedupCheck|TestSave' -count=1.
 6. Commit: feat(memory): DedupLLM.Classify 4-way + runDedupCheck switch. Refs: task-024.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+DedupVerdict (add/update/delete/noop) + DedupDecision types; Classify added to DedupLLM interface (legacy Dedup deprecated); runDedupCheck switched to Classify (single DedupDecision return, Reason in struct); Save adapted (VerdictDelete→merge bridge, VerdictUpdate→log, add/noop/floor→normal save); isExtractedDuplicate unchanged. Review: 1 WARNING fixed (VerdictUpdate log now fires regardless of CandidateID). Commits: b33564e8 (impl) + 6ad15da1 (fix).
+<!-- SECTION:FINAL_SUMMARY:END -->

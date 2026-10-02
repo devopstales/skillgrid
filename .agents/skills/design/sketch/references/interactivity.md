@@ -107,7 +107,7 @@ vanilla.
 
 - **Alive ≠ animated.** A subtle transition is the bar; a bouncing logo is not.
 - **Alive ≠ realistic data.** The data should be *representative* (right shape, right
-  volume, right edge cases) but does not need to be real. If a spike produced real
+  volume, right edge cases) but does not need to be real. If a prototype produced real
   data shapes, use them; otherwise, plausible fake data.
 - **Alive ≠ complete.** The sketch tests the *interaction and layout*, not every
   feature. A list does not need pagination, search, and filtering all working — but

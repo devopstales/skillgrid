@@ -1,6 +1,6 @@
 # Findings — 2026-09-24-mnemonic-vector-db
 
-## Spike: 001-cgo-free-vector-db
+## Prototype: 001-cgo-free-vector-db
 
 - **Verdict:** PARTIAL ⚠
 - **What we learned:**
@@ -14,5 +14,5 @@
   1. G's in-SQL top-K is ~6.9s at 100K, ~1.4s at 20K — acceptable for session-inject (one-shot at resume), NOT for a per-query hot path (use in-memory cosine for hot paths).
   2. G insert is string-based — batch/BLOB path needed for bulk re-index.
   3. viant is not adoptable until the `ensureIndex` deadlock is fixed (or a raw-connection usage pattern is documented).
-  4. The modernc v1.45.0 → v1.59.0 bump must be validated against the existing 39 migrations, WAL-retry, and store pooling (spike used a fresh DB).
+  4. The modernc v1.45.0 → v1.59.0 bump must be validated against the existing 39 migrations, WAL-retry, and store pooling (prototype used a fresh DB).
   5. ADR-0006's ~40 ms figure is in-memory, not in-SQL — the revisit-trigger analysis must distinguish hot-path (in-memory, fast) from durable (in-SQL G, slow).

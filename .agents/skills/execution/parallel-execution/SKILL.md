@@ -110,9 +110,11 @@ dispatch, update it when the agent returns, and append a wave-summary line
 when the suite is re-run. **Integrate from the ledger + git, not from
 in-context summaries.** If you suspect a compaction mid-run: re-read the
 ledger + `git status`/`git log`, then re-dispatch only the unfinished rows.
-If `mnemonic.enabled: true`, mirror the wave summary (not per-agent rows)
-with `mem_save(topic_key: skillgrid/<topic>/execution-progress, ...)` when a
-wave completes.
+If `mnemonic.enabled: true`, upsert `skillgrid/<topic>/execution-progress`
+when a wave completes. The body is the execution-progress shape in
+`_shared/rules/mnemonic-memory.md` (ledger path plus the wave tail, not
+the per-agent rows). ADR-0020: this file stays the record. Do not move
+the wave onto the teams MCP tools.
 
 **Concurrent coupled build (implementation, shared files):** before dispatching,
 read [references/concurrent-leaves.md](references/concurrent-leaves.md). It adds

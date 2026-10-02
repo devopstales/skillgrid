@@ -7,7 +7,7 @@ Planning list of the target function areas for `skillgrid-mnemonic`. Status tags
   - **Decisions** — governed decision observations the agent posts; user answers in the serve dashboard; agent reads back via `mem_search`. `GET /mnemonic/decisions`, `POST .../answer`, `memory.UpdateContent`. *Status: planned — Visual Companion epic (TASK-006, 7 tickets, needs-triage).*
 - **Code index**
   - **Semantic search** — embedding-based code search over symbols/chunks. *Status: built (`code_semantic_search`); degraded to none when no embedder is configured.*
-  - **Vector db** — persistent vector store for embeddings (today in-memory / sqlite-vec seam). *Status: partially built — no dedicated durable vector store yet. **Strong dependency** for session-inject's locked hybrid selection. Spike 2026-09-24 (ADR-0009) confirmed the path: **G (`modernc.org/sqlite/vec`)** is the default scale-up (cgo-free, same driver, mature, but in-SQL top-K is ~6.9 s at 100K / ~1.4 s at 20K — durable path, not hot path). **viant** (cover-tree ANN) is deferred — packaging bug + query deadlock. In-memory cosine (`hybrid/vectorcache.go`) remains the hot path (~40 ms at 100K). See ADR-0006 + ADR-0009.*
+  - **Vector db** — persistent vector store for embeddings (today in-memory / sqlite-vec seam). *Status: partially built — no dedicated durable vector store yet. **Strong dependency** for session-inject's locked hybrid selection. Prototype 2026-09-24 (ADR-0009) confirmed the path: **G (`modernc.org/sqlite/vec`)** is the default scale-up (cgo-free, same driver, mature, but in-SQL top-K is ~6.9 s at 100K / ~1.4 s at 20K — durable path, not hot path). **viant** (cover-tree ANN) is deferred — packaging bug + query deadlock. In-memory cosine (`hybrid/vectorcache.go`) remains the hot path (~40 ms at 100K). See ADR-0006 + ADR-0009.*
 - **Monitoring**
   - **Session tracking** — session lifecycle, summaries, event stream + commit range. *Status: built (`mem_session_*`, `session_changes`).*
   - **Track every tool call** — per-tool-call tracking/audit. *Status: planned — designed 2026-09-24 (see Monitoring plan below). Capture mechanism exists (`memory.hookPostToolUse`, `session_events` schema) but is not triggered: no auto-firing hook, hooks default off. Locked decisions: default-on observe-mode, plain SQLite (no hash-chain), `standard` logging level, 90-day retention, `<private>` tags via agent output + tool-name allowlist.*
@@ -32,7 +32,7 @@ Goal: when a new session starts (or the current one resumes), select the most re
 
 ### Design (synthesized)
 
-> **LOCKED** (2026-09-24): (a) two-layer injection mechanism — auto-prepend slim L1 on resume + on-demand `mem_inject_session` tool; (b) privacy — tag-by-default (secrets/full local paths/`private`-tagged excluded; project-relative paths/SHAs/tool names/task IDs included); (c) scope — project-scoped default, cross-project only via explicit `all_projects: true`; (d) selection — hybrid (BM25 + semantic, RRF-fused) by default, vector leg degrades to BM25-only when no embedder is active. See `05-locked-constraints.md`. Compression depth is NOT locked — validate in first spike.
+> **LOCKED** (2026-09-24): (a) two-layer injection mechanism — auto-prepend slim L1 on resume + on-demand `mem_inject_session` tool; (b) privacy — tag-by-default (secrets/full local paths/`private`-tagged excluded; project-relative paths/SHAs/tool names/task IDs included); (c) scope — project-scoped default, cross-project only via explicit `all_projects: true`; (d) selection — hybrid (BM25 + semantic, RRF-fused) by default, vector leg degrades to BM25-only when no embedder is active. See `05-locked-constraints.md`. Compression depth is NOT locked — validate in first prototype.
 
 1. **Capture** — the monitoring layer (track every tool call + session events) records every tool call, edit, git op, error, and decision to a per-session event store (SQLite). Reuses the existing `session_changes` event stream.
 2. **Index** — at session end (or continuously), compress the events into a structured summary and index it into FTS5 (the existing memory FTS5 surface). The summary is deterministic (stable ordering, byte-identical across runs) so it is KV-cache friendly.
@@ -42,7 +42,7 @@ Goal: when a new session starts (or the current one resumes), select the most re
 
 ### Open questions
 
-- **Compression depth**: signature-folding (mcp-injector style) vs. AI-generated semantic summaries (claude-mem style) vs. reversible CCR (headroom style). *Proposal: tiered by content type — signature-fold for code references, semantic summary for decisions/errors, CCR for originals. NOT locked — validate in first spike.*
+- **Compression depth**: signature-folding (mcp-injector style) vs. AI-generated semantic summaries (claude-mem style) vs. reversible CCR (headroom style). *Proposal: tiered by content type — signature-fold for code references, semantic summary for decisions/errors, CCR for originals. NOT locked — validate in first prototype.*
 
 ### Mapping to existing backlog
 

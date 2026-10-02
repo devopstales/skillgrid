@@ -38,7 +38,7 @@ Each skill is a directory with a `SKILL.md` plus optional `references/`, `templa
 |------|----------|
 | **Entry / router** | `using-skillgrid` |
 | **Workflow stages** | `onboarding`, `writing-blueprints`, `slicing`, `qa`, `ticketing` |
-| **Discovery** | `interviewing`, `brainstorming`, `research`, `code-research`, `spike`, `sketch` |
+| **Discovery** | `interviewing`, `brainstorming`, `research`, `code-research`, `prototype`, `sketch` |
 | **Execution** | `simple-execution`, `subagent-execution`, `parallel-execution`, `work-unit-commits`, `resume` |
 | **Quality** | `test-driven-development`, `test-driven-verification`, `acceptance-test-authoring`, `requesting-code-review`, `receiving-code-review`, `parallel-code-review` |
 | **Cross-cutting** | `mnemonic`, `isolated-workspace`, `structured-debugging`, `architectural-decision-records`, `ponytail` |

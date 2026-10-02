@@ -1,10 +1,10 @@
 ---
 id: TASK-026
 title: 'TICKET-05: Config mnemonic.dedup.llm + newDedupLLMBackend wiring'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-01 18:21'
-updated_date: '2026-10-01 18:22'
+updated_date: '2026-10-02 07:14'
 labels:
   - bitemporal-audn
 dependencies:
@@ -59,3 +59,9 @@ Blocked by: TICKET-04 (task-025).
 4. GREEN: go test ./internal/mnemonic/config/ ./internal/mnemonic/service/ -count=1.
 5. Commit: feat(memory): mnemonic.dedup.llm config + newDedupLLMBackend wiring. Refs: task-026.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+mnemonic.dedup.llm config section (default false) mirroring Extraction at all touchpoints; newDedupLLMBackend() adapter in service/dedup_llm.go satisfying memory.DedupLLM (4-way Classify + deprecated binary Dedup), injectable dedupLLMFunc seam; openProject arms SetDedupLLM+EnableDedupLLM(true) when cfg.Dedup.LLM. Candidate *int distinguishes 0 (first) from null. Review: PASS; 2 deferred WARNINGs (no production LLM client is constructed anywhere in the codebase — pre-existing across ask/extraction/dedup — so the seam is structurally reachable but functionally inert until a shared client attach step lands; the parallel seam mirrors the existing SetAskLLM convention). 2 SUGGESTIONS fixed (prompt clarity, add/noop candidate-drop pin). Commits: f06f2a8c + 1a7c5b1d.
+<!-- SECTION:FINAL_SUMMARY:END -->

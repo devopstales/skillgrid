@@ -70,7 +70,7 @@ Read, in order:
 2. `acceptance.feature` — every scenario (the traceability oracle)
 3. `blueprint.md` — the task breakdown, `SATISFIES` lines, and the `**Status:**` line
 4. `tasks.md` — the ticket list and dependency graph
-5. `findings.md` (if present) — spike/sketch results that constrain the verification
+5. `findings.md` (if present) — prototype/sketch results that constrain the verification
 
 Identify: every scenario name, every ticket, every `SATISFIES` mapping, the stated goal from the briefing, and each requirement's `#### Gates` block (the runnable shadow of its scenarios — see `skillgrid:test-driven-verification`).
 

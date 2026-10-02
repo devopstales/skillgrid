@@ -1,10 +1,10 @@
 ---
 id: TASK-022
 title: 'TICKET-01: Bi-temporal migration 044 + ValidAtTime'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-01 18:15'
-updated_date: '2026-10-01 18:16'
+updated_date: '2026-10-01 20:11'
 labels:
   - bitemporal-audn
 dependencies: []
@@ -64,3 +64,9 @@ Tracer thread: proves the temporal window is queryable before the AUDN classifie
 7. GREEN: go test ./internal/mnemonic/store/ ./internal/mnemonic/memory/ -count=1; TestSquashShim baseline first (Precondition).
 8. Commit: feat(memory): migration 044 bi-temporal columns + ValidAtTime. Refs: task-022.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Migration 044 (3 additive columns: valid_at, invalid_at, superseded_by + partial index), struct/scan/select/insert wiring, bi-temporal filter on all 7 read sites, ValidAtTime half-open window query. Review: 2 WARNINGs fixed (index comment, Recent-family filter + test), 2 suggestions applied (json:"-" rationale, T2 boundary assertion). Commits: 826b97bf (implementation) + b5031236 (review fixes).
+<!-- SECTION:FINAL_SUMMARY:END -->

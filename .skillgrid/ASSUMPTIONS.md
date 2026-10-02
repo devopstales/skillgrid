@@ -5,10 +5,10 @@ The live record of what skillgrid *is*, which decisions are in force, and what i
 **Read order:** VERIFIED (what we know to be true) → INFERRED (hypotheses we are acting on) → LOCKED (decisions + user-locked boundaries) → Open Questions.
 
 **How this file is maintained:**
-- **VERIFIED** — facts confirmed against the code, a spike, or a primary source. Brainstorming writes these during the interview as they are confirmed.
+- **VERIFIED** — facts confirmed against the code, a prototype, or a primary source. Brainstorming writes these during the interview as they are confirmed.
 - **INFERRED (HYPOTHESIS)** — things we are treating as true but have not confirmed. Mark each with the assumption it rests on. Never let an INFERRED item carry a decision; promote it to VERIFIED (with evidence) or to LOCKED (with a user OK) before it does.
 - **LOCKED** — the in-force table (path only) and user-locked constraints. Requires an explicit user OK to add a row. Supersede by a new file + table flip; **never delete an ADR file or its row** (the IRON RULE).
-- **Open Questions** — questions that are not yet decided and not yet spiked.
+- **Open Questions** — questions that are not yet decided and not yet prototyped.
 
 Product requirements live in `.skillgrid/artifacts/00-prd.md` (reference). Locked decisions are files under `.skillgrid/artifacts/04-adr-NNNN-slug.md`. This file's in-force table stores the path only (ADR-0019).
 
@@ -16,7 +16,7 @@ Product requirements live in `.skillgrid/artifacts/00-prd.md` (reference). Locke
 
 ## VERIFIED
 
-Confirmed against the code, a spike, or a primary source. These are the facts the rest of the record stands on.
+Confirmed against the code, a prototype, or a primary source. These are the facts the rest of the record stands on.
 
 **Product.** skillgrid is a local-first engine for agent memory + code intelligence, distributed as a single binary exposed over three transports: CLI, MCP (stdio), and HTTP/REST. It persists decisions, observations, and code context outside the chat so AI coding agents (OpenCode, Kilo, Cursor) keep working across sessions, and it indexes a project's code so the agent can orient, search, and assess blast radius before editing. Everything runs on the developer's machine — no cloud, no telemetry.
 
@@ -37,7 +37,7 @@ Confirmed against the code, a spike, or a primary source. These are the facts th
 
 **MCP surface.** `skillgrid mcp` (stdio) exposes tool registries (mem/code/web/session/teams); an fsnotify auto-sync watcher + staleness gate keep the index within ~5s of file changes under watch; `--no-watch` disables the watcher. The stdio server is trusted by construction (spawned by the agent harness).
 
-**Vector search (measured, ADR-0006 + ADR-0009).** The live `aiskillgrid` store held 3,905 symbol + 18,676 chunk vectors (768-dim, 54.7 MB of BLOBs). The semantic leg is an **in-memory brute-force cosine over a process-global vector cache** (`hybrid/vectorcache.go`), invalidated on re-index / model swap. Measured cost: pre-cache ~220 ms/query, of which ~190 ms (87%) was the SQLite BLOB scan + row decode through the pure-Go reader — not the cosine math (~28 ms). Post-cache the warm semantic leg is ~28 ms. The cgo-free single-binary invariant is preserved. A spike (`.skillgrid/spikes/001-cgo-free-vector-db`) measured the in-SQL `modernc.org/sqlite/vec` path at ~6.9 s median top-K at 100K vectors (~1.4 s at 20K) and `viant/sqlite-vec` as blocked (packaging bug + `ensureIndex` query deadlock).
+**Vector search (measured, ADR-0006 + ADR-0009).** The live `aiskillgrid` store held 3,905 symbol + 18,676 chunk vectors (768-dim, 54.7 MB of BLOBs). The semantic leg is an **in-memory brute-force cosine over a process-global vector cache** (`hybrid/vectorcache.go`), invalidated on re-index / model swap. Measured cost: pre-cache ~220 ms/query, of which ~190 ms (87%) was the SQLite BLOB scan + row decode through the pure-Go reader — not the cosine math (~28 ms). Post-cache the warm semantic leg is ~28 ms. The cgo-free single-binary invariant is preserved. A prototype (`.skillgrid/prototypes/001-cgo-free-vector-db`) measured the in-SQL `modernc.org/sqlite/vec` path at ~6.9 s median top-K at 100K vectors (~1.4 s at 20K) and `viant/sqlite-vec` as blocked (packaging bug + `ensureIndex` query deadlock).
 
 **Bi-temporal observations (ADR-0011 — decision committed, implementation not in HEAD).** The ADR specifies that `observations` carries `valid_at`, `invalid_at`, `superseded_by` (planned migration 043); that the save path (`SaveWithAction`) classifies each write as Add/Update/Delete/Noop and produces the supersede chain automatically; that `mem_save` returns `action` + `superseded_id`; and that the 7 primary read sites filter `invalid_at` so superseded observations do not leak into results. The ADR + spec are committed, but at the 2026-09-29 verification the code tree shows none of it (no columns, no migration 043, no `SaveWithAction`) — the apply is pending. Promote this bullet back to "implemented" when the code lands.
 
@@ -95,8 +95,9 @@ Single source for what is **currently in force**. **In force** = `status: accept
 | 0018 | mem_search returns additive per-signal scores; RRF runs only on the owner-scoped path | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0018-mem-search-additive-signals.md` |
 | 0019 | Locked decisions are ADR files; ASSUMPTIONS.md holds the path | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0019-decisions-are-files.md` |
 | 0020 | Execution coordination lives in the SDD ledger; Mnemonic stores an index | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0020-sdd-ledger-owns-execution.md` |
+| 0021 | Pre-tool policy is opt-in, first-match field rules, and fails open | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0021-pre-tool-policy-fail-open.md` |
 
-**Highest sequence in use:** 0020 (next ADR is `04-adr-0021-slug.md`). The body of each decision is the Record file. This table stores the path only (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
+**Highest sequence in use:** 0021 (next ADR is `04-adr-0022-slug.md`). The body of each decision is the Record file. This table stores the path only (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 
 ### Locked constraints
 
@@ -126,7 +127,7 @@ These override per-change decisions and are the hard limits a change must respec
 
 ## Open Questions
 
-Questions that are not yet decided and not yet spiked.
+Questions that are not yet decided and not yet prototyped.
 
 1. **v1.1 dashboard prioritization** — Memories+Sessions-first vs. Graph+Tracker-first. Decided at v1.1 scoping, not now (see INFERRED H3). (Partially answered in practice: the dashboard already ships 10 feature modules, including both Memories+Sessions and Graph; what remains is settings + polish.)
 2. **MCP tool-contract versioning** — is the secondary persona strong enough to warrant stable, versioned MCP tool contract (semver on the tool surface)? Assumed no in v1.0 (see INFERRED H1).

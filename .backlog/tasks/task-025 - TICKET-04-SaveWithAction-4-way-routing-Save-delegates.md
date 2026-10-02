@@ -1,10 +1,10 @@
 ---
 id: TASK-025
 title: 'TICKET-04: SaveWithAction 4-way routing + Save delegates'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-01 18:19'
-updated_date: '2026-10-01 18:20'
+updated_date: '2026-10-02 06:41'
 labels:
   - bitemporal-audn
 dependencies:
@@ -61,3 +61,9 @@ Blocked by: TICKET-03 (task-024).
 5. GREEN: go test ./internal/mnemonic/memory/ -count=1.
 6. Commit: feat(memory): SaveWithAction 4-way routing + Save delegates. Refs: task-025.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+SaveWithAction 4-way AUDN routing (noop/add/update/delete) + deterministic floor (hash-hit→noop+bump returning existing row id; hash-miss→add) + LLM-error non-fatal degradation. Save is now a thin delegate preserving the (int64, error) contract for all 7 production callers. insertObservation extracted (preserves valid_at/FTS); applyUpdateToCandidate shared by the LLM update arm and the topic-key upsert path. Review: PASS (no BLOCKER/WARNING); 2 SUGGESTIONS fixed (topic-key delegate parity test, obsCount comment). Commits: 37caa728 + 3f5dc333.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -33,6 +33,13 @@ run_hook() {
 run_hook stop-tests.js
 run_hook gate-stop.js
 
+# Record the session's model (Cursor hooks carry no token counts). Fail-open.
+CAPTURE="$HOME/.skillgrid/hooks/tool-call-capture.js"
+[ -f "$CAPTURE" ] || CAPTURE="$(dirname "$0")/tool-call-capture.js"
+if [ -f "$CAPTURE" ]; then
+  printf '%s' "$input" | SKILLGRID_AGENT=cursor node "$CAPTURE" usage >/dev/null 2>&1 || true
+fi
+
 if command -v skillgrid >/dev/null 2>&1; then
   skillgrid compact --dir "${DIR:-$PWD}" --session "$SID" >/dev/null 2>&1 || true
 fi

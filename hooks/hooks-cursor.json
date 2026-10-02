@@ -16,6 +16,21 @@
         "command": "./hooks/cursor-session-end.sh"
       }
     ],
+    "beforeShellExecution": [
+      {
+        "command": "./hooks/cursor-policy.sh"
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": "./hooks/cursor-policy.sh"
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "./hooks/cursor-policy.sh"
+      }
+    ],
     "postToolUse": [
       {
         "command": "./hooks/cursor-tool-capture.sh"

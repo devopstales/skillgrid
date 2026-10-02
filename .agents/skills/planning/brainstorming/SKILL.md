@@ -23,7 +23,7 @@ Turns a raw idea into an approved design and spec before any implementation begi
 - When the approach is unclear and the options must be weighed (trade-offs, multiple paths)
 - When a change might restructure how components fit or alter interfaces others depend on
 
-**When NOT to use:** For a fully-specified, small, well-understood change where the design is already obvious and there is an existing flow to read — that is the **Bounded** path: a short design in chat and an approval, not this full interview → approaches → spec process. And the spike path stops at "present the probe, get a nod."
+**When NOT to use:** For a fully-specified, small, well-understood change where the design is already obvious and there is an existing flow to read — that is the **Bounded** path: a short design in chat and an approval, not this full interview → approaches → spec process. And the prototype path stops at "present the probe, get a nod."
 
 **Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for spec location, `conventions.artifacts` for the terms zone (`01/02-*-terms.md`) and the requirements reference (`00-prd.md`), and the root `.skillgrid/ASSUMPTIONS.md` for the understanding record (the product statement, VERIFIED facts, the in-force ADR index in `## LOCKED` — open the Record path for the body — and the locked constraints) and `.skillgrid/ARCHITECTURE.md` for the live repo/program structure. Open `artifacts/00-prd.md` when the change touches scope or acceptance. If the file doesn't exist, use the defaults shown in this skill.
 
@@ -48,7 +48,7 @@ classification out loud — "this looks bounded, so I'll present a short
 design here rather than write a spec" — so your human partner can
 override it:
 
-- **Spike** — a feasibility question ("can we...", "is it possible...",
+- **Prototype** — a feasibility question ("can we...", "is it possible...",
   "quick and dirty is fine") whose output is an answer, not code you
   keep. Two cases:
   - **Tiny** (one library, one command, one observable fact) — answer
@@ -56,9 +56,9 @@ override it:
     get a nod, find out as cheaply as correctness allows, report the
     finding in chat. No file.
   - **Real probe** (needs code executed, a comparison, edge cases, or a
-    demo the user should feel) — delegate to the `skillgrid:spike`
+    demo the user should feel) — delegate to the `skillgrid:prototype`
     skill, which owns the hypothesis, the falsifiable verdict, the
-    investigation trail, and the consolidated findings file. The spike
+    investigation trail, and the consolidated findings file. The prototype
     skill's verdict is the recommendation; anything it built stays
     labeled throwaway.
   The tell for "real probe": you cannot state the answer without
@@ -126,7 +126,7 @@ was approved — lives in conversation, which rots.
 - **On resume:** the `skillgrid:resume` check in `skillgrid:using-skillgrid`
   reads the spec-zone artifacts and the checkpoint, and re-enters at the
   first incomplete step.
-- **Skip persistence** for the spike and bounded paths — they are short by
+- **Skip persistence** for the prototype and bounded paths — they are short by
   design and produce no spec dir.
 
 ## Anti-Pattern: "Too Simple To Need Approval"
@@ -164,21 +164,21 @@ Per `_shared/conventions/measurement.md`.
 | "I'll call it bounded and skip the spec" | Reaching for a label to skip work IS the doubt — take the heavier path. |
 | "It's bounded and the design is obvious — I'll start while they read it" | The gate is the approval, not the design's length. Present, then stop until you hear yes. |
 | "I understand this kind of app, so it's bounded" | Bounded measures the repo, not your familiarity. A new project has no existing flow — it is a new project, not bounded. |
-| "The spike works, so I'll keep the code" | A spike's output is an answer. Keeping the code is a new request — classify it. |
+| "The prototype works, so I'll keep the code" | A prototype's output is an answer. Keeping the code is a new request — classify it. |
 | "It grew, but I'm almost done — no need to re-classify" | Hidden complexity upgrades the path mid-task. Stop and say so. |
-| "They approved the spike, so the follow-up change is approved too" | Each task gets its own classification and its own approval. |
+| "They approved the prototype, so the follow-up change is approved too" | Each task gets its own classification and its own approval. |
 
 ## Verification
 
-- [ ] A design or approach was produced (spike answer, in-chat bounded design, or full spec) AND your human partner approved it — approval is quoted in the record, not implied
-- [ ] The chosen path (spike / bounded / new project / new function) was classified and stated out loud before the first question
+- [ ] A design or approach was produced (prototype answer, in-chat bounded design, or full spec) AND your human partner approved it — approval is quoted in the record, not implied
+- [ ] The chosen path (prototype / bounded / new project / new function) was classified and stated out loud before the first question
 - [ ] The approval gate was passed, not skipped — the task was not waved through as "too simple" without a presented design and an explicit yes
 - [ ] For new project / new function: the chosen approach is committed in the spec-zone (and mirrored to mnemonic if `mnemonic.enabled: true`)
 - [ ] If a visual companion or sketch was offered and accepted, the resulting mockup/frame artifact is saved (e.g. the sketch winner + constraints in the topic's `findings.md`)
 
 ## Checklist and process flow
 
-Path checklists (spike, bounded, new project, new function) and the process-flow diagram: [paths.md](references/paths.md).
+Path checklists (prototype, bounded, new project, new function) and the process-flow diagram: [paths.md](references/paths.md).
 
 Classify first, announce the path, then complete that file's checklist for the path you named.
 
@@ -186,7 +186,7 @@ Classify first, announce the path, then complete that file's checklist for the p
 ## The Process
 
 The subsections below serve the bounded, new project, and new function
-paths (a spike stops at "present the probe, get a nod"). Sections from
+paths (a prototype stops at "present the probe, get a nod"). Sections from
 **Exploring approaches** onward are new-project / new-function depth —
 for bounded work, context plus a few questions plus a short in-chat
 design is the whole process.
@@ -255,4 +255,4 @@ works.
 
 Spec write-up, self-review, the user review gate, implementation handoff, and the visual companion offer: [after-the-design.md](references/after-the-design.md).
 
-New project and new function end by invoking `skillgrid:writing-blueprints`. Bounded work implements after approval, with no plan document. A spike reports a recommendation.
+New project and new function end by invoking `skillgrid:writing-blueprints`. Bounded work implements after approval, with no plan document. A prototype reports a recommendation.

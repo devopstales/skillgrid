@@ -12,15 +12,8 @@ You us grep read eza ls rg. Why you didn't use the skillgrid mcp?
 * rename spike to prototype
 * all the existing changes
 * admin dashboard
-* hooks
-* agent personas
-* prd in artifacts vs ASSUMPTIONS.md
 * coding standards, testing, security tests
   * https://github.com/vigolium/vigolium
-* hooks
- https://github.com/raultov/opencode-hooks-plugin 
- https://github.com/KristjanPikhof/OpenCode-Hooks 
- https://github.com/shanebishop1/opencode-command-hooks 
 * TEAMS
   * .skillgrid/sdd
   * https://docs.cline.bot/sdk/guides/multi-agent-teams

@@ -175,7 +175,7 @@ Rapid iteration with clear measurable outcomes:
    temporal proof the plan existed before results. Never combine protocol +
    results in one commit.
 3. **Run the experiment** — route to the relevant skillgrid skill (see
-   [references/skill-routing.md](references/skill-routing.md)): `spike` for
+   [references/skill-routing.md](references/skill-routing.md)): `prototype` for
    feasibility, `test-driven-development` for the experiment code,
    `subagent-execution` for a written plan, `structured-debugging` for
    unexpected behavior.

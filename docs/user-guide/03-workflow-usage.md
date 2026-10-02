@@ -11,7 +11,7 @@ Day-to-day Spec-Driven Development with AISkillGrid.
 ```
 onboarding → interviewing → writing-blueprints → slicing → [approval gate] → apply ⇄ qa → ticketing
               ↑                    ↑
-        optional spike / sketch / research / code-research
+        optional prototype / sketch / research / code-research
 ```
 
 ## Entry: `using-skillgrid`
@@ -21,9 +21,9 @@ The entry skill only **routes**. It does not write `blueprint.md` / `tasks.md` /
 | Your request | Route |
 |--------------|-------|
 | Uninitialized repo | `onboarding` → confirm facts → stop for validation |
-| Feature / bug / refactor / greenfield | optional `spike` / `sketch` / `research` → `interviewing` → `writing-blueprints` → `slicing` → **approval gate** |
+| Feature / bug / refactor / greenfield | optional `prototype` / `sketch` / `research` → `interviewing` → `writing-blueprints` → `slicing` → **approval gate** |
 | Q&A / lookup | `mnemonic` / code index / `research` (no pipeline) |
-| Spike only | `spike` (promote to blueprint if you keep findings) |
+| Prototype only | `prototype` (promote to blueprint if you keep findings) |
 | Mid-change | `resume` from `checkpoint.json` (+ spec-zone artifacts for the phase) |
 
 Announce pattern: `Using <skill> to <route>`.
@@ -54,7 +54,7 @@ flowchart TD
     interview --> adr
     interview --> blueprint["writing-blueprints"]
 
-    blueprint -.-> research["research / spike / sketch"]
+    blueprint -.-> research["research / prototype / sketch"]
     research -.-> findings["findings.md"]
     findings -.-> blueprint
 
@@ -92,7 +92,7 @@ Cross-cutting skills (`mnemonic`, `ponytail`) are available at every stage.
 │   ├── briefing.md
 │   ├── acceptance.feature     # BDD (traceability oracle)
 │   ├── adr.md                 # ADR Review Manifest
-│   ├── findings.md            # research / spike / sketch evidence (optional)
+│   ├── findings.md            # research / prototype / sketch evidence (optional)
 │   ├── blueprint.md
 │   ├── tasks.md               # tickets, waves, dependencies
 │   └── qa-report.md           # test plan + 4-state gate + evidence
@@ -107,7 +107,7 @@ Blueprint (`blueprint.md`), slices (`tasks.md`), glossary/ADRs, and the ticket s
 | Durable state present | Action |
 |-----------------------|--------|
 | No `.skillgrid/config.yaml` | `onboarding` |
-| `blueprint.md` not final | `interviewing` / `writing-blueprints` (spike/sketch first if needed) |
+| `blueprint.md` not final | `interviewing` / `writing-blueprints` (prototype/sketch first if needed) |
 | `tasks.md` incomplete | `slicing` → approval gate |
 | Mid-apply | `resume` from `checkpoint.json`; continue unblocked slices |
 | QA FAIL / CONCERNS | `qa` findings → `apply` again |

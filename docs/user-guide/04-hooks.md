@@ -39,7 +39,7 @@ plugins/              # harness adapters (installed from ~/.skillgrid/plugins/)
 ├── plugin.json
 └── marketplace.json
 rules/mnemonic.mdc    # Cursor always-apply Mnemonic protocol
-hooks/hooks-cursor.json + cursor-session-*.sh + cursor-tool-capture.sh
+hooks/hooks-cursor.json + cursor-session-*.sh + cursor-tool-capture.sh + cursor-policy.sh
 ```
 
 `skillgrid install` stages `hooks/`, `git-hooks/`, and `plugins/` to

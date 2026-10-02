@@ -2,6 +2,7 @@
 # Installed to ~/.config/opencode/hook/hooks.yaml by `skillgrid setup opencode`.
 #
 # Every bash action is fail-open: failures exit 0, never block the agent.
+# The one exception is mnemonic-policy, which exits 2 when a policy rule blocks.
 # opencode-yaml-hooks provides:
 #   - OPENCODE_SESSION_ID env var
 #   - OPENCODE_PROJECT_DIR env var
@@ -25,8 +26,26 @@ hooks:
             curl -sf --max-time 1 "$BASE/health" >/dev/null 2>&1 || \
               (command -v skillgrid >/dev/null 2>&1 && \
                nohup skillgrid serve >/dev/null 2>&1 & disown 2>/dev/null) || true
+            # Register the session (agent=opencode) for the Sessions view. Fail-open.
+            if [ -n "$SID" ] && [ -f "$HOME/.skillgrid/hooks/tool-call-capture.js" ]; then
+              SKILLGRID_AGENT=opencode OPENCODE_PROJECT_DIR="$DIR" \
+                node "$HOME/.skillgrid/hooks/tool-call-capture.js" register </dev/null >/dev/null 2>&1 || true
+            fi
             if command -v skillgrid >/dev/null 2>&1; then
               skillgrid prime --dir "$DIR" --session "$SID" 2>/dev/null || true
+            fi
+            if [ -n "$SID" ]; then
+              node -e '
+                const sid = process.argv[1];
+                const dir = process.argv[2] || ".";
+                const base = process.argv[3];
+                fetch(base + "/sessions", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Accept: "application/json" },
+                  body: JSON.stringify({ id: sid, directory: dir, agent: "opencode" }),
+                  signal: AbortSignal.timeout(2000),
+                }).then(() => process.exit(0)).catch(() => process.exit(0));
+              ' "$SID" "$DIR" "$BASE" >/dev/null 2>&1 || true
             fi
             exit 0
           timeout: 10000
@@ -46,8 +65,28 @@ hooks:
             if command -v skillgrid >/dev/null 2>&1; then
               skillgrid compact --dir "$DIR" --session "$SID" >/dev/null 2>&1 || true
             fi
+            # Report the session's token totals (agent=opencode). Fail-open.
+            if [ -n "$SID" ] && [ -f "$HOME/.skillgrid/hooks/tool-call-capture.js" ]; then
+              SKILLGRID_AGENT=opencode OPENCODE_PROJECT_DIR="$DIR" \
+                node "$HOME/.skillgrid/hooks/tool-call-capture.js" usage </dev/null >/dev/null 2>&1 || true
+            fi
             exit 0
           timeout: 15000
+
+  # ── Pre-tool policy (ADR-0021) ─────────────────────────────────────
+  # The one hook that may block: exit 2 denies the call, with the reason on
+  # stderr. No .skillgrid/policy.yaml, server down, or any error → allow.
+  - id: mnemonic-policy
+    event: tool.before.*
+    actions:
+      - bash:
+          command: |
+            [ -f "$HOME/.skillgrid/hooks/tool-call-capture.js" ] || exit 0
+            command -v node >/dev/null 2>&1 || exit 0
+            SKILLGRID_AGENT=opencode node "$HOME/.skillgrid/hooks/tool-call-capture.js" policy
+            [ $? -eq 2 ] && exit 2
+            exit 0
+          timeout: 3000
 
   # ── Tool-call monitoring ───────────────────────────────────────────
   # Fire-and-forget POST of every tool call to the Mnemonic monitoring route.
@@ -62,6 +101,6 @@ hooks:
             [ -z "$SID" ] && exit 0
             BASE="${SKILLGRID_MNEMONIC_HTTP_URL:-http://127.0.0.1:7438}"
             [ -f "$HOME/.skillgrid/hooks/tool-call-capture.js" ] && \
-              node "$HOME/.skillgrid/hooks/tool-call-capture.js" 2>/dev/null || true
+              SKILLGRID_AGENT=opencode node "$HOME/.skillgrid/hooks/tool-call-capture.js" 2>/dev/null || true
             exit 0
           timeout: 5000

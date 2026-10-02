@@ -80,7 +80,7 @@ The pipeline's shared "domain model" home. `architectural-decision-records`: "Ac
     ├── blueprint.md
     ├── tasks.md
     ├── adr.md           # ADR Review Manifest (pointers only)
-    ├── findings.md      # consolidated research/spike/sketch evidence
+    ├── findings.md      # consolidated research/prototype/sketch evidence
     └── qa-report.md     # test plan + 4-state gate + evidence
 ```
 
@@ -134,14 +134,14 @@ Score each dimension 0.0 (completely unclear) to 1.0 (crystal clear):
 
 | Path | Definition | Terminal state |
 |------|------------|----------------|
-| **Spike** | A feasibility question ("can we…") whose output is an answer, not code you keep. **Tiny** (answer inline, no file) or **Real probe** (delegate to `spike`; anything built stays throwaway). | A reported recommendation. |
+| **Prototype** | A feasibility question ("can we…") whose output is an answer, not code you keep. **Tiny** (answer inline, no file) or **Real probe** (delegate to `prototype`; anything built stays throwaway). | A reported recommendation. |
 | **Bounded** | A well-scoped change to code that already exists (a flag, small endpoint, one-file fix). "If there is no existing flow to change, the task is not bounded." | Implement directly; no spec/plan doc. |
 | **New Project** | Greenfield, a new subsystem, or a restructure of how components fit. | `.skillgrid/artifacts/00-prd.md` + `.skillgrid/ASSUMPTIONS.md` + `.skillgrid/ARCHITECTURE.md` + spec `briefing.md`. |
 | **New Function** | A new feature/endpoint/capability in a project whose architecture is in place. | Spec `briefing.md` (+ update global PRD/ARCHITECTURE only if they exist AND change). |
 
 **The ratchet:** "When in doubt between two paths, take the heavier one. The ratchet is one-way: hidden complexity discovered mid-task upgrades the path — stop, say so, and step up. Nothing downgrades mid-task."
 
-The two full paths (New Project / New Function) run long enough to outlive a session; the phase position is read from which spec-zone artifacts exist (no separate `state.md` is created), and each phase transition commits the artifacts that changed (the `[skillgrid-context]` `Decisions:` line carries the key call). Spike/bounded skip persistence — they're short by design. Just-in-time offers (not upfront): visual companion, `sketch` (only when 2+ meaningfully different options whose choice depends on *feeling* it), `research` (first external fact not in the codebase).
+The two full paths (New Project / New Function) run long enough to outlive a session; the phase position is read from which spec-zone artifacts exist (no separate `state.md` is created), and each phase transition commits the artifacts that changed (the `[skillgrid-context]` `Decisions:` line carries the key call). Prototype/bounded skip persistence — they're short by design. Just-in-time offers (not upfront): visual companion, `sketch` (only when 2+ meaningfully different options whose choice depends on *feeling* it), `research` (first external fact not in the codebase).
 
 ## Must-Haves + one-way-door (writing-blueprints)
 
@@ -332,7 +332,7 @@ Gherkin-in-Markdown: "Markdown headings carry the capability, requirement, and s
 
 Confidence per claim: **high** (verified, fresh, credible) / **medium** (single credible source, fresh) / **low** (stale, weak publisher, or disputed) / `unverified`. Findings land as a `## Research: <question>` section at `{specs_root}/YYYY-MM-DD-<topic>/findings.md`; "every load-bearing claim is cited inline `[n]` and resolves in the source appendix."
 
-**The boundary between research / code-research / deep-research / spike / sketch:** research = a fact not in the codebase, one inline pass; code-research = wide or high-stakes *informational* question, parallel subagents + verify + red-team; deep-research = long-horizon *experimental* research (hypothesis → experiment → measure loops, persistent state); spike = needs code executed; sketch = needs *feeling* a layout.
+**The boundary between research / code-research / deep-research / prototype / sketch:** research = a fact not in the codebase, one inline pass; code-research = wide or high-stakes *informational* question, parallel subagents + verify + red-team; deep-research = long-horizon *experimental* research (hypothesis → experiment → measure loops, persistent state); prototype = needs code executed; sketch = needs *feeling* a layout.
 
 ## Code-research roles: researcher / verifier / red-team
 
@@ -344,11 +344,11 @@ Confidence per claim: **high** (verified, fresh, credible) / **medium** (single 
 
 **Effort presets:** `quick` (2 subagents, 5 sources/dim, 1 round) / `standard` default (3, 8, 2) / `deep` (6, 12, 3). "The user's explicit request beats the preset. `depth` is a cap, not a quota." Topologies: breadth-first (split dimensions) / depth-first (split angles) / straightforward (one subagent, no fan-out).
 
-## Spike: verdict + liftable pure module
+## Prototype: verdict + liftable pure module
 
-Verdict (3 states, evidence-gated): `VALIDATED ✓` / `INVALIDATED ✗` / `PARTIAL ⚠`. Evidence rule: "a verdict is a claim with a demonstration. If you cannot point to specific output, a log line, a measured number, or a screenshot … the verdict is `PARTIAL` at best with an `unverified` flag — never `VALIDATED` by vibes." VALIDATED requires evidence beyond a single happy-path test (at least one edge case exercised, or a comparison spike).
+Verdict (3 states, evidence-gated): `VALIDATED ✓` / `INVALIDATED ✗` / `PARTIAL ⚠`. Evidence rule: "a verdict is a claim with a demonstration. If you cannot point to specific output, a log line, a measured number, or a screenshot … the verdict is `PARTIAL` at best with an `unverified` flag — never `VALIDATED` by vibes." VALIDATED requires evidence beyond a single happy-path test (at least one edge case exercised, or a comparison prototype).
 
-**The liftable pure module:** "The one thing you lift into the real codebase is a **pure module**." Rules: pure (no DOM/fetch/side effects); labeled (`## Liftable Module` with path, I/O signature, dependencies); named for the real codebase (glossary vocabulary); no spike-specific constants (inject as params). "If the question is 'can we build the whole feature this way end-to-end,' you may want a tracer bullet instead; a spike stays small and single-purpose."
+**The liftable pure module:** "The one thing you lift into the real codebase is a **pure module**." Rules: pure (no DOM/fetch/side effects); labeled (`## Liftable Module` with path, I/O signature, dependencies); named for the real codebase (glossary vocabulary); no prototype-specific constants (inject as params). "If the question is 'can we build the whole feature this way end-to-end,' you may want a tracer bullet instead; a prototype stays small and single-purpose."
 
 ## Sketch: 2–3 variants, winner + constraints
 
@@ -429,7 +429,7 @@ This "3 rounds then escalate" mirrors the QA fix-loop cap — both cap iteration
 
 ## `findings.md` — consolidated pre-design evidence
 
-"The consolidated file is the single downstream contract that `writing-blueprints` reads — it carries the research, spike, and sketch evidence for the topic in one place." At `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` (`# Findings — <topic>` header): research / code-research appends `## Research: <question>` (cited findings, source appendix, confidence per claim); spike appends `## Spike: NNN-name` (Verdict / What we learned / What's liftable / Constraints for the build); sketch appends `## Sketch: NNN-name` (Winner / Rationale / What's liftable / Constraints / Mode). "Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it."
+"The consolidated file is the single downstream contract that `writing-blueprints` reads — it carries the research, prototype, and sketch evidence for the topic in one place." At `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` (`# Findings — <topic>` header): research / code-research appends `## Research: <question>` (cited findings, source appendix, confidence per claim); prototype appends `## Prototype: NNN-name` (Verdict / What we learned / What's liftable / Constraints for the build); sketch appends `## Sketch: NNN-name` (Winner / Rationale / What's liftable / Constraints / Mode). "Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it."
 
 ## Branch finishing
 

@@ -102,7 +102,7 @@ onboarding → interviewing → writing-blueprints → slicing → [approval gat
 reflect ← ship ← review ← qa ⇄ apply (simple / subagent / parallel)
    REFLECT      SHIP          VERIFY (review + QA gate over the applied slices)
                               ↑
-        optional spike / sketch / research / code-research (before the blueprint)
+        optional prototype / sketch / research / code-research (before the blueprint)
 ```
 
 | Phase | You get |
@@ -173,7 +173,7 @@ For the full walkthrough see [docs/user-guide/03-workflow-usage.md](docs/user-gu
 |-------|----------|
 | `brainstorming` | Before any creative work — explore intent + design |
 | `interviewing` | Brainstorming needs to sharpen a design; stress-test thinking |
-| `spike` | The plan rests on an unproven technical claim — falsifiable verdict |
+| `prototype` | The plan rests on an unproven technical claim — falsifiable verdict |
 | `sketch` | The design has 2+ layout options and the answer depends on *feeling* it |
 | `research` | The design depends on a fact not in the codebase (lightweight) |
 | `code-research` | Wide or high-stakes question — parallel researchers + verify + red-team |

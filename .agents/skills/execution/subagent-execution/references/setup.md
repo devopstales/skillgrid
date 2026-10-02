@@ -36,11 +36,12 @@ only in todos.
 - The ledger is your recovery map: the commits it names exist in git even when
   your context no longer remembers creating them. After compaction, trust the
   ledger and `git log` over your own recollection.
-- **Mnemonic mirror:** when `mnemonic.enabled: true`,
-  `mem_save(topic_key: skillgrid/<topic>/execution-progress, ...)` the ledger's
-  tail (current task + last ruling) after each task completion and each ruling
-  — upsert, never duplicate. The in-repo ledger stays the source of truth; the
-  store is the index for a fresh session that hasn't found the workspace yet.
+- **Mnemonic mirror (ADR-0020):** when `mnemonic.enabled: true`, upsert
+  `skillgrid/<topic>/execution-progress` after each task completion and each
+  ruling. The body shape is `### Execution progress body` in
+  `_shared/rules/mnemonic-memory.md`: ledger path plus the current tail.
+  The in-repo ledger stays the source of truth. SDD dispatch does not use
+  the teams MCP tools.
 - On resume, also read the commit position per `skillgrid:work-unit-commits`:
   `git log --oneline -5` plus the latest commit's `[skillgrid-context]` block.
   If its `Remaining:` names a partial unit, finish that unit before dispatching

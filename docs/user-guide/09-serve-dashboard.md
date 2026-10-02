@@ -108,11 +108,11 @@ writes). Returns `503` when the served directory is not a git worktree.
 
 ### Prototypes
 
-A sandboxed gallery of `.stitch/` design prototypes: a gallery list, a
-sandboxed iframe preview (device viewport: desktop/tablet/mobile), a code
-viewer (copy / download the standalone HTML), and export. Prototypes are
-sandboxed to `.stitch/` (path-traversal-guarded) and the iframe runs with a
-`sandbox` attribute so prototype scripts can't touch the parent.
+The repo's feasibility prototypes — the `NNN-name/` directories under
+`.skillgrid/prototypes/` written by the `prototype` skill. Each card shows the
+name, date, type, hypothesis, and file list parsed from the directory's
+`prototype.md`; WIP directories without a `prototype.md` are still listed.
+Read-only (`GET /prototypes`).
 
 ### Settings
 
@@ -174,8 +174,9 @@ The spec is embedded in the binary and re-served at runtime; the
 - All Mnemonic/code/git/prototypes reads are **read-only**; the only writes are
   the explicit memory-governance actions (pin/share/status), which map 1:1 to
   MCP tools and respect the same ownership/visibility rules.
-- `.stitch/` prototype serving is sandboxed (path-traversal guard + nosniff);
-  the preview iframe uses the `sandbox` attribute (no `allow-same-origin`).
+- Decision-companion prototype serving (`GET /prototype/{id}`, sandboxed to
+  `.skillgrid/prototype/`) is path-traversal-guarded + nosniff; the preview
+  iframe uses the `sandbox` attribute (no `allow-same-origin`).
 - No CDN: the dashboard is a self-contained bundle (content-hashed assets,
   per-feature code-splitting); the bundle-size budget is gated in CI
   (`npm run build:check`).

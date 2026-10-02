@@ -18,7 +18,7 @@
 
 ## VERIFIED
 
-Confirmed against the code, a spike, or a primary source.
+Confirmed against the code, a prototype, or a primary source.
 
 **Product.** [One paragraph: what this is, who runs it, where it runs.]
 
@@ -83,7 +83,7 @@ here with the date — it is not deleted, so the boundary history stays readable
 
 ## Open Questions
 
-Questions that are not yet decided and not yet spiked.
+Questions that are not yet decided and not yet prototyped.
 
 1. [Open question]
 2. [Open question]

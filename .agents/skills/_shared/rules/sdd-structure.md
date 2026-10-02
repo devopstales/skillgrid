@@ -7,10 +7,10 @@ Single source of truth for filesystem layout, artifact names, and phase order. I
 This is the only full chain. Other skills cite this section in one line and restate only their own previous and next step.
 
 ```
-brainstorming → [research | spike | sketch] → writing-blueprints → slicing → (user gate) → ticketing → execution → qa → requesting-code-review → receiving-code-review → ship → reflect
+brainstorming → [research | prototype | sketch] → writing-blueprints → slicing → (user gate) → ticketing → execution → qa → requesting-code-review → receiving-code-review → ship → reflect
 ```
 
-`research`, `spike`, and `sketch` are optional pre-blueprint gates. The user gate after `slicing` is mandatory: the user confirms the slice before execution. Fast-track waivers skip earlier planning skills only as `fast-track.md` allows; they do not skip the tail (`qa` through `reflect`).
+`research`, `prototype`, and `sketch` are optional pre-blueprint gates. The user gate after `slicing` is mandatory: the user confirms the slice before execution. Fast-track waivers skip earlier planning skills only as `fast-track.md` allows; they do not skip the tail (`qa` through `reflect`).
 
 | Skill | Role |
 |---|---|
@@ -21,7 +21,7 @@ brainstorming → [research | spike | sketch] → writing-blueprints → slicing
 | `architectural-decision-records` | Domain model (terms in `artifacts/`) + ADR authoring / supersession |
 | `acceptance-test-authoring` | BDD `acceptance.feature` scenarios from intent |
 | `research` / `code-research` | External fact-finding → `findings.md` (Research section) |
-| `spike` | Feasibility probe → `findings.md` (Spike section) |
+| `prototype` | Feasibility probe → `findings.md` (Prototype section) |
 | `sketch` | UI/interaction variants → `findings.md` (Sketch section) |
 | `writing-blueprints` | Technical plan → `blueprint.md` |
 | `slicing` | Vertical tickets → `tasks.md` |
@@ -54,7 +54,7 @@ brainstorming → [research | spike | sketch] → writing-blueprints → slicing
 ├── state.yaml                  # DYNAMIC project state — phase, current change, progress (updated by pipeline skills)
 ├── ASSUMPTIONS.md              # DURABLE root record (committed) — project understanding + in-force ADR index (path only) + locked constraints (the "bible")
 ├── ARCHITECTURE.md             # DURABLE root record (committed, created lazily) — live repo/program structure
-├── spikes/                     # DURABLE feasibility probes (committed, permanently retained) — NNN-name/ dirs (spike.md + throwaway code)
+├── prototypes/                     # DURABLE feasibility probes (committed, permanently retained) — NNN-name/ dirs (prototype.md + throwaway code)
 │   └── NNN-name/
 ├── artifacts/                  # DURABLE project knowledge (committed, cross-change, topic-indexed)
 │   ├── README.md               #   topic index (what lives here, what's where)
@@ -70,7 +70,7 @@ brainstorming → [research | spike | sketch] → writing-blueprints → slicing
 │       ├── blueprint.md        # writing-blueprints (technical plan)
 │       ├── tasks.md            # slicing (tickets, waves, dependencies)
 │       ├── adr.md              # ADR Review Manifest (per-change; pointers to artifacts/04-adr-NNNN-slug.md)
-│       ├── findings.md         # research/spike/sketch consolidated evidence (optional)
+│       ├── findings.md         # research/prototype/sketch consolidated evidence (optional)
 │       ├── report.md           # two-phase: qa writes the QA half (test plan + gate verdict + evidence)
 │       └── review.md           # requesting-code-review audit record; read by ship and reflect
 ├── archive/                    # CLOSED changes (committed, immutable); created lazily by ship
@@ -150,7 +150,7 @@ notes: "Serial development: one change at a time."
 | brainstorming | briefing + scenarios + state | `specs/<topic>/briefing.md`, `specs/<topic>/acceptance.feature`, `specs/<topic>/adr.md`, `artifacts/00-prd.md` (new project, or when scope changes), `ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (phase + current_change) |
 | architectural-decision-records | terms + ADRs | `artifacts/01-business-terms.md`, `artifacts/02-technical-terms.md`, `artifacts/04-adr-NNNN-slug.md`, `ASSUMPTIONS.md` (`### In-force set` path row only) |
 | research | findings | `specs/<topic>/findings.md` (`## Research:` section) + durable findings to `artifacts/06-research-findings.md` |
-| spike | findings + probe | `spikes/NNN-name/` (`spike.md` + throwaway code, permanently retained) + `specs/<topic>/findings.md` (`## Spike:` section) |
+| prototype | findings + probe | `prototypes/NNN-name/` (`prototype.md` + throwaway code, permanently retained) + `specs/<topic>/findings.md` (`## Prototype:` section) |
 | sketch | findings | `specs/<topic>/findings.md` (`## Sketch:` section) |
 | writing-blueprints | plan + state | `specs/<topic>/blueprint.md`, `state.yaml` (phase) |
 | slicing | tickets + state | `specs/<topic>/tasks.md`, `state.yaml` (phase) |

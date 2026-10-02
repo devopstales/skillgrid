@@ -49,7 +49,7 @@ For each task (or ticket, if sliced):
 5. Run verifications as specified
 6. **Zone rule (BDD is always on):** edit `.skillgrid/specs/` *or* code in a single commit — never both uncommitted. Commit spec changes before code changes; the spec is the contract, the code satisfies it. The `pre-commit` zone guard (skillgrid:work-unit-commits) blocks a commit that stages both.
 7. **Commit the task's changes** per `skillgrid:work-unit-commits` — conventional subject (no AI-attribution trailer), atomic + independently-revertable, a `[skillgrid-context]` block in the body. Commit *after* the task's gate is green, *before* any long install/build. The git hooks (`pre-commit`, `commit-msg`) enforce the guards; each commit is a checkpoint you can roll back to.
-8. Mark as completed
+8. Mark as completed. The run's record is the Execution Ledger under `.skillgrid/sdd/` (ADR-0020). When `mnemonic.enabled: true`, upsert `execution-progress` with the body in `_shared/rules/mnemonic-memory.md`.
 
 ### Step 2.5: QA Gate
 

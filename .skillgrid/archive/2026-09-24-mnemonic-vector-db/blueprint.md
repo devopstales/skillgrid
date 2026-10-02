@@ -16,21 +16,21 @@
 
 **Spec:** `.skillgrid/artifacts/04-adr-0009-vector-search-in-sql-latency-viant-deferred.md` (G is the confirmed revisit path) + `.skillgrid/artifacts/04-adr-0006-vector-search-in-memory-brute-force.md` (in-memory stays the hot path; this change adds the durable path, does not replace it) + `.skillgrid/artifacts/07-mnemonic-tool-surface.md` (session-inject's durable-path candidate).
 
-**Findings:** `.skillgrid/specs/2026-09-24-mnemonic-vector-db/findings.md` (Spike 001 - G in-SQL top-K ~6.9s at 100K / ~1.4s at 20K, viant deferred, G's string-based insert + batch/BLOB path needed for bulk re-index, modernc bump must be validated against 39 migrations/WAL-retry/pooling).
+**Findings:** `.skillgrid/specs/2026-09-24-mnemonic-vector-db/findings.md` (Prototype 001 - G in-SQL top-K ~6.9s at 100K / ~1.4s at 20K, viant deferred, G's string-based insert + batch/BLOB path needed for bulk re-index, modernc bump must be validated against 39 migrations/WAL-retry/pooling).
 
 ## Global Constraints
 
 - Go 1.22+ minimum to build (config `context`).
 - No new *modules* without an ADR. `modernc.org/sqlite/vec` is a subpackage of the existing `modernc.org/sqlite` module (not a new module), but the v1.45.0 to v1.59.0 version jump is a dependency change - it is covered by ADR-0009's consequence ("the modernc bump has not yet been validated... this validation is a prerequisite for the real build") and re-confirmed by this blueprint's Task 1.
 - The BLOB columns (`embeddings.vector`, `chunk_embeddings.vector`) remain the **source of truth**. The vec tables are a **derived index** - they must never be the only copy. If a vec table is absent, empty, or corrupt, the semantic leg degrades to the in-memory path (never fails).
-- **SetMaxOpenConns(1) is a hard invariant** of the store (WAL single-writer). The vec0 registration must work under it (the spike's viant deadlock was caused by re-entering `db.Exec` from inside a vtab callback with MaxOpenConns=1; G has no such re-entrancy, but Task 1's validation test must confirm G registers + queries under MaxOpenConns=1).
+- **SetMaxOpenConns(1) is a hard invariant** of the store (WAL single-writer). The vec0 registration must work under it (the prototype's viant deadlock was caused by re-entering `db.Exec` from inside a vtab callback with MaxOpenConns=1; G has no such re-entrancy, but Task 1's validation test must confirm G registers + queries under MaxOpenConns=1).
 - Trivy is advisory-only (config `security.trivy.fail_on: ""`) - findings reported, never blocking.
 - Conventional commits only; no AI-attribution trailer (commit-msg hook enforces).
 - Spec-zone changes commit before code-zone changes (pre-commit zone guard enforces).
 
 ## Terms
 
-None beyond the in-force ADRs (0006, 0009) and the spike. The term **durable path** (in-SQL G, ~6.9s at 100K) vs **hot path** (in-memory cosine, ~40ms at 100K) is defined in ADR-0009's decision outcome #2 and reused verbatim.
+None beyond the in-force ADRs (0006, 0009) and the prototype. The term **durable path** (in-SQL G, ~6.9s at 100K) vs **hot path** (in-memory cosine, ~40ms at 100K) is defined in ADR-0009's decision outcome #2 and reused verbatim.
 
 ---
 
@@ -38,18 +38,18 @@ None beyond the in-force ADRs (0006, 0009) and the spike. The term **durable pat
 
 **Truths** (observable behaviors that must hold):
 - `go build ./...` succeeds after the modernc v1.45.0 to v1.59.0 bump (Task 1).
-- The full existing test suite (`go test ./...`) passes after the bump - the 39 squashed migrations, WAL-retry (`isWALBusy`), and store pooling (`handleCache`) are all still green (Task 1). **backstop** - this is the spike's prerequisite; the spike used a fresh DB, so the bump must be validated against the *existing* store, not a blank one.
+- The full existing test suite (`go test ./...`) passes after the bump - the 39 squashed migrations, WAL-retry (`isWALBusy`), and store pooling (`handleCache`) are all still green (Task 1). **backstop** - this is the prototype's prerequisite; the prototype used a fresh DB, so the bump must be validated against the *existing* store, not a blank one.
 - `isWALBusy` still classifies a concurrent-writer busy error correctly after the bump (the typed `*sqlite.Error` / `Code() == SQLITE_BUSY` path AND the text fallback) (Task 1).
 - `store.Open` still returns a pooled handle (same `*sql.DB` for repeated opens of the same project, refcounted, cache-evicted on close) after the bump (Task 1).
 - The migration `042_vec0_tables.sql` creates two vec0 virtual tables (`vec_symbols`, `vec_chunks`) keyed by `symbol_id` / `chunk_id` respectively, and the store opens an existing DB and finds the tables present (Task 2).
 - The migration is idempotent: running `store.Open` twice on the same DB does not error and does not recreate the tables (Task 2).
-- The vec tables work under `SetMaxOpenConns(1)` (no deadlock, no "database is locked" on a simple insert+query) (Task 1 - the spike's viant deadlock was exactly this).
+- The vec tables work under `SetMaxOpenConns(1)` (no deadlock, no "database is locked" on a simple insert+query) (Task 1 - the prototype's viant deadlock was exactly this).
 - `vectorstore.SearchSymbols(ctx, db, queryVec, limit)` returns the top-K `symbol_id`s by cosine proximity (ascending `vec_distance_cosine`), and the IDs are a subset of the `embeddings` table's `symbol_id`s (Task 3).
 - `vectorstore.SearchChunks(ctx, db, queryVec, limit)` returns the top-K `chunk_id`s (Task 3).
 - `vectorstore.UpsertSymbol(ctx, tx, symbolID, model, dim, vecBytes)` and `vectorstore.DeleteSymbols(ctx, tx)` mirror the BLOB table's writes (Task 4).
 - `vectorstore.ExactnessCheck(ctx, db, table, queryVec, limit)` returns a per-ID agreement report comparing the vec table's top-K against a Go-side brute-force cosine scan over the BLOB table; it reports `agree` (identical ID set) or the set of disagreements (Task 5).
 - After the indexer's `embedPass` runs on a fresh store with the embedder active, the vec tables contain exactly the same rows as the BLOB tables (row count + per-ID vector agreement) (Task 4).
-- With `MNEMONIC_VECTOR_DB=1` and a populated vec table, the durable semantic leg returns the same top-K IDs as the in-memory leg (exactness agreement, within float tolerance) (Task 6). **backstop** - this is the cross-path equivalence the spike's exactness-check methodology proves; the diff alone cannot confirm the two paths agree at runtime.
+- With `MNEMONIC_VECTOR_DB=1` and a populated vec table, the durable semantic leg returns the same top-K IDs as the in-memory leg (exactness agreement, within float tolerance) (Task 6). **backstop** - this is the cross-path equivalence the prototype's exactness-check methodology proves; the diff alone cannot confirm the two paths agree at runtime.
 - With `MNEMONIC_VECTOR_DB` unset (default), the semantic leg uses the in-memory cache exactly as before (no behavior change, no vec table read) (Task 6).
 - With an empty vec table (no embeddings yet) and `MNEMONIC_VECTOR_DB=1`, the durable leg degrades to the in-memory path (no error, no panic) (Task 6).
 
@@ -83,7 +83,7 @@ None beyond the in-force ADRs (0006, 0009) and the spike. The term **durable pat
 
 **Wrong condition:** The full suite fails after the bump (a migration, WAL-retry, or pooling regression); OR the vec tables deadlock under MaxOpenConns=1; OR the durable leg's top-K diverges from the in-memory leg for a populated store (the two paths disagree, so the "durable path" is not a drop-in for the hot path).
 
-**Thinnest MVP:** Task 1 (bump + suite green) + Task 2 (vec0 migration) - the bump is validated and the tables exist. This proves the spike's prerequisite before any query path is built.
+**Thinnest MVP:** Task 1 (bump + suite green) + Task 2 (vec0 migration) - the bump is validated and the tables exist. This proves the prototype's prerequisite before any query path is built.
 
 **Door check:** Task 1 - if `go test ./...` is not green after the modernc bump (a regression in the 39 migrations, WAL-retry, or store pooling), the bump is not validated and the blueprint is invalidated (ADR-0009's prerequisite is unmet). Stop and report.
 
@@ -252,7 +252,7 @@ Create `skillgrid-cli/internal/mnemonic/vectorstore/store_test.go` with five tes
 - `TestTableExists` - asserts `vec_symbols`/`vec_chunks` present, `vec_nonexistent` absent.
 - `TestUpsertAndSearchSymbols` - inserts 3 orthogonal 768-d basis vectors (component `hot` = 1) at symbol_id 1,2,3; queries for basis-1 and asserts top-1 is symbol_id 2 (hot index 1); queries top-3 and asserts the matching basis id is first.
 - `TestDeleteSymbols` - inserts 3, asserts `Count`==3, deletes, asserts `Count`==0.
-- `TestMaxOpenConnsOne` - asserts `db.Stats().MaxOpenConns==1`, then insert + search under that invariant (the spike's viant-deadlock guard).
+- `TestMaxOpenConnsOne` - asserts `db.Stats().MaxOpenConns==1`, then insert + search under that invariant (the prototype's viant-deadlock guard).
 - A test-only `encodeFloat32s` helper (little-endian float32, same layout as `memory.EncodeVector`).
 
 Use a `mustOpen(t)` helper that calls `store.Open(t.TempDir(), "proj-vstore")` and registers `t.Cleanup(s.Close)`.
@@ -276,7 +276,7 @@ Create `skillgrid-cli/internal/mnemonic/vectorstore/store.go`:
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `go test ./internal/mnemonic/vectorstore/ -v`
-Expected: PASS. If `vec_f32(?)` with a BLOB parameter fails (some versions require the string form), switch `upsert` and `search` to the string form: a `vecLiteral([]float32)` helper that formats the float32s as `[f,f,f]` (the spike's `g.go` used the string form for both insert and query). Verify against the spike if needed.
+Expected: PASS. If `vec_f32(?)` with a BLOB parameter fails (some versions require the string form), switch `upsert` and `search` to the string form: a `vecLiteral([]float32)` helper that formats the float32s as `[f,f,f]` (the prototype's `g.go` used the string form for both insert and query). Verify against the prototype if needed.
 
 - [ ] **Step 5: Commit**
 
@@ -465,7 +465,7 @@ adr: 0009
 ## Plan Review
 
 - Verdict: READY FOR EXECUTION
-- Findings: 0 Critical, 0 Important, 2 Minor (deferred: bulk re-index batch/BLOB path for 100K-scale stores is a follow-up per the spike's constraint #2 - the dual-write covers the current ~20K incremental scale; cross-project `all_projects` durable search is out of scope, ADR-0006 revisit criteria #4)
+- Findings: 0 Critical, 0 Important, 2 Minor (deferred: bulk re-index batch/BLOB path for 100K-scale stores is a follow-up per the prototype's constraint #2 - the dual-write covers the current ~20K incremental scale; cross-project `all_projects` durable search is out of scope, ADR-0006 revisit criteria #4)
 - Reviewed: 2026-09-24
 
 ## Execution Handoff

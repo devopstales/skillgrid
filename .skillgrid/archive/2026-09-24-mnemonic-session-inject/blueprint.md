@@ -16,7 +16,7 @@
 
 **Spec:** `.skillgrid/artifacts/07-mnemonic-tool-surface.md` (Session-inject plan section) + `.skillgrid/artifacts/05-locked-constraints.md` (4 locked session-inject constraints).
 
-**Findings:** `.skillgrid/specs/2026-09-24-mnemonic-vector-db/findings.md` (Spike 001 — G in-SQL latency, viant deferred; in-memory cosine remains the hot path).
+**Findings:** `.skillgrid/specs/2026-09-24-mnemonic-vector-db/findings.md` (Prototype 001 — G in-SQL latency, viant deferred; in-memory cosine remains the hot path).
 
 ## Terms
 

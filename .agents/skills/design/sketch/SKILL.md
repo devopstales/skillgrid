@@ -28,7 +28,7 @@ can feel the difference."
 comparison — that's just a design decision. A sketch is for when there are **2+
 meaningfully different options** and the choice depends on *feeling* the interaction.
 A question that is purely about a *technical* feasibility ("can we stream this?") is
-`skillgrid:spike`, not a sketch.
+`skillgrid:prototype`, not a sketch.
 
 ## Overview
 
@@ -69,14 +69,14 @@ card. The agent then sets `content.visual` to `<topic>/<variant>.html` on the
 decision. Outside the companion flow, keep the default `sketch.dir` — see
 `docs/user-guide/10-decision-companion.md` (§ Prototypes).
 
-## Ground in Real Data Shapes (if spikes ran)
+## Ground in Real Data Shapes (if prototypes ran)
 
-If the topic has a `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` with spike
-sections, **read it first** and ground the mockups in what the spikes proved: real
+If the topic has a `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` with prototype
+sections, **read it first** and ground the mockups in what the prototypes proved: real
 field names, real data shapes, real interaction states (streaming / loading / error /
-empty). A sketch that shows placeholder "lorem ipsum" data when a spike already proved
-the actual data shape is throwing away information. Use the spike's actual outputs
-where they exist; fake only what the spikes did not cover.
+empty). A sketch that shows placeholder "lorem ipsum" data when a prototype already proved
+the actual data shape is throwing away information. Use the prototype's actual outputs
+where they exist; fake only what the prototypes did not cover.
 
 ## Mood Intake (before any code)
 
@@ -249,8 +249,8 @@ file; it does not re-open the mockup.
   2-3 switchable variants (file saved).
 - [ ] Mood intake was done before any code — the Findings/notes record the feel,
   references, and core action established in conversation.
-- [ ] The sketch is grounded in real data shapes (or spike verdicts) where a
-  `findings.md` with spike sections exists — no "lorem ipsum" where a spike proved
+- [ ] The sketch is grounded in real data shapes (or prototype verdicts) where a
+  `findings.md` with prototype sections exists — no "lorem ipsum" where a prototype proved
   the actual shape.
 - [ ] The adjust-an-existing-page vs standalone decision was made and recorded in
   the findings (`diff-on-existing-page` vs `standalone`).

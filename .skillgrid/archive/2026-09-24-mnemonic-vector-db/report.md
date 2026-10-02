@@ -28,7 +28,7 @@ The most likely thing to break in production is the **regression on the in-memor
 | 4 | vec0 module registers on **every** store.Open consumer (the found regression) | `store.Open` in a package that does NOT import vectorstore | unit | store::TestVec0TablesCreatedAfterOpen (runs with only the store's blank import); webcache + tiered suites pass | P0 | pr | covered |
 | 5 | vectorstore top-K returns the matching basis id and ranks it first | `SearchSymbols`/`SearchChunks` | unit | vectorstore::TestUpsertAndSearchSymbols, TestUpsertAndSearchChunks (G3) | P0 | pr | covered |
 | 6 | vectorstore mirrors + clears the BLOB tables | `DeleteSymbols`/`DeleteChunks` | unit | vectorstore::TestDeleteSymbolsAndChunks (G3) | P0 | pr | covered |
-| 7 | no deadlock under SetMaxOpenConns(1) (the spike's viant guard) | `db.Stats().MaxOpenConnections==1` + query | unit | vectorstore::TestMaxOpenConnsOne (G3) | P0 | pr | covered |
+| 7 | no deadlock under SetMaxOpenConns(1) (the prototype's viant guard) | `db.Stats().MaxOpenConnections==1` + query | unit | vectorstore::TestMaxOpenConnsOne (G3) | P0 | pr | covered |
 | 8 | indexer dual-writes vec tables in the same tx, dimension-gated | `embedPass` | unit | codeindex::TestEmbedPassDualWritesVecTables, TestEmbedPassSkipsVecTablesOnDimMismatch (G4) | P0 | pr | covered |
 | 9 | ExactnessCheck reports agreement against brute-force ground truth | `ExactnessCheck` | unit | vectorstore::TestExactnessCheckAgreement (G5) | P1 | pr | covered |
 | 10 | ExactnessCheck reports disagreement for a drifted id | `ExactnessCheck` | unit | vectorstore::TestExactnessCheckDisagreement (G5) | P1 | pr | covered |
@@ -60,7 +60,7 @@ The most likely thing to break in production is the **regression on the in-memor
 
 ### Out of Scope
 
-- **100K-scale bulk re-index batch path** — the spike's constraint #2 (BLOB/vec batch re-index at 100K); the dual-write covers the current ~20K incremental scale. Deferred to a follow-up per the spike (findings.md).
+- **100K-scale bulk re-index batch path** — the prototype's constraint #2 (BLOB/vec batch re-index at 100K); the dual-write covers the current ~20K incremental scale. Deferred to a follow-up per the prototype (findings.md).
 - **Cross-project `all_projects` durable search** — ADR-0006 revisit criteria #4; the durable leg is per-store.
 - **Real ONNX embedder path** — `libonnxruntime.dylib` is not available in this environment, so the local embedder degrades to null; tests use the deterministic hash embedder (dimension-pinned) instead. The in-SQL leg is embedder-agnostic (it consumes the produced `qVec`).
 - **`path_embeddings` vec mirror** — no semantic leg reads it (memory search is FTS-only); intentionally not mirrored (recorded as SUGGESTION #1).
@@ -240,7 +240,7 @@ No user-facing input handling in the changed files (the durable leg consumes an 
 ### SUGGESTION (nice to have)
 
 1. `path_embeddings` (the third BLOB embedding table) has no vec mirror — no semantic leg reads it (memory search is FTS-only). Add a one-line comment in `042_vec0_tables.sql` so a future reader doesn't think it was missed.
-2. `vectorstore.ExactnessCheck` (exact.go) is a spike-verification artifact with no production caller (only `exact_test.go`). Move it to a test file / `//go:build testonly`, or wire it into an `index --check` diagnostic.
+2. `vectorstore.ExactnessCheck` (exact.go) is a prototype-verification artifact with no production caller (only `exact_test.go`). Move it to a test file / `//go:build testonly`, or wire it into an `index --check` diagnostic.
 3. `durableSymbolHits`/`durableChunkHits` are near-duplicates (~18 lines; two table names + two ID prefixes drive otherwise-identical logic). A `durableHits(ctx, db, vecTable, idPrefix, qVec, limit)` helper would remove it.
 4. `vectorstore.encodeF32` re-implements `memory.EncodeVector` (and is re-implemented in 2 test files). vectorstore already imports `memory` (exact.go), so the dependency-avoidance rationale is false — reuse `memory.EncodeVector`.
 5. `MNEMONIC_VECTOR_DB` is undocumented in any user-facing surface (doctor / embedding-status / CLI help). Add a one-line note where the embedder status is surfaced.

@@ -27,6 +27,33 @@ DIR=$(printf '%s' "$input" | node -e '
   });
 ' 2>/dev/null || true)
 
+# Record the harness on the session row so Teams can show "cursor" and link here.
+if [ -n "${SID:-}" ]; then
+  node -e '
+    const sid = process.argv[1];
+    const dir = process.argv[2] || ".";
+    const base = process.argv[3];
+    fetch(base + "/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ id: sid, directory: dir, agent: "cursor" }),
+      signal: AbortSignal.timeout(2000),
+    }).then(() => process.exit(0)).catch(() => process.exit(0));
+  ' "$SID" "${DIR:-.}" "$BASE" >/dev/null 2>&1 || true
+fi
+
+# Register the Cursor conversation as a Mnemonic session (agent=cursor) so the
+# Sessions view lists it before the first tool call. Fail-open.
+CAPTURE=""
+if [ -f "$HOME/.skillgrid/hooks/tool-call-capture.js" ]; then
+  CAPTURE="$HOME/.skillgrid/hooks/tool-call-capture.js"
+elif [ -f "$(cd "$(dirname "$0")" && pwd)/tool-call-capture.js" ]; then
+  CAPTURE="$(cd "$(dirname "$0")" && pwd)/tool-call-capture.js"
+fi
+if [ -n "$CAPTURE" ] && [ -n "$SID" ]; then
+  printf '%s' "$input" | SKILLGRID_AGENT=cursor node "$CAPTURE" register >/dev/null 2>&1 || true
+fi
+
 PRIME=""
 if command -v skillgrid >/dev/null 2>&1; then
   PRIME=$(skillgrid prime --dir "${DIR:-.}" --session "$SID" 2>/dev/null || true)

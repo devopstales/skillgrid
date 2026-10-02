@@ -1,10 +1,10 @@
 ---
 id: TASK-023
 title: 'TICKET-02: MarkSuperseded + supersede chain'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-01 18:17'
-updated_date: '2026-10-01 18:17'
+updated_date: '2026-10-01 20:25'
 labels:
   - bitemporal-audn
 dependencies:
@@ -58,3 +58,9 @@ Blocked by: TICKET-01 (task-022).
 3. GREEN: go test ./internal/mnemonic/memory/ -run 'TestMarkSuperseded' -count=1.
 4. Commit: feat(memory): MarkSuperseded + supersede chain. Refs: task-023.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+MarkSuperseded(ctx, oldID, newID) in lifecycle.go: single tx — UPDATE observations (invalid_at=now, superseded_by=newID, status=superseded) + supersedes edge upsert in memory_relations (src=old, dst=new). Review: 2 WARNINGs fixed (bare literal → relSupersedes const, created_at immutable on re-supersede → SELECT-then-INSERT no-op). Commits: 7b7d7f68 (impl) + d0f8073e (fixes).
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -191,13 +191,13 @@ research:
   output_dir: .skillgrid/specs
   code_research_preset: standard # quick | standard | deep
 
-# --- Spike (feasibility probe) ---
-# skillgrid:spike answers a falsifiable question with a VALIDATED / INVALIDATED /
+# --- Prototype (feasibility probe) ---
+# skillgrid:prototype answers a falsifiable question with a VALIDATED / INVALIDATED /
 # PARTIAL verdict + evidence. A tiny probe (one library, one command) is answered
 # inline by brainstorming; a real probe (code executed, a comparison, a demo)
 # delegates here. Both append their results to the topic's consolidated
 # findings.md, which writing-blueprints reads.
-spike:
+prototype:
   enabled: true
   findings: .skillgrid/specs/{topic}/findings.md   # consolidated per-topic file
   module_dir: .skillgrid/specs/{topic}/modules     # liftable pure modules (if any)

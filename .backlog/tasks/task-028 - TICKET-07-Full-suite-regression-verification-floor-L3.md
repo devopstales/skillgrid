@@ -1,10 +1,10 @@
 ---
 id: TASK-028
 title: 'TICKET-07: Full-suite regression + verification floor (L3)'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-01 18:24'
-updated_date: '2026-10-01 18:24'
+updated_date: '2026-10-02 07:59'
 labels:
   - bitemporal-audn
 dependencies:
@@ -60,3 +60,9 @@ Blocked by: TICKET-06 (task-027).
 5. If a regression surfaces: fix in test files only, re-run, note in ## Comments.
 6. Commit: test(memory): L3 regression floor for bitemporal-audn. Refs: task-028.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+L3 regression floor — verification only, no production code changes. Results: (1) go build ./... clean. (2) go test ./... -count=1 all ok — http/tracker 2 tests flaked (gh CLI 10s timeout) and passed in isolation (known pre-existing). (3) go vet ./... — only the known pre-existing budget.go:114 context-cancel leak, NO new findings. (4) go test -cover ./internal/mnemonic/memory/ = 70.0% — verified identical to pre-wave baseline at fde6d2bc^ (the ticket's '~88%+' baseline was stale). (5) gofmt -l internal/mnemonic/ = 0 unformatted wave files. No regressions, no test-file changes, no commit.
+<!-- SECTION:FINAL_SUMMARY:END -->

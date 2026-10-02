@@ -8,7 +8,7 @@ The 28 skills under `.agents/skills/`. Do not duplicate a general capability as 
 |-------|------|----------|
 | **Entry / router** | Invoked before any response; routes the phase | `using-skillgrid` |
 | **Workflow stages** | Own a pipeline stage; write `.skillgrid/` artifacts | `onboarding`, `writing-blueprints`, `slicing`, `qa`, `ticketing` |
-| **Discovery** | Reduce ambiguity before locking a blueprint | `interviewing`, `brainstorming`, `spike`, `sketch`, `research`, `code-research` |
+| **Discovery** | Reduce ambiguity before locking a blueprint | `interviewing`, `brainstorming`, `prototype`, `sketch`, `research`, `code-research` |
 | **Execution** | Run the plan; commit; resume | `simple-execution`, `subagent-execution`, `parallel-execution`, `work-unit-commits`, `resume` |
 | **Quality** | Evidence-based verification and review | `test-driven-development`, `test-driven-verification`, `acceptance-test-authoring`, `requesting-code-review`, `receiving-code-review`, `parallel-code-review` |
 | **Cross-cutting** | Reusable across stages and outside SDD | `mnemonic`, `isolated-workspace`, `structured-debugging`, `architectural-decision-records`, `ponytail` |
@@ -36,8 +36,8 @@ Priority: `using-skillgrid` → workflow stage → the general skills that stage
 | Skill | Role |
 |-------|------|
 | `interviewing` | Interview the user via a design-tree "frontier" in rounds until a weighted clarity gate passes; maintain glossary/ADRs as terms resolve. |
-| `brainstorming` | Turn ideas into designs via 4 classified paths (spike / bounded / new-project / new-function) with a hard approval gate before implementation. Has a visual companion (local server + templates). |
-| `spike` | Throwaway feasibility experiment producing an evidence-gated verdict (VALIDATED / INVALIDATED / PARTIAL), an investigation trail, and one liftable pure module. |
+| `brainstorming` | Turn ideas into designs via 4 classified paths (prototype / bounded / new-project / new-function) with a hard approval gate before implementation. Has a visual companion (local server + templates). |
+| `prototype` | Throwaway feasibility experiment producing an evidence-gated verdict (VALIDATED / INVALIDATED / PARTIAL), an investigation trail, and one liftable pure module. |
 | `sketch` | Build throwaway interactive UI mockups (2–3 structurally different variants, tab-switchable) to get a felt verdict + constraints for the real build. |
 | `research` | Lightweight single-pass research against primary sources with epistemics (research firewall) and type packs; appends a cited `## Research:` section to `findings.md`. |
 | `code-research` | Heavy informational research: fan out parallel researcher subagents (researcher / verifier / red-team), verify load-bearing claims, red-team conclusions, synthesize a cited `## Research:` section in `findings.md`. |

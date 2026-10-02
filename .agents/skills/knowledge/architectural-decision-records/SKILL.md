@@ -54,7 +54,7 @@ Single context (most repos):
     │   ├── 01-business-terms.md   ← domain, product, workflow terms
     │   ├── 02-technical-terms.md  ← architecture, platform, protocol terms
     │   └── 04-adr-NNNN-slug.md    ← one locked decision per file
-    ├── spikes/NNN-name/           ← feasibility probes (permanently retained)
+    ├── prototypes/NNN-name/           ← feasibility probes (permanently retained)
     └── specs/                     ← briefing.md, blueprint.md, tasks.md, adr.md (manifest)
 ```
 

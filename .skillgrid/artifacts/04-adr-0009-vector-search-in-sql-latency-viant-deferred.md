@@ -17,14 +17,14 @@ revisit analysis cited a **~40 ms at 100K vectors** figure (from a chromem-go
 in-memory brute-force benchmark) as the latency expectation at the migration
 threshold.
 
-Before committing to the revisit path, a comparison spike
-(`.skillgrid/specs/2026-09-24-mnemonic-vector-db/spikes/001-cgo-free-vector-db/`)
+Before committing to the revisit path, a comparison prototype
+(`.skillgrid/specs/2026-09-24-mnemonic-vector-db/prototypes/001-cgo-free-vector-db/`)
 tested the two cgo-free non-memory candidates head-to-head at 768-dim /
 100K vectors: **G** (`modernc.org/sqlite/vec`) and **viant**
 (`viant/sqlite-vec`, the only cgo-free non-memory option with a real ANN
 index — cover tree — on the same `modernc.org/sqlite` driver).
 
-The spike produced two findings that change the revisit analysis:
+The prototype produced two findings that change the revisit analysis:
 
 1. **G's in-SQL top-K latency at 100K is ~6.9 s median, not ~40 ms.** The
    ~40 ms figure in ADR-0006's revisit analysis was for **in-memory Go
@@ -51,7 +51,7 @@ revisit criteria and measurement appendix.
 ## Considered Options
 
 Same option space as ADR-0006 (A in-memory, B/B′/C/G sqlite-vec variants, D
-Go-native HNSW, E sqlite-vss, F vectorlite). The spike narrowed the
+Go-native HNSW, E sqlite-vss, F vectorlite). The prototype narrowed the
 cgo-free non-memory candidates to:
 
 - **G. `modernc.org/sqlite/vec`** — same driver, mature (sqlite-vec v0.1.9,
@@ -88,7 +88,7 @@ ADR-0006 and not re-evaluated here.
 3. **viant is deferred, not rejected.** It is the ANN upgrade path (cover
    tree, same driver) but is blocked by (a) the packaging bug (fixable with
    `go get github.com/viant/vec@v0.2.3`) and (b) the query deadlock
-   (requires a viant fix or a non-standard connection setup). Re-spike when
+   (requires a viant fix or a non-standard connection setup). Re-prototype when
    viant fixes the `ensureIndex` re-entrancy or documents a raw-connection
    usage pattern. At that point, measure recall@10 vs G's brute-force to
    decide whether the ANN index is worth the integration cost.
@@ -115,7 +115,7 @@ ADR-0006 and not re-evaluated here.
   option; G is the durable option.
 - Bad, because the modernc v1.45.0 → v1.59.0 bump (required for G) has not
   yet been validated against the existing 39 migrations, WAL-retry logic,
-  and store pooling. The spike used a fresh DB. This validation is a
+  and store pooling. The prototype used a fresh DB. This validation is a
   prerequisite for the real build.
 
 ### Revisit criteria (amended from ADR-0006)
@@ -125,7 +125,7 @@ Revisit this ADR (or write a superseding ADR) when **any** of:
    in-SQL path's ~6.9 s latency is unacceptable for the serving query —
    at which point viant (if the deadlock is fixed) or B′ (ncruces) becomes
    the path.
-2. viant fixes the `ensureIndex` query deadlock — re-spike for the ANN
+2. viant fixes the `ensureIndex` query deadlock — re-prototype for the ANN
    recall@10 measurement.
 3. The modernc v1.45.0 → v1.59.0 bump is validated against the existing
    store (39 migrations, WAL-retry, pooling) — at which point G adoption
@@ -135,7 +135,7 @@ Revisit this ADR (or write a superseding ADR) when **any** of:
 
 ---
 
-## Measurement appendix (2026-09-24, spike, fresh DB, 768-dim)
+## Measurement appendix (2026-09-24, prototype, fresh DB, 768-dim)
 
 | Metric | G (`modernc.org/sqlite/vec`) | viant (`viant/sqlite-vec`) |
 |---|---|---|

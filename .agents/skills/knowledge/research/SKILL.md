@@ -147,7 +147,7 @@ weak publisher, or disputed), or `unverified`. Sections with nothing behind them
 collapse to a line rather than pad.
 
 The consolidated `findings.md` is the single downstream contract that
-`skillgrid:writing-blueprints` reads — it carries research, spike, and sketch
+`skillgrid:writing-blueprints` reads — it carries research, prototype, and sketch
 evidence in one file.
 
 **Cross-change findings.** If a finding outlives this change (an external API

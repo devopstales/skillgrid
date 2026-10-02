@@ -45,7 +45,7 @@ Then announce "Using [skill] to [purpose]" and follow that skill. If it has a ch
 Pick one class before any skill body loads.
 
 - **Delivery** — a behavior change in this repo. Exactly one Router row. Bounded work (an existing flow, design already obvious) uses `brainstorming`'s Bounded path: a short design in chat, approval, no spec folder. A new function or a new project uses the full planning chain. Fast-track `trivial` / `small` skips brainstorming and blueprints only when `_shared/rules/fast-track.md` says so, and the waiver is recorded in `briefing.md`.
-- **Specialist** — the user asked for design, brand, craft, or a scan. Run that named skill. It does not open a spec folder. During a delivery change, these skills wait until the user or the active pipeline skill names them: everything under `design/` except `spike` and `sketch`, all of `craft/`, and the scanners `owasp-security`, `nuclei`, `wapiti`, `akca`, `securing-agentic-ai-tool-invocation`. `qa` and `requesting-code-review` may still call a scanner. Do not set `disable-model-invocation` on design skills; a design request should still find them.
+- **Specialist** — the user asked for design, brand, craft, or a scan. Run that named skill. It does not open a spec folder. During a delivery change, these skills wait until the user or the active pipeline skill names them: everything under `design/` except `prototype` and `sketch`, all of `craft/`, and the scanners `owasp-security`, `nuclei`, `wapiti`, `akca`, `securing-agentic-ai-tool-invocation`. `qa` and `requesting-code-review` may still call a scanner. Do not set `disable-model-invocation` on design skills; a design request should still find them.
 - **Q&A** — a lookup. First skill is `mnemonic` or `research`. No pipeline.
 
 ## Context Discipline
@@ -67,7 +67,7 @@ The phase order after the first skill is `_shared/rules/sdd-structure.md`. This 
 | Delivery, bounded | `brainstorming` (Bounded path) | stop for approval; no spec folder |
 | Delivery, trivial/small (fast-track) | `slicing` (light) | phase order in `sdd-structure.md`; skips per `fast-track.md`; waiver in `briefing.md` |
 | Q&A / lookup | `mnemonic` or `research` | no pipeline |
-| Spike-only | `spike` | promote to a blueprint if the user keeps the findings |
+| Prototype-only | `prototype` | promote to a blueprint if the user keeps the findings |
 | Specialist (design, brand, craft, or a scan) | the named skill | no spec folder |
 | Mid-change | `resume` | the resume marker in `sdd-structure.md` |
 

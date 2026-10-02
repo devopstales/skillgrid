@@ -16,7 +16,7 @@
 
 **Spec:** `.skillgrid/artifacts/07-mnemonic-tool-surface.md` (Monitoring plan section + 5 locked decisions).
 
-**Findings:** `.skillgrid/specs/2026-09-24-mnemonic-vector-db/findings.md` (vector-db spike, cited for the session-inject dependency — this monitoring layer is the capture layer session-inject consumes).
+**Findings:** `.skillgrid/specs/2026-09-24-mnemonic-vector-db/findings.md` (vector-db prototype, cited for the session-inject dependency — this monitoring layer is the capture layer session-inject consumes).
 
 ## Terms
 

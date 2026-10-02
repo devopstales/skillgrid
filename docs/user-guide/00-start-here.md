@@ -36,7 +36,7 @@ Entry skill: **`using-skillgrid`** — invoke the relevant skill before ANY resp
 onboarding → interviewing → writing-blueprints → slicing → [approval gate] → apply ⇄ qa → ship
    (setup)     INTERVIEW          BLUEPRINT         SLICE                         VERIFY
               ↑                    ↑
-        optional spike / sketch / research / code-research
+        optional prototype / sketch / research / code-research
 ```
 
 ## Quick path

@@ -3,16 +3,16 @@
 Classify first, announce the path, then create a task for each item on
 your path and complete them in order.
 
-**Spike (tiny — inline):**
+**Prototype (tiny — inline):**
 1. **Explore project context** — enough to frame the probe
 2. **Present question + probe plan** — 2-3 sentences
 3. **Get approval** — a nod is enough
 4. **Investigate** — as cheaply as correctness allows
 5. **Report findings in chat** — a recommendation; label anything built as throwaway
 
-**Spike (real probe — delegate):**
+**Prototype (real probe — delegate):**
 1. **Explore project context** — enough to frame the probe
-2. **Delegate to `skillgrid:spike`** — it frames the falsifiable hypothesis, gets the nod, builds the experiment, writes the verdict + investigation trail, and appends to the topic's consolidated `findings.md`. Report back the verdict and what's liftable.
+2. **Delegate to `skillgrid:prototype`** — it frames the falsifiable hypothesis, gets the nod, builds the experiment, writes the verdict + investigation trail, and appends to the topic's consolidated `findings.md`. Report back the verdict and what's liftable.
 
 **Bounded:**
 1. **Explore project context** — check files, docs, recent commits
@@ -56,7 +56,7 @@ your path and complete them in order.
 
 ```dot
 digraph brainstorming {
-    "Classify: spike / bounded / new project / new function" [shape=diamond];
+    "Classify: prototype / bounded / new project / new function" [shape=diamond];
     "Present question + probe (2-3 sentences)" [shape=box];
     "Ask clarifying questions (bounded)" [shape=box];
     "Present short design in chat" [shape=box];
@@ -76,15 +76,15 @@ digraph brainstorming {
     "Invoke skillgrid:writing-blueprints skill" [shape=doublecircle];
     "Hidden complexity? Upgrade path" [shape=box];
 
-    "Classify: spike / bounded / new project / new function" -> "Present question + probe (2-3 sentences)" [label="spike"];
-    "Classify: spike / bounded / new project / new function" -> "Ask clarifying questions (bounded)" [label="bounded"];
-    "Classify: spike / bounded / new project / new function" -> "Explore project context" [label="new project / new function"];
+    "Classify: prototype / bounded / new project / new function" -> "Present question + probe (2-3 sentences)" [label="prototype"];
+    "Classify: prototype / bounded / new project / new function" -> "Ask clarifying questions (bounded)" [label="bounded"];
+    "Classify: prototype / bounded / new project / new function" -> "Explore project context" [label="new project / new function"];
     "Present question + probe (2-3 sentences)" -> "Human approves?";
     "Ask clarifying questions (bounded)" -> "Present short design in chat";
     "Present short design in chat" -> "Human approves?";
-    "Human approves?" -> "Investigate; report recommendation" [label="spike: yes"];
+    "Human approves?" -> "Investigate; report recommendation" [label="prototype: yes"];
     "Human approves?" -> "Implement via normal workflow (no plan doc)" [label="bounded: yes"];
-    "Hidden complexity? Upgrade path" -> "Classify: spike / bounded / new project / new function";
+    "Hidden complexity? Upgrade path" -> "Classify: prototype / bounded / new project / new function";
     "Explore project context" -> "Interview (skillgrid:interviewing skill)\ndesign tree → rounds → frontier empty\n+ clarity gate passes";
     "Interview (skillgrid:interviewing skill)\ndesign tree → rounds → frontier empty\n+ clarity gate passes" -> "Propose 2-3 approaches";
     "Propose 2-3 approaches" -> "Present design sections";
@@ -107,5 +107,5 @@ digraph brainstorming {
 ONLY skill you invoke after brainstorming is skillgrid:writing-blueprints — never
 or any other implementation skill.
 Bounded: after approval, implementation proceeds directly through the
-normal development workflow; no plan document. Spike: the terminal
+normal development workflow; no plan document. Prototype: the terminal
 state is a reported recommendation.

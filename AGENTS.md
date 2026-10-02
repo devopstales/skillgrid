@@ -15,7 +15,7 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 | Locked decisions (one file each; the index stores the path) | `.skillgrid/artifacts/04-adr-NNNN-slug.md` |
 | Live repo/program structure | `.skillgrid/ARCHITECTURE.md` |
 | Terms glossary + research + tool-surface docs | `.skillgrid/artifacts/` (index: `README.md`) |
-| Feasibility spikes (permanently retained) | `.skillgrid/spikes/NNN-name/` |
+| Feasibility prototypes (permanently retained) | `.skillgrid/prototypes/NNN-name/` |
 | Project state (phase, current change, progress) | `.skillgrid/state.yaml` |
 | Specs (briefing, blueprint, tasks) | `.skillgrid/specs/` |
 | Execution ledger | `.skillgrid/sdd/` (gitignored) |

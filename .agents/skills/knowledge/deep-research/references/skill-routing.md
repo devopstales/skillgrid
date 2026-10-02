@@ -10,7 +10,7 @@ task. Read the relevant SKILL.md before dispatching.
 |-------------------|----------|
 | Need a fact not in the codebase (one-off lookup) | `skillgrid:research` |
 | Wide/high-stakes informational question (parallel fan-out + verify) | `skillgrid:code-research` |
-| Throwaway feasibility experiment (will this approach work?) | `skillgrid:spike` |
+| Throwaway feasibility experiment (will this approach work?) | `skillgrid:prototype` |
 | Debugging a bug or unexpected result in the experiment | `skillgrid:structured-debugging` |
 | Implementing the experiment code (test-first) | `skillgrid:test-driven-development` |
 | Executing a written plan for the experiment | `skillgrid:subagent-execution` or `skillgrid:simple-execution` |

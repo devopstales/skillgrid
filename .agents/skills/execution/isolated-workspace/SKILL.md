@@ -24,7 +24,7 @@ Ensure work happens in an isolated workspace. Prefer your platform's native work
 ## When to Use
 
 - Starting feature work that must not touch the main checkout
-- Running an experiment/spike that needs a clean isolated env
+- Running an experiment/prototype that needs a clean isolated env
 - Executing an implementation plan that will generate throwaway or reversible changes
 
 **When NOT to use:** for a quick read-only look or a single-file edit that won't be discarded — an isolated workspace is overkill.
