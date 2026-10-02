@@ -1400,6 +1400,9 @@ func (s *txRouteStore) StoreRouteNode(node route.RouteNode) (int64, error) {
 	if err := s.tx.QueryRow(`SELECT id FROM symbols WHERE uid = ?`, node.UID).Scan(&id); err != nil {
 		return 0, err
 	}
+	if err := insertIndexAliases(s.tx, projectIDFromConn(s.tx), node.Name, node.Name); err != nil {
+		return 0, err
+	}
 	if err := s.writeSymbolSegments(node.Name); err != nil {
 		return 0, err
 	}
@@ -1638,6 +1641,7 @@ func writeFileGraph(tx *sql.Tx, fileID int64, syms []extract.Symbol, edges []ext
 		targetUIDs[s.UID] = struct{}{}
 	}
 	// Upsert symbols (and their FTS rows via trigger).
+	project := projectIDFromConn(tx)
 	var upserted int
 	for _, s := range syms {
 		exported := 0
@@ -1665,6 +1669,9 @@ func writeFileGraph(tx *sql.Tx, fileID int64, syms []extract.Symbol, edges []ext
 			s.ReturnType, s.ParamTypes, s.Visibility, exported,
 		); err != nil {
 			return 0, fmt.Errorf("upsert symbol %s: %w", s.Name, err)
+		}
+		if err := insertIndexAliases(tx, project, s.Name, s.QualifiedName); err != nil {
+			return 0, err
 		}
 		upserted++
 	}

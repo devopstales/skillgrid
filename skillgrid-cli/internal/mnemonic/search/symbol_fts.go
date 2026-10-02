@@ -7,11 +7,23 @@
 package search
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode"
 )
+
+// aliasLookup is codeindex.LookupAliases, registered from that package so
+// symbol search can resolve entity aliases without an import cycle
+// (codeindex imports hybrid, which imports search).
+var aliasLookup func(ctx context.Context, db *sql.DB, project, text string) ([]string, error)
+
+// SetAliasLookup registers the entity-alias resolver used by SymbolFTS.
+func SetAliasLookup(fn func(ctx context.Context, db *sql.DB, project, text string) ([]string, error)) {
+	aliasLookup = fn
+}
 
 // SymbolHit is one identifier-FTS match over an indexed symbol.
 type SymbolHit struct {
@@ -98,6 +110,7 @@ func SymbolFTS(db *sql.DB, query string, limit int) ([]SymbolHit, error) {
 	if limit <= 0 {
 		limit = defaultCodeSearchLimit
 	}
+	aliasHits, seen := aliasSymbolHits(db, query)
 	rows, err := db.Query(`
 		SELECT s.id, s.name, s.qualified_name, s.kind, s.language, s.signature,
 		       f.path, s.start_line, s.end_line, bm25(symbol_fts) AS rank
@@ -111,18 +124,98 @@ func SymbolFTS(db *sql.DB, query string, limit int) ([]SymbolHit, error) {
 		return nil, fmt.Errorf("symbol fts: %w", err)
 	}
 	defer rows.Close()
-	var hits []SymbolHit
+	hits := aliasHits
 	for rows.Next() {
 		var h SymbolHit
 		var rank float64
 		if err := rows.Scan(&h.ID, &h.Name, &h.QualifiedName, &h.Kind, &h.Language, &h.Signature, &h.Path, &h.StartLine, &h.EndLine, &rank); err != nil {
 			return nil, fmt.Errorf("scan symbol hit: %w", err)
 		}
+		if seen[h.ID] {
+			continue
+		}
+		seen[h.ID] = true
 		h.Score = -rank
 		hits = append(hits, h)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate symbol hits: %w", err)
 	}
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
 	return hits, nil
+}
+
+// aliasSymbolHits resolves entity aliases for query and loads those symbols
+// by qualified_name. A miss (or a lookup that cannot run) returns no hits so
+// the FTS path is unchanged.
+func aliasSymbolHits(db *sql.DB, query string) ([]SymbolHit, map[int64]bool) {
+	seen := map[int64]bool{}
+	if aliasLookup == nil {
+		return nil, seen
+	}
+	names, err := aliasLookup(context.Background(), db, projectIDFromDB(db), query)
+	if err != nil || len(names) == 0 {
+		return nil, seen
+	}
+	hits, err := symbolsByQualifiedNames(db, names)
+	if err != nil {
+		return nil, seen
+	}
+	var out []SymbolHit
+	for _, h := range hits {
+		if seen[h.ID] {
+			continue
+		}
+		seen[h.ID] = true
+		out = append(out, h)
+	}
+	return out, seen
+}
+
+func symbolsByQualifiedNames(db *sql.DB, names []string) ([]SymbolHit, error) {
+	placeholders := make([]string, len(names))
+	args := make([]any, len(names))
+	for i, name := range names {
+		placeholders[i] = "?"
+		args[i] = name
+	}
+	rows, err := db.Query(`
+		SELECT s.id, s.name, s.qualified_name, s.kind, s.language, s.signature,
+		       f.path, s.start_line, s.end_line
+		FROM symbols s
+		INNER JOIN files f ON f.id = s.file_id
+		WHERE s.qualified_name IN (`+strings.Join(placeholders, ",")+`)
+		ORDER BY s.id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byName := map[string][]SymbolHit{}
+	for rows.Next() {
+		var h SymbolHit
+		if err := rows.Scan(&h.ID, &h.Name, &h.QualifiedName, &h.Kind, &h.Language, &h.Signature, &h.Path, &h.StartLine, &h.EndLine); err != nil {
+			return nil, err
+		}
+		byName[h.QualifiedName] = append(byName[h.QualifiedName], h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var ordered []SymbolHit
+	for _, name := range names {
+		ordered = append(ordered, byName[name]...)
+	}
+	return ordered, nil
+}
+
+// projectIDFromDB reads the store project id from the sqlite filename
+// ({project}.sqlite), matching store.Open.
+func projectIDFromDB(db *sql.DB) string {
+	var file string
+	if err := db.QueryRow(`SELECT file FROM pragma_database_list() WHERE name = 'main'`).Scan(&file); err != nil || file == "" {
+		return ""
+	}
+	return strings.TrimSuffix(filepath.Base(file), ".sqlite")
 }
