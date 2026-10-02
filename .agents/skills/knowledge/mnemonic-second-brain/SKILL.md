@@ -1,6 +1,6 @@
 ---
 name: mnemonic-second-brain
-description: "Skill trigger + capture contract for mnemonic second-brain: natural-language save cues that auto-infer type/topic_key via mem_save.infer."
+description: "Use when the user says remember this, don't forget that, we decided to…, note for next time, important:, or so that next time…. Natural-language save that auto-infers type and topic_key via mem_save.infer. Also use after a bug fix, an architecture decision, or a non-obvious discovery."
 license: MIT
 metadata:
   author: devopstales
@@ -23,6 +23,7 @@ The following natural-language phrases trigger a `mem_save` call with `infer=tru
 - `we decided to…`
 - `note for next time`
 - `important:`
+- `so that next time…`
 
 ## Capture Contract
 
