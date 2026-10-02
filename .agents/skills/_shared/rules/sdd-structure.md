@@ -77,6 +77,21 @@ brainstorming → [research] [spike] [sketch] → writing-blueprints → slicing
 └── brainstorm/                 # visual companion state (gitignored)
 ```
 
+## STATUS Banner
+
+`briefing.md` and `tasks.md` carry a machine-readable status on line 3 (a blockquote, after the `#` title). The `/plans` HTTP endpoint and the mockup's Changes panel parse it with the regex `^>\s*\*\*STATUS:\*\*\s*`?([a-z][a-z0-9-]+)`?` — the value must be lowercase, alphanumeric + hyphens, optionally backtick-wrapped.
+
+**Format:** `> **STATUS:** \`<value>\` (YYYY-MM-DD)`
+
+| File | Initial value | Updated by |
+|---|---|---|
+| `briefing.md` | `draft` | brainstorming (write), ship (→ `shipped`) |
+| `tasks.md` | `sliced` | slicing (write), execution (→ `in-progress` / `complete`), ship (→ `shipped`) |
+
+**Values:** `draft` → `sliced` → `in-progress` → `complete` → `shipped`. Side states: `stalled`, `blocked`, `revised`, `superseded`.
+
+**Rule:** every spec dir's `briefing.md` MUST carry the banner. `tasks.md` MUST carry it once slicing produces it. The `pre-commit` zone guard does not check it; the `/plans` endpoint returns `status: ""` when absent (the UI renders "unknown").
+
 ## `state.yaml` and `artifacts/`
 
 Two complementary files, both committed. They are the project-level state and knowledge — distinct from the per-change `specs/` artifacts.

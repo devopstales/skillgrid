@@ -1,91 +1,57 @@
 
 # Notes
 
-## Validate
 
-* Excalidraw
-* v0
-* deep research
-* deepseak harness
-* Backlog.md
-* beads
-* chloe
+https://youtu.be/v4F1gFy-hqg?si=CddF2O7TE1hPO4tp
+https://youtu.be/Vok_nReMFaU?si=r4-LZDy5aVJ7B6ET
+https://youtu.be/6kM27uGP4n4?si=0TcMe6Xvu-boL5Hi
+https://youtu.be/MbiMwgbGdxw?si=MFckvBJwiaw01woJ
 
+You us grep read eza ls rg. Why you didn't use the skillgrid mcp?
 
-## Selected
-
-* [X] skills
-* [X] @cucumber/cucumber
-* mcp-installer
-* [?] engram
-* [ ] agent-browser
-* [ ] playwright
-* contextmode
-* girafe
-
-## Agent Configs
-
-* [ ] kilo
-  * `~/.kiro/settings/mcp.json`
-  * `~/.config/kilo/kilo.jsonc`
-* [ ] opencode
-  * `~/.config/opencode/opencode.json`
-* cursor
-* claud
-* codex
-* gemini cli
-* antigravity
-
-## Skills
-
-* ponitail
-* [unlaz](https://github.com/Leonxlnx/unlazy/tree/main)
-
-## Tools
-
-### Agent Orchectration
-
-* [ ] [opencode-4hol](https://dev.to/uenyioha/porting-claude-codes-agent-teams-to-opencode-4hol)
-* [ ] [Cleave](https://cleave.dev/)
-* TEAMS:
+* rename spike to prototype
+* all the existing changes
+* admin dashboard
+* hooks
+* agent personas
+* prd in artifacts vs ASSUMPTIONS.md
+* coding standards, testing, security tests
+  * https://github.com/vigolium/vigolium
+* hooks
+ https://github.com/raultov/opencode-hooks-plugin 
+ https://github.com/KristjanPikhof/OpenCode-Hooks 
+ https://github.com/shanebishop1/opencode-command-hooks 
+* TEAMS
+  * .skillgrid/sdd
   * https://docs.cline.bot/sdk/guides/multi-agent-teams
   * https://dev.to/uenyioha/porting-claude-codes-agent-teams-to-opencode-4hol
   * https://github.com/hueyexe/opencode-ensemble
+* memory
+  * https://github.com/Gentleman-Programming/engram
+  * https://github.com/mnemon-dev/mnemon/tree/master
+  * https://github.com/Aamirofficiall/mnemonic
+* vector db
+  * https://github.com/DeusData/codebase-memory-mcp
+  * 
+* context
+  * https://cleave.dev/
+  * https://github.com/context-hub/generator
+  * https://github.com/foldwork-dev/mcp-injector
+  * https://github.com/headroomlabs-ai/headroom
+  * https://github.com/mksglu/context-mode
+  * https://github.com/thedotmack/claude-mem
+* second brain
+  * https://github.com/brobertsaz/claude-os/tree/main
 
-### Memory
+## Selected
 
-* [Openclow SQlight Memory](https://www.pingcap.com/blog/local-first-rag-using-sqlite-ai-agent-memory-openclaw/)
-* [X] [codegraph](https://github.com/colbymchenry/codegraph)
-* [?] [srclight](https://github.com/srclight/srclight) - 42 mcp tools
-  * [Docs](https://dev.to/tofutim/how-we-built-a-hybrid-fts5-embedding-search-for-code-and-why-you-need-both-4ec2)
-* [?] [codebase-memory](https://github.com/DeusData/codebase-memory-mcp)
-* [?] [mcp-injector](https://github.com/foldwork-dev/mcp-injector)
+* contextmode
+* girafe
 
 
-* [?] [CocoIndex-Code](https://github.com/cocoindex-io/cocoindex-code)
-* [?] [GitNexus](https://github.com/abhigyanpatwari/GitNexus)
-* [?] [graphify](https://github.com/Graphify-Labs/graphify)
-* [?] [codebase-index](https://github.com/denfry/codebase-index)
-* [?] [foldwork](https://github.com/foldwork-dev/mcp-injector) - [Docs](https://www.foldwork.dev/)
+## Tools
 
-* [Local-First Documentation](https://neuledge.com/blog/2026-02-19/local-first-documentation-for-ai)
 
-* [?] [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
-* [X] [Engram](https://github.com/Gentleman-Programming/engram)
-* [X] **Skillgrid Mnemonic** — v1 merged [PR #2](https://github.com/devopstales/skillgrid/pull/2) to `release/2` ([spec](superpowers/specs/2026-08-26-skillgrid-mnemonic-design.md)); replaces Engram when `indexing.profile: mnemonic`
-
-### Spec driven development
-
-* PRD
-* [-] [openspec](https://openspec.dev/)
-* [X] [Superpowers](https://github.com/obra/superpowers)
-
-### Ticketingt
-
-* Atlassian MCP
-* GitHub MCP
-* Gitlab MCP
-* Vercel
 
 ### checkoint
 
@@ -119,31 +85,6 @@
 
 * [ ] Trivy
 * [ ] [secure-rules](https://github.com/TikiTribe/claude-secure-coding-rules/tree/main)
-
-## Plugins
-
-```
-npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/kilo"
-
-npm install superpowers@git+https://github.com/obra/superpowers.git --prefix "$HOME/.config/opencode"
-
-{
-  "plugin": ["~/.config/opencode/node_modules/superpowers"]
-}
-```
-
-* `https://github.com/kdcokenny/opencode-background-agents`
-
-## Skills
-
-* [X] skills
-
-```
-skills add obra/superpowers --agent amp -g -s '*' -y
-skills add gentleman-programming/engram --agent amp -g -s 'engram-memory' -y
-skills add gentleman-programming/engram --agent amp -g -s 'engram-memory-protocol' -y
-skills add gentleman-programming/engram --agent amp -g -s 'engram-testing-coverag' -y
-```
 
 * SDD - Spec-Driven Development
 * TDD - Test-Driven Development

@@ -1,6 +1,7 @@
 agents:
   - "@kilocode/cli"
   - "opencode-ai"
+  - "opencode-yaml-hooks"
 
 mcp:
   - "@upstash/context7-mcp"

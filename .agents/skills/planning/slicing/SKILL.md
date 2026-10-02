@@ -141,7 +141,8 @@ Independent tickets within a wave run in parallel worktrees. A ticket in a later
 ### Step 5: Write tasks.md
 
 1. Copy `templates/tasks.md` from this skill's directory
-2. Fill in:
+2. Fill in the `> **STATUS:** \`sliced\` (YYYY-MM-DD)` banner on line 3 (see `_shared/rules/sdd-structure.md` § STATUS Banner)
+3. Fill in:
    - Epic summary (2-3 lines from the blueprint)
     - Each ticket: title, scope, acceptance criteria, `SATISFIES` (scenario — BDD is always on), files, size, blocks, blocked by
    - Dependency graph (mermaid)
@@ -150,7 +151,7 @@ Independent tickets within a wave run in parallel worktrees. A ticket in a later
      not earn (a locked constraint or a prior ADR), CITE the source rather than
      restate it (`per ASSUMPTIONS.md § Locked constraints <x>` / `per ASSUMPTIONS.md § ### ADR-NNNN`) per
      `_shared/conventions/cite-dont-restate.md`.
-3. Save to `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`
+ 4. Save to `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`
 
 ### Ticket Execution Contract (optional fields)
 

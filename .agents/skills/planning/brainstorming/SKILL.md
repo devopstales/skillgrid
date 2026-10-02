@@ -366,7 +366,9 @@ works.
   the global files already exist (a second project in the repo), merge
   rather than overwrite.
 - **New Function:** copy `templates/briefing.md` →
-  `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` and fill it in. If
+  `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` and fill it in. The
+  `> **STATUS:** \`draft\` (YYYY-MM-DD)` banner on line 3 is required (see
+  `_shared/rules/sdd-structure.md` § STATUS Banner). If
   the feature changes the global `.skillgrid/ASSUMPTIONS.md` (new VERIFIED fact,
   changed metric, a new `### ADR-NNNN` entry) or `.skillgrid/ARCHITECTURE.md`
   (new component, data store, integration), update those too — only when they exist

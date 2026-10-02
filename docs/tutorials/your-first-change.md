@@ -221,6 +221,9 @@ agent from silently inventing the load-bearing choice and burying it in code.
 
 The blueprint is committed to git as a checkpoint alongside the code.
 
+> [!NOTE]
+> This tutorial uses a single-folder change. Multi-phase blueprints (4+ phases or 20+ tasks) split into **one change folder per phase** as siblings under `.skillgrid/specs/`, plus a parent index folder — see [Multi-phase changes](../user-guide/01-layout.md#multi-phase-changes).
+
 ---
 
 ## Step 6 — Slice

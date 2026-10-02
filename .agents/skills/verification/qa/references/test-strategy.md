@@ -95,19 +95,21 @@ Three passes.
 
 #### Pass 3: OWASP Top 10 Spot-Check
 
+Full OWASP review is owned by `skillgrid:owasp-security` (`.agents/skills/verification/owasp-security/SKILL.md`), dispatched as the Security axis of `skillgrid:requesting-code-review`. In Mode B, this pass is a **lightweight spot-check** that flags suspicious patterns for the Security reviewer to confirm — it does not assert a vulnerability without evidence.
+
 For each changed file that handles user input, check:
 
-| OWASP item | What to look for |
-|------------|-----------------|
-| A01 Broken Access Control | Missing auth check on a new endpoint or permission |
-| A03 Injection | String concatenation in SQL / shell / template (no parameterization) |
-| A04 Insecure Design | New feature with no rate limiting, no input validation |
-| A07 Auth Failures | Weak password policy, missing MFA, session not invalidated |
-| A08 Data Integrity | Deserialization of untrusted input without validation |
+| OWASP item (2025) | What to look for |
+|-------------------|-----------------|
+| A01 Broken Access Control (incl. SSRF) | Missing auth check on a new endpoint or permission; user-supplied URL not validated |
+| A05 Injection | String concatenation in SQL / shell / template (no parameterization) |
+| A06 Insecure Design | New feature with no rate limiting, no input validation |
+| A07 Authentication Failures | Weak password policy, missing MFA, session not invalidated |
+| A08 Software or Data Integrity Failures | Deserialization of untrusted input without validation |
 
-This is a **spot-check**, not a full SAST run. Flag suspicious patterns for a human to confirm — do not assert a vulnerability without evidence.
+This is a **spot-check**, not a full SAST run. Flag suspicious patterns for the Security reviewer to confirm — do not assert a vulnerability without evidence.
 
-**Note:** Mode B has no OWASP pass when Trivy is configured — Trivy's `misconfig` scanner covers infrastructure misconfigurations, and the OWASP spot-check is a manual code-review task that belongs in `skillgrid:requesting-code-review` (Standards axis), not in the security scanner.
+**Note:** Mode B has no OWASP pass when Trivy is configured — Trivy's `misconfig` scanner covers infrastructure misconfigurations, and the full OWASP review is a manual code-review task that belongs in `skillgrid:requesting-code-review` (Security axis), not in the security scanner.
 
 ## Code Quality Gate
 

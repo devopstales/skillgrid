@@ -1,5 +1,7 @@
 # Tasks — <feature>
 
+> **STATUS:** `sliced` (YYYY-MM-DD)
+
 > Sliced from `.skillgrid/specs/YYYY-MM-DD-<topic>/blueprint.md`.
 > Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.
 

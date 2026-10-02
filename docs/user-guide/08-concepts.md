@@ -84,6 +84,8 @@ The pipeline's shared "domain model" home. `architectural-decision-records`: "Ac
     └── qa-report.md     # test plan + 4-state gate + evidence
 ```
 
+A change is a single dated folder under `.skillgrid/specs/` that is sliced, executed, QA'd, and shipped as one unit. When a blueprint is large enough to warrant phase separation (4+ phases or 20+ tasks), it splits into one folder per phase as siblings, plus a parent index folder — see [Multi-phase changes](01-layout.md#multi-phase-changes) in the Layout reference.
+
 ### Glossary
 
 A glossary and nothing else — "no implementation details, no specs, no scratch. This is the rule that breaks in the field: left unchecked, models treat 'write to the glossary' as permission to persist every answer."

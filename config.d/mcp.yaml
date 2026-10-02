@@ -36,3 +36,9 @@ servers:
     command:
       - npx
       - "@codescene/codehealth-mcp"
+  backlog:
+    type: local
+    command:
+      - backlog
+      - mcp
+      - start

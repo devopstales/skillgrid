@@ -6,7 +6,7 @@ A web based dashboard for skillgrid based development.
 ## Functions
 
 * main page
-  * https://gstack.lol/
+  * https://github.com/brobertsaz/claude-os
   * https://github.com/builderz-labs/mission-control
 * Kanban board
   * ui: https://github.com/MrLesk/Backlog.md#-web-interface
@@ -23,3 +23,8 @@ A web based dashboard for skillgrid based development.
 * session viewer
   * https://github.com/prime-radiant-inc/claude-session-viewer
   * https://github.com/wesm/archived-agent-session-viewer
+
+
+* web page
+  * https://gstack.lol/
+  * https://jsmastery.com/skills

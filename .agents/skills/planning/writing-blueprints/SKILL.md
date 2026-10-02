@@ -32,6 +32,33 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 - Commit the blueprint after saving (`git add` + `git commit`) — the artifact is a checkpoint alongside the code. The `pre-commit` zone guard (skillgrid:work-unit-commits) blocks a commit that mixes blueprint/spec changes with code.
 - (User preferences for plan location override this default)
 
+## Multi-Phase Change Folders
+
+When a blueprint spans multiple phases (e.g. a 4-phase product rollout), split it into
+one change folder per phase under `.skillgrid/specs/`:
+
+```
+.skillgrid/specs/
+  YYYY-MM-DD-<feature>/                ← parent blueprint (index only)
+    blueprint.md                       ← header + phases table + shared context link
+    shared/context.md                  ← hypothesis, must-haves, global constraints, file structure
+  YYYY-MM-DD-<feature>-phase-1/        ← sibling change folder
+    spec.md                            ← phase goal + tasks (verbatim)
+  YYYY-MM-DD-<feature>-phase-2/
+    spec.md
+  ...
+```
+
+Rules:
+- Phase folders are **siblings** of the parent, not nested inside it
+- Phase specs are **self-contained for execution**: executor reads `spec.md` + `shared/context.md`
+- Tasks are **verbatim** — no rewording or code changes when splitting
+- Task numbering is **global** (Task 1–N across all phases), not per-phase
+- Each phase folder is a valid skillgrid change: independently sliceable, executable, reviewable, archiveable
+- The parent `blueprint.md` is the source of truth for the phase table
+- `state.yaml` `current_change` points to the **active phase folder**
+- Full reference: `docs/multi-phase-spec-structure.md`
+
 ## When to Use
 
 - When a change needs an implementation blueprint/plan before execution
@@ -42,6 +69,19 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 ## Scope Check
 
 If the spec covers multiple independent subsystems, it should have been broken into sub-project specs during brainstorming. If it wasn't, suggest breaking this into separate plans — one per subsystem. Each plan should produce working, testable software on its own.
+
+### Per-phase change folders
+
+When a blueprint is large enough to warrant phase separation (typically 4+ phases or 20+ tasks), split it into **one change folder per phase** as siblings under `.skillgrid/specs/`, plus a parent folder holding the shared blueprint index and shared context:
+
+- **Parent folder** (`YYYY-MM-DD-<topic>/`) — not a change. Holds `blueprint.md` (status, tier, goal, architecture, tech stack, spec ref, and a phases table linking to each phase) and `shared/context.md` (hypothesis, terms, must-haves, global constraints, file structure shared across all phases).
+- **Phase folders** (`YYYY-MM-DD-<topic>-phase-<N>/`) — each a valid standalone change with its own `spec.md` (phase goal + all tasks for that phase, TDD shape, SATISFIES BDD links, one-way-door tags).
+- **Naming:** `<parent-change-name>-phase-<N>` (e.g. `2026-10-01-kubedash-5.0-phase-1`).
+- **Back-links:** each phase `spec.md` links to `../<parent>/blueprint.md` and `../<parent>/shared/context.md`. The parent's phases table links to `../<parent>-phase-N/`.
+- **Do not nest** phase folders inside the parent — they must be siblings at the `.skillgrid/specs/` level.
+- Each phase is sliced, executed, and shipped independently.
+
+For smaller changes, use the standard single-folder layout. See the [Multi-phase changes](../../../docs/user-guide/01-layout.md#multi-phase-changes) section in the Layout reference.
 
 ## File Structure
 

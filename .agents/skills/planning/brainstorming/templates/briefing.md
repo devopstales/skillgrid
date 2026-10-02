@@ -1,5 +1,7 @@
 # [Feature Name] — Design Briefing
 
+> **STATUS:** `draft` (YYYY-MM-DD)
+
 > Copy this template to `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`.
 > This is the validated design/spec. Fill every section from the
 > brainstorming conversation. Every requirement MUST be falsifiable

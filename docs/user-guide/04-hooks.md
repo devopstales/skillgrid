@@ -31,10 +31,15 @@ git-hooks/            # thin shims, JavaScript (staged to ~/.skillgrid/git-hooks
 ├── commit-msg.js   ──> ../hooks/checkpoint-state.js guard-msg "$1"
 ├── stop.js         ──> ../hooks/stop-tests.js        (drains stdin)
 └── gate-stop.js    ──> ../hooks/gate-stop.js         (reads harness JSON for session_id)
-plugins/              # capture-bridge plugins (installed from ~/.skillgrid/plugins/)
-├── opencode/mnemonic.ts
-├── kilo/mnemonic.ts
-└── cursor/mnemonic.mdc
+plugins/              # harness adapters (installed from ~/.skillgrid/plugins/)
+├── _shared/memory-protocol.md
+├── opencode/hooks.yaml
+└── kilo/hooks.yaml
+.cursor-plugin/       # Cursor plugin surface (add-from-folder = repo root)
+├── plugin.json
+└── marketplace.json
+rules/mnemonic.mdc    # Cursor always-apply Mnemonic protocol
+hooks/hooks-cursor.json + cursor-session-*.sh + cursor-tool-capture.sh
 ```
 
 `skillgrid install` stages `hooks/`, `git-hooks/`, and `plugins/` to
