@@ -78,41 +78,6 @@ function truncate(str, max) {
   return str.length > max ? str.slice(0, max) + "\n[truncated]" : str
 }
 
-function readActiveProject() {
-  try {
-    const fs = require("fs")
-    const path = require("path")
-    const os = require("os")
-    const root = process.env.SKILLGRID_MNEMONIC_DATA_DIR || path.join(os.homedir(), ".skillgrid", "mnemonic")
-    return fs.readFileSync(path.join(root, "active-project"), "utf8").trim()
-  } catch {
-    return ""
-  }
-}
-
-function resolveProject(directory) {
-  const pinned = readActiveProject()
-  if (pinned) return pinned
-  try {
-    const remote = require("child_process")
-      .execSync(`git -C ${JSON.stringify(directory)} remote get-url origin`, {
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 2000,
-      })
-      .toString()
-      .trim()
-    if (remote) {
-      const name = remote
-        .replace(/\.git$/, "")
-        .split(/[/:]/)
-        .pop()
-      if (name) return name.toLowerCase().replace(/[-_]+/g, "-").replace(/^-|-$/g, "")
-    }
-  } catch {}
-  const base = (directory || "").replace(/\/+$/, "").split("/").pop()
-  return (base || "unknown").toLowerCase()
-}
-
 async function readPayload() {
   const chunks = []
   if (!process.stdin.isTTY) {
@@ -162,7 +127,7 @@ async function register() {
   const sessionId = sessionIdOf(payload)
   if (!sessionId) return
   const directory = directoryOf(payload)
-  await post(`${BASE}/sessions?project=${encodeURIComponent(resolveProject(directory))}`, {
+  await post(`${BASE}/sessions?directory=${encodeURIComponent(directory)}`, {
     id: sessionId,
     agent: AGENT,
     directory,
@@ -246,10 +211,7 @@ async function usage() {
       reported_cost: u.cost > 0 ? u.cost : undefined,
     }
   }
-  await post(
-    `${BASE}/sessions/${encodeURIComponent(sessionId)}/usage?project=${encodeURIComponent(resolveProject(directory))}`,
-    body,
-  )
+  await post(`${BASE}/sessions/${encodeURIComponent(sessionId)}/usage?directory=${encodeURIComponent(directory)}`, body)
 }
 
 // hasPolicyFile mirrors policy.Load's lookup (repo file walking up from dir,
@@ -307,7 +269,7 @@ async function evaluatePolicy(payload) {
   if (!hasPolicyFile(directory)) return allow
   const timeout = Number(process.env.SKILLGRID_POLICY_TIMEOUT_MS) || 1500
   try {
-    const res = await fetch(`${BASE}/policy/evaluate?project=${encodeURIComponent(resolveProject(directory))}`, {
+    const res = await fetch(`${BASE}/policy/evaluate?directory=${encodeURIComponent(directory)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionIdOf(payload), agent: AGENT, directory, ...policyRequest(payload) }),
@@ -385,10 +347,7 @@ async function main() {
     content_preview: truncate(content, MAX_PREVIEW),
   }
 
-  await post(
-    `${BASE}/sessions/${encodeURIComponent(sessionId)}/tool-calls?project=${encodeURIComponent(resolveProject(directory))}`,
-    body,
-  )
+  await post(`${BASE}/sessions/${encodeURIComponent(sessionId)}/tool-calls?directory=${encodeURIComponent(directory)}`, body)
   process.exit(0)
 }
 

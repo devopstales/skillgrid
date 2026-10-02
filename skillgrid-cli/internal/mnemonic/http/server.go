@@ -22,6 +22,7 @@ import (
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/http/docs"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/webcache"
@@ -1692,26 +1693,39 @@ func (s *Server) handleWebStatus(w http.ResponseWriter, r *http.Request) {
 
 func projectFromRequest(r *http.Request) (string, error) {
 	if p := strings.TrimSpace(r.URL.Query().Get("project")); p != "" {
-		return p, nil
+		return project.NormalizeID(p), nil
+	}
+	if d := strings.TrimSpace(r.URL.Query().Get("directory")); d != "" {
+		id, err := project.Resolve(d)
+		if err != nil {
+			return id, err
+		}
+		return id, nil
 	}
 	if r.Body != nil {
 		body, err := io.ReadAll(r.Body)
-		if err == nil && len(body) > 0 {
-			_ = r.Body.Close()
-			var v any
-			if err := json.Unmarshal(body, &v); err == nil {
-				if m, ok := v.(map[string]any); ok {
-					if p, ok := m["project"].(string); ok && strings.TrimSpace(p) != "" {
-						r.Body = io.NopCloser(bytes.NewReader(body))
-						return strings.TrimSpace(p), nil
+		if err != nil {
+			return "", err
+		}
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if len(body) > 0 {
+			var m map[string]any
+			if err := json.Unmarshal(body, &m); err == nil {
+				if p, ok := m["project"].(string); ok && strings.TrimSpace(p) != "" {
+					return project.NormalizeID(strings.TrimSpace(p)), nil
+				}
+				if d, ok := m["directory"].(string); ok && strings.TrimSpace(d) != "" {
+					id, err := project.Resolve(strings.TrimSpace(d))
+					if err != nil {
+						return id, err
 					}
+					return id, nil
 				}
 			}
-		} else {
-			_ = r.Body.Close()
 		}
 	}
-	return "", fmt.Errorf("project is required")
+	return "", fmt.Errorf("project or directory is required")
 }
 
 func queryInt(r *http.Request, key string, defaultVal int) int {

@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -33,14 +32,14 @@ func policyDir(directory string, h *service.ProjectHandle) string {
 // {effect, message, rule}. A broken policy file answers allow with an error
 // field (fail-open). block/warn/guide decisions are recorded on the session.
 func (s *Server) handlePolicyEvaluate(w http.ResponseWriter, r *http.Request) {
-	var b policyEvalBody
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
-		return
-	}
 	projectID, err := projectFromRequest(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var b policyEvalBody
+	if err := decodeJSON(r, &b); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 	h, cleanup, err := s.openHandleFor(projectID)

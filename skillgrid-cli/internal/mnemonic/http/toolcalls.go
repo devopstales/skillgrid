@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -26,18 +25,18 @@ type toolCallBody struct {
 // raced) is created on first sight so the call is not lost.
 func (s *Server) handleToolCallCreate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	var b toolCallBody
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+	if err := decodeJSON(r, &b); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 	if b.SessionID == "" {
 		b.SessionID = id
-	}
-	projectID, err := projectFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
 	}
 	h, cleanup, err := s.openHandleFor(projectID)
 	if err != nil {
@@ -45,7 +44,8 @@ func (s *Server) handleToolCallCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer cleanup()
-	if _, err := h.Memory().EnsureSession(r.Context(), b.SessionID, projectID, b.Directory, "", b.Agent); err != nil {
+	created, err := h.Memory().EnsureSession(r.Context(), b.SessionID, projectID, b.Directory, "", b.Agent)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -67,5 +67,9 @@ func (s *Server) handleToolCallCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, map[string]any{"ok": true, "project": projectID})
 }

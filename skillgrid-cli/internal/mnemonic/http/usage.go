@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
@@ -26,18 +25,18 @@ type usageBody struct {
 // unpriced model leaves cost unknown unless the harness reported its own.
 func (s *Server) handleSessionUsage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	var b usageBody
-	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+	if err := decodeJSON(r, &b); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 	if b.Input < 0 || b.Output < 0 || b.Cache < 0 {
 		writeError(w, http.StatusBadRequest, "token counts must be non-negative")
-		return
-	}
-	projectID, err := projectFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	h, cleanup, err := s.openHandleFor(projectID)
