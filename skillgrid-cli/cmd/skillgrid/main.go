@@ -49,6 +49,7 @@ func main() {
 		fmt.Fprintln(w, `  sync-repo     Sync git repo contents without full install`)
 		fmt.Fprintln(w, `  mcp           Run the Mnemonic MCP stdio server`)
 		fmt.Fprintln(w, `  serve         Run the Mnemonic HTTP API (default :7438)`)
+		fmt.Fprintln(w, `  init          Project boot file, code index, and doc ingest`)
 		fmt.Fprintln(w, `  index         Incremental code indexing`)
 		fmt.Fprintln(w, `  prime         Session-start context (last task, diff, impact)`)
 		fmt.Fprintln(w, `  compact       Session-close one-liner`)
@@ -145,6 +146,9 @@ func main() {
 		return
 	case "serve":
 		runServe(version, rest[1:])
+		return
+	case "init":
+		runProjectInit(rest[1:])
 		return
 	case "index":
 		runIndex(version, rest[1:])
