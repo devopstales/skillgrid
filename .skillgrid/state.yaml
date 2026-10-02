@@ -1,8 +1,8 @@
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: ""
-  current_change: ""
-  status: idle
+  current_phase: "slicing"
+  current_change: "2026-10-02-mnemonic-memory-checkpoint"
+  status: in_progress
 progress:
   completed_changes: 23
   blocked_changes: 0
