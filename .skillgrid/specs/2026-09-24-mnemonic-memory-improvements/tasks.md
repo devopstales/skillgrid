@@ -42,6 +42,7 @@ Ruling: `ASSUMPTIONS.md` § Locked constraints forbids parallel branches. The 20
 
 ### TICKET-01 — Reinforcement decay ranker
 
+- **Tracker ID:** TASK-030.01
 - **Scope:** Pure `Reinforcement` and `rankByDecay` with pinned-first stable sort. Per ADR-0018.
 - **Acceptance:** Hot row (usage 20, seen 40 days ago) ranks above a cold twin; importance ≥ 4 freezes the half-life term; equal factors keep input order.
 - **SATISFIES:** high retrieval_usage outranks a cold twin
@@ -53,6 +54,7 @@ Ruling: `ASSUMPTIONS.md` § Locked constraints forbids parallel branches. The 20
 
 ### TICKET-02 — Owner-scoped blend and mem_search signals
 
+- **Tracker ID:** TASK-030.04
 - **Scope:** `SearchOwnerScopedBlend` plus additive `signals` / `matched_via` / `score` on `mem_search`. Does not call `BlendedSearch`. Per ADR-0018.
 - **Acceptance:** No embedder → `matched_via=keyword` and BM25 order when decay factors match; embedder on → hybrid or vector; other owner's private row absent; embedder error stays keyword; missing query still errors.
 - **SATISFIES:** mem_search without an embedder is keyword only
@@ -65,6 +67,7 @@ Ruling: `ASSUMPTIONS.md` § Locked constraints forbids parallel branches. The 20
 
 ### TICKET-03 — Decay config
 
+- **Tracker ID:** TASK-030.05
 - **Scope:** `mnemonic.decay` YAML, default enabled, explicit false opts out, wired through `SetDecay`.
 - **Acceptance:** Absent section → enabled and half-life 30; `enabled: false` leaves BM25 order on the blend.
 - **SATISFIES:** decay disabled keeps BM25 order
@@ -76,6 +79,7 @@ Ruling: `ASSUMPTIONS.md` § Locked constraints forbids parallel branches. The 20
 
 ### TICKET-04 — Query embedding cache
 
+- **Tracker ID:** TASK-030.02
 - **Scope:** `query_cache` table and `CachedEmbedQuery`. Hash is SHA-256 of model + newline + query. TTL 7 days.
 - **Acceptance:** Second identical call does not invoke the embedder; 8-day-old row and a different model do.
 - **SATISFIES:** second identical query is a cache hit
@@ -87,6 +91,7 @@ Ruling: `ASSUMPTIONS.md` § Locked constraints forbids parallel branches. The 20
 
 ### TICKET-05 — Entity aliases
 
+- **Tracker ID:** TASK-030.06
 - **Scope:** Append `entity_aliases` to migration 045. Case-insensitive lookup before code FTS. Index-time rows for symbol name and qualified name only.
 - **Acceptance:** `The Renderer` resolves to `comp_renderer.cpp`; an unknown alias returns no rows and FTS still runs.
 - **SATISFIES:** alias lookup finds the symbol
@@ -99,6 +104,7 @@ Ruling: `ASSUMPTIONS.md` § Locked constraints forbids parallel branches. The 20
 
 ### TICKET-06 — Compact hook
 
+- **Tracker ID:** TASK-030.03
 - **Scope:** `RunHook` accepts `compact`, writes one upserted continuity observation, 3s budget, fail-open.
 - **Acceptance:** A session with observations gains `topic_key` `compaction/<session>`. A hook that waits on `ctx.Done()` returns nil error and `Distilled=false`. Disabled hooks still error.
 - **SATISFIES:** compact hook saves continuity
