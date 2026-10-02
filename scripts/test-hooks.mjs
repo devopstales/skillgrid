@@ -122,6 +122,13 @@ function caseGuardMsg() {
   fs.writeFileSync(bad2, 'feat(auth): add session refresh\n\nCo-Authored-By: Cursor <cursor@cursor.com>\n');
   expectRC('guard-msg: Co-Authored-By trailer fails', 1,
     runHook(CHECKPOINT, null, ['guard-msg', bad2]).status);
+
+  // Cursor's shell integration writes the trailer in lowercase; the guard
+  // must reject every casing, not just the canonical one.
+  const bad3 = path.join(TMP_ROOT, 'bad3.msg');
+  fs.writeFileSync(bad3, 'feat(auth): add session refresh\n\nCo-authored-by: Cursor <cursoragent@cursor.com>\n');
+  expectRC('guard-msg: lowercase Co-authored-by trailer fails', 1,
+    runHook(CHECKPOINT, null, ['guard-msg', bad3]).status);
 }
 
 // --- precommit-zone-guard (BDD spec-zone XOR code-zone) ----------------------

@@ -81,15 +81,14 @@ function cmdGuardMsg() {
   }
 
   const text = fs.readFileSync(msgFile, 'utf8');
-  // No Co-Authored-By / AI attribution trailers anywhere in the message.
-  if (/^(Co-Authored-By|Generated-By|AI-Model|Signed-off-by).*[Aa]uthored|[Aa]uthor.*[Aa]i\b|Co-Authored-By/m.test(text)) {
-    // Be specific: flag the exact trailer.
-    if (/^(Co-Authored-By|Generated-By):/m.test(text)) {
-      process.stderr.write('FATAL: commit message carries a Co-Authored-By/Generated-By trailer.\n');
-      process.stderr.write('  Skillgrid convention: no AI attribution in commits (see branch-pr).\n');
-      process.stderr.write('RECOVERY: remove the trailer line and re-stage the commit message.\n');
-      process.exit(1);
-    }
+  // No Co-Authored-By / Generated-By trailers anywhere in the message, in any
+  // casing (Cursor writes "Co-authored-by:", git's canonical form is
+  // "Co-Authored-By:").
+  if (/^(Co-Authored-By|Generated-By):/im.test(text)) {
+    process.stderr.write('FATAL: commit message carries a Co-Authored-By/Generated-By trailer.\n');
+    process.stderr.write('  Skillgrid convention: no AI attribution in commits (see branch-pr).\n');
+    process.stderr.write('RECOVERY: remove the trailer line and re-stage the commit message.\n');
+    process.exit(1);
   }
   process.exit(0);
 }
