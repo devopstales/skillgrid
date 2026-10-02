@@ -17,12 +17,12 @@ The host agent becomes the memory observer (ADR-0022): a server-gated Memory Che
 | 400-line budget risk | High |
 | Chained PRs recommended | Yes |
 | Suggested split | PR 1 (T01–T04 server core) → PR 2 (T05–T07 door check + privacy + resolver) → PR 3 (T08–T09 index + plugins) → PR 4 (T10–T11 feed + UI) |
-| Delivery strategy | ask-on-risk |
-| Chain strategy | pending |
+| Delivery strategy | exception-ok |
+| Chain strategy | size-exception |
 
-Decision needed before apply: Yes
+Decision needed before apply: No
 Chained PRs recommended: Yes
-Chain strategy: pending
+Chain strategy: size-exception
 400-line budget risk: High
 
 ### Suggested Work Units
