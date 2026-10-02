@@ -1,10 +1,10 @@
 ---
 id: TASK-037
 title: 'TICKET-06: Verification floor L2'
-status: blocked
+status: done
 assignee: []
 created_date: '2026-10-02 13:14'
-updated_date: '2026-10-02 13:33'
+updated_date: '2026-10-02 13:59'
 labels:
   - >-
     webui-rewrite --priority high --type feature -p TASK-031 --ref
@@ -25,8 +25,8 @@ Whole-change gate on the integrated tree. SATISFIES verification-floor.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 G10 npm test && npm run build:check exit 0, Bundle-size budget OK
-- [ ] #2 G11 go build ./... && go build -tags ui ./... exit 0
+- [x] #1 G10 npm test && npm run build:check exit 0, Bundle-size budget OK
+- [x] #2 G11 go build ./... && go build -tags ui ./... exit 0
 <!-- AC:END -->
 
 ## Definition of Done
@@ -41,5 +41,5 @@ Whole-change gate on the integrated tree. SATISFIES verification-floor.
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-BLOCKED: HEAD ffd83337 does not build (go: handlePrototypes undefined; tsc: features/spikes/SpikesPage missing) due to external staged-only rename commit ef32d593. Last green floor at d5e01985 + fix.
+L2 floor met at 0bc899a6: npm test + build:check, go build and go build -tags ui.
 <!-- SECTION:NOTES:END -->

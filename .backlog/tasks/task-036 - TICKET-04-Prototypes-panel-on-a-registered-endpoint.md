@@ -1,10 +1,10 @@
 ---
 id: TASK-036
 title: 'TICKET-04: Security + Prototypes panels on registered endpoints'
-status: blocked
+status: done
 assignee: []
 created_date: '2026-10-02 13:13'
-updated_date: '2026-10-02 13:33'
+updated_date: '2026-10-02 13:59'
 labels:
   - >-
     webui-rewrite --priority high --type feature -p TASK-031 --ref
@@ -23,9 +23,9 @@ System → Security must fetch GET /security/trivy and Project → Prototypes mu
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 G7 = 1 (fetch path registered in server.go)
-- [ ] #2 full npm test PASS
-- [ ] #3 nav label Prototypes at /project/prototypes
+- [x] #1 G7 = 1 (fetch path registered in server.go)
+- [x] #2 full npm test PASS
+- [x] #3 nav label Prototypes at /project/prototypes
 <!-- AC:END -->
 
 ## Definition of Done
@@ -40,5 +40,5 @@ System → Security must fetch GET /security/trivy and Project → Prototypes mu
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-BLOCKED at precondition: rename committed (ef32d593) but server.go, app.tsx, AppLayout.tsx, PrototypesPage.tsx, docs_prototypes.go, security.go remain uncommitted. G7 = 0/0 at HEAD.
+G7 = 1/1 at 0bc899a6. Nav label Prototypes. docs + http tests ok.
 <!-- SECTION:NOTES:END -->

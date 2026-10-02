@@ -1,6 +1,6 @@
 # Tasks — Mnemonic Web UI rewrite from prototype 001
 
-> **STATUS:** `blocked` (2026-10-02) — 4/6 complete; TICKET-04 and TICKET-06 wait on the uncommitted half of the spikes→prototypes rename + trivy bridge (see Execution Result).
+> **STATUS:** `complete` (2026-10-02) — 6/6. TICKET-04 and TICKET-06 cleared at `0bc899a6`; characterization tests in `d35d28d3`. QA re-rendered PASS.
 
 > Sliced from `.skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/blueprint.md`.
 > Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.
@@ -141,11 +141,11 @@ Ledger: `.skillgrid/sdd/2026-10-02-mnemonic-webui-rewrite/progress.md`. Verified
 - [x] TICKET-01 — PASS at `d5e01985` (G1 4 passed, G2 = 5, G3 indigo tokens, G8 display label only)
 - [x] TICKET-02 — PASS at `d5e01985` (G4 3 lines, G5 0/1, build:check 298.2 kB/400 kB, `vendor-d3` chunk)
 - [x] TICKET-03 — PASS at `d5e01985` and `ffd83337` (G6 = 4, settings+swagger 9 passed)
-- [ ] TICKET-04 — BLOCKED at precondition: rename committed (`ef32d593`) but `server.go` still dirty; G7 = 0 then 0 at HEAD
+- [x] TICKET-04 — PASS at `0bc899a6` (G7 = 1 then 1; nav label "Prototypes" at `/project/prototypes`; `go test` docs + http packages ok)
 - [x] TICKET-05 — PASS, commit `ffd83337` (plans suite 11 passed; RED was 87/88 at `d5e01985`)
-- [ ] TICKET-06 — BLOCKED: HEAD `ffd83337` does not build (`go build`: `handlePrototypes`/`handlePrototype` undefined; `tsc`: `features/spikes/SpikesPage` missing, `PrototypesPage` export) — introduced by external commit `ef32d593` (staged-only commit of the rename), not by this change
+- [x] TICKET-06 — PASS at `0bc899a6`: `npm test` 110 passed and `build:check` "Bundle-size budget OK." (298.7 kB) in a clean worktree; `go build ./...` and `go build -tags ui ./...` exit 0. Re-run on the main tree after `d35d28d3`: 122 passed.
 
-**Unblock:** commit `skillgrid-cli/internal/mnemonic/http/server.go`, `docs/docs_prototypes.go(+_test)`, `docs/security.go(+_test)`, `skillgrid-ui/src/app.tsx`, `src/components/layout/AppLayout.tsx`, `src/features/prototypes/PrototypesPage.tsx`; then rerun TICKET-04 (G7) and TICKET-06 (G10, G11).
+The earlier block (`ef32d593` leaving callers dangling) was closed by `0bc899a6`, which registers `GET /prototypes` and `GET /security/trivy`.
 
 ## Slicing Notes
 

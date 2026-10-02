@@ -16,6 +16,7 @@
 | W005 | 2026-09-24-mnemonic-memory-improvements | SUGGESTION | go vet context leak in budget.go:114 is pre-existing | qa-auto | 2026-10-02 | open |
 | W006 | 2026-09-24-mnemonic-memory-improvements | SUGGESTION | private-row hiding has a single test | qa-auto | 2026-10-02 | open |
 | W007 | 2026-09-24-mnemonic-memory-improvements | SUGGESTION | qa-gate.mjs looks in .agents/skills/qa/scripts; helpers live under verification/qa/scripts | qa-auto | 2026-10-02 | open |
-[38;5;231m| W008 | 2026-10-02-mnemonic-webui-rewrite | SUGGESTION | GraphPage has no mounted test; G4 is a source-text grep | qa-auto | 2026-10-02 | open |[0m
-[38;5;231m| W009 | 2026-10-02-mnemonic-webui-rewrite | SUGGESTION | lib/api.ts and lib/apiBase.ts have no direct unit test | qa-auto | 2026-10-02 | open |[0m
-[38;5;231m| W010 | 2026-10-02-mnemonic-webui-rewrite | SUGGESTION | dompurify 3.4.15 → 3.4.16 (GHSA-p98j-92pf-mc4p, LOW, not reachable) | qa-auto | 2026-10-02 | open |[0m
+| W008 | 2026-10-02-mnemonic-webui-rewrite | SUGGESTION | GraphPage has no mounted test; G4 is a source-text grep | qa-auto | 2026-10-02 | closed |
+| W009 | 2026-10-02-mnemonic-webui-rewrite | SUGGESTION | lib/api.ts and lib/apiBase.ts have no direct unit test | qa-auto | 2026-10-02 | closed |
+| W010 | 2026-10-02-mnemonic-webui-rewrite | SUGGESTION | dompurify 3.4.15 → 3.4.16 (GHSA-p98j-92pf-mc4p, LOW, not reachable) | qa-auto | 2026-10-02 | open |
+| W011 | 2026-10-02-mnemonic-webui-rewrite | SUGGESTION | L3 browser walk of /mnemonic/graph against skillgrid serve was not run | qa-auto | 2026-10-02 | open |

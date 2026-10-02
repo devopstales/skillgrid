@@ -125,7 +125,7 @@ G6: Observe endpoints exist
 G7: Security + Prototypes endpoints exist
   CHECK: cd skillgrid-cli && rg -c '"GET /security/trivy"' internal/mnemonic/http/server.go; p=$(rg -o "apiGet<[^>]*>\('[^']+'" ../skillgrid-ui/src/features/prototypes/PrototypesPage.tsx ../skillgrid-ui/src/features/spikes/SpikesPage.tsx 2>/dev/null | head -1 | sed "s/.*('//;s/'//"); rg -c "\"GET $p\"" internal/mnemonic/http/server.go
   EXPECT: 1 then 1
-  EVIDENCE: FAIL (expected, TICKET-04 blocked) — 0 then 0 at ffd83337; routes live only in uncommitted server.go
+  EVIDENCE: PASS — 1 then 1 at 0bc899a6 (path=/prototypes)
 
 ### Requirement: relative-api-urls
 
@@ -191,8 +191,8 @@ G9: linked tasks regression
 G10: UI suite + budget
   CHECK: cd skillgrid-ui && npm test && npm run build:check
   EXPECT: exit 0, "Bundle-size budget OK."
-  EVIDENCE: BLOCKED — tsc -b fails at ffd83337: app.tsx imports deleted features/spikes/SpikesPage; PrototypesPage export mismatch (external commit ef32d593); last green at d5e01985 + fix
+  EVIDENCE: PASS — clean worktree at 0bc899a6: npm test 110 passed, build:check 298.7 kB "Bundle-size budget OK."; main tree after d35d28d3: 122 passed
 G11: Go embed
   CHECK: cd skillgrid-cli && go build ./... && go build -tags ui ./...
   EXPECT: exit 0
-  EVIDENCE: BLOCKED — go build fails at ffd83337: server.go:224/225 handlePrototypes/handlePrototype undefined (external commit ef32d593); last green at d5e01985
+  EVIDENCE: PASS — go build ./... and go build -tags ui ./... exit 0 at 0bc899a6; go test ./internal/mnemonic/http/ and .../docs/ ok
