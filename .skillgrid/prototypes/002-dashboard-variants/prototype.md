@@ -2,6 +2,7 @@
 
 **Type:** comparison (3 variants, same content, different visual system)
 **Date:** 2026-09-30
+**Topic:** 2026-09-08-web-admin-dashboard
 **Status:** complete — variant A selected; A's nav is now fully wired
 
 ## Hypothesis
