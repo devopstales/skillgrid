@@ -3,6 +3,7 @@ package tracker
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,13 +64,20 @@ func TestPhase2_Detection(t *testing.T) {
 	}
 }
 
+// mkbin writes a fake CLI onto an isolated PATH and runs it once with the
+// `__warm__` argument. macOS assesses a freshly written executable on its
+// first launch (~0.5s idle, well past the 10s CLI timeout while the full
+// suite builds dozens of new test binaries); the warm-up run takes that cost
+// outside the timed call. Scripts exit 0 on `__warm__` before their body.
 func mkbin(t *testing.T, name, script string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := dir + "/" + name
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
+	body := "#!/bin/sh\n[ \"$1\" = __warm__ ] && exit 0\n" + script
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatalf("write fixture %s: %v", name, err)
 	}
+	_ = exec.Command(path, "__warm__").Run()
 	t.Setenv("PATH", dir)
 }
 
