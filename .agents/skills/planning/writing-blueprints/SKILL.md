@@ -34,30 +34,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 ## Multi-Phase Change Folders
 
-When a blueprint spans multiple phases (e.g. a 4-phase product rollout), split it into
-one change folder per phase under `.skillgrid/specs/`:
-
-```
-.skillgrid/specs/
-  YYYY-MM-DD-<feature>/                ← parent blueprint (index only)
-    blueprint.md                       ← header + phases table + shared context link
-    shared/context.md                  ← hypothesis, must-haves, global constraints, file structure
-  YYYY-MM-DD-<feature>-phase-1/        ← sibling change folder
-    spec.md                            ← phase goal + tasks (verbatim)
-  YYYY-MM-DD-<feature>-phase-2/
-    spec.md
-  ...
-```
-
-Rules:
-- Phase folders are **siblings** of the parent, not nested inside it
-- Phase specs are **self-contained for execution**: executor reads `spec.md` + `shared/context.md`
-- Tasks are **verbatim** — no rewording or code changes when splitting
-- Task numbering is **global** (Task 1–N across all phases), not per-phase
-- Each phase folder is a valid skillgrid change: independently sliceable, executable, reviewable, archiveable
-- The parent `blueprint.md` is the source of truth for the phase table
-- `state.yaml` `current_change` points to the **active phase folder**
-- Full reference: `docs/multi-phase-spec-structure.md`
+When a blueprint spans multiple phases, each phase folder is a normal change folder (`briefing.md`, not `spec.md`). Layout and rules: [multi-phase.md](references/multi-phase.md). The spec-folder tree is in `_shared/rules/sdd-structure.md`.
 
 ## When to Use
 
@@ -75,9 +52,9 @@ If the spec covers multiple independent subsystems, it should have been broken i
 When a blueprint is large enough to warrant phase separation (typically 4+ phases or 20+ tasks), split it into **one change folder per phase** as siblings under `.skillgrid/specs/`, plus a parent folder holding the shared blueprint index and shared context:
 
 - **Parent folder** (`YYYY-MM-DD-<topic>/`) — not a change. Holds `blueprint.md` (status, tier, goal, architecture, tech stack, spec ref, and a phases table linking to each phase) and `shared/context.md` (hypothesis, terms, must-haves, global constraints, file structure shared across all phases).
-- **Phase folders** (`YYYY-MM-DD-<topic>-phase-<N>/`) — each a valid standalone change with its own `spec.md` (phase goal + all tasks for that phase, TDD shape, SATISFIES BDD links, one-way-door tags).
+- **Phase folders** (`YYYY-MM-DD-<topic>-phase-<N>/`) — each a normal change folder. `briefing.md` holds the phase goal. Later artifacts (`blueprint.md`, `tasks.md`, `review.md`) follow `_shared/rules/sdd-structure.md`.
 - **Naming:** `<parent-change-name>-phase-<N>` (e.g. `2026-10-01-kubedash-5.0-phase-1`).
-- **Back-links:** each phase `spec.md` links to `../<parent>/blueprint.md` and `../<parent>/shared/context.md`. The parent's phases table links to `../<parent>-phase-N/`.
+- **Back-links:** each phase `briefing.md` links to `../<parent>/blueprint.md` and `../<parent>/shared/context.md`. The parent's phases table links to `../<parent>-phase-N/`.
 - **Do not nest** phase folders inside the parent — they must be siblings at the `.skillgrid/specs/` level.
 - Each phase is sliced, executed, and shipped independently.
 
@@ -119,11 +96,9 @@ exogenous. Omit the tag for truths a plain diff read settles.
 
 ## Hypothesis
 
-Every blueprint MUST open with a falsifiable hypothesis:
+Every blueprint MUST open with one falsifiable hypothesis. Copy this block into `blueprint.md` under a `## Hypothesis` heading:
 
 ```markdown
-## Hypothesis
-
 **Claim:** [what the blueprint asserts will be true when complete]
 **Right condition:** [observable evidence that the claim held]
 **Wrong condition:** [observable evidence that the claim failed]
@@ -141,11 +116,9 @@ is invalidated and the user decides whether to revise or abandon.
 If the blueprint touches routing, shell commands, subprocesses, version-control
 automation, PR automation, executable-file classification, process integration,
 Mnemonic tool contracts, or any `_shared/conventions/*` file, include a threat
-matrix section per `../../_shared/references/threat-matrix.md`:
+matrix section per `../../_shared/references/threat-matrix.md`. Copy this block into `blueprint.md` under a `## Threat Matrix` heading:
 
 ```markdown
-## Threat Matrix
-
 | Boundary | Applicability | Design response | Planned RED test |
 |---|---|---|---|
 | {boundary} | Applicable / N/A: {reason} | {response} | {concrete test} |
@@ -206,134 +179,9 @@ deliverable needs them; split only where a reviewer could meaningfully
 reject one task while approving its neighbor. Each task ends with an
 independently testable deliverable.
 
-## Bite-Sized Task Granularity
+## Plan header and task structure
 
-**Each step is one action (2-5 minutes):**
-- "Write the failing test" - step
-- "Run it to make sure it fails" - step
-- "Implement the minimal code to make the test pass" - step
-- "Run the tests and make sure they pass" - step
-- "Commit" - step
-
-## Plan Document Header
-
-**Every plan MUST start with this header** (the `templates/blueprint.md` file
-includes it plus a sample task — use it as the starting scaffold):
-
-```markdown
-# [Feature Name] Implementation Plan
-
-> **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
-**Status:** PROPOSED (default. Set to `ASSUMED` only via the Owed-Decision
-Gate option 3 — the Assumed block follows the header; cleared only by Ratify.)
-
-**Tier:** T<n> (rigor tier — from `briefing.md`'s `Tier:` line, else
-`rules.tiers.default` in config, else inferred from the Change Classification
-and noted as an assumption. See `../../_shared/conventions/rigor-tiers.md`. T1 →
-light blueprint (header + Must-Haves, no threat matrix unless applicable);
-T2/T3 → full blueprint.)
-
-**Build shape:** <Tracer thread | Smallest usable whole | Facade | Journey>
-(the recorded delivery strategy that orders the first execution wave — see the
-Build Shape section; `skillgrid:slicing` reads this line.)
-
-**Goal:** [One sentence describing what this builds]
-
-**Architecture:** [2-3 sentences about approach]
-
-**Tech Stack:** [Key technologies/libraries]
-
-**Spec:** [path to the spec/design doc this plan implements — the plan
-argues from the spec, so the spec travels with it; executors read both]
-
-**Findings:** [path to the change's consolidated
-`.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` if it exists — produced by
-`skillgrid:research` / `skillgrid:code-research` (Research sections),
-`skillgrid:spike` (Spike sections), or `skillgrid:sketch` (Sketch sections).
-Cite it for every design decision that rests on a research fact, a feasibility
-result (e.g. "X is liftable", "approach A is cheaper than B"), or a chosen
-layout/interaction. Omit if the change ran no research/spike/sketch.]
-
- ## Global Constraints
-
-  [The spec's project-wide requirements — version floors, dependency limits,
-  naming and copy rules, platform requirements — one line each, with exact
-  values copied verbatim from the spec. Every task's requirements implicitly
-  include this section. For a constraint or decision that is NOT earned by this
-  change's spec but inherited from a locked constraint or a prior ADR, CITE it
-  rather than restate it (`per ASSUMPTIONS.md § Locked constraints <x>` /
-  `per ASSUMPTIONS.md § ### ADR-NNNN`) per
-  `_shared/conventions/cite-dont-restate.md` — the citation is the
-  constraint; the cited artifact keeps authority singular.]
-
----
-```
-
-## Task Structure
-
-````markdown
-### Task N: [Component Name]
-
-**Files:**
-- Create: `exact/path/to/file.py`
-- Modify: `exact/path/to/existing.py:123-145`
-- Test: `tests/exact/path/to/test.py`
-
-**Interfaces:**
-- Consumes: [what this task uses from earlier tasks — exact signatures]
-- Produces: [what later tasks rely on — exact function names, parameter
-  and return types. A task's implementer sees only their own task; this
-  block is how they learn the names and types neighboring tasks use.]
-
-**SATISFIES:** [scenario-name]
-(BDD is always on: name the acceptance scenario in
-`.skillgrid/specs/<id>/acceptance.feature` that this task makes green.
-The RED step in Step 1/2 targets this scenario; TDD Evidence references
-the scenario name.)
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-def test_specific_behavior():
-    result = function(input)
-    assert result == expected
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pytest tests/path/test.py::test_name -v`
-Expected: FAIL with "function not defined"
-
-- [ ] **Step 3: Write minimal implementation**
-
-```python
-def function(input):
-    return expected
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `pytest tests/path/test.py::test_name -v`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add tests/path/test.py src/path/file.py
-git commit -m "feat: add specific feature"
-```
-````
-
-## No Placeholders
-
-Every step must contain the actual content an engineer needs. These are **plan failures** — never write them:
-- "TBD", "TODO", "implement later", "fill in details"
-- "Add appropriate error handling" / "add validation" / "handle edge cases"
-- "Write tests for the above" (without actual test code)
-- "Similar to Task N" (repeat the code — the engineer may be reading tasks out of order)
-- Steps that describe what to do without showing how (code blocks required for code steps)
-- References to types, functions, or methods not defined in any task
+Bite-sized steps, the plan document header, task structure, and the no-placeholders rule: [task-structure.md](references/task-structure.md).
 
 ## Self-Review
 
@@ -345,7 +193,7 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 
 **3. One-way-door completeness:** Are all hard-to-reverse decisions listed in the Must-Haves section AND tagged with `> ⚠ one-way:` on the task that implements them? If a migration, API change, or contract break is in a task but not flagged, add the tag.
 
-**4. Placeholder scan:** Search your plan for red flags — any of the patterns from the "No Placeholders" section above. Fix them.
+**4. Placeholder scan:** Search your plan for red flags — any of the patterns in [task-structure.md](references/task-structure.md) under "No Placeholders". Fix them.
 
 **5. Type consistency:** Do the types, method signatures, and property names you used in later tasks match what you defined in earlier tasks? A function called `clearLayers()` in Task 3 but `clearFullLayers()` in Task 7 is a bug.
 
@@ -466,75 +314,7 @@ ever blocking the work.
 
 ## Plan Review
 
-After self-review passes, run a fresh-eyes structural review of the blueprint
-before handing off to execution. This is NOT a re-do of self-review — it
-checks what self-review can't: whether the plan will survive contact with
-reality.
-
-### When to run
-
-- Always, for blueprints with 3+ tasks or any one-way-door decision
-- Skip for 1-2 task blueprints with no migrations or contract breaks
-  (self-review is sufficient)
-
-### How to run
-
-**Option A — Subagent (preferred for 3+ tasks):**
-Dispatch a `general-purpose` subagent with the blueprint file path, the spec
-file path, and the in-force ADR manifest. Prompt:
-
-> You are a plan reviewer. Read the blueprint and spec. Do NOT review code
-> quality — review the PLAN. Check:
-> 1. **Failure modes:** For each task, what can go wrong at runtime that the
->    plan doesn't address? (network failure, partial state, concurrent access,
->    empty data, timeout) Name specific failure → specific mitigation.
-> 2. **Scope coherence:** Does the plan do MORE than the spec asks (scope
->    creep) or LESS (scope gap)? Flag both.
-> 3. **Feasibility:** Does any task assume a capability the codebase doesn't
->    have (library, API, infra)? Check against the codebase if needed.
-> 4. **Ordering:** Are dependencies correct? Could a later task be done
->    first (parallelism) or does an earlier task block on something that
->    doesn't exist yet?
-> 5. **Test strategy:** Does each task have a verifiable "done" state? Are
->    the acceptance scenarios (BDD) sufficient to prove the feature works?
-> 6. **ADR compliance:** Does any task contradict an in-force ADR? If so,
->    flag it.
->
-> Output: a findings list (Critical / Important / Minor) with file:line
-> references to the blueprint, plus a verdict: READY FOR EXECUTION |
-> NEEDS REVISION.
-
-**Option B — Inline (1-2 tasks, no one-way doors):**
-Run the same 6 checks yourself against the blueprint. If all pass, proceed.
-If any fail, fix inline.
-
-### Acting on findings
-
-Apply `skillgrid:receiving-code-review` triage rules:
-- **Fix now:** structural gaps that would block execution (missing dependency,
-  wrong ordering, ADR violation) — fix the blueprint, re-commit
-- **Defer:** nice-to-have refinements (extra test cases, edge case notes) —
-  add as a note in the blueprint's "Global Constraints" or the task's step
-- **Human look:** scope questions the user should answer — surface and ask
-- **Noise:** reviewer overreach — note and drop
-
-If the verdict is NEEDS REVISION: fix the Critical/Important items, re-run
-the self-review checklist, then hand off. Do NOT enter a full review loop —
-one pass is the cap. The execution phase has its own review; this gate
-catches structural problems, not code quality.
-
-### Output
-
-Append a brief review summary to the blueprint file:
-
-```markdown
-## Plan Review
-
-- Verdict: READY FOR EXECUTION
-- Findings: 0 Critical, 1 Important (fixed: added error handling for
-  timeout in Task 3), 2 Minor (deferred: retry logic, logging)
-- Reviewed: [date]
-```
+Fresh-eyes structural review before execution handoff: [plan-review.md](references/plan-review.md).
 
 ## Execution Handoff
 
