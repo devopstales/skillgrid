@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -109,5 +110,50 @@ func TestInitForceRewritesPreamble(t *testing.T) {
 	}
 	if !strings.Contains(string(forced), "USER BELOW") {
 		t.Fatal("force wiped text outside regions")
+	}
+}
+
+func TestInitIndexesTheProject(t *testing.T) {
+	data := t.TempDir()
+	svc := service.New(data)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\nfunc F() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := projectInit(context.Background(), svc, dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Indexed < 1 {
+		t.Fatalf("Indexed = %d", res.Indexed)
+	}
+}
+
+func TestInitIndexFailureIsNonFatal(t *testing.T) {
+	prev := initRunIndex
+	t.Cleanup(func() { initRunIndex = prev })
+	initRunIndex = func(context.Context, *service.Service, string) (int, error) {
+		return 0, errors.New("boom")
+	}
+
+	data := t.TempDir()
+	svc := service.New(data)
+	dir := t.TempDir()
+	res, err := projectInit(context.Background(), svc, dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.BootFile == "" {
+		t.Fatal("boot file required even when index fails")
+	}
+	if _, statErr := os.Stat(res.BootFile); statErr != nil {
+		t.Fatal(statErr)
+	}
+	if len(res.Errors) < 1 {
+		t.Fatal("expected index failure under Errors")
+	}
+	joined := strings.Join(res.Errors, "; ")
+	if !strings.Contains(joined, "index failed") {
+		t.Fatalf("Errors = %q, want index failed", joined)
 	}
 }

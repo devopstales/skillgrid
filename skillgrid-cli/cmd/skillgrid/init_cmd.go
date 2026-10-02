@@ -87,9 +87,17 @@ func printInitResult(w *os.File, res initResult) {
 	}
 }
 
+// initRunIndex resolves the project then runs the existing code-index pipeline
+// on the same svc. Named apart from CLI runIndex (mcp.go). Tests may stub it.
+var initRunIndex = func(ctx context.Context, svc *service.Service, dir string) (int, error) {
+	if _, err := svc.ResolveProject(dir); err != nil {
+		return 0, err
+	}
+	st, err := svc.RunCodeIndex(ctx, dir)
+	return st.FilesIndexed, err
+}
+
 func projectInit(ctx context.Context, svc *service.Service, dir string, force bool, extraDocs []string) (initResult, error) {
-	_ = ctx
-	_ = svc
 	_ = extraDocs
 
 	info, err := os.Stat(dir)
@@ -105,9 +113,18 @@ func projectInit(ctx context.Context, svc *service.Service, dir string, force bo
 		return initResult{}, err
 	}
 
-	return initResult{
+	res := initResult{
 		BootFile: bootPath,
 		Preamble: preambleState,
 		Sentinel: "upserted",
-	}, nil
+	}
+
+	indexed, indexErr := initRunIndex(ctx, svc, dir)
+	if indexErr != nil {
+		res.Errors = append(res.Errors, fmt.Sprintf("index failed: %v", indexErr))
+	} else {
+		res.Indexed = indexed
+	}
+
+	return res, nil
 }
