@@ -14,6 +14,7 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/loop"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
@@ -349,7 +350,7 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 			"project":          "all",
 			"all_projects":     true,
 			"count":            len(res.Hits),
-			"observations":     budgetedObservationDTOs(h.Memory().Budget(), res.Hits, unfold),
+			"observations":     stampKeywordSignals(budgetedObservationDTOs(h.Memory().Budget(), res.Hits, unfold)),
 			"_health_warnings": memHealthWarnings(),
 		}
 		if res.Truncated {
@@ -380,15 +381,36 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 	// (enforced by a deadline-bound read context, so a slow read is cut, never
 	// hung). The full content is pulled on demand via mem_get_observation (the
 	// only full-content path) using each hit's id.
+	var blended []memory.SearchHit
 	res, err := applyBudget(h.Memory().Budget(), ctx, func(bctx context.Context) ([]memory.Observation, error) {
-		return h.Memory().SearchOwnerScoped(bctx, readerOwner, readerAgent, query, matchMode, scope, limit)
+		queryVec := memory.Vector{}
+		if memory.EmbeddingEnabled() {
+			if emb := embedder.Default(); emb != nil {
+				if v, eErr := emb.EmbedQuery(bctx, query); eErr == nil {
+					queryVec = v
+				}
+			}
+		}
+		hits, bErr := h.Memory().SearchOwnerScopedBlend(bctx, readerOwner, readerAgent, query, matchMode, scope, limit, queryVec)
+		if bErr != nil {
+			return nil, bErr
+		}
+		blended = hits
+		obs := make([]memory.Observation, len(hits))
+		for i, hit := range hits {
+			obs[i] = hit.Observation
+		}
+		return obs, nil
 	})
 	if err != nil {
 		return toolError(err)
 	}
+	if len(blended) > len(res.Hits) {
+		blended = blended[:len(res.Hits)]
+	}
 	out := map[string]any{
 		"project":      projectID,
-		"observations": budgetedObservationDTOs(h.Memory().Budget(), res.Hits, unfold),
+		"observations": budgetedSearchHitDTOs(h.Memory().Budget(), blended, unfold),
 		"count":        len(res.Hits),
 		// _health_warnings (TICKET-06): the inline, non-breaking lifecycle
 		// warnings for the concrete project this search ran under. It uses the
@@ -1424,6 +1446,38 @@ func unfoldHas(unfold string, id int64) bool {
 // budget is applied to each snippet (explicit "N chars omitted"), and every
 // result carries its full-content fetch id (mem_get_observation is the only
 // full-content path).
+func budgetedSearchHitDTOs(b *memory.Budget, hits []memory.SearchHit, unfold string) []map[string]any {
+	obs := make([]memory.Observation, len(hits))
+	for i, hit := range hits {
+		obs[i] = hit.Observation
+	}
+	out := budgetedObservationDTOs(b, obs, unfold)
+	for i := range out {
+		out[i]["score"] = hits[i].Score
+		out[i]["matched_via"] = hits[i].MatchedVia
+		out[i]["signals"] = signalMap(hits[i].Signals)
+	}
+	return out
+}
+
+func stampKeywordSignals(dtos []map[string]any) []map[string]any {
+	for i := range dtos {
+		dtos[i]["matched_via"] = "keyword"
+		dtos[i]["signals"] = map[string]any{
+			"keyword": 1 / float64(1+i), "vector": 0.0, "recency": 1.0,
+			"entity": 0.0, "decay": 1.0, "importance": 0.0,
+		}
+	}
+	return dtos
+}
+
+func signalMap(s memory.SearchSignals) map[string]any {
+	return map[string]any{
+		"keyword": s.Keyword, "vector": s.Vector, "recency": s.Recency,
+		"entity": s.Entity, "decay": s.Decay, "importance": s.Importance,
+	}
+}
+
 func budgetedObservationDTOs(b *memory.Budget, obs []memory.Observation, unfold string) []map[string]any {
 	out := make([]map[string]any, len(obs))
 	for i, o := range obs {

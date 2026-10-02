@@ -912,52 +912,9 @@ func (s *Service) SearchWithScope(ctx context.Context, query, matchMode, scope s
 // (single-operator store) the reader is treated as the owner, so existing
 // callers keep seeing everything.
 func (s *Service) SearchOwnerScoped(ctx context.Context, readerOwner, readerAgent, query, matchMode, scope string, limit int) ([]Observation, error) {
-	if s == nil || s.store == nil || s.store.DB == nil {
-		return nil, errors.New("memory service not initialized")
-	}
-	ftsQuery := buildFTSQuery(query, matchMode)
-	if ftsQuery == "" {
-		return nil, nil
-	}
-	if limit <= 0 {
-		limit = defaultSearchLimit
-	}
-	scope = strings.TrimSpace(scope)
-	scopeClause := ""
-	args := []any{ftsQuery, s.projectID}
-	if scope != "" {
-		scopeClause = " AND o.scope = ?"
-		args = append(args, scope)
-	}
-	clause, clauseArgs := s.visibilityFilter(readerOwner, readerOwner, readerAgent)
-	args = append(args, clauseArgs...)
-	args = append(args, limit)
-	rows, err := s.store.DB.QueryContext(ctx, `
-		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
-		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
-		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
-		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
-		       o.valid_at, o.invalid_at, o.superseded_by
-		FROM observations o
-		INNER JOIN observations_fts ON observations_fts.rowid = o.id
-		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
-		  AND (o.invalid_at IS NULL OR o.invalid_at = '' OR strftime('%s', o.invalid_at) > strftime('%s', 'now'))
-		  AND `+clause+`
-		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
-		LIMIT ?`,
-		args...,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("owner scoped search: %w", err)
-	}
-	defer rows.Close()
-	out, err := scanObservations(rows)
-	if err != nil {
-		return nil, err
-	}
-	for _, o := range out {
-		s.BumpRetrievalUsage(ctx, o.ID)
+	out, err := s.ownerScopedFTS(ctx, readerOwner, readerAgent, query, matchMode, scope, limit)
+	if err != nil || len(out) == 0 {
+		return out, err
 	}
 	// AKL importance scoring (014 step 13.3) stays opt-in via mnemonic.improve.
 	// The default path still re-ranks by stored importance, keeping pinned rows
