@@ -39,8 +39,8 @@
 - The sidebar renders Overview · Project · Memory · Observe · Docs · System in the mockup's order with the mockup's leaves (`nav-matches-mockup`).
 - `/git`, `/mnemonic/memories`, `/mnemonic/search`, `/decisions`, `/prototypes` still resolve to their pages (`nav-matches-mockup`).
 - GraphPage fetches with `limit: 500`, runs `d3.forceSimulation`, and shows a Node Inspector; `sigma`/`graphology`/`@react-sigma/core` are gone from `package.json` (`d3-code-graph`).
-- Compaction, Web Cache, Security fetch `/context`, `/context/compaction`, `/web/status`, `/web/search`, `/security/trivy`, and every one of those is registered in `server.go` (`panels-fetch-live-endpoints`).
-- The Prototypes page fetches a path that `server.go` registers as a JSON handler (`panels-fetch-live-endpoints`) — **backstop**: at HEAD this is false (`/spikes` is unregistered); see Task 4.
+- Compaction, Web Cache fetch `/context`, `/context/compaction`, `/web/status`, `/web/search`, and every one of those is registered in `server.go` (`panels-fetch-live-endpoints`).
+- The Security page fetches `/security/trivy` and the Prototypes page fetches a path that `server.go` registers as a JSON handler (`panels-fetch-live-endpoints`) — **backstop**: at HEAD both are false (`/security/trivy` and `/spikes` are unregistered); see Task 4.
 - `apiOrigin()` is `''` outside `import.meta.env.DEV`; no `fetch()` call site hardcodes `127.0.0.1:7438` (`relative-api-urls`).
 - A briefing containing `#012` renders an anchor to `/tracker?task=012` after the move to MarkdownView (`briefing-task-refs-linkified`) — **backstop**: fails at HEAD, fixed by Task 5.
 - `npm test`, `npm run build:check`, `go build ./...`, `go build -tags ui ./...` exit 0 (`verification-floor`).
@@ -78,7 +78,7 @@
 | Routing (SPA route vs JSON route collision) | Applicable | SPA pages for colliding names live under `/project/*` and `/system/*`; `apiPrefixes` in `embed.go` returns JSON 404, never the shell, under API prefixes | `AppLayout.test.tsx` nav assertions + G2 route grep; Go `embed_test.go` already covers the JSON-404 rule |
 | Markdown rendering of repo content (XSS via briefing/tasks) | Applicable | `MarkdownView` runs `rehype-sanitize`; task links are emitted as markdown links, not raw HTML (Task 5) | `taskLinks.test.ts` "emits a markdown link"; `PlansPage.linkedTasks.test.tsx` |
 | Swagger iframe (framing the SPA inside itself) | Applicable | iframe src is `apiUrl('/swagger/')` — absolute origin only in Vite dev, relative in production | `SwaggerPage.test.tsx` |
-| Shell commands / subprocesses / VCS automation | N/A: the SPA issues HTTP GETs only | — | — |
+| Shell commands / subprocesses / VCS automation | N/A for this pass: the SPA issues HTTP GETs only. The trivy CLI subprocess behind `/security/trivy` arrives with Task 4's external work and carries its own row there | — | — |
 | Mnemonic tool contracts | N/A: no MCP tool surface changes | — | — |
 
 ## File Structure
@@ -141,10 +141,10 @@
 - [ ] **Step 3:** `npm run build:check` — `vendor-d3` chunk split; index ≤ 400 kB.
 - [ ] **Step 4:** Ledger line.
 
-### Task 3: Observe + System panels on live endpoints (as-built)
+### Task 3: Observe panels + Settings/Swagger on live endpoints (as-built)
 
 **Files:**
-- Create: `skillgrid-ui/src/features/observe/{CompactionPage,TelemetryPage,WebCachePage}.tsx`, `skillgrid-ui/src/features/security/SecurityPage.tsx`
+- Create: `skillgrid-ui/src/features/observe/{CompactionPage,TelemetryPage,WebCachePage}.tsx`
 - Modify: `skillgrid-ui/src/features/settings/SettingsPage.tsx`, `skillgrid-ui/src/features/swagger/SwaggerPage.tsx`
 - Test: `SettingsPage.test.tsx`, `SwaggerPage.test.tsx`, G6 grep
 
@@ -155,31 +155,31 @@
 - Deletion test: pass-through pages; delete and the nav leaves 404.
 - Adapters: n/a.
 
-**SATISFIES:** `panels-fetch-live-endpoints` (Observe/System scenario)
+**SATISFIES:** `panels-fetch-live-endpoints` (Observe scenario)
 
-- [ ] **Step 1:** G6 — 5 registered routes in `server.go`.
+- [ ] **Step 1:** G6 — 4 registered routes in `server.go`.
 - [ ] **Step 2:** `npx vitest run src/features/settings src/features/swagger` — PASS.
 - [ ] **Step 3:** Ledger line.
 
-### Task 4: Prototypes panel on a registered endpoint
+### Task 4: Security + Prototypes panels on registered endpoints
 
 **Files:**
-- Modify: `skillgrid-ui/src/features/spikes/SpikesPage.tsx` (→ `features/prototypes/PrototypesPage.tsx`), `skillgrid-ui/src/app.tsx`, `skillgrid-ui/src/components/layout/AppLayout.tsx`
-- Go: a JSON `GET` handler listing `.skillgrid/prototypes/NNN-name/` (`prototype.md` metadata)
+- Modify: `skillgrid-ui/src/features/security/SecurityPage.tsx` (exists at HEAD, fetches `/security/trivy`), `skillgrid-ui/src/features/spikes/SpikesPage.tsx` (→ `features/prototypes/PrototypesPage.tsx`), `skillgrid-ui/src/app.tsx`, `skillgrid-ui/src/components/layout/AppLayout.tsx`
+- Go: `GET /security/trivy` (trivy CLI subprocess → JSON summary; subprocess boundary, needs its own threat-matrix row) and a JSON `GET` handler listing `.skillgrid/prototypes/NNN-name/` (`prototype.md` metadata)
 
 **Interfaces:**
 - Consumes: `apiGet` (Task 1).
-- Produces: `GET <path> → { prototypes: [{name, date, hypothesis, files}] }`.
+- Produces: `GET /security/trivy → TrivyResult {available, verdict, critical, high, medium, low, findings[]}`; `GET <path> → { prototypes: [{name, date, hypothesis, files}] }`.
 - Seam: the Go read bridge.
-- Deletion test: without a registered endpoint the panel renders ErrorState forever (the HEAD state).
+- Deletion test: without the registered endpoints both panels render ErrorState forever (the HEAD state).
 - Adapters: live server + Go httptest → 2.
 
-**SATISFIES:** `panels-fetch-live-endpoints` (Prototypes scenario)
+**SATISFIES:** `panels-fetch-live-endpoints` (Security and Prototypes scenario)
 
-**Blocked on:** the repo-wide spikes→prototypes rename, which is uncommitted in the main working tree (staged renames under `.skillgrid/prototypes/`, `docs_prototypes.go`, `PrototypesPage.tsx`, skills, docs). That work supplies both halves of this task and is owned by another session; this change cannot commit a subset of it without leaving the tree inconsistent.
+**Blocked on:** work uncommitted in the main working tree — `docs/security.go` (`docs.NewTrivy`, shells out to the trivy CLI) and the repo-wide spikes→prototypes rename (staged renames under `.skillgrid/prototypes/`, `docs_prototypes.go`, `PrototypesPage.tsx`, skills, docs), both registered in a `server.go` that also carries unrelated policy/events/usage routes. That work supplies every half of this task and is owned by other sessions; this change cannot commit a subset of it without leaving the tree inconsistent, and the trivy subprocess needs its own review.
 
-- [ ] **Step 1:** G7 — at HEAD the fetch path is `/spikes`; `server.go` registers 0 handlers for it → RED (confirmed).
-- [ ] **Step 2:** When the rename lands: re-run G7 → expect 1; `npx vitest run` → PASS.
+- [ ] **Step 1:** G7 — at HEAD `server.go` registers 0 handlers for `/security/trivy` and 0 for `/spikes` → RED (confirmed).
+- [ ] **Step 2:** When the bridges land: re-run G7 → expect 1 then 1; `npx vitest run` → PASS.
 - [ ] **Step 3:** Ledger line; re-open QA.
 
 ### Task 5: Briefing task-ref links survive MarkdownView (regression fix)

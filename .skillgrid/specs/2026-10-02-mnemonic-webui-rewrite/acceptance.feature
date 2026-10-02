@@ -98,32 +98,33 @@ G5: dependency swap
 
 Compaction, Web Cache, Security, and Prototypes SHALL fetch their Go endpoints through the shared `apiGet`/`apiFetch` helpers (relative URL, `project` query param injected), and each endpoint SHALL exist on the Go mux.
 
-#### Scenario: Observe and System panels hit registered routes
+#### Scenario: Observe panels hit registered routes
 
 ```gherkin
-      Given CompactionPage, WebCachePage, SecurityPage
+      Given CompactionPage, WebCachePage, TelemetryPage
       When their fetch paths are listed
-      Then they are /context, /context/compaction, /web/status, /web/search, /security/trivy
+      Then they include /context, /context/compaction, /web/status, /web/search
       And each path is registered on the Go mux in server.go
 ```
 
-#### Scenario: Prototypes panel hits a registered route
+#### Scenario: Security and Prototypes panels hit registered routes
 
 ```gherkin
-      Given the Project → Prototypes page
-      When its fetch path is listed
-      Then the Go mux registers that path as a JSON handler
+      Given the System → Security page and the Project → Prototypes page
+      When their fetch paths are listed
+      Then the Go mux registers /security/trivy as a JSON handler
+      And the Go mux registers the Prototypes fetch path as a JSON handler
 ```
 
 #### Gates
 
-G6: Observe/System endpoints exist
-  CHECK: cd skillgrid-cli && rg -c '"GET /(context|context/compaction|web/status|web/search|security/trivy)"' internal/mnemonic/http/server.go
-  EXPECT: 5
+G6: Observe endpoints exist
+  CHECK: cd skillgrid-cli && rg -c '"GET /(context|context/compaction|web/status|web/search)"' internal/mnemonic/http/server.go
+  EXPECT: 4
   EVIDENCE: pending
-G7: Prototypes endpoint exists
-  CHECK: path=$(rg -o "apiGet<[^>]*>\('[^']+'" skillgrid-ui/src/features/prototypes/PrototypesPage.tsx skillgrid-ui/src/features/spikes/SpikesPage.tsx 2>/dev/null | head -1 | sed "s/.*('//;s/'//"); cd skillgrid-cli && rg -c "\"GET $path\"" internal/mnemonic/http/server.go
-  EXPECT: 1
+G7: Security + Prototypes endpoints exist
+  CHECK: cd skillgrid-cli && rg -c '"GET /security/trivy"' internal/mnemonic/http/server.go; p=$(rg -o "apiGet<[^>]*>\('[^']+'" ../skillgrid-ui/src/features/prototypes/PrototypesPage.tsx ../skillgrid-ui/src/features/spikes/SpikesPage.tsx 2>/dev/null | head -1 | sed "s/.*('//;s/'//"); rg -c "\"GET $p\"" internal/mnemonic/http/server.go
+  EXPECT: 1 then 1
   EVIDENCE: pending
 
 ### Requirement: relative-api-urls
