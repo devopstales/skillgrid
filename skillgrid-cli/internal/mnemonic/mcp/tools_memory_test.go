@@ -29,7 +29,12 @@ type memSaveResult struct {
 	SupersededID int64  `json:"superseded_id,omitempty"`
 }
 
-func saveAdditive(t *testing.T, title, typ, content, sessionID string) memSaveResult {
+// saveAdditive invokes mem_save and returns both the typed struct (for the
+// legacy id/project/action assertions) and the raw key map (so the ADDITIVE
+// contract can assert a field is ABSENT, not merely zero — a struct field
+// without omitempty would pass a `!= 0` check whether the key is present or
+// not).
+func saveAdditive(t *testing.T, title, typ, content, sessionID string) (memSaveResult, map[string]any) {
 	t.Helper()
 	res, err := handleMemSave(context.Background(), newCallTool("mem_save", map[string]any{
 		"title":      title,
@@ -43,11 +48,16 @@ func saveAdditive(t *testing.T, title, typ, content, sessionID string) memSaveRe
 	if res.IsError {
 		t.Fatalf("mem_save errored: %s", callResultText(t, res))
 	}
+	text := callResultText(t, res)
 	var out memSaveResult
-	if err := json.Unmarshal([]byte(callResultText(t, res)), &out); err != nil {
-		t.Fatalf("unmarshal mem_save result: %v (text %s)", err, callResultText(t, res))
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("unmarshal mem_save result: %v (text %s)", err, text)
 	}
-	return out
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(text), &raw); err != nil {
+		t.Fatalf("unmarshal raw mem_save result: %v (text %s)", err, text)
+	}
+	return out, raw
 }
 
 // TestMemSaveMCPAdditive covers TICKET-06: mem_save now routes through
@@ -71,7 +81,7 @@ func TestMemSaveMCPAdditive(t *testing.T) {
 	}
 
 	t.Run("new observation → action add", func(t *testing.T) {
-		out := saveAdditive(t, "add probe unique", "decision", "body for add probe", startOut.SessionID)
+		out, raw := saveAdditive(t, "add probe unique", "decision", "body for add probe", startOut.SessionID)
 		if out.ID <= 0 {
 			t.Errorf("expected id > 0, got %d", out.ID)
 		}
@@ -81,17 +91,19 @@ func TestMemSaveMCPAdditive(t *testing.T) {
 		if out.Action != "add" {
 			t.Errorf("expected action \"add\", got %q", out.Action)
 		}
-		if out.SupersededID != 0 {
-			t.Errorf("expected no superseded_id, got %d", out.SupersededID)
+		// The additive contract is that superseded_id is ABSENT (not present
+		// with 0) for a plain add — assert the key is actually missing.
+		if _, present := raw["superseded_id"]; present {
+			t.Errorf("expected superseded_id to be absent on add, got %v", raw["superseded_id"])
 		}
 	})
 
 	t.Run("hash-dup → action noop", func(t *testing.T) {
-		first := saveAdditive(t, "dup probe stable", "decision", "body for dup probe", startOut.SessionID)
+		first, _ := saveAdditive(t, "dup probe stable", "decision", "body for dup probe", startOut.SessionID)
 		if first.Action != "add" {
 			t.Fatalf("seed expected action \"add\", got %q", first.Action)
 		}
-		dup := saveAdditive(t, "dup probe stable", "decision", "body for dup probe", startOut.SessionID)
+		dup, raw := saveAdditive(t, "dup probe stable", "decision", "body for dup probe", startOut.SessionID)
 		if dup.Action != "noop" {
 			t.Errorf("expected action \"noop\" on hash-dup, got %q", dup.Action)
 		}
@@ -101,8 +113,9 @@ func TestMemSaveMCPAdditive(t *testing.T) {
 		if dup.Project == "" {
 			t.Errorf("expected project to be present on noop, got empty")
 		}
-		if dup.SupersededID != 0 {
-			t.Errorf("expected no superseded_id on noop, got %d", dup.SupersededID)
+		// Noop does not supersede: superseded_id must be absent, not zero.
+		if _, present := raw["superseded_id"]; present {
+			t.Errorf("expected superseded_id to be absent on noop, got %v", raw["superseded_id"])
 		}
 	})
 }
