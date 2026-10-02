@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/session_inject"
 )
 
 // toolEvent is one session_events row in the shape the Sessions timeline, the
@@ -269,6 +270,49 @@ func filterFromRequest(r *http.Request) toolEventFilter {
 	return f
 }
 
+// sessionObservationFeedItem is one live observation row for the Sessions
+// timeline (metadata only; full text is fetched separately).
+type sessionObservationFeedItem struct {
+	ID        int64  `json:"id"`
+	Type      string `json:"type"`
+	Title     string `json:"title"`
+	CreatedAt string `json:"created_at"`
+	Tokens    int    `json:"tokens"`
+	Pinned    bool   `json:"pinned"`
+}
+
+// querySessionObservations lists non-deleted observations for one session,
+// pinned first then newest created_at (same ordering as mnemonic memories).
+func querySessionObservations(ctx context.Context, db *sql.DB, projectID, sessionID string) ([]sessionObservationFeedItem, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, COALESCE(type,''), COALESCE(title,''), COALESCE(content,''),
+		       COALESCE(created_at,''), COALESCE(pinned,0)
+		FROM observations
+		WHERE session_id = ? AND project = ? AND deleted_at IS NULL
+		ORDER BY COALESCE(pinned,0) DESC, created_at DESC, id DESC`, sessionID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []sessionObservationFeedItem{}
+	for rows.Next() {
+		var item sessionObservationFeedItem
+		var content string
+		var pinned int
+		if err := rows.Scan(&item.ID, &item.Type, &item.Title, &content, &item.CreatedAt, &pinned); err != nil {
+			return nil, err
+		}
+		item.Pinned = pinned != 0
+		tokenText := item.Title
+		if strings.TrimSpace(content) != "" {
+			tokenText = item.Title + " " + content
+		}
+		item.Tokens = session_inject.EstimateTokens(tokenText)
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 // handleSessionEvents serves GET /sessions/{id}/events — one session's tool
 // timeline, newest first. An unknown id returns an empty list.
 func (s *Server) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +324,14 @@ func (s *Server) handleSessionEvents(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"project": projectID, "sessionId": f.Session, "events": events})
+		observations, err := querySessionObservations(r.Context(), h.Store().DB, projectID, f.Session)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"project": projectID, "sessionId": f.Session, "events": events, "observations": observations,
+		})
 	})
 }
 

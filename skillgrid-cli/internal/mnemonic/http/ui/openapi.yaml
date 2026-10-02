@@ -264,9 +264,15 @@ paths:
               schema:
                 type: object
                 properties:
+                  project: { type: string }
+                  sessionId: { type: string }
                   events:
                     type: array
                     items: { $ref: "#/components/schemas/ToolEvent" }
+                  observations:
+                    type: array
+                    description: Live observations for the session (pinned first, newest first)
+                    items: { $ref: "#/components/schemas/SessionObservationFeedItem" }
         "400": { $ref: "#/components/responses/Bad" }
   /sessions/{id}/usage:
     post:
@@ -3328,7 +3334,19 @@ components:
         ended_at: { type: string }
         status: { type: string }
         memory_count: { type: integer }
+        observations:
+          type: integer
+          description: Count of non-deleted observations for the session (same value as memory_count)
         has_summary: { type: boolean }
+    SessionObservationFeedItem:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        type: { type: string }
+        title: { type: string }
+        created_at: { type: string, format: date-time }
+        tokens: { type: integer, description: Heuristic token estimate (title + content) }
+        pinned: { type: boolean }
     AuditEntry:
       type: object
       properties:

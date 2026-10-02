@@ -30,7 +30,7 @@ func seedToolEvents(t *testing.T, s *Server) {
 	}
 	for _, c := range calls {
 		c.body["agent"] = c.agent
-		if res := postToolCall(t, s, c.sid, c.body); res.Code != http.StatusOK {
+		if res := postToolCall(t, s, c.sid, c.body); res.Code != http.StatusOK && res.Code != http.StatusCreated {
 			t.Fatalf("seed %s %v: status %d: %s", c.sid, c.body, res.Code, res.Body.String())
 		}
 	}
@@ -140,6 +140,87 @@ func TestEventStats_Aggregates(t *testing.T) {
 	if rr := doGet(t, s.Handler(), "/events/stats?project="+proj+"&since=bogus"); rr.Code != http.StatusBadRequest {
 		t.Errorf("bad since: status %d, want 400", rr.Code)
 	}
+}
+
+func TestSessionEvents_IncludesObservations(t *testing.T) {
+	s, _ := newToolCallsServer(t)
+	seedToolEvents(t, s)
+
+	const obsTitle = "Use JWT for auth"
+	rr, _ := do(t, s.Handler(), http.MethodPost, "/observations?project="+proj, map[string]any{
+		"session_id": "cur-1",
+		"type":       "decision",
+		"title":      obsTitle,
+		"content":    "Bearer tokens only; no session cookies.",
+		"scope":      "project",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST /observations: status %d: %s", rr.Code, rr.Body.String())
+	}
+
+	body := getToolJSON(t, s, "/sessions/cur-1/events?project="+proj)
+	rawObs, ok := body["observations"].([]any)
+	if !ok {
+		t.Fatalf("observations key missing or wrong type: %v", body["observations"])
+	}
+	if len(rawObs) != 1 {
+		t.Fatalf("observations len = %d, want 1", len(rawObs))
+	}
+	obs := rawObs[0].(map[string]any)
+	if obs["type"] != "decision" || obs["title"] != obsTitle {
+		t.Errorf("observation = %v, want type decision title %q", obs, obsTitle)
+	}
+	if _, ok := obs["id"].(float64); !ok {
+		t.Errorf("observation missing id: %v", obs)
+	}
+	if _, ok := obs["created_at"].(string); !ok || obs["created_at"] == "" {
+		t.Errorf("observation missing created_at: %v", obs)
+	}
+	if _, ok := obs["tokens"].(float64); !ok {
+		t.Errorf("observation missing tokens: %v", obs)
+	}
+	if pinned, ok := obs["pinned"].(bool); !ok {
+		t.Errorf("observation missing pinned bool: %v", obs)
+	} else if pinned {
+		t.Errorf("observation pinned = true, want false")
+	}
+	if len(eventsOf(body)) != 3 {
+		t.Errorf("events unchanged: got %d, want 3", len(eventsOf(body)))
+	}
+}
+
+func TestMnemonicSessions_ObservationsCount(t *testing.T) {
+	s, _ := newToolCallsServer(t)
+	seedToolEvents(t, s)
+
+	rr, _ := do(t, s.Handler(), http.MethodPost, "/observations?project="+proj, map[string]any{
+		"session_id": "cur-1",
+		"type":       "decision",
+		"title":      "Count probe",
+		"content":    "for sessions list alias",
+		"scope":      "project",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST /observations: status %d: %s", rr.Code, rr.Body.String())
+	}
+
+	raw, _ := getToolJSON(t, s, "/mnemonic/sessions?project="+proj)["sessions"].([]any)
+	for _, r := range raw {
+		m := r.(map[string]any)
+		if m["id"] != "cur-1" {
+			continue
+		}
+		mem, _ := m["memory_count"].(float64)
+		obs, ok := m["observations"].(float64)
+		if !ok {
+			t.Fatalf("cur-1 missing observations count: %v", m)
+		}
+		if obs != 1 || mem != 1 {
+			t.Errorf("cur-1 memory_count=%v observations=%v, want both 1", mem, obs)
+		}
+		return
+	}
+	t.Fatal("cur-1 not in sessions list")
 }
 
 func TestMnemonicSessions_AgentAndLastTool(t *testing.T) {

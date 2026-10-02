@@ -589,6 +589,7 @@ type sessionItem struct {
 	EndedAt      string   `json:"ended_at,omitempty"`
 	Status       string   `json:"status"`
 	MemoryCount  int      `json:"memory_count"`
+	Observations int      `json:"observations"`
 	HasSummary   bool     `json:"has_summary"`
 	Agent        string   `json:"agent"`
 	FilesRead    int      `json:"files_read"`
@@ -665,6 +666,7 @@ func (s *Server) handleMnemonicSessions(w http.ResponseWriter, r *http.Request) 
 			v := cost.Float64
 			s.CostUSD = &v
 		}
+		s.Observations = s.MemoryCount
 		if s.Title == "" {
 			s.Title = s.ID
 		}
