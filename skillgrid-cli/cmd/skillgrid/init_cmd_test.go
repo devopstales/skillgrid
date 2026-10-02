@@ -11,8 +11,135 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 )
+
+// countTopic counts live observations with the given topic_key.
+// Uses Recent because observations_fts does not index topic_key, so Search("init")
+// would miss init/docs/* rows whose title/content lack that token.
+func countTopic(t *testing.T, mem *memory.Service, key string) int {
+	t.Helper()
+	hits, err := mem.Recent(context.Background(), 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, h := range hits {
+		if h.TopicKey == key {
+			n++
+		}
+	}
+	return n
+}
+
+func TestInitIngestsDefaultPaths(t *testing.T) {
+	data := t.TempDir()
+	svc := service.New(data)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# App"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "guide.md"), []byte("g"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectInit(context.Background(), svc, dir, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	h, closeH, err := svc.OpenForDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countTopic(t, h.Memory(), "init/docs/README.md") != 1 {
+		t.Fatal("README observation")
+	}
+	if countTopic(t, h.Memory(), "init/docs/docs/guide.md") != 1 {
+		t.Fatal("docs observation")
+	}
+	closeH()
+	// Second init upserts the same topic keys (no duplicates).
+	if _, err := projectInit(context.Background(), svc, dir, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	h2, closeH2, err := svc.OpenForDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeH2()
+	if countTopic(t, h2.Memory(), "init/docs/README.md") != 1 {
+		t.Fatal("README duplicated on second init")
+	}
+	if countTopic(t, h2.Memory(), "init/docs/docs/guide.md") != 1 {
+		t.Fatal("docs duplicated on second init")
+	}
+}
+
+func TestInitSkipsMissingDocs(t *testing.T) {
+	svc := service.New(t.TempDir())
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "README.md"), []byte("r"), 0o644)
+	res, err := projectInit(context.Background(), svc, dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, s := range res.Skipped {
+		if s == "docs/" || s == "docs" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("skipped = %v", res.Skipped)
+	}
+}
+
+func TestInitIngestsExtraDocs(t *testing.T) {
+	svc := service.New(t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.sh"), []byte("echo hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectInit(context.Background(), svc, dir, false, []string{filepath.Join(dir, "README.sh")}); err != nil {
+		t.Fatal(err)
+	}
+	h, closeH, err := svc.OpenForDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeH()
+	if countTopic(t, h.Memory(), "init/docs/README.sh") != 1 {
+		t.Fatal("extra docs")
+	}
+}
+
+func TestInitMissingExtraDocsIsNonFatal(t *testing.T) {
+	svc := service.New(t.TempDir())
+	dir := t.TempDir()
+	res, err := projectInit(context.Background(), svc, dir, false, []string{filepath.Join(dir, "missing.md")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.BootFile == "" || len(res.Errors) == 0 {
+		t.Fatalf("res = %+v", res)
+	}
+}
+
+func TestInitRejectsDocsOutsideProject(t *testing.T) {
+	svc := service.New(t.TempDir())
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "x.md")
+	_ = os.WriteFile(outside, []byte("no"), 0o644)
+	res, err := projectInit(context.Background(), svc, dir, false, []string{outside})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Errors) == 0 {
+		t.Fatal("expected jail error")
+	}
+}
 
 func TestInitHelpListsFlags(t *testing.T) {
 	var buf bytes.Buffer

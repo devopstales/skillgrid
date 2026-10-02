@@ -98,8 +98,6 @@ var initRunIndex = func(ctx context.Context, svc *service.Service, dir string) (
 }
 
 func projectInit(ctx context.Context, svc *service.Service, dir string, force bool, extraDocs []string) (initResult, error) {
-	_ = extraDocs
-
 	info, err := os.Stat(dir)
 	if err != nil {
 		return initResult{}, err
@@ -125,6 +123,18 @@ func projectInit(ctx context.Context, svc *service.Service, dir string, force bo
 	} else {
 		res.Indexed = indexed
 	}
+
+	h, closeH, openErr := svc.OpenForDirectory(dir)
+	if openErr != nil {
+		res.Errors = append(res.Errors, fmt.Sprintf("open project: %v", openErr))
+		return res, nil
+	}
+	defer closeH()
+
+	ingested, skipped, ingestErrs := ingestPaths(ctx, h, dir, extraDocs)
+	res.Ingested = ingested
+	res.Skipped = append(res.Skipped, skipped...)
+	res.Errors = append(res.Errors, ingestErrs...)
 
 	return res, nil
 }
