@@ -57,3 +57,57 @@ func TestInitBootFileWriteFailureIsFatal(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestInitUpsertsPreambleAndSentinel(t *testing.T) {
+	dir := t.TempDir()
+	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(res.BootFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if !strings.Contains(s, "<!-- skillgrid-preamble:start -->") || !strings.Contains(s, "# Definition of Done") {
+		t.Fatalf("missing preamble: %s", s)
+	}
+	if strings.Count(s, "<!-- skillgrid:start -->") != 1 || strings.Count(s, "<!-- skillgrid:end -->") != 1 {
+		t.Fatalf("sentinel count: %s", s)
+	}
+}
+
+func TestInitForceRewritesPreamble(t *testing.T) {
+	dir := t.TempDir()
+	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(res.BootFile)
+	custom := strings.Replace(string(body), "# Project Overview", "# Project Overview\nUSER KEEP", 1)
+	if err := os.WriteFile(res.BootFile, []byte(custom+"\n\nUSER BELOW\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res2, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep, _ := os.ReadFile(res2.BootFile)
+	if !strings.Contains(string(keep), "USER KEEP") || !strings.Contains(string(keep), "USER BELOW") {
+		t.Fatalf("merge dropped user text: %s", keep)
+	}
+	if strings.Count(string(keep), "<!-- skillgrid:start -->") != 1 {
+		t.Fatal("duplicated sentinel")
+	}
+	res3, err := projectInit(context.Background(), service.New(t.TempDir()), dir, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forced, _ := os.ReadFile(res3.BootFile)
+	if strings.Contains(string(forced), "USER KEEP") {
+		t.Fatal("force left old preamble")
+	}
+	if !strings.Contains(string(forced), "USER BELOW") {
+		t.Fatal("force wiped text outside regions")
+	}
+}

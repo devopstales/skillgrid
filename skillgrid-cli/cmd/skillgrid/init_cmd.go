@@ -5,13 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 )
-
-const projectBootFile = "AGENTS.md"
 
 type initResult struct {
 	BootFile string
@@ -93,7 +90,6 @@ func printInitResult(w *os.File, res initResult) {
 func projectInit(ctx context.Context, svc *service.Service, dir string, force bool, extraDocs []string) (initResult, error) {
 	_ = ctx
 	_ = svc
-	_ = force
 	_ = extraDocs
 
 	info, err := os.Stat(dir)
@@ -104,18 +100,14 @@ func projectInit(ctx context.Context, svc *service.Service, dir string, force bo
 		return initResult{}, fmt.Errorf("%s is not a directory", dir)
 	}
 
-	bootPath := filepath.Join(dir, projectBootFile)
-	if _, err := os.Stat(bootPath); os.IsNotExist(err) {
-		if err := os.WriteFile(bootPath, nil, 0o644); err != nil {
-			return initResult{}, err
-		}
-	} else if err != nil {
+	bootPath, preambleState, err := writeBootFile(dir, force)
+	if err != nil {
 		return initResult{}, err
 	}
 
 	return initResult{
 		BootFile: bootPath,
-		Preamble: "written",
+		Preamble: preambleState,
 		Sentinel: "upserted",
 	}, nil
 }
