@@ -39,6 +39,7 @@ func TestCursorPluginLayout(t *testing.T) {
 		"hooks/cursor-session-start.sh",
 		"hooks/cursor-session-end.sh",
 		"hooks/cursor-tool-capture.sh",
+		"hooks/cursor-policy.sh",
 		"hooks/tool-call-capture.js",
 		"rules/mnemonic.mdc",
 		"scripts/sync-mnemonic-rule.sh",

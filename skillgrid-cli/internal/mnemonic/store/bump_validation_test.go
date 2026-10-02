@@ -14,7 +14,7 @@ import (
 
 // TestBump_IsWALBusyRealError drives the store's open-with-WAL-retry path
 // against a real SQLITE_BUSY, then asserts the typed *sqlite.Error is
-// classified as busy by isWALBusy. This is the spike's core concern: the
+// classified as busy by isWALBusy. This is the prototype's core concern: the
 // bump must not change the driver's error rendering such that the WAL-retry
 // classification regresses. A concurrent writer holds the WAL lock, so the
 // first open attempt (and the retries) hit SQLITE_BUSY.
@@ -135,7 +135,7 @@ func TestBump_OpenPoolsSameHandle(t *testing.T) {
 
 // TestBump_MigrationsStillApply pins that the squashed 001 schema + 040/041
 // all apply cleanly on the new driver. This is the "39 migrations" check the
-// spike flagged as unvalidated (the spike used a fresh DB with only the vec
+// prototype flagged as unvalidated (the prototype used a fresh DB with only the vec
 // tables, not the full existing store).
 func TestBump_MigrationsStillApply(t *testing.T) {
 	dir := t.TempDir()

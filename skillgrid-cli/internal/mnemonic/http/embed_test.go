@@ -105,12 +105,23 @@ func TestPhase1_SPAFallback(t *testing.T) {
 		t.Errorf("GET /openapi.yaml body must be the spec, got: %.200s", rr.Body.String())
 	}
 
+	// /swagger redirects to /swagger/ so the index's relative asset paths
+	// resolve against the trailing-slash base (not the SPA fallback at /).
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/swagger", nil))
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("GET /swagger: expected 303 redirect, got %d", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/swagger/" {
+		t.Errorf("GET /swagger Location: expected /swagger/, got %q", loc)
+	}
+
 	for path, marker := range map[string]string{
-		"/swagger/":            "<!DOCTYPE html>",
+		"/swagger/":               "<!DOCTYPE html>",
 		"/swagger/swagger-ui.css": "",
 	} {
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
 		if rr.Code != http.StatusOK {
 			t.Fatalf("GET %s: expected 200, got %d (%s)", path, rr.Code, rr.Body.String())
 		}

@@ -47,6 +47,26 @@ hooks/hooks-cursor.json + cursor-session-*.sh + cursor-tool-capture.sh + cursor-
 git-hooks. Agent Stop hooks stage with the rest of `git-hooks/` and are wired
 by the harness's Stop-hook config.
 
+## Tool-call recording hooks
+
+Every tool call an agent makes is posted to `skillgrid serve` by a harness
+hook (`hooks/tool-call-capture.js`), which is what the Sessions view, `skillgrid
+logs`, and the policy engine read. The hooks are installed two ways and both
+point at the same `~/.skillgrid/hooks/` scripts:
+
+| Harness | Hook config | Installed by |
+|---------|-------------|--------------|
+| Cursor | `~/.cursor/hooks.json` — `sessionStart`, `sessionEnd`, `stop`, `postToolUse`, `beforeShellExecution`, `beforeMCPExecution`, `beforeReadFile` | `skillgrid setup cursor` (also run by `skillgrid install`); the Cursor plugin ships the same set in `hooks/hooks-cursor.json` |
+| OpenCode | `~/.config/opencode/hook/hooks.yaml` — `session.created`, `session.idle`, `tool.before.*`, `tool.after.*` | `skillgrid setup opencode` |
+| Kilo | `~/.config/kilo/hook/hooks.yaml` — same events | `skillgrid setup kilo` |
+
+`skillgrid setup cursor` copies the hook scripts into `~/.skillgrid/hooks/`
+itself, merges into an existing `hooks.json`, and leaves other tools' entries
+alone; re-running it adds nothing twice. Pass `--dry-run` after the agent name
+to preview. All capture hooks fail open; only the
+`tool.before.*` / `before*` policy hooks can block, and only when
+`.skillgrid/policy.yaml` has `enabled: true` (ADR-0021).
+
 ## The pre-commit chain
 
 `checkpoint-state.js guard` runs, in order:

@@ -106,3 +106,35 @@ func TestPhase3_Traversal(t *testing.T) {
 		}
 	}
 }
+
+// Specs→archive twin: kanban doc_refs often keep `.skillgrid/specs/<change>/…`
+// after the change ships to archive/. Content must resolve the twin; the tree
+// must still hide archive/.
+func TestContentFallsBackToArchiveTwin(t *testing.T) {
+	h := newMDHandler(t)
+	do := func(target string) (int, string) {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, target, nil))
+		return rr.Code, rr.Body.String()
+	}
+
+	code, body := do("/docs/content?path=.skillgrid/specs/old-change/briefing.md")
+	if code != http.StatusOK {
+		t.Fatalf("archive twin: got %d %s", code, body)
+	}
+	if !strings.Contains(body, `"path":".skillgrid/archive/old-change/briefing.md"`) {
+		t.Fatalf("expected served path to be archive twin, got %s", body)
+	}
+	if !strings.Contains(body, "Archived.") {
+		t.Fatalf("expected archive body, got %s", body)
+	}
+
+	// Tree must still hide archive/ (content fallback is not a tree listing).
+	code, body = do("/docs/tree?root=skillgrid")
+	if code != http.StatusOK {
+		t.Fatalf("tree: got %d %s", code, body)
+	}
+	if strings.Contains(body, "archive") || strings.Contains(body, "old-change") {
+		t.Fatalf("archive must stay hidden from tree, got %s", body)
+	}
+}

@@ -21,11 +21,15 @@ func ProtocolMarkdown() string {
 	return ""
 }
 
+// protocolRelPaths lists where the protocol markdown may live, repo-relative.
+// The shared rule under .agents/skills is the current home (AGENTS.md
+// "Memory"); the plugins/ copies are the older layout.
 func protocolRelPaths() []string {
 	return []string{
 		"plugins/_shared/" + protocolRelPath,
 		"plugins/opencode/" + protocolRelPath,
 		"plugins/kilo/" + protocolRelPath,
+		".agents/skills/_shared/rules/mnemonic-memory.md",
 	}
 }
 

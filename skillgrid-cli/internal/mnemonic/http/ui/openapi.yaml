@@ -204,6 +204,249 @@ paths:
                     items: { $ref: "#/components/schemas/ActivityEvent" }
                   limit: { type: integer }
         "400": { $ref: "#/components/responses/Bad" }
+  /sessions/{id}/tool-calls:
+    post:
+      tags: [session]
+      operationId: sessionToolCall
+      summary: Record one harness tool call
+      description: |-
+        Posted by the Cursor, OpenCode, and Kilo hooks after every tool call.
+        Creates the session (tagged with agent) when it does not exist yet.
+        Bumps the session's read, write, command, and error counters and
+        appears on GET /activity/stream as a `tool` frame.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: project, in: query, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agent: { type: string, example: cursor }
+                directory: { type: string }
+                type: { type: string, description: "file_read, file_write, shell, or other" }
+                tool_name: { type: string }
+                path: { type: string }
+                command: { type: string }
+                result_status: { type: string, example: success }
+                content_hash: { type: string }
+                content_preview: { type: string }
+      responses:
+        "200": { description: Recorded }
+        "400": { $ref: "#/components/responses/Bad" }
+  /sessions/{id}/events:
+    get:
+      tags: [session]
+      operationId: sessionToolEvents
+      summary: One session's tool-call timeline
+      description: |-
+        Harness tool calls for the session, newest first. Takes the same
+        filters as GET /events. Sensitive paths keep their metadata but never
+        return a preview. Policy decision rows (result blocked, warned, or
+        guided) carry "rule: message" as the preview.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: project, in: query, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/ToolAgent" }
+        - { $ref: "#/components/parameters/ToolAction" }
+        - { $ref: "#/components/parameters/ToolName" }
+        - { $ref: "#/components/parameters/ToolFile" }
+        - { $ref: "#/components/parameters/ToolCommand" }
+        - { $ref: "#/components/parameters/ToolSince" }
+        - { name: limit, in: query, schema: { type: integer, default: 200, maximum: 2000 } }
+      responses:
+        "200":
+          description: Tool events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items: { $ref: "#/components/schemas/ToolEvent" }
+        "400": { $ref: "#/components/responses/Bad" }
+  /sessions/{id}/usage:
+    post:
+      tags: [session]
+      operationId: sessionUsage
+      summary: Report token usage for a session
+      description: |-
+        Token usage from the harness hooks. With total true the counts replace
+        the session's totals (OpenCode and Kilo re-read their own message
+        store); otherwise they are added. Cost comes from the pricing table
+        (config.d/pricing.yaml); reported_cost is used only when the model is
+        not priced. Cursor reports a model and no token counts.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: project, in: query, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model: { type: string, example: claude-sonnet-4-5 }
+                input: { type: integer, format: int64 }
+                output: { type: integer, format: int64 }
+                cache: { type: integer, format: int64 }
+                total: { type: boolean }
+                agent: { type: string }
+                directory: { type: string }
+                reported_cost: { type: number }
+      responses:
+        "200":
+          description: The session's usage after the report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  model: { type: string }
+                  input_tokens: { type: integer, format: int64 }
+                  output_tokens: { type: integer, format: int64 }
+                  cache_tokens: { type: integer, format: int64 }
+                  cost_usd: { type: number, nullable: true }
+        "400": { $ref: "#/components/responses/Bad" }
+  /events:
+    get:
+      tags: [session]
+      operationId: toolEvents
+      summary: Query tool calls across every session
+      description: |-
+        The Gryph-style query behind the Sessions filter bar and
+        `skillgrid logs`. File and command filters are globs: * and ** match
+        any run, ? matches one character.
+      parameters:
+        - { name: project, in: query, required: true, schema: { type: string } }
+        - { name: session, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/ToolAgent" }
+        - { $ref: "#/components/parameters/ToolAction" }
+        - { $ref: "#/components/parameters/ToolName" }
+        - { $ref: "#/components/parameters/ToolFile" }
+        - { $ref: "#/components/parameters/ToolCommand" }
+        - { $ref: "#/components/parameters/ToolSince" }
+        - { name: until, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 200, maximum: 2000 } }
+      responses:
+        "200":
+          description: Tool events, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items: { $ref: "#/components/schemas/ToolEvent" }
+        "400": { $ref: "#/components/responses/Bad" }
+  /events/stats:
+    get:
+      tags: [session]
+      operationId: toolEventStats
+      summary: Agent activity rollup
+      description: |-
+        Totals, per-action, per-agent, and per-model breakdowns, top files,
+        commands, and tools, with token and cost totals. Policy decision rows
+        count only toward blocked, warned, and guided.
+      parameters:
+        - { name: project, in: query, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/ToolSince" }
+        - { $ref: "#/components/parameters/ToolAgent" }
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { type: string }
+                  since: { type: string }
+                  total: { type: integer }
+                  sessions: { type: integer }
+                  mcp: { type: integer }
+                  errors: { type: integer }
+                  sensitive: { type: integer }
+                  blocked: { type: integer }
+                  warned: { type: integer }
+                  guided: { type: integer }
+                  byAction:
+                    type: object
+                    additionalProperties: { type: integer }
+                  byAgent: { type: array, items: { type: object } }
+                  byModel: { type: array, items: { type: object } }
+                  topFiles: { type: array, items: { type: object } }
+                  topCommands: { type: array, items: { type: object } }
+                  topTools: { type: array, items: { type: object } }
+        "400": { $ref: "#/components/responses/Bad" }
+  /policy/evaluate:
+    post:
+      tags: [session]
+      operationId: policyEvaluate
+      summary: Evaluate the pre-tool policy for a pending call
+      description: |-
+        Called by the pre-tool hooks (ADR-0021). Loads .skillgrid/policy.yaml
+        found from directory (or the project root) and ~/.skillgrid/policy.yaml;
+        the first matching rule wins and no match allows. block, warn, and guide
+        decisions are recorded on the session; a block bumps blocked_actions.
+        A broken policy file answers allow with an error field (fail open).
+      parameters:
+        - { name: project, in: query, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                session_id: { type: string }
+                agent: { type: string }
+                directory: { type: string }
+                action: { type: string, enum: [file_read, file_write, command_exec, tool_use] }
+                tool: { type: string }
+                path: { type: string }
+                command: { type: string }
+      responses:
+        "200":
+          description: The decision
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  effect: { type: string, enum: [block, warn, guide, allow] }
+                  message: { type: string }
+                  rule: { type: string }
+                  action: { type: string }
+                  recorded: { type: boolean }
+                  error: { type: string }
+        "400": { $ref: "#/components/responses/Bad" }
+  /policy:
+    get:
+      tags: [session]
+      operationId: policyGet
+      summary: The merged pre-tool policy (read-only)
+      parameters:
+        - { name: project, in: query, required: true, schema: { type: string } }
+        - { name: directory, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Enabled flag, rules in evaluation order, and source files
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { type: string }
+                  enabled: { type: boolean }
+                  rules: { type: array, items: { type: object } }
+                  files: { type: array, items: { type: string } }
+                  repoFile: { type: string }
+                  error: { type: string }
   /sessions/{id}/end:
     post:
       tags: [session]
@@ -2804,11 +3047,12 @@ paths:
     get:
       tags: [prototypes]
       operationId: prototypesList
-      summary: List .stitch/ design prototypes (sandboxed)
+      summary: List feasibility prototypes (.skillgrid/prototypes/)
       description: |-
-        Returns the prototype .html files under .stitch/ as
-        relative paths. Served as the SPA shell to a browser (Accept: text/html),
-        as JSON to the API client (Accept: application/json).
+        Lists the directories under .skillgrid/prototypes/ and extracts a light
+        summary (date, type, hypothesis, file list) from each prototype.md.
+        Directories without a prototype.md (WIP) are still listed so they are
+        visible rather than silently dropped. Read-only; sorted by name.
       responses:
         "200":
           description: Prototype list
@@ -2817,46 +3061,74 @@ paths:
               schema:
                 type: object
                 properties:
+                  source:
+                    type: string
+                    description: Root directory scanned (relative to the served repo)
+                  count: { type: integer }
                   prototypes:
                     type: array
-                    items: { type: string }
-                  error: { type: string }
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        date: { type: string }
+                        venue: { type: string, description: "The prototype.md `Type:` header" }
+                        hypothesis: { type: string }
+                        change:
+                          type: string
+                          description: Change id (specs or archive) this prototype belongs to
+                        files:
+                          type: array
+                          items: { type: string }
               example:
-                prototypes: ["proto-a.html", "nested/proto-b.html"]
+                source: ".skillgrid/prototypes"
+                count: 1
+                prototypes:
+                  - name: "001-cgo-free-vector-db"
+                    date: "2026-09-24"
+                    venue: "comparison (G vs viant)"
+                    hypothesis: "Given a Go module, when we adopt either, then both work."
+                    files: ["g.go", "prototype.md"]
         "404":
-          description: No .stitch/ directory
+          description: No .skillgrid/prototypes/ directory
           content:
             application/json:
               schema: { type: object, properties: { error: { type: string } } }
-  /prototypes/{id}:
+  /prototypes/{name}/{file}:
     get:
       tags: [prototypes]
-      operationId: prototypeGet
-      summary: Get one prototype HTML (sandboxed to .stitch/)
+      operationId: prototypeFile
+      summary: Serve one file from a feasibility prototype
       description: |-
-        Serves the HTML of one prototype. Traversal/absolute ids
-        (.., leading /) → 400; unknown → 404. The file is sandboxed to .stitch/
-        (Phase 7 path-traversal threat model) and served with nosniff.
+        Serves one file under .skillgrid/prototypes/{name}/ so a generated
+        index.html preview (and the relative assets it loads) can open in a
+        new tab. Sandboxed to that directory: traversal or an absolute path
+        → 400; a missing file or a directory → 404. Served with nosniff.
       parameters:
-        - name: id
+        - name: name
           in: path
           required: true
-          description: Prototype path relative to .stitch/
+          description: Prototype directory name under .skillgrid/prototypes/
+          schema: { type: string }
+        - name: file
+          in: path
+          required: true
+          description: File path relative to the prototype directory (e.g. index.html)
           schema: { type: string }
       responses:
         "200":
-          description: Prototype HTML
+          description: The file, content type from its extension
           content:
             text/html:
               schema: { type: string }
-              example: "<html><body><h1>Proto A</h1></body></html>"
+              example: "<html></html>"
         "400":
-          description: Invalid (traversal/absolute) id
+          description: Invalid (traversal/absolute) path
           content:
             application/json:
               schema: { type: object, properties: { error: { type: string } } }
         "404":
-          description: Unknown prototype
+          description: Unknown file
           content:
             application/json:
               schema: { type: object, properties: { error: { type: string } } }
@@ -2868,7 +3140,8 @@ paths:
       description: |-
         Serves the HTML of one visual-companion prototype, sandboxed to
         .skillgrid/prototype/ (a distinct subtree from the plural /prototypes
-        above, which is sandboxed to .stitch/). Traversal/absolute ids
+        above, which lists feasibility prototypes under
+        .skillgrid/prototypes/). Traversal/absolute ids
         (.., leading /) → 400; unknown → 404. Served with nosniff; rendered
         client-side in a sandboxed iframe (sandbox="allow-scripts", no
         allow-same-origin) inside the decision card. Throwaway by design —
@@ -2911,7 +3184,33 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/HTTPError"
+  parameters:
+    ToolAgent: { name: agent, in: query, schema: { type: string, example: cursor } }
+    ToolAction:
+      name: action
+      in: query
+      schema: { type: string, enum: [file_read, file_write, command_exec, tool_use] }
+    ToolName: { name: tool, in: query, schema: { type: string } }
+    ToolFile: { name: file, in: query, description: "path glob", schema: { type: string } }
+    ToolCommand: { name: command, in: query, description: "command glob", schema: { type: string } }
+    ToolSince: { name: since, in: query, description: "RFC3339 or 30m, 24h, 7d, 1w", schema: { type: string } }
   schemas:
+    ToolEvent:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        ts: { type: string }
+        sessionId: { type: string }
+        sequence: { type: integer }
+        agent: { type: string }
+        action: { type: string }
+        tool: { type: string }
+        path: { type: string }
+        command: { type: string }
+        result: { type: string, description: "success, error, blocked, warned, or guided" }
+        sensitive: { type: boolean }
+        preview: { type: string }
+        mcp: { type: boolean }
     HTTPError:
       type: object
       required: [error]

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import { ErrorState, LoadingState, PageHeader, SectionTitle } from '../../components/ui/Badges'
+import { PolicyPanel } from './PolicyPanel'
 
 interface Finding {
   id: string
@@ -90,6 +91,7 @@ export function SecurityPage() {
             Retry
           </button>
         </div>
+        <PolicyPanel />
       </div>
     )
   }
@@ -102,14 +104,16 @@ export function SecurityPage() {
           <div className="mt-2 text-xs text-ink-4">{scanning ? 'Scanning…' : 'Loading…'}</div>
           <LoadingState />
         </div>
+        <PolicyPanel />
       </div>
     )
   }
 
   if (data.error_message && !data.available) {
     return (
-      <div className="p-4">
+      <div className="space-y-4 p-4">
         <ErrorState error={data.error_message} />
+        <PolicyPanel />
       </div>
     )
   }
@@ -219,6 +223,8 @@ export function SecurityPage() {
           <div className="mt-1 text-xs text-ink-4">Trivy scan completed in {data.duration_ms}ms</div>
         </div>
       )}
+
+      <PolicyPanel />
 
       <div className="text-[10px] text-ink-4">
         Scan duration: {data.duration_ms}ms · Advisory only — findings are reported, never blocking.

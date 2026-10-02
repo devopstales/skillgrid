@@ -10,6 +10,7 @@ import {
   StatusBadge,
   TypeBadge,
 } from '../../components/ui/Badges'
+import { AgentBadge } from '../sessions/AgentBadge'
 
 interface Session {
   id: string
@@ -17,6 +18,8 @@ interface Session {
   memories_writes?: number
   has_summary?: boolean
   last_active?: string
+  agent?: string
+  last_tool?: string
 }
 
 interface Event {
@@ -96,6 +99,8 @@ export function TelemetryPage() {
             <thead>
               <tr className="border-b border-edge text-left text-ink-4">
                 <th className="px-2 py-1.5">Session</th>
+                <th className="px-2 py-1.5">Agent</th>
+                <th className="px-2 py-1.5">Last tool</th>
                 <th className="px-2 py-1.5">Status</th>
                 <th className="px-2 py-1.5">Writes</th>
                 <th className="px-2 py-1.5">Summary</th>
@@ -106,8 +111,17 @@ export function TelemetryPage() {
               {(sessions || []).map((s) => (
                 <tr key={s.id} className="table-row">
                   <td className="max-w-[180px] truncate px-2 py-1.5 font-mono text-ink-3">
-                    {s.id?.slice(0, 16)}…
+                    <a
+                      href={`/mnemonic/sessions?id=${encodeURIComponent(s.id)}`}
+                      className="hover:text-accent hover:underline"
+                    >
+                      {s.id?.slice(0, 16)}…
+                    </a>
                   </td>
+                  <td className="px-2 py-1.5">
+                    <AgentBadge agent={s.agent} />
+                  </td>
+                  <td className="max-w-[140px] truncate px-2 py-1.5 font-mono text-ink-4">{s.last_tool || '—'}</td>
                   <td className="px-2 py-1.5">
                     <StatusBadge status={s.status} />
                   </td>

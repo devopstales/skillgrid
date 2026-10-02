@@ -109,6 +109,33 @@ func TestQueryEvents(t *testing.T) {
 		}
 	})
 
+	t.Run("agent tool command filters", func(t *testing.T) {
+		if _, err := svc.store.DB.ExecContext(ctx, `UPDATE sessions SET agent = 'opencode' WHERE id = ?`, sid2); err != nil {
+			t.Fatal(err)
+		}
+		_, count, err := svc.QueryEvents(ctx, QueryEventOpts{Agent: "opencode"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if count != 2 {
+			t.Errorf("agent count=%d, want 2 (sid2 start + ls)", count)
+		}
+		_, count, err = svc.QueryEvents(ctx, QueryEventOpts{Tool: "BASH"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if count != 2 {
+			t.Errorf("tool count=%d, want 2", count)
+		}
+		_, count, err = svc.QueryEvents(ctx, QueryEventOpts{Command: "go %"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Errorf("command count=%d, want 1 (go test)", count)
+		}
+	})
+
 	t.Run("time window", func(t *testing.T) {
 		// Baseline: all non-sensitive events.
 		_, count, err := svc.QueryEvents(ctx, QueryEventOpts{})

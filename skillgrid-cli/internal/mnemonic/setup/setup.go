@@ -20,9 +20,10 @@ import (
 const (
 	mcpServerName = "skillgrid-mnemonic"
 
-	opencodePluginRel = "plugins/opencode/mnemonic.ts"
-	kiloPluginRel     = "plugins/kilo/mnemonic.ts"
-	cursorTemplateRel = "plugins/cursor/mnemonic.mdc"
+	opencodePluginRel = "plugins/opencode/hooks.yaml"
+	kiloPluginRel     = "plugins/kilo/hooks.yaml"
+	cursorPluginRel   = ".cursor-plugin/plugin.json"
+	cursorRuleRel     = "rules/mnemonic.mdc"
 
 	kiloBeginMarker = "<!-- BEGIN SKILLGRID MNEMONIC — managed by skillgrid setup kilocode -->"
 	kiloEndMarker   = "<!-- END SKILLGRID MNEMONIC -->"
@@ -109,7 +110,7 @@ func FindRepoRoot(start string) string {
 		}
 	}
 	for {
-		for _, rel := range []string{opencodePluginRel, kiloPluginRel, cursorTemplateRel} {
+		for _, rel := range []string{opencodePluginRel, kiloPluginRel, cursorPluginRel, cursorRuleRel} {
 			if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 				return dir
 			}
@@ -121,7 +122,7 @@ func FindRepoRoot(start string) string {
 		dir = parent
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		for _, rel := range []string{opencodePluginRel, kiloPluginRel, cursorTemplateRel} {
+		for _, rel := range []string{opencodePluginRel, kiloPluginRel, cursorPluginRel, cursorRuleRel} {
 			synced := filepath.Join(home, ".skillgrid", "repos", "skillgrid", rel)
 			if _, err := os.Stat(synced); err == nil {
 				return filepath.Join(home, ".skillgrid", "repos", "skillgrid")

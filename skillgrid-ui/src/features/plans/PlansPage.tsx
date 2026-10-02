@@ -32,9 +32,7 @@ export function PlansPage() {
         if (cancelled) return
         setPlans(r.plans ?? [])
         const change = new URLSearchParams(window.location.search).get('change')
-        if (change && r.plans?.some((p) => p.name === change)) {
-          setSelected(change)
-        }
+        if (change) setSelected(change)
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof PlansError ? e.message : 'failed to load plans')

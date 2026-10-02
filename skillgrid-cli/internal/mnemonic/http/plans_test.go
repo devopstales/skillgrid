@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"net/http"
@@ -145,6 +146,35 @@ func TestPhase6_Plans(t *testing.T) {
 	rr = doGet(t, h, "/plans/nope")
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("unknown plan: status = %d, want 404", rr.Code)
+	}
+}
+
+func TestPlanDetail_ReadsArchivedChange(t *testing.T) {
+	repo := t.TempDir()
+	dir := filepath.Join(repo, ".skillgrid", "archive", "2026-09-04-hermes-memory")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir archive: %v", err)
+	}
+	body := "# Change: 004-hermes-memory\n\n> **STATUS:** `revised`\n\nHermes Fact Memory\n"
+	if err := os.WriteFile(filepath.Join(dir, "briefing.md"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write briefing: %v", err)
+	}
+	t.Setenv("SKILLGRID_DOCS_CWD", repo)
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	h := NewServer(service.New(dataDir)).Handler()
+
+	rr := doGet(t, h, "/plans/2026-09-04-hermes-memory")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("archived plan: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var detail map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	briefing, _ := detail["briefing"].(string)
+	if !strings.Contains(briefing, "Hermes Fact Memory") {
+		t.Fatalf("briefing = %q", briefing)
 	}
 }
 

@@ -198,7 +198,7 @@ export function SettingsPage() {
         <h2 className="text-[13px] font-semibold text-ink">About</h2>
         <ul className="mt-1 list-none space-y-0.5 text-[12px] text-ink-4">
           <li>Skillgrid Dashboard</li>
-          <li>Mnemonic Admin Console (spike 001)</li>
+          <li>Mnemonic Admin Console (prototype 001)</li>
           <li>Powered by Skillgrid</li>
         </ul>
       </section>

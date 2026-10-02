@@ -32,7 +32,7 @@ import (
 //   - docs:       docs/** (human docs)
 //   - root:       top-level *.md
 var mdRoots = map[string][]string{
-	"skillgrid":   {".skillgrid/specs", ".skillgrid/adr", ".skillgrid/prd"},
+	"skillgrid":   {".skillgrid/specs", ".skillgrid/adr", ".skillgrid/prd", ".skillgrid"},
 	"openspec":    {"openspec/specs", "openspec/changes", "openspec"},
 	"speckit":     {"specs", ".specify/memory"},
 	"superpowers": {"docs/superpowers/plans", "docs/superpowers/specs"},
@@ -239,15 +239,28 @@ func NewContent(cwd string) http.Handler {
 			return
 		}
 		data, err := os.ReadFile(abs)
+		servedPath := filepath.ToSlash(raw)
+		if err != nil {
+			// Shipped changes move specs/<name>/ → archive/<name>/. Task doc_refs
+			// often still point at the specs/ path — try the archive twin before 404.
+			if twinRel, twinAbs := archiveTwin(cwd, raw); twinAbs != "" {
+				if data2, err2 := os.ReadFile(twinAbs); err2 == nil {
+					data = data2
+					abs = twinAbs
+					servedPath = twinRel
+					err = nil
+				}
+			}
+		}
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "doc not found"})
 			return
 		}
 		fm, body := splitFrontmatter(string(data))
-		docType := classifyDoc(filepath.ToSlash(raw), fm)
+		docType := classifyDoc(servedPath, fm)
 		out := MDContent{
-			Path:         filepath.ToSlash(raw),
-			Title:        titleFromBody(body, filepath.Base(raw)),
+			Path:         servedPath,
+			Title:        titleFromBody(body, filepath.Base(servedPath)),
 			Frontmatter:  fm,
 			Body:         body,
 			RelatedPlans: relatedPlans(body, cwd),
@@ -264,6 +277,29 @@ func NewContent(cwd string) http.Handler {
 		_ = sel
 		writeJSON(w, http.StatusOK, out)
 	})
+}
+
+// archiveTwin maps `.skillgrid/specs/<change>/…` → `.skillgrid/archive/<change>/…`
+// when the archive file exists. Returns ("","") when no twin applies.
+func archiveTwin(cwd, rel string) (twinRel, twinAbs string) {
+	slash := filepath.ToSlash(strings.TrimSpace(rel))
+	const prefix = ".skillgrid/specs/"
+	if !strings.HasPrefix(slash, prefix) {
+		return "", ""
+	}
+	rest := slash[len(prefix):]
+	if rest == "" || strings.Contains(rest, "..") {
+		return "", ""
+	}
+	twinRel = ".skillgrid/archive/" + rest
+	if _, _, err := resolveMDPath(cwd, twinRel); err != nil {
+		return "", ""
+	}
+	abs := filepath.Join(cwd, filepath.FromSlash(twinRel))
+	if _, err := os.Stat(abs); err != nil {
+		return "", ""
+	}
+	return twinRel, abs
 }
 
 // NewTree returns the GET /docs/tree?root=... handler.

@@ -11,7 +11,7 @@ import (
 
 // ExactnessResult is the per-ID agreement report between the vec table's
 // top-K and a Go-side brute-force cosine scan over the BLOB table (ground
-// truth). The spike's exactness-check methodology: the BLOB scan is exact
+// truth). The prototype's exactness-check methodology: the BLOB scan is exact
 // (deterministic cosine), the vec table is the candidate.
 type ExactnessResult struct {
 	Table         string

@@ -9,7 +9,7 @@ export default defineConfig({
   server: {
     proxy: {
       // Proxy JSON API calls to live mnemonic serve. Bypass HTML navigations so
-      // SPA routes (/mnemonic/graph, /docs, /plans, /project/spikes, …) stay on Vite.
+      // SPA routes (/mnemonic/graph, /docs, /plans, /project/prototypes, …) stay on Vite.
       // Swagger is always proxied (never HTML-bypassed) — the iframe must load
       // the Go Swagger UI, not the Vite SPA shell.
       '/swagger': 'http://127.0.0.1:7438',
@@ -21,6 +21,8 @@ export default defineConfig({
           '/code',
           '/context',
           '/docs',
+          '/events',
+          '/policy',
           '/git',
           '/health',
           '/memory',
@@ -32,9 +34,9 @@ export default defineConfig({
           '/prototypes',
           '/search',
           '/security',
+          '/sdd',
           '/sessions',
           '/specs',
-          '/spikes',
           '/tracker',
           '/web',
         ].map((prefix) => [
@@ -43,6 +45,10 @@ export default defineConfig({
             target: 'http://127.0.0.1:7438',
             bypass(req: { headers: { accept?: string }; url?: string }) {
               const accept = req.headers.accept ?? ''
+              const url = req.url ?? ''
+              // Feasibility-prototype previews (GET /prototypes/<name>/index.html)
+              // are real HTML files on the Go server, not SPA routes.
+              if (url.startsWith('/prototypes/')) return undefined
               // SPA navigations (text/html) stay on Vite; JSON/API stay proxied.
               if (accept.includes('text/html')) return req.url
               return undefined

@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ===================================================================
-   Mnemonic Admin Console — design tokens from spike 001 mockup.
+   Mnemonic Admin Console — design tokens from prototype 001 mockup.
    Surfaces + indigo accent. Legacy token aliases (bg/card/ink-*) keep
    existing feature pages compiling during the rewrite.
    =================================================================== */
@@ -234,9 +234,18 @@ body {
   background: rgba(99, 102, 241, 0.15);
   color: #818cf8;
 }
-.status-ended {
+.status-ended,
+.status-idle {
   background: rgba(100, 116, 139, 0.15);
   color: #94a3b8;
+}
+.status-working {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+}
+.status-finished {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
 }
 .status-published {
   background: rgba(34, 197, 94, 0.15);
@@ -246,9 +255,19 @@ body {
   background: rgba(239, 68, 68, 0.15);
   color: #f87171;
 }
-.status-in_progress {
+.status-in_progress,
+.status-dispatched,
+.status-in-progress,
+.status-review,
+.status-review_spec {
   background: rgba(234, 179, 8, 0.15);
   color: #facc15;
+}
+.status-done,
+.status-complete,
+.status-completed {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
 }
 .status-blocked {
   background: rgba(239, 68, 68, 0.15);

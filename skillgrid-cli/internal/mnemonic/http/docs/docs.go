@@ -19,7 +19,24 @@ import (
 
 // roots are the only directories the package reads from, relative to the
 // server's working directory (the repo root, matching the tracker bridge).
-var roots = []string{"docs/skillgrid/changes", "docs/skillgrid/archive"}
+// Overridable via SKILLGRID_DOCS_ROOTS (comma-separated) for projects that
+// store changes in a different layout (e.g. .skillgrid/specs + .skillgrid/archive).
+var roots = func() []string {
+	if v := strings.TrimSpace(os.Getenv("SKILLGRID_DOCS_ROOTS")); v != "" {
+		parts := strings.Split(v, ",")
+		roots := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				roots = append(roots, p)
+			}
+		}
+		if len(roots) > 0 {
+			return roots
+		}
+	}
+	return []string{"docs/skillgrid/changes", "docs/skillgrid/archive"}
+}()
 
 type ChangeInfo struct {
 	Name   string `json:"name"`
@@ -140,6 +157,22 @@ func (w *wrapErr) Unwrap() error { return w.err }
 var ticketRE = regexp.MustCompile(`(?im)^\*{2}Ticket:\*{2}\s*(.+)$`)
 var statusRE = regexp.MustCompile("(?im)^>\\s*\\*{2}STATUS:\\*{2}\\s*`?([a-z][a-z0-9-]+)`?")
 
+// changeFileNames are the candidate file names for the primary change doc,
+// tried in order. "change.md" is the original SDD convention; "briefing.md"
+// is the skillgrid-v2 convention.
+var changeFileNames = []string{"change.md", "briefing.md"}
+
+// readChangeFile tries each candidate name and returns the first that exists.
+func readChangeFile(dir string) (string, string, error) {
+	for _, name := range changeFileNames {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err == nil {
+			return string(data), name, nil
+		}
+	}
+	return "", "", os.ErrNotExist
+}
+
 // parseMeta extracts the header Ticket: and STATUS: lines from change.md text.
 // The Ticket: regex is anchored to the bold `**Ticket:**` header form so the
 // DoD checkboxes ("ticket id from `Ticket:`") never match; STATUS: is anchored
@@ -190,8 +223,8 @@ func ListChanges(ctx context.Context, cwd string) ([]ChangeInfo, error) {
 			default:
 			}
 			info := ChangeInfo{Name: e.Name(), Status: "unknown"}
-			if md, err := os.ReadFile(filepath.Join(abs, e.Name(), "change.md")); err == nil {
-				info.Status, info.Ticket = parseMeta(string(md))
+			if md, _, err := readChangeFile(filepath.Join(abs, e.Name())); err == nil {
+				info.Status, info.Ticket = parseMeta(md)
 				if !isMeaningfulTicket(info.Ticket) {
 					info.Ticket = ""
 				}
@@ -225,14 +258,11 @@ func GetChange(ctx context.Context, cwd, name string) (ChangeDetail, error) {
 		return ChangeDetail{}, err
 	}
 	detail := ChangeDetail{Name: name, Status: "unknown"}
-	data, err := os.ReadFile(filepath.Join(dir, "change.md"))
+	data, _, err := readChangeFile(dir)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return ChangeDetail{}, &wrapErr{err: ErrNotFound, msg: "change " + name + " has no change.md"}
-		}
-		return ChangeDetail{}, err
+		return ChangeDetail{}, &wrapErr{err: ErrNotFound, msg: "change " + name + " has no change.md or briefing.md"}
 	}
-	detail.ChangeMD = string(data)
+	detail.ChangeMD = data
 	detail.Status, detail.Ticket = parseMeta(detail.ChangeMD)
 	if !isMeaningfulTicket(detail.Ticket) {
 		detail.Ticket = ""

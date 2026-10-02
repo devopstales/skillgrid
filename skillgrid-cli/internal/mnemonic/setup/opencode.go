@@ -38,16 +38,11 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 	if err := upsertPrivateToolsEnv(cfgPath, privateTools, dryRun); err != nil {
 		return err
 	}
-	if err := upsertPluginKey(cfgPath, "opencode-command-hooks", dryRun); err != nil {
+	if err := upsertPluginKey(cfgPath, "opencode-yaml-hooks", dryRun); err != nil {
 		return err
 	}
-	pluginDst := filepath.Join(opencodeDir, "plugins", "mnemonic.ts")
-	sharedDst := filepath.Join(opencodeDir, "shared", "http-client.ts")
-
-	if err := copyFromRepo(repoRoot, opencodePluginRel, pluginDst, dryRun); err != nil {
-		return err
-	}
-	return copyFromRepo(repoRoot, kiloPluginRel, sharedDst, dryRun)
+	hooksDst := filepath.Join(opencodeDir, "hook", "hooks.yaml")
+	return copyFromRepo(repoRoot, opencodePluginRel, hooksDst, dryRun)
 }
 
 // upsertPrivateToolsEnv writes SKILLGRID_MNEMONIC_PRIVATE_TOOLS (comma-joined)

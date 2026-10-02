@@ -254,28 +254,35 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	ctx := r.Context()
+	client := &activityStreamClient{events: make(chan streamEvent, 64)}
+
+	// Seed the high-water marks before `ready` so a row written right after
+	// the client sees `ready` is always emitted (no replay of history on
+	// connect — the client already has it from /events). If a seed errors,
+	// the poller does not start rather than replaying the table from id>0.
+	db := h.Store().DB
+	var newest, newestTool int64
+	seedErr := db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(id), 0) FROM observations WHERE project = ? AND deleted_at IS NULL`, projectID,
+	).Scan(&newest)
+	if seedErr == nil {
+		// Second high-water mark: harness tool calls in session_events.
+		seedErr = db.QueryRowContext(ctx,
+			`SELECT COALESCE(MAX(id), 0) FROM session_events WHERE project = ?`, projectID,
+		).Scan(&newestTool)
+	}
+
 	// Initial event so the client knows the stream is alive.
 	_, _ = w.Write([]byte("event: ready\n\n"))
 	flusher.Flush()
 
-	ctx := r.Context()
-	client := &activityStreamClient{events: make(chan streamEvent, 64)}
-
-	// Poller: track the newest observation id. Each tick emits rows newer
-	// than the mark as SSE `activity` events.
+	// Poller: each tick emits rows newer than the marks as SSE `tool` and
+	// `activity` events.
 	go func() {
-		db := h.Store().DB
-		// Seed the high-water mark with the current newest id (no replay of
-		// history on connect — the client already has it from /events).
-		// If the seed errors, treat the stream as closed rather than
-		// replaying the whole table from id>0.
-		var newest int64
-		if err := db.QueryRowContext(ctx,
-			`SELECT COALESCE(MAX(id), 0) FROM observations WHERE project = ? AND deleted_at IS NULL`, projectID,
-		).Scan(&newest); err != nil {
+		if seedErr != nil {
 			return
 		}
-
 		ticker := time.NewTicker(800 * time.Millisecond)
 		defer ticker.Stop()
 		for {
@@ -283,6 +290,26 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				tools, err := queryToolEvents(ctx, db, projectID, toolEventFilter{
+					AfterID: newestTool, Asc: true, Limit: 200, IncludeLifecycle: true,
+				})
+				if err != nil {
+					return
+				}
+				for _, te := range tools {
+					if te.ID > newestTool {
+						newestTool = te.ID
+					}
+					payload, _ := json.Marshal(struct {
+						toolEvent
+						NewSession bool `json:"newSession"`
+					}{te, te.Action == "session_start"})
+					select {
+					case client.events <- streamEvent{kind: "tool", data: string(payload)}:
+					default:
+					}
+				}
+
 				// Activity (observations) rows.
 				rows, err := db.QueryContext(ctx, `
 					SELECT id, created_at, type, COALESCE(source,'agent'), tool_name, title, session_id

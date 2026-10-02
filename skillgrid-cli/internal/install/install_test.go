@@ -211,11 +211,13 @@ func TestMemoryAndPersonasBoundary(t *testing.T) {
 
 	// Memory assets the setup writers need.
 	for _, f := range []string{
-		"plugins/opencode/mnemonic.ts",
-		"plugins/kilo/mnemonic.ts",
+		"plugins/opencode/hooks.yaml",
+		"plugins/kilo/hooks.yaml",
 		"plugins/opencode/memory-protocol.md",
 		"plugins/kilo/memory-protocol.md",
-		"plugins/cursor/mnemonic.mdc",
+		"plugins/_shared/memory-protocol.md",
+		"rules/mnemonic.mdc",
+		".cursor-plugin/plugin.json",
 		"plugins/opencode/skillgrid-logo.tsx",
 		"plugins/kilo/skillgrid-logo.tsx",
 	} {
@@ -297,11 +299,13 @@ func TestSetupAgentsIntegration(t *testing.T) {
 	repo := t.TempDir()
 
 	files := []string{
-		"plugins/opencode/mnemonic.ts",
-		"plugins/kilo/mnemonic.ts",
+		"plugins/opencode/hooks.yaml",
+		"plugins/kilo/hooks.yaml",
 		"plugins/opencode/memory-protocol.md",
 		"plugins/kilo/memory-protocol.md",
-		"plugins/cursor/mnemonic.mdc",
+		"plugins/_shared/memory-protocol.md",
+		"rules/mnemonic.mdc",
+		".cursor-plugin/plugin.json",
 		"plugins/opencode/skillgrid-logo.tsx",
 		"plugins/kilo/skillgrid-logo.tsx",
 		"config.d/mcp.yaml",

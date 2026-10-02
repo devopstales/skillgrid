@@ -28,7 +28,7 @@ var apiPrefixes = []string{
 	"sessions", "memory", "observations", "code", "web", "projects",
 	"prompts", "relations", "context", "health", "tracker", "docs",
 	// NOTE (review B2): the Phase 6/7 read bridges (activity/plans/git/
-	// prototypes/specs) are deliberately NOT in this list — they are
+	// specs) are deliberately NOT in this list — they are
 	// SPA-routed (a browser GET serves the shell so the client router can
 	// handle the sub-path), and adding them here registers a conflicting
 	// `GET /{prefix}/{rest...}` wildcard against their explicit routes.
@@ -39,13 +39,13 @@ var apiPrefixes = []string{
 // before the final SPA fallback.
 func (s *Server) registerUIRoutes() {
 	s.mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPI)
-	// /swagger and /swagger/ both serve the entry page; {file...} covers the
-	// flat bundle files (Go 1.22 mux: the two exact patterns coexist with the
-	// wildcard because a trailing-slash exact pattern is not a prefix of the
-	// wildcard's matches... it IS — so register the wildcard under a distinct
-	// subtree by serving the index via a redirect-free exact route only).
+	// /swagger redirects to /swagger/ because the embedded index.html uses
+	// relative asset paths (./swagger-ui-bundle.js) that only resolve against
+	// the trailing-slash base; serving it at /swagger would send those
+	// requests to / and hit the SPA fallback. {file...} covers the flat
+	// bundle files.
 	s.mux.HandleFunc("GET /swagger/{file}", s.handleSwaggerAsset)
-	s.mux.HandleFunc("GET /swagger", s.handleSwaggerIndex)
+	s.mux.HandleFunc("GET /swagger", s.handleSwaggerRedirect)
 	s.mux.HandleFunc("GET /swagger/", s.handleSwaggerIndex)
 	s.mux.HandleFunc("GET /assets/{rest...}", s.handleUIAsset)
 
@@ -126,6 +126,12 @@ func mimeByExt(name string) string {
 func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/yaml")
 	_, _ = w.Write(uiOpenAPISpec)
+}
+
+// handleSwaggerRedirect sends /swagger to /swagger/ so the index's relative
+// asset paths resolve against the trailing-slash base instead of the root.
+func (s *Server) handleSwaggerRedirect(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/swagger/", http.StatusSeeOther)
 }
 
 // handleSwaggerIndex serves the swagger-ui entry page.

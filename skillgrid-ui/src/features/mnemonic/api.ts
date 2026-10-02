@@ -275,6 +275,7 @@ export interface MnemonicSession {
   status: string
   memory_count: number
   has_summary: boolean
+  agent?: string
 }
 
 export interface AuditEntry {

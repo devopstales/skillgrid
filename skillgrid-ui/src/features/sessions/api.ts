@@ -4,6 +4,7 @@ import { currentProjectName } from '../../lib/projects'
 // (sessions-activity-unification). This merges the former features:
 //   - Activity (event feed + stats + SSE)  → activity/events, /activity/stats, /activity/stream
 //   - Mnemonic sessions + audit            → /mnemonic/sessions, /sessions/{id}/summary, /sessions/{id}/activity, /mnemonic/audit
+//   - Harness tool calls (Gryph-style)     → /sessions/{id}/events, /events, /events/stats, SSE `tool`
 //
 // Project resolution mirrors the activity view (git name → first project with
 // data). The live SSE reuses the single /activity/stream endpoint.
@@ -31,8 +32,18 @@ async function get<T>(url: string): Promise<T> {
   return (await res.json()) as T
 }
 
+// A deep link from another view (Observe → Teams) names the store that owns
+// the session with ?store=; it wins over the git-derived default.
+function storeFromLocation(): string | null {
+  if (typeof window === 'undefined') return null
+  const store = new URLSearchParams(window.location.search).get('store')?.trim()
+  return store ? store : null
+}
+
 let resolvedProject: string | null = null
 async function resolveProject(): Promise<string> {
+  const store = storeFromLocation()
+  if (store) return store
   if (resolvedProject) return resolvedProject
   const gitName = await currentProjectName()
   try {
@@ -110,6 +121,94 @@ export interface MnemonicSession {
   status: string
   memory_count: number
   has_summary: boolean
+  // Harness observability (Gryph-style). Older servers omit these.
+  agent?: string
+  files_read?: number
+  files_written?: number
+  commands_exec?: number
+  errors?: number
+  blocked_actions?: number
+  policy_decisions?: number
+  tool_calls?: number
+  last_tool?: string
+  last_active?: string
+  input_tokens?: number
+  output_tokens?: number
+  cache_tokens?: number
+  model?: string
+  cost_usd?: number | null
+}
+
+// ToolEvent is one harness tool call (session_events row) — the same shape
+// from GET /sessions/{id}/events, GET /events, and the SSE `tool` frame.
+export interface ToolEvent {
+  id: number
+  ts: string
+  sessionId: string
+  sequence: number
+  agent: string
+  action: string
+  tool: string
+  path: string
+  command: string
+  result: string
+  sensitive: boolean
+  preview: string
+  mcp: boolean
+  newSession?: boolean
+}
+
+export interface ToolFilter {
+  agent?: string
+  action?: string
+  tool?: string
+  file?: string
+  command?: string
+  since?: string
+  session?: string
+}
+
+export interface AgentStat {
+  agent: string
+  sessions: number
+  events: number
+  reads: number
+  writes: number
+  commands: number
+  mcp: number
+  errors: number
+  blocked: number
+  inputTokens: number
+  outputTokens: number
+  costUsd: number | null
+}
+
+export interface ModelStat {
+  model: string
+  sessions: number
+  inputTokens: number
+  outputTokens: number
+  cacheTokens: number
+  costUsd: number | null
+}
+
+export interface EventStats {
+  project: string
+  since: string
+  total: number
+  sessions: number
+  mcp: number
+  errors: number
+  sensitive: number
+  blocked: number
+  warned?: number
+  guided?: number
+  byAction: Record<string, number>
+  byAgent: AgentStat[]
+  byModel?: ModelStat[]
+  topFiles: { name: string; count: number }[]
+  topCommands: { name: string; count: number }[]
+  topTools: { name: string; count: number; mcp: boolean }[]
 }
 
 export interface SessionSummary {
@@ -160,6 +259,92 @@ export async function fetchSessions(): Promise<{ project: string; sessions: Mnem
   return get(`/mnemonic/sessions?${qs(project)}`)
 }
 
+function filterParams(f: ToolFilter): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(f)) {
+    if (v && String(v).trim() !== '') out[k] = String(v).trim()
+  }
+  return out
+}
+
+// Session tool timeline: GET /sessions/{id}/events (newest first).
+export async function fetchSessionEvents(
+  id: string,
+  filter: ToolFilter = {},
+  limit = 300,
+): Promise<{ events: ToolEvent[] }> {
+  const project = await resolveProject()
+  return get(
+    `/sessions/${encodeURIComponent(id)}/events?${qs(project, { ...filterParams(filter), limit })}`,
+  )
+}
+
+// Project-wide tool query: GET /events.
+export async function fetchEvents(filter: ToolFilter = {}, limit = 300): Promise<{ events: ToolEvent[] }> {
+  const project = await resolveProject()
+  return get(`/events?${qs(project, { ...filterParams(filter), limit })}`)
+}
+
+export async function fetchEventStats(filter: { since?: string; agent?: string } = {}): Promise<EventStats> {
+  const project = await resolveProject()
+  return get(`/events/stats?${qs(project, filterParams(filter))}`)
+}
+
+// ---------------------------------------------------------------------------
+// pre-tool policy (ADR-0021) — read-only view of the merged rule set
+// ---------------------------------------------------------------------------
+
+export interface PolicyRule {
+  name: string
+  match: {
+    action?: string[]
+    path?: string[]
+    command?: string[]
+    tool?: string[]
+    agent?: string[]
+    project?: string[]
+    counters?: Record<string, string>
+  }
+  effect: 'block' | 'warn' | 'guide' | 'allow'
+  message?: string
+  source: string
+}
+
+export interface PolicyView {
+  project: string
+  enabled: boolean
+  rules: PolicyRule[]
+  files: string[]
+  repoFile?: string
+  error?: string
+}
+
+export async function fetchPolicy(): Promise<PolicyView> {
+  const project = await resolveProject()
+  return get(`/policy?${qs(project)}`)
+}
+
+// globMatch mirrors the server's glob→LIKE mapping (* and ** any run, ? one
+// char, case-sensitive) so live SSE frames honor the same filter as the query.
+export function globMatch(glob: string, value: string): boolean {
+  const re = glob
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*+/g, '.*')
+    .replace(/\?/g, '.')
+  return new RegExp(`^${re}$`).test(value)
+}
+
+// matchesFilter applies a ToolFilter to one event client-side (live frames).
+export function matchesFilter(e: ToolEvent, f: ToolFilter): boolean {
+  if (f.session && e.sessionId !== f.session) return false
+  if (f.agent && e.agent !== f.agent) return false
+  if (f.action && e.action !== f.action) return false
+  if (f.tool && e.tool.toLowerCase() !== f.tool.toLowerCase()) return false
+  if (f.file && !globMatch(f.file, e.path)) return false
+  if (f.command && !globMatch(f.command, e.command)) return false
+  return true
+}
+
 export async function fetchSessionSummary(id: string): Promise<SessionSummary> {
   const project = await resolveProject()
   return get<SessionSummary>(
@@ -183,6 +368,7 @@ export async function fetchAudit(limit = 200): Promise<{
 
 export interface StreamCallbacks {
   onActivity?: (e: ActivityEvent) => void
+  onTool?: (e: ToolEvent) => void
   onSnapshot?: (s: {
     commit: string
     commitShort: string
@@ -206,6 +392,13 @@ export function openActivityStream(cb: StreamCallbacks): () => void {
     es.addEventListener('activity', (ev) => {
       try {
         cb.onActivity?.(JSON.parse((ev as MessageEvent).data))
+      } catch (e) {
+        cb.onError?.(e as Error)
+      }
+    })
+    es.addEventListener('tool', (ev) => {
+      try {
+        cb.onTool?.(JSON.parse((ev as MessageEvent).data))
       } catch (e) {
         cb.onError?.(e as Error)
       }

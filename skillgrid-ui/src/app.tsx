@@ -96,12 +96,6 @@ const gitRoute = createRoute({
   component: lazyPage(() => import('./features/git/GitPage').then((m) => ({ default: m.GitPage }))),
 })
 
-const prototypesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/prototypes',
-  component: lazyPage(() => import('./features/prototypes/PrototypesPage').then((m) => ({ default: m.PrototypesPage }))),
-})
-
 const swaggerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/swagger-ui',
@@ -114,16 +108,22 @@ const settingsRoute = createRoute({
   component: lazyPage(() => import('./features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage }))),
 })
 
-const spikesRoute = createRoute({
+const prototypesRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/project/spikes',
-  component: lazyPage(() => import('./features/spikes/SpikesPage').then((m) => ({ default: m.SpikesPage }))),
+  path: '/project/prototypes',
+  component: lazyPage(() => import('./features/prototypes/PrototypesPage').then((m) => ({ default: m.PrototypesPage }))),
 })
 
 const telemetryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/observe/telemetry',
   component: lazyPage(() => import('./features/observe/TelemetryPage').then((m) => ({ default: m.TelemetryPage }))),
+})
+
+const agentStatsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/observe/agents',
+  component: lazyPage(() => import('./features/observe/AgentStatsPage').then((m) => ({ default: m.AgentStatsPage }))),
 })
 
 const compactionRoute = createRoute({
@@ -136,6 +136,12 @@ const webCacheRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/observe/web-cache',
   component: lazyPage(() => import('./features/observe/WebCachePage').then((m) => ({ default: m.WebCachePage }))),
+})
+
+const teamsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/observe/teams',
+  component: lazyPage(() => import('./features/observe/TeamsPage').then((m) => ({ default: m.TeamsPage }))),
 })
 
 const securityRoute = createRoute({
@@ -163,13 +169,14 @@ const routeTree = rootRoute.addChildren([
   decisionsRoute,
   adrRoute,
   gitRoute,
-  prototypesRoute,
   swaggerRoute,
   settingsRoute,
-  spikesRoute,
+  prototypesRoute,
   telemetryRoute,
+  agentStatsRoute,
   compactionRoute,
   webCacheRoute,
+  teamsRoute,
   securityRoute,
   notFoundRoute,
 ])

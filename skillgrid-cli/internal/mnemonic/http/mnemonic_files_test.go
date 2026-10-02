@@ -27,8 +27,8 @@ func seedMemoryStore(t *testing.T, dataDir string) {
 	}
 	defer st.Close()
 	seed := `
-		INSERT INTO sessions (id, project, directory, started_at, ended_at, summary, status)
-		VALUES ('sess-1', 'http-test', '.', '2026-09-01T10:00:00Z', '2026-09-01T11:00:00Z', '## Goal\nwork', 'ended');
+		INSERT INTO sessions (id, project, directory, started_at, ended_at, summary, status, agent)
+		VALUES ('sess-1', 'http-test', '.', '2026-09-01T10:00:00Z', '2026-09-01T11:00:00Z', '## Goal\nwork', 'ended', 'cursor');
 
 		INSERT INTO observations (session_id, type, title, content, project, scope, topic_key, source, owner, visibility, status, revision_count, pinned, created_at, updated_at, normalized_hash)
 		VALUES ('sess-1', 'decision', 'Root decision', 'decided to use SQLite', 'http-test', 'project', 'arch', 'agent', 'sess-1', 'team', 'active', 0, 1, '2026-09-01T10:05:00Z', '2026-09-01T10:05:00Z', 'hash-a');
@@ -253,6 +253,9 @@ func TestPhase5_SessionsAuditSearch(t *testing.T) {
 	}
 	if hs, _ := s["has_summary"].(bool); !hs {
 		t.Errorf("session has_summary should be true, got %v", s["has_summary"])
+	}
+	if ag, _ := s["agent"].(string); ag != "cursor" {
+		t.Errorf("session agent should be cursor, got %v", s["agent"])
 	}
 
 	// audit: hash-chained trail over the 2 seeded version rows.

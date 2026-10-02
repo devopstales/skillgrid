@@ -1,7 +1,7 @@
 # Terminal Ops — Design System
 
 **Owner:** skillgrid dashboard
-**Status:** selected (spike 002 winner) — v1.0
+**Status:** selected (prototype 002 winner) — v1.0
 **Interactive spec:** `./design-system.html` (token tables auto-generated from `:root`)
 **Build target:** port the token block into `../../src/index.css` under `:root`.
 

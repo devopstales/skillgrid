@@ -13,6 +13,9 @@ type QueryEventOpts struct {
 	Since            string // RFC3339 lower bound
 	Until            string // RFC3339 upper bound
 	Session          string
+	Agent            string // owning harness (sessions.agent): cursor, opencode, kilo
+	Tool             string // exact tool name, case-insensitive
+	Command          string // LIKE pattern (e.g. "npm %")
 	IncludeSensitive bool
 	CountOnly        bool
 }
@@ -62,6 +65,18 @@ func buildEventWhere(opts QueryEventOpts) (string, []any) {
 	if opts.File != "" {
 		clauses = append(clauses, "path LIKE ?")
 		args = append(args, opts.File)
+	}
+	if opts.Agent != "" {
+		clauses = append(clauses, "session_id IN (SELECT id FROM sessions WHERE agent = ?)")
+		args = append(args, opts.Agent)
+	}
+	if opts.Tool != "" {
+		clauses = append(clauses, "LOWER(COALESCE(tool_name, '')) = LOWER(?)")
+		args = append(args, opts.Tool)
+	}
+	if opts.Command != "" {
+		clauses = append(clauses, "command LIKE ?")
+		args = append(args, opts.Command)
 	}
 	if opts.Since != "" {
 		clauses = append(clauses, "timestamp >= ?")

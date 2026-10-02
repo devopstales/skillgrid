@@ -24,13 +24,15 @@ function makeRouter() {
     route('/tracker', 'kanban'),
     route('/plans', 'changes'),
     route('/adr', 'adr'),
-    route('/project/spikes', 'spikes'),
+    route('/project/prototypes', 'prototypes'),
     route('/mnemonic/graph', 'graph'),
     route('/mnemonic/files', 'files'),
     route('/mnemonic/sessions', 'sessions'),
     route('/observe/telemetry', 'telemetry'),
+    route('/observe/agents', 'agents'),
     route('/observe/compaction', 'compaction'),
     route('/observe/web-cache', 'web-cache'),
+    route('/observe/teams', 'teams'),
     route('/docs', 'docs'),
     route('/system/security', 'security'),
     route('/settings', 'settings'),
@@ -56,23 +58,23 @@ describe('AppLayout navigation', () => {
     }
   })
 
-  it('Project group contains Kanban and Spikes', async () => {
+  it('Project group contains Kanban and Prototypes', async () => {
     render(makeRouter())
     await screen.findByText('Kanban')
 
     const projectHeader = screen.getByText('Project')
-    for (const label of ['Kanban', 'Changes', 'Decisions (ADR)', 'Spikes']) {
+    for (const label of ['Kanban', 'Changes', 'Decisions', 'Prototypes']) {
       const el = screen.getByText(label)
       expect(el.compareDocumentPosition(projectHeader) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
     }
   })
 
-  it('Observe group contains Telemetry, Compaction, Web Cache', async () => {
+  it('Observe group contains Telemetry, Compaction, Web Cache, Teams', async () => {
     render(makeRouter())
     await screen.findByText('Kanban')
 
     const observeHeader = screen.getByText('Observe')
-    for (const label of ['Telemetry', 'Compaction', 'Web Cache']) {
+    for (const label of ['Telemetry', 'Compaction', 'Web Cache', 'Teams']) {
       const el = screen.getByText(label)
       expect(el.compareDocumentPosition(observeHeader) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
     }

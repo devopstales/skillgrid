@@ -9,12 +9,13 @@ import (
 
 // prototypeRoot returns the .skillgrid/prototype/ directory (under sddRoot,
 // the repo root). This is the on-disk store for the companion's throwaway
-// interactive prototypes (agent-authored HTML), separate from .stitch/.
+// interactive prototypes (agent-authored HTML), separate from the feasibility
+// prototypes listed by GET /prototypes (.skillgrid/prototypes/).
 func prototypeRoot() string { return filepath.Join(sddRoot(), ".skillgrid", "prototype") }
 
 // prototypeFile resolves a prototype id to an absolute path sandboxed to
-// .skillgrid/prototype/ — the same path-traversal guard shape as stitchFile
-// (prototypes.go). ok=false for empty/absolute ids, '..' segments, or any
+// .skillgrid/prototype/ — the same path-traversal guard shape as the specs
+// reader (plans.go). ok=false for empty/absolute ids, '..' segments, or any
 // path that escapes the root after filepath.Clean.
 func prototypeFile(id string) (string, bool) {
 	id = strings.TrimSpace(id)

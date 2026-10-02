@@ -1,15 +1,21 @@
 package setup
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/tidwall/sjson"
+
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/logging"
 )
 
-// SetupCursor registers the Mnemonic MCP server and writes the always-applied rule.
+// SetupCursor registers MCP servers from config.d/mcp.yaml, adds the
+// session/tool-call/policy hooks to ~/.cursor/hooks.json, and copies the
+// always-applied Mnemonic rule from rules/mnemonic.mdc.
 func SetupCursor(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun bool) error {
 	if repoRoot == "" {
 		repoRoot = FindRepoRoot("")
@@ -31,17 +37,18 @@ func SetupCursor(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun boo
 		}
 	}
 
-	protocol := ProtocolMarkdownFromRepo(repoRoot)
-	if protocol == "" {
-		return fmt.Errorf("memory protocol not found")
+	if err := installCursorHookScripts(home, repoRoot, dryRun); err != nil {
+		return err
+	}
+	if err := upsertCursorHooks(home, dryRun); err != nil {
+		return err
 	}
 
-	templatePath := filepath.Join(repoRoot, cursorTemplateRel)
-	template, err := os.ReadFile(templatePath)
+	ruleSrc := filepath.Join(repoRoot, cursorRuleRel)
+	body, err := os.ReadFile(ruleSrc)
 	if err != nil {
-		return fmt.Errorf("read cursor template: %w", err)
+		return fmt.Errorf("read cursor rule %s: %w", cursorRuleRel, err)
 	}
-	body := strings.ReplaceAll(string(template), "{{MEMORY_PROTOCOL}}", protocol)
 
 	rulePath := filepath.Join(home, ".cursor", "rules", "mnemonic.mdc")
 	if dryRun {
@@ -50,7 +57,141 @@ func SetupCursor(home, repoRoot string, mcpEntries []MCPServerConfig, dryRun boo
 	if err := os.MkdirAll(filepath.Dir(rulePath), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(rulePath, []byte(body), 0o644)
+	return os.WriteFile(rulePath, body, 0o644)
+}
+
+// cursorHookScripts maps each Cursor hook event to the script under
+// ~/.skillgrid/hooks/ (mirrored by `skillgrid install`) that handles it. The
+// same map is the repo's hooks/hooks-cursor.json for the Cursor plugin; the
+// user-level entries make the hooks run whether or not the plugin is enabled.
+var cursorHookScripts = map[string]string{
+	"sessionStart":         "cursor-session-start.sh",
+	"sessionEnd":           "cursor-session-end.sh",
+	"stop":                 "cursor-session-end.sh",
+	"postToolUse":          "cursor-tool-capture.sh",
+	"beforeShellExecution": "cursor-policy.sh",
+	"beforeMCPExecution":   "cursor-policy.sh",
+	"beforeReadFile":       "cursor-policy.sh",
+}
+
+// CursorHookCommand is the hooks.json command for one skillgrid script.
+func CursorHookCommand(home, script string) string {
+	return "bash " + filepath.Join(home, ".skillgrid", "hooks", script)
+}
+
+// upsertCursorHooks adds the skillgrid entries to ~/.cursor/hooks.json,
+// keeping every other hook. An event that already runs the script (any path
+// ending in .skillgrid/hooks/<script>) is left alone, so re-running setup is
+// idempotent.
+// installCursorHookScripts copies the hook scripts referenced by
+// cursorHookScripts (plus the shared tool-call-capture.js they run) from the
+// repo's hooks/ dir into ~/.skillgrid/hooks/ so a standalone
+// `skillgrid setup cursor` works without a prior `skillgrid install` mirror.
+// Missing sources are skipped: an older checkout simply installs fewer hooks.
+func installCursorHookScripts(home, repoRoot string, dryRun bool) error {
+	names := map[string]bool{"tool-call-capture.js": true}
+	for _, s := range cursorHookScripts {
+		names[s] = true
+	}
+	sorted := make([]string, 0, len(names))
+	for n := range names {
+		sorted = append(sorted, n)
+	}
+	sort.Strings(sorted)
+	dstDir := filepath.Join(home, ".skillgrid", "hooks")
+	for _, name := range sorted {
+		src := filepath.Join(repoRoot, "hooks", name)
+		data, err := os.ReadFile(src)
+		if err != nil {
+			continue
+		}
+		dst := filepath.Join(dstDir, name)
+		if dryRun {
+			logging.Info("[dry-run] cp " + src + " " + dst)
+			continue
+		}
+		if err := os.MkdirAll(dstDir, 0o755); err != nil {
+			return err
+		}
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(name, ".sh") {
+			mode = 0o755
+		}
+		if err := os.WriteFile(dst, data, mode); err != nil {
+			return fmt.Errorf("write %s: %w", dst, err)
+		}
+		if err := os.Chmod(dst, mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func upsertCursorHooks(home string, dryRun bool) error {
+	path := filepath.Join(home, ".cursor", "hooks.json")
+	if err := ensureConfigFile(path, dryRun); err != nil {
+		return err
+	}
+	if err := backupConfigFile(home, "cursor", path, dryRun); err != nil {
+		return err
+	}
+	doc := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("parse %s: %w", path, err)
+		}
+	}
+	hooks, _ := doc["hooks"].(map[string]any)
+	if hooks == nil {
+		hooks = map[string]any{}
+	}
+	changed := false
+	events := make([]string, 0, len(cursorHookScripts))
+	for ev := range cursorHookScripts {
+		events = append(events, ev)
+	}
+	sort.Strings(events)
+	for _, ev := range events {
+		script := cursorHookScripts[ev]
+		entries, _ := hooks[ev].([]any)
+		if cursorHookPresent(entries, script) {
+			continue
+		}
+		hooks[ev] = append(entries, map[string]any{"command": CursorHookCommand(home, script)})
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	doc["hooks"] = hooks
+	if _, ok := doc["version"]; !ok {
+		doc["version"] = 1
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	if dryRun {
+		logging.Info("[dry-run] add skillgrid hooks to " + path)
+		return nil
+	}
+	if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	logging.Info("added skillgrid hooks to " + path)
+	return nil
+}
+
+func cursorHookPresent(entries []any, script string) bool {
+	want := filepath.Join(".skillgrid", "hooks", script)
+	for _, e := range entries {
+		m, _ := e.(map[string]any)
+		cmd, _ := m["command"].(string)
+		if strings.Contains(cmd, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func upsertCursorMCP(mcpPath string, entry MCPServerConfig, dryRun bool) error {
@@ -62,7 +203,8 @@ func upsertCursorMCP(mcpPath string, entry MCPServerConfig, dryRun bool) error {
 	var mcpEntry map[string]interface{}
 	if entry.Type == "remote" {
 		mcpEntry = map[string]interface{}{
-			"url": entry.URL,
+			"type": "streamable-http",
+			"url":  entry.URL,
 		}
 	} else {
 		var args []interface{}

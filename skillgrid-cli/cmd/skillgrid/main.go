@@ -73,6 +73,11 @@ func main() {
 		fmt.Fprintln(w, `  mem           Memory tools (layers|governance|share|search|context|timeline)`)
 		fmt.Fprintln(w, `  memory        Fact Memory (fact add|search|forget|decay|list)`)
 		fmt.Fprintln(w, `  skill         Agent Skill registry (write|list|search|execute)`)
+		fmt.Fprintln(w, `  logs          Agent tool-call audit log (--today, --agent, --action, --file, -f to follow live)`)
+		fmt.Fprintln(w, `  sessions      List agent sessions (harness, tool calls, last tool, cost)`)
+		fmt.Fprintln(w, `  session       Show one session's events (session <id>)`)
+		fmt.Fprintln(w, `  stats         Per-agent activity rollup (--since 24h)`)
+		fmt.Fprintln(w, `  policy        Pre-tool policy (init|validate|test --action --path --command --tool)`)
 		fmt.Fprintln(w, `  embedding-status  Report active embedder provider/model and embedded counts`)
 		fmt.Fprintln(w, `  doctor        Functional health check (embed round-trip, capabilities; --strict for CI)`)
 		fmt.Fprintln(w, `  eval          Retrieval-eval ablation (--corpus self | name=path; leak-free git queries)`)
@@ -190,6 +195,18 @@ func main() {
 		return
 	case "session":
 		runSession(version, rest[1:])
+		return
+	case "sessions":
+		runSessions(rest[1:])
+		return
+	case "logs":
+		runLogs(rest[1:])
+		return
+	case "stats":
+		runStats(rest[1:])
+		return
+	case "policy":
+		runPolicy(rest[1:])
 		return
 	case "embedding-status":
 		runSearchEmbeddingStatus(version, rest[1:])

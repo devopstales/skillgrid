@@ -168,9 +168,9 @@ func TestDeleteSymbolsAndChunks(t *testing.T) {
 	}
 }
 
-// TestMaxOpenConnsOne is the spike's viant-deadlock guard: the vec tables must
+// TestMaxOpenConnsOne is the prototype's viant-deadlock guard: the vec tables must
 // register and query under the store's hard SetMaxOpenConns(1) invariant. The
-// spike showed viant deadlocks exactly here (ensureIndex re-enters db.Exec from
+// prototype showed viant deadlocks exactly here (ensureIndex re-enters db.Exec from
 // inside the vtab Filter callback). G has no such re-entrancy, but this test
 // pins it.
 func TestMaxOpenConnsOne(t *testing.T) {

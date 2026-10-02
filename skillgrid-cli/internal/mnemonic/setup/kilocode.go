@@ -35,7 +35,7 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 	if err := upsertPrivateToolsEnv(cfgPath, privateTools, dryRun); err != nil {
 		return err
 	}
-	if err := upsertPluginKey(cfgPath, "opencode-command-hooks", dryRun); err != nil {
+	if err := upsertPluginKey(cfgPath, "opencode-yaml-hooks", dryRun); err != nil {
 		return err
 	}
 
@@ -65,11 +65,6 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 	}
 
 	kiloDir := filepath.Join(home, ".config", "kilo")
-	pluginDst := filepath.Join(kiloDir, "plugins", "mnemonic.ts")
-	sharedDst := filepath.Join(kiloDir, "shared", "http-client.ts")
-
-	if err := copyFromRepo(repoRoot, kiloPluginRel, pluginDst, dryRun); err != nil {
-		return err
-	}
-	return copyFromRepo(repoRoot, opencodePluginRel, sharedDst, dryRun)
+	hooksDst := filepath.Join(kiloDir, "hook", "hooks.yaml")
+	return copyFromRepo(repoRoot, kiloPluginRel, hooksDst, dryRun)
 }

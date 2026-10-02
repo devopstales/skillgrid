@@ -2,21 +2,28 @@ import { useEffect, useState } from 'react'
 import { apiGet } from '../../lib/api'
 import { EmptyState, ErrorState, LoadingState, PageHeader } from '../../components/ui/Badges'
 
-interface Spike {
+interface Prototype {
   name: string
   date?: string
   venue?: string
   hypothesis?: string
+  change?: string
   files?: string[]
 }
 
-export function SpikesPage() {
-  const [spikes, setSpikes] = useState<Spike[] | null>(null)
+// previewHref is the sandboxed file route for a prototype's generated
+// index.html. Opening it in a new tab loads the preview (and its relative assets).
+function previewHref(name: string): string {
+  return `/prototypes/${encodeURIComponent(name)}/index.html`
+}
+
+export function PrototypesPage() {
+  const [prototypes, setPrototypes] = useState<Prototype[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    apiGet<{ spikes?: Spike[] }>('/spikes', {}, { project: false })
-      .then((d) => setSpikes(d.spikes || []))
+    apiGet<{ prototypes?: Prototype[] }>('/prototypes', {}, { project: false })
+      .then((d) => setPrototypes(d.prototypes || []))
       .catch((err: Error) => setError(err.message))
   }, [])
 
@@ -27,7 +34,7 @@ export function SpikesPage() {
       </div>
     )
   }
-  if (!spikes) {
+  if (!prototypes) {
     return (
       <div className="p-6">
         <LoadingState />
@@ -38,15 +45,24 @@ export function SpikesPage() {
   return (
     <div className="p-6">
       <PageHeader
-        title="Spikes"
-        subtitle={`${spikes.length} throwaway feasibility experiments — verdicts in spike.md`}
+        title="Prototypes"
+        subtitle={`${prototypes.length} throwaway feasibility experiments — verdicts in prototype.md`}
       />
-      {spikes.length > 0 ? (
+      {prototypes.length > 0 ? (
         <div className="space-y-2">
-          {spikes.map((s) => (
+          {prototypes.map((s) => (
             <div key={s.name} className="kpi-card">
               <div className="flex items-start justify-between gap-3">
-                <span className="font-mono text-sm text-ink">{s.name}</span>
+                {s.change ? (
+                  <a
+                    href={`/plans?change=${encodeURIComponent(s.change)}`}
+                    className="font-mono text-sm text-accent hover:underline"
+                  >
+                    {s.name}
+                  </a>
+                ) : (
+                  <span className="font-mono text-sm text-ink">{s.name}</span>
+                )}
                 {s.date && <span className="shrink-0 text-xs text-ink-4">{s.date}</span>}
               </div>
               {s.venue && <div className="mt-1 text-xs text-accent">{s.venue}</div>}
@@ -55,14 +71,26 @@ export function SpikesPage() {
               )}
               {s.files && s.files.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
-                  {s.files.map((f) => (
-                    <span
-                      key={f}
-                      className="rounded bg-surface-700 px-1.5 py-0.5 font-mono text-[10px] text-ink-4"
-                    >
-                      {f}
-                    </span>
-                  ))}
+                  {s.files.map((f) =>
+                    f === 'index.html' ? (
+                      <a
+                        key={f}
+                        href={previewHref(s.name)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded bg-accent/15 px-1.5 py-0.5 font-mono text-[10px] text-accent hover:underline"
+                      >
+                        {f}
+                      </a>
+                    ) : (
+                      <span
+                        key={f}
+                        className="rounded bg-surface-700 px-1.5 py-0.5 font-mono text-[10px] text-ink-4"
+                      >
+                        {f}
+                      </span>
+                    ),
+                  )}
                 </div>
               )}
             </div>
@@ -70,7 +98,7 @@ export function SpikesPage() {
         </div>
       ) : (
         <div className="kpi-card">
-          <EmptyState message="No spikes found under .skillgrid/spikes/" />
+          <EmptyState message="No prototypes found under .skillgrid/prototypes/" />
         </div>
       )}
     </div>

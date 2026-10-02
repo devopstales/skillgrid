@@ -551,11 +551,19 @@ func handleMemSessionStart(ctx context.Context, req mcplib.CallToolRequest) (*mc
 		return toolError(err)
 	}
 
-	sessionID, _, err := svc.SessionStart(ctx, dir, title)
+	sessionID, projectID, err := svc.SessionStart(ctx, dir, title)
 	if err != nil {
 		return toolError(err)
 	}
 	out := map[string]string{"session_id": sessionID}
+	if agent := harnessFromContext(ctx); agent != "" {
+		if h, cleanup, herr := svc.Open(projectID); herr == nil {
+			if _, aerr := h.Memory().EnsureSession(ctx, sessionID, projectID, dir, "", agent); aerr == nil {
+				out["agent"] = agent
+			}
+			cleanup()
+		}
+	}
 	if title != "" {
 		out["title"] = title
 	}

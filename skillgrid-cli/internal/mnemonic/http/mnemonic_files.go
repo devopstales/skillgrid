@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -582,13 +583,28 @@ func (s *Server) handleMnemonicMemoryDetail(w http.ResponseWriter, r *http.Reque
 
 // sessionItem is one row in the mnemonic session browser.
 type sessionItem struct {
-	ID           string `json:"id"`
-	Title        string `json:"title"`
-	StartedAt    string `json:"started_at"`
-	EndedAt      string `json:"ended_at,omitempty"`
-	Status       string `json:"status"`
-	MemoryCount  int    `json:"memory_count"`
-	HasSummary   bool   `json:"has_summary"`
+	ID           string   `json:"id"`
+	Title        string   `json:"title"`
+	StartedAt    string   `json:"started_at"`
+	EndedAt      string   `json:"ended_at,omitempty"`
+	Status       string   `json:"status"`
+	MemoryCount  int      `json:"memory_count"`
+	HasSummary   bool     `json:"has_summary"`
+	Agent        string   `json:"agent"`
+	FilesRead    int      `json:"files_read"`
+	FilesWritten int      `json:"files_written"`
+	CommandsExec int      `json:"commands_exec"`
+	Errors       int      `json:"errors"`
+	Blocked      int      `json:"blocked_actions"`
+	ToolCalls    int      `json:"tool_calls"`
+	LastTool     string   `json:"last_tool"`
+	LastActive   string   `json:"last_active"`
+	InputTokens  int64    `json:"input_tokens"`
+	OutputTokens int64    `json:"output_tokens"`
+	CacheTokens  int64    `json:"cache_tokens"`
+	Model        string   `json:"model"`
+	CostUSD      *float64 `json:"cost_usd"`
+	PolicyHits   int      `json:"policy_decisions"`
 }
 
 // handleMnemonicSessions returns the project's sessions with derived memory
@@ -611,10 +627,23 @@ func (s *Server) handleMnemonicSessions(w http.ResponseWriter, r *http.Request) 
 		       COALESCE(s.ended_at,''), COALESCE(s.status,'active'),
 		       (SELECT COUNT(*) FROM observations o
 		         WHERE o.session_id = s.id AND o.project = ? AND o.deleted_at IS NULL),
-		       (s.summary IS NOT NULL AND TRIM(s.summary) != '')
+		       (s.summary IS NOT NULL AND TRIM(s.summary) != ''),
+		       COALESCE(s.agent,''), COALESCE(s.files_read,0), COALESCE(s.files_written,0),
+		       COALESCE(s.commands_exec,0), COALESCE(s.errors,0), COALESCE(s.blocked_actions,0),
+		       (SELECT COUNT(*) FROM session_events e WHERE e.session_id = s.id
+		         AND e.action_type NOT IN ('session_start','session_end','commit')
+		         AND COALESCE(e.result_status,'success') NOT IN ('blocked','warned','guided')),
+		       COALESCE((SELECT e.tool_name FROM session_events e WHERE e.session_id = s.id
+		         AND COALESCE(e.tool_name,'') != '' ORDER BY e.sequence DESC LIMIT 1), ''),
+		       COALESCE((SELECT MAX(e.timestamp) FROM session_events e WHERE e.session_id = s.id),
+		         COALESCE(s.ended_at, s.started_at, '')),
+		       COALESCE(s.input_tokens,0), COALESCE(s.output_tokens,0), COALESCE(s.cache_tokens,0),
+		       COALESCE(s.model,''), s.cost_usd,
+		       (SELECT COUNT(*) FROM session_events e WHERE e.session_id = s.id
+		         AND e.result_status IN ('blocked','warned','guided'))
 		FROM sessions s
 		WHERE s.project = ?
-		ORDER BY COALESCE(s.ended_at, s.started_at) DESC, s.id DESC`, projectID, projectID)
+		ORDER BY 16 DESC, s.id DESC`, projectID, projectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -624,9 +653,17 @@ func (s *Server) handleMnemonicSessions(w http.ResponseWriter, r *http.Request) 
 	sessions := []sessionItem{}
 	for rows.Next() {
 		var s sessionItem
-		if err := rows.Scan(&s.ID, &s.Title, &s.StartedAt, &s.EndedAt, &s.Status, &s.MemoryCount, &s.HasSummary); err != nil {
+		var cost sql.NullFloat64
+		if err := rows.Scan(&s.ID, &s.Title, &s.StartedAt, &s.EndedAt, &s.Status, &s.MemoryCount, &s.HasSummary,
+			&s.Agent, &s.FilesRead, &s.FilesWritten, &s.CommandsExec, &s.Errors, &s.Blocked,
+			&s.ToolCalls, &s.LastTool, &s.LastActive,
+			&s.InputTokens, &s.OutputTokens, &s.CacheTokens, &s.Model, &cost, &s.PolicyHits); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if cost.Valid {
+			v := cost.Float64
+			s.CostUSD = &v
 		}
 		if s.Title == "" {
 			s.Title = s.ID

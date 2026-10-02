@@ -677,15 +677,9 @@ func (s *Service) hookPostToolUse(ctx context.Context, payload HookPayload) (Hoo
 		}
 	}()
 	// Single insert path: the changes.go writer assigns the next sequence.
-	if _, err := appendSessionEvent(ctx, tx, rowProject, sessionID, action, "", now); err != nil {
+	seq, err := appendSessionEvent(ctx, tx, rowProject, sessionID, action, "", now)
+	if err != nil {
 		return HookResult{}, err
-	}
-	var seq int
-	if err := tx.QueryRowContext(ctx,
-		`SELECT MAX(sequence) FROM session_events WHERE session_id = ?`,
-		sessionID,
-	).Scan(&seq); err != nil {
-		return HookResult{}, fmt.Errorf("post_tool_use sequence: %w", err)
 	}
 	sensFlag := 0
 	if sensitive {
@@ -757,8 +751,8 @@ func (s *Service) promoteToolCall(ctx context.Context, sessionID, action, path s
 }
 
 // actionForTool maps a tool name to its session event action type:
-// Write→file_write, Read→file_read, Shell→command_exec, everything
-// else→tool_use. Matching is case-insensitive substring so "Write"/"write
+// Write/Edit/Delete/Patch→file_write, Read→file_read, Shell/bash/terminal→
+// command_exec, everything else→tool_use. Matching is case-insensitive substring so "Write"/"write
 // file" style names all map. An explicitly supplied canonical action type
 // (file_write, file_read, command_exec, tool_use, or the harness alias
 // "shell") is honored even when a tool name is present, so the plugin's
@@ -769,11 +763,12 @@ func actionForTool(toolName, actionType string) string {
 	}
 	t := strings.ToLower(strings.TrimSpace(toolName))
 	switch {
-	case strings.Contains(t, "write"):
+	case strings.Contains(t, "write"), strings.Contains(t, "edit"),
+		strings.Contains(t, "delete"), strings.Contains(t, "patch"), t == "strreplace":
 		return "file_write"
 	case strings.Contains(t, "read"):
 		return "file_read"
-	case strings.Contains(t, "shell"):
+	case strings.Contains(t, "shell"), t == "bash", strings.Contains(t, "terminal"):
 		return "command_exec"
 	}
 	return "tool_use"

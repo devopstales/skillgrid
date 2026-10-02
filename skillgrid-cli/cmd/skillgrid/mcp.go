@@ -10,12 +10,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
-	mnemonichttp "github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/http"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
+	mnemonichttp "github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/http"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/mcp"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/setup"
@@ -317,6 +318,11 @@ func runSetup(version string, args []string) {
   Install Mnemonic plugins for an AI agent.`)
 		fs.PrintDefaults()
 	}
+	// Positional agent name may come first (`setup cursor --dry-run`); lift it
+	// out so the flags after it are still parsed.
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		agent, args = args[0], args[1:]
+	}
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
@@ -485,5 +491,3 @@ func envOr(key, def string) string {
 	}
 	return def
 }
-
-

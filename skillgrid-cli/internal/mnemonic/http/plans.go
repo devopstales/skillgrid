@@ -49,28 +49,45 @@ func sddRoot() string {
 	return "."
 }
 
-func sddSpecsDir() string { return filepath.Join(sddRoot(), ".skillgrid", "specs") }
+func sddSpecsDir() string   { return filepath.Join(sddRoot(), ".skillgrid", "specs") }
+func sddArchiveDir() string { return filepath.Join(sddRoot(), ".skillgrid", "archive") }
+
+// changeDir resolves a change id to its spec directory. Live specs win.
+// Archived changes live under .skillgrid/archive/<id>.
+func changeDir(id string) (string, bool) {
+	if id == "" || strings.Contains(id, "..") || strings.ContainsAny(id, `/\`) {
+		return "", false
+	}
+	for _, root := range []string{sddSpecsDir(), sddArchiveDir()} {
+		dir := filepath.Join(root, id)
+		fi, err := os.Stat(dir)
+		if err == nil && fi.IsDir() {
+			return dir, true
+		}
+	}
+	return "", false
+}
 
 func sddLedgerDir() string { return filepath.Join(sddRoot(), ".skillgrid", "sdd") }
 
 // planSummary is one entry in the /plans list.
 type planSummary struct {
-	Name     string  `json:"name"`
-	Status   string  `json:"status"`
-	Progress float64 `json:"progress"`
-	TasksDone int    `json:"tasksDone"`
-	TasksTotal int   `json:"tasksTotal"`
-	HasLedger bool   `json:"hasLedger"`
+	Name       string  `json:"name"`
+	Status     string  `json:"status"`
+	Progress   float64 `json:"progress"`
+	TasksDone  int     `json:"tasksDone"`
+	TasksTotal int     `json:"tasksTotal"`
+	HasLedger  bool    `json:"hasLedger"`
 }
 
 // planDetail extends planSummary with the file inventory, spec markdown, and
 // the linked SDD ledger steps.
 type planDetail struct {
 	planSummary
-	Files  []planFile  `json:"files"`
-	Steps  []planStep  `json:"steps"`
-	Briefing string    `json:"briefing"`
-	Tasks    string    `json:"tasks"`
+	Files    []planFile `json:"files"`
+	Steps    []planStep `json:"steps"`
+	Briefing string     `json:"briefing"`
+	Tasks    string     `json:"tasks"`
 }
 
 type planFile struct {
@@ -79,8 +96,8 @@ type planFile struct {
 }
 
 type planStep struct {
-	Raw      string `json:"raw"`
-	Status   string `json:"status"`
+	Raw    string `json:"raw"`
+	Status string `json:"status"`
 }
 
 // handlePlans serves GET /plans — aggregates .skillgrid/specs/* into plan cards
@@ -138,16 +155,8 @@ func (s *Server) handlePlanDetail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "plan id required")
 		return
 	}
-	root := sddSpecsDir()
-	dir := filepath.Join(root, id)
-	// Sandbox: the plan dir must stay under the specs root (no .. / absolute
-	// escape) — an absolute or ..-shaped id is rejected, not just 404'd.
-	relCheck, err := filepath.Rel(root, dir)
-	if err != nil || relCheck == ".." || strings.HasPrefix(relCheck, ".."+string(filepath.Separator)) {
-		writeError(w, http.StatusNotFound, "unknown plan: "+id)
-		return
-	}
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+	dir, ok := changeDir(id)
+	if !ok {
 		writeError(w, http.StatusNotFound, "unknown plan: "+id)
 		return
 	}
@@ -251,7 +260,7 @@ func (s *Server) handleSpecContent(w http.ResponseWriter, r *http.Request) {
 	full := filepath.Join(root, filepath.FromSlash(rel))
 	// Sandbox: the resolved path must stay under root (no .. escape). The
 	// prefix check includes the separator so `..foo` does not pass as `..`
-	// (review A8 — matches the stitchFile guard in prototypes.go).
+	// (review A8 — matches the prototypeFile guard in prototype.go).
 	relCheck, err := filepath.Rel(root, full)
 	if err != nil || relCheck == ".." || strings.HasPrefix(relCheck, ".."+string(filepath.Separator)) {
 		writeError(w, http.StatusNotFound, "unknown spec: "+rel)

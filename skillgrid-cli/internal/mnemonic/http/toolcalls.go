@@ -10,7 +10,8 @@ import (
 
 type toolCallBody struct {
 	SessionID      string `json:"session_id"`
-	Agent          string `json:"agent"` // accepted but not yet persisted (HookPayload has no Agent field)
+	Agent          string `json:"agent"`
+	Directory      string `json:"directory"`
 	Type           string `json:"type"`
 	ToolName       string `json:"tool_name"`
 	Path           string `json:"path"`
@@ -20,6 +21,9 @@ type toolCallBody struct {
 	ContentPreview string `json:"content_preview"`
 }
 
+// handleToolCallCreate appends one harness tool call to the session's event
+// stream. A session the harness never registered (sessionStart hook skipped or
+// raced) is created on first sight so the call is not lost.
 func (s *Server) handleToolCallCreate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var b toolCallBody
@@ -29,6 +33,21 @@ func (s *Server) handleToolCallCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if b.SessionID == "" {
 		b.SessionID = id
+	}
+	projectID, err := projectFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	h, cleanup, err := s.openHandleFor(projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer cleanup()
+	if _, err := h.Memory().EnsureSession(r.Context(), b.SessionID, projectID, b.Directory, "", b.Agent); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	payload := memory.HookPayload{
 		SessionID:      b.SessionID,
@@ -40,13 +59,6 @@ func (s *Server) handleToolCallCreate(w http.ResponseWriter, r *http.Request) {
 		ContentHash:    b.ContentHash,
 		ContentPreview: b.ContentPreview,
 	}
-	projectID := r.URL.Query().Get("project")
-	h, cleanup, err := s.openHandleFor(projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer cleanup()
 	if _, err := h.Memory().RunHook(r.Context(), memory.HookPostToolUse, payload); err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			writeError(w, http.StatusNotFound, "session not found")

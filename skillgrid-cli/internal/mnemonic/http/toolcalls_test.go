@@ -83,16 +83,78 @@ func TestToolCallRoute_WritesRow(t *testing.T) {
 	}
 }
 
-func TestToolCallRoute_UnknownSession(t *testing.T) {
+// An unregistered harness session is created on the first tool call, tagged
+// with the posted agent, and later calls sequence onto the same row.
+func TestToolCallRoute_UnknownSessionIsCreated(t *testing.T) {
 	s, _ := newToolCallsServer(t)
-	body := map[string]any{
-		"session_id": "no-such-session",
-		"tool_name":  "bash",
-		"command":    "ls",
+	for _, cmd := range []string{"ls", "pwd"} {
+		res := postToolCall(t, s, "cursor-conv-1", map[string]any{
+			"agent":     "cursor",
+			"directory": t.TempDir(),
+			"tool_name": "Shell",
+			"command":   cmd,
+		})
+		if res.Code != http.StatusOK {
+			t.Fatalf("status %d, want 200: %s", res.Code, res.Body.String())
+		}
 	}
-	res := postToolCall(t, s, "no-such-session", body)
-	if res.Code != http.StatusNotFound {
-		t.Fatalf("status %d, want 404: %s", res.Code, res.Body.String())
+
+	h, cleanup, err := s.svc.Open(proj)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer cleanup()
+	var agent string
+	if err := h.Store().DB.QueryRow(`SELECT COALESCE(agent,'') FROM sessions WHERE id = 'cursor-conv-1'`).Scan(&agent); err != nil {
+		t.Fatalf("read session: %v", err)
+	}
+	if agent != "cursor" {
+		t.Errorf("agent = %q, want cursor", agent)
+	}
+	events, _, _, err := h.Memory().SessionChanges(context.Background(), "cursor-conv-1")
+	if err != nil {
+		t.Fatalf("SessionChanges: %v", err)
+	}
+	var execs []int
+	for _, e := range events {
+		if e.ActionType == "command_exec" {
+			execs = append(execs, e.Sequence)
+		}
+	}
+	if len(execs) != 2 || execs[0] >= execs[1] {
+		t.Errorf("want two ordered command_exec events, got sequences %v (events %+v)", execs, events)
+	}
+}
+
+// POST /sessions with an explicit project registers the harness id there and
+// records the agent; a repeat is idempotent and keeps the first agent.
+func TestSessionCreate_HarnessRegistration(t *testing.T) {
+	s, _ := newToolCallsServer(t)
+	post := func(agent string) *httptest.ResponseRecorder {
+		raw, _ := json.Marshal(map[string]any{"id": "oc-1", "agent": agent, "directory": t.TempDir(), "title": agent})
+		req := httptest.NewRequest(http.MethodPost, "/sessions?project="+proj, bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, req)
+		return w
+	}
+	if res := post("opencode"); res.Code != http.StatusCreated {
+		t.Fatalf("first register: status %d: %s", res.Code, res.Body.String())
+	}
+	if res := post("cursor"); res.Code != http.StatusOK {
+		t.Fatalf("second register: status %d: %s", res.Code, res.Body.String())
+	}
+	h, cleanup, err := s.svc.Open(proj)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer cleanup()
+	var agent string
+	if err := h.Store().DB.QueryRow(`SELECT COALESCE(agent,'') FROM sessions WHERE id = 'oc-1'`).Scan(&agent); err != nil {
+		t.Fatalf("read session: %v", err)
+	}
+	if agent != "opencode" {
+		t.Errorf("agent = %q, want opencode (first registration wins)", agent)
 	}
 }
 

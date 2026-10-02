@@ -53,4 +53,22 @@ describe('PlansPage linked tasks', () => {
     expect(hrefs).toContain('/tracker?task=007')
     expect(hrefs).toContain('/tracker?task=012')
   })
+
+  it('opens an archived change named in ?change=', async () => {
+    const prev = window.location.href
+    window.history.replaceState({}, '', '/plans?change=2026-09-04-hermes-memory')
+    const hermes = {
+      ...detail,
+      name: '2026-09-04-hermes-memory',
+      briefing: 'Hermes Fact Memory',
+    }
+    vi.spyOn(globalThis, 'fetch').mockImplementation((async (input) => {
+      const url = String(input)
+      const body = url.includes('/plans/2026-09-04-hermes-memory') ? hermes : { plans: [] }
+      return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body }
+    }) as typeof fetch)
+    render(<PlansPage />)
+    expect(await screen.findByText('Hermes Fact Memory')).toBeTruthy()
+    window.history.replaceState({}, '', prev)
+  })
 })

@@ -91,7 +91,7 @@ Some other section.
 
 ## Open Questions
 
-Questions that are not yet decided and not yet spiked.
+Questions that are not yet decided and not yet prototyped.
 
 1. **v1.1 dashboard prioritization** — Memories+Sessions-first vs. Graph+Tracker-first. Decided at v1.1 scoping, not now.
 2. **MCP tool-contract versioning** — is the secondary persona strong enough to warrant stable, versioned MCP tool contract? Assumed no in v1.0.

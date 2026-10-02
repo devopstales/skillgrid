@@ -107,6 +107,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /sessions/{id}/end", s.requireWriteAuth(s.handleSessionEnd))
 	s.mux.HandleFunc("POST /sessions/{id}/title", s.requireWriteAuth(s.handleSessionSetTitle))
 	s.mux.HandleFunc("POST /sessions/{id}/tool-calls", s.requireWriteAuth(s.handleToolCallCreate))
+	s.mux.HandleFunc("POST /sessions/{id}/usage", s.requireWriteAuth(s.handleSessionUsage))
+	s.mux.HandleFunc("POST /policy/evaluate", s.requireWriteAuth(s.handlePolicyEvaluate))
+	s.mux.HandleFunc("GET /policy", s.handlePolicyGet)
 	s.mux.HandleFunc("GET /sessions/{id}", s.handleSessionGet)
 	// P6 Sessions entry: open list read + per-session summary read.
 	s.mux.HandleFunc("GET /sessions", s.handleSessionList)
@@ -114,6 +117,10 @@ func (s *Server) registerRoutes() {
 	// sessions-activity-unification: server-side session-scoped activity feed.
 	// Same response shape as /activity/events, filtered by the {id} session.
 	s.mux.HandleFunc("GET /sessions/{id}/activity", s.handleSessionActivity)
+	// Gryph-style tool-call observability: per-session timeline + project query.
+	s.mux.HandleFunc("GET /sessions/{id}/events", s.handleSessionEvents)
+	s.mux.HandleFunc("GET /events", s.handleEvents)
+	s.mux.HandleFunc("GET /events/stats", s.handleEventStats)
 
 	s.mux.HandleFunc("GET /context", s.handleContext)
 	s.mux.HandleFunc("GET /context/compaction", s.handleContextCompaction)
@@ -220,20 +227,21 @@ func (s *Server) registerGraphRoutes() {
 	s.mux.HandleFunc("GET /git/file-history", s.handleGitFileHistory)
 	s.mux.HandleFunc("GET /git/blame", s.handleGitBlame)
 
-	// Phase 7 prototypes routes (sandboxed .stitch/ gallery readers).
-	s.mux.HandleFunc("GET /prototypes", s.shellOrJSON(s.handlePrototypes))
-	s.mux.HandleFunc("GET /prototypes/{id...}", s.handlePrototype)
-
 	// Visual companion prototype serve route (sandboxed .skillgrid/prototype/
-	// readers). A distinct subtree from the plural /prototypes above;
-	// registered here (before registerUIRoutes) so the SPA fallback can't
-	// swallow it.
+	// readers). A distinct subtree from the plural /prototypes (the
+	// feasibility-prototype listing in registerDocsRoutes, which reads
+	// .skillgrid/prototypes/); registered here (before registerUIRoutes) so
+	// the SPA fallback can't swallow it.
 	s.mux.HandleFunc("GET /prototype/{id...}", s.handlePrototypeDecision)
 
 	// The SPA shell uses base './', so on a /mnemonic/... path its module
 	// script is requested at /mnemonic/assets/... — serve the embedded build
 	// assets there (the root /assets/ route covers the top-level roots).
 	s.mux.HandleFunc("GET /mnemonic/assets/{rest...}", s.handleUIAsset)
+	// Deep SPA routes (base './') request ./assets from their own path.
+	for _, prefix := range []string{"/observe", "/project", "/system"} {
+		s.mux.HandleFunc("GET "+prefix+"/assets/{rest...}", s.handleUIAsset)
+	}
 	// The bare client paths stay SPA shells for the client router. The Phase 5
 	// API routes above own the exact /mnemonic/{memories,sessions,search}
 	// paths, so only the paths without an API handler keep an explicit shell.
@@ -248,6 +256,11 @@ func (s *Server) registerGraphRoutes() {
 func (s *Server) registerDocsRoutes() {
 	s.mux.Handle("GET /docs/changes", docs.NewList(docsCwd))
 	s.mux.Handle("GET /docs/changes/{name}", docs.NewDetail(docsCwd))
+	s.mux.Handle("GET /docs/adrs", docs.NewADRs(docsCwd))
+	s.mux.Handle("GET /prototypes", docs.NewPrototypes(docsCwd))
+	s.mux.Handle("GET /prototypes/{name}/{file...}", docs.NewPrototypeFile(docsCwd))
+	s.mux.HandleFunc("GET /sdd/runs", s.handleTeamRuns)
+	s.mux.Handle("GET /security/trivy", docs.NewTrivy(docsCwd))
 	// Phase 3: read-only markdown tree/content/search/render across the
 	// declared doc roots (sandboxed, read-only, rendered not executed).
 	s.mux.Handle("GET /docs/tree", docs.NewTree(docsCwd))
@@ -256,9 +269,26 @@ func (s *Server) registerDocsRoutes() {
 	s.mux.Handle("GET /docs/render", docs.NewRender(docsCwd))
 }
 
-// Handler returns the root http.Handler.
+// Handler returns the root http.Handler with CORS headers for local UI dev.
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return corsMiddleware(s.mux)
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // StartHTTP listens on addr until the server stops.
@@ -299,10 +329,14 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	title := r.URL.Query().Get("title")
 	id := r.URL.Query().Get("id")
+	agent := r.URL.Query().Get("agent")
+	projectID := strings.TrimSpace(r.URL.Query().Get("project"))
 	type body struct {
 		ID        string `json:"id,omitempty"`
 		Directory string `json:"directory,omitempty"`
 		Title     string `json:"title,omitempty"`
+		Agent     string `json:"agent,omitempty"`
+		Project   string `json:"project,omitempty"`
 	}
 	var b body
 	if r.Body != nil {
@@ -317,6 +351,39 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 	if b.ID != "" {
 		id = b.ID
 	}
+	if b.Agent != "" {
+		agent = b.Agent
+	}
+	if b.Project != "" {
+		projectID = strings.TrimSpace(b.Project)
+	}
+
+	// Harness registration (Cursor/OpenCode/Kilo hooks): the caller names the
+	// project, so register under it without re-resolving from the directory.
+	if id != "" && projectID != "" {
+		h, cleanup, err := s.openHandleFor(projectID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		defer cleanup()
+		created, err := h.Memory().EnsureSession(r.Context(), id, projectID, dir, title, agent)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		status := http.StatusOK
+		if created {
+			status = http.StatusCreated
+		}
+		writeJSON(w, status, map[string]any{
+			"session_id": id,
+			"project_id": projectID,
+			"created":    created,
+			"agent":      agent,
+		})
+		return
+	}
 
 	if id != "" {
 		// Caller supplied an authoritative ID — register under it, idempotent.
@@ -324,6 +391,12 @@ func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if agent != "" {
+			if h, cleanup, herr := s.openHandleFor(projectID); herr == nil {
+				_, _ = h.Memory().EnsureSession(r.Context(), sessionID, projectID, dir, "", agent)
+				cleanup()
+			}
 		}
 		out := map[string]any{
 			"session_id": sessionID,

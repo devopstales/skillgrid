@@ -60,7 +60,7 @@ func TestDurableFlagRouting(t *testing.T) {
 // table populated, durableSymbolHits returns the same top-K ids as a
 // brute-force cosine scan over the BLOB table for the same query. This proves
 // the durable path is a drop-in for the in-memory path (same top-K, same
-// ranking) - the cross-path equivalence the spike's exactness-check
+// ranking) - the cross-path equivalence the prototype's exactness-check
 // methodology requires.
 func TestDurablePathEquivalence(t *testing.T) {
 	setVectorDBEnv(t, true)
