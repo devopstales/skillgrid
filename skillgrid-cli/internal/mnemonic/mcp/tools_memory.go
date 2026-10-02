@@ -270,14 +270,20 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 		})
 	}
 
-	id, err := h.Memory().Save(ctx, saveInput)
+	res, err := h.Memory().SaveWithAction(ctx, saveInput)
 	if err != nil {
 		return toolError(err)
 	}
 
-	out := map[string]any{"id": id, "project": projectID}
+	out := map[string]any{"id": res.ObservationID, "project": projectID}
 	if drift != nil {
 		out["project_drift"] = drift
+	}
+	if res.Action != "" {
+		out["action"] = string(res.Action)
+	}
+	if res.SupersededID > 0 {
+		out["superseded_id"] = res.SupersededID
 	}
 	return JSONResult(out)
 }
@@ -363,9 +369,9 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		return toolError(err)
 	}
 	out := map[string]any{
-		"project":          projectID,
-		"observations":     budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
-		"count":            len(res.Hits),
+		"project":      projectID,
+		"observations": budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
+		"count":        len(res.Hits),
 		// _health_warnings (TICKET-06): the inline, non-breaking lifecycle
 		// warnings for the concrete project this search ran under. It uses the
 		// zero-store-open ForProjectOn over the handle the read path already
