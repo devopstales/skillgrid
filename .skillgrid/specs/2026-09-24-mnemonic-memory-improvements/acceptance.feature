@@ -42,7 +42,7 @@ G1: keyword floor and private-row hide
   EXPECT: PASS
   EVIDENCE: pending
 G2: missing query is an error
-  CHECK: cd skillgrid-cli && go test ./internal/mnemonic/mcp/ -count=1 -run 'TestMemSearchRequiresQuery'
+  CHECK: cd skillgrid-cli && go test ./internal/mnemonic/mcp/ -count=1 -run 'TestBudgetedRetrievalMCP'
   EXPECT: PASS
   EVIDENCE: pending
 
