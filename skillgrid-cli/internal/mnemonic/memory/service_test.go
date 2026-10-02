@@ -517,9 +517,9 @@ func openStoreFor(t *testing.T, project string) (*store.Store, error) {
 	return store.Open(dataDir, project)
 }
 
-// saveResultObservationID is a test helper that pulls the row count out of the
-// observations table for the active project, used to assert whether SaveWithAction
-// wrote a new row or not.
+// obsCount is a test helper that pulls the row count out of the observations
+// table for the active project, used to assert whether SaveWithAction wrote a
+// new row or not.
 func obsCount(t *testing.T, st *store.Store, project string) int {
 	t.Helper()
 	var n int
@@ -896,6 +896,35 @@ func TestSaveDelegatesToSaveWithAction(t *testing.T) {
 		}
 		if res.ObservationID == id {
 			t.Errorf("SaveWithAction returned the same id %d as the prior Save; expected a distinct new row", id)
+		}
+	})
+
+	t.Run("topic-key upsert: delegate returns the existing row id (no dup row)", func(t *testing.T) {
+		st, svc := newTestStore(t, project)
+		sid := newSession(t, svc)
+		first, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "architecture", TopicKey: "arch/delegate",
+			Title: "delegate topic v1", Content: "delegate topic content v1",
+		})
+		if err != nil {
+			t.Fatalf("first save: %v", err)
+		}
+		// A second save with the same topic_key must upsert into the existing
+		// row (the branch that was dropped and restored during the
+		// insertObservation extraction). The delegate must return that same
+		// row's id and must NOT create a second row.
+		second, err := svc.Save(ctx, SaveInput{
+			SessionID: sid, Type: "architecture", TopicKey: "arch/delegate",
+			Title: "delegate topic v2", Content: "delegate topic content v2",
+		})
+		if err != nil {
+			t.Fatalf("second save: %v", err)
+		}
+		if second != first {
+			t.Errorf("topic-key upsert returned id %d, want the existing row %d", second, first)
+		}
+		if n := obsCount(t, st, project); n != 1 {
+			t.Errorf("topic-key upsert created %d rows, want 1", n)
 		}
 	})
 }
