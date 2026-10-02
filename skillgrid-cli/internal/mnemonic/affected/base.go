@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -278,10 +280,44 @@ func parseBlameAuthor(line string) string {
 	return strings.TrimSpace(rest)
 }
 
+// gitIsolatedEnv builds a git subprocess environment scoped to repo. Ambient
+// GIT_DIR / GIT_WORK_TREE (common in agent/CI shells) must not redirect
+// merge-base, diff, or blame away from the repo path the caller passed.
+// Ambient GIT_AUTHOR_* / GIT_COMMITTER_* must not override the repo's
+// configured identity when tests (or callers) create commits in that repo.
+func gitIsolatedEnv(repo string) []string {
+	env := os.Environ()
+	filtered := make([]string, 0, len(env)+4)
+	for _, e := range env {
+		switch {
+		case strings.HasPrefix(e, "GIT_DIR="),
+			strings.HasPrefix(e, "GIT_WORK_TREE="),
+			strings.HasPrefix(e, "GIT_INDEX_FILE="),
+			strings.HasPrefix(e, "GIT_OBJECT_DIRECTORY="),
+			strings.HasPrefix(e, "GIT_AUTHOR_NAME="),
+			strings.HasPrefix(e, "GIT_AUTHOR_EMAIL="),
+			strings.HasPrefix(e, "GIT_AUTHOR_DATE="),
+			strings.HasPrefix(e, "GIT_COMMITTER_NAME="),
+			strings.HasPrefix(e, "GIT_COMMITTER_EMAIL="),
+			strings.HasPrefix(e, "GIT_COMMITTER_DATE="):
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	noConfig := filepath.Join(repo, ".git-config-isolated")
+	gitDir := filepath.Join(repo, ".git")
+	return append(filtered,
+		"GIT_DIR="+gitDir,
+		"GIT_CONFIG_GLOBAL="+noConfig,
+		"GIT_CONFIG_SYSTEM="+noConfig,
+	)
+}
+
 // gitOutput runs a git command in repo and returns its trimmed stdout.
 func gitOutput(ctx context.Context, repo string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = repo
+	cmd.Env = gitIsolatedEnv(repo)
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {

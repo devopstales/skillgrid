@@ -22,7 +22,7 @@ func gitFixtureRepo(t *testing.T) string {
 		cmd.Dir = root
 		// HERMES_HOME isolates the fixture from any ambient git global
 		// config (incl. hooks/config that could color the blame output).
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+filepath.Join(root, "noconfig"), "GIT_CONFIG_SYSTEM="+filepath.Join(root, "noconfig"))
+		cmd.Env = gitIsolatedEnv(root)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -197,9 +197,7 @@ func TestCodeAffectedBaseDigitAuthor(t *testing.T) {
 		t.Helper()
 		cmd := exec.Command("git", args...)
 		cmd.Dir = root
-		cmd.Env = append(os.Environ(),
-			"GIT_CONFIG_GLOBAL="+filepath.Join(root, "noconfig"),
-			"GIT_CONFIG_SYSTEM="+filepath.Join(root, "noconfig"))
+		cmd.Env = gitIsolatedEnv(root)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
