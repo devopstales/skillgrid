@@ -3,7 +3,11 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 )
 
 func TestMemSearchSignalsKeyword(t *testing.T) {
@@ -47,5 +51,78 @@ func TestMemSearchSignalsKeyword(t *testing.T) {
 		if !ok || v < 0 || v > 1 {
 			t.Fatalf("signal %s = %v ok=%v", key, v, ok)
 		}
+	}
+}
+
+// TestMemSearchEmbedderError enters the mem_search branch that drops an
+// EmbedQuery error. An external embedder with no base URL fails before any
+// network call. The search still returns the keyword floor, and the failed
+// call does not write a query_cache row.
+func TestMemSearchEmbedderError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MNEMONIC_EMBED", "1")
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "config.d"), 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+	yaml := "mnemonic:\n  embedder:\n    provider: external\n    model: fail-model\n"
+	if err := os.WriteFile(filepath.Join(root, "config.d", "indexing.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write indexing: %v", err)
+	}
+	t.Chdir(root)
+
+	dataDir := t.TempDir()
+	const projectID = "emb-err-probe"
+	t.Setenv("MNEMONIC_PROJECT", projectID)
+	svc := service.New(dataDir)
+	SetService(svc)
+	t.Cleanup(func() { SetService(nil) })
+
+	ctx := context.Background()
+	sid := startMCPSession(t)
+	saveRes, err := handleMemSave(ctx, newCallTool("mem_save", map[string]any{
+		"title": "signal banana", "type": "learning", "content": "signal banana", "session_id": sid,
+	}))
+	if err != nil || saveRes.IsError {
+		t.Fatalf("save: %v %s", err, callResultText(t, saveRes))
+	}
+	res, err := handleMemSearch(ctx, newCallTool("mem_search", map[string]any{
+		"query": "banana", "reader_owner": sid,
+	}))
+	if err != nil || res.IsError {
+		t.Fatalf("search: %v %s", err, callResultText(t, res))
+	}
+	var body struct {
+		Observations []struct {
+			MatchedVia string             `json:"matched_via"`
+			Signals    map[string]float64 `json:"signals"`
+		} `json:"observations"`
+	}
+	if err := json.Unmarshal([]byte(callResultText(t, res)), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(body.Observations) != 1 {
+		t.Fatalf("observations = %d", len(body.Observations))
+	}
+	o := body.Observations[0]
+	if o.MatchedVia != "keyword" {
+		t.Fatalf("matched_via = %q", o.MatchedVia)
+	}
+	if o.Signals["vector"] != 0 {
+		t.Fatalf("signals.vector = %v", o.Signals["vector"])
+	}
+
+	h, cleanup, err := svc.Open(projectID)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer cleanup()
+	var n int
+	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM query_cache`).Scan(&n); err != nil {
+		t.Fatalf("count cache: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("query_cache rows = %d, want 0 (embedder error must not be stored)", n)
 	}
 }
