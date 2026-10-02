@@ -1,8 +1,8 @@
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: ""
-  current_change: ""
-  status: idle
+  current_phase: "execution"
+  current_change: "2026-10-02-mnemonic-project-init"
+  status: in_progress
 progress:
   completed_changes: 24
   blocked_changes: 0
