@@ -95,6 +95,11 @@ type Service struct {
 	// in the 0.05/day decay and 7/30/14-day thresholds). Set via
 	// SetImportance from the mnemonic.importance config key.
 	importanceCfg ImportanceConfig
+	// decayCfg is query-time reinforcement decay (ADR-0018). The zero value
+	// means "not installed"; SetDecay maps a zero config to the defaults
+	// (enabled, 30-day half-life). Search uses DefaultDecayConfig when this
+	// field is still zero so a Service built in tests ranks the same way.
+	decayCfg DecayConfig
 	// hubCfg tunes hub identification + impact classification (014,
 	// step 23): the minimum importers for a hub and the dependent count
 	// that escalates a hub change from medium to high impact. Zero fields
