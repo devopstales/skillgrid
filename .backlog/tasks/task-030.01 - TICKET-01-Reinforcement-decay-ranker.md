@@ -1,9 +1,11 @@
 ---
 id: TASK-030.01
 title: 'TICKET-01: Reinforcement decay ranker'
-status: ready-for-agent
+type: feature
+status: needs-triage
 assignee: []
 created_date: '2026-10-02 08:59'
+updated_date: '2026-10-03 07:39'
 labels:
   - mnemonic-memory-improvements
 dependencies: []
@@ -14,7 +16,6 @@ documentation:
   - .skillgrid/specs/2026-09-24-mnemonic-memory-improvements/acceptance.feature
 parent_task_id: TASK-030
 priority: high
-type: feature
 ---
 
 ## Description

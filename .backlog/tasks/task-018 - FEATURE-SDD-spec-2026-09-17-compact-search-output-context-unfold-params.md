@@ -1,10 +1,11 @@
 ---
 id: TASK-018
 title: '[FEATURE] SDD spec: 2026-09-17-compact-search-output (context/unfold params)'
-status: ready-for-agent
+type: feature
+status: needs-triage
 assignee: []
 created_date: '2026-09-21 07:15'
-updated_date: '2026-09-21 07:15'
+updated_date: '2026-10-03 07:39'
 labels: []
 dependencies:
   - TASK-016
@@ -19,7 +20,6 @@ documentation:
   - .skillgrid/specs/2026-09-17-compact-search-output/blueprint.md
   - .skillgrid/specs/2026-09-17-sqlite-ai-code-indexing/findings.md
 priority: medium
-type: feature
 ---
 
 ## Description

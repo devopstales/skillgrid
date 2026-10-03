@@ -37,9 +37,10 @@ claude-os fuses a second brain + an agent-OS scaffold (specs, kanban, skills). s
 - **D. Knowledge lifecycle** — consolidate (merge near-dupes), archive (retire stale), health report; inline staleness warning appended to search results. *New — from claude-os v2.4/2.5.* Dedup-by-hash already exists; consolidate/archive/health do not.
 - **E. Session-inject** — distill → FTS5 index → hybrid-retrieve → inject at resume. *Already designed* (session-inject blueprint, 2026-09-24). Depends on A.
 
-### P2 — human view
+### P2 — production LLM + human view
 - ~~**F. Durable `sqlite-vec` store**~~ — **DONE.** Migration `042_vec0_tables.sql` creates real `vec0` vtabs (`vec_symbols`/`vec_chunks`, `float[768]`, `modernc.org/sqlite/vec` cgo-free), rowid-keyed to the BLOB source-of-truth tables, degrading to in-memory on absence. Confirmed by deep-dive (`09-claude-os-deep-dive.md`) — was misfiled as P2. This also unblocks C (`mem_ask`) on paraphrase queries.
-- **G. Human browse view** — topic/PARA-grouped observations in `serve`; you can *see* your brain, not just query it. Partial (graph view exists); observations view not built.
+- **J. Shared LLM provider** — one OpenAI-compatible chat Completer (Ollama via `/v1` or any compatible host) attached at boot to ask / dedup / extraction / dream seams; feature flags stay opt-in; fail-open floors stay; install provider setup is a **natural update** (Local ensure Ollama + wire chat/embed, or External wire — indexing already needs one) with `--skip-provider` escape. *Spec: `2026-10-02-mnemonic-llm-provider` (closes FOLLOWUP task-029).* Queued after project-init.
+- **G. Human browse view** — topic/PARA-grouped observations in `serve`; you can *see* your brain, not just query it. Partial (graph view exists); observations view not built. Prefer after **J** so llm-mode paths are live when browsing.
 
 ### P3 — autonomous learning
 - **H. Passive learning** — auto-extract learnings from completed/failed sessions at session end. *Planned* (session-inject refs: claude-mem).

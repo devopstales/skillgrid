@@ -1,9 +1,11 @@
 ---
 id: TASK-030.03
 title: 'TICKET-06: Compact continuity hook'
-status: ready-for-agent
+type: feature
+status: needs-triage
 assignee: []
 created_date: '2026-10-02 08:59'
+updated_date: '2026-10-03 07:39'
 labels:
   - mnemonic-memory-improvements
 dependencies: []
@@ -12,7 +14,6 @@ references:
   - .skillgrid/specs/2026-09-24-mnemonic-memory-improvements/tasks.md
 parent_task_id: TASK-030
 priority: medium
-type: feature
 ---
 
 ## Description
