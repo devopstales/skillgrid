@@ -115,6 +115,33 @@ func TestInitIngestsExtraDocs(t *testing.T) {
 	}
 }
 
+func TestInitIngestsRepeatedDocsFlags(t *testing.T) {
+	svc := service.New(t.TempDir())
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.md")
+	b := filepath.Join(dir, "b.md")
+	if err := os.WriteFile(a, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectInit(context.Background(), svc, dir, false, []string{a, b}); err != nil {
+		t.Fatal(err)
+	}
+	h, closeH, err := svc.OpenForDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeH()
+	if countTopic(t, h.Memory(), "init/docs/a.md") != 1 {
+		t.Fatal("expected init/docs/a.md")
+	}
+	if countTopic(t, h.Memory(), "init/docs/b.md") != 1 {
+		t.Fatal("expected init/docs/b.md")
+	}
+}
+
 func TestInitMissingExtraDocsIsNonFatal(t *testing.T) {
 	svc := service.New(t.TempDir())
 	dir := t.TempDir()
@@ -292,6 +319,16 @@ func TestOnboardingSkillCallsSkillgridInit(t *testing.T) {
 	}
 	if !bytes.Contains(body, []byte("skillgrid init")) {
 		t.Fatal("onboarding must name skillgrid init")
+	}
+}
+
+func TestOnboardingSkillPassesDocsThrough(t *testing.T) {
+	body, err := os.ReadFile(onboardingSkillPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte("--docs")) {
+		t.Fatal("onboarding must pass extra paths as --docs")
 	}
 }
 
