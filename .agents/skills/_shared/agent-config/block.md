@@ -62,17 +62,19 @@ Run `skillgrid:onboarding` to update config after stack changes.
 | placeholder | default | fill from |
 |---|---|---|
 | `{project}` | — | detected project name |
-| `{tracker_line}` | — | one-line tracker summary, chosen per active tracker |
+| `{tracker_line}` | — | pointer to the selected tracker's convention file |
 | `{memory_line}` | — | mnemonic status line |
 | `{rules_block}` | — | bullet list from `ASSUMPTIONS.md` § `### Locked constraints` (one `-` per constraint); if the section is empty, `No locked constraints yet — see `.skillgrid/ASSUMPTIONS.md`.` |
 
-`{tracker_line}` — pick the active tracker:
+`{tracker_line}` — copy the cell for `ticketing.type` exactly. Do not summarize storage, ID rules, or CLI flags in the block. `skillgrid init` writes the same lines from `.skillgrid/config.yaml`.
 
-- Backlog.md: `Tickets live under `.backlog/tasks/`, managed via the `backlog` CLI.`
-- GitHub: `GitHub issues via the `gh` CLI.`
-- GitLab: `GitLab issues via the `glab` CLI.`
-- Jira: `Jira issues via the `jira` CLI (project key: {jira_key}).`
-- None: `None — work local-only from tasks.md.`
+| `ticketing.type` | `{tracker_line}` |
+|---|---|
+| `backlogmd` | Backlog.md — reference `.agents/skills/planning/ticketing/references/backlogmd.md` for conventions. |
+| `gh` | GitHub — reference `.agents/skills/planning/ticketing/references/github.md` for conventions. |
+| `glab` | GitLab — reference `.agents/skills/planning/ticketing/references/gitlab.md` for conventions. |
+| `jira` | Jira — reference `.agents/skills/planning/ticketing/references/jira.md` for conventions. |
+| none (`ticketing.enabled: false`, missing config, or an unknown type) | None — work local-only from tasks.md. |
 
 `{memory_line}`:
 

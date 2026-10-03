@@ -195,6 +195,7 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 
 **4. Write AGENTS.md block (idempotent upsert):**
 - Render the canonical `## Skillgrid` block from `../../_shared/agent-config/block.md` (fill `{project}`, `{tracker_line}`, `{memory_line}`, `{rules_block}`)
+- `{tracker_line}` is copied exactly from the `{tracker_line}` table in that file for `ticketing.type`. It points at that tracker's convention file. Do not paraphrase storage paths, ID rules, or CLI flags into the block.
 - `{rules_block}` is rendered from `.skillgrid/ASSUMPTIONS.md` § `### Locked constraints`: one `-` bullet per line. If that section is empty, render `No locked constraints yet — see `.skillgrid/ASSUMPTIONS.md`.`
 - Target decision: if `AGENTS.md` exists → update it. Else if `CLAUDE.md` exists → update it. Else → create `AGENTS.md`.
 - **Idempotent upsert** (per `../../_shared/agent-config/block.md`):
@@ -281,8 +282,8 @@ If `.skillgrid/config.yaml` already exists:
 - Skip the confirmation step — always present detected facts
 - Create both AGENTS.md and CLAUDE.md — pick the first that exists, or create AGENTS.md
 - Hard-code paths that the config already defines
-- Inline convention/how-to content into the `## Skillgrid` block — it is a navigation spine; point at the referenced files instead
-- Add a "getting started / setup" section to the block, or point it at individual churning file paths
+- Inline convention/how-to content into the `## Skillgrid` block — it is a navigation spine; point at the referenced files instead. The Issue Tracker line names the one convention file for `ticketing.type` (see `block.md`); do not restate that file
+- Add a "getting started / setup" section to the block, or point it at individual churning source paths
 
 ## Verification
 
@@ -290,7 +291,7 @@ If `.skillgrid/config.yaml` already exists:
 - [ ] `.skillgrid/state.yaml` exists, parses, and has `pipeline` + `progress` + `constraints_ref` pointing at `.skillgrid/ASSUMPTIONS.md` (existing values preserved on re-run)
 - [ ] `.skillgrid/ASSUMPTIONS.md` exists with the four tiers; `.skillgrid/ARCHITECTURE.md` exists (or is created lazily); `.skillgrid/artifacts/` contains `README.md` + `06-research-findings.md` (`00-prd.md`, terms, and ADR files created lazily by their owners)
 - [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}`, tracker/memory lines, and a `### Rules` section rendered from `ASSUMPTIONS.md` § Locked constraints
-- [ ] The block is lean: no inlined conventions/how-to or "getting started" section, no per-file path pointers, and (if both exist) `CLAUDE.md` holds only a one-line pointer to `AGENTS.md`
+- [ ] The block is lean: no inlined conventions/how-to or "getting started" section. Issue Tracker is the exact `{tracker_line}` for `ticketing.type` (a pointer to that convention file). No pointers at churning source paths. If both exist, `CLAUDE.md` holds only a one-line pointer to `AGENTS.md`
 - [ ] Detected test runner command runs and exits 0 (e.g. `go test ./...`, `npm test`, `pytest`)
 - [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`
 - [ ] `git rev-parse --is-inside-work-tree` succeeds; onboarding artifacts are committed (`git log -1` shows `chore: add Skillgrid config + state + artifacts`)

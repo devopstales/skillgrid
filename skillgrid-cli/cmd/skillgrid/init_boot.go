@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -18,6 +20,12 @@ const (
 	defaultRulesBlock = "No locked constraints yet — see `.skillgrid/ASSUMPTIONS.md`."
 	defaultTracker    = "None — work local-only from tasks.md."
 	enabledMemoryLine = "Persistent memory is active (Mnemonic). Use `mem_save` for decisions, `mem_search` for recall, `code_status` → `code_index` → `code_search` for code orientation. Full protocol: `skillgrid:mnemonic` skill."
+
+	// Tracker lines match `{tracker_line}` in .agents/skills/_shared/agent-config/block.md.
+	trackerBacklog = "Backlog.md — reference `.agents/skills/planning/ticketing/references/backlogmd.md` for conventions."
+	trackerGitHub  = "GitHub — reference `.agents/skills/planning/ticketing/references/github.md` for conventions."
+	trackerGitLab  = "GitLab — reference `.agents/skills/planning/ticketing/references/gitlab.md` for conventions."
+	trackerJira    = "Jira — reference `.agents/skills/planning/ticketing/references/jira.md` for conventions."
 )
 
 // Canonical Skillgrid sentinel body (from .agents/skills/_shared/agent-config/block.md).
@@ -91,7 +99,7 @@ func writeBootFile(dir string, force bool) (bootPath, preambleState string, err 
 
 	project := filepath.Base(dir)
 	rules := loadRulesBlock(dir)
-	sentinel := renderSentinel(project, rules)
+	sentinel := renderSentinel(project, rules, loadTrackerLine(dir))
 
 	body, preambleState := upsertPreamble(existing, force, project)
 	body = upsertSentinel(body, sentinel)
@@ -153,13 +161,47 @@ func ensureClaudePointer(dir, bootPath string) error {
 	return os.WriteFile(claude, []byte(body), 0o644)
 }
 
-func renderSentinel(project, rulesBlock string) string {
+func renderSentinel(project, rulesBlock, trackerLine string) string {
 	s := sentinelTemplate
 	s = strings.ReplaceAll(s, "{project}", project)
 	s = strings.ReplaceAll(s, "{rules_block}", rulesBlock)
-	s = strings.ReplaceAll(s, "{tracker_line}", defaultTracker)
+	s = strings.ReplaceAll(s, "{tracker_line}", trackerLine)
 	s = strings.ReplaceAll(s, "{memory_line}", enabledMemoryLine)
 	return s
+}
+
+type bootTicketingConfig struct {
+	Ticketing struct {
+		Enabled bool   `yaml:"enabled"`
+		Type    string `yaml:"type"`
+	} `yaml:"ticketing"`
+}
+
+func loadTrackerLine(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, ".skillgrid", "config.yaml"))
+	if err != nil {
+		return defaultTracker
+	}
+	var cfg bootTicketingConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil || !cfg.Ticketing.Enabled {
+		return defaultTracker
+	}
+	return trackerLineFor(cfg.Ticketing.Type)
+}
+
+func trackerLineFor(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "backlogmd":
+		return trackerBacklog
+	case "gh":
+		return trackerGitHub
+	case "glab":
+		return trackerGitLab
+	case "jira":
+		return trackerJira
+	default:
+		return defaultTracker
+	}
 }
 
 func loadRulesBlock(dir string) string {

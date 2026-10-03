@@ -42,7 +42,7 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 
 ### Issue Tracker
 
-Backlog.md — tasks under `.backlog/` (prefix `task`, zero-padded IDs).
+Backlog.md — reference `.agents/skills/planning/ticketing/references/backlogmd.md` for conventions.
 
 ### Memory
 
