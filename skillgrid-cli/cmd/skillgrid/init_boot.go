@@ -74,6 +74,14 @@ func writeBootFile(dir string, force bool) (bootPath, preambleState string, err 
 		return "", "", err
 	}
 
+	if fi, lstatErr := os.Lstat(bootPath); lstatErr == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", "", fmt.Errorf("%s: refusing to write through symlink", bootPath)
+		}
+	} else if !os.IsNotExist(lstatErr) {
+		return "", "", lstatErr
+	}
+
 	existing := ""
 	if data, readErr := os.ReadFile(bootPath); readErr == nil {
 		existing = string(data)

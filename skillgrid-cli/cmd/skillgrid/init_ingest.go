@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
@@ -22,6 +23,8 @@ var defaultIngestRoots = []string{
 	".skillgrid/artifacts",
 }
 
+const maxIngestBytes = 512 * 1024
+
 // ingestPaths upserts default project docs and jailed --docs paths into the
 // project memory store via memory.Save. Topic keys are init/docs/<relpath>.
 func ingestPaths(ctx context.Context, h *service.ProjectHandle, dir string, extra []string) (ingested int, skipped, errs []string) {
@@ -42,7 +45,7 @@ func ingestPaths(ctx context.Context, h *service.ProjectHandle, dir string, extr
 
 	for _, root := range defaultIngestRoots {
 		full := filepath.Join(absDir, filepath.FromSlash(root))
-		info, statErr := os.Stat(full)
+		info, statErr := os.Lstat(full)
 		if statErr != nil {
 			if os.IsNotExist(statErr) {
 				skipped = append(skipped, skipLabel(root))
@@ -110,18 +113,39 @@ func skipLabel(root string) string {
 	return root
 }
 
+func outsideJail(rel string) bool {
+	relSlash := filepath.ToSlash(rel)
+	return relSlash == "." || relSlash == ".." || strings.HasPrefix(relSlash, "../")
+}
+
 func ingestExtra(ctx context.Context, mem *memory.Service, sid, absDir, raw string) (ingested int, errMsg string) {
-	absPath, err := filepath.Abs(raw)
+	candidate := raw
+	if !filepath.IsAbs(raw) {
+		candidate = filepath.Join(absDir, raw)
+	}
+	absPath, err := filepath.Abs(candidate)
 	if err != nil {
 		return 0, fmt.Sprintf("docs %s: %v", raw, err)
 	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil || strings.HasPrefix(filepath.ToSlash(rel), "..") {
-		// Jail: extra path must resolve inside the project directory.
+
+	realDir, err := filepath.EvalSymlinks(absDir)
+	if err != nil {
+		return 0, fmt.Sprintf("docs %s: %v", raw, err)
+	}
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, fmt.Sprintf("docs missing: %s", raw)
+		}
+		return 0, fmt.Sprintf("docs %s: %v", raw, err)
+	}
+
+	rel, err := filepath.Rel(realDir, realPath)
+	if err != nil || outsideJail(rel) {
 		return 0, fmt.Sprintf("docs outside project: %s", raw)
 	}
 
-	info, err := os.Stat(absPath)
+	info, err := os.Lstat(realPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, fmt.Sprintf("docs missing: %s", raw)
@@ -130,24 +154,41 @@ func ingestExtra(ctx context.Context, mem *memory.Service, sid, absDir, raw stri
 	}
 	if info.IsDir() {
 		var n int
-		_ = filepath.WalkDir(absPath, func(path string, d fs.DirEntry, walkErr error) error {
-			if walkErr != nil || d.IsDir() || !d.Type().IsRegular() {
+		walkErr := filepath.WalkDir(realPath, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				if errMsg != "" {
+					errMsg += "; "
+				}
+				errMsg += fmt.Sprintf("%s: %v", path, walkErr)
 				return nil
 			}
-			saved, saveErr := saveIngestFile(ctx, mem, sid, absDir, path)
+			if d.IsDir() || !d.Type().IsRegular() {
+				return nil
+			}
+			// Topic Rel must use realDir: EvalSymlinks may rewrite /var → /private/var.
+			saved, saveErr := saveIngestFile(ctx, mem, sid, realDir, path)
 			if saveErr != nil {
-				errMsg = saveErr.Error()
+				if errMsg != "" {
+					errMsg += "; "
+				}
+				errMsg += saveErr.Error()
 				return nil
 			}
 			n += saved
 			return nil
 		})
+		if walkErr != nil {
+			if errMsg != "" {
+				errMsg += "; "
+			}
+			errMsg += fmt.Sprintf("%s: %v", raw, walkErr)
+		}
 		return n, errMsg
 	}
 	if !info.Mode().IsRegular() {
 		return 0, fmt.Sprintf("docs not a regular file: %s", raw)
 	}
-	n, saveErr := saveIngestFile(ctx, mem, sid, absDir, absPath)
+	n, saveErr := saveIngestFile(ctx, mem, sid, realDir, realPath)
 	if saveErr != nil {
 		return 0, saveErr.Error()
 	}
@@ -160,9 +201,28 @@ func saveIngestFile(ctx context.Context, mem *memory.Service, sid, absDir, absPa
 		return 0, fmt.Errorf("%s: %w", absPath, err)
 	}
 	relSlash := filepath.ToSlash(rel)
+
+	info, err := os.Lstat(absPath)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", relSlash, err)
+	}
+	if !info.Mode().IsRegular() {
+		return 0, fmt.Errorf("%s: not a regular file", relSlash)
+	}
+	if info.Size() > maxIngestBytes {
+		return 0, fmt.Errorf("%s: exceeds 512KiB limit (%d bytes)", relSlash, info.Size())
+	}
+
 	body, err := os.ReadFile(absPath)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", relSlash, err)
+	}
+	probe := body
+	if len(probe) > 512 {
+		probe = probe[:512]
+	}
+	if bytes.IndexByte(probe, 0) >= 0 {
+		return 0, fmt.Errorf("%s: binary content", relSlash)
 	}
 	content := string(body)
 	if strings.TrimSpace(content) == "" {

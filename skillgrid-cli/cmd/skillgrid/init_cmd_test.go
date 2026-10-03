@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,16 +167,73 @@ func TestInitRejectsDocsOutsideProject(t *testing.T) {
 	}
 }
 
+func TestInitRejectsDocsSymlinkEscape(t *testing.T) {
+	svc := service.New(t.TempDir())
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.md")
+	if err := os.WriteFile(outside, []byte("SECRET_HOST_CONTENT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "leak.md")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	res, err := projectInit(context.Background(), svc, dir, false, []string{link})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Errors) == 0 {
+		t.Fatal("expected symlink jail error")
+	}
+	h, closeH, err := svc.OpenForDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeH()
+	if countTopic(t, h.Memory(), "init/docs/leak.md") != 0 {
+		t.Fatal("symlink escape ingested host file")
+	}
+}
+
+func TestInitRejectsSymlinkBootFile(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "host-agents.md")
+	if err := os.WriteFile(outside, []byte("HOST"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
+	if err == nil {
+		t.Fatal("expected symlink boot error")
+	}
+	body, readErr := os.ReadFile(outside)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(body) != "HOST" {
+		t.Fatalf("host file overwritten: %q", body)
+	}
+}
+
+func TestInitRejectsDocsProjectRoot(t *testing.T) {
+	svc := service.New(t.TempDir())
+	dir := t.TempDir()
+	res, err := projectInit(context.Background(), svc, dir, false, []string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Errors) == 0 {
+		t.Fatal("expected reject of project-root --docs")
+	}
+}
+
 func TestInitHelpListsFlags(t *testing.T) {
 	var buf bytes.Buffer
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	newInitFlagSet(fs)
 	fs.SetOutput(&buf)
-	_ = fs.Bool("force", false, "rebuild generated preamble")
-	_ = fs.String("docs", "", "extra path (repeatable)")
-	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: skillgrid init [--force] [--docs path]...")
-		fs.PrintDefaults()
-	}
 	fs.Usage()
 	out := buf.String()
 	if !strings.Contains(out, "--force") || !strings.Contains(out, "--docs") {
