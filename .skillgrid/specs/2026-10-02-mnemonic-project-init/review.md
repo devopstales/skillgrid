@@ -2,9 +2,9 @@
 
 > Change: `.skillgrid/specs/2026-10-02-mnemonic-project-init/`
 > Generated: 2026-10-03T07:50:00Z (parallel-code-review)
-> Re-rendered: 2026-10-03T07:58:00Z after fix `0948f457`
+> Re-rendered: 2026-10-03T07:58:00Z after fix `cb077edf`
 > Diff range (original): `f739d371..17652346`
-> Fix commit: `0948f457`
+> Fix commit: `cb077edf`
 > Rigor tier: T2 (escalated to fan-out: 1115 lines ≥ 50)
 >
 > Specialists: Standards, Spec, Edge, Verification-gap, Security, Performance, Red-team (last).
@@ -46,14 +46,14 @@ First dispatch of Standards/Spec/Verification/Security failed (`Other Models` li
 
 | ID | Verdict | Source | Location | Finding | Route |
 |----|---------|--------|----------|---------|-------|
-| D1 | high | Security+Edge | `init_ingest.go` jail | Symlink escapes lexical `--docs` jail | **fixed** in `0948f457` (EvalSymlinks + Lstat + tests) |
-| D2 | high | Security | `init_boot.go` WriteFile | Symlink boot target overwrites host file | **fixed** in `0948f457` (Lstat refuse + test) |
-| D3 | medium | Security+Perf | `saveIngestFile` | No size bound / binary blob | **fixed** in `0948f457` (512KiB + NUL probe) |
-| D4 | medium | Verif+Standards | `TestInitHelpListsFlags` | Help test didn't call `newInitFlagSet` | **fixed** in `0948f457` |
-| D5 | medium | Standards+Edge | `ingestExtra` WalkDir | `walkErr` / last saveErr swallowed | **fixed** in `0948f457` |
-| D6 | medium | Red | `ingestExtra` Abs | `--docs` Abs used cwd not target dir | **fixed** in `0948f457` |
-| D7 | medium | Edge+Red | Rel `"."` | `--docs` project root walks entire tree | **fixed** in `0948f457` |
-| D16 | low | Edge | `..foo` false jail | `HasPrefix("..")` vs `"../"` | **fixed** via `outsideJail` in `0948f457` |
+| D1 | high | Security+Edge | `init_ingest.go` jail | Symlink escapes lexical `--docs` jail | **fixed** in `cb077edf` (EvalSymlinks + Lstat + tests) |
+| D2 | high | Security | `init_boot.go` WriteFile | Symlink boot target overwrites host file | **fixed** in `cb077edf` (Lstat refuse + test) |
+| D3 | medium | Security+Perf | `saveIngestFile` | No size bound / binary blob | **fixed** in `cb077edf` (512KiB + NUL probe) |
+| D4 | medium | Verif+Standards | `TestInitHelpListsFlags` | Help test didn't call `newInitFlagSet` | **fixed** in `cb077edf` |
+| D5 | medium | Standards+Edge | `ingestExtra` WalkDir | `walkErr` / last saveErr swallowed | **fixed** in `cb077edf` |
+| D6 | medium | Red | `ingestExtra` Abs | `--docs` Abs used cwd not target dir | **fixed** in `cb077edf` |
+| D7 | medium | Edge+Red | Rel `"."` | `--docs` project root walks entire tree | **fixed** in `cb077edf` |
+| D16 | low | Edge | `..foo` false jail | `HasPrefix("..")` vs `"../"` | **fixed** via `outsideJail` in `cb077edf` |
 | D8 | medium | Standards | `initRunIndex` var | Package mutable func for test stub | **defer** |
 | D9 | medium | Standards | `sentinelTemplate` | Inlined copy of `agent-config/block.md` | **defer** |
 | D10 | medium | Perf | double Open + N+1 Save | Store open twice; per-file Save | **defer** |
@@ -67,17 +67,17 @@ First dispatch of Standards/Spec/Verification/Security failed (`Other Models` li
 | D19 | medium | Red-team | hash-floor before topic_key | Identical content noops second topic_key | **defer** (AUDN floor; rare for distinct docs) |
 | D20 | medium | Red-team | `OpenForDirectory` | `MNEMONIC_PROJECT` can split boot vs store | **defer** (existing resolve contract) |
 | D21 | medium | Spec | spec dir | `acceptance.feature` / briefing / blueprint / tasks / adr still untracked | **fix now** (commit spec zone) |
-| D22 | medium | Verif | several Then clauses | Weak assertions (counts, README skip, jail not-ingested) | **defer** (help + symlink + root covered in `0948f457`) |
+| D22 | medium | Verif | several Then clauses | Weak assertions (counts, README skip, jail not-ingested) | **defer** (help + symlink + root covered in `cb077edf`) |
 
 ## Floor
 
 - **Standards:** met-with-fixes (D8/D9 deferred)
 - **Spec:** met-with-fixes (product scenarios hold; spec-zone commit pending as D21)
-- **Security:** secure-with-fixes (D1/D2 closed in `0948f457`)
+- **Security:** secure-with-fixes (D1/D2 closed in `cb077edf`)
 - **Floor (decides):** met-with-fixes
 - **Worst remaining:** D17 ingest TTL (deferred — not introduced as a new store default here)
 - **Unfixed Important in-scope:** D21 only (commit the change's spec files)
 
 ## Verdict
 
-**met-with-fixes** after `0948f457`. Symlink Highs, size/binary bound, help production path, walk errors, cwd-relative `--docs`, and project-root walk are closed (`TestInit*` 29.8s ok). Next: commit D21 spec artifacts, then `skillgrid:ship`.
+**met-with-fixes** after `cb077edf`. Symlink Highs, size/binary bound, help production path, walk errors, cwd-relative `--docs`, and project-root walk are closed (`TestInit*` 29.8s ok). D21 closed (spec files tracked). D3/D6 regression tests in `9fa312fe`. Next: `skillgrid:ship`.
