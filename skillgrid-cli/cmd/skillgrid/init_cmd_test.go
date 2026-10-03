@@ -229,6 +229,101 @@ func TestInitRejectsDocsProjectRoot(t *testing.T) {
 	}
 }
 
+// D3: oversized / NUL-binary files are rejected (Errors, non-fatal) and not saved.
+func TestInitRejectsOversizedAndBinaryDocs(t *testing.T) {
+	svc := service.New(t.TempDir())
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	big := filepath.Join(dir, "docs", "big.md")
+	if err := os.WriteFile(big, bytes.Repeat([]byte("a"), maxIngestBytes+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "docs", "blob.md")
+	if err := os.WriteFile(bin, []byte("ok\x00bad"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ok := filepath.Join(dir, "docs", "ok.md")
+	if err := os.WriteFile(ok, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := projectInit(context.Background(), svc, dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.BootFile == "" {
+		t.Fatal("boot file required; ingest rejects must be non-fatal")
+	}
+	joined := strings.Join(res.Errors, "; ")
+	if !strings.Contains(joined, "exceeds 512KiB limit") {
+		t.Fatalf("Errors missing size bound: %q", joined)
+	}
+	if !strings.Contains(joined, "binary content") {
+		t.Fatalf("Errors missing binary reject: %q", joined)
+	}
+
+	h, closeH, err := svc.OpenForDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeH()
+	if countTopic(t, h.Memory(), "init/docs/docs/big.md") != 0 {
+		t.Fatal("oversized file was saved")
+	}
+	if countTopic(t, h.Memory(), "init/docs/docs/blob.md") != 0 {
+		t.Fatal("NUL-binary file was saved")
+	}
+	if countTopic(t, h.Memory(), "init/docs/docs/ok.md") != 1 {
+		t.Fatal("valid sibling should still ingest")
+	}
+}
+
+// D6: relative --docs resolves under project absDir even when process cwd differs.
+func TestInitRelativeDocsUsesProjectDirNotCwd(t *testing.T) {
+	svc := service.New(t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("from project"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Decoy at cwd so a cwd-relative join would pick the wrong file (or fail).
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "notes.md"), []byte("from cwd"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+
+	res, err := projectInit(context.Background(), svc, dir, false, []string{"notes.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Errors) != 0 {
+		t.Fatalf("unexpected Errors: %v", res.Errors)
+	}
+	if res.Ingested < 1 {
+		t.Fatalf("Ingested = %d, want >= 1", res.Ingested)
+	}
+
+	h, closeH, err := svc.OpenForDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeH()
+	if countTopic(t, h.Memory(), "init/docs/notes.md") != 1 {
+		t.Fatal("relative --docs did not ingest under project")
+	}
+	hits, err := h.Memory().Recent(context.Background(), 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hit := range hits {
+		if hit.TopicKey == "init/docs/notes.md" && strings.Contains(hit.Content, "from cwd") {
+			t.Fatal("ingested cwd file instead of project file")
+		}
+	}
+}
+
 func TestInitHelpListsFlags(t *testing.T) {
 	var buf bytes.Buffer
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
