@@ -293,11 +293,12 @@ func runIndex(version string, args []string) {
 
 	stats, err := svc.RunCodeIndexPDGWithProgress(ctx, dir, pdg, lsp, rep.Event)
 	if err != nil {
+		// os.Exit skips the deferred Done, which would leave a TTY in raw mode.
+		rep.Done()
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stdout, "indexed: %d files, %d chunks (+%d skipped, -%d deleted)\n",
-		stats.FilesIndexed, stats.ChunksAdded, stats.FilesSkipped, stats.FilesDeleted)
+	finishIndex(rep, stats, os.Stdout, os.Stderr)
 }
 
 // runSetup installs agent plugins (opencode|kilocode|cursor).

@@ -16,15 +16,16 @@ import (
 const installMcpPkg = "install-mcp"
 
 // Run executes the install flow in the order defined by the project spec:
-//  1. create ~/.skillgrid structure
-//  2. sync the skillgrid repository (clone or pull)
-//  3. verify node + npm are on PATH
+//  1. validate prerequisites (node, npm, uv, go) — stop before any writes
+//  2. create ~/.skillgrid structure
+//  3. sync the skillgrid repository (clone or pull)
 //  4. ask which agents to install (or use preset/--yes defaults)
 //  5. npm install -g each selected agent (skip if binary already on PATH)
 //  6. npm install -g install-mcp, then npm install -g each MCP package from tools.yaml
 //  7. configure selected agents (plugins + mcp.yaml merge) — sole writer of agent MCP config
 //  8. npm install -g for the remaining shared tools
 //  9. install security scanners (uv tool install wapiti3; go install akca, nuclei)
+//
 // 10. override ~/.agents from the repo's .agents/
 //
 // Any hard failure stops the run with a descriptive error; individual
@@ -34,6 +35,11 @@ func Run(c *Config) error {
 
 	info := func(s string) { Out("  •", s) }
 	verb := func(s string, a ...any) { VerboseOut(c, append([]any{s}, a...)...) }
+
+	info("checking prerequisites (node, npm, uv, go)")
+	if err := checkPrerequisites(c); err != nil {
+		return err
+	}
 
 	info("creating ~/.skillgrid structure")
 	if err := ensureHomeStruct(c); err != nil {
@@ -59,11 +65,6 @@ func Run(c *Config) error {
 	info("wiring git hooks (core.hooksPath)")
 	if err := wireGitHooks(c); err != nil {
 		Out("  warning: git hooks wiring:", err)
-	}
-
-	info("checking node + npm")
-	if err := checkNode(c); err != nil {
-		return err
 	}
 
 	info("selecting agents")
@@ -175,36 +176,63 @@ func syncRepo(c *Config) error {
 	return run(c, "", "git", "clone", "--branch", c.Branch, c.RepoURL, c.RepoDir)
 }
 
-func checkNode(c *Config) error {
+// prerequisiteLookPath is exec.LookPath, replaced in tests.
+var prerequisiteLookPath = exec.LookPath
+
+// checkPrerequisites fails the install before any write when node, npm, uv,
+// or go is not on PATH. Later steps need all four: npm for agents and tools,
+// uv and go for the security scanners.
+func checkPrerequisites(c *Config) error {
 	var missing []string
-	for _, bin := range []string{"node", "npm"} {
-		if _, err := exec.LookPath(bin); err != nil {
+	for _, bin := range []string{"node", "npm", "uv", "go"} {
+		if _, err := prerequisiteLookPath(bin); err != nil {
 			missing = append(missing, bin)
 		}
 	}
-	if len(missing) > 0 {
-		script := filepath.Join(c.RepoDir, "scripts", "install_node.sh")
-		fmt.Fprintln(os.Stderr,
-			"\n      missing:", strings.Join(missing, ", "))
-		fmt.Fprintln(os.Stderr, "      use the install script from the repo:")
-		fmt.Fprintln(os.Stderr, "         bash", script)
-		fmt.Fprintln(os.Stderr, "      then re-run: skillgrid install")
-		return fmt.Errorf("missing from PATH: %s", strings.Join(missing, ", "))
+	if len(missing) == 0 {
+		verbPrereqs(c)
+		return nil
 	}
-	verbNode(c)
-	return nil
+	fmt.Fprintln(os.Stderr, "\n      missing:", strings.Join(missing, ", "))
+	if prerequisiteMissing(missing, "node") || prerequisiteMissing(missing, "npm") {
+		script := filepath.Join(c.RepoDir, "scripts", "install_node.sh")
+		fmt.Fprintln(os.Stderr, "      node + npm: bash", script)
+	}
+	if prerequisiteMissing(missing, "uv") {
+		fmt.Fprintln(os.Stderr, "      uv: curl -LsSf https://astral.sh/uv/install.sh | sh")
+	}
+	if prerequisiteMissing(missing, "go") {
+		fmt.Fprintln(os.Stderr, "      go: install Go from https://go.dev/dl/")
+	}
+	fmt.Fprintln(os.Stderr, "      then re-run: skillgrid install")
+	return fmt.Errorf("missing from PATH: %s", strings.Join(missing, ", "))
 }
 
-func verbNode(c *Config) {
-	v, err := exec.Command("node", "--version").Output()
-	if err != nil {
-		return
+func prerequisiteMissing(missing []string, bin string) bool {
+	for _, m := range missing {
+		if m == bin {
+			return true
+		}
 	}
-	n, err := exec.Command("npm", "--version").Output()
-	if err != nil {
-		return
+	return false
+}
+
+func verbPrereqs(c *Config) {
+	var parts []string
+	for _, bin := range []string{"node", "npm", "uv", "go"} {
+		out, err := exec.Command(bin, "--version").Output()
+		if err != nil {
+			continue
+		}
+		line := strings.TrimSpace(string(out))
+		if i := strings.IndexByte(line, '\n'); i >= 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		parts = append(parts, bin+" "+line)
 	}
-	VerboseOut(c, "node "+strings.TrimSpace(string(v))+" / npm "+strings.TrimSpace(string(n)))
+	if len(parts) > 0 {
+		VerboseOut(c, strings.Join(parts, " / "))
+	}
 }
 
 func selectAgents(c *Config) error {

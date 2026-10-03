@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
 )
 
@@ -134,5 +136,145 @@ func TestProgressModelDetail(t *testing.T) {
 	m, _ = m.update(progressEventMsg(codeindex.Event{Phase: "community", PhaseStart: true}))
 	if strings.Contains(m.View(), "main.go") {
 		t.Errorf("view = %q, detail should reset on phase start", m.View())
+	}
+}
+
+// restoreFake stands in for a bubbletea program. Wait blocks until release
+// so a test can prove Done does not return before the terminal is restored.
+type restoreFake struct {
+	quit        bool
+	waits       int
+	waitStarted chan struct{}
+	release     chan struct{}
+}
+
+func (f *restoreFake) Send(tea.Msg) {}
+
+func (f *restoreFake) Run() (tea.Model, error) { return nil, nil }
+
+func (f *restoreFake) Quit() { f.quit = true }
+
+func (f *restoreFake) Wait() {
+	f.waits++
+	if f.waitStarted != nil {
+		select {
+		case <-f.waitStarted:
+		default:
+			close(f.waitStarted)
+		}
+	}
+	if f.release != nil {
+		<-f.release
+	}
+}
+
+// TestProgressDoneWaitsForTerminalRestore: Done must quit the live view and
+// block until that program has restored the terminal. Returning earlier lets
+// the process exit in raw mode, so the next shell prompt is drawn mid-line.
+func TestProgressDoneWaitsForTerminalRestore(t *testing.T) {
+	release := make(chan struct{})
+	f := &restoreFake{waitStarted: make(chan struct{}), release: release}
+	r := &progressViewTea{p: f}
+	returned := make(chan struct{})
+	go func() {
+		r.Done()
+		close(returned)
+	}()
+	select {
+	case <-f.waitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("Done returned without waiting for the program to restore the terminal")
+	}
+	select {
+	case <-returned:
+		t.Fatal("Done returned before Wait finished")
+	default:
+	}
+	if !f.quit {
+		t.Fatal("Quit was not called before Wait")
+	}
+	close(release)
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("Done did not return after the terminal was restored")
+	}
+}
+
+// TestProgressDoneOnce: a second Done must not wait again. runIndex restores
+// once before printing, and a defer restores again on the way out.
+func TestProgressDoneOnce(t *testing.T) {
+	f := &restoreFake{}
+	r := &progressViewTea{p: f}
+	r.Done()
+	r.Done()
+	if f.waits != 1 || !f.quit {
+		t.Fatalf("Quit=%v waits=%d, want one restore", f.quit, f.waits)
+	}
+}
+
+// orderReporter records whether Done has run. orderWriter flags any write
+// that happens before that restore.
+type orderReporter struct {
+	done bool
+}
+
+func (o *orderReporter) Start()                {}
+func (o *orderReporter) Event(codeindex.Event) {}
+func (o *orderReporter) Done()                 { o.done = true }
+
+type orderWriter struct {
+	o     *orderReporter
+	buf   bytes.Buffer
+	early bool
+}
+
+func (w *orderWriter) Write(p []byte) (int, error) {
+	if !w.o.done {
+		w.early = true
+	}
+	return w.buf.Write(p)
+}
+
+// TestFinishIndexPrintsAfterRestore: the unresolved-member line and the
+// indexed summary are written only after the progress view has restored the
+// terminal, each starting at column 0 and ending with a newline.
+func TestFinishIndexPrintsAfterRestore(t *testing.T) {
+	rep := &orderReporter{}
+	out := &orderWriter{o: rep}
+	errw := &orderWriter{o: rep}
+	finishIndex(rep, codeindex.Stats{
+		FilesIndexed:      38,
+		FilesSkipped:      1,
+		ChunksAdded:       61,
+		UnresolvedMembers: 81,
+		UnresolvedKnown:   true,
+	}, out, errw)
+	if out.early || errw.early {
+		t.Fatal("summary was written before the terminal was restored")
+	}
+	if got := errw.buf.String(); got != "index: unresolved member calls: 81\n" {
+		t.Errorf("stderr = %q", got)
+	}
+	if got := out.buf.String(); got != "indexed: 38 files, 61 chunks (+1 skipped, -0 deleted)\n" {
+		t.Errorf("stdout = %q", got)
+	}
+}
+
+// TestFinishIndexOmitsUnknownUnresolved: a failed count query prints no
+// unresolved line, and the indexed line is still after restore.
+func TestFinishIndexOmitsUnknownUnresolved(t *testing.T) {
+	rep := &orderReporter{}
+	out := &orderWriter{o: rep}
+	errw := &orderWriter{o: rep}
+	finishIndex(rep, codeindex.Stats{FilesIndexed: 2, ChunksAdded: 3}, out, errw)
+	if out.early || errw.early {
+		t.Fatal("summary was written before the terminal was restored")
+	}
+	if errw.buf.Len() != 0 {
+		t.Errorf("stderr = %q, want empty when the count was not read", errw.buf.String())
+	}
+	if got := out.buf.String(); got != "indexed: 2 files, 3 chunks (+0 skipped, -0 deleted)\n" {
+		t.Errorf("stdout = %q", got)
 	}
 }

@@ -1,0 +1,55 @@
+---
+id: decision-016
+title: "ADR-0016 Mnemonic second-brain capability layer: `mem_ask` synthesis, `mem_save.infer`, `mem_lifecycle`, and the MCP response-shape convention"
+date: "2026-09-30"
+status: "accepted"
+---
+
+Source: `.skillgrid/artifacts/04-adr-0016-second-brain-capability-layer.md`
+
+# Mnemonic second-brain capability layer: `mem_ask` synthesis, `mem_save.infer`, `mem_lifecycle`, and the MCP response-shape convention
+
+---
+status: "accepted"
+supersedes:
+date: 2026-09-30
+---
+
+**Related:** `04-adr-0012-sqlite-as-second-brain.md` (locked the *engine* — SQLite as the second-brain store). This ADR builds the **capability layer** on top of it: what makes the store *feel* like a second brain rather than a search API. The spec that implements it is `.skillgrid/specs/2026-09-30-mnemonic-second-brain/` (briefing + acceptance.feature + blueprint). The reference product that motivated the patterns is the deep-dive in `09-claude-os-deep-dive.md` (steal list S1–S7) and the roadmap in `08-second-brain-roadmap.md` (items B, C, D, S4).
+
+## Context and Problem Statement
+
+ADR-0012 decided the **memory ENGINE** (SQLite/FTS5+vec0 over llm-wiki markdown). That leaves the store as a *search API*: you retrieve ranked chunks and the agent manually synthesizes. A second brain differs in one concrete way — it **gets smarter every conversation**: it captures what happened, answers questions over it *with citations*, and keeps itself clean so it stays trustworthy.
+
+A deep-dive of the closest same-shape product (`brobertsaz/claude-os`, 417★, ~7.8k LOC) confirmed three things: (1) the "brain feel" is **not** in a new retrieval engine — it is a thin set of capability layers over the existing store; (2) the two things that product brags about (a "sqlite-vec" vector store and "hybrid search") are weaker than ours (brute-force Python cosine, vector-only "hybrid", zero FTS5, no migration runner) — so we do not owe them any retrieval work; (3) the durable patterns worth stealing are **S1** (natural-language capture as a skill trigger, zero infra), **S2** (knowledge lifecycle: two-phase audit log, union-find dedup, soft archive, `consolidated_from` provenance, inline `_health_warnings`), **S3** (anti-hallucination extraction, already in-flight in the monitoring spec), and **S4** (MCP response shape: errors-as-values, `_`-prefixed meta, actionable error text).
+
+The open question: which capability layer do we build on top of the ADR-0012 store, and what contract does it carry?
+
+## Considered Options
+
+- **Thin capability layer over the existing store (chosen):** add `mem_ask` (gather-then-synthesize, cited floor + fail-open LLM), `mem_save.infer` (opt-in deterministic metadata fill), `mem_lifecycle` (health / dedup / consolidate / archive + `lifecycle_log` audit), and adopt the S4 response-shape convention on the touched tools. All four reuse `BlendedSearch` (FTS5+vec0 RRF), the code graph, the governance soft-archive, and the existing LLM seam. **Zero new retrieval engine, zero new dependencies, one additive migration.**
+- **A new retrieval engine / RAG service:** replace or wrap `BlendedSearch` with a dedicated RAG backend. Heavier, duplicates the existing FTS5+vec0 fusion, and — per the deep-dive — the closest product does not have a better one. Rejected.
+- **A server-backed brain (Redis Iris / Postgres):** the ADR-0012 revisit trigger is *concurrent multi-agent access with access control*; that is not the requirement here. A local single-user store stays SQLite. Deferred to the ADR-0012 trigger.
+- **No lifecycle, capture + ask only:** ship C1+C2 and skip C3. Cheaper, but the store still accumulates near-duplicates and stale entries with no health signal — the part that makes the store trustworthy over time. Rejected as the *complete* shape; C3 is included because "stays trustworthy" is half the second-brain promise.
+- **Capture as a regex/intent-detection engine in the save path:** put "remember this" detection in Go. Rejected — the deep-dive showed the agent (the skill) is the classifier and works with zero infra; a Go regex engine is infra we do not need. `mem_save.infer` is kept only as the *deterministic floor* (testable metadata fill), not a parser.
+
+## Decision Outcome
+
+Chosen option: **the thin second-brain capability layer over the ADR-0012 store**, with this contract:
+
+- **C1 — Natural-language capture (roadmap B).** Primary trigger is a **skill** (`.agents/skills/knowledge/mnemonic-second-brain/SKILL.md`) whose `description` lists trigger phrases ("remember this", "we decided to…", "note for next time", "important:") and whose body is a capture contract: extract → infer `type` from the existing taxonomy → assemble `mem_save` content (What/Why/Where/Learned) → call `mem_save` with a stable `topic_key` so rephrasings upsert. A **`mem_save` `infer=true` flag (default `false`)** is the deterministic programmatic floor: when set and `type`/`topic_key` are empty, fill `type` via the existing intent heuristic and `topic_key` via `mem_suggest_topic_key`. It **only fills empty fields**; agent-provided values always win. The agent is the classifier; the flag makes that step testable without a live model.
+- **C2 — `mem_ask` synthesis (roadmap C).** A **new MCP tool** that gathers then synthesizes: (1) *gather* via the existing `BlendedSearch` (FTS5+vec0 RRF) plus best-effort graph expansion over the top hits (resolved edges only); project-scoped by default, `all_projects` spans stores. (2) *synthesize* in two modes: **`mode="cited"` (default, the no-LLM, no-embedder floor)** — a deterministic, deduped, token-bounded (`max_tokens`) citation-bearing block, each claim annotated with source `id`/`title`/`type`; and **`mode="llm"` (opt-in)** — a prose answer with inline `[obs:<id>]` citations and a `sources` array, **failing open to `cited`** on LLM error/timeout (3s). Response: `{ answer?, citations, matched_via, degraded, sources?, _health_warnings }`. `mem_ask` **reuses** `BlendedSearch` — it is never a new retrieval engine.
+- **C3 — Knowledge lifecycle (roadmap D).** A **`mem_lifecycle` MCP tool** multiplexing one tool via an `action` enum (S2 pattern): `health` (read-only report — counts by type, embedding coverage, age distribution, union-find duplicate density, rule-based `recommendations` — cached 24h, **never throws**), `dedup` (`scan` returns clusters+density with `dry_run`; `merge` soft-archives near-dupes keeping the canonical, recording `consolidated_from`; degrades to hash-dedup with no embedder), `consolidate` (`obs_ids[]` + `new_title`, LLM merge **fail-open** to a deterministic concatenated-with-provenance note, creates one obs with `consolidated_from: [ids]`, soft-archives the sources), `archive` (`archive|restore|list|stale`, `reason`, `stale_days` default 90, reuses the governance soft-archive, adds `archive_reason` + `archived_at`). **One additive, idempotent migration** adds a two-phase `lifecycle_log` audit table (`pending` → `completed|failed` with `completed_at`). **Soft-only: no hard deletes by default; `restore` reverses.**
+- **C4 — MCP response-shape convention (roadmap S4).** Adopted across the touched tools (`mem_save`, `mem_search`, `mem_ask`, `mem_lifecycle`): errors are **values, never thrown to transport** (`{"error": "…", <empty>}`); error text is **actionable** (names the next step, e.g. "no embedder active — set `MNEMONIC_EMBED=1`"); **`_`-prefixed meta fields** (`_timing`, `_health_warnings`, `_source_project`) that the LLM may ignore and that never collide with payload fields; `success` bool + `error` string for mutations, `[]` for failed reads.
+
+### Consequences
+
+- Good, because every capability reuses the ADR-0012 store and its existing retrieval, graph, governance, and LLM seam — so the change is **purely additive** (one additive idempotent migration, zero new dependencies) and does not touch the engine decision.
+- Good, because `mem_ask` **`cited` mode is the guaranteed floor** — deterministic, token-bounded, and works with no LLM and no embedder — so the "ask the brain and get a cited answer" promise holds even in a degraded environment; `llm` mode is strictly opt-in and always fails open.
+- Good, because the lifecycle is **soft-only and audited** — archive/dedup/consolidate never hard-delete by default, are reversible via `restore`, and every mutating op writes a `lifecycle_log` row, so store maintenance is inspectable and recoverable.
+- Good, because capture is a **skill, not an engine** — zero new infra, and the agent (not a regex) is the classifier; `mem_save.infer` exists only as a deterministic, unit-testable floor that fills empty metadata and never overrides agent input.
+- Bad, because `mem_ask` is a **new surface agents may reach for before `mem_search`**; if the gather step under-returns, the cited answer is wrong-looking. Mitigation: `cited` mode is the floor, `degraded` flags when the vec0 leg is skipped, and the gather reuses the already-tested `BlendedSearch`.
+- Bad, because `_health_warnings` and `mem_ask`/`consolidate` LLM mode add a **latent LLM/embedder dependency** on paths that are otherwise zero-LLM. Mitigation: both are fail-open / non-breaking (recover → `[]`; 24h cache; 3s timeout), so a downed embedder or LLM degrades the answer, it never errors.
+- Bad, because the `lifecycle_log` + `archive_reason`/`archived_at`/`consolidated_from` additions grow the observation schema surface. Mitigation: all additive, `CREATE TABLE IF NOT EXISTS`, no data migration, reversible.
+
+Revisit triggers: (1) the second brain must serve **multiple concurrent agents with access control** — the ADR-0012 trigger still applies; `mem_ask all_projects` is the retrieval seam that a per-agent scoping layer would plug into; (2) **cross-project pattern synthesis** becomes a deliverable — C2's `all_projects` provides the retrieval today; the *synthesis* across projects is a follow-up change (roadmap I), not this one; (3) the lifecycle grows **per-action tools** pressure — if `mem_lifecycle`'s `action` enum outgrows a single tool's schema, split by action; the `lifecycle_log` audit table is action-agnostic and survives the split; (4) a **human browse view** is requested — that is the `serve` dashboard (roadmap G), which reads the same `health` report; it does not change this contract.

@@ -131,6 +131,11 @@ with the context (`04-adr-0003-<context>-….md`). Every new or superseding ADR
 gets a path row in the `### In-force set` table in the same edit. The row is the
 path. The file is the body.
 
+When `ticketing.type` is `backlogmd`, copy the ADR into
+`.backlog/decisions/` in the same edit (see [Backlog.md copy](#backlogmd-copy)).
+The artifact file stays the record (ADR-0019). The decision file is the tracker
+copy so `backlog decision list` / `backlog search` can find it.
+
 ### Fixed heading (all styles)
 
 Every ADR file carries machine-readable status fields regardless of body shape:
@@ -180,6 +185,9 @@ Process (run at the end of the interview, before the blueprint is written):
    frontmatter, and append a path row to the `### In-force set` table (flip
    the superseded row's "In force" to `no`). A superseding file sets
    `status: accepted` and `supersedes: ADR-NNNN`. Do NOT edit the prior file.
+   If `ticketing.type` is `backlogmd`, copy each new or superseding file into
+   `.backlog/decisions/` and refresh the superseded copy's `status` to
+   `superseded`.
 4. **Write the manifest** at `.skillgrid/specs/<topic>/adr.md`: state that ADR
    review completed, list the in-force ADRs reviewed, and reference every ADR
    file this change created (pointers to `artifacts/04-adr-NNNN-slug.md`).
@@ -215,10 +223,52 @@ Process (run at the end of the interview, before the blueprint is written):
 - The terms file is absorbing implementation details, specs, or scratch — it's becoming a running spec.
 - ADR sequence numbers are reused or out of monotonic order.
 - An ADR body was pasted into `ASSUMPTIONS.md`. The table stores the path.
+- An ADR file has no matching `.backlog/decisions/decision-NNN` copy when `ticketing.type` is `backlogmd`.
+
+## Backlog.md copy
+
+When `.skillgrid/config.yaml` has `ticketing.type: backlogmd`, every ADR file
+has a tracker copy under `.backlog/decisions/`. Do this in the same edit that
+writes the artifact — a missing copy is an incomplete ADR.
+
+Write the decision file yourself so the Backlog id stays aligned with the ADR
+number (`ADR-0024` → `decision-024`). Do **not** use `backlog decision create`
+for these copies: it assigns the next free id and the pair drifts.
+
+```
+.backlog/decisions/decision-NNN - ADR-NNNN-slug.md
+```
+
+`NNN` is the ADR number zero-padded to the project's `zero_padded_ids` (this
+repo: 3). Quote `title` in the decision frontmatter — titles often contain
+colons. The file shape:
+
+```markdown
+---
+id: decision-NNN
+title: "ADR-NNNN <title from the artifact H1>"
+date: 'YYYY-MM-DD'
+status: accepted
+---
+
+Source: `.skillgrid/artifacts/04-adr-NNNN-slug.md`
+
+<verbatim artifact file>
+```
+
+Rules:
+
+- The artifact is the record. If the copy disagrees, recopy from the artifact
+  (ADR-0013 / ADR-0019).
+- A new ADR → a new decision file. A superseding ADR → a new decision file
+  **and** set the prior copy's `status` to `superseded`. Do not delete a copy.
+- Onboarding copies any `04-adr-*.md` that has no matching `decision-NNN` file.
+- Other trackers (`gh` / `glab` / `jira`) do not get a copy.
 
 ## Verification
 
 - [ ] Every new ADR exists as `.skillgrid/artifacts/04-adr-NNNN-slug.md` with a monotonic 4-digit number and frontmatter (`status`, `date`, `supersedes`).
+- [ ] When `ticketing.type` is `backlogmd`, `.backlog/decisions/decision-NNN - ADR-NNNN-slug.md` exists, lists the Source path, and carries the same status as the artifact.
 - [ ] Every new or superseding ADR has a matching path row in the `### In-force set` table, and the "Highest sequence in use" line is updated.
 - [ ] Every new ADR carries `status: accepted` (or `proposed`) and, when replacing a prior decision, a `supersedes` that resolves to a real file.
 - [ ] No accepted ADR file was mutated: `git diff` shows a new file and a new table row, no edits to previously accepted files.

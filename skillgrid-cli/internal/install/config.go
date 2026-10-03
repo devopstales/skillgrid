@@ -101,7 +101,7 @@ type MCPServer struct {
 // SecTool describes a security scanning tool the installer can bring up. It is
 // installed with its own manager (not npm), so it sits beside GlobalTools.
 type SecTool struct {
-	Name   string
+	Name    string
 	Manager string // "uv" or "go"
 	// InstallArgs are the exact arguments passed to the manager, after its name.
 	// The manager binary is prepended by the caller.
@@ -119,6 +119,7 @@ func SecurityTools() []SecTool {
 		{Name: "wapiti3", Manager: "uv", InstallArgs: []string{"tool", "install", "wapiti3"}, Bin: "wapiti3", Hint: "curl -LsSf https://astral.sh/uv/install.sh | sh"},
 		{Name: "akca", Manager: "go", InstallArgs: []string{"install", "github.com/akha-security/akca/engine/cmd/akca@latest"}, Bin: "akca", Hint: "install Go, then: " + "go install github.com/akha-security/akca/engine/cmd/akca@latest"},
 		{Name: "nuclei", Manager: "go", InstallArgs: []string{"install", "-v", "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"}, Bin: "nuclei", Hint: "install Go, then: " + "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"},
+		{Name: "trivy", Manager: "go", InstallArgs: []string{"install", "github.com/aquasecurity/trivy/cmd/trivy@latest"}, Bin: "trivy", Hint: "install Go, then: " + "go install github.com/aquasecurity/trivy/cmd/trivy@latest"},
 	}
 }
 

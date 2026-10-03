@@ -12,12 +12,23 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
 )
+
+// teaController is the slice of bubbletea the progress view drives.
+// *tea.Program satisfies it; tests substitute a fake to prove Done restores
+// the terminal before returning.
+type teaController interface {
+	Send(tea.Msg)
+	Quit()
+	Wait()
+	Run() (tea.Model, error)
+}
 
 // progressReporter renders index events; Start begins rendering, Event is
 // called from the indexing goroutine (must not block), Done stops rendering.
@@ -166,10 +177,11 @@ func (m progressModel) View() string {
 }
 
 // progressViewTea wraps bubbletea: Event sends a msg to the program, Done
-// stops the program and clears the frame.
+// stops the program, waits until the terminal is restored, and clears the frame.
 type progressViewTea struct {
-	p     *tea.Program
+	p     teaController
 	start time.Time
+	once  sync.Once
 }
 
 func newProgressViewTea(w io.Writer) *progressViewTea {
@@ -201,5 +213,27 @@ func (r *progressViewTea) Event(e codeindex.Event) {
 }
 
 func (r *progressViewTea) Done() {
-	r.p.Quit()
+	r.once.Do(func() {
+		if r.p == nil {
+			return
+		}
+		// Quit is asynchronous. Wait until Run returns, which is when
+		// bubbletea restores the previous terminal state. Without the wait
+		// the process can exit still in raw mode, and the next shell prompt
+		// is drawn from the column where the progress line stopped.
+		r.p.Quit()
+		r.p.Wait()
+	})
+}
+
+// finishIndex restores the progress view, then prints the operator status.
+// The writes must follow Done: the view may hold the terminal in raw mode,
+// where a newline does not return the cursor to column 0.
+func finishIndex(rep progressReporter, stats codeindex.Stats, stdout, stderr io.Writer) {
+	rep.Done()
+	if stats.UnresolvedKnown {
+		fmt.Fprintf(stderr, "index: unresolved member calls: %d\n", stats.UnresolvedMembers)
+	}
+	fmt.Fprintf(stdout, "indexed: %d files, %d chunks (+%d skipped, -%d deleted)\n",
+		stats.FilesIndexed, stats.ChunksAdded, stats.FilesSkipped, stats.FilesDeleted)
 }

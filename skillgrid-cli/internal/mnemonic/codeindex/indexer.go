@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -93,6 +94,13 @@ type Stats struct {
 	FilesOversized int `json:"files_oversized"`
 	SymbolsAdded   int `json:"symbols_added"`
 	EdgesAdded     int `json:"edges_added"`
+	// UnresolvedMembers is the count of receiver calls this run could not
+	// bind. UnresolvedKnown is false when that count was not read; a known
+	// zero is still reported. Both are omitted from JSON so API payloads
+	// stay unchanged — the CLI prints the line after the progress view
+	// restores the terminal.
+	UnresolvedMembers int  `json:"-"`
+	UnresolvedKnown   bool `json:"-"`
 }
 
 // ScannedFile is a candidate file discovered under the index root.
@@ -723,7 +731,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	// cannot share the 005 tx. They are advisory, not transactional with 005:
 	// a pass failure only warns and continues (the 005 graph + FTS floor are
 	// already committed).
-	if err := idx.runPostCommitPasses(ctx, root, cfg, scanned, stats.FilesIndexed+stats.FilesDeleted > 0); err != nil {
+	if err := idx.runPostCommitPasses(ctx, root, cfg, scanned, stats.FilesIndexed+stats.FilesDeleted > 0, &stats); err != nil {
 		return stats, err
 	}
 	idx.emit(Event{Phase: "complete", PhaseStart: true})
@@ -737,7 +745,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 // the pass DB so the indexer and any caller using idx.store.DB keep working.
 // A close/open/rebind failure here is returned (it breaks the passes); a pass
 // failure itself only warns and continues.
-func (idx *Indexer) runPostCommitPasses(ctx context.Context, root string, cfg Config, scanned []ScannedFile, changed bool) error {
+func (idx *Indexer) runPostCommitPasses(ctx context.Context, root string, cfg Config, scanned []ScannedFile, changed bool, stats *Stats) error {
 	dbPath := idx.store.Path()
 	if err := idx.store.DB.Close(); err != nil {
 		return fmt.Errorf("close store db: %w", err)
@@ -757,7 +765,7 @@ func (idx *Indexer) runPostCommitPasses(ctx context.Context, root string, cfg Co
 	}
 	idx.store.DB = passDB
 	if !changed {
-		reportUnresolvedMembers(passDB)
+		recordUnresolvedMembers(passDB, cfg.Progress, stats, os.Stderr)
 		return nil
 	}
 	// Knowledge-graph passes (03.8): run the community + process + knowledge
@@ -828,14 +836,20 @@ func (idx *Indexer) runPostCommitPasses(ctx context.Context, root string, cfg Co
 	if idx.emb != nil && idx.emb.Model() != "" {
 		hybrid.InvalidateVectorCache(idx.store.Path(), idx.emb.Model())
 	}
-	reportUnresolvedMembers(passDB)
+	recordUnresolvedMembers(passDB, cfg.Progress, stats, os.Stderr)
 	return nil
 }
 
-// reportUnresolvedMembers prints a stable count of receiver calls the index
-// could not bind. Community, LSP, and PDG stay advisory; this line is the
-// status the operator sees after a run.
-func reportUnresolvedMembers(db *sql.DB) {
+// recordUnresolvedMembers counts receiver calls the index could not bind.
+// Community, LSP, and PDG stay advisory; this count is the status the
+// operator sees after a run.
+//
+// When progress is set, a live view owns the terminal and may have it in
+// raw mode, where a newline does not return the cursor to column 0. The
+// line is withheld and the count is stored on stats so the caller can print
+// it after that view restores the terminal. When progress is nil the line
+// is written to w immediately.
+func recordUnresolvedMembers(db *sql.DB, progress func(Event), stats *Stats, w io.Writer) {
 	if db == nil {
 		return
 	}
@@ -843,7 +857,17 @@ func reportUnresolvedMembers(db *sql.DB) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM unresolved_members`).Scan(&n); err != nil {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "index: unresolved member calls: %d\n", n)
+	if stats != nil {
+		stats.UnresolvedMembers = n
+		stats.UnresolvedKnown = true
+	}
+	if progress != nil {
+		return
+	}
+	if w == nil {
+		w = os.Stderr
+	}
+	fmt.Fprintf(w, "index: unresolved member calls: %d\n", n)
 }
 
 // resolutionAuditPass re-extracts every scanned file and persists the

@@ -213,7 +213,7 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - Do NOT gitignore `.skillgrid/config.yaml`, `.skillgrid/state.yaml`, `.skillgrid/specs/`, or `.skillgrid/artifacts/` (committed artifacts)
 
 **6. Tracker bootstrap (if `ticketing.enabled: true`):**
-- If `ticketing.type: backlogmd`: run `backlog init "<project>" --integration-mode cli --backlog-dir .backlog --config-location folder --zero-padded-ids 3`, verify with `backlog status`
+- If `ticketing.type: backlogmd`: run `backlog init "<project>" --integration-mode cli --backlog-dir .backlog --config-location folder --zero-padded-ids 3`, verify with `backlog status`. Copy each existing `.skillgrid/artifacts/04-adr-NNNN-slug.md` into `.backlog/decisions/` (shape in `skillgrid:architectural-decision-records` → Backlog.md copy).
 - If `ticketing.type: gh`: verify `gh` CLI is available (`gh --version`)
 - If `ticketing.type: glab`: verify `glab` CLI is available (`glab --version`)
 - If `ticketing.type: jira`: verify `jira` CLI is available (`jira config`)
@@ -293,6 +293,6 @@ If `.skillgrid/config.yaml` already exists:
 - [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}`, tracker/memory lines, and a `### Rules` section rendered from `ASSUMPTIONS.md` § Locked constraints
 - [ ] The block is lean: no inlined conventions/how-to or "getting started" section. Issue Tracker is the exact `{tracker_line}` for `ticketing.type` (a pointer to that convention file). No pointers at churning source paths. If both exist, `CLAUDE.md` holds only a one-line pointer to `AGENTS.md`
 - [ ] Detected test runner command runs and exits 0 (e.g. `go test ./...`, `npm test`, `pytest`)
-- [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`
+- [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`. If `ticketing.type: backlogmd`, every `.skillgrid/artifacts/04-adr-*.md` has a `.backlog/decisions/decision-NNN` copy
 - [ ] `git rev-parse --is-inside-work-tree` succeeds; onboarding artifacts are committed (`git log -1` shows `chore: add Skillgrid config + state + artifacts`)
 - [ ] If the project is brownfield (existing feature code + history), Step 1.5 ran: existing capabilities are recorded as `existing`, conventions were reverse-engineered into the block + glossary, and the first slice is planned against the existing system (reuse, not regenerate)
