@@ -97,8 +97,9 @@ Single source for what is **currently in force**. **In force** = `status: accept
 | 0020 | Execution coordination lives in the SDD ledger; Mnemonic stores an index | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0020-sdd-ledger-owns-execution.md` |
 | 0021 | Pre-tool policy is opt-in, first-match field rules, and fails open | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0021-pre-tool-policy-fail-open.md` |
 | 0022 | The host agent is the memory observer; checkpoints are server-gated | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0022-host-agent-memory-checkpoint.md` |
+| 0023 | Mnemonic chat LLM is OpenAI-compatible HTTP only; one client attaches all seams | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0023-openai-compatible-llm-provider.md` |
 
-**Highest sequence in use:** 0022 (next ADR is `04-adr-0023-slug.md`). The body of each decision is the Record file. This table stores the path only (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
+**Highest sequence in use:** 0023 (next ADR is `04-adr-0024-slug.md`). The body of each decision is the Record file. This table stores the path only (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 
 ### Locked constraints
 
