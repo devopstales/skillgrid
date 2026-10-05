@@ -41,7 +41,9 @@ Apply these when rendering the block and whenever the user asks to extend the AG
 8. **One source of truth across platforms.** `AGENTS.md` is the source of truth. `CLAUDE.md` / `GEMINI.md` get a **one-line pointer** (Skillgrid's choice over a symlink, which breaks under git/CI on some systems). Never two full blocks — they drift.
 9. **Nested AGENTS.md for monorepos/areas.** Area-specific rules (a payments module, a UI kit, a `apps/api` vs `apps/web` split) live in a nested `<area>/AGENTS.md`; the agent loads root + the nested file for the folder it's working in. The root block stays global and lean.
 
-These principles govern *what goes in the block*. The block's exact shape and the idempotent upsert rule stay authoritative in `_shared/agent-config/block.md`.
+**The preamble is separate from the sentinel block.** The rules above govern the `## Skillgrid` **sentinel block** — the lean navigation spine that ships with every prompt. The **preamble** (the `# Standards` region: `Environment & Tooling`, `Key Directories`, `Security & Escalation Boundaries`, `Dependency Policies`, `Architecture Constraints`, `Definition of Done`, `Engineering Standards`) is the one place AGENTS.md states *repo-specific facts* inline, because they're exactly what every request needs and there's no better canonical file for them. The "reference, don't write" rule applies to shared standards (testing, memory, code-indexing, SDD) — those stay reference pointers to the installed rule files; it does not apply to the repo-specific preamble sections. Render the preamble by filling `.skillgrid/config.yaml`'s `agents:` block and running `skillgrid init` (which writes `templates/agents-preamble.md`'s structure) — never by hand-editing the region.
+
+These principles govern *what goes in the block*. The block's exact shape and the idempotent upsert rule stay authoritative in `_shared/agent-config/block.md`. The preamble's exact shape stays authoritative in `templates/agents-preamble.md`.
 
 ## The Process
 
@@ -92,6 +94,14 @@ Read the project and detect facts. Never guess — detect, then confirm.
 - Lint: `package.json` → `scripts.lint`; `go.mod` → `golangci-lint run`; `pyproject.toml` → `ruff check`
 - Format: `package.json` → `scripts.format` or `prettier --write .`; `go.mod` → `go fmt ./...`
 - Typecheck: `package.json` → `scripts.typecheck` or `tsc --noEmit`; `go.mod` → `go vet ./...`
+
+**AGENTS.md preamble facts** (the repo-specific sections rendered by `skillgrid init` from `templates/agents-preamble.md` into `.skillgrid/config.yaml`'s `agents:` block — brownfield: read the repo + `ASSUMPTIONS.md`, don't guess; greenfield: leave the lists empty):
+- `agents.directories` — walk the top-level tree; one `{path, purpose}` row per significant directory (app factory, core libs, blueprints/routes, tests, docs, the task/build manifest). This becomes the `Key Directories` table. Empty on greenfield (the section is dropped).
+- `agents.security_boundaries` — bullets from README/CI/security docs (what the agent may not touch, what needs approval, which protections are enforced).
+- `agents.dependency_policies` — bullets (prefer stdlib, require approval for new deps, pin versions, language version pins).
+- `agents.architecture_constraints` — bullets from `.skillgrid/ASSUMPTIONS.md` § Locked constraints + layering docs (layering rules, replication constraints, storage modes).
+- `agents.definition_of_done` — bullets from CI/Taskfile gates (tests pass, lint/format pass, security scan clean, spec updated).
+- `agents.engineering_standards` — bullets reversed from the code (test behavior changes, small reviewable diffs, follow existing patterns, reuse before creating).
 
 **Ticketing:**
 - `git remote get-url origin` → contains `github.com` → `gh`
@@ -146,9 +156,10 @@ Show the detected facts to the user. Confirm one at a time — don't dump everyt
 2. **Stack & context** — "I see a Go 1.22 project with tests. Here's the context I'll write: [show]. Does that capture it?"
 3. **Testing** — "Test runner: `go test ./...`. Setup: `go mod download`. TDD: always on. Correct?"
 4. **Commands** — "Build: `go build ./...`. Lint: `golangci-lint run`. Format: `go fmt ./...`. Typecheck: `go vet ./...`. Correct?"
-5. **Ticketing** — "Do you want to publish tickets to a tracker? I detected GitHub — I'd use `gh`. Or Backlog.md (local), GitLab, Jira, or none (tasks.md only)?"
-6. **ADR style** — "How should I format ADRs? Options: `madr-full` (detailed tradeoff record), `madr-minimal` (context/options/decision/consequences — recommended default), `nygard` (classic status/context/decision/consequences), `y-statement` (one sentence), or `custom` (your house format). I'll store the choice and never re-ask."
-7. **Artifact paths** — "Durable knowledge lives at the repo root: `.skillgrid/ASSUMPTIONS.md` (project understanding + all architectural decisions/ADRs + locked constraints) and `.skillgrid/ARCHITECTURE.md` (live repo/program structure). Durable artifacts (terms glossary + research findings): `.skillgrid/artifacts/`. Prototypes (feasibility probes, permanently retained): `.skillgrid/prototypes/`. State (dynamic: phase, current change, progress): `.skillgrid/state.yaml`. Specs: `.skillgrid/specs/`. Scratch: `.skillgrid/sdd/`. Worktrees: `.worktrees/`. Any overrides?"
+5. **AGENTS.md preamble** — "I'll fill the repo-specific AGENTS.md preamble (Key Directories, Security Boundaries, Dependency Policies, Architecture Constraints, Definition of Done, Engineering Standards) from what I detected in the repo. Here's the draft: [show the `agents.*` bullets/rows]. Correct?" (greenfield: "This is a greenfield project — I'll leave the repo-specific preamble sections empty for now; they fill in as the code takes shape. OK?")
+6. **Ticketing** — "Do you want to publish tickets to a tracker? I detected GitHub — I'd use `gh`. Or Backlog.md (local), GitLab, Jira, or none (tasks.md only)?"
+7. **ADR style** — "How should I format ADRs? Options: `madr-full` (detailed tradeoff record), `madr-minimal` (context/options/decision/consequences — recommended default), `nygard` (classic status/context/decision/consequences), `y-statement` (one sentence), or `custom` (your house format). I'll store the choice and never re-ask."
+8. **Artifact paths** — "Durable knowledge lives at the repo root: `.skillgrid/ASSUMPTIONS.md` (project understanding + all architectural decisions/ADRs + locked constraints) and `.skillgrid/ARCHITECTURE.md` (live repo/program structure). Durable artifacts (terms glossary + research findings): `.skillgrid/artifacts/`. Prototypes (feasibility probes, permanently retained): `.skillgrid/prototypes/`. State (dynamic: phase, current change, progress): `.skillgrid/state.yaml`. Specs: `.skillgrid/specs/`. Scratch: `.skillgrid/sdd/`. Worktrees: `.worktrees/`. Any overrides?"
 
 8. **Domain model** — "The architectural-decision-records skill maintains the project vocabulary at `.skillgrid/artifacts/01-business-terms.md` + `02-technical-terms.md` and the ADR trail as `.skillgrid/artifacts/04-adr-NNNN-slug.md`, with a path row in `.skillgrid/ASSUMPTIONS.md` (§ `### In-force set`). ADRs use the `{adr_style}` format you just picked. User-locked project-wide boundaries live in `.skillgrid/ASSUMPTIONS.md` (§ Locked constraints) and render into the AGENTS.md `### Rules` section. Nothing to set up — they appear on first use. OK?"
 
@@ -176,7 +187,7 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 
 **1. Write `.skillgrid/config.yaml`:**
 - Copy `templates/config.yaml` from this skill's directory
-- Fill in all detected values
+- Fill in all detected values, including the `agents:` block (directories, security_boundaries, dependency_policies, architecture_constraints, definition_of_done, engineering_standards) from the preamble facts detected in Step 1 — `skillgrid init` renders these into the AGENTS.md preamble (see `templates/agents-preamble.md`). Do not hand-write the preamble sections; fill config and let init render.
 - If the file already exists, merge: keep existing values the user confirmed, update changed ones
 - Do NOT overwrite `rules:` sections the user has customized
 
@@ -232,9 +243,9 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - `git commit -m "chore: add Skillgrid config + state + artifacts"`
 
 **9. Project init (deterministic finish):**
-- Run `skillgrid init` from the project root (add `--force` only if the user asked to rebuild the preamble).
+- Run `skillgrid init` from the project root (add `--force` only if the user asked to rebuild the preamble). `skillgrid init` renders the rich AGENTS.md preamble (`templates/agents-preamble.md`) from the `agents:` block you just filled — it is the deterministic finish that produces the `# Standards` region.
 - If the user named extra documentation paths, pass each as `--docs <path>`.
-- Do not walk files or call `mem_save` for docs here — the CLI owns ingest and the code index.
+- Do not walk files or call `mem_save` for docs here — the CLI owns ingest, the preamble render, and the code index.
 - If `skillgrid` is not on PATH, tell the user to install the CLI and re-run `skillgrid init`; continue the rest of onboarding.
 
 ### Step 4: Verify
@@ -243,6 +254,7 @@ Show the user:
 - The written config (summarized, not full file)
 - The `state.yaml` + `artifacts/` zone created
 - The AGENTS.md block (with the `### Rules` section rendered from `ASSUMPTIONS.md` § Locked constraints)
+- The rendered AGENTS.md preamble (`# Standards` region) — confirm it contains the rich sections with no leftover `<detect>` placeholder when the `agents:` config was filled
 - "Skills now read from `.skillgrid/config.yaml` + `.skillgrid/state.yaml` + `.skillgrid/ASSUMPTIONS.md` + `.skillgrid/ARCHITECTURE.md` + `.skillgrid/artifacts/`. Run `skillgrid:brainstorming` to start your first project."
 
 ## Merge Mode (Re-running)

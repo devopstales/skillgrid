@@ -61,6 +61,20 @@ func TestRenderPreambleDropsEmptyKeyDirectories(t *testing.T) {
 	}
 }
 
+func TestOnboardingSkillDocumentsAgentsPreamble(t *testing.T) {
+	body, err := os.ReadFile(onboardingSkillPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if !strings.Contains(s, "agents.directories") && !strings.Contains(s, "agents:") {
+		t.Fatalf("onboarding must document the agents.* config fields:\n%s", s)
+	}
+	if !strings.Contains(s, "agents-preamble") {
+		t.Fatalf("onboarding must name the agents-preamble template")
+	}
+}
+
 func TestConfigTemplateHasAgentsBlock(t *testing.T) {
 	body, err := os.ReadFile("../../../.agents/skills/lifecycle/onboarding/templates/config.yaml")
 	if err != nil {
