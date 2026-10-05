@@ -1,6 +1,6 @@
 # Tasks — Shared LLM Provider
 
-> **STATUS:** `sliced` (2026-10-02)
+> **STATUS:** `in-progress` (2026-10-03)
 
 > Sliced from `.skillgrid/specs/2026-10-02-mnemonic-llm-provider/blueprint.md`.
 > Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.
@@ -21,7 +21,14 @@ One OpenAI-compatible Completer attaches ask/dedup/extraction/dream at boot; `sk
 | Chained PRs recommended | Optional: (1) Completer+attach (2) install provider |
 | Suggested split | single PR on release/2 if serial queue allows |
 | Delivery strategy | auto-chain |
-| Chain strategy | pending |
+| Chain strategy | size-exception |
+
+Decision needed before apply: No
+Chained PRs recommended: No
+Chain strategy: size-exception
+400-line budget risk: High
+
+Ruling: auto-chain plus the plan's suggested single series on release/2, and the serial queue is clear (project-init reflected). One commit series, two revertable work units. Cost if wrong: the diff may exceed the 400-line review budget and need a split before ship.
 
 ### Suggested Work Units
 
@@ -34,11 +41,17 @@ One OpenAI-compatible Completer attaches ask/dedup/extraction/dream at boot; `sk
 
 ### TICKET-01 — Completer + mnemonic.llm config
 
+- **Tracker ID:** TASK-039.01
+- **Parent:** TASK-039
+
 **Blueprint tasks:** 1–2  
 **DoD:** G1–G4 gates green; no new LLM SDK in go.mod  
 **Acceptance:** `happy path llm config defaults off`, `happy path openai-compatible complete succeeds`
 
 ### TICKET-02 — AttachSharedLLM + fail-open
+
+- **Tracker ID:** TASK-039.02
+- **Parent:** TASK-039
 
 **Blueprint tasks:** 3–4  
 **Depends on:** TICKET-01  
@@ -47,12 +60,18 @@ One OpenAI-compatible Completer attaches ask/dedup/extraction/dream at boot; `sk
 
 ### TICKET-03 — Natural install provider setup
 
+- **Tracker ID:** TASK-039.03
+- **Parent:** TASK-039
+
 **Blueprint tasks:** 5  
 **Depends on:** TICKET-01 (home llm keys); can parallel TICKET-02 after config lands  
 **DoD:** G10–G11 green; `--yes` local ensure; `--skip-provider` no-op  
 **Acceptance:** `happy path install yes ensures local ollama and wires config`
 
 ### TICKET-04 — Close task-029
+
+- **Tracker ID:** TASK-039.04
+- **Parent:** TASK-039
 
 **Blueprint tasks:** 6  
 **Depends on:** TICKET-02 (and ideally TICKET-03)  
