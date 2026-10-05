@@ -374,6 +374,15 @@ func (s *Service) canRead(ctx context.Context, obsID int64, owner, readerOwner, 
 		oOwner = sql.NullString{String: legacyOwnerID, Valid: true}
 	}
 	_ = status
+	// A blank reader is the default single-user case (no reader_owner /
+	// session_id sent, e.g. a bare mem_get_observation id fetch). It sees the
+	// project corpus — the same read-path contract as ownerScopedFTS's blank
+	// reader. Without this a hit surfaced by mem_search returned not_found on
+	// direct fetch because the blank reader never matched the populated owner.
+	// Named readers below still get owner/visibility/grant enforcement.
+	if readerOwner == "" {
+		return true, nil
+	}
 	// The creating owner/agent always sees their own.
 	if readerOwner == oOwner.String {
 		return true, nil

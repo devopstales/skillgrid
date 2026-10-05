@@ -250,7 +250,19 @@ func (s *Service) ownerScopedFTS(ctx context.Context, readerOwner, readerAgent, 
 		scopeClause = " AND o.scope = ?"
 		args = append(args, scope)
 	}
-	clause, clauseArgs := s.visibilityFilter(readerOwner, readerOwner, readerAgent)
+	// A blank reader is the default single-user case: it sees the whole
+	// project corpus (pre-017 behavior). Only a NAMED reader is gated by
+	// owner/visibility — gating a blank reader as a "different owner" wiped
+	// every private row (o.owner='' OR visibility!='private' matched nothing
+	// for a corpus saved with real owners), so mem_search returned zero for
+	// any term. Named readers keep per-owner enforcement below.
+	var clause string
+	var clauseArgs []any
+	if strings.TrimSpace(readerOwner) != "" {
+		clause, clauseArgs = s.visibilityFilter(readerOwner, readerOwner, readerAgent)
+	} else {
+		clause = "1=1"
+	}
 	args = append(args, clauseArgs...)
 	args = append(args, limit)
 	rows, err := s.store.DB.QueryContext(ctx, `

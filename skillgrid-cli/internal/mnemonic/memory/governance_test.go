@@ -609,3 +609,92 @@ func TestBadGovernanceArgs(t *testing.T) {
 		t.Errorf("bad args must leave governance unchanged, got visibility=%q status=%q", got.Visibility, got.Status)
 	}
 }
+
+// TestOwnerScopedSearchPopulatedOwner pins the mem_search read contract for the
+// common case: an observation saved with a real owner (session-id fallback) and
+// the default private visibility. A blank reader is the default single-user
+// case and sees the project corpus; the owner who saved it sees their own row;
+// a NAMED non-owner reader with no grant does not. The regression was that a
+// blank reader was gated as a "different owner" (o.owner='' OR
+// visibility!='private'), which matched nothing for a corpus saved with real
+// owners — so mem_search returned zero for any term.
+func TestOwnerScopedSearchPopulatedOwner(t *testing.T) {
+	fx := newOwnerFixture(t, "popowner")
+	ctx := context.Background()
+
+	var id int64
+	if err := fx.st.DB.QueryRow(`
+		INSERT INTO observations (session_id, type, title, content, project, scope, owner, normalized_hash, created_at, updated_at, source)
+		VALUES ('s1', 'decision', 'popowner note', 'popowner note body', 'popowner', 'project', 'ownerA', 'h-pop',
+		        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'agent')
+		RETURNING id`).Scan(&id); err != nil {
+		t.Fatalf("insert owned row: %v", err)
+	}
+
+	// Blank reader (default single-user case) sees the corpus.
+	blank, err := fx.svc.SearchOwnerScoped(ctx, "", "", "popowner", "any", "project", 10)
+	if err != nil {
+		t.Fatalf("blank-reader search: %v", err)
+	}
+	if !containsID(blank, id) {
+		t.Errorf("blank reader (default case) did not see the private corpus row")
+	}
+
+	// The owner who saved it sees their own row.
+	own, err := fx.svc.SearchOwnerScoped(ctx, "ownerA", "", "popowner", "any", "project", 10)
+	if err != nil {
+		t.Fatalf("owner search: %v", err)
+	}
+	if !containsID(own, id) {
+		t.Errorf("owner %q did not see their own private row via search", "ownerA")
+	}
+
+	// A named non-owner with no grant is still gated out.
+	other, err := fx.svc.SearchOwnerScoped(ctx, "ownerB", "", "popowner", "any", "project", 10)
+	if err != nil {
+		t.Fatalf("non-owner search: %v", err)
+	}
+	if containsID(other, id) {
+		t.Errorf("private owned row leaked to named non-owner %q", "ownerB")
+	}
+}
+
+// TestReadAsBlankReaderSeesCorpus pins the mem_get_observation round-trip: a
+// blank reader (the default single-user case, no reader_owner/session_id sent)
+// must fetch a private observation saved with a real owner. The regression was
+// that canRead gated a blank reader as a "different owner" (private ⇒ not
+// found), so a hit surfaced by mem_search returned not_found on direct fetch.
+// A NAMED non-owner with no grant must still be gated (the two read paths agree
+// with the ownerScopedFTS fix).
+func TestReadAsBlankReaderSeesCorpus(t *testing.T) {
+	fx := newOwnerFixture(t, "popowner2")
+	ctx := context.Background()
+
+	var id int64
+	if err := fx.st.DB.QueryRow(`
+		INSERT INTO observations (session_id, type, title, content, project, scope, owner, normalized_hash, created_at, updated_at, source)
+		VALUES ('s1', 'decision', 'fetchme note', 'fetchme note body', 'popowner2', 'project', 'ownerA', 'h-fetch',
+		        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'agent')
+		RETURNING id`).Scan(&id); err != nil {
+		t.Fatalf("insert owned row: %v", err)
+	}
+
+	// Blank reader (default case) fetches the private row.
+	got, err := fx.svc.ReadAs(ctx, "", id, "")
+	if err != nil {
+		t.Fatalf("blank-reader ReadAs: %v", err)
+	}
+	if got.ID != id {
+		t.Errorf("blank reader got id %d, want %d", got.ID, id)
+	}
+
+	// The owner who saved it fetches their own row.
+	if _, err := fx.svc.ReadAs(ctx, "ownerA", id, ""); err != nil {
+		t.Errorf("owner ReadAs: %v", err)
+	}
+
+	// A named non-owner with no grant is still gated (not_found, not an error).
+	if _, err := fx.svc.ReadAs(ctx, "ownerB", id, ""); !errors.Is(err, ErrNotFoundForReader) {
+		t.Errorf("named non-owner ReadAs must be not_found, got %v", err)
+	}
+}
