@@ -31,7 +31,7 @@ func unresolvedMCPFixture(t *testing.T) string {
 		}
 	}
 	write("server.js", "app.get('/mystery', unservedHandler);\n")
-	write("config.d/indexing.yaml", "mnemonic:\n  include:\n    - '**/*.js'\n  exclude:\n    - '**/.git/**'\n")
+	write(".skillgrid/config.d/indexing.yaml", "mnemonic:\n  include:\n    - '**/*.js'\n  exclude:\n    - '**/.git/**'\n")
 	t.Setenv("MNEMONIC_PROJECT", "unresolvedmcp-probe")
 	svc := service.New(dataDir)
 	SetService(svc)

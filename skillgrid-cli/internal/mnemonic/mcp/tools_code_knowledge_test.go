@@ -74,7 +74,7 @@ func knowledgeMCPFixture(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(abs, "config.d"), 0o755); err != nil {
 		t.Fatalf("mkdir config.d: %v", err)
 	}
-	write("config.d/indexing.yaml", "mnemonic:\n  include:\n    - '**/*.go'\n    - '**/*.md'\n    - '**/*.yaml'\n    - '**/*.sql'\n  exclude:\n    - '**/node_modules/**'\n    - '**/.git/**'\n")
+	write(".skillgrid/config.d/indexing.yaml", "mnemonic:\n  include:\n    - '**/*.go'\n    - '**/*.md'\n    - '**/*.yaml'\n    - '**/*.sql'\n  exclude:\n    - '**/node_modules/**'\n    - '**/.git/**'\n")
 	t.Setenv("MNEMONIC_PROJECT", "knowledgemcp-probe")
 	svc := service.New(dataDir)
 	SetService(svc)

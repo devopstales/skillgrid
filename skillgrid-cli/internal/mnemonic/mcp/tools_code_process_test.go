@@ -32,10 +32,10 @@ func processMCPFixture(t *testing.T) string {
 	}
 	// An Express route serving handleListUsers, plus the call chain.
 	write("server.js", "function handleListUsers() { return loadUsers(); }\nfunction loadUsers() { return queryDB(); }\nfunction queryDB() { return [1,2,3]; }\n\napp.get('/users', handleListUsers);\n")
-	if err := os.MkdirAll(filepath.Join(abs, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(abs, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatalf("mkdir config.d: %v", err)
 	}
-	write("config.d/indexing.yaml", "mnemonic:\n  include:\n    - '**/*.go'\n    - '**/*.js'\n    - '**/*.ts'\n    - '**/*.tsx'\n  exclude:\n    - '**/node_modules/**'\n    - '**/.git/**'\n")
+	write(".skillgrid/config.d/indexing.yaml", "mnemonic:\n  include:\n    - '**/*.go'\n    - '**/*.js'\n    - '**/*.ts'\n    - '**/*.tsx'\n  exclude:\n    - '**/node_modules/**'\n    - '**/.git/**'\n")
 	t.Setenv("MNEMONIC_PROJECT", "processmcp-probe")
 	svc := service.New(dataDir)
 	SetService(svc)

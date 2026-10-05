@@ -23,6 +23,10 @@ func routeMCPFixture(t *testing.T) string {
 		t.Fatalf("abs: %v", err)
 	}
 	write := func(name, content string) {
+		dir := filepath.Dir(filepath.Join(abs, name))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
 		if err := os.WriteFile(filepath.Join(abs, name), []byte(content), 0o644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
@@ -35,7 +39,7 @@ func routeMCPFixture(t *testing.T) string {
 	if err := os.MkdirAll(filepath.Join(abs, "config.d"), 0o755); err != nil {
 		t.Fatalf("mkdir config.d: %v", err)
 	}
-	write("config.d/indexing.yaml", "mnemonic:\n  include:\n    - '**/*.go'\n    - '**/*.js'\n    - '**/*.ts'\n    - '**/*.tsx'\n    - '**/*.py'\n    - '**/*.rb'\n    - '**/*.java'\n    - '**/*.svelte'\n  exclude:\n    - '**/node_modules/**'\n    - '**/.git/**'\n")
+	write(".skillgrid/config.d/indexing.yaml", "mnemonic:\n  include:\n    - '**/*.go'\n    - '**/*.js'\n    - '**/*.ts'\n    - '**/*.tsx'\n    - '**/*.py'\n    - '**/*.rb'\n    - '**/*.java'\n    - '**/*.svelte'\n  exclude:\n    - '**/node_modules/**'\n    - '**/.git/**'\n")
 	t.Setenv("MNEMONIC_PROJECT", "routemcp-probe")
 	svc := service.New(dataDir)
 	SetService(svc)

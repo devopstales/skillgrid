@@ -63,11 +63,11 @@ func TestMemSearchEmbedderError(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("MNEMONIC_EMBED", "1")
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "config.d"), 0o755); err != nil {
-		t.Fatalf("mkdir config: %v", err)
+	if err := os.MkdirAll(filepath.Join(root, ".skillgrid", "config.d"), 0o755); err != nil {
+		t.Fatalf("mkdir .skillgrid/config.d: %v", err)
 	}
 	yaml := "mnemonic:\n  embedder:\n    provider: external\n    model: fail-model\n"
-	if err := os.WriteFile(filepath.Join(root, "config.d", "indexing.yaml"), []byte(yaml), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".skillgrid", "config.d", "indexing.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatalf("write indexing: %v", err)
 	}
 	t.Chdir(root)

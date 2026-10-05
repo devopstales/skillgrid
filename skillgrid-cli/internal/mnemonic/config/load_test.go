@@ -18,10 +18,10 @@ func TestExtractionLLMConfigDefaultOff(t *testing.T) {
 	}
 
 	// A config without the extraction section → still off.
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestExtractionLLMConfigDefaultOff(t *testing.T) {
 	}
 
 	// Explicit opt-in.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  extraction:\n    llm: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -51,10 +51,10 @@ func TestDedupLLMConfigDefaultOff(t *testing.T) {
 	}
 
 	// A config without the dedup section → still off.
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestDedupLLMConfigDefaultOff(t *testing.T) {
 	}
 
 	// Explicit opt-in.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  dedup:\n    llm: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -84,10 +84,10 @@ func TestImprovementConfigDefaultOff(t *testing.T) {
 	}
 
 	// A config without the improve section → still off.
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestImprovementConfigDefaultOff(t *testing.T) {
 	}
 
 	// Explicit opt-in with tunable rates.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  improve:\n    enabled: true\n    threshold: 10\n    max_usage: 100\n    boost_rate: \"0.2\"\n    decay_rate: \"0.5\"\n    cooldown: 30s\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -134,10 +134,10 @@ func TestLoadDecayConfig(t *testing.T) {
 	}
 
 	// A config without the decay section → still the defaults.
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestLoadDecayConfig(t *testing.T) {
 	}
 
 	// Explicit opt-out stays off.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  decay:\n    enabled: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestLoadDecayConfig(t *testing.T) {
 	}
 
 	// Explicit knobs parse through.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  decay:\n    enabled: true\n    half_life_days: 14\n    immunity_min_importance: 5\n    immunity_min_access: 2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -188,10 +188,10 @@ func TestLoadDecayHomeOptOutSurvivesRepoWithoutDecay(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	repoFile := filepath.Join(dir, "config.d", "indexing.yaml")
+	repoFile := filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml")
 	if err := os.WriteFile(repoFile, []byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -222,11 +222,11 @@ func TestImportanceConfigurableDecay(t *testing.T) {
 		t.Fatalf("default: importance.decay must be unset (0 → memory default), got %v", got.Importance.DecayRate)
 	}
 
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Absent section → still the default.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestImportanceConfigurableDecay(t *testing.T) {
 	}
 
 	// Explicit decay + thresholds.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  importance:\n    decay: \"0.2\"\n    tier_thresholds:\n      mature_age_days: 3\n      archival_age_days: 21\n      unused_archival_days: 10\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestImportanceConfigurableDecay(t *testing.T) {
 	}
 
 	// Malformed decay → falls back to the default (unset → memory 0.05).
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  importance:\n    decay: \"not-a-number\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -270,11 +270,11 @@ func TestFederatedConfigWeights(t *testing.T) {
 		t.Fatalf("default: federated weights must be 0.5/0.5, got %+v", got.Federated)
 	}
 
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Absent section → still the default.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestFederatedConfigWeights(t *testing.T) {
 	}
 
 	// Explicit weights.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  federated:\n    rank_weight: \"0.8\"\n    importance_weight: \"0.2\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestFederatedConfigWeights(t *testing.T) {
 	}
 
 	// Malformed weight → falls back to the 0.5/0.5 default.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  federated:\n    rank_weight: \"not-a-number\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -313,11 +313,11 @@ func TestLoad_HooksDefaultOn(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Config without the hooks section → still on.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestLoad_HooksDefaultOn(t *testing.T) {
 		t.Fatalf("absent section: hooks.enabled must be true, got false")
 	}
 	// Explicit opt-out.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  hooks:\n    enabled: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestLoad_HooksDefaultOn(t *testing.T) {
 	}
 	// Explicit opt-in stays on (and a malformed timeout keeps the zero
 	// fallback so SetHooks applies its default).
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  hooks:\n    enabled: true\n    timeout: 45s\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestLoad_HooksExplicitOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Home-local explicit false applies even without a repo-local file.
@@ -373,7 +373,7 @@ func TestLoad_HooksExplicitOff(t *testing.T) {
 	// matches the pre-flip semantics (a repo-local file always wins the keys
 	// its section leaves unset only for keys with no default; enabled now has
 	// a default, so absent → default).
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +381,7 @@ func TestLoad_HooksExplicitOff(t *testing.T) {
 		t.Fatalf("repo-local file without hooks key → default true, got false")
 	}
 	// Repo-local explicit true beats the home-local false.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  hooks:\n    enabled: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -399,11 +399,11 @@ func TestLoad_RetentionDaysDefault(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Absent key → 90.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestLoad_RetentionDaysDefault(t *testing.T) {
 		t.Fatalf("absent key: retention_days must be 90, got %d", got.RetentionDays)
 	}
 	// Explicit value.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  retention_days: 30\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +419,7 @@ func TestLoad_RetentionDaysDefault(t *testing.T) {
 		t.Fatalf("retention_days: 30 must apply, got %d", got.RetentionDays)
 	}
 	// Non-positive value → falls back to 90.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  retention_days: 0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -436,10 +436,10 @@ func TestLoad_PrivateTools(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  private_tools: [mem_save, mem_save_prompt]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -466,11 +466,11 @@ func TestCheckpointConfig(t *testing.T) {
 		t.Fatalf("default inject: got %+v, want %+v", got.Inject, wantInject)
 	}
 
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Config without checkpoint/inject keys → still defaults.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +483,7 @@ func TestCheckpointConfig(t *testing.T) {
 	}
 
 	// Valid YAML for both sections.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  checkpoint:\n    enabled: false\n    min_events: 8\n    cooldown_minutes: 15\n    max_observations: 3\n  inject:\n    summaries: 2\n    observations: 10\n    max_tokens: 1200\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +499,7 @@ func TestCheckpointConfig(t *testing.T) {
 	}
 
 	// Invalid min_events → defaults for that field, Load still succeeds.
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  checkpoint:\n    min_events: 0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -532,10 +532,10 @@ func TestHomeLocalConfigFallback(t *testing.T) {
 
 	// Case 1: repo-local file present WITHOUT an embedder → home fallback applies.
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("chunk_lines: 80\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +546,7 @@ func TestHomeLocalConfigFallback(t *testing.T) {
 	}
 
 	// Case 2: repo-local file WITH its own embedder → repo-local wins (no leak).
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
 		[]byte("mnemonic:\n  embedder:\n    provider: onnx\n    model: nomic-embed-code\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

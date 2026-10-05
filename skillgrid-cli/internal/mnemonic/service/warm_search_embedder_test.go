@@ -6,17 +6,17 @@ import (
 	"testing"
 )
 
-// writeConfigDir writes a minimal config.d/indexing.yaml under dir so
+// writeConfigDir writes a minimal .skillgrid/config.d/indexing.yaml under dir so
 // config.Load(dir) resolves the given embedder provider (distinct from the
 // CWD's config, which walks up to the repo root where no provider override
 // exists).
 func writeConfigDir(t *testing.T, dir, provider string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
 		t.Fatalf("mkdir config.d: %v", err)
 	}
 	body := "mnemonic:\n  embedder:\n    provider: " + provider + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("write indexing.yaml: %v", err)
 	}
 }

@@ -119,7 +119,7 @@ func TestCheckpointClaim_UnknownSession(t *testing.T) {
 func TestCheckpointClaim_Disabled(t *testing.T) {
 	workDir := t.TempDir()
 	t.Chdir(workDir)
-	cfgDir := filepath.Join(workDir, "config.d")
+	cfgDir := filepath.Join(workDir, ".skillgrid", "config.d")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

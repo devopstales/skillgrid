@@ -370,10 +370,10 @@ func TestBudgetConfigDrivenTunability(t *testing.T) {
 		// The config root is the data dir: config.Load walks up from it and finds
 		// the retrieval_budget section we write below.
 		cfgDir := dataDir
-		if err := os.MkdirAll(filepath.Join(cfgDir, "config.d"), 0o755); err != nil {
-			t.Fatalf("mkdir config.d: %v", err)
+		if err := os.MkdirAll(filepath.Join(cfgDir, ".skillgrid", "config.d"), 0o755); err != nil {
+			t.Fatalf("mkdir .skillgrid/config.d: %v", err)
 		}
-		if err := os.WriteFile(filepath.Join(cfgDir, "config.d", "indexing.yaml"),
+		if err := os.WriteFile(filepath.Join(cfgDir, ".skillgrid", "config.d", "indexing.yaml"),
 			[]byte(fmt.Sprintf("mnemonic:\n  retrieval_budget:\n    items: %d\n", items)), 0o644); err != nil {
 			t.Fatalf("write config: %v", err)
 		}

@@ -480,7 +480,7 @@ type webCacheSection struct {
 	Sources       []string          `yaml:"sources"`
 }
 
-// DefaultWebCache returns TTL and size defaults matching config.d/indexing.yaml.
+// DefaultWebCache returns TTL and size defaults matching .skillgrid/config.d/indexing.yaml.
 func DefaultWebCache() WebCache {
 	return WebCache{
 		Enabled:       true,
@@ -502,7 +502,7 @@ const DefaultOnnxModel = "nomic-embed-code"
 // DefaultOnnxDim is the default output dimension for the ONNX provider.
 const DefaultOnnxDim = 768
 
-// DefaultIndexing returns defaults matching config.d/indexing.yaml.
+// DefaultIndexing returns defaults matching .skillgrid/config.d/indexing.yaml.
 func DefaultIndexing() Indexing {
 	return Indexing{
 		Include: []string{
@@ -542,7 +542,8 @@ func DefaultEmbedder() EmbedderConfig {
 	}
 }
 
-// Load returns indexing settings for startDir, walking up to find config.d/indexing.yaml.
+// Load returns indexing settings for startDir, walking up to find
+// .skillgrid/config.d/indexing.yaml.
 //
 // Precedence (lowest to highest): built-in defaults < home-local
 // (~/.skillgrid/config.d/indexing.yaml) < the first repo-local file found
@@ -593,7 +594,7 @@ func findIndexingYAML(startDir string) (string, bool) {
 		return "", false
 	}
 	for {
-		candidate := filepath.Join(dir, "config.d", "indexing.yaml")
+		candidate := filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml")
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate, true
 		}

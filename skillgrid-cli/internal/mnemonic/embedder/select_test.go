@@ -15,7 +15,7 @@ import (
 func writeIndexing(t *testing.T, embedderYAML string) string {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.d", "indexing.yaml")
+	path := filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}

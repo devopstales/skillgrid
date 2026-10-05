@@ -10,14 +10,14 @@ import (
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
 )
 
-// osMkdirConfigD creates dir/config.d (idempotent).
+// osMkdirConfigD creates dir/.skillgrid/config.d (idempotent).
 func osMkdirConfigD(dir string) error {
-	return os.MkdirAll(filepath.Join(dir, "config.d"), 0o755)
+	return os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755)
 }
 
-// osWriteConfigYAML writes the given YAML to dir/config.d/indexing.yaml.
+// osWriteConfigYAML writes the given YAML to dir/.skillgrid/config.d/indexing.yaml.
 func osWriteConfigYAML(dir, body string) error {
-	return os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"), []byte(body), 0o644)
+	return os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"), []byte(body), 0o644)
 }
 
 // osWriteFile writes data to path.

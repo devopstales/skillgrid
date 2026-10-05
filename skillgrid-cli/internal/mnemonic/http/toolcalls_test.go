@@ -19,14 +19,14 @@ import (
 
 func newToolCallsServer(t *testing.T) (*Server, string) {
 	t.Helper()
-	// Isolate config.d/indexing.yaml in a throwaway directory so parallel
+	// Isolate .skillgrid/config.d/indexing.yaml in a throwaway directory so parallel
 	// tests (and SIGKILL) never mutate the repo CWD.
 	workDir := t.TempDir()
 	t.Chdir(workDir)
 	dataDir := t.TempDir()
 	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
 	seedStore(t, dataDir)
-	cfgDir := filepath.Join(workDir, "config.d")
+	cfgDir := filepath.Join(workDir, ".skillgrid", "config.d")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatalf("mkdir config.d: %v", err)
 	}
