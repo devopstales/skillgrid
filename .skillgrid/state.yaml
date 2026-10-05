@@ -1,6 +1,6 @@
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: "execution"
+  current_phase: "qa"
   current_change: "2026-10-02-mnemonic-llm-provider"
   status: in_progress
 progress:

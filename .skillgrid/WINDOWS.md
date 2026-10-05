@@ -22,3 +22,5 @@
 | W011 | 2026-10-02-mnemonic-webui-rewrite | SUGGESTION | L3 browser walk of /mnemonic/graph against skillgrid serve was not run | qa-auto | 2026-10-02 | open |
 | W012 | 2026-10-02-mnemonic-memory-checkpoint | WARNING | G7 OpenCode/Kilo plugin not-due and no-server paths are manual-only | qa-auto | 2026-10-02 | closed |
 | W013 | 2026-10-02-mnemonic-memory-checkpoint | WARNING | Live Cursor stop door G4/G5 EVIDENCE not recorded (script contract covered by test-hooks) | qa-auto | 2026-10-02 | closed |
+| W014 | 2026-10-02-mnemonic-llm-provider | WARNING | acceptance.feature gate ids G4-G8 do not match as-built test names (qa-gate.mjs would report gate test missing) | qa-auto | 2026-10-05 | open |
+| W015 | 2026-10-02-mnemonic-llm-provider | WARNING | TDD evidence STALE - change uncommitted in working tree, no RED/GREEN commit hashes resolve | qa-auto | 2026-10-05 | open |
