@@ -151,6 +151,128 @@ func TestBackfilledEdgesVisibleInTraversal(t *testing.T) {
 	}
 }
 
+// TestFetchEdgesSingleConnection is the RED guard for the fetchEdges deadlock:
+// the production store pool is single-connection (store.Open ->
+// SetMaxOpenConns(1)), and fetchEdges must not re-enter that pool with a
+// per-edge query while its outer edge rows are still open. The old shape
+// (loadSymbolByID inside `for rows.Next()`) deadlocks here —
+// "all goroutines are asleep" — because the open *sql.Rows holds the only
+// connection. This test uses store.Open (MaxOpenConns(1)) on purpose so the
+// regression is caught at the real pool size, not masked by graphTestDB's
+// MaxOpenConns(8). It guards every code_* neighbor/explain/path caller, which
+// all route through fetchEdges.
+func TestFetchEdgesSingleConnection(t *testing.T) {
+	st, err := store.Open(t.TempDir(), "sc")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	db := st.DB
+
+	// Two files, two symbols, one active by-id edge and one active name-only
+	// edge — both endpoints exercise the per-edge loadSymbolByID /
+	// loadSymbolsByName nested queries while the outer rows are open.
+	seed := `
+		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES
+			('/x/from.go', 1, 1, 'x', 'now'),
+			('/y/to.go', 2, 2, 'y', 'now'),
+			('/z/amb.go', 3, 3, 'z', 'now');
+		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
+		SELECT f.id, 'scFrom', 'scFrom', 'function', 'go', 'func scFrom()', 1, 5, 'h', 'uid-sc-from' FROM files f WHERE f.path='/x/from.go';
+		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
+		SELECT f.id, 'scTo', 'scTo', 'function', 'go', 'func scTo()', 6, 10, 'h', 'uid-sc-to' FROM files f WHERE f.path='/y/to.go';
+		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
+		SELECT f.id, 'scAmb', 'scAmb', 'function', 'go', 'func scAmb()', 1, 5, 'h', 'uid-sc-amb' FROM files f WHERE f.path='/z/amb.go';
+		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line, valid_from)
+		SELECT 'calls',
+			(SELECT id FROM symbols WHERE uid='uid-sc-from'),
+			(SELECT file_id FROM symbols WHERE uid='uid-sc-from'),
+			(SELECT id FROM symbols WHERE uid='uid-sc-to'),
+			'scTo', 'EXTRACTED', 10, 0;
+		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line, valid_from)
+		SELECT 'calls',
+			(SELECT id FROM symbols WHERE uid='uid-sc-from'),
+			(SELECT file_id FROM symbols WHERE uid='uid-sc-from'),
+			NULL, 'scAmb', 'EXTRACTED', 20, 0;
+	`
+	if _, err := db.ExecContext(ctx, seed); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	var fromID int64
+	if err := db.QueryRowContext(ctx, `SELECT id FROM symbols WHERE uid='uid-sc-from'`).Scan(&fromID); err != nil {
+		t.Fatalf("lookup from: %v", err)
+	}
+
+	edges, err := fetchEdges(ctx, db, Symbol{ID: fromID, Name: "scFrom"})
+	if err != nil {
+		t.Fatalf("fetchEdges (MaxOpenConns=1): %v", err)
+	}
+	// One by-id edge (scTo) + one name-only edge (scAmb, single candidate) = 2.
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 resolved edges, got %d: %+v", len(edges), edges)
+	}
+}
+
+// TestFetchEdgesDanglingFromID is the RED guard for dangling from_id: the live
+// kubedash store has hundreds of edges whose from_id references a symbol that
+// was later deleted (re-index or partial delete), so a by-id endpoint can be
+// unresolvable. fetchEdges must not abort the whole traversal with
+// "sql: no rows in result set" — an unresolvable by-id from keeps its raw
+// endpoint (no fabricated From), matching how a missing by-id to is already
+// swallowed (kept as a name-only stop) rather than treated as fatal.
+func TestFetchEdgesDanglingFromID(t *testing.T) {
+	st, err := store.Open(t.TempDir(), "df")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	db := st.DB
+
+	seed := `
+		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES
+			('/d/from.go', 1, 1, 'd', 'now'),
+			('/e/to.go', 2, 2, 'e', 'now');
+		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
+		SELECT f.id, 'dfFrom', 'dfFrom', 'function', 'go', 'func dfFrom()', 1, 5, 'h', 'uid-df-from' FROM files f WHERE f.path='/d/from.go';
+		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
+		SELECT f.id, 'dfTo', 'dfTo', 'function', 'go', 'func dfTo()', 6, 10, 'h', 'uid-df-to' FROM files f WHERE f.path='/e/to.go';
+		-- Edge A: healthy, from_id = the real dfFrom symbol, to dfTo by id.
+		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line, valid_from)
+		SELECT 'calls',
+			(SELECT id FROM symbols WHERE uid='uid-df-from'),
+			(SELECT file_id FROM symbols WHERE uid='uid-df-from'),
+			(SELECT id FROM symbols WHERE uid='uid-df-to'),
+			'dfTo', 'EXTRACTED', 10, 0;
+		-- Edge B: dangling from_id = 99999 (no such symbol), to dfTo by id.
+		-- The traversal must survive this and not lose edge A.
+		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, confidence, line, valid_from)
+		SELECT 'calls', 99999,
+			(SELECT file_id FROM symbols WHERE uid='uid-df-from'),
+			(SELECT id FROM symbols WHERE uid='uid-df-to'),
+			'dfTo', 'EXTRACTED', 20, 0;
+	`
+	if _, err := db.ExecContext(ctx, seed); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	var fromID int64
+	if err := db.QueryRowContext(ctx, `SELECT id FROM symbols WHERE uid='uid-df-from'`).Scan(&fromID); err != nil {
+		t.Fatalf("lookup from: %v", err)
+	}
+
+	// The symbol's own edges are fetched via (from_id = ? OR to_id = ?), so it
+	// only returns edge A (the healthy one) — but fetchEdges must still not
+	// error even though edge B in the same table has a dangling from_id.
+	edges, err := fetchEdges(ctx, db, Symbol{ID: fromID, Name: "dfFrom"})
+	if err != nil {
+		t.Fatalf("fetchEdges with a dangling from_id in the table: %v", err)
+	}
+	if len(edges) != 1 || edges[0].Line != 10 {
+		t.Fatalf("expected the 1 healthy edge, got %+v", edges)
+	}
+}
+
 // TestPromotedSessionEdgesCarryValidFrom is the F2 guard for the step-09
 // session-promotion edge path: a 'promotes' edge inserted WITHOUT an explicit
 // valid_from (the old INSERT shape) must still carry the migration default 0

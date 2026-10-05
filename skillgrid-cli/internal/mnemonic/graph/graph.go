@@ -154,66 +154,87 @@ func fetchEdges(ctx context.Context, db *sql.DB, sym Symbol) ([]Edge, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+
+	// Drain the edge rows into memory and close the cursor BEFORE the per-edge
+	// endpoint lookups. The store pool is single-connection
+	// (SetMaxOpenConns(1)); holding this *sql.Rows open while loadSymbolByID /
+	// loadSymbolsByName issue nested db.Query* calls deadlocks — the open rows
+	// own the only connection and the nested query can never reacquire it.
+	// Mirrors Impact, which batches its hops and closes rows before resolving.
+	type rawEdge struct {
+		kind       string
+		conf       string
+		line       int
+		fromID     int64
+		toID       sql.NullInt64
+		toName     sql.NullString
+		targetPath sql.NullString
+	}
+	var raw []rawEdge
+	for rows.Next() {
+		var r rawEdge
+		var id int64
+		if err := rows.Scan(&id, &r.kind, &r.fromID, &r.toName, &r.toID, &r.targetPath, &r.conf, &r.line); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		raw = append(raw, r)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
 
 	var out []Edge
-	for rows.Next() {
-		var (
-			id, fromID int64
-			kind, conf string
-			line       int
-			toName     sql.NullString
-			targetPath sql.NullString
-			toID       sql.NullInt64
-		)
-		if err := rows.Scan(&id, &kind, &fromID, &toID, &toName, &targetPath, &conf, &line); err != nil {
-			return nil, err
-		}
-		from, err := loadSymbolByID(ctx, db, fromID)
-		if err != nil {
-			return nil, err
-		}
+	for _, r := range raw {
+		// A by-id from endpoint can be unresolvable (dangling from_id: the
+		// symbol was deleted out from under the edge on re-index). A missing
+		// from yields the zero Symbol (no fabricated From) and the edge is kept
+		// with its raw endpoint rather than aborting the traversal with "no
+		// rows"; mirrors the by-id to swallow below.
+		from, _ := loadSymbolByID(ctx, db, r.fromID)
 		var candidates []Symbol
-		if toID.Valid {
-			if to, err := loadSymbolByID(ctx, db, toID.Int64); err == nil {
+		if r.toID.Valid {
+			if to, err := loadSymbolByID(ctx, db, r.toID.Int64); err == nil {
 				candidates = append(candidates, to)
 			}
-		} else if n := toName.String; n != "" {
+		} else if n := r.toName.String; n != "" {
 			cands, err := loadSymbolsByName(ctx, db, n)
 			if err != nil {
 				return nil, err
 			}
 			candidates = cands
 		}
-		tp := targetPath.String
+		tp := r.targetPath.String
 		switch {
 		case len(candidates) == 1:
 			out = append(out, Edge{
-				Kind: kind, Confidence: conf, Line: line,
+				Kind: r.kind, Confidence: r.conf, Line: r.line,
 				From: from, To: candidates[0],
-				ToName: toName.String, TargetPath: tp,
+				ToName: r.toName.String, TargetPath: tp,
 			})
 		case len(candidates) > 1:
 			// Ambiguous name-only resolution: emit every candidate as an
 			// AMBIGUOUS edge instead of dropping the edge or guessing.
 			for _, c := range candidates {
 				out = append(out, Edge{
-					Kind: kind, Confidence: ConfidenceAmbiguous, Line: line,
+					Kind: r.kind, Confidence: ConfidenceAmbiguous, Line: r.line,
 					From: from, To: c,
-					ToName: toName.String, TargetPath: tp,
+					ToName: r.toName.String, TargetPath: tp,
 				})
 			}
 		default:
 			// Unresolved: keep the literal name so the graph-stops answer can
 			// report it; no fabricated hop.
 			out = append(out, Edge{
-				Kind: kind, Confidence: conf, Line: line,
+				Kind: r.kind, Confidence: r.conf, Line: r.line,
 				From: from,
-				ToName: toName.String, TargetPath: tp,
+				ToName: r.toName.String, TargetPath: tp,
 			})
 		}
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // resolvedEndpoints returns (from, to, fromCandidates, toCandidates) for a raw
