@@ -11,10 +11,36 @@ import (
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
 )
 
+// skillgridIdentityFilename mirrors project.identityFilename so the regression
+// test below can assert on the binding file without importing an unexported
+// name. Keep in sync with internal/mnemonic/project/resolve.go.
+const skillgridIdentityFilename = "skillgrid-mnemonic-identity.json"
+
 func initGitRepo(t *testing.T, dir string) {
 	t.Helper()
 	runGit(t, dir, "init", "--quiet")
+	// Isolate the repo from ambient global git config (notably
+	// core.hooksPath -> the skillgrid hook dir). A commit in this env would
+	// otherwise run skillgrid's own pre-commit hook, which opens the project
+	// and seeds the identity binding with the temp-dir basename BEFORE a
+	// caller can add a remote origin — leaving a stale binding that breaks
+	// identity resolution (see TestOpenForDirectorySeedsAliasFromLegacyID).
+	empty := t.TempDir()
+	runGit(t, dir, "config", "core.hooksPath", empty)
 	runGit(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "--allow-empty", "-m", "init")
+}
+
+// TestInitGitRepoDoesNotSeedIdentityBinding locks the hook-isolation regression:
+// a bare init+commit must not leave a clone-private identity binding behind.
+// Without core.hooksPath isolation, the ambient skillgrid pre-commit hook runs
+// on the commit and writes the binding with the temp-dir basename, which then
+// shadows the origin-derived identity for the whole repo.
+func TestInitGitRepoDoesNotSeedIdentityBinding(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	if _, err := os.Stat(filepath.Join(dir, ".git", skillgridIdentityFilename)); !os.IsNotExist(err) {
+		t.Fatalf("initGitRepo must not seed an identity binding; found %s (err=%v)", skillgridIdentityFilename, err)
+	}
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
