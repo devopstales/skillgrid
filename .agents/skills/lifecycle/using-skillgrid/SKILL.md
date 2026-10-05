@@ -69,12 +69,15 @@ The phase order after the first skill is `_shared/rules/sdd-structure.md`. This 
 | Delivery, trivial/small (fast-track) | `slicing` (light) | phase order in `sdd-structure.md`; skips per `fast-track.md`; waiver in `briefing.md` |
 | Q&A / lookup | `mnemonic` or `research` | no pipeline |
 | Prototype-only | `prototype` | promote to a blueprint if the user keeps the findings |
+| Distill a large source into agent rules | `rule-distillation` | specialist; produces traced `mini`/`nano` + `traceability.md`; no spec folder |
 | Specialist (design, brand, craft, or a scan) | the named skill | no spec folder |
 | Mid-change | `resume` | the resume marker in `sdd-structure.md` |
 
 **Uninitialized** when `.skillgrid/config.yaml` does not exist. **Initialized** when it does. Skill-registry, terms files, and ADRs are not init signals.
 
 **Pre-blueprint gates** (delivery, full planning chain only): hard research (external API, costly re-explore) → `research`. Taste, UI, or an unknown shape → `sketch` before locking `blueprint.md`.
+
+**Skill-compatibility check** (advisory): before loading more than one specialist or process skill as *active rules in the same session*, check `_shared/rules/skill-compatibility.md` for a recorded verdict on the pair. A `❌ conflicting` pair → load only the one the task needs and treat the other as reference. No recorded row → no verdict; read the two skills' operative rules before loading both as active.
 
 ## User Gate (mandatory)
 

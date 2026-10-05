@@ -132,6 +132,13 @@ Complete the existing file IN PLACE in the moved folder (`.skillgrid/archive/YYY
 
 **Lift durable findings.** From the sourced learnings above (Surprises, Patterns, Decisions that constrain *future* work), append the ones that outlive this change to `.skillgrid/artifacts/06-research-findings.md` — the durable, cross-change distillation. A finding that is only true for this one change stays in `report.md` alone. This is the terminal catch: anything `research`/`prototype`/`sketch` missed while the sources were fresh still lands here at close.
 
+**Finding triage — process bug vs one-off.** For each Lesson and Surprise, classify it before it closes:
+
+- **Process bug** — the finding names a *reusable* failure class that would likely recur in other changes (a navigation trap, a steering-file no-op, a verification gap, a convention that was silently violated). It is a *process* fix: name the governing skill or `_shared` rule it belongs to, and record it as a **follow-up ticket** (an Open Item with the path to the process file to edit). Do **not** hand-tune only this change's artifacts to absorb it.
+- **One-off** — the finding is specific to this change's context and would not generalize. It stays in `report.md` alone.
+
+The test mirrors the distillation heuristic: *would the same lesson strengthen a future change, or only this one?* If the same argument would apply elsewhere, it is a process bug and must route back to the process — a process bug recorded only as a one-off Lesson is a finding that never reaches the file that would have prevented it next time.
+
 ### Step 3.5: Update `state.yaml`
 
 Set `pipeline.current_phase: reflect` (the terminal phase). `ship` already appended the topic to `progress.completed_changes` and cleared `current_change`; leave those as-is. If `current_change` was not cleared (e.g. ship degraded), clear it here so the pipeline reads idle after close.
@@ -253,6 +260,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 - The report restates a `report.md` (QA half) / ledger "pending / blocked / open" claim in bare present tense instead of attributing it to its source and time.
 - The report was written even though a hard gate (Ship or QA) failed — those force `blocked` with no write.
 - A `rejected` verdict was treated as a block (or a `FAIL` waved through as "just a verdict").
+- A reusable Lesson/Surprise was recorded only as a one-off in `report.md`, never triaged as a process bug routed to the governing skill or `_shared` rule — the next change repeats it.
 - The session was closed by an earlier phase, or not closed at all — close is `reflect`'s job and only its job.
 - The report is missing observation IDs for the artifacts read (the lineage endpoint is incomplete).
 
@@ -261,6 +269,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 - [ ] All gates passed before any write: Ship Gate (folder in `archive/`, ship context present, `diff -r` empty) + QA Gate (`PASS` / `WAIVED` / `CONCERNS`, no unresolved CRITICAL) — or `blocked` returned with no write.
 - [ ] `report.md` written into the moved folder with every learning sourced (file:line / commit / ticket / scenario) and an acceptance verdict recorded.
 - [ ] `report.md` includes final-state facts, gate results, the `diff -r` reference, and the observation IDs of every artifact read.
+- [ ] Every Lesson/Surprise was triaged process-bug vs one-off: process bugs named the governing skill/`_shared` rule and were recorded as follow-up tickets; one-offs stayed in `report.md` alone.
 - [ ] Session persisted and closed: `mem_session_summary` present with all 6 sections (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) non-empty, followed by `mem_session_end`.
 - [ ] Change marked closed: return envelope states the change, verdict, location, and "Next: none — cycle complete" (or the blocked reason, if gated).
 
