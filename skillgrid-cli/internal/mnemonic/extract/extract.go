@@ -308,6 +308,28 @@ var extToLang = map[string]string{
 	".htm":    "html",
 }
 
+// IncludeGlobs returns the include globs for the given languages, one
+// "**/*.{ext}" per distinct extension. Languages not in the 30-language scope
+// are skipped. The result is sorted for deterministic output.
+func IncludeGlobs(langs []string) []string {
+	seen := make(map[string]bool)
+	var globs []string
+	for _, lang := range langs {
+		for ext, l := range extToLang {
+			if l != lang {
+				continue
+			}
+			if seen[ext] {
+				continue
+			}
+			seen[ext] = true
+			globs = append(globs, "**/*"+ext)
+		}
+	}
+	sort.Strings(globs)
+	return globs
+}
+
 // DetectLanguage returns the supported language for a file path, or "" if the
 // extension is not in the 30-language scope. Grammar reuse maps are applied
 // (e.g. .mts -> typescript, .cu -> cpp).
