@@ -137,6 +137,24 @@ Read the project and detect facts. Never guess — detect, then confirm.
 - If not available: note "Mnemonic not detected — memory, code index, and web cache will be inactive"
 - If available: `mnemonic: enabled: true` in config
 
+**Embedder (mnemonic vector search):**
+- Only relevant when Mnemonic is enabled
+- Detect existing config: check `.skillgrid/config.d/indexing.yaml` for an `embedder:` block. If present, use it as the starting point and confirm with the user.
+- Ask the user: "How should Mnemonic embed code for vector search? Options:
+  1. **Ollama (local LLM server)** — run embeddings on a local Ollama instance. Requires Ollama installed and running.
+  2. **ONNX (built-in)** — pure-Go ONNX runtime, no external server. Model auto-downloaded to `~/.skillgrid/models/`.
+  3. **External API** — any OpenAI-compatible `/embeddings` endpoint (OpenAI, OpenRouter, LiteLLM, etc.)
+  4. **Off** — no vector leg; hybrid search falls back to FTS + signals only.
+  Default: ONNX (no setup required). Which do you want?"
+- If **Ollama**:
+  - Verify Ollama is running: `curl -sf http://localhost:11434/api/tags | head -5`
+  - If not reachable: "Ollama not running on localhost:11434. Is it on a different host/port? If not installed, you can start with `brew install ollama` (macOS) or `curl -fsSL https://ollama.com/install.sh | sh` (Linux). Install the embedding model with `ollama pull nomic-embed-code`."
+  - Ask for base URL (default `http://localhost:11434`) and model name (default `nomic-embed-code`)
+- If **External API**:
+  - Ask for base URL (e.g. `https://api.openai.com/v1`), model name (e.g. `text-embedding-3-small`), and API key
+  - API key: ask the user to provide it, or note that it can be set later in `~/.skillgrid/config.d/indexing.yaml` (machine-local, not committed)
+- If **ONNX** or **Off**: no further config needed
+
 ### Step 1.5: Enroll (brownfield)
 
 If Step 1 shows an existing codebase (real commit history + feature code, not just a scaffold), enroll what's already there instead of planning it from zero:
@@ -147,6 +165,45 @@ If Step 1 shows an existing codebase (real commit history + feature code, not ju
 4. **Nested AGENTS.md note.** Area-specific rules (a payments module, a UI kit) live in `<area>/AGENTS.md` — the root block stays global and lean. Note the areas that would warrant their own file; create them lazily (ship's reconcile creates one for a net-new area, never for a pre-existing undocumented one — it flags instead).
 
 A greenfield project (scaffold, no feature history) skips Step 1.5 — there is nothing to enroll.
+
+### Step 1.7: Generate ARCHITECTURE.md
+
+`skillgrid init` (Step 3 item 10) scaffolds `.skillgrid/ARCHITECTURE.md` from `templates/architecture.md` — a 17-section skeleton with `<detect>`/`<detect: …>` markers and a ToC. Your job is to **fill the markers with detected facts** so the document is a faithful, verifiable map of the codebase — not a generic template. This is the onboarding deliverable that makes the repo *legible*: a newcomer (or the agent on a fresh session) reads this before reading code.
+
+**Principles**
+1. **Facts, not opinions.** Every diagram, table row, and code snippet must correspond to something real — a package, a `file:line`, a config key, a port. If you cannot verify it from the code, leave it `<detect>` rather than invent it.
+2. **Point at ADRs, don't re-argue them.** Architecture *decisions* live as `### ADR-NNNN` in `.skillgrid/ASSUMPTIONS.md` (LOCKED). This file describes *how it is built* and links to the ADR that pins a rule; it does not restate the tradeoff. (See `skillgrid:architectural-decision-records`.)
+3. **Verbatim snippets are load-bearing.** Short quoted snippets (a migration header, a port constant, an entry-point line) make the doc *checkable*. Quote the real line, cite `file:line`. Keep each snippet ≤ ~15 lines.
+4. **Drop what doesn't exist.** A project with no frontend omits §9; no pipeline omits §12; no plugin system omits §10. Do not leave an empty section with placeholder prose — remove the section and renumber the ToC, or mark it `_(none)_`.
+5. **Greenfield stays a skeleton.** On a scaffold with no feature history, fill only what exists (stack, top-level layout, entry point, test strategy) and leave the rest `<detect>` — the doc grows as the code does. Never pad a greenfield doc.
+
+**How to fill each section** — for every `<detect: …>` marker, read the named source of truth:
+
+| Section | Detect from |
+|---|---|
+| 1. Overview | README + entry point; one ASCII diagram of major subsystems |
+| 2. Top-Level Layout | `eza`/`ls` of the root; one row per significant path |
+| 3. Application Layering | the import graph / package boundaries (which layer imports which) |
+| 4. Entry Points & Command Surface | `main`/entry file `file:line` + the command dispatch table |
+| 5. Domain / Core Logic | the core packages + their responsibilities |
+| 6. Data & Persistence | schema/migration files + the ingest→index→search (or equivalent) flow |
+| 7. Storage & State | the store (engine + on-disk layout) + migration strategy + state zones |
+| 8. Transports | any HTTP/MCP/WebSocket server: protocol, port, shared handler set |
+| 9. Frontend/UI | the UI stack + build tool + dev-vs-prod split (omit if none) |
+| 10. Plugin & Extension | the registry, hook points, multi-agent/adapter stages (omit if none) |
+| 11. Configuration & Flags | config sources + precedence order + feature-flag location |
+| 12. Workflow / Pipeline | the staged workflow (e.g. SDD phases) with per-stage artifact + gate (omit if none) |
+| 13. Enforcement & Quality Gates | git hooks + CI + lint/typecheck/test gates that block |
+| 14. Error Handling & Degradation | error convention + which subsystems fail open vs closed |
+| 15. Security | the security layers + the controls table (auth, secrets, scans) |
+| 16. Testing Strategy | the test layers + where each lives + the runner + coverage |
+| 17. Known Gaps & TODOs | honest list of stubbed/deferred/inconsistent things (never leave empty out of politeness) |
+
+**Method (TDD-flavored for documentation):** before writing a section, *read* its source of truth; write the section; then *verify* the load-bearing claims (re-open the `file:line` you cited and confirm the snippet matches). A section you cannot verify stays `<detect>`.
+
+**Brownfield:** use the reverse-engineered conventions from Step 1.5 — the doc is where "how this *actually* works" (vs how it *should* work) is recorded. Flag any place the code contradicts the docs.
+
+**When the CLI is not on PATH:** `skillgrid init` is the deterministic scaffolder, but onboarding must not block on it. Copy `templates/architecture.md` to `.skillgrid/ARCHITECTURE.md`, replace `{project}`/`{version}`/`{last_updated}` by hand, and fill the markers as above. The result is identical.
 
 ### Step 2: Present & Confirm
 
@@ -181,6 +238,8 @@ Show the detected facts to the user. Confirm one at a time — don't dump everyt
 
 12. **Mnemonic** — (only when the `skillgrid` CLI was detected) "Persistent memory detected (skillgrid CLI). Memory, code index, and web cache will be active. Artifacts saved to Mnemonic survive /clear and branch switches. OK?" — (when not detected) "Mnemonic not detected (skillgrid CLI not found). Memory, code index, and web cache will be inactive until the CLI is installed."
 
+13. **Embedder** — (only when Mnemonic is enabled) "Vector search embedder: **{provider}** ({one-line description}). Write the `embedder:` block to `.skillgrid/config.d/indexing.yaml`? — (ollama) "provider: ollama, base_url: {url}, model: {model}" — (external) "provider: external, base_url: {url}, model: {model}, api_key: {key}" — (onnx) "provider: onnx, model: nomic-embed-code (auto-downloaded)" — (off) "no vector leg; FTS + signals only". Correct?"
+
 If the user corrects anything, use their value. If they say "looks good" or "yes", move on.
 
 ### Step 3: Write
@@ -198,7 +257,7 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 
 **3. Create the durable-knowledge zone (create if absent; merge if present):**
 - If `.skillgrid/ASSUMPTIONS.md` is absent, create it from the shape in `_shared/rules/sdd-structure.md` — the four tiers `## VERIFIED`, `## INFERRED (HYPOTHESIS)`, `## LOCKED` (with a `### In-force set` table whose rows are paths to `artifacts/04-adr-NNNN-slug.md`, plus `### Locked constraints` and `### Locked assumptions`), and `## Open Questions`. On a fresh project the tiers start empty.
-- If `.skillgrid/ARCHITECTURE.md` is absent, create it as an empty live structure record (it is created lazily as the repo takes shape).
+- If `.skillgrid/ARCHITECTURE.md` is absent, `skillgrid init` scaffolds it from `templates/architecture.md` (the deterministic structure: header + 17-section skeleton with `<detect>` markers). Onboarding then **fills** it — see *Generating ARCHITECTURE.md* below. Do not hand-write the 17-section skeleton; let init scaffold it and replace the `<detect>`/`<detect: …>` markers with detected facts. If `skillgrid` is not on PATH, fall back to copying `templates/architecture.md` yourself (filling `{project}`/`{version}`/`{last_updated}` by hand) so the zone is complete.
 - If `artifacts/README.md` is absent, create it from the topic-index shape in `_shared/rules/sdd-structure.md`.
 - If `artifacts/06-research-findings.md` is absent, create it with an empty `## Findings` list.
 - Brownfield migration of the old paths: if `artifacts/00-architecture.md` exists and `ARCHITECTURE.md` does not, fold the architecture into `ARCHITECTURE.md` and `git mv` the old file to `.skillgrid/archive/`. `artifacts/00-prd.md` stays where it is (it is the requirements reference); if `ASSUMPTIONS.md` is missing, create it from `templates/ASSUMPTIONS.md` with the product statement and a link to `00-prd.md`. If ADR bodies are inlined in `ASSUMPTIONS.md` and the matching `artifacts/04-adr-NNNN-slug.md` is missing, write each body out to that file and leave only the path in the `### In-force set` table. Do not fold ADR files or the PRD back into `ASSUMPTIONS.md`. Same for `artifacts/05-locked-constraints.md` (fold its `## Locked` list into `ASSUMPTIONS.md` § `### Locked constraints`, then archive) and a legacy `.skillgrid/glossary/` → `01/02-*-terms.md`.
@@ -238,15 +297,73 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - `mem_session_summary` + `mem_session_end`
 - If the session fails (MCP not wired yet), note it and continue — the saves will be made on first `skillgrid:mnemonic` invocation
 
-**8. Commit:**
+**8. Write `.skillgrid/config.d/indexing.yaml` (embedder config, only when Mnemonic is enabled and the user chose a non-default provider):**
+- Create the directory if absent: `mkdir -p .skillgrid/config.d`
+- Write the `embedder:` block into `indexing.yaml`. If the file already exists, merge — keep any existing keys (include, exclude, chunk_lines, web_cache, etc.) and add/update only the `embedder:` section.
+- The YAML schema (under the `mnemonic:` key, matching `config.EmbedderConfig`):
+
+```yaml
+mnemonic:
+  embedder:
+    provider: ollama            # ollama | onnx | local | external | off
+    base_url: http://localhost:11434  # ollama/external only
+    model: nomic-embed-code     # model name
+    dimension: 768              # output vector dimension
+    api_key: ""                 # external only
+    # indexing_params / query_params: asymmetric input types (optional)
+    # indexing_params:
+    #   input_type: passage
+    # query_params:
+    #   input_type: query
+```
+
+- **Ollama** example:
+```yaml
+mnemonic:
+  embedder:
+    provider: ollama
+    base_url: http://localhost:11434
+    model: nomic-embed-code
+    dimension: 768
+```
+- **External API** example:
+```yaml
+mnemonic:
+  embedder:
+    provider: external
+    base_url: https://api.openai.com/v1
+    model: text-embedding-3-small
+    dimension: 1536
+    api_key: sk-...
+```
+- **ONNX** (default) — no block needed; the built-in default applies. Write the block only if the user explicitly chose ONNX and wants it visible:
+```yaml
+mnemonic:
+  embedder:
+    provider: onnx
+    model: nomic-embed-code
+    dimension: 768
+```
+- **Off** — write the block to disable vector search explicitly:
+```yaml
+mnemonic:
+  embedder:
+    provider: off
+```
+- **Precedence note:** this repo-local file takes precedence over `~/.skillgrid/config.d/indexing.yaml` (home-local). The home-local file is a per-key fallback — it supplies any key the repo-local file leaves unset. Machine-specific endpoints (e.g. a non-default Ollama host) can live in the home-local file to avoid committing them. Mention this to the user if they express concern about committing a base_url.
+- If the user chose the default (ONNX) and no `indexing.yaml` exists in the repo, skip the write — the built-in default applies without a file.
+
+**9. Commit:**
 - `git add .skillgrid/config.yaml` + `.skillgrid/state.yaml` + the `.skillgrid/artifacts/` files + the AGENTS.md file
+- If `indexing.yaml` was written: `git add .skillgrid/config.d/indexing.yaml`
 - `git commit -m "chore: add Skillgrid config + state + artifacts"`
 
-**9. Project init (deterministic finish):**
-- Run `skillgrid init` from the project root (add `--force` only if the user asked to rebuild the preamble). `skillgrid init` renders the rich AGENTS.md preamble (`templates/agents-preamble.md`) from the `agents:` block you just filled — it is the deterministic finish that produces the `# Standards` region.
+**10. Project init (deterministic finish):**
+- Run `skillgrid init` from the project root (add `--force` only if the user asked to rebuild the preamble). `skillgrid init` renders the rich AGENTS.md preamble (`templates/agents-preamble.md`) from the `agents:` block you just filled **and scaffolds `.skillgrid/ARCHITECTURE.md`** from `templates/architecture.md` — the deterministic finish that produces the `# Standards` region and the 17-section architecture skeleton.
+- `skillgrid init` only *scaffolds* ARCHITECTURE.md (it writes the skeleton once and keeps an existing file). The **filling** of its `<detect>` markers is onboarding's job (Step 1.7) — do it before you consider onboarding complete, or flag the remaining `<detect>` markers to the user.
 - If the user named extra documentation paths, pass each as `--docs <path>`.
-- Do not walk files or call `mem_save` for docs here — the CLI owns ingest, the preamble render, and the code index.
-- If `skillgrid` is not on PATH, tell the user to install the CLI and re-run `skillgrid init`; continue the rest of onboarding.
+- Do not walk files or call `mem_save` for docs here — the CLI owns ingest, the preamble render, the architecture scaffold, and the code index.
+- If `skillgrid` is not on PATH, tell the user to install the CLI and re-run `skillgrid init`; fall back to copying `templates/architecture.md` by hand so the zone is complete.
 
 ### Step 4: Verify
 
@@ -255,6 +372,7 @@ Show the user:
 - The `state.yaml` + `artifacts/` zone created
 - The AGENTS.md block (with the `### Rules` section rendered from `ASSUMPTIONS.md` § Locked constraints)
 - The rendered AGENTS.md preamble (`# Standards` region) — confirm it contains the rich sections with no leftover `<detect>` placeholder when the `agents:` config was filled
+- The filled `.skillgrid/ARCHITECTURE.md` — confirm the 17 sections are present and the `<detect>` markers are replaced with verified facts for everything that exists (greenfield: only the sections with real content are filled, the rest are honestly marked)
 - "Skills now read from `.skillgrid/config.yaml` + `.skillgrid/state.yaml` + `.skillgrid/ASSUMPTIONS.md` + `.skillgrid/ARCHITECTURE.md` + `.skillgrid/artifacts/`. Run `skillgrid:brainstorming` to start your first project."
 
 ## Merge Mode (Re-running)
@@ -265,7 +383,7 @@ If `.skillgrid/config.yaml` already exists:
 3. Show what changed: "Detected changes: test runner changed from X to Y. Update?"
 4. Merge: update changed values, keep user-customized `rules:` sections
 5. Re-write AGENTS.md block (idempotent upsert) — re-render `{rules_block}` from the current `ASSUMPTIONS.md` § Locked constraints
-6. Reconcile `state.yaml` + the durable-knowledge zone: fill missing keys in `state.yaml` (never reset `pipeline`/`progress`); ensure `ASSUMPTIONS.md` / `ARCHITECTURE.md` exist; create any missing `artifacts/` stubs; run the brownfield migration (architecture into the root file; ADR bodies out to `artifacts/04-adr-*.md` with a path row left in `ASSUMPTIONS.md`; `00-prd.md` stays in `artifacts/`; locked constraints and glossary as in the migration bullet) if the project was onboarded before this layout
+6. Reconcile `state.yaml` + the durable-knowledge zone: fill missing keys in `state.yaml` (never reset `pipeline`/`progress`); ensure `ASSUMPTIONS.md` / `ARCHITECTURE.md` exist; if `ARCHITECTURE.md` was scaffolded but still has unfilled `<detect>` markers (a stack change or first-pass gap), re-run Step 1.7 to fill them — never clobber the filled sections, only replace `<detect>` markers with newly detected facts; create any missing `artifacts/` stubs; run the brownfield migration (architecture into the root file; ADR bodies out to `artifacts/04-adr-*.md` with a path row left in `ASSUMPTIONS.md`; `00-prd.md` stays in `artifacts/`; locked constraints and glossary as in the migration bullet) if the project was onboarded before this layout
 
 ## What This Does NOT Do
 
@@ -284,6 +402,8 @@ If `.skillgrid/config.yaml` already exists:
 | "Both AGENTS.md and CLAUDE.md exist — write the block to both" | Two full blocks are two sources that drift. Write full to `AGENTS.md`, one-line pointer in `CLAUDE.md`. |
 | "I'll add a bunch of conventions to the block up front so the agent doesn't get anything wrong" | The block ships with every prompt. Grow it only on an observed failure (observe → fix); split the rest into the referenced files. See *Keep the AGENTS.md block lean*. |
 | "Let me read the whole repo and write a comprehensive AGENTS.md" | "Read the repo and generate a giant AGENTS.md" yields a verbose, hard-to-use file. Start minimal (a couple sentences + references) and let it grow on evidence. |
+| "I'll hand-write the ARCHITECTURE.md skeleton" | `skillgrid init` scaffolds the 17-section structure deterministically from `templates/architecture.md`. Onboarding's job is to *fill* the `<detect>` markers with verified facts — not to re-invent the skeleton. Hand-writing it drifts from the template every project. |
+| "I'll pad every ARCHITECTURE.md section to make it look complete" | A section with no real content stays `<detect>` or is dropped — padding a brownfield/greenfield doc with generic prose makes it *less* trustworthy. Facts over completeness. |
 | "The user said 'looks good' — skip re-reading their corrections" | "Looks good" is only valid once every detected fact has been presented and confirmed individually. |
 
 ## Red Flags
@@ -301,10 +421,11 @@ If `.skillgrid/config.yaml` already exists:
 
 - [ ] `.skillgrid/config.yaml` exists and parses (`yaml` load succeeds); every detected field (stack, testing, commands, ticketing, TDD, commit discipline, BDD) is filled
 - [ ] `.skillgrid/state.yaml` exists, parses, and has `pipeline` + `progress` + `constraints_ref` pointing at `.skillgrid/ASSUMPTIONS.md` (existing values preserved on re-run)
-- [ ] `.skillgrid/ASSUMPTIONS.md` exists with the four tiers; `.skillgrid/ARCHITECTURE.md` exists (or is created lazily); `.skillgrid/artifacts/` contains `README.md` + `06-research-findings.md` (`00-prd.md`, terms, and ADR files created lazily by their owners)
+- [ ] `.skillgrid/ASSUMPTIONS.md` exists with the four tiers; `.skillgrid/ARCHITECTURE.md` exists, was scaffolded by `skillgrid init` (or copied by hand), and its `<detect>` markers are filled with verified facts for everything that exists (brownfield: all 17 sections addressed; greenfield: only sections with real content filled, the rest honestly left `<detect>` or dropped); every cited `file:line` was re-verified against the code
 - [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}`, tracker/memory lines, and a `### Rules` section rendered from `ASSUMPTIONS.md` § Locked constraints
 - [ ] The block is lean: no inlined conventions/how-to or "getting started" section. Issue Tracker is the exact `{tracker_line}` for `ticketing.type` (a pointer to that convention file). No pointers at churning source paths. If both exist, `CLAUDE.md` holds only a one-line pointer to `AGENTS.md`
 - [ ] Detected test runner command runs and exits 0 (e.g. `go test ./...`, `npm test`, `pytest`)
 - [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`. If `ticketing.type: backlogmd`, every `.skillgrid/artifacts/04-adr-*.md` has a `.backlog/decisions/decision-NNN` copy
 - [ ] `git rev-parse --is-inside-work-tree` succeeds; onboarding artifacts are committed (`git log -1` shows `chore: add Skillgrid config + state + artifacts`)
+- [ ] If Mnemonic is enabled and a non-default embedder was chosen, `.skillgrid/config.d/indexing.yaml` exists with a valid `mnemonic.embedder` block (provider matches the user's choice; base_url/model/dimension are filled for ollama/external)
 - [ ] If the project is brownfield (existing feature code + history), Step 1.5 ran: existing capabilities are recorded as `existing`, conventions were reverse-engineered into the block + glossary, and the first slice is planned against the existing system (reuse, not regenerate)
