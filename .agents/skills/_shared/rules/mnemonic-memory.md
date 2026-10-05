@@ -51,11 +51,12 @@ Omit `wave_ledger` when the run has no parallel wave. When the file and this obs
 
 ```
 1. mem_context(limit: 5)                    # fast: recent session summaries
+1.5. mem_inject_session(query: "<topic>")   # deeper hybrid retrieval when context is insufficient (Layer 2)
 2. mem_search(query: "<topic>")             # FTS5 over observations
 3. mem_get_observation(id)                  # full untruncated body (previews are 300 chars)
 ```
 
-**Critical**: `mem_search` returns 300-char previews. A preview of a 2000-char blueprint loses most of it. Always `mem_get_observation(id)` before relying on it as an acceptance criterion or constraint.
+**Critical**: `mem_search` returns 300-char previews. A preview of a 2000-char blueprint loses most of it. Always `mem_get_observation(id)` before relying on it as an acceptance criterion or constraint. `mem_inject_session` items are 200-char snippets — same rule: `mem_get_observation(id)` for full content.
 
 ## Session Protocol
 

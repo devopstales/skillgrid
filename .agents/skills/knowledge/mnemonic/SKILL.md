@@ -45,7 +45,7 @@ If `mnemonic.enabled: false`, stop — memory, code index, and web cache are all
 ## Tools
 
 - Core (loaded automatically at session start by the hook or the `mnemonic` MCP — no manual search needed):
-  `mem_save`, `mem_search`, `mem_context`, `mem_session_start`, `mem_session_end`, `mem_session_summary`,
+  `mem_save`, `mem_search`, `mem_context`, `mem_inject_session`, `mem_session_start`, `mem_session_end`, `mem_session_summary`,
   `mem_save_prompt`, `mem_get_observation`, `mem_suggest_topic_key`,
   `code_status`, `code_index`, `code_search`, `code_read`,
   `web_cache_lookup`, `web_cache_save`, `web_cache_search`, `web_cache_get`
@@ -113,6 +113,39 @@ Skillgrid naming (when working a change `{YYYY-MM-DD-<topic>}`): `title` == `top
 ```
 
 Also search proactively when starting work that may overlap prior sessions, or when the user says any variant of "remember / recall / what did we do / how did we solve". For Skillgrid changes, group searches first (STEP A), then retrievals (STEP B).
+
+### Step 3.5 — Session context recall (on-demand deep retrieval)
+
+`mem_inject_session` is the Layer-2 injection tool: hybrid (BM25 FTS + optional semantic vector, RRF-fused) retrieval of injectable observations, rendered into a token-cost-annotated context block. It complements `mem_context` (Layer 1, auto-fired by the hook at session start) by letting you pull deeper context on a specific topic when the prime index is insufficient.
+
+**When to call:**
+
+- At session start, after `mem_context` shows recent sessions but you need deeper context on a specific topic before starting work
+- When the user references prior work ("what did we decide about X", "how did we handle Y") and `mem_context`/`mem_search` previews are insufficient
+- After compaction, as part of the recovery sequence (alongside `mem_context`)
+
+**How to call:**
+
+```
+mem_inject_session(
+  query: "<topic keywords>",     # required — construct from context (see below)
+  max_tokens: 2000,              # optional — token budget for the context block
+  all_projects: false,           # optional — widen to every project bucket
+)
+```
+
+**Query construction:**
+
+- For SDD changes: `query: "skillgrid/{YYYY-MM-DD-<topic>}"` (the change's topic prefix)
+- For ad-hoc: `query: "<topic keywords from the user's request>"`
+- Never call with an empty or generic query — it produces an empty result (the vector leg needs a query vector)
+
+**How to use the output:**
+
+- The `block` field is a markdown context block with ranked items (title, source, snippet, token cost). Use it as orientation context, not as a source of truth — items are 200-char snippets.
+- For full content on a specific item, follow up with `mem_get_observation(id)` using the `ID` from the `items` array.
+- If `degraded: true`, only BM25 matched (no embedder active) — results may miss semantically related observations. Note this if the topic spans multiple phrasings.
+- If `items` is empty, fall back to `mem_search` with the same query.
 
 ### Step 4 — Save during work (mandatory — do NOT wait to be asked)
 
@@ -228,6 +261,7 @@ Full protocol refs: [_shared/rules/mnemonic-artifacts.md](../../_shared/rules/mn
 
 - [ ] `mem_session_start` was called once at session open and its `sid` reused for every `mem_save`.
 - [ ] Before new work, `mem_context` (and `mem_search`/`mem_get_observation` when needed) was used to recall prior context instead of re-deriving it.
+- [ ] `mem_inject_session` was used when `mem_context` alone was insufficient to orient on a topic (query constructed from the change's topic prefix or the user's request keywords).
 - [ ] Significant decisions/bugfixes/discoveries were `mem_save`'d with `**What**`/`**Why**`/`**Where**`/`**Learned**` and a live `session_id`.
 - [ ] `mem_session_summary` was called at session end with all 6 sections (Goal, Instructions, Discoveries, Accomplished, Next Steps, Relevant Files) non-empty.
 - [ ] Each remote web lookup was bracketed by `web_cache_lookup` (before) and `web_cache_save` (after).
