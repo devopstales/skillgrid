@@ -79,6 +79,19 @@ commands:
   format: "{format_command}"
   typecheck: "{typecheck_command}"
 
+# --- AGENTS.md preamble (repo-specific, rendered by `skillgrid init`) ---
+# Optional. Filled by onboarding from detected facts + the existing codebase
+# (brownfield: read the repo, don't guess). Empty values render as <detect>
+# placeholders; empty lists drop the section. See templates/agents-preamble.md.
+agents:
+  directories:            # list of {path, purpose} -> Key Directories table
+    # - { path: "src/kubedash/lib/k8s/", purpose: "K8s API wrappers — one file per resource type" }
+  security_boundaries: [] # bullets -> Security & Escalation Boundaries
+  dependency_policies: [] # bullets -> Dependency Policies
+  architecture_constraints: [] # bullets -> Architecture Constraints
+  definition_of_done: []  # bullets -> Definition of Done
+  engineering_standards: [] # bullets -> Engineering Standards
+
 # --- Conventions ---
 conventions:
   specs_root: .skillgrid/specs
@@ -184,7 +197,7 @@ rules:
   # two-axis review), T3 = GA (mutation + security + parallel review with a
   # fresh-model reviewer). A per-change override in briefing.md (`Tier: T<n>`)
   # wins over the project default. Policy source:
-  # .agents/skills/_shared/rules/rigor-tiers.md
+  # .agents/skills/_shared/planning/rigor-tiers.md
   tiers:
     default: {tiers_default}
     T0: { name: Prototype, blueprint: none,  qa: self-check }
@@ -205,7 +218,7 @@ rules:
   reflect:
     verdict_gate: advisory
   # --- Fast-Track (trivial / small changes) ---
-  # Policy source of truth: .agents/skills/_shared/rules/fast-track.md
+  # Policy source of truth: .agents/skills/_shared/planning/fast-track.md
   # standard/risky changes always run the full pipeline; only trivial/small may waive.
   fast_track:
     enabled: true
