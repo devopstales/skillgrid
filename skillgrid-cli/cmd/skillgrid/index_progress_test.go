@@ -253,8 +253,8 @@ func TestFinishIndexPrintsAfterRestore(t *testing.T) {
 	if out.early || errw.early {
 		t.Fatal("summary was written before the terminal was restored")
 	}
-	if got := errw.buf.String(); got != "index: unresolved member calls: 81\n" {
-		t.Errorf("stderr = %q", got)
+	if strings.Contains(errw.buf.String(), "unresolved") {
+		t.Errorf("stderr = %q; unbound members are not an operator error", errw.buf.String())
 	}
 	if got := out.buf.String(); got != "indexed: 38 files, 61 chunks (+1 skipped, -0 deleted)\n" {
 		t.Errorf("stdout = %q", got)

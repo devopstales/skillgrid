@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"hash/fnv"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -765,7 +764,7 @@ func (idx *Indexer) runPostCommitPasses(ctx context.Context, root string, cfg Co
 	}
 	idx.store.DB = passDB
 	if !changed {
-		recordUnresolvedMembers(passDB, cfg.Progress, stats, os.Stderr)
+		recordUnresolvedMembers(passDB, stats)
 		return nil
 	}
 	// Knowledge-graph passes (03.8): run the community + process + knowledge
@@ -836,20 +835,14 @@ func (idx *Indexer) runPostCommitPasses(ctx context.Context, root string, cfg Co
 	if idx.emb != nil && idx.emb.Model() != "" {
 		hybrid.InvalidateVectorCache(idx.store.Path(), idx.emb.Model())
 	}
-	recordUnresolvedMembers(passDB, cfg.Progress, stats, os.Stderr)
+	recordUnresolvedMembers(passDB, stats)
 	return nil
 }
 
-// recordUnresolvedMembers counts receiver calls the index could not bind.
-// Community, LSP, and PDG stay advisory; this count is the status the
-// operator sees after a run.
-//
-// When progress is set, a live view owns the terminal and may have it in
-// raw mode, where a newline does not return the cursor to column 0. The
-// line is withheld and the count is stored on stats so the caller can print
-// it after that view restores the terminal. When progress is nil the line
-// is written to w immediately.
-func recordUnresolvedMembers(db *sql.DB, progress func(Event), stats *Stats, w io.Writer) {
+// recordUnresolvedMembers counts receiver calls the index could not bind
+// and stores the count on stats. It does not print: an "unresolved" line
+// on stderr reads as a failed run.
+func recordUnresolvedMembers(db *sql.DB, stats *Stats) {
 	if db == nil {
 		return
 	}
@@ -861,13 +854,6 @@ func recordUnresolvedMembers(db *sql.DB, progress func(Event), stats *Stats, w i
 		stats.UnresolvedMembers = n
 		stats.UnresolvedKnown = true
 	}
-	if progress != nil {
-		return
-	}
-	if w == nil {
-		w = os.Stderr
-	}
-	fmt.Fprintf(w, "index: unresolved member calls: %d\n", n)
 }
 
 // resolutionAuditPass re-extracts every scanned file and persists the

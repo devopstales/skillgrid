@@ -231,9 +231,6 @@ func (r *progressViewTea) Done() {
 // where a newline does not return the cursor to column 0.
 func finishIndex(rep progressReporter, stats codeindex.Stats, stdout, stderr io.Writer) {
 	rep.Done()
-	if stats.UnresolvedKnown {
-		fmt.Fprintf(stderr, "index: unresolved member calls: %d\n", stats.UnresolvedMembers)
-	}
 	fmt.Fprintf(stdout, "indexed: %d files, %d chunks (+%d skipped, -%d deleted)\n",
 		stats.FilesIndexed, stats.ChunksAdded, stats.FilesSkipped, stats.FilesDeleted)
 }
