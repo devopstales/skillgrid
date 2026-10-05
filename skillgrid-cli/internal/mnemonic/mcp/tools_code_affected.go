@@ -53,6 +53,7 @@ func codeRenameTool() mcplib.Tool {
 		mcplib.WithString("kind", mcplib.Description("Narrow disambiguation to a symbol kind")),
 		mcplib.WithBoolean("dry_run", mcplib.Description("Return the plan without writing (default true)")),
 		mcplib.WithBoolean("apply", mcplib.Description("Write the planned edits (only listed files; no commit/push)")),
+		mcplib.WithNumber("depth", mcplib.Description("Bound the transitive-caller traversal depth (default 5, same cap as code_impact)")),
 	)
 }
 
@@ -142,10 +143,11 @@ func handleCodeRename(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 			dryRun = b
 		}
 	}
+	depth := int(req.GetFloat("depth", 0))
 	opts := affected.RenameOptions{
 		Old: old, New: newName,
 		File: stringArg(req, "file"), UID: stringArg(req, "uid"), Kind: stringArg(req, "kind"),
-		DryRun: dryRun, Apply: apply,
+		DryRun: dryRun, Apply: apply, Depth: depth,
 	}
 
 	_, h, cleanup, err := openService()
