@@ -207,5 +207,5 @@ apply → qa → review → ship → reflect
   install to reflect.
 - [User guide — layout](../user-guide/01-layout.md) — what lives where in
   `.skillgrid/` and `~/.skillgrid/`.
-- [User guide — concepts](../user-guide/08-concepts.md) — the domain model,
+- [User guide — guiding principles](../user-guide/08-guiding-principles.md) — the domain model,
   ADRs, and the rest of the recurring ideas.

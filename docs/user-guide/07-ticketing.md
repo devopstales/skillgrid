@@ -2,7 +2,7 @@
 
 The **`ticketing`** skill maps SDD work to an issue tracker. Default: **Backlog.md**. Alternatives: GitHub, GitLab, Jira.
 
-Tracker choice is recorded in `.skillgrid/config.yaml`. Formatting seeds and per-tracker references live under `.agents/skills/planning/ticketing/references/` (`backlogmd`, `github`, `gitlab`, `jira` + `*-formatting.md` + `triage-labels.md`).
+Tracker choice is recorded in `.skillgrid/config.yaml`. Per-tracker ticketing standards (CLI + formatting) live under `.agents/skills/_shared/rules/ticketing/` (`backlogmd`, `github`, `gitlab`, `jira` + `*-formatting.md`); the ticketing skill keeps `triage-labels.md` locally.
 
 ## Quick path
 
@@ -54,4 +54,4 @@ When the skill says "publish to the issue tracker":
 
 ## Next step
 
-[Concepts](08-concepts.md)
+[Guiding Principles](08-guiding-principles.md)

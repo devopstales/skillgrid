@@ -161,4 +161,4 @@ Once review is clean, the change is closed in two steps:
 
 ## Next step
 
-[Hooks](04-hooks.md) — how discipline is enforced, not just asked. For the full definitions of the moving parts (clarity gate, waves, QA gate, goal-backward, traceability), see [Concepts](08-concepts.md).
+[Hooks](04-hooks.md) — how discipline is enforced, not just asked. For the full definitions of the moving parts (clarity gate, waves, QA gate, goal-backward, traceability), see [Guiding Principles](08-guiding-principles.md).

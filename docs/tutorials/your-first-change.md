@@ -432,7 +432,7 @@ Lost track of where you are? Open `.skillgrid/state.yaml` (`current_change`,
   day-to-day pipeline in full.
 - [User guide — hooks](../user-guide/04-hooks.md) — how discipline is
   enforced, not just asked.
-- [User guide — concepts](../user-guide/08-concepts.md) — rigor tiers, assumed
+- [User guide — guiding principles](../user-guide/08-guiding-principles.md) — rigor tiers, assumed
   blueprints, build shapes, the QA gate, and every other recurring idea.
 
 > [!TIP]

@@ -1,10 +1,58 @@
-# Concepts
+# Guiding Principles
 
-The recurring ideas across skills and hooks. These are the named seams that make the pipeline work — the same term appears in multiple skills and means the same thing.
+The whole hub is an expression of four engineering practices. The bullet sections below are the *intent*; the detailed sections that follow are the *mechanism*.
 
-## The practices (why the pipeline exists)
+## Guiding Principles
 
-The whole hub is an expression of four engineering practices. Everything below is the *mechanism*; this section is the *intent*.
+- Spec-Driven Development: development starts by writing specifications to file.
+- Decisions and actual state live in files for the agent to follow.
+- Each skill writes what it learned to disk.
+
+## Intent and design
+
+- Intent is locked before design or code.
+- Question until there is a shared vocabulary; the domain model is written as terms resolve.
+- Deep modules: a lot of behavior behind a simple interface. Test at that interface.
+- Shallow modules (many tiny pieces, busy interfaces) are hard for the model to navigate, and it is good at creating them.
+
+## Slicing and context
+
+- Cut a task to a small vertical slice, so frontend, backend, and DB do not drift.
+- A slice fits one fresh context.
+- Every task starts with an empty context.
+- Context decays. The next session starts from files, not from chat.
+- Small context beats heroic context: a large window helps retrieval, but judgment degrades under stale chat and compacted history. Keep the session in the smart zone.
+
+## Execution
+
+- A skill asks. A hook guarantees.
+- Same input, same output: a script runs the procedure. The agent does the judgment.
+- Specs commit before the code that satisfies them (spec zone / code zone rule).
+- Code written without a driving spec change is invalid, even if the suite is green.
+- You are not a yes-machine. Surface assumptions, name the concrete downside, and accept the human's informed decision.
+- Explicit over clever: a ten-line obvious fix beats a two-hundred-line abstraction. Deletion over addition, boring over clever, because clever is what someone decodes at 3am.
+
+## Verification
+
+- Every requirement has a happy path, an edge, and a failure.
+- Write the test first. Watch it fail. Then make it pass.
+- A green suite is not the verdict. A fresh check of the goal is.
+- Verify that what was created is what the original intent was.
+- Find the root cause before a fix.
+- Fact-first: every claim cites its source. An assertion without evidence is a guess, not a finding.
+
+## Design logics
+
+Source: Ousterhout, *A Philosophy of Software Design* (2nd ed.) in conversation with Martin, *Clean Code* — their published disagreement on when decomposition helps and when it hurts.
+
+- Complexity is what the reader must hold in their head. Less information, or that information made obvious, is the only win.
+- You write once, read a hundred times. Optimize for the reader — including you, a week later.
+- Complexity is in the eye of the reader. If someone else finds it hard, it is hard.
+- Over-decomposition: shrinking a function until its name gets longer means the interface got worse, not cleaner.
+- Entanglement: if you must flip between two functions to understand either, they are one function. Combine them; ordering them does not help.
+- A function's contract — invariants, side effects, ordering — must be knowable from the name or a comment. A signature alone is rarely enough.
+- Comments carry what code cannot: the why, the contract, the non-obvious constraint. Missing comments cost far more than wrong ones.
+ - Know a rule, then know when it stops applying. A principle pushed past its limit becomes the bug.
 
 ### Spec-Driven Development (SDD)
 
@@ -55,6 +103,8 @@ This is the sizing unit for `slicing` (tracer-bullet tickets, ~500–1500 lines,
 BDD is the *language of the contract*: the scenarios are what the QA traceability matrix and the `#### Gates` oracles verify against. "Every requirement has ≥1 happy + edge + failure scenario." Specs use domain (glossary) language, never implementation jargon, so the behaviour stays readable to a non-engineer.
 
 **How the five fit together:** IDD locks the *intent* first (grill + clarity gate + brainstorming approval). SDD provides the *pipeline* and the *written contract*. BDD provides the *behavioural language* of that contract. TDD is the *per-task* proof engine. Vertical slices are the *size unit* that keeps every one of them inside a context window. A slice is a thin SDD unit, written as BDD scenarios, proved by TDD, verified by the gates — all in service of the intent IDD locked at the front.
+
+**Scripts over guessing** is the operating logic on top of those five: bookkeeping (parse, merge, count, validate, write) is a JS script, not skill prose the model re-interprets. See [Design logics](#design-logics).
 
 ## The PIV loop
 
@@ -588,6 +638,3 @@ releases. Stale threshold: 2 hours. It warns, never blocks.
 - **Durable state over chat memory.** Files win over conversation memory, every time.
 - **Never edit the expectation to match the code.** Fix the code.
 
-## Next step
-
-Back to [Start here](00-start-here.md).

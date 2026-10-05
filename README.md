@@ -84,11 +84,13 @@ The verbs are only half of it. A skill is an *ask* — and a model will rational
 
 Two properties matter most:
 
-**Match the effort to the risk.** A throwaway prototype shouldn't be pushed through mutation testing and an eight-specialist review; a payment system shouldn't get away with a self-check. **Rigor tiers (T0–T3)** are a per-change verification dial — T0 self-checks, T3 runs the full gauntlet with a fresh-model reviewer — and a per-change `Tier:` line overrides the project default. The change's shape (a migration, a new trust boundary) still sets a floor the tier can't lower. See [08-concepts](docs/user-guide/08-concepts.md#rigor-tiers—match-effort-to-risk).
+**Match the effort to the risk.** A throwaway prototype shouldn't be pushed through mutation testing and an eight-specialist review; a payment system shouldn't get away with a self-check. **Rigor tiers (T0–T3)** are a per-change verification dial — T0 self-checks, T3 runs the full gauntlet with a fresh-model reviewer — and a per-change `Tier:` line overrides the project default. The change's shape (a migration, a new trust boundary) still sets a floor the tier can't lower. See [08-guiding-principles](docs/user-guide/08-guiding-principles.md#rigor-tiers—match-effort-to-risk).
 
 **Decisions live in files, not in chat.** When the agent hits a decision nobody made yet, the **Owed-Decision Gate** catches it *mechanically* (not by the agent feeling uncertain), and it can either resolve it or record it as an **`ASSUMED` blueprint** — a named assumption in a file that survives `/clear`, that teammates read, and that `qa` flags as decision debt until **Ratify** settles it. That single move is what stops the agent from silently inventing the load-bearing choice and burying it in code.
 
 **The test pyramid is a first-class concept.** `qa` selects the *highest layer that fits* each behavior (unit / integration / E2E), applies a duplicate-coverage guard (a test at the wrong layer is a slower, flakier way to test something a cheaper layer already covers), and gates on mutation score + P0/P1 pass-rate thresholds. The full strategy is in [`.agents/skills/verification/qa/references/test-strategy.md`](.agents/skills/qa/references/test-strategy.md).
+
+**The design logic is reader-first, not writer-first.** Skillgrid's code standard is built on Ousterhout's *A Philosophy of Software Design* in conversation with Martin's *Clean Code*: complexity is what a reader must hold in their head, so a design choice is good only if it makes the code easier to *read* — less information to know, or that information made obvious. A deep module hides a lot of behavior behind a small interface; over-decomposition is recognizable (the moment a function's name grows longer as it gets smaller, the interface is getting worse, not cleaner), and entangled functions — the kind you must flip between to understand either — should be combined, not reordered. A function's contract (invariants, side effects, ordering) has to live in the name or a comment; a signature alone is rarely a complete interface. The full rule is in [`.agents/skills/_shared/rules/code-standards.md`](.agents/skills/_shared/rules/code-standards.md), and the one-line form is in [08-guiding-principles](docs/user-guide/08-guiding-principles.md#design-logics).
 
 **Mnemonic is the second brain of your project, not a scratchpad for chat.** A chat window is a working set — it fills, compacts, and dies. Mnemonic is the durable brain: it persists the *decisions* (glossary, ADRs, assumptions), holds a *live index of the code* (symbols, call paths, blast radius), and caches *research* so it isn't re-fetched. It survives `/clear`, survives compaction, and survives the session itself — a fresh agent opens the second brain and is already oriented to your project's actual state. That is the whole point: the knowledge that made the first change good is no longer trapped in a chat window.
 
@@ -249,7 +251,7 @@ docs/user-guide/       # the full walkthrough (layout, skills, workflow, hooks, 
 | [05-memory-and-indexing](docs/user-guide/05-memory-and-indexing.md) | Mnemonic memory + code index |
 | [06-multi-agent-work](docs/user-guide/06-multi-agent-work.md) | Parallel / subagent work |
 | [07-ticketing](docs/user-guide/07-ticketing.md) | Backlog.md / GitHub / GitLab / Jira |
-| [08-concepts](docs/user-guide/08-concepts.md) | Gates, waves, clarity gate, PIV loop, ADRs, … |
+| [08-guiding-principles](docs/user-guide/08-guiding-principles.md) | Gates, waves, clarity gate, PIV loop, ADRs, … |
 | [09-serve-dashboard](docs/user-guide/09-serve-dashboard.md) | `skillgrid serve` web dashboard + views + tracker CLI |
 
 ## License
