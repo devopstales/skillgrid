@@ -54,11 +54,7 @@ type cfg struct {
 // function's CFG and continue). No new grammar — the same gotreesitter
 // registry 005 uses.
 func ParseTree(lang string, src []byte) (*ts.Tree, *ts.Language, error) {
-	probe, ok := grammarProbeFile[lang]
-	if !ok {
-		return nil, nil, fmt.Errorf("pdg: no grammar for language %q", lang)
-	}
-	entry := grammars.DetectLanguage(probe)
+	entry := grammarEntry(lang)
 	if entry == nil {
 		return nil, nil, fmt.Errorf("pdg: no grammar for language %q", lang)
 	}
@@ -72,6 +68,21 @@ func ParseTree(lang string, src []byte) (*ts.Tree, *ts.Language, error) {
 		return nil, nil, fmt.Errorf("pdg: parse stopped early")
 	}
 	return tree, l, nil
+}
+
+// grammarEntry resolves lang to a gotreesitter registry entry, first by the
+// probe filename (the common path) and, for languages whose extension is
+// claimed by another grammar (objective_c), by canonical name.
+func grammarEntry(lang string) *grammars.LangEntry {
+	if probe, ok := grammarProbeFile[lang]; ok {
+		if e := grammars.DetectLanguage(probe); e != nil {
+			return e
+		}
+	}
+	if name, ok := grammarByName[lang]; ok {
+		return grammars.DetectLanguageByName(name)
+	}
+	return nil
 }
 
 // noCFGMarker is a directive a function can carry (on its own line, just above
@@ -97,24 +108,20 @@ func BuildCFG(src []byte, lang string, name string, startLine int) (*cfg, error)
 	defer tree.Release()
 	root := tree.RootNode()
 
-	fnNode := findFunctionNode(root, l, name, startLine, src)
+	fnNode := findFunctionNode(root, l, lang, name, startLine, src)
 	if fnNode == nil {
 		return nil, nil
 	}
 	if hasNoCFGMarker(src, startLine) {
 		return nil, nil // malformed/unbuildable function: skip (01.8)
 	}
-	block := findBlockChild(fnNode, l)
-	if block == nil {
-		return nil, nil
-	}
-	sl := statementListIn(block, l)
+	sl := findStmtList(fnNode, l, lang)
 	if sl == nil {
 		return nil, nil
 	}
 
 	c := &cfg{}
-	c.buildScope(sl, l, src)
+	c.buildScopeLang(sl, l, lang, src)
 	// entry (block 1) -> terminal (last created block)
 	if len(c.Blocks) > 1 {
 		c.addEdgeUnique(1, len(c.Blocks), "implicit")
@@ -122,12 +129,58 @@ func BuildCFG(src []byte, lang string, name string, startLine int) (*cfg, error)
 	return c, nil
 }
 
-// buildScope builds the CFG for a statement list. Each statement becomes a
-// block (or a branch/loop header for control statements); the fall-through of
-// a normal statement is the next statement's block; a diverting statement
-// (return) ends the chain. The implicit edge from the entry block to the last
-// block is added by the caller.
+// findStmtList locates the statement list to CFG for a definition node: the
+// body container (shape bodyTypes, or the Go-style "block") and, within it, the
+// statement_list. Returns nil when the body cannot be located (the caller then
+// skips the function).
+func findStmtList(fnNode *ts.Node, l *ts.Language, lang string) *ts.Node {
+	body := findBodyContainer(fnNode, l, lang)
+	if body == nil {
+		return nil
+	}
+	if sl := statementListIn(body, l); sl != nil {
+		return sl
+	}
+	// Some grammars keep statements directly under the body container (e.g. the
+	// body itself is the statement list, or statements are direct named
+	// children). Use the body as the statement container when it has named
+	// children and no inner statement_list.
+	if body.NamedChildCount() > 0 {
+		return body
+	}
+	return nil
+}
+
+// findBodyContainer returns the definition node's body container: the first
+// named child whose type is in the shape's bodyTypes, or (for Go-style
+// defaults) the "block" child.
+func findBodyContainer(fnNode *ts.Node, l *ts.Language, lang string) *ts.Node {
+	if s := shapeFor(lang); s != nil {
+		// Prefer the LAST body-type child: for languages whose def node and body
+		// share a node type (clojure defn = list_lit, body = list_lit) the body
+		// is the trailing form, not the leading defn wrapper.
+		var last *ts.Node
+		for i := 0; i < fnNode.NamedChildCount(); i++ {
+			c := fnNode.NamedChild(i)
+			if c == nil {
+				continue
+			}
+			if _, ok := s.bodyTypes[c.Type(l)]; ok {
+				last = c
+			}
+		}
+		return last
+	}
+	return findBlockChild(fnNode, l)
+}
+
 func (c *cfg) buildScope(sl *ts.Node, l *ts.Language, src []byte) {
+	c.buildScopeLang(sl, l, "", src)
+}
+
+// buildScopeLang builds the CFG for a statement list, dispatching control
+// statements per the language's CFG shape (branch/loop/return node types).
+func (c *cfg) buildScopeLang(sl *ts.Node, l *ts.Language, lang string, src []byte) {
 	n := sl.NamedChildCount()
 	if n == 0 {
 		return
@@ -138,7 +191,7 @@ func (c *cfg) buildScope(sl *ts.Node, l *ts.Language, src []byte) {
 		if st == nil {
 			continue
 		}
-		fall := c.buildStmt(st, l, src)
+		fall := c.buildStmtLang(st, l, lang, src)
 		if i == 0 {
 			// the entry block is the first statement's block; nothing to connect
 			_ = fall
@@ -151,31 +204,54 @@ func (c *cfg) buildScope(sl *ts.Node, l *ts.Language, src []byte) {
 	}
 }
 
-// buildStmt builds the CFG for one statement and returns the block no the
-// caller's fall-through should target (0 when the statement diverts — a
-// return — so the chain ends).
+// buildStmt dispatches a single statement to the appropriate builder using the
+// language's CFG shape (branch/loop/return node types), falling back to a
+// normal block. Returns the block number the caller's fall-through should
+// target (0 when the statement diverts — a return — so the chain ends).
 func (c *cfg) buildStmt(n *ts.Node, l *ts.Language, src []byte) int {
+	return c.buildStmtLang(n, l, "", src)
+}
+
+func (c *cfg) buildStmtLang(n *ts.Node, l *ts.Language, lang string, src []byte) int {
 	nodeType := n.Type(l)
 	line := lineOf(src, n.StartByte())
 	endLine := lineOf(src, n.EndByte())
 
-	switch nodeType {
-	case "if_statement":
-		return c.buildIf(n, l, src)
-	case "for_statement", "range_statement":
-		return c.buildFor(n, l, src)
-	case "expression_switch_statement", "type_switch_statement", "switch_statement", "select_statement":
-		return c.buildSwitch(n, l, src)
-	case "return_statement":
-		c.newBlock(line, endLine, "return")
-		return 0 // diverts; no fall-through
-	default:
-		kind := "normal"
-		if hasCallExpr(n, l) {
-			kind = "call"
+	if s := shapeFor(lang); s != nil {
+		switch {
+		case inSet(s.brTypes, nodeType):
+			return c.buildIfLang(n, l, lang, src)
+		case inSet(s.loopTypes, nodeType):
+			return c.buildForLang(n, l, lang, src)
+		case inSet(s.retTypes, nodeType):
+			c.newBlock(line, endLine, "return")
+			return 0 // diverts; no fall-through
 		}
-		return c.newBlock(line, endLine, kind)
+	} else {
+		switch nodeType {
+		case "if_statement":
+			return c.buildIf(n, l, src)
+		case "for_statement", "range_statement":
+			return c.buildFor(n, l, src)
+		case "expression_switch_statement", "type_switch_statement", "switch_statement", "select_statement":
+			return c.buildSwitch(n, l, src)
+		case "return_statement":
+			c.newBlock(line, endLine, "return")
+			return 0 // diverts; no fall-through
+		}
 	}
+
+	kind := "normal"
+	if hasCallExpr(n, l) {
+		kind = "call"
+	}
+	return c.newBlock(line, endLine, kind)
+}
+
+// inSet reports whether t is a key of m (empty m is always false).
+func inSet(m map[string]struct{}, t string) bool {
+	_, ok := m[t]
+	return ok
 }
 
 // buildIf handles if/else-if/else. The header is the branch (condition) block;
@@ -183,30 +259,29 @@ func (c *cfg) buildStmt(n *ts.Node, l *ts.Language, src []byte) int {
 // else-if body is a child scope entered on the "false" edge. Go nests the
 // else-if as the if's "alternative" field (itself an if_statement).
 func (c *cfg) buildIf(n *ts.Node, l *ts.Language, src []byte) int {
+	return c.buildIfLang(n, l, "", src)
+}
+
+// buildIfLang builds the CFG for an if-style branch node, locating the
+// then/else bodies via the language's CFG shape (or the Go-style "block" +
+// "alternative" field for languages without a shape).
+func (c *cfg) buildIfLang(n *ts.Node, l *ts.Language, lang string, src []byte) int {
 	headerNo := c.newBlock(branchLine(n, l, src), branchLine(n, l, src), "branch")
-	// then-body: the if's own block.
-	if thenBlock := findBlockChild(n, l); thenBlock != nil {
-		if thenSl := statementListIn(thenBlock, l); thenSl != nil {
-			thenStart := c.newScopeStart()
-			c.addEdge(headerNo, thenStart, "true")
-			c.buildScope(thenSl, l, src)
-		}
+	// then-body: the branch's own body container.
+	if then := c.branchBody(n, l, lang, thenBody); then != nil {
+		thenStart := c.newScopeStart()
+		c.addEdge(headerNo, thenStart, "true")
+		c.buildScopeLang(then, l, lang, src)
 	}
 	// else / else-if.
-	alt := n.ChildByFieldName("alternative", l)
-	if alt != nil {
+	if alt := c.branchBody(n, l, lang, elseBody); alt != nil {
+		subStart := c.newScopeStart()
+		c.addEdge(headerNo, subStart, "false")
 		altType := alt.Type(l)
-		if altType == "if_statement" {
-			subStart := c.newScopeStart()
-			c.addEdge(headerNo, subStart, "false")
-			c.buildIf(alt, l, src)
-			// the sub if's fall-through is reconciled by buildScope chaining
-		} else if altType == "block" {
-			elseStart := c.newScopeStart()
-			c.addEdge(headerNo, elseStart, "false")
-			if elseSl := statementListIn(alt, l); elseSl != nil {
-				c.buildScope(elseSl, l, src)
-			}
+		if s := shapeFor(lang); s != nil && inSet(s.brTypes, altType) {
+			c.buildIfLang(alt, l, lang, src) // nested else-if
+		} else {
+			c.buildScopeLang(alt, l, lang, src)
 		}
 	}
 	// The if's own fall-through is the header block (the next statement chains
@@ -214,18 +289,59 @@ func (c *cfg) buildIf(n *ts.Node, l *ts.Language, src []byte) int {
 	return headerNo
 }
 
+// branchSel selects which branch arm to read.
+type branchSel int
+
+const (
+	thenBody branchSel = iota
+	elseBody
+)
+
+// branchBody returns the statement container for the selected branch arm of n,
+// or nil when the arm is absent. For shaped languages it looks for the shape's
+// body-type child; for Go-style defaults it uses the "block" child (then) or
+// the "alternative" field (else).
+func (c *cfg) branchBody(n *ts.Node, l *ts.Language, lang string, sel branchSel) *ts.Node {
+	if s := shapeFor(lang); s != nil {
+		for i := 0; i < n.NamedChildCount(); i++ {
+			ch := n.NamedChild(i)
+			if ch == nil {
+				continue
+			}
+			t := ch.Type(l)
+			if inSet(s.brTypes, t) && sel == elseBody {
+				return ch // else-if nested under the same if
+			}
+			if _, ok := s.bodyTypes[t]; ok && sel == thenBody {
+				return ch
+			}
+		}
+		return nil
+	}
+	if sel == thenBody {
+		return findBlockChild(n, l)
+	}
+	alt := n.ChildByFieldName("alternative", l)
+	if alt != nil && alt.Type(l) == "block" {
+		return alt
+	}
+	return nil
+}
+
 // buildFor handles for/range loops. The header is the loop-condition block;
 // the body is a child scope entered from the header ("loop-start") and looping
 // back to the header ("loop"); the header's false path exits to the caller's
 // continuation (the header block itself, which the next statement chains from).
 func (c *cfg) buildFor(n *ts.Node, l *ts.Language, src []byte) int {
+	return c.buildForLang(n, l, "", src)
+}
+
+func (c *cfg) buildForLang(n *ts.Node, l *ts.Language, lang string, src []byte) int {
 	headerNo := c.newBlock(branchLine(n, l, src), branchLine(n, l, src), "loop")
-	if bodyBlock := findBlockChild(n, l); bodyBlock != nil {
+	if body := c.loopBody(n, l, lang); body != nil {
 		bodyStart := c.newScopeStart()
 		c.addEdge(headerNo, bodyStart, "loop-start")
-		if bodySl := statementListIn(bodyBlock, l); bodySl != nil {
-			c.buildScope(bodySl, l, src)
-		}
+		c.buildScopeLang(body, l, lang, src)
 		// loop-back: the last block of the body loops back to the header.
 		if len(c.Blocks) > 0 {
 			c.addEdge(c.Blocks[len(c.Blocks)-1].BlockNo, headerNo, "loop")
@@ -233,6 +349,23 @@ func (c *cfg) buildFor(n *ts.Node, l *ts.Language, src []byte) int {
 	}
 	// false path: header -> caller continuation (the header block).
 	return headerNo
+}
+
+// loopBody returns the statement container for a loop node's body, or nil.
+func (c *cfg) loopBody(n *ts.Node, l *ts.Language, lang string) *ts.Node {
+	if s := shapeFor(lang); s != nil {
+		for i := 0; i < n.NamedChildCount(); i++ {
+			ch := n.NamedChild(i)
+			if ch == nil {
+				continue
+			}
+			if _, ok := s.bodyTypes[ch.Type(l)]; ok {
+				return ch
+			}
+		}
+		return nil
+	}
+	return findBlockChild(n, l)
 }
 
 // buildSwitch handles switch/select: the header is the condition block; each
@@ -310,19 +443,20 @@ func (c *cfg) addEdgeUnique(from, to int, cond string) {
 	c.Edges = append(c.Edges, Edge{FromBlock: from, ToBlock: to, Condition: cond})
 }
 
-// findFunctionNode locates the definition node for (name, startLine).
-func findFunctionNode(root *ts.Node, l *ts.Language, name string, startLine int, src []byte) *ts.Node {
+// findFunctionNode locates the definition node for (name, startLine). For
+// languages with a CFG shape it matches the shape's def-node types and name
+// extraction (mirroring the extractor's defNodes); otherwise it falls back to
+// the Go-style "name" field.
+func findFunctionNode(root *ts.Node, l *ts.Language, lang, name string, startLine int, src []byte) *ts.Node {
 	var found *ts.Node
 	var walk func(n *ts.Node)
 	walk = func(n *ts.Node) {
 		if found != nil || n == nil {
 			return
 		}
-		if defNodeName(n, l, src) == name {
-			if lineOf(src, n.StartByte()) == startLine {
-				found = n
-				return
-			}
+		if isDefNode(n, l, lang) && lineOf(src, n.StartByte()) == startLine && defName(n, l, lang, src) == name {
+			found = n
+			return
 		}
 		for i := 0; i < n.ChildCount(); i++ {
 			if c := n.Child(i); c != nil {
@@ -334,14 +468,33 @@ func findFunctionNode(root *ts.Node, l *ts.Language, name string, startLine int,
 	return found
 }
 
-// defNodeName returns the definition name of n when n carries a name field,
-// else "".
-func defNodeName(n *ts.Node, l *ts.Language, src []byte) string {
-	nameNode := n.ChildByFieldName("name", l)
-	if nameNode == nil {
+// isDefNode reports whether n is a function-definition node for lang (shape
+// defNodes, or the Go-style "name" field for languages without a shape).
+func isDefNode(n *ts.Node, l *ts.Language, lang string) bool {
+	if s := shapeFor(lang); s != nil {
+		for _, dt := range s.defNodes {
+			if n.Type(l) == dt {
+				return true
+			}
+		}
+		return false
+	}
+	return n.ChildByFieldName("name", l) != nil
+}
+
+// defName returns the definition name of n for lang: the shape's nameFrom when
+// set, else the "name" field (Go-style default).
+func defName(n *ts.Node, l *ts.Language, lang string, src []byte) string {
+	if s := shapeFor(lang); s != nil {
+		if s.nameFrom != nil {
+			return s.nameFrom(n, l, src)
+		}
 		return ""
 	}
-	return nameNode.Text(src)
+	if nameNode := n.ChildByFieldName("name", l); nameNode != nil {
+		return nameNode.Text(src)
+	}
+	return ""
 }
 
 // branchLine is the line of a branch/loop/switch header node.
