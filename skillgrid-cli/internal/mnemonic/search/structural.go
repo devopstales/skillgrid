@@ -8,6 +8,7 @@
 package search
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -45,6 +46,12 @@ type GrepResult struct {
 	FilesSeen    int        `json:"files_seen"`
 	FilesMatch   int        `json:"files_matched"`
 	FilesSkipped int        `json:"files_skipped"`
+	// Truncated is true when limit>0 capped the hit list before the scan
+	// finished (more matches exist beyond the returned ones). HitsTruncated is
+	// set to 1 as an indicator of truncation; the exact remainder is not counted
+	// because the scan stops early. Both are omitted from JSON when zero/false.
+	Truncated     bool `json:"truncated,omitempty"`
+	HitsTruncated int  `json:"hits_truncated,omitempty"`
 }
 
 // ParseByExample converts a by-example structural pattern into gotreesitter
@@ -60,27 +67,65 @@ type GrepResult struct {
 //	\*       an anonymous any-node that must follow the node (a wildcard step)
 //	\_       an anonymous any-node that must follow the node (a wildcard step)
 //
-// Everything else is literal S-expression. Returns the compiled source and an
-// error for unbalanced parens or an odd number of backslashes.
+// Note: a named capture is a step suffix, not a sibling. `(function_definition
+// \fn)` compiles to `(function_definition @fn)` — the capture attaches to the
+// node it names. It must NOT compile to `(function_definition (_ @fn))`, which
+// would require a child node (and for node types that have none, such as
+// python's `call_expression`, the query fails with "unknown node type"
+// because the grammar rejects the step).
+//
+// Whitespace separates tokens: `(call_expression function: (identifier) \name)`
+// produces three root-internal tokens (`call_expression`, `function:`,
+// `(identifier) @name`), reassembled with single spaces in the output.
+//
+// Returns the compiled source and an error for unbalanced parens or a
+// malformed metavariable.
 func ParseByExample(pattern string) (string, error) {
 	var root strings.Builder // the first top-level S-expression (the matched node)
 	var rest []string        // trailing tokens (arguments, wildcards, captures)
 	var cur strings.Builder  // the token being built
 	depth := 0
+	open := false  // true while the root S-expression is open (between its parens)
 	haveRoot := false
+	// flush emits the current token: inside the root S-expression it joins
+	// to root with a space; at depth 0 it becomes the root or a rest token.
 	flush := func() {
 		s := strings.TrimSpace(cur.String())
 		if s == "" {
 			cur.Reset()
 			return
 		}
-		if depth == 0 && !haveRoot {
+		if open {
+			// Inside the root S-expression: join tokens with a space so that
+			// `call_expression function: (identifier)` stays as three separate
+			// tokens rather than one mangled string.
+			if root.Len() > 0 {
+				root.WriteByte(' ')
+			}
+			root.WriteString(s)
+		} else if depth == 0 && !haveRoot {
 			root.WriteString(s)
 			haveRoot = true
 		} else {
 			rest = append(rest, s)
 		}
 		cur.Reset()
+	}
+	// capture attaches the named capture to the currently-open S-expression
+	// (metavariable written inside the parens, the common by-example form) or
+	// to the root (metavariable written after the closing paren). Both compile
+	// to the same tree-sitter query: the capture follows the node type.
+	capture := func(name string) {
+		// Flush the current token first so the capture becomes a separate
+		// token; flush() will space-separate it from the preceding token.
+		flush()
+		if open {
+			cur.WriteString("@")
+			cur.WriteString(name)
+		} else {
+			root.WriteString(" @")
+			root.WriteString(name)
+		}
 	}
 	for i := 0; i < len(pattern); i++ {
 		c := pattern[i]
@@ -104,8 +149,8 @@ func ParseByExample(pattern string) (string, error) {
 			i++
 			rest = append(rest, "(_)")
 		case c == '\\' && i+1 < len(pattern):
-			// \NAME -> named-node capture applied to the root node. Capture
-			// names are a single identifier (letters, digits, dot, underscore).
+			// \NAME -> named-node capture (see capture()). Capture names are a
+			// single identifier (letters, digits, dot, underscore).
 			i++
 			start := i
 			for i < len(pattern) && (isIdentRune(pattern[i])) {
@@ -114,13 +159,14 @@ func ParseByExample(pattern string) (string, error) {
 			if i == start {
 				return "", errGrepBadPattern("malformed metavariable: backslash not followed by an identifier")
 			}
-			root.WriteString(" @")
-			root.WriteString(pattern[start:i])
+			capture(pattern[start:i])
+			flush() // emit the @name token so the next token space-separates
 			i-- // the loop above already consumed the last ident rune; step back
 		case c == '(':
 			depth++
 			if depth == 1 {
 				flush()
+				open = true
 			}
 			cur.WriteByte(c)
 		case c == ')':
@@ -130,10 +176,13 @@ func ParseByExample(pattern string) (string, error) {
 			}
 			cur.WriteByte(c)
 			if depth == 0 {
+				open = false
 				flush()
 			}
 		case c == ' ' || c == '\t' || c == '\n':
-			// whitespace between tokens; ignore
+			// Whitespace is a token separator: flush the current token so
+			// adjacent word tokens (node type + field name) do not merge.
+			flush()
 		default:
 			cur.WriteByte(c)
 		}
@@ -143,6 +192,9 @@ func ParseByExample(pattern string) (string, error) {
 		return "", errGrepBadPattern("unbalanced parentheses in pattern")
 	}
 	if !haveRoot {
+		if strings.Contains(pattern, "\\") {
+			return "", errGrepBadPattern("bare metavariable: wrap the pattern in parentheses, e.g. (node_type) \\name")
+		}
 		return "", errGrepBadPattern("empty pattern")
 	}
 	out := root.String()
@@ -186,12 +238,65 @@ func CompileGrep(pattern string, lang *ts.Language) (*ts.Query, error) {
 	return ts.NewQuery(src, lang)
 }
 
+// CompileGrepAnchor compiles a query that captures the pattern's root node
+// (the first S-expression's node type) as @__anchor. It is used to recover the
+// matched node's position/text when the user's pattern carries no named
+// capture: a bare `(function_definition)` produces a match with zero captures,
+// so m.Captures[0] is nil and the hit would default to line:1 col:1. The anchor
+// query matches the exact same root, so its single capture is the root node
+// itself, one per match, in the same order. The anchor source is validated
+// against lang (an unknown node type yields an error, skipping the language).
+func CompileGrepAnchor(pattern string, lang *ts.Language) (*ts.Query, error) {
+	// The root is the first top-level token of the by-example pattern: the
+	// text from its opening '(' to the matching closing ')'. Extract it by
+	// walking parens; it is a bare node type or a node type with internal
+	// field/child specs. The anchor only needs the ROOT node type, so strip
+	// any internal field/child specs down to the first token.
+	root := patternRootType(pattern)
+	if root == "" {
+		return nil, errGrepBadPattern("no root node type in pattern")
+	}
+	src := "(" + root + ") @__anchor"
+	return ts.NewQuery(src, lang)
+}
+
+// patternRootType returns the pattern's root node type: the first token inside
+// the first top-level S-expression. `(function_definition name: (identifier))`
+// -> "function_definition"; `(call_expression)` -> "call_expression". For an
+// invalid pattern it returns "" (the caller falls back to no-anchor).
+func patternRootType(pattern string) string {
+	i := 0
+	for i < len(pattern) && pattern[i] != '(' {
+		i++
+	}
+	if i >= len(pattern) {
+		return ""
+	}
+	i++ // step past '('
+	start := i
+	for i < len(pattern) && !isIdentRune(pattern[i]) {
+		i++
+	}
+	for i < len(pattern) && isIdentRune(pattern[i]) {
+		i++
+	}
+	if i == start {
+		return ""
+	}
+	return pattern[start:i]
+}
+
 // GrepByExample runs a structural grep over every supported-language file
 // under root, matching pattern against each file's syntax tree. Unknown files
 // (no grammar) are skipped. A pattern that is invalid for a given language
 // skips that language's files and records a note; other languages still match.
 // It is index-free: no store or embeddings are required.
-func GrepByExample(root, pattern string) (*GrepResult, error) {
+//
+// limit caps the returned hit list for unbounded patterns (e.g. (call) over a
+// large tree). limit<=0 means no cap. When the cap is reached the walk stops
+// early (remaining files are not scanned), res.Truncated is set, and
+// HitsTruncated is the count of hits dropped by the cap.
+func GrepByExample(root, pattern string, limit int) (*GrepResult, error) {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -208,13 +313,19 @@ func GrepByExample(root, pattern string) (*GrepResult, error) {
 
 	res := &GrepResult{}
 
+	// stopGrep signals filepath.WalkDir to halt once the hit cap is reached.
+	// It is a sentinel (not os.ErrNotExist) so a genuine walk error elsewhere
+	// is never confused with the early stop.
+	var stopGrep = errors.New("grep limit reached")
+
 	// Cache per-language compiled queries and notes so each language is
 	// compiled once (invalid -> note, skip its files).
 	type langState struct {
-		known bool
-		query *ts.Query
-		lang  *ts.Language
-		note  string
+		known  bool
+		query  *ts.Query
+		anchor *ts.Query // captures the root node for position/text on no-capture matches
+		lang   *ts.Language
+		note   string
 	}
 	langCache := map[string]*langState{}
 	langStateFor := func(name string) *langState {
@@ -238,6 +349,12 @@ func GrepByExample(root, pattern string) (*GrepResult, error) {
 					s.note = err.Error()
 				} else {
 					s.query = q
+					// Best-effort anchor query for no-capture positions. If the
+					// root node type is unknown for this language the main
+					// CompileGrep would have failed, so the anchor (same root)
+					// is valid too; a nil anchor just means positions fall back
+					// to the first capture.
+					s.anchor, _ = CompileGrepAnchor(pattern, s.lang)
 				}
 			}
 		}
@@ -285,20 +402,49 @@ func GrepByExample(root, pattern string) (*GrepResult, error) {
 		if err != nil || tree == nil || tree.ParseStoppedEarly() {
 			return nil // malformed / early-stopped: no match, not a note
 		}
-		rel, err := filepath.Rel(rootAbs, path)
-		if err != nil {
-			rel = path
+		rel := filepath.ToSlash(filepath.Base(path))
+		if d2, err2 := os.Stat(rootAbs); err2 == nil && d2.IsDir() {
+			if r, err := filepath.Rel(rootAbs, path); err == nil && r != "." {
+				rel = filepath.ToSlash(r)
+			}
 		}
-		rel = filepath.ToSlash(rel)
 		matched := false
-		for _, m := range st.query.Execute(tree) {
+		mainMatches := st.query.Execute(tree)
+		// anchorMatches runs the root-capture query once per file. It matches
+		// the same root as the main query, so anchorMatches[i] corresponds to
+		// mainMatches[i] (same node, same order). It is computed lazily only
+		// when a main match has no capture to anchor on.
+		var anchorMatches []ts.QueryMatch
+		anchorReady := false
+		for mi, m := range mainMatches {
+			// Hit cap: check before appending so the walk stops the moment the
+			// returned list is full (the current file is not consumed past the
+			// cap). HitsTruncated is set to 1 as an indicator that further hits
+			// exist (the exact remainder is unknown without scanning on).
+			if limit > 0 && len(res.Hits) >= limit {
+				res.Truncated = true
+				res.HitsTruncated = 1
+				return stopGrep
+			}
 			h := GrepHit{Path: rel, Line: 1, Col: 1}
 			h.Captures = map[string]string{}
-			// The anchor node is the first capture, or the whole match if
-			// there is none; position/text come from it.
+			// The anchor node is the first capture, or (when the pattern has no
+			// named capture and the match has zero captures) the root node from
+			// the per-language anchor query. Position/text come from it.
 			anchor := (*ts.Node)(nil)
 			if len(m.Captures) > 0 {
 				anchor = m.Captures[0].Node
+			}
+			if anchor == nil && st.anchor != nil {
+				if !anchorReady {
+					anchorMatches = st.anchor.Execute(tree)
+					anchorReady = true
+				}
+				if mi < len(anchorMatches) {
+					if a := anchorMatches[mi]; len(a.Captures) > 0 && a.Captures[0].Node != nil {
+						anchor = a.Captures[0].Node
+					}
+				}
 			}
 			if anchor != nil {
 				p := anchor.StartPoint()
@@ -416,6 +562,7 @@ var grepExtToLang = map[string]string{
 	".r":      "r",
 	".R":      "r",
 	".m":      "matlab",
+	".mm":     "objective_c",
 	".pl":     "perl",
 	".pm":     "perl",
 	".ex":     "elixir",

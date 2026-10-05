@@ -552,9 +552,11 @@ func runGrep(version string, args []string) {
 	fs := flag.NewFlagSet("grep", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var jsonOut bool
+	var limit int
 	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
+	fs.IntVar(&limit, "limit", 0, "max hits to return (0 = no cap)")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: skillgrid grep PATTERN [path] [--json]")
+		fmt.Fprintln(fs.Output(), "usage: skillgrid grep PATTERN [path] [--json] [--limit N]")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -578,10 +580,13 @@ func runGrep(version string, args []string) {
 	_ = version
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	res, err := svc.CodeGrep(ctx, path, pattern)
+	res, err := svc.CodeGrep(ctx, path, pattern, limit)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
+	}
+	if res.Truncated {
+		fmt.Fprintln(os.Stderr, "note: hit limit reached; further matches not scanned")
 	}
 	if emitJSONOr(jsonOut, res) {
 		return

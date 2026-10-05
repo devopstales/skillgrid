@@ -1373,11 +1373,12 @@ func (s *Service) OrientSymbol(ctx context.Context, projectID, symbol string) (*
 }
 
 // CodeGrep runs a structural by-example grep over root, index-free.
-func (s *Service) CodeGrep(ctx context.Context, root, pattern string) (*search.GrepResult, error) {
+// limit caps the hit list for unbounded patterns (<=0 means no cap).
+func (s *Service) CodeGrep(ctx context.Context, root, pattern string, limit int) (*search.GrepResult, error) {
 	if pattern == "" {
 		return nil, fmt.Errorf("code_grep: pattern is required")
 	}
-	return search.GrepByExample(root, pattern)
+	return search.GrepByExample(root, pattern, limit)
 }
 
 // orientSymbol resolves symbol (exact or FTS) and returns its orientation.

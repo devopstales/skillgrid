@@ -26,9 +26,10 @@ func registerGrepTools(s *server.MCPServer) {
 
 func codeGrepTool() mcplib.Tool {
 	return mcplib.NewTool("code_grep",
-		mcplib.WithDescription("Structural search by example: match a by-example pattern with metavariables (\\name = named capture, \\(ARGS*) = argument run, \\* / \\_ = anonymous node) against the gotreesitter syntax tree of files under a directory. Index-free (no store/embeddings required); unknown files are skipped; a pattern invalid for a language skips that language with a note and matches the rest. Use to find the shape of code (every function def, every foo(...) call) without building an index."),
+		mcplib.WithDescription("Structural search by example: match a by-example pattern with metavariables (\\name = named capture, \\(ARGS*) = argument run, \\* / \\_ = anonymous node) against the gotreesitter syntax tree of files under a directory. Index-free (no store/embeddings required); unknown files are skipped; a pattern invalid for a language skips that language with a note and matches the rest. Use to find the shape of code (every function def, every foo(...) call) without building an index. For unbounded patterns (e.g. (call)), set limit to cap the hit list and stop the scan early."),
 		mcplib.WithString("pattern", mcplib.Required(), mcplib.Description("By-example structural pattern (e.g. (function_declaration) \\fn or (call_expression) \\c \\(ARGS*))")),
 		mcplib.WithString("path", mcplib.Description("Directory to search (defaults to the current working directory)")),
+		mcplib.WithNumber("limit", mcplib.Description("Maximum number of hits to return (0 or omitted = no cap). Stops the scan early once reached; truncated/hits_truncated are set in the result.")),
 	)
 }
 
@@ -44,11 +45,12 @@ func handleCodeGrep(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Ca
 			return toolError(err)
 		}
 	}
+	limit := req.GetInt("limit", 0)
 	svc, err := rootService()
 	if err != nil {
 		return toolError(err)
 	}
-	res, err := svc.CodeGrep(ctx, path, pattern)
+	res, err := svc.CodeGrep(ctx, path, pattern, limit)
 	if err != nil {
 		return toolError(err)
 	}

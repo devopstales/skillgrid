@@ -43,7 +43,7 @@ func TestCodeIntelGrepParity(t *testing.T) {
 	root := codeIntelFixture(t, svc)
 
 	// A valid pattern over the fixture dir produces matches.
-	res, err := svc.CodeGrep(context.Background(), root, `(function_definition) \fn`)
+	res, err := svc.CodeGrep(context.Background(), root, `(function_definition) \fn`, 0)
 	if err != nil {
 		t.Fatalf("code_grep: %v", err)
 	}
@@ -61,13 +61,13 @@ func TestCodeIntelGrepParity(t *testing.T) {
 	}
 
 	// Missing pattern is rejected (no invented default).
-	if _, err := svc.CodeGrep(context.Background(), root, ""); err == nil {
+	if _, err := svc.CodeGrep(context.Background(), root, "", 0); err == nil {
 		t.Errorf("expected an error for an empty grep pattern")
 	}
 
 	// An invalid-for-language pattern skips that language with a note, not a
 	// silent no-match.
-	res2, err := svc.CodeGrep(context.Background(), root, `(function_declaration) \fn`)
+	res2, err := svc.CodeGrep(context.Background(), root, `(function_declaration) \fn`, 0)
 	if err != nil {
 		t.Fatalf("code_grep: %v", err)
 	}
