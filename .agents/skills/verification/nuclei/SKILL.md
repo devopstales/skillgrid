@@ -36,10 +36,10 @@ nuclei -u https://example.com -tags cve              # known CVEs only
 nuclei -l targets.txt -severity medium,high,critical # many targets from a file
 ```
 
-First run pulls the `nuclei-templates` repo. Confirm the install before scanning:
+First run pulls the `nuclei-templates` repo. Confirm the install before scanning. If `nuclei` is not in `$PATH`, check `$(go env GOPATH)/bin/nuclei` — add that directory to `$PATH` or use the full path.
 
 ```bash
-nuclei -version
+nuclei -version                # or $(go env GOPATH)/bin/nuclei -version
 nuclei -health-check
 ```
 

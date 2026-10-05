@@ -36,12 +36,12 @@ akca -u https://example.com -f html -o report.html
 akca -u https://example.com -f json -o findings.json   # machine-readable for triage
 ```
 
-Browser-backed checks (client-rendered routes, DOM XSS, JS analysis) need **Chrome, Chromium, or Edge** installed. Confirm the binary and, on a fresh install, that a browser is present.
+Browser-backed checks (client-rendered routes, DOM XSS, JS analysis) need **Chrome, Chromium, or Edge** installed. Confirm the binary and, on a fresh install, that a browser is present. If `akca` is not in `$PATH`, check `$(go env GOPATH)/bin/akca` — add that directory to `$PATH` or use the full path.
 
 ## Scan Workflow
 
 ```
-1. Confirm binary + browser         akca --version; headless Chrome available for full/client-rendered
+1. Confirm binary + browser         akca --version (or $(go env GOPATH)/bin/akca); headless Chrome available
 2. Scope the target                 authorized URL; API spec as scope if you have one
 3. Choose profile + budget          -m (modules), --request-budget / --time-budget
 4. Add auth if the app is gated      -c "cookie=..." or -H "Authorization: Bearer ..."

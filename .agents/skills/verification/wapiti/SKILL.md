@@ -36,7 +36,7 @@ wapiti -u https://example.com -m sql,xss,exec     # only the modules you need
 wapiti -u https://example.com --scope page        # scan one page, not the whole app
 ```
 
-Wapiti needs **Python 3.12, 3.13, or 3.14** (`pip install wapiti3` or `uv tool install wapiti3`). Confirm the version before scanning:
+Wapiti needs **Python 3.12, 3.13, or 3.14** (`pip install wapiti3` or `uv tool install wapiti3`). Confirm the version before scanning. If `wapiti` is not in `$PATH`, check `~/.local/bin/wapiti` (uv tool install) or `~/.cargo/bin/wapiti` — add that directory to `$PATH` or use the full path.
 
 ```bash
 wapiti --version
@@ -45,7 +45,7 @@ wapiti --version
 ## Scan Workflow
 
 ```
-1. Confirm binary                    wapiti --version  (Python 3.12-3.14)
+1. Confirm binary                    wapiti --version  (or ~/.local/bin/wapiti; Python 3.12-3.14)
 2. Scope the target                  live, authorized URL; pick scope width
 3. Pick the attack set               -m modules, or default
 4. Add auth if the app is gated       --basic-auth, -c cookie, or --form-script
