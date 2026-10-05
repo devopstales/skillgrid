@@ -50,6 +50,86 @@ func TestSetupOpenCode_CheckpointPlugin(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(homeDry, ".config", "opencode", "plugin", "skillgrid-checkpoint.ts")); err == nil {
 		t.Fatal("dry-run must not write checkpoint plugin")
 	}
+	if _, err := os.Stat(filepath.Join(homeDry, ".skillgrid", "hooks", "opencode-session-start.sh")); err == nil {
+		t.Fatal("dry-run must not write opencode hook scripts")
+	}
+}
+
+func TestSetupOpenCode_DropsRetiredPlugins(t *testing.T) {
+	repoRoot := FindRepoRoot("")
+	if repoRoot == "" {
+		t.Fatal("repo root not found")
+	}
+	home := t.TempDir()
+	cfgPath := AgentConfigPath(home, "opencode")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initial := `{"plugin":["opencode-command-hooks","./plugins/mnemonic.ts","keep-me"]}` + "\n"
+	if err := os.WriteFile(cfgPath, []byte(initial), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetupOpenCode(home, repoRoot, nil, nil, false); err != nil {
+		t.Fatalf("SetupOpenCode: %v", err)
+	}
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, p := range gjson.Parse(string(data)).Get("plugin").Array() {
+		got[p.String()] = true
+	}
+	for _, retired := range []string{"opencode-command-hooks", "./plugins/mnemonic.ts"} {
+		if got[retired] {
+			t.Fatalf("retired plugin %q still registered: %s", retired, data)
+		}
+	}
+	for _, keep := range []string{"keep-me", "opencode-yaml-hooks", "./plugin/skillgrid-checkpoint.ts"} {
+		if !got[keep] {
+			t.Fatalf("missing plugin %q: %s", keep, data)
+		}
+	}
+}
+
+func TestSetupOpenCode_InstallsHookScripts(t *testing.T) {
+	repoRoot := FindRepoRoot("")
+	if repoRoot == "" {
+		t.Fatal("repo root not found")
+	}
+	home := t.TempDir()
+	if err := SetupOpenCode(home, repoRoot, nil, nil, false); err != nil {
+		t.Fatalf("SetupOpenCode: %v", err)
+	}
+	scripts := []string{
+		"opencode-session-start.sh",
+		"opencode-session-end.sh",
+		"opencode-policy.sh",
+		"opencode-tool-capture.sh",
+	}
+	for _, name := range scripts {
+		p := filepath.Join(home, ".skillgrid", "hooks", name)
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatalf("missing %s: %v", name, err)
+		}
+		if fi.Mode()&0o111 == 0 {
+			t.Fatalf("%s is not executable", name)
+		}
+	}
+	cfg, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "hook", "hooks.yaml"))
+	if err != nil {
+		t.Fatalf("read hooks.yaml: %v", err)
+	}
+	text := string(cfg)
+	for _, name := range scripts {
+		if !strings.Contains(text, name) {
+			t.Fatalf("hooks.yaml missing %s:\n%s", name, text)
+		}
+	}
+	if strings.Contains(text, "node ") || strings.Contains(text, "node -e") {
+		t.Fatalf("hooks.yaml still inlines hook logic:\n%s", text)
+	}
 }
 
 // TestUpsertPrivateToolsEnv is the installer-writes-private-tools-env seam:

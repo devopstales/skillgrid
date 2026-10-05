@@ -227,6 +227,13 @@ func TestMemoryAndPersonasBoundary(t *testing.T) {
 		".cursor-plugin/plugin.json",
 		"plugins/opencode/skillgrid-logo.tsx",
 		"plugins/kilo/skillgrid-logo.tsx",
+		"hooks/opencode-session-start.sh",
+		"hooks/opencode-session-end.sh",
+		"hooks/opencode-policy.sh",
+		"hooks/opencode-tool-capture.sh",
+		"hooks/tool-call-capture.js",
+		"hooks/stop-tests.js",
+		"hooks/gate-stop.js",
 	} {
 		p := filepath.Join(repo, f)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -317,6 +324,13 @@ func TestSetupAgentsIntegration(t *testing.T) {
 		".cursor-plugin/plugin.json",
 		"plugins/opencode/skillgrid-logo.tsx",
 		"plugins/kilo/skillgrid-logo.tsx",
+		"hooks/opencode-session-start.sh",
+		"hooks/opencode-session-end.sh",
+		"hooks/opencode-policy.sh",
+		"hooks/opencode-tool-capture.sh",
+		"hooks/tool-call-capture.js",
+		"hooks/stop-tests.js",
+		"hooks/gate-stop.js",
 		"config.d/mcp.yaml",
 	}
 	for _, f := range files {
@@ -457,5 +471,128 @@ mcp:
 	}
 	if err := installMCPServers(&cfg); err != nil {
 		t.Fatalf("installMCPServers: %v", err)
+	}
+}
+
+func installRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 8; i++ {
+		script := filepath.Join(dir, "hooks", "opencode-session-start.sh")
+		yaml := filepath.Join(dir, "plugins", "opencode", "hooks.yaml")
+		if _, err := os.Stat(script); err == nil {
+			if _, err := os.Stat(yaml); err == nil {
+				return dir
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	t.Fatal("skillgrid repo root not found")
+	return ""
+}
+
+// TestInstallCreatesOpenCodeHookLayout is the installer's agent-config step
+// (setupAgents): OpenCode and Kilo configs, hook yaml, checkpoint plugin, and
+// the scripts under ~/.skillgrid/hooks/.
+func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
+	repo := installRepoRoot(t)
+	home := t.TempDir()
+	cfg := Config{
+		HomeDir: home,
+		RepoDir: repo,
+		Agents:  []string{"opencode", "kilo"},
+	}
+	if err := setupAgents(&cfg); err != nil {
+		t.Fatalf("setupAgents: %v", err)
+	}
+
+	scripts := []string{
+		"opencode-session-start.sh",
+		"opencode-session-end.sh",
+		"opencode-policy.sh",
+		"opencode-tool-capture.sh",
+		"tool-call-capture.js",
+		"stop-tests.js",
+		"gate-stop.js",
+	}
+	for _, name := range scripts {
+		dst := filepath.Join(home, ".skillgrid", "hooks", name)
+		fi, err := os.Stat(dst)
+		if err != nil {
+			t.Fatalf("missing %s: %v", dst, err)
+		}
+		if strings.HasSuffix(name, ".sh") && fi.Mode()&0o111 == 0 {
+			t.Fatalf("%s is not executable", dst)
+		}
+		want, err := os.ReadFile(filepath.Join(repo, "hooks", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("%s installed content differs from the repo", name)
+		}
+	}
+
+	opencodeYAML, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "hook", "hooks.yaml"))
+	if err != nil {
+		t.Fatalf("opencode hooks.yaml: %v", err)
+	}
+	kiloYAML, err := os.ReadFile(filepath.Join(home, ".config", "kilo", "hook", "hooks.yaml"))
+	if err != nil {
+		t.Fatalf("kilo hooks.yaml: %v", err)
+	}
+	for _, name := range []string{
+		"opencode-session-start.sh",
+		"opencode-session-end.sh",
+		"opencode-policy.sh",
+		"opencode-tool-capture.sh",
+	} {
+		if !strings.Contains(string(opencodeYAML), name) || !strings.Contains(string(kiloYAML), name) {
+			t.Fatalf("%s missing from installed hooks.yaml", name)
+		}
+	}
+	if !strings.Contains(string(kiloYAML), "SKILLGRID_AGENT=kilo") {
+		t.Fatalf("kilo hooks.yaml must set SKILLGRID_AGENT=kilo:\n%s", kiloYAML)
+	}
+
+	for _, rel := range []string{
+		".config/opencode/plugin/skillgrid-checkpoint.ts",
+		".config/kilo/plugin/skillgrid-checkpoint.ts",
+	} {
+		b, err := os.ReadFile(filepath.Join(home, rel))
+		if err != nil {
+			t.Fatalf("missing %s: %v", rel, err)
+		}
+		if !strings.Contains(string(b), "SkillgridCheckpoint") {
+			t.Fatalf("%s is not the checkpoint plugin", rel)
+		}
+	}
+
+	for _, rel := range []string{
+		".config/opencode/opencode.jsonc",
+		".config/kilo/kilo.jsonc",
+	} {
+		b, err := os.ReadFile(filepath.Join(home, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(b)
+		if !strings.Contains(text, "opencode-yaml-hooks") || !strings.Contains(text, "./plugin/skillgrid-checkpoint.ts") {
+			t.Fatalf("%s missing current plugins:\n%s", rel, text)
+		}
+		if strings.Contains(text, "opencode-command-hooks") || strings.Contains(text, "mnemonic.ts") {
+			t.Fatalf("%s still registers a retired plugin:\n%s", rel, text)
+		}
 	}
 }

@@ -20,12 +20,12 @@ import (
 const (
 	mcpServerName = "skillgrid-mnemonic"
 
-	opencodePluginRel            = "plugins/opencode/hooks.yaml"
-	opencodeCheckpointPluginRel  = "plugins/opencode/skillgrid-checkpoint.ts"
-	kiloPluginRel                = "plugins/kilo/hooks.yaml"
-	kiloCheckpointPluginRel      = "plugins/kilo/skillgrid-checkpoint.ts"
-	cursorPluginRel   = ".cursor-plugin/plugin.json"
-	cursorRuleRel     = "rules/mnemonic.mdc"
+	opencodePluginRel           = "plugins/opencode/hooks.yaml"
+	opencodeCheckpointPluginRel = "plugins/opencode/skillgrid-checkpoint.ts"
+	kiloPluginRel               = "plugins/kilo/hooks.yaml"
+	kiloCheckpointPluginRel     = "plugins/kilo/skillgrid-checkpoint.ts"
+	cursorPluginRel             = ".cursor-plugin/plugin.json"
+	cursorRuleRel               = "rules/mnemonic.mdc"
 
 	kiloBeginMarker = "<!-- BEGIN SKILLGRID MNEMONIC — managed by skillgrid setup kilocode -->"
 	kiloEndMarker   = "<!-- END SKILLGRID MNEMONIC -->"
@@ -168,6 +168,48 @@ func stagedPluginPath(rel string) string {
 	return p
 }
 
+// openCodeHookScripts are the OpenCode/Kilo adapters copied to ~/.skillgrid/hooks/
+// by setup. hooks.yaml calls the shell scripts; those call the shared workers.
+var openCodeHookScripts = []string{
+	"opencode-session-start.sh",
+	"opencode-session-end.sh",
+	"opencode-policy.sh",
+	"opencode-tool-capture.sh",
+	"tool-call-capture.js",
+	"stop-tests.js",
+	"gate-stop.js",
+}
+
+func installOpenCodeHookScripts(home, repoRoot string, dryRun bool) error {
+	dstDir := filepath.Join(home, ".skillgrid", "hooks")
+	for _, name := range openCodeHookScripts {
+		src := filepath.Join(repoRoot, "hooks", name)
+		data, err := os.ReadFile(src)
+		if err != nil {
+			return fmt.Errorf("read hook script %s: %w", name, err)
+		}
+		dst := filepath.Join(dstDir, name)
+		if dryRun {
+			logging.Info("[dry-run] cp " + src + " " + dst)
+			continue
+		}
+		if err := os.MkdirAll(dstDir, 0o755); err != nil {
+			return err
+		}
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(name, ".sh") {
+			mode = 0o755
+		}
+		if err := os.WriteFile(dst, data, mode); err != nil {
+			return fmt.Errorf("write %s: %w", dst, err)
+		}
+		if err := os.Chmod(dst, mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func copyFromRepo(repoRoot, relPath, dst string, dryRun bool) error {
 	src := filepath.Join(repoRoot, relPath)
 	if staged := stagedPluginPath(relPath); staged != "" {
@@ -270,6 +312,57 @@ func upsertMarkerBlock(content, begin, end, body string) string {
 		return content + "\n" + block + "\n"
 	}
 	return block + "\n"
+}
+
+// retiredPluginEntry reports plugin registrations Skillgrid no longer loads.
+// opencode-yaml-hooks reads hooks.yaml itself; mnemonic.ts was replaced by
+// that plugin plus skillgrid-checkpoint.ts.
+func retiredPluginEntry(name string) bool {
+	if name == "opencode-command-hooks" {
+		return true
+	}
+	if filepath.Base(name) == "mnemonic.ts" {
+		return true
+	}
+	return strings.HasSuffix(filepath.ToSlash(name), "hook/hooks.yaml")
+}
+
+// dropRetiredPlugins removes outdated plugin entries from an opencode-style
+// JSONC config, leaving every other entry in place.
+func dropRetiredPlugins(cfgPath string, dryRun bool) error {
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read config %s: %w", cfgPath, err)
+	}
+	arr := gjson.Parse(string(data)).Get("plugin").Array()
+	if len(arr) == 0 {
+		return nil
+	}
+	kept := make([]string, 0, len(arr))
+	dropped := false
+	for _, v := range arr {
+		name := v.String()
+		if name == "" {
+			continue
+		}
+		if retiredPluginEntry(name) {
+			dropped = true
+			continue
+		}
+		kept = append(kept, name)
+	}
+	if !dropped {
+		return nil
+	}
+	updated, err := sjson.Set(string(data), "plugin", kept)
+	if err != nil {
+		return fmt.Errorf("set plugin: %w", err)
+	}
+	if dryRun {
+		logging.Info("[dry-run] drop retired plugins in " + cfgPath)
+		return nil
+	}
+	return os.WriteFile(cfgPath, []byte(updated), 0o644)
 }
 
 // upsertPluginKey sets the "plugin" array in an opencode-style JSONC config

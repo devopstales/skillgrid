@@ -2,9 +2,10 @@ package install
 
 // Harness config distribution for the supported AI agents (opencode, kilo,
 // cursor). This package owns everything that configures the *harness* — agent
-// config files, backups, the TUI logo/theme, and the plugin-path append. The
-// memory component (internal/mnemonic/setup) owns only MCP registration, the
-// mnemonic.ts plugin copy, and the memory-protocol block.
+// config files, backups, and the TUI logo/theme. The memory component
+// (internal/mnemonic/setup) owns MCP registration, opencode-yaml-hooks,
+// skillgrid-checkpoint.ts, and the memory-protocol block. It does not
+// register mnemonic.ts or opencode-command-hooks.
 
 import (
 	"fmt"
@@ -14,8 +15,6 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
-
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/setup"
 )
 
 // Repo-relative paths for the assets the installer copies into the user's
@@ -24,8 +23,8 @@ import (
 const (
 	opencodePluginRel = "plugins/opencode/hooks.yaml"
 	kiloPluginRel     = "plugins/kilo/hooks.yaml"
-	cursorPluginRel = ".cursor-plugin/plugin.json"
-	cursorRuleRel   = "rules/mnemonic.mdc"
+	cursorPluginRel   = ".cursor-plugin/plugin.json"
+	cursorRuleRel     = "rules/mnemonic.mdc"
 	opencodeLogoRel   = "plugins/opencode/skillgrid-logo.tsx"
 	kiloLogoRel       = "plugins/kilo/skillgrid-logo.tsx"
 )
@@ -179,21 +178,6 @@ func backupAgentConfigs(c *Config) error {
 	return nil
 }
 
-// tildePath renders an absolute path under home as a ~-prefixed path.
-func tildePath(home, absPath string) string {
-	if home != "" && hasPrefixPath(absPath, home) {
-		return "~" + absPath[len(home):]
-	}
-	return absPath
-}
-
-func hasPrefixPath(path, prefix string) bool {
-	if prefix == "" {
-		return true
-	}
-	return len(path) >= len(prefix) && path[:len(prefix)] == prefix
-}
-
 // copyFromRepo copies a single repo-relative file to dst, overwriting.
 func copyFromRepo(repoRoot, relPath, dst string, dryRun bool) error {
 	if err := copyFile(filepath.Join(repoRoot, relPath), dst, dryRun); err != nil {
@@ -315,55 +299,10 @@ func arrayNeedsRewrite(raw []gjson.Result, strs []string) bool {
 	return false
 }
 
-// appendPluginPath appends path to a "plugin" array in a JSONC config, skipping
-// the write when already present.
-func appendPluginPath(cfgPath, path string, dryRun bool) error {
-	data, err := os.ReadFile(cfgPath)
-	if err != nil {
-		return fmt.Errorf("read config %s: %w", cfgPath, err)
-	}
-	arr := gjson.Get(string(data), "plugin").Array()
-	strs := make([]string, 0, len(arr)+1)
-	exists := false
-	for _, v := range arr {
-		s := jsonArrayString(v)
-		if s == "" {
-			continue
-		}
-		if s == path {
-			exists = true
-		}
-		strs = append(strs, s)
-	}
-	if exists {
-		if arrayNeedsRewrite(arr, strs) {
-			updated, err := sjson.Set(string(data), "plugin", strs)
-			if err != nil {
-				return fmt.Errorf("set plugin: %w", err)
-			}
-			if dryRun {
-				return nil
-			}
-			return os.WriteFile(cfgPath, []byte(updated), 0o644)
-		}
-		return nil
-	}
-	strs = append(strs, path)
-	updated, err := sjson.Set(string(data), "plugin", strs)
-	if err != nil {
-		return fmt.Errorf("set plugin: %w", err)
-	}
-	if dryRun {
-		Out("      [dry-run] append", path, "to plugin[] in", cfgPath)
-		return nil
-	}
-	return os.WriteFile(cfgPath, []byte(updated), 0o644)
-}
-
 // installAgentConfig applies the harness (non-memory) config for one selected
-// agent: TUI logo/theme, the plugin-path append (kilo), and the kilo→opencode
-// first-write-wins bridges. It is the harness counterpart to setup.RunSetup,
-// which handles the memory parts.
+// agent: TUI logo/theme and the kilo→opencode first-write-wins bridges.
+// Hook plugins are registered by setup, not here. It is the harness
+// counterpart to setup.RunSetup, which handles the memory parts.
 func installAgentConfig(c *Config, agent string) error {
 	home, err := configHome(c)
 	if err != nil {
@@ -421,12 +360,7 @@ func installAgentConfig(c *Config, agent string) error {
 		if err := appendJSONArrayUnique(tuiPath, "plugin", "opencode-subagent-statusline", dry); err != nil {
 			return err
 		}
-		if err := appendJSONArrayUnique(tuiPath, "plugin", logoDst, dry); err != nil {
-			return err
-		}
-		cfgPath := setup.AgentConfigPath(home, "kilo")
-		pluginRef := tildePath(home, hooksDst)
-		return appendPluginPath(cfgPath, pluginRef, dry)
+		return appendJSONArrayUnique(tuiPath, "plugin", logoDst, dry)
 	default:
 		return nil
 	}

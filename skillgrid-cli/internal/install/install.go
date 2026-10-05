@@ -58,7 +58,7 @@ func Run(c *Config) error {
 		}
 	}
 
-	info("mirroring .agents, docs, git-hooks to ~/.skillgrid")
+	info("mirroring .agents, docs, git-hooks, hooks to ~/.skillgrid")
 	if err := syncMirrorDirs(c); err != nil {
 		return err
 	}

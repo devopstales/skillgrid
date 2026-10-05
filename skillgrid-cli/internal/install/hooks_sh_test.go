@@ -7,6 +7,7 @@ package install
 // hook scripts against it. Skips cleanly when node or go is unavailable.
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,5 +167,91 @@ func TestGoVetHookFailsOnVetError(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "go vet failed") {
 		t.Errorf("expected 'go vet failed' in stderr, got: %s", stderr)
+	}
+}
+
+func envWithHome(home string) []string {
+	out := make([]string, 0)
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "HOME=") || strings.HasPrefix(e, "OPENCODE_SESSION_ID=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return append(out, "HOME="+home)
+}
+
+func TestOpenCodePolicyScriptExitCode(t *testing.T) {
+	requireTools(t, "bash", "node")
+	hooks := repoHooksDir(t)
+	home := t.TempDir()
+	dir := filepath.Join(home, ".skillgrid", "hooks")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stub := filepath.Join(dir, "tool-call-capture.js")
+	if err := os.WriteFile(stub, []byte("process.exit(2)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", filepath.Join(hooks, "opencode-policy.sh"))
+	cmd.Env = envWithHome(home)
+	cmd.Stdin = strings.NewReader(`{"tool_name":"bash"}`)
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
+		t.Fatalf("policy block exit = %v, want 2", err)
+	}
+
+	if err := os.WriteFile(stub, []byte("process.exit(0)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	allow := exec.Command("bash", filepath.Join(hooks, "opencode-policy.sh"))
+	allow.Env = envWithHome(home)
+	allow.Stdin = strings.NewReader(`{}`)
+	if err := allow.Run(); err != nil {
+		t.Fatalf("policy allow: %v", err)
+	}
+}
+
+func TestOpenCodeSessionEndSkipsTestGates(t *testing.T) {
+	requireTools(t, "bash", "node")
+	hooks := repoHooksDir(t)
+	home := t.TempDir()
+	dir := filepath.Join(home, ".skillgrid", "hooks")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"stop-tests.js", "gate-stop.js"} {
+		marker := filepath.Join(home, name+".ran")
+		body := "require('fs').writeFileSync(" + strconvQuote(marker) + ", 'ran')\n"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("bash", filepath.Join(hooks, "opencode-session-end.sh"))
+	cmd.Env = append(envWithHome(home), "OPENCODE_SESSION_ID=sess", "OPENCODE_PROJECT_DIR="+home)
+	cmd.Stdin = strings.NewReader(`{"session_id":"sess"}`)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("session-end: %v", err)
+	}
+	for _, name := range []string{"stop-tests.js.ran", "gate-stop.js.ran"} {
+		if _, err := os.Stat(filepath.Join(home, name)); err == nil {
+			t.Fatalf("session-end ran %s; OpenCode idle cannot block on it and the suite exceeds the hook timeout", name)
+		}
+	}
+}
+
+func strconvQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "\\", "\\\\") + "'"
+}
+
+func TestOpenCodeToolCaptureSkipsWithoutSession(t *testing.T) {
+	requireTools(t, "bash")
+	hooks := repoHooksDir(t)
+	cmd := exec.Command("bash", filepath.Join(hooks, "opencode-tool-capture.sh"))
+	cmd.Env = envWithHome(t.TempDir())
+	cmd.Stdin = strings.NewReader(`{"tool_name":"bash"}`)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("empty session must exit 0: %v", err)
 	}
 }

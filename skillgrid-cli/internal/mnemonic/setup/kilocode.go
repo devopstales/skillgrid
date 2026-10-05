@@ -9,11 +9,12 @@ import (
 )
 
 // SetupKiloCode registers Mnemonic for Kilo: the MCP servers, the AGENTS.md
-// memory-protocol block, and the mnemonic.ts plugin. Harness config (TUI
-// logo/theme, plugin-path append, kilo→opencode bridges) is owned by
+// memory-protocol block, opencode-yaml-hooks, and skillgrid-checkpoint.ts.
+// Retired plugin entries (opencode-command-hooks, mnemonic.ts) are removed.
+// Harness config (TUI logo/theme, kilo→opencode bridges) is owned by
 // internal/install (installAgentConfig), not the memory component.
 // privateTools mirrors the config always-private allowlist into the harness
-// env map (SKILLGRID_MNEMONIC_PRIVATE_TOOLS) so the plugin strips the same
+// env map (SKILLGRID_MNEMONIC_PRIVATE_TOOLS) so capture strips the same
 // tools the Go config redacts.
 func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateTools []string, dryRun bool) error {
 	if repoRoot == "" {
@@ -33,6 +34,9 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 		}
 	}
 	if err := upsertPrivateToolsEnv(cfgPath, privateTools, dryRun); err != nil {
+		return err
+	}
+	if err := dropRetiredPlugins(cfgPath, dryRun); err != nil {
 		return err
 	}
 	if err := upsertPluginKey(cfgPath, "opencode-yaml-hooks", dryRun); err != nil {
@@ -67,6 +71,9 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 	kiloDir := filepath.Join(home, ".config", "kilo")
 	hooksDst := filepath.Join(kiloDir, "hook", "hooks.yaml")
 	if err := copyFromRepo(repoRoot, kiloPluginRel, hooksDst, dryRun); err != nil {
+		return err
+	}
+	if err := installOpenCodeHookScripts(home, repoRoot, dryRun); err != nil {
 		return err
 	}
 	checkpointDst := filepath.Join(kiloDir, "plugin", "skillgrid-checkpoint.ts")

@@ -24,17 +24,18 @@ func TestSyncMirrorDirs(t *testing.T) {
 	home := t.TempDir()
 	writeMirrorFixture(t, repo, map[string]string{
 		// Whitelisted — should be mirrored.
-		".agents/opencode/skill.md":    "# agent",
-		"docs/guide.md":                "# guide",
-		"git-hooks/pre-commit.js":      "# shim",
-		"hooks/checkpoint-state.js":    "# impl",
+		".agents/opencode/skill.md":       "# agent",
+		"docs/guide.md":                   "# guide",
+		"git-hooks/pre-commit.js":         "# shim",
+		"hooks/checkpoint-state.js":       "# impl",
+		"hooks/opencode-session-start.sh": "#!/bin/sh\nexit 0\n",
 		// Not whitelisted — must NOT be mirrored.
 		"plugins/opencode/mnemonic.ts": "// plugin",
 		"scripts/build.sh":             "# build",
 		"README.md":                    "# readme",
 		// Skipped at any depth.
-		".git/HEAD":                    "ref: refs/heads/main",
-		"node_modules/foo/index.js":    "// dep",
+		".git/HEAD":                 "ref: refs/heads/main",
+		"node_modules/foo/index.js": "// dep",
 	})
 
 	cfg := &Config{RepoDir: repo, RepoHome: filepath.Join(home, ".skillgrid")}
@@ -46,6 +47,7 @@ func TestSyncMirrorDirs(t *testing.T) {
 		"docs/guide.md",
 		"git-hooks/pre-commit.js",
 		"hooks/checkpoint-state.js",
+		"hooks/opencode-session-start.sh",
 	} {
 		if b, err := os.ReadFile(filepath.Join(home, ".skillgrid", want)); err != nil {
 			t.Errorf("mirrored %s missing: %v", want, err)

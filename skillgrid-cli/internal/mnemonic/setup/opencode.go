@@ -12,11 +12,12 @@ import (
 )
 
 // SetupOpenCode registers Mnemonic for OpenCode: the MCP servers from
-// mcp.yaml plus the mnemonic.ts plugin. Harness config (TUI logo/theme,
-// plugin-path append) is owned by internal/install (installAgentConfig), not
-// the memory component. privateTools mirrors the config always-private
-// allowlist into the harness env map (SKILLGRID_MNEMONIC_PRIVATE_TOOLS) so the
-// plugin strips the same tools the Go config redacts.
+// mcp.yaml, opencode-yaml-hooks, and skillgrid-checkpoint.ts. Retired plugin
+// entries (opencode-command-hooks, mnemonic.ts) are removed. Harness config
+// (TUI logo/theme) is owned by internal/install (installAgentConfig), not the
+// memory component. privateTools mirrors the config always-private allowlist
+// into the harness env map (SKILLGRID_MNEMONIC_PRIVATE_TOOLS) so capture
+// strips the same tools the Go config redacts.
 func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateTools []string, dryRun bool) error {
 	if repoRoot == "" {
 		return fmt.Errorf("repo root not found (run from skillgrid checkout or sync repo)")
@@ -38,11 +39,17 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 	if err := upsertPrivateToolsEnv(cfgPath, privateTools, dryRun); err != nil {
 		return err
 	}
+	if err := dropRetiredPlugins(cfgPath, dryRun); err != nil {
+		return err
+	}
 	if err := upsertPluginKey(cfgPath, "opencode-yaml-hooks", dryRun); err != nil {
 		return err
 	}
 	hooksDst := filepath.Join(opencodeDir, "hook", "hooks.yaml")
 	if err := copyFromRepo(repoRoot, opencodePluginRel, hooksDst, dryRun); err != nil {
+		return err
+	}
+	if err := installOpenCodeHookScripts(home, repoRoot, dryRun); err != nil {
 		return err
 	}
 	checkpointDst := filepath.Join(opencodeDir, "plugin", "skillgrid-checkpoint.ts")

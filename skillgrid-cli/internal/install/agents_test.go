@@ -3,6 +3,7 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tidwall/gjson"
@@ -72,5 +73,42 @@ func TestAppendJSONArrayUniqueIdempotent(t *testing.T) {
 	}
 	if n := len(gjson.GetBytes(data, "plugin").Array()); n != 1 {
 		t.Fatalf("want 1 entry, got %d: %s", n, data)
+	}
+}
+
+func TestInstallKiloDoesNotRegisterHooksFileAsPlugin(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	for _, rel := range []string{
+		"plugins/kilo/hooks.yaml",
+		"plugins/kilo/skillgrid-logo.tsx",
+	} {
+		p := filepath.Join(repo, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfgPath := filepath.Join(home, ".config", "kilo", "kilo.jsonc")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, []byte(`{"plugin":["opencode-yaml-hooks"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{HomeDir: home, RepoDir: repo}
+	if err := installAgentConfig(&cfg, "kilo"); err != nil {
+		t.Fatalf("installAgentConfig: %v", err)
+	}
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range gjson.GetBytes(data, "plugin").Array() {
+		if strings.HasSuffix(p.String(), "hooks.yaml") || p.String() == "opencode-command-hooks" {
+			t.Fatalf("installer registered an outdated plugin: %s", data)
+		}
 	}
 }
