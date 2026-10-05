@@ -1,101 +1,36 @@
 # Skillgrid Mnemonic hooks — consumed by opencode-yaml-hooks.
 # Installed to ~/.config/kilo/hook/hooks.yaml by `skillgrid setup kilocode`.
 #
-# Every bash action is fail-open: failures exit 0, never block the agent.
-# The one exception is mnemonic-policy, which exits 2 when a policy rule blocks.
-# opencode-yaml-hooks provides:
-#   - OPENCODE_SESSION_ID env var
-#   - OPENCODE_PROJECT_DIR env var
-#   - JSON on stdin: { session_id, event, cwd, tool_name?, tool_args?, files?, changes? }
-#
-# The Mnemonic HTTP API (skillgrid serve) listens on 127.0.0.1:7438 by default.
-# Override with SKILLGRID_MNEMONIC_HTTP_URL.
+# Same scripts as OpenCode. SKILLGRID_AGENT=kilo labels the session.
+# session.idle only compacts and reports usage.
+# Fail-open except opencode-policy.sh, which exits 2 to block a tool.
 
 hooks:
-  # ── Session lifecycle ──────────────────────────────────────────────
-  # Ensure the Mnemonic server is running and capture session start context.
   - id: mnemonic-session-start
     event: session.created
     actions:
       - bash:
-          command: |
-            SID="${OPENCODE_SESSION_ID}"
-            DIR="${OPENCODE_PROJECT_DIR:-$PWD}"
-            [ -z "$SID" ] && SID=""
-            BASE="${SKILLGRID_MNEMONIC_HTTP_URL:-http://127.0.0.1:7438}"
-            curl -sf --max-time 1 "$BASE/health" >/dev/null 2>&1 || \
-              (command -v skillgrid >/dev/null 2>&1 && \
-               nohup skillgrid serve >/dev/null 2>&1 & disown 2>/dev/null) || true
-            if [ -n "$SID" ]; then
-              node -e '
-                const sid = process.argv[1];
-                const dir = process.argv[2] || ".";
-                const base = process.argv[3];
-                fetch(base + "/sessions", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", Accept: "application/json" },
-                  body: JSON.stringify({ id: sid, directory: dir, agent: "kilo" }),
-                  signal: AbortSignal.timeout(2000),
-                }).then(() => process.exit(0)).catch(() => process.exit(0));
-              ' "$SID" "$DIR" "$BASE" >/dev/null 2>&1 || true
-            fi
-            if command -v skillgrid >/dev/null 2>&1; then
-              skillgrid prime --dir "$DIR" --session "$SID" 2>/dev/null || true
-            fi
-            exit 0
+          command: "SKILLGRID_AGENT=kilo \"$HOME/.skillgrid/hooks/opencode-session-start.sh\""
           timeout: 10000
 
-  # Run stop-tests and gate-stop when a session goes idle.
   - id: mnemonic-session-stop
     event: session.idle
     actions:
       - bash:
-          command: |
-            [ -f "$HOME/.skillgrid/hooks/stop-tests.js" ] && \
-              node "$HOME/.skillgrid/hooks/stop-tests.js" 2>/dev/null || true
-            [ -f "$HOME/.skillgrid/hooks/gate-stop.js" ] && \
-              node "$HOME/.skillgrid/hooks/gate-stop.js" 2>/dev/null || true
-            DIR="${OPENCODE_PROJECT_DIR:-$PWD}"
-            SID="${OPENCODE_SESSION_ID:-}"
-            if command -v skillgrid >/dev/null 2>&1; then
-              skillgrid compact --dir "$DIR" --session "$SID" >/dev/null 2>&1 || true
-            fi
-            # Report the session's token totals (agent=kilo). Fail-open.
-            if [ -n "$SID" ] && [ -f "$HOME/.skillgrid/hooks/tool-call-capture.js" ]; then
-              SKILLGRID_AGENT=kilo OPENCODE_PROJECT_DIR="$DIR" \
-                node "$HOME/.skillgrid/hooks/tool-call-capture.js" usage </dev/null >/dev/null 2>&1 || true
-            fi
-            exit 0
+          command: "SKILLGRID_AGENT=kilo \"$HOME/.skillgrid/hooks/opencode-session-end.sh\""
           timeout: 15000
 
-  # ── Pre-tool policy (ADR-0021) ─────────────────────────────────────
-  # The one hook that may block: exit 2 denies the call, with the reason on
-  # stderr. No .skillgrid/policy.yaml, server down, or any error → allow.
   - id: mnemonic-policy
     event: tool.before.*
     actions:
       - bash:
-          command: |
-            [ -f "$HOME/.skillgrid/hooks/tool-call-capture.js" ] || exit 0
-            command -v node >/dev/null 2>&1 || exit 0
-            SKILLGRID_AGENT=kilo node "$HOME/.skillgrid/hooks/tool-call-capture.js" policy
-            [ $? -eq 2 ] && exit 2
-            exit 0
+          command: "SKILLGRID_AGENT=kilo \"$HOME/.skillgrid/hooks/opencode-policy.sh\""
           timeout: 3000
 
-  # ── Tool-call monitoring ───────────────────────────────────────────
-  # Fire-and-forget POST of every tool call to the Mnemonic monitoring route.
-  # Never blocks or fails the tool call: async + fail-open.
   - id: mnemonic-tool-capture
     event: tool.after.*
     async: true
     actions:
       - bash:
-          command: |
-            SID="${OPENCODE_SESSION_ID}"
-            [ -z "$SID" ] && exit 0
-            BASE="${SKILLGRID_MNEMONIC_HTTP_URL:-http://127.0.0.1:7438}"
-            [ -f "$HOME/.skillgrid/hooks/tool-call-capture.js" ] && \
-              SKILLGRID_AGENT=kilo node "$HOME/.skillgrid/hooks/tool-call-capture.js" 2>/dev/null || true
-            exit 0
+          command: "SKILLGRID_AGENT=kilo \"$HOME/.skillgrid/hooks/opencode-tool-capture.sh\""
           timeout: 5000
