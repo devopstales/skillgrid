@@ -27,6 +27,40 @@ func TestLoadAgentsPreambleTemplate(t *testing.T) {
 	}
 }
 
+func TestRenderPreambleFillsConfigCommands(t *testing.T) {
+	cfg := agentsConfig{
+		Commands: commandsCfg{Build: "task build", Lint: "task lint", Format: "task fmt", Typecheck: "task check"},
+		Testing:  testingCfg{Runner: "./run_test.sh", Setup: "task install"},
+		Security: securityCfg{Trivy: trivyCfg{Command: "task security", Severities: "CRITICAL,HIGH", ScanTypes: "vuln,secret"}},
+	}
+	out := renderPreamble(cfg, "- **Test**: {test}\n- **Lint**: {lint}")
+	if !strings.Contains(out, "- **Test**: ./run_test.sh") {
+		t.Fatalf("test command not filled:\n%s", out)
+	}
+	if !strings.Contains(out, "- **Lint**: task lint") {
+		t.Fatalf("lint command not filled:\n%s", out)
+	}
+}
+
+func TestRenderPreambleDetectFallback(t *testing.T) {
+	cfg := agentsConfig{} // all empty
+	out := renderPreamble(cfg, "- **Build**: {build}")
+	if !strings.Contains(out, "- **Build**: <detect>") {
+		t.Fatalf("empty field did not fall back to <detect>:\n%s", out)
+	}
+}
+
+func TestRenderPreambleDropsEmptyKeyDirectories(t *testing.T) {
+	cfg := agentsConfig{} // no directories
+	out := renderPreamble(cfg, "## Key Directories\n\n{directories_table}\n\n## Next\n")
+	if strings.Contains(out, "## Key Directories") {
+		t.Fatalf("empty Key Directories section should be dropped:\n%s", out)
+	}
+	if !strings.Contains(out, "## Next") {
+		t.Fatalf("next section clobbered by drop:\n%s", out)
+	}
+}
+
 func TestConfigTemplateHasAgentsBlock(t *testing.T) {
 	body, err := os.ReadFile("../../../.agents/skills/lifecycle/onboarding/templates/config.yaml")
 	if err != nil {
