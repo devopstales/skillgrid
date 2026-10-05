@@ -99,6 +99,57 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → sli
 
 Planning-phase detection (which spec files exist, whether `tasks.md` is checked) stays in `skillgrid:resume`. The tail above is the part that used to collapse review and ship into one step.
 
+## Status Contract
+
+> The typed handoff between pipeline skills. Every skill that acts on a change MUST derive its state from this contract before acting. The contract reuses existing state (`state.yaml`, STATUS banners, artifact presence) — it adds no new files, no new binary, no new schema.
+
+### Phase derivation (canonical)
+
+The deepest artifact present in the active change dir determines the phase. This is the single source of truth for routing — `state.yaml`'s `pipeline.current_phase` is a cache, not the source.
+
+| Deepest artifact present | Derived phase | Next skill |
+|---|---|---|
+| `briefing.md` (+ `acceptance.feature`) | `spec` | `writing-blueprints` |
+| `blueprint.md` | `blueprint` | `slicing` |
+| `tasks.md` (no execution signal) | `slicing` | `subagent-execution` / `simple-execution` |
+| `tasks.md` + execution signal (`[x]` marks or `sdd/<plan>/progress.md`) | `execution` | `qa` |
+| `report.md` (QA half written) | `qa` | `requesting-code-review` |
+| `review.md` (floor met) | `review` | `receiving-code-review` → `ship` |
+| Folder in `archive/`, retro sections empty | `reflect` | `reflect` |
+| Folder in `archive/`, retro sections filled | `complete` | none |
+
+### Resume rule
+
+`resume` and `using-skillgrid` MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The skill records the disagreement in `state.yaml` `notes:` and patches the phase to match.
+
+### Edit scope guard
+
+The `tasks.md` `Files` column defines the edit scope for the change. A subagent that needs to modify a file outside the named set MUST halt and checkpoint — it does not silently expand scope. The checkpoint message names the file and the ticket that would own it. This is the skillgrid equivalent of codex's `actionContext.allowedEditRoots`: the scope is declared upfront, not inferred at edit time.
+
+For fast-track changes (no `tasks.md`), the edit scope is the set of files named in the briefing's `## Scope` section.
+
+### Blocked reasons
+
+If a phase cannot proceed (missing prerequisite, blocked dependency, unmet precondition), the skill MUST record the reason in `state.yaml` `notes:` using the format:
+
+```
+blocked(<phase>): <one-line reason>
+```
+
+Example: `blocked(execution): ticket T003 blocked by T001 (incomplete)`.
+
+A `blocked(...)` entry is the machine-readable signal that `resume` reads to report the blocker to the human. An unexplained halt (no `blocked(...)` entry) is a bug in the skill, not a state.
+
+### nextRecommended
+
+The derived phase + blocked reasons together determine the next recommended action:
+
+- No `blocked(...)` entry → the next skill in the phase derivation table above.
+- `blocked(<phase>): <reason>` → `resolve-blockers` (the human or the orchestrator must address the named reason before the phase can proceed).
+- Phase is `complete` → `none` (cycle complete).
+
+This is a bounded routing token, not human prose. The human-readable explanation lives in `blockedReasons`; the routing decision lives in `nextRecommended`.
+
 ## STATUS Banner
 
 `briefing.md` and `tasks.md` carry a machine-readable status on line 3 (a blockquote, after the `#` title). The `/plans` HTTP endpoint and the mockup's Changes panel parse it with the regex `^>\s*\*\*STATUS:\*\*\s*`?([a-z][a-z0-9-]+)`?` — the value must be lowercase, alphanumeric + hyphens, optionally backtick-wrapped.

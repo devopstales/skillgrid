@@ -45,6 +45,24 @@ The single source for when a two-axis review escalates to fan-out. Do not restat
 
 `skillgrid:parallel-code-review`'s own specialist-selection rule ("< 50 changed lines → Standards + Spec only; ≥ 50 or high-risk → the core five") applies the same threshold at dispatch time.
 
+## Review budget
+
+The maximum number of review rounds per change, by tier. This is the upfront budget the human sees before the review loop starts — it is not the fix-loop cap (which counts *fix* rounds), it counts *review* rounds (each dispatch of a reviewer subagent + triage of findings).
+
+| Tier | Review rounds | Escalation |
+|---|---|---|
+| T0 | 0 (no review) | n/a — the QA gate is the only gate |
+| T1 | 1 round | After 1 round of unresolved findings → escalate to human |
+| T2 | 3 rounds (matches fix-loop cap) | After 3 rounds → escalate to human |
+| T3 | 3 rounds + 1 fresh-model re-review | After 3 rounds → dispatch a fresh-model reviewer once; if still unresolved → escalate to human |
+
+**Rules:**
+- The budget is recorded in `review.md` at the start of the review phase: `Review budget: <N> rounds (tier T<n>)`.
+- Each round increments the round counter. A round is: dispatch reviewer(s) → collect findings → triage → (fix + re-verify or park/waive).
+- A **parked finding** (dispositioned as "parked" with a ruling in the review ledger) does not consume a round — it is a human decision, not a fix iteration.
+- **Review debt:** a parked finding is recorded in the change's `review-ledger.md` (see `skillgrid:review-ledger`). At `qa` time, the next change's report surfaces any open parked findings from prior changes as context: "N open findings parked in prior changes." This prevents "we'll fix it later" from becoming permanent.
+- The budget is a ceiling, not a target. A review that converges in 1 round does not burn the remaining rounds.
+
 ## Fix loop cap
 
 The single source for fix/review loop caps. Do not restate the round counts elsewhere — reference this section.

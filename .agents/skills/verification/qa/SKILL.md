@@ -105,9 +105,9 @@ Complete the QA half of `.skillgrid/specs/<topic>/report.md` (the Test Plan sect
 
 | Verdict | Criteria |
 |---------|----------|
-| **PASS** | ALL of: (1) all truths VERIFIED, (2) all scenarios covered by a test that ran and passed, (3) no CRITICAL findings from any audit, (4) no MISSING_RED, (5) all code-quality gates PASS or N/A, (6) P0 pass rate ≥ `quality.p0_pass_rate`, (7) P1 pass rate ≥ `quality.p1_pass_rate`, (8) coverage ≥ `quality.coverage_min` (if > 0), (9) mutation ≥ `quality.mutation_min` (if > 0 and command set), (10) no Trivy finding at or above `security.trivy.fail_on` severity (if `fail_on` is set), (11) **every verification-scope derivation is `COMPLETE`** (per Step 9.7; a `TRUNCATED`/`UNSCOPED`/`UNREADABLE` scope routes away from PASS — only an explicit, total verification satisfies the gate). |
-| **CONCERNS** | No CRITICAL findings and all hard gates PASS, BUT at least one of: a PRESENT_BEHAVIOR_UNVERIFIED level, a WARNING finding, a P0 without triangulation, a missing adoption that is low-risk, a lint warning, **a verification-scope derivation that is `TRUNCATED` or `UNSCOPED` with a named re-run path, or a `STALE` verification whose changed paths are named** (these are non-answers the human can clear by re-running with full scope or current evidence — see Step 9.7). |
-| **FAIL** | ANY of: a truth UNVERIFIED, a scenario with no covering test, a test that ran and failed, a MISSING_RED, a regression gap with no covering test, a missing-oracle gap (a happy-path scenario with no `G<n>`), a CRITICAL security finding, a code-quality gate FAIL (coverage/mutation/lint/typecheck/P0/P1 below threshold), or a Trivy finding at or above `security.trivy.fail_on` severity (if `fail_on` is set). |
+| **PASS** | ALL of: (1) all truths VERIFIED, (2) all scenarios covered by a test that ran and passed, (3) no CRITICAL findings from any audit (including assertion quality), (4) no MISSING_RED or STALE in the TDD Evidence table, (5) all code-quality gates PASS or N/A (including changed-file coverage), (6) P0 pass rate ≥ `quality.p0_pass_rate`, (7) P1 pass rate ≥ `quality.p1_pass_rate`, (8) whole-project coverage ≥ `quality.coverage_min` (if > 0), (9) mutation ≥ `quality.mutation_min` (if > 0 and command set), (10) no Trivy finding at or above `security.trivy.fail_on` severity (if `fail_on` is set), (11) **every verification-scope derivation is `COMPLETE`** (per Step 9.7; a `TRUNCATED`/`UNSCOPED`/`UNREADABLE` scope routes away from PASS — only an explicit, total verification satisfies the gate). |
+| **CONCERNS** | No CRITICAL findings and all hard gates PASS, BUT at least one of: a PRESENT_BEHAVIOR_UNVERIFIED level, a WARNING finding (including changed-file coverage below threshold, or an assertion-quality WARNING), a P0 without triangulation, a missing adoption that is low-risk, a lint warning, **a verification-scope derivation that is `TRUNCATED` or `UNSCOPED` with a named re-run path, or a `STALE` verification whose changed paths are named** (these are non-answers the human can clear by re-running with full scope or current evidence — see Step 9.7). |
+| **FAIL** | ANY of: a truth UNVERIFIED, a scenario with no covering test, a test that ran and failed, a MISSING_RED or STALE in the TDD Evidence table, a CRITICAL assertion-quality finding (tautology, ghost loop, assertion with no production code call), a regression gap with no covering test, a missing-oracle gap (a happy-path scenario with no `G<n>`), a CRITICAL security finding, a code-quality gate FAIL (whole-project coverage / changed-file coverage / mutation / lint / typecheck / P0 / P1 below threshold), or a Trivy finding at or above `security.trivy.fail_on` severity (if `fail_on` is set). |
 | **WAIVED** | The human explicitly waived a specific gate criterion. The waiver, the criterion, and the accepted risk are recorded in the report. WAIVED is never a machine decision. |
 
 **Decision debt (Assumed blueprints):** if `blueprint.md` carries `**Status: ASSUMED**`, the report records it as a **WARNING** — "assumed decision (blueprint <path>) owes ratification" — and names the ratify path (`skillgrid:writing-blueprints`, Ratify mode). It is never a CRITICAL and never affects the verdict: an assumption is a recorded, authorized decision, not a verification gap. The flag survives to the ship Return Envelope and the final `report.md`.
@@ -186,12 +186,16 @@ Per `_shared/craft/measurement.md`.
 - Claiming PASS without running a named test for at least one truth
 - Marking a truth VERIFIED based on a grep, not a test
 - A traceability matrix with "covered by existing tests" as a status
-- A `MISSING_RED` that is logged but not treated as CRITICAL
+- A `MISSING_RED` or `STALE` that is logged but not treated as CRITICAL
+- A TDD Evidence table row with no commit hash (narrative, not evidence)
+- An assertion-quality CRITICAL (tautology, ghost loop) that is logged but not treated as a gate-failing finding
+- Changed-file coverage below `quality.coverage_min` rendered as PASS
 - A fix loop that exceeds the cap (per `_shared/planning/rigor-tiers.md`) without escalating
 - Editing a test expectation to make the matrix green
 - Rendering WAIVED without a named human and a recorded risk
 - Skipping the verification-gap audit because "the tests look fine"
-- Rendering PASS when a code-quality gate is below threshold (coverage, mutation, P0, P1)
+- Skipping the assertion-quality audit because "the tests pass"
+- Rendering PASS when a code-quality gate is below threshold (coverage, changed-file coverage, mutation, P0, P1)
 - Treating a disabled gate (threshold 0) as FAIL
 - Skipping the security audit without an explicit "no user-facing input" note
 - Rendering PASS when a Trivy finding meets or exceeds `fail_on` severity
@@ -203,11 +207,13 @@ Per `_shared/craft/measurement.md`.
 
 - [ ] The full test suite (`testing.runner`) ran and exited 0; every P0/P1 test named in the test plan actually ran (not skipped or filtered)
 - [ ] Lint and typecheck (`commands.lint` / `commands.typecheck`) ran with exit 0 and zero errors
-- [ ] Coverage, mutation, and every code-quality gate PASS or N/A against `quality:` thresholds (no gate below threshold rendered as PASS)
+- [ ] Whole-project coverage, changed-file coverage, mutation, and every code-quality gate PASS or N/A against `quality:` thresholds (no gate below threshold rendered as PASS)
+- [ ] The TDD Evidence table has a row for every ticket; each row's commit hashes resolve in git history and the test files exist on disk
+- [ ] The Assertion Quality Audit ran over all changed test files; no CRITICAL pattern (tautology, ghost loop, assertion-without-code-call) is unresolved
 - [ ] Goal-backward verification ran at all four levels; every truth in the briefing is `VERIFIED` by a named test, not a grep
 - [ ] The traceability matrix is complete: every scenario in `acceptance.feature` is in exactly one compliance status, and totals match the actual count (not guessed)
-- [ ] Every CRITICAL finding (verification, TDD, test quality, security) is resolved or explicitly WAIVED with a named human and a recorded risk
-- [ ] The `## Floor` section names the weakest dimension for every audit, and the final verdict is no higher than that floor (mean never used as the verdict)
+- [ ] Every CRITICAL finding (verification, TDD, assertion quality, test quality, security) is resolved or explicitly WAIVED with a named human and a recorded risk
+- [ ] The `## Floor` section names the weakest dimension for every audit (including assertion quality and changed-file coverage), and the final verdict is no higher than that floor (mean never used as the verdict)
 - [ ] The QA half of `report.md` is committed with concrete output — the four-state verdict, finding counts, and named evidence (file / test / command / exit code), never "looks good" — and the retro sections (from `## Final-State Facts` onward) are left empty for reflect
 
 ## Final Rule
@@ -215,8 +221,11 @@ Per `_shared/craft/measurement.md`.
 ```
 Goal verified (named tests, 4 levels)
 + all scenarios traceable
-+ no CRITICAL findings (verification, TDD, test quality, security)
-+ all code-quality gates PASS or N/A (coverage, mutation, lint, typecheck, P0, P1)
++ TDD evidence table validated against git (no MISSING_RED, no STALE)
++ assertion quality clean (no CRITICAL tautology / ghost loop / no-code-call)
++ changed-file coverage ≥ threshold (or N/A)
++ no CRITICAL findings (verification, TDD, assertion quality, test quality, security)
++ all code-quality gates PASS or N/A (coverage, changed-file coverage, mutation, lint, typecheck, P0, P1)
 + layer selection justified (no duplicate coverage, no wrong-layer tests)
 → PASS
 

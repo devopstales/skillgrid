@@ -65,17 +65,61 @@ Build the matrix: every scenario in `acceptance.feature` → the test that cover
 
 ### Step 6: TDD Evidence Audit
 
-For each ticket in `tasks.md`, check the TDD Evidence:
+> Per `_shared/references/strict-tdd.md` § TDD Cycle Evidence Table. The evidence table is the machine-checkable contract: `qa` validates each cell against git history and the working tree, not against the implementer's narrative.
 
-| Check | Pass | Fail |
-|-------|------|------|
-| RED evidence | Commit or dry-run output showing the test failed before implementation | Missing |
-| GREEN evidence | Commit or suite output showing the test passed after implementation | Missing |
-| Scenario name match | The `SATISFIES` scenario name in the evidence matches the one in `acceptance.feature` | Stale |
+For each ticket in `tasks.md`, validate every cell of the TDD Cycle Evidence row:
 
-**Verdicts:** `OK` / `MISSING_RED` / `MISSING_GREEN` / `STALE`
+| Check | Pass | Fail → Verdict |
+|-------|------|----------------|
+| RED commit exists in git history | `git cat-file -t <hash>` returns `commit` | `STALE` |
+| RED test file exists on disk | The test file added in the RED commit is present | `STALE` |
+| RED exit code is non-zero | The recorded exit code is ≥ 1 | `MISSING_RED` |
+| GREEN commit exists in git history | `git cat-file -t <hash>` returns `commit` | `MISSING_GREEN` |
+| GREEN test passes now | Re-run the named test; exit code 0 | `MISSING_GREEN` |
+| SATISFIES name matches | The scenario name in the row matches `acceptance.feature` | `STALE` |
+| TRIANGULATE (if spec has multiple scenarios) | A second test with different inputs exists | WARNING (insufficient triangulation) |
 
-A `MISSING_RED` is a CRITICAL finding — it means the test may have been written after the code, in which case it proves nothing about what the code should do.
+**Verdicts:** `OK` / `MISSING_RED` / `MISSING_GREEN` / `STALE` / `FAILED`
+
+- `MISSING_RED` is a CRITICAL finding — the test may have been written after the code, in which case it proves nothing about what the code should do.
+- `STALE` is a CRITICAL finding — the evidence refers to a different iteration than what is on disk.
+- `FAILED` is reported as `partial` (infrastructure failure, not a TDD discipline failure).
+
+**Summary line:** `<N>/<total> tasks have complete TDD evidence.`
+
+### Step 6a: Assertion Quality Audit
+
+> Per `_shared/references/strict-tdd.md` § Assertion Quality Pre-Commit Checklist.
+
+Re-scan ALL test files created or modified by this change for the banned patterns:
+
+| Pattern | Severity | What to look for |
+|---|---|---|
+| Tautology | CRITICAL | `expect(true).toBe(true)`, `assert 1 == 1` |
+| Assertion with no production code call | CRITICAL | assertion in a test that never calls the function under test |
+| Ghost loop | CRITICAL | `for (item of collection) { expect(...) }` where the collection could be empty |
+| Incomplete TDD cycle | CRITICAL | test passes because preconditions prevent the code path from running |
+| Empty-collection without companion | WARNING | `expect(result).toEqual([])` with no sibling test asserting non-empty |
+| Type-only assertion without value | WARNING | `toBeDefined()` / `not.toBeNull()` alone, no value assertion |
+| Smoke-test-only | WARNING | `render()` + `toBeInTheDocument()` with no behavioral assertion |
+| Implementation-detail coupling | WARNING | `expect(el.className).toContain(...)`, `expect(mock.calls.length).toBe(...)` |
+| Mock-heavy (mocks > 2× assertions) | WARNING | count `mock()` calls vs `expect()` calls per file |
+| Insufficient triangulation | SUGGESTION | multiple spec scenarios, one test case |
+
+Record each hit in the report's `## Assertion Quality Audit` table with file, line, pattern, evidence, and severity. A pattern the implementer's pre-commit checklist missed is a CRITICAL finding (for CRITICAL-severity patterns).
+
+### Step 6b: Changed-File Coverage
+
+> Per `_shared/references/strict-tdd.md` § Changed-File Coverage.
+
+When `testing.coverage` is configured:
+1. Run the coverage command.
+2. Filter the coverage report to ONLY files created or modified in this change (from `tasks.md` Files column + `blueprint.md` Global Constraints).
+3. Record per-file line % and uncovered line ranges in the report's `## Changed-File Coverage` table.
+4. Compare each file to `quality.coverage_min`. A file below threshold is a WARNING.
+5. Record the average changed-file coverage.
+
+When `testing.coverage` is empty: record `Coverage: n/a — no coverage tool detected`. Not a failure.
 
 ### Step 7: Test Quality Audit
 

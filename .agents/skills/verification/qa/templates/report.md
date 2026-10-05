@@ -91,15 +91,58 @@
 
 ## TDD Evidence Audit
 
-| Task (from tasks.md) | SATISFIES Scenario | RED Evidence | GREEN Evidence | Verdict |
-|----------------------|--------------------|--------------|----------------|---------|
-| <ticket-id> | <scenario-name> | <commit/dry-run showing RED> | <commit/suite showing GREEN> | OK / MISSING_RED / MISSING_GREEN / STALE |
+> Per `_shared/references/strict-tdd.md` § TDD Cycle Evidence Table.
+> `qa` cross-references each cell against git history and the working tree —
+> the implementer's narrative is not the evidence.
 
-**Verdicts:**
-- `OK` — RED and GREEN evidence present, scenario name matches.
-- `MISSING_RED` — no evidence the test failed before implementation.
-- `MISSING_GREEN` — no evidence the test passed after implementation.
-- `STALE` — evidence references a different scenario name or test file than the one that exists.
+| Task | SATISFIES | RED (commit + exit) | GREEN (commit + exit) | TRIANGULATE (commit + exit) | REFACTOR (suite exit) | Verdict |
+|---|---|---|---|---|---|---|
+| <ticket-id> | <scenario-name> | `<hash>` exit 1 | `<hash>` exit 0 | `<hash>` exit 0 / `n/a` | exit 0 | OK |
+
+**Validation rules (per row):**
+- RED commit hash resolves in git history AND the test file added in that commit exists on disk AND the exit code is non-zero.
+- GREEN commit hash resolves AND re-running the named test now passes.
+- TRIANGULATE: if the spec has multiple scenarios for this task but only one test case, flag `WARNING`.
+- SATISFIES scenario name matches a scenario in `acceptance.feature`.
+- Any cell that fails validation downgrades the verdict:
+  - commit not in git history, or test file absent → `STALE`
+  - no RED commit before GREEN → `MISSING_RED`
+  - no GREEN commit → `MISSING_GREEN`
+  - SATISFIES name mismatch → `STALE`
+
+**Verdicts:** `OK` · `MISSING_RED` · `MISSING_GREEN` · `STALE` · `FAILED` (infrastructure failure, reported as `partial`).
+
+**Summary:** <N>/<total> tasks have complete TDD evidence.
+
+## Assertion Quality Audit
+
+> Per `_shared/references/strict-tdd.md` § Assertion Quality Pre-Commit Checklist.
+> `qa` re-scans all test files created/modified by this change for banned patterns.
+> A pattern the implementer missed is a CRITICAL finding.
+
+| File | Line | Pattern | Evidence | Severity |
+|---|---|---|---|---|
+| <test file> | <line> | <tautology / ghost-loop / pass-always / snapshot-only / impl-detail / smoke-only / mock-heavy> | <the assertion or pattern that violates it> | CRITICAL / WARNING |
+
+**Severity mapping:**
+- CRITICAL: tautology, assertion with no production code call, ghost loop, incomplete TDD cycle (test passes because preconditions prevent code from running).
+- WARNING: empty-collection without companion non-empty test, type-only assertion without value assertion, smoke-test-only, implementation-detail coupling, mock-heavy (mocks > 2× assertions).
+- SUGGESTION: insufficient triangulation (multiple spec scenarios, one test case).
+
+**Summary:** <N> CRITICAL, <M> WARNING, <K> SUGGESTION. (Or "✅ All assertions verify real behavior.")
+
+## Changed-File Coverage
+
+> Per `_shared/references/strict-tdd.md` § Changed-File Coverage.
+> Per-file line coverage for every file created or modified in this change.
+
+| File | Line % | Uncovered lines | Rating |
+|---|---|---|---|
+| <path> | <N>% | <ranges or "—"> | Excellent (≥95) / Acceptable (≥80) / Low (<80) |
+
+**Threshold:** `quality.coverage_min` = <value from config>. Files below threshold are WARNING (not CRITICAL).
+**Average changed-file coverage:** <N>%
+(Or "Coverage: n/a — no coverage tool detected" when `testing.coverage` is empty.)
 
 ## Test Quality Audit
 
@@ -167,7 +210,8 @@
 
 | Gate | Command | Threshold (config) | Actual | Result |
 |------|---------|--------------------|--------|--------|
-| Coverage | <testing.coverage> | <quality.coverage_min> | <actual %> | PASS / FAIL / N/A |
+| Coverage (whole project) | <testing.coverage> | <quality.coverage_min> | <actual %> | PASS / FAIL / N/A |
+| Changed-file coverage | <testing.coverage> (filtered to changed files) | <quality.coverage_min> | <avg % of changed files> | PASS / FAIL / N/A |
 | Mutation | <mutation command or "not configured"> | <quality.mutation_min> | <actual % or "N/A"> | PASS / FAIL / N/A |
 | Lint | <commands.lint> | errors only | <n errors, n warnings> | PASS / FAIL |
 | Typecheck | <commands.typecheck> | errors only | <n errors> | PASS / FAIL |
@@ -221,7 +265,9 @@
 | Goal-backward verification (weakest truth) | <VERIFIED / PRESENT_BEHAVIOR_UNVERIFIED / UNVERIFIED> |
 | Traceability (weakest scenario) | <COMPLIANT / PARTIAL / FAILING / UNTESTED> |
 | Verification-gap audit | <none / CRITICAL / WARNING / SUGGESTION> |
-| TDD evidence (weakest ticket) | <OK / MISSING_RED / MISSING_GREEN / STALE> |
+| TDD evidence (weakest ticket) | <OK / MISSING_RED / MISSING_GREEN / STALE / FAILED> |
+| Assertion quality audit (weakest finding) | <none / CRITICAL / WARNING / SUGGESTION> |
+| Changed-file coverage (weakest file) | <PASS / N/A / WARNING> |
 | Test quality audit | <none / CRITICAL / WARNING / SUGGESTION> |
 | Code-quality gates (weakest gate) | <PASS / N/A / FAIL> |
 | Security audit | <PASS / N/A / CRITICAL / WARNING / SUGGESTION> |
