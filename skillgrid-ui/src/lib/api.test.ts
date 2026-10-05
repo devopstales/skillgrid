@@ -23,11 +23,17 @@ describe('apiGet', () => {
 
   it('does not cache a failed project resolve', async () => {
     clearProjectCache()
-    vi.mocked(fetch).mockImplementation(async (url: string) => {
-      if (String(url) === '/project/current') {
-        return { ok: false, status: 503, statusText: 'unavailable', json: async () => ({}) }
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input) === '/project/current') {
+        return new Response(JSON.stringify({}), {
+          status: 503,
+          statusText: 'unavailable',
+        })
       }
-      return { ok: true, statusText: 'OK', json: async () => ({ ok: true }) }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        statusText: 'OK',
+      })
     })
     await expect(apiGet('/prototypes')).rejects.toThrow('unavailable')
     await expect(apiGet('/prototypes')).rejects.toThrow('unavailable')
