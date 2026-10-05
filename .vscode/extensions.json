@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "ysamlan.vscode-backlog-md",
+    "cweijan.dbclient-jdbc",
+    "mhutchie.git-graph",
+    "donjayamanne.githistory",
+    "davidanson.vscode-markdownlint",
+    "marp-team.marp-vscode",
+    "ms-playwright.playwright",
+    "echoapi.echoapi-for-vscode"
+  ]
+}
