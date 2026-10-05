@@ -27,8 +27,9 @@ var boolFlags = map[string]bool{
 	"dry-run": true,
 	"verbose": true, "vv": true,
 	"yes": true, "y": true,
-	"skip-tools":  true,
-	"skip-agents": true,
+	"skip-tools":    true,
+	"skip-agents":   true,
+	"skip-provider": true,
 }
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -111,6 +112,11 @@ func main() {
 		vAgents     string
 		vSkipTools  bool
 		vSkipAgents bool
+
+		vProvider     string
+		vSkipProvider bool
+		vBaseURL      string
+		vAPIKey       string
 	)
 	fs.BoolVar(&vVersion, "version", false, "print version and exit")
 	fs.BoolVar(&vVersion, "v", false, "shorthand for --version")
@@ -128,6 +134,11 @@ func main() {
 	fs.StringVar(&vAgents, "agents", "", "comma-separated agent keys (opencode,kilo,cursor)")
 	fs.BoolVar(&vSkipTools, "skip-tools", false, "skip global npm tool install")
 	fs.BoolVar(&vSkipAgents, "skip-agents", false, "skip the ~/.agents override step")
+	fs.StringVar(&vProvider, "provider", "local", "LLM/embedder provider: local (Ollama) or external (OpenAI-compatible)")
+	fs.StringVar(&vProvider, "p", "local", "shorthand for --provider")
+	fs.BoolVar(&vSkipProvider, "skip-provider", false, "skip the LLM/embedder provider setup step")
+	fs.StringVar(&vBaseURL, "base-url", os.Getenv("SKILLGRID_LLM_BASE_URL"), "external provider base URL (or SKILLGRID_LLM_BASE_URL)")
+	fs.StringVar(&vAPIKey, "api-key", os.Getenv("SKILLGRID_LLM_API_KEY"), "external provider API key (or SKILLGRID_LLM_API_KEY)")
 
 	args := os.Args[1:]
 
@@ -337,6 +348,10 @@ func main() {
 		SkipClone:      vSkip,
 		SkipTools:      vSkipTools,
 		SkipAgentsCopy: vSkipAgents,
+		Provider:       vProvider,
+		SkipProvider:   vSkipProvider,
+		LLMBaseURL:     vBaseURL,
+		LLMApiKey:      vAPIKey,
 	}
 
 	if err := install.Run(&cfg); err != nil {

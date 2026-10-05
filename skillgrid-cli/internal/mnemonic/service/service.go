@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -409,15 +410,39 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 	// without further config. When the key is false (the default) the pass
 	// stays off and capture is exactly the regex-only behavior.
 	mem.EnableExtractionLLM(cfg.Extraction.LLM)
-	// LLM pre-write semantic dedup (TICKET-05): the opt-in switch from the
-	// mnemonic.dedup.llm config key. When true, a dedup LLM backend is
-	// attached to the memory service and the 4-way Classify seam is armed, so
-	// SaveWithAction's pre-write check runs the LLM 4-way classification
-	// (add/update/delete/noop) and merges into the candidate on an
-	// update/delete verdict. When false (the default) the seam is left nil and
-	// SaveWithAction stays on the deterministic hash dedup floor — no behavior
-	// change. Mirrors the mnemonic.extraction.llm wiring above.
-	if cfg.Dedup.LLM {
+	// Shared LLM (ADR-0023): one OpenAI-compatible client for the whole
+	// process, attached to the mnemonic LLM seams. Fail-open (ADR-0016) — if
+	// mnemonic.llm is disabled or incomplete, nothing is attached and every
+	// LLM floor (cited ask, hash dedup, regex extraction, lossless dream join)
+	// stays in force. AttachSharedLLM owns the two PROCESS-level seams (AskLLM
+	// + the dedup func) and returns the shared *llm.Client; this block owns
+	// the two MEMORY-level seams (per *memory.Service instance), which only
+	// exist here. The mnemonic.dedup.llm switch (TICKET-05) arms the
+	// memory-level 4-way dedup below when true; when the shared LLM is off the
+	// package-level func stays nil so Classify errors and the deterministic
+	// hash floor applies (no behavior change).
+	if client, err := AttachSharedLLM(cfg.LLM); err != nil {
+		log.Printf("warning: %v", err) // fail-open: keep the floors, surface the config mistake
+	} else if client != nil {
+		// Extraction seam (memory-level): the opt-in switch cfg.Extraction.LLM
+		// is already armed above; attach the shared client so the LLM pass has
+		// a backend when enabled. The regex floor stays the fallback on any
+		// LLM error.
+		mem.SetExtractionLLM(newExtractionLLMAdapter(client))
+		// Dedup seam (memory-level): newDedupLLMBackend() already delegates its
+		// Classify/Dedup to the package-level dedupLLMFunc that AttachSharedLLM
+		// wired to client.Complete. When cfg.Dedup.LLM is on, arm the existing
+		// memory-level dedup seam with the shared backend so SaveWithAction's
+		// 4-way check reaches the LLM.
+		if cfg.Dedup.LLM {
+			mem.SetDedupLLM(newDedupLLMBackend())
+			mem.EnableDedupLLM(true)
+		}
+	} else if cfg.Dedup.LLM {
+		// mnemonic.llm is OFF (client nil) but mnemonic.dedup.llm is ON. Preserve
+		// the pre-ADR-0023 behavior exactly: the memory-level dedup seam is
+		// armed, but its package-level func is nil, so Classify errors and
+		// SaveWithAction falls back to the deterministic hash floor (no crash).
 		mem.SetDedupLLM(newDedupLLMBackend())
 		mem.EnableDedupLLM(true)
 	}

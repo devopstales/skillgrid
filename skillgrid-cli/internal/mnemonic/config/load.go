@@ -47,6 +47,26 @@ type EmbedderParams struct {
 	MaxTokens    int
 }
 
+// LLMConfig is the mnemonic.llm section (ADR-0023, TICKET-01): the
+// OpenAI-compatible HTTP chat Completer settings. Enabled defaults to false
+// (opt-in) so the deterministic ADR-0016 floors stay the production path
+// until an operator enables the LLM. BaseURL is the OpenAI-compatible root
+// (e.g. http://localhost:11434/v1 for Ollama or https://api.openai.com/v1);
+// the client POSTs {BaseURL}/chat/completions. APIKey is the bearer token —
+// resolved here from the explicit YAML key, then the SKILLGRID_LLM_API_KEY
+// env var (the loader owns the env fallback so the llm.Client stays pure).
+// Timeout is the per-request budget as a Go duration; zero is fine — the
+// client applies its own 60s default (do not invent one here). The loader is
+// permissive: an enabled block with a missing BaseURL still loads; the attach
+// step (Task 2) is where that is enforced (fail-open to the floor).
+type LLMConfig struct {
+	Enabled bool
+	BaseURL string
+	Model   string
+	APIKey  string
+	Timeout time.Duration
+}
+
 // RetrievalBudget is the tunable read budget (change 013, step 03): the
 // item-count cap, the per-snippet char budget, and the context timeout. A
 // zero field falls back to its default in memory.DefaultBudget.
@@ -220,6 +240,10 @@ type Indexing struct {
 	MaxFileSize  int
 	WebCache     WebCache
 	Embedder     EmbedderConfig
+	// LLM is the mnemonic.llm section (ADR-0023, TICKET-01): the
+	// OpenAI-compatible chat Completer settings. Zero value (Enabled false) is
+	// the default — not carried in DefaultIndexing, like Extraction/Dedup.
+	LLM LLMConfig
 	// RetrievalBudget is the tunable mem_* read budget (change 013, step 03).
 	// Zero fields fall back to the memory package defaults.
 	RetrievalBudget RetrievalBudget
@@ -287,6 +311,10 @@ type mnemonicSection struct {
 	MaxFileSize  int             `yaml:"max_file_size"`
 	WebCache     webCacheSection `yaml:"web_cache"`
 	Embedder     embedderSection `yaml:"embedder"`
+	// LLM is the mnemonic.llm section (ADR-0023, TICKET-01): the
+	// OpenAI-compatible chat Completer settings. Enabled is a plain bool so an
+	// absent key is false (opt-in); timeout is a Go duration string, e.g. "30s".
+	LLM llmSection `yaml:"llm"`
 	// RetrievalBudget is the mnemonic.retrieval_budget section (change 013,
 	// step 03): item/char/timeout caps for every mem_* read path.
 	RetrievalBudget retrievalBudgetSection `yaml:"retrieval_budget"`
@@ -467,6 +495,19 @@ type embedderSection struct {
 	ModelDir  string         `yaml:"model_dir"` // local provider only
 }
 
+// llmSection is the mnemonic.llm section (ADR-0023, TICKET-01): the
+// OpenAI-compatible chat Completer settings. Enabled is a plain bool so an
+// absent key is false (opt-in); BaseURL/Model are empty until set; Timeout is
+// a Go duration string (e.g. "30s") — blank/malformed keeps the base value
+// (the client applies its own 60s default when it is still zero).
+type llmSection struct {
+	Enabled bool   `yaml:"enabled"`
+	BaseURL string `yaml:"base_url"`
+	Model   string `yaml:"model"`
+	APIKey  string `yaml:"api_key"`
+	Timeout string `yaml:"timeout"`
+}
+
 type embedderParams struct {
 	Instructions string `yaml:"instructions"`
 	InputType    string `yaml:"input_type"`
@@ -626,6 +667,12 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	}
 	out.WebCache = mergeWebCache(defaults.WebCache, section.WebCache)
 	out.Embedder = mergeEmbedder(defaults.Embedder, section.Embedder)
+	// LLM (ADR-0023, TICKET-01): the OpenAI-compatible chat Completer settings.
+	// Enabled is applied as-is (absent → false, opt-in). BaseURL/Model apply
+	// when set; api_key falls back to SKILLGRID_LLM_API_KEY when the YAML key is
+	// absent (explicit YAML > env > base). A malformed timeout warns and keeps
+	// the base value (the client defaults to 60s when it stays zero).
+	out.LLM = mergeLLM(defaults.LLM, section.LLM)
 	out.RetrievalBudget = mergeRetrievalBudget(defaults.RetrievalBudget, section.RetrievalBudget)
 	// TTL (014 step 04): a mnemonic.ttl duration overrides the default; a blank
 	// or malformed value keeps the fallback so a bad key never disables expiry.
@@ -888,6 +935,40 @@ func mergeEmbedder(defaults EmbedderConfig, section embedderSection) EmbedderCon
 			Instructions: section.Query.Instructions,
 			InputType:    section.Query.InputType,
 			MaxTokens:    section.Query.MaxTokens,
+		}
+	}
+	return out
+}
+
+// mergeLLM maps the mnemonic.llm YAML section (ADR-0023, TICKET-01) to the
+// LLMConfig struct. Enabled is applied as-is (absent → false, opt-in).
+// BaseURL/Model apply when non-empty. The api_key precedence is: explicit
+// YAML key > SKILLGRID_LLM_API_KEY env var > the base value (empty by
+// default) — the loader owns the env fallback so the llm.Client stays pure.
+// A non-empty malformed timeout logs a warning and keeps the base value (the
+// client applies its own 60s default when it stays zero); a blank timeout
+// keeps the base silently.
+func mergeLLM(base LLMConfig, section llmSection) LLMConfig {
+	out := base
+	out.Enabled = section.Enabled
+	if section.BaseURL != "" {
+		out.BaseURL = section.BaseURL
+	}
+	if section.Model != "" {
+		out.Model = section.Model
+	}
+	// api_key precedence: explicit YAML key > SKILLGRID_LLM_API_KEY env > base.
+	switch {
+	case section.APIKey != "":
+		out.APIKey = section.APIKey
+	case os.Getenv("SKILLGRID_LLM_API_KEY") != "":
+		out.APIKey = os.Getenv("SKILLGRID_LLM_API_KEY")
+	}
+	if section.Timeout != "" {
+		if d, err := time.ParseDuration(section.Timeout); err == nil && d > 0 {
+			out.Timeout = d
+		} else {
+			log.Printf("warning: mnemonic.llm.timeout must be a positive duration (got %q), using default %s", section.Timeout, out.Timeout)
 		}
 	}
 	return out

@@ -556,3 +556,147 @@ func TestHomeLocalConfigFallback(t *testing.T) {
 			got.Embedder.Provider, got.Embedder.Model)
 	}
 }
+
+// TestLLMConfigDefaultOff is TICKET-01 (G1, SATISFIES "happy path llm config
+// defaults off"): the mnemonic.llm section defaults to disabled and an empty
+// base URL. With no llm YAML and the SKILLGRID_LLM_API_KEY env var cleared,
+// Load returns a zero LLM config (Enabled false, BaseURL ""). Uses an isolated
+// HOME so the operator's ~/.skillgrid overlay cannot leak an llm block.
+func TestLLMConfigDefaultOff(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// Isolate the env fallback: with no api_key in YAML and no env, the key
+	// must stay empty (deterministic regardless of the operator's shell).
+	t.Setenv("SKILLGRID_LLM_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+
+	dir := t.TempDir()
+
+	// No config file at all → defaults: LLM off, empty base URL.
+	got := Load(dir)
+	if got.LLM.Enabled {
+		t.Fatalf("default: llm.enabled must be false, got true")
+	}
+	if got.LLM.BaseURL != "" {
+		t.Fatalf("default: llm.base_url must be empty, got %q", got.LLM.BaseURL)
+	}
+	if got.LLM.APIKey != "" {
+		t.Fatalf("default: llm.api_key must be empty (no env), got %q", got.LLM.APIKey)
+	}
+
+	// A config without the llm section → still off, empty base URL.
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml"),
+		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if got.LLM.Enabled {
+		t.Fatalf("absent section: llm.enabled must be false, got true")
+	}
+	if got.LLM.BaseURL != "" {
+		t.Fatalf("absent section: llm.base_url must be empty, got %q", got.LLM.BaseURL)
+	}
+}
+
+// TestLLMConfigRequiresURLAndModel is TICKET-01 (G2): mnemonic.llm parses an
+// explicit enabled/base_url/model/api_key block, and the api_key falls back to
+// the SKILLGRID_LLM_API_KEY env var when the YAML key is absent.
+//
+// NOTE on the "requires URL and model" case: the loader does NOT reject an
+// enabled:true block that omits base_url — enforcement (Validate) happens at
+// the attach step in Task 2, not in config loading. After a merge with
+// enabled:true and an empty base_url, Enabled is true but BaseURL stays
+// empty. This test documents that the loader is permissive; the attach site
+// is where the missing URL is turned into a non-attach (fail-open).
+func TestLLMConfigRequiresURLAndModel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repoFile := filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml")
+
+	// Full explicit block: enabled + base_url + model + api_key all parse.
+	if err := os.WriteFile(repoFile,
+		[]byte("mnemonic:\n  llm:\n    enabled: true\n    base_url: http://localhost:11434/v1\n    model: qwen3:8b\n    api_key: sk-test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Load(dir)
+	if !got.LLM.Enabled {
+		t.Fatalf("llm.enabled: true must apply, got false")
+	}
+	if got.LLM.BaseURL != "http://localhost:11434/v1" {
+		t.Fatalf("llm.base_url: got %q, want http://localhost:11434/v1", got.LLM.BaseURL)
+	}
+	if got.LLM.Model != "qwen3:8b" {
+		t.Fatalf("llm.model: got %q, want qwen3:8b", got.LLM.Model)
+	}
+	if got.LLM.APIKey != "sk-test" {
+		t.Fatalf("llm.api_key: got %q, want sk-test", got.LLM.APIKey)
+	}
+
+	// enabled:true but base_url omitted → the loader is permissive: Enabled is
+	// true, BaseURL stays empty (enforced later at the attach step, Task 2).
+	if err := os.WriteFile(repoFile,
+		[]byte("mnemonic:\n  llm:\n    enabled: true\n    model: qwen3:8b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if !got.LLM.Enabled {
+		t.Fatalf("llm.enabled: true must apply, got false")
+	}
+	if got.LLM.BaseURL != "" {
+		t.Fatalf("llm.base_url omitted: must stay empty (attach enforces), got %q", got.LLM.BaseURL)
+	}
+}
+
+// TestLLMAPIKeyFromEnv is TICKET-01 (G2, secrets): when the YAML api_key is
+// absent, the api_key falls back to SKILLGRID_LLM_API_KEY; an explicit YAML
+// api_key wins over the env var. The precedence is explicit YAML > env > base.
+func TestLLMAPIKeyFromEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid", "config.d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repoFile := filepath.Join(dir, ".skillgrid", "config.d", "indexing.yaml")
+
+	// Case 1: api_key omitted, env set → falls back to the env value.
+	t.Setenv("SKILLGRID_LLM_API_KEY", "from-env")
+	if err := os.WriteFile(repoFile,
+		[]byte("mnemonic:\n  llm:\n    enabled: true\n    base_url: http://localhost:11434/v1\n    model: qwen3:8b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Load(dir)
+	if got.LLM.APIKey != "from-env" {
+		t.Fatalf("llm.api_key: must fall back to SKILLGRID_LLM_API_KEY, got %q", got.LLM.APIKey)
+	}
+
+	// Case 2: explicit YAML api_key wins over the env var.
+	if err := os.WriteFile(repoFile,
+		[]byte("mnemonic:\n  llm:\n    enabled: true\n    base_url: http://localhost:11434/v1\n    model: qwen3:8b\n    api_key: explicit-yaml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if got.LLM.APIKey != "explicit-yaml" {
+		t.Fatalf("llm.api_key: explicit YAML must win over env, got %q", got.LLM.APIKey)
+	}
+
+	// Case 3: both YAML api_key and env absent → key stays empty.
+	t.Setenv("SKILLGRID_LLM_API_KEY", "")
+	if err := os.WriteFile(repoFile,
+		[]byte("mnemonic:\n  llm:\n    enabled: true\n    base_url: http://localhost:11434/v1\n    model: qwen3:8b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got = Load(dir)
+	if got.LLM.APIKey != "" {
+		t.Fatalf("llm.api_key: no YAML key and no env must stay empty, got %q", got.LLM.APIKey)
+	}
+}

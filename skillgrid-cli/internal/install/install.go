@@ -123,6 +123,18 @@ func Run(c *Config) error {
 		}
 	}
 
+	// Provider setup (ADR-0023, TICKET-03): a normal install step, not an
+	// opt-in bolt-on — indexing already needs an embedder host. Non-fatal: a
+	// failure warns with a manual hint and the install continues.
+	if c.SkipProvider {
+		verb("skipping provider setup (--skip-provider)")
+	} else {
+		info("setting up LLM/embedder provider (" + providerLabel(c) + ")")
+		if err := setupProvider(c); err != nil {
+			Out("  warning: provider setup:", err) // manual hint already printed inside
+		}
+	}
+
 	if c.SkipAgentsCopy {
 		verb("skipping ~/.agents copy (--skip-agents)")
 	} else {

@@ -31,6 +31,15 @@ type Config struct {
 	SkipClone      bool
 	SkipTools      bool
 	SkipAgentsCopy bool
+
+	// Provider setup (ADR-0023, TICKET-03): which LLM/embedder host to wire
+	// into the home config. Provider is "local" (Ollama) or "external"
+	// (OpenAI-compatible); "" defaults to local. LLMBaseURL/LLMApiKey feed the
+	// external mode (flag or env); they are ignored in local mode.
+	Provider     string
+	SkipProvider bool
+	LLMBaseURL   string
+	LLMApiKey    string
 }
 
 // Out writes an install log line to stderr (keeps stdout clean for scripts).
