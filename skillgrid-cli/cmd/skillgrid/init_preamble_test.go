@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 )
 
 func TestLoadAgentsPreambleTemplate(t *testing.T) {
@@ -72,6 +76,55 @@ func TestOnboardingSkillDocumentsAgentsPreamble(t *testing.T) {
 	}
 	if !strings.Contains(s, "agents-preamble") {
 		t.Fatalf("onboarding must name the agents-preamble template")
+	}
+}
+
+func TestInitWritesRichPreambleFromConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "project: Demo\ncommands:\n  build: \"task build\"\ntesting:\n  runner: \"./run_test.sh\"\n  setup: \"task install\"\nsecurity:\n  trivy:\n    command: \"task security\"\n    severities: \"CRITICAL\"\n    scan_types: \"vuln\"\n"
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(res.BootFile)
+	s := string(body)
+	for _, want := range []string{"## Environment & Tooling", "## Definition of Done", "## Security & Escalation Boundaries"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("preamble missing %q:\n%s", want, s)
+		}
+	}
+	if !strings.Contains(s, "- **Test**: ./run_test.sh") {
+		t.Fatalf("test command not from config:\n%s", s)
+	}
+}
+
+func TestInitPreambleIdempotentAndKeepsSentinel(t *testing.T) {
+	dir := t.TempDir()
+	onboarded := "Onboarding custom row: keep this."
+	agents := "<!-- skillgrid:start -->\n## Skillgrid\n\n" + onboarded + "\n<!-- skillgrid:end -->\n"
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(agents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	res2, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(res2.BootFile)
+	s := string(body)
+	if !strings.Contains(s, onboarded) {
+		t.Fatalf("onboarding sentinel clobbered:\n%s", s)
+	}
+	if strings.Count(s, "<!-- skillgrid:start -->") != 1 || strings.Count(s, "<!-- skillgrid-preamble:start -->") != 1 {
+		t.Fatalf("sentinel/preamble duplicated:\n%s", s)
 	}
 }
 

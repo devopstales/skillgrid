@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
+	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/setup"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,64 +19,21 @@ const (
 
 	claudePointer = "See AGENTS.md — the Skillgrid block there is the source of truth."
 
+	// The ## Skillgrid block's structure is owned by block.md (the single
+	// source of truth). The CLI never hardcodes it: loadSentinelTemplate reads
+	// it from the installed skill tree at runtime, and fillBlockValues pulls the
+	// tracker/memory line values from its "Placeholders" tables. defaultRulesBlock
+	// is the only block text that depends on the project's ASSUMPTIONS.md, so it
+	// stays here.
 	defaultRulesBlock = "No locked constraints yet — see `.skillgrid/ASSUMPTIONS.md`."
-	defaultTracker    = "None — work local-only from tasks.md."
-	enabledMemoryLine = "Persistent memory is active (Mnemonic). Use `mem_save` for decisions, `mem_search` for recall, `code_status` → `code_index` → `code_search` for code orientation. Full protocol: `skillgrid:mnemonic` skill."
 
-	// Tracker lines match `{tracker_line}` in .agents/skills/_shared/agent-config/block.md.
-	trackerBacklog = "Backlog.md — reference `.agents/skills/planning/ticketing/references/backlogmd.md` for conventions."
-	trackerGitHub  = "GitHub — reference `.agents/skills/planning/ticketing/references/github.md` for conventions."
-	trackerGitLab  = "GitLab — reference `.agents/skills/planning/ticketing/references/gitlab.md` for conventions."
-	trackerJira    = "Jira — reference `.agents/skills/planning/ticketing/references/jira.md` for conventions."
+	// blockRel is block.md's path relative to the skillgrid repo root.
+	blockRel = ".agents/skills/_shared/agent-config/block.md"
 )
 
-// Canonical Skillgrid sentinel body (from .agents/skills/_shared/agent-config/block.md).
-const sentinelTemplate = `<!-- skillgrid:start -->
-## Skillgrid
-
-This project is configured with Skillgrid. Project: **{project}**.
-
-Config: ` + "`.skillgrid/config.yaml`" + ` (static) — read it before running any Skillgrid skill.
-State: ` + "`.skillgrid/state.yaml`" + ` (dynamic) — where the project is right now (phase, current change, progress).
-
-### Artifacts
-
-| Artifact | Path |
-|----------|------|
-| Project knowledge (PRD, architecture, terms, ADRs, constraints, research) | ` + "`.skillgrid/artifacts/`" + ` |
-| Project state (phase, current change, progress) | ` + "`.skillgrid/state.yaml`" + ` |
-| Specs (briefing, blueprint, tasks) | ` + "`.skillgrid/specs/`" + ` |
-| Execution ledger | ` + "`.skillgrid/sdd/`" + ` (gitignored) |
-
-**Domain model:** read the vocabulary + ADRs under ` + "`.skillgrid/artifacts/`" + ` (index: ` + "`README.md`" + `) before designing or implementing.
-
-**Rules & standards:** locked project constraints render under ` + "`### Rules`" + ` below. Shared standards are referenced, never inlined — each loads via the skills that apply it.
-
-- **Coding conventions** — reference ` + "`.agents/skills/_shared/rules/code-standards.md`" + ` for detailed coding conventions.
-- **Testing conventions** — reference ` + "`.agents/skills/_shared/references/strict-tdd.md`" + ` for the TDD cycle and testing conventions.
-- **Commits & verification** — reference ` + "`.agents/skills/_shared/rules/`" + ` for the commit contract, verification ladder, and rigor tiers.
-- **Memory, code index & web cache** — reference the ` + "`skillgrid:mnemonic`" + ` skill (shared rules: ` + "`.agents/skills/_shared/rules/mnemonic-memory.md`" + `).
-
-### Rules
-
-*Locked constraints only (source of truth: ` + "`### Locked constraints`" + ` in ` + "`.skillgrid/ASSUMPTIONS.md`" + ` — edit there, then mirror here).*
-
-{rules_block}
-
-### Issue Tracker
-
-{tracker_line}
-
-### Memory
-
-{memory_line}
-
-### Workflow
-
-` + "`brainstorming` → `writing-blueprints` → `slicing` → `ticketing` → execution (`subagent-execution` or `simple-execution`) → `qa` → `requesting-code-review` → `receiving-code-review` → `ship` → `reflect`" + `
-
-Run ` + "`skillgrid:onboarding`" + ` to update config after stack changes.
-<!-- skillgrid:end -->`
+// blockTemplateRe extracts the markdown-fenced template (the region between
+// block.md's first ``` pair). The block's sentinels are inside that fence.
+var blockTemplateRe = regexp.MustCompile("(?s)```[^\n]*\n(.*?)```")
 
 func writeBootFile(dir string, force bool) (bootPath, preambleState string, err error) {
 	bootPath, err = resolveBootPath(dir)
@@ -97,11 +56,21 @@ func writeBootFile(dir string, force bool) (bootPath, preambleState string, err 
 		return "", "", readErr
 	}
 
-	project := filepath.Base(dir)
+	template, blockMDPath, err := loadSentinelTemplate(dir)
+	if err != nil {
+		return "", "", err
+	}
+	project := loadProjectName(dir)
 	rules := loadRulesBlock(dir)
-	sentinel := renderSentinel(project, rules, loadTrackerLine(dir))
+	blockMD := readBlockMD(blockMDPath)
+	sentinel := renderSentinel(project, rules, loadTrackerLine(dir, blockMD), loadMemoryLine(dir, blockMD), template)
 
-	body, preambleState := upsertPreamble(existing, force, project)
+	cfg, _ := loadAgentsConfig(dir)
+	prem, _, premErr := loadAgentsPreambleTemplate(dir)
+	if premErr != nil {
+		prem = defaultPreambleTemplate
+	}
+	body, preambleState := upsertPreamble(existing, force, renderPreamble(cfg, prem))
 	body = upsertSentinel(body, sentinel)
 
 	if err := os.WriteFile(bootPath, []byte(body), 0o644); err != nil {
@@ -161,13 +130,171 @@ func ensureClaudePointer(dir, bootPath string) error {
 	return os.WriteFile(claude, []byte(body), 0o644)
 }
 
-func renderSentinel(project, rulesBlock, trackerLine string) string {
-	s := sentinelTemplate
-	s = strings.ReplaceAll(s, "{project}", project)
+// blockMDPath resolves the block.md path to read from, for a given project dir
+// (the project's own tree first). It is a var so tests can point init at a
+// synthetic or a specific block.md instead of the installed ~/.skillgrid mirror.
+var blockMDPath = func(dir string) string {
+	return filepath.Join(dir, ".agents", "skills", "_shared", "agent-config", "block.md")
+}
+
+// loadSentinelTemplate returns the canonical ## Skillgrid template by reading
+// block.md — the single source of truth. Precedence: the project's own tree
+// (dir/.agents/skills/...), then the installed mirror / dev checkout
+// (setup.FindRepoRoot covers cwd/upward + ~/.skillgrid/repos/skillgrid). If
+// none yield a parseable template, init fails rather than writing a stale
+// block. No template text lives in the CLI.
+func loadSentinelTemplate(dir string) (template, path string, err error) {
+	seen := map[string]bool{}
+	candidates := []string{blockMDPath(dir)}
+	if root := setup.FindRepoRoot(dir); root != "" {
+		candidates = append(candidates, filepath.Join(root, blockRel))
+	}
+	for _, p := range candidates {
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		data, rerr := os.ReadFile(p)
+		if rerr != nil {
+			continue
+		}
+		if t := extractBlockTemplate(string(data)); t != "" {
+			return t, p, nil
+		}
+	}
+	return "", "", fmt.Errorf("block.md not found in the skill tree (expected at %s)", blockRel)
+}
+
+// extractBlockTemplate pulls the markdown-fenced template out of block.md.
+// The block's sentinels are inside the first ``` fence.
+func extractBlockTemplate(body string) string {
+	if m := blockTemplateRe.FindStringSubmatch(body); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+func renderSentinel(project, rulesBlock, trackerLine, memoryLine, template string) string {
+	s := template
+	if strings.TrimSpace(project) == "" {
+		// No known project name (bare dir, no config): drop the "Project: ..."
+		// clause so the block doesn't render a literal dot. onboarding fills in
+		// the real name later.
+		s = strings.ReplaceAll(s, " Project: **{project}**.", "")
+	} else {
+		s = strings.ReplaceAll(s, "{project}", project)
+	}
 	s = strings.ReplaceAll(s, "{rules_block}", rulesBlock)
 	s = strings.ReplaceAll(s, "{tracker_line}", trackerLine)
-	s = strings.ReplaceAll(s, "{memory_line}", enabledMemoryLine)
+	s = strings.ReplaceAll(s, "{memory_line}", memoryLine)
 	return s
+}
+
+// loadProjectName reads the project: field from .skillgrid/config.yaml so the
+// create path names the project by its configured name, not the directory name.
+// Falls back to the directory base when the config is absent or has no name; a
+// degenerate base ("." for a bare dir) is normalized to "" so the block renders
+// "Project: ." as a clean placeholder rather than a literal dot.
+func loadProjectName(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, ".skillgrid", "config.yaml"))
+	if err != nil {
+		return cleanProjectName(filepath.Base(dir))
+	}
+	var cfg struct {
+		Project string `yaml:"project"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil || strings.TrimSpace(cfg.Project) == "" {
+		return cleanProjectName(filepath.Base(dir))
+	}
+	return cfg.Project
+}
+
+// cleanProjectName normalizes degenerate directory bases (".", empty, a
+// trailing ".git") so a fresh init does not render a literal dot as the name.
+func cleanProjectName(name string) string {
+	n := strings.TrimSpace(name)
+	if n == "" || n == "." || n == ".." || strings.HasSuffix(n, ".git") {
+		return ""
+	}
+	return n
+}
+
+// readBlockMD returns the full body of block.md at blockMDPath (for parsing its
+// "Placeholders" tables). blockMDPath is the file loadSentinelTemplate resolved.
+func readBlockMD(blockMDPath string) string {
+	if blockMDPath == "" {
+		return ""
+	}
+	if data, err := os.ReadFile(blockMDPath); err == nil {
+		return string(data)
+	}
+	return ""
+}
+
+// blockLine returns the text after `marker` on the first line that starts with
+// it (used for the memory table's "- Enabled:" / "- Disabled:" rows). "" if absent.
+func blockLine(body, marker string) string {
+	for _, line := range strings.Split(body, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, marker) {
+			return strings.TrimSpace(strings.TrimPrefix(t, marker))
+		}
+	}
+	return ""
+}
+
+// trackerCell returns the second cell of the tracker-table row whose first cell
+// is `type` (e.g. "gh", "backlogmd", or "none"). The first cell is wrapped in
+// backticks in block.md (e.g. `gh`), so backticks are stripped before matching.
+// "" when no such row exists.
+func trackerCell(body, typ string) string {
+	for _, line := range strings.Split(body, "\n") {
+		t := strings.TrimSpace(line)
+		if !strings.HasPrefix(t, "|") {
+			continue
+		}
+		cells := strings.Split(t, "|")
+		// A row "| a | b |" splits to ["", " a ", " b ", ""].
+		if len(cells) < 4 {
+			continue
+		}
+		key := strings.Trim(strings.TrimSpace(cells[1]), "`")
+		if key == typ {
+			return strings.TrimSpace(cells[2])
+		}
+	}
+	return ""
+}
+
+// loadMemoryLine picks the {memory_line} value from block.md's memory table.
+// Enabled when the config has mnemonic.enabled: true; inactive otherwise (never
+// claim memory is on when the config is absent or says false).
+func loadMemoryLine(dir, blockMD string) string {
+	enabled := blockLine(blockMD, "- Enabled:")
+	disabled := blockLine(blockMD, "- Disabled:")
+	if enabled != "" && configMnemonicEnabled(dir) {
+		return enabled
+	}
+	if disabled != "" {
+		return disabled
+	}
+	return "Mnemonic not detected — persistent memory is inactive. Install the `skillgrid` CLI to enable it."
+}
+
+func configMnemonicEnabled(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, ".skillgrid", "config.yaml"))
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		Mnemonic struct {
+			Enabled bool `yaml:"enabled"`
+		} `yaml:"mnemonic"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return false
+	}
+	return cfg.Mnemonic.Enabled
 }
 
 type bootTicketingConfig struct {
@@ -177,31 +304,27 @@ type bootTicketingConfig struct {
 	} `yaml:"ticketing"`
 }
 
-func loadTrackerLine(dir string) string {
+// loadTrackerLine picks the {tracker_line} from block.md's tracker table,
+// matching the config's ticketing.type. Falls back to the "none" row when
+// ticketing is disabled, the config is absent, or the type is unknown.
+func loadTrackerLine(dir, blockMD string) string {
+	none := trackerCell(blockMD, "none")
 	data, err := os.ReadFile(filepath.Join(dir, ".skillgrid", "config.yaml"))
 	if err != nil {
-		return defaultTracker
+		return fallbackTrackerLine(none)
 	}
 	var cfg bootTicketingConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil || !cfg.Ticketing.Enabled {
-		return defaultTracker
+		return fallbackTrackerLine(none)
 	}
-	return trackerLineFor(cfg.Ticketing.Type)
+	return fallbackTrackerLine(trackerCell(blockMD, strings.TrimSpace(cfg.Ticketing.Type)))
 }
 
-func trackerLineFor(kind string) string {
-	switch strings.TrimSpace(kind) {
-	case "backlogmd":
-		return trackerBacklog
-	case "gh":
-		return trackerGitHub
-	case "glab":
-		return trackerGitLab
-	case "jira":
-		return trackerJira
-	default:
-		return defaultTracker
+func fallbackTrackerLine(row string) string {
+	if row != "" {
+		return row
 	}
+	return "None — work local-only from tasks.md."
 }
 
 func loadRulesBlock(dir string) string {
@@ -240,37 +363,14 @@ func extractLockedConstraints(body string) []string {
 	return bullets
 }
 
-func preambleBody(project string) string {
-	return fmt.Sprintf(`# Project Overview
-%s.
+// defaultPreambleTemplate is the fallback structure used only when the
+// agents-preamble.md template cannot be resolved from the skill tree (e.g. the
+// CLI runs against a fresh checkout without the skill tree). init prefers the
+// resolved template; this keeps init from failing on a missing template file.
+const defaultPreambleTemplate = "# Standards\n\n## Environment & Tooling\n\n- **Language**: {language}\n- **Install**: {install}\n- **Test**: {test}\n- **Lint**: {lint}\n- **Build (dev)**: {build}\n- **Security scan**: {security_scan}\n\n## Definition of Done\n\n{definition_of_done}\n"
 
-# Environment & Tooling
-- Fill in language, package manager, test and lint commands.
-
-# Engineering Standards
-- Add or update tests for behavior changes
-- Keep diffs small and reviewable
-
-# Security & Escalation Boundaries
-- Work only in this repository
-- Do not read secrets or credential stores
-- Ask before installing dependencies or changing auth logic
-
-# Dependency Policies
-- Prefer the standard library
-- New packages require approval
-
-# Architecture Constraints
-- See `+"`"+`.skillgrid/ASSUMPTIONS.md`+"`"+` when present
-
-# Definition of Done
-- Tests pass
-- Lint and formatting pass
-- Update the spec if behavior changes`, project)
-}
-
-func wrapPreamble(project string) string {
-	return preambleStart + "\n" + preambleBody(project) + "\n" + preambleEnd
+func wrapPreamble(region string) string {
+	return preambleStart + "\n" + strings.TrimSpace(region) + "\n" + preambleEnd
 }
 
 func ensureBlankLineSuffix(s string) string {
@@ -286,7 +386,7 @@ func ensureBlankLineSuffix(s string) string {
 	return s
 }
 
-func upsertPreamble(existing string, force bool, project string) (string, string) {
+func upsertPreamble(existing string, force bool, region string) (string, string) {
 	start := strings.Index(existing, preambleStart)
 	end := strings.Index(existing, preambleEnd)
 
@@ -295,25 +395,26 @@ func upsertPreamble(existing string, force bool, project string) (string, string
 		if !force {
 			return existing, "kept"
 		}
-		return existing[:start] + wrapPreamble(project) + existing[end:], "forced"
+		return existing[:start] + wrapPreamble(region) + existing[end:], "forced"
 	}
 
-	region := wrapPreamble(project)
+	r := wrapPreamble(region)
 	if si := strings.Index(existing, sentinelStart); si >= 0 {
-		return ensureBlankLineSuffix(existing[:si]) + region + "\n\n" + existing[si:], "written"
+		return ensureBlankLineSuffix(existing[:si]) + r + "\n\n" + existing[si:], "written"
 	}
 	if existing == "" {
-		return region + "\n", "written"
+		return r + "\n", "written"
 	}
-	return ensureBlankLineSuffix(existing) + region + "\n", "written"
+	return ensureBlankLineSuffix(existing) + r + "\n", "written"
 }
 
+// upsertSentinel keeps an existing onboarding-rendered ## Skillgrid block as-is.
+// The block is owned by the onboarding skill (rendered from block.md); init's job
+// is the preamble, ingest, and index — not re-rendering the agent block. The
+// canonical template is written only when no sentinel exists yet (greenfield).
 func upsertSentinel(existing, sentinel string) string {
-	start := strings.Index(existing, sentinelStart)
-	end := strings.Index(existing, sentinelEnd)
-	if start >= 0 && end > start {
-		end += len(sentinelEnd)
-		return existing[:start] + sentinel + existing[end:]
+	if start := strings.Index(existing, sentinelStart); start >= 0 {
+		return existing
 	}
 	return ensureBlankLineSuffix(existing) + sentinel + "\n"
 }

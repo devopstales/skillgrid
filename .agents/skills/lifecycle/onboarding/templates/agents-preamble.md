@@ -1,5 +1,4 @@
 ````markdown
-<!-- skillgrid-preamble:start -->
 # Standards
 
 ## Environment & Tooling
@@ -59,5 +58,4 @@ reference `~/.agents/skills/_shared/rules/code-standards.md`
 ## SDD Standards
 
 reference `~/.agents/skills/_shared/rules/sdd-structure.md`
-<!-- skillgrid-preamble:end -->
 ````

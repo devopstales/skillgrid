@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,26 @@ import (
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
 )
+
+// TestMain points blockMDPath at the repo's real block.md for the whole test
+// binary. init's tests run against a temp project dir that has no .agents tree,
+// so without this the resolver would fall back to the installed ~/.skillgrid
+// mirror, which can be stale. The test binary runs from skillgrid-cli/cmd/
+// skillgrid, so the repo root is ../../../.
+func TestMain(m *testing.M) {
+	prevBlock := blockMDPath
+	prevPreamble := agentsPreamblePath
+	blockMDPath = func(dir string) string {
+		return "../../../.agents/skills/_shared/agent-config/block.md"
+	}
+	agentsPreamblePath = func(dir string) string {
+		return "../../../.agents/skills/lifecycle/onboarding/templates/agents-preamble.md"
+	}
+	code := m.Run()
+	blockMDPath = prevBlock
+	agentsPreamblePath = prevPreamble
+	os.Exit(code)
+}
 
 // countTopic counts live observations with the given topic_key.
 // Uses Recent because observations_fts does not index topic_key, so Search("init")
@@ -375,11 +396,190 @@ func TestInitUpsertsPreambleAndSentinel(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(body)
-	if !strings.Contains(s, "<!-- skillgrid-preamble:start -->") || !strings.Contains(s, "# Definition of Done") {
+	if !strings.Contains(s, "<!-- skillgrid-preamble:start -->") || !strings.Contains(s, "## Commands") {
 		t.Fatalf("missing preamble: %s", s)
 	}
 	if strings.Count(s, "<!-- skillgrid:start -->") != 1 || strings.Count(s, "<!-- skillgrid:end -->") != 1 {
 		t.Fatalf("sentinel count: %s", s)
+	}
+}
+
+// TestInitKeepsOnboardingRenderedSentinel: the onboarding skill renders the
+// canonical ## Skillgrid block into AGENTS.md from block.md before step 9 runs
+// `skillgrid init`. init must not clobber that block with its own (older,
+// config-blind) sentinelTemplate — only the preamble and the index are init's job.
+func TestInitKeepsOnboardingRenderedSentinel(t *testing.T) {
+	dir := t.TempDir()
+	onboarded := "Project: **MyRealName**.\nOnboarding custom row: keep this."
+	agents := "<!-- skillgrid:start -->\n## Skillgrid\n\n" + onboarded + "\n<!-- skillgrid:end -->\n"
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(agents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(res.BootFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if !strings.Contains(s, onboarded) {
+		t.Fatalf("onboarding-rendered block was clobbered by init:\n%s", s)
+	}
+	if strings.Count(s, "<!-- skillgrid:start -->") != 1 || strings.Count(s, "<!-- skillgrid:end -->") != 1 {
+		t.Fatalf("sentinel count wrong:\n%s", s)
+	}
+}
+
+// TestInitCreatePathUsesConfigProject: on greenfield (no prior AGENTS.md) init
+// renders the sentinel from scratch; {project} must come from the config's
+// project: field, not the directory name.
+func TestInitCreatePathUsesConfigProject(t *testing.T) {
+	dir := t.TempDir()
+	cfg := "project: ConfiguredName\nmnemonic:\n  enabled: true\n"
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(res.BootFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if !strings.Contains(s, "Project: **ConfiguredName**.") {
+		t.Fatalf("create path did not use config project:\n%s", s)
+	}
+	if strings.Contains(s, "Project: **"+filepath.Base(dir)+"**.") {
+		t.Fatalf("create path fell back to dir name:\n%s", s)
+	}
+}
+
+// TestInitCreatePathHonorsMnemonicDisabled: when mnemonic is disabled in the
+// config, the rendered memory line must say inactive — init must not hardcode
+// the enabled line.
+func TestInitCreatePathHonorsMnemonicDisabled(t *testing.T) {
+	dir := t.TempDir()
+	cfg := "project: ConfiguredName\nmnemonic:\n  enabled: false\n"
+	if err := os.MkdirAll(filepath.Join(dir, ".skillgrid"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".skillgrid", "config.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(res.BootFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	const enabled = "Persistent memory is active (Mnemonic)."
+	if strings.Contains(s, enabled) {
+		t.Fatalf("disabled mnemonic rendered the enabled line:\n%s", s)
+	}
+	const inactive = "Mnemonic not detected — persistent memory is inactive."
+	if !strings.Contains(s, inactive) {
+		t.Fatalf("disabled mnemonic missing the inactive line:\n%s", s)
+	}
+}
+
+// TestInitSentinelTemplateComesFromBlockMD proves the block's structure is read
+// from block.md (the single source of truth), not from a template baked into the
+// CLI. The canonical block.md's Artifacts table has 9 rows; the old CLI template
+// had 4. If init rendered from its own embedded copy, this would see 4 rows.
+func TestInitSentinelTemplateComesFromBlockMD(t *testing.T) {
+	// Point the resolver at the repo's real block.md (the test binary runs from
+	// skillgrid-cli/cmd/skillgrid, so the repo root is ../../../). This proves
+	// init renders from block.md, not a baked-in CLI template. The current
+	// block.md Artifacts table has 4 rows; an old/different CLI template would
+	// give a different count (and the rows would not match block.md's text).
+	prev := blockMDPath
+	t.Cleanup(func() { blockMDPath = prev })
+	blockMDPath = func(dir string) string {
+		return "../../../.agents/skills/_shared/agent-config/block.md"
+	}
+	tmpl, _, err := loadSentinelTemplate(t.TempDir())
+	if err != nil {
+		t.Fatalf("loadSentinelTemplate: %v", err)
+	}
+	rows := countArtifactsRows(tmpl)
+	if rows != 4 {
+		t.Fatalf("template Artifacts table has %d rows, want 4 (block.md is the source of truth)\n%s", rows, tmpl)
+	}
+	// The rendered rows must carry block.md's exact row text, proving the
+	// template came from block.md (the old CLI template's rows differ).
+	const wantRow = "| Project knowledge (PRD, architecture, terms, ADRs, constraints, research) | `.skillgrid/artifacts/` |"
+	if !strings.Contains(tmpl, wantRow) {
+		t.Fatalf("template missing block.md's Artifacts row:\n%s", tmpl)
+	}
+}
+
+// countArtifactsRows counts the data rows of the Artifacts table inside a
+// rendered template: lines within the "### Artifacts" section that start with
+// "|" and hold a backticked path cell. The header and |---| separator are
+// excluded. Scoped to the section so block.md's own "Placeholders" tracker
+// table (not part of the template) cannot inflate the count.
+func countArtifactsRows(tmpl string) int {
+	n := 0
+	inSection := false
+	for _, line := range strings.Split(tmpl, "\n") {
+		t := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(t, "### Artifacts"):
+			inSection = true
+		case inSection && strings.HasPrefix(t, "##") && t != "### Artifacts":
+			return n
+		case inSection && strings.HasPrefix(t, "|"):
+			if strings.Count(t, "`") >= 2 && !strings.Contains(t, "----") && !strings.Contains(t, "| Artifact |") {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// TestInitPreambleIsMinimalCommandsFirst asserts the preamble follows the
+// AGENTS.md best-practice research: a short project statement + exact commands,
+// not the old 6-section generic boilerplate. The generic sections
+// (Engineering Standards / Dependency Policies / Security & Escalation) raised
+// inference cost without changing agent behavior, so init no longer writes them.
+func TestInitPreambleIsMinimalCommandsFirst(t *testing.T) {
+	dir := t.TempDir()
+	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(res.BootFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	// Commands-first: the skeleton leads with the Commands section.
+	if !strings.Contains(s, "## Commands") || !strings.Contains(s, "- Test: <detect>") {
+		t.Fatalf("preamble missing commands-first skeleton:\n%s", s)
+	}
+	// No literal-dot project name (the missing-config fallback).
+	if strings.Contains(s, "Project: **.**") || strings.Contains(s, "# Project\n..") {
+		t.Fatalf("preamble rendered a literal dot project name:\n%s", s)
+	}
+	// Generic boilerplate dropped.
+	for _, gone := range []string{"# Engineering Standards", "# Dependency Policies", "# Security & Escalation Boundaries", "# Definition of Done", "# Architecture Constraints", "# Environment & Tooling"} {
+		if strings.Contains(s, gone) {
+			t.Fatalf("preamble still writes generic section %q:\n%s", gone, s)
+		}
+	}
+	// The whole file should stay lean (< 150 lines per the research).
+	if lines := len(strings.Split(s, "\n")); lines > 150 {
+		t.Fatalf("boot file is %d lines, want < 150:\n%s", lines, s)
 	}
 }
 
@@ -390,7 +590,7 @@ func TestInitForceRewritesPreamble(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(res.BootFile)
-	custom := strings.Replace(string(body), "# Project Overview", "# Project Overview\nUSER KEEP", 1)
+	custom := strings.Replace(string(body), "# Project", "# Project\nUSER KEEP", 1)
 	if err := os.WriteFile(res.BootFile, []byte(custom+"\n\nUSER BELOW\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -431,6 +631,38 @@ func TestInitIndexesTheProject(t *testing.T) {
 	}
 	if res.Indexed < 1 {
 		t.Fatalf("Indexed = %d", res.Indexed)
+	}
+}
+
+// TestInitIndexDoesNotPrintUnresolvedMembers: init's result block is the
+// operator status. An "unresolved member calls" line on stderr reads as a
+// failure even when Errors is empty.
+func TestInitIndexDoesNotPrintUnresolvedMembers(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	data := t.TempDir()
+	svc := service.New(data)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\nfunc F() {}\n"), 0o644); err != nil {
+		os.Stderr = old
+		t.Fatal(err)
+	}
+	_, initErr := projectInit(context.Background(), svc, dir, false, nil)
+	w.Close()
+	os.Stderr = old
+	if initErr != nil {
+		t.Fatal(initErr)
+	}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "unresolved") {
+		t.Fatalf("stderr looks like a failure: %q", buf.String())
 	}
 }
 
@@ -501,4 +733,183 @@ func onboardingSkillPath(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func TestDetectProjectLanguagesGo(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x"), 0o644)
+	langs := detectProjectLanguages(dir)
+	found := map[string]bool{}
+	for _, l := range langs {
+		found[l] = true
+	}
+	if !found["go"] {
+		t.Fatalf("langs = %v, want go", langs)
+	}
+	if !found["markdown"] {
+		t.Fatalf("langs = %v, want markdown", langs)
+	}
+}
+
+func TestDetectProjectLanguagesPython(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]"), 0o644)
+	langs := detectProjectLanguages(dir)
+	found := map[string]bool{}
+	for _, l := range langs {
+		found[l] = true
+	}
+	if !found["python"] {
+		t.Fatalf("langs = %v, want python", langs)
+	}
+}
+
+func TestDetectProjectLanguagesPolyglot(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x"), 0o644)
+	os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o644)
+	langs := detectProjectLanguages(dir)
+	found := map[string]bool{}
+	for _, l := range langs {
+		found[l] = true
+	}
+	for _, want := range []string{"go", "typescript", "javascript"} {
+		if !found[want] {
+			t.Fatalf("langs = %v, want %s", langs, want)
+		}
+	}
+}
+
+func TestDetectProjectLanguagesEmpty(t *testing.T) {
+	dir := t.TempDir()
+	langs := detectProjectLanguages(dir)
+	// Should still have markdown
+	if len(langs) == 0 {
+		t.Fatal("expected at least markdown")
+	}
+}
+
+func TestWriteIndexingConfigGeneratesFile(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x"), 0o644)
+	path := writeIndexingConfig(dir)
+	if path == "" {
+		t.Fatal("expected a written path")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if !strings.Contains(s, "include:") {
+		t.Fatalf("missing include: %s", s)
+	}
+	if !strings.Contains(s, "**/*.go") {
+		t.Fatalf("missing go glob: %s", s)
+	}
+	if !strings.Contains(s, "**/*.md") {
+		t.Fatalf("missing md glob: %s", s)
+	}
+	if !strings.Contains(s, "exclude:") {
+		t.Fatalf("missing exclude: %s", s)
+	}
+}
+
+func TestWriteIndexingConfigPython(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]"), 0o644)
+	path := writeIndexingConfig(dir)
+	if path == "" {
+		t.Fatal("expected a written path")
+	}
+	body, _ := os.ReadFile(path)
+	s := string(body)
+	if !strings.Contains(s, "**/*.py") {
+		t.Fatalf("missing python glob: %s", s)
+	}
+}
+
+func TestWriteIndexingConfigSkipsExisting(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x"), 0o644)
+	// Pre-create the config
+	cfgDir := filepath.Join(dir, ".skillgrid", "config.d")
+	os.MkdirAll(cfgDir, 0o755)
+	os.WriteFile(filepath.Join(cfgDir, "indexing.yaml"), []byte("mnemonic:\n  include:\n    - \"**/*.custom\"\n"), 0o644)
+	path := writeIndexingConfig(dir)
+	if path != "" {
+		t.Fatalf("expected skip, got %s", path)
+	}
+	// File should be unchanged
+	body, _ := os.ReadFile(filepath.Join(cfgDir, "indexing.yaml"))
+	if !strings.Contains(string(body), "**/*.custom") {
+		t.Fatal("existing config was clobbered")
+	}
+}
+
+func TestWriteIndexingConfigPolyglot(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x"), 0o644)
+	os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o644)
+	path := writeIndexingConfig(dir)
+	if path == "" {
+		t.Fatal("expected a written path")
+	}
+	body, _ := os.ReadFile(path)
+	s := string(body)
+	// package.json → typescript (.ts) + tsx (.tsx) + javascript (.js)
+	for _, glob := range []string{"**/*.go", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.md"} {
+		if !strings.Contains(s, glob) {
+			t.Fatalf("missing %s: %s", glob, s)
+		}
+	}
+}
+
+func TestInitGeneratesIndexingConfig(t *testing.T) {
+	data := t.TempDir()
+	svc := service.New(data)
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x"), 0o644)
+	os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\nfunc F() {}\n"), 0o644)
+	res, err := projectInit(context.Background(), svc, dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IndexingConfig == "" {
+		t.Fatal("expected IndexingConfig to be set")
+	}
+	if _, err := os.Stat(res.IndexingConfig); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInitIndexingConfigNotClobbered(t *testing.T) {
+	data := t.TempDir()
+	svc := service.New(data)
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x"), 0o644)
+	// First init generates the config
+	res1, err := projectInit(context.Background(), svc, dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res1.IndexingConfig == "" {
+		t.Fatal("first init should generate config")
+	}
+	// Modify it
+	body, _ := os.ReadFile(res1.IndexingConfig)
+	modified := strings.Replace(string(body), "**/*.go", "**/*.custom", 1)
+	os.WriteFile(res1.IndexingConfig, []byte(modified), 0o644)
+	// Second init should not clobber
+	res2, err := projectInit(context.Background(), svc, dir, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res2.IndexingConfig != "" {
+		t.Fatalf("second init should skip, got %s", res2.IndexingConfig)
+	}
+	body2, _ := os.ReadFile(res1.IndexingConfig)
+	if !strings.Contains(string(body2), "**/*.custom") {
+		t.Fatal("config was clobbered on second init")
+	}
 }
