@@ -3,7 +3,7 @@
 The single most expensive mistake in skill authoring: encoding deterministic
 logic in prose that a non-deterministic agent re-interprets on every invocation.
 This file is the rule. The process for applying it lives in the
-`skillgrid:skill-write` skill.
+`skillgrid:skill-creator` skill.
 
 ## The Rule
 
@@ -101,7 +101,7 @@ Per `_shared/craft/deterministic-boundary.md`: deterministic logic
 belongs in a script, not in skill prose.
 ```
 
-`skillgrid:skill-write` is the invocable process that applies this rule when
+`skillgrid:skill-creator` is the invocable process that applies this rule when
 creating or refactoring a skill. `skillgrid:requesting-code-review` flags
 violations during review. The `skill-size-budget` ratchet measures the
 consequence (bloat) but does not detect the cause (prose-that-should-be-script).

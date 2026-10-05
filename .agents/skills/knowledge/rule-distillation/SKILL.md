@@ -143,4 +143,4 @@ When a review (yours or a human's) flags a miss, decide **before** editing:
 
 - [references/compression-rules.md](references/compression-rules.md) — the eight-type classification, mini/nano keep-drop rules, interpretation heuristics, and the validation checklist. Load in Step 2.
 - [templates/traceability.md](templates/traceability.md) — the `M*`/`N*` → source section + line-range template with omission dispositions. Copy in Step 5.
-- `skillgrid:skill-write` — authoring a skill *from* a distilled rule set (the rule set is the source; the skill is the delivery mechanism).
+- `skillgrid:skill-creator` — authoring a skill *from* a distilled rule set (the rule set is the source; the skill is the delivery mechanism).

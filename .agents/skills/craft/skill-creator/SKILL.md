@@ -10,6 +10,7 @@ metadata:
 
 ## Contents
 - §1 Four Phases / §2 Trigger / §3 Structure / §4 Steering / §5 Pruning
+- §5b Writing Rules / Red Flags / Common Rationalizations
 - §6 10-Rule Audit / §7 Creating / §8 Testing / §9 Description / §10 Anatomy
 - §11 Verification Checklist
 
@@ -18,6 +19,9 @@ metadata:
 Create, iterate, and audit Skillgrid skills. The process has four phases —
 **Trigger, Structure, Steering, Pruning** — run in order, then a 10-rule audit
 before the skill ships. The loop: draft → test → review → improve → repeat.
+
+**When NOT to use:** bounded prose edits (typo, rewording); feature design
+(`skillgrid:brainstorming`); simplest code inside a script (`skillgrid:ponytail`).
 
 ---
 
@@ -59,8 +63,11 @@ model may choose not to follow it — leaving you to eval triggering accuracy.
 You can avoid this class of problem by making the invocation deliberate.
 
 **Choosing rule:** Default to model-invoked. Switch to user-invoked when the
-skill is *predictable* and the marginal context load isn't worth it. Skillgrid
-keeps most skills model-invoked; a few meta/always-on skills opt out.
+skill is *predictable* (you know exactly when you'll need it) and the marginal
+context load of another always-present description is not worth it. Skillgrid
+keeps most skills model-invoked; a small number of meta/always-on skills
+(`using-skillgrid`, `test-driven-development`, `test-driven-verification`) opt
+out.
 
 ### Description shape
 
@@ -92,8 +99,9 @@ List every step the skill must handle. For each, apply the classification test:
 | Check if state file matches spec zone | Yes | Extract to `scripts/state-drift-check.mjs` |
 | Decide which test layer fits | No | Keep as judgment prose |
 
-A **mixed** step is two steps: deterministic part → script, judgment part →
-prose. Name both.
+**Stop point:** If a step is *mixed* (deterministic parse + judgment
+classification), split it: the deterministic part goes to a script, the
+judgment part stays in prose. Name both.
 
 ### 3b. Map the Branches
 
@@ -115,13 +123,16 @@ Before drafting SKILL.md, write each script. For each:
    plumbing with heavy `awk`/`jq` usage
 2. `chmod +x`
 3. Run against a real input, confirm the output is correct and deterministic
-4. Document the exit-code contract (0 = success, 1 = issue, 2 = usage error)
+4. Document the exit-code contract (0 = success/no-issue, 1 = issue found,
+   2 = usage/parse error)
 
 **Script conventions:**
-- ESM (`.mjs`), Node 18+, no dependencies
+- ESM (`.mjs`), Node 18+, no dependencies (use `node:fs`, `node:path`,
+  `node:child_process`)
 - Print a one-line verdict to stdout (e.g. `DRIFT: none`, `PASS: 36/36`)
-- Print details when the verdict is non-zero
+- Print details to stdout when the verdict is non-zero
 - Accept the project root as the first arg (default `.`)
+- Data files (thresholds, budgets) live alongside the script or in `_shared/`
 
 **Skip** if the skill is judgment-only. Not every skill needs a script.
 **Scripts don't consume context** — they're executed, not read into the model's
@@ -233,6 +244,43 @@ from the project root. The skill must be within its tier ceiling (standard:
 22000 bytes). If over budget, push the tail into `references/`. Add the skill
 to `skill-size-budget.json` with its actual byte size.
 
+Line-by-line: confirm each line changes agent behavior; flag pure
+restatements of a script's logic.
+
+---
+
+## 5b. Writing Rules
+
+Rules beyond what `_shared/craft/skill-anatomy.md` covers:
+
+1. **Script-first.** Never write a SKILL.md line that references a script you
+   haven't built and tested first.
+2. **One contract per script.** One job, one exit-code contract, one stdout
+   format. If a script does two things, split it.
+3. **The skill line is the interface.** The agent sees command + exit-code
+   meanings, not the script's internals. If the line needs to explain
+   internals, the script is doing too much.
+4. **Judgment stays prose, and stays short.** 1-3 sentences. Longer means it's
+   a deterministic procedure in disguise — re-run the classification test.
+5. **No English if-statements.** "If missing, error. If stale, drift. If
+   current, continue." is three branches → one script with three exit codes.
+
+### Red Flags
+
+- A skill line > 2 sentences describing a procedure (not a judgment)
+- "If X, do Y. If Z, do W." in prose (deterministic branching → script)
+- References a script path that doesn't exist yet
+- A line explaining *why* the script does what it does (internals leaked)
+- A judgment paragraph > 3 sentences (procedure in disguise)
+- No scripts where the process is clearly algorithmic (parse, filter, count)
+- Copying a procedure instead of referencing the script that already does it
+
+### Common Rationalizations
+
+If you (or the user) push back on extracting a script or keeping the skill
+small, load `references/rationalizations.md` — six rationalizations and the
+reality for each.
+
 ---
 
 ## 6. The 10-Rule Audit
@@ -331,7 +379,9 @@ Writing style:
   pass, exit 1 = drift (report table)."
 - No English if-statements. Multi-branch deterministic logic → script.
 - No "you are an elite X" preamble. No explaining what a domain concept is.
-- If a line doesn't change agent behavior, delete it.
+- If a line doesn't change agent behavior, delete it. A line that names a
+  command AND explains what the command does in words is two lines in one —
+  cut the explanation, keep the command.
 
 ### 5. Write Test Cases
 
@@ -480,8 +530,8 @@ metadata:
 
 ## References
 
-- `skillgrid:skill-write` — the deterministic/agent boundary, script
-  conventions, common rationalizations
+- `skillgrid:ponytail` — for choosing the simplest implementation *inside* the
+  scripts this skill produces
 - `_shared/craft/deterministic-boundary.md` — script vs. prose classification
 - `_shared/craft/skill-anatomy.md` — format contract
 - `_shared/templates/skill-template.md` — fill-in skeleton
@@ -491,6 +541,8 @@ metadata:
 - Matt Pocock, "The Missing Manual: How to Write Great Skills" (UNzCG3lw6O0)
   — four-phase framework, leading words, legwork/hide-the-future, deletion
   test, context load vs cognitive load, context pointers, branches
+- Matt Pocock `write-a-skill` skill (github.com/mattpocock/skills) —
+  description shape, when-to-add-scripts, when-to-split-files
 - Jay (100K subs), "6 New Rules for Claude Skills" (e7TY56-yIvM)
   — head-100 behavior, degrees of freedom decision test, model-test
   procedure, self-improving feedback loops, install-line-next-to-script,

@@ -70,12 +70,9 @@ The set of user-invoked entry points is the pipeline's human gates:
 `reflect`, and the meta `_shared` bucket. Adding a skill to this set is a
 deliberate act — it removes the skill from the model's reach.
 
-> Audit note: `craft/skill-write` and `craft/skill-creator` describe themselves
-> as user-invoked in their own prose but carry no `disable-model-invocation`
-> flag in frontmatter. Decide each explicitly: if it should auto-fire ("create a
-> skill" is a model-reachable intent) keep it model-invoked and fix the prose;
-> if it is a human-run authoring gate, add the flag. The prose and the flag must
-> agree.
+> Audit note (resolved 2026-10): `craft/skill-write` was merged into
+> `craft/skill-creator` (v2.0). Skill-creator is model-invoked — "create a
+> skill" is a model-reachable intent.
 
 **The invariant:** a skill can **never invoke a user-invoked skill**. Only the
 human can. A user-invoked skill may invoke model-invoked skills, but two
