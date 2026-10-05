@@ -12,11 +12,13 @@ func TestWriteBootFileLinksSelectedTrackerConvention(t *testing.T) {
 	writeTicketingConfig(t, dir, "ticketing:\n  enabled: true\n  type: backlogmd\n")
 
 	body := bootFileBody(t, dir)
+	// Line text comes from block.md's tracker table, not from the CLI.
 	const want = "Backlog.md — reference `.agents/skills/planning/ticketing/references/backlogmd.md` for conventions."
 	if !strings.Contains(body, want) {
 		t.Fatalf("boot file missing tracker convention pointer:\n%s", body)
 	}
-	if strings.Contains(body, defaultTracker) {
+	const none = "None — work local-only from tasks.md."
+	if strings.Contains(body, none) {
 		t.Fatalf("boot file kept the no-tracker line:\n%s", body)
 	}
 }
@@ -30,32 +32,32 @@ func TestWriteBootFileTrackerLineFollowsConfig(t *testing.T) {
 		{
 			name: "github",
 			yaml: "ticketing:\n  enabled: true\n  type: gh\n",
-			want: trackerGitHub,
+			want: "GitHub — reference `.agents/skills/planning/ticketing/references/github.md` for conventions.",
 		},
 		{
 			name: "gitlab",
 			yaml: "ticketing:\n  enabled: true\n  type: glab\n",
-			want: trackerGitLab,
+			want: "GitLab — reference `.agents/skills/planning/ticketing/references/gitlab.md` for conventions.",
 		},
 		{
 			name: "jira",
 			yaml: "ticketing:\n  enabled: true\n  type: jira\n",
-			want: trackerJira,
+			want: "Jira — reference `.agents/skills/planning/ticketing/references/jira.md` for conventions.",
 		},
 		{
 			name: "disabled keeps local-only line",
 			yaml: "ticketing:\n  enabled: false\n  type: backlogmd\n",
-			want: defaultTracker,
+			want: "None — work local-only from tasks.md.",
 		},
 		{
 			name: "unknown type",
 			yaml: "ticketing:\n  enabled: true\n  type: linear\n",
-			want: defaultTracker,
+			want: "None — work local-only from tasks.md.",
 		},
 		{
 			name: "missing config",
 			yaml: "",
-			want: defaultTracker,
+			want: "None — work local-only from tasks.md.",
 		},
 	}
 	for _, tc := range cases {
