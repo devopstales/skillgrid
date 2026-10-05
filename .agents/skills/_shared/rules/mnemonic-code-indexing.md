@@ -1,4 +1,4 @@
-# based on skillgrid-v2:_shared/conventions/mnemonic-code-indexing.md
+# based on skillgrid-v2:_shared/rules/mnemonic-code-indexing.md
 
 # Mnemonic Code-Indexing Convention
 
@@ -104,7 +104,7 @@ Config file `config.d/indexing.yaml`, searched up from the indexed dir; repo-loc
 
 ## Recording findings
 
-After indexing or searching, `mem_save` what you learned following [memory.md](memory.md).
+After indexing or searching, `mem_save` what you learned following [mnemonic-artifacts.md](mnemonic-artifacts.md).
 
 ## CLI fallback
 

@@ -57,7 +57,7 @@ After all tasks are complete, run `skillgrid:qa`. It produces the test plan, goa
 
 - **PASS** → proceed to Step 2.6.
 - **CONCERNS** → fix the in-scope open items with tests, re-run QA (re-verification mode), then proceed.
-- **FAIL** → fix the CRITICAL findings with a failing test first, re-run QA. Cap per `_shared/conventions/rigor-tiers.md` (fix loop cap), then escalate to the human.
+- **FAIL** → fix the CRITICAL findings with a failing test first, re-run QA. Cap per `_shared/planning/rigor-tiers.md` (fix loop cap), then escalate to the human.
 - **WAIVED** → record the waiver, proceed to Step 2.6.
 
 ### Step 2.6: Request Review and Fix Findings
@@ -66,7 +66,7 @@ After the QA gate passes:
 1. Request code review (follow `skillgrid:requesting-code-review`)
 2. On findings: follow `skillgrid:receiving-code-review` (triage → fix →
    validate → log)
-3. Loop until review is clean or capped per `_shared/conventions/rigor-tiers.md` (fix loop cap)
+3. Loop until review is clean or capped per `_shared/planning/rigor-tiers.md` (fix loop cap)
 4. Update ticket status → `done` for clean tickets (if `ticketing.enabled`)
 
 ### Step 3: Complete Development
@@ -113,7 +113,7 @@ After all tasks complete and verified:
 | "I'll run the tests at the end" | `testing.tdd: true` means a failing test exists before code (basic TDD is the always-on baseline; the config's `testing.tdd` flag selects the strict-TDD branch). Verifications are per-task (step 2.5), so a red gate at the end can't tell you which task broke. |
 | "This task is small, no need for a gate" | Step 2.4 requires a `G<n>` gate per requirement before code. Small tasks are where a missing gate silently skips the acceptance scenario. |
 | "I'll fix the commit zone guard later" | The zone rule is one commit each for `.skillgrid/specs/` and code; the `pre-commit` hook blocks a commit that stages both. "Later" means a commit that was already wrong. |
-| "The review found minor issues, ship anyway" | Step 2.6 caps the loop (per `_shared/conventions/rigor-tiers.md`, fix loop cap), but a review only closes clean or escalated. Shipping with open findings skips the gate that exists to catch them. |
+| "The review found minor issues, ship anyway" | Step 2.6 caps the loop (per `_shared/planning/rigor-tiers.md`, fix loop cap), but a review only closes clean or escalated. Shipping with open findings skips the gate that exists to catch them. |
 
 ## Red Flags
 
@@ -130,5 +130,5 @@ After all tasks complete and verified:
 - [ ] Every task's gate is green: `CHECK:`+`EXPECT:` ran (or `manual` executed, `ABANDON` surfaced as a handoff) with captured output
 - [ ] Test runner from `testing.runner` exits 0; build from `commands.build` and lint from `commands.lint` are clean
 - [ ] QA gate (step 2.5) returned PASS or WAIVED with the waiver recorded; FAIL findings were fixed with a failing test first
-- [ ] Code review is clean or capped (per `_shared/conventions/rigor-tiers.md`, fix loop cap); open findings logged
+- [ ] Code review is clean or capped (per `_shared/planning/rigor-tiers.md`, fix loop cap); open findings logged
 - [ ] If `ticketing.enabled: true`, every ticket's status reflects its real state (`ready` → `in-progress` → `review` → `done`)

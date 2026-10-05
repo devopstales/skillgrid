@@ -20,7 +20,7 @@ logic in prose on every invocation burns tokens and risks misreading. The fix
 is to extract that logic into a script once, and reduce the skill line to a
 command call.
 
-**Core principle:** Per `_shared/conventions/deterministic-boundary.md` — if a
+**Core principle:** Per `_shared/craft/deterministic-boundary.md` — if a
 step produces the same output with identical input, it is a script, not a skill
 line. Skills are decision boundaries, not programs.
 
@@ -82,7 +82,7 @@ deterministic (→ script) or judgment (→ prose).
 #### 2a. Classify the Steps
 
 List every step the skill must handle. For each, apply the classification test
-from `_shared/conventions/deterministic-boundary.md`:
+from `_shared/craft/deterministic-boundary.md`:
 
 > "If I ran this step twice with identical input, would the correct output be
 > identical both times?"
@@ -141,7 +141,7 @@ with no fixed computation is correct as pure prose.
 #### 2d. Draft SKILL.md
 
 Copy `_shared/templates/skill-template.md` to `.agents/skills/<group>/<skill>/SKILL.md`.
-Fill it in following `_shared/conventions/skill-anatomy.md`. For each step from
+Fill it in following `_shared/craft/skill-anatomy.md`. For each step from
 the §2a classification table:
 
 - **Script step** → one line: "Run `node scripts/<name>.mjs`; exit 0 = X,
@@ -266,13 +266,13 @@ These are the skill-write-specific rules that the anatomy file doesn't cover:
 - [ ] SKILL.md has no "English if-statements" — no multi-branch prose describing deterministic logic
 - [ ] `node .agents/skills/verification/qa/scripts/skill-size-budget.mjs check .` exits 0 (all skills within ceiling)
 - [ ] The new skill's byte size is recorded in `skill-size-budget.json`
-- [ ] SKILL.md passes the anatomy checklist (`_shared/conventions/skill-anatomy.md` §New-skill checklist)
+- [ ] SKILL.md passes the anatomy checklist (`_shared/craft/skill-anatomy.md` §New-skill checklist)
 - [ ] No content is duplicated from another skill — cross-references use `skillgrid:{name}`
 
 ## References
 
-- `_shared/conventions/deterministic-boundary.md` — the rule (script vs. prose) with the classification test and examples
-- `_shared/conventions/skill-anatomy.md` — the format contract (section order, frontmatter, line budget)
+- `_shared/craft/deterministic-boundary.md` — the rule (script vs. prose) with the classification test and examples
+- `_shared/craft/skill-anatomy.md` — the format contract (section order, frontmatter, line budget)
 - `_shared/templates/skill-template.md` — the fill-in skeleton to copy
 - `skillgrid:ponytail` — for choosing the simplest implementation *inside* the scripts this skill produces
 

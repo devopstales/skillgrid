@@ -11,7 +11,7 @@ Match the verification effort to the risk. A throwaway prototype self-checks; a 
 | **T2** | Beta | full | required | L2 + L3 (full suite, build, coverage, lint/typecheck) | two-axis (`skillgrid:requesting-code-review`) |
 | **T3** | GA | full | required | L4 (mutation + security) + all thresholds | `skillgrid:parallel-code-review`, at least one reviewer on a **fresh model** (different from the implementer's) |
 
-The QA floor references [verification-ladder.md](verification-ladder.md) L1–L4. T2 is the project default; T3's fresh-model rule exists because a model reviewing its own work carries its own blind spots.
+The QA floor references [verification-ladder.md](../rules/verification-ladder.md) L1–L4. T2 is the project default; T3's fresh-model rule exists because a model reviewing its own work carries its own blind spots.
 
 ## Precedence
 

@@ -158,7 +158,7 @@ Before the loop starts, two routes leave it immediately:
   the plan mandates it, and do not dispatch a fix that contradicts the plan
   without a recorded ruling.
 Everything else enters the loop. A fix round is one fix dispatch plus one
-scoped re-review. The task-level cap per `_shared/conventions/rigor-tiers.md` (fix loop cap):
+scoped re-review. The task-level cap per `_shared/planning/rigor-tiers.md` (fix loop cap):
 
 **Rounds 1-3 — resume the original implementer.** Send it the open findings
 verbatim. Its context is intact: it knows the task, the code, and its own

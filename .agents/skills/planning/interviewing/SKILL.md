@@ -2,6 +2,7 @@
 name: interviewing
 description: Interview the user relentlessly about a plan, decision, or idea until you reach a shared understanding, while maintaining the project's domain model (glossary + ADRs). Use when brainstorming needs to sharpen a design, or when the user wants to stress-test their thinking.
 license: MIT
+disable-model-invocation: true
 metadata:
   author: devopstales
   version: "1.0"

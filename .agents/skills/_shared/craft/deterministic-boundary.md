@@ -85,7 +85,7 @@ human confirmation). Record your classification in the report.
 
 ## Where Scripts Live
 
-Per [sdd-structure.md](sdd-structure.md) and [skill-anatomy.md](skill-anatomy.md):
+Per [sdd-structure.md](../rules/sdd-structure.md) and [skill-anatomy.md](skill-anatomy.md):
 
 - Skill-specific scripts → `.agents/skills/<group>/<skill>/scripts/`
 - Project-level CI/drift guards → `scripts/` (repo root)
@@ -97,7 +97,7 @@ Per [sdd-structure.md](sdd-structure.md) and [skill-anatomy.md](skill-anatomy.md
 Other skills reference this convention by name, not by restating it:
 
 ```markdown
-Per `_shared/conventions/deterministic-boundary.md`: deterministic logic
+Per `_shared/craft/deterministic-boundary.md`: deterministic logic
 belongs in a script, not in skill prose.
 ```
 

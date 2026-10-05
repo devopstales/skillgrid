@@ -37,7 +37,7 @@ Before slicing, classify the change per `.skillgrid/config.yaml` `rules.fast_tra
 
 **Blocked from fast-track** (full pipeline mandatory): any threat-matrix row Applicable, new trust boundary or migration, multi-domain impact, 400+ line change. When in doubt, run the full pipeline.
 
-The waiver record (class, skips, reason, approved-by) must be present in `briefing.md` before `slicing` produces a light `tasks.md`. See `../../_shared/conventions/fast-track.md`.
+The waiver record (class, skips, reason, approved-by) must be present in `briefing.md` before `slicing` produces a light `tasks.md`. See `../../_shared/planning/fast-track.md`.
 
 **Downstream:** the `SATISFIES` scenario names in `tasks.md` are the traceability oracle for `skillgrid:qa` — every scenario must be referenceable from a test. Name them precisely.
 
@@ -150,7 +150,7 @@ Independent tickets within a wave run in parallel worktrees. A ticket in a later
    - When a ticket's scope or rationale rests on a constraint/decision it did
      not earn (a locked constraint or a prior ADR), CITE the source rather than
      restate it (`per ASSUMPTIONS.md § Locked constraints <x>` / `per .skillgrid/artifacts/04-adr-NNNN-slug.md`) per
-     `_shared/conventions/cite-dont-restate.md`.
+     `_shared/craft/cite-dont-restate.md`.
  4. Save to `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`
 
 ### Ticket Execution Contract (optional fields)
@@ -214,7 +214,7 @@ If any check fails, fix the slicing before committing.
 
 ## How to measure it
 
-Per `_shared/conventions/measurement.md`.
+Per `_shared/craft/measurement.md`.
 
 | | Indicator | Data source | Direction |
 |---|-----------|-------------|-----------|

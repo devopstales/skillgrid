@@ -171,7 +171,7 @@ that item.
 ### 5. Repeat if findings remain
 
 If validation reveals new issues or a fix was incomplete, re-triage the
-residuals and loop. Cap per `_shared/conventions/rigor-tiers.md` (fix loop cap) —
+residuals and loop. Cap per `_shared/planning/rigor-tiers.md` (fix loop cap) —
 beyond it, surface the remaining items to the human with the rulings you made
 and why.
 

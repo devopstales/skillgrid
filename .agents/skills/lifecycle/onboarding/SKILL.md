@@ -2,6 +2,7 @@
 name: onboarding
 description: Use when setting up Skillgrid for a new project. Detects stack, testing, and tracker; writes .skillgrid/config.yaml and an AGENTS.md block. Run once per project.
 license: MIT
+disable-model-invocation: true
 metadata:
   author: devopstales
   version: "1.1"

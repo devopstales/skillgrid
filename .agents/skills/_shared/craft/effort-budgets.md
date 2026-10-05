@@ -35,7 +35,7 @@ effort: max        # a heavy orchestrator: spawns subagents, reads many artifact
 
 ## 2. When NOT to use the pipeline
 
-The full pipeline is the phase order in [sdd-structure.md](sdd-structure.md). It is the *maximal* path. It is not the default for every
+The full pipeline is the phase order in [sdd-structure.md](../rules/sdd-structure.md). It is the *maximal* path. It is not the default for every
 change. Match effort to risk:
 
 | Situation | Path |

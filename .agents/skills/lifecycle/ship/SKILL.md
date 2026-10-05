@@ -88,7 +88,7 @@ The integration and the move are mechanical; the **decision** is the artifact. S
 
 **Gather the review signal first.** If the change is **non-trivial** and the review gate above recorded `review-waived` (no prior `parallel-code-review` verdict in `tasks.md`), run **skillgrid:parallel-code-review** on the diff now, before rendering the verdict — the ship decision should rest on a fresh fan-out, not an absence of one. Its output (`REVIEW-PASS` / `BACK-TO-APPLY` + Critical/Warn counts) feeds Verdict rules 2 and 3. Two cases skip the fan-out:
 
-- **Trivial change** (the trivial-skip rule per `_shared/conventions/rigor-tiers.md`, review escalation threshold) → no fan-out; the decision rests on the QA gate + a one-line rollback. This is the explicit **skip threshold**.
+- **Trivial change** (the trivial-skip rule per `_shared/planning/rigor-tiers.md`, review escalation threshold) → no fan-out; the decision rests on the QA gate + a one-line rollback. This is the explicit **skip threshold**.
 - **Prior verdict exists** (`REVIEW-PASS` or an accepted `BACK-TO-APPLY` already in `tasks.md`) → reuse it; don't re-review.
 
 Fan-out selection, per-file lenses, and the red-team pass all follow `parallel-code-review/SKILL.md` — ship does not re-implement them. Record the fan-out result in `tasks.md` so the verdict below cites a real signal.
@@ -107,7 +107,7 @@ Fan-out selection, per-file lenses, and the red-team pass all follow `parallel-c
 - **Branch kept** → the branch is the rollback (it never left the repo).
 - **Folder already moved to `archive/`** → the move is the *last* step, so a NO-GO discovered before the move leaves it untouched. A NO-GO discovered *after* the move is corrected in the next change's `reflect`, not by un-archiving.
 
-If the change is **trivial** (per the trivial-skip rule in `_shared/conventions/rigor-tiers.md`, review escalation threshold), the rollback plan may be one line: "revert the single commit." The full plan is required otherwise.
+If the change is **trivial** (per the trivial-skip rule in `_shared/planning/rigor-tiers.md`, review escalation threshold), the rollback plan may be one line: "revert the single commit." The full plan is required otherwise.
 
 ### Step 10: Return Envelope
 
@@ -181,7 +181,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 
 ## How to measure it
 
-Per `_shared/conventions/measurement.md`.
+Per `_shared/craft/measurement.md`.
 
 | | Indicator | Data source | Direction |
 |---|-----------|-------------|-----------|
@@ -222,6 +222,6 @@ Per `_shared/conventions/measurement.md`.
 - [`../../verification/qa/SKILL.md`](../../verification/qa/SKILL.md) — upstream; it wrote the QA half of `report.md`, whose `## Gate Decision` verdict drives the QA Gate (read pre-move).
 - [`../../planning/slicing/SKILL.md`](../../planning/slicing/SKILL.md) — upstream; the `## Delivery Strategy` guard lines + work-unit table resolve the base branch.
 - [`../reflect/SKILL.md`](../reflect/SKILL.md) — next; reads the moved folder from `.skillgrid/archive/`, completes `report.md`'s retro half in place, owns session close.
-- [`../../_shared/conventions/fast-track.md`](../../_shared/conventions/fast-track.md) — the light-variant waiver this phase honors.
-- [`../../_shared/conventions/sdd-structure.md`](../../_shared/conventions/sdd-structure.md) — the `specs/` → `archive/` layout, phase order, and Mnemonic slots.
-- [`../../_shared/conventions/mnemonic-memory.md`](../../_shared/conventions/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`).
+- [`../../_shared/planning/fast-track.md`](../../_shared/planning/fast-track.md) — the light-variant waiver this phase honors.
+- [`../../_shared/rules/sdd-structure.md`](../../_shared/rules/sdd-structure.md) — the `specs/` → `archive/` layout, phase order, and Mnemonic slots.
+- [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`).

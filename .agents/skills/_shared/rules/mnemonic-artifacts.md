@@ -1,4 +1,4 @@
-# based on skillgrid-v2:_shared/conventions/mnemonic-memory.md
+# based on skillgrid-v2:_shared/rules/mnemonic-memory.md
 
 # Mnemonic Artifact Convention
 
@@ -157,7 +157,7 @@ Read-only observation surfaces (not Skillgrid write authority):
 - **Memory Visualization** in the `skillgrid serve` dashboard webui — browse observations; mutate/delete via viz is rejected
 - **Code Graph** in the same dashboard — callers | source | callees explorers over Edges; graph viz mutate is rejected
 
-For code retrieval (Search Intent Router, Index Freshness, Orientation Ladder), see [code-indexing.md](code-indexing.md).
+For code retrieval (Search Intent Router, Index Freshness, Orientation Ladder), see [mnemonic-code-indexing.md](mnemonic-code-indexing.md).
 
 ## Why This Convention
 

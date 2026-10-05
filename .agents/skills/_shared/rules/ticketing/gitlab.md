@@ -17,7 +17,7 @@ Issues and specs for this repo live as GitLab issues. Use the `glab` CLI (https:
 
 Infer the repo from `git remote -v` (`gitlab.com/...` or self-hosted host).
 
-Triage role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) — GitLab creates labels on first use; keep in sync with [triage-labels.md](triage-labels.md).
+Triage role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) — GitLab creates labels on first use; keep in sync with [triage-labels.md](../../../planning/ticketing/references/triage-labels.md).
 
 ## When a skill says "publish to the issue tracker"
 

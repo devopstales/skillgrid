@@ -290,7 +290,7 @@ After all tasks are complete and before the final review, run `skillgrid:qa`. It
 
 - **PASS** → proceed to the final review below.
 - **CONCERNS** → fix the in-scope open items with tests, re-run QA (re-verification mode), then proceed.
-- **FAIL** → fix the CRITICAL findings with a failing test first, re-run QA. Cap per `_shared/conventions/rigor-tiers.md` (fix loop cap), then escalate to the human.
+- **FAIL** → fix the CRITICAL findings with a failing test first, re-run QA. Cap per `_shared/planning/rigor-tiers.md` (fix loop cap), then escalate to the human.
 - **WAIVED** → record the waiver, proceed to the final review.
 
 The QA gate answers "was the goal achieved and would verification catch a regression?" The final review answers "does the code follow standards and implement the spec?" They are complementary — QA is the quality gate, review is the standards/spec gate.
@@ -302,7 +302,7 @@ review: package the branch diff (`scripts/review-package PLAN_FILE MERGE_BASE HE
 dispatch the two-axis review (Standards + Spec) in parallel on the most capable
 model, present the two reports side by side, and escalate to
 `skillgrid:parallel-code-review` at the review escalation threshold (per
-`_shared/conventions/rigor-tiers.md`).
+`_shared/planning/rigor-tiers.md`).
 Findings get ONE fix subagent + one scoped re-review, then the breaker
 adjudicates — there is no second fix wave.
 

@@ -32,8 +32,8 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 
 - **Coding conventions** — reference `.agents/skills/_shared/rules/code-standards.md` for detailed coding conventions.
 - **Testing conventions** — reference `.agents/skills/_shared/references/strict-tdd.md` for the TDD cycle and testing conventions.
-- **Commits & verification** — reference `.agents/skills/_shared/rules/` for the commit contract, verification ladder, and rigor tiers.
-- **Memory, code index & web cache** — reference the `skillgrid:mnemonic` skill (shared rules: `.agents/skills/_shared/rules/mnemonic-memory.md`).
+- **Commits & verification** — reference `.agents/skills/_shared/rules/commits.md` for the commit contract, `.agents/skills/_shared/rules/verification-ladder.md` for the verification ladder, and `.agents/skills/_shared/planning/rigor-tiers.md` for rigor tiers.
+- **Memory, code index & web cache** — reference the `skillgrid:mnemonic` skill (shared rules: `.agents/skills/_shared/rules/mnemonic-memory.md`, `.agents/skills/_shared/rules/mnemonic-artifacts.md`, `.agents/skills/_shared/rules/mnemonic-code-indexing.md`).
 
 ### Rules
 
@@ -70,10 +70,10 @@ Run `skillgrid:onboarding` to update config after stack changes.
 
 | `ticketing.type` | `{tracker_line}` |
 |---|---|
-| `backlogmd` | Backlog.md — reference `.agents/skills/planning/ticketing/references/backlogmd.md` for conventions. |
-| `gh` | GitHub — reference `.agents/skills/planning/ticketing/references/github.md` for conventions. |
-| `glab` | GitLab — reference `.agents/skills/planning/ticketing/references/gitlab.md` for conventions. |
-| `jira` | Jira — reference `.agents/skills/planning/ticketing/references/jira.md` for conventions. |
+| `backlogmd` | Backlog.md — reference `.agents/skills/_shared/rules/ticketing/` (backlogmd, github, gitlab, jira CLI + formatting standards) for ticketing conventions. |
+| `gh` | GitHub — reference `.agents/skills/_shared/rules/ticketing/github.md` for conventions. |
+| `glab` | GitLab — reference `.agents/skills/_shared/rules/ticketing/gitlab.md` for conventions. |
+| `jira` | Jira — reference `.agents/skills/_shared/rules/ticketing/jira.md` for conventions. |
 | none (`ticketing.enabled: false`, missing config, or an unknown type) | None — work local-only from tasks.md. |
 
 `{memory_line}`:

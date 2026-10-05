@@ -23,7 +23,7 @@ Issues and specs for this repo live as Jira issues. Use the `jira` CLI ([jira-cl
 - **Close**: there is no `close` command — transition with `jira issue move <KEY> <Closed status> [--comment "..." -R <Resolution>]`. Check `jira issue move <KEY>` (no status) to list valid transition targets for the workflow.
 - **Link**: `jira issue link <KEY> --type <linktype> <OTHER-KEY>` (e.g. blocking via an issue link type; `remote` for web links).
 
-Triage role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) — keep in sync with [triage-labels.md](triage-labels.md); Jira issues are searchable by label directly in JQL.
+Triage role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) — keep in sync with [triage-labels.md](../../../planning/ticketing/references/triage-labels.md); Jira issues are searchable by label directly in JQL.
 
 ## When a skill says "publish to the issue tracker"
 

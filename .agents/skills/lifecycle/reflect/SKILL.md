@@ -2,6 +2,7 @@
 name: reflect
 description: "Use when a change has been shipped (folder moved to .skillgrid/archive/) and you need to close the cycle with a sourced retrospective and the final-state archive report. The terminal phase after ship."
 license: MIT
+disable-model-invocation: true
 metadata:
   author: devopstales
   version: "1.0"
@@ -15,8 +16,9 @@ metadata:
 You are the **TERMINAL** phase — the close of the SDD cycle. `ship` already integrated the work and moved the change folder to `.skillgrid/archive/YYYY-MM-DD-<topic>/`. You do exactly three things:
 
 1. **Complete `report.md`** — the merged report already exists (qa wrote the QA half in the spec folder, ship moved the folder); you complete its retro half IN PLACE in the archive: final-state facts, gate results, sourced learnings (Decisions / Lessons / Patterns / Surprises), acceptance verdict, move evidence, lineage.
-2. **Persist to Mnemonic** — the report + any high-value learning.
-3. **Close the session** — `mem_session_summary` + `mem_session_end`.
+2. **Environment retro** — invoke the Skill tool with `skillgrid:environment-retro` to close the loop on the *environment* (checks, navigation, steering no-ops, tool economy), appending its `## Environment Retro` section to `report.md`.
+3. **Persist to Mnemonic** — the report + any high-value learning.
+4. **Close the session** — `mem_session_summary` + `mem_session_end`.
 
 You are the **completion checkpoint**: you are the last chance to honestly say what worked, what did not, and whether the change is accepted. You are also the **lineage endpoint** — the report is the record a future reader consults to learn what shipped and when.
 
@@ -134,9 +136,13 @@ Complete the existing file IN PLACE in the moved folder (`.skillgrid/archive/YYY
 
 Set `pipeline.current_phase: reflect` (the terminal phase). `ship` already appended the topic to `progress.completed_changes` and cleared `current_change`; leave those as-is. If `current_change` was not cleared (e.g. ship degraded), clear it here so the pipeline reads idle after close.
 
+### Step 3.6: Environment Retro (sub-phase)
+
+Invoke the Skill tool with `skillgrid:environment-retro`. It sweeps the six environment categories (navigation, automated checks, coding standards, steering-file no-ops, tool economy, information access) and appends a `## Environment Retro` section to the same `report.md`, every row sourced and naming where each fix lands. It **proposes** — real builds (a new hook, linter rule, CI job, steering-file edit) come back as `mem_save` findings and offered follow-up tickets, not inline code edits. A clean session legitimately produces no findings; do not force one. Run it after the retro half is written and before session close, so the environment loop closes in the same session that ran.
+
 ### Step 4: Persist to Mnemonic + Close the Session (you own this)
 
-`reflect` is the **only** phase that closes the session. Follow [`../../_shared/conventions/mnemonic-memory.md`](../../_shared/conventions/mnemonic-memory.md).
+`reflect` is the **only** phase that closes the session. Follow [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md).
 
 ```
 mem_save(
@@ -154,7 +160,7 @@ mem_session_summary(session_id: "{sid}", summary: <structure below>)
 mem_session_end(session_id: "{sid}", summary: "one-line outcome")
 ```
 
-The `mem_session_summary` body uses the **six-section structure** (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) defined in [`../../_shared/conventions/mnemonic-memory.md`](../../_shared/conventions/mnemonic-memory.md) — all six must be filled.
+The `mem_session_summary` body uses the **six-section structure** (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) defined in [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md) — all six must be filled.
 
 > If `mnemonic.enabled` is `false`, the in-repo `report.md` is the sole record — skip the Mnemonic saves and session close (degrade explicitly, never fail silently).
 
@@ -228,7 +234,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 - **Intermediate snapshots lie about "pending."** `report.md` (QA half) "open gap" lines are point-in-time. If the ship context or the repo shows the fix landed later, report the final state and cite where — do not carry the stale "pending" into the report as if it were open.
 - **Do not re-verify the move.** `ship` already did the `diff -r` readback. You *reference* that evidence in the report; you do not re-run the move or re-diff.
 - **Session close is yours.** No earlier phase closes the session. If you skip it, the next session starts blind.
-- **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`, `scope: "project"`, active `session_id`. (See `conventions/mnemonic-memory.md`.)
+- **Mnemonic ≠ Engram.** No `project:` parameter, no `capture_prompt`. `title == topic_key`, `scope: "project"`, active `session_id`. (See `rules/mnemonic-memory.md`.)
 - **A `PASS WITH` style note is not a block, and a `FAIL` is not a verdict.** The QA Gate (hard) is separate from the Verdict Gate (advisory). Keep them apart.
 
 ## Common Rationalizations
@@ -263,6 +269,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 - [templates/report.md](templates/report.md) — thin pointer to the merged template at [../../verification/qa/templates/report.md](../../verification/qa/templates/report.md) (the `report.md` artifact shape: qa half + retro half — final-state + sourced learnings + verdict + lineage).
 - [`../ship/SKILL.md`](../ship/SKILL.md) — upstream; moved the folder to `.skillgrid/archive/` and produced the ship context (the Ship Gate evidence).
 - [`../../verification/qa/SKILL.md`](../../verification/qa/SKILL.md) — upstream; it wrote the QA half of `report.md` (through `## Gate Decision`), whose verdict drives the QA Gate and grounds the acceptance verdict.
-- [`../../_shared/conventions/sdd-structure.md`](../../_shared/conventions/sdd-structure.md) — the `archive/` layout, terminal phase order, and Mnemonic slots.
-- [`../../_shared/conventions/mnemonic-memory.md`](../../_shared/conventions/mnemonic-memory.md) — save shape, recovery ladder, session-close structure, and the observation-ID lineage the report must carry.
-- [`../../_shared/conventions/fast-track.md`](../../_shared/conventions/fast-track.md) — the light-variant waiver this phase honors.
+- [`../../_shared/rules/sdd-structure.md`](../../_shared/rules/sdd-structure.md) — the `archive/` layout, terminal phase order, and Mnemonic slots.
+- [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md) — save shape, recovery ladder, session-close structure, and the observation-ID lineage the report must carry.
+- [`../../_shared/planning/fast-track.md`](../../_shared/planning/fast-track.md) — the light-variant waiver this phase honors.
+- [`../environment-retro/SKILL.md`](../environment-retro/SKILL.md) — the Step 3.6 sub-phase; sweeps the agent environment and appends the `## Environment Retro` section to this same `report.md` before session close.

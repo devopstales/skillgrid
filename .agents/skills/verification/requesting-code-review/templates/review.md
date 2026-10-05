@@ -3,7 +3,7 @@
 > Change: `.skillgrid/specs/YYYY-MM-DD-<topic>/` (moves to `.skillgrid/archive/YYYY-MM-DD-<topic>/` at ship)
 > Generated: <ISO 8601 timestamp> (requesting-code-review)
 > Diff range: `{BASE_SHA}..{HEAD_SHA}`
-> Rigor tier: T<n> (per `_shared/rules/rigor-tiers.md`)
+> Rigor tier: T<n> (per `_shared/planning/rigor-tiers.md`)
 > Independence: <Grade A/B/C per axis — see `## Independence`>
 >
 > The durable audit record of the code review. **requesting-code-review** writes this into
@@ -16,7 +16,7 @@
 
 > The explicit threshold that separates a finding worth fixing now from one to park.
 > Do not restate the fix-loop cap or escalation numbers here — they live in
-> `_shared/rules/rigor-tiers.md`. Name only the bar for "Important."
+> `_shared/planning/rigor-tiers.md`. Name only the bar for "Important."
 
 - **Critical** — must fix before merge. Security, data loss, broken functionality, a
   `SATISFIES` scenario whose RED evidence is missing or whose code path does not match the
@@ -90,7 +90,7 @@
 
 > The no-leaks proof. Each axis records its independence grade so a reader can see whether
 > the "independently reviewed" evidence is real. Mirrors the evaluator protocol in
-> `_shared/rules/calibration.md`.
+> `_shared/verification/calibration.md`.
 
 | Axis | Grade | Rationale |
 |------|-------|-----------|
@@ -106,7 +106,7 @@ as the independent evidence that `ship` or a merge requires.
 ## Verdict
 
 > The overall review verdict is the **floor** across the three axes (per
-> `_shared/conventions/floor.md`): the weaker axis caps the whole review. Never average the
+> `_shared/verification/floor.md`): the weaker axis caps the whole review. Never average the
 > three axes into a single "overall."
 
 - **Standards:** met / met-with-fixes / not met

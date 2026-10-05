@@ -1,6 +1,6 @@
 # Fast-Track Convention (trivial / small changes)
 
-The full pipeline is the phase order in [sdd-structure.md](sdd-structure.md). It is the default.
+The full pipeline is the phase order in [sdd-structure.md](../rules/sdd-structure.md). It is the default.
 Fast-track is an explicit, recorded waiver — not a silent skip. Policy source: `.skillgrid/config.yaml`
 `rules.fast_track` (this file defines behavior; the config defines the numeric bounds — on conflict, the config wins).
 

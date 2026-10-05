@@ -135,14 +135,14 @@ After publishing, report:
 
 ## Tracker Adapters
 
-Read `.skillgrid/config.yaml` `ticketing.type`. Before publishing, read the matching **CLI** reference and the matching **formatting** reference. They carry the tracker-specific CLI syntax, conventions, label vocabulary, body templates, and the ticket lifecycle.
+Read `.skillgrid/config.yaml` `ticketing.type`. Before publishing, read the matching **CLI** standard and the matching **formatting** standard from `.agents/skills/_shared/rules/ticketing/`. They carry the tracker-specific CLI syntax, conventions, label vocabulary, body templates, and the ticket lifecycle.
 
-| `ticketing.type` | CLI reference | Formatting reference |
+| `ticketing.type` | CLI standard | Formatting standard |
 |---|---|---|
-| `backlogmd` | [references/backlogmd.md](references/backlogmd.md) | [references/backlogmd-formatting.md](references/backlogmd-formatting.md) |
-| `gh` | [references/github.md](references/github.md) | [references/github-formatting.md](references/github-formatting.md) |
-| `glab` | [references/gitlab.md](references/gitlab.md) | [references/gitlab-formatting.md](references/gitlab-formatting.md) |
-| `jira` | [references/jira.md](references/jira.md) | [references/jira-formatting.md](references/jira-formatting.md) |
+| `backlogmd` | [backlogmd.md](.agents/skills/_shared/rules/ticketing/backlogmd.md) | [backlogmd-formatting.md](.agents/skills/_shared/rules/ticketing/backlogmd-formatting.md) |
+| `gh` | [github.md](.agents/skills/_shared/rules/ticketing/github.md) | [github-formatting.md](.agents/skills/_shared/rules/ticketing/github-formatting.md) |
+| `glab` | [gitlab.md](.agents/skills/_shared/rules/ticketing/gitlab.md) | [gitlab-formatting.md](.agents/skills/_shared/rules/ticketing/gitlab-formatting.md) |
+| `jira` | [jira.md](.agents/skills/_shared/rules/ticketing/jira.md) | [jira-formatting.md](.agents/skills/_shared/rules/ticketing/jira-formatting.md) |
 
 Triage role vocabulary: [references/triage-labels.md](references/triage-labels.md).
 
@@ -171,9 +171,9 @@ Also require Description (Current/Expected), Acceptance Criteria, and `priority:
 
 **SDD tickets:** seed References to `briefing.md` / `tasks.md` / `acceptance.feature`; seed Plan from the blueprint steps; seed DoD from project defaults + change-level DoD. Thin one-line description stubs are **forbidden**. After create, write the ID into `tasks.md` **Tracker ID**. Later phases (execution / review) **must** run the [Ticket Lifecycle](#ticket-lifecycle) — creation without progress/close-out is incomplete.
 
-**CLI crash:** filesystem fallback under `.backlog/tasks/` is allowed only if it still satisfies this gate (see `references/backlogmd.md`).
+**CLI crash:** filesystem fallback under `.backlog/tasks/` is allowed only if it still satisfies this gate (see `.agents/skills/_shared/rules/ticketing/backlogmd.md`).
 
-Read `references/backlogmd.md` before every Backlog create.
+Read `.agents/skills/_shared/rules/ticketing/backlogmd.md` before every Backlog create.
 
 ## Pre-submission Privacy Review
 

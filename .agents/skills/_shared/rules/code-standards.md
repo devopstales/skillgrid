@@ -9,7 +9,7 @@ rule, a React hooks rule) live in ADRs or per-language notes — this file is th
 Companion contracts:
 - [commits.md](commits.md) — commit message contract.
 - [verification-ladder.md](verification-ladder.md) — L1–L4 evidence floors (the gate runs the tests this file defines).
-- [deterministic-boundary.md](deterministic-boundary.md) — the same "logic that repeats identically belongs in a script, not prose" idea, applied to code: repeatable logic becomes a function, not inline steps.
+- [deterministic-boundary.md](../craft/deterministic-boundary.md) — the same "logic that repeats identically belongs in a script, not prose" idea, applied to code: repeatable logic becomes a function, not inline steps.
 - `skillgrid:ponytail` — for choosing the simplest implementation *within* these standards.
 
 ## Design principles

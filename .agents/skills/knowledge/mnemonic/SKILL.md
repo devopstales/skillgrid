@@ -53,7 +53,7 @@ If `mnemonic.enabled: false`, stop — memory, code index, and web cache are all
 
 **Fallback**: if tools are unexpectedly unavailable, run `skillgrid setup` again and restart the agent. Setup repairs the durable MCP config and permissions allowlist.
 
-**Degradation contract** (per `../../_shared/conventions/hybrid-degradation.md`): if Mnemonic is unavailable mid-session (MCP disconnected, binary missing), do NOT fail silently. Continue with filesystem-only persistence and emit a degradation line in your return envelope: `Degraded: mnemonic — {reason}`. Do not retry more than once per session. The filesystem copy in `.skillgrid/specs/` is the recovery source of truth.
+**Degradation contract** (per `../../_shared/knowledge/hybrid-degradation.md`): if Mnemonic is unavailable mid-session (MCP disconnected, binary missing), do NOT fail silently. Continue with filesystem-only persistence and emit a degradation line in your return envelope: `Degraded: mnemonic — {reason}`. Do not retry more than once per session. The filesystem copy in `.skillgrid/specs/` is the recovery source of truth.
 
 ## Usage
 
@@ -165,7 +165,7 @@ skillgrid code index-status
 - **Router**: omit `--corpus` for the daily path (identifier→symbols, `func $NAME`→grep, decision/remember→mem, else code). `--corpus` is the advanced escape hatch, not six equal peers.
 - **Provenance**: mem and code are never silently fused — mem results carry `observations`, code-family results never mix mem observations unlabeled.
 - **Semantic** sets `degraded=true` explicitly when the Local Code Embedder is unavailable (never silent).
-- **Details (folded from code-index):** extractors (Python tree-sitter needs `-tags treesitter`, CGo stays in Extractor Adapters), Matcher dialect v2 (`struct`/`method`/`const`/`enum` + v1; invalid pattern → abort), `code_impact` is additive blast-radius (never replaces `code_get_*`), stable tools (`code_status`, `code_index`, `code_search`, `code_read`, `code_get_*`; lexical baseline `chunks`/`chunks_fts`), export/serve (`skillgrid export --project ID --out DIR` under allowed root; `skillgrid serve` dashboard viz read-only, graph mutate → 405). Full ladder/router/conventions: [references/code-indexing.md](references/code-indexing.md).
+- **Details (folded from code-index):** extractors (Python tree-sitter needs `-tags treesitter`, CGo stays in Extractor Adapters), Matcher dialect v2 (`struct`/`method`/`const`/`enum` + v1; invalid pattern → abort), `code_impact` is additive blast-radius (never replaces `code_get_*`), stable tools (`code_status`, `code_index`, `code_search`, `code_read`, `code_get_*`; lexical baseline `chunks`/`chunks_fts`), export/serve (`skillgrid export --project ID --out DIR` under allowed root; `skillgrid serve` dashboard viz read-only, graph mutate → 405). Full ladder/router/conventions: [mnemonic-code-indexing.md](../../_shared/rules/mnemonic-code-indexing.md).
 
 ### Step 6 — Web research cache (before/after every remote lookup)
 
@@ -183,7 +183,7 @@ web_cache_lookup(source: context7|exa|deepwiki|fetch|manual, ...)  # BEFORE the 
 2. mem_session_end(session_id: sid, summary: "one-line outcome")
 ```
 
-The `mem_session_summary` body uses the **six-section structure** (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) defined in [`../../_shared/conventions/mnemonic-memory.md`](../../_shared/conventions/mnemonic-memory.md) — all six must be filled.
+The `mem_session_summary` body uses the **six-section structure** (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) defined in [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md) — all six must be filled.
 
 This is NOT optional — if you skip it, the next session starts blind.
 
@@ -205,7 +205,7 @@ After compaction / "FIRST ACTION REQUIRED": FIRST call `mem_session_summary` wit
 | `skillgrid trail <recent\|show>` | inspect retrieval trails |
 | `skillgrid export --project ID --out DIR` | Obsidian Markdown + viz JSON (allowed-root enforced) |
 
-Full protocol refs: [references/memory.md](references/memory.md) (Skillgrid artifact naming, two-step recovery, upserts), [references/code-indexing.md](references/code-indexing.md) (code index + search router — former `mnemonic-code-index` skill, now folded here).
+Full protocol refs: [_shared/rules/mnemonic-artifacts.md](../../_shared/rules/mnemonic-artifacts.md) (Skillgrid artifact naming, two-step recovery, upserts), [mnemonic-code-indexing.md](../../_shared/rules/mnemonic-code-indexing.md) (code index + search router — former `mnemonic-code-index` skill, now folded here).
 
 ## Common Rationalizations
 

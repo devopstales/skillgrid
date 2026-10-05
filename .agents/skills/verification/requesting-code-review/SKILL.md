@@ -17,12 +17,12 @@ Dispatch a code reviewer subagent to catch issues before they cascade. The revie
 
 **Core principle:** Review early, review often.
 
-**Rigor tier:** at T2 (Beta) this three-axis pass is the default review (per `_shared/conventions/rigor-tiers.md`). At T3 (GA) use `skillgrid:parallel-code-review` instead, with at least one reviewer running on a model different from the one that implemented.
+**Rigor tier:** at T2 (Beta) this three-axis pass is the default review (per `_shared/planning/rigor-tiers.md`). At T3 (GA) use `skillgrid:parallel-code-review` instead, with at least one reviewer running on a model different from the one that implemented.
 
 **Blindness contract:** the value of a review is its independence from the producer. All three reviewers are dispatched as **fresh subagent contexts** that see only the work product — the diff and the named standards/spec/security sources — and never the coordinator's session history, its rationale, or its self-assessment. That is what makes the findings independent evidence rather than the implementer talking to itself. Two rules keep it real:
 
 - **No leaks.** Do not pass a reviewer your narrative, your "why I did it this way", your confidence, or a prior score/verdict on the same diff. Hand it the diff range plus the standards or spec sources (the contract the template already names) and nothing else.
-- **Independence grade.** Label each review with an independence grade (mirrors the evaluator protocol; see `_shared/rules/calibration.md`):
+- **Independence grade.** Label each review with an independence grade (mirrors the evaluator protocol; see `_shared/verification/calibration.md`):
   - **A** — fresh context, no shared history with the implementer (the normal case for a dispatched subagent).
   - **B** — fresh context but same model family / toolchain as the implementer.
   - **C** — the review happens in the implementer's own context (an inline self-review) or the implementer's prior verdict leaked in.
@@ -40,7 +40,7 @@ Dispatch code reviewer subagents to catch issues before they cascade — a secon
 - When you want independent eyes on a non-trivial diff — fresh context, no assumption that your reasoning holds
 - When you're stuck on your own change and need a fresh perspective
 
-**When NOT to use:** For a diff that meets the review escalation threshold (per `_shared/conventions/rigor-tiers.md`) — use `skillgrid:parallel-code-review` instead. For the moment the *mandatory/optional* triggers below are met, see [When to Request Review](#when-to-request-review). For a quick "does this look right" sanity pass on a trivial change, this three-axis dispatch is overkill.
+**When NOT to use:** For a diff that meets the review escalation threshold (per `_shared/planning/rigor-tiers.md`) — use `skillgrid:parallel-code-review` instead. For the moment the *mandatory/optional* triggers below are met, see [When to Request Review](#when-to-request-review). For a quick "does this look right" sanity pass on a trivial change, this three-axis dispatch is overkill.
 
 ## When to Request Review
 
@@ -56,7 +56,7 @@ Dispatch code reviewer subagents to catch issues before they cascade — a secon
 - After fixing complex bug
 
 **Escalate to fan-out:** for a diff at the review escalation threshold (per
-`_shared/conventions/rigor-tiers.md`), use
+`_shared/planning/rigor-tiers.md`), use
 `skillgrid:parallel-code-review` instead — it dispatches several specialist
 reviewers in parallel. This single-pass two-axis review is the lightweight
 default.
@@ -78,7 +78,7 @@ each other's context):
 
 Does the code follow this repo's documented standards? The two-axis contract
 and the smell baseline are canonically defined in
-`_shared/conventions/code-standards.md` ("Reviewing"); this template inlines
+`_shared/rules/code-standards.md` ("Reviewing"); this template inlines
 them for the reviewer. Pass:
 - the diff range (`{BASE_SHA}..{HEAD_SHA}`)
 - the standards sources: the terms files (`.skillgrid/artifacts/01-business-terms.md` /
@@ -143,7 +143,7 @@ that never got written down is even harder to audit later.
 Apply `skillgrid:receiving-code-review` triage rules to the combined findings
 from all three axes — sort (fix now / defer / human look / noise), fix the
 in-scope set one at a time with tests, log the rest, validate, and loop until
-clean or capped per `_shared/conventions/rigor-tiers.md` (fix loop cap).
+clean or capped per `_shared/planning/rigor-tiers.md` (fix loop cap).
 
 **5. Update ticket status (if tracked):**
 - If `ticketing.enabled: true` AND the reviewed work corresponds to a ticket in `tasks.md` with a tracker ID: set ticket status → `done`
@@ -191,7 +191,7 @@ You: [triage all three axes]
 
 ## How to measure it
 
-Per `_shared/conventions/measurement.md`.
+Per `_shared/craft/measurement.md`.
 
 | | Indicator | Data source | Direction |
 |---|-----------|-------------|-----------|

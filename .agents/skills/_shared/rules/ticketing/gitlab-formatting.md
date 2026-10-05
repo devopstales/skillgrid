@@ -135,7 +135,7 @@ Apply both a **type** and a **component** label (when the repository has them):
 
 - Type: `bug` / `feature` / `enhancement`
 - Component: `api` / `ui` / `sdk` / any project-specific component
-- Triage: `needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix` (see [triage-labels.md](triage-labels.md))
+- Triage: `needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix` (see [triage-labels.md](../../../planning/ticketing/references/triage-labels.md))
 
 GitLab creates labels on first use. Discover existing labels with `glab api "projects/:id/labels"` before applying.
 

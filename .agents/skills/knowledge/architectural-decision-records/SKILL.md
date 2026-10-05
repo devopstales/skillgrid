@@ -98,7 +98,7 @@ Prefer existing project terms (README, domain docs, code names) over new jargon.
 
 ### Offer ADRs sparingly
 
-This is the ADR-sparingly test the global code standard (`_shared/conventions/code-standards.md`)
+This is the ADR-sparingly test the global code standard (`_shared/rules/code-standards.md`)
 references: the ADR is the home for the *per-language idioms* and *hard-to-reverse
 decisions* that the global layer deliberately defers. Only offer to create an ADR
 when all three are true:

@@ -2,6 +2,7 @@
 name: using-skillgrid
 description: Use when starting any skillgrid task to classify the request and pick exactly one first skill from the router table. Use when unsure which skill applies.
 license: MIT
+disable-model-invocation: true
 metadata:
   author: devopstales
   version: "1.1"
@@ -44,7 +45,7 @@ Then announce "Using [skill] to [purpose]" and follow that skill. If it has a ch
 
 Pick one class before any skill body loads.
 
-- **Delivery** — a behavior change in this repo. Exactly one Router row. Bounded work (an existing flow, design already obvious) uses `brainstorming`'s Bounded path: a short design in chat, approval, no spec folder. A new function or a new project uses the full planning chain. Fast-track `trivial` / `small` skips brainstorming and blueprints only when `_shared/rules/fast-track.md` says so, and the waiver is recorded in `briefing.md`.
+- **Delivery** — a behavior change in this repo. Exactly one Router row. Bounded work (an existing flow, design already obvious) uses `brainstorming`'s Bounded path: a short design in chat, approval, no spec folder. A new function or a new project uses the full planning chain. Fast-track `trivial` / `small` skips brainstorming and blueprints only when `_shared/planning/fast-track.md` says so, and the waiver is recorded in `briefing.md`.
 - **Specialist** — the user asked for design, brand, craft, or a scan. Run that named skill. It does not open a spec folder. During a delivery change, these skills wait until the user or the active pipeline skill names them: everything under `design/` except `prototype` and `sketch`, all of `craft/`, and the scanners `owasp-security`, `nuclei`, `wapiti`, `akca`, `securing-agentic-ai-tool-invocation`. `qa` and `requesting-code-review` may still call a scanner. Do not set `disable-model-invocation` on design skills; a design request should still find them.
 - **Q&A** — a lookup. First skill is `mnemonic` or `research`. No pipeline.
 

@@ -39,6 +39,7 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → sli
 | `receiving-code-review` | Process findings |
 | `ship` | Integrate to base + move change folder to `archive/` |
 | `reflect` | **Terminal** — completes `report.md`'s retro half in place in the archive + session close |
+| `environment-retro` | Sub-phase of `reflect` — sweeps the agent *environment* (checks, navigation, steering no-ops, tool economy) and appends `## Environment Retro` to `report.md`; proposes fixes, never edits code |
 | `resume` | Re-orient from durable state at session start / context rot |
 
 ## Naming

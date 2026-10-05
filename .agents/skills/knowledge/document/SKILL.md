@@ -69,6 +69,7 @@ Read the matching template from this skill's `templates/` directory and fill it 
 - **Audience pitch.** `pr` is for the person who must approve the diff — lead with what changed and why, then the evidence. `changelog` is for developers integrating the next version — bullet the user-visible changes, group by Added/Changed/Fixed/Breaking. `release-note` is for end users — plain language, no internal names, lead with what they can now do. `postmortem` is for the team that must not repeat this — lead with the impact, then the timeline, then the root cause, then the actions.
 - **No marketing.** No "excited to announce", no "seamless", no "robust". State what is true.
 - **The gate is named, not implied.** For `pr` and `release-note`, the `report.md` → `## Gate Decision` verdict (PASS / WAIVED / CONCERNS + override) is part of the record.
+- **Merge danger is explicit, for `pr`.** The PR body carries a `## Merge Danger` section: one-way vs two-way door (can it be walked back?) plus a one-word blast radius. A PR that is cheap to roll back is lower risk; name a one-way door and its reversal cost. The template's `## What` also leads with the *smallest visual* that makes the change clear (pseudocode, call tree, file tree, Mermaid, or a diff sketch).
 
 ### Step 4: Deliver
 

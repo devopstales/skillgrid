@@ -31,7 +31,7 @@ Subagent (general-purpose):
     ## Standards Sources
 
     - **Global code standards:** the "Reviewing" section of
-      `.agents/skills/_shared/conventions/code-standards.md` — the two-axis
+      `.agents/skills/_shared/rules/code-standards.md` — the two-axis
       contract and the smell baseline's canonical definition. The baseline
       below is that same set, inlined so the reviewer needs no second hop; the
       global file is the source of truth if they ever diverge.

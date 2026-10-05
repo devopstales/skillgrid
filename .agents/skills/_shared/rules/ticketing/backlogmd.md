@@ -41,7 +41,7 @@ List windows (`--max-count`, `--skip`), `--json`, and `backlog task list --json 
 
 - One file per ticket: `.backlog/tasks/<ID>.md`, ID assigned by the backlog CLI.
 - Triage state is a `Status:` line near the top of each file; labels live in `backlog.config.yml` / `.backlog/config.yml`.
-- Triage roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix` — keep in sync with [triage-labels.md](triage-labels.md).
+- Triage roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix` — keep in sync with [triage-labels.md](../../../planning/ticketing/references/triage-labels.md).
 - Comments and conversation append to the bottom under a `## Comments` heading.
 - Completed work moves to `.backlog/completed/`, archive material to `.backlog/archive/`.
 - ADR copies live under `.backlog/decisions/decision-NNN - ADR-NNNN-slug.md`. The Skillgrid artifact is the record (ADR-0019); write the copy in the same edit as the artifact. See `skillgrid:architectural-decision-records` → Backlog.md copy.

@@ -35,16 +35,16 @@ Own the quality gate. Produce a test plan with layer selection, verify the goal 
 - `security.trivy.severities` — minimum Trivy severity to report (default "CRITICAL")
 - `security.trivy.scan_types` — Trivy scanners (default "vuln,secret,misconfig")
 - `security.trivy.fail_on` — minimum Trivy severity that FAILs the gate ("" = report only)
-- `rules.tiers.default` — project rigor tier (T0–T3; see `../../_shared/conventions/rigor-tiers.md`)
+- `rules.tiers.default` — project rigor tier (T0–T3; see `../../_shared/planning/rigor-tiers.md`)
 - If `quality:` is absent from config: use the defaults above and note in the report "quality: not configured — using defaults. Run `skillgrid:onboarding` to set thresholds."
 
-**Rigor tier (selects the floor):** the effective tier is `briefing.md`'s `Tier:` line → the blueprint header's `Tier:` line → `rules.tiers.default` → inferred from the Change Classification. The tier selects which audits run and the verification floor per `../../_shared/conventions/rigor-tiers.md` (T0: self-check evidence only, no gates; T1: L1 + runtime verification; T2: L2+L3; T3: L4 with mutation + security mandatory). **The change-classification floor (verification-ladder.md) still applies as the minimum** — the tier never lowers the floor the change shape demands; when it exceeds the tier's floor, the classification wins and the report notes which gates the tier would have skipped. Record the effective tier and the applied floor in the report header.
+**Rigor tier (selects the floor):** the effective tier is `briefing.md`'s `Tier:` line → the blueprint header's `Tier:` line → `rules.tiers.default` → inferred from the Change Classification. The tier selects which audits run and the verification floor per `../../_shared/planning/rigor-tiers.md` (T0: self-check evidence only, no gates; T1: L1 + runtime verification; T2: L2+L3; T3: L4 with mutation + security mandatory). **The change-classification floor (verification-ladder.md) still applies as the minimum** — the tier never lowers the floor the change shape demands; when it exceeds the tier's floor, the classification wins and the report notes which gates the tier would have skipped. Record the effective tier and the applied floor in the report header.
 
 **The floor is non-negotiable.** A floor is the *minimum* of evidence a gate requires to render **PASS** — it is a lower bound, not a target, and it is the one part of the gate that no tier, no human override, and no waiver may reduce. Two rules make that concrete:
 - **Tiers select upward, never downward.** A higher tier adds audits and evidence (T3 adds mutation + security on top of T2); it never drops a check a lower tier already runs. The tier may *raise* the bar above the classification floor, but it can never sink it below.
 - **Waivers and overrides act on findings, never on the floor.** A human may WAIVE a specific *finding* or criterion (a CVE, a failing P1, a named gap) — the waiver is recorded with the accepted risk. A human may not waive the *floor itself*: the existence of the goal-backward truth check, the traceability matrix, and the named-test evidence requirement. Lowering the floor is a config change (`quality:` / `rules.tiers`), made explicitly and recorded — it is never done inline at the gate.
 
-**The floor is the weakest dimension, never the average.** Per `_shared/conventions/floor.md`, the gate is only as strong as its weakest part: the verdict can never be *higher* than the verdict the weakest audit earns. A green overall that rests on an average while one gate is FAIL, one scope is `UNREADABLE`, or one ticket is `MISSING_RED` is a FAIL floor, not a PASS. This is the QA counterpart to the evaluator floor: the gate always rests on a named, non-zero minimum of evidence, and "close enough" is not a verdict.
+**The floor is the weakest dimension, never the average.** Per `_shared/verification/floor.md`, the gate is only as strong as its weakest part: the verdict can never be *higher* than the verdict the weakest audit earns. A green overall that rests on an average while one gate is FAIL, one scope is `UNREADABLE`, or one ticket is `MISSING_RED` is a FAIL floor, not a PASS. This is the QA counterpart to the evaluator floor: the gate always rests on a named, non-zero minimum of evidence, and "close enough" is not a verdict.
 
 ## When to Use
 
@@ -119,8 +119,8 @@ Complete the QA half of `.skillgrid/specs/<topic>/report.md` (the Test Plan sect
 4. Passing tests do not substitute for running the system. The goal-backward check is the evidence, not the suite count.
 5. A code-quality gate at threshold 0 is N/A — it cannot FAIL. Do not render FAIL for a disabled gate.
 6. An `ABANDON`-ed gate is a handoff, never a pass: it keeps the gate unmet, so the gate is not **PASS** (it routes to **FAIL** or **WAIVED** on the human's explicit decision), and it is surfaced with the met / unmet / abandoned counts.
-7. **Fail-closed on scope.** Only a `COMPLETE`-scope verification satisfies the gate (per `_shared/conventions/verification-scope.md`). A `TRUNCATED`/`UNSCOPED`/`UNREADABLE` scope is a non-answer: it routes to **CONCERNS** (named re-run path) or **FAIL** (an `UNREADABLE` input the check could not work around), never a silent **PASS**. A `STALE` verification is advisory by itself but, combined with a non-`COMPLETE` scope, is what pulls the gate off PASS — the gate rests on the current run's evidence, not the prior verdict.
-8. **The floor caps the verdict.** The gate is the weakest dimension, never an average (per `_shared/conventions/floor.md`). It can never render higher than its `## Floor` line: one FAIL-valued dimension makes it **FAIL**, any non-answer dimension caps it at **CONCERNS**. Never let a strong overall compensate for a weak part — the mean is context, not the verdict.
+7. **Fail-closed on scope.** Only a `COMPLETE`-scope verification satisfies the gate (per `_shared/rules/verification-scope.md`). A `TRUNCATED`/`UNSCOPED`/`UNREADABLE` scope is a non-answer: it routes to **CONCERNS** (named re-run path) or **FAIL** (an `UNREADABLE` input the check could not work around), never a silent **PASS**. A `STALE` verification is advisory by itself but, combined with a non-`COMPLETE` scope, is what pulls the gate off PASS — the gate rests on the current run's evidence, not the prior verdict.
+8. **The floor caps the verdict.** The gate is the weakest dimension, never an average (per `_shared/verification/floor.md`). It can never render higher than its `## Floor` line: one FAIL-valued dimension makes it **FAIL**, any non-answer dimension caps it at **CONCERNS**. Never let a strong overall compensate for a weak part — the mean is context, not the verdict.
 
 **Broken windows (auto-append):** after rendering the gate, for each open
 WARNING or SUGGESTION finding in the report that was NOT fixed before the
@@ -146,16 +146,16 @@ Then route. The tail after this gate is in `_shared/rules/sdd-structure.md`. Thi
 
 | Gate | Next Action |
 |------|-------------|
-| PASS | Proceed to `skillgrid:requesting-code-review` (or `skillgrid:parallel-code-review` at the review escalation threshold, per `_shared/conventions/rigor-tiers.md`). Update ticket status → `review`. |
+| PASS | Proceed to `skillgrid:requesting-code-review` (or `skillgrid:parallel-code-review` at the review escalation threshold, per `_shared/planning/rigor-tiers.md`). Update ticket status → `review`. |
 | CONCERNS | List open items. For each: fix now / defer (to ticket) / human look. Fix the in-scope set with tests, re-run Steps 3-9 for the fixed items (re-verification mode: full check on failed, regression-only on passed). Re-render the gate. |
-| FAIL | List CRITICAL findings and failed gates. Fix each with a failing test first (TDD). Re-run Steps 3-9. Re-render the gate. Cap per `_shared/conventions/rigor-tiers.md` (fix loop cap) — then escalate to human. |
+| FAIL | List CRITICAL findings and failed gates. Fix each with a failing test first (TDD). Re-run Steps 3-9. Re-render the gate. Cap per `_shared/planning/rigor-tiers.md` (fix loop cap) — then escalate to human. |
 | WAIVED | Record the waiver. Proceed to review. |
 
-**Fix loop cap:** per `_shared/conventions/rigor-tiers.md` (fix loop cap). If the gate is still FAIL after the cap of fixes, stop and escalate. The finding is likely not a test gap — it's an architectural or scope problem that needs a human decision.
+**Fix loop cap:** per `_shared/planning/rigor-tiers.md` (fix loop cap). If the gate is still FAIL after the cap of fixes, stop and escalate. The finding is likely not a test gap — it's an architectural or scope problem that needs a human decision.
 
 ## How to measure it
 
-Per `_shared/conventions/measurement.md`.
+Per `_shared/craft/measurement.md`.
 
 | | Indicator | Data source | Direction |
 |---|-----------|-------------|-----------|
@@ -187,7 +187,7 @@ Per `_shared/conventions/measurement.md`.
 - Marking a truth VERIFIED based on a grep, not a test
 - A traceability matrix with "covered by existing tests" as a status
 - A `MISSING_RED` that is logged but not treated as CRITICAL
-- A fix loop that exceeds the cap (per `_shared/conventions/rigor-tiers.md`) without escalating
+- A fix loop that exceeds the cap (per `_shared/planning/rigor-tiers.md`) without escalating
 - Editing a test expectation to make the matrix green
 - Rendering WAIVED without a named human and a recorded risk
 - Skipping the verification-gap audit because "the tests look fine"

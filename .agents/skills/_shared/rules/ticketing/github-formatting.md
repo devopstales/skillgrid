@@ -126,7 +126,7 @@ Apply both a **type** and a **component** label (when the repository has them):
 
 - Type: `bug` / `feature` / `enhancement` / `good first issue`
 - Component: `api` / `ui` / `sdk` / any project-specific component
-- Triage: `needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix` (see [triage-labels.md](triage-labels.md))
+- Triage: `needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix` (see [triage-labels.md](../../../planning/ticketing/references/triage-labels.md))
 
 Only use labels returned by `gh api "repos/$REPO/labels"` — never invent.
 

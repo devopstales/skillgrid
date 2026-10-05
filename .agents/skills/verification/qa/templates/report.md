@@ -197,7 +197,7 @@
 
 ## Verification Scope
 
-> Per `_shared/conventions/verification-scope.md`: a zero count is never a bare
+> Per `_shared/rules/verification-scope.md`: a zero count is never a bare
 > zero. Name the scope of every count/enumeration this QA half produced.
 > Non-`COMPLETE` scope routes the gate off PASS (Step 9.7 fail-closed rule).
 
@@ -212,7 +212,7 @@
 
 ## Floor
 
-> Per `_shared/conventions/floor.md`: the verdict is the floor across every
+> Per `_shared/verification/floor.md`: the verdict is the floor across every
 > audit and gate — the weakest part sets the ceiling, never the average.
 > A strong overall cannot hide one weak dimension.
 
@@ -310,6 +310,14 @@ MISSING_RED / UNREADABLE, the floor caps the gate accordingly.>
 | Surprise | Signal | Source |
 |----------|--------|--------|
 | <non-obvious gotcha / edge case / behavior> | <what the evidence shows> | <file:line / commit / scenario> |
+
+## Environment Retro
+
+**Written by `skillgrid:environment-retro` (a reflect sub-phase), not qa.** Improvements to the *agent environment*, never the code. A finding appears only where its "Use when" fired; a clean session leaves this empty.
+
+| Category | Finding | Fix lands in | Source |
+|----------|---------|--------------|--------|
+| <navigation \| automated checks \| coding standards \| steering no-ops \| tool economy \| information access> | <what to change + why> | <linter rule / pre-commit / CI job / ARCHITECTURE.md pointer / steering file / tooling> | <file:line / commit / tool call / session symptom> |
 
 ## Acceptance Verdict
 

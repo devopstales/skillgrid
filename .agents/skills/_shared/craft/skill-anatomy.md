@@ -6,17 +6,17 @@ the contract that keeps the skill catalog from drifting — when you add or edit
 you shape it here first, not ad hoc.
 
 Companion contracts (this file assumes they exist and are honored):
-- [sdd-structure.md](sdd-structure.md) — directory layout, artifact paths, phase order.
-- [commits.md](commits.md) — commit message contract.
-- [mnemonic-memory.md](mnemonic-memory.md) — save shape, session protocol.
-- [verification-ladder.md](verification-ladder.md) — L1–L4 evidence floors.
-- [verification-scope.md](verification-scope.md) — the scope of a verification (COMPLETE/TRUNCATED/UNSCOPED/UNREADABLE).
-- [fast-track.md](fast-track.md) — trivial/small waiver policy.
+- [sdd-structure.md](../rules/sdd-structure.md) — directory layout, artifact paths, phase order.
+- [commits.md](../rules/commits.md) — commit message contract.
+- [mnemonic-memory.md](../rules/mnemonic-memory.md) — save shape, session protocol.
+- [verification-ladder.md](../rules/verification-ladder.md) — L1–L4 evidence floors.
+- [verification-scope.md](../rules/verification-scope.md) — the scope of a verification (COMPLETE/TRUNCATED/UNSCOPED/UNREADABLE).
+- [fast-track.md](../planning/fast-track.md) — trivial/small waiver policy.
 - [cite-dont-restate.md](cite-dont-restate.md) — cite a decision/constraint by ID, don't restate it.
 - [effort-budgets.md](effort-budgets.md) — the `effort:` signal + when NOT to use the pipeline.
 - [../references/threat-matrix.md](../references/threat-matrix.md) — applicability-driven threats.
 - [../references/strict-tdd.md](../references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR.
-- [code-standards.md](code-standards.md) — global, language-agnostic code standards for any skill that writes or reviews code.
+- [code-standards.md](../rules/code-standards.md) — global, language-agnostic code standards for any skill that writes or reviews code.
 
 ## File location
 
@@ -43,18 +43,56 @@ Companion contracts (this file assumes they exist and are honored):
  description: {What the skill does, in third person. Use when {trigger conditions}.}
  license: MIT
  effort: {low | standard | max}       # optional — advisory context-spend signal (effort-budgets.md)
- metadata:
-   author: devopstales
-   version: "1.0"
-   part-of: skillgrid
-   based_on: {origin, if ported}      # or `source:` when a lighter derivation
- ---
- ```
+  disable-model-invocation: {true}     # optional — omit (false) for model-invoked
+  metadata:
+    author: devopstales
+    version: "1.0"
+    part-of: skillgrid
+    based_on: {origin, if ported}      # or `source:` when a lighter derivation
+  ---
+  ```
+
+### Invocation class
+
+One axis splits skills by who can reach them:
+
+- **model-invoked** (the default): reachable by the model or the human. Omit
+  `disable-model-invocation`. Its `description` is **model-facing** and keeps the
+  rich "Use when …" trigger phrasing so auto-invocation fires. The test for
+  keeping a skill here: *could the model usefully reach for it autonomously?*
+- **user-invoked**: reachable **only by the human typing its name**. Set
+  `disable-model-invocation: true`. Its `description` is **human-facing** — a
+  one-line summary a person reads in a slash-command list; strip the "Use when …"
+  trigger lists, which exist to fire a model, not to inform a human.
+
+The set of user-invoked entry points is the pipeline's human gates:
+`using-skillgrid` (router), `onboarding`, `brainstorming`, `interviewing`,
+`reflect`, and the meta `_shared` bucket. Adding a skill to this set is a
+deliberate act — it removes the skill from the model's reach.
+
+> Audit note: `craft/skill-write` and `craft/skill-creator` describe themselves
+> as user-invoked in their own prose but carry no `disable-model-invocation`
+> flag in frontmatter. Decide each explicitly: if it should auto-fire ("create a
+> skill" is a model-reachable intent) keep it model-invoked and fix the prose;
+> if it is a human-run authoring gate, add the flag. The prose and the flag must
+> agree.
+
+**The invariant:** a skill can **never invoke a user-invoked skill**. Only the
+human can. A user-invoked skill may invoke model-invoked skills, but two
+user-invoked skills can never reach each other. This is the rule that catches
+the most common wiring bug: a step that says "run the `skillgrid:onboarding`
+skill" from inside an autonomous flow will silently fail, because no skill may
+call a user-invoked skill. When a step's precondition is user-invoked, phrase it
+as an instruction for the human — "tell the user to run `skillgrid:onboarding`"
+— never as a Skill-tool call (see *Cross-skill references*).
 
 Rules:
-- **`description` is a routing contract.** It is the *only* thing an agent sees
-  before deciding to load the skill, so it must carry both **what** and **when**.
-  Shape: `Guides agents through {task}. Use when {trigger}.`
+ - **`description` is a routing contract.** It is the *only* thing an agent sees
+   before deciding to load the skill. For **model-invoked** skills it carries both
+   **what** and **when** — shape `Guides agents through {task}. Use when {trigger}.`
+   — because that "when" is what fires auto-invocation. For **user-invoked**
+   skills it is a one-line human summary (see *Invocation class*); the "when"
+   trigger lists are stripped because the human, not the model, chooses it.
 - **No process in the description.** If the description contains workflow steps,
   the agent may follow the summary and never read the body. Describe the outcome
   and the trigger, not the procedure.
@@ -159,7 +197,7 @@ it must be provable with test output, a build result, an exit code, a diff, or a
 screenshot. "Seems right" is not a checkbox. A skill with no evidence-gated
 checklist is a suggestion, not a process.
 
-> Relationship to [verification-ladder.md](verification-ladder.md): this section
+> Relationship to [verification-ladder.md](../rules/verification-ladder.md): this section
 > is the *skill's own* exit checklist. The ladder defines the *level* (L1–L4) the
 > `qa` skill enforces by change class. They compose: the skill checks itself,
 > `qa` checks the change.
@@ -190,15 +228,36 @@ The six rules every section must obey. When in doubt, these outrank taste:
 
 ## Cross-skill references
 
-Reference other skills **by name**, in backticks, as `skillgrid:{name}`:
+Two kinds of reference, and the distinction matters because only one of them
+actually fires a skill:
+
+**Operative** — a step tells the agent to *run another skill now*. Name the tool
+explicitly. Harnesses expose skill invocation as a tool the model calls; spelling
+that out is what raises the hit rate over a bare name left in prose.
 
 ```markdown
-Follow the `skillgrid:test-driven-development` skill for writing tests.
-If the build breaks, use the `skillgrid:structured-debugging` skill.
+Invoke the Skill tool with `skillgrid:test-driven-development`.
+Invoke the Skill tool with `skillgrid:structured-debugging`.
+```
+
+- **One skill per call.** A step that needs two skills is two calls, not one call
+  with two names: "Invoke the Skill tool twice, for `skillgrid:grilling` and
+  `skillgrid:domain-modeling`."
+- **Only when the target is model-invoked.** Per the *Invocation class*
+  invariant, a skill can never invoke a user-invoked skill. When a step's
+  precondition is user-invoked (e.g. `skillgrid:onboarding`), phrase it for the
+  human: "tell the user to run `skillgrid:onboarding`."
+
+**Passive** — a router or prose that merely *names* skills for the reader to
+pick from (`using-skillgrid`, the chain table, a "reach for …" suggestion).
+These invoke nothing, so keep the backticked name as a plain label:
+
+```markdown
+If the build breaks, the `skillgrid:structured-debugging` skill applies.
 ```
 
 **Never duplicate content across skills.** Reference and link instead. The
-phase order and who-calls-whom lives in [sdd-structure.md](sdd-structure.md);
+phase order and who-calls-whom lives in [sdd-structure.md](../rules/sdd-structure.md);
 a skill may restate its own position in that chain (one line) but must not
 re-specify the whole chain.
 
@@ -230,6 +289,7 @@ Before a new `SKILL.md` is complete, confirm:
 - [ ] Directory name == `name` == kebab-case
 - [ ] `description` has what + when, **no** workflow steps
 - [ ] `license: MIT` + `metadata` block present (`based_on`/`source` if derived)
+- [ ] Invocation class decided: user-invoked skills carry `disable-model-invocation: true` + a human-facing description; no operative cross-reference targets a user-invoked skill
 - [ ] Title is `# {Name}` title-cased; Announce line present (or a documented skip)
 - [ ] `## When to Use` has a `**When NOT to use:**` line
 - [ ] `## Common Rationalizations` table present (≥1 row per skip-worthy step)

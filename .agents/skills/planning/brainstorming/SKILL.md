@@ -2,6 +2,7 @@
 name: brainstorming
 description: "Use before any creative work — creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
 license: MIT
+disable-model-invocation: true
 metadata:
   author: devopstales
   version: "1.0"
@@ -140,7 +141,7 @@ artifact, never the approval.
 
 ## How to measure it
 
-Per `_shared/conventions/measurement.md`.
+Per `_shared/craft/measurement.md`.
 
 | | Indicator | Data source | Direction |
 |---|-----------|-------------|-----------|

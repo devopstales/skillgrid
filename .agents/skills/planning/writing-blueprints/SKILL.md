@@ -21,7 +21,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Config:** Read `.skillgrid/config.yaml` before starting. Use `conventions.specs_root` for blueprint location. If the file doesn't exist, use the default `.skillgrid/specs/`. Use the terms vocabulary from `conventions.artifacts` (default `.skillgrid/artifacts/01-business-terms.md` + `02-technical-terms.md`) for names and concepts. Constrain the blueprint by the in-force decisions: read the change's ADR Review Manifest at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md` (produced by brainstorming; in-force set from the `### In-force set` table in `.skillgrid/ASSUMPTIONS.md`) and respect every in-force ADR it names — a blueprint that contradicts an in-force ADR must either follow it or record a new superseding ADR file.
 
-**The blueprint is pure-technical.** It is the *how*: architecture, file layout, tasks, tests, constraints. The product *why* — user value, personas, success metrics — lives in the spec (`briefing.md`) and in `.skillgrid/artifacts/00-prd.md`; the blueprint **cites** those (a `Spec:` line, a `per .skillgrid/artifacts/00-prd.md` or `per .skillgrid/artifacts/04-adr-NNNN-slug.md` constraint) and does not restate them (per `_shared/conventions/cite-dont-restate.md`). Locked constraints are cited as `per ASSUMPTIONS.md § Locked constraints`.
+**The blueprint is pure-technical.** It is the *how*: architecture, file layout, tasks, tests, constraints. The product *why* — user value, personas, success metrics — lives in the spec (`briefing.md`) and in `.skillgrid/artifacts/00-prd.md`; the blueprint **cites** those (a `Spec:` line, a `per .skillgrid/artifacts/00-prd.md` or `per .skillgrid/artifacts/04-adr-NNNN-slug.md` constraint) and does not restate them (per `_shared/craft/cite-dont-restate.md`). Locked constraints are cited as `per ASSUMPTIONS.md § Locked constraints`.
 
 **Read the topic's findings before writing.** If `.skillgrid/specs/YYYY-MM-DD-<topic>/findings.md` exists, read it in full before drafting the blueprint. It is the single consolidated evidence file for the topic — research findings (cited), prototype verdicts + liftable modules, and the sketch's chosen winner + constraints all live there as typed sections. Every design decision in the blueprint that rests on a research fact, a feasibility result, or a chosen layout must cite it (the header's **Findings** line carries the path). If the file is absent, the change ran no research/prototype/sketch — proceed and omit that header line.
 
@@ -115,7 +115,7 @@ is invalidated and the user decides whether to revise or abandon.
 
 If the blueprint touches routing, shell commands, subprocesses, version-control
 automation, PR automation, executable-file classification, process integration,
-Mnemonic tool contracts, or any `_shared/conventions/*` file, include a threat
+Mnemonic tool contracts, or any `_shared/{planning,craft,verification,knowledge}/` file, include a threat
 matrix section per `../../_shared/references/threat-matrix.md`. Copy this block into `blueprint.md` under a `## Threat Matrix` heading:
 
 ```markdown
@@ -168,7 +168,7 @@ Classify the blueprint before writing tasks:
 | `risky` | L3 (+ coverage + lint) | New trust boundary, migration |
 | `high-risk` | L4 (+ mutation + security) | Auth, data migration, public API, money, concurrency |
 
-Record the classification in the blueprint header. The `qa` skill uses it to select the verification level. See `../../_shared/conventions/verification-ladder.md`.
+Record the classification in the blueprint header. The `qa` skill uses it to select the verification level. See `../../_shared/rules/verification-ladder.md`.
 
 ## Task Right-Sizing
 
@@ -346,14 +346,14 @@ Then offer execution choice:
 
 **Review at the end (both options):** the default is the lightweight two-axis
 pass (`skillgrid:requesting-code-review`). For a large or high-risk blueprint
-(at the review escalation threshold, per `_shared/conventions/rigor-tiers.md`),
+(at the review escalation threshold, per `_shared/planning/rigor-tiers.md`),
 escalate the final review to `skillgrid:parallel-code-review` — multi-reviewer
 fan-out. The execution skill decides when to escalate; you just tell the user
 the option exists when the blueprint looks risky.
 
 ## How to measure it
 
-Per `_shared/conventions/measurement.md`.
+Per `_shared/craft/measurement.md`.
 
 | | Indicator | Data source | Direction |
 |---|-----------|-------------|-----------|

@@ -2,7 +2,7 @@
 
 > Canonical source. All skills link here. Do not fork content.
 
-Load this only when the plan touches at least one of: routing, shell commands, subprocesses, version-control automation, PR automation, executable-file classification, process integration, **Mnemonic tool contracts** (`mem_*` / `code_*` / `web_cache_*`), or any `_shared/conventions/*` file.
+Load this only when the plan touches at least one of: routing, shell commands, subprocesses, version-control automation, PR automation, executable-file classification, process integration, **Mnemonic tool contracts** (`mem_*` / `code_*` / `web_cache_*`), or any `_shared/{planning,craft,verification,knowledge}/` file.
 
 Mark every row `Applicable` or explicit `N/A: reason`. Do not invent tests for `N/A` rows. Do not mark a row `N/A` on a guess — name the boundary you checked and why it is out of this change's scope.
 
@@ -25,7 +25,7 @@ These rows are specific to Skillgrid's memory + conventions architecture. A conv
 | Boundary | Minimum adversarial cases | Applicability | Design response | Planned RED tests |
 |---|---|---|---|---|
 | **Mnemonic tool surface** (`mem_*` / `code_*` / `web_cache_*`) | new tool, new required param, new return shape, new error code, new `scope` value | Applicable / N/A: reason | Explicit contract delta — which observation or chunk shape changes, and what existing callers must adapt. | One test per changed contract |
-| **Shared-convention drift** | edit to any `_shared/conventions/*.md`, any `_shared/references/*.md`, any `agent-config/*.md` | Applicable / N/A: reason | One-line impact statement: "this file is now the source of truth for X — all skills that reference it are now bound to the new rule." Name every skill that breaks if it is missed. | A grep check that no skill references the old path or old rule; a link-resolution check |
+| **Shared-convention drift** | edit to any `_shared/{planning,craft,verification,knowledge}/.md`, any `_shared/references/*.md`, any `agent-config/*.md` | Applicable / N/A: reason | One-line impact statement: "this file is now the source of truth for X — all skills that reference it are now bound to the new rule." Name every skill that breaks if it is missed. | A grep check that no skill references the old path or old rule; a link-resolution check |
 
 ## How to use this in a blueprint
 

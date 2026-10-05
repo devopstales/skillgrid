@@ -21,7 +21,7 @@ fan out specialist reviewers on this diff."
 (`skillgrid:requesting-code-review`) isn't enough:
 
 - the diff is large, or
-- the diff is high-risk (per `_shared/conventions/rigor-tiers.md`, review escalation threshold)
+- the diff is high-risk (per `_shared/planning/rigor-tiers.md`, review escalation threshold)
 
 For small or low-risk diffs, stay on `skillgrid:requesting-code-review` — the
 fan-out costs more than it finds.
@@ -32,7 +32,7 @@ Spec). This skill is N specialist reviewers, each a narrow lens, run in
 parallel. The two-axis templates are **reused** here as two of the specialists
 (not copied).
 
-**Rigor tier:** this is the T3 (GA) review (per `_shared/conventions/rigor-tiers.md`). At T3, at least one reviewer runs on a **model different from the one that implemented the change** — a model reviewing its own work carries its own blind spots. The fresh-model reviewer is a recommendation the human can decline; the decline is recorded.
+**Rigor tier:** this is the T3 (GA) review (per `_shared/planning/rigor-tiers.md`). At T3, at least one reviewer runs on a **model different from the one that implemented the change** — a model reviewing its own work carries its own blind spots. The fresh-model reviewer is a recommendation the human can decline; the decline is recorded.
 
 ## Overview
 
@@ -77,7 +77,7 @@ specialist selection:
 
 - **< 50 changed lines** → run only Standards + Spec (the two-axis set). The
   other specialists are skipped; say so.
-- **≥ 50 changed lines, or high-risk** (per `_shared/conventions/rigor-tiers.md`,
+- **≥ 50 changed lines, or high-risk** (per `_shared/planning/rigor-tiers.md`,
   review escalation threshold) → run the core five: Standards, Spec,
   Edge cases, Verification gaps, Security.
 - **Accessibility** — add it when the diff touches **UI** (markup, components,
@@ -105,7 +105,7 @@ Standards/Spec, the shared templates):
 
 The two-axis contract (Standards vs Spec, never cross-reranked) and the smell
 baseline are canonically defined in
-`_shared/conventions/code-standards.md` ("Reviewing"); the templates below
+`_shared/rules/code-standards.md` ("Reviewing"); the templates below
 instantiate them.
 
 | Specialist | Template | Lens | Selected when |
@@ -191,7 +191,7 @@ human look; `low`/`maybe-false` you chose to drop → noise.
 
 Then run the receiving-code-review fix loop: fix the in-scope set one at a time
 with tests, log the rest, validate, and loop until clean or capped per
-`_shared/conventions/rigor-tiers.md` (fix loop cap).
+`_shared/planning/rigor-tiers.md` (fix loop cap).
 
 ### Step 5: Report
 

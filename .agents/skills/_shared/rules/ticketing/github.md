@@ -17,7 +17,7 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v`; `gh` resolves this automatically inside a clone.
 
-Triage role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) — keep in sync with [triage-labels.md](triage-labels.md).
+Triage role labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) — keep in sync with [triage-labels.md](../../../planning/ticketing/references/triage-labels.md).
 
 ## When a skill says "publish to the issue tracker"
 

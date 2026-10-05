@@ -179,7 +179,7 @@ value directly — do not re-derive it from the individual `SCOPE:` lines.
 
 ### Step 9.7: Verification Scope + Staleness Check
 
-Per `_shared/conventions/verification-scope.md`: a zero count is never a bare
+Per `_shared/rules/verification-scope.md`: a zero count is never a bare
 zero — it carries its **scope**. Two checks.
 
 **Scope of the derivations.** For each count or enumeration this QA half
@@ -218,7 +218,7 @@ on stale evidence while its scope is not `COMPLETE` routes away from PASS.
 
 ### Step 9.8: Floor Computation
 
-Per `_shared/conventions/floor.md`: the gate is the **weakest dimension**, never
+Per `_shared/verification/floor.md`: the gate is the **weakest dimension**, never
 an average. Reduce every audit and gate this run produced to its weakest
 dimension, then take the floor across them. Write the result on the report's
 `## Floor` section (one row per dimension + a `**FLOOR:**` line naming the

@@ -22,7 +22,7 @@ Gate option 3 — the Assumed block follows the header; cleared only by Ratify.)
 
 **Tier:** T<n> (rigor tier — from `briefing.md`'s `Tier:` line, else
 `rules.tiers.default` in config, else inferred from the Change Classification
-and noted as an assumption. See `../../../_shared/conventions/rigor-tiers.md`. T1 →
+and noted as an assumption. See `../../_shared/planning/rigor-tiers.md`. T1 →
 light blueprint (header + Must-Haves, no threat matrix unless applicable);
 T2/T3 → full blueprint.)
 
@@ -56,7 +56,7 @@ layout/interaction. Omit if the change ran no research/prototype/sketch.]
   change's spec but inherited from a locked constraint or a prior ADR, CITE it
   rather than restate it (`per ASSUMPTIONS.md § Locked constraints <x>` /
   `per .skillgrid/artifacts/04-adr-NNNN-slug.md`) per
-  `_shared/conventions/cite-dont-restate.md` — the citation is the
+  `_shared/craft/cite-dont-restate.md` — the citation is the
   constraint; the cited artifact keeps authority singular.]
 
 ---
