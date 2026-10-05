@@ -396,7 +396,7 @@ func TestInitUpsertsPreambleAndSentinel(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(body)
-	if !strings.Contains(s, "<!-- skillgrid-preamble:start -->") || !strings.Contains(s, "## Commands") {
+	if !strings.Contains(s, "<!-- skillgrid-preamble:start -->") || !strings.Contains(s, "## Environment & Tooling") {
 		t.Fatalf("missing preamble: %s", s)
 	}
 	if strings.Count(s, "<!-- skillgrid:start -->") != 1 || strings.Count(s, "<!-- skillgrid:end -->") != 1 {
@@ -547,11 +547,11 @@ func countArtifactsRows(tmpl string) int {
 	return n
 }
 
-// TestInitPreambleIsMinimalCommandsFirst asserts the preamble follows the
-// AGENTS.md best-practice research: a short project statement + exact commands,
-// not the old 6-section generic boilerplate. The generic sections
-// (Engineering Standards / Dependency Policies / Security & Escalation) raised
-// inference cost without changing agent behavior, so init no longer writes them.
+// TestInitPreambleIsMinimalCommandsFirst asserts the greenfield preamble (no
+// config) still renders the rich kubedash_4-shaped structure with <detect>
+// placeholders for the not-yet-detected commands, rather than a 3-line skeleton
+// or an empty file. Onboarding later fills the config; init must not drop the
+// structure.
 func TestInitPreambleIsMinimalCommandsFirst(t *testing.T) {
 	dir := t.TempDir()
 	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
@@ -563,23 +563,23 @@ func TestInitPreambleIsMinimalCommandsFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(body)
-	// Commands-first: the skeleton leads with the Commands section.
-	if !strings.Contains(s, "## Commands") || !strings.Contains(s, "- Test: <detect>") {
-		t.Fatalf("preamble missing commands-first skeleton:\n%s", s)
+	// The rich structure renders even on a greenfield project (no config).
+	for _, want := range []string{"## Environment & Tooling", "## Security & Escalation Boundaries", "## Dependency Policies", "## Architecture Constraints", "## Definition of Done"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("greenfield preamble missing section %q:\n%s", want, s)
+		}
+	}
+	// Undetected commands fall back to <detect> (config is empty here).
+	if !strings.Contains(s, "<detect>") {
+		t.Fatalf("greenfield preamble should carry <detect> placeholders:\n%s", s)
 	}
 	// No literal-dot project name (the missing-config fallback).
 	if strings.Contains(s, "Project: **.**") || strings.Contains(s, "# Project\n..") {
 		t.Fatalf("preamble rendered a literal dot project name:\n%s", s)
 	}
-	// Generic boilerplate dropped.
-	for _, gone := range []string{"# Engineering Standards", "# Dependency Policies", "# Security & Escalation Boundaries", "# Definition of Done", "# Architecture Constraints", "# Environment & Tooling"} {
-		if strings.Contains(s, gone) {
-			t.Fatalf("preamble still writes generic section %q:\n%s", gone, s)
-		}
-	}
-	// The whole file should stay lean (< 150 lines per the research).
-	if lines := len(strings.Split(s, "\n")); lines > 150 {
-		t.Fatalf("boot file is %d lines, want < 150:\n%s", lines, s)
+	// The whole file should stay lean (< 200 lines).
+	if lines := len(strings.Split(s, "\n")); lines > 200 {
+		t.Fatalf("boot file is %d lines, want < 200:\n%s", lines, s)
 	}
 }
 
@@ -590,7 +590,10 @@ func TestInitForceRewritesPreamble(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(res.BootFile)
-	custom := strings.Replace(string(body), "# Project", "# Project\nUSER KEEP", 1)
+	// Inject a user-edit inside the preamble region (after the start marker) so
+	// force-rewrite can be observed to clobber it; text outside the region must
+	// survive.
+	custom := strings.Replace(string(body), "# Standards", "# Standards\nUSER KEEP", 1)
 	if err := os.WriteFile(res.BootFile, []byte(custom+"\n\nUSER BELOW\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
