@@ -1,7 +1,6 @@
 ---
 name: owasp-security
 description: Reviews code and diffs for security vulnerabilities using OWASP Top 10:2025, ASVS 5.0, the OWASP Top 10 for LLM Applications (2026), and the OWASP Top 10 for Agentic Applications (2026). Use when reviewing a diff for security issues, implementing auth/authz/sessions/cryptography, handling untrusted input/files/URLs, hardening config/dependencies/CI, or building LLM and AI-agent features.
-when_to_use: Trigger phrases include "security review", "security check", "anything exploitable", "audit this", "is this secure", "is this safe to ship", "check for vulnerabilities", "find security bugs", "threat model", "OWASP", "ASVS", "CWE", "prompt injection", "MCP server security", "secrets in code", "supply chain", and "harden this Dockerfile or workflow".
 license: MIT
 metadata:
   author: agamm
@@ -21,6 +20,16 @@ Apply these standards when writing or reviewing code. For a review, follow the w
 - [`reference/languages.md`](reference/languages.md): per-language pitfalls with unsafe/safe examples for 20+ languages. Read the section for the language under review.
 - [`reference/config-and-supply-chain.md`](reference/config-and-supply-chain.md): A02 and A03 in Dockerfiles, Kubernetes, Terraform, framework config, security headers, lockfiles, and CI/CD. Read when the change touches config, IaC, dependencies, or pipelines.
 - [`reference/owasp-report.md`](reference/owasp-report.md): attack vectors, mitigations, and worked examples for every Top 10:2025, ASVS 5.0, LLM Top 10, and Agentic item. About 1100 lines: jump to the section you need.
+
+## When to Use
+
+- **Reviewing a diff for security issues** — "security review", "security check", "audit this", "check for vulnerabilities", "find security bugs", "anything exploitable"
+- **Implementing auth/authz, sessions, or cryptography** — "is this secure", "is this safe to ship", token/session/cookie handling, hashing, key management
+- **Handling untrusted input, files, or URLs** — "threat model", "harden this", deserialization, SSRF, path traversal, prompt-injection surface
+- **Hardening config, dependencies, or CI** — "OWASP", "ASVS", "CWE", supply chain, "harden this Dockerfile or workflow", secrets in code
+- **Building LLM or AI-agent features** — "MCP server security", "prompt injection", agent tool-invocation boundary
+
+**When NOT to use:** a pure refactor or copy change with no new trust boundary, untrusted input, or dependency/config surface. For a full ASVS L3 certification, work from the standard itself (see `reference/owasp-report.md`), not just this review.
 
 ## Security Review Workflow
 
@@ -212,3 +221,35 @@ they tighten an L2 requirement rather than adding a new one:
 
 For an actual L3 assessment, work from the standard itself — see
 [`reference/owasp-report.md`](reference/owasp-report.md) for the chapter map.
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "It's just an internal endpoint, no auth needed" | Internal != trusted. SSRF, compromised peers, and lateral movement reach internal routes. A05 Broken Access Control applies wherever a principal crosses a boundary. |
+| "We trust the input, it's from our own frontend" | Every external input is attacker-controlled until proven otherwise — the frontend is the delivery vehicle, not the source of trust. A03 Injection. |
+| "The framework handles escaping for us" | Framework defaults protect the happy path. Template injection, ORM parameterization, and header injection still need explicit review per A03/A05. |
+| "We'll add rate limiting later" | Brute-force and enumeration (A07) work on a live route. If the endpoint is reachable now, the control is needed now. |
+| "That dependency is popular, so it's safe" | Popularity is not a CVE status. A06 Vulnerable and Outdated Components requires checking the resolved version against known advisories. |
+| "Prompt injection is a research problem, not our bug" | Any user- or tool-supplied text reaching the model is an injection surface (LLM Top 10 LLM01; Agentic Top 10). Treat it as untrusted input. |
+| "A security review is overkill for a small change" | Small diffs cross trust boundaries all the time. If the change touches input, auth, config, or a dependency, the review is in scope. |
+
+## Red Flags
+
+**Never:**
+- Trust a request header, cookie, or form field as a principal without server-side verification
+- Log, echo, or store a secret (API key, token, PII) unredacted
+- Build SQL, shell, path, or template strings by concatenating untrusted input
+- Allow arbitrary outbound URLs (SSRF) or file paths (path traversal) from untrusted input without an allowlist
+- Use a framework/dependency version with a known unpatched HIGH/CRITICAL advisory
+- Let user- or tool-supplied text reach the LLM without an injection boundary
+- Ship a route reachable without an authorization check on the *action*, not just the login
+
+## Verification
+
+- [ ] Every reported finding has a concrete `file:line`, the affected input, and the data flow to the sink
+- [ ] Each finding is mapped to a standard (OWASP Top 10 / ASVS L2 / LLM Top 10 / Agentic Top 10) and rated by severity
+- [ ] The review followed the workflow checklist end-to-end (the `Security Review Progress` block is fully ticked)
+- [ ] No finding is a bare "might be unsafe" — each has a plausible attack path or a concrete mitigation
+- [ ] For config/dependency changes, the resolved version was checked against known advisories, not assumed clean
+- [ ] For LLM/agent changes, the untrusted-text-to-model path is bounded and the tool-invocation surface is reviewed

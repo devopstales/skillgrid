@@ -1,6 +1,11 @@
 ---
 name: dry-refactoring
 description: Guided workflow to eliminate copy-paste duplication detected by jscpd. Refactor exact, renamed and near-miss clones using extract function, parameterize, module, constant, or base class strategies, starting from the hotspots the summary ranks.
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
 ---
 
 # dry-refactoring

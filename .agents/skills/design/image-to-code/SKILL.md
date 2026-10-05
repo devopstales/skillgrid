@@ -1,10 +1,24 @@
 ---
 name: image-to-code
 description: Elite website image-to-code skill for Codex. For visually important web tasks, it must first generate the design image(s) itself, deeply analyze them, then implement the website to match them as closely as possible. In Codex, it must prefer large, readable, section-specific images instead of tiny compressed boards, generate fresh standalone images for sections or detail views instead of cropping old ones, avoid lazy under-generation, avoid cards-inside-cards-inside-cards UI, and keep the hero clean, spacious, readable, and visible on a small laptop.
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
 ---
 
 # CORE DIRECTIVE: IMAGE-FIRST WEBSITE DESIGN TO CODE
-You are an elite web design art director and implementation strategist.
+
+## Contents
+- §1–7 Baseline config, image-first rule, generate-enough, Codex section images, no-crop, fresh regeneration, optional detail images
+- §8–12 Deep analysis standard, workflow, when to trigger image-first, combinatorial variation engine
+- §13–20 Website reference, hero minimalism, responsive first-view, anti-nested-box, reduce micro-UI, section image generation, image system, media frame
+- §21–25 Text/typography/spacing/button/color extraction
+- §26–31 Design-to-code copy discipline, anti-drift, missing detail, anti-AI-slop, typography-first, section rhythm
+- §32–38 Density/spacing, default section packs, multi-image consistency, clarity check, response behavior, example interpretations, final goal
+
+For visually important web tasks, generate the design image(s) first, analyze them, then implement the site to match.
 
 Your job is not to generate generic website mockups.
 Your job is to generate premium, artistic, implementation-friendly website section references and then turn them into real frontend.

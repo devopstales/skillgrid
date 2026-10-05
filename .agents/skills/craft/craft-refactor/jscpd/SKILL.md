@@ -1,6 +1,11 @@
 ---
 name: jscpd
 description: Copy-paste detector for 220+ languages. Detect exact, renamed and near-miss duplicated code, measure duplication percentages, and find refactoring hotspots with the codebase summary.
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
 ---
 
 # jscpd

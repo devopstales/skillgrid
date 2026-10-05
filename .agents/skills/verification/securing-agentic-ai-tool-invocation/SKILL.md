@@ -17,8 +17,10 @@ tags:
 - nemo-guardrails
 - identity-binding
 - owasp-agentic
-version: '1.0'
-author: mahipal
+metadata:
+  author: mahipal
+  version: "1.0"
+  part-of: skillgrid
 license: Apache-2.0
 nist_ai_rmf:
 - GOVERN-1.3
@@ -254,6 +256,27 @@ Every decision from steps 4-6 is logged with actor, tool, argument hash, and dec
 | Policy decision gate | Central allow/approve/deny | Excessive agency |
 | Human-in-the-loop | Approve high-impact actions | Irreversible autonomous harm |
 | Audit logging | Detection + forensics | Silent compromise |
+
+## Common Rationalizations
+
+| Rationalization | Reality |
+|---|---|
+| "The model will only call the tools we gave it" | The model picks *which* tool and *what args*. Without an allowlist and schema validation (AML.T0053), a single prompt-injection can drive a high-blast-radius tool. |
+| "One service account is enough for all tools" | Least-privilege identity binding means each tool gets the narrowest scope. A shared identity means a compromised low-risk tool can reach a high-risk one. |
+| "Approval adds friction, so we'll skip it for now" | Human-in-the-loop is the control that bounds prompt-injection blast radius for tools with real side effects (email, payment, file write, code exec). Skipping it is unbounded risk on exactly those tools. |
+| "Guardrails are just prompt templates" | NeMo Guardrails is a *policy* layer (pre/post + tool/flow rules) that enforces constraints the model can't override. Treating it as prompt-only loses the enforcement guarantee. |
+| "We don't need audit logs in development" | Audit is what makes a breach *investigable*. Without it, a denied or mis-approved tool call leaves no trace to replay. |
+| "It works in the happy path, so it's safe" | The happy path is the attacker's choice too. Deny-by-default on allowlist, schema, and policy is what the error path proves. |
+
+## Red Flags
+
+**Never:**
+- Let an agent call a tool that is not on the allowlist
+- Pass unvalidated tool arguments to a sink (shell, file, DB, network) — validate against schema first
+- Share one identity/credential across tools of different blast radius
+- Allow a high-side-effect tool (send email, charge card, write file, run code) without human-in-the-loop approval
+- Rely on the prompt alone to enforce a policy that Guardrails already encodes
+- Ship a tool-invocation boundary with no audit log of calls, denials, and approvals
 
 ## Validation Criteria
 

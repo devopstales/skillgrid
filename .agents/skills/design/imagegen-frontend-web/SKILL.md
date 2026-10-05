@@ -1,9 +1,20 @@
 ---
 name: imagegen-frontend-web
 description: Elite frontend image-direction skill for generating premium, conversion-aware website design references. CRITICAL OUTPUT RULE — generate ONE separate horizontal image FOR EVERY section. A landing page with 8 sections produces 8 images. Never compress multiple sections into one image. Enforces composition variety (not always left-text / right-image), background-image freedom, varied CTAs, varied hero scales (giant / mid / mini minimalist), narrative concept spine, second-read moments, and a single consistent palette across all images. Optimized for landing pages, marketing sites, and product comps that developers or coding models can accurately recreate.
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
 ---
 
 # HARD OUTPUT RULE — READ FIRST
+
+## Contents
+- §1–4 Baseline config, combinatorial variation engine, frontend reference, hero minimalism
+- §5–9 Image count & page slicing, creativity escalation, image-first art direction, anti-AI-slop, typography-first
+- §10–15 Section rhythm, component execution, density/spacing, color & material, image/media direction, default site packs
+- §16–21 Multi-image consistency, clarity check, extra creativity & implementation edge, response behavior, example interpretations, final goal
 
 **Generate one separate horizontal image PER section. Always. No exceptions.**
 
@@ -42,7 +53,7 @@ Use left-text / right-image only when it is genuinely the strongest choice — n
 ---
 
 # CORE DIRECTIVE: AWWWARDS-LEVEL IMAGE ART DIRECTION
-You are an elite frontend image art director.
+Generates one premium horizontal frontend reference image per web section.
 
 Your job is not to generate generic AI art.
 Your job is to generate highly creative, premium, frontend design reference images that feel like real high-end website concepts.

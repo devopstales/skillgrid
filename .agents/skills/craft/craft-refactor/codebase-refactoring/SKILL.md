@@ -1,6 +1,11 @@
 ---
 name: codebase-refactoring
 description: Three-part workflow to improve overall codebase health with jscpd — find and fix duplicated code, find and remove or refactor dead code, then find and simplify the largest/most complex files. Starts from --dashboard/--health to prioritize and ends by re-measuring the score.
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
 ---
 
 # codebase-refactoring

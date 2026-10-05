@@ -1,10 +1,20 @@
 ---
 name: playwright-cli
 description: Automate browser interactions, test web pages and work with Playwright tests.
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
 allowed-tools: Bash(playwright-cli:*) Bash(npx:*) Bash(npm:*)
 ---
 
 # Browser Automation with playwright-cli
+
+## Contents
+- Quick start, Commands (open/navigate/interact/drop/find/attribute, Cookies, LocalStorage, SessionStorage, record, annotate, dashboard, locator, highlight), Raw output
+- Open parameters (browser, device emulation, persistent profile, CDP/extension connect, config, detach, delete session)
+- URLs with `&` on Windows
 
 ## Quick start
 

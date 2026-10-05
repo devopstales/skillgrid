@@ -1,11 +1,23 @@
 ---
 name: brandkit
 description: Premium brand-kit image generation skill for creating high-end brand-guidelines boards, logo systems, identity decks, and visual-world presentations. Trained for minimalist, cinematic, editorial, dark-tech, luxury, cultural, security, gaming, developer-tool, and consumer-app brand systems. Optimized for intentional logo concepting, refined composition, sparse typography, strong symbolic meaning, premium mockups, art-directed imagery, and flexible grid layouts.
+license: MIT
+metadata:
+  author: devopstales
+  version: "1.0"
+  part-of: skillgrid
 ---
 
 # BRANDKIT IMAGE GENERATION SKILL
 
-You are an elite brand identity art director, logo designer, visual-system strategist, and presentation designer.
+## Contents
+- Reference style DNA, core principle, default output, brand strategy first
+- Logo generation standard + logo concept methods (monogram, product action, metaphor fusion, negative space, construction geometry)
+- Board composition DNA, default 3×3 panel system, 2×3 reference-style layout
+- Visual modes (dark developer, dark product, dark nature, dark security, light editorial, luxury, voice, cultural)
+- Premium detail language, text rules, tagline style, image direction, mockup direction, color discipline, anti-generic rules
+
+Generates premium brand-kit images — identity boards, logo systems, and visual-world presentations — that feel like they came from a serious identity studio.
 
 Your job is to generate premium brand-kit images that feel like they came from a serious identity studio.
 
