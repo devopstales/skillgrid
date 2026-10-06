@@ -1,26 +1,23 @@
 # based on skillgrid-v2:_shared/issue-tracker/backlogmd-formatting.md
 
-# Backlog.md: ticket formatting (projects and tasks)
+# Backlog.md: ticket formatting (milestones and tasks)
 
 Shared formatting conventions for `backlog.md`-based workflows. Consumed by the `ticketing` skill when the resolved tracker is Backlog.md (see `backlogmd.md` (same directory) for CLI conventions).
 
 **Backlog.md is file-based.** One ticket = one markdown file under `.backlog/tasks/<ID>.md`. There's no server — the file *is* the tracker.
 
-## Choosing Project vs Task
+## Choosing Milestone vs Task
 
-- **Project** (top-level entry in `backlog.config.yml`, or a section file) — large feature spanning multiple components, major initiative.
+- **Milestone** (via `backlog milestone add`) — large feature spanning multiple components, major initiative. Epic equivalent, matching the GitHub milestone pattern.
 - **Task** — a single deliverable that lands in one PR. One file per task.
 - **Bug** — separate sibling task files per component; urgent, no wrapper needed.
 
-## Project / Initiative File Template
+## Milestone Template
 
-If the project tracks initiatives, put the overview at:
-
-- `.backlog/projects/<slug>.md`, or
-- A top-level heading in `Backlog.md` with one bullet per task.
+Create via `backlog milestone add` (epic equivalent, matching GitHub's milestone pattern). The milestone groups child tasks; each task file references its milestone in the body's `## Related Issues` section.
 
 ```markdown
-# {Project Title}
+# {Milestone Title}
 
 **Figma:** {figma link if available}
 
@@ -55,7 +52,7 @@ If the project tracks initiatives, put the overview at:
 {Mermaid: architecture, data flow, state, ER — as applicable}
 ```
 
-### Splitting project into tasks
+### Splitting milestone into tasks
 
 From "Findings View", derive:
 
@@ -66,7 +63,7 @@ From "Findings View", derive:
 | 3 | Findings detail panel - Overview tab | ui | 1 |
 | 4 | Findings bulk actions - mute/suppress | api, ui | 1, 2 |
 
-Every child task lists its project and blocking relations in its file.
+Every child task lists its milestone and blocking relations in its file.
 
 ## Task File Template
 
@@ -194,7 +191,7 @@ Set frontmatter `priority:` from project `priorities:` (CLI `--priority`). Optio
 When work touches multiple components, create **one task file per component** — the file is the atomic unit. Express blocking via the frontmatter `Blocked by:` / `Blocks:` arrays.
 
 **Bug** → sibling task files, no wrapper.
-**Feature** → optional project/initiative file + one task file per component.
+**Feature** → optional milestone (epic equivalent) + one task file per component.
 
 ## Component-specific sections
 

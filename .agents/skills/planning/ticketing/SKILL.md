@@ -214,7 +214,7 @@ If no tracker ID exists (e.g. `ticketing.enabled: false`), skip all tracker muta
 
 | Tracker | Strategy |
 |---------|----------|
-| Backlog.md | One task per ticket, parented to epic task |
+| Backlog.md | One task per ticket, parented to milestone (epic equivalent) |
 | GitHub | One issue per ticket, sub-issue of epic issue |
 | GitLab | One issue per ticket, `/blocked_by` links |
 | Jira | Domain = epic, ticket = story, acceptance criteria = sub-tasks |
