@@ -604,3 +604,60 @@ mnemonic:
 		t.Errorf("no pulls ran; got %v", invocations)
 	}
 }
+
+// TestConfigMergeWritesNewModels is the focused TICKET-04 gate: the home
+// provider merge writes the new live-chat model (localLLMModel) and the new
+// embedder model (localEmbedModel) with the Ollama base_url, while preserving
+// unrelated operator keys (profile, embedder.dimension). Deterministic — no
+// Ollama server required; it exercises mergeHomeProviderConfig directly.
+func TestConfigMergeWritesNewModels(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// Seed operator state that the merge must preserve: a non-default profile
+	// and an unrelated embedder.dimension key.
+	idxPath := writeHomeIndexing(t, home, `profile: custom
+mnemonic:
+  embedder:
+    dimension: 4096
+`)
+
+	cfg := Config{Provider: "local", HomeDir: home, RepoHome: filepath.Join(home, ".skillgrid")}
+	base := "http://127.0.0.1:11434"
+	if err := mergeHomeProviderConfig(&cfg, localLLMProvider{
+		enabled: true,
+		baseURL: base + "/v1",
+		model:   localLLMModel,
+		embed:   embedOverride{provider: "ollama", baseURL: base + "/v1", model: localEmbedModel},
+	}); err != nil {
+		t.Fatalf("mergeHomeProviderConfig: %v", err)
+	}
+
+	m := loadHomeIndexing(t, idxPath)
+	llm := homeLLMM(t, m)
+	if llm["enabled"] != true {
+		t.Errorf("mnemonic.llm.enabled = %v, want true", llm["enabled"])
+	}
+	if llm["model"] != "llama3.2:1b" {
+		t.Errorf("mnemonic.llm.model = %v, want llama3.2:1b (localLLMModel)", llm["model"])
+	}
+	if llm["base_url"] != base+"/v1" {
+		t.Errorf("mnemonic.llm.base_url = %v, want %q", llm["base_url"], base+"/v1")
+	}
+	emb := homeEmbedder(t, m)
+	if emb["provider"] != "ollama" {
+		t.Errorf("mnemonic.embedder.provider = %v, want ollama", emb["provider"])
+	}
+	if emb["model"] != "embeddinggemma:300m" {
+		t.Errorf("mnemonic.embedder.model = %v, want embeddinggemma:300m (localEmbedModel)", emb["model"])
+	}
+	if emb["base_url"] != base+"/v1" {
+		t.Errorf("mnemonic.embedder.base_url = %v, want %q", emb["base_url"], base+"/v1")
+	}
+	// Operator keys preserved.
+	if m["profile"] != "custom" {
+		t.Errorf("profile = %v, want custom (preserved)", m["profile"])
+	}
+	if emb["dimension"] != 4096 && emb["dimension"] != float64(4096) {
+		t.Errorf("mnemonic.embedder.dimension = %v, want 4096 (preserved)", emb["dimension"])
+	}
+}
