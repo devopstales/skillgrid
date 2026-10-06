@@ -36,11 +36,59 @@ import (
 // goos isolates runtime.GOOS so tests can force a platform (e.g. "linux").
 var goos = runtime.GOOS
 
-// Local provider model names.
+// Local provider model names (the live chat + embedder the runtime reads from
+// the home config).
 const (
-	localLLMModel   = "llama3.2:3b"
-	localEmbedModel = "nomic-embed-text"
+	localLLMModel   = "llama3.2:1b"
+	localEmbedModel = "embeddinggemma:300m"
 )
+
+// modelRole is the install-time role a catalog entry serves.
+type modelRole string
+
+const (
+	roleSystemOne modelRole = "system-one"
+	roleResearch  modelRole = "research"
+	roleChat      modelRole = "chat"
+	roleEmbedder  modelRole = "embedder"
+)
+
+// modelEntry is one tag in the local Ollama catalog. MinOllamaVersion is the
+// floor the install requires before pulling it; heavy models carry a floor and
+// are skipped (with a version-named warning) below it.
+type modelEntry struct {
+	Name            string
+	Role            modelRole
+	MinOllamaVersion string
+}
+
+// localModels is the six-model local catalog the install pulls. The chat and
+// embedder entries double as the runtime defaults (localLLMModel /
+// localEmbedModel). `glm:vision-tools` is intentionally absent (tag typo,
+// removed in the interview).
+func localModels() []modelEntry {
+	return []modelEntry{
+		{Name: "qwen2.5:1.5b", Role: roleSystemOne},
+		{Name: "tev1:0.8b", Role: roleResearch, MinOllamaVersion: "0.35.1"},
+		{Name: "embeddinggemma:300m", Role: roleEmbedder},
+		{Name: "gemma2:2b", Role: roleResearch},
+		{Name: "clef-flash", Role: roleResearch, MinOllamaVersion: "0.35.1"},
+		{Name: "llama3.2:1b", Role: roleChat},
+	}
+}
+
+// heavyModels returns the subset of the catalog gated behind an Ollama version
+// floor (the models skipped with a warning when the local version is below the
+// floor).
+func heavyModels() []modelEntry {
+	var heavy []modelEntry
+	for _, e := range localModels() {
+		if e.MinOllamaVersion != "" {
+			heavy = append(heavy, e)
+		}
+	}
+	return heavy
+}
 
 // External provider model defaults (overridable via env).
 const (
@@ -153,6 +201,25 @@ func ensureOllamaBinary(c *Config) error {
 	}
 }
 
+// ollamaVersion returns the Ollama version string reported by the server, or
+// "" when it cannot be determined. It is an HTTP seam (a package var) so tests
+// can pin a version without a live `ollama --version` round-trip.
+var ollamaVersion = func(base string) string {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(base + "/api/version")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return ""
+	}
+	return body.Version
+}
+
 // ollamaServing probes GET {base}/api/tags with a short timeout.
 func ollamaServing(c *Config, base string) bool {
 	client := &http.Client{Timeout: 3 * time.Second}
@@ -194,24 +261,50 @@ func startOllamaService(c *Config) error {
 	return nil
 }
 
-// pullMissingModels lists installed models and pulls only the ones absent.
-// Pull failures warn (non-fatal) — the config merge still runs.
+// pullMissingModels lists installed models and pulls only the catalog entries
+// absent from the server. Heavy models gated behind an Ollama version floor are
+// skipped (with a version-named warning) when the local version is below the
+// floor; the install still succeeds. Pull failures warn (non-fatal) — the
+// config merge still runs.
 func pullMissingModels(c *Config, base string) {
 	present := ollamaModels(base)
-	for _, name := range []string{localLLMModel, localEmbedModel} {
-		if present[name] {
-			Out("      skip pull", name, "(already present)")
+	version := ollamaVersion(base)
+	for _, e := range localModels() {
+		if e.MinOllamaVersion != "" && !ollamaVersionAtLeast(version, e.MinOllamaVersion) {
+			Out("      skip", e.Name, "(requires Ollama >=", e.MinOllamaVersion, "— current version", orUnknown(version), "; heavy model, not pulled)")
+			continue
+		}
+		if present[e.Name] {
+			Out("      skip pull", e.Name, "(already present)")
 			continue
 		}
 		if c.DryRun {
-			Out("      [dry-run] ollama pull", name)
+			Out("      [dry-run] ollama pull", e.Name)
 			continue
 		}
-		Out("      ollama pull", name)
-		if err := runCmd("ollama", "pull", name); err != nil {
-			Out("      warn pull", name, ":", err)
+		Out("      ollama pull", e.Name)
+		if err := runCmd("ollama", "pull", e.Name); err != nil {
+			Out("      warn pull", e.Name, ":", err)
 		}
 	}
+}
+
+// orUnknown renders a possibly-empty version string for a human-facing warning.
+func orUnknown(v string) string {
+	if v == "" {
+		return "unknown"
+	}
+	return v
+}
+
+// smokeProbe is a non-fatal per-model health check. It is currently a
+// no-op placeholder (the interview locked the catalog pull as the deliverable);
+// it exists as the seam a future role smoke test can hook without reshaping the
+// install step.
+func smokeProbe(base, model string) bool {
+	_ = base
+	_ = model
+	return true
 }
 
 // ollamaModels GETs {base}/api/tags and parses the model name list.

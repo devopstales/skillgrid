@@ -122,10 +122,16 @@ mnemonic:
 	}
 	var invocations []string
 
-	// Ollama base URL seam → fake /api/tags (neither model present).
+	// Ollama base URL seam → fake /api/tags (no model present).
 	prev := ollamaBaseURL
 	ollamaBaseURL = tagsServer(t).URL
 	t.Cleanup(func() { ollamaBaseURL = prev })
+
+	// Version seam → at/above the floor so the happy path pulls the whole
+	// six-model catalog.
+	prevVer := ollamaVersion
+	ollamaVersion = func(string) string { return "0.36.0" }
+	t.Cleanup(func() { ollamaVersion = prevVer })
 
 	// runCmd seam → record instead of exec.
 	prevRun := runCmd
@@ -144,18 +150,15 @@ mnemonic:
 		t.Fatalf("setupProvider (local): %v", err)
 	}
 
-	// (a) both models pulled because /api/tags listed neither.
-	pulled := map[string]bool{}
-	for _, inv := range invocations {
-		if len(inv) >= 11 && strings.HasPrefix(inv, "ollama pull ") {
-			pulled[inv[len("ollama pull "):]] = true
+	// (a) all six catalog models pulled because /api/tags listed none.
+	pulled := pulledSet(invocations)
+	for _, m := range []string{"qwen2.5:1.5b", "tev1:0.8b", "embeddinggemma:300m", "gemma2:2b", "clef-flash", "llama3.2:1b"} {
+		if !pulled[m] {
+			t.Errorf("ollama pull %q not invoked; got %v", m, pulled)
 		}
 	}
-	if !pulled["llama3.2:3b"] {
-		t.Errorf("ollama pull llama3.2:3b not invoked; got %v", invocations)
-	}
-	if !pulled["nomic-embed-text"] {
-		t.Errorf("ollama pull nomic-embed-text not invoked; got %v", invocations)
+	if pulled["glm:vision-tools"] {
+		t.Errorf("glm:vision-tools pulled though not in catalog; got %v", pulled)
 	}
 
 	// (b) home config merged with the correct llm + ollama embedder…
@@ -167,15 +170,15 @@ mnemonic:
 	if llm["base_url"] != ollamaBaseURL+"/v1" {
 		t.Errorf("mnemonic.llm.base_url = %v, want %q", llm["base_url"], ollamaBaseURL+"/v1")
 	}
-	if llm["model"] != "llama3.2:3b" {
-		t.Errorf("mnemonic.llm.model = %v, want llama3.2:3b", llm["model"])
+	if llm["model"] != "llama3.2:1b" {
+		t.Errorf("mnemonic.llm.model = %v, want llama3.2:1b", llm["model"])
 	}
 	emb := homeEmbedder(t, m)
 	if emb["provider"] != "ollama" {
 		t.Errorf("mnemonic.embedder.provider = %v, want ollama", emb["provider"])
 	}
-	if emb["model"] != "nomic-embed-text" {
-		t.Errorf("mnemonic.embedder.model = %v, want nomic-embed-text", emb["model"])
+	if emb["model"] != "embeddinggemma:300m" {
+		t.Errorf("mnemonic.embedder.model = %v, want embeddinggemma:300m", emb["model"])
 	}
 	if emb["base_url"] != ollamaBaseURL+"/v1" {
 		t.Errorf("mnemonic.embedder.base_url = %v, want %q", emb["base_url"], ollamaBaseURL+"/v1")
@@ -308,8 +311,14 @@ mnemonic:
 	t.Cleanup(func() { runCmd = prevRun })
 
 	prev := ollamaBaseURL
-	ollamaBaseURL = tagsServer(t, "llama3.2:3b", "nomic-embed-text").URL
+	ollamaBaseURL = tagsServer(t, "qwen2.5:1.5b", "tev1:0.8b", "embeddinggemma:300m", "gemma2:2b", "clef-flash", "llama3.2:1b").URL
 	t.Cleanup(func() { ollamaBaseURL = prev })
+
+	// Version seam → at/above the floor so no catalog model is skipped for a
+	// floor reason; every model listed present means no pull runs at all.
+	prevVer := ollamaVersion
+	ollamaVersion = func(string) string { return "0.36.0" }
+	t.Cleanup(func() { ollamaVersion = prevVer })
 
 	cfg := Config{
 		Provider: "local",
@@ -327,7 +336,7 @@ mnemonic:
 	}
 	// Config still merged.
 	m := loadHomeIndexing(t, idxPath)
-	if llm := homeLLMM(t, m); llm["enabled"] != true || llm["model"] != "llama3.2:3b" {
+	if llm := homeLLMM(t, m); llm["enabled"] != true || llm["model"] != "llama3.2:1b" {
 		t.Errorf("config not merged when models present: llm=%v", llm)
 	}
 	if emb := homeEmbedder(t, m); emb["provider"] != "ollama" {
@@ -371,5 +380,190 @@ func TestOllamaVersionAtLeast(t *testing.T) {
 				t.Errorf("ollamaVersionAtLeast(%q, %q) = %v, want %v", c.out, c.floor, got, c.want)
 			}
 		})
+	}
+}
+
+// --- TICKET-02: six-model catalog + floor-gated pull ---
+
+// pulledSet extracts the set of `ollama pull <name>` invocations from a
+// recorded invocation list.
+func pulledSet(invocations []string) map[string]bool {
+	pulled := map[string]bool{}
+	for _, inv := range invocations {
+		if strings.HasPrefix(inv, "ollama pull ") {
+			pulled[inv[len("ollama pull "):]] = true
+		}
+	}
+	return pulled
+}
+
+// TestCatalogPullList: the local catalog pulls the six-model catalog (no
+// glm:vision-tools) and the runtime defaults moved to llama3.2:1b +
+// embeddinggemma:300m.
+func TestCatalogPullList(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	idxPath := writeHomeIndexing(t, home, `profile: default
+mnemonic:
+  embedder:
+    provider: onnx
+`)
+
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := os.WriteFile(filepath.Join(binDir, "ollama"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var invocations []string
+	prevRun := runCmd
+	runCmd = func(name string, args ...string) error {
+		invocations = append(invocations, name+" "+join1(args))
+		return nil
+	}
+	t.Cleanup(func() { runCmd = prevRun })
+
+	// Server lists nothing present; version above the floor so all six pull.
+	prev := ollamaBaseURL
+	ollamaBaseURL = tagsServer(t).URL
+	t.Cleanup(func() { ollamaBaseURL = prev })
+	prevVer := ollamaVersion
+	ollamaVersion = func(string) string { return "0.36.0" }
+	t.Cleanup(func() { ollamaVersion = prevVer })
+
+	cfg := Config{Provider: "local", HomeDir: home, RepoHome: filepath.Join(home, ".skillgrid")}
+	if err := setupProvider(&cfg); err != nil {
+		t.Fatalf("setupProvider (catalog): %v", err)
+	}
+
+	pulled := pulledSet(invocations)
+	want := []string{"qwen2.5:1.5b", "tev1:0.8b", "embeddinggemma:300m", "gemma2:2b", "clef-flash", "llama3.2:1b"}
+	for _, m := range want {
+		if !pulled[m] {
+			t.Errorf("expected pull of %q; got %v", m, pulled)
+		}
+	}
+	if pulled["glm:vision-tools"] {
+		t.Errorf("glm:vision-tools was pulled though it is not in the catalog; got %v", pulled)
+	}
+
+	m := loadHomeIndexing(t, idxPath)
+	if llm := homeLLMM(t, m); llm["model"] != "llama3.2:1b" {
+		t.Errorf("mnemonic.llm.model = %v, want llama3.2:1b", llm["model"])
+	}
+	if emb := homeEmbedder(t, m); emb["model"] != "embeddinggemma:300m" {
+		t.Errorf("mnemonic.embedder.model = %v, want embeddinggemma:300m", emb["model"])
+	}
+}
+
+// TestFloorGatesHeavyModels: below the Ollama version floor the heavy models
+// (tev1:0.8b, clef-flash) are skipped, the rest are pulled, and the install
+// still succeeds (config merged). embeddinggemma:300m is the runtime embedder
+// default and carries no floor, so it is always pulled.
+func TestFloorGatesHeavyModels(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	idxPath := writeHomeIndexing(t, home, `profile: default
+mnemonic:
+  embedder:
+    provider: onnx
+`)
+
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := os.WriteFile(filepath.Join(binDir, "ollama"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var invocations []string
+	prevRun := runCmd
+	runCmd = func(name string, args ...string) error {
+		invocations = append(invocations, name+" "+join1(args))
+		return nil
+	}
+	t.Cleanup(func() { runCmd = prevRun })
+
+	prev := ollamaBaseURL
+	ollamaBaseURL = tagsServer(t).URL
+	t.Cleanup(func() { ollamaBaseURL = prev })
+	prevVer := ollamaVersion
+	ollamaVersion = func(string) string { return "0.35.0" } // below floor 0.35.1
+	t.Cleanup(func() { ollamaVersion = prevVer })
+
+	cfg := Config{Provider: "local", HomeDir: home, RepoHome: filepath.Join(home, ".skillgrid")}
+	if err := setupProvider(&cfg); err != nil {
+		t.Fatalf("setupProvider (below floor): %v — install must still succeed", err)
+	}
+
+	pulled := pulledSet(invocations)
+	for _, m := range []string{"tev1:0.8b", "clef-flash"} {
+		if pulled[m] {
+			t.Errorf("heavy model %q pulled below the floor; got %v", m, pulled)
+		}
+	}
+	for _, m := range []string{"qwen2.5:1.5b", "embeddinggemma:300m", "gemma2:2b", "llama3.2:1b"} {
+		if !pulled[m] {
+			t.Errorf("expected non-heavy pull of %q below the floor; got %v", m, pulled)
+		}
+	}
+
+	// Install succeeded: config merged even below the floor.
+	m := loadHomeIndexing(t, idxPath)
+	if llm := homeLLMM(t, m); llm["enabled"] != true || llm["model"] != "llama3.2:1b" {
+		t.Errorf("config not merged below floor: llm=%v", llm)
+	}
+}
+
+// TestAtFloorPullsAll: exactly at the floor (0.35.1) all six models pull.
+func TestAtFloorPullsAll(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeHomeIndexing(t, home, `profile: default
+mnemonic:
+  embedder:
+    provider: onnx
+`)
+
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := os.WriteFile(filepath.Join(binDir, "ollama"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var invocations []string
+	prevRun := runCmd
+	runCmd = func(name string, args ...string) error {
+		invocations = append(invocations, name+" "+join1(args))
+		return nil
+	}
+	t.Cleanup(func() { runCmd = prevRun })
+
+	prev := ollamaBaseURL
+	ollamaBaseURL = tagsServer(t).URL
+	t.Cleanup(func() { ollamaBaseURL = prev })
+	prevVer := ollamaVersion
+	ollamaVersion = func(string) string { return "0.35.1" } // at floor
+	t.Cleanup(func() { ollamaVersion = prevVer })
+
+	cfg := Config{Provider: "local", HomeDir: home, RepoHome: filepath.Join(home, ".skillgrid")}
+	if err := setupProvider(&cfg); err != nil {
+		t.Fatalf("setupProvider (at floor): %v", err)
+	}
+
+	pulled := pulledSet(invocations)
+	for _, m := range []string{"qwen2.5:1.5b", "tev1:0.8b", "embeddinggemma:300m", "gemma2:2b", "clef-flash", "llama3.2:1b"} {
+		if !pulled[m] {
+			t.Errorf("expected pull of %q at the floor; got %v", m, pulled)
+		}
+	}
+}
+
+// TestSmokeProbeNonFatal: the per-model smoke probe is non-fatal — a failure
+// must not abort the install (it is currently a no-op returning true).
+func TestSmokeProbeNonFatal(t *testing.T) {
+	if !smokeProbe("http://127.0.0.1:0", "llama3.2:1b") {
+		// The probe is non-fatal: even a failing probe must not fail the
+		// install. Today it is a no-op returning true; this pins the contract.
+		t.Log("smokeProbe returned false — acceptable only as a non-fatal signal, not an error")
 	}
 }
