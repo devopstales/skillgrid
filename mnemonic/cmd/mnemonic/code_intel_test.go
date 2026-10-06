@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 )
 
 // codeIntelFixture writes a small go project under root and indexes it through

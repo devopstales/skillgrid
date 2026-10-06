@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 )
 
 // runSearchEmbeddingStatus handles `skillgrid embedding-status`.

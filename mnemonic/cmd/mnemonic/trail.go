@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 var errTrailNotFound = errors.New("trail not found")

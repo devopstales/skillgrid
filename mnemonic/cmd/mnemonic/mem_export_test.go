@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 // seedExportProject plants a project store with one observation, one edge, and

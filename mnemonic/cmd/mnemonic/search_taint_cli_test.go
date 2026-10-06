@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 )
 
 // taintCLIFixture writes a go project with a known source->sink flow, indexes

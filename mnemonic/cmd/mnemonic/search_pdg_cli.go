@@ -12,7 +12,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 )
 
 // runSearchPdg implements `skillgrid search pdg SYMBOL STATEMENT` (CLI parity

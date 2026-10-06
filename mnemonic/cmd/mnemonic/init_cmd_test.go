@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 )
 
 // TestMain points blockMDPath at the repo's real block.md for the whole test

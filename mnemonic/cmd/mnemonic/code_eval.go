@@ -13,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/eval"
+	"github.com/devopstales/skillgrid/mnemonic/internal/eval"
 )
 
 // evalCorpus is one named corpus for the eval runner: its name (the pooled axis

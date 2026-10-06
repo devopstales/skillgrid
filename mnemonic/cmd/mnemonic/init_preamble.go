@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/setup"
+	"github.com/devopstales/skillgrid/mnemonic/internal/setup"
 )
 
 // agentsConfig is the subset of .skillgrid/config.yaml that the preamble

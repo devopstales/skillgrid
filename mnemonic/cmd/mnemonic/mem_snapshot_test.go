@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 // TestMemSnapshotCLI covers 20.4: `mem snapshot create` captures a point-in-

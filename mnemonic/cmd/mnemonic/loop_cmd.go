@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/loop"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/session_inject"
+	"github.com/devopstales/skillgrid/mnemonic/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic/internal/loop"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic/internal/project"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/session_inject"
 )
 
 func runPrime(args []string) {

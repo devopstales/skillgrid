@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/setup"
+	"github.com/devopstales/skillgrid/mnemonic/internal/setup"
 	"gopkg.in/yaml.v3"
 )
 

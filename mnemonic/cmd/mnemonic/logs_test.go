@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	mnemonichttp "github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/http"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	mnemonichttp "github.com/devopstales/skillgrid/mnemonic/internal/http"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 // seedLogs records two harness sessions through the real hook writer.

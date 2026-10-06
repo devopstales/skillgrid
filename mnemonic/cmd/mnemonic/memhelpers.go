@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
 )
 
 // memoryBudgetCfg is the CLI's tunable read-budget flags (change 013, step 03).

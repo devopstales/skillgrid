@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/eval"
+	"github.com/devopstales/skillgrid/mnemonic/internal/eval"
 )
 
 // gitRun runs a git command in dir, fatal-ing the test on error.

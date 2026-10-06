@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 // seedMemoryCLIStore opens a project store and inserts a sessions row so the

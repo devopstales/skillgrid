@@ -17,7 +17,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
 )
 
 // teaController is the slice of bubbletea the progress view drives.

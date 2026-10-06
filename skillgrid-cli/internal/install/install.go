@@ -9,8 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/setup"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/ui"
+	"github.com/devopstales/skillgrid/mnemonic"
 )
 
 const installMcpPkg = "install-mcp"
@@ -256,21 +255,21 @@ func selectAgents(c *Config) error {
 		VerboseOut(c, "default selection (yes mode): opencode, kilo, cursor")
 		return nil
 	}
-	if !ui.Interactive() {
+	if !mnemonic.Interactive() {
 		c.Agents = []string{"opencode", "kilo"}
 		VerboseOut(c, "non-interactive default: opencode, kilo")
 		return nil
 	}
 
 	agents := AvailableAgents()
-	opts := make([]ui.Option, len(agents))
+	opts := make([]mnemonic.Option, len(agents))
 	for i, a := range agents {
-		opts[i] = ui.Option{
+		opts[i] = mnemonic.Option{
 			Label: a.Name,
 			Value: a.Key,
 		}
 	}
-	selected, _, err := ui.MultiSelect("Install skillgrid for which agents? (a=all, q=cancel)", opts)
+	selected, _, err := mnemonic.MultiSelect("Install skillgrid for which agents? (a=all, q=cancel)", opts)
 	if err != nil {
 		return err
 	}
@@ -329,16 +328,16 @@ func toAny(ss []string) []any {
 }
 
 func setupAgents(c *Config) error {
-	repoRoot := setup.FindRepoRoot(c.RepoDir)
+	repoRoot := mnemonic.FindRepoRoot(c.RepoDir)
 	if repoRoot == "" {
 		repoRoot = c.RepoDir
 	}
-	mcpEntries, err := setup.LoadMCPConfig(repoRoot)
+	mcpEntries, err := mnemonic.LoadMCPConfig(repoRoot)
 	if err != nil {
 		return fmt.Errorf("load mcp config: %w", err)
 	}
 	for _, key := range c.Agents {
-		if err := setup.RunSetup(key, repoRoot, mcpEntries, c.HomeDir, c.DryRun); err != nil {
+		if err := mnemonic.RunSetup(key, repoRoot, mcpEntries, c.HomeDir, c.DryRun); err != nil {
 			return fmt.Errorf("setup %s: %w", key, err)
 		}
 	}

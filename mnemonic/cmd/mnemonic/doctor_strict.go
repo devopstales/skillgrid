@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/hybrid"
+	"github.com/devopstales/skillgrid/mnemonic/internal/hybrid"
 )
 
 // RedactionState is the doctor --strict redaction check result (01.4): whether

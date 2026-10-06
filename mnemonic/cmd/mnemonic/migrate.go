@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/tiered"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/tiered"
 )
 
 // runMigrate handles `skillgrid migrate --tier`.

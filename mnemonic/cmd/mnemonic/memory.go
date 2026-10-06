@@ -8,10 +8,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/facts"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/hybrid"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/skills"
+	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
+	"github.com/devopstales/skillgrid/mnemonic/internal/facts"
+	"github.com/devopstales/skillgrid/mnemonic/internal/hybrid"
+	"github.com/devopstales/skillgrid/mnemonic/internal/skills"
 )
 
 // runMemory handles `skillgrid memory fact <add|search|forget|decay|list>` —

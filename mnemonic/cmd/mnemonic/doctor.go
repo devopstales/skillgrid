@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 // cmdEmbedder builds the process embedder from project config (mirrors the

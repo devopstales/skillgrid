@@ -14,14 +14,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
-	mnemonichttp "github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/http"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/mcp"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/setup"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/ui"
+	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic/internal/config"
+	mnemonichttp "github.com/devopstales/skillgrid/mnemonic/internal/http"
+	"github.com/devopstales/skillgrid/mnemonic/internal/mcp"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/setup"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/ui"
 )
 
 // runMCP starts the MCP stdio server.

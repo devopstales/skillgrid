@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
 )
 
 // showRepoGit runs git in dir, failing the test on error.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 // seedSkillCLIStore opens a project store under the given data dir (the skills

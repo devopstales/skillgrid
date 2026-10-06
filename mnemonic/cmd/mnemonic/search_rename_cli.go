@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/affected"
+	"github.com/devopstales/skillgrid/mnemonic/internal/affected"
 )
 
 // runSearchRename implements `skillgrid search rename OLD NEW` (CLI parity

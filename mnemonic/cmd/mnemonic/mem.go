@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memfs"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory/layer"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memfs"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memory/layer"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 )
 
 // runMem handles `skillgrid mem <subcommand>`. It is the CLI parity layer for

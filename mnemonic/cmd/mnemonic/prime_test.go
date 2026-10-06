@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	mnemonichttp "github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/http"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+	mnemonichttp "github.com/devopstales/skillgrid/mnemonic/internal/http"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 )
 
 func initGitRepo(t *testing.T) string {

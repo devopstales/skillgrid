@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
+	"github.com/devopstales/skillgrid/mnemonic/internal/codeindex"
 )
 
 // TestIndexStatus covers 03.14 (Scenario: index status shows pending sync):

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 // TestDistillStatusCLI covers 17.4: `mem distill status` shows the per-project

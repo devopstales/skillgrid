@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"strings"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/affected"
+	"github.com/devopstales/skillgrid/mnemonic/internal/affected"
 )
 
 // readAffectedChanged returns the changed file set for a `search affected`

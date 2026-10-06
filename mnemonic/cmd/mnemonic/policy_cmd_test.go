@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/policy"
+	"github.com/devopstales/skillgrid/mnemonic/internal/policy"
 )
 
 func TestPolicyInitValidateTest(t *testing.T) {
