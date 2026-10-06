@@ -1,0 +1,1 @@
+function e(t){return t==null?"n/a":t<.01?`$${t.toFixed(4)}`:`$${t.toFixed(2)}`}function o(t){return t?t>=1e6?`${(t/1e6).toFixed(1)}M`:t>=1e3?`${(t/1e3).toFixed(1)}k`:String(t):"0"}export{e as a,o as f};
