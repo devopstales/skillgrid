@@ -136,15 +136,15 @@ func FindRepoRoot(start string) string {
 func mnemonicMCPEntry() map[string]interface{} {
 	return map[string]interface{}{
 		"type":    "local",
-		"command": []interface{}{"skillgrid", "mcp"},
+		"command": []interface{}{"mnemonic", "mcp"},
 		"enabled": true,
 	}
 }
 
 func cursorMCPEntry() map[string]interface{} {
 	return map[string]interface{}{
-		"command": "skillgrid",
-		"args":    []interface{}{"skillgrid", "mcp"},
+		"command": "mnemonic",
+		"args":    []interface{}{"mcp"},
 	}
 }
 

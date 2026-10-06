@@ -10,7 +10,7 @@ servers:
   mnemonic:
     type: local
     command:
-      - skillgrid
+      - mnemonic
       - mcp
   playwright:
     type: local

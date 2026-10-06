@@ -3,7 +3,7 @@
 # Edit the shared protocol, then run this script.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SHARED="$ROOT/plugins/_shared/memory-protocol.md"
+SHARED="$ROOT/plugins/opencode/memory-protocol.md"
 OUT="$ROOT/rules/mnemonic.mdc"
 
 if [[ ! -f "$SHARED" ]]; then

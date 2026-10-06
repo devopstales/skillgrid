@@ -1,16 +1,16 @@
 # Taskfile for skillgrid (https://taskfile.dev).
 #
-#   task              build the local platform binary into dist/
+#   task              build both binaries into dist/
 #   task all          cross-build linux (amd64+386) and darwin (amd64+arm64)
-#   task test         go vet && go test in skillgrid-cli/
+#   task test         go vet && go test in both modules
 #   task skill-check  skill-hygiene guard (anatomy invariants + line budgets + hot paths)
 #   task seed-test     run the Mnemonic all-stores seed integration tests
 #   task site:build    build the Hugo docs site into site/public
 #   task site:serve    run the Hugo dev server for the docs site
 #   task gh-pages      build the site + publish it to the gh-pages branch
-#   task fmt          gofmt -w the module
+#   task fmt          gofmt -w both modules
 #   task clean        remove dist/
-#   task install      copy dist/skillgrid-linux-amd64 → ~/.skillgrid/bin/skillgrid
+#   task install      copy dist/skillgrid-linux-amd64 + dist/mnemonic-linux-amd64 → ~/.skillgrid/bin/
 #   task version      show the version that would be baked in
 #
 # Version is derived from `git describe --tags --always --dirty`.
@@ -19,10 +19,13 @@
 version: "3"
 
 vars:
-  MODULE_DIR: skillgrid-cli
-  BIN: skillgrid
+  CLI_DIR: skillgrid-cli
+  MEM_DIR: mnemonic
+  CLI_BIN: skillgrid
+  MEM_BIN: mnemonic
   OUT: dist
-  PKG: "./cmd/skillgrid"
+  CLI_PKG: "./cmd/skillgrid"
+  MEM_PKG: "./cmd/mnemonic"
   VERSION:
     sh: 'echo "${SKILLGRID_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)}"'
 
@@ -32,24 +35,26 @@ tasks:
       - task: build
 
   ui:build:
-    desc: Build the skillgrid-ui SPA into skillgrid-cli/internal/mnemonic/http/ui/dist (go:embed input).
+    desc: Build the skillgrid-ui SPA into mnemonic/internal/http/ui/dist (go:embed input).
     cmds:
       - cd skillgrid-ui && npm ci && npm run build
 
   build:all:
-    desc: Build the SPA then the local platform binary (embed needs ui:build first).
+    desc: Build the SPA then both binaries (embed needs ui:build first).
     deps:
       - ui:build
     cmds:
       - task: build
 
   build:
-    desc: Build the local platform binary into dist/.
+    desc: Build both local platform binaries into dist/.
     cmds:
-      - cd {{.MODULE_DIR}} && mkdir -p ../{{.OUT}}
-      - cd {{.MODULE_DIR}} && go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}} {{.PKG}}
-      - rm -f ~/.local/bin/skillgrid
-      - cp dist/skillgrid ~/.local/bin/
+      - mkdir -p {{.OUT}}
+      - cd {{.MEM_DIR}} && go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}} {{.MEM_PKG}}
+      - cd {{.CLI_DIR}} && go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}} {{.CLI_PKG}}
+      - rm -f ~/.local/bin/{{.MEM_BIN}} ~/.local/bin/{{.CLI_BIN}}
+      - cp {{.OUT}}/{{.MEM_BIN}} ~/.local/bin/
+      - cp {{.OUT}}/{{.CLI_BIN}} ~/.local/bin/
 
   all:
     desc: Cross-build linux amd64+386 and darwin amd64+arm64.
@@ -59,27 +64,33 @@ tasks:
       - task: build-darwin
 
   build-linux:
-    desc: Build linux binaries (amd64 + 386).
+    desc: Build linux binaries (amd64 + 386) for both modules.
     cmds:
-      - cd {{.MODULE_DIR}} && GOOS=linux GOARCH=amd64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-linux-amd64 {{.PKG}}
-      - cd {{.MODULE_DIR}} && GOOS=linux GOARCH=386 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-linux-386 {{.PKG}}
+      - cd {{.MEM_DIR}} && GOOS=linux GOARCH=amd64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-amd64 {{.MEM_PKG}}
+      - cd {{.MEM_DIR}} && GOOS=linux GOARCH=386 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-linux-386 {{.MEM_PKG}}
+      - cd {{.CLI_DIR}} && GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-linux-amd64 {{.CLI_PKG}}
+      - cd {{.CLI_DIR}} && GOOS=linux GOARCH=386 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-linux-386 {{.CLI_PKG}}
 
   build-darwin:
-    desc: Build macOS binaries (amd64 + arm64).
+    desc: Build macOS binaries (amd64 + arm64) for both modules.
     cmds:
-      - cd {{.MODULE_DIR}} && GOOS=darwin GOARCH=amd64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-darwin-amd64 {{.PKG}}
-      - cd {{.MODULE_DIR}} && GOOS=darwin GOARCH=arm64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.BIN}}-darwin-arm64 {{.PKG}}
+      - cd {{.MEM_DIR}} && GOOS=darwin GOARCH=amd64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-amd64 {{.MEM_PKG}}
+      - cd {{.MEM_DIR}} && GOOS=darwin GOARCH=arm64 go build -tags ui -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.MEM_BIN}}-darwin-arm64 {{.MEM_PKG}}
+      - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-amd64 {{.CLI_PKG}}
+      - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-arm64 {{.CLI_PKG}}
 
   test:
-    desc: Run go vet and go test ./... in skillgrid-cli/.
+    desc: Run go vet and go test ./... in both modules.
     cmds:
-      - cd {{.MODULE_DIR}} && go vet ./...
-      - cd {{.MODULE_DIR}} && go test ./...
+      - cd {{.MEM_DIR}} && go vet ./...
+      - cd {{.MEM_DIR}} && go test ./...
+      - cd {{.CLI_DIR}} && go vet ./...
+      - cd {{.CLI_DIR}} && go test ./...
 
   seed-test:
     desc: Run the Mnemonic all-stores seed integration tests (memory + code index + web cache).
     cmds:
-      - cd {{.MODULE_DIR}} && go test -v -run TestSeed ./internal/mnemonic/integration/
+      - cd {{.MEM_DIR}} && go test -v -run TestSeed ./internal/integration/
 
   skill-check:
     desc: Skill-hygiene guard — anatomy invariants, line budgets, hot-path ceilings (scripts/check-skillgrid-skills.mjs).
@@ -117,9 +128,10 @@ tasks:
       - git checkout -
 
   fmt:
-    desc: gofmt -w the whole module.
+    desc: gofmt -w both modules.
     cmds:
-      - cd {{.MODULE_DIR}} && gofmt -l -w .
+      - cd {{.MEM_DIR}} && gofmt -l -w .
+      - cd {{.CLI_DIR}} && gofmt -l -w .
 
   clean:
     desc: Remove dist/.
@@ -132,9 +144,11 @@ tasks:
       - echo {{.VERSION}}
 
   install:
-    desc: Install the linux-amd64 binary into ~/.skillgrid/bin (after `task all`).
+    desc: Install linux-amd64 binaries into ~/.skillgrid/bin (after `task all`).
     cmds:
       - mkdir -p "$HOME/.skillgrid/bin"
-      - cp {{.OUT}}/{{.BIN}}-linux-amd64 "$HOME/.skillgrid/bin/{{.BIN}}"
-      - chmod +x "$HOME/.skillgrid/bin/{{.BIN}}"
-      - echo "installed to $HOME/.skillgrid/bin/{{.BIN}}"
+      - cp {{.OUT}}/{{.MEM_BIN}}-linux-amd64 "$HOME/.skillgrid/bin/{{.MEM_BIN}}"
+      - chmod +x "$HOME/.skillgrid/bin/{{.MEM_BIN}}"
+      - cp {{.OUT}}/{{.CLI_BIN}}-linux-amd64 "$HOME/.skillgrid/bin/{{.CLI_BIN}}"
+      - chmod +x "$HOME/.skillgrid/bin/{{.CLI_BIN}}"
+      - echo "installed to $HOME/.skillgrid/bin/"

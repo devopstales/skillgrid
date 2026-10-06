@@ -27,3 +27,21 @@ jobs:
           node-version: 22
       - name: Skill hygiene guard (anatomy + line budgets + hot paths)
         run: node scripts/check-skillgrid-skills.mjs
+
+  go-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Build and test mnemonic
+        working-directory: mnemonic
+        run: |
+          go build ./...
+          go test ./...
+      - name: Build and test skillgrid-cli
+        working-directory: skillgrid-cli
+        run: |
+          go build ./...
+          go test ./...

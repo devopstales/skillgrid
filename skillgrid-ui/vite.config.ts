@@ -68,7 +68,7 @@ export default defineConfig({
     globals: true,
   },
   build: {
-    outDir: '../skillgrid-cli/internal/mnemonic/http/ui/dist',
+    outDir: '../mnemonic/internal/http/ui/dist',
     emptyOutDir: true,
     // mermaid (~728 kB) is a single monolithic lib that Rollup can't split
     // further; it's dynamic-imported so it's lazy-loaded only when a diagram

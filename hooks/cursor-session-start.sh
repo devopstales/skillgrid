@@ -14,8 +14,8 @@ SID=$(printf '%s' "$input" | node -e '
 
 BASE="${SKILLGRID_MNEMONIC_HTTP_URL:-http://127.0.0.1:7438}"
 curl -sf --max-time 1 "$BASE/health" >/dev/null 2>&1 || \
-  (command -v skillgrid >/dev/null 2>&1 && \
-   nohup skillgrid serve >/dev/null 2>&1 & disown 2>/dev/null) || true
+  (command -v mnemonic >/dev/null 2>&1 && \
+   nohup mnemonic serve >/dev/null 2>&1 & disown 2>/dev/null) || true
 
 DIR=$(printf '%s' "$input" | node -e '
   let s=""; process.stdin.on("data",d=>s+=d); process.stdin.on("end",()=>{
@@ -55,8 +55,8 @@ if [ -n "$CAPTURE" ] && [ -n "$SID" ]; then
 fi
 
 PRIME=""
-if command -v skillgrid >/dev/null 2>&1; then
-  PRIME=$(skillgrid prime --dir "${DIR:-.}" --session "$SID" 2>/dev/null || true)
+if command -v mnemonic >/dev/null 2>&1; then
+  PRIME=$(mnemonic prime --dir "${DIR:-.}" --session "$SID" 2>/dev/null || true)
 fi
 if [ -z "$PRIME" ]; then
   PRIME='Mnemonic is active. Start with mem_session_start (title), save decisions/bugfixes via mem_save, and close with mem_session_summary + mem_session_end. Prefer mem_context / mem_search before re-deriving prior work. Call code_explore before rg.'

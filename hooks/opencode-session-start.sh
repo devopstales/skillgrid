@@ -12,8 +12,8 @@ DIR="${OPENCODE_PROJECT_DIR:-$PWD}"
 BASE="${SKILLGRID_MNEMONIC_HTTP_URL:-http://127.0.0.1:7438}"
 
 curl -sf --max-time 1 "$BASE/health" >/dev/null 2>&1 || \
-  (command -v skillgrid >/dev/null 2>&1 && \
-   nohup skillgrid serve >/dev/null 2>&1 & disown 2>/dev/null) || true
+  (command -v mnemonic >/dev/null 2>&1 && \
+   nohup mnemonic serve >/dev/null 2>&1 & disown 2>/dev/null) || true
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CAPTURE=""
@@ -27,8 +27,8 @@ if [ -n "$SID" ] && [ -n "$CAPTURE" ]; then
     node "$CAPTURE" register </dev/null >/dev/null 2>&1 || true
 fi
 
-if command -v skillgrid >/dev/null 2>&1; then
-  skillgrid prime --dir "$DIR" --session "$SID" >/dev/null 2>&1 || true
+if command -v mnemonic >/dev/null 2>&1; then
+  mnemonic prime --dir "$DIR" --session "$SID" >/dev/null 2>&1 || true
 fi
 
 if [ -n "$SID" ]; then
