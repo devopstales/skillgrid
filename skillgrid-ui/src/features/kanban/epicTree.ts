@@ -9,6 +9,34 @@ export interface FlatGroup {
 }
 export type ColumnGroup = EpicGroup | FlatGroup
 
+export interface MilestoneGroup {
+  name: string
+  tasks: UnifiedTask[]
+}
+
+// Group all tasks by milestone across columns. Tasks without a milestone are
+// grouped under the empty-string key, which renders as "Unassigned". Groups are
+// sorted alphabetically; the unassigned group sorts last.
+export function groupTasksByMilestone(tasks: UnifiedTask[]): MilestoneGroup[] {
+  const map = new Map<string, UnifiedTask[]>()
+  for (const t of tasks) {
+    const key = t.milestone ?? ''
+    const arr = map.get(key) ?? []
+    arr.push(t)
+    map.set(key, arr)
+  }
+  const groups: MilestoneGroup[] = []
+  for (const [name, list] of map) {
+    groups.push({ name, tasks: list })
+  }
+  groups.sort((a, b) => {
+    if (!a.name) return 1
+    if (!b.name) return -1
+    return a.name.localeCompare(b.name)
+  })
+  return groups
+}
+
 // Split a column's tasks into display groups. Tasks with no children (and no
 // parent, or a parent not in this column) render as flat cards; a task that has
 // at least one child in the same column renders as an EpicGroup with those

@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sketch — 001-milestone-rows</title>
+  <link rel="stylesheet" data-theme href="../themes/default.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: var(--font-mono);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* --- Variant tab bar --- */
+    .variant-tabs {
+      display: flex; gap: var(--space-1);
+      padding: var(--space-3);
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .variant-tab {
+      padding: var(--space-2) var(--space-4);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg); color: var(--text);
+      font: inherit; font-size: var(--text-sm);
+      cursor: pointer;
+      transition: background-color var(--transition), color var(--transition);
+    }
+    .variant-tab:hover { background: var(--surface); }
+    .variant-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .variant-tab.winner::after { content: " ★"; }
+
+    .variant { padding: var(--space-4); }
+
+    /* --- Toolbar --- */
+    .sketch-toolbar {
+      position: fixed; bottom: var(--space-4); right: var(--space-4); z-index: 9999;
+      display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1);
+      font-family: var(--font-mono); font-size: var(--text-xs);
+    }
+    .sketch-toolbar__handle {
+      width: 2.5rem; height: 2.5rem; border-radius: var(--radius-full);
+      background: rgba(20,20,20,0.75); color: #fff;
+      border: 1px solid rgba(255,255,255,0.15); backdrop-filter: blur(8px);
+      cursor: pointer; display: grid; place-items: center; font-size: 1rem;
+      transition: opacity var(--transition);
+    }
+    .sketch-toolbar__panel {
+      display: none; flex-direction: column; gap: var(--space-2);
+      padding: var(--space-3); background: rgba(20,20,20,0.85);
+      border-radius: var(--radius-md); border: 1px solid rgba(255,255,255,0.15);
+      backdrop-filter: blur(8px); color: #fff; width: 11rem;
+    }
+    .sketch-toolbar:hover .sketch-toolbar__panel { display: flex; }
+    .sketch-toolbar:hover .sketch-toolbar__handle { opacity: 0.3; }
+    .toolbar-field { display: flex; flex-direction: column; gap: var(--space-1); }
+    .toolbar-field--group { flex-direction: row; align-items: center; justify-content: space-between; }
+    .toolbar-field select {
+      font: inherit; padding: var(--space-1); border-radius: var(--radius-sm);
+      border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: #fff;
+    }
+    .toolbar-field button {
+      font: inherit; font-size: 0.7rem; padding: 0.2rem 0.5rem;
+      border-radius: var(--radius-sm); border: 1px solid rgba(255,255,255,0.2);
+      background: transparent; color: #fff; cursor: pointer;
+    }
+    .toolbar-field button.active { background: var(--primary); border-color: var(--primary); }
+    .annotation-overlay {
+      position: fixed; z-index: 10000; padding: 0.25rem 0.5rem;
+      background: rgba(0,0,0,0.9); color: #fff;
+      font-family: var(--font-mono); font-size: 0.7rem;
+      border-radius: var(--radius-sm); pointer-events: none; white-space: nowrap;
+    }
+    body.annotating [data-sketch-content] *:hover { outline: 1px dashed var(--primary); }
+
+    /* === Kanban board shared === */
+    .board {
+      display: flex; gap: 0.75rem;
+      overflow-x: auto; padding: var(--space-4);
+    }
+    .col {
+      flex: 0 0 288px;
+      display: flex; flex-direction: column;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      background: rgba(17,17,24,0.6);
+    }
+    .col__header {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.625rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .col__dot { width: 8px; height: 8px; border-radius: 50%; }
+    .col__title {
+      font-size: 12px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--text-3);
+    }
+    .col__count {
+      margin-left: auto;
+      border-radius: var(--radius-sm);
+      background: rgba(46,46,62,0.6);
+      padding: 0 6px;
+      font-size: 11px; color: var(--text-muted);
+    }
+    .col__body {
+      display: flex; flex-direction: column; gap: 0.5rem;
+      padding: 0.5rem;
+    }
+
+    /* === Task card (matches TaskCard.tsx) === */
+    .card {
+      display: block; width: 100%;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      padding: 0.75rem;
+      text-align: left;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      transition: border-color var(--transition), background-color var(--transition);
+    }
+    .card:hover { border-color: rgba(99,102,241,0.5); background: rgba(46,46,62,0.2); }
+    .card__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+    .card__id { font-size: 12px; color: var(--text-muted); }
+    .card__priority {
+      border-radius: var(--radius-sm); border: 1px solid;
+      padding: 0.5px 6px; font-size: 10px;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .card__priority.high { color: var(--danger); border-color: rgba(239,68,68,0.4); }
+    .card__priority.medium { color: var(--warning); border-color: rgba(234,179,8,0.4); }
+    .card__priority.low { color: var(--text-muted); border-color: rgba(71,85,105,0.4); }
+    .card__title {
+      margin-top: 0.375rem;
+      font-size: 13px; line-height: 1.375;
+      color: var(--text-2);
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .card__meta { margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: center; }
+    .card__badge {
+      border-radius: var(--radius-sm);
+      padding: 0.5px 6px; font-size: 10px;
+    }
+    .card__badge.type { background: rgba(46,46,62,0.6); color: var(--text-4); }
+    .card__badge.milestone { background: rgba(99,102,241,0.15); color: var(--primary-hover); }
+    .card__badge.label { background: rgba(46,46,62,0.4); color: var(--text-muted); }
+    .card__footer { margin-top: 0.5rem; display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
+    .card__deps { margin-top: 0.375rem; font-size: 10px; color: var(--text-6); }
+
+    /* === Variant A: Milestone rows spanning all columns === */
+    .ms-board {
+      display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .ms-row {
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      overflow: hidden;
+    }
+    .ms-row__header {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.625rem 0.75rem;
+      width: 100%;
+      border: none; background: none; color: var(--text);
+      font: inherit; cursor: pointer;
+      transition: background-color var(--transition);
+    }
+    .ms-row__header:hover { background: rgba(46,46,62,0.1); }
+    .ms-row__header.open { background: rgba(46,46,62,0.2); }
+    .ms-row__chevron {
+      width: 14px; height: 14px; flex-shrink: 0;
+      transition: transform var(--transition);
+      color: var(--text-muted);
+    }
+    .ms-row__header.open .ms-row__chevron { transform: rotate(90deg); }
+    .ms-row__name {
+      font-size: 12px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--primary-hover);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .ms-row__name.unassigned { color: var(--text-muted); }
+    .ms-row__progress { margin-left: auto; display: flex; align-items: center; gap: 0.375rem; flex-shrink: 0; }
+    .ms-row__bar { width: 80px; height: 4px; border-radius: 2px; background: rgba(46,46,62,0.5); overflow: hidden; }
+    .ms-row__bar-fill { height: 100%; border-radius: 2px; background: var(--primary); transition: width 300ms ease; }
+    .ms-row__bar-fill.done { background: var(--success); }
+    .ms-row__count { font-size: 10px; color: var(--text-muted); }
+    .ms-row__total {
+      border-radius: var(--radius-sm);
+      background: rgba(46,46,62,0.6);
+      padding: 0 6px; font-size: 10px; color: var(--text-4);
+    }
+    /* Column header bar (sticky at top of variant A) */
+    .ms-col-header-bar {
+      display: flex; gap: 0.5rem;
+      padding: 0;
+      position: sticky; top: 0; z-index: 5;
+      background: var(--bg);
+    }
+    .ms-col-header-bar__col {
+      flex: 1 1 0;
+      min-width: 180px;
+      display: flex; align-items: center; gap: 0.375rem;
+      padding: 0.5rem 0.625rem;
+      border-radius: var(--radius-sm);
+      background: rgba(46,46,62,0.3);
+    }
+    .ms-col-header-bar__dot { width: 7px; height: 7px; border-radius: 50%; }
+    .ms-col-header-bar__title {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--text-3);
+    }
+    .ms-col-header-bar__count {
+      margin-left: auto;
+      font-size: 10px; color: var(--text-muted);
+    }
+    /* Expanded body: column grid spanning full width */
+    .ms-row__body {
+      display: none;
+      padding: 0.5rem;
+      border-top: 1px solid var(--border-soft);
+    }
+    .ms-row__body.open { display: block; }
+    .ms-row__cols {
+      display: flex; gap: 0.5rem;
+    }
+    .ms-row__col {
+      flex: 1 1 0;
+      min-width: 180px;
+      display: flex; flex-direction: column; gap: 0.375rem;
+      min-height: 3rem;
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius-sm);
+      background: rgba(10,10,15,0.4);
+      padding: 0.375rem;
+    }
+    .ms-row__col:empty::after,
+    .ms-row__col.is-empty::after {
+      content: '—';
+      display: block;
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-6);
+      padding: 0.5rem 0;
+    }
+
+    /* === Variant B: Sticky grouped sections === */
+    .ms-section { border-radius: var(--radius-md); overflow: hidden; }
+    .ms-section__header {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.5rem 0.625rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom: none;
+    }
+    .ms-section__name {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--primary-hover);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .ms-section__name.unassigned { color: var(--text-muted); }
+    .ms-section__progress { margin-left: auto; display: flex; align-items: center; gap: 0.375rem; flex-shrink: 0; }
+    .ms-section__bar { width: 64px; height: 4px; border-radius: 2px; background: rgba(46,46,62,0.5); overflow: hidden; }
+    .ms-section__bar-fill { height: 100%; border-radius: 2px; background: var(--primary); }
+    .ms-section__bar-fill.done { background: var(--success); }
+    .ms-section__count { font-size: 10px; color: var(--text-muted); }
+    .ms-section__body {
+      display: flex; flex-direction: column; gap: 0.375rem;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+      border-top: none;
+      background: var(--bg-elevated);
+    }
+
+    /* === Variant C: Expand-all + flat cards === */
+    .ms-group-label {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.25rem 0.625rem;
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--primary-hover);
+    }
+    .ms-group-label.unassigned { color: var(--text-muted); }
+    .ms-group-label .ms-row__progress { margin-left: auto; }
+
+    /* === Empty state === */
+    .empty {
+      border: 1px dashed rgba(46,46,62,0.7);
+      border-radius: var(--radius-md);
+      padding: 1rem; text-align: center;
+      font-size: 11px; color: var(--text-6);
+    }
+
+    /* === Toast === */
+    .toast {
+      position: fixed; bottom: 4rem; left: 50%; transform: translateX(-50%) translateY(10px);
+      padding: 0.5rem 1rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      font-family: var(--font-mono); font-size: 12px;
+      color: var(--text); opacity: 0;
+      transition: opacity var(--transition), transform var(--transition);
+      z-index: 10001;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+  <nav class="variant-tabs">
+    <button class="variant-tab active" data-variant="a">A — Collapse Rows</button>
+    <button class="variant-tab" data-variant="b">B — Sticky Sections</button>
+    <button class="variant-tab" data-variant="c">C — Always Flat</button>
+  </nav>
+
+  <main data-sketch-content>
+    <section class="variant" data-variant="a" id="variant-a"></section>
+    <section class="variant" data-variant="b" id="variant-b" hidden></section>
+    <section class="variant" data-variant="c" id="variant-c" hidden></section>
+  </main>
+
+  <div class="sketch-toolbar">
+    <div class="sketch-toolbar__panel">
+      <div class="toolbar-field toolbar-field--group">
+        <span>State</span>
+        <select data-state-select>
+          <option value="populated" selected>Populated</option>
+          <option value="empty">Empty</option>
+          <option value="loading">Loading</option>
+        </select>
+      </div>
+      <div class="toolbar-field toolbar-field--group" data-viewport-group>
+        <span>Viewport</span>
+        <span style="display:flex;gap:0.25rem">
+          <button data-viewport="375">375</button>
+          <button data-viewport="768">768</button>
+          <button data-viewport="1280" class="active">1280</button>
+        </span>
+      </div>
+      <label class="toolbar-field">
+        <span style="display:flex;align-items:center;gap:0.5rem">
+          <input type="checkbox" data-annotation-toggle> Annotate
+        </span>
+      </label>
+    </div>
+    <button class="sketch-toolbar__handle" aria-label="Sketch tools">⚙</button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // --- Sample data: real milestone names + task IDs from the project ---
+    const COLUMNS = [
+      { id: 'todo', label: 'Todo', color: '#71717a' },
+      { id: 'ready', label: 'Ready', color: '#f59e0b' },
+      { id: 'in_progress', label: 'In Progress', color: '#6366f1' },
+      { id: 'blocked', label: 'Blocked', color: '#ef4444' },
+      { id: 'done', label: 'Done', color: '#22c55e' },
+    ];
+
+    const TASKS = [
+      // todo
+      { id: 'TASK-030.01', title: 'Add bitemporal audit trail to mem_save', type: 'feature', priority: 'high', milestone: 'mnemonic-memory-improvements', assignees: [], ac: '0/4', deps: [] },
+      { id: 'TASK-030.02', title: 'Implement observation upsert by topic_key', type: 'feature', priority: 'medium', milestone: 'mnemonic-memory-improvements', assignees: ['paladm'], ac: '0/3', deps: ['TASK-030.01'] },
+      { id: 'TASK-039.01', title: 'Extract shared LLM provider interface', type: 'refactor', priority: 'high', milestone: 'shared-llm-provider', assignees: [], ac: '0/5', deps: [] },
+      { id: 'TASK-039.02', title: 'Migrate OpenCode adapter to shared provider', type: 'refactor', priority: 'medium', milestone: 'shared-llm-provider', assignees: [], ac: '0/3', deps: ['TASK-039.01'] },
+      { id: 'TASK-007', title: 'Add WebSocket live sync to companion', type: 'feature', priority: 'medium', milestone: 'visual-companion', assignees: [], ac: '0/3', deps: [] },
+      { id: 'TASK-008', title: 'Render decision cards in companion view', type: 'feature', priority: 'low', milestone: 'visual-companion', assignees: [], ac: '0/2', deps: ['TASK-007'] },
+      // ready
+      { id: 'TASK-030.03', title: 'Add mem_review lifecycle metadata', type: 'feature', priority: 'medium', milestone: 'mnemonic-memory-improvements', assignees: [], ac: '2/3', deps: [] },
+      { id: 'TASK-038.01', title: 'Implement checkpoint snapshot on session start', type: 'feature', priority: 'high', milestone: 'memory-checkpoint', assignees: ['paladm'], ac: '1/4', deps: [] },
+      { id: 'TASK-039.03', title: 'Migrate Kilo adapter to shared provider', type: 'refactor', priority: 'low', milestone: 'shared-llm-provider', assignees: [], ac: '0/3', deps: ['TASK-039.01'] },
+      { id: 'TASK-020', title: 'Bitemporal: add valid_from/valid_to to observations', type: 'feature', priority: 'medium', milestone: null, assignees: [], ac: '1/5', deps: [] },
+      // in_progress
+      { id: 'TASK-038.02', title: 'Restore checkpoint state on session resume', type: 'feature', priority: 'high', milestone: 'memory-checkpoint', assignees: ['paladm'], ac: '2/4', deps: ['TASK-038.01'] },
+      { id: 'TASK-031', title: 'Rewrite WebUI with React + Vite', type: 'feature', priority: 'high', milestone: 'mnemonic-webui-rewrite', assignees: [], ac: '5/7', deps: [] },
+      { id: 'TASK-032', title: 'Migrate sessions page to new stack', type: 'feature', priority: 'medium', milestone: 'mnemonic-webui-rewrite', assignees: [], ac: '2/3', deps: ['TASK-031'] },
+      { id: 'TASK-021', title: 'Dedup: hash-based observation dedup', type: 'enhancement', priority: 'medium', milestone: null, assignees: [], ac: '3/4', deps: ['TASK-020'] },
+      // blocked
+      { id: 'TASK-039.04', title: 'Migrate Cursor adapter to shared provider', type: 'refactor', priority: 'medium', milestone: 'shared-llm-provider', assignees: [], ac: '0/3', deps: ['TASK-039.01'], status_detail: 'waiting on Cursor API key' },
+      { id: 'TASK-022', title: 'Dedup: FTS5 conflict resolution', type: 'bug', priority: 'high', milestone: null, assignees: [], ac: '0/2', deps: ['TASK-021'] },
+      // done
+      { id: 'TASK-019.01', title: 'Session events: append-only log', type: 'feature', priority: 'high', milestone: 'session-events-layer', assignees: [], ac: '4/4', deps: [] },
+      { id: 'TASK-019.02', title: 'Session events: SSE stream endpoint', type: 'feature', priority: 'high', milestone: 'session-events-layer', assignees: [], ac: '3/3', deps: ['TASK-019.01'] },
+      { id: 'TASK-019.03', title: 'Session events: replay from cursor', type: 'feature', priority: 'medium', milestone: 'session-events-layer', assignees: [], ac: '3/3', deps: ['TASK-019.02'] },
+      { id: 'TASK-031.01', title: 'WebUI: scaffold Vite + React + Tailwind', type: 'feature', priority: 'high', milestone: 'mnemonic-webui-rewrite', assignees: [], ac: '3/3', deps: [] },
+      { id: 'TASK-033', title: 'Migrate memories page to new stack', type: 'feature', priority: 'medium', milestone: 'mnemonic-webui-rewrite', assignees: [], ac: '3/3', deps: ['TASK-031'] },
+      { id: 'TASK-023', title: 'Dedup: topic_key collision handling', type: 'bug', priority: 'medium', milestone: null, assignees: [], ac: '2/2', deps: ['TASK-022'] },
+    ];
+
+    // --- Helpers ---
+    function escapeHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    function cardHtml(t) {
+      const pri = t.priority ? `<span class="card__priority ${t.priority}">${t.priority}</span>` : '';
+      const badges = [];
+      if (t.type) badges.push(`<span class="card__badge type">${escapeHtml(t.type)}</span>`);
+      if (t.milestone) badges.push(`<span class="card__badge milestone">${escapeHtml(t.milestone)}</span>`);
+      const footer = `
+        <span>${t.assignees.length ? escapeHtml(t.assignees.join(', ')) : 'unassigned'}</span>
+        ${t.ac ? `<span>AC ${t.ac}</span>` : ''}
+      `;
+      const deps = t.deps && t.deps.length
+        ? `<div class="card__deps">deps: ${t.deps.map(escapeHtml).join(', ')}</div>`
+        : '';
+      return `
+        <button class="card" type="button" data-task="${t.id}">
+          <div class="card__top">
+            <span class="card__id">${t.id}</span>
+            ${pri}
+          </div>
+          <p class="card__title">${escapeHtml(t.title)}</p>
+          <div class="card__meta">${badges.join('')}</div>
+          <div class="card__footer">${footer}</div>
+          ${deps}
+        </button>
+      `;
+    }
+
+    function groupByMilestone(tasks) {
+      const map = new Map();
+      for (const t of tasks) {
+        const key = t.milestone || '__none';
+        const arr = map.get(key) ?? [];
+        arr.push(t);
+        map.set(key, arr);
+      }
+      const groups = [];
+      for (const [name, list] of map) {
+        groups.push({
+          name: name === '__none' ? '' : name,
+          tasks: list,
+          done: list.filter((t) => t._col === 'done').length,
+        });
+      }
+      groups.sort((a, b) => {
+        if (!a.name) return 1;
+        if (!b.name) return -1;
+        return a.name.localeCompare(b.name);
+      });
+      return groups;
+    }
+
+    function progressBar(done, total) {
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      const cls = pct === 100 ? 'done' : '';
+      return `
+        <div class="ms-row__progress">
+          <div class="ms-row__bar"><div class="ms-row__bar-fill ${cls}" style="width:${pct}%"></div></div>
+          <span class="ms-row__count">${done}/${total}</span>
+        </div>
+      `;
+    }
+
+    // --- Variant A: Milestone rows spanning all columns ---
+    function renderVariantA(state) {
+      // Fixed column header bar (always at top)
+      const colCounts = {};
+      COLUMNS.forEach(c => colCounts[c.id] = TASKS.filter(t => t._col === c.id).length);
+
+      const headerBar = `
+        <div class="ms-col-header-bar">
+          ${COLUMNS.map(c => `
+            <div class="ms-col-header-bar__col">
+              <span class="ms-col-header-bar__dot" style="background:${c.color}"></span>
+              <span class="ms-col-header-bar__title">${c.label}</span>
+              <span class="ms-col-header-bar__count">${state === 'loading' ? '…' : colCounts[c.id]}</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+
+      if (state === 'loading') return `<div class="ms-board">${headerBar}<div class="ms-row"><div class="ms-row__body open"><div class="empty">Loading…</div></div></div></div>`;
+      if (state === 'empty') return `<div class="ms-board">${headerBar}<div class="ms-row"><div class="ms-row__body open"><div class="empty">No tasks</div></div></div></div>`;
+
+      // Group ALL tasks by milestone (across all columns)
+      const allGroups = groupByMilestone(TASKS);
+      const rows = allGroups.map(g => {
+        const unassigned = !g.name;
+        // Always render all columns, even empty ones
+        const colHtml = COLUMNS.map(col => {
+          const colTasks = g.tasks.filter(t => t._col === col.id);
+          const isEmpty = !colTasks.length;
+          return `
+            <div class="ms-row__col ${isEmpty ? 'is-empty' : ''}">
+              ${colTasks.map(cardHtml).join('')}
+            </div>
+          `;
+        }).join('');
+        return `
+          <div class="ms-row">
+            <button class="ms-row__header" type="button" data-ms-toggle>
+              <svg class="ms-row__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              <span class="ms-row__name ${unassigned ? 'unassigned' : ''}">${unassigned ? 'Unassigned' : escapeHtml(g.name)}</span>
+              ${progressBar(g.done, g.tasks.length)}
+              <span class="ms-row__total">${g.tasks.length}</span>
+            </button>
+            <div class="ms-row__body">
+              <div class="ms-row__cols">${colHtml}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      return `<div class="ms-board">${headerBar}${rows}</div>`;
+    }
+
+    // --- Variant B: Sticky sections ---
+    function renderVariantB(state) {
+      if (state === 'loading') return `<div class="board">${COLUMNS.map(c => `<div class="col" style="max-height:400px;overflow-y:auto"><div class="col__header"><span class="col__dot" style="background:${c.color}"></span><span class="col__title">${c.label}</span><span class="col__count">…</span></div><div class="col__body"><div class="empty">Loading…</div></div></div>`).join('')}</div>`;
+      if (state === 'empty') return `<div class="board">${COLUMNS.map(c => `<div class="col" style="max-height:400px;overflow-y:auto"><div class="col__header"><span class="col__dot" style="background:${c.color}"></span><span class="col__title">${c.label}</span><span class="col__count">0</span></div><div class="col__body"><div class="empty">No tasks</div></div></div>`).join('')}</div>`;
+
+      return `<div class="board">${COLUMNS.map(col => {
+        const colTasks = TASKS.filter(t => t._col === col.id);
+        const groups = groupByMilestone(colTasks);
+        const sections = groups.map(g => {
+          const unassigned = !g.name;
+          return `
+            <div class="ms-section">
+              <div class="ms-section__header">
+                <span class="ms-section__name ${unassigned ? 'unassigned' : ''}">${unassigned ? 'Unassigned' : escapeHtml(g.name)}</span>
+                <div class="ms-section__progress">
+                  <div class="ms-row__bar"><div class="ms-row__bar-fill ${g.done === g.tasks.length ? 'done' : ''}" style="width:${g.tasks.length ? Math.round(g.done/g.tasks.length*100) : 0}%"></div></div>
+                  <span class="ms-section__count">${g.done}/${g.tasks.length}</span>
+                </div>
+              </div>
+              <div class="ms-section__body">
+                ${g.tasks.map(cardHtml).join('')}
+              </div>
+            </div>
+          `;
+        }).join('');
+        return `
+          <div class="col" style="max-height:480px;overflow-y:auto">
+            <div class="col__header">
+              <span class="col__dot" style="background:${col.color}"></span>
+              <span class="col__title">${col.label}</span>
+              <span class="col__count">${colTasks.length}</span>
+            </div>
+            <div class="col__body">${sections || '<div class="empty">No tasks</div>'}</div>
+          </div>
+        `;
+      }).join('')}</div>`;
+    }
+
+    // --- Variant C: Always flat with group labels ---
+    function renderVariantC(state) {
+      if (state === 'loading') return `<div class="board">${COLUMNS.map(c => `<div class="col"><div class="col__header"><span class="col__dot" style="background:${c.color}"></span><span class="col__title">${c.label}</span><span class="col__count">…</span></div><div class="col__body"><div class="empty">Loading…</div></div></div>`).join('')}</div>`;
+      if (state === 'empty') return `<div class="board">${COLUMNS.map(c => `<div class="col"><div class="col__header"><span class="col__dot" style="background:${c.color}"></span><span class="col__title">${c.label}</span><span class="col__count">0</span></div><div class="col__body"><div class="empty">No tasks</div></div></div>`).join('')}</div>`;
+
+      return `<div class="board">${COLUMNS.map(col => {
+        const colTasks = TASKS.filter(t => t._col === col.id);
+        const groups = groupByMilestone(colTasks);
+        const content = groups.map(g => {
+          const unassigned = !g.name;
+          return `
+            <div class="ms-group-label ${unassigned ? 'unassigned' : ''}">
+              ${unassigned ? 'Unassigned' : escapeHtml(g.name)}
+              ${progressBar(g.done, g.tasks.length)}
+            </div>
+            ${g.tasks.map(cardHtml).join('')}
+          `;
+        }).join('');
+        return `
+          <div class="col">
+            <div class="col__header">
+              <span class="col__dot" style="background:${col.color}"></span>
+              <span class="col__title">${col.label}</span>
+              <span class="col__count">${colTasks.length}</span>
+            </div>
+            <div class="col__body">${content || '<div class="empty">No tasks</div>'}</div>
+          </div>
+        `;
+      }).join('')}</div>`;
+    }
+
+    // --- State cycling ---
+    function renderAll(state) {
+      document.getElementById('variant-a').innerHTML = renderVariantA(state);
+      document.getElementById('variant-b').innerHTML = renderVariantB(state);
+      document.getElementById('variant-c').innerHTML = renderVariantC(state);
+      bindInteractions();
+    }
+
+    // --- Interactions ---
+    function bindInteractions() {
+      // Variant A: collapse/expand
+      document.querySelectorAll('[data-ms-toggle]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const row = btn.closest('.ms-row');
+          const body = row.querySelector('.ms-row__body');
+          const isOpen = body.classList.contains('open');
+          body.classList.toggle('open', !isOpen);
+          btn.classList.toggle('open', !isOpen);
+        });
+      });
+
+      // Card click → toast
+      document.querySelectorAll('.card').forEach(card => {
+        card.addEventListener('click', () => {
+          showToast(`Open ${card.dataset.task} (detail drawer)`);
+        });
+      });
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => t.classList.remove('show'), 1800);
+    }
+
+    // --- Tag tasks with column ---
+    const colMap = {};
+    TASKS.forEach((t, i) => {
+      const colIdx = i % COLUMNS.length;
+      t._col = COLUMNS[colIdx].id;
+    });
+    // Override specific column assignments for realism
+    const overrides = {
+      'TASK-030.01': 'todo', 'TASK-030.02': 'todo', 'TASK-039.01': 'todo', 'TASK-039.02': 'todo', 'TASK-007': 'todo', 'TASK-008': 'todo',
+      'TASK-030.03': 'ready', 'TASK-038.01': 'ready', 'TASK-039.03': 'ready', 'TASK-020': 'ready',
+      'TASK-038.02': 'in_progress', 'TASK-031': 'in_progress', 'TASK-032': 'in_progress', 'TASK-021': 'in_progress',
+      'TASK-039.04': 'blocked', 'TASK-022': 'blocked',
+      'TASK-019.01': 'done', 'TASK-019.02': 'done', 'TASK-019.03': 'done', 'TASK-031.01': 'done', 'TASK-033': 'done', 'TASK-023': 'done',
+    };
+    Object.entries(overrides).forEach(([id, col]) => {
+      const t = TASKS.find(x => x.id === id);
+      if (t) t._col = col;
+    });
+
+    // --- State select ---
+    document.querySelector('[data-state-select]').addEventListener('change', (e) => {
+      renderAll(e.target.value);
+    });
+
+    // --- Variant tabs ---
+    document.querySelectorAll('.variant-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.variant;
+        document.querySelectorAll('.variant-tab').forEach(t =>
+          t.classList.toggle('active', t === tab));
+        document.querySelectorAll('.variant').forEach(v =>
+          v.hidden = v.dataset.variant !== target);
+      });
+    });
+
+    // --- Toolbar: viewport ---
+    const content = document.querySelector('[data-sketch-content]');
+    document.querySelectorAll('[data-viewport]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-viewport]').forEach(b =>
+          b.classList.toggle('active', b === btn));
+        const w = btn.dataset.viewport;
+        content.style.maxWidth = w === '1280' ? '1280px' : w + 'px';
+        content.style.margin = w === '1280' ? '' : '0 auto';
+      });
+    });
+
+    // --- Toolbar: annotation ---
+    const annOverlay = document.createElement('div');
+    annOverlay.className = 'annotation-overlay';
+    annOverlay.style.display = 'none';
+    document.body.appendChild(annOverlay);
+    let annotating = false;
+    document.querySelector('[data-annotation-toggle]').addEventListener('change', (e) => {
+      annotating = e.target.checked;
+      document.body.classList.toggle('annotating', annotating);
+      if (!annotating) annOverlay.style.display = 'none';
+    });
+    document.addEventListener('mouseover', (e) => {
+      if (!annotating) return;
+      const el = e.target.closest('[data-sketch-content] *');
+      if (!el) return;
+      const cs = getComputedStyle(el);
+      annOverlay.innerHTML = [
+        `bg ${cs.backgroundColor}`,
+        `color ${cs.color}`,
+        `font ${cs.fontSize} ${cs.fontWeight} ${cs.fontFamily.split(',')[0]}`,
+        `pad ${cs.padding}`,
+        `radius ${cs.borderRadius}`,
+      ].join(' · ');
+      const r = el.getBoundingClientRect();
+      annOverlay.style.display = 'block';
+      annOverlay.style.left = r.left + 'px';
+      annOverlay.style.top = Math.max(0, r.top - 28) + 'px';
+    });
+    document.addEventListener('mouseout', (e) => {
+      if (annotating && !e.target.closest('[data-sketch-content] *'))
+        annOverlay.style.display = 'none';
+    });
+
+    // --- Winner marking ---
+    function markWinner(variant) {
+      document.querySelectorAll('.variant-tab').forEach(t => {
+        t.classList.toggle('winner', t.dataset.variant === variant);
+        t.setAttribute('aria-label',
+          t.dataset.variant === variant ? t.textContent + ' (selected)' : t.textContent);
+      });
+    }
+
+    // --- Init ---
+    renderAll('populated');
+  </script>
+
+</body>
+</html>

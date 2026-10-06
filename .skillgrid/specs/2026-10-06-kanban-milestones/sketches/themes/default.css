@@ -1,0 +1,58 @@
+/* Skillgrid dark theme — seeded from skillgrid-ui/src/styles/index.css @theme tokens */
+:root {
+  /* Surfaces */
+  --bg: #0a0a0f;
+  --bg-elevated: #111118;
+  --surface: #1a1a24;
+  --surface-500: #2a2a38;
+
+  /* Borders */
+  --border: #2e2e3e;
+  --border-soft: #1e1e2e;
+
+  /* Accent */
+  --primary: #6366f1;
+  --primary-hover: #818cf8;
+  --primary-dim: #4f46e5;
+  --primary-ink: #312e81;
+
+  /* Semantics */
+  --success: #22c55e;
+  --warning: #eab308;
+  --danger: #ef4444;
+  --info: #60a5fa;
+  --violet: #c084fc;
+
+  /* Text scale */
+  --text: #e2e8f0;
+  --text-2: #e2e8f0;
+  --text-3: #94a3b8;
+  --text-4: #94a3b8;
+  --text-muted: #64748b;
+  --text-6: #475569;
+
+  /* Typography */
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, monospace;
+  --text-xs: 0.625rem;
+  --text-sm: 0.75rem;
+  --text-md: 0.875rem;
+  --text-lg: 1.125rem;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* Shape */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+
+  /* Motion */
+  --transition: 150ms ease;
+}
