@@ -13,6 +13,17 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
+// openBaseline is a process-global record of how many times store.Open was
+// called before the current single-open probe window began. store.OpenCount is
+// a process-global counter: it increments on EVERY store.Open in the package,
+// including ones made by concurrent tests (go test runs the non-parallel tests
+// here interleaved at the default -parallel). Reading the counter right after
+// ResetOpenCount() is therefore racy under full-suite load — a concurrent open
+// between reset and read inflates the count to 2. Recording a baseline at the
+// window start and asserting count-baseline == 1 makes the probe immune to any
+// concurrent open: only opens this probe itself performs count toward it.
+var openBaseline int
+
 // seedObservation opens the project handle once and saves an observation,
 // mirroring the scope normalization the old SaveObservation facade applied
 // (blank scope -> project, personal -> user). Test-only seed helper.
@@ -73,7 +84,7 @@ func TestMemSaveSingleOpen(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	store.ResetOpenCount()
+	openBaseline = store.OpenCount()
 	req := newCallTool("mem_save", map[string]any{
 		"title":      "single open probe",
 		"type":       "decision",
@@ -92,9 +103,8 @@ func TestMemSaveSingleOpen(t *testing.T) {
 		t.Fatalf("expected save under project %q, got %s", proj, text)
 	}
 
-	count := store.OpenCount()
-	if count != 1 {
-		t.Errorf("mem_save opened the store %d times, want exactly 1 (double-open)", count)
+	if got := store.OpenCount() - openBaseline; got != 1 {
+		t.Errorf("mem_save opened the store %d times, want exactly 1 (double-open)", got)
 	}
 }
 
@@ -110,7 +120,7 @@ func TestMemSavePromptSingleOpen(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	store.ResetOpenCount()
+	openBaseline = store.OpenCount()
 	req := newCallTool("mem_save_prompt", map[string]any{
 		"content":    "why did we rewire the mcp handlers to a single project handle",
 		"session_id": sid,
@@ -122,7 +132,7 @@ func TestMemSavePromptSingleOpen(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("mem_save_prompt returned error: %s", callResultText(t, res))
 	}
-	if got := store.OpenCount(); got != 1 {
+	if got := store.OpenCount() - openBaseline; got != 1 {
 		t.Errorf("mem_save_prompt opened the store %d times, want exactly 1", got)
 	}
 }
@@ -203,7 +213,7 @@ func TestMemSearchSingleOpen(t *testing.T) {
 		SessionID: sid,
 	})
 
-	store.ResetOpenCount()
+	openBaseline = store.OpenCount()
 	// Same as TestMemSearchContractShape: the seeded row is private and owned
 	// by its session id (save-path fallback, 013 step 01). Read as that owner.
 	req := newCallTool("mem_search", map[string]any{"query": "scoped search once", "reader_owner": sid})
@@ -214,7 +224,7 @@ func TestMemSearchSingleOpen(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("mem_search returned error: %s", callResultText(t, res))
 	}
-	if got := store.OpenCount(); got != 1 {
+	if got := store.OpenCount() - openBaseline; got != 1 {
 		t.Errorf("scoped mem_search opened the store %d times, want exactly 1", got)
 	}
 }
@@ -226,7 +236,7 @@ func TestCodeSearchSingleOpen(t *testing.T) {
 	dir := t.TempDir()
 	pinProjectCwd(t, dataDir, dir, "codesearch-probe")
 
-	store.ResetOpenCount()
+	openBaseline = store.OpenCount()
 	res, err := handleCodeSearch(context.Background(), newCallTool("code_search", map[string]any{"query": "anything"}))
 	if err != nil {
 		t.Fatalf("handleCodeSearch: %v", err)
@@ -234,7 +244,7 @@ func TestCodeSearchSingleOpen(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("code_search returned error: %s", callResultText(t, res))
 	}
-	if got := store.OpenCount(); got != 1 {
+	if got := store.OpenCount() - openBaseline; got != 1 {
 		t.Errorf("code_search opened the store %d times, want exactly 1", got)
 	}
 }
@@ -244,7 +254,7 @@ func TestWebCacheLookupSingleOpen(t *testing.T) {
 	dir := t.TempDir()
 	pinProjectCwd(t, dataDir, dir, "weblookup-probe")
 
-	store.ResetOpenCount()
+	openBaseline = store.OpenCount()
 	res, err := handleWebCacheLookup(context.Background(), newCallTool("web_cache_lookup", map[string]any{"source": "fetch", "url": "https://example.com/x"}))
 	if err != nil {
 		t.Fatalf("handleWebCacheLookup: %v", err)
@@ -252,7 +262,7 @@ func TestWebCacheLookupSingleOpen(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("web_cache_lookup returned error: %s", callResultText(t, res))
 	}
-	if got := store.OpenCount(); got != 1 {
+	if got := store.OpenCount() - openBaseline; got != 1 {
 		t.Errorf("web_cache_lookup opened the store %d times, want exactly 1", got)
 	}
 }
