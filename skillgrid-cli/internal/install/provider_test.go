@@ -558,12 +558,49 @@ mnemonic:
 	}
 }
 
-// TestSmokeProbeNonFatal: the per-model smoke probe is non-fatal — a failure
-// must not abort the install (it is currently a no-op returning true).
+// TestSmokeProbeNonFatal: the per-model smoke probe is non-fatal — a failing
+// probe after a successful pull must warn but never abort the install or skip
+// the config merge (ADR-0016 fail-open).
 func TestSmokeProbeNonFatal(t *testing.T) {
-	if !smokeProbe("http://127.0.0.1:0", "llama3.2:1b") {
-		// The probe is non-fatal: even a failing probe must not fail the
-		// install. Today it is a no-op returning true; this pins the contract.
-		t.Log("smokeProbe returned false — acceptable only as a non-fatal signal, not an error")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	idxPath := writeHomeIndexing(t, home, `profile: default
+mnemonic:
+  embedder:
+    provider: onnx
+`)
+
+	prev := ollamaBaseURL
+	ollamaBaseURL = tagsServer(t).URL // no model present → all pulled
+	t.Cleanup(func() { ollamaBaseURL = prev })
+	prevVer := ollamaVersion
+	ollamaVersion = func(string) string { return "0.36.0" }
+	t.Cleanup(func() { ollamaVersion = prevVer })
+
+	var invocations []string
+	prevRun := runCmd
+	runCmd = func(name string, args ...string) error {
+		invocations = append(invocations, name+" "+join1(args))
+		return nil
+	}
+	t.Cleanup(func() { runCmd = prevRun })
+
+	// Force every post-pull probe to fail.
+	prevProbe := smokeProbe
+	smokeProbe = func(string, string) bool { return false }
+	t.Cleanup(func() { smokeProbe = prevProbe })
+
+	cfg := Config{Provider: "local", HomeDir: home, RepoHome: filepath.Join(home, ".skillgrid")}
+	// The install must NOT error even though every probe failed.
+	if err := setupProvider(&cfg); err != nil {
+		t.Fatalf("setupProvider failed on a failing smoke probe (must be non-fatal): %v", err)
+	}
+	// The config merge must still have run.
+	if m := loadHomeIndexing(t, idxPath); homeLLMM(t, m)["model"] != "llama3.2:1b" {
+		t.Errorf("config not merged after failing smoke probe; llm=%v", homeLLMM(t, m))
+	}
+	// All pulls still ran.
+	if len(invocations) == 0 {
+		t.Errorf("no pulls ran; got %v", invocations)
 	}
 }

@@ -5,9 +5,10 @@ package install
 // on first install and re-ensured (idempotent update) on re-run — not an
 // opt-in bolt-on. Two hosts:
 //
-//   - "local" (default, Ollama): ensure the binary + service, pull the chat
-//     (llama3.2:3b) and embed (nomic-embed-text) models only if absent, then
-//     merge home mnemonic.llm + mnemonic.embedder (provider: ollama).
+//   - "local" (default, Ollama): ensure the binary + service, pull the
+//     six-model catalog only if absent (heavy models gated behind the Ollama
+//     0.35.1 floor, skipped with a warning when below it), then merge home
+//     mnemonic.llm + mnemonic.embedder (provider: ollama).
 //   - "external" (OpenAI-compatible): no Ollama at all; merge home mnemonic.llm
 //     + mnemonic.embedder (provider: external) against the operator's host.
 //
@@ -57,8 +58,8 @@ const (
 // floor the install requires before pulling it; heavy models carry a floor and
 // are skipped (with a version-named warning) below it.
 type modelEntry struct {
-	Name            string
-	Role            modelRole
+	Name             string
+	Role             modelRole
 	MinOllamaVersion string
 }
 
@@ -80,11 +81,11 @@ func localModels() []modelEntry {
 // heavyModels returns the subset of the catalog gated behind an Ollama version
 // floor (the models skipped with a warning when the local version is below the
 // floor).
-func heavyModels() []modelEntry {
-	var heavy []modelEntry
+func heavyModels() map[string]string {
+	heavy := map[string]string{}
 	for _, e := range localModels() {
 		if e.MinOllamaVersion != "" {
-			heavy = append(heavy, e)
+			heavy[e.Name] = e.MinOllamaVersion
 		}
 	}
 	return heavy
@@ -269,9 +270,10 @@ func startOllamaService(c *Config) error {
 func pullMissingModels(c *Config, base string) {
 	present := ollamaModels(base)
 	version := ollamaVersion(base)
+	heavy := heavyModels()
 	for _, e := range localModels() {
-		if e.MinOllamaVersion != "" && !ollamaVersionAtLeast(version, e.MinOllamaVersion) {
-			Out("      skip", e.Name, "(requires Ollama >=", e.MinOllamaVersion, "— current version", orUnknown(version), "; heavy model, not pulled)")
+		if floor, gated := heavy[e.Name]; gated && !ollamaVersionAtLeast(version, floor) {
+			Out("      skip", e.Name, "(requires Ollama >=", floor, "— current version", orUnknown(version), "; heavy model, not pulled)")
 			continue
 		}
 		if present[e.Name] {
@@ -285,6 +287,12 @@ func pullMissingModels(c *Config, base string) {
 		Out("      ollama pull", e.Name)
 		if err := runCmd("ollama", "pull", e.Name); err != nil {
 			Out("      warn pull", e.Name, ":", err)
+		} else {
+			// Non-fatal per-model health check: a failing probe warns and is
+			// recorded, but never aborts the install (ADR-0016 fail-open).
+			if !smokeProbe(base, e.Name) {
+				Out("      warn smoke", e.Name, ": post-pull probe did not report healthy (non-fatal)")
+			}
 		}
 	}
 }
@@ -297,11 +305,12 @@ func orUnknown(v string) string {
 	return v
 }
 
-// smokeProbe is a non-fatal per-model health check. It is currently a
-// no-op placeholder (the interview locked the catalog pull as the deliverable);
-// it exists as the seam a future role smoke test can hook without reshaping the
-// install step.
-func smokeProbe(base, model string) bool {
+// smokeProbe is a non-fatal per-model health check run after a successful
+// pull. It is currently a no-op placeholder that reports healthy (the
+// interview locked the catalog pull as the deliverable); it is a package var
+// so tests can make it fail without reshaping the install step. A failing
+// probe must never abort the install (ADR-0016 fail-open).
+var smokeProbe = func(base, model string) bool {
 	_ = base
 	_ = model
 	return true
