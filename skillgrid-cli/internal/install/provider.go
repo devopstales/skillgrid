@@ -356,9 +356,6 @@ func chatModel(models []modelEntry, role modelRole) string {
 			return e.Name
 		}
 	}
-	if role == roleChat {
-		return localLLMModel
-	}
 	return localLLMModel
 }
 

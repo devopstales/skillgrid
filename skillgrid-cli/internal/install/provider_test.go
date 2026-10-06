@@ -97,6 +97,22 @@ func tagsServer(t *testing.T, models ...string) *httptest.Server {
 	return srv
 }
 
+// versionServer returns an httptest server answering GET /api/version with the
+// given server-reported version, mirroring a real Ollama daemon.
+func versionServer(t *testing.T, version string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/version" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"version": version})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 // --- G10: happy path install yes ensures local ollama and wires config ---
 //
 // SATISFIES: happy path install yes ensures local ollama and wires config
@@ -381,6 +397,47 @@ func TestOllamaVersionAtLeast(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOllamaVersionSeamThroughParse drives the real ollamaVersion HTTP seam
+// (GET /api/version -> server-reported bare version) into parseOllamaVersion /
+// ollamaVersionAtLeast, closing the gap where every floor test stubbed the seam
+// to a bare string. The seam returns body.Version (e.g. "0.36.0"), not CLI text.
+func TestOllamaVersionSeamThroughParse(t *testing.T) {
+	cases := []struct {
+		name   string
+		server string // version the fake daemon reports
+		floor  string
+		want   bool
+	}{
+		{"above floor", "0.36.0", "0.35.1", true},
+		{"at floor", "0.35.1", "0.35.1", true},
+		{"below floor", "0.35.0", "0.35.1", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := versionServer(t, c.server)
+			got := ollamaVersion(srv.URL)
+			if got != c.server {
+				t.Fatalf("ollamaVersion seam = %q, want the server-reported %q", got, c.server)
+			}
+			if at := ollamaVersionAtLeast(got, c.floor); at != c.want {
+				t.Errorf("ollamaVersionAtLeast(%q, %q) = %v, want %v", got, c.floor, at, c.want)
+			}
+		})
+	}
+
+	// Unreachable endpoint: the seam returns "" and the floor gate is false
+	// (fail-open — install must continue, heavy models skipped).
+	t.Run("unreachable returns empty and below floor", func(t *testing.T) {
+		got := ollamaVersion("http://127.0.0.1:0/api/version")
+		if got != "" {
+			t.Fatalf("ollamaVersion on unreachable endpoint = %q, want empty", got)
+		}
+		if ollamaVersionAtLeast(got, "0.35.1") {
+			t.Error("empty version must be below the floor")
+		}
+	})
 }
 
 // --- TICKET-02: six-model catalog + floor-gated pull ---
