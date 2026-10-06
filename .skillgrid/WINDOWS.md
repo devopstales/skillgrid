@@ -26,5 +26,5 @@
 | W015 | 2026-10-02-mnemonic-llm-provider | WARNING | TDD evidence STALE - change uncommitted in working tree, no RED/GREEN commit hashes resolve | qa-auto | 2026-10-05 | open |
 | W016 | 2026-10-03-local-ollama-models | WARNING | briefing reqs 3/5 (per-kind HTTP smoke + dimension recording + mnemonic.ollama.models list) descoped to a no-op smokeProbe hook / omitted in the executed blueprint; invisible to acceptance.feature | qa-auto | 2026-10-06 | closed |
 | W017 | 2026-10-03-local-ollama-models | SUGGESTION | state.yaml line 10 malformed YAML (nested mapping in compact mapping) breaks state-drift check (pre-existing) | qa-auto | 2026-10-06 | open |
-| W018 | 2026-10-06-kanban-milestones | WARNING | hooks.ts milestones-changed listener has no unit test driving a synthetic SSE event to assert a re-fetch (source-verified only) | qa-auto | 2026-10-06 | open |
-| W019 | 2026-10-06-kanban-milestones | SUGGESTION | GitHub/GitLab/Jira Milestones() empty-return adapters have no dedicated unit test (low risk, no milestone files for these providers) | qa-auto | 2026-10-06 | open |
+| W018 | 2026-10-06-kanban-milestones | WARNING | hooks.ts milestones-changed listener has no unit test driving a synthetic SSE event to assert a re-fetch (source-verified only) | qa-auto | 2026-10-06 | closed |
+| W019 | 2026-10-06-kanban-milestones | SUGGESTION | GitHub/GitLab/Jira Milestones() empty-return adapters have no dedicated unit test (low risk, no milestone files for these providers) | qa-auto | 2026-10-06 | closed |

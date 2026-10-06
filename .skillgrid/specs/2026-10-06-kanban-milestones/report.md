@@ -1,8 +1,8 @@
 # Report — kanban-milestones
 
 > Change: `.skillgrid/specs/2026-10-06-kanban-milestones/` (moves to `.skillgrid/archive/2026-10-06-kanban-milestones/` at ship)
-> Generated: 2026-10-06T16:50:00Z (qa)
-> Gate: **CONCERNS**
+> Generated: 2026-10-06T16:50:00Z (qa) · Re-rendered: 2026-10-06T21:05:00Z (qa, W018/W019 cleared)
+> Gate: **PASS**
 >
 > Two phases, one file: **qa** writes the QA half (the sections above `## Final-State Facts`,
 > through `## Gate Decision` + `## Human Override`) into the spec folder. **ship** reads the
@@ -122,10 +122,12 @@ The most likely thing to break in production: a **milestone-title resolution reg
 
 ## Verification-Gap Audit
 
-| Gap | Location | Shape | Evidence | Smallest Regression |
-|-----|----------|-------|----------|---------------------|
-| `hooks.ts` `milestones-changed` listener not exercised by a unit test that mocks the SSE stream | `hooks.ts` (useTrackerBoard event wiring) | missing-adoption (test) | The listener string-matches the Go emit and the re-fetch callback is wired, but no test drives a synthetic `milestones-changed` event through the hook to assert a re-fetch fires. | Remove the `onmessage` handler for `milestones-changed`; board stops live-updating on milestone edits and no test fails. |
-| GitHub/GitLab/Jira `Milestones()` return empty — no dedicated test | `tracker/github.go`, `gitlab.go`, `jira.go` | missing-adoption (test) | Each returns `[]Milestone{}` by contract; verified by interface compile, not a unit test. | A future edit returns `nil` with a side effect; no test catches it (low risk — no milestone files for these providers). |
+| Gap | Location | Shape | Evidence | Smallest Regression | Status |
+|-----|----------|-------|----------|---------------------|--------|
+| ~~`hooks.ts` `milestones-changed` listener not exercised~~ | `hooks.ts` + `hooks.test.ts` | missing-adoption (test) — **CLOSED** | `hooks.test.ts` now drives a synthetic `milestones-changed` event via a fake EventSource and asserts the hook re-fetches (3 extra fetch calls). | — | resolved @ `22d7031b` |
+| ~~GitHub/GitLab/Jira `Milestones()` return empty — no dedicated test~~ | `tracker_test.go` | missing-adoption (test) — **CLOSED** | `TestPhase2_MilestonesEmptyForRemoteProviders` asserts all three return a non-nil empty slice with no error. | — | resolved @ `22d7031b` |
+
+**Re-verification (W018/W019 cleared, commit `22d7031b`):** 162/162 UI tests pass (3 new hooks tests), full Go `internal/http/tracker` package passes, UI typecheck clean. Both gaps are now covered by named, passing unit tests — no open verification gaps remain for this change.
 
 ## TDD Evidence Audit
 
@@ -273,18 +275,18 @@ Coverage: n/a — no coverage tool configured (`testing.coverage: ""`). Changed-
 
 | Dimension | Verdict |
 |---|---|
-| Goal-backward verification (weakest truth) | VERIFIED (all 15 truths VERIFIED; the hooks.ts listener link is source-verified, carried as W018) |
-| Traceability (weakest scenario) | COMPLIANT (16/16; 1 source-verified rather than unit-tested — W018) |
-| Verification-gap audit | SUGGESTION (2 gaps, both missing-adoption test, low risk) |
+| Goal-backward verification (weakest truth) | VERIFIED (all 15 truths VERIFIED; the hooks.ts listener link is now unit-tested @ `22d7031b`) |
+| Traceability (weakest scenario) | COMPLIANT (16/16; the `milestones-changed` re-fetch is now covered by `hooks.test.ts`) |
+| Verification-gap audit | none (both gaps closed @ `22d7031b`) |
 | TDD evidence (weakest ticket) | OK (basic TDD, strict-TDD off by config) |
 | Assertion quality audit (weakest finding) | none |
 | Changed-file coverage (weakest file) | N/A (no coverage tool) |
 | Test quality audit | none |
 | Code-quality gates (weakest gate) | PASS (lint/typecheck/P0/P1 all PASS; coverage/mutation N/A) |
 | Security audit | PASS (0 findings) |
-| Verification scope (composite) | COMPLETE (state-drift PARSE ERROR is pre-existing + advisory) |
+| Verification scope (composite) | COMPLETE (state-drift PARSE ERROR is pre-existing + advisory, W017) |
 
-**FLOOR:** the weakest dimension is the **verification-gap audit at SUGGESTION** and the **hooks.ts listener at PRESENT_BEHAVIOR_UNVERIFIED** (W018) — neither is a FAIL/UNVERIFIED/MISSING_RED, so the floor is **PASS-eligible but capped at CONCERNS** by the two non-answer items that a human can clear (add the `hooks.ts` unit test + the GitHub/GitLab/Jira empty-return tests). No dimension is FAIL.
+**FLOOR:** every dimension is at its best value — no FAIL, no UNVERIFIED, no UNTESTED, no MISSING_RED, no open verification gap. The floor is **PASS**. (W017 state-drift PARSE ERROR and W005 budget.go vet leak are pre-existing, advisory, and out of scope for this change.)
 
 ## Findings
 
@@ -298,23 +300,21 @@ Coverage: n/a — no coverage tool configured (`testing.coverage: ""`). Changed-
 
 ### WARNING (should fix before archive)
 
-- **W018** — `hooks.ts` `milestones-changed` listener has no unit test that drives a synthetic SSE event through `useTrackerBoard` and asserts a re-fetch fires. Source-verified wiring only; removing the `onmessage` handler would not fail any test. Path to resolution: add a test that stubs the SSE stream, emits `milestones-changed`, and asserts `fetchMilestones` is called again.
+- (none — W018 closed @ `22d7031b`)
 
 ### SUGGESTION (nice to have)
 
-- **W019** — GitHub/GitLab/Jira `Milestones()` return empty slices with no dedicated unit test. Low risk (no milestone files for these providers). Path: one-line test each asserting `len == 0`.
+- (none — W019 closed @ `22d7031b`)
 
 ## Gate Decision
 
-**Verdict:** CONCERNS
+**Verdict:** PASS
 
-**Reasoning:** All 16 AC scenarios are covered and passing (159/159 UI, full Go http/tracker + 3 SSE tests), every goal truth is VERIFIED, and no CRITICAL finding exists — the floor is PASS-eligible. Two non-answer items cap the gate at CONCERNS: (1) the `hooks.ts` `milestones-changed` re-fetch listener is source-verified but not unit-tested (W018, PRESENT_BEHAVIOR_UNVERIFIED), and (2) the GitHub/GitLab/Jira empty-return adapters lack a dedicated test (W019). Both are low-risk missing-adoption test gaps with a named, cheap path to resolution — a human can clear them by adding the two tests (full PASS) or by accepting the risk (WAIVED). Pre-existing W017 (state.yaml malformed YAML) and W005 (budget.go vet leak) are advisory and out of scope for this change.
+**Reasoning:** All 16 AC scenarios are covered and passing (162/162 UI after W018/W019 tests, full Go `internal/http/tracker` package + 3 SSE tests), every goal truth is VERIFIED, and no CRITICAL or open WARNING finding exists. The two non-answer items that capped the initial gate at CONCERNS — the `hooks.ts` `milestones-changed` listener (W018) and the GitHub/GitLab/Jira empty-return adapters (W019) — are both now covered by named, passing unit tests committed at `22d7031b`. The verification floor is PASS: no dimension is FAIL/UNVERIFIED/UNTESTED/MISSING_RED, and every verification-scope derivation is COMPLETE. Pre-existing W017 (state.yaml malformed YAML) and W005 (budget.go vet leak) remain advisory and out of scope for this change.
 
-**Open items (if CONCERNS):**
-- W018: add a `hooks.ts` unit test driving a synthetic `milestones-changed` SSE event and asserting `fetchMilestones` re-fetches. (Clears the gate to PASS, or accept as risk.)
-- W019: add empty-return unit tests for the GitHub/GitLab/Jira `Milestones()` adapters. (SUGGESTION; optional.)
+**Open items (if CONCERNS):** (none — gate is PASS)
 
-**Waiver (if WAIVED):** (not yet — human decision pending)
+**Waiver (if WAIVED):** (not applicable — gate is PASS)
 
 ## Human Override
 
