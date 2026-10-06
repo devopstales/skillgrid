@@ -622,6 +622,9 @@ mnemonic:
 `)
 
 	cfg := Config{Provider: "local", HomeDir: home, RepoHome: filepath.Join(home, ".skillgrid")}
+	// base differs from ollamaBaseURL by host (127.0.0.1 vs localhost) on
+	// purpose: this gate pins the /v1 suffix and the provider-carried base,
+	// not the real Ollama host — no seam coupling.
 	base := "http://127.0.0.1:11434"
 	if err := mergeHomeProviderConfig(&cfg, localLLMProvider{
 		enabled: true,
