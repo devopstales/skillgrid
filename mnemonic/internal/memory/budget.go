@@ -111,7 +111,11 @@ func (b *Budget) Bound(ctx context.Context) context.Context {
 		// The caller's deadline is tighter than the budget timeout — keep it.
 		return ctx
 	}
-	bound, _ := context.WithTimeout(ctx, timeout)
+	bound, cancel := context.WithTimeout(ctx, timeout)
+	go func() {
+		<-bound.Done()
+		cancel()
+	}()
 	return bound
 }
 
