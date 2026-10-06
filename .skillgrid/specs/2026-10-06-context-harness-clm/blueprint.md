@@ -18,8 +18,9 @@
 
 **ADR manifest:** `.skillgrid/specs/2026-10-06-context-harness-clm/adr.md` (in-force set from `.skillgrid/ASSUMPTIONS.md` § In-force set; this change adds ADR-0025/0026/0027/0028)
 
-## Global Constraints
+ ## Global Constraints
 
+- **Module layout:** the mnemonic Go code lives in the standalone `mnemonic/` module (module path `github.com/devopstales/skillgrid/mnemonic`), with the CLI at `mnemonic/cmd/mnemonic/`. All `go test ./...` / `go build ./...` commands in this blueprint are run from the `mnemonic/` directory. The `skillgrid` CLI is now installer-only (install/sync-repo/version); the `ctx` command group is added to the `mnemonic` CLI.
 - Go floor 1.22 (repo builds with 1.25.5); pure-Go SQLite driver `modernc.org/sqlite` (no CGo); `vec0` already registered via blank import in `store/store.go:24`.
 - No new Go or Node dependencies (per ASSUMPTIONS.md § Locked constraints).
 - `mem_inject_session` MCP contract MUST NOT churn — only the import path changes (ADR-0025; per briefing requirement 13).
@@ -75,11 +76,11 @@
 
 ### Artifacts (files that must exist with real implementation)
 
-- `skillgrid-cli/internal/mnemonic/context_harness/` package: `capture.go`, `query.go`, `index.go`, `search.go`, `routing.go`, `autoprepend.go`, `summary.go`, `retrieve.go`, `render.go`, `privacy.go`, `index_render.go` (absorbed from `session_inject`).
-- `skillgrid-cli/internal/mnemonic/context_harness/clm/` sub-package: `mirror.go`, `overflow.go`, `calibrate.go`, `revision.go`.
-- `skillgrid-cli/internal/mnemonic/store/migrations/050_tool_outputs.sql`, `051_indexed_files.sql`, `052_context_revisions.sql`.
-- `skillgrid-cli/cmd/skillgrid/ctx_cmd.go` (the `ctx` CLI group).
-- `skillgrid-cli/internal/mnemonic/config/load.go` gains a `clm` block (struct + section + default + merge).
+- `mnemonic/internal/context_harness/` package: `capture.go`, `query.go`, `index.go`, `search.go`, `routing.go`, `autoprepend.go`, `summary.go`, `retrieve.go`, `render.go`, `privacy.go`, `index_render.go` (absorbed from `session_inject`).
+- `mnemonic/internal/context_harness/clm/` sub-package: `mirror.go`, `overflow.go`, `calibrate.go`, `revision.go`.
+- `mnemonic/internal/store/migrations/050_tool_outputs.sql`, `051_indexed_files.sql`, `052_context_revisions.sql`.
+- `mnemonic/cmd/mnemonic/ctx_cmd.go` (the `ctx` CLI group).
+- `mnemonic/internal/config/load.go` gains a `clm` block (struct + section + default + merge).
 - `hooks/tool-call-capture.js` gains the gate (full `content` on > threshold) + the `checkpoint` CLM mirror read.
 - The OpenCode `context` plugin hook module (new, registers the `context` plugin event).
 
@@ -103,7 +104,7 @@
 ## File Structure
 
 ```
-skillgrid-cli/internal/mnemonic/context_harness/
+mnemonic/internal/context_harness/
 ├── capture.go          # Output Sandbox Gate: decide gate vs pass; store gated output
 ├── query.go            # ctx_query: deterministic counts/lists/existence over code index
 ├── index.go            # ctx index: read+chunk+upsert into indexed_files
@@ -121,12 +122,12 @@ skillgrid-cli/internal/mnemonic/context_harness/
     ├── calibrate.go    # correct the token-estimate factor
     └── revision.go     # validate + persist an accepted mirror edit
 
-skillgrid-cli/internal/mnemonic/store/migrations/
+mnemonic/internal/store/migrations/
 ├── 050_tool_outputs.sql
 ├── 051_indexed_files.sql
 └── 052_context_revisions.sql
 
-skillgrid-cli/cmd/skillgrid/
+mnemonic/cmd/mnemonic/
 └── ctx_cmd.go          # ctx stats/index/search/purge
 
 hooks/
@@ -145,16 +146,16 @@ The existing `session_inject/` package is **moved** into `context_harness/` (the
 > ⚠ one-way: migration `050_tool_outputs` (new session-scoped table).
 
 **Files:**
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/capture.go` (placeholder until Task 2; here only the package decl)
-- Create: `skillgrid-cli/internal/mnemonic/store/migrations/050_tool_outputs.sql`
-- Move: `skillgrid-cli/internal/mnemonic/session_inject/{autoprepend,summary,retrieve,render,privacy,index}.go` → `skillgrid-cli/internal/mnemonic/context_harness/{autoprepend,summary,retrieve,render,privacy,index_render}.go` (rename `index.go` → `index_render.go` to avoid collision with the new `index.go`)
-- Move: `skillgrid-cli/internal/mnemonic/session_inject/*_test.go` → `skillgrid-cli/internal/mnemonic/context_harness/`
-- Delete: `skillgrid-cli/internal/mnemonic/session_inject/` (empty after move)
-- Modify: `skillgrid-cli/internal/mnemonic/mcp/tools_session_inject.go` (import path only)
-- Modify: `skillgrid-cli/cmd/skillgrid/loop_cmd.go` (import path only)
-- Modify: `skillgrid-cli/internal/mnemonic/secondbrain/ask.go` (import path only)
-- Modify: `skillgrid-cli/internal/mnemonic/http/toolevents.go` (import path only)
-- Test: `skillgrid-cli/internal/mnemonic/context_harness/migrate_050_test.go`
+- Create: `mnemonic/internal/context_harness/capture.go` (placeholder until Task 2; here only the package decl)
+- Create: `mnemonic/internal/store/migrations/050_tool_outputs.sql`
+- Move: `mnemonic/internal/session_inject/{autoprepend,summary,retrieve,render,privacy,index}.go` → `mnemonic/internal/context_harness/{autoprepend,summary,retrieve,render,privacy,index_render}.go` (rename `index.go` → `index_render.go` to avoid collision with the new `index.go`)
+- Move: `mnemonic/internal/session_inject/*_test.go` → `mnemonic/internal/context_harness/`
+- Delete: `mnemonic/internal/session_inject/` (empty after move)
+- Modify: `mnemonic/internal/mcp/tools_session_inject.go` (import path only)
+- Modify: `mnemonic/cmd/mnemonic/loop_cmd.go` (import path only)
+- Modify: `mnemonic/internal/secondbrain/ask.go` (import path only)
+- Modify: `mnemonic/internal/http/toolevents.go` (import path only)
+- Test: `mnemonic/internal/context_harness/migrate_050_test.go`
 
 **Interfaces:**
 - Consumes: `store.Open(dataDir, projectID) (*store.Store, error)`; `memory.New(st, projectID) *memory.Service`; the `session_inject` public API (`EstimateTokens`, `HybridRetrieve`, `HybridObservations`, `RenderContextBlock`, `AutoPrepend`, `DistillSummary`, `RenderIndex`, `Injectable`, `ObservationInjectable`, `RetrieveResult`, `InjectItem`, `IndexConfig`) — all now under the `context_harness` package name.
@@ -169,7 +170,7 @@ package context_harness
 import (
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 func TestMigration050_TablesExist(t *testing.T) {
@@ -199,7 +200,7 @@ func TestMigration050_FTSInsertTrigger(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/mnemonic/context_harness/ -run 'TestMigration050' -v`
+Run: `go test ./internal/context_harness/ -run 'TestMigration050' -v`
 Expected: FAIL — `table tool_outputs not created` (no `050_tool_outputs.sql` yet; create the package dir first with a `doc.go` if needed).
 
 - [ ] **Step 3: Write the migration**
@@ -249,8 +250,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 func TestEstimateTokens_Unchanged(t *testing.T) {
@@ -277,14 +278,14 @@ func TestHybridRetrieve_BM25Only(t *testing.T) {
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `go test ./internal/mnemonic/context_harness/ -v` and `go build ./...`
+Run: `go test ./internal/context_harness/ -v` and `go build ./...`
 Expected: PASS (migration + absorbed API), and the four importer packages build.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/context_harness/ skillgrid-cli/internal/mnemonic/store/migrations/050_tool_outputs.sql skillgrid-cli/internal/mnemonic/mcp/tools_session_inject.go skillgrid-cli/cmd/skillgrid/loop_cmd.go skillgrid-cli/internal/mnemonic/secondbrain/ask.go skillgrid-cli/internal/mnemonic/http/toolevents.go
-git rm -r skillgrid-cli/internal/mnemonic/session_inject
+git add mnemonic/internal/context_harness/ mnemonic/internal/store/migrations/050_tool_outputs.sql mnemonic/internal/mcp/tools_session_inject.go mnemonic/cmd/mnemonic/loop_cmd.go mnemonic/internal/secondbrain/ask.go mnemonic/internal/http/toolevents.go
+git rm -r mnemonic/internal/session_inject
 git commit -m "refactor: absorb session_inject into context_harness + add tool_outputs sandbox (ADR-0025)"
 ```
 
@@ -297,10 +298,10 @@ git commit -m "refactor: absorb session_inject into context_harness + add tool_o
 > ⚠ one-way: the `POST /sessions/{id}/tool-calls` route gains a `content` field (published contract of the capture route).
 
 **Files:**
-- Modify: `skillgrid-cli/internal/mnemonic/http/toolcalls.go` (add `Content string \`json:"content"\`` to `toolCallBody`; pass to the gate)
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/capture.go` (gate decision + `StoreToolOutput` + `SandboxSummary`)
+- Modify: `mnemonic/internal/http/toolcalls.go` (add `Content string \`json:"content"\`` to `toolCallBody`; pass to the gate)
+- Create: `mnemonic/internal/context_harness/capture.go` (gate decision + `StoreToolOutput` + `SandboxSummary`)
 - Modify: `hooks/tool-call-capture.js` (send full `content` when it exceeds the threshold; honor `SKILLGRID_CTX_BYPASS`)
-- Test: `skillgrid-cli/internal/mnemonic/context_harness/capture_test.go`
+- Test: `mnemonic/internal/context_harness/capture_test.go`
 
 **Interfaces:**
 - Consumes: `store.Store.DB` (`*sql.DB`); `memory.Service.EnsureSession` (existing); the `toolCallBody` struct.
@@ -334,7 +335,7 @@ func TestDecideGate_Bypass(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/mnemonic/context_harness/ -run 'TestDecideGate' -v`
+Run: `go test ./internal/context_harness/ -run 'TestDecideGate' -v`
 Expected: FAIL — `undefined: DecideGate` / `SandboxThreshold`.
 
 - [ ] **Step 3: Write the gate**
@@ -413,13 +414,13 @@ In `hooks/tool-call-capture.js` (default path, the body object at line 380-393):
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `go test ./internal/mnemonic/context_harness/ -run 'TestDecideGate' -v` and `go build ./...`
+Run: `go test ./internal/context_harness/ -run 'TestDecideGate' -v` and `go build ./...`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/http/toolcalls.go skillgrid-cli/internal/mnemonic/context_harness/capture.go skillgrid-cli/internal/mnemonic/context_harness/capture_test.go hooks/tool-call-capture.js
+git add mnemonic/internal/http/toolcalls.go mnemonic/internal/context_harness/capture.go mnemonic/internal/context_harness/capture_test.go hooks/tool-call-capture.js
 git commit -m "feat: output sandbox gate on actual tool output (ADR-0025)"
 ```
 
@@ -430,8 +431,8 @@ git commit -m "feat: output sandbox gate on actual tool output (ADR-0025)"
 ### Task 3: `ctx_query` — deterministic counts/lists/existence
 
 **Files:**
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/query.go`
-- Test: `skillgrid-cli/internal/mnemonic/context_harness/query_test.go`
+- Create: `mnemonic/internal/context_harness/query.go`
+- Test: `mnemonic/internal/context_harness/query_test.go`
 
 **Interfaces:**
 - Consumes: the code index tables (the existing `codeindex` store tables — `symbols`, `chunks`, `files`); `store.Store.DB`.
@@ -447,7 +448,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 func TestRunQuery_Counts(t *testing.T) {
@@ -464,7 +465,7 @@ func TestRunQuery_Counts(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/mnemonic/context_harness/ -run 'TestRunQuery' -v`
+Run: `go test ./internal/context_harness/ -run 'TestRunQuery' -v`
 Expected: FAIL — `undefined: RunQuery`.
 
 - [ ] **Step 3: Write `RunQuery`**
@@ -514,13 +515,13 @@ func RunQuery(ctx context.Context, db *sql.DB, query string) (*QueryResult, erro
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/mnemonic/context_harness/ -run 'TestRunQuery' -v`
+Run: `go test ./internal/context_harness/ -run 'TestRunQuery' -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/context_harness/query.go skillgrid-cli/internal/mnemonic/context_harness/query_test.go
+git add mnemonic/internal/context_harness/query.go mnemonic/internal/context_harness/query_test.go
 git commit -m "feat: ctx_query deterministic counts/lists/existence (ADR-0025)"
 ```
 
@@ -531,9 +532,9 @@ git commit -m "feat: ctx_query deterministic counts/lists/existence (ADR-0025)"
 ### Task 4: `ctx` CLI group (stats/index/search/purge)
 
 **Files:**
-- Create: `skillgrid-cli/cmd/skillgrid/ctx_cmd.go`
-- Modify: `skillgrid-cli/cmd/skillgrid/main.go` (add `case "ctx": runCtx(rest[1:])` to the subcommand switch + a usage line)
-- Test: `skillgrid-cli/cmd/skillgrid/ctx_cmd_test.go`
+- Create: `mnemonic/cmd/mnemonic/ctx_cmd.go`
+- Modify: `mnemonic/cmd/mnemonic/main.go` (add `case "ctx": runCtx(rest[1:])` to the subcommand switch + a usage line)
+- Test: `mnemonic/cmd/mnemonic/ctx_cmd_test.go`
 
 **Interfaces:**
 - Consumes: `openMemService(dataDir, project)` (mem.go:216); `context_harness.RunQuery`; `context_harness.Search` (Task 5); `context_harness.PurgeSession` (Task 6); the `tool_outputs`/`indexed_files` tables; `service.Service.Open`.
@@ -563,7 +564,7 @@ func TestRunCtx_StatsNoPanic(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./cmd/skillgrid/ -run 'TestRunCtx' -v`
+Run: `go test ./cmd/mnemonic/ -run 'TestRunCtx' -v`
 Expected: FAIL — `undefined: runCtx`.
 
 - [ ] **Step 3: Write the CLI group**
@@ -577,7 +578,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 )
 
 func runCtx(version string, args []string) {
@@ -622,13 +623,13 @@ Add to `main.go`'s subcommand switch: `case "ctx": runCtx(version, rest[1:])` an
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./cmd/skillgrid/ -run 'TestRunCtx' -v` and `go build ./...`
+Run: `go test ./cmd/mnemonic/ -run 'TestRunCtx' -v` and `go build ./...`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-cli/cmd/skillgrid/ctx_cmd.go skillgrid-cli/cmd/skillgrid/main.go skillgrid-cli/cmd/skillgrid/ctx_cmd_test.go
+git add mnemonic/cmd/mnemonic/ctx_cmd.go mnemonic/cmd/mnemonic/main.go mnemonic/cmd/mnemonic/ctx_cmd_test.go
 git commit -m "feat: ctx CLI group (stats/index/search/purge) (ADR-0025)"
 ```
 
@@ -641,11 +642,11 @@ git commit -m "feat: ctx CLI group (stats/index/search/purge) (ADR-0025)"
 > ⚠ one-way: migration `051_indexed_files` (new project-scoped table).
 
 **Files:**
-- Create: `skillgrid-cli/internal/mnemonic/store/migrations/051_indexed_files.sql`
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/index.go`
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/search.go`
-- Modify: `skillgrid-cli/cmd/skillgrid/ctx_cmd.go` (implement `ctxIndex` + `ctxSearch`)
-- Test: `skillgrid-cli/internal/mnemonic/context_harness/index_test.go`, `search_test.go`
+- Create: `mnemonic/internal/store/migrations/051_indexed_files.sql`
+- Create: `mnemonic/internal/context_harness/index.go`
+- Create: `mnemonic/internal/context_harness/search.go`
+- Modify: `mnemonic/cmd/mnemonic/ctx_cmd.go` (implement `ctxIndex` + `ctxSearch`)
+- Test: `mnemonic/internal/context_harness/index_test.go`, `search_test.go`
 
 **Interfaces:**
 - Consumes: `store.Store.DB`; `hybrid.Rank(hits map[string]Hit, ftsRanks, sigRanks, semRanks map[string]int, k int) []hybrid.Hit` (rank.go:70, `RRFK=60` at rank.go:23); `hybrid.Hit` struct (`Path, StartLine, EndLine, Symbol, Kind, Snippet, Score, Provenance`); the observations schema shape (per ADR-0026 — `indexed_files` mirrors the `observations` columns: `id, session_id, type, title, content, project, scope, normalized_hash, revision_count, created_at, updated_at, source, visibility, status`).
@@ -661,7 +662,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 func TestSearch_FusesBothLegs(t *testing.T) {
@@ -684,7 +685,7 @@ func TestSearch_FusesBothLegs(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/mnemonic/context_harness/ -run 'TestSearch' -v`
+Run: `go test ./internal/context_harness/ -run 'TestSearch' -v`
 Expected: FAIL — `no such table: indexed_files` (migration 051 not applied).
 
 - [ ] **Step 3: Write migration 051**
@@ -774,7 +775,7 @@ import (
 	"database/sql"
 	"strconv"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/hybrid"
+	"github.com/devopstales/skillgrid/mnemonic/internal/hybrid"
 )
 
 // SearchHit is a fused result with per-leg provenance.
@@ -851,13 +852,13 @@ Wire `ctxIndex`/`ctxSearch` in `ctx_cmd.go` to call `context_harness.IndexFile`/
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `go test ./internal/mnemonic/context_harness/ -run 'TestSearch' -v` and `go build ./...`
+Run: `go test ./internal/context_harness/ -run 'TestSearch' -v` and `go build ./...`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/store/migrations/051_indexed_files.sql skillgrid-cli/internal/mnemonic/context_harness/index.go skillgrid-cli/internal/mnemonic/context_harness/search.go skillgrid-cli/cmd/skillgrid/ctx_cmd.go skillgrid-cli/internal/mnemonic/context_harness/index_test.go skillgrid-cli/internal/mnemonic/context_harness/search_test.go
+git add mnemonic/internal/store/migrations/051_indexed_files.sql mnemonic/internal/context_harness/index.go mnemonic/internal/context_harness/search.go mnemonic/cmd/mnemonic/ctx_cmd.go mnemonic/internal/context_harness/index_test.go mnemonic/internal/context_harness/search_test.go
 git commit -m "feat: ctx index + indexed_files (051) + ctx_search RRF fusion (ADR-0025/0026)"
 ```
 
@@ -868,12 +869,12 @@ git commit -m "feat: ctx index + indexed_files (051) + ctx_search RRF fusion (AD
 ### Task 6: `ctx purge` + Context Routing block
 
 **Files:**
-- Modify: `skillgrid-cli/cmd/skillgrid/ctx_cmd.go` (implement `ctxPurge`)
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/routing.go`
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/purge.go`
-- Modify: `skillgrid-cli/internal/mnemonic/loop/render.go` (add `Routing string` to `PrimeInput`; render under a `## Context Routing` header)
-- Modify: `skillgrid-cli/cmd/skillgrid/loop_cmd.go` (call `context_harness.RenderRouting` and set `PrimeInput.Routing`)
-- Test: `skillgrid-cli/internal/mnemonic/context_harness/routing_test.go`
+- Modify: `mnemonic/cmd/mnemonic/ctx_cmd.go` (implement `ctxPurge`)
+- Create: `mnemonic/internal/context_harness/routing.go`
+- Create: `mnemonic/internal/context_harness/purge.go`
+- Modify: `mnemonic/internal/loop/render.go` (add `Routing string` to `PrimeInput`; render under a `## Context Routing` header)
+- Modify: `mnemonic/cmd/mnemonic/loop_cmd.go` (call `context_harness.RenderRouting` and set `PrimeInput.Routing`)
+- Test: `mnemonic/internal/context_harness/routing_test.go`
 
 **Interfaces:**
 - Consumes: the `tool_outputs` + `context_revisions` tables; `loop.PrimeInput` (render.go:14); `loop.RenderPrime` (render.go:26); `memory.Service` session lookup (the current session id).
@@ -901,7 +902,7 @@ func TestRenderRouting_ContainsToolMap(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/mnemonic/context_harness/ -run 'TestRenderRouting' -v`
+Run: `go test ./internal/context_harness/ -run 'TestRenderRouting' -v`
 Expected: FAIL — `undefined: RenderRouting`.
 
 - [ ] **Step 3: Write `RenderRouting` + `PurgeSession` + wire**
@@ -969,13 +970,13 @@ In `loop_cmd.go`'s `primeText` (line 110-124), set `Routing: context_harness.Ren
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `go test ./internal/mnemonic/context_harness/ -run 'TestRenderRouting' -v` and `go build ./...`
+Run: `go test ./internal/context_harness/ -run 'TestRenderRouting' -v` and `go build ./...`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-cli/cmd/skillgrid/ctx_cmd.go skillgrid-cli/internal/mnemonic/context_harness/routing.go skillgrid-cli/internal/mnemonic/context_harness/purge.go skillgrid-cli/internal/mnemonic/loop/render.go skillgrid-cli/cmd/skillgrid/loop_cmd.go skillgrid-cli/internal/mnemonic/context_harness/routing_test.go
+git add mnemonic/cmd/mnemonic/ctx_cmd.go mnemonic/internal/context_harness/routing.go mnemonic/internal/context_harness/purge.go mnemonic/internal/loop/render.go mnemonic/cmd/mnemonic/loop_cmd.go mnemonic/internal/context_harness/routing_test.go
 git commit -m "feat: ctx purge + Context Routing block in prime (ADR-0025)"
 ```
 
@@ -988,11 +989,11 @@ git commit -m "feat: ctx purge + Context Routing block in prime (ADR-0025)"
 > ⚠ one-way: migration `052_context_revisions` (new session-scoped table).
 
 **Files:**
-- Create: `skillgrid-cli/internal/mnemonic/store/migrations/052_context_revisions.sql`
-- Modify: `skillgrid-cli/internal/mnemonic/config/load.go` (add `clm` block: struct field in `Indexing`, yaml key in `mnemonicSection`, `clmSection` struct, `DefaultCLM()`, `mergeCLM()`)
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/clm/mirror.go`
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/clm/revision.go`
-- Test: `skillgrid-cli/internal/mnemonic/context_harness/clm/mirror_test.go`, `skillgrid-cli/internal/mnemonic/config/load_clm_test.go`
+- Create: `mnemonic/internal/store/migrations/052_context_revisions.sql`
+- Modify: `mnemonic/internal/config/load.go` (add `clm` block: struct field in `Indexing`, yaml key in `mnemonicSection`, `clmSection` struct, `DefaultCLM()`, `mergeCLM()`)
+- Create: `mnemonic/internal/context_harness/clm/mirror.go`
+- Create: `mnemonic/internal/context_harness/clm/revision.go`
+- Test: `mnemonic/internal/context_harness/clm/mirror_test.go`, `mnemonic/internal/config/load_clm_test.go`
 
 **Interfaces:**
 - Consumes: `config.Load(dir).CLM` (the new block); `store.Store.DB`; `context_harness.EstimateTokens` (the size estimator the calibration builds on); the OpenCode `context` plugin event (Node).
@@ -1064,7 +1065,7 @@ func TestLoadCLM_ExplicitOn(t *testing.T) {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `go test ./internal/mnemonic/context_harness/clm/ -run 'TestRenderMirror' -v` and `go test ./internal/mnemonic/config/ -run 'TestCLM' -v`
+Run: `go test ./internal/context_harness/clm/ -run 'TestRenderMirror' -v` and `go test ./internal/config/ -run 'TestCLM' -v`
 Expected: FAIL — `undefined: Mirror` / `undefined: DefaultCLM`.
 
 - [ ] **Step 3: Write migration 052 + config block**
@@ -1244,13 +1245,13 @@ func PersistRevision(ctx context.Context, db *sql.DB, r *Revision) error {
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `go test ./internal/mnemonic/context_harness/clm/ -run 'TestRenderMirror' -v` and `go test ./internal/mnemonic/config/ -run 'TestCLM' -v` and `go build ./...`
+Run: `go test ./internal/context_harness/clm/ -run 'TestRenderMirror' -v` and `go test ./internal/config/ -run 'TestCLM' -v` and `go build ./...`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/store/migrations/052_context_revisions.sql skillgrid-cli/internal/mnemonic/config/load.go skillgrid-cli/internal/mnemonic/context_harness/clm/mirror.go skillgrid-cli/internal/mnemonic/context_harness/clm/revision.go skillgrid-cli/internal/mnemonic/context_harness/clm/mirror_test.go skillgrid-cli/internal/mnemonic/config/load_clm_test.go
+git add mnemonic/internal/store/migrations/052_context_revisions.sql mnemonic/internal/config/load.go mnemonic/internal/context_harness/clm/mirror.go mnemonic/internal/context_harness/clm/revision.go mnemonic/internal/context_harness/clm/mirror_test.go mnemonic/internal/config/load_clm_test.go
 git commit -m "feat: clm config block + mirror + revision + context_revisions (052) (ADR-0027/0028)"
 ```
 
@@ -1261,9 +1262,9 @@ git commit -m "feat: clm config block + mirror + revision + context_revisions (0
 ### Task 8: CLM — overflow guard + calibration
 
 **Files:**
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/clm/overflow.go`
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/clm/calibrate.go`
-- Test: `skillgrid-cli/internal/mnemonic/context_harness/clm/overflow_test.go`, `calibrate_test.go`
+- Create: `mnemonic/internal/context_harness/clm/overflow.go`
+- Create: `mnemonic/internal/context_harness/clm/calibrate.go`
+- Test: `mnemonic/internal/context_harness/clm/overflow_test.go`, `calibrate_test.go`
 
 **Interfaces:**
 - Consumes: `config.CLM` (Budget/Reserve/Cap); `context_harness.EstimateTokens` (the base estimator); `clm.Revision`.
@@ -1278,7 +1279,7 @@ package clm
 import (
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
+	"github.com/devopstales/skillgrid/mnemonic/internal/config"
 )
 
 func TestComputeOverflow_WithinBudget(t *testing.T) {
@@ -1335,7 +1336,7 @@ func TestCalibrate_ExactMatchStays(t *testing.T) {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `go test ./internal/mnemonic/context_harness/clm/ -run 'TestComputeOverflow|TestCalibrate' -v`
+Run: `go test ./internal/context_harness/clm/ -run 'TestComputeOverflow|TestCalibrate' -v`
 Expected: FAIL — `undefined: ComputeOverflow` / `Calibrate`.
 
 - [ ] **Step 3: Write the overflow guard + calibration**
@@ -1345,8 +1346,8 @@ Expected: FAIL — `undefined: ComputeOverflow` / `Calibrate`.
 package clm
 
 import (
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/context_harness"
+	"github.com/devopstales/skillgrid/mnemonic/internal/config"
+	"github.com/devopstales/skillgrid/mnemonic/internal/context_harness"
 )
 
 // OverflowDecision is the result of the overflow guard.
@@ -1389,7 +1390,7 @@ func ComputeOverflow(m *Mirror, cfg config.CLM, factor float64) OverflowDecision
 package clm
 
 import (
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/context_harness"
+	"github.com/devopstales/skillgrid/mnemonic/internal/context_harness"
 )
 
 // Calibrate corrects the chars/token factor toward the observed ratio,
@@ -1416,13 +1417,13 @@ func baseFactor() float64 {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `go test ./internal/mnemonic/context_harness/clm/ -run 'TestComputeOverflow|TestCalibrate' -v` and `go build ./...`
+Run: `go test ./internal/context_harness/clm/ -run 'TestComputeOverflow|TestCalibrate' -v` and `go build ./...`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/context_harness/clm/overflow.go skillgrid-cli/internal/mnemonic/context_harness/clm/calibrate.go skillgrid-cli/internal/mnemonic/context_harness/clm/overflow_test.go skillgrid-cli/internal/mnemonic/context_harness/clm/calibrate_test.go
+git add mnemonic/internal/context_harness/clm/overflow.go mnemonic/internal/context_harness/clm/calibrate.go mnemonic/internal/context_harness/clm/overflow_test.go mnemonic/internal/context_harness/clm/calibrate_test.go
 git commit -m "feat: clm overflow guard + calibration (ADR-0027)"
 ```
 
@@ -1433,11 +1434,11 @@ git commit -m "feat: clm overflow guard + calibration (ADR-0027)"
 ### Task 9: CLM — Go owns state (SetCLM seam + resume) + Node checkpoint capture + OpenCode context hook
 
 **Files:**
-- Create: `skillgrid-cli/internal/mnemonic/memory/clm.go` (the `SetCLM` seam on `memory.Service` + `CLMConfig()` accessor + resume reconstruction)
-- Create: `skillgrid-cli/internal/mnemonic/context_harness/clm/resume.go` (highest-revision reconstruction + anchor validation)
+- Create: `mnemonic/internal/memory/clm.go` (the `SetCLM` seam on `memory.Service` + `CLMConfig()` accessor + resume reconstruction)
+- Create: `mnemonic/internal/context_harness/clm/resume.go` (highest-revision reconstruction + anchor validation)
 - Modify: `hooks/tool-call-capture.js` (the `checkpoint` branch reads the CLM mirror edit and POSTs it)
 - Create: `plugins/opencode/context/index.js` (OpenCode v2 plugin: the `context` hook)
-- Test: `skillgrid-cli/internal/mnemonic/memory/clm_test.go`, `skillgrid-cli/internal/mnemonic/context_harness/clm/resume_test.go`
+- Test: `mnemonic/internal/memory/clm_test.go`, `mnemonic/internal/context_harness/clm/resume_test.go`
 
 **Interfaces:**
 - Consumes: `config.CLM`; `clm.Mirror`/`clm.Revision`/`clm.ValidateRevision`/`clm.PersistRevision`/`clm.ComputeOverflow`/`clm.Calibrate`; `memory.Service` (the facade); the `context_revisions` table; the existing `checkpoint()` branch in `tool-call-capture.js` (line 319).
@@ -1453,7 +1454,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 func TestResume_NoRevisions(t *testing.T) {
@@ -1479,7 +1480,7 @@ func TestResume_HighestRevision(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/mnemonic/context_harness/clm/ -run 'TestResume' -v`
+Run: `go test ./internal/context_harness/clm/ -run 'TestResume' -v`
 Expected: FAIL — `undefined: Resume`.
 
 - [ ] **Step 3: Write the resume + memory seam**
@@ -1518,7 +1519,7 @@ func Resume(ctx context.Context, db *sql.DB, sessionID string) (*Revision, error
 package memory
 
 import (
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
+	"github.com/devopstales/skillgrid/mnemonic/internal/config"
 )
 
 // SetCLM stores the CLM config on the service (the Go-owns-state seam, ADR-0027).
@@ -1598,13 +1599,13 @@ Register the plugin in the OpenCode plugin config (the project's `.opencode/plug
 
 - [ ] **Step 7: Run tests to verify they pass**
 
-Run: `go test ./internal/mnemonic/context_harness/clm/ -run 'TestResume' -v` and `go test ./internal/mnemonic/memory/ -run 'TestCLM' -v` and `go build ./...` and `node -e "require('./plugins/opencode/context/index.js'); console.log('ok')"`
+Run: `go test ./internal/context_harness/clm/ -run 'TestResume' -v` and `go test ./internal/memory/ -run 'TestCLM' -v` and `go build ./...` and `node -e "require('./plugins/opencode/context/index.js'); console.log('ok')"`
 Expected: PASS.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/memory/clm.go skillgrid-cli/internal/mnemonic/memory/clm_test.go skillgrid-cli/internal/mnemonic/context_harness/clm/resume.go skillgrid-cli/internal/mnemonic/context_harness/clm/resume_test.go skillgrid-cli/internal/mnemonic/http/clm.go skillgrid-cli/internal/mnemonic/http/server.go hooks/tool-call-capture.js plugins/opencode/context/index.js
+git add mnemonic/internal/memory/clm.go mnemonic/internal/memory/clm_test.go mnemonic/internal/context_harness/clm/resume.go mnemonic/internal/context_harness/clm/resume_test.go mnemonic/internal/http/clm.go mnemonic/internal/http/server.go hooks/tool-call-capture.js plugins/opencode/context/index.js
 git commit -m "feat: clm go-owns-state seam + resume + node checkpoint capture + opencode context hook (ADR-0027/0028)"
 ```
 
