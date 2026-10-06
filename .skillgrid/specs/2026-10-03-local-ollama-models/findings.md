@@ -10,9 +10,12 @@ Sourced 2026-10-03 from the Ollama library pages. Tags below are the pull names.
 | `gemma2:2b` | chat | 1.6GB, 8K, text. Library quickstart is `ollama run gemma2:2b` (interactive). | https://ollama.com/library/gemma2 |
 | `clef-flash` | decision, vision | 9B, Cloudflare, fine-tune of Qwen3.5-9B. Requires Ollama 0.35.1+. `POST /v1/systemone`. Can score images with the text state. `clef-flash:latest` and `clef-flash:9b` are the tags; there is no smaller size. | https://ollama.com/library/clef-flash |
 | `llama3.2:1b` | chat | 1.3GB, 128K, text. Sibling of `llama3.2:3b` (2.0GB), which install pulls today. | https://ollama.com/library/llama3.2 |
-| `glm:vision-tools` | not a tag | No Ollama library model with this name. GLM entries that carry a vision or tools label include `glm-ocr` (vision, tools, document OCR) and the `glm-4.7-flash` / `glm-5.x` chat models (tools, not this tag). | https://ollama.com/library/glm-ocr |
+
+**Removed (round 3, 2026-10-06):** `glm:vision-tools` was a typo — not an Ollama library tag. It is dropped from the catalog entirely (no pull entry, no list entry, no warning). The closest real vision+tools GLM tag is `glm-ocr`, but it is NOT a substitute and is NOT pulled. Source: https://ollama.com/library/glm-ocr (checked 2026-10-03).
 
 Version floor for the whole catalog is **Ollama 0.35.1** (clef-flash). Tev1 needs 0.35. EmbeddingGemma needs 0.11.10.
+
+**Locked (round 3):** Live chat model is `llama3.2:1b`. Embedder is `embeddinggemma:300m` (round 2).
 
 `ollama run` starts a REPL. An install step must `ollama pull` and then smoke-test with a non-interactive HTTP call.
 

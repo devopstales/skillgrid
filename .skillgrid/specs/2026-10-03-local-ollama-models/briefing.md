@@ -1,6 +1,6 @@
 # Briefing — Local Ollama model catalog
 
-> **STATUS:** `draft` (2026-10-03) — Model list taken from the user. Library tags checked in `findings.md`. **Embedder locked (round 2): `embeddinggemma:300m`.** `glm:vision-tools` is not an Ollama tag. Live chat model is still an assumption. Do not write `blueprint.md` until that and the vision tag are confirmed.
+> **STATUS:** `interview-closed` (2026-10-06) — Model list taken from the user. Library tags checked in `findings.md`. **Embedder locked (round 2): `embeddinggemma:300m`.** **Live chat model locked (round 3): `llama3.2:1b`.** **`glm:vision-tools` removed (round 3): typo, not a tag — dropped entirely, no warning, no list entry.** Both open questions closed; `blueprint.md` may be written.
 
 **Topic:** 2026-10-03-local-ollama-models
 **Date:** 2026-10-03
@@ -65,11 +65,11 @@ Locked: Go 1.22+, no new dependencies without an ADR (`net/http` + stdlib JSON),
    - **Acceptance:** Fixture dimension 768 vs smoke length 768 writes the model and does not warn. Fixture 768 vs smoke 512 still writes `embeddinggemma:300m` and the warning names both lengths.
    - **Acceptance scenario:** pending `acceptance.feature`
 
-6. **Unresolved vision tag is reported, not invented:** `glm:vision-tools` is kept out of the pull list until it is a real Ollama tag.
-   - **Current:** The string is not a library tag (see `findings.md`). `glm-ocr` is a vision+tools GLM model and is not the same name.
-   - **Target:** Install logs one warning that `glm:vision-tools` was requested and has no pull tag. It does not pull `glm-ocr` or any other substitute.
-   - **Acceptance:** Test asserts the run stub never receives `glm-ocr` or `glm:vision-tools`.
-   - **Acceptance scenario:** pending `acceptance.feature`
+6. **`glm:vision-tools` is removed:** round 3 confirmed it was a typo, not an Ollama tag. It is dropped entirely — no pull entry, no list entry, no warning. `glm-ocr` (the closest real vision+tools GLM tag) is NOT pulled.
+    - **Current:** The string appeared in the user's model list but is not a library tag (see `findings.md`).
+    - **Target:** The catalog is the six real tags only. No reference to `glm:vision-tools` or `glm-ocr` survives in the pull list or `mnemonic.ollama.models`.
+    - **Acceptance:** Test asserts the run stub never receives `glm-ocr` or `glm:vision-tools`.
+    - **Acceptance scenario:** pending `acceptance.feature`
 
 ## Implementation Decisions
 
@@ -111,15 +111,21 @@ Interview not started. The model list is the user’s. Role defaults are assumpt
 | 0 | Where does this list live? | Its own spec, `2026-10-03-local-ollama-models`. Not workflow-updates. Not folded into the in-flight llm-provider change. |
 | 1 | Are the names real Ollama tags? | Six are. `glm:vision-tools` is not. See `findings.md`. |
 | 2 | Which model embeds for Mnemonic? | **`embeddinggemma:300m`.** Ollama provider and local install write that tag. ONNX `nomic-embed-code` stays the non-Ollama default. A width mismatch warns and still switches; search is stale until reindex. |
+| 3 | Live chat model for `mnemonic.llm.model`? | **`llama3.2:1b`** (the 1B sibling of today's `llama3.2:3b`). Smallest chat tag, 128K context. `gemma2:2b` and `qwen2.5:1.5b` are pulled + listed, not selected. |
+| 3 | Status of `glm:vision-tools`? | **Typo — removed.** Not an Ollama tag. Dropped from the pull list, the `mnemonic.ollama.models` list, and the spec entirely. No warning. `glm-ocr` is NOT a substitute. |
 
 ## Open Questions & Assumptions
 
-- **Question:** Live chat model written to `mnemonic.llm.model` — `llama3.2:1b`, `gemma2:2b`, or `qwen2.5:1.5b`? The other two would still be pulled.
-- **Assumption:** `llama3.2:1b` is the live chat model (the 1B sibling of today’s `llama3.2:3b`). `gemma2:2b` and `qwen2.5:1.5b` are pulled and listed, not selected.
+**Both open questions are closed (round 3, 2026-10-06):**
+
+- **Locked (round 3):** Live chat model written to `mnemonic.llm.model` is `llama3.2:1b` (the 1B sibling of today’s `llama3.2:3b`). `gemma2:2b` and `qwen2.5:1.5b` are pulled and listed, not selected.
 - **Locked (round 2):** Mnemonic’s Ollama embedder is `embeddinggemma:300m`. It replaces `nomic-embed-text` on install and `nomic-embed-code` as `DefaultOllamaModel`. It does not replace the ONNX default.
-- **Question:** Is `glm:vision-tools` a local name you will create, a typo, or should the spec drop it? `glm-ocr` is the closest official vision+tools GLM tag and will not be pulled unless you say so.
+- **Locked (round 3):** `glm:vision-tools` was a typo — removed entirely. Not an Ollama tag; no pull entry, no list entry, no warning. `glm-ocr` is NOT a substitute.
+
+**Remaining assumptions (not open questions):**
+
 - **Assumption:** `clef-flash` (9B, multi-GB) and `tev1:0.8b` are worth the disk and the 0.35.1 floor. They are not routed into ask/dedup/extraction in this change.
-- **Assumption:** Serial constraint holds. This folder stays queued behind `2026-10-02-mnemonic-llm-provider`.
+- **Assumption:** Serial constraint holds. This folder took `current_change` on 2026-10-06 after `2026-10-02-mnemonic-llm-provider` shipped (main @ 5ebd23bf).
 
 ## Decisions (ADR)
 
