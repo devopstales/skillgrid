@@ -1,6 +1,6 @@
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: "ticketing"
+  current_phase: "qa"
   current_change: "2026-10-03-local-ollama-models"
   status: in_progress
 progress:
