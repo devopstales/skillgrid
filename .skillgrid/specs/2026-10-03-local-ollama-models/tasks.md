@@ -5,6 +5,8 @@
 > Sliced from `.skillgrid/specs/2026-10-03-local-ollama-models/blueprint.md`.
 > Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.
 
+> **Tracker epic:** TASK-041 (backlogmd, `.backlog`)
+
 ## Epic Summary
 
 Make the local Ollama install path pull a six-model local catalog (live chat `llama3.2:1b`, system-one `qwen2.5:1.5b`, embed `embeddinggemma:300m`, research `tev1:0.8b`/`gemma2:2b`/`clef-flash`) instead of the single `llama3.2:3b`/`nomic-embed-text` pair, gate the two heavy research models behind an Ollama ≥ 0.35.1 version floor, and move the runtime Ollama embedder default to `embeddinggemma:300m`. No new LLM SDK (ADR-0023); fail-open floors stay (ADR-0016).
@@ -37,6 +39,7 @@ Chain strategy: size-exception
 
 ### TICKET-01 — Ollama version floor comparison
 
+- **Tracker ID:** TASK-042
 - **Scope:** Add `ollamaRequiredVersion` (`0.35.1`), `ollamaVersionAtLeast`, `parseOllamaVersion`, `versionLessThan` to `provider.go`, with a pure-function test table.
 - **Acceptance:** `go test ./skillgrid-cli/internal/install -count=1 -run TestOllamaVersionAtLeast` PASS. `ollamaVersionAtLeast("0.35.1")`==true, `("0.35.0")`==false, `("")`==false, `("not-a-version")`==false, `("0.35.10")`==true.
 - **SATISFIES:** happy path version floor gates heavy models (parsing half)
@@ -47,6 +50,7 @@ Chain strategy: size-exception
 
 ### TICKET-02 — Six-model catalog + role smoke + floor-gated pull
 
+- **Tracker ID:** TASK-043
 - **Scope:** Add `modelRole`/`modelEntry`/`localModels` (six tags, `glm:vision-tools` excluded), `heavyModels`, the `ollamaVersion` HTTP seam, `smokeProbe` (non-fatal), and rewrite `pullMissingModels` to iterate the catalog and skip heavy models below the floor with a version-named warning. Update `localLLMModel`→`llama3.2:1b`, `localEmbedModel`→`embeddinggemma:300m`.
 - **Acceptance:** `go test ./skillgrid-cli/internal/install -count=1 -run 'TestCatalogPullList|TestSmokeProbeNonFatal|TestFloorGatesHeavyModels|TestAtFloorPullsAll'` PASS. Below floor: tev1/clef-flash not pulled, warning emitted, install succeeds. At/above floor: all six pulled. `glm:vision-tools` never appears.
 - **SATISFIES:** happy path catalog pull list; happy path version floor gates heavy models; happy path version at or above floor pulls all
@@ -57,6 +61,7 @@ Chain strategy: size-exception
 
 ### TICKET-03 — Runtime default embedder model
 
+- **Tracker ID:** TASK-044
 - **Scope:** Change `embedder.DefaultOllamaModel` from `nomic-embed-code` to `embeddinggemma:300m` in `ollama.go`, with a default-model test.
 - **Acceptance:** `go test ./skillgrid-cli/internal/mnemonic/embedder -count=1 -run TestDefaultOllamaModelIsEmbeddinggemma` PASS; `DefaultOllamaModel == "embeddinggemma:300m"`.
 - **SATISFIES:** happy path ollama default model
@@ -68,6 +73,7 @@ Chain strategy: size-exception
 
 ### TICKET-04 — Config merge writes new live-chat + embed models
 
+- **Tracker ID:** TASK-045
 - **Scope:** Verify `mergeHomeProviderConfig` writes `localLLMModel`/`localEmbedModel` (from TICKET-02) and the runtime default (TICKET-03) so the merged home config carries `llm.model=llama3.2:1b` + `embedder.provider=ollama`/`embedder.model=embeddinggemma:300m`, preserving unrelated keys.
 - **Acceptance:** `go test ./skillgrid-cli/internal/install -count=1 -run TestConfigMergeWritesNewModels` PASS. Merged config has the two new models, `base_url` = `ollamaBaseURL/v1`, and `dimension`/`profile` preserved.
 - **SATISFIES:** happy path config merge writes new live-chat + embed models
@@ -78,6 +84,7 @@ Chain strategy: size-exception
 
 ### TICKET-05 — Update existing install tests + acceptance gates + full verify
 
+- **Tracker ID:** TASK-046
 - **Scope:** Update the pre-existing `TestSetupProviderLocal` and `TestSetupProviderEnsureSkipsPullWhenPresent` to the six-model catalog (add `ollamaVersion` stub); run all G1–G6 acceptance gates; run `go build ./...` + the full install + embedder suite green.
 - **Acceptance:** `go build ./...` ok; `go test ./skillgrid-cli/internal/install/... ./skillgrid-cli/internal/mnemonic/embedder/... -count=1` PASS; every G1–G6 CHECK in `acceptance.feature` returns its EXPECT.
 - **SATISFIES:** happy path glm vision tools excluded; (regression) G10 happy path install yes ensures local ollama and wires config; (regression) ensure skips pull when models already present
