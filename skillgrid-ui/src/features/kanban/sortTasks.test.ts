@@ -129,4 +129,40 @@ describe('sortTasks', () => {
     sortTasks(tasks, 'id', 'asc')
     expect(ids(tasks)).toEqual(snapshot)
   })
+
+  it('sorts milestone alphabetically (asc)', () => {
+    const tasks = [
+      t({ id: 'm-c', milestone: 'charlie' }),
+      t({ id: 'm-a', milestone: 'alpha' }),
+      t({ id: 'm-b', milestone: 'bravo' }),
+    ]
+    expect(order(tasks, 'milestone', 'asc')).toEqual(['m-a', 'm-b', 'm-c'])
+  })
+
+  it('puts tasks without a milestone last on milestone asc', () => {
+    const tasks = [
+      t({ id: 'm-none' }),
+      t({ id: 'm-a', milestone: 'alpha' }),
+      t({ id: 'm-b', milestone: 'bravo' }),
+    ]
+    expect(order(tasks, 'milestone', 'asc')).toEqual(['m-a', 'm-b', 'm-none'])
+  })
+
+  it('reverses milestone order on desc', () => {
+    const tasks = [
+      t({ id: 'm-a', milestone: 'alpha' }),
+      t({ id: 'm-b', milestone: 'bravo' }),
+      t({ id: 'm-c', milestone: 'charlie' }),
+    ]
+    expect(order(tasks, 'milestone', 'desc')).toEqual(['m-c', 'm-b', 'm-a'])
+  })
+
+  it('puts tasks without a milestone first on milestone desc', () => {
+    const tasks = [
+      t({ id: 'm-a', milestone: 'alpha' }),
+      t({ id: 'm-none' }),
+      t({ id: 'm-b', milestone: 'bravo' }),
+    ]
+    expect(order(tasks, 'milestone', 'desc')).toEqual(['m-none', 'm-b', 'm-a'])
+  })
 })
