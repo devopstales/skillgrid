@@ -359,8 +359,7 @@ func isNumericSegments(s string) bool {
 
 // versionLessThan reports whether a is a strictly lower numeric version than b.
 // Both must be dot-separated numeric segments; missing segments are treated as
-// zero, so "0.35" < "0.35.1" and "0.35.1" < "0.36.0". If a parses to fewer or
-// equal components than b at the first differing segment, it is lower.
+// zero, so "0.35" < "0.35.1" and "0.35.1" < "0.36.0".
 func versionLessThan(a, b string) bool {
 	as := strings.Split(a, ".")
 	bs := strings.Split(b, ".")
