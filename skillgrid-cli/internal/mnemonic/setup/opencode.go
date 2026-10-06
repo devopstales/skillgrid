@@ -8,7 +8,6 @@ import (
 
 	"github.com/tidwall/sjson"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/logging"
 )
 
 // SetupOpenCode registers Mnemonic for OpenCode: the MCP servers from
@@ -76,7 +75,7 @@ func upsertPrivateToolsEnv(cfgPath string, privateTools []string, dryRun bool) e
 		return fmt.Errorf("set env.SKILLGRID_MNEMONIC_PRIVATE_TOOLS: %w", err)
 	}
 	if dryRun {
-		logging.Info("[dry-run] set env.SKILLGRID_MNEMONIC_PRIVATE_TOOLS in " + cfgPath)
+		logInfo("[dry-run] set env.SKILLGRID_MNEMONIC_PRIVATE_TOOLS in " + cfgPath)
 		return nil
 	}
 	return os.WriteFile(cfgPath, updated, 0o644)

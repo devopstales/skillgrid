@@ -220,7 +220,8 @@ Hand-rolled dispatch (no cobra). The full surface from `main.go` usage:
 | `hybrid/` | RRF fusion (`rank.go`, `const RRFK = 60`), vector cache, rerank, confidence, snippets. |
 | `embedder/` | Providers: `onnx.go` (default `nomic-embed-code`, 768-dim), `ollama.go`, `external.go`, `null.go`, `select.go`, `warm.go`. |
 | `mcp/` | MCP stdio server (`server.go`) + ~40 `tools_*.go` registering `mem_*`/`code_*`/`web_*`/`session_*`/`team_*` tools. |
-| `session_inject/` | Session context injection & compaction — L1 auto-prepend/distill on resume, L2 hybrid retrieval + context-block render (`mem_inject_session`). See §8.1. |
+| `context_harness/` | The Context Harness (ADR-0025) — owns the session context lifecycle. Absorbs `session_inject` (retrieval, render, autoprepend, summary, privacy — signatures unchanged, import path only) and adds intercept-and-abstract capture into a session-scoped FTS `tool_outputs` sandbox, a deterministic `ctx_query` over the code index, a `ctx index`/`indexed_files` writer + `ctx_search` two-leg RRF fusion, a Context Routing block, and the `ctx` CLI. A `clm/` sub-package implements the Context Language Model (ADR-0027): mirror render, overflow guard, calibration, revision validate/persist. See §8.1. |
+| `session_inject/` | (absorbed into `context_harness`) — L1 auto-prepend/distill on resume, L2 hybrid retrieval + context-block render (`mem_inject_session`). Importers change import path only. See §8.1. |
 | `loop/` | Session loop pages: `prime`/`compact`/`pages` text generation for session start/end hooks. |
 | `http/` | REST API (`server.go` ~1912 lines) + `ui/` (embedded SPA) + `docs/` (OpenAPI/Swagger). |
 | `config/` | Layered YAML config loader (`load.go` ~921 lines). |
@@ -330,20 +331,48 @@ Key seams are all injectable with a deterministic fallback (the fail-open patter
 
 **Second brain** (`mem_ask`, `secondbrain/`) is a read side over the same store: cited answers with a fail-open LLM seam.
 
-### 8.1 Session Context Injection & Compaction
+### 8.1 Context Harness (session context lifecycle)
 
-The mechanism that keeps conversation memory rot from losing a session's state (compaction, session death, context overflow). Locked design: **two-layer injection** — auto-prepend a slim token-capped L1 summary on resume (not fresh sessions) + on-demand hybrid retrieval. `session_inject/` owns it:
+The Context Harness (ADR-0025) owns the full context lifecycle of a session. It absorbed `session_inject` (import path change only — public signatures and the `mem_inject_session` contract are unchanged) and adds capture, structured query, proactive index, routing, a `ctx` CLI, and the Context Language Model layer.
+
+**Injection & compaction** — keeps conversation memory rot from losing a session's state (compaction, session death, context overflow). Locked design: **two-layer injection** — auto-prepend a slim token-capped L1 summary on resume (not fresh sessions) + on-demand hybrid retrieval:
 
 | Seam | What it does | Entry point |
 |------|--------------|-------------|
-| L1 auto-prepend | `AutoPrepend` — distills the most recent *ended* session's events into a privacy-filtered, token-capped summary; fresh sessions get `""` | `session_inject/autoprepend.go:13` |
-| L1 distillation | `DistillSummary` — deterministic key-decisions / errors / file-changes digest from the `session_events` audit trail (migration 040) | `session_inject/summary.go` |
-| L2 on-demand | `HybridRetrieve` + `RenderContextBlock` — hybrid (BM25 + semantic, RRF-fused) retrieval of injectable observations rendered as a token-cost-annotated context block; `degraded: true` when no embedder (BM25-only floor) | `session_inject/retrieve.go`, `render.go` |
-| MCP tool | `mem_inject_session` — wraps L2 (params: `query`, `all_projects`, `max_tokens` default 2000) | `mcp/tools_session_inject.go:17` |
+| L1 auto-prepend | `AutoPrepend` — distills the most recent *ended* session's events into a privacy-filtered, token-capped summary; fresh sessions get `""` | `context_harness/autoprepend.go:13` |
+| L1 distillation | `DistillSummary` — deterministic key-decisions / errors / file-changes digest from the `session_events` audit trail (migration 040) | `context_harness/summary.go` |
+| L2 on-demand | `HybridRetrieve` + `RenderContextBlock` — hybrid (BM25 + semantic, RRF-fused) retrieval of injectable observations rendered as a token-cost-annotated context block; `degraded: true` when no embedder (BM25-only floor) | `context_harness/retrieve.go`, `render.go` |
+| MCP tool | `mem_inject_session` — wraps L2 (params: `query`, `all_projects`, `max_tokens` default 2000); contract unchanged by the absorption | `mcp/tools_session_inject.go:17` |
 | CLI | `prime` (session-start context page), `compact` (session-close one-liner) | `cmd/skillgrid/loop_cmd.go:19,27` |
 | Compaction commit | `MnemonicCommit` — writes durable L2 file + `long_term_memories` row, then async tiering (L0/L1); the `compact` skill hook upserts one continuity observation per session at `topic_key compaction/<session>` | `service/compaction.go:38`, `memory/skills.go:562` |
 | HTTP | `GET /context` (injection block) + `GET /context/compaction` (session-scoped compaction payload for the prompt) | `http/server.go:128-129` |
 | UI | `/observe/compaction` panel | `skillgrid-ui/src/features/observe/CompactionPage.tsx` |
+
+**Intercept-and-abstract capture** (ADR-0025) — large tool output is abstracted at the boundary instead of flowing into the agent raw:
+
+| Seam | What it does | Entry point |
+|------|--------------|-------------|
+| Output Sandbox Gate | In the PostToolUse seam, when actual output > threshold (default ~4KB) and no `SKILLGRID_CTX_BYPASS`, the full output is stored to the session-scoped `tool_outputs` FTS5 sandbox and the agent gets a 200-char summary + a `ctx_search <query>` pointer; small output and bypass pass through unchanged | `context_harness/capture.go`, `hooks/tool-call-capture.js`, `http/toolcalls.go` |
+| Sandbox Store | `tool_outputs` + `tool_outputs_fts` (migration 050) — session-scoped, purged at session end via `ctx purge` | `store/migrations/050_tool_outputs.sql` |
+
+**Structured query & proactive index** (ADR-0025/0026):
+
+| Seam | What it does | Entry point |
+|------|--------------|-------------|
+| `ctx_query` | Deterministic counts / lists / existence over the code index (no JS, no line ranges in v1) | `context_harness/query.go` |
+| `ctx index` | Reads, chunks (~2KB, bounded ~100/call), and upserts rows into `indexed_files` (migration 051), reusing the observations schema shape (Second Brain has no table of its own — `secondbrain/ask.go:74` calls `session_inject.HybridObservations` over `observations`+`observations_fts`); 7-day TTL | `context_harness/index.go` |
+| `ctx_search` | Two-leg RRF fusion of `tool_outputs_fts` (session) + `indexed_files_fts` (project) via `hybrid.Rank` (RRFK=60); results carry per-leg provenance | `context_harness/search.go` |
+| `ctx` CLI | `stats` / `index` / `search` / `purge` (purge clears `tool_outputs` + `context_revisions`) | `cmd/skillgrid/ctx_cmd.go` |
+| Context Routing | `prime` injects a ~80-word tool map (counts/lists → `ctx_query`, retrieve → `ctx_search`, index → `ctx index`, memory → `mem_*`); advisory, not blocking | `context_harness/routing.go` |
+
+**Context Language Model (CLM)** (ADR-0027/0028) — the agent gets write access to its own context (arXiv:2609.37725, pi-clm). Go owns state and decisions; the Node/OpenCode plugin owns the request path. Opt-in, off by default via the `clm:` config block:
+
+| Seam | What it does | Entry point |
+|------|--------------|-------------|
+| Context Mirror | A `0600` temp file the agent edits with ordinary file tools: `[[LIVE_CONTEXT version=1 revision=N document=<nonce> baseline=<digest>]]` header + `[[CTX_TURN document=<nonce> index=I role=R id=<id> protected=false]]` blocks; nonce is stable between accepted edits. Rendered before each request by the OpenCode `context` plugin hook (modifies the outgoing model call, not persisted history) | `context_harness/clm/mirror.go`, OpenCode plugin module |
+| Overflow Guard | Computed in Go: when the calibrated estimate exceeds `budget − reserve`, the oldest tool results after the last edit are swapped for one-line notes; the withhold decision is stored on the revision and applied by the plugin | `context_harness/clm/overflow.go` |
+| Calibration | The size estimate (starts ~4 chars/token) is corrected against the provider's own token count for each request; the corrected factor is stored per session | `context_harness/clm/calibrate.go` |
+| Context Revision | One accepted mirror edit, persisted to `context_revisions` (migration 052, session-scoped audit — raw history + mirror are the source of truth); validated at turn-end (nonce match, legal message sequence, tool-call-group repair) and activated for the next request; on resume the highest `revision` is reconstructed and its anchor (count + SHA-256 digest) re-validated, a mismatch falling back to raw context | `context_harness/clm/revision.go`, `store/migrations/052_context_revisions.sql` |
 
 Wired by the harness hooks, not by the agent: `hooks/opencode-session-start.sh` (and the cursor equivalent) run `skillgrid prime` on session start; `*-session-end.sh` run `skillgrid compact` on idle/end. Recovery after compaction is then: `mem_session_summary` → `mem_context` → `mem_inject_session` (the L1→L2→L3 retrieval workflow).
 
@@ -385,8 +414,11 @@ Migration timeline (forward-only, additive):
 | `043` | `lifecycle_log` (audit) |
 | `044` | bitemporal (`valid_at` / `invalid_at` / `superseded_by`) |
 | `045`–`049` | search aids, entity aliases, session agent, session usage, session checkpoint |
+| `050` | `tool_outputs` + `tool_outputs_fts` — Context Harness Sandbox Store (session-scoped, ADR-0025) |
+| `051` | `indexed_files` + `indexed_files_fts` — proactive index reusing the observations schema shape (project-scoped, ADR-0026) |
+| `052` | `context_revisions` — CLM session-scoped audit of accepted mirror edits (ADR-0028) |
 
-Growth is bounded by TTL soft-expiry (default 7 days), distill/dream consolidation, 90-day `session_events` retention, and a snapshot-retention cap (default 10).
+Growth is bounded by TTL soft-expiry (default 7 days), distill/dream consolidation, 90-day `session_events` retention, and a snapshot-retention cap (default 10). `tool_outputs` and `context_revisions` are session-scoped and purged at session end; `indexed_files` carries the 7-day TTL like observations.
 
 ### Project state zone (repo-committed, `.skillgrid/`)
 
@@ -444,6 +476,8 @@ s.mux.HandleFunc("POST /sessions/{id}/checkpoint/claim", s.requireWriteAuth(s.ha
 - **Reads are open, writes are bearer-protected** via `SKILLGRID_HTTP_TOKEN` (`requireWriteAuth`).
 - Binds `127.0.0.1` by default (loopback-only).
 - Serves the embedded SPA at `/`, OpenAPI at `/openapi.yaml`, Swagger UI at `/swagger`.
+- The capture route `POST /sessions/{id}/tool-calls` carries `content` (full output) in addition to `content_preview` so the Output Sandbox Gate can store gated output (ADR-0025). A CLM edit is posted at turn-end via the `checkpoint` capture path and validated/persisted by Go (ADR-0027).
+- The OpenCode plugin module registers a `context` hook (v2 plugins) that renders the CLM mirror, applies the Go withhold decision, and reads the model's edit — the only component in the request path that can transform the outgoing model call without rewriting persisted history.
 
 ### 10.3 The `skillgrid init` preamble (rendered from config)
 
@@ -607,7 +641,21 @@ This is what lets an operator point `mnemonic.embedder` at a local Ollama server
 
 ### 14.2 SDD pipeline config — the project's "pipeline SoT" (`.skillgrid/config.yaml`)
 
-`schema: skillgrid/v1`. Sections: `ticketing`, `testing` (`runner: "go test ./..."`), `quality`, `security.trivy`, `commands`, `conventions`, `rules` (per-phase guidance + `fast_track` + `tiers`), `bdd`, `mnemonic`, `research`, `prototype`, `sketch`.
+`schema: skillgrid/v1`. Sections: `ticketing`, `testing` (`runner: "go test ./..."`), `quality`, `security.trivy`, `commands`, `conventions`, `rules` (per-phase guidance + `fast_track` + `tiers`), `bdd`, `mnemonic`, `clm`, `research`, `prototype`, `sketch`.
+
+The `clm:` block (ADR-0027) configures the Context Language Model, off by default:
+
+```yaml
+clm:
+  enabled: false        # opt-in; CLM is off unless true
+  budget: 0             # token budget (default: the model window)
+  reserve: 2048         # generation headroom withheld from the budget
+  reminders: "50/75/90" # budget fractions that emit [CLM BUDGET] notes
+  guard: true           # overflow guard on/off
+  cap: 0                # max chars per tool result (0 = off)
+```
+
+Env overrides (`SKILLGRID_CTX_CLM`, `SKILLGRID_CTX_CLM_BUDGET`, `SKILLGRID_CTX_CLM_RESERVE`, …) win over the config; an absent block yields all defaults (off).
 
 The rigor dial:
 
@@ -682,7 +730,7 @@ git-hooks/  (thin shims, installed to ~/.skillgrid/git-hooks/)
 | `gate-stop` | Runs the acceptance `#### Gates` fresh; blocks turn-end while any G<n> unmet |
 | `tool.before.*` → `opencode-policy.sh` | **Fail-open except here, which exits 2 to block a tool** (ADR-0021 pre-tool policy) |
 
-Session/tool observation: `hooks/tool-call-capture.js` (one shared worker for all three agents) fire-and-forget POSTs tool-call summaries to `http://127.0.0.1:7438`, redacting output for `private_tools`; fail-open, always exit 0.
+Session/tool observation: `hooks/tool-call-capture.js` (one shared worker for all three agents) fire-and-forget POSTs tool-call summaries to `http://127.0.0.1:7438`, redacting output for `private_tools`; fail-open, always exit 0. Its PostToolUse path now gates on actual output size (Output Sandbox Gate, ADR-0025): above the threshold it POSTs the full `content` for the sandbox instead of only the 500-char preview. Its `checkpoint` mode (the turn-end seam) additionally reads the CLM mirror and POSTs the model's edit for validation when CLM is on (ADR-0027). The OpenCode `context` plugin hook renders the mirror and applies the withhold decision before each model request.
 
 ---
 

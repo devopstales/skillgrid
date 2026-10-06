@@ -99,8 +99,12 @@ Single source for what is **currently in force**. **In force** = `status: accept
 | 0022 | The host agent is the memory observer; checkpoints are server-gated | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0022-host-agent-memory-checkpoint.md` |
 | 0023 | Mnemonic chat LLM is OpenAI-compatible HTTP only; one client attaches all seams | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0023-openai-compatible-llm-provider.md` |
 | 0024 | Team-shared memory state: local SQLite + outbox journal against a VM PostgreSQL (LWW + tombstones, tokens-as-roles, schema-per-project) | accepted | — | 2026-10-05 | yes | `.skillgrid/artifacts/04-adr-0024-central-pg-shared-memory-state.md` |
+| 0025 | Context Harness owns the session context lifecycle (absorbs `session_inject`; capture, `ctx_query`, routing, `ctx` CLI) | accepted | — | 2026-10-06 | yes | `.skillgrid/artifacts/04-adr-0025-context-harness-owner.md` |
+| 0026 | `indexed_files` reuses the observations schema shape; `ctx_search` fuses sandbox + indexed via RRF | accepted | — | 2026-10-06 | yes | `.skillgrid/artifacts/04-adr-0026-indexed-files-reuses-observations-schema.md` |
+| 0027 | Context Harness implements the Context Language Model (mirror + overflow guard + calibration; Go owns state, Node owns request path; opt-in via `clm:` config) | accepted | — | 2026-10-06 | yes | `.skillgrid/artifacts/04-adr-0027-clm-context-language-model.md` |
+| 0028 | `context_revisions` is session-scoped audit (purged at session end; raw history + mirror are the source of truth) | accepted | — | 2026-10-06 | yes | `.skillgrid/artifacts/04-adr-0028-context-revisions-session-scoped.md` |
 
-**Highest sequence in use:** 0024 (next ADR is `04-adr-0025-slug.md`). The body of each decision is the Record file. This table stores the path only (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
+**Highest sequence in use:** 0028 (next ADR is `04-adr-0029-slug.md`). The body of each decision is the Record file. This table stores the path only (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 
 ### Locked constraints
 

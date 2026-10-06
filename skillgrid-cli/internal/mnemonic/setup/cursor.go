@@ -10,7 +10,6 @@ import (
 
 	"github.com/tidwall/sjson"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/logging"
 )
 
 // SetupCursor registers MCP servers from config.d/mcp.yaml, adds the
@@ -123,7 +122,7 @@ func installCursorHookScripts(home, repoRoot string, dryRun bool) error {
 		}
 		dst := filepath.Join(dstDir, name)
 		if dryRun {
-			logging.Info("[dry-run] cp " + src + " " + dst)
+			logInfo("[dry-run] cp " + src + " " + dst)
 			continue
 		}
 		if err := os.MkdirAll(dstDir, 0o755); err != nil {
@@ -200,13 +199,13 @@ func upsertCursorHooks(home string, dryRun bool) error {
 		return err
 	}
 	if dryRun {
-		logging.Info("[dry-run] add skillgrid hooks to " + path)
+		logInfo("[dry-run] add skillgrid hooks to " + path)
 		return nil
 	}
 	if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
-	logging.Info("added skillgrid hooks to " + path)
+	logInfo("added skillgrid hooks to " + path)
 	return nil
 }
 

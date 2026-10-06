@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/logging"
 )
 
 // SetupKiloCode registers Mnemonic for Kilo: the MCP servers, the AGENTS.md
@@ -55,7 +54,7 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 	}
 	updated := upsertMarkerBlock(string(content), kiloBeginMarker, kiloEndMarker, protocol)
 	if dryRun {
-		logging.Info("[dry-run] write " + agentsPath)
+		logInfo("[dry-run] write " + agentsPath)
 	} else {
 		if err := backupConfigFile(home, "kilo", agentsPath, dryRun); err != nil {
 			return err

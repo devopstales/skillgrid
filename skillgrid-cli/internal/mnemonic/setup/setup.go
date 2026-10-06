@@ -13,7 +13,6 @@ import (
 	"github.com/tidwall/sjson"
 	"gopkg.in/yaml.v3"
 
-	"github.com/devopstales/skillgrid/skillgrid-cli/internal/logging"
 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
 )
 
@@ -47,7 +46,7 @@ func RunSetup(agent, repoRoot string, mcpEntries []MCPServerConfig, home string,
 		repoRoot = FindRepoRoot("")
 	}
 	if dryRun {
-		logging.Info("[dry-run] skillgrid setup " + agent)
+		logInfo("[dry-run] skillgrid setup " + agent)
 	}
 	switch agent {
 	case "opencode":
@@ -190,7 +189,7 @@ func installOpenCodeHookScripts(home, repoRoot string, dryRun bool) error {
 		}
 		dst := filepath.Join(dstDir, name)
 		if dryRun {
-			logging.Info("[dry-run] cp " + src + " " + dst)
+			logInfo("[dry-run] cp " + src + " " + dst)
 			continue
 		}
 		if err := os.MkdirAll(dstDir, 0o755); err != nil {
@@ -220,7 +219,7 @@ func copyFromRepo(repoRoot, relPath, dst string, dryRun bool) error {
 		return fmt.Errorf("read %s: %w", src, err)
 	}
 	if dryRun {
-		logging.Info("[dry-run] cp " + src + " " + dst)
+		logInfo("[dry-run] cp " + src + " " + dst)
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -229,7 +228,7 @@ func copyFromRepo(repoRoot, relPath, dst string, dryRun bool) error {
 	if err := os.WriteFile(dst, data, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", dst, err)
 	}
-	logging.Info("copied " + dst)
+	logInfo("copied " + dst)
 	return nil
 }
 
@@ -241,7 +240,7 @@ func copyFirstWriteWins(src, dst string, dryRun bool) error {
 		return nil
 	}
 	if dryRun {
-		logging.Info("[dry-run] cp " + src + " " + dst)
+		logInfo("[dry-run] cp " + src + " " + dst)
 		return nil
 	}
 	data, err := os.ReadFile(src)
@@ -254,7 +253,7 @@ func copyFirstWriteWins(src, dst string, dryRun bool) error {
 	if err := os.WriteFile(dst, data, 0o644); err != nil {
 		return err
 	}
-	logging.Info("copied " + dst)
+	logInfo("copied " + dst)
 	return nil
 }
 
@@ -267,7 +266,7 @@ func backupConfigFile(home, agent, path string, dryRun bool) error {
 	timestamp := time.Now().Format("2006-01-02-15:04")
 	bak := filepath.Join(backupDir, base+"-"+timestamp+".back")
 	if dryRun {
-		logging.Info("[dry-run] cp " + path + " " + bak)
+		logInfo("[dry-run] cp " + path + " " + bak)
 		return nil
 	}
 	data, err := os.ReadFile(path)
@@ -280,7 +279,7 @@ func backupConfigFile(home, agent, path string, dryRun bool) error {
 	if err := os.WriteFile(bak, data, 0o644); err != nil {
 		return fmt.Errorf("backup write %s: %w", bak, err)
 	}
-	logging.Info("backed up " + path + " → " + bak)
+	logInfo("backed up " + path + " → " + bak)
 	return nil
 }
 
@@ -289,7 +288,7 @@ func ensureConfigFile(path string, dryRun bool) error {
 		return nil
 	}
 	if dryRun {
-		logging.Info("[dry-run] create " + path)
+		logInfo("[dry-run] create " + path)
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -359,7 +358,7 @@ func dropRetiredPlugins(cfgPath string, dryRun bool) error {
 		return fmt.Errorf("set plugin: %w", err)
 	}
 	if dryRun {
-		logging.Info("[dry-run] drop retired plugins in " + cfgPath)
+		logInfo("[dry-run] drop retired plugins in " + cfgPath)
 		return nil
 	}
 	return os.WriteFile(cfgPath, []byte(updated), 0o644)
@@ -389,7 +388,7 @@ func upsertPluginKey(cfgPath, pluginName string, dryRun bool) error {
 		return fmt.Errorf("set plugin: %w", err)
 	}
 	if dryRun {
-		logging.Info("[dry-run] set plugin in " + cfgPath)
+		logInfo("[dry-run] set plugin in " + cfgPath)
 		return nil
 	}
 	return os.WriteFile(cfgPath, []byte(updated), 0o644)
@@ -419,7 +418,7 @@ func upsertOpenCodeMCP(cfgPath string, entry MCPServerConfig, dryRun bool) error
 		return fmt.Errorf("set mcp.%s: %w", entry.Name, err)
 	}
 	if dryRun {
-		logging.Info("[dry-run] set mcp." + entry.Name + " in " + cfgPath)
+		logInfo("[dry-run] set mcp." + entry.Name + " in " + cfgPath)
 		return nil
 	}
 	return os.WriteFile(cfgPath, []byte(updated), 0o644)
