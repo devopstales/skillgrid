@@ -167,3 +167,38 @@ func TestCompleteTimeout(t *testing.T) {
 		t.Fatalf("Complete took %v, want < 1s (no hang)", elapsed)
 	}
 }
+
+// TestComplete200EmptyChoices is TICKET-01 (network boundary): a 200 OK whose
+// body is valid JSON but has no choices (or an empty message.content) is a
+// valid-but-empty completion, NOT a success. Complete must return a
+// non-nil error so the caller's fail-open floor (ADR-0016) applies instead of
+// treating an empty string as the model's answer.
+func TestComplete200EmptyChoices(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{},
+		})
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Model: "m", Timeout: time.Second})
+	if _, err := c.Complete(context.Background(), "s", "u"); err == nil {
+		t.Fatal("want error for a 200 with empty choices, got nil")
+	}
+}
+
+// TestComplete200MalformedJSON is TICKET-01 (network boundary): a 200 OK whose
+// body is not valid JSON is a decode failure, not a success. Complete must
+// return a non-nil error so the fail-open floor applies rather than an empty
+// or half-parsed result.
+func TestComplete200MalformedJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "this is not json {")
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Model: "m", Timeout: time.Second})
+	if _, err := c.Complete(context.Background(), "s", "u"); err == nil {
+		t.Fatal("want error for a 200 with malformed JSON, got nil")
+	}
+}

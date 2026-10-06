@@ -6,7 +6,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -174,6 +177,99 @@ func TestExtractionAdapterCompletes(t *testing.T) {
 	if !strings.Contains(rec.User, "some session text") {
 		t.Fatalf("request user = %q, want it to carry the session text", rec.User)
 	}
+}
+
+// TestOpenProjectAttachesSharedLLM is the end-to-end wiring gap the Spec
+// reviewer flagged: the LLM-on branch of openProject (service.go) has no test.
+// It writes an indexing.yaml that enables mnemonic.llm against a live
+// OpenAI-compatible server, opens the project (which runs AttachSharedLLM +
+// the memory-level attach), and proves the shared client actually reaches the
+// wire on a real Complete — not just that the seams are non-nil. config.Load
+// walks up from configRoot, so the file in a fresh t.TempDir() is the only
+// source and the test is isolated from any home/repo config.
+func TestOpenProjectAttachesSharedLLM(t *testing.T) {
+	restoreLLMSeams(t)
+	SetAskLLM(nil)
+	SetDedupLLMFunc(nil)
+
+	url, _, close := llmTestServer(t, `{"verdict":"add"}`)
+	defer close()
+
+	root := t.TempDir()
+	cfgDir := filepath.Join(root, ".skillgrid", "config.d")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir config.d: %v", err)
+	}
+	yamlDoc := "mnemonic:\n  llm:\n    enabled: true\n    base_url: " + url + "\n    model: qwen3:8b\n    api_key: sk-e2e\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "indexing.yaml"), []byte(yamlDoc), 0o600); err != nil {
+		t.Fatalf("write indexing.yaml: %v", err)
+	}
+
+	svc := New(t.TempDir())
+	h, cleanup, err := svc.openProject("llm-e2e", root)
+	if err != nil {
+		t.Fatalf("openProject: %v", err)
+	}
+	defer cleanup()
+
+	// The process-level AskLLM seam must now be a shared client (identity is
+	// proven by a live call reaching the test server).
+	seam := AskLLMSeam()
+	if seam == nil {
+		t.Fatal("openProject: AskLLMSeam() = nil, want the shared client")
+	}
+	got, err := seam.Complete(context.Background(), "sys", "hello")
+	if err != nil {
+		t.Fatalf("shared client Complete: %v", err)
+	}
+	if got != `{"verdict":"add"}` {
+		t.Fatalf("shared client Complete = %q, want the server's verdict JSON", got)
+	}
+	// The dedup func must also be attached (the memory-level seam is wired in
+	// the same openProject branch; a live Classify reaching the server proves
+	// the process-level func is non-nil and functional).
+	if _, err := newDedupLLMBackend().Classify(context.Background(), "obs", []string{"cand"}); err != nil {
+		t.Fatalf("dedup backend Classify (should reach the wired LLM): %v", err)
+	}
+	_ = h
+}
+
+// TestClassifyRaceFreeDedupFunc is the regression guard for the dedup seam
+// data race: Classify reads the package-level dedupLLMFunc (via
+// getDedupLLMFunc, under RLock) while openProject re-runs SetDedupLLMFunc
+// (a write under Lock) on every retrieval/compaction/ask. Without the RLock
+// guard, `go test -race` flags the unsynchronized read. This test hammers the
+// writer and reader concurrently so the race detector (or a torn nil read)
+// fires if the guard regresses.
+func TestClassifyRaceFreeDedupFunc(t *testing.T) {
+	restoreLLMSeams(t)
+	fn := func(ctx context.Context, system, user string) (string, error) {
+		return `{"verdict":"add"}`, nil
+	}
+	SetDedupLLMFunc(fn)
+	b := newDedupLLMBackend()
+
+	const iters = 50
+	var wg sync.WaitGroup
+	wg.Add(2)
+	// Writer: repeatedly (re)attach the func, exactly as openProject does.
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iters; i++ {
+			SetDedupLLMFunc(fn)
+		}
+	}()
+	// Reader: repeatedly Classify, which reads the func under RLock.
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iters; i++ {
+			if _, err := b.Classify(context.Background(), "obs", []string{"cand"}); err != nil {
+				t.Errorf("Classify returned error: %v", err)
+				return
+			}
+		}
+	}()
+	wg.Wait()
 }
 
 // TestDreamAdapterCompletes: the dream adapter implements both DreamLLM

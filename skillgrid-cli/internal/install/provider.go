@@ -262,6 +262,13 @@ func setupProviderExternal(c *Config) error {
 	if embedModel == "" {
 		embedModel = defaultExternalEmbedModel
 	}
+	// The api key is intentionally NOT persisted to the home yaml (the loader
+	// owns the SKILLGRID_LLM_API_KEY env fallback, ADR-0023). When the operator
+	// passed --api-key without setting that env var, say so — otherwise the
+	// flag looks like it did something when the runtime will read an empty env.
+	if c.LLMApiKey != "" && os.Getenv("SKILLGRID_LLM_API_KEY") == "" {
+		Out("      note: --api-key is not persisted to the home config; set SKILLGRID_LLM_API_KEY in the environment for the runtime to use it")
+	}
 	return mergeHomeProviderConfig(c, externalLLMProvider{
 		enabled: true,
 		baseURL: base,
@@ -375,5 +382,28 @@ func mergeHomeProviderConfig(c *Config, p providerConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, out, 0o600)
+	// Atomic write: a crash or concurrent reader mid-WriteFile would otherwise
+	// see a truncated/empty indexing.yaml and lose the operator's home config.
+	// Write a temp file in the same directory and rename over the target —
+	// rename is atomic on the same filesystem, so readers see either the old
+	// or the new whole file, never a partial one.
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".indexing-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op after a successful rename
+	if _, err := tmp.Write(out); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }

@@ -31,6 +31,17 @@ func SetDedupLLMFunc(f dedupLLMFunc) {
 	dedupLLMFuncMu.Unlock()
 }
 
+// getDedupLLMFunc reads the attached function under the RLock so a concurrent
+// openProject (which re-runs SetDedupLLMFunc) cannot tear the read. Classify
+// calls this on every pre-write dedup, and openProject is re-entered on each
+// retrieval/compaction/ask — so the read and the write genuinely race without
+// this guard.
+func getDedupLLMFunc() dedupLLMFunc {
+	dedupLLMFuncMu.RLock()
+	defer dedupLLMFuncMu.RUnlock()
+	return dedupLLMFuncFn
+}
+
 // dedupPrompt is the instruction sent to the LLM. It asks for a strict 4-way
 // JSON verdict (add / update / delete / noop) plus the candidate index the
 // verdict applies to, so the parse is deterministic (mirrors extractionPrompt).
@@ -66,7 +77,7 @@ type dedupLLMBackend struct{}
 // observation id (index+1) is returned for VerdictUpdate / VerdictDelete. The
 // deterministic hash floor remains the caller's fallback on error.
 func (b *dedupLLMBackend) Classify(ctx context.Context, newContent string, candidates []string) (memory.DedupDecision, error) {
-	fn := dedupLLMFuncFn
+	fn := getDedupLLMFunc()
 	if fn == nil {
 		return memory.DedupDecision{}, fmt.Errorf("no dedup LLM configured")
 	}
