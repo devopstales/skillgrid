@@ -16,7 +16,7 @@ import (
 func initGitRepo(t *testing.T, dir string) {
 	t.Helper()
 	remoteCmd(t, dir, "init", "--quiet")
-	remoteCmd(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "--allow-empty", "-m", "init")
+	remoteCmd(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "init")
 }
 
 // remoteCmd runs a git subcommand with explicit directory scoping.

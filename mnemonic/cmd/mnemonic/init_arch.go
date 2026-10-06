@@ -20,6 +20,9 @@ var architecturePath = func(dir string) string {
 	return filepath.Join(dir, architectureRel)
 }
 
+// archRepoRoot is overridable in tests to bypass the FindRepoRoot fallback.
+var archRepoRoot = setup.FindRepoRoot
+
 // archCfg is the subset of config facts the ARCHITECTURE.md renderer fills.
 // Everything is optional: an empty field renders as a <detect> placeholder so a
 // greenfield init still produces a complete, navigable scaffold.
@@ -56,7 +59,7 @@ func loadArchCfg(dir string) (archCfg, error) {
 func loadArchitectureTemplate(dir string) (template, path string, err error) {
 	for _, candidate := range []string{
 		architecturePath(dir),
-		filepath.Join(setup.FindRepoRoot(dir), architectureRel),
+		filepath.Join(archRepoRoot(dir), architectureRel),
 	} {
 		data, rerr := os.ReadFile(candidate)
 		if rerr != nil {

@@ -11,8 +11,8 @@ func TestCanonicalMCPConfigIncludesBacklog(t *testing.T) {
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
-	// skillgrid-cli/internal/mnemonic/setup → repo root
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", "..", ".."))
+	// mnemonic/internal/setup → repo root
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", ".."))
 	entries, err := LoadMCPConfig(repoRoot)
 	if err != nil {
 		t.Fatalf("LoadMCPConfig(%s): %v", repoRoot, err)

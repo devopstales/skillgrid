@@ -730,7 +730,7 @@ func TestOnboardingSkillHasNoSecondIngest(t *testing.T) {
 
 func onboardingSkillPath(t *testing.T) string {
 	t.Helper()
-	// repo root: this file is skillgrid-cli/cmd/skillgrid
+	// repo root: this file is mnemonic/cmd/mnemonic
 	p := filepath.Join("..", "..", "..", ".agents", "skills", "lifecycle", "onboarding", "SKILL.md")
 	if _, err := os.Stat(p); err != nil {
 		t.Fatal(err)

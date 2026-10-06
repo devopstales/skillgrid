@@ -87,24 +87,23 @@ func startMCP(t *testing.T, cwd string) *mcpHandle {
 
 func buildBinary(t *testing.T) (string, error) {
 	t.Helper()
-	// Walk up to the skillgrid-cli/ root, then build ./cmd/skillgrid from
-	// there.
+	// Walk up to the mnemonic/ module root, then build ./cmd/mnemonic.
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	for i := 0; i < 8 && !strings.HasSuffix(dir, "skillgrid-cli"); i++ {
+	for i := 0; i < 8 && !strings.HasSuffix(dir, "mnemonic"); i++ {
 		dir = filepath.Dir(dir)
 	}
-	if !strings.HasSuffix(dir, "skillgrid-cli") {
-		return "", fmt.Errorf("skillgrid-cli root not found from %s", os.Getenv("PWD"))
+	if !strings.HasSuffix(dir, "mnemonic") {
+		return "", fmt.Errorf("mnemonic root not found from %s", os.Getenv("PWD"))
 	}
-	bin := filepath.Join(t.TempDir(), "skillgrid-bin-"+t.Name())
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/skillgrid")
+	bin := filepath.Join(t.TempDir(), "mnemonic-bin-"+t.Name())
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/mnemonic")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("go build: %v\n%s", err, out)
+		return "", fmt.Errorf("go build: %v\n%s", out, err)
 	}
 	return bin, nil
 }

@@ -34,6 +34,7 @@ func evalGitFixture(t *testing.T) string {
 	gitRun(t, root, "init", "-q")
 	gitRun(t, root, "config", "user.email", "test@example.com")
 	gitRun(t, root, "config", "user.name", "test")
+	gitRun(t, root, "config", "core.hooksPath", "/dev/null")
 
 	// Commit 1 (genuine): a real code change.
 	if err := os.MkdirAll(filepath.Join(root, "internal", "http"), 0o755); err != nil {

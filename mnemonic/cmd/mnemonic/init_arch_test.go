@@ -34,9 +34,11 @@ func TestLoadArchitectureTemplateFromSkillTree(t *testing.T) {
 func TestLoadArchitectureTemplateNotFound(t *testing.T) {
 	dir := t.TempDir()
 	// No skill tree and no repo root with the template -> error, not a crash.
-	old := architecturePath
+	oldPath := architecturePath
 	architecturePath = func(d string) string { return filepath.Join(d, "no-such-dir/architecture.md") }
-	defer func() { architecturePath = old }()
+	oldRoot := archRepoRoot
+	archRepoRoot = func(string) string { return "" }
+	defer func() { architecturePath, archRepoRoot = oldPath, oldRoot }()
 
 	if _, _, err := loadArchitectureTemplate(dir); err == nil {
 		t.Fatal("expected an error when the template is missing")

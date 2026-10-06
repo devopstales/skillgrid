@@ -13,7 +13,7 @@ func TestWriteBootFileLinksSelectedTrackerConvention(t *testing.T) {
 
 	body := bootFileBody(t, dir)
 	// Line text comes from block.md's tracker table, not from the CLI.
-	const want = "Backlog.md — reference `.agents/skills/planning/ticketing/references/backlogmd.md` for conventions."
+	const want = "Backlog.md — reference `.agents/skills/_shared/rules/ticketing/` (backlogmd, github, gitlab, jira CLI + formatting standards) for ticketing conventions."
 	if !strings.Contains(body, want) {
 		t.Fatalf("boot file missing tracker convention pointer:\n%s", body)
 	}
@@ -32,17 +32,17 @@ func TestWriteBootFileTrackerLineFollowsConfig(t *testing.T) {
 		{
 			name: "github",
 			yaml: "ticketing:\n  enabled: true\n  type: gh\n",
-			want: "GitHub — reference `.agents/skills/planning/ticketing/references/github.md` for conventions.",
+			want: "GitHub — reference `.agents/skills/_shared/rules/ticketing/github.md` for conventions.",
 		},
 		{
 			name: "gitlab",
 			yaml: "ticketing:\n  enabled: true\n  type: glab\n",
-			want: "GitLab — reference `.agents/skills/planning/ticketing/references/gitlab.md` for conventions.",
+			want: "GitLab — reference `.agents/skills/_shared/rules/ticketing/gitlab.md` for conventions.",
 		},
 		{
 			name: "jira",
 			yaml: "ticketing:\n  enabled: true\n  type: jira\n",
-			want: "Jira — reference `.agents/skills/planning/ticketing/references/jira.md` for conventions.",
+			want: "Jira — reference `.agents/skills/_shared/rules/ticketing/jira.md` for conventions.",
 		},
 		{
 			name: "disabled keeps local-only line",

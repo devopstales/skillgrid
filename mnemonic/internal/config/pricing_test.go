@@ -9,7 +9,7 @@ import (
 )
 
 func TestPricingDefaultMatchesConfigD(t *testing.T) {
-	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "config.d", "pricing.yaml"))
+	shipped, err := os.ReadFile(filepath.Join("..", "..", "..", "skillgrid-cli", "config.d", "pricing.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}

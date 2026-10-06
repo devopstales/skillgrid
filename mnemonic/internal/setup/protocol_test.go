@@ -31,7 +31,7 @@ func TestCursorPluginLayout(t *testing.T) {
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", "..", ".."))
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", ".."))
 	required := []string{
 		".cursor-plugin/plugin.json",
 		".cursor-plugin/marketplace.json",
@@ -122,8 +122,8 @@ func TestCursorPluginLayout(t *testing.T) {
 	if !ok {
 		t.Fatal("mcp.json missing mcpServers.mnemonic")
 	}
-	if mnemonic.Command != "skillgrid" {
-		t.Errorf("mnemonic command = %q, want skillgrid", mnemonic.Command)
+	if mnemonic.Command != "mnemonic" {
+		t.Errorf("mnemonic command = %q, want mnemonic", mnemonic.Command)
 	}
 	if len(mnemonic.Args) != 1 || mnemonic.Args[0] != "mcp" {
 		t.Errorf("mnemonic args = %v, want [mcp]", mnemonic.Args)
