@@ -4,8 +4,9 @@ title: '[DOCS] T07 openapi + docs + MCP round-trip guard (docs+api)'
 status: needs-triage
 assignee: []
 created_date: '2026-09-19 14:52'
-updated_date: '2026-09-19 14:52'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-5
 dependencies:
   - TASK-012
 references:

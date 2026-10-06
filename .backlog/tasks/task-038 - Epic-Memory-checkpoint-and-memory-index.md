@@ -4,8 +4,9 @@ title: 'Epic: Memory checkpoint and memory index'
 status: done
 assignee: []
 created_date: '2026-10-02 14:46'
-updated_date: '2026-10-02 16:04'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-3
 dependencies: []
 references:
   - .skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/briefing.md

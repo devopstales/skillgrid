@@ -4,8 +4,9 @@ title: 'TICKET-07: Delete relay, hub HTTP, envelope field, bash snapshot/restore
 status: done
 assignee: []
 created_date: '2026-09-21 15:11'
-updated_date: '2026-09-22 07:56'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-0
 dependencies:
   - TASK-019.07
   - TASK-019.06

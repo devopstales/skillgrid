@@ -4,8 +4,10 @@ title: 'Epic: Mnemonic Web UI rewrite from prototype 001'
 status: needs-triage
 assignee: []
 created_date: '2026-10-02 13:11'
+updated_date: '2026-10-06 08:35'
 labels:
   - webui-rewrite
+milestone: m-2
 dependencies: []
 references:
   - .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/briefing.md

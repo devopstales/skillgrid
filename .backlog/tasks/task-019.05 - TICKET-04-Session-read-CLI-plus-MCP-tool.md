@@ -4,8 +4,9 @@ title: 'TICKET-04: Session read CLI plus MCP tool'
 status: done
 assignee: []
 created_date: '2026-09-21 15:11'
-updated_date: '2026-09-21 16:02'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-0
 dependencies:
   - TASK-019.01
 references:

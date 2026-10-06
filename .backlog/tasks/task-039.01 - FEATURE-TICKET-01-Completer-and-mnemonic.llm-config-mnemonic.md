@@ -4,7 +4,9 @@ title: '[FEATURE] TICKET-01 Completer and mnemonic.llm config (mnemonic)'
 status: in-progress
 assignee: []
 created_date: '2026-10-03 09:36'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-4
 dependencies: []
 references:
   - .skillgrid/specs/2026-10-02-mnemonic-llm-provider/blueprint.md

@@ -4,7 +4,9 @@ title: '[FEATURE] TICKET-04 Close task-029 (mnemonic)'
 status: ready-for-agent
 assignee: []
 created_date: '2026-10-03 09:39'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-4
 dependencies:
   - TASK-039.02
   - TASK-039.03

@@ -1,13 +1,13 @@
 ---
 id: TASK-030.04
 title: 'TICKET-02: Owner-scoped blend and mem_search signals'
-type: feature
 status: needs-triage
 assignee: []
 created_date: '2026-10-02 08:59'
-updated_date: '2026-10-03 07:39'
+updated_date: '2026-10-06 08:35'
 labels:
   - mnemonic-memory-improvements
+milestone: m-1
 dependencies:
   - TASK-030.01
 references:
@@ -15,6 +15,7 @@ references:
   - .skillgrid/specs/2026-09-24-mnemonic-memory-improvements/tasks.md
 parent_task_id: TASK-030
 priority: high
+type: feature
 ---
 
 ## Description

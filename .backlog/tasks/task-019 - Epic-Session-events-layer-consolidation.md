@@ -4,8 +4,9 @@ title: 'Epic: Session events layer consolidation'
 status: done
 assignee: []
 created_date: '2026-09-21 15:09'
-updated_date: '2026-09-21 15:17'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-0
 dependencies: []
 references:
   - .skillgrid/specs/2026-09-21-session-events-layer/briefing.md

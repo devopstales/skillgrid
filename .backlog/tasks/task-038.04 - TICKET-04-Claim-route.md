@@ -4,8 +4,9 @@ title: 'TICKET-04: Claim route'
 status: done
 assignee: []
 created_date: '2026-10-02 14:47'
-updated_date: '2026-10-02 15:44'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-3
 dependencies:
   - TASK-038.01
   - TASK-038.02

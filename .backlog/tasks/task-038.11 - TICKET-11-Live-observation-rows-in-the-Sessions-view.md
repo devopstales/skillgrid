@@ -4,8 +4,9 @@ title: 'TICKET-11: Live observation rows in the Sessions view'
 status: done
 assignee: []
 created_date: '2026-10-02 14:47'
-updated_date: '2026-10-02 16:04'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-3
 dependencies:
   - TASK-038.10
 references:

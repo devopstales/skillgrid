@@ -4,7 +4,9 @@ title: '[FEATURE] TICKET-03 Natural install provider setup (mnemonic)'
 status: ready-for-agent
 assignee: []
 created_date: '2026-10-03 09:39'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-4
 dependencies:
   - TASK-039.01
 references:

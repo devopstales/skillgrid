@@ -4,7 +4,9 @@ title: 'TICKET-07: Private spans never stored'
 status: needs-triage
 assignee: []
 created_date: '2026-10-02 14:47'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-3
 dependencies: []
 references:
   - .skillgrid/specs/2026-10-02-mnemonic-memory-checkpoint/briefing.md

@@ -6,13 +6,14 @@ title: >-
 status: done
 assignee: []
 created_date: '2026-10-02 13:13'
-updated_date: '2026-10-02 13:33'
+updated_date: '2026-10-06 08:35'
 labels:
   - >-
     webui-rewrite --priority high --type feature -p TASK-031 --ref
     .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/tasks.md --ref
     .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/acceptance.feature
     --plain
+milestone: m-2
 dependencies:
   - TASK-032
 ---

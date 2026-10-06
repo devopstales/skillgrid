@@ -4,7 +4,9 @@ title: '[FEATURE] Epic: Visual Companion (Mnemonic Decision Bridge) (mnemonic)'
 status: needs-triage
 assignee: []
 created_date: '2026-09-19 14:48'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-5
 dependencies: []
 references:
   - .skillgrid/specs/2026-09-19-embed-visual-companion/tasks.md

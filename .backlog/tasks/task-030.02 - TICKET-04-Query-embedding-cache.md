@@ -1,19 +1,20 @@
 ---
 id: TASK-030.02
 title: 'TICKET-04: Query embedding cache'
-type: feature
 status: needs-triage
 assignee: []
 created_date: '2026-10-02 08:59'
-updated_date: '2026-10-03 07:39'
+updated_date: '2026-10-06 08:35'
 labels:
   - mnemonic-memory-improvements
+milestone: m-1
 dependencies: []
 references:
   - .skillgrid/specs/2026-09-24-mnemonic-memory-improvements/blueprint.md
   - .skillgrid/specs/2026-09-24-mnemonic-memory-improvements/tasks.md
 parent_task_id: TASK-030
 priority: medium
+type: feature
 ---
 
 ## Description

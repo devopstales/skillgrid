@@ -4,8 +4,9 @@ title: 'TICKET-03: Pure checkpoint package decide digest prompt'
 status: done
 assignee: []
 created_date: '2026-10-02 14:46'
-updated_date: '2026-10-02 15:37'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-3
 dependencies:
   - TASK-038.01
 references:

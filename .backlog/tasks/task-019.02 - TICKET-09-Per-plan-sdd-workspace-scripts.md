@@ -4,8 +4,9 @@ title: 'TICKET-09: Per-plan sdd workspace scripts'
 status: done
 assignee: []
 created_date: '2026-09-21 15:10'
-updated_date: '2026-09-21 15:27'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-0
 dependencies: []
 references:
   - .skillgrid/specs/2026-09-21-session-events-layer/briefing.md

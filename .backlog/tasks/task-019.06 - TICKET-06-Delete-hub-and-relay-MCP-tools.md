@@ -4,8 +4,9 @@ title: 'TICKET-06: Delete hub and relay MCP tools'
 status: done
 assignee: []
 created_date: '2026-09-21 15:11'
-updated_date: '2026-09-21 17:18'
+updated_date: '2026-10-06 08:35'
 labels: []
+milestone: m-0
 dependencies:
   - TASK-019.05
 references:
