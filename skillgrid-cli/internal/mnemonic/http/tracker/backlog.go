@@ -35,6 +35,10 @@ func (a *backlogAdapter) dir() string {
 	return ".backlog/tasks"
 }
 
+func (a *backlogAdapter) milestonesDir() string {
+	return filepath.Join(filepath.Dir(a.dir()), "milestones")
+}
+
 // backlogStatuses is the canonical Backlog.md status vocabulary (the statuses
 // the dashboard offers for drag-drop and the `task edit` write path). This is
 // the Backlog.md status set, not a guess — it matches the frontmatter `status`
@@ -270,6 +274,45 @@ func (a *backlogAdapter) SetStatus(ctx context.Context, id, status string) (Unif
 		return UnifiedTask{}, err
 	}
 	return a.Get(ctx, id)
+}
+
+// Milestones reads .backlog/milestones/*.md frontmatter and returns the
+// milestone list sorted by id. Returns an empty slice when the directory
+// does not exist.
+func (a *backlogAdapter) Milestones(ctx context.Context) ([]Milestone, error) {
+	dir := a.milestonesDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []Milestone{}, nil
+		}
+		return nil, &errBadOutput{CLI: "", Provider: ProviderBacklogMD, Reason: fmt.Sprintf("read %s: %v", dir, err)}
+	}
+	var ms []Milestone
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		fm, _, _, ok := parseFrontmatter(string(raw))
+		if !ok {
+			continue
+		}
+		id := strings.TrimSpace(fm["id"])
+		if id == "" {
+			continue
+		}
+		ms = append(ms, Milestone{
+			ID:          id,
+			Title:       strings.TrimSpace(fm["title"]),
+			Description: strings.TrimSpace(fm["description"]),
+		})
+	}
+	sort.Slice(ms, func(i, j int) bool { return ms[i].ID < ms[j].ID })
+	return ms, nil
 }
 
 // Dependencies: for Backlog.md, compute edges from the frontmatter `dependencies`

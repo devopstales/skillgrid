@@ -103,3 +103,7 @@ func (a *gitlabAdapter) Dependencies(ctx context.Context, id string) (UnifiedTas
 	}
 	return UnifiedTaskDeps{TaskID: id, DepsIn: []string{}, DepsOut: []string{}}, nil
 }
+
+func (a *gitlabAdapter) Milestones(ctx context.Context) ([]Milestone, error) {
+	return []Milestone{}, nil
+}

@@ -111,6 +111,10 @@ func (a *githubAdapter) Dependencies(ctx context.Context, id string) (UnifiedTas
 	return UnifiedTaskDeps{TaskID: id, DepsIn: []string{}, DepsOut: []string{}}, nil
 }
 
+func (a *githubAdapter) Milestones(ctx context.Context) ([]Milestone, error) {
+	return []Milestone{}, nil
+}
+
 func isNotFoundText(s string) bool {
 	l := strings.ToLower(s)
 	return strings.Contains(l, "not found") || strings.Contains(l, "could not resolve") ||

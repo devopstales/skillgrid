@@ -19,9 +19,11 @@ const COLUMNS: { key: SortKey; label: string }[] = [
 export function ListView({
   tasks,
   onOpenTask,
+  milestoneTitles,
 }: {
   tasks: UnifiedTask[]
   onOpenTask: (id: string) => void
+  milestoneTitles?: Record<string, string>
 }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>(null)
 
@@ -86,7 +88,9 @@ export function ListView({
               <td className="px-3 py-2 text-ink-4">
                 {t.assignees?.length ? t.assignees.join(', ') : '—'}
               </td>
-              <td className="px-3 py-2 text-ink-4">{t.milestone ?? '—'}</td>
+              <td className="px-3 py-2 text-ink-4">
+                {t.milestone ? (milestoneTitles?.[t.milestone] || t.milestone) : '—'}
+              </td>
             </tr>
           ))}
           {sorted.length === 0 && (

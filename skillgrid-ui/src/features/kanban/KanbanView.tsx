@@ -41,7 +41,7 @@ export function KanbanView() {
   const [provider, setProvider] = useState<ProviderName>(
     PROVIDERS.includes(initialProvider) ? initialProvider : 'backlogmd',
   )
-  const { state, live, reload } = useTrackerBoard(provider)
+  const { state, milestones, live, reload } = useTrackerBoard(provider)
   const { selected, open, close } = useTaskDrawer()
   const [view, setView] = useState<'board' | 'list'>('board')
   const [filters, setFilters] = useState(EMPTY_FILTERS)
@@ -52,6 +52,12 @@ export function KanbanView() {
     [state],
   )
   const visible = useMemo(() => applyFilters(tasks, filters), [tasks, filters])
+
+  const milestoneTitles = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const ms of milestones) m[ms.id] = ms.title
+    return m
+  }, [milestones])
 
   function switchProvider(p: ProviderName) {
     setProvider(p)
@@ -182,13 +188,19 @@ export function KanbanView() {
               onOpenTask={open}
               onMove={onMove}
               disabled={boardDisabled}
+              milestoneTitles={milestoneTitles}
             />
           ) : (
-            <ListView tasks={visible} onOpenTask={open} />
+            <ListView tasks={visible} onOpenTask={open} milestoneTitles={milestoneTitles} />
           ))}
       </div>
 
-      <TaskDetail task={selected} provider={provider} onClose={close} />
+      <TaskDetail
+        task={selected}
+        provider={provider}
+        onClose={close}
+        milestoneTitles={milestoneTitles}
+      />
     </div>
   )
 }

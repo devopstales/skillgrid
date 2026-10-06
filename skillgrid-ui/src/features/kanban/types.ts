@@ -72,6 +72,17 @@ export interface TaskListResponse {
   provider: string
 }
 
+export interface Milestone {
+  id: string
+  title: string
+  description?: string
+}
+
+export interface MilestoneListResponse {
+  milestones: Milestone[]
+  provider: string
+}
+
 // A provider's board load state.
 export type LoadState =
   | { status: 'loading' }

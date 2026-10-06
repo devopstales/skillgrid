@@ -193,3 +193,7 @@ func (a *jiraAdapter) Dependencies(ctx context.Context, id string) (UnifiedTaskD
 	}
 	return UnifiedTaskDeps{TaskID: id, DepsIn: []string{}, DepsOut: []string{}}, nil
 }
+
+func (a *jiraAdapter) Milestones(ctx context.Context) ([]Milestone, error) {
+	return []Milestone{}, nil
+}

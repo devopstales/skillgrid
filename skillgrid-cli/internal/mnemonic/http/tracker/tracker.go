@@ -227,6 +227,9 @@ type TicketProvider interface {
 	// Dependencies returns the in/out dependency edges for one task
 	// (edges into the task + edges out of it).
 	Dependencies(ctx context.Context, id string) (deps UnifiedTaskDeps, err error)
+	// Milestones returns the provider's milestone list (empty for providers
+	// without milestone support).
+	Milestones(ctx context.Context) ([]Milestone, error)
 }
 
 // UnifiedTaskDeps is the dependency edges for one task: DepsIn are tasks that
@@ -235,6 +238,13 @@ type UnifiedTaskDeps struct {
 	TaskID  string   `json:"task_id"`
 	DepsIn  []string `json:"deps_in"`  // tasks that depend on this one
 	DepsOut []string `json:"deps_out"` // tasks this one depends on
+}
+
+// Milestone is a tracker milestone (id + human-readable title).
+type Milestone struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
 }
 
 // Provider is the legacy interface name retained as an alias so pre-Phase-2

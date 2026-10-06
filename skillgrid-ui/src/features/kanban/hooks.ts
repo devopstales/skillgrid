@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchProviders, fetchTasks, TrackerError } from './api'
-import type { LoadState, ProviderName } from './types'
+import { fetchMilestones, fetchProviders, fetchTasks, TrackerError } from './api'
+import type { Milestone, LoadState, ProviderName } from './types'
 
 // useTrackerBoard loads the board for one provider and keeps it live via the
 // /tracker/stream SSE endpoint. A file change on disk (Backlog.md) triggers a
 // re-fetch, so the board updates without a manual reload.
 export function useTrackerBoard(provider: ProviderName) {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
+  const [milestones, setMilestones] = useState<Milestone[]>([])
   const [live, setLive] = useState(false)
   const reqRef = useRef(0)
 
@@ -24,9 +25,13 @@ export function useTrackerBoard(provider: ProviderName) {
         })
         return
       }
-      const list = await fetchTasks(provider)
+      const [list, ms] = await Promise.all([
+        fetchTasks(provider),
+        fetchMilestones(provider),
+      ])
       if (req !== reqRef.current) return
       setState({ status: 'ready', tasks: list.tasks, provider: list.provider })
+      setMilestones(ms)
     } catch (err) {
       if (req !== reqRef.current) return
       if (err instanceof TrackerError && (err.status === 501 || err.status === 503)) {
@@ -77,7 +82,7 @@ export function useTrackerBoard(provider: ProviderName) {
     }
   }, [load])
 
-  return { state, live, reload: load }
+  return { state, milestones, live, reload: load }
 }
 
 // useTaskDrawer holds the selected task id (deep-linked via ?task=).

@@ -43,3 +43,53 @@ describe('BoardView epic tree', () => {
     expect(screen.getByText(/epic-a.*1 child/i)).toBeTruthy()
   })
 })
+
+describe('BoardView milestone rows', () => {
+  it('shows milestone title from titleMap instead of raw ID', () => {
+    const tasks = [
+      task({ id: 't1', title: 'Task One', milestone: 'm-1', board: 'todo' }),
+      task({ id: 't2', title: 'Task Two', milestone: 'm-1', board: 'done' }),
+    ]
+    render(
+      <BoardView
+        tasks={tasks}
+        onOpenTask={vi.fn()}
+        onMove={vi.fn()}
+        disabled={false}
+        milestoneTitles={{ 'm-1': 'mnemonic-memory-improvements' }}
+      />,
+    )
+    // The milestone row + card badge both show the human-readable title
+    expect(screen.getAllByText('mnemonic-memory-improvements').length).toBeGreaterThanOrEqual(1)
+    // The raw ID is not shown as the group label
+    expect(screen.queryByText(/^m-1$/)).toBeNull()
+  })
+
+  it('falls back to raw ID when no title matches', () => {
+    const tasks = [task({ id: 't1', title: 'Task One', milestone: 'unknown-ms' })]
+    render(<BoardView tasks={tasks} onOpenTask={vi.fn()} onMove={vi.fn()} disabled={false} milestoneTitles={{}} />)
+    // Row label + card badge both show the raw ID
+    expect(screen.getAllByText('unknown-ms').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows Unassigned for tasks without a milestone', () => {
+    const tasks = [task({ id: 't1', title: 'No Milestone' })]
+    render(<BoardView tasks={tasks} onOpenTask={vi.fn()} onMove={vi.fn()} disabled={false} />)
+    expect(screen.getByText('Unassigned')).toBeTruthy()
+  })
+
+  it('shows milestone title in task card badge', () => {
+    const tasks = [task({ id: 't1', title: 'Task One', milestone: 'm-1' })]
+    render(
+      <BoardView
+        tasks={tasks}
+        onOpenTask={vi.fn()}
+        onMove={vi.fn()}
+        disabled={false}
+        milestoneTitles={{ 'm-1': 'memory-improvements' }}
+      />,
+    )
+    // The card badge shows the title (row label + badge)
+    expect(screen.getAllByText('memory-improvements').length).toBeGreaterThanOrEqual(1)
+  })
+})

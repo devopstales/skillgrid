@@ -10,10 +10,12 @@ export function TaskCard({
   task,
   onClick,
   dragging,
+  milestoneTitles,
 }: {
   task: UnifiedTask
   onClick: () => void
   dragging?: boolean
+  milestoneTitles?: Record<string, string>
 }) {
   return (
     <button
@@ -47,7 +49,7 @@ export function TaskCard({
         )}
         {task.milestone && (
           <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">
-            {task.milestone}
+            {milestoneTitles?.[task.milestone] || task.milestone}
           </span>
         )}
         {task.labels?.slice(0, 3).map((l) => (

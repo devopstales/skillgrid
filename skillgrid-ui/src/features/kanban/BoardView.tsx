@@ -25,10 +25,12 @@ function SortableCard({
   task,
   onClick,
   disabled,
+  milestoneTitles,
 }: {
   task: UnifiedTask
   onClick: () => void
   disabled: boolean
+  milestoneTitles?: Record<string, string>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: task.id, disabled })
@@ -43,7 +45,7 @@ function SortableCard({
       {...(disabled ? {} : attributes)}
       {...(disabled ? {} : listeners)}
     >
-      <TaskCard task={task} onClick={onClick} dragging={isDragging} />
+      <TaskCard task={task} onClick={onClick} dragging={isDragging} milestoneTitles={milestoneTitles} />
     </div>
   )
 }
@@ -53,11 +55,13 @@ export function BoardView({
   onOpenTask,
   onMove,
   disabled,
+  milestoneTitles,
 }: {
   tasks: UnifiedTask[]
   onOpenTask: (id: string) => void
   onMove: (id: string, to: BoardColumn) => void
   disabled: boolean
+  milestoneTitles?: Record<string, string>
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -74,13 +78,13 @@ export function BoardView({
   }
   for (const t of tasks) byColumn[t.board]?.push(t)
 
-  const milestoneGroups = groupTasksByMilestone(tasks)
+  const milestoneGroups = groupTasksByMilestone(tasks, milestoneTitles)
 
-  function toggle(name: string) {
+  function toggle(id: string) {
     setCollapsed((prev) => {
       const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
@@ -107,6 +111,7 @@ export function BoardView({
             task={group.parent}
             onClick={() => onOpenTask(group.parent.id)}
             disabled={disabled}
+            milestoneTitles={milestoneTitles}
           />
           <div className="ml-3 flex flex-col gap-2 border-l border-edge/70 pl-2">
             <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-6">
@@ -119,6 +124,7 @@ export function BoardView({
                 task={c}
                 onClick={() => onOpenTask(c.id)}
                 disabled={disabled}
+                milestoneTitles={milestoneTitles}
               />
             ))}
           </div>
@@ -129,6 +135,7 @@ export function BoardView({
           task={group.task}
           onClick={() => onOpenTask(group.task.id)}
           disabled={disabled}
+          milestoneTitles={milestoneTitles}
         />
       ),
     )
@@ -161,18 +168,18 @@ export function BoardView({
 
         {/* Milestone rows */}
         {milestoneGroups.map((group) => {
-          const isCollapsed = collapsed.has(group.name)
+          const isCollapsed = collapsed.has(group.id)
           const total = group.tasks.length
           const done = group.tasks.filter((t) => t.board === 'done').length
           const pct = total > 0 ? Math.round((done / total) * 100) : 0
           return (
             <div
-              key={group.name || '__none'}
+              key={group.id || '__none'}
               className="overflow-hidden rounded-md border border-edge bg-card"
             >
               <button
                 type="button"
-                onClick={() => toggle(group.name)}
+                onClick={() => toggle(group.id)}
                 className="flex w-full items-center gap-2 px-3 py-2.5 transition-colors hover:bg-edge/10"
               >
                 <svg
@@ -187,9 +194,9 @@ export function BoardView({
                   <path d="M9 18l6-6-6-6" />
                 </svg>
                 <span
-                  className={`truncate font-mono text-[12px] font-semibold uppercase tracking-[0.08em] ${group.name ? 'text-accent' : 'text-ink-5'}`}
+                  className={`truncate font-mono text-[12px] font-semibold uppercase tracking-[0.08em] ${group.id ? 'text-accent' : 'text-ink-5'}`}
                 >
-                  {group.name || 'Unassigned'}
+                  {group.title || 'Unassigned'}
                 </span>
                 <div className="ml-auto flex shrink-0 items-center gap-2">
                   <div className="h-1 w-20 overflow-hidden rounded-full bg-edge/50">

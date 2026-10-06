@@ -57,6 +57,7 @@ func (s *Server) registerTrackerRoutes() {
 	s.mux.HandleFunc("PATCH /tracker/tasks/{id}", s.requireWriteAuth(s.handleTrackerPatch))
 	s.mux.HandleFunc("POST /tracker/tasks/{id}/status", s.requireWriteAuth(s.handleTrackerSetStatus))
 	s.mux.HandleFunc("GET /tracker/tasks/{id}/deps", s.handleTrackerDeps)
+	s.mux.HandleFunc("GET /tracker/milestones", s.handleTrackerMilestones)
 	s.mux.HandleFunc("GET /tracker/stream", s.handleTrackerStream)
 	s.mux.HandleFunc("GET /backlog/config", s.handleBacklogAlias)
 	s.mux.HandleFunc("GET /backlog/tasks", s.handleBacklogAlias)
@@ -203,6 +204,22 @@ func (s *Server) handleTrackerDeps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, deps)
+}
+
+func (s *Server) handleTrackerMilestones(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.activeTracker(w, r)
+	if !ok {
+		return
+	}
+	ms, err := p.Milestones(r.Context())
+	if err != nil {
+		writeJSON(w, tracker.StatusForHTTP(err), map[string]any{"error": err.Error(), "provider": p.Name()})
+		return
+	}
+	if ms == nil {
+		ms = []tracker.Milestone{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"milestones": ms, "provider": p.Name()})
 }
 
 // handleBacklogAlias serves /backlog/* identically when the tracker is

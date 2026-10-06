@@ -10,10 +10,12 @@ export function TaskDetail({
   task,
   provider,
   onClose,
+  milestoneTitles,
 }: {
   task: string | null
   provider?: string
   onClose: () => void
+  milestoneTitles?: Record<string, string>
 }) {
   const [full, setFull] = useState<UnifiedTask | null>(null)
   const [deps, setDeps] = useState<TrackerDeps | null>(null)
@@ -83,7 +85,10 @@ export function TaskDetail({
                 <Meta label="Type" value={t.type} />
                 <Meta label="Priority" value={t.priority} />
                 <Meta label="Assignee" value={t.assignees?.join(', ')} />
-                <Meta label="Milestone" value={t.milestone} />
+                <Meta
+                  label="Milestone"
+                  value={t.milestone ? milestoneTitles?.[t.milestone] || t.milestone : undefined}
+                />
                 <Meta label="Parent" value={t.parent} />
                 <Meta label="Due date" value={t.due_date} />
                 <Meta label="Provider" value={t.provider} />

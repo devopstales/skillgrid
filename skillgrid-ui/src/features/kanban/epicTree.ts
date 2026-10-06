@@ -10,14 +10,20 @@ export interface FlatGroup {
 export type ColumnGroup = EpicGroup | FlatGroup
 
 export interface MilestoneGroup {
-  name: string
+  id: string
+  title: string
   tasks: UnifiedTask[]
 }
 
 // Group all tasks by milestone across columns. Tasks without a milestone are
-// grouped under the empty-string key, which renders as "Unassigned". Groups are
-// sorted alphabetically; the unassigned group sorts last.
-export function groupTasksByMilestone(tasks: UnifiedTask[]): MilestoneGroup[] {
+// grouped under the empty-string key, which renders as "Unassigned". The
+// titleMap resolves milestone IDs to human-readable titles; IDs without a
+// matching title fall back to the raw ID. Groups are sorted alphabetically;
+// the unassigned group sorts last.
+export function groupTasksByMilestone(
+  tasks: UnifiedTask[],
+  titleMap: Record<string, string> = {},
+): MilestoneGroup[] {
   const map = new Map<string, UnifiedTask[]>()
   for (const t of tasks) {
     const key = t.milestone ?? ''
@@ -26,13 +32,14 @@ export function groupTasksByMilestone(tasks: UnifiedTask[]): MilestoneGroup[] {
     map.set(key, arr)
   }
   const groups: MilestoneGroup[] = []
-  for (const [name, list] of map) {
-    groups.push({ name, tasks: list })
+  for (const [id, list] of map) {
+    const title = id ? (titleMap[id] || id) : ''
+    groups.push({ id, title, tasks: list })
   }
   groups.sort((a, b) => {
-    if (!a.name) return 1
-    if (!b.name) return -1
-    return a.name.localeCompare(b.name)
+    if (!a.id) return 1
+    if (!b.id) return -1
+    return a.title.localeCompare(b.title)
   })
   return groups
 }

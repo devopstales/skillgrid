@@ -1,4 +1,6 @@
 import type {
+  Milestone,
+  MilestoneListResponse,
   ProvidersInfo,
   TaskListResponse,
   TrackerDeps,
@@ -79,6 +81,13 @@ export function fetchDeps(
   return fetch(`/tracker/tasks/${encodeURIComponent(id)}/deps${qs}`).then((r) =>
     parse<TrackerDeps>(r),
   )
+}
+
+export function fetchMilestones(provider?: string): Promise<Milestone[]> {
+  const qs = provider ? `?provider=${encodeURIComponent(provider)}` : ''
+  return fetch(`/tracker/milestones${qs}`).then((r) =>
+    parse<MilestoneListResponse>(r),
+  ).then((r) => r.milestones)
 }
 
 export function updateTaskStatus(
