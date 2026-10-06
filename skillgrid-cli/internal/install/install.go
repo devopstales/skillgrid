@@ -122,6 +122,11 @@ func Run(c *Config) error {
 		}
 	}
 
+	info("building Go binaries (skillgrid, mnemonic)")
+	if err := buildBinaries(c); err != nil {
+		Out("  warning: go build:", err)
+	}
+
 	// Provider setup (ADR-0023, TICKET-03): a normal install step, not an
 	// opt-in bolt-on — indexing already needs an embedder host. Non-fatal: a
 	// failure warns with a manual hint and the install continues.
@@ -470,6 +475,75 @@ func installSecurityTools(c *Config) error {
 		}
 	}
 	return nil
+}
+
+// buildBinaries compiles the skillgrid and mnemonic binaries from the synced
+// repo and installs them into ~/.local/bin/. Non-fatal: a build failure warns
+// and the install continues (the user can build manually).
+func buildBinaries(c *Config) error {
+	binDir := filepath.Join(c.HomeDir, ".local", "bin")
+	ldflags := fmt.Sprintf("-s -w -X main.version=%s", c.Version)
+
+	builds := []struct {
+		pkg  string
+		name string
+		tags string
+	}{
+		{filepath.Join(c.RepoDir, "skillgrid-cli"), "skillgrid", ""},
+		{filepath.Join(c.RepoDir, "mnemonic"), "mnemonic", "ui"},
+	}
+
+	for _, b := range builds {
+		srcDir := b.pkg
+		relPkg := "./cmd/" + b.name
+		if b.name == "skillgrid" {
+			relPkg = "./cmd/skillgrid"
+		}
+		outPath := filepath.Join(binDir, b.name)
+
+		args := []string{"build"}
+		if b.tags != "" {
+			args = append(args, "-tags", b.tags)
+		}
+		args = append(args, "-ldflags", ldflags, "-o", outPath, relPkg)
+
+		if c.DryRun {
+			Out(append(append([]any{"      [dry-run] go"}, toAny(args)...), "in", srcDir)...)
+			continue
+		}
+
+		if _, err := exec.LookPath("go"); err != nil {
+			Out("      warn go not on PATH — skipping build of", b.name)
+			continue
+		}
+
+		Out(append(append([]any{"      go build"}, toAny(args)...), "in", srcDir)...)
+		if err := runInDir(c, srcDir, "go", args...); err != nil {
+			return fmt.Errorf("go build %s: %w", b.name, err)
+		}
+		if err := os.Chmod(outPath, 0o755); err != nil {
+			return fmt.Errorf("chmod %s: %w", outPath, err)
+		}
+	}
+	return nil
+}
+
+func runInDir(c *Config, dir string, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	var buf strings.Builder
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	if buf.Len() > 0 {
+		out := strings.TrimSpace(buf.String())
+		if err != nil {
+			Out("      " + out)
+		} else if c.Verbose {
+			Out("      " + out)
+		}
+	}
+	return err
 }
 
 func copyAgents(c *Config) error {
