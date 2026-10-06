@@ -41,15 +41,15 @@ The system SHALL pull a six-model local Ollama catalog (live chat, system-one, e
 # G1: happy path catalog pull list
 #   CHECK: go test ./skillgrid-cli/internal/install -count=1 -run TestCatalogPullList
 #   EXPECT: PASS TestCatalogPullList
-#   EVIDENCE: pending
+#   EVIDENCE: PASS (ok internal/install) — six catalog tags pulled, glm:vision-tools absent
 # G2: happy path version floor gates heavy models
 #   CHECK: go test ./skillgrid-cli/internal/install -count=1 -run TestFloorGatesHeavyModels
 #   EXPECT: PASS TestFloorGatesHeavyModels
-#   EVIDENCE: pending
+#   EVIDENCE: PASS (ok internal/install) — below floor, tev1:0.8b + clef-flash skipped with version warning, install succeeds
 # G3: happy path version at or above floor pulls all
 #   CHECK: go test ./skillgrid-cli/internal/install -count=1 -run TestAtFloorPullsAll
 #   EXPECT: PASS TestAtFloorPullsAll
-#   EVIDENCE: pending
+#   EVIDENCE: PASS (ok internal/install) — at/above floor, all six catalog tags pulled
 
 ### Requirement: Config wiring
 
@@ -70,7 +70,7 @@ The system SHALL merge the home config so the live-chat LLM model and the Ollama
 # G4: happy path config merge writes new live-chat + embed models
 #   CHECK: go test ./skillgrid-cli/internal/install -count=1 -run TestConfigMergeWritesNewModels
 #   EXPECT: PASS TestConfigMergeWritesNewModels
-#   EVIDENCE: pending
+#   EVIDENCE: PASS (ok internal/install) — llm.model=llama3.2:1b, embedder.provider=ollama, embedder.model=embeddinggemma:300m, base_url=/v1, profile+dimension preserved
 
 ### Requirement: Runtime default
 
@@ -88,7 +88,7 @@ The system SHALL default the Ollama embedder runtime model to the catalog embed 
 # G5: happy path ollama default model
 #   CHECK: go test ./skillgrid-cli/internal/mnemonic/embedder -count=1 -run TestDefaultOllamaModelIsEmbeddinggemma
 #   EXPECT: PASS TestDefaultOllamaModelIsEmbeddinggemma
-#   EVIDENCE: pending
+#   EVIDENCE: PASS (ok internal/mnemonic/embedder) — DefaultOllamaModel == embeddinggemma:300m
 
 ### Requirement: Typo exclusion
 
@@ -106,4 +106,4 @@ The system SHALL exclude the typo tag `glm:vision-tools` from the catalog entire
 # G6: happy path glm vision tools excluded
 #   CHECK: go test ./skillgrid-cli/internal/install -count=1 -run TestCatalogPullList
 #   EXPECT: PASS TestCatalogPullList (asserts no glm:vision-tools in pull invocations)
-#   EVIDENCE: pending
+#   EVIDENCE: PASS (ok internal/install) — glm:vision-tools absent from pull invocations and catalog
