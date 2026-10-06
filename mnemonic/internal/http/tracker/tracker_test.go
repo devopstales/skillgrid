@@ -505,3 +505,26 @@ func TestPhase2_BoardMapping(t *testing.T) {
 		}
 	}
 }
+
+// 2.6 [RED] Milestones: providers without milestone support return an empty
+// (non-nil) slice and no error. A regression to nil or an error would surface
+// here.
+func TestPhase2_MilestonesEmptyForRemoteProviders(t *testing.T) {
+	ctx := context.Background()
+	for name, p := range map[string]TicketProvider{
+		"github": &githubAdapter{},
+		"gitlab": &gitlabAdapter{},
+		"jira":   &jiraAdapter{},
+	} {
+		ms, err := p.Milestones(ctx)
+		if err != nil {
+			t.Errorf("%s Milestones: unexpected error %v", name, err)
+		}
+		if ms == nil {
+			t.Errorf("%s Milestones: must return non-nil empty slice, got nil", name)
+		}
+		if len(ms) != 0 {
+			t.Errorf("%s Milestones: want 0 milestones, got %d", name, len(ms))
+		}
+	}
+}
