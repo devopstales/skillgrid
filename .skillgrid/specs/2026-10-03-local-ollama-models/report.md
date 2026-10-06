@@ -5,8 +5,8 @@
 **Change:** 2026-10-03-local-ollama-models
 **Tier:** T2 (Beta) — from `blueprint.md` header `Tier: T2`; matches `rules.tiers.default: T2`. Applied floor = L2+L3 (T2).
 **Effective floor (change-classification):** Standard change, multi-file behavior (catalog, floor gate, config merge, runtime default). Classification floor is met and exceeded (L2 tests + L3 named-test verification). Tier did not lower the floor.
-**Verdict:** CONCERNS
-**Finding counts:** 1 WARNING · 1 SUGGESTION · 0 CRITICAL
+**Verdict:** PASS _(re-run 2026-10-06; first-pass was CONCERNS — see Re-run section)_
+**Finding counts:** 0 CRITICAL · 0 WARNING (W1 closed) · 1 SUGGESTION (S1, pre-existing, open)
 
 ---
 
