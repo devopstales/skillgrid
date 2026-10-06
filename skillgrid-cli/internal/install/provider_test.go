@@ -346,3 +346,30 @@ func join1(args []string) string {
 	}
 	return out
 }
+
+// TestOllamaVersionAtLeast covers the Ollama version-floor gate: parsing
+// `ollama --version` output, comparing against a required floor, and handling
+// an unparseable version.
+func TestOllamaVersionAtLeast(t *testing.T) {
+	cases := []struct {
+		name  string
+		out   string
+		floor string
+		want  bool
+	}{
+		{"at floor", "ollama version is 0.35.1\n", "0.35.1", true},
+		{"above floor", "ollama version is 0.36.0\n", "0.35.1", true},
+		{"below floor", "ollama version is 0.35.0\n", "0.35.1", false},
+		{"major bump", "ollama version is 1.0.0\n", "0.35.1", true},
+		{"two-part version", "ollama version is 0.35\n", "0.35.1", false},
+		{"unparseable", "weird output without a number\n", "0.35.1", false},
+		{"empty", "", "0.35.1", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ollamaVersionAtLeast(c.out, c.floor); got != c.want {
+				t.Errorf("ollamaVersionAtLeast(%q, %q) = %v, want %v", c.out, c.floor, got, c.want)
+			}
+		})
+	}
+}

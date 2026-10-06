@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -322,6 +323,71 @@ func (p externalLLMProvider) wire() providerWire {
 
 type providerConfig interface {
 	wire() providerWire
+}
+
+// parseOllamaVersion extracts the first "major.minor.patch" version string from
+// `ollama --version` output. It returns the matched string, or "" when no
+// semver-like version is present.
+func parseOllamaVersion(out string) string {
+	fields := strings.Fields(out)
+	for _, f := range fields {
+		if f == "" {
+			continue
+		}
+		if strings.Count(f, ".") >= 1 && isNumericSegments(f) {
+			return f
+		}
+	}
+	return ""
+}
+
+// isNumericSegments reports whether s is a dot-separated sequence of numeric
+// segments (e.g. "0.35.1" or "0.35").
+func isNumericSegments(s string) bool {
+	for _, seg := range strings.Split(s, ".") {
+		if seg == "" {
+			return false
+		}
+		for _, r := range seg {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// versionLessThan reports whether a is a strictly lower numeric version than b.
+// Both must be dot-separated numeric segments; missing segments are treated as
+// zero, so "0.35" < "0.35.1" and "0.35.1" < "0.36.0". If a parses to fewer or
+// equal components than b at the first differing segment, it is lower.
+func versionLessThan(a, b string) bool {
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		var av, bv int
+		if i < len(as) {
+			av, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			bv, _ = strconv.Atoi(bs[i])
+		}
+		if av != bv {
+			return av < bv
+		}
+	}
+	return false
+}
+
+// ollamaVersionAtLeast reports whether the parsed Ollama version in out is at
+// least floor. An unparseable version is reported as below the floor so the
+// caller can warn without failing the install.
+func ollamaVersionAtLeast(out, floor string) bool {
+	v := parseOllamaVersion(out)
+	if v == "" {
+		return false
+	}
+	return !versionLessThan(v, floor)
 }
 
 // homeIndexingPath is the machine-local config the step merges into.
