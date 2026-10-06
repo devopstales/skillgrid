@@ -16,7 +16,7 @@ import (
 const DefaultOllamaBaseURL = "http://localhost:11434"
 
 // DefaultOllamaModel is the default Ollama embedding model.
-const DefaultOllamaModel = "nomic-embed-code"
+const DefaultOllamaModel = "embeddinggemma:300m"
 
 // OllamaConfig configures the Ollama embedder (provider "ollama"). The base
 // URL defaults to the stock Ollama port (11434) and is configurable so tests

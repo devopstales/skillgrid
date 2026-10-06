@@ -128,3 +128,18 @@ func TestOllamaEmbedError(t *testing.T) {
 		t.Fatalf("error=%q, want it to mention the status", err)
 	}
 }
+
+// TestDefaultOllamaModelIsEmbeddinggemma (TICKET-03/TASK-044): the runtime
+// default Ollama embedding model is embeddinggemma:300m, and an embedder built
+// with no explicit Model falls back to it. This is the one-way-door change that
+// forwards the runtime default for existing local installs that don't pin a model.
+func TestDefaultOllamaModelIsEmbeddinggemma(t *testing.T) {
+	const want = "embeddinggemma:300m"
+	if DefaultOllamaModel != want {
+		t.Fatalf("DefaultOllamaModel = %q, want %q", DefaultOllamaModel, want)
+	}
+	o := NewOllama(OllamaConfig{BaseURL: "http://127.0.0.1:0"})
+	if o.Model() != want {
+		t.Fatalf("NewOllama fallback Model = %q, want %q", o.Model(), want)
+	}
+}
