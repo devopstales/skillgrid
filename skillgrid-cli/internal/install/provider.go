@@ -19,6 +19,7 @@ package install
 // preserves every unrelated key already present in the operator's file.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -147,6 +148,9 @@ func setupProvider(c *Config) error {
 // setupProviderLocal ensures Ollama (binary, service, models) and merges the
 // home llm + ollama embedder. Each sub-step failure is a warn-and-return.
 func setupProviderLocal(c *Config) error {
+	// Reset the smoke-recorded embed dimension for this run; the embed smoke
+	// (in pullMissingModels) repopulates it, and the home merge writes it.
+	lastEmbedDimension = 0
 	if err := ensureOllamaBinary(c); err != nil {
 		Out("      warn ollama binary:", err, "— manual hint: install Ollama, then re-run: skillgrid install")
 		return nil
@@ -164,11 +168,22 @@ func setupProviderLocal(c *Config) error {
 		}
 	}
 	pullMissingModels(c, base)
+	embed := embedOverride{provider: "ollama", baseURL: ollamaBaseURL + "/v1", model: localEmbedModel}
+	if lastEmbedDimension > 0 {
+		embed.embedDimension = lastEmbedDimension
+		// Req 5: if the operator's existing home config records a different
+		// dimension, warn that the index is stale until reindexed. The model
+		// still switches (fail-open).
+		if prev, ok := readHomeEmbedderDimension(c); ok && prev > 0 && prev != lastEmbedDimension {
+			Out("      warn embedder dimension mismatch: home config has", prev, "but the smoke recorded", lastEmbedDimension,
+				"— search is stale until you reindex (mnemonic reindex)")
+		}
+	}
 	return mergeHomeProviderConfig(c, localLLMProvider{
 		enabled: true,
 		baseURL: ollamaBaseURL + "/v1",
 		model:   localLLMModel,
-		embed:   embedOverride{provider: "ollama", baseURL: ollamaBaseURL + "/v1", model: localEmbedModel},
+		embed:   embed,
 	})
 }
 
@@ -290,8 +305,8 @@ func pullMissingModels(c *Config, base string) {
 		} else {
 			// Non-fatal per-model health check: a failing probe warns and is
 			// recorded, but never aborts the install (ADR-0016 fail-open).
-			if !smokeProbe(base, e.Name) {
-				Out("      warn smoke", e.Name, ": post-pull probe did not report healthy (non-fatal)")
+			if !smokeProbe(base, localModels(), e.Role) {
+				Out("      warn smoke", e.Name, ":", e.Role, "— post-pull probe did not report healthy (non-fatal)")
 			}
 		}
 	}
@@ -306,14 +321,154 @@ func orUnknown(v string) string {
 }
 
 // smokeProbe is a non-fatal per-model health check run after a successful
-// pull. It is currently a no-op placeholder that reports healthy (the
-// interview locked the catalog pull as the deliverable); it is a package var
-// so tests can make it fail without reshaping the install step. A failing
-// probe must never abort the install (ADR-0016 fail-open).
-var smokeProbe = func(base, model string) bool {
-	_ = base
-	_ = model
+// pull (req 3). It dispatches to the endpoint the model's role actually
+// speaks: chat → /v1/chat/completions (pass on a non-empty first choice),
+// embed → /api/embed (pass on a vector of length > 0, and records its length
+// on the embedder so the home merge can write mnemonic.embedder.dimension),
+// systemone → /v1/systemone (pass on a present answer field), research → a
+// no-op pass (the tag is present after the pull; there is no dedicated
+// research endpoint). It is a package var so tests can make it fail without
+// reshaping the install step. A failing probe must never abort the install
+// (ADR-0016 fail-open); the caller warns and continues.
+var smokeProbe = func(base string, models []modelEntry, role modelRole) bool {
+	switch role {
+	case roleChat:
+		return chatSmokeOK(base, chatModel(models, roleChat))
+	case roleEmbedder:
+		return embedSmokeOK(base, embedModel(models, roleEmbedder))
+	case roleSystemOne:
+		return systemoneSmokeOK(base, chatModel(models, roleSystemOne))
+	case roleResearch:
+		// Research tags (tev1, gemma2, clef-flash) have no dedicated
+		// readiness endpoint; presence after a successful pull is the check.
+		return true
+	default:
+		return true
+	}
+}
+
+// chatModel returns the first catalog entry carrying the given role, falling
+// back to the runtime default for that role when the catalog is searched for a
+// smoke after a pull.
+func chatModel(models []modelEntry, role modelRole) string {
+	for _, e := range models {
+		if e.Role == role {
+			return e.Name
+		}
+	}
+	if role == roleChat {
+		return localLLMModel
+	}
+	return localLLMModel
+}
+
+// embedModel returns the catalog embedder tag (the runtime embedder default).
+func embedModel(models []modelEntry, role modelRole) string {
+	for _, e := range models {
+		if e.Role == role {
+			return e.Name
+		}
+	}
+	return localEmbedModel
+}
+
+// chatSmokeOK POSTs one user message to /v1/chat/completions and reports
+// whether the first choice returned non-empty content.
+func chatSmokeOK(base, model string) bool {
+	body, _ := json.Marshal(map[string]any{
+		"model": model,
+		"messages": []map[string]any{
+			{"role": "user", "content": "ping"},
+		},
+	})
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Post(base+"/v1/chat/completions", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var out struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false
+	}
+	if len(out.Choices) == 0 {
+		return false
+	}
+	return strings.TrimSpace(out.Choices[0].Message.Content) != ""
+}
+
+// embedSmokeOK POSTs one string to /api/embed and reports whether the returned
+// vector has length > 0. On success it records the vector length so the home
+// merge can write mnemonic.embedder.dimension (req 3).
+func embedSmokeOK(base, model string) bool {
+	dim := ollamaEmbedDimension(base, model)
+	if dim == 0 {
+		return false
+	}
+	lastEmbedDimension = dim
 	return true
+}
+
+// systemoneSmokeOK POSTs one yes/no question to /v1/systemone and reports
+// whether the response carries an answer field.
+func systemoneSmokeOK(base, model string) bool {
+	body, _ := json.Marshal(map[string]any{
+		"model":  model,
+		"prompt": "Is 2+2 equal to 4? Answer yes or no.",
+	})
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Post(base+"/v1/systemone", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var out struct {
+		Answer string `json:"answer"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false
+	}
+	return strings.TrimSpace(out.Answer) != ""
+}
+
+// lastEmbedDimension holds the vector length recorded by the most recent
+// successful embed smoke. The home merge reads it to write
+// mnemonic.embedder.dimension (req 3/5). It is reset at the start of each
+// install run by setupProviderLocal.
+var lastEmbedDimension int
+
+// ollamaEmbedDimension POSTs /api/embed for the embedder model and returns the
+// vector length, or 0 when the server is unreachable or returns no vector.
+func ollamaEmbedDimension(base, model string) int {
+	body, _ := json.Marshal(map[string]any{"model": model, "input": "skillgrid smoke"})
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Post(base+"/api/embed", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0
+	}
+	var out struct {
+		Embedding []float32 `json:"embedding"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return 0
+	}
+	return len(out.Embedding)
 }
 
 // ollamaModels GETs {base}/api/tags and parses the model name list.
@@ -386,6 +541,9 @@ func setupProviderExternal(c *Config) error {
 type providerWire struct {
 	llm   map[string]any
 	embed embedOverride
+	// ollamaModels is the catalog list written to mnemonic.ollama.models
+	// (req 5). nil when the provider does not publish a local catalog (external).
+	ollamaModels []map[string]any
 }
 
 type localLLMProvider struct {
@@ -402,17 +560,21 @@ type externalLLMProvider struct {
 	embed   embedOverride
 }
 
-// embedOverride carries only the embedder keys the step owns.
+// embedOverride carries only the embedder keys the step owns. embedDimension
+// is the smoke-recorded vector length (req 3); 0 means "do not write
+// mnemonic.embedder.dimension" (the smoke did not record one).
 type embedOverride struct {
-	provider string
-	baseURL  string
-	model    string
+	provider       string
+	baseURL        string
+	model          string
+	embedDimension int
 }
 
 func (p localLLMProvider) wire() providerWire {
 	return providerWire{
-		llm:   map[string]any{"enabled": p.enabled, "base_url": p.baseURL, "model": p.model},
-		embed: p.embed,
+		llm:          map[string]any{"enabled": p.enabled, "base_url": p.baseURL, "model": p.model},
+		embed:        p.embed,
+		ollamaModels: ollamaCatalogList(),
 	}
 }
 
@@ -420,6 +582,33 @@ func (p externalLLMProvider) wire() providerWire {
 	return providerWire{
 		llm:   map[string]any{"enabled": p.enabled, "base_url": p.baseURL, "model": p.model},
 		embed: p.embed,
+	}
+}
+
+// ollamaCatalogList projects the local catalog into the mnemonic.ollama.models
+// list (req 5): one entry per catalog tag with its role as the kind. The
+// research-only and systemone roles are folded into "systemone" and "embed"
+// so the list mirrors the functional roles the runtime actually speaks.
+func ollamaCatalogList() []map[string]any {
+	out := make([]map[string]any, 0, len(localModels()))
+	for _, e := range localModels() {
+		out = append(out, map[string]any{"name": e.Name, "kind": kindForRole(e.Role)})
+	}
+	return out
+}
+
+// kindForRole maps a catalog role to the human-facing kind recorded in
+// mnemonic.ollama.models.
+func kindForRole(role modelRole) string {
+	switch role {
+	case roleChat:
+		return "chat"
+	case roleEmbedder:
+		return "embed"
+	case roleSystemOne, roleResearch:
+		return "systemone"
+	default:
+		return string(role)
 	}
 }
 
@@ -491,6 +680,40 @@ func ollamaVersionAtLeast(out, floor string) bool {
 	return !versionLessThan(v, floor)
 }
 
+// readHomeEmbedderDimension reads the existing mnemonic.embedder.dimension from
+// the home indexing.yaml (the pre-merge value, for the req-5 mismatch warning).
+// It returns the dimension and ok=false when the file is absent, unparseable,
+// or the key is not a positive number.
+func readHomeEmbedderDimension(c *Config) (int, bool) {
+	data, err := os.ReadFile(homeIndexingPath(c))
+	if err != nil || len(data) == 0 {
+		return 0, false
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return 0, false
+	}
+	mn, ok := doc["mnemonic"].(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	emb, ok := mn["embedder"].(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	switch v := emb["dimension"].(type) {
+	case int:
+		if v > 0 {
+			return v, true
+		}
+	case float64:
+		if v > 0 {
+			return int(v), true
+		}
+	}
+	return 0, false
+}
+
 // homeIndexingPath is the machine-local config the step merges into.
 func homeIndexingPath(c *Config) string {
 	home := c.HomeDir
@@ -529,12 +752,24 @@ func mergeHomeProviderConfig(c *Config, p providerConfig) error {
 		emb["provider"] = w.embed.provider
 		emb["base_url"] = w.embed.baseURL
 		emb["model"] = w.embed.model
+		if w.embed.embedDimension > 0 {
+			emb["dimension"] = w.embed.embedDimension
+		}
 	} else {
-		mn["embedder"] = map[string]any{
+		emb := map[string]any{
 			"provider": w.embed.provider,
 			"base_url": w.embed.baseURL,
 			"model":    w.embed.model,
 		}
+		if w.embed.embedDimension > 0 {
+			emb["dimension"] = w.embed.embedDimension
+		}
+		mn["embedder"] = emb
+	}
+	// Req 5: publish the local catalog list (only the local provider carries
+	// one; external leaves mnemonic.ollama untouched).
+	if w.ollamaModels != nil {
+		mn["ollama"] = map[string]any{"models": w.ollamaModels}
 	}
 	doc["mnemonic"] = mn
 

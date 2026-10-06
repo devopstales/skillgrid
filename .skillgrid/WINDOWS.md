@@ -24,5 +24,5 @@
 | W013 | 2026-10-02-mnemonic-memory-checkpoint | WARNING | Live Cursor stop door G4/G5 EVIDENCE not recorded (script contract covered by test-hooks) | qa-auto | 2026-10-02 | closed |
 | W014 | 2026-10-02-mnemonic-llm-provider | WARNING | acceptance.feature gate ids G4-G8 do not match as-built test names (qa-gate.mjs would report gate test missing) | qa-auto | 2026-10-05 | open |
 | W015 | 2026-10-02-mnemonic-llm-provider | WARNING | TDD evidence STALE - change uncommitted in working tree, no RED/GREEN commit hashes resolve | qa-auto | 2026-10-05 | open |
-| W016 | 2026-10-03-local-ollama-models | WARNING | briefing reqs 3/5 (per-kind HTTP smoke + dimension recording + mnemonic.ollama.models list) descoped to a no-op smokeProbe hook / omitted in the executed blueprint; invisible to acceptance.feature | qa-auto | 2026-10-06 | open |
+| W016 | 2026-10-03-local-ollama-models | WARNING | briefing reqs 3/5 (per-kind HTTP smoke + dimension recording + mnemonic.ollama.models list) descoped to a no-op smokeProbe hook / omitted in the executed blueprint; invisible to acceptance.feature | qa-auto | 2026-10-06 | closed |
 | W017 | 2026-10-03-local-ollama-models | SUGGESTION | state.yaml line 10 malformed YAML (nested mapping in compact mapping) breaks state-drift check (pre-existing) | qa-auto | 2026-10-06 | open |

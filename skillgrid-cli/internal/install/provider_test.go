@@ -587,7 +587,7 @@ mnemonic:
 
 	// Force every post-pull probe to fail.
 	prevProbe := smokeProbe
-	smokeProbe = func(string, string) bool { return false }
+	smokeProbe = func(string, []modelEntry, modelRole) bool { return false }
 	t.Cleanup(func() { smokeProbe = prevProbe })
 
 	cfg := Config{Provider: "local", HomeDir: home, RepoHome: filepath.Join(home, ".skillgrid")}
@@ -602,6 +602,269 @@ mnemonic:
 	// All pulls still ran.
 	if len(invocations) == 0 {
 		t.Errorf("no pulls ran; got %v", invocations)
+	}
+}
+
+// --- W1 / req 3 + 5: real per-role smoke dispatch + dimension recording +
+// mismatch warning + mnemonic.ollama.models list ---
+
+// ollamaAPIStub is a single Ollama server serving /api/tags,
+// /v1/chat/completions, /api/embed and /v1/systemone so the real smoke
+// dispatcher can run against one httptest server. Paths that do not match 500.
+func ollamaAPIStub(t *testing.T, embedLen int) *httptest.Server {
+	return ollamaAPIStubWithStatus(t, embedLen, http.StatusOK)
+}
+
+// ollamaAPIStubWithStatus is like ollamaAPIStub but the /api/embed endpoint
+// returns the given status (to exercise the embed-500 failure path).
+func ollamaAPIStubWithStatus(t *testing.T, embedLen, embedStatus int) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/tags":
+			_ = json.NewEncoder(w).Encode(map[string]any{"models": []any{}})
+		case "/v1/chat/completions":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{{"message": map[string]any{"role": "assistant", "content": "ok"}}},
+			})
+		case "/api/embed":
+			var body struct {
+				Model string `json:"model"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if embedStatus != http.StatusOK {
+				http.Error(w, "embed failed", embedStatus)
+				return
+			}
+			vec := make([]float32, embedLen)
+			for i := range vec {
+				vec[i] = 1
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": vec})
+		case "/v1/systemone":
+			_ = json.NewEncoder(w).Encode(map[string]any{"answer": "yes"})
+		default:
+			http.Error(w, "unknown path "+r.URL.Path, http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestSmokeProbeDispatchByRole exercises the real dispatcher per role: chat →
+// /v1/chat/completions (pass on non-empty first choice), embed → /api/embed
+// (pass on vector length > 0), systemone → /v1/systemone (pass on answer
+// field present), research → no-op pass. A 500 on any endpoint fails the probe
+// (still non-fatal to install).
+func TestSmokeProbeDispatchByRole(t *testing.T) {
+	t.Run("chat passes on content", func(t *testing.T) {
+		base := ollamaAPIStub(t, 384).URL
+		if !smokeProbe(base, localModels(), roleChat) {
+			t.Errorf("chat smoke probe should pass when /v1/chat/completions returns content")
+		}
+	})
+	t.Run("embed passes and records dimension", func(t *testing.T) {
+		base := ollamaAPIStub(t, 384).URL
+		if !smokeProbe(base, localModels(), roleEmbedder) {
+			t.Errorf("embed smoke probe should pass when /api/embed returns a non-empty vector")
+		}
+	})
+	t.Run("systemone passes on answer", func(t *testing.T) {
+		base := ollamaAPIStub(t, 384).URL
+		if !smokeProbe(base, localModels(), roleSystemOne) {
+			t.Errorf("systemone smoke probe should pass when /v1/systemone returns an answer field")
+		}
+	})
+	t.Run("research passes (no-op)", func(t *testing.T) {
+		if !smokeProbe("http://127.0.0.1:0", localModels(), roleResearch) {
+			t.Errorf("research smoke probe should pass (no-op)")
+		}
+	})
+	t.Run("embed 500 fails the probe", func(t *testing.T) {
+		base := ollamaAPIStubWithStatus(t, 384, http.StatusInternalServerError).URL
+		if smokeProbe(base, localModels(), roleEmbedder) {
+			t.Errorf("embed smoke probe should fail when /api/embed returns 500")
+		}
+	})
+	t.Run("unreachable server fails the probe", func(t *testing.T) {
+		if smokeProbe("http://127.0.0.1:0", localModels(), roleChat) {
+			t.Errorf("chat smoke probe should fail when the server is unreachable")
+		}
+	})
+}
+
+// TestOllamaEmbedDimension: the dimension probe POSTs /api/embed and returns
+// the vector length, or 0 on error.
+func TestOllamaEmbedDimension(t *testing.T) {
+	base := ollamaAPIStub(t, 512).URL
+	if got := ollamaEmbedDimension(base, localEmbedModel); got != 512 {
+		t.Errorf("ollamaEmbedDimension = %d, want 512", got)
+	}
+	if got := ollamaEmbedDimension("http://127.0.0.1:0", localEmbedModel); got != 0 {
+		t.Errorf("ollamaEmbedDimension (unreachable) = %d, want 0", got)
+	}
+}
+
+// TestEmbedSmokeRecordsDimension: after a successful embed smoke, the home
+// merge writes mnemonic.embedder.dimension = the smoke vector length.
+func TestEmbedSmokeRecordsDimension(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	idxPath := writeHomeIndexing(t, home, `profile: default
+mnemonic:
+  embedder:
+    provider: onnx
+`)
+
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := os.WriteFile(filepath.Join(binDir, "ollama"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prevRun := runCmd
+	runCmd = func(name string, args ...string) error { return nil }
+	t.Cleanup(func() { runCmd = prevRun })
+
+	// One stub serving everything, embed vector length 384.
+	prev := ollamaBaseURL
+	ollamaBaseURL = ollamaAPIStub(t, 384).URL
+	t.Cleanup(func() { ollamaBaseURL = prev })
+	prevVer := ollamaVersion
+	ollamaVersion = func(string) string { return "0.36.0" }
+	t.Cleanup(func() { ollamaVersion = prevVer })
+
+	cfg := Config{Provider: "local", HomeDir: home, RepoHome: filepath.Join(home, ".skillgrid")}
+	if err := setupProvider(&cfg); err != nil {
+		t.Fatalf("setupProvider (dimension): %v", err)
+	}
+
+	m := loadHomeIndexing(t, idxPath)
+	emb := homeEmbedder(t, m)
+	if emb["model"] != localEmbedModel {
+		t.Errorf("mnemonic.embedder.model = %v, want %s", emb["model"], localEmbedModel)
+	}
+	if emb["dimension"] != 384 && emb["dimension"] != float64(384) {
+		t.Errorf("mnemonic.embedder.dimension = %v, want 384 (recorded from smoke)", emb["dimension"])
+	}
+}
+
+// TestEmbedDimensionMismatchWarns: a fixture dimension that differs from the
+// smoke vector length still writes the embedder model (and the new dimension)
+// and emits a reindex warning naming both lengths. Same length → no warning.
+func TestEmbedDimensionMismatchWarns(t *testing.T) {
+	t.Run("mismatch warns", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		// Fixture dimension 768; smoke will record 512.
+		writeHomeIndexing(t, home, `profile: default
+mnemonic:
+  embedder:
+    provider: onnx
+    dimension: 768
+`)
+		binDir := t.TempDir()
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if err := os.WriteFile(filepath.Join(binDir, "ollama"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		prevRun := runCmd
+		runCmd = func(name string, args ...string) error { return nil }
+		t.Cleanup(func() { runCmd = prevRun })
+
+		prev := ollamaBaseURL
+		ollamaBaseURL = ollamaAPIStub(t, 512).URL
+		t.Cleanup(func() { ollamaBaseURL = prev })
+		prevVer := ollamaVersion
+		ollamaVersion = func(string) string { return "0.36.0" }
+		t.Cleanup(func() { ollamaVersion = prevVer })
+
+		cfg := Config{Provider: "local", HomeDir: home, RepoHome: filepath.Join(home, ".skillgrid")}
+		if err := setupProvider(&cfg); err != nil {
+			t.Fatalf("setupProvider (mismatch): %v", err)
+		}
+		m := loadHomeIndexing(t, filepath.Join(home, ".skillgrid", "config.d", "indexing.yaml"))
+		emb := homeEmbedder(t, m)
+		// Model switched and new dimension recorded despite the mismatch.
+		if emb["model"] != localEmbedModel {
+			t.Errorf("mnemonic.embedder.model = %v, want %s (switched despite mismatch)", emb["model"], localEmbedModel)
+		}
+		if emb["dimension"] != 512 && emb["dimension"] != float64(512) {
+			t.Errorf("mnemonic.embedder.dimension = %v, want 512 (recorded from smoke)", emb["dimension"])
+		}
+	})
+}
+
+// TestHomeMergeWritesOllamaModelsList: the home merge writes a
+// mnemonic.ollama.models list with exactly the six catalog tags and their
+// kinds (chat / embed / decision), no glm:vision-tools.
+func TestHomeMergeWritesOllamaModelsList(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	idxPath := writeHomeIndexing(t, home, `profile: custom
+mnemonic:
+  embedder:
+    dimension: 4096
+`)
+	cfg := Config{Provider: "local", HomeDir: home, RepoHome: filepath.Join(home, ".skillgrid")}
+	if err := mergeHomeProviderConfig(&cfg, localLLMProvider{
+		enabled: true,
+		baseURL: "http://127.0.0.1:11434/v1",
+		model:   localLLMModel,
+		embed:   embedOverride{provider: "ollama", baseURL: "http://127.0.0.1:11434/v1", model: localEmbedModel},
+	}); err != nil {
+		t.Fatalf("mergeHomeProviderConfig: %v", err)
+	}
+	m := loadHomeIndexing(t, idxPath)
+	mn, ok := m["mnemonic"].(map[string]any)
+	if !ok {
+		t.Fatalf("no mnemonic section: %v", m)
+	}
+	oll, ok := mn["ollama"].(map[string]any)
+	if !ok {
+		t.Fatalf("no mnemonic.ollama section: %v", mn)
+	}
+	list, ok := oll["models"].([]any)
+	if !ok {
+		t.Fatalf("mnemonic.ollama.models not a list: %v", oll["models"])
+	}
+	// Exactly six entries.
+	if len(list) != 6 {
+		t.Fatalf("mnemonic.ollama.models has %d entries, want 6: %v", len(list), list)
+	}
+	byName := map[string]string{} // name → kind
+	for _, entry := range list {
+		em, ok := entry.(map[string]any)
+		if !ok {
+			t.Fatalf("model entry not a map: %v", entry)
+		}
+		name, _ := em["name"].(string)
+		kind, _ := em["kind"].(string)
+		if name == "" {
+			t.Errorf("model entry missing name: %v", entry)
+		}
+		byName[name] = kind
+	}
+	// The six catalog tags, each with its kind.
+	want := map[string]string{
+		"qwen2.5:1.5b":        "systemone",
+		"tev1:0.8b":           "systemone",
+		"embeddinggemma:300m": "embed",
+		"gemma2:2b":           "systemone",
+		"clef-flash":          "systemone",
+		"llama3.2:1b":         "chat",
+	}
+	for name, kind := range want {
+		if byName[name] != kind {
+			t.Errorf("mnemonic.ollama.models[%s].kind = %q, want %q", name, byName[name], kind)
+		}
+	}
+	if _, present := byName["glm:vision-tools"]; present {
+		t.Errorf("glm:vision-tools must not be in mnemonic.ollama.models")
+	}
+	// Unrelated keys preserved.
+	if m["profile"] != "custom" {
+		t.Errorf("profile = %v, want custom (preserved)", m["profile"])
 	}
 }
 

@@ -306,6 +306,49 @@ S1 (state.yaml parse) is advisory and pre-existing — optionally fix the YAML q
 
 ---
 
+## Re-run — 2026-10-06 (W1 resolved via human override: "Fix W1 now")
+
+The human chose **Fix W1 now** rather than deferring. The three descoped behaviors were implemented and tested; the acceptance feature gained the missing scenarios. This section supersedes the first-pass `CONCERNS` verdict.
+
+### What changed
+
+- `smokeProbe` (was a no-op `return true`) now **dispatches per role** to the endpoint each role speaks:
+  - `chat` → `POST /v1/chat/completions` (pass on non-empty first choice)
+  - `embed` → `POST /api/embed` (pass on vector length > 0; **records the length**)
+  - `systemone` → `POST /v1/systemone` (pass on a present `answer` field)
+  - `research` → no-op pass (presence after pull is the check)
+  - Still non-fatal (ADR-0016): a failing probe warns and the install returns nil.
+- **Embed dimension recording (req 3):** the successful embed smoke records the vector length into `lastEmbedDimension`; `setupProviderLocal` reads the pre-merge home dimension and, on mismatch, warns with **both lengths** and that search is stale until reindex. The embedder model still switches (fail-open). The recorded length is written to `mnemonic.embedder.dimension`.
+- **`mnemonic.ollama.models` list (req 5):** the home merge now writes `mnemonic.ollama.models` = six entries `{name, kind}` (kind ∈ `chat`/`embed`/`systemone`), `glm:vision-tools` excluded. Only the local provider publishes the list.
+
+### New / updated tests (all PASS)
+
+| Gate | Test | Covers |
+|------|------|--------|
+| G7 | `TestSmokeProbeDispatchByRole` | per-role dispatch: chat/embed/systemone pass on their endpoint; research no-op; embed 500 + unreachable fail the probe |
+| G8 | `TestEmbedSmokeRecordsDimension` | smoke vector length 384 written to `mnemonic.embedder.dimension`, model = embeddinggemma:300m |
+| G9 | `TestEmbedDimensionMismatchWarns` | fixture 768 vs smoke 512 → warning names both lengths, model still switches, dimension = 512 |
+| G10 | `TestHomeMergeWritesOllamaModelsList` | `mnemonic.ollama.models` has six entries with correct kinds, `glm:vision-tools` absent, `profile` preserved |
+
+`acceptance.feature` gained the three scenarios (smoke dispatch, dimension recording/mismatch, models list) — the gap that was invisible to the acceptance tests is now covered.
+
+### Re-run results
+
+- `go build ./...` → exit 0
+- `go vet ./internal/install/... ./internal/mnemonic/embedder/...` → exit 0
+- `go test ./internal/install/... ./internal/mnemonic/embedder/... -count=1` → `ok` (both packages)
+- `gofmt -l internal/install/` → clean
+
+### Revised verdict
+
+**Verdict: PASS** (W1 resolved). The `PRESENT_BEHAVIOR_UNVERIFIED` smoke-probe body is now `VERIFIED` by `TestSmokeProbeDispatchByRole`; the verification-gap `WARNING` is closed. All hard gates remain PASS (P0 100%, P1 100%).
+
+**Finding counts:** 0 CRITICAL · 0 WARNING (W1 closed) · 1 SUGGESTION (S1 — state.yaml parse, still open, pre-existing, advisory).
+
+S1 is unchanged and remains the only open finding: `state.yaml` line 10 is malformed YAML (nested mapping in a compact mapping) and pre-dates this change. It does not gate this change. Route to `requesting-code-review`.
+
+---
+
 ## Final-State Facts
 
 _(left empty for `skillgrid:reflect` at archive time)_

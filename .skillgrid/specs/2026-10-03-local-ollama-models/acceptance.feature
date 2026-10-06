@@ -107,3 +107,86 @@ The system SHALL exclude the typo tag `glm:vision-tools` from the catalog entire
 #   CHECK: go test ./skillgrid-cli/internal/install -count=1 -run TestCatalogPullList
 #   EXPECT: PASS TestCatalogPullList (asserts no glm:vision-tools in pull invocations)
 #   EVIDENCE: PASS (ok internal/install) — glm:vision-tools absent from pull invocations and catalog
+
+### Requirement: Per-role smoke dispatch (req 3)
+
+The system SHALL run one non-interactive readiness probe per pulled model on the
+API that model's role speaks. A failure warns and does not fail the install
+(ADR-0016 fail-open).
+
+#### Scenario: happy path smoke dispatch by role
+
+```gherkin
+  Given a served Ollama responding on /v1/chat/completions, /api/embed and /v1/systemone
+  When the local install runs a per-role smoke probe
+  Then the chat role passes on a non-empty first choice from /v1/chat/completions
+  And the embed role passes on a /api/embed vector of length greater than zero
+  And the systemone role passes on a present answer field from /v1/systemone
+  And the research role passes as a no-op
+  And a 500 on the embed endpoint fails the embed probe without failing the install
+```
+
+#### Gates
+# G7: happy path smoke dispatch by role
+#   CHECK: go test ./skillgrid-cli/internal/install -count=1 -run TestSmokeProbeDispatchByRole
+#   EXPECT: PASS TestSmokeProbeDispatchByRole
+#   EVIDENCE: PASS (ok internal/install) — chat/embed/systemone/research dispatch to the right endpoints; embed 500 + unreachable both fail the probe
+
+### Requirement: Embed dimension recording + mismatch warning (reqs 3 + 5)
+
+The system SHALL record the embedder vector length from a successful embed smoke
+into `mnemonic.embedder.dimension`. If the operator's existing home config records
+a different dimension, the install warns that search is stale until reindex, and the
+embedder model still switches (fail-open).
+
+#### Scenario: happy path embed smoke records dimension
+
+```gherkin
+  Given a served Ollama whose /api/embed returns a vector of length 384
+  When a local install runs the provider step
+  Then mnemonic.embedder.model is embeddinggemma:300m
+  And mnemonic.embedder.dimension is 384
+```
+
+#### Scenario: happy path dimension mismatch warns but still switches
+
+```gherkin
+  Given an existing home config recording embedder dimension 768
+  And a served Ollama whose /api/embed returns a vector of length 512
+  When a local install runs the provider step
+  Then a warning names both lengths (768 and 512) and that search is stale until reindex
+  And mnemonic.embedder.model is still embeddinggemma:300m
+  And mnemonic.embedder.dimension is 512
+```
+
+#### Gates
+# G8: happy path embed smoke records dimension
+#   CHECK: go test ./skillgrid-cli/internal/install -count=1 -run TestEmbedSmokeRecordsDimension
+#   EXPECT: PASS TestEmbedSmokeRecordsDimension
+#   EVIDENCE: PASS (ok internal/install) — smoke vector length 384 written to mnemonic.embedder.dimension, model=embeddinggemma:300m
+# G9: happy path dimension mismatch warns but still switches
+#   CHECK: go test ./skillgrid-cli/internal/install -count=1 -run TestEmbedDimensionMismatchWarns
+#   EXPECT: PASS TestEmbedDimensionMismatchWarns
+#   EVIDENCE: PASS (ok internal/install) — fixture 768 vs smoke 512 warns with both lengths, model still switches to embeddinggemma:300m, dimension=512
+
+### Requirement: Ollama catalog list (req 5)
+
+The system SHALL write `mnemonic.ollama.models` listing the six catalog tags with
+their kind (chat / embed / systemone), excluding `glm:vision-tools`.
+
+#### Scenario: happy path home merge writes ollama models list
+
+```gherkin
+  Given a local install merges the home indexing.yaml
+  When the merge completes
+  Then mnemonic.ollama.models has exactly six entries
+  And each entry carries the tag name and its kind (chat / embed / systemone)
+  And glm:vision-tools is not in the list
+  And unrelated operator keys are preserved
+```
+
+#### Gates
+# G10: happy path home merge writes ollama models list
+#   CHECK: go test ./skillgrid-cli/internal/install -count=1 -run TestHomeMergeWritesOllamaModelsList
+#   EXPECT: PASS TestHomeMergeWritesOllamaModelsList
+#   EVIDENCE: PASS (ok internal/install) — mnemonic.ollama.models has six entries with correct kinds, glm:vision-tools absent, profile preserved
