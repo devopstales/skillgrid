@@ -15,7 +15,7 @@ import (
 // trackerStreamClient is one subscribed SSE client. The buffered channel lets
 // a slow consumer drop events without blocking the watcher goroutine.
 type trackerStreamClient struct {
-	events chan string
+	events chan sseEvent
 }
 
 // newTrackerStreamHub wires a fsnotify watcher on .backlog/tasks/ to a set of
@@ -53,8 +53,16 @@ func (h *trackerStreamHub) watchDir() string {
 	return h.dir
 }
 
+// sseEvent is one SSE message: the event type (used for the `event:` line) and
+// the JSON payload (the `data:` line).
+type sseEvent struct {
+	event   string
+	payload string
+}
+
 // handleTrackerStream serves GET /tracker/stream (SSE). It watches
-// .backlog/tasks/ and pushes a "tasks-changed" event whenever a task file
+// .backlog/tasks/ and .backlog/milestones/ and pushes a "tasks-changed" event
+// on task-file changes and a "milestones-changed" event on milestone-file
 // changes, so the Kanban board live-updates without a manual reload.
 //
 // The watcher is per-request (simplest correct lifecycle): each client runs
@@ -68,11 +76,9 @@ func (s *Server) handleTrackerStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the tasks dir: prefer the active Backlog.md provider's dir.
-	dir := ".backlog/tasks"
-	if p, err := resolveTracker(""); err == nil && p.Name() == tracker.ProviderBacklogMD {
-		dir = ".backlog/tasks"
-	}
+	// Resolve the dirs: prefer the active Backlog.md provider's dirs.
+	tasksDir := ".backlog/tasks"
+	milestonesDir := ".backlog/milestones"
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -90,20 +96,25 @@ func (s *Server) handleTrackerStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer watcher.Close()
 
-	watchTarget := dir
-	if info, err := os.Stat(watchTarget); err != nil || !info.IsDir() {
-		if err2 := os.MkdirAll(watchTarget, 0o755); err2 != nil {
+	// Watch the tasks dir (always present — create if missing).
+	if info, err := os.Stat(tasksDir); err != nil || !info.IsDir() {
+		if err2 := os.MkdirAll(tasksDir, 0o755); err2 != nil {
 			writeError(w, http.StatusInternalServerError, "tasks dir: "+err2.Error())
 			return
 		}
 	}
-	if err := watcher.Add(watchTarget); err != nil {
+	if err := watcher.Add(tasksDir); err != nil {
 		writeError(w, http.StatusInternalServerError, "watch add: "+err.Error())
 		return
 	}
 
+	// Watch the milestones dir (optional — skip if missing, no error).
+	if info, err := os.Stat(milestonesDir); err == nil && info.IsDir() {
+		_ = watcher.Add(milestonesDir) // non-fatal: the tasks stream still works
+	}
+
 	// Per-client buffered channel: a slow consumer drops events (no blocking).
-	client := &trackerStreamClient{events: make(chan string, 32)}
+	client := &trackerStreamClient{events: make(chan sseEvent, 32)}
 	ctx := r.Context()
 
 	// Fan-out goroutine: watcher → client channel.
@@ -119,14 +130,19 @@ func (s *Server) handleTrackerStream(w http.ResponseWriter, r *http.Request) {
 				if !isTaskChange(evt) {
 					continue
 				}
+				// Determine event type by which watched dir the path is under.
+				eventType := "tasks-changed"
+				if strings.HasPrefix(evt.Name, milestonesDir) {
+					eventType = "milestones-changed"
+				}
 				payload, _ := json.Marshal(map[string]string{
-					"type":    "tasks-changed",
-					"file":    filepath.Base(evt.Name),
-					"op":      evt.Op.String(),
+					"type":     eventType,
+					"file":     filepath.Base(evt.Name),
+					"op":       evt.Op.String(),
 					"provider": tracker.ProviderBacklogMD,
 				})
 				select {
-				case client.events <- string(payload):
+				case client.events <- sseEvent{event: eventType, payload: string(payload)}:
 				default: // slow consumer: drop, never block
 				}
 			case _, ok := <-watcher.Errors:
@@ -146,10 +162,10 @@ func (s *Server) handleTrackerStream(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case msg := <-client.events:
-			if _, err := w.Write([]byte("event: tasks-changed\n")); err != nil {
+			if _, err := w.Write([]byte("event: " + msg.event + "\n")); err != nil {
 				return
 			}
-			if _, err := w.Write([]byte("data: " + msg + "\n\n")); err != nil {
+			if _, err := w.Write([]byte("data: " + msg.payload + "\n\n")); err != nil {
 				return
 			}
 			flusher.Flush()

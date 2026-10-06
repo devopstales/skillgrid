@@ -55,9 +55,10 @@ export function useTrackerBoard(provider: ProviderName) {
     void load()
   }, [load])
 
-  // Live updates: subscribe to the SSE stream; on any tasks-changed event,
-  // re-fetch the board. Only the Backlog.md provider emits file-change events
-  // (fsnotify on .backlog/tasks/), so other providers simply stay static.
+  // Live updates: subscribe to the SSE stream; on any tasks-changed or
+  // milestones-changed event, re-fetch the board. Only the Backlog.md provider
+  // emits file-change events (fsnotify on .backlog/tasks/ and
+  // .backlog/milestones/), so other providers simply stay static.
   useEffect(() => {
     let es: EventSource | null = null
     let disposed = false
@@ -67,6 +68,9 @@ export function useTrackerBoard(provider: ProviderName) {
         if (!disposed) setLive(true)
       })
       es.addEventListener('tasks-changed', () => {
+        void load()
+      })
+      es.addEventListener('milestones-changed', () => {
         void load()
       })
       es.onerror = () => {

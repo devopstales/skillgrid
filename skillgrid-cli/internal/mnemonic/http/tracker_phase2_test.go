@@ -211,6 +211,97 @@ func TestPhase2_TrackerStream(t *testing.T) {
 	}
 }
 
+// 2.6 [RED] SSE: a milestone-file change is emitted as milestones-changed.
+func TestPhase2_TrackerStream_Milestones(t *testing.T) {
+	h := newHandler(t)
+	t.Setenv("SKILLGRID_TRACKER", "backlogmd")
+	workdir := t.TempDir()
+	t.Chdir(workdir)
+	taskDir := filepath.Join(workdir, ".backlog/tasks")
+	msDir := filepath.Join(workdir, ".backlog/milestones")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(msDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, "task-001.md"), []byte(phase2TaskA), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	msFile := filepath.Join(msDir, "m-1.md")
+	if err := os.WriteFile(msFile, []byte("---\nid: m-1\ntitle: test-ms\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/tracker/stream", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+	defer resp.Body.Close()
+
+	scanner := bufio.NewScanner(resp.Body)
+	if !waitForEvent(t, scanner, "ready", 3*time.Second) {
+		t.Fatalf("did not receive ready event")
+	}
+
+	// Trigger a milestone-file change.
+	time.Sleep(150 * time.Millisecond) // let the watcher attach
+	if err := os.WriteFile(msFile, []byte("---\nid: m-1\ntitle: test-ms-v2\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !waitForEvent(t, scanner, "milestones-changed", 5*time.Second) {
+		t.Fatalf("did not receive milestones-changed event after milestone file change")
+	}
+}
+
+// 2.6 [RED] SSE: missing milestones dir does not break the tasks stream.
+func TestPhase2_TrackerStream_NoMilestonesDir(t *testing.T) {
+	h := newHandler(t)
+	t.Setenv("SKILLGRID_TRACKER", "backlogmd")
+	workdir := t.TempDir()
+	t.Chdir(workdir)
+	taskDir := filepath.Join(workdir, ".backlog/tasks")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// No .backlog/milestones dir.
+	if err := os.WriteFile(filepath.Join(taskDir, "task-001.md"), []byte(phase2TaskA), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/tracker/stream", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+	defer resp.Body.Close()
+
+	scanner := bufio.NewScanner(resp.Body)
+	if !waitForEvent(t, scanner, "ready", 3*time.Second) {
+		t.Fatalf("did not receive ready event")
+	}
+
+	// Task changes still work without a milestones dir.
+	time.Sleep(150 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(taskDir, "task-001.md"), []byte(phase2TaskA+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !waitForEvent(t, scanner, "tasks-changed", 5*time.Second) {
+		t.Fatalf("did not receive tasks-changed event (milestones dir missing)")
+	}
+}
+
 // 2.6 [RED] SSE leak-free: a client that disconnects is cleaned up
 // (goroutine count returns to baseline after the requests are cancelled).
 func TestPhase2_TrackerStream_NoLeak(t *testing.T) {
