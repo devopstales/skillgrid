@@ -1,10 +1,10 @@
 ---
 id: TASK-053
 title: '[FEATURE] Scan Diff + Status + List + Get (mnemonic)'
-status: in-progress
+status: done
 assignee: []
 created_date: '2026-10-07 11:31'
-updated_date: '2026-10-07 13:36'
+updated_date: '2026-10-07 13:53'
 labels: []
 milestone: m-7
 dependencies:
@@ -51,3 +51,9 @@ Current State: no diff/status/list/get on the scan service.\n\nExpected State: (
 4. go test ./internal/mnemonic/scan/ -v + go build ./... -> green
 5. Commit: feat(mnemonic): scan diff (hash-set), status, list, get + Refs: TASK-053
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+scan package read surface complete: Diff (set difference of dedup_hash per scan), LatestDiff, Status, List, Get. Removed findings NOT deleted (audit). 17/17 tests GREEN (TestUnchangedRescanDiffsToZeroAdded, TestFixedCveAppearsAsRemoved + Status/List/Get). Commit 0bba45e0 scoped to mnemonic/internal/scan only.
+<!-- SECTION:FINAL_SUMMARY:END -->
