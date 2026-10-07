@@ -1,10 +1,10 @@
 ---
 id: TASK-053
 title: '[FEATURE] Scan Diff + Status + List + Get (mnemonic)'
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-10-07 11:31'
-updated_date: '2026-10-07 11:34'
+updated_date: '2026-10-07 13:36'
 labels: []
 milestone: m-7
 dependencies:
