@@ -265,6 +265,123 @@ func (s *Service) Get(ctx context.Context, purl string) (Package, error) {
 	return p, nil
 }
 
+// RuntimeResult is the declared-vs-imported diff for one source file.
+type RuntimeResult struct {
+	DeclaredOnly []string `json:"declared_only"`
+	ImportOnly   []string `json:"import_only"`
+	Shared       []string `json:"shared"`
+}
+
+// Runtime reports, for one source file, which declared (manifest) packages are
+// never imported, which imports are never declared, and which appear in both.
+// Read-only on the code index: it resolves file_id from files, the imported
+// set from edges (kind in 'imports','dynamic_import') and the declared set
+// from dependencies (retired=0), then diffs on package name.
+func (s *Service) Runtime(ctx context.Context, sourceFile string) (RuntimeResult, error) {
+	if s == nil || s.db == nil {
+		return RuntimeResult{}, errors.New("dep service not initialized")
+	}
+
+	var fileID int64
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM files WHERE path = ?`, sourceFile).
+		Scan(&fileID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return RuntimeResult{}, fmt.Errorf("file %s not indexed", sourceFile)
+		}
+		return RuntimeResult{}, fmt.Errorf("resolve file %s: %w", sourceFile, err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT to_name, target_path FROM edges
+		WHERE kind IN ('imports', 'dynamic_import') AND file_id = ?`, fileID)
+	if err != nil {
+		return RuntimeResult{}, fmt.Errorf("runtime import edges: %w", err)
+	}
+	seen := map[string]bool{}
+	imported := make([]string, 0)
+	for rows.Next() {
+		var toName, targetPath sql.NullString
+		if err := rows.Scan(&toName, &targetPath); err != nil {
+			rows.Close()
+			return RuntimeResult{}, fmt.Errorf("runtime import scan: %w", err)
+		}
+		name := importName(toName.String, targetPath.String)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		imported = append(imported, name)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return RuntimeResult{}, fmt.Errorf("runtime import iterate: %w", err)
+	}
+	rows.Close()
+
+	drows, err := s.db.QueryContext(ctx, `
+		SELECT name FROM dependencies WHERE retired = 0`)
+	if err != nil {
+		return RuntimeResult{}, fmt.Errorf("runtime declared set: %w", err)
+	}
+	declaredSet := map[string]bool{}
+	declared := make([]string, 0)
+	for drows.Next() {
+		var name string
+		if err := drows.Scan(&name); err != nil {
+			drows.Close()
+			return RuntimeResult{}, fmt.Errorf("runtime declared scan: %w", err)
+		}
+		key := strings.ToLower(name)
+		if key == "" || declaredSet[key] {
+			continue
+		}
+		declaredSet[key] = true
+		declared = append(declared, name)
+	}
+	if err := drows.Err(); err != nil {
+		drows.Close()
+		return RuntimeResult{}, fmt.Errorf("runtime declared iterate: %w", err)
+	}
+	drows.Close()
+
+	var shared, declaredOnly, importOnly []string
+	for _, d := range declared {
+		key := strings.ToLower(d)
+		if seen[key] {
+			shared = append(shared, d)
+		} else {
+			declaredOnly = append(declaredOnly, d)
+		}
+	}
+	for _, i := range imported {
+		if !declaredSet[i] {
+			importOnly = append(importOnly, i)
+		}
+	}
+	sort.Strings(shared)
+	sort.Strings(declaredOnly)
+	sort.Strings(importOnly)
+	return RuntimeResult{DeclaredOnly: declaredOnly, ImportOnly: importOnly, Shared: shared}, nil
+}
+
+// importName derives the imported package name from an edge: to_name when
+// present, otherwise the base of target_path.
+func importName(toName, targetPath string) string {
+	n := strings.ToLower(strings.TrimSpace(toName))
+	if n != "" {
+		return n
+	}
+	p := strings.TrimSpace(targetPath)
+	if p == "" {
+		return ""
+	}
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		p = p[i+1:]
+	}
+	return strings.ToLower(strings.TrimSpace(p))
+}
+
 func retiredBool(b bool) int {
 	if b {
 		return 1
