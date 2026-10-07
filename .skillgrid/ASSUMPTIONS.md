@@ -103,8 +103,10 @@ Single source for what is **currently in force**. **In force** = `status: accept
 | 0026 | `indexed_files` reuses the observations schema shape; `ctx_search` fuses sandbox + indexed via RRF | accepted | — | 2026-10-06 | yes | `.skillgrid/artifacts/04-adr-0026-indexed-files-reuses-observations-schema.md` |
 | 0027 | Context Harness implements the Context Language Model (mirror + overflow guard + calibration; Go owns state, Node owns request path; opt-in via `clm:` config) | accepted | — | 2026-10-06 | yes | `.skillgrid/artifacts/04-adr-0027-clm-context-language-model.md` |
 | 0028 | `context_revisions` is session-scoped audit (purged at session end; raw history + mirror are the source of truth) | accepted | — | 2026-10-06 | yes | `.skillgrid/artifacts/04-adr-0028-context-revisions-session-scoped.md` |
+| 0029 | Compaction advisory gate (one combined LLM call, fail-open) + `steering` column on `context_revisions` + proactive build; extends ADR-0027/0028; opt-in via `mnemonic.compaction` config | accepted | — | 2026-10-07 | yes | `.skillgrid/artifacts/04-adr-0029-compaction-advisory-steering.md` |
+| 0030 | Scan findings store: structured `scan_*`/`dep_*` tables + FTS, not blobs or per-tool tables | accepted | — | 2026-10-05 | yes | `.skillgrid/artifacts/04-adr-0030-scan-findings-structured-store.md` |
 
-**Highest sequence in use:** 0028 (next ADR is `04-adr-0029-slug.md`). The body of each decision is the Record file. This table stores the path only (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
+**Highest sequence in use:** 0030 (next ADR is `04-adr-0031-slug.md`). The body of each decision is the Record file. This table stores the path only (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 
 ### Locked constraints
 
