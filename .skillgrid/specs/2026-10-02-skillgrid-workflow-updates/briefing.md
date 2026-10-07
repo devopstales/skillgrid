@@ -1,4 +1,4 @@
-# Briefing — Skillgrid workflow updates (GSD + BMAD + Cole + Superpowers + Matt)
+# Skillgrid workflow updates (GSD + BMAD + Cole + Superpowers + Matt) — Design Briefing (requirements & intent)
 
 > **STATUS:** `draft` (2026-10-04) — Seven-source findings written (GSD, BMAD, Cole, Superpowers, Matt, gstack, **test-book**). Cole / Superpowers / Matt / validation / **scope pushback** locked (rounds 3–8). **First slice cut (round 9): reqs 21 + 19 + 8.** gstack freeze/careful (17–18), project-context map (req 20), **ARCHITECTURE.md enforcement (req 22)**, and **code-index enforcement (req 23)** stay proposed and queued behind the first slice (round 10). test-book borrow patterns (evaluator-independence grade, manifest.yaml, evals.json, packet schema, checkpoint-recovery, allowed-tools) captured 2026-10-04 — no new req; they attach to existing reqs or follow-ups.
 

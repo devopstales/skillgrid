@@ -1,4 +1,4 @@
-# Briefing — Mnemonic Scan Findings + Dependency Graph (structured scanner store)
+# Mnemonic Scan Findings + Dependency Graph (structured scanner store) — Design Briefing (requirements & intent)
 
 > **STATUS:** `accepted` (2026-10-05)
 

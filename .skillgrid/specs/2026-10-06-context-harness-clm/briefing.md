@@ -1,4 +1,4 @@
-# Context Harness (with CLM) — Design Briefing
+# Context Harness (with CLM) — Design Briefing (requirements & intent)
 
 > **STATUS:** `draft` (2026-10-06)
 > **Tier:** T2

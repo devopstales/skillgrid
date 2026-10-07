@@ -1,4 +1,4 @@
-# Context Harness (with CLM) Implementation Plan
+# Context Harness (with CLM) — Implementation Blueprint (steps, files, verification)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

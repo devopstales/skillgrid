@@ -1,4 +1,4 @@
-# Mnemonic Standalone Module Implementation Plan
+# Mnemonic Standalone Module — Implementation Blueprint (steps, files, verification)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-execution (recommended) or simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

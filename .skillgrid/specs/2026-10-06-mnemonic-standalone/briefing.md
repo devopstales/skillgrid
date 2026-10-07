@@ -1,4 +1,4 @@
-# Mnemonic Standalone Module
+# Mnemonic Standalone Module — Design Briefing (requirements & intent)
 
 **Status:** PROPOSED
 

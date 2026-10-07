@@ -1,4 +1,4 @@
-# Second-Brain Learnings Implementation Plan
+# Second-Brain Learnings — Implementation Blueprint (steps, files, verification)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

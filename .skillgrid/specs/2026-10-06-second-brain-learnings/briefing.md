@@ -1,4 +1,4 @@
-# Second-Brain Learnings — Design Briefing
+# Second-Brain Learnings — Design Briefing (requirements & intent)
 
 > **STATUS:** `draft` (2026-10-06)
 

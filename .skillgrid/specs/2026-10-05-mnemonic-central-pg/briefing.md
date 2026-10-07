@@ -1,4 +1,4 @@
-# Briefing — Mnemonic Central PG (team-shared memory state)
+# Mnemonic Central PG (team-shared memory state) — Design Briefing (requirements & intent)
 
 > **STATUS:** `accepted` (2026-10-05)
 
