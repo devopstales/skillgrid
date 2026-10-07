@@ -18,40 +18,14 @@ type trackerStreamClient struct {
 	events chan sseEvent
 }
 
-// newTrackerStreamHub wires a fsnotify watcher on .backlog/tasks/ to a set of
-// SSE clients. A single watcher goroutine fans out to all clients; each client
-// is removed on context cancel (no goroutine leak).
-func newTrackerStreamHub(dir string) *trackerStreamHub {
-	return &trackerStreamHub{
-		dir:      dir,
-		clients:  map[*trackerStreamClient]bool{},
-		broadcast: make(chan string, 16),
-	}
-}
+// Watched dirs. Single source of truth, derived from the SAME layout the
+// backlog reader uses (milestones = sibling of the tasks dir) so the watcher
+// and the reader can never point at different places.
+const defaultBacklogTasksDir = ".backlog/tasks"
 
-type trackerStreamHub struct {
-	dir       string
-	clients   map[*trackerStreamClient]bool
-	broadcast chan string
-}
-
-func (h *trackerStreamHub) add(c *trackerStreamClient) {
-	h.clients[c] = true
-}
-
-func (h *trackerStreamHub) remove(c *trackerStreamClient) {
-	delete(h.clients, c)
-}
-
-// watchDir returns the directory to watch, creating it if missing so the
-// watcher never errors on a fresh repo.
-func (h *trackerStreamHub) watchDir() string {
-	if h.dir == "" {
-		h.dir = ".backlog/tasks"
-	}
-	_ = os.MkdirAll(h.dir, 0o755)
-	return h.dir
-}
+// Derived exactly as backlogAdapter.milestonesDir() derives it, so the SSE
+// watcher and the reader always agree on the milestones location.
+var defaultBacklogMilestonesDir = filepath.Join(filepath.Dir(defaultBacklogTasksDir), "milestones")
 
 // sseEvent is one SSE message: the event type (used for the `event:` line) and
 // the JSON payload (the `data:` line).
@@ -76,9 +50,11 @@ func (s *Server) handleTrackerStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the dirs: prefer the active Backlog.md provider's dirs.
-	tasksDir := ".backlog/tasks"
-	milestonesDir := ".backlog/milestones"
+	// The SSE stream only exists for the file-based Backlog.md provider; its
+	// dirs default to the constants above. (A ?provider= override selects a
+	// remote provider that has no local dirs to watch — nothing to stream.)
+	tasksDir := defaultBacklogTasksDir
+	milestonesDir := defaultBacklogMilestonesDir
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")

@@ -295,6 +295,9 @@ func (a *backlogAdapter) Milestones(ctx context.Context) ([]Milestone, error) {
 		}
 		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
+			// Unreadable file (perm, transient I/O) is skipped: a partial board
+			// that still shows the other milestones is better than no board at
+			// all. The ReadDir-level error above is what 502s the endpoint.
 			continue
 		}
 		fm, _, _, ok := parseFrontmatter(string(raw))
