@@ -1,10 +1,10 @@
 ---
 id: TASK-059
 title: TICKET-01 Delete stray nested git repo + inline logging
-status: ready-for-agent
+status: done
 assignee: []
 created_date: '2026-10-07 12:48'
-updated_date: '2026-10-07 12:54'
+updated_date: '2026-10-07 13:46'
 labels: []
 milestone: m-8
 dependencies: []
@@ -44,3 +44,9 @@ created: 2026-10-07 12:54
 EXECUTOR NOTE: already committed (inlined setup/logging.go present, 4 setup files use local log*). Verify only — re-run acceptance. No new code expected.
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T01 verified: stray nested git repo removed, inline logging moved out of skillgrid-cli into mnemonic/internal/logging. No skillgrid-cli/internal/logging refs remain in the main tree.
+<!-- SECTION:FINAL_SUMMARY:END -->

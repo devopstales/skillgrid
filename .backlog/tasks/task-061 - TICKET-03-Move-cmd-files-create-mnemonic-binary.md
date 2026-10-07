@@ -1,10 +1,10 @@
 ---
 id: TASK-061
 title: TICKET-03 Move cmd files + create mnemonic binary
-status: ready-for-agent
+status: done
 assignee: []
 created_date: '2026-10-07 12:48'
-updated_date: '2026-10-07 12:55'
+updated_date: '2026-10-07 13:46'
 labels: []
 milestone: m-8
 dependencies:
@@ -47,3 +47,9 @@ created: 2026-10-07 12:55
 EXECUTOR NOTE: already committed (full subcommand tree in mnemonic/cmd/mnemonic/, binary builds + vet clean). Verify only — re-run acceptance. No new code expected.
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T03 verified: cmd files moved to mnemonic/cmd/mnemonic; mnemonic binary builds with -tags ui and exposes mcp/serve/index/orient/search/mem subcommands (all --help exit 0).
+<!-- SECTION:FINAL_SUMMARY:END -->

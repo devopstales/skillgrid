@@ -1,10 +1,10 @@
 ---
 id: TASK-065
 title: TICKET-07 Update external configs + hooks + git-hooks + vite
-status: ready-for-agent
+status: done
 assignee: []
 created_date: '2026-10-07 12:50'
-updated_date: '2026-10-07 12:58'
+updated_date: '2026-10-07 13:50'
 labels: []
 milestone: m-8
 dependencies:
@@ -54,3 +54,9 @@ created: 2026-10-07 12:58
 EXECUTOR NOTE: verify/finish — scripts/sync-mnemonic-rule.sh + hooks/*.sh + config.d/mcp.yaml + plugins/cursor/mcp.json should all reference the mnemonic module path/binary. Spot-check each for any stale skillgrid-cli/internal/mnemonic reference; patch if found. Mostly already committed.
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T07 verified: scripts/sync-mnemonic-rule.sh reads plugins/opencode/memory-protocol.md; stale plugins/_shared/ comment fixed.
+<!-- SECTION:FINAL_SUMMARY:END -->

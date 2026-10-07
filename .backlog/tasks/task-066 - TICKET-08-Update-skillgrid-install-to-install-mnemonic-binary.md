@@ -1,10 +1,10 @@
 ---
 id: TASK-066
 title: TICKET-08 Update skillgrid install to install mnemonic binary
-status: ready-for-agent
+status: done
 assignee: []
 created_date: '2026-10-07 12:51'
-updated_date: '2026-10-07 12:52'
+updated_date: '2026-10-07 13:50'
 labels: []
 milestone: m-8
 dependencies:
@@ -37,3 +37,9 @@ Make skillgrid install copy/install the mnemonic binary alongside skillgrid (fro
 - [ ] #4 No new warnings introduced
 - [ ] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T08 verified: buildBinaries in install.go builds skillgrid (no tags) + mnemonic (-tags ui) into ~/.local/bin/.
+<!-- SECTION:FINAL_SUMMARY:END -->

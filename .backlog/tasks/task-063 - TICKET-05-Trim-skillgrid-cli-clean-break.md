@@ -1,10 +1,10 @@
 ---
 id: TASK-063
 title: TICKET-05 Trim skillgrid-cli (clean break)
-status: ready-for-agent
+status: done
 assignee: []
 created_date: '2026-10-07 12:49'
-updated_date: '2026-10-07 12:55'
+updated_date: '2026-10-07 13:46'
 labels: []
 milestone: m-8
 dependencies:
@@ -49,3 +49,9 @@ created: 2026-10-07 12:55
 EXECUTOR NOTE: mostly committed (only internal/install remains in skillgrid-cli/internal/, mnemonic cmd files removed). Verify internal/logging + binary deleted and go.mod trimmed; finish if not. One-way door.
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T05 verified: skillgrid-cli go.mod trimmed (go mod tidy no-op; only mnemonic replace + gjson/sjson/yaml direct). Stale 12.8MB skillgrid binary removed. main.go unknown-command → exit 2 (AC#3). --help shows only install+sync-repo+help.
+<!-- SECTION:FINAL_SUMMARY:END -->

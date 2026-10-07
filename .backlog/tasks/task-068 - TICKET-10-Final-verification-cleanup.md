@@ -1,10 +1,10 @@
 ---
 id: TASK-068
 title: TICKET-10 Final verification + cleanup
-status: ready-for-agent
+status: done
 assignee: []
 created_date: '2026-10-07 12:51'
-updated_date: '2026-10-07 12:53'
+updated_date: '2026-10-07 13:50'
 labels: []
 milestone: m-8
 dependencies:
@@ -42,3 +42,9 @@ End-to-end gate for the module extraction: full build from repo root via go.work
 - [ ] #4 No new warnings introduced
 - [ ] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T10 verified: all 5 ACs pass. Both modules go vet clean, go build clean, mnemonic mcp/serve/index/orient/search work, skillgrid --help shows only install/sync-repo/help, zero stale refs in main tree.
+<!-- SECTION:FINAL_SUMMARY:END -->

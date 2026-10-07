@@ -1,10 +1,10 @@
 ---
 id: TASK-062
 title: TICKET-04 Create facade files for skillgrid-cli
-status: ready-for-agent
+status: done
 assignee: []
 created_date: '2026-10-07 12:49'
-updated_date: '2026-10-07 12:55'
+updated_date: '2026-10-07 13:46'
 labels: []
 milestone: m-8
 dependencies:
@@ -49,3 +49,9 @@ created: 2026-10-07 12:55
 EXECUTOR NOTE: partially committed — facade files mnemonic/setup.go + mnemonic/ui.go exist. Confirm internal/install resolves through the facade and add any missing re-export. Finish, not verify-only.
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T04 verified: mnemonic/setup.go + mnemonic/ui.go export exactly FindRepoRoot/LoadMCPConfig/RunSetup/Interactive/MultiSelect/Option — the 6 symbols skillgrid-cli/internal/install imports. Build clean.
+<!-- SECTION:FINAL_SUMMARY:END -->

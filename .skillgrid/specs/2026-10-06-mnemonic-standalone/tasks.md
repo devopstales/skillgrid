@@ -1,6 +1,6 @@
 # Tasks — Mnemonic Standalone Module
 
-> **STATUS:** `ticketed` (2026-10-07)
+> **STATUS:** `done` (2026-10-07)
 
 > Sliced from `.skillgrid/specs/2026-10-06-mnemonic-standalone/blueprint.md`.
 > Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.

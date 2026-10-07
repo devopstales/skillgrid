@@ -1,10 +1,10 @@
 ---
 id: TASK-067
 title: TICKET-09 Add CI Go jobs
-status: ready-for-agent
+status: done
 assignee: []
 created_date: '2026-10-07 12:51'
-updated_date: '2026-10-07 12:58'
+updated_date: '2026-10-07 13:50'
 labels: []
 milestone: m-8
 dependencies:
@@ -47,3 +47,9 @@ created: 2026-10-07 12:58
 EXECUTOR NOTE: verify-only — .github/workflows/hub-sync-check.yml (and any other CI workflow) should run go build/vet/test in BOTH the mnemonic and skillgrid-cli module dirs. Check the existing CI job already does dual-module testing; add the missing module leg if it only tested one.
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T09 verified: CI workflow has dual-module go build + go test steps for both mnemonic/ and skillgrid-cli/.
+<!-- SECTION:FINAL_SUMMARY:END -->

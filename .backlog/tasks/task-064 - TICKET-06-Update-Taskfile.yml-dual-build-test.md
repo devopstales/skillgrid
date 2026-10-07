@@ -1,10 +1,10 @@
 ---
 id: TASK-064
 title: TICKET-06 Update Taskfile.yml (dual build + test)
-status: ready-for-agent
+status: done
 assignee: []
 created_date: '2026-10-07 12:50'
-updated_date: '2026-10-07 12:55'
+updated_date: '2026-10-07 13:50'
 labels: []
 milestone: m-8
 dependencies:
@@ -48,3 +48,9 @@ created: 2026-10-07 12:55
 EXECUTOR NOTE: partially committed — Taskfile.yml already builds both ({{.MEM_BIN}} + {{.CLI_BIN}}). Verify all tasks (build, cross-build, test, seed-test, fmt, install) cover both modules; patch any that still assume a single module. Finish, not verify-only.
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T06 verified: Taskfile.yml runs dual-module build/test. MEM_BIN and CLI_BIN both build successfully.
+<!-- SECTION:FINAL_SUMMARY:END -->
