@@ -1117,3 +1117,89 @@ The second insight: test-book's **score calibration rule** ("subtract 0.8 from e
 | [G10] | CSO daily 8/10 vs comprehensive 2/10 | [cso/SKILL.md](file:///Users/paladm/git/ai-test/gstack/cso/SKILL.md) | checkout | 2026-10-02 | high |
 | [G11] | Office-hours / CEO-review: reframe + Hold Scope / Scope Reduction | [plan-ceo-review/SKILL.md](file:///Users/paladm/git/ai-test/gstack/plan-ceo-review/SKILL.md) + README | checkout | 2026-10-02 | high |
 | [K1] | Project-context skill: app-specific memory bank; short description always loaded; full body on demand | [AI Labs — Karpathy loop](https://www.youtube.com/watch?v=qLfSDQ5NGh0) (~04:21) | 2026-10-02 | 2026-10-02 | high |
+
+---
+
+## Research: Should Skillgrid run execution in subagents (GSD `gsd-execute-phase` model)?
+
+> **Decision this serves:** Whether the `subagent-execution` / `simple-execution` skills should adopt GSD's subagent-driven execution model wholesale, and which of its mechanisms fit the serial lock.
+>
+> **Type:** technical (mechanism comparison against two named systems) + competitive (position against gsd-core's orchestrator/worker engine)
+> **Mode:** research (single pass, delegated fan-out over both checkouts)
+> **Date:** 2026-10-07 · **Status:** complete
+> **Primary corpus:** local checkouts `~/git/ai-test/gsd-core` (`skills/gsd-execute-phase/SKILL.md`, `gsd-core/workflows/execute-phase.md`, `execute-plan.md`, `agents/gsd-executor.md`) and `~/git/ai-test/gstack` (`README.md`, `ship/SKILL.md`, `spec/SKILL.md`, `autoplan/SKILL.md`) read this run; Skillgrid `.agents/skills/execution/{subagent-execution,simple-execution,parallel-execution}/SKILL.md` read this run.
+
+### Executive Summary
+
+**gsd-core's `gsd-execute-phase` is a deterministic orchestrator/worker engine, and "subagent-driven" is its default and canonical mode, not an option.** The orchestrator coordinates — it discovers plans, groups them into dependency waves, spawns `gsd-executor` subagents (fresh context, ~10–15% of the window for the orchestrator itself), and collects results. It never touches source files. Inline execution is a documented, conditional fallback: `--interactive` flag, small plans (≤2 tasks, ~14K-token spawn overhead), or runtimes without a reliable `Agent()` completion signal.
+
+**gstack is the opposite paradigm.** It is a role-based slash-command process: the main session builds inline; subagents are *hired* for specific sub-tasks (adversarial review + Codex cross-model pass, `/document-release` subagent, `claude -p` in a fresh worktree for spec→build). There is no wave/orchestrator fan-out at all; parallelism lives at the sprint level via an external tool (Conductor), not inside a skill.
+
+**Skillgrid's `subagent-execution` already has GSD's per-task shape** — fresh implementer per task, per-task reviewer, two-axis final review — so the gap is not "switch to subagents" (already done) but the three orchestrator mechanisms the skill lacks: (1) filesystem-as-truth completion, (2) post-merge build+test gate per wave, (3) separate goal verifier + gap-closure loop. Wave fan-out and worktree-by-default isolation are the GSD parts that fight the serial one-change lock.
+
+### Findings
+
+#### gsd-core: orchestrator/worker mechanics
+
+- **Orchestrator coordinates, not executes.** `execute-phase.md` states the core principle: each subagent loads the full execute-plan context; the orchestrator holds ~10–15% of a 200K window; subagents get a fresh window. "No polling (Agent blocks). No context bleed."
+- **Unit of work = a plan** (`*-PLAN.md`), grouped into **waves** by dependency analysis. Waves run sequentially; plans within a wave run in parallel (via `run_in_background: true` `Agent()` calls, one at a time to avoid `.git/config.lock` races) or sequentially if `parallelization=false` or if the intra-wave file-overlap check finds shared `files_modified`.
+- **Isolation is the only fan-out branch point**: `ISOLATION ∈ {harness-worktree, orchestrator-worktree, none}`. In worktree mode each executor commits on a per-agent branch and must commit `SUMMARY.md` before returning.
+- **Filesystem is the source of truth, not the return message.** The executor writes `SUMMARY.md` to disk; `gsd-executor.md` states the orchestrator reads it from disk after the agent returns and "does NOT read your return message for the file content." Because backgrounded agents' completion signals may never arrive (a known runtime quirk), the orchestrator **spot-checks, never waits**: `SUMMARY.md` exists + `git log --grep=<plan-id>` finds commits ⇒ done.
+- **Stall surveillance**: on a fixed interval, if no `SUMMARY.md` and no expected-branch commits after a threshold, the orchestrator pauses and offers continue / kill+retry / kill+switch-to-inline.
+- **Post-merge build & test gate after each wave** — explicitly justified against the "generator self-evaluation blind spot" (an agent reports Self-Check: PASSED but the merge breaks). Tracking advances only if the test run exits 0 (timeout = inconclusive, not pass).
+- **End-of-phase verification is a separate `gsd-verifier` subagent** that checks the phase **GOAL** (not just task completion) and cross-references requirement IDs, producing `VERIFICATION.md`. Gaps route to a `--gaps` planning pass, then `--gaps-only` re-execution, then re-verify — the **gap-closure loop**.
+- **Rework machinery**: a failure classifier (`quota-exceeded` / a known handoff bug treated as success after spot-check / `unknown-failure`); checkpoints spawn a **fresh continuation agent** (not resume — resume serialization breaks with parallel tool calls); a node-repair budget (default 2) before escalation.
+- **Inline fallbacks**: `--interactive` (sequential inline, no subagents); `TASK_COUNT <= INLINE_THRESHOLD` (default **2**) runs inline to avoid spawn overhead; runtimes without a reliable completion signal default to sequential inline.
+
+#### gstack: human-steered process, subagents as hired roles
+
+- **The main session is the default executor.** Each slash-command skill is "executable instructions, not reference." The user (or Conductor) advances the sprint command-by-command: Think → Plan → Build → Review → Test → Ship → Reflect.
+- **Subagents are hired for specific sub-tasks, not as the work unit**: `/ship` + `/review` run an adversarial Claude subagent **plus** a Codex pass (cross-model gate); large diffs (200+ lines) add a structured Codex review with a P1 gate; `/ship` dispatches a `/document-release` subagent (non-blocking); `/spec --execute` spawns `claude -p` in a **fresh worktree**.
+- **No wave model**: `/autoplan` chains CEO → Design → DX → Eng review "NEVER in parallel." Parallelism is 10–15 concurrent *sprints* via Conductor (isolated sessions/workspaces), not concurrent tasks inside one change.
+- **Gates are named skills, not an orchestrator**: `/qa` (real browser, fix → regression test → re-verify), `/cso` (8/10 confidence), `/spec` (7/10 score gate), `gstack-verify-gate` (Stop hook), `gstack-evidence` (verification ledger cited by `/ship`).
+
+#### Skillgrid: current state vs the gap
+
+| GSD `gsd-execute-phase` mechanism | Skillgrid today | Verdict |
+|---|---|---|
+| Fresh implementer per task + per-task review | `subagent-execution`: fresh implementer subagent per task, task reviewer (spec + quality), two-axis final review | **Already present** |
+| Orchestrator holds ~10–15% context; workers get fresh windows | Same principle, stated in the skill's "Why subagents" | **Already present** |
+| Return message is not the signal; spot-check `SUMMARY.md` + `git log` | Parent re-verify re-runs the task's `#### Gates` oracles (Decompose & Gate), but completion trusts the implementer's report + ledger; no artifact/commit spot-check for lost completion signals | **Gap (a)** |
+| Post-merge build+test gate after each wave | Only the end-of-change `skillgrid:qa` gate; nothing between tasks/waves | **Gap (b)** |
+| Separate `gsd-verifier` checks the phase GOAL; gap-closure loop (`--gaps` → re-verify) | `skillgrid:qa` + two-axis final review check the code, not the briefing goal against a Validation matrix; no named gap-closure loop (req 6 correct-course is the closest, and it is queued) | **Gap (c)** |
+| Waves: sequential waves, parallel plans-in-wave, worktree isolation | `subagent-execution` is sequential by design; `parallel-execution/concurrent-leaves` is the lightweight fan-out case; lease/wave machinery "is a future orchestrator skill, out of scope" (subagent-execution:264-267); "worktree-by-default parallelism" is out of scope (briefing line 20); serial one-change is a locked constraint | **Rejected** |
+| Inline fallback for ≤2 tasks / no-reliable-signal runtimes | `simple-execution` line 22: "If subagents are available, use skillgrid:subagent-execution instead" | **Already present (as a separate skill)** |
+
+### Recommendations
+
+1. **One requirement (req 24), three parts, with the cheap part first.** Part (a) filesystem-as-truth is an edit to two existing skills (spot-check artifacts + git log before marking complete; a mismatch means not done) — no new machinery, lands in the first slice. Parts (b) post-wave gate and (c) goal verifier + gap-closure loop are queued behind the first slice. Confidence **high**.
+2. **Reject wave fan-out and worktree-by-default.** Both fight the serial one-change lock and the existing "worktree-by-default parallelism" out-of-scope line. `parallel-execution/concurrent-leaves` stays the lightweight case; the full orchestrator (4+ leaves, lease/wave state) remains a future skill. Confidence **high**.
+3. **Do not demote `simple-execution` as part of this.** It is already the documented no-subagent-harness fallback; changing the default split is a separate decision the interview left out of scope. Confidence **high**.
+4. **The goal verifier (part c) should be the independent reader of the req 19 Validation matrix** — same evaluator-independence posture as the test-book borrow 1 (→ `qa`). It re-runs the matrix rows against the live tree; gaps cannot be parked without a ledger ruling. Confidence **medium-high** (depends on req 19 landing first).
+
+### Contrary Evidence
+
+- "Everything in subagents" taken literally would import GSD's wave engine and worktree isolation — the two parts that break the serial lock. The defensible read is subagents-for-*work* (already true), not subagents-for-*coordination*.
+- Part (a)'s value depends on the harness actually losing completion signals (documented for Claude Code's backgrounded agents; unverified for OpenCode/Cursor/Kilo). If no supported harness loses them, part (a) degrades from "catch lost signals" to "defense in depth" — still consistent with the parent re-verify rule, but the urgency drops.
+- Part (c) adds a second full-context subagent run (the most expensive model per model-selection) at the end of every standard change. Against the effort-budget table, it should apply to `standard`/`max` only, not the `trivial`/`small` fast-track.
+
+### Open Questions
+
+- Part (b): does the post-wave gate run `testing.runner` + `commands.build` only, or also lint? And on `trivial`/`small` fast-track or `standard`/`max` only (effort-budget table)?
+- Part (c): is the goal verifier a new `verification` subagent dispatched by `subagent-execution` / a `parallel-execution` variant, or a mode inside `skillgrid:qa`? How do its named gaps map to Backlog ticket IDs (new tickets vs a correct-course briefing patch, req 6)?
+- Part (a): is the spot-check a one-line rule in the skills, or a tested `.mjs` helper per req 8's script contract (`git log --grep=<task-id>` + artifact existence → JSON verdict)? If a script, the task ID needs a greppable convention in commit messages (the `[skillgrid-context]` block already names the task ID — confirm it is always present).
+
+### Source Appendix
+
+| [n] | Claim/finding it supports | Publisher | Pub date | Accessed | Confidence |
+|-----|---------------------------|-----------|----------|----------|------------|
+| [E1] | Orchestrator coordinates not executes; ~10–15% window; waves sequential / plans parallel; `run_in_background` one-at-a-time | [gsd-core/skills/gsd-execute-phase/SKILL.md](file:///Users/paladm/git/ai-test/gsd-core/skills/gsd-execute-phase/SKILL.md) + [gsd-core/workflows/execute-phase.md](file:///Users/paladm/git/ai-test/gsd-core/gsd-core/workflows/execute-phase.md) | 2026-10-07 | 2026-10-07 | high |
+| [E2] | `SUMMARY.md` on disk is truth; return message not read; spot-check never wait; stall surveillance intervals | [gsd-core/workflows/execute-phase.md](file:///Users/paladm/git/ai-test/gsd-core/gsd-core/workflows/execute-phase.md) + [gsd-core/agents/gsd-executor.md](file:///Users/paladm/git/ai-test/gsd-core/gsd-core/agents/gsd-executor.md) | 2026-10-07 | 2026-10-07 | high |
+| [E3] | Post-merge build+test gate per wave; TEST_EXIT≠0 ⇒ not complete; generator self-evaluation blind spot | [gsd-core/workflows/execute-phase.md](file:///Users/paladm/git/ai-test/gsd-core/gsd-core/workflows/execute-phase.md) | 2026-10-07 | 2026-10-07 | high |
+| [E4] | `gsd-verifier` subagent checks phase GOAL + requirement IDs; `VERIFICATION.md`; `--gaps` / `--gaps-only` gap-closure loop | [gsd-core/workflows/execute-phase.md](file:///Users/paladm/git/ai-test/gsd-core/gsd-core/workflows/execute-phase.md) | 2026-10-07 | 2026-10-07 | high |
+| [E5] | Inline fallbacks: `--interactive`, `INLINE_THRESHOLD` default 2, no-reliable-signal runtimes; failure classifier; fresh continuation agent (not resume) | [gsd-core/skills/gsd-execute-phase/SKILL.md](file:///Users/paladm/git/ai-test/gsd-core/skills/gsd-execute-phase/SKILL.md) + [gsd-core/workflows/execute-plan.md](file:///Users/paladm/git/ai-test/gsd-core/gsd-core/workflows/execute-plan.md) | 2026-10-07 | 2026-10-07 | high |
+| [E6] | Worktree isolation modes; per-agent branch; SUMMARY committed before return; intra-wave file-overlap forces sequential | [gsd-core/workflows/execute-phase.md](file:///Users/paladm/git/ai-test/gsd-core/gsd-core/workflows/execute-phase.md) | 2026-10-07 | 2026-10-07 | high |
+| [E7] | gstack: main session is default executor; sprint command chain; subagents for review (adversarial + Codex), docs, spec→build worktree; no wave model; Conductor for parallel sprints | [gstack/README.md](file:///Users/paladm/git/ai-test/gstack/README.md) + [ship/SKILL.md](file:///Users/paladm/git/ai-test/gstack/ship/SKILL.md) + [spec/SKILL.md](file:///Users/paladm/git/ai-test/gstack/spec/SKILL.md) + [autoplan/SKILL.md](file:///Users/paladm/git/ai-test/gstack/autoplan/SKILL.md) | 2026-09-13 checkout | 2026-10-07 | high |
+| [E8] | Skillgrid per-task shape already present; sequential by design; lease/wave machinery "future orchestrator skill, out of scope" | [.agents/skills/execution/subagent-execution/SKILL.md](.agents/skills/execution/subagent-execution/SKILL.md) | 2026-10-07 (working tree) | 2026-10-07 | high |
+| [E9] | `simple-execution` is the no-subagent fallback (line 22) | [.agents/skills/execution/simple-execution/SKILL.md](.agents/skills/execution/simple-execution/SKILL.md) | 2026-10-07 (working tree) | 2026-10-07 | high |
+| [E10] | Serial one-change lock; "worktree-by-default parallelism" out of scope (line 20); effort-budget table | [.skillgrid/ASSUMPTIONS.md](.skillgrid/ASSUMPTIONS.md) + [briefing.md](briefing.md) + [.agents/skills/_shared/rules/effort-budgets.md](.agents/skills/_shared/rules/effort-budgets.md) | 2026-10-07 (working tree) | 2026-10-07 | high |
