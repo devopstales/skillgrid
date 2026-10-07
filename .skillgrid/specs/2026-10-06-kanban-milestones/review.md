@@ -40,15 +40,15 @@
 
 ### Standards
 
-- **Worst issue (within this axis):** `milestonesDir` hardcoded in the SSE handler while the reader derives it from `backlogAdapter.dir()` — watcher and reader can silently desync (backlog.go:39 vs server_tracker_stream.go:81)
-- **Findings:** 0 Critical / 3 Important / 7 Minor (capped to 5 listed)
-- **Verdict:** met-with-fixes
+- **Worst issue (within this axis):** none remaining (the 3 Important findings were fixed in `a8b7edb6`)
+- **Findings:** 0 Critical / 3 Important (all fixed) / 7 Minor (capped to 5 listed)
+- **Verdict:** met
 
 ### Spec
 
-- **Worst issue (within this axis):** three scope items lack the tests the QA report claims — ListView/TaskDetail render (AC#3), GET /tracker/milestones endpoint (AC#5), DnD-within-milestone-rows (scope item 2)
-- **Findings:** 0 Critical / 3 Important / 2 Minor
-- **Verdict:** met-with-fixes
+- **Worst issue (within this axis):** none remaining (the 3 Important findings were fixed in `be0ee139` + `40ff278` + `3f65a21`)
+- **Findings:** 0 Critical / 3 Important (all fixed) / 2 Minor
+- **Verdict:** met
 
 ### Security
 
@@ -62,14 +62,14 @@
 
 (none)
 
-### Important
+### Important (all fixed)
 
-- [standards] `server_tracker_stream.go:81` vs `backlog.go:39` — `milestonesDir := ".backlog/milestones"` hardcoded in the SSE handler while `backlogAdapter.milestonesDir()` derives from `filepath.Dir(a.dir())`; the handler drops provider resolution and no longer consults the active provider — watcher and reader can point at different dirs with no signal — derive both from a single shared backlog-root helper.
-- [standards] `backlog.go:296-298` — `raw, err := os.ReadFile(...); if err != nil { continue }` silently drops an unreadable milestone file (a real I/O failure, not just missing-dir) — code-standards says never swallow without a written justification; add the justification comment or surface it (log/count).
-- [standards] `server_tracker_stream.go:21-54` — `trackerStreamHub` / `newTrackerStreamHub` (+ `add`/`remove`/`watchDir`) are dead code: `handleTrackerStream` uses a per-request `fsnotify.NewWatcher()` and never constructs a hub — "no dead code — delete, don't comment out"; pre-existing but in a touched file, and the doc comment is stale.
-- [spec] `ListView.tsx` + `TaskDetail.tsx` — TASK-047 AC#3 (list + detail show title) code path is present and correct, but no test renders either component; the QA report maps AC#3 to `BoardView.test.tsx`, which covers neither — add render tests or correct the report's mapping.
-- [spec] `server_tracker.go:60` — TASK-047 AC#5 (GET /tracker/milestones returns the list) has no HTTP-level test (no httptest round-trip of the endpoint); only the adapter `Milestones()` is unit-tested — add an httptest round-trip test for the route.
-- [spec] `BoardView.test.tsx` — TASK-049 scope item 2 ("DnD still works within milestone rows") has no test simulating a drag within a milestone row; `onMove` is always a no-op `vi.fn()` in every render — the scope line is half-honored.
+- [standards] `server_tracker_stream.go` vs `backlog.go:39` — `milestonesDir` was hardcoded in the SSE handler while the reader derived it from `backlogAdapter.milestonesDir()` — **FIXED** (`a8b7edb6`): the handler now derives both watched dirs from package-level constants that mirror the reader, single source of truth.
+- [standards] `backlog.go` `Milestones()` — the per-file `os.ReadFile` skip silently dropped unreadable files — **FIXED** (`a8b7edb6`): written justification added (partial board > no board; the `ReadDir`-level error is what 502s).
+- [standards] `server_tracker_stream.go` — `trackerStreamHub` / `newTrackerStreamHub` (+ `add`/`remove`/`watchDir`) were dead code — **FIXED** (`a8b7edb6`): deleted, stale comment removed.
+- [spec] `ListView.tsx` + `TaskDetail.tsx` — TASK-047 AC#3 had no render test (the QA report mis-mapped it to `BoardView.test.tsx`) — **FIXED** (`40ff278`): title-resolved + raw-ID-fallback render tests added for both components.
+- [spec] `server_tracker.go:60` — TASK-047 AC#5 (GET /tracker/milestones) had no HTTP round-trip test — **FIXED** (`be0ee139`): `httptest` round-trip added asserting the `{"milestones":[...],"provider":"backlogmd"}` shape, id-sorted, plus the missing-dir degrade (200 + empty array).
+- [spec] `BoardView.test.tsx` — TASK-049 scope item 2 ("DnD still works within milestone rows") had no test — **FIXED** (`3f65a21`): a real pointer drag against the `SortableContext` card drives the drop → `onMove`; a plain click still opens the task instead of moving.
 
 ### Minor
 
@@ -104,9 +104,9 @@ verdict leaked. Grade B because the subagents share the implementer's model fami
 
 > The overall review verdict is the **floor** across the three axes (per `_shared/verification/floor.md`): the weaker axis caps the whole review. Never average the three axes into a single "overall."
 
-- **Standards:** met-with-fixes
-- **Spec:** met-with-fixes
+- **Standards:** met
+- **Spec:** met
 - **Security:** secure
-- **Floor (decides):** met-with-fixes
-- **Worst issue (across all three axes):** `milestonesDir` hardcoded in the SSE handler while the reader derives it from `backlogAdapter.dir()` — watcher/reader desync (standards)
-- **Unfixed Important count (must be 0 to proceed):** 6 (3 standards + 3 spec)
+- **Floor (decides):** met
+- **Worst issue (across all three axes):** none remaining — all 6 Important findings fixed
+- **Unfixed Important count (must be 0 to proceed):** 0

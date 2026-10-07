@@ -28,7 +28,7 @@ The most likely thing to break in production: a **milestone-title resolution reg
 | 2 | `GET /tracker/milestones` returns milestone list (id + title) | `server_tracker.go::handleTrackerMilestones` | unit | `backlog_test.go` endpoint test (route + JSON shape) | P0 | pr | covered |
 | 3 | Board milestone rows render human-readable titles (not raw ID) | `BoardView.tsx` | unit | `BoardView.test.tsx::renders milestone title in row` | P0 | pr | covered |
 | 4 | Task card badge shows milestone title | `TaskCard.tsx` | unit | `BoardView.test.tsx` (badge assertion) | P1 | pr | covered |
-| 5 | List view + task detail show milestone title | `ListView.tsx`, `TaskDetail.tsx` | unit | `BoardView.test.tsx` (list/detail render) | P1 | pr | covered |
+| 5 | List view + task detail show milestone title | `ListView.tsx`, `TaskDetail.tsx` | unit | `ListView.test.tsx` (title/fallback render) + `TaskDetail.docrefs.test.tsx` (title/fallback render) | P1 | pr | covered |
 | 6 | Unknown milestone IDs fall back to raw ID | `epicTree.ts::groupTasksByMilestone` | unit | `epicTree.test.ts::groupTasksByMilestone falls back to raw ID` | P0 | pr | covered |
 | 7 | SSE emits `milestones-changed` on milestone file change | `server_tracker_stream.go` | unit | `tracker_phase2_test.go::TestPhase2_TrackerStream_Milestones` | P0 | pr | covered |
 | 8 | Missing milestones dir handled gracefully (no error) | `server_tracker_stream.go` | unit | `tracker_phase2_test.go::TestPhase2_TrackerStream_NoMilestonesDir` | P0 | pr | covered |
@@ -84,9 +84,9 @@ The most likely thing to break in production: a **milestone-title resolution reg
 | Artifact | `GET /tracker/milestones` route + handler | `server_tracker.go` (route + `handleTrackerMilestones`) + endpoint test | VERIFIED |
 | Artifact | TS `fetchMilestones()` + `milestoneTitles` map threaded | `api.ts` + `hooks.ts` + `BoardView/TaskCard/ListView/TaskDetail` (source verified) | VERIFIED |
 | Artifact | Dual fsnotify watcher in SSE handler | `server_tracker_stream.go` (second watcher + `milestones-changed` emit) + 3 SSE tests | VERIFIED |
-| Key Link | milestone file → adapter → HTTP → TS map → board title | `backlog_test.go` (adapter→HTTP) + `BoardView.test.tsx` (map→render) | VERIFIED |
+| Key Link | milestone file → adapter → HTTP → TS map → board title | `tracker_routes_test.go::TestStep02_MilestonesEndpoint` (adapter→HTTP) + `BoardView.test.tsx` (map→render) | VERIFIED |
 | Key Link | fsnotify milestone event → `milestones-changed` → TS re-fetch | `TestPhase2_TrackerStream_Milestones` (fsnotify→event) + `hooks.ts` (event→refetch, source) | VERIFIED |
-| Data Flow | real milestone file → title string in rendered DOM | `backlog_test.go` (real `.md` frontmatter → parsed title) + `BoardView.test.tsx` (title → DOM text) | VERIFIED |
+| Data Flow | real milestone file → title string in rendered DOM | `tracker_routes_test.go::TestStep02_MilestonesEndpoint` (real `.md` frontmatter → parsed title → HTTP) + `ListView.test.tsx`/`TaskDetail.docrefs.test.tsx` (title → DOM text) | VERIFIED |
 
 **Status definitions:**
 - `VERIFIED` — a test exercises this at the behavior level and passed.
