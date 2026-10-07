@@ -1,6 +1,11 @@
-# [Feature Name] Implementation Plan
+# [Feature Name] Implementation Blueprint (steps, files, verification)
 
 > Copy this template to `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md`.
+> **Role:** this is the *how* — the implementation plan: concrete steps,
+> files to touch, code, tests, and verification. The companion `briefing.md`
+> is the *what* (requirements & intent). The filename pair is load-bearing:
+> `brainstorming` and `resume` key phase state off which of the two files
+> exist. Do not rename.
 > Assume the engineer has zero context for the codebase. Document every
 > file to touch, the code, the tests, and how to verify. DRY. YAGNI. TDD.
 > Frequent commits. No placeholders. (User preferences for plan location

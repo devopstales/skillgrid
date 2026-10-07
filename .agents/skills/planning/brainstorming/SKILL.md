@@ -117,6 +117,14 @@ was approved — lives in conversation, which rots.
   (`briefing.md` present = planning started; `blueprint.md` present =
   planning done; `tasks.md` with `[ ]` items = slicing done). No separate
   `state.md` is created.
+- **The filenames are the role, not a label you may swap.** `briefing.md` =
+  the *what* (requirements & intent: problem, success criteria, falsifiable
+  requirements); `blueprint.md` = the *how* (implementation plan: steps,
+  files, verification). Both headers must carry the role suffix —
+  `— Design Briefing (requirements & intent)` /
+  `— Implementation Blueprint (steps, files, verification)` — so a reader
+  never mistakes one for the other. Do not rename to `plan.md`/`design.md`
+  etc.: `resume` keys off the exact filenames.
 - **At each phase transition**, commit the spec-zone artifacts that changed
   (the zone guard requires spec commits before code). The commit's
   `[skillgrid-context]` block's `Decisions:` line carries the key call

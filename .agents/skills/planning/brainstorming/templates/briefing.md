@@ -1,8 +1,12 @@
-# [Feature Name] — Design Briefing
+# [Feature Name] — Design Briefing (requirements & intent)
 
 > **STATUS:** `draft` (YYYY-MM-DD)
 
 > Copy this template to `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md`.
+> **Role:** this is the *what* — the validated design/spec: problem, intent,
+> requirements, success criteria. The companion `blueprint.md` is the *how*
+> (implementation plan). The filename pair is load-bearing: `brainstorming` and
+> `resume` key phase state off which of the two files exist. Do not rename.
 > This is the validated design/spec. Fill every section from the
 > brainstorming conversation. Every requirement MUST be falsifiable
 > (Current / Target / Acceptance). Then run the spec self-review

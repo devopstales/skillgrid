@@ -28,6 +28,13 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 **Context:** If working in an isolated worktree, it should have been created via the `skillgrid:isolated-workspace` skill at execution time.
 
 **Save plans to:** `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md`
+
+**Role (do not rename):** `blueprint.md` is the *how* (implementation plan —
+steps, files, code, verification); the companion `briefing.md` is the *what*
+(requirements & intent). The header must read
+`# <Topic> — Implementation Blueprint (steps, files, verification)`. `brainstorming`
+and `resume` key phase state off these exact filenames — never rename to
+`plan.md`/`design.md`, and never move the folder out of `specs/`.
 - Copy `templates/blueprint.md` from this skill's directory and fill it in.
 - Commit the blueprint after saving (`git add` + `git commit`) — the artifact is a checkpoint alongside the code. The `pre-commit` zone guard (skillgrid:work-unit-commits) blocks a commit that mixes blueprint/spec changes with code.
 - (User preferences for plan location override this default)
