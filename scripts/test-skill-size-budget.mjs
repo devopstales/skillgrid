@@ -13,7 +13,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BUDGET = join(HERE, "..", ".agents", "skills", "qa", "scripts", "skill-size-budget.mjs");
+const BUDGET = process.argv[2] || join(HERE, "..", ".agents", "skills", "qa", "scripts", "skill-size-budget.mjs");
 
 let passed = 0;
 let failed = 0;

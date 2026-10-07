@@ -149,6 +149,14 @@ function main() {
     result.checks.size_budget = { exit: 2, scope: null, lines: ["script not found"] };
   }
 
+  // --- adr-invariants ---
+  const adrScript = join(root, "scripts", "check-adr-invariants.mjs");
+  if (existsSync(adrScript)) {
+    result.checks.adr_invariants = runScript(root, adrScript, []);
+  } else {
+    result.checks.adr_invariants = { exit: 2, scope: null, lines: ["script not found"] };
+  }
+
   // --- composite scope (worst-scope-wins) ---
   let composite = "COMPLETE";
   for (const key of ["state_drift", "ship_drift"]) {

@@ -7,7 +7,8 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node scripts/test-adr-invariants.mjs && node scripts/test-skill-size-budget.mjs .agents/skills/verification/qa/scripts/skill-size-budget.mjs",
+    "check:adr": "node scripts/check-adr-invariants.mjs"
   },
   "repository": {
     "type": "git",
