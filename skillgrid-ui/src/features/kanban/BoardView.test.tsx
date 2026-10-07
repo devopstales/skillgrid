@@ -7,6 +7,55 @@ function task(over: Partial<UnifiedTask> & Pick<UnifiedTask, 'id'>): UnifiedTask
   return { title: over.title ?? over.id, status: 'needs-triage', board: 'todo', provider: 'backlogmd', ...over }
 }
 
+// jsdom has no PointerEvent; dnd-kit's PointerSensor reads nativeEvent.clientX.
+let installed = false
+function ensurePointerEvent() {
+  if (installed || typeof window.PointerEvent !== 'undefined') return
+  class PointerEvent extends MouseEvent {
+    declare readonly isPrimary: boolean
+    declare readonly pointerId: number
+  }
+  Object.defineProperty(window, 'PointerEvent', { value: PointerEvent, writable: true })
+  installed = true
+}
+
+// Drive a dnd-kit drag by dispatching real pointer events (fireEvent leaves
+// nativeEvent undefined, which dnd-kit's sensors read).
+function pointer(el: Element, type: string, x: number, y: number) {
+  ensurePointerEvent()
+  const win = el.ownerDocument.defaultView!
+  el.dispatchEvent(
+    new win.PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      clientX: x,
+      clientY: y,
+      button: 0,
+      pointerId: 1,
+      isPrimary: true,
+    }),
+  )
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 0))
+
+async function dragTo(el: Element, tx: number, ty: number) {
+  const r = el.getBoundingClientRect()
+  const cx = r.left + r.width / 2
+  const cy = r.top + r.height / 2
+  pointer(el, 'pointerdown', cx, cy)
+  await tick()
+  pointer(el, 'pointermove', cx + 1, cy) // 1px: below the 5px activation distance
+  await tick()
+  pointer(el, 'pointermove', tx, ty) // beyond the constraint: activates the drag
+  await tick()
+  await tick() // let collision detection + the over-state effect resolve
+  pointer(el, 'pointerup', tx, ty)
+  await tick()
+  await tick()
+}
+
 describe('BoardView epic tree', () => {
   it('groups subtasks under their parent epic in a column', () => {
     const tasks = [
@@ -243,5 +292,44 @@ describe('BoardView milestone rows', () => {
     expect(screen.getAllByText('header-ms').length).toBeGreaterThanOrEqual(1)
     // Card hidden
     expect(screen.queryByText('Hidden Card')).toBeNull()
+  })
+
+  it('dragging within a milestone row calls onMove (click still opens, not moves)', async () => {
+    const tasks = [
+      task({ id: 't1', title: 'Todo Card', milestone: 'm-1', board: 'todo' }),
+      task({ id: 't2', title: 'Ready Card', milestone: 'm-1', board: 'ready' }),
+    ]
+    const onMove = vi.fn()
+    const onOpenTask = vi.fn()
+    render(
+      <BoardView
+        tasks={tasks}
+        onOpenTask={onOpenTask}
+        onMove={onMove}
+        disabled={false}
+        milestoneTitles={{ 'm-1': 'dnd-ms' }}
+      />,
+    )
+    // Both cards render inside the milestone row.
+    expect(screen.getByText('Todo Card')).toBeTruthy()
+    expect(screen.getByText('Ready Card')).toBeTruthy()
+
+    // A plain click opens the task and does NOT move it.
+    fireEvent.click(screen.getByText('Todo Card'))
+    expect(onOpenTask).toHaveBeenCalledWith('t1')
+    expect(onMove).not.toHaveBeenCalled()
+
+    // A real pointer drag (past the 5px activation constraint) drives the
+    // dnd-kit drop → onMove. The card's activator is the button carrying
+    // aria-roledescription="sortable" (dnd-kit inside a SortableContext).
+    const source = screen.getByText('Todo Card').closest('[aria-roledescription="sortable"]')!
+    await dragTo(source, 30, 30)
+    await vi.waitFor(() => expect(onMove).toHaveBeenCalled())
+
+    // handleDragEnd resolved a drop target and called onMove with the dragged id.
+    // (jsdom has no layout, so closestCorners resolves the drop to the dragged
+    // card's own column — the cross-column variant is covered by the real browser.)
+    expect(onMove).toHaveBeenCalledTimes(1)
+    expect(onMove.mock.calls[0][0]).toBe('t1')
   })
 })
