@@ -1,10 +1,10 @@
 ---
 id: TASK-054
 title: '[FEATURE] Dep package: SBOM ingest + soft-retire + affected + graph (mnemonic)'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-07 11:31'
-updated_date: '2026-10-07 11:34'
+updated_date: '2026-10-07 13:16'
 labels: []
 milestone: m-7
 dependencies:
@@ -53,3 +53,30 @@ Current State: dep package does not exist.\n\nExpected State: dep package: sbom.
 4. go test ./internal/mnemonic/dep/ -v + go build ./... -> green
 5. Commit: feat(mnemonic): dep package — SBOM ingest, soft-retire, affected, graph + Refs: TASK-054
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+dep package: SBOM ingest + soft-retire + affected + graph.
+
+## What
+- `sbom.go`: `ParseSBOM` (CycloneDX `components[]` → []Pkg by purl, `dependencies[]` → []Edge; SPDX stub returns a clear "not yet supported" error). purl from `bom-ref`, else `purl`, else synthesized `pkg:generic/<name>@<version>`; ecosystem derived from the purl type segment.
+- `service.go`: `Ingest` (one tx: `INSERT ... ON CONFLICT(purl) DO UPDATE SET retired=0, last_seen` per purl, then `DELETE FROM dep_edges WHERE from_purl IN (<set>)` + reinsert edges, then `UPDATE dependencies SET retired=1 WHERE purl NOT IN (<set>)` — soft-retire, never delete); `Affected` (reverse `depends_on` BFS over dep_edges WHERE to_purl=?, depth-capped 10); `Graph`, `List(retired)`, `Get`.
+- Fixtures sbom.cyclonedx.json (app→flask→werkzeug), sbom-noflask.json (flask absent), sbom.graph.json + tests.
+
+## Why
+TASK-054 — dependency graph ingest + reverse-impact query. SATISFIES `happy path dep ingest upserts by purl and soft-retires absent` + `happy path dep_affected returns reverse dependency set`.
+
+## Where
+- mnemonic/internal/dep/{service.go, sbom.go, dep_test.go} + fixtures/*.json
+
+## Verified
+- `go test ./internal/dep/ -v -count=1` → 8/8 PASS (upsert-by-purl, soft-retire leaves flask retired=1 with row surviving, Affected(werkzeug)={flask,app} transitive, Graph, List, Get, ParseSBOM CycloneDX, unsupported formats).
+- `go build ./...` + `go vet ./internal/dep/` clean.
+
+## Key Learnings
+- Store DB handle: `st.DB *sql.DB` public field; `store.Open(dataDir, projectID)` is the exact two-arg signature; no testStore helper → tests use store.Open(t.TempDir(), "deptest") + t.Cleanup(st.Close).
+- 050 DDL column surprise: `dependencies` columns are `purl, name, version, ecosystem, manifest, retired, last_seen` — NOT group/package_type as the brief suggested.
+- Soft-retire SQL (the crux): upsert clears retired, then `UPDATE ... SET retired=1 WHERE purl NOT IN (<ingested>)`; retired rows survive, last_seen preserved.
+- Bug caught by TDD: `List` first written as `WHERE retired = 1-retiredBool(retired)` (inverted); TestList caught it → `WHERE retired = retiredBool(retired)`.
+<!-- SECTION:FINAL_SUMMARY:END -->

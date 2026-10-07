@@ -3,10 +3,10 @@ id: TASK-051
 title: >-
   [FEATURE] Scan package: Start + StoreFindings trivy tracer, fail-open
   (mnemonic)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-07 11:30'
-updated_date: '2026-10-07 11:33'
+updated_date: '2026-10-07 13:16'
 labels: []
 milestone: m-7
 dependencies:
@@ -55,3 +55,30 @@ Current State: scan package does not exist; trivy runs ad-hoc and results evapor
 4. go test ./internal/mnemonic/scan/ -v + go build ./... -> green
 5. Commit: feat(mnemonic): scan package — start, store findings, severity map, raw store + Refs: TASK-051
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+scan package: Start + StoreFindings trivy tracer, fail-open (ADR-0016).
+
+## What
+- `service.go`: `New(s *store.Store, dataDir) *Service`; `Start` (UUIDv7 id, stubbable `Run` runner field, writes raw JSON to `<dataDir>/.skillgrid/cache/scans/<id>.json` 0644, inserts `scans` row; scanner error → status='error' + error text, returns the row — fail-open, never an error); `StoreFindings` (read raw → Parse → NormalizeSeverity → DedupHash → upsert findings on (scan_id, dedup_hash) → update scans.finding_count/status).
+- `raw.go`: WriteRaw/ReadRaw. `parse.go`: trivy arm of `Parse` (Results[].Vulnerabilities[]). `severity.go`: `NormalizeSeverity` map (trivy identity + UNKNOWN→INFO; semgrep ERROR→HIGH, WARNING→MEDIUM, NOTE→INFO; wapiti/nuclei capitalize).
+- `fixtures/trivy.json` (one known CVE) + tests.
+
+## Why
+TASK-051 — tracer thread for the scan package; the trivy end-to-end path lands before other parsers thicken it. SATISFIES `happy path trivy scan ingests findings with stable hash` + `error path scanner failure records status=error and is fail-open`.
+
+## Where
+- mnemonic/internal/scan/{service.go, parse.go, severity.go, raw.go} + *_test.go + fixtures/trivy.json
+
+## Verified
+- `go test ./internal/scan/ -v -count=1` → 7/7 PASS (severity table 8 cases, raw roundtrip, trivy ingest finding_count=1 + correct dedup_hash, fail-open stub, parse trivy, parse unknown, unknown scan id).
+- `go build ./...` + `go vet ./internal/scan/` clean.
+- DedupHash excludes severity (the 050 DDL comment says the hash material is tool/cve|rule_id/pkg/version/file/line, not severity).
+
+## Key Learnings
+- Store handle: `store.Store.DB` is a public `*sql.DB`; idiom is `s.store.DB.ExecContext/QueryRowContext` with prepared statements.
+- UUIDv7: `github.com/google/uuid` v1.6.0 already a dep → `uuid.NewV7()`, no new dep (ADR-gate safe).
+- Fail-open seams: Start records status='error' + returns the row (only a failed scans-row write errors); StoreFindings on unparseable raw marks the row 'partial' + returns the error.
+<!-- SECTION:FINAL_SUMMARY:END -->
