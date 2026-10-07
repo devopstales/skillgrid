@@ -205,7 +205,7 @@ lines it owns. It never rewrites curated prose.
 |---|---|---|
 | `## Skillgrid` block (AGENTS.md / CLAUDE.md) | surgical update of drifted facts (stack, commands) via the sentinel upsert | onboarding (structure), human (curated prose) |
 | `.skillgrid/artifacts/` terms (01-business-terms.md + 02-technical-terms.md) | add one line per new term the change introduced that is absent | `architectural-decision-records` (definitions) |
- | `.skillgrid/artifacts/04-adr-*.md` (index: `ASSUMPTIONS.md` § In-force set) | **flag only** — in-force ADRs the diff contradicts or supersedes, listed for the human | `architectural-decision-records` (an accepted ADR file is never deleted — supersede with a new file, don't edit) |
+ | `.skillgrid/artifacts/04-adr-*.md` (index: `ASSUMPTIONS.md` § LOCKED ADR index) | **flag only** — in-force ADRs the diff contradicts or supersedes, listed for the human | `architectural-decision-records` (an accepted ADR file is never deleted — supersede with a new file, don't edit) |
 | Archived change folder | read (for the debt list); never modified after the move | the archive is an audit trail |
 | `.skillgrid/config.yaml` | **flag only** — a detected stack/runner change the human should re-onboard for | onboarding (merge mode) |
 

@@ -185,10 +185,10 @@ notes: "Serial development: one change at a time."
 ```
 
 - `pipeline.current_change` + `current_phase` are the **resume pointer** — `resume` and `using-skillgrid` read them first, replacing the old "find newest `specs/` dir" heuristic.
-- `constraints_ref` points at `.skillgrid/ASSUMPTIONS.md`; it does not duplicate the constraints.
+- `constraints_ref` points at `.skillgrid/ASSUMPTIONS.md` (the durable project understanding); operational rules live in AGENTS.md's `### Rules` section, not in `state.yaml`.
 - Onboarding creates it. `ship` increments `completed_changes` and clears `current_change`. `reflect` writes the terminal phase.
 
-**`ASSUMPTIONS.md`** (root) is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` holds the in-force ADR index (`### In-force set` table: number, title, status, supersedes, date, in force, and the path to the record), the user-locked project-wide boundaries (`### Locked constraints`, which render into the AGENTS.md `### Rules` section), and the locked assumptions. The table stores the path only. The decision body is the file.
+**`ASSUMPTIONS.md`** (root) is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` is **the ADR index only**: one pointer row per in-force decision (a short description + the path to the record). `status`, `supersedes`, and `date` live in the file's frontmatter, not the row. The decision body is the file. Operational rules that are *not* decisions (build toolchain floor, commit format, dependency policy, spec/code zone order) live in AGENTS.md's `### Rules` section, not here.
 
 **`ARCHITECTURE.md`** (root) is the *live* repo/program structure record — created lazily as the repo takes shape.
 
@@ -200,7 +200,7 @@ notes: "Serial development: one change at a time."
 |---|---|---|
 | onboarding | skeleton | `config.yaml`, `state.yaml`, `ASSUMPTIONS.md`, `ARCHITECTURE.md` (lazy), `artifacts/` zone (README + 06-research-findings), AGENTS block, `.gitignore` |
 | brainstorming | briefing + scenarios + state | `specs/<topic>/briefing.md`, `specs/<topic>/acceptance.feature`, `specs/<topic>/adr.md`, `artifacts/00-prd.md` (new project, or when scope changes), `ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (phase + current_change) |
-| architectural-decision-records | terms + ADRs | `artifacts/01-business-terms.md`, `artifacts/02-technical-terms.md`, `artifacts/04-adr-NNNN-slug.md`, `ASSUMPTIONS.md` (`### In-force set` path row only) |
+| architectural-decision-records | terms + ADRs | `artifacts/01-business-terms.md`, `artifacts/02-technical-terms.md`, `artifacts/04-adr-NNNN-slug.md`, `ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only) |
 | research | findings | `specs/<topic>/findings.md` (`## Research:` section) + durable findings to `artifacts/06-research-findings.md` |
 | prototype | findings + probe | `prototypes/NNN-name/` (`prototype.md` + throwaway code, permanently retained) + `specs/<topic>/findings.md` (`## Prototype:` section) |
 | sketch | findings | `specs/<topic>/findings.md` (`## Sketch:` section) |
@@ -218,7 +218,7 @@ notes: "Serial development: one change at a time."
 - Create the change folder **before** writing the briefing.
 - READ before UPDATE; never blind overwrite.
 - Commit spec-zone changes (`.skillgrid/specs/`) before code changes — the `pre-commit` zone guard enforces it.
-- ADRs live as `artifacts/04-adr-NNNN-slug.md` — one file per decision, created lazily, global, not per-change. `ASSUMPTIONS.md` § `### In-force set` stores the path only. The per-change `specs/<topic>/adr.md` is a manifest of pointers to those files, never a copy.
+- ADRs live as `artifacts/04-adr-NNNN-slug.md` — one file per decision, created lazily, global, not per-change. `ASSUMPTIONS.md` § `LOCKED` (the ADR index) stores a short description + the path only; `status`/`supersedes`/`date` live in the file's frontmatter. The per-change `specs/<topic>/adr.md` is a manifest of pointers to those files, never a copy.
 - Terms live in `artifacts/01-business-terms.md` / `02-technical-terms.md` — a glossary and nothing else.
 - `state.yaml` is updated on every phase transition (see the Artifact File Paths table); it is the dynamic counterparty to `artifacts/` (the durable knowledge).
 - `artifacts/` files are committed (durable knowledge that survives across machines); `state.yaml` is committed (the change log of phase transitions lives in its git history).

@@ -47,8 +47,8 @@ the conversation, not batched at the end:
   session's output.
 - **ADRs:** the moment a decision clears the bar (hard to reverse + surprising
   without context + real trade-off), offer to record it as
-  `.skillgrid/artifacts/04-adr-NNNN-slug.md` and add a path row to the
-  `### In-force set` table in `.skillgrid/ASSUMPTIONS.md`. The "why" is freshest right now; a future reader
+   `.skillgrid/artifacts/04-adr-NNNN-slug.md` and add a pointer row to the
+   `## LOCKED` ADR index in `.skillgrid/ASSUMPTIONS.md`. The "why" is freshest right now; a future reader
   needs exactly this moment's reasoning.
 
 If `conventions.artifacts` is set in `.skillgrid/config.yaml`, use that path

@@ -28,9 +28,9 @@ sentences. This is the "intent" the whole spec hangs from.]
 ## Context
 
 [Relevant existing flows, files, or constraints in the repo that this
-feature must respect or integrate with. Reference `.skillgrid/ASSUMPTIONS.md`
-(tiers + `§ Locked constraints`) and `.skillgrid/ARCHITECTURE.md` sections
-where applicable.]
+ feature must respect or integrate with. Reference `.skillgrid/ASSUMPTIONS.md`
+(VERIFIED facts + `§ LOCKED` ADR index) and `AGENTS.md` (§ Rules — the
+operational rules) and `.skillgrid/ARCHITECTURE.md` sections where applicable.]
 
 ## Approaches Considered
 

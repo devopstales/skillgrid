@@ -73,7 +73,7 @@ If `.skillgrid/config.yaml` already exists:
 2. Re-detect facts (stack may have changed)
 3. Show what changed: "Detected changes: test runner changed from X to Y. Update?"
 4. Merge: update changed values, keep user-customized `rules:` sections
-5. Re-write AGENTS.md block (idempotent upsert) — re-render `{rules_block}` from the current `ASSUMPTIONS.md` § Locked constraints
+5. Re-write AGENTS.md block (idempotent upsert) — `{rules_block}` is owned by AGENTS.md's own `### Rules` section (edit there); the block re-renders from that section, not from `ASSUMPTIONS.md`
 6. Reconcile `state.yaml` + the durable-knowledge zone: fill missing keys in `state.yaml` (never reset `pipeline`/`progress`); ensure `ASSUMPTIONS.md` / `ARCHITECTURE.md` exist; if `ARCHITECTURE.md` was scaffolded but still has unfilled `<detect>` markers (a stack change or first-pass gap), re-run Step 1.7 to fill them — never clobber the filled sections, only replace `<detect>` markers with newly detected facts; create any missing `artifacts/` stubs; run the brownfield migration (architecture into the root file; ADR bodies out to `artifacts/04-adr-*.md` with a path row left in `ASSUMPTIONS.md`; `00-prd.md` stays in `artifacts/`; locked constraints and glossary as in the migration bullet) if the project was onboarded before this layout
 
 ## What This Does NOT Do
@@ -113,7 +113,7 @@ If `.skillgrid/config.yaml` already exists:
 - [ ] `.skillgrid/config.yaml` exists and parses (`yaml` load succeeds); every detected field (stack, testing, commands, ticketing, TDD, commit discipline, BDD) is filled
 - [ ] `.skillgrid/state.yaml` exists, parses, and has `pipeline` + `progress` + `constraints_ref` pointing at `.skillgrid/ASSUMPTIONS.md` (existing values preserved on re-run)
 - [ ] `.skillgrid/ASSUMPTIONS.md` exists with the four tiers; `.skillgrid/ARCHITECTURE.md` exists, was scaffolded by `skillgrid init` (or copied by hand), and its `<detect>` markers are filled with verified facts for everything that exists (brownfield: all 17 sections addressed; greenfield: only sections with real content filled, the rest honestly left `<detect>` or dropped); every cited `file:line` was re-verified against the code
-- [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}`, tracker/memory lines, and a `### Rules` section rendered from `ASSUMPTIONS.md` § Locked constraints
+- [ ] AGENTS.md (or CLAUDE.md) contains exactly one `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block with the correct `{project}`, tracker/memory lines, and a `### Rules` section that is the real source of the operational rules (decisions live in `ASSUMPTIONS.md` § LOCKED, not here)
 - [ ] The block is lean: no inlined conventions/how-to or "getting started" section. Issue Tracker is the exact `{tracker_line}` for `ticketing.type` (a pointer to that convention file). No pointers at churning source paths. If both exist, `CLAUDE.md` holds only a one-line pointer to `AGENTS.md`
 - [ ] Detected test runner command runs and exits 0 (e.g. `go test ./...`, `npm test`, `pytest`)
 - [ ] Tracker CLI verified if `ticketing.enabled: true` (`gh --version` / `glab --version` / `jira config` / `backlog status`); skipped if `false`. If `ticketing.type: backlogmd`, every `.skillgrid/artifacts/04-adr-*.md` has a `.backlog/decisions/decision-NNN` copy

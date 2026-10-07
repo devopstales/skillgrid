@@ -32,7 +32,7 @@ This skill is for when you're *changing* the model, not just consuming it.)
 
 **Config:** Read `.skillgrid/config.yaml` first.
 - Use `conventions.artifacts` for the terms directory (default `.skillgrid/artifacts/`) — it holds the terms files (`01-business-terms.md`, `02-technical-terms.md`).
-- ADRs are **separate files**: `.skillgrid/artifacts/04-adr-NNNN-slug.md`, one decision per file. `.skillgrid/ASSUMPTIONS.md` § `## LOCKED` holds the `### In-force set` table and a Record column that is the path. The table does not hold the body. The in-force set is read from that table.
+- ADRs are **separate files**: `.skillgrid/artifacts/04-adr-NNNN-slug.md`, one decision per file. `.skillgrid/ASSUMPTIONS.md` § `## LOCKED` is the ADR index: one row per decision (a short description + the path to the record). `status`/`supersedes`/`date` live in the file's frontmatter, not the row. The table does not hold the body. The in-force set is read from that table.
 - Use `adr_style` for the ADR entry's body shape (default `madr-minimal`) — see [ADR Formats](#adr-formats).
 
 ## File structure
@@ -47,8 +47,9 @@ Single context (most repos):
     ├── config.yaml
     ├── state.yaml
     ├── ASSUMPTIONS.md             ← VERIFIED / INFERRED / LOCKED tiers
-    │                                (LOCKED: ### In-force set table with
-    │                                 a path per ADR + ### Locked constraints)
+    │                                (LOCKED: the ADR index, one pointer row
+    │                                 per in-force decision; operational rules
+    │                                 live in AGENTS.md, not here)
     ├── ARCHITECTURE.md            ← live repo/program structure
     ├── artifacts/
     │   ├── 01-business-terms.md   ← domain, product, workflow terms
@@ -68,8 +69,8 @@ numbered trail (prefix the slug with the context if it helps, e.g.
 
 Create files lazily: only when you have something to write. If no
 `artifacts/01-business-terms.md` exists, create the stub table when the first term
-is resolved. If `ASSUMPTIONS.md` has no `### In-force set` table yet, create the
-`## LOCKED` section when the first ADR file is written, and add the path row.
+is resolved. If `ASSUMPTIONS.md` has no `## LOCKED` ADR index yet, create the
+`## LOCKED` section when the first ADR file is written, and add the pointer row.
 Nothing speculative.
 
 ## During the session
@@ -124,12 +125,12 @@ never re-asks once it's set.
 | `custom` | [templates/custom.md](templates/custom.md) | Project-specific — fill in the note in the template |
 
 Write the body to `.skillgrid/artifacts/04-adr-NNNN-slug.md`. Use sequential
-numbering: `0001`, `0002`, etc. Scan the `### In-force set` table (its "Highest
+numbering: `0001`, `0002`, etc. Scan the `## LOCKED` ADR index (its "Highest
 sequence in use" line) for the highest existing number and increment by one; the
 sequence is monotonic and never reused. In a multi-context repo, prefix the slug
 with the context (`04-adr-0003-<context>-….md`). Every new or superseding ADR
-gets a path row in the `### In-force set` table in the same edit. The row is the
-path. The file is the body.
+gets a pointer row in the `## LOCKED` ADR index in the same edit. The row is a
+short description + the path. The file is the body.
 
 When `ticketing.type` is `backlogmd`, copy the ADR into
 `.backlog/decisions/` in the same edit (see [Backlog.md copy](#backlogmd-copy)).
@@ -146,8 +147,9 @@ Every ADR file carries machine-readable status fields regardless of body shape:
 - frontmatter `supersedes`: `ADR-NNNN`, only when this decision replaces a prior
   in-force ADR (otherwise `none`)
 
-The body then follows the selected `adr_style`. The `### In-force set` table
-mirrors number, title, status, supersedes, date, in force, and the path.
+The body then follows the selected `adr_style`. The `## LOCKED` ADR index row
+carries only a short description and the path — `status`/`supersedes`/`date` live
+in the file's frontmatter, not the row.
 
 ## The IRON RULE — never delete an ADR file
 
@@ -156,10 +158,10 @@ its status, not its body, not its date, not its row. An accepted ADR file is a
 frozen historical record. To change a decision, author a NEW
 `04-adr-NNNN-slug.md` whose status is `accepted` and whose `supersedes` names
 the prior one, explain in its Context *why* the prior decision is being
-revisited, and **flip the prior row in the `### In-force set` table to "In
-force: no"**. Consumers derive what is **currently in force** from that table:
+revisited, and **flip the prior row in the `## LOCKED` ADR index to "In force:
+no"**. Consumers derive what is **currently in force** from that index:
 an ADR is in force when its status is `accepted` **and** no later ADR's
-`supersedes` points at it. Superseded files stay on disk. The table row is
+`supersedes` points at it. Superseded files stay on disk. The index row is
 flipped. The file is never removed.
 
 ## The per-change ADR Review Manifest
@@ -173,8 +175,8 @@ marker and the read source for downstream skills. Template:
 Process (run at the end of the interview, before the blueprint is written):
 
 1. **Read `.skillgrid/ASSUMPTIONS.md` § `## LOCKED`.** The in-force set is the
-   rows in the `### In-force set` table marked "In force: yes". Note the
-   "Highest sequence in use" line. Open the Record path when you need the body.
+   rows in the ADR index marked "In force: yes". Note the
+   "Highest sequence in use" line. Open the linked file when you need the body.
 2. **Re-examine the design.** Identify decisions that meet ALL of:
    (a) a long-term architectural commitment (pattern, technology, boundary,
    contract) — not a tactical detail; (b) affects future changes beyond this
@@ -182,8 +184,8 @@ Process (run at the end of the interview, before the blueprint is written):
    from one (→ the new ADR supersedes it).
 3. **Author the qualifying ADR files** as `artifacts/04-adr-NNNN-slug.md`
    (4-digit, one greater than the highest, never reused), each with the fixed
-   frontmatter, and append a path row to the `### In-force set` table (flip
-   the superseded row's "In force" to `no`). A superseding file sets
+    frontmatter, and append a pointer row to the `## LOCKED` ADR index (flip
+    the superseded row's "In force" to `no`). A superseding file sets
    `status: accepted` and `supersedes: ADR-NNNN`. Do NOT edit the prior file.
    If `ticketing.type` is `backlogmd`, copy each new or superseding file into
    `.backlog/decisions/` and refresh the superseded copy's `status` to
@@ -211,7 +213,7 @@ Process (run at the end of the interview, before the blueprint is written):
 | "The decision is obvious, skip the ADR" | Obvious *now* is not obvious to the future reader. If it's hard to reverse and surprising without context, it's an ADR. |
 | "I'll write the ADRs after the fact in bulk" | The manifest runs at the end of the interview, *before* the blueprint. Bulk-writes miss the in-force set and the `supersedes` trail. |
 | "I'll just bump the status on the old ADR" | Status is immutable on an accepted ADR file. A superseding file sets its own `status: accepted`; the prior file is untouched. |
-| "I'll add it to the terms instead — it's faster" | The terms files are a vocabulary, not a decision record. Decisions live as `artifacts/04-adr-NNNN-slug.md` with a path row in the `### In-force set` table. |
+| "I'll add it to the terms instead — it's faster" | The terms files are a vocabulary, not a decision record. Decisions live as `artifacts/04-adr-NNNN-slug.md` with a pointer row in the `## LOCKED` ADR index. |
 | "I'll paste the body into ASSUMPTIONS.md" | `ASSUMPTIONS.md` stores the path. The body is the file. |
 
 ## Red Flags
@@ -219,7 +221,7 @@ Process (run at the end of the interview, before the blueprint is written):
 - An accepted ADR file's status, body, or date was edited in place instead of superseded.
 - A superseding file's `supersedes` points at a number that no longer exists, or at two ADRs at once.
 - A change's `adr.md` manifest is missing, or lists ADR files that don't exist.
-- The `### In-force set` table disagrees with the files (a row missing, a stale "In force", a path that doesn't resolve, a wrong highest-sequence line).
+- The `## LOCKED` ADR index disagrees with the files (a row missing, a stale "In force", a path that doesn't resolve, a wrong highest-sequence line).
 - The terms file is absorbing implementation details, specs, or scratch — it's becoming a running spec.
 - ADR sequence numbers are reused or out of monotonic order.
 - An ADR body was pasted into `ASSUMPTIONS.md`. The table stores the path.
@@ -269,7 +271,7 @@ Rules:
 
 - [ ] Every new ADR exists as `.skillgrid/artifacts/04-adr-NNNN-slug.md` with a monotonic 4-digit number and frontmatter (`status`, `date`, `supersedes`).
 - [ ] When `ticketing.type` is `backlogmd`, `.backlog/decisions/decision-NNN - ADR-NNNN-slug.md` exists, lists the Source path, and carries the same status as the artifact.
-- [ ] Every new or superseding ADR has a matching path row in the `### In-force set` table, and the "Highest sequence in use" line is updated.
+- [ ] Every new or superseding ADR has a matching pointer row in the `## LOCKED` ADR index, and the "Highest sequence in use" line is updated.
 - [ ] Every new ADR carries `status: accepted` (or `proposed`) and, when replacing a prior decision, a `supersedes` that resolves to a real file.
 - [ ] No accepted ADR file was mutated: `git diff` shows a new file and a new table row, no edits to previously accepted files.
 - [ ] The per-change manifest exists at `.skillgrid/specs/YYYY-MM-DD-<topic>/adr.md`, lists the in-force ADRs reviewed, and references every ADR file the change created.

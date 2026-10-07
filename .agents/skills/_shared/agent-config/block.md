@@ -28,7 +28,7 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 
 **Domain model:** read the vocabulary + ADRs under `.skillgrid/artifacts/` (index: `README.md`) before designing or implementing.
 
-**Rules & standards:** locked project constraints render under `### Rules` below. Shared standards are referenced, never inlined — each loads via the skills that apply it.
+**Rules & standards:** operational rules are owned by this file's `### Rules` section (the real source — edit there). Shared standards are referenced, never inlined — each loads via the skills that apply it.
 
 - **Coding conventions** — reference `.agents/skills/_shared/rules/code-standards.md` for detailed coding conventions.
 - **Testing conventions** — reference `.agents/skills/_shared/references/strict-tdd.md` for the TDD cycle and testing conventions.
@@ -37,7 +37,7 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 
 ### Rules
 
-*Locked constraints only (source of truth: `### Locked constraints` in `.skillgrid/ASSUMPTIONS.md` — edit there, then mirror here).*
+*Operational rules only — the real source of truth is this section (edit here). Design decisions do not live here; they are ADRs in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` → `.skillgrid/artifacts/04-adr-NNNN-slug.md`.*
 
 {rules_block}
 
@@ -64,7 +64,7 @@ Run `skillgrid:onboarding` to update config after stack changes.
 | `{project}` | — | detected project name |
 | `{tracker_line}` | — | pointer to the selected tracker's convention file |
 | `{memory_line}` | — | mnemonic status line |
-| `{rules_block}` | — | bullet list from `ASSUMPTIONS.md` § `### Locked constraints` (one `-` per constraint); if the section is empty, `No locked constraints yet — see `.skillgrid/ASSUMPTIONS.md`.` |
+| `{rules_block}` | — | the operational rules owned by AGENTS.md's own `### Rules` section (one `-` per rule) — it is the real source, so edit it there; if no rules are present yet, `No operational rules yet — add them to AGENTS.md's `### Rules` section.` (decisions are ADRs in `ASSUMPTIONS.md` § LOCKED, not rules) |
 
 `{tracker_line}` — copy the cell for `ticketing.type` exactly. Do not summarize storage, ID rules, or CLI flags in the block. `skillgrid init` writes the same lines from `.skillgrid/config.yaml`.
 

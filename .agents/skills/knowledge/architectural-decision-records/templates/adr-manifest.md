@@ -13,8 +13,8 @@
 ## In-Force ADRs Reviewed
 
 <!-- Every currently in-force ADR that constrains this change — the rows in
-     `.skillgrid/ASSUMPTIONS.md` § `### In-force set` marked "In force: yes".
-     List each as the Record path with a one-line gist. If none are in force,
+     `.skillgrid/ASSUMPTIONS.md` § `## LOCKED` ADR index marked "In force: yes".
+     List each as the linked file path with a one-line gist. If none are in force,
      say so. -->
 
 - `.skillgrid/artifacts/04-adr-NNNN-slug.md` — {one-line gist}

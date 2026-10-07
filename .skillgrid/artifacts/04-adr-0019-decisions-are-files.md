@@ -24,7 +24,7 @@ The file grew to 52 KB. Every session reads it. The ADR bodies were the growth, 
 
 Chosen option: "One file per locked decision; `ASSUMPTIONS.md` stores only the path", because the in-force set is what a session needs, and the record is what you open when the decision is in scope.
 
-Each locked decision is `.skillgrid/artifacts/04-adr-NNNN-slug.md`. The `### In-force set` table in `.skillgrid/ASSUMPTIONS.md` has one row per decision and a Record column that is the path. The row carries number, title, status, supersedes, date, and in-force. It does not carry the body. Supersede by adding a new file and flipping the prior row to `no`. Never delete a file or a row.
+Each locked decision is `.skillgrid/artifacts/04-adr-NNNN-slug.md`. The `## LOCKED` index in `.skillgrid/ASSUMPTIONS.md` has one row per decision: a short description and a link to the file. `status`, `supersedes`, and `date` live in the file's frontmatter only — the index carries none of them. It does not carry the body. Supersede by adding a new file and flipping the prior row's "In force" to `no`. Never delete a file or a row.
 
 Number 0012 remains `04-adr-0012-sqlite-as-second-brain.md`. The 2026-09-29 consolidation text is preserved in this record and is no longer in force.
 

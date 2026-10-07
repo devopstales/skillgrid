@@ -2,12 +2,12 @@
 
 The live record of what skillgrid *is*, which decisions are in force, and what is *locked*. Decision bodies live in `.skillgrid/artifacts/04-adr-NNNN-slug.md`; this file stores the path. The terms glossaries (`.skillgrid/artifacts/01-business-terms.md`, `02-technical-terms.md`) are a separate glossary.
 
-**Read order:** VERIFIED (what we know to be true) → INFERRED (hypotheses we are acting on) → LOCKED (decisions + user-locked boundaries) → Open Questions.
+**Read order:** VERIFIED (what we know to be true) → INFERRED (hypotheses we are acting on) → LOCKED (the ADR index — in-force decisions) → Open Questions.
 
 **How this file is maintained:**
 - **VERIFIED** — facts confirmed against the code, a prototype, or a primary source. Brainstorming writes these during the interview as they are confirmed.
 - **INFERRED (HYPOTHESIS)** — things we are treating as true but have not confirmed. Mark each with the assumption it rests on. Never let an INFERRED item carry a decision; promote it to VERIFIED (with evidence) or to LOCKED (with a user OK) before it does.
-- **LOCKED** — the in-force table (path only) and user-locked constraints. Requires an explicit user OK to add a row. Supersede by a new file + table flip; **never delete an ADR file or its row** (the IRON RULE).
+- **LOCKED** — the ADR index: one pointer row per in-force decision (path only). Requires an explicit user OK to add a row. Supersede by a new file + table flip; **never delete an ADR file or its row** (the IRON RULE). Operational rules that are *not* decisions live in `AGENTS.md`, not here.
 - **Open Questions** — questions that are not yet decided and not yet prototyped.
 
 Product requirements live in `.skillgrid/artifacts/00-prd.md` (reference). Locked decisions are files under `.skillgrid/artifacts/04-adr-NNNN-slug.md`. This file's in-force table stores the path only (ADR-0019).
@@ -67,70 +67,51 @@ Treated as true but not yet confirmed. Each rests on a named assumption; promote
 
 ## LOCKED
 
-Decisions (ADRs) and user-locked constraints. Adding here requires an explicit user OK.
+The ADR index — the in-force decisions. Adding a row requires an explicit user OK.
 
-### In-force set
+### ADR index
 
-Single source for what is **currently in force**. **In force** = `status: accepted` AND no later ADR's `supersedes` names it. Superseded / deprecated rows stay in the table (frozen) but are marked out of force. **IRON RULE: never delete an ADR file or its row — supersede by adding a new file that names it and flipping its row here.** The Record column is the path. The body is the file.
+The ADR index. One row per decision: a short description and a link to the full decision file. This table is an index, not the body — `status`, `supersedes`, and `date` live in each file's frontmatter; open the linked file for the full Context / Decision / Consequences.
 
-| # | Title | Status | Supersedes | Date | In force | Record |
-|---|-------|--------|------------|------|----------|--------|
-| 0001 | PRD scope is the whole Hub Product, not the binary alone | accepted | — | 2026-09-16 | yes | `.skillgrid/artifacts/04-adr-0001-prd-scope-whole-hub.md` |
-| 0002 | PRD framing is engine-first, not installer-first | accepted | — | 2026-09-16 | yes | `.skillgrid/artifacts/04-adr-0002-prd-engine-first-framing.md` |
-| 0003 | v1.0 line is "the engine is trustworthy"; UI is Phase 2 | accepted | — | 2026-09-16 | yes | `.skillgrid/artifacts/04-adr-0003-v1.0-line-engine-trustworthy.md` |
-| 0004 | PRD component map is a 4-way decomposition | accepted | — | 2026-09-16 | yes | `.skillgrid/artifacts/04-adr-0004-four-component-decomposition.md` |
-| 0005 | Trust boundary: MCP-spawned process with project read access | accepted | — | 2026-09-16 | yes | `.skillgrid/artifacts/04-adr-0005-trust-boundary-mcp-spawn-model.md` |
-| 0006 | Vector search: in-memory brute-force cosine, no SQLite vector extension | accepted | — | 2026-09-16 | yes (amended by 0009) | `.skillgrid/artifacts/04-adr-0006-vector-search-in-memory-brute-force.md` |
-| 0007 | SDD multi-method docs viewer with generic, existence-gated doc roots | accepted | — | 2026-09-17 | yes | `.skillgrid/artifacts/04-adr-0007-sdd-multi-method-docs-viewer.md` |
-| 0008 | State drift guard: Node.js + `yaml` package, read-only verifier | accepted | — | 2026-09-24 | yes | `.skillgrid/artifacts/04-adr-0008-state-drift-guard-js-yaml.md` |
-| 0009 | Vector search: in-SQL sqlite-vec latency corrected; viant deferred; revisit path confirmed | accepted | — | 2026-09-24 | yes | `.skillgrid/artifacts/04-adr-0009-vector-search-in-sql-latency-viant-deferred.md` |
-| 0010 | Verification scope discriminator: a zero is never a bare zero | accepted | — | 2026-09-24 | yes | `.skillgrid/artifacts/04-adr-0010-verification-scope-discriminator.md` |
-| 0011 | Observations are bi-temporal; the save path classifies each write as Add/Update/Delete/Noop | accepted | — | 2026-09-24 | yes | `.skillgrid/artifacts/04-adr-0011-observations-are-bitemporal.md` |
-| 0012 | SQLite as the second-brain store; llm-wiki markdown files rejected | accepted | — | 2026-09-30 | yes | `.skillgrid/artifacts/04-adr-0012-sqlite-as-second-brain.md` |
-| 0013 | Source of truth: the repo is authoritative; Backlog task ID ↔ commit SHA is the linkage | accepted | — | 2026-09-29 | yes | `.skillgrid/artifacts/04-adr-0013-repo-source-of-truth.md` |
-| 0014 | (removed 2026-09-30) | superseded | — | 2026-09-29 | no | `.skillgrid/artifacts/04-adr-0014-removed.md` |
-| 0015 | (removed 2026-09-30) | superseded | — | 2026-09-29 | no | `.skillgrid/artifacts/04-adr-0015-removed.md` |
-| 0016 | Mnemonic second-brain capability layer | accepted | — | 2026-09-30 | yes | `.skillgrid/artifacts/04-adr-0016-second-brain-capability-layer.md` |
-| 0017 | Embedded SPA code graph uses D3 force layout (replaces Sigma) | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0017-d3-force-graph.md` |
-| 0018 | mem_search returns additive per-signal scores; RRF runs only on the owner-scoped path | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0018-mem-search-additive-signals.md` |
-| 0019 | Locked decisions are ADR files; ASSUMPTIONS.md holds the path | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0019-decisions-are-files.md` |
-| 0020 | Execution coordination lives in the SDD ledger; Mnemonic stores an index | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0020-sdd-ledger-owns-execution.md` |
-| 0021 | Pre-tool policy is opt-in, first-match field rules, and fails open | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0021-pre-tool-policy-fail-open.md` |
-| 0022 | The host agent is the memory observer; checkpoints are server-gated | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0022-host-agent-memory-checkpoint.md` |
-| 0023 | Mnemonic chat LLM is OpenAI-compatible HTTP only; one client attaches all seams | accepted | — | 2026-10-02 | yes | `.skillgrid/artifacts/04-adr-0023-openai-compatible-llm-provider.md` |
-| 0024 | Team-shared memory state: local SQLite + outbox journal against a VM PostgreSQL (LWW + tombstones, tokens-as-roles, schema-per-project) | accepted | — | 2026-10-05 | yes | `.skillgrid/artifacts/04-adr-0024-central-pg-shared-memory-state.md` |
-| 0025 | Context Harness owns the session context lifecycle (absorbs `session_inject`; capture, `ctx_query`, routing, `ctx` CLI) | accepted | — | 2026-10-06 | yes | `.skillgrid/artifacts/04-adr-0025-context-harness-owner.md` |
-| 0026 | `indexed_files` reuses the observations schema shape; `ctx_search` fuses sandbox + indexed via RRF | accepted | — | 2026-10-06 | yes | `.skillgrid/artifacts/04-adr-0026-indexed-files-reuses-observations-schema.md` |
-| 0027 | Context Harness implements the Context Language Model (mirror + overflow guard + calibration; Go owns state, Node owns request path; opt-in via `clm:` config) | accepted | — | 2026-10-06 | yes | `.skillgrid/artifacts/04-adr-0027-clm-context-language-model.md` |
-| 0028 | `context_revisions` is session-scoped audit (purged at session end; raw history + mirror are the source of truth) | accepted | — | 2026-10-06 | yes | `.skillgrid/artifacts/04-adr-0028-context-revisions-session-scoped.md` |
-| 0029 | Compaction advisory gate (one combined LLM call, fail-open) + `steering` column on `context_revisions` + proactive build; extends ADR-0027/0028; opt-in via `mnemonic.compaction` config | accepted | — | 2026-10-07 | yes | `.skillgrid/artifacts/04-adr-0029-compaction-advisory-steering.md` |
-| 0030 | Scan findings store: structured `scan_*`/`dep_*` tables + FTS, not blobs or per-tool tables | accepted | — | 2026-10-05 | yes | `.skillgrid/artifacts/04-adr-0030-scan-findings-structured-store.md` |
+**In force** = the file's `status: accepted` AND no later ADR's `supersedes:` names it. Superseded rows stay in the index (frozen) but are marked `no`. **IRON RULE: never delete an ADR file or its row — supersede by adding a new file that names it and flipping its row here.**
 
-**Highest sequence in use:** 0030 (next ADR is `04-adr-0031-slug.md`). The body of each decision is the Record file. This table stores the path only (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
+| # | Description | In force | File |
+|---|-------------|----------|------|
+| 0001 | PRD scope is the whole Hub Product, not the binary alone | yes | `.skillgrid/artifacts/04-adr-0001-prd-scope-whole-hub.md` |
+| 0002 | PRD framing is engine-first, not installer-first | yes | `.skillgrid/artifacts/04-adr-0002-prd-engine-first-framing.md` |
+| 0003 | v1.0 line is "the engine is trustworthy"; UI is Phase 2 | yes | `.skillgrid/artifacts/04-adr-0003-v1.0-line-engine-trustworthy.md` |
+| 0004 | PRD component map is a 4-way decomposition | yes | `.skillgrid/artifacts/04-adr-0004-four-component-decomposition.md` |
+| 0005 | Trust boundary: MCP-spawned process with project read access | yes | `.skillgrid/artifacts/04-adr-0005-trust-boundary-mcp-spawn-model.md` |
+| 0006 | Vector search: in-memory brute-force cosine, no SQLite vector extension (amended by 0009) | yes | `.skillgrid/artifacts/04-adr-0006-vector-search-in-memory-brute-force.md` |
+| 0007 | SDD multi-method docs viewer with generic, existence-gated doc roots | yes | `.skillgrid/artifacts/04-adr-0007-sdd-multi-method-docs-viewer.md` |
+| 0008 | State drift guard: Node.js + `yaml` package, read-only verifier | yes | `.skillgrid/artifacts/04-adr-0008-state-drift-guard-js-yaml.md` |
+| 0009 | Vector search: in-SQL sqlite-vec latency corrected; viant deferred; revisit path confirmed | yes | `.skillgrid/artifacts/04-adr-0009-vector-search-in-sql-latency-viant-deferred.md` |
+| 0010 | Verification scope discriminator: a zero is never a bare zero | yes | `.skillgrid/artifacts/04-adr-0010-verification-scope-discriminator.md` |
+| 0011 | Observations are bi-temporal; the save path classifies each write as Add/Update/Delete/Noop | yes | `.skillgrid/artifacts/04-adr-0011-observations-are-bitemporal.md` |
+| 0012 | SQLite as the second-brain store; llm-wiki markdown files rejected | yes | `.skillgrid/artifacts/04-adr-0012-sqlite-as-second-brain.md` |
+| 0013 | Source of truth: the repo is authoritative; Backlog task ID ↔ commit SHA is the linkage | yes | `.skillgrid/artifacts/04-adr-0013-repo-source-of-truth.md` |
+| 0014 | (removed 2026-09-30) | no | `.skillgrid/artifacts/04-adr-0014-removed.md` |
+| 0015 | (removed 2026-09-30) | no | `.skillgrid/artifacts/04-adr-0015-removed.md` |
+| 0016 | Mnemonic second-brain capability layer | yes | `.skillgrid/artifacts/04-adr-0016-second-brain-capability-layer.md` |
+| 0017 | Embedded SPA code graph uses D3 force layout (replaces Sigma) | yes | `.skillgrid/artifacts/04-adr-0017-d3-force-graph.md` |
+| 0018 | mem_search returns additive per-signal scores; RRF runs only on the owner-scoped path | yes | `.skillgrid/artifacts/04-adr-0018-mem-search-additive-signals.md` |
+| 0019 | Locked decisions are ADR files; ASSUMPTIONS.md holds the path | yes | `.skillgrid/artifacts/04-adr-0019-decisions-are-files.md` |
+| 0020 | Execution coordination lives in the SDD ledger; Mnemonic stores an index | yes | `.skillgrid/artifacts/04-adr-0020-sdd-ledger-owns-execution.md` |
+| 0021 | Pre-tool policy is opt-in, first-match field rules, and fails open | yes | `.skillgrid/artifacts/04-adr-0021-pre-tool-policy-fail-open.md` |
+| 0022 | The host agent is the memory observer; checkpoints are server-gated | yes | `.skillgrid/artifacts/04-adr-0022-host-agent-memory-checkpoint.md` |
+| 0023 | Mnemonic chat LLM is OpenAI-compatible HTTP only; one client attaches all seams | yes | `.skillgrid/artifacts/04-adr-0023-openai-compatible-llm-provider.md` |
+| 0024 | Team-shared memory state: local SQLite + outbox journal against a VM PostgreSQL (LWW + tombstones, tokens-as-roles, schema-per-project) | yes | `.skillgrid/artifacts/04-adr-0024-central-pg-shared-memory-state.md` |
+| 0025 | Context Harness owns the session context lifecycle (absorbs `session_inject`; capture, `ctx_query`, routing, `ctx` CLI) | yes | `.skillgrid/artifacts/04-adr-0025-context-harness-owner.md` |
+| 0026 | `indexed_files` reuses the observations schema shape; `ctx_search` fuses sandbox + indexed via RRF | yes | `.skillgrid/artifacts/04-adr-0026-indexed-files-reuses-observations-schema.md` |
+| 0027 | Context Harness implements the Context Language Model (mirror + overflow guard + calibration; Go owns state, Node owns request path; opt-in via `clm:` config) | yes | `.skillgrid/artifacts/04-adr-0027-clm-context-language-model.md` |
+| 0028 | `context_revisions` is session-scoped audit (purged at session end; raw history + mirror are the source of truth) | yes | `.skillgrid/artifacts/04-adr-0028-context-revisions-session-scoped.md` |
+| 0029 | Compaction advisory gate (one combined LLM call, fail-open) + `steering` column on `context_revisions` + proactive build; extends ADR-0027/0028; opt-in via `mnemonic.compaction` config | yes | `.skillgrid/artifacts/04-adr-0029-compaction-advisory-steering.md` |
+| 0030 | Scan findings store: structured `scan_*`/`dep_*` tables + FTS, not blobs or per-tool tables | yes | `.skillgrid/artifacts/04-adr-0030-scan-findings-structured-store.md` |
+| 0031 | Go 1.22+ minimum to build (raised from a locked constraint to a decision) | yes | `.skillgrid/artifacts/04-adr-0031-go-version-floor.md` |
 
-### Locked constraints
+**Highest sequence in use:** 0031 (next ADR is `04-adr-0032-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 
-These override per-change decisions and are the hard limits a change must respect. A constraint is locked only when the user says so — inferred limits belong in VERIFIED or an ADR entry, not here. The `### Rules` section of `AGENTS.md` is rendered from this list, one bullet per constraint. `state.yaml constraints_ref` points at this file.
-
-- Go 1.22+ minimum to build.
-- No new dependencies without an ADR.
-- Trivy is advisory-only — findings are reported, never blocking the QA gate.
-- Serial development: one change at a time, no parallel branches.
-- Conventional commits only; no AI-attribution trailers (commit-msg hook enforces).
-- Spec-zone changes commit before code-zone changes (pre-commit zone guard enforces).
-- The repo is the source of truth (ADR-0013): when an external tracker, session memory, or dashboard disagrees with a committed artifact, the committed artifact wins. A commit that closes a Backlog task names that task ID in the `[skillgrid-context]` block so the `task → commit → diff` chain is recoverable from git alone.
-- Session-inject uses a two-layer mechanism: (1) auto-prepend a slim token-capped L1 summary only on resume (not fresh sessions), and (2) an on-demand `mem_inject_session` tool for deeper BM25/semantic retrieval. See `.skillgrid/artifacts/07-mnemonic-tool-surface.md`.
-- Session-inject privacy: tag-by-default — secrets, full local paths, and `private`-tagged content are auto-excluded from injection; project-relative paths, commit SHAs, tool names, and task IDs are included by default.
-- Session-inject scope: project-scoped by default; cross-project injection only when the agent explicitly passes `all_projects: true` (reuses the existing `mem_search` flag).
-- Session-inject selection is hybrid (BM25 + semantic, RRF-fused) by default. The vector leg degrades to BM25-only when no embedder is active (reuses the existing degrade-to-Null design); BM25-only is a degraded state, not the target model.
-
-*Unlocked (historical):* (none yet). A constraint that is later unlocked gets moved here with the date — it is not deleted, so the boundary history stays readable.
-
-### Locked assumptions
-
-- The config's advisory-only posture (coverage_min 0, no hard thresholds) carries into `eval`: it reports a baseline, it does not gate. *(see INFERRED H2 — treat as an assumption, not a confirmed constraint, until a release changes it.)*
-- "Local-first" means no network except install-time npm/git and an optional external embedder; a future hosted mode is a v2.0 exploration, not a v1.x commitment.
-- The shipped skills + hooks are repo content shipped by the Installer; their *behavior* is out of scope for the PRD (covered in the user guide), but their *shipping* is in scope. *(see INFERRED H4. Count is 37 as of 2026-09-29 — it moves as skills are added.)*
+Operational rules (the hard limits a change must respect — build toolchain, commit format, dependency policy, spec/code zone order) live in `AGENTS.md`, not here. `AGENTS.md` is the real source for those; the onboarding skill renders them into the agent prompt. A rule that is actually a decision belongs in this index as an ADR instead.
 
 ---
 

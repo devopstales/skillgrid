@@ -1,7 +1,7 @@
 # ADR entry template — y-statement
 
 > Write this file as `.skillgrid/artifacts/04-adr-NNNN-slug.md`.
-> Add one path row to the `### In-force set` table in `.skillgrid/ASSUMPTIONS.md`.
+> Add one pointer row to the `## LOCKED` ADR index in `.skillgrid/ASSUMPTIONS.md`.
 > Do not paste this body into `ASSUMPTIONS.md`.
 
 # {short title}

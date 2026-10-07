@@ -44,40 +44,27 @@ decision.
 
 ## LOCKED
 
-The in-force ADR index and user-locked constraints. Adding a row requires an
-explicit user OK.
+The ADR index — the in-force decisions. Adding a row requires an explicit user OK.
 
-### In-force set
+The ADR index. One row per decision: a short description and a link to the full
+decision file. This table is an index, not the body — `status`, `supersedes`, and
+`date` live in each file's frontmatter; open the linked file for the full
+Context / Decision / Consequences.
 
-**In force** = `status: accepted` AND no later ADR's `supersedes` names it.
-Superseded / deprecated rows stay in the table (frozen) but are marked out of
-force. **IRON RULE: never delete an ADR file or its row — supersede by adding a
-new file that names it and flipping its row here.** The Record column is the
-path. The body is the file.
+**In force** = the file's `status: accepted` AND no later ADR's `supersedes:`
+names it. Superseded rows stay in the index (frozen) but are marked `no`.
+**IRON RULE: never delete an ADR file or its row — supersede by adding a new file
+that names it and flipping its row here.**
 
-| # | Title | Status | Supersedes | Date | In force | Record |
-|---|-------|--------|------------|------|----------|--------|
-| 0001 | [title] | accepted | — | YYYY-MM-DD | yes | `.skillgrid/artifacts/04-adr-0001-slug.md` |
+| # | Description | In force | File |
+|---|-------------|----------|------|
+| 0001 | [short description] | yes | `.skillgrid/artifacts/04-adr-0001-slug.md` |
 
 **Highest sequence in use:** 0001 (next ADR is `04-adr-0002-slug.md`).
 
-### Locked constraints
-
-These override per-change decisions and are the hard limits a change must respect.
-A constraint is locked only when the user says so — inferred limits belong in
-VERIFIED or an ADR, not here. The `### Rules` section of `AGENTS.md` is rendered
-from this list, one bullet per constraint. `state.yaml constraints_ref` points at
-this file.
-
-- [constraint 1]
-- [constraint 2]
-
-*Unlocked (historical):* (none yet). A constraint that is later unlocked gets moved
-here with the date — it is not deleted, so the boundary history stays readable.
-
-### Locked assumptions
-
-- [locked assumption 1]
+Operational rules (the hard limits a change must respect) live in `AGENTS.md`'s
+`### Rules` section, not here. A rule that is actually a decision belongs in this
+index as an ADR instead.
 
 ---
 
