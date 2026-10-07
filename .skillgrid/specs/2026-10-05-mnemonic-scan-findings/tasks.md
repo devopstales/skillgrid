@@ -19,12 +19,12 @@ Give scanner output (trivy vuln+sbom, wapiti, nuclei, semgrep) a durable, querya
 | 400-line budget risk | High |
 | Chained PRs recommended | Yes |
 | Suggested split | WU1 (schema+scan tracer) → WU2 (parsers+diff+dep) → WU3 (runtime+MCP+install+skills) → WU4 (full-suite gate) |
-| Delivery strategy | ask-on-risk |
-| Chain strategy | pending (ask-on-risk) |
+| Delivery strategy | auto-chain (user decision 2026-10-07) |
+| Chain strategy | stacked-to-main |
 
-Decision needed before apply: Yes
+Decision needed before apply: No
 Chained PRs recommended: Yes
-Chain strategy: pending
+Chain strategy: stacked-to-main
 400-line budget risk: High
 
 ### Suggested Work Units
