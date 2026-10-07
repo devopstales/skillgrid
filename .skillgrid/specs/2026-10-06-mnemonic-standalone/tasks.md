@@ -1,9 +1,26 @@
 # Tasks — Mnemonic Standalone Module
 
-> **STATUS:** `sliced` (2026-10-07)
+> **STATUS:** `ticketed` (2026-10-07)
 
 > Sliced from `.skillgrid/specs/2026-10-06-mnemonic-standalone/blueprint.md`.
 > Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.
+
+## Ticketing (Backlog.md)
+
+Published 2026-10-07 to `.backlog` (milestone `m-8` mnemonic-standalone-module). All tickets `ready-for-agent`, milestone m-8, ref to `briefing.md`.
+
+| Ticket | Backlog ID | Status note |
+|--------|-----------|-------------|
+| TICKET-01 | TASK-059 | verify-only (committed) |
+| TICKET-02 | TASK-060 | verify-only (committed) |
+| TICKET-03 | TASK-061 | verify-only (committed) |
+| TICKET-04 | TASK-062 | finish (facade completeness) |
+| TICKET-05 | TASK-063 | verify/finish (trim CLI) |
+| TICKET-06 | TASK-064 | finish (all Taskfile tasks) |
+| TICKET-07 | TASK-065 | verify/finish (sync-script) |
+| TICKET-08 | TASK-066 | implement (install copies mnemonic binary) |
+| TICKET-09 | TASK-067 | verify-only (committed) |
+| TICKET-10 | TASK-068 | final gate |
 
 ## Epic Summary
 

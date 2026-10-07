@@ -134,9 +134,14 @@ func main() {
 		}
 	}
 
-	if len(pos) == 0 || (pos[0] != "install" && pos[0] != "in") {
-		fs.Usage()
-		return
+	if len(pos) > 0 {
+		switch pos[0] {
+		case "install", "in":
+		default:
+			fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", pos[0])
+			fs.Usage()
+			os.Exit(2)
+		}
 	}
 
 	home, err := os.UserHomeDir()

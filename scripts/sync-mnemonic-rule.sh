@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rebuild rules/mnemonic.mdc from plugins/_shared/memory-protocol.md.
+# Rebuild rules/mnemonic.mdc from plugins/opencode/memory-protocol.md.
 # Edit the shared protocol, then run this script.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
