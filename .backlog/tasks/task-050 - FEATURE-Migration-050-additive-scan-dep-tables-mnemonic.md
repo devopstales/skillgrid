@@ -1,10 +1,10 @@
 ---
 id: TASK-050
 title: '[FEATURE] Migration 050: additive scan + dep tables (mnemonic)'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-07 11:29'
-updated_date: '2026-10-07 11:33'
+updated_date: '2026-10-07 12:37'
 labels: []
 milestone: m-7
 dependencies: []
@@ -51,3 +51,33 @@ Current State: embedded migrations end at 049_session_checkpoint.sql; scanner ou
 4. go test ./internal/mnemonic/store/ -run TestScanTablesMigrateIdempotent -v -> green; go build ./...
 5. Commit: feat(mnemonic): additive scan + dependency graph tables (050) with [skillgrid-context] block + Refs: TASK-050
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-10-07 11:47
+---
+Execution began (subagent-execution, Wave 1). One-way door checkpoint passed: user "execute" = sign-off on additive migration 050.
+---
+<!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Migration 050 (mnemonic/internal/store/migrations/050_scan_findings.sql) adds additive scan + dependency graph tables.
+
+## What
+- `050_scan_findings.sql`: `scans`, `findings` (+ `findings_fts` FTS5 with AI/AD/AU triggers), `dependencies` (PK purl), `dep_edges` (UNIQUE(from_purl,to_purl)). All `CREATE ... IF NOT EXISTS`; no ALTER on existing tables; code index `edges` table untouched.
+- `scan_tables_test.go`: `TestScanTablesMigrateIdempotent` asserts all five table/view names present in sqlite_master after `store.Open` and that re-opening the same file re-runs the migration runner without error.
+
+## Why
+TASK-050 of the mnemonic-scan-findings change — durable home for scanner output + dependency graph (ADR-0030). SATISFIES `happy path scan migration applies idempotently`.
+
+## Where
+- mnemonic/internal/store/migrations/050_scan_findings.sql (create)
+- mnemonic/internal/store/scan_tables_test.go (create)
+
+## Verified
+- `go test ./internal/store/ -run TestScanTablesMigrateIdempotent -v -count=1` → PASS
+- FTS + triggers mirror the 001 symbol_fts pattern; dependencies PK purl (upsert identity); dep_edges UNIQUE(from_purl,to_purl); findings UNIQUE(scan_id, dedup_hash) is the cross-scan contract.
+<!-- SECTION:FINAL_SUMMARY:END -->
