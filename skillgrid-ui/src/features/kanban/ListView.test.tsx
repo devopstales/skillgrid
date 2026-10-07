@@ -80,4 +80,30 @@ describe('ListView', () => {
     fireEvent.click(firstRow!)
     expect(onOpenTask).toHaveBeenCalledWith('task-1')
   })
+
+  it('shows the milestone title from milestoneTitles, not the raw ID', () => {
+    const { container } = render(
+      <ListView
+        tasks={[task({ id: 'task-1', milestone: 'm-1' })]}
+        onOpenTask={vi.fn()}
+        milestoneTitles={{ 'm-1': 'Kanban milestones' }}
+      />,
+    )
+    const row = container.querySelector('tbody tr')!
+    expect(row.textContent).toContain('Kanban milestones')
+    // The raw ID must not be shown as a standalone cell (it's the title now).
+    expect(row.textContent).not.toContain('m-1')
+  })
+
+  it('falls back to the raw milestone ID when no title matches', () => {
+    const { container } = render(
+      <ListView
+        tasks={[task({ id: 'task-1', milestone: 'm-1' })]}
+        onOpenTask={vi.fn()}
+        milestoneTitles={{ 'm-2': 'Other' }}
+      />,
+    )
+    const row = container.querySelector('tbody tr')!
+    expect(row.textContent).toContain('m-1')
+  })
 })

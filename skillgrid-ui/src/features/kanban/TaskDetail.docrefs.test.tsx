@@ -10,6 +10,7 @@ const baseTask = {
   priority: 'high',
   board: 'in_progress',
   provider: 'backlogmd',
+  milestone: 'm-1',
 } as const
 
 function mockResponse(body: unknown) {
@@ -55,5 +56,22 @@ describe('TaskDetail doc_refs', () => {
     render(<TaskDetail task="003" onClose={() => {}} />)
     await screen.findByText('Fix login')
     expect(screen.queryByText(/Documents/i)).toBeNull()
+  })
+
+  it('shows the milestone title from milestoneTitles, not the raw ID', async () => {
+    mockFetches(undefined)
+    render(
+      <TaskDetail task="003" onClose={() => {}} milestoneTitles={{ 'm-1': 'Kanban milestones' }} />,
+    )
+    await screen.findByText('Fix login')
+    expect(screen.getByText('Kanban milestones')).toBeTruthy()
+    expect(screen.queryByText('m-1')).toBeNull()
+  })
+
+  it('falls back to the raw milestone ID when no title matches', async () => {
+    mockFetches(undefined)
+    render(<TaskDetail task="003" onClose={() => {}} milestoneTitles={{ 'm-2': 'Other' }} />)
+    await screen.findByText('Fix login')
+    expect(screen.getByText('m-1')).toBeTruthy()
   })
 })
