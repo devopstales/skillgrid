@@ -8,9 +8,9 @@
 
 **Build shape:** Journey
 
-**Goal:** Enhance mnemonic compaction with four additive capabilities — advisory timing gate, structured six-section prompt, CLM steering, proactive instant build — wired to the 5 new TS plugins (replace-hooks plan assumed to land first).
+**Goal:** Enhance mnemonic compaction with five additive capabilities — advisory timing gate, structured six-section prompt, CLM steering, proactive instant build, and a full context TUI with keyboard navigation — wired to the 5 new TS plugins (replace-hooks plan assumed to land first).
 
-**Architecture:** This plan extends ADR-0027 (CLM) and ADR-0028 (`context_revisions`). The advisory gate is a new `internal/advice` package using the existing `internal/llm` client (one combined call). The structured prompt extends `CompactionContext`. Steering is a new `steering` column on the existing `context_revisions` table (migration 053). The proactive build reuses the async-tiering goroutine pattern. All plugin wiring targets `plugins/opencode/{skillgrid-compaction,skillgrid-events,mnemonic-memory}.ts`.
+**Architecture:** This plan extends ADR-0027 (CLM) and ADR-0028 (`context_revisions`). The advisory gate is a new `internal/advice` package using the existing `internal/llm` client (one combined call). The structured prompt extends `CompactionContext`. Steering is a new `steering` column on the existing `context_revisions` table (migration 053). The proactive build reuses the async-tiering goroutine pattern. The context TUI is a new `skillgrid context` CLI subcommand (Bubbletea, already in `go.mod` as indirect) with three keyboard-navigable screens (Usage, Revisions, Injection) polling new `/context/*` HTTP routes. All plugin wiring targets `plugins/opencode/{skillgrid-compaction,skillgrid-events,mnemonic-memory}.ts`.
 
 **Tech Stack:** Go 1.22+, SQLite, OpenAI-compatible LLM client (`internal/llm`), OpenCode v2 plugins (TS).
 
@@ -22,6 +22,8 @@
 - **Steering:** A natural-language instruction the model can evolve, re-injected into each compaction prompt.
 - **Proactive Build:** A background pre-summarization so the real compaction event is instant.
 - **CLM Mirror:** The ephemeral context file the model edits (ADR-0027); this plan's structured prompt feeds it.
+- **Context TUI:** The `skillgrid context` Bubbletea subcommand — three keyboard-navigable screens (Usage, Revisions, Injection) visualizing what occupies the context window.
+- **Frozen Injections:** The session-start context that never changes mid-session (system prompt, tool definitions, AGENTS.md, skill prompts, MCP instructions).
 
 ## Must-Haves (goal-backward verification)
 
@@ -32,6 +34,9 @@
 - `proactive:true, interval:15m, contextFraction 0.4` produces a pre-built revision within one interval without `session.idle`.
 - `mem_compact_advice` MCP tool returns `{score, hint, floor, reason}`.
 - `mnemonic.compaction.adviser_enabled: true` → `SetCompaction(AdviserEnabled:true)`; absent section → defaults.
+- `GET /context/usage?session_id=...` returns six categories (system prompt, tool definitions, extension injections, messages, compaction summary, free space) summing to ≤ budget, with `fraction`, `floor`, `hint`, `score`.
+- `GET /context/revisions?session_id=...` returns ordered `context_revisions` rows with `revision`, `created_at`, `size_estimate`, `steering`, `messages`, `trigger`.
+- `skillgrid context <session_id>` launches a Bubbletea TUI: Tab cycles Usage → Revisions → Injection, `↑↓` navigates, `Enter` expands, `r` refreshes, `q` quits.
 
 **Artifacts** (files that must exist with real implementation, not stubs):
 - `mnemonic/internal/advice/advice.go` — `Adviser`, `Advice`, `Advise`, floor curve.
@@ -43,15 +48,24 @@
 - `mnemonic/internal/checkpoint/prompt.go` — six-section structured prompt.
 - `mnemonic/internal/store/migrations/053_context_revisions_steering.sql` — `steering` column.
 - `mnemonic/internal/http/compaction.go` — `/compaction/advice` routes.
-- `plugins/opencode/skillgrid-compaction.ts` — advisory hint + structured context POST.
+- `plugins/opencode/skillgrid-compaction.ts` — advisory hint + structured context POST + injection breakdown POST.
 - `plugins/opencode/skillgrid-events.ts` — context-char count POST on `tool.execute.after`.
-- `plugins/opencode/mnemonic-memory.ts` — `mem_compact_advice` tool.
+- `plugins/opencode/mnemonic-memory.ts` — `mem_compact_advice` + `mem_context_usage` + `mem_context_revisions` tools.
+- `mnemonic/internal/http/context.go` — `/context/usage`, `/context/revisions`, `/context/injections` routes.
+- `skillgrid-cli/internal/cmd/context.go` — `skillgrid context` cobra subcommand.
+- `skillgrid-cli/internal/tui/context_model.go` — Bubbletea `Model` with three screens.
+- `skillgrid-cli/internal/tui/context_usage.go` — Usage screen (block grid + category bars + advisory line).
+- `skillgrid-cli/internal/tui/context_revisions.go` — Revisions screen (ordered list + expand).
+- `skillgrid-cli/internal/tui/context_injections.go` — Injection screen (frozen breakdown + expand).
+- `skillgrid-cli/internal/tui/context_test.go` — Bubbletea teatest cases.
 
 **Key links** (critical connections between artifacts that must work together):
 - `hookCompact` must append (not upsert) a `context_revisions` row and carry the prior `steering` forward.
 - `CompactionContext.Sections` must be the body that `POST /compaction/advice` persists as the next revision.
 - The adviser's `contextFraction` must come from the same `budget_chars` config the proactive build reads.
 - `skillgrid-events.ts` `tool.execute.after` must POST the context-char count that `GET /compaction/advice` consumes.
+- `skillgrid-compaction.ts` `experimental.session.compacting` must POST the injection breakdown to `POST /context/injections` so `GET /context/usage` can report frozen categories.
+- The TUI must poll `GET /context/usage` and `GET /context/revisions` at 2s interval; a failed poll shows stale data with a warning, never crashes.
 
 **One-way-door decisions** (hard to reverse — flag for explicit user approval before implementing):
 - **Task 3.1:** Adding the `steering` column to `context_revisions` (migration 053, additive to ADR-0028's table).
@@ -461,14 +475,215 @@ git commit -m "feat(mnemonic): wire compaction advice + proactive build into 5 T
 
 ---
 
+## Task 9: HTTP Routes `/context/usage` + `/context/revisions` + `/context/injections`
+
+**Files:**
+- Create: `mnemonic/internal/http/context.go`
+- Create: `mnemonic/internal/http/context_test.go`
+- Modify: `mnemonic/internal/http/server.go` (wire `registerContextRoutes()`)
+
+**Interfaces:**
+- Produces: `GET /context/usage?session_id=...` → `{categories: [{name, chars, tokens}], total_tokens, budget_tokens, fraction, floor, hint, score}`
+- Produces: `GET /context/revisions?session_id=...` → `[{revision, created_at, size_estimate, steering, messages, trigger}]`
+- Produces: `POST /context/injections` (body: `{session_id, categories: [{name, chars}]}`) → `{stored: true}`
+- Consumes: `config.Compaction.BudgetChars`, `context_revisions` table, `internal/advice` floor curve
+
+**SATISFIES:** `happy path context usage returns category breakdown` + `happy path context revisions returns ordered list` scenarios in `acceptance.feature`
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+func TestContextUsage_GET(t *testing.T) {
+    // Seed session "s1" with context_revisions (2 rows), known event chars.
+    // POST /context/injections with frozen breakdown (system prompt 12400, tools 8200, etc.).
+    // GET /context/usage?session_id=s1
+    // Assert 200 + six categories, sum <= budget, fraction correct.
+}
+func TestContextRevisions_GET(t *testing.T) {
+    // Seed 3 context_revisions rows for session "s1" (rev 1, 2, 3).
+    // GET /context/revisions?session_id=s1
+    // Assert 3 items, ordered by revision descending, each has steering + messages.
+}
+func TestContextInjections_POST(t *testing.T) {
+    // POST /context/injections with a frozen breakdown.
+    // Assert 200 + {stored: true}.
+    // GET /context/usage → frozen categories reflect the POSTed values.
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./mnemonic/internal/http/... -run 'Context(Usage|Revisions|Injections)' -v`
+Expected: FAIL (route not registered)
+
+- [ ] **Step 3: Write minimal implementation**
+
+`registerContextRoutes()`:
+- `GET /context/usage`: resolve `session_id`, read `context_revisions` (sum `size_estimate` for compaction summary), read stored injections (frozen categories), compute message chars from session events, compute free space = budget - total. Build `categories` array with `name`, `chars`, `tokens = ceil(chars/4)`. Compute `fraction = total/budget`, `floor = 0.90 - 0.40*fraction`, run adviser for `score` + `hint`.
+- `GET /context/revisions`: read `context_revisions` for the session, ordered by `revision DESC`, map to response.
+- `POST /context/injections`: store the frozen breakdown keyed by `session_id` (in-memory map or `context_revisions`-adjacent table; prefer in-memory map with session-end cleanup, mirroring ADR-0028 purge).
+
+Wire into `registerRoutes()` (mirror `registerCompactionRoutes`).
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./mnemonic/internal/http/... -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add mnemonic/internal/http/
+git commit -m "feat(mnemonic): /context/usage + /context/revisions + /context/injections HTTP routes"
+```
+
+---
+
+## Task 10: `skillgrid context` TUI (Bubbletea)
+
+**Files:**
+- Create: `skillgrid-cli/internal/cmd/context.go`
+- Create: `skillgrid-cli/internal/tui/context_model.go`
+- Create: `skillgrid-cli/internal/tui/context_usage.go`
+- Create: `skillgrid-cli/internal/tui/context_revisions.go`
+- Create: `skillgrid-cli/internal/tui/context_injections.go`
+- Create: `skillgrid-cli/internal/tui/context_test.go`
+- Modify: `skillgrid-cli/internal/cmd/root.go` (register `context` subcommand)
+- Modify: `skillgrid-cli/go.mod` (promote `bubbletea`, `lipgloss`, `bubbles` from indirect to direct)
+
+**Interfaces:**
+- Produces: `skillgrid context <session_id>` cobra command
+- Produces: `tui.ContextModel` — Bubbletea `Model` with `screen int` (0=Usage, 1=Revisions, 2=Injection), `cursor int`, `expanded bool`, `data *UsageData`, `revisions []Revision`, `injections []Injection`, `stale bool`
+- Consumes: `GET /context/usage` + `GET /context/revisions` over HTTP (2s poll)
+
+**SATISFIES:** `happy path TUI renders usage grid` + `happy path TUI keyboard navigation` scenarios in `acceptance.feature`
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+func TestContextModel_InitialRender(t *testing.T) {
+    // Seed a mock HTTP server returning usage at 72% + 3 revisions.
+    // Launch the model; wait for first poll.
+    // Assert View() contains "72%" and 36 filled blocks in the grid.
+}
+func TestContextModel_TabCyclesScreens(t *testing.T) {
+    // Launch; assert screen 0 (Usage).
+    // Send Tab → assert screen 1 (Revisions), View() shows "Rev 3".
+    // Send Tab → assert screen 2 (Injection), View() shows "System prompt".
+    // Send Tab → assert screen 0 (Usage) again.
+}
+func TestContextModel_ExpandRevision(t *testing.T) {
+    // Navigate to Revisions screen, select rev 2, send Enter.
+    // Assert View() shows the six-section messages content.
+    // Send Enter again → collapses.
+}
+func TestContextModel_Quit(t *testing.T) {
+    // Send "q" → assert tea.Quit in the resulting msg.
+}
+func TestContextModel_Refresh(t *testing.T) {
+    // Seed mock server with 50% usage; launch; wait for poll.
+    // Change mock to 80%; send "r"; wait for re-poll.
+    // Assert View() now shows "80%".
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./skillgrid-cli/internal/tui/... -v`
+Expected: FAIL with "undefined: ContextModel"
+
+- [ ] **Step 3: Write minimal implementation**
+
+`context_model.go`:
+- `type ContextModel struct { screen, cursor int; expanded bool; data *UsageData; revisions []Revision; injections []Injection; stale bool; width, height int; helpVisible bool }`
+- `Init()` → send first poll tick.
+- `Update()`: handle `tea.KeyMsg` (`↑↓` move cursor, `Enter` toggle expand, `Tab`/`Shift+Tab` cycle screen, `1`/`2`/`3` jump, `r` force re-poll, `q`/`Esc` quit, `?` toggle help), `tea.WindowSizeMsg`, `pollTick` (re-fetch from HTTP).
+- `View()` → dispatch to `viewUsage`/`viewRevisions`/`viewInjections` based on `screen`.
+
+`context_usage.go`:
+- 10×5 block grid: `filled = int(50 * fraction)`; colored by dominant category.
+- Per-category horizontal bar: `barLen = int(30 * chars/budget)`; lipgloss color per category (blue=system, green=tools, yellow=injections, red=messages, purple=compaction, grey=free).
+- Advisory line: `floor 0.61 · hint WOULD FIRE (score 0.75)` or `hint not firing (score 0.45)`.
+
+`context_revisions.go`:
+- Table: `Rev  N  HH:MM  NNNN tok  trigger`
+- `steering` text on the line below each row (truncated to width).
+- `Enter` → expand: show `messages` (six-section content) in a scrollable sub-panel.
+
+`context_injections.go`:
+- Table: `Name ............ NNNN tok  [view]`
+- `Enter` → expand raw text.
+- Footer: `Total frozen: NNNN tok (NN% of budget)`.
+
+`context.go` (cmd):
+- `cobra.Command{Use: "context <session_id>", Args: cobra.ExactArgs(1), Run: runContext}`
+- `runContext`: open Bubbletea program with `tea.WithAltScreen()`, model polls `BASE_URL` (same env as plugins: `SKILLGRID_MNEMONIC_HTTP_URL` or `127.0.0.1:7438`).
+
+Promote `bubbletea`/`lipgloss`/`bubbles` in `go.mod` (remove `// indirect`).
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./skillgrid-cli/internal/tui/... -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add skillgrid-cli/internal/tui/ skillgrid-cli/internal/cmd/ skillgrid-cli/go.mod skillgrid-cli/go.sum
+git commit -m "feat(skillgrid): skillgrid context TUI (Bubbletea, three screens, keyboard nav)"
+```
+
+---
+
+## Task 11: Plugin Wiring for TUI Data
+
+**Files:**
+- Modify: `plugins/opencode/skillgrid-compaction.ts`
+- Modify: `plugins/opencode/mnemonic-memory.ts`
+- Test: (typecheck + `pnpm test`)
+
+**Interfaces:**
+- `skillgrid-compaction.ts`: on `experimental.session.compacting` → POST injection breakdown `{session_id, categories: [{name, chars}]}` to `/context/injections`.
+- `mnemonic-memory.ts`: new `mem_context_usage` tool → `GET /context/usage?session_id=...` → `{categories, total_tokens, budget_tokens, fraction, floor, hint, score}`.
+- `mnemonic-memory.ts`: new `mem_context_revisions` tool → `GET /context/revisions?session_id=...` → `[{revision, created_at, size_estimate, steering, messages, trigger}]`.
+
+**SATISFIES:** `happy path context usage returns category breakdown` + `happy path TUI renders usage grid` scenarios in `acceptance.feature`
+
+- [ ] **Step 1: Wire the injection POST**
+
+In `skillgrid-compaction.ts`, in the `experimental.session.compacting` handler: extract the chars per section from the compacting payload (system prompt, tool definitions, AGENTS.md, skill prompts, MCP instructions) and POST `{session_id, categories: [...]}` to `/context/injections`.
+
+- [ ] **Step 2: Add `mem_context_usage` tool**
+
+In `mnemonic-memory.ts`, register `mem_context_usage` → `GET ${BASE}/context/usage?session_id=...` → return the JSON body.
+
+- [ ] **Step 3: Add `mem_context_revisions` tool**
+
+In `mnemonic-memory.ts`, register `mem_context_revisions` → `GET ${BASE}/context/revisions?session_id=...` → return the JSON array.
+
+- [ ] **Step 4: Run typecheck + tests**
+
+Run: `pnpm typecheck && pnpm lint && pnpm test`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add plugins/opencode/
+git commit -m "feat(mnemonic): wire injection POST + mem_context tools into TS plugins"
+```
+
+---
+
 ## Self-Review Checklist
 
-- [ ] **Spec coverage:** All 6 requirements from the briefing have corresponding tasks (1→5, 2→2, 3→3, 4→6, 5→7, 6→5+8).
+- [ ] **Spec coverage:** All 7 requirements from the briefing have corresponding tasks (1→4+5, 2→2, 3→3, 4→6, 5→1+7, 6→5+8, 7→9+10+11).
 - [ ] **Must-haves coverage:** Every truth is mapped to a task's acceptance.
 - [ ] **One-way-door:** The `steering` column migration (Task 3) is tagged.
 - [ ] **Placeholder scan:** No "TBD" or "implement later" found.
-- [ ] **Type consistency:** `CompactionContext.Sections`, `Advice`, `SetCompaction` signatures match across tasks.
-- [ ] **Replace-first:** All plugin wiring in Task 8 targets the 5 new TS plugins.
+- [ ] **Type consistency:** `CompactionContext.Sections`, `Advice`, `SetCompaction`, `ContextModel`, `UsageData` signatures match across tasks.
+- [ ] **Replace-first:** All plugin wiring in Tasks 8+11 targets the 5 new TS plugins.
+- [ ] **No new dependencies:** Bubbletea/Lipgloss/Bubbles already in `go.mod` (indirect → direct promotion only).
 
 ## Execution Handoff
 

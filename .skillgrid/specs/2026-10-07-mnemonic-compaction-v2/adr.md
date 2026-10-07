@@ -11,7 +11,7 @@
 - `.skillgrid/artifacts/04-adr-0023-openai-compatible-llm-provider.md` — one OpenAI-compatible client attaches all LLM seams. The advisory gate reuses this client (no new provider, no new dependency).
 - `.skillgrid/artifacts/04-adr-0025-context-harness-owner.md` — the Context Harness owns the session context lifecycle. The proactive build rides the existing `/sessions` end HTTP path the harness exposes.
 - `.skillgrid/artifacts/04-adr-0016-second-brain-capability-layer.md` — fail-open floors hold: the advisory gate returns `hint:false` on LLM error and never blocks a compaction; the proactive build is async and warns, never fails, the request.
-- Locked constraint "No new dependencies without an ADR" — satisfied: no new library (reuses `internal/llm`); the only schema change is one additive column (migration 053), named in ADR-0029.
+- Locked constraint "No new dependencies without an ADR" — satisfied: no new library (reuses `internal/llm`; Bubbletea/Lipgloss/Bubbles already present in `skillgrid-cli/go.mod` as indirect dependencies, promoted to direct for the context TUI — not a new dependency); the only schema change is one additive column (migration 053), named in ADR-0029.
 
 ## New Durable ADRs Created
 

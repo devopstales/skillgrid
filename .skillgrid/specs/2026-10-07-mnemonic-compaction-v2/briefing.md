@@ -21,9 +21,13 @@ Mnemonic's current compaction is thin and reactive: a single `compact` hook fire
     3. `hookCompact` appends a `context_revisions` row (rev+1, not blind upsert) with a `steering` column; the prior revision's `steering` is re-injected into the next compaction prompt.
     4. A proactive background build pre-summarizes the structured revision on a 15m interval, skipped when `contextFraction < 0.3`.
     5. `mem_compact_advice` MCP tool returns `{score, hint, floor, reason}`.
-    6. `go test ./mnemonic/internal/advice/... ./mnemonic/internal/http/...` passes.
-    7. `pnpm test` / `pnpm lint` / `pnpm typecheck` pass.
-- **Out of scope:** Replacing the raw-session-history source of truth (the CLM mirror, per ADR-0027/0028, already owns that); TUI panel; model-driven `/ctx-compact`.
+    6. `GET /context/usage?session_id=...` returns a six-category breakdown (system prompt, tool definitions, extension injections, messages, compaction summary, free space) summing to ≤ budget, with `fraction`, `floor`, `hint`, and `score`.
+    7. `GET /context/revisions?session_id=...` returns ordered `context_revisions` rows with `revision`, `created_at`, `size_estimate`, `steering`, `messages`, `trigger`.
+    8. `skillgrid context <session_id>` launches a Bubbletea TUI with three keyboard-navigable screens (Usage, Revisions, Injection); `Tab`/`Shift+Tab` cycles screens, `↑↓` navigates items, `Enter` expands, `r` refreshes, `q`/`Esc` quits.
+    9. `go test ./mnemonic/internal/advice/... ./mnemonic/internal/http/...` passes.
+    10. `go test ./skillgrid-cli/internal/tui/... -v` passes (Bubbletea teatest).
+    11. `pnpm test` / `pnpm lint` / `pnpm typecheck` pass.
+- **Out of scope:** Replacing the raw-session-history source of truth (the CLM mirror, per ADR-0027/0028, already owns that); the Git-analogy context model (`context_tag`/`context_log`/`context_checkout`/squash) from ttttmr/pi-context; model-driven `/ctx-compact`; cross-session comparison view; live WebSocket streaming (TUI polls at 2s interval instead).
 
 ## Context
 
@@ -79,6 +83,86 @@ Mnemonic's current compaction is thin and reactive: a single `compact` hook fire
     - **Acceptance:** `GET /compaction/advice?session_id=...` returns a JSON advice; `POST /compaction/advice` with a structured body persists a revision and returns the new rev.
     - **Acceptance scenario:** `happy path compaction advice routes` → `acceptance.feature`.
 
+7. **Context TUI** — `internal/http/context.go` + `skillgrid-cli/internal/tui/` + `plugins/opencode/*.ts`.
+    - **Current:** No visibility into what occupies the context window; `context_revisions` is opaque to the user; frozen injections (system prompt, tool definitions, AGENTS.md, skill prompts) are invisible.
+    - **Target:** Three additive pieces:
+        1. **HTTP routes** (`internal/http/context.go`, NEW): `GET /context/usage?session_id=...` → `{categories: [{name, chars, tokens}], total_tokens, budget_tokens, fraction, floor, hint, score}`; `GET /context/revisions?session_id=...` → `[{revision, created_at, size_estimate, steering, messages, trigger}]`; `POST /context/injections` (from plugin, stores frozen injection breakdown per session). Wire into `registerRoutes()`.
+        2. **Bubbletea TUI** (`skillgrid-cli/internal/tui/context_*.go`, NEW): `skillgrid context <session_id>` subcommand with three keyboard-navigable screens — **Usage** (10×5 block grid colored by category, per-category token bars, advisory gate status), **Revisions** (ordered `context_revisions` list, `Enter` expands to show six-section content, steering text per rev), **Injection** (frozen session-start breakdown, `Enter` expands raw text). Keys: `↑↓` navigate, `Enter` expand, `Tab`/`Shift+Tab` cycle screens, `1`/`2`/`3` jump, `r` refresh (re-poll), `q`/`Esc` quit, `?` help. Polls HTTP at 2s interval. Promotes `bubbletea`/`lipgloss`/`bubbles` from indirect to direct in `go.mod` (already present, no new dependency).
+        3. **Plugin wiring**: `skillgrid-compaction.ts` POSTs the injection breakdown (chars per section) to `POST /context/injections` on `experimental.session.compacting`; `mnemonic-memory.ts` adds `mem_context_usage` and `mem_context_revisions` tools for agent-side access without launching the TUI.
+    - **Acceptance:** `GET /context/usage` returns six categories summing to ≤ budget with correct `fraction`; `GET /context/revisions` returns ordered rows with steering; TUI renders the block grid with correct fill ratio; Tab cycles screens, q quits.
+    - **Acceptance scenarios:** `happy path context usage returns category breakdown`, `happy path context revisions returns ordered list`, `happy path TUI renders usage grid`, `happy path TUI keyboard navigation` → `acceptance.feature`.
+
+### UI Design — Context TUI screens (wireframes)
+
+The concrete visual target for the three `skillgrid context` screens. The block grid, per-category bars, and advisory line below are the reference rendering; the live TUI must match this layout and key map. Colors follow the Terminal Ops / pi-context-view palette (per-category block + bar fill, dim for empty/free space).
+
+**Screen 1: Usage (default)**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Context Usage — session 3c84e09f                       │
+├─────────────────────────────────────────────────────────┤
+│  ████████████████████░░░░░░░░░░░░░░░░░░░░  72% (43200/60000) │
+│                                                         │
+│  ▓ System prompt        12,400  ████████                │
+│  ▒ Tool definitions      8,200  █████                   │
+│  ░ Extension injections  5,600  ████                    │
+│  ■ Messages             14,800  █████████               │
+│  ▲ Compaction summary    2,200  ███                     │
+│  □ Free space           16,800  ████████████            │
+│                                                         │
+│  Advisory: floor 0.61 · hint WOULD FIRE (score 0.75)    │
+└─────────────────────────────────────────────────────────┘
+  ↑↓ select · Tab next screen · r refresh · q quit
+```
+
+- 10×5 block grid at top (colored by category, like pi-context-view).
+- Per-category bar with token count.
+- Advisory gate status line (floor, score, whether hint would fire).
+- `r` re-polls `GET /context/usage` (live update while context grows).
+
+**Screen 2: Revisions (Tab to switch)**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Context Revisions — session 3c84e09f                   │
+├─────────────────────────────────────────────────────────┤
+│  Rev  3  14:32  4,200 tok  ▲ proactive                  │
+│          steering: "keep all migration IDs"             │
+│  Rev  2  12:15  3,800 tok  ● compacted                  │
+│          steering: "focus on auth refactor"             │
+│  Rev  1  09:02  2,100 tok  ● compacted                  │
+│                                                         │
+│  (select a revision to view its six-section content)    │
+└─────────────────────────────────────────────────────────┘
+  ↑↓ navigate · Enter expand · Tab next screen · q quit
+```
+
+- Lists `context_revisions` rows (rev, timestamp, size, trigger type).
+- `Enter` on a row expands to show its `messages` (the six-section structured content) inline.
+- Shows steering text per revision.
+
+**Screen 3: Injection (Tab to switch)**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Frozen Injections (session start)                      │
+├─────────────────────────────────────────────────────────┤
+│  System prompt ............ 12,400 tok  [view]          │
+│  Tool definitions (34) .... 8,200 tok   [view]          │
+│  AGENTS.md ................ 2,100 tok   [view]          │
+│  Skill prompts (5) ........ 3,500 tok   [view]          │
+│  MCP instructions ......... 1,600 tok   [view]          │
+│                                                         │
+│  Total frozen: 27,800 tok (46% of budget)              │
+└─────────────────────────────────────────────────────────┘
+  ↑↓ navigate · Enter expand · Tab next screen · q quit
+```
+
+- Shows the "frozen" context that was injected at session start and never changes.
+- `Enter` expands to show the raw text of that injection.
+- Helps the user understand why so much context is "used" before they type anything.
+
 ## Implementation Decisions
 
 - **Modules to build/modify:**
@@ -91,16 +175,28 @@ Mnemonic's current compaction is thin and reactive: a single `compact` hook fire
     - `mnemonic/internal/checkpoint/prompt.go`: six-section structured prompt.
     - `mnemonic/internal/store/migrations/053_context_revisions_steering.sql`: add `steering` column.
     - `mnemonic/internal/http/compaction.go` (NEW) + `server.go`: routes.
-    - `plugins/opencode/{skillgrid-compaction,skillgrid-events,mnemonic-memory}.ts`: wiring.
+    - `mnemonic/internal/http/context.go` (NEW) + `server.go`: `/context/usage`, `/context/revisions`, `/context/injections` routes.
+    - `skillgrid-cli/internal/cmd/context.go` (NEW): `skillgrid context` cobra subcommand.
+    - `skillgrid-cli/internal/tui/context_model.go` (NEW): Bubbletea `Model` with three screens.
+    - `skillgrid-cli/internal/tui/context_usage.go` (NEW): Usage screen view + key handling.
+    - `skillgrid-cli/internal/tui/context_revisions.go` (NEW): Revisions screen view + key handling.
+    - `skillgrid-cli/internal/tui/context_injections.go` (NEW): Injection screen view + key handling.
+    - `skillgrid-cli/internal/tui/context_test.go` (NEW): Bubbletea teatest cases.
+    - `plugins/opencode/{skillgrid-compaction,skillgrid-events,mnemonic-memory}.ts`: wiring (including injection POST + context tools).
 - **Interfaces:**
     - `func (a *Adviser) Advise(ctx context.Context, in AdviceInput) (Advice, error)`
     - `type Advice struct { Score, Floor float64; Hint bool; Reason string }`
     - `func (s *Service) SetCompaction(cfg config.Compaction)`
     - `CompactionContext` gains `Sections map[string]string` and `Steering string`.
+    - `GET /context/usage?session_id=...` → `{categories: [{name, chars, tokens}], total_tokens, budget_tokens, fraction, floor, hint, score}`.
+    - `GET /context/revisions?session_id=...` → `[{revision, created_at, size_estimate, steering, messages, trigger}]`.
+    - `POST /context/injections` (body: `{session_id, categories: [{name, chars}]}`) → `{stored: true}`.
 - **Data flow:**
     - `tool.execute.after` (plugin) → POST context-chars → `GET /compaction/advice` → adviser LLM call → `{score, hint, floor, reason}` → hint line injected.
     - `experimental.session.compacting` (plugin) → `CompactionContext` (structured) → `POST /compaction/advice` → `hookCompact` appends `context_revisions` (rev+1, steering).
     - Proactive: timer → structured revision → `context_revisions` (no LLM needed if structured build is deterministic; LLM only for the advisory gate).
+    - TUI: `skillgrid context <session_id>` → Bubbletea model polls `GET /context/usage` + `GET /context/revisions` at 2s → renders three screens; `r` forces immediate re-poll.
+    - Injections: `experimental.session.compacting` (plugin) → `POST /context/injections` (frozen breakdown) → stored per session → `GET /context/usage` reads it for the frozen categories.
 - **Error handling:**
     - Adviser fails open (LLM error → `hint:false`, never blocks compaction).
     - Proactive build is async (goroutine, warn on stderr, never fails the request).
@@ -109,23 +205,23 @@ Mnemonic's current compaction is thin and reactive: a single `compact` hook fire
 ## Testing Decisions
 
 - **What makes a good test:** Only external behavior — the advice JSON, the `CompactionContext.Sections`, the `context_revisions` rev sequence, the proactive build timing.
-- **Modules to test:** `advice`, `http`, `memory` (hookCompact), `config`, `service`.
+- **Modules to test:** `advice`, `http`, `memory` (hookCompact), `config`, `service`, `tui` (Bubbletea teatest).
 - **Prior art:** `compact_hook_test.go`, `facts_test.go`, `mergeCheckpoint` tests.
-- **Edge cases:** LLM down, empty session, `contextFraction < 0.3` skip, two compactions in a row (rev+1), steering re-injection, config absent → defaults.
+- **Edge cases:** LLM down, empty session, `contextFraction < 0.3` skip, two compactions in a row (rev+1), steering re-injection, config absent → defaults, TUI with zero revisions (empty list), TUI with all context frozen (messages = 0), TUI poll fails (show stale data + warning), injection POST with no `experimental.session.compacting` payload (frozen categories show 0).
 
 ## Impact on Global Docs
 
 - `.skillgrid/artifacts/04-adr-index.md`: add ADR-0029.
 - `.skillgrid/ARCHITECTURE.md`: note the `steering` column on `context_revisions` and the new `/compaction/advice` route.
-- `.skillgrid/artifacts/07-mnemonic-tool-surface.md`: add `mem_compact_advice`.
+- `.skillgrid/artifacts/07-mnemonic-tool-surface.md`: add `mem_compact_advice`, `mem_context_usage`, `mem_context_revisions`.
 
 ## Clarity Report
 
 | Dimension           | Score | Min  | Status | Notes                              |
 |---------------------|-------|------|--------|------------------------------------|
-| Goal Clarity        | 0.95  | 0.75 | OK     | Four distinct capabilities.        |
-| Boundary Clarity    | 0.85  | 0.70 | OK     | Extends ADR-0027/0028, no overlap. |
-| Constraint Clarity  | 0.85  | 0.65 | OK     | One combined LLM call, replace-first. |
+| Goal Clarity        | 0.95  | 0.75 | OK     | Five distinct capabilities.        |
+| Boundary Clarity    | 0.85  | 0.70 | OK     | Extends ADR-0027/0028, no overlap. TUI is a new CLI subcommand, not a new binary. |
+| Constraint Clarity  | 0.85  | 0.65 | OK     | One combined LLM call, replace-first, no new deps (bubbletea already in go.mod). |
 | Acceptance Criteria | 0.90  | 0.70 | OK     | Specific behaviors per feature.    |
 | **Clarity**         | 0.05  | ≤0.20| OK     |                                    |
 
@@ -136,6 +232,7 @@ Mnemonic's current compaction is thin and reactive: a single `compact` hook fire
 | 1     | Scope + LLM strategy     | All four pieces, one combined LLM call. |
 | 2     | Wiring target            | Assume replace-hooks plan lands first; wire to 5 TS plugins. |
 | 3     | Proactive interval       | 15m default.                       |
+| 4     | TUI scope + library      | Full TUI with keyboard nav; Bubbletea (already in go.mod as indirect). |
 
 ## Open Questions & Assumptions
 
