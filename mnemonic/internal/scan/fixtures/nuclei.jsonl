@@ -1,0 +1,3 @@
+{"template-id":"exposure/exposed-env","info":{"severity":"high"},"matcher-name":"exposed-env","host":"https://example.com"}
+{"template-id":"cves/2023/cve-2023-12345.yaml","info":{"severity":"critical"},"matcher-name":"cve-2023-12345","host":"https://api.example.com"}
+{"template-id":"tech-detect/nginx","info":{"severity":"info"},"matcher-name":"nginx","host":"https://cdn.example.com"}

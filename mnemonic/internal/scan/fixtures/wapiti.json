@@ -1,0 +1,14 @@
+{
+  "report": [
+    {
+      "type": "SQL Injection",
+      "info": "SQL Injection vulnerability detected on the login form",
+      "url": "https://example.com/login"
+    },
+    {
+      "type": "XSS",
+      "info": "Reflected XSS via the q parameter",
+      "url": "https://example.com/search"
+    }
+  ]
+}

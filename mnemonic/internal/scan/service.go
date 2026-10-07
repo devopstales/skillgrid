@@ -62,9 +62,13 @@ func execRunner(ctx context.Context, bin string, args ...string) ([]byte, error)
 	return []byte(stdout.String()), nil
 }
 
-// scannerCommands maps each tool to the CLI args Start invokes.
+// scannerCommands maps each tool to the CLI args Start invokes. The target is
+// appended after these args by Start.
 var scannerCommands = map[string][]string{
-	"trivy": {"fs", "--format", "json"},
+	"trivy":   {"fs", "--format", "json"},
+	"wapiti":  {"--url", "-", "-o", "json"},
+	"nuclei":  {"-u"},
+	"semgrep": {"scan", "--json"},
 }
 
 // Start runs the scanner, persists its raw output, and records the scans row.
