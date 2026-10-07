@@ -64,7 +64,7 @@ Key invariants the spine must keep (details in `references/process.md`):
 - **TDD and BDD are non-negotiable.** Always `tdd: true`, `bdd.enabled: true`.
 - **AGENTS.md block is an idempotent upsert** between `<!-- skillgrid:start -->` / `<!-- skillgrid:end -->` — running onboarding twice never duplicates it.
 - **One source of truth across platforms.** Full block in `AGENTS.md`; one-line pointer in `CLAUDE.md` (never a symlink).
-- **`skillgrid init` is the deterministic finish** — it renders the AGENTS.md preamble and scaffolds `ARCHITECTURE.md`; onboarding only fills the `<detect>` markers.
+- **`skillgrid init` is the deterministic finish** — it renders the AGENTS.md preamble and scaffolds `ARCHITECTURE.md`; onboarding only fills the `<detect>` markers. Pass each extra docs path through as a repeatable `--docs` flag so init ingests them into the store.
 
 ## Merge Mode (Re-running)
 
