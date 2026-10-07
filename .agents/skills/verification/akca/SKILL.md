@@ -131,6 +131,20 @@ Reports carry CWE and OWASP mappings per finding; cite them in the finding block
 | `replay --finding N` | Replay a stored finding's request |
 | `-h` / `--help` | Concise / full option reference |
 
+## Store results in mnemonic
+
+After a successful scan, persist the findings so they survive the session and become queryable memory. Use the mnemonic MCP tools (fail-open: if the store is unavailable, log and continue — a scan error never blocks the caller):
+
+1. `scan_start` — open a scan row for `tool: "akca"`, the target URL, and the profile used. It returns the `scan_id` and the raw-artifact path.
+2. Write the scan's JSON output to the raw-artifact path.
+3. `scan_store_findings` — pass the `scan_id` and `tool: "akca"`; the parser normalizes each finding's rule, severity, path, and message into a stable `dedup_hash` per finding.
+
+```
+akca -m full <url> > /tmp/akca-report.json
+mnemonic: scan_start(tool="akca", target="<url>")          -> scan_id, raw_path
+mnemonic: scan_store_findings(scan_id, tool="akca")        # parses raw, upserts findings
+```
+
 ## Common Rationalizations
 
 | Rationalization | Reality |

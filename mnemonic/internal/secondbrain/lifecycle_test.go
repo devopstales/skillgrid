@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -220,6 +222,7 @@ func hasAuditRow(t *testing.T, svc *service.Service, project string, action stri
 func TestLifecycle_HealthReport(t *testing.T) {
 	svc := newTestService(t, false)
 	seedObservations(t, svc, "test-project", 20, "auth")
+	defer os.RemoveAll(filepath.Join(os.TempDir(), healthCacheDir))
 
 	rep, err := Health(context.Background(), svc, "test-project")
 	if err != nil {

@@ -132,6 +132,20 @@ Report severity by exploitability, not by the template's nominal severity. Mark 
 | `-up` / `-ut` | Update engine / update templates |
 | `-duc`, `-disable-update-check` | Skip the update check (offline/CI) |
 
+## Store results in mnemonic
+
+After a successful scan, persist the findings so they survive the session and become queryable memory. Use the mnemonic MCP tools (fail-open: if the store is unavailable, log and continue — a scan error never blocks the caller):
+
+1. `scan_start` — open a scan row for `tool: "nuclei"`, the target URL, and the templates/tags used. It returns the `scan_id` and the raw-artifact path.
+2. Write the scan's `--json` output (one JSON object per line) to the raw-artifact path.
+3. `scan_store_findings` — pass the `scan_id` and `tool: "nuclei"`; the parser normalizes each line's `template-id`, `info.severity`, `matcher-name`, and `host` into a stable `dedup_hash` per finding.
+
+```
+nuclei -u <url> -tags cve -json > /tmp/nuclei-report.jsonl
+mnemonic: scan_start(tool="nuclei", target="<url>")        -> scan_id, raw_path
+mnemonic: scan_store_findings(scan_id, tool="nuclei")      # parses raw, upserts findings
+```
+
 ## Common Rationalizations
 
 | Rationalization | Reality |

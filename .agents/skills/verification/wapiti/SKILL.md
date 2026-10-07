@@ -134,6 +134,20 @@ Wapiti is a fuzzer — it fires payloads and matches on error strings and abnorm
 
 Report severity by exploitability, not by the module's nominal class. Mark Confirmed / Likely / Needs verification and say what you couldn't see.
 
+## Store results in mnemonic
+
+After a successful scan, persist the findings so they survive the session and become queryable memory. Use the mnemonic MCP tools (fail-open: if the store is unavailable, log and continue — a scan error never blocks the caller):
+
+1. `scan_start` — open a scan row for `tool: "wapiti"`, the target URL, and the modules used. It returns the `scan_id` and the raw-artifact path.
+2. Write the scan's `-o json` (or `-o xml`) output to the raw-artifact path.
+3. `scan_store_findings` — pass the `scan_id` and `tool: "wapiti"`; the parser normalizes each report entry's type/info/url into a stable `dedup_hash` per finding.
+
+```
+wapiti --url <url> -o json > /tmp/wapiti-report.json
+mnemonic: scan_start(tool="wapiti", target="<url>")        -> scan_id, raw_path
+mnemonic: scan_store_findings(scan_id, tool="wapiti")      # parses raw, upserts findings
+```
+
 ## Common Rationalizations
 
 | Rationalization | Reality |
