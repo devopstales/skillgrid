@@ -76,8 +76,13 @@ func TestAllToolsRegistered(t *testing.T) {
 		"hybrid_search",
 		// On-demand session context injection (2026-09-24-mnemonic-session-inject, TICKET-05).
 		"mem_inject_session",
-		// Second-brain ask + lifecycle (2026-09-30-mnemonic-second-brain, TICKET-01).
-		"mem_ask", "mem_lifecycle",
+	// Second-brain ask + lifecycle (2026-09-30-mnemonic-second-brain, TICKET-01).
+	"mem_ask", "mem_lifecycle",
+	// Scan findings + dependency graph tools (2026-10-05-mnemonic-scan-findings, TICKET-07).
+	"scan_start", "scan_store_findings", "scan_list",
+	"scan_get", "scan_status", "scan_diff",
+	"dep_ingest", "dep_list", "dep_get",
+	"dep_affected", "dep_graph", "dep_runtime",
 	}
 	if len(tools) != len(want) {
 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)

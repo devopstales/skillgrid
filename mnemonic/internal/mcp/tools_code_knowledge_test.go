@@ -124,8 +124,9 @@ func TestKnowledgeTools(t *testing.T) {
 	// 1 mem_layers + 1 session_changes + 1 fact_decay_all = 90 (hub/relay
 	// tools removed by the session events layer consolidation; all keep
 	// their names + required params).
-	if len(tools) != 96 {
-		t.Errorf("expected 96 tools, got %d", len(tools))
+	// + 6 scan_* / 6 dep_* MCP tools (2026-10-05-mnemonic-scan-findings, TICKET-07).
+	if len(tools) != 108 {
+		t.Errorf("expected 108 tools, got %d", len(tools))
 	}
 
 	// code_docs returns the indexed docs (a query, not an error).

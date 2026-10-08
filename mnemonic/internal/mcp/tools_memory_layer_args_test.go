@@ -51,10 +51,10 @@ func TestMemLayersRegisteredAndStable(t *testing.T) {
 	if _, ok := tools["mem_layers"]; !ok {
 		t.Fatal("mem_layers is not registered")
 	}
-	// The surface count: 80 (hub/relay tools removed by the session events
-	// layer consolidation).
-	if len(tools) != 96 {
-		t.Errorf("expected 96 tools, got %d", len(tools))
+	// The surface count: 96 baseline + 6 scan_* / 6 dep_* MCP tools
+	// (2026-10-05-mnemonic-scan-findings, TICKET-07).
+	if len(tools) != 108 {
+		t.Errorf("expected 108 tools, got %d", len(tools))
 	}
 	for name, wantRequired := range expectedMemToolSurface {
 		st, ok := tools[name]
