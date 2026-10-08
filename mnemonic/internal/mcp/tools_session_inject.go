@@ -6,7 +6,7 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/session_inject"
+	"github.com/devopstales/skillgrid/mnemonic/internal/context_harness"
 )
 
 func registerSessionInjectTools(s *server.MCPServer) {
@@ -41,11 +41,11 @@ func handleMemInjectSession(ctx context.Context, req mcplib.CallToolRequest) (*m
 	allProjects := req.GetBool("all_projects", false)
 	maxTokens := int(req.GetFloat("max_tokens", 2000))
 
-	res, err := session_inject.HybridRetrieve(ctx, h.Memory(), projectID, query, allProjects, maxTokens)
+	res, err := context_harness.HybridRetrieve(ctx, h.Memory(), projectID, query, allProjects, maxTokens)
 	if err != nil {
 		return toolError(err)
 	}
-	block := session_inject.RenderContextBlock(res, projectID)
+	block := context_harness.RenderContextBlock(res, projectID)
 	return JSONResult(map[string]any{
 		"block":        block,
 		"items":        res.Items,

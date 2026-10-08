@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	"github.com/devopstales/skillgrid/mnemonic/internal/session_inject"
+	"github.com/devopstales/skillgrid/mnemonic/internal/context_harness"
 )
 
 // toolEvent is one session_events row in the shape the Sessions timeline, the
@@ -313,7 +313,7 @@ func querySessionObservations(ctx context.Context, db *sql.DB, projectID, sessio
 		if strings.TrimSpace(content) != "" {
 			tokenText = item.Title + " " + content
 		}
-		item.Tokens = session_inject.EstimateTokens(tokenText)
+		item.Tokens = context_harness.EstimateTokens(tokenText)
 		out = append(out, item)
 	}
 	return out, rows.Err()

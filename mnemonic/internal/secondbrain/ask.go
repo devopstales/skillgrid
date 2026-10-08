@@ -13,7 +13,7 @@ import (
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
 	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	session_inject "github.com/devopstales/skillgrid/mnemonic/internal/session_inject"
+	"github.com/devopstales/skillgrid/mnemonic/internal/context_harness"
 )
 
 const (
@@ -71,7 +71,7 @@ func AskCited(ctx context.Context, svc *service.Service, query string, projectID
 	}
 	defer cleanup()
 
-	hits, degraded, err := session_inject.HybridObservations(ctx, h.Memory(), projectID, query, allProjects)
+	hits, degraded, err := context_harness.HybridObservations(ctx, h.Memory(), projectID, query, allProjects)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func AskCited(ctx context.Context, svc *service.Service, query string, projectID
 		if len(snippet) > citationSnippet {
 			snippet = snippet[:citationSnippet] + "…"
 		}
-		cost := session_inject.EstimateTokens(snippet)
+		cost := context_harness.EstimateTokens(snippet)
 		if cost <= 0 {
 			continue
 		}

@@ -1,4 +1,4 @@
-package session_inject
+package context_harness
 
 import (
 	"context"

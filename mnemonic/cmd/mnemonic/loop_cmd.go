@@ -13,7 +13,7 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
 	"github.com/devopstales/skillgrid/mnemonic/internal/project"
 	"github.com/devopstales/skillgrid/mnemonic/internal/service"
-	"github.com/devopstales/skillgrid/mnemonic/internal/session_inject"
+	"github.com/devopstales/skillgrid/mnemonic/internal/context_harness"
 )
 
 func runPrime(args []string) {
@@ -107,7 +107,7 @@ func primeText(dir, session string) string {
 			obs = o
 		}
 	}
-	memoryIndex := session_inject.RenderIndex(summaries, obs, session_inject.IndexConfig{
+	memoryIndex := context_harness.RenderIndex(summaries, obs, context_harness.IndexConfig{
 		Summaries:    inject.Summaries,
 		Observations: inject.Observations,
 		MaxTokens:    inject.MaxTokens,
