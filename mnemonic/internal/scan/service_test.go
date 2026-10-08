@@ -204,6 +204,26 @@ func TestStoreFindingsNormalizesSeverityInDB(t *testing.T) {
 	}
 }
 
+// TestScannerBinResolvesInstalledBinary covers the review finding: the installer
+// ships the wapiti scanner as "wapiti3", so the tool key "wapiti" must resolve
+// to the bin "wapiti3" — otherwise exec.Command("wapiti", ...) can never find
+// the installed binary and every wapiti scan fail-opens to status='error'.
+func TestScannerBinResolvesInstalledBinary(t *testing.T) {
+	if got := ScannerBin("wapiti"); got != "wapiti3" {
+		t.Errorf("ScannerBin(wapiti) = %q, want wapiti3 (the installed binary)", got)
+	}
+	// The other three tools have bin == key; they must resolve to themselves.
+	for _, tool := range []string{"trivy", "nuclei", "semgrep"} {
+		if got := ScannerBin(tool); got != tool {
+			t.Errorf("ScannerBin(%s) = %q, want %q", tool, got, tool)
+		}
+	}
+	// An unknown tool resolves to itself (Start reports unsupported tool).
+	if got := ScannerBin("unknown-tool"); got != "unknown-tool" {
+		t.Errorf("ScannerBin(unknown-tool) = %q, want unknown-tool", got)
+	}
+}
+
 // TestStoreFindingsUnknownScan is a second StoreFindings input (triangulation):
 // an unknown scan id is reported, not swallowed.
 func TestStoreFindingsUnknownScan(t *testing.T) {

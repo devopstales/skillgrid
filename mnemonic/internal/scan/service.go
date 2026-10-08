@@ -75,6 +75,23 @@ var scannerCommands = map[string][]string{
 	"semgrep": {"scan", "--json"},
 }
 
+// scannerBins maps a tool key to the binary Start execs. For every tool the
+// bin is the same as the key except wapiti, whose installed binary is wapiti3
+// (see the skillgrid-cli installer). Start execs the bin, not the tool key.
+var scannerBins = map[string]string{
+	"wapiti": "wapiti3",
+}
+
+// ScannerBin returns the binary Start execs for a tool (defaulting to the tool
+// key itself). Exported so the resolver is testable against the installer's
+// bin names.
+func ScannerBin(tool string) string {
+	if bin, ok := scannerBins[tool]; ok {
+		return bin
+	}
+	return tool
+}
+
 // Start runs the scanner, persists its raw output, and records the scans row.
 // Fail-open (ADR-0016): a scanner failure yields a row with status='error'
 // and a non-empty error text, and no returned error. Only a failed scans-row
@@ -97,7 +114,7 @@ func (s *Service) Start(ctx context.Context, tool, target string) (*Scan, error)
 		err = fmt.Errorf("unsupported scanner tool %q", tool)
 	} else {
 		full := append(append([]string{}, args...), target)
-		stdout, err = run(ctx, tool, full...)
+		stdout, err = run(ctx, ScannerBin(tool), full...)
 	}
 
 	row := Scan{
