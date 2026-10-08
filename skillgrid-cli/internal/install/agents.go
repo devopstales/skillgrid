@@ -3,9 +3,9 @@ package install
 // Harness config distribution for the supported AI agents (opencode, kilo,
 // cursor). This package owns everything that configures the *harness* — agent
 // config files, backups, and the TUI logo/theme. The memory component
-// (internal/mnemonic/setup) owns MCP registration, opencode-yaml-hooks,
-// skillgrid-checkpoint.ts, and the memory-protocol block. It does not
-// register mnemonic.ts or opencode-command-hooks.
+// (mnemonic/internal/setup) owns MCP registration, the 5 native TS plugins
+// (ADR-0032), the shared hook workers, and the memory-protocol block. This
+// package does not register plugins or hook scripts.
 
 import (
 	"fmt"
@@ -17,23 +17,42 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+// nativePluginBases are the 5 native TS plugin file bases (ADR-0032). Both
+// harnesses install them from plugins/opencode/<base>.ts; they double as the
+// repo-root marker and are registered by the memory installer.
+var nativePluginBases = []string{
+	"skillgrid-compaction",
+	"skillgrid-events",
+	"skillgrid-squad",
+	"mnemonic-memory",
+	"mnemonic-codeindex",
+}
+
+// nativePluginRels returns the repo-relative plugin source paths.
+func nativePluginRels() []string {
+	rels := make([]string, 0, len(nativePluginBases))
+	for _, base := range nativePluginBases {
+		rels = append(rels, "plugins/opencode/"+base+".ts")
+	}
+	return rels
+}
+
 // Repo-relative paths for the assets the installer copies into the user's
 // harness config. These are distribution facts (where in the repo an asset
 // lives), not memory facts, so they live with the installer.
 const (
-	opencodePluginRel = "plugins/opencode/hooks.yaml"
-	kiloPluginRel     = "plugins/kilo/hooks.yaml"
-	cursorPluginRel   = ".cursor-plugin/plugin.json"
-	cursorRuleRel     = "rules/mnemonic.mdc"
-	opencodeLogoRel   = "plugins/opencode/skillgrid-logo.tsx"
-	kiloLogoRel       = "plugins/kilo/skillgrid-logo.tsx"
+	cursorPluginRel = ".cursor-plugin/plugin.json"
+	cursorRuleRel   = "rules/mnemonic.mdc"
+	opencodeLogoRel = "plugins/opencode/skillgrid-logo.tsx"
+	kiloLogoRel     = "plugins/kilo/skillgrid-logo.tsx"
 )
 
 // findRepoRoot walks upward from start (or cwd when empty) for a marker asset,
 // falling back to the synced repo under ~/.skillgrid. Mirrors the detection the
-// memory setup uses, so the installer and the memory component agree on which
-// checkout is canonical.
+// memory setup uses (the 5 native plugins + the cursor assets), so the installer
+// and the memory component agree on which checkout is canonical.
 func findRepoRoot(start string) string {
+	markers := append(nativePluginRels(), cursorPluginRel, cursorRuleRel)
 	dir := start
 	if dir == "" {
 		var err error
@@ -43,7 +62,7 @@ func findRepoRoot(start string) string {
 		}
 	}
 	for {
-		for _, rel := range []string{opencodePluginRel, kiloPluginRel, cursorPluginRel, cursorRuleRel} {
+		for _, rel := range markers {
 			if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 				return dir
 			}
@@ -55,7 +74,7 @@ func findRepoRoot(start string) string {
 		dir = parent
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		for _, rel := range []string{opencodePluginRel, kiloPluginRel, cursorPluginRel, cursorRuleRel} {
+		for _, rel := range markers {
 			synced := filepath.Join(home, ".skillgrid", "repos", "skillgrid", rel)
 			if _, err := os.Stat(synced); err == nil {
 				return filepath.Join(home, ".skillgrid", "repos", "skillgrid")
@@ -334,19 +353,15 @@ func installAgentConfig(c *Config, agent string) error {
 		return appendJSONArrayUnique(tuiPath, "plugin", logoDst, dry)
 	case "kilo":
 		dir := filepath.Join(home, ".config", "kilo")
-		hooksDst := filepath.Join(dir, "hook", "hooks.yaml")
 		tuiPath := filepath.Join(dir, "tui.json")
 		logoDst := filepath.Join(dir, "tui-plugins", "skillgrid-logo.tsx")
 
+		// The shell-era hooks.yaml adapter is retired (ADR-0032); the 5 native TS
+		// plugins are installed by the memory component. Only the TUI config
+		// bridge from opencode remains.
 		opencodeDir := filepath.Join(home, ".config", "opencode")
-		bridges := []struct{ src, dst string }{
-			{filepath.Join(opencodeDir, "hook", "hooks.yaml"), hooksDst},
-			{filepath.Join(opencodeDir, "tui.json"), tuiPath},
-		}
-		for _, b := range bridges {
-			if err := copyFirstWriteWins(b.src, b.dst, dry); err != nil {
-				return err
-			}
+		if err := copyFirstWriteWins(filepath.Join(opencodeDir, "tui.json"), tuiPath, dry); err != nil {
+			return err
 		}
 		if err := ensureConfigFile(tuiPath, dry); err != nil {
 			return err

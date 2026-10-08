@@ -1,9 +1,10 @@
 # ADR-0036: CTX config lives at `config.d/ctx.yaml` (machine-local + repo-local override)
 
-- **Status:** accepted
-- **Date:** 2026-10-08
-- **Supersedes:** none
-- **Superseded by:** none
+---
+status: "accepted"
+supersedes: none
+date: 2026-10-08
+---
 
 ## Context
 

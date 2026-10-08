@@ -59,6 +59,8 @@ async function handleToolAfter(input, output) {
   const tool = input.tool
   const args = output.args || input.args || {}
 
+  // Fail-open: capture is observe-only, a dead server or a timeout must never
+  // block the agent on a tool call.
   const action = mapToolType(tool)
   const filePath = extractFilePath(args)
   const command =
@@ -98,6 +100,11 @@ async function handleToolAfter(input, output) {
   })
 }
 
+// Policy gate: a *block* decision is authoritative and MUST surface as a
+// thrown error; a *server failure* (network, timeout, non-2xx) is a policy
+// failure, not a block, and fails open. A prior bug wrapped the whole gate in
+// a try/catch keyed on the message text, which could swallow a block whose
+// reason did not match. Keep the two paths distinct.
 async function handleToolBefore(input, output) {
   const sessionID = input.sessionID
   const tool = input.tool
@@ -106,22 +113,35 @@ async function handleToolBefore(input, output) {
   if (tool === "edit" || tool === "write" || tool === "create" || tool === "patch") {
     const filePath = extractFilePath(args)
     if (filePath) {
-      const res = await fetch(BASE_URL + "/policy/check", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionID,
-          action: "write",
-          path: filePath,
-        }),
-        signal: AbortSignal.timeout(3000),
-      }).catch(() => null)
-      if (res && res.ok) {
+      let res
+      try {
+        // ADR-0021: the policy gate is POST /policy/evaluate and answers
+        // {effect, message, rule}. effect "block" is authoritative.
+        res = await fetch(BASE_URL + "/policy/evaluate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: sessionID,
+            agent: AGENT,
+            action: "file_write",
+            tool: tool,
+            path: filePath,
+          }),
+          signal: AbortSignal.timeout(3000),
+        })
+      } catch {
+        return // fail-open: server unreachable, no policy decision
+      }
+      if (res.ok) {
         const data = await res.json().catch(() => null)
-        if (data && data.decision === "block") {
-          throw new Error(data.reason || "Write blocked by skillgrid policy")
+        if (data && data.effect === "block") {
+          throw new Error(
+            "Write blocked by skillgrid policy: " +
+              (data.message || data.rule || "no reason given")
+          )
         }
       }
+      // non-ok without a parseable body -> fail-open
     }
   }
 }
@@ -131,7 +151,9 @@ export const SkillgridEvents = async () => ({
     try {
       await handleToolBefore(input, output)
     } catch (err) {
-      if (err.message && err.message.includes("blocked by skillgrid policy")) {
+      // Re-throw only the authoritative policy block; any other error is a
+      // gate failure and fails open.
+      if (err && err.message && err.message.includes("blocked by skillgrid policy")) {
         throw err
       }
     }

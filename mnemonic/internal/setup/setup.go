@@ -19,16 +19,31 @@ import (
 const (
 	mcpServerName = "skillgrid-mnemonic"
 
-	opencodePluginRel           = "plugins/opencode/hooks.yaml"
-	opencodeCheckpointPluginRel = "plugins/opencode/skillgrid-checkpoint.ts"
-	kiloPluginRel               = "plugins/kilo/hooks.yaml"
-	kiloCheckpointPluginRel     = "plugins/kilo/skillgrid-checkpoint.ts"
-	cursorPluginRel             = ".cursor-plugin/plugin.json"
-	cursorRuleRel               = "rules/mnemonic.mdc"
+	// The 5 native TS plugins (ADR-0032) share a single source dir,
+	// plugins/opencode/; the Kilo installer copies each file at install time.
+	opencodeCompactionPluginRel = "plugins/opencode/skillgrid-compaction.ts"
+	opencodeEventsPluginRel     = "plugins/opencode/skillgrid-events.ts"
+	opencodeSquadPluginRel      = "plugins/opencode/skillgrid-squad.ts"
+	opencodeMemoryPluginRel     = "plugins/opencode/mnemonic-memory.ts"
+	opencodeCodeindexPluginRel  = "plugins/opencode/mnemonic-codeindex.ts"
+
+	cursorPluginRel = ".cursor-plugin/plugin.json"
+	cursorRuleRel   = "rules/mnemonic.mdc"
 
 	kiloBeginMarker = "<!-- BEGIN SKILLGRID MNEMONIC — managed by skillgrid setup kilocode -->"
 	kiloEndMarker   = "<!-- END SKILLGRID MNEMONIC -->"
 )
+
+// nativePluginBases are the 5 native TS plugin file bases (ADR-0032), in
+// registration order. Both harnesses install them from plugins/opencode/<base>.ts
+// to ~/.config/<harness>/plugin/<base>.ts and register "./plugin/<base>.ts".
+var nativePluginBases = []string{
+	"skillgrid-compaction",
+	"skillgrid-events",
+	"skillgrid-squad",
+	"mnemonic-memory",
+	"mnemonic-codeindex",
+}
 
 // RunSetup configures Mnemonic for the given agent (opencode, kilocode, cursor).
 // home is the harness home dir the agent config and config.d/indexing.yaml
@@ -111,7 +126,7 @@ func FindRepoRoot(start string) string {
 		}
 	}
 	for {
-		for _, rel := range []string{opencodePluginRel, kiloPluginRel, cursorPluginRel, cursorRuleRel} {
+		for _, rel := range nativePluginRels(cursorPluginRel, cursorRuleRel) {
 			if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 				return dir
 			}
@@ -123,7 +138,7 @@ func FindRepoRoot(start string) string {
 		dir = parent
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		for _, rel := range []string{opencodePluginRel, kiloPluginRel, cursorPluginRel, cursorRuleRel} {
+		for _, rel := range nativePluginRels(cursorPluginRel, cursorRuleRel) {
 			synced := filepath.Join(home, ".skillgrid", "repos", "skillgrid", rel)
 			if _, err := os.Stat(synced); err == nil {
 				return filepath.Join(home, ".skillgrid", "repos", "skillgrid")
@@ -131,6 +146,17 @@ func FindRepoRoot(start string) string {
 		}
 	}
 	return ""
+}
+
+// nativePluginRels returns the repo-relative paths used to detect a skillgrid
+// checkout: the 5 native plugin sources plus the cursor assets (kept as the
+// fallback marker for cursor-only trees).
+func nativePluginRels(extra ...string) []string {
+	rels := make([]string, 0, len(nativePluginBases)+len(extra))
+	for _, base := range nativePluginBases {
+		rels = append(rels, "plugins/opencode/"+base+".ts")
+	}
+	return append(rels, extra...)
 }
 
 func mnemonicMCPEntry() map[string]interface{} {
@@ -167,13 +193,12 @@ func stagedPluginPath(rel string) string {
 	return p
 }
 
-// openCodeHookScripts are the OpenCode/Kilo adapters copied to ~/.skillgrid/hooks/
-// by setup. hooks.yaml calls the shell scripts; those call the shared workers.
+// openCodeHookScripts are the shared workers copied to ~/.skillgrid/hooks/ by
+// setup. The shell-era OpenCode/Kilo adapters (opencode-*.sh) are retired
+// (ADR-0032) and folded into the 5 native TS plugins; only the shared workers
+// remain — tool-call-capture.js is also used by Cursor, and stop-tests.js /
+// gate-stop.js are the git-hook Stop gates.
 var openCodeHookScripts = []string{
-	"opencode-session-start.sh",
-	"opencode-session-end.sh",
-	"opencode-policy.sh",
-	"opencode-tool-capture.sh",
 	"tool-call-capture.js",
 	"stop-tests.js",
 	"gate-stop.js",
@@ -314,13 +339,16 @@ func upsertMarkerBlock(content, begin, end, body string) string {
 }
 
 // retiredPluginEntry reports plugin registrations Skillgrid no longer loads.
-// opencode-yaml-hooks reads hooks.yaml itself; mnemonic.ts was replaced by
-// that plugin plus skillgrid-checkpoint.ts.
+// opencode-command-hooks was the command-era plugin; mnemonic.ts was replaced
+// by opencode-yaml-hooks; opencode-yaml-hooks (which read hooks.yaml) and
+// skillgrid-checkpoint.ts are both retired by the 5 native TS plugins
+// (ADR-0032).
 func retiredPluginEntry(name string) bool {
-	if name == "opencode-command-hooks" {
+	if name == "opencode-command-hooks" || name == "opencode-yaml-hooks" {
 		return true
 	}
-	if filepath.Base(name) == "mnemonic.ts" {
+	base := filepath.Base(name)
+	if base == "mnemonic.ts" || base == "skillgrid-checkpoint.ts" {
 		return true
 	}
 	return strings.HasSuffix(filepath.ToSlash(name), "hook/hooks.yaml")

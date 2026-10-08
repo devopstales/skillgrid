@@ -1,9 +1,10 @@
 # ADR-0033: three-module Go workspace — `ctx/` as a library module
 
-- **Status:** accepted
-- **Date:** 2026-10-08
-- **Supersedes:** none (supersedes the two-module workspace *framing* established by the `2026-10-06-mnemonic-standalone` change, which was a design decision, not a numbered ADR)
-- **Superseded by:** none
+---
+status: "accepted"
+supersedes: "none (supersedes the two-module workspace framing established by the 2026-10-06-mnemonic-standalone change, which was a design decision, not a numbered ADR)"
+date: 2026-10-08
+---
 
 ## Context
 

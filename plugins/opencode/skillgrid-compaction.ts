@@ -37,15 +37,6 @@ async function getJSON(pathname) {
   }
 }
 
-function safeParse(raw) {
-  if (typeof raw !== "string") return null
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return null
-  }
-}
-
 function distillSummary(rawText) {
   if (!rawText) return ""
   const lines = rawText
@@ -107,22 +98,23 @@ function primeText(
   return text
 }
 
+// buildContext pulls the server's compaction context block (title/summary +
+// one-line recent observations) and shapes it for the compact prompt. The real
+// route is GET /context/compaction?session_id= (ADR: handleContextCompaction);
+// GET /context returns a recent-sessions list, not a session context block.
 async function buildContext(sessionID) {
-  const ctxData = await getJSON("/context?session_id=" + sessionID)
-  if (!ctxData) return null
+  const res = await getJSON("/context/compaction?session_id=" + sessionID)
+  const ctx = res && res.context ? res.context : res
+  if (!ctx) return null
 
   const summary =
-    ctxData.summary ||
-    distillSummary(
-      ctxData.summaryText ||
-        (ctxData.lastSummary ? safeParse(ctxData.lastSummary)?.summary || "" : "")
-    )
+    ctx.summary ||
+    (ctx.title ? "## " + ctx.title : "") ||
+    distillSummary(ctx.summaryText)
 
-  const facts = (ctxData.facts || []).slice(0, 5)
-  const observations = (ctxData.observations || []).slice(0, 3)
-  const skills = (ctxData.skills || []).slice(0, 5)
+  const observations = (ctx.observations || []).slice(0, 5)
 
-  const text = primeText(summary, facts, observations, skills)
+  const text = primeText(summary, [], observations, [])
   if (!text) return null
 
   return {
@@ -133,15 +125,10 @@ async function buildContext(sessionID) {
 }
 
 async function handleSessionCreated(sessionID) {
-  const ctx = await buildContext(sessionID)
-  if (ctx) {
-    const ctxFile = path.join(
-      os.tmpdir(),
-      "skillgrid-context-" + sessionID + ".txt"
-    )
-    fs.writeFileSync(ctxFile, ctx.text)
-  }
-  await postJSON("/sessions/" + sessionID + "/start", { agent: AGENT })
+  // Register the harness session id under the current project so capture
+  // (EnsureSession) and the session-start land on the same row. POST /sessions
+  // accepts {id, agent}; the project/directory resolve server-side.
+  await postJSON("/sessions", { id: sessionID, agent: AGENT })
 }
 
 async function handleSessionIdle(sessionID) {
@@ -149,12 +136,9 @@ async function handleSessionIdle(sessionID) {
 }
 
 async function handleSessionCompacted(sessionID) {
-  const ctx = await buildContext(sessionID)
-  await postJSON("/memory/context/prime", {
-    session_id: sessionID,
-    context: ctx || {},
-    agent: AGENT,
-  })
+  // Build the context block so the session row's summary/observations are
+  // fresh before the harness summarises; there is no separate "prime" route.
+  await buildContext(sessionID)
 }
 
 export const SkillgridCompaction = async () => ({

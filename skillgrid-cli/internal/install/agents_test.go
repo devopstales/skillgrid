@@ -80,7 +80,7 @@ func TestInstallKiloDoesNotRegisterHooksFileAsPlugin(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
 	for _, rel := range []string{
-		"plugins/kilo/hooks.yaml",
+		"plugins/opencode/skillgrid-events.ts",
 		"plugins/kilo/skillgrid-logo.tsx",
 	} {
 		p := filepath.Join(repo, rel)

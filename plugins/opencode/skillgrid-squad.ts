@@ -6,6 +6,89 @@ const BASE_URL =
 
 const AGENT = process.env.SKILLGRID_AGENT || "opencode"
 
+// ── Failure latch (after sdd-task-result-artifacts.ts) ──────────────────────
+// Squad tasks move through a linear pipeline (spawn → pull → output → review
+// → done). If a phase fails, no later phase may silently advance on top of the
+// broken state. We latch the failing task and refuse further transitions for
+// it, emitting a machine-readable handoff the agent surfaces instead of
+// retrying.
+//
+// Caveat: this is an IN-MEMORY latch, scoped to the plugin's lifetime. The
+// authoritative state machine lives in the Go server (no terminal
+// failed/blocked status today), so a restarted agent loses the latch. The
+// durable version belongs server-side (a task status that /output and /review
+// refuse to advance from); this client guard is the minimal version that
+// still stops the silent cascade within a session.
+const SQUAD_FAILURE_PREFIX = "SKILLGRID_SQUAD_FAILURE "
+const failedTasks = new Map() // task_id -> { code, summary, at }
+
+function isLatched(taskId) {
+  return Boolean(taskId && failedTasks.has(taskId))
+}
+
+function latch(taskId, code, summary) {
+  failedTasks.set(taskId, {
+    code,
+    summary,
+    at: new Date().toISOString(),
+  })
+}
+
+function handoff(taskId, code, summary) {
+  return (
+    SQUAD_FAILURE_PREFIX +
+    JSON.stringify({
+      schemaName: "skillgrid.squad-task-failure/v1",
+      status: "blocked",
+      code,
+      task_id: taskId,
+      summary,
+      guidance:
+        "Do not retry or advance this task in the current session; inspect the " +
+        "task state with squad_read_task and surface the failure to the user. " +
+        "Start a new session to retry.",
+    })
+  )
+}
+
+function throwLatched(taskId, action) {
+  const f = failedTasks.get(taskId)
+  throw new Error(
+    handoff(
+      taskId,
+      "squad_task_latched",
+      `${action} was not dispatched: ${taskId} is latched (${f.code}) from an earlier failure.`
+    )
+  )
+}
+
+function assertUnlatched(taskId, action) {
+  if (isLatched(taskId)) throwLatched(taskId, action)
+}
+
+// Classify a thrown squad error into a stable code for the latch + handoff.
+function errorCode(err) {
+  const msg = String((err && err.message) || "")
+  if (/^HTTP 4\d\d/.test(msg)) return "squad_task_client_error"
+  if (/^HTTP 5\d\d/.test(msg)) return "squad_task_server_error"
+  return "squad_task_failed"
+}
+
+// Run a squad mutation; on failure latch the task (unless it is a benign
+// "no task" pull) and re-throw the prefixed handoff so the agent sees a
+// structured terminal signal, not a bare HTTP status.
+async function runMutation(taskId, action, fn, opts = {}) {
+  try {
+    return await fn()
+  } catch (err) {
+    if (taskId && !opts.ignoreFailure) {
+      latch(taskId, errorCode(err), String((err && err.message) || err))
+      throw new Error(handoff(taskId, errorCode(err), String((err && err.message) || err)))
+    }
+    throw err
+  }
+}
+
 async function api(method, path, body) {
   const res = await fetch(BASE_URL + path, {
     method,
@@ -66,7 +149,7 @@ const squadPullNextTask = {
 
 const squadSubmitOutput = {
   description:
-    "Write task output.md and advance status to review_spec. Returns the updated task.",
+    "Write task output.md and advance status to review_spec. Returns the updated task. Latches the task on failure.",
   args: {
     task_id: tool.schema.string().describe("Task id"),
     output: tool.schema.string().describe("Markdown output content"),
@@ -76,10 +159,11 @@ const squadSubmitOutput = {
       .describe("Optional one-line summary"),
   },
   async execute(args) {
-    const data = await api(
-      "POST",
-      `/teams/tasks/${args.task_id}/output`,
-      args
+    assertUnlatched(args.task_id, "squad_submit_output")
+    const data = await runMutation(
+      args.task_id,
+      "squad_submit_output",
+      () => api("POST", `/teams/tasks/${args.task_id}/output`, args)
     )
     return JSON.stringify(data)
   },
@@ -87,7 +171,7 @@ const squadSubmitOutput = {
 
 const squadSubmitReview = {
   description:
-    "Submit a peer review (spec_compliance or code_quality) with markdown comments.",
+    "Submit a peer review (spec_compliance or code_quality) with markdown comments. Latches the task on failure.",
   args: {
     task_id: tool.schema.string().describe("Task id"),
     reviewer_id: tool.schema.string().describe("Reviewer member id"),
@@ -102,17 +186,20 @@ const squadSubmitReview = {
       .describe("spec_compliance (default) or code_quality"),
   },
   async execute(args) {
-    const data = await api(
-      "POST",
-      `/teams/tasks/${args.task_id}/review`,
-      args
+    assertUnlatched(args.task_id, "squad_submit_review")
+    const data = await runMutation(
+      args.task_id,
+      "squad_submit_review",
+      () =>
+        api("POST", `/teams/tasks/${args.task_id}/reviews`, args)
     )
     return JSON.stringify(data)
   },
 }
 
 const squadReadTask = {
-  description: "Read task metadata and brief from disk.",
+  description:
+    "Read task metadata and brief from disk. Read-only: never latches the task.",
   args: {
     task_id: tool.schema.string().describe("Task id"),
   },
@@ -123,15 +210,17 @@ const squadReadTask = {
 }
 
 const squadMarkDone = {
-  description: "Mark a team task as done.",
+  description:
+    "Mark a team task as done. Latches the task on failure.",
   args: {
     task_id: tool.schema.string().describe("Task id"),
   },
   async execute(args) {
-    const data = await api(
-      "POST",
-      `/teams/tasks/${args.task_id}/done`,
-      { agent: AGENT }
+    assertUnlatched(args.task_id, "squad_mark_done")
+    const data = await runMutation(
+      args.task_id,
+      "squad_mark_done",
+      () => api("POST", `/teams/tasks/${args.task_id}/done`, { agent: AGENT })
     )
     return JSON.stringify(data)
   },

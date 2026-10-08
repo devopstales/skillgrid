@@ -4,17 +4,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
 )
 
 // SetupKiloCode registers Mnemonic for Kilo: the MCP servers, the AGENTS.md
-// memory-protocol block, opencode-yaml-hooks, and skillgrid-checkpoint.ts.
-// Retired plugin entries (opencode-command-hooks, mnemonic.ts) are removed.
-// Harness config (TUI logo/theme, kilo→opencode bridges) is owned by
-// internal/install (installAgentConfig), not the memory component.
-// privateTools mirrors the config always-private allowlist into the harness
-// env map (SKILLGRID_MNEMONIC_PRIVATE_TOOLS) so capture strips the same
-// tools the Go config redacts.
+// memory-protocol block, and the 5 native TS plugins (ADR-0032) copied from
+// plugins/opencode/ (the single source) into ~/.config/kilo/plugin/. Retired
+// plugin entries (opencode-command-hooks, mnemonic.ts, opencode-yaml-hooks,
+// skillgrid-checkpoint.ts) are removed. The shell-era hooks.yaml and
+// opencode-*.sh adapters are no longer installed. Harness config
+// (TUI logo/theme, kilo→opencode bridges) is owned by internal/install
+// (installAgentConfig), not the memory component. privateTools mirrors the
+// config always-private allowlist into the harness env map
+// (SKILLGRID_MNEMONIC_PRIVATE_TOOLS) so capture strips the same tools the Go
+// config redacts.
 func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateTools []string, dryRun bool) error {
 	if repoRoot == "" {
 		return fmt.Errorf("repo root not found (run from skillgrid checkout or sync repo)")
@@ -36,9 +38,6 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 		return err
 	}
 	if err := dropRetiredPlugins(cfgPath, dryRun); err != nil {
-		return err
-	}
-	if err := upsertPluginKey(cfgPath, "opencode-yaml-hooks", dryRun); err != nil {
 		return err
 	}
 
@@ -67,17 +66,8 @@ func SetupKiloCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 		}
 	}
 
-	kiloDir := filepath.Join(home, ".config", "kilo")
-	hooksDst := filepath.Join(kiloDir, "hook", "hooks.yaml")
-	if err := copyFromRepo(repoRoot, kiloPluginRel, hooksDst, dryRun); err != nil {
-		return err
-	}
 	if err := installOpenCodeHookScripts(home, repoRoot, dryRun); err != nil {
 		return err
 	}
-	checkpointDst := filepath.Join(kiloDir, "plugin", "skillgrid-checkpoint.ts")
-	if err := copyFromRepo(repoRoot, kiloCheckpointPluginRel, checkpointDst, dryRun); err != nil {
-		return err
-	}
-	return upsertPluginKey(cfgPath, "./plugin/skillgrid-checkpoint.ts", dryRun)
+	return installNativePlugins(home, repoRoot, cfgPath, "kilo", dryRun)
 }

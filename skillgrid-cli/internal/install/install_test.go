@@ -235,23 +235,21 @@ func TestMemoryAndPersonasBoundary(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
 
-	// Memory assets the setup writers need.
+	// Memory assets the setup writers need: the 5 native TS plugins (single
+	// opencode source), the memory-protocol block, and the 3 shared workers.
 	for _, f := range []string{
-		"plugins/opencode/hooks.yaml",
-		"plugins/kilo/hooks.yaml",
+		"plugins/opencode/skillgrid-compaction.ts",
+		"plugins/opencode/skillgrid-events.ts",
+		"plugins/opencode/skillgrid-squad.ts",
+		"plugins/opencode/mnemonic-memory.ts",
+		"plugins/opencode/mnemonic-codeindex.ts",
 		"plugins/opencode/memory-protocol.md",
 		"plugins/kilo/memory-protocol.md",
-		"plugins/opencode/skillgrid-checkpoint.ts",
-		"plugins/kilo/skillgrid-checkpoint.ts",
 		"plugins/_shared/memory-protocol.md",
 		"rules/mnemonic.mdc",
 		".cursor-plugin/plugin.json",
 		"plugins/opencode/skillgrid-logo.tsx",
 		"plugins/kilo/skillgrid-logo.tsx",
-		"hooks/opencode-session-start.sh",
-		"hooks/opencode-session-end.sh",
-		"hooks/opencode-policy.sh",
-		"hooks/opencode-tool-capture.sh",
 		"hooks/tool-call-capture.js",
 		"hooks/stop-tests.js",
 		"hooks/gate-stop.js",
@@ -334,21 +332,18 @@ func TestSetupAgentsIntegration(t *testing.T) {
 	repo := t.TempDir()
 
 	files := []string{
-		"plugins/opencode/hooks.yaml",
-		"plugins/kilo/hooks.yaml",
+		"plugins/opencode/skillgrid-compaction.ts",
+		"plugins/opencode/skillgrid-events.ts",
+		"plugins/opencode/skillgrid-squad.ts",
+		"plugins/opencode/mnemonic-memory.ts",
+		"plugins/opencode/mnemonic-codeindex.ts",
 		"plugins/opencode/memory-protocol.md",
 		"plugins/kilo/memory-protocol.md",
-		"plugins/opencode/skillgrid-checkpoint.ts",
-		"plugins/kilo/skillgrid-checkpoint.ts",
 		"plugins/_shared/memory-protocol.md",
 		"rules/mnemonic.mdc",
 		".cursor-plugin/plugin.json",
 		"plugins/opencode/skillgrid-logo.tsx",
 		"plugins/kilo/skillgrid-logo.tsx",
-		"hooks/opencode-session-start.sh",
-		"hooks/opencode-session-end.sh",
-		"hooks/opencode-policy.sh",
-		"hooks/opencode-tool-capture.sh",
 		"hooks/tool-call-capture.js",
 		"hooks/stop-tests.js",
 		"hooks/gate-stop.js",
@@ -502,12 +497,8 @@ func installRepoRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	for i := 0; i < 8; i++ {
-		script := filepath.Join(dir, "hooks", "opencode-session-start.sh")
-		yaml := filepath.Join(dir, "plugins", "opencode", "hooks.yaml")
-		if _, err := os.Stat(script); err == nil {
-			if _, err := os.Stat(yaml); err == nil {
-				return dir
-			}
+		if _, err := os.Stat(filepath.Join(dir, "plugins", "opencode", "skillgrid-events.ts")); err == nil {
+			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -520,8 +511,8 @@ func installRepoRoot(t *testing.T) string {
 }
 
 // TestInstallCreatesOpenCodeHookLayout is the installer's agent-config step
-// (setupAgents): OpenCode and Kilo configs, hook yaml, checkpoint plugin, and
-// the scripts under ~/.skillgrid/hooks/.
+// (setupAgents): OpenCode and Kilo configs, the 5 native TS plugins, and the
+// shared hook workers under ~/.skillgrid/hooks/.
 func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
 	repo := installRepoRoot(t)
 	home := t.TempDir()
@@ -534,72 +525,63 @@ func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
 		t.Fatalf("setupAgents: %v", err)
 	}
 
-	scripts := []string{
-		"opencode-session-start.sh",
-		"opencode-session-end.sh",
-		"opencode-policy.sh",
-		"opencode-tool-capture.sh",
-		"tool-call-capture.js",
-		"stop-tests.js",
-		"gate-stop.js",
-	}
-	for _, name := range scripts {
+	// The 3 shared workers are still installed under ~/.skillgrid/hooks/.
+	for _, name := range []string{"tool-call-capture.js", "stop-tests.js", "gate-stop.js"} {
 		dst := filepath.Join(home, ".skillgrid", "hooks", name)
-		fi, err := os.Stat(dst)
-		if err != nil {
-			t.Fatalf("missing %s: %v", dst, err)
-		}
-		if strings.HasSuffix(name, ".sh") && fi.Mode()&0o111 == 0 {
-			t.Fatalf("%s is not executable", dst)
-		}
-		want, err := os.ReadFile(filepath.Join(repo, "hooks", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		got, err := os.ReadFile(dst)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(got) != string(want) {
-			t.Fatalf("%s installed content differs from the repo", name)
+		if _, err := os.Stat(dst); err != nil {
+			t.Fatalf("missing shared worker %s: %v", dst, err)
 		}
 	}
-
-	opencodeYAML, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "hook", "hooks.yaml"))
-	if err != nil {
-		t.Fatalf("opencode hooks.yaml: %v", err)
-	}
-	kiloYAML, err := os.ReadFile(filepath.Join(home, ".config", "kilo", "hook", "hooks.yaml"))
-	if err != nil {
-		t.Fatalf("kilo hooks.yaml: %v", err)
-	}
+	// The 4 retired shell-era OpenCode adapters are gone.
 	for _, name := range []string{
 		"opencode-session-start.sh",
 		"opencode-session-end.sh",
 		"opencode-policy.sh",
 		"opencode-tool-capture.sh",
 	} {
-		if !strings.Contains(string(opencodeYAML), name) || !strings.Contains(string(kiloYAML), name) {
-			t.Fatalf("%s missing from installed hooks.yaml", name)
+		dst := filepath.Join(home, ".skillgrid", "hooks", name)
+		if _, err := os.Stat(dst); err == nil {
+			t.Fatalf("retired adapter %s should not be installed", dst)
 		}
 	}
-	if !strings.Contains(string(kiloYAML), "SKILLGRID_AGENT=kilo") {
-		t.Fatalf("kilo hooks.yaml must set SKILLGRID_AGENT=kilo:\n%s", kiloYAML)
-	}
 
+	// No hooks.yaml is installed for either harness.
 	for _, rel := range []string{
-		".config/opencode/plugin/skillgrid-checkpoint.ts",
-		".config/kilo/plugin/skillgrid-checkpoint.ts",
+		".config/opencode/hook/hooks.yaml",
+		".config/kilo/hook/hooks.yaml",
 	} {
-		b, err := os.ReadFile(filepath.Join(home, rel))
-		if err != nil {
-			t.Fatalf("missing %s: %v", rel, err)
-		}
-		if !strings.Contains(string(b), "SkillgridCheckpoint") {
-			t.Fatalf("%s is not the checkpoint plugin", rel)
+		if _, err := os.Stat(filepath.Join(home, rel)); err == nil {
+			t.Fatalf("retired hooks.yaml should not be installed: %s", rel)
 		}
 	}
 
+	// All 5 native TS plugins are present under each harness's plugin dir and
+	// byte-identical to the single opencode source.
+	pluginBases := []string{
+		"skillgrid-compaction",
+		"skillgrid-events",
+		"skillgrid-squad",
+		"mnemonic-memory",
+		"mnemonic-codeindex",
+	}
+	for _, harness := range []string{"opencode", "kilo"} {
+		for _, base := range pluginBases {
+			dst := filepath.Join(home, ".config", harness, "plugin", base+".ts")
+			got, err := os.ReadFile(dst)
+			if err != nil {
+				t.Fatalf("%s missing plugin %s: %v", harness, base, err)
+			}
+			want, err := os.ReadFile(filepath.Join(repo, "plugins", "opencode", base+".ts"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != string(want) {
+				t.Fatalf("%s plugin %s differs from the opencode source", harness, base)
+			}
+		}
+	}
+
+	// Each harness config registers all 5 plugins and no retired entry.
 	for _, rel := range []string{
 		".config/opencode/opencode.jsonc",
 		".config/kilo/kilo.jsonc",
@@ -609,11 +591,15 @@ func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(b)
-		if !strings.Contains(text, "opencode-yaml-hooks") || !strings.Contains(text, "./plugin/skillgrid-checkpoint.ts") {
-			t.Fatalf("%s missing current plugins:\n%s", rel, text)
+		for _, base := range pluginBases {
+			if !strings.Contains(text, "./plugin/"+base+".ts") {
+				t.Fatalf("%s missing plugin ./plugin/%s.ts:\n%s", rel, base, text)
+			}
 		}
-		if strings.Contains(text, "opencode-command-hooks") || strings.Contains(text, "mnemonic.ts") {
-			t.Fatalf("%s still registers a retired plugin:\n%s", rel, text)
+		for _, retired := range []string{"opencode-command-hooks", "opencode-yaml-hooks", "skillgrid-checkpoint.ts", "hooks.yaml"} {
+			if strings.Contains(text, retired) {
+				t.Fatalf("%s still references retired %q:\n%s", rel, retired, text)
+			}
 		}
 	}
 }

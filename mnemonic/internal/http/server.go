@@ -182,6 +182,7 @@ func (s *Server) registerRoutes() {
 	s.registerDocsRoutes()
 	s.registerGraphRoutes()
 	s.registerDecisionRoutes()
+	s.registerFactsRoutes()
 	s.registerUIRoutes()
 }
 

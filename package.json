@@ -7,7 +7,8 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "node scripts/test-adr-invariants.mjs && node scripts/test-skill-size-budget.mjs .agents/skills/verification/qa/scripts/skill-size-budget.mjs",
+    "test": "node scripts/test-adr-invariants.mjs && node scripts/test-skill-size-budget.mjs .agents/skills/verification/qa/scripts/skill-size-budget.mjs && node --experimental-strip-types scripts/plugin-smoke.mjs",
+    "test:plugins": "node --experimental-strip-types scripts/plugin-smoke.mjs",
     "check:adr": "node scripts/check-adr-invariants.mjs"
   },
   "repository": {

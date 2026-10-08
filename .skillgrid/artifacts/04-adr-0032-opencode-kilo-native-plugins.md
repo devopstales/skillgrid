@@ -1,9 +1,10 @@
 # ADR-0032: opencode + Kilo native TS plugin architecture
 
-- **Status:** accepted
-- **Date:** 2026-10-08
-- **Supersedes:** none
-- **Superseded by:** none
+---
+status: "accepted"
+supersedes: none
+date: 2026-10-08
+---
 
 ## Context
 

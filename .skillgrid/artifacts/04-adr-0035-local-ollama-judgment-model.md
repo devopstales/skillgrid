@@ -1,9 +1,10 @@
 # ADR-0035: local Ollama judgment model (default `tev1:0.8b`), fail-open to pre-filter
 
-- **Status:** accepted
-- **Date:** 2026-10-08
-- **Supersedes:** none
-- **Superseded by:** none
+---
+status: "accepted"
+supersedes: none
+date: 2026-10-08
+---
 
 ## Context
 

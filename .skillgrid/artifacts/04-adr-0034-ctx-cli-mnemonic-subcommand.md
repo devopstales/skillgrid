@@ -1,9 +1,10 @@
 # ADR-0034: `ctx` is a `mnemonic` subcommand group, not a standalone binary
 
-- **Status:** accepted
-- **Date:** 2026-10-08
-- **Supersedes:** none
-- **Superseded by:** none
+---
+status: "accepted"
+supersedes: none
+date: 2026-10-08
+---
 
 ## Context
 

@@ -7,12 +7,14 @@ import (
 	"strings"
 
 	"github.com/tidwall/sjson"
-
 )
 
 // SetupOpenCode registers Mnemonic for OpenCode: the MCP servers from
-// mcp.yaml, opencode-yaml-hooks, and skillgrid-checkpoint.ts. Retired plugin
-// entries (opencode-command-hooks, mnemonic.ts) are removed. Harness config
+// mcp.yaml plus the 5 native TS plugins (ADR-0032) copied from
+// plugins/opencode/ and registered in the harness config. Retired plugin
+// entries (opencode-command-hooks, mnemonic.ts, opencode-yaml-hooks,
+// skillgrid-checkpoint.ts) are removed. The shell-era hooks.yaml and
+// opencode-*.sh adapters are no longer installed. Harness config
 // (TUI logo/theme) is owned by internal/install (installAgentConfig), not the
 // memory component. privateTools mirrors the config always-private allowlist
 // into the harness env map (SKILLGRID_MNEMONIC_PRIVATE_TOOLS) so capture
@@ -22,7 +24,6 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 		return fmt.Errorf("repo root not found (run from skillgrid checkout or sync repo)")
 	}
 
-	opencodeDir := filepath.Join(home, ".config", "opencode")
 	cfgPath := AgentConfigPath(home, "opencode")
 	if err := ensureConfigFile(cfgPath, dryRun); err != nil {
 		return err
@@ -41,21 +42,29 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 	if err := dropRetiredPlugins(cfgPath, dryRun); err != nil {
 		return err
 	}
-	if err := upsertPluginKey(cfgPath, "opencode-yaml-hooks", dryRun); err != nil {
-		return err
-	}
-	hooksDst := filepath.Join(opencodeDir, "hook", "hooks.yaml")
-	if err := copyFromRepo(repoRoot, opencodePluginRel, hooksDst, dryRun); err != nil {
-		return err
-	}
 	if err := installOpenCodeHookScripts(home, repoRoot, dryRun); err != nil {
 		return err
 	}
-	checkpointDst := filepath.Join(opencodeDir, "plugin", "skillgrid-checkpoint.ts")
-	if err := copyFromRepo(repoRoot, opencodeCheckpointPluginRel, checkpointDst, dryRun); err != nil {
-		return err
+	return installNativePlugins(home, repoRoot, cfgPath, "opencode", dryRun)
+}
+
+// installNativePlugins copies the 5 native TS plugins from plugins/opencode/
+// into ~/.config/<harness>/plugin/ and registers each "./plugin/<name>.ts" in
+// the harness config (shared by the OpenCode and Kilo installers per
+// ADR-0032 — Kilo copies from the same opencode source dir).
+func installNativePlugins(home, repoRoot, cfgPath, harness string, dryRun bool) error {
+	pluginDir := filepath.Join(home, ".config", harness, "plugin")
+	for _, base := range nativePluginBases {
+		srcRel := "plugins/opencode/" + base + ".ts"
+		dst := filepath.Join(pluginDir, base+".ts")
+		if err := copyFromRepo(repoRoot, srcRel, dst, dryRun); err != nil {
+			return err
+		}
+		if err := upsertPluginKey(cfgPath, "./plugin/"+base+".ts", dryRun); err != nil {
+			return err
+		}
 	}
-	return upsertPluginKey(cfgPath, "./plugin/skillgrid-checkpoint.ts", dryRun)
+	return nil
 }
 
 // upsertPrivateToolsEnv writes SKILLGRID_MNEMONIC_PRIVATE_TOOLS (comma-joined)

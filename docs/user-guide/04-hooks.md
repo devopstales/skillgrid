@@ -33,14 +33,17 @@ git-hooks/            # thin shims, JavaScript (staged to ~/.skillgrid/git-hooks
 └── gate-stop.js    ──> ../hooks/gate-stop.js         (reads harness JSON for session_id)
 plugins/              # harness adapters (installed from ~/.skillgrid/plugins/)
 ├── _shared/memory-protocol.md
-├── opencode/hooks.yaml
-└── kilo/hooks.yaml
+└── opencode/         # the 5 native TS plugins (single source; Kilo copies at install)
+    ├── skillgrid-compaction.ts
+    ├── skillgrid-events.ts
+    ├── skillgrid-squad.ts
+    ├── mnemonic-memory.ts
+    └── mnemonic-codeindex.ts
 .cursor-plugin/       # Cursor plugin surface (add-from-folder = repo root)
 ├── plugin.json
 └── marketplace.json
 rules/mnemonic.mdc    # Cursor always-apply Mnemonic protocol
 hooks/hooks-cursor.json + cursor-session-*.sh + cursor-tool-capture.sh + cursor-policy.sh
-hooks/opencode-session-start.sh + opencode-session-end.sh + opencode-policy.sh + opencode-tool-capture.sh
 ```
 
 `skillgrid install` stages `hooks/`, `git-hooks/`, and `plugins/` to
@@ -51,31 +54,40 @@ by the harness's Stop-hook config.
 ## Tool-call recording hooks
 
 Every tool call an agent makes is posted to `skillgrid serve` by a harness
-hook (`hooks/tool-call-capture.js`), which is what the Sessions view, `skillgrid
-logs`, and the policy engine read. The hooks are installed two ways and both
-point at the same `~/.skillgrid/hooks/` scripts:
+adapter, which is what the Sessions view, `skillgrid logs`, and the policy
+engine read. The adapters are installed two ways:
 
-| Harness | Hook config | Installed by |
-|---------|-------------|--------------|
+| Harness | Adapter | Installed by |
+|---------|---------|--------------|
 | Cursor | `~/.cursor/hooks.json` — `sessionStart`, `sessionEnd`, `stop`, `postToolUse`, `beforeShellExecution`, `beforeMCPExecution`, `beforeReadFile` | `skillgrid setup cursor` (also run by `skillgrid install`); the Cursor plugin ships the same set in `hooks/hooks-cursor.json` |
-| OpenCode | `~/.config/opencode/hook/hooks.yaml` — `session.created`, `session.idle`, `tool.before.*`, `tool.after.*` | `skillgrid setup opencode` |
-| Kilo | `~/.config/kilo/hook/hooks.yaml` — same events | `skillgrid setup kilo` |
+| OpenCode | 5 native TS plugins under `~/.config/opencode/plugin/` — `skillgrid-events.ts` posts tool calls and enforces the policy gate; `skillgrid-compaction.ts` owns checkpoint prompting | `skillgrid setup opencode` |
+| Kilo | the same 5 plugins, copied from `plugins/opencode/` into `~/.config/kilo/plugin/` | `skillgrid setup kilo` |
 
-OpenCode and Kilo also install **`skillgrid-checkpoint.ts`** under
-`~/.config/opencode/plugin/` and `~/.config/kilo/plugin/`. On **`session.idle`**
-the plugin claims a memory checkpoint from `skillgrid serve` (same route as the
-Cursor **stop** hook) and, when the server says the checkpoint is due, prompts
-the session with the rendered instructions. Errors and unreachable servers are
-swallowed (fail-open). The yaml **`session.idle`** hooks still run compact and
-usage; the plugin owns the conditional prompt. Turn checkpoints off with
+OpenCode and Kilo install **5 native TypeScript plugins** (ADR-0032) under
+`~/.config/opencode/plugin/` and `~/.config/kilo/plugin/`. The 5 are
+`skillgrid-compaction.ts`, `skillgrid-events.ts`, `skillgrid-squad.ts`,
+`mnemonic-memory.ts`, and `mnemonic-codeindex.ts`, all sourced from the single
+`plugins/opencode/` directory (Kilo's installer copies each file at install
+time). On **`session.idle`** `skillgrid-compaction.ts` claims a memory
+checkpoint from `skillgrid serve` (same route as the Cursor **stop** hook) and,
+when the server says the checkpoint is due, prompts the session with the
+rendered instructions. `skillgrid-events.ts` posts each tool call and enforces
+the policy gate (a denied tool throws and blocks). Errors and unreachable
+servers are swallowed (fail-open). Turn checkpoints off with
 `mnemonic.checkpoint.enabled: false` in `.skillgrid/config.yaml`.
+
+The retired shell-era adapters (`hooks/opencode-{session-start,session-end,policy,tool-capture}.sh`,
+`plugins/opencode/hooks.yaml`, `plugins/kilo/hooks.yaml`, and both
+`skillgrid-checkpoint.ts` copies) are gone. Cursor still uses its shell hooks
+(`cursor-tool-capture.sh` → `tool-call-capture.js`); the git-hook Stop gates
+(`stop-tests.js`, `gate-stop.js`) are untouched.
 
 `skillgrid setup cursor` copies the hook scripts into `~/.skillgrid/hooks/`
 itself, merges into an existing `hooks.json`, and leaves other tools' entries
 alone; re-running it adds nothing twice. Pass `--dry-run` after the agent name
-to preview. All capture hooks fail open; only the
-`tool.before.*` / `before*` policy hooks can block, and only when
-`.skillgrid/policy.yaml` has `enabled: true` (ADR-0021).
+to preview. All capture hooks fail open; only the policy gate can block — the
+Cursor `before*` hooks, or `skillgrid-events.ts` on OpenCode/Kilo — and only
+when `.skillgrid/policy.yaml` has `enabled: true` (ADR-0021).
 
 ### Memory checkpoints (Cursor `stop`)
 

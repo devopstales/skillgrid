@@ -74,7 +74,17 @@ const memSave = {
       .describe("Optional provenance for which tool produced the save"),
   },
   async execute(args) {
-    const data = await api("POST", "/memory/observations", args)
+    // POST /observations is the create route; /memory/observations/{id}/* are
+    // the governance sub-routes. The create route takes no project in the body
+    // — project/directory resolve via the query.
+    const params = new URLSearchParams()
+    if (args.project) params.set("project", args.project)
+    const qs = params.toString()
+    const data = await api(
+      "POST",
+      `/observations${qs ? "?" + qs : ""}`,
+      args
+    )
     return JSON.stringify(data)
   },
 }
@@ -127,14 +137,12 @@ const memSearch = {
     const params = new URLSearchParams()
     if (args.query) params.set("query", args.query)
     if (args.project) params.set("project", args.project)
-    if (args.scope) params.set("scope", args.scope)
     if (args.limit) params.set("limit", String(args.limit))
-    if (args.all_projects) params.set("all_projects", "true")
     if (args.match_mode) params.set("match_mode", args.match_mode)
-    if (args.reader_agent) params.set("reader_agent", args.reader_agent)
-    if (args.reader_owner) params.set("reader_owner", args.reader_owner)
-    if (args.unfold) params.set("unfold", args.unfold)
-    const data = await api("GET", `/memory/observations?${params}`)
+    // GET /search is the FTS route; it reads query, project, match_mode, limit.
+    // scope/all_projects/unfold are MCP-side concepts with no HTTP equivalent —
+    // they are accepted for call-shape stability but not forwarded.
+    const data = await api("GET", `/search?${params}`)
     return JSON.stringify(data)
   },
 }
