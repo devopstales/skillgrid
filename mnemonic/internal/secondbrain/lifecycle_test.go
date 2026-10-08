@@ -221,10 +221,15 @@ func hasAuditRow(t *testing.T, svc *service.Service, project string, action stri
 
 func TestLifecycle_HealthReport(t *testing.T) {
 	svc := newTestService(t, false)
-	seedObservations(t, svc, "test-project", 20, "auth")
+	// Unique project name so a stale 24h health cache file from a prior run /
+	// sibling (shared $TMPDIR/mnemonic-lifecycle-health, keyed by sha256(project))
+	// can never be served in place of a fresh computation. Mirrors
+	// TestLifecycle_HealthCached, which documents the same isolation.
+	project := fmt.Sprintf("lifecycle-health-report-%d", time.Now().UnixNano())
+	seedObservations(t, svc, project, 20, "auth")
 	defer os.RemoveAll(filepath.Join(os.TempDir(), healthCacheDir))
 
-	rep, err := Health(context.Background(), svc, "test-project")
+	rep, err := Health(context.Background(), svc, project)
 	if err != nil {
 		t.Fatalf("Health: %v", err)
 	}

@@ -149,16 +149,31 @@ func Health(ctx context.Context, svc *service.Service, projectID string) (Health
 
 // healthComputeReal is the real metric pass over the store: counts-by-type,
 // embedding coverage, age distribution, and duplicate density (union-find over
-// vec0 cosine, degrading to a normalized-hash cluster when no embeddings).
+// vec0 cosine, degrading to a normalized-hash cluster when no embeddings). It
+// owns its handle (opens projectID), so it serves Health(), which is the only
+// entry without a pre-opened handle. ForProjectOn (the scoped mem_search
+// read path) must NOT use this one — it would be a second store open and break
+// the single-open contract; that path calls healthComputeFromMem instead.
 func healthComputeReal(ctx context.Context, svc *service.Service, projectID string) (HealthReport, error) {
 	h, cleanup, err := svc.Open(projectID)
 	if err != nil {
 		return HealthReport{}, err
 	}
 	defer cleanup()
+	return healthComputeFromMem(ctx, h.Memory(), projectID)
+}
 
+// healthComputeFromMem is the zero-store-open metric pass: it reads through the
+// store the caller already holds (mem, from a ProjectHandle) and never calls
+// svc.Open. The scoped mem_search handler derives _health_warnings via
+// ForProjectOn -> this path, so it stays inside its single-open contract.
+func healthComputeFromMem(ctx context.Context, mem *memory.Service, projectID string) (HealthReport, error) {
+	db := mem.DB()
+	if db == nil {
+		return HealthReport{}, fmt.Errorf("health: no store handle for project %q", projectID)
+	}
 	var rows []healthRow
-	rx, err := h.Store().DB.QueryContext(ctx, `
+	rx, err := db.QueryContext(ctx, `
 		SELECT id, type, created_at, CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END
 		FROM observations
 		WHERE project = ? AND deleted_at IS NULL`, projectID)
@@ -200,7 +215,7 @@ func healthComputeReal(ctx context.Context, svc *service.Service, projectID stri
 
 	// Duplicate density: union-find over embeddings when present, else the
 	// deterministic normalized-hash floor (same as DedupScan's degrade path).
-	density := healthDuplicateDensity(ctx, h.Memory(), projectID, rows)
+	density := healthDuplicateDensity(ctx, mem, projectID, rows)
 
 	recs := healthRecommendations(len(rows), byType, embedded, coverage, density, age)
 	return HealthReport{

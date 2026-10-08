@@ -417,7 +417,7 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		// zero-store-open ForProjectOn over the handle the read path already
 		// opened — a second svc.Open here would break the single-open contract
 		// (see TestMemSearchSingleOpen). The all-projects branch above keeps [].
-		"_health_warnings": secondbrain.ForProjectOn(ctx, svc, h.Memory(), projectID),
+		"_health_warnings": secondbrain.ForProjectOn(ctx, h.Memory(), projectID),
 	}
 	if res.Truncated {
 		out["truncated"] = true

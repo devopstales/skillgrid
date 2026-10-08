@@ -148,6 +148,12 @@ func TestExecuteGoSkill(t *testing.T) {
 	}
 	st, root := openTestStore(t)
 	s := New(st.DB, root, "skilltest")
+	// go run is not instant: a cold compiler under full-suite load can take
+	// well past the 10s DefaultTimeout (the test measured 2.6-5.5s in
+	// isolation). Give the go run realistic headroom so the sandbox deadline
+	// is not the thing under test here — we're testing the runner, not the
+	// clock.
+	s.Timeout = 60 * time.Second
 	ctx := context.Background()
 
 	if _, err := s.Write(ctx, "hello-go", "go", "greets in go",

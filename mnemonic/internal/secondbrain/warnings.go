@@ -80,7 +80,7 @@ var warningCompute func(ctx context.Context, mem *memory.Service, projectID stri
 // The 24h file cache is honored first; a cache miss runs the computation over
 // mem and caches the result, so repeated calls (and the mem_lifecycle health
 // report) share one computation. Never throws: any error or panic yields [].
-func ForProjectOn(ctx context.Context, svc *service.Service, mem *memory.Service, projectID string) []HealthWarning {
+func ForProjectOn(ctx context.Context, mem *memory.Service, projectID string) []HealthWarning {
 	// A recovered panic falls through to the natural []HealthWarning{} return
 	// of the guards / early returns — the named result would just be shadowed.
 	defer func() {
@@ -97,7 +97,7 @@ func ForProjectOn(ctx context.Context, svc *service.Service, mem *memory.Service
 	if warningCompute != nil {
 		rep, err = warningCompute(ctx, mem, projectID)
 	} else {
-		rep, err = healthComputeReal(ctx, svc, projectID)
+		rep, err = healthComputeFromMem(ctx, mem, projectID)
 	}
 	if err != nil {
 		return []HealthWarning{}
