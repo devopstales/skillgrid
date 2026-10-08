@@ -109,8 +109,12 @@ The ADR index. One row per decision: a short description and a link to the full 
 | 0030 | Scan findings store: structured `scan_*`/`dep_*` tables + FTS, not blobs or per-tool tables | yes | `.skillgrid/artifacts/04-adr-0030-scan-findings-structured-store.md` |
 | 0031 | Go 1.22+ minimum to build (raised from a locked constraint to a decision) | yes | `.skillgrid/artifacts/04-adr-0031-go-version-floor.md` |
 | 0032 | opencode + Kilo native TS plugin architecture: 5 plugins from `plugins/opencode/`, Kilo copy-at-install, shell hooks retired, facts HTTP routes | yes | `.skillgrid/artifacts/04-adr-0032-opencode-kilo-native-plugins.md` |
+| 0033 | Three-module Go workspace: `ctx/` is a library module importing `mnemonic`, no own DB handle | yes | `.skillgrid/artifacts/04-adr-0033-three-module-workspace-ctx.md` |
+| 0034 | `ctx` is a `mnemonic` subcommand group (`mnemonic ctx …`), not a standalone binary; `mnemonic stats` unchanged | yes | `.skillgrid/artifacts/04-adr-0034-ctx-cli-mnemonic-subcommand.md` |
+| 0035 | CTX judgment model is local Ollama (default `tev1:0.8b` via `/v1/systemone`), fail-open to pre-filter | yes | `.skillgrid/artifacts/04-adr-0035-local-ollama-judgment-model.md` |
+| 0036 | CTX config lives at `config.d/ctx.yaml` (machine-local default + repo-local override), reuses the `config.d` loader | yes | `.skillgrid/artifacts/04-adr-0036-ctx-config-configd.md` |
 
-**Highest sequence in use:** 0032 (next ADR is `04-adr-0033-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
+**Highest sequence in use:** 0036 (next ADR is `04-adr-0037-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 
 Operational rules (the hard limits a change must respect — build toolchain, commit format, dependency policy, spec/code zone order) live in `AGENTS.md`, not here. `AGENTS.md` is the real source for those; the onboarding skill renders them into the agent prompt. A rule that is actually a decision belongs in this index as an ADR instead.
 

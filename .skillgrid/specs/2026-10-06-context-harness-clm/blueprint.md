@@ -10,7 +10,7 @@
 
 **Goal:** Build the `context_harness` package that absorbs `session_inject` and adds intercept-and-abstract capture, a deterministic `ctx_query`, a `ctx` CLI with proactive index + fused `ctx_search`, a Context Routing block, and the opt-in Context Language Model (CLM) layer (mirror + overflow guard + calibration).
 
-**Architecture:** `context_harness` becomes the owner of the session context lifecycle (ADR-0025). It moves the existing `session_inject` engine (import path change only — `mem_inject_session` contract and signatures unchanged) and adds: (a) a PostToolUse capture gate that stores gated tool output into a session-scoped FTS5 `tool_outputs` sandbox (migration 050); (b) a deterministic `ctx_query` over the code index; (c) a `ctx index`/`indexed_files` writer (migration 051, reuses the observations schema shape per ADR-0026) + a two-leg RRF `ctx_search` via `hybrid.Rank` (RRFK=60); (d) a Context Routing block rendered into `prime`; and (e) a `clm/` sub-package implementing the CLM (ADR-0027/0028) — Go owns state and decisions (budget, overflow guard, calibration, revision), the Node OpenCode `context` plugin hook owns the request path (render mirror, apply withhold, read edit), and accepted edits are persisted to the session-scoped `context_revisions` audit table (migration 052).
+**Architecture:** `context_harness` becomes the owner of the session context lifecycle (ADR-0025). It moves the existing `session_inject` engine (import path change only — `mem_inject_session` contract and signatures unchanged) and adds: (a) a PostToolUse capture gate that stores gated tool output into a session-scoped FTS5 `tool_outputs` sandbox (migration 053); (b) a deterministic `ctx_query` over the code index; (c) a `ctx index`/`indexed_files` writer (migration 054, reuses the observations schema shape per ADR-0026) + a two-leg RRF `ctx_search` via `hybrid.Rank` (RRFK=60); (d) a Context Routing block rendered into `prime`; and (e) a `clm/` sub-package implementing the CLM (ADR-0027/0028) — Go owns state and decisions (budget, overflow guard, calibration, revision), the Node OpenCode `context` plugin hook owns the request path (render mirror, apply withhold, read edit), and accepted edits are persisted to the session-scoped `context_revisions` audit table (migration 055).
 
 **Tech Stack:** Go 1.22+ (monorepo floor 1.25.5), `modernc.org/sqlite` (pure-Go, no CGo), FTS5 external-content tables, `hybrid.Rank` RRF fusion, hand-rolled `flag`-based CLI (not cobra), Node `hooks/tool-call-capture.js` (existing), OpenCode v2 plugin `context` hook. No new Go or Node dependencies (per ASSUMPTIONS.md § Locked constraints "No new dependencies without an ADR").
 
@@ -28,7 +28,7 @@
 - BDD is always on: every task has a `SATISFIES:` scenario name from `acceptance.feature`.
 - CLM is opt-in, off by default (fail-closed default) via the `clm:` config block (ADR-0027; briefing requirement 8).
 - `tool_outputs` and `context_revisions` are session-scoped, purged at session end; `indexed_files` is project-scoped with a 7-day TTL (ADR-0025/0026/0028).
-- Migrations are lexicographically ordered and run once (tracked in `index_meta`); current max is `049`, so this change adds `050`/`051`/`052` (per `store/store.go:344-425`).
+- Migrations are lexicographically ordered and run once (tracked in `index_meta`); current max is `049`, so this change adds `053`/`054`/`055` (per `store/store.go:344-425`).
 - The mirror is a prompt-injection surface: the system prompt stays OUT of the mirror; authored roles are lowered to plain text (ADR-0027; briefing requirement 10).
 - The capture gate is on ACTUAL output in the PostToolUse seam — not a PreToolUse prediction (ADR-0025; briefing requirement 1).
 
@@ -36,13 +36,13 @@
 
 **Claim:** A session-scoped FTS5 sandbox + RRF-fused `ctx_search` + an opt-in CLM mirror/revision loop, owned by one `context_harness` package that absorbs `session_inject`, will let the agent retrieve large tool output and edit its own context without the `mem_inject_session` contract churning or the agent hard-crashing on any new failure.
 
-**Right condition:** `pnpm test` (the Go suite) passes with the new `context_harness` package, the three migrations (050/051/052) applied idempotently, the capture gate gating large output to a `ctx_search` pointer, `ctx_search` returning RRF-fused results with per-leg provenance, `ctx` CLI stats/index/search/purge working, the Context Routing block rendered in `prime`, and the CLM (when enabled) rendering a `0600` mirror, capturing a validated edit into `context_revisions`, withholding overflow, and calibrating the token estimate.
+**Right condition:** `pnpm test` (the Go suite) passes with the new `context_harness` package, the three migrations (053/054/055) applied idempotently, the capture gate gating large output to a `ctx_search` pointer, `ctx_search` returning RRF-fused results with per-leg provenance, `ctx` CLI stats/index/search/purge working, the Context Routing block rendered in `prime`, and the CLM (when enabled) rendering a `0600` mirror, capturing a validated edit into `context_revisions`, withholding overflow, and calibrating the token estimate.
 
 **Wrong condition:** any of: the `mem_inject_session` contract changes; a new seam blocks or hard-crashes the agent on failure; a migration is non-idempotent or out of order; `ctx_search` does not return per-leg provenance; the CLM leaks the system prompt into the mirror; or the CLM is on by default.
 
-**Thinnest MVP:** the capture gate (migration 050 + `http/toolcalls.go` `content` field + `context_harness/capture.go`) gating one large tool output into the sandbox and returning a `ctx_search` pointer, with `ctx search` returning that row. This proves the Node↔Go↔SQLite↔FTS integration before the CLM or the index writer are built.
+**Thinnest MVP:** the capture gate (migration 053 + `http/toolcalls.go` `content` field + `context_harness/capture.go`) gating one large tool output into the sandbox and returning a `ctx_search` pointer, with `ctx search` returning that row. This proves the Node↔Go↔SQLite↔FTS integration before the CLM or the index writer are built.
 
-**Door check:** Task 1 (absorb `session_inject` into `context_harness` + the 050 migration) — if the absorption breaks `mem_inject_session` or the migration is non-idempotent, stop and revise.
+**Door check:** Task 1 (absorb `session_inject` into `context_harness` + the 053 migration) — if the absorption breaks `mem_inject_session` or the migration is non-idempotent, stop and revise.
 
 ## Threat Matrix
 
@@ -78,7 +78,7 @@
 
 - `mnemonic/internal/context_harness/` package: `capture.go`, `query.go`, `index.go`, `search.go`, `routing.go`, `autoprepend.go`, `summary.go`, `retrieve.go`, `render.go`, `privacy.go`, `index_render.go` (absorbed from `session_inject`).
 - `mnemonic/internal/context_harness/clm/` sub-package: `mirror.go`, `overflow.go`, `calibrate.go`, `revision.go`.
-- `mnemonic/internal/store/migrations/050_tool_outputs.sql`, `051_indexed_files.sql`, `052_context_revisions.sql`.
+- `mnemonic/internal/store/migrations/053_tool_outputs.sql`, `054_indexed_files.sql`, `055_context_revisions.sql`.
 - `mnemonic/cmd/mnemonic/ctx_cmd.go` (the `ctx` CLI group).
 - `mnemonic/internal/config/load.go` gains a `clm` block (struct + section + default + merge).
 - `hooks/tool-call-capture.js` gains the gate (full `content` on > threshold) + the `checkpoint` CLM mirror read.
@@ -94,9 +94,9 @@
 
 ### One-way-door decisions
 
-- Migration `050_tool_outputs` (new table) — tag on Task 1.
-- Migration `051_indexed_files` (new table) — tag on Task 5.
-- Migration `052_context_revisions` (new table) — tag on Task 7.
+- Migration `053_tool_outputs` (new table) — tag on Task 1.
+- Migration `054_indexed_files` (new table) — tag on Task 5.
+- Migration `055_context_revisions` (new table) — tag on Task 7.
 - The `http/toolcalls.go` route gaining a `content` field (published contract of the capture route) — tag on Task 2.
 
 ---
@@ -123,9 +123,9 @@ mnemonic/internal/context_harness/
     └── revision.go     # validate + persist an accepted mirror edit
 
 mnemonic/internal/store/migrations/
-├── 050_tool_outputs.sql
-├── 051_indexed_files.sql
-└── 052_context_revisions.sql
+├── 053_tool_outputs.sql
+├── 054_indexed_files.sql
+└── 055_context_revisions.sql
 
 mnemonic/cmd/mnemonic/
 └── ctx_cmd.go          # ctx stats/index/search/purge
@@ -141,13 +141,13 @@ The existing `session_inject/` package is **moved** into `context_harness/` (the
 
 ---
 
-### Task 1: Absorb `session_inject` into `context_harness` + migration 050
+### Task 1: Absorb `session_inject` into `context_harness` + migration 053
 
-> ⚠ one-way: migration `050_tool_outputs` (new session-scoped table).
+> ⚠ one-way: migration `053_tool_outputs` (new session-scoped table).
 
 **Files:**
 - Create: `mnemonic/internal/context_harness/capture.go` (placeholder until Task 2; here only the package decl)
-- Create: `mnemonic/internal/store/migrations/050_tool_outputs.sql`
+- Create: `mnemonic/internal/store/migrations/053_tool_outputs.sql`
 - Move: `mnemonic/internal/session_inject/{autoprepend,summary,retrieve,render,privacy,index}.go` → `mnemonic/internal/context_harness/{autoprepend,summary,retrieve,render,privacy,index_render}.go` (rename `index.go` → `index_render.go` to avoid collision with the new `index.go`)
 - Move: `mnemonic/internal/session_inject/*_test.go` → `mnemonic/internal/context_harness/`
 - Delete: `mnemonic/internal/session_inject/` (empty after move)
@@ -155,7 +155,7 @@ The existing `session_inject/` package is **moved** into `context_harness/` (the
 - Modify: `mnemonic/cmd/mnemonic/loop_cmd.go` (import path only)
 - Modify: `mnemonic/internal/secondbrain/ask.go` (import path only)
 - Modify: `mnemonic/internal/http/toolevents.go` (import path only)
-- Test: `mnemonic/internal/context_harness/migrate_050_test.go`
+- Test: `mnemonic/internal/context_harness/migrate_053_test.go`
 
 **Interfaces:**
 - Consumes: `store.Open(dataDir, projectID) (*store.Store, error)`; `memory.New(st, projectID) *memory.Service`; the `session_inject` public API (`EstimateTokens`, `HybridRetrieve`, `HybridObservations`, `RenderContextBlock`, `AutoPrepend`, `DistillSummary`, `RenderIndex`, `Injectable`, `ObservationInjectable`, `RetrieveResult`, `InjectItem`, `IndexConfig`) — all now under the `context_harness` package name.
@@ -164,7 +164,7 @@ The existing `session_inject/` package is **moved** into `context_harness/` (the
 - [ ] **Step 1: Write the failing migration test**
 
 ```go
-// context_harness/migrate_050_test.go
+// context_harness/migrate_053_test.go
 package context_harness
 
 import (
@@ -173,7 +173,7 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
-func TestMigration050_TablesExist(t *testing.T) {
+func TestMigration053_TablesExist(t *testing.T) {
 	st, err := store.Open(t.TempDir(), "ctxproj")
 	if err != nil { t.Fatalf("open: %v", err) }
 	defer st.Close()
@@ -184,7 +184,7 @@ func TestMigration050_TablesExist(t *testing.T) {
 	}
 }
 
-func TestMigration050_FTSInsertTrigger(t *testing.T) {
+func TestMigration053_FTSInsertTrigger(t *testing.T) {
 	st, err := store.Open(t.TempDir(), "ctxproj")
 	if err != nil { t.Fatalf("open: %v", err) }
 	defer st.Close()
@@ -200,13 +200,13 @@ func TestMigration050_FTSInsertTrigger(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/context_harness/ -run 'TestMigration050' -v`
-Expected: FAIL — `table tool_outputs not created` (no `050_tool_outputs.sql` yet; create the package dir first with a `doc.go` if needed).
+Run: `go test ./internal/context_harness/ -run 'TestMigration053' -v`
+Expected: FAIL — `table tool_outputs not created` (no `053_tool_outputs.sql` yet; create the package dir first with a `doc.go` if needed).
 
 - [ ] **Step 3: Write the migration**
 
 ```sql
--- store/migrations/050_tool_outputs.sql
+-- store/migrations/053_tool_outputs.sql
 -- Context Harness Sandbox Store (ADR-0025). Session-scoped; purged at session end.
 CREATE TABLE IF NOT EXISTS tool_outputs (
     id          INTEGER PRIMARY KEY,
@@ -284,7 +284,7 @@ Expected: PASS (migration + absorbed API), and the four importer packages build.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add mnemonic/internal/context_harness/ mnemonic/internal/store/migrations/050_tool_outputs.sql mnemonic/internal/mcp/tools_session_inject.go mnemonic/cmd/mnemonic/loop_cmd.go mnemonic/internal/secondbrain/ask.go mnemonic/internal/http/toolevents.go
+git add mnemonic/internal/context_harness/ mnemonic/internal/store/migrations/053_tool_outputs.sql mnemonic/internal/mcp/tools_session_inject.go mnemonic/cmd/mnemonic/loop_cmd.go mnemonic/internal/secondbrain/ask.go mnemonic/internal/http/toolevents.go
 git rm -r mnemonic/internal/session_inject
 git commit -m "refactor: absorb session_inject into context_harness + add tool_outputs sandbox (ADR-0025)"
 ```
@@ -637,12 +637,12 @@ git commit -m "feat: ctx CLI group (stats/index/search/purge) (ADR-0025)"
 
 ---
 
-### Task 5: `ctx index` + `indexed_files` (migration 051) + `ctx_search` fusion
+### Task 5: `ctx index` + `indexed_files` (migration 054) + `ctx_search` fusion
 
-> ⚠ one-way: migration `051_indexed_files` (new project-scoped table).
+> ⚠ one-way: migration `054_indexed_files` (new project-scoped table).
 
 **Files:**
-- Create: `mnemonic/internal/store/migrations/051_indexed_files.sql`
+- Create: `mnemonic/internal/store/migrations/054_indexed_files.sql`
 - Create: `mnemonic/internal/context_harness/index.go`
 - Create: `mnemonic/internal/context_harness/search.go`
 - Modify: `mnemonic/cmd/mnemonic/ctx_cmd.go` (implement `ctxIndex` + `ctxSearch`)
@@ -686,12 +686,12 @@ func TestSearch_FusesBothLegs(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./internal/context_harness/ -run 'TestSearch' -v`
-Expected: FAIL — `no such table: indexed_files` (migration 051 not applied).
+Expected: FAIL — `no such table: indexed_files` (migration 054 not applied).
 
-- [ ] **Step 3: Write migration 051**
+- [ ] **Step 3: Write migration 054**
 
 ```sql
--- store/migrations/051_indexed_files.sql
+-- store/migrations/054_indexed_files.sql
 -- Context Harness proactive index (ADR-0026). Reuses the observations schema shape.
 -- Project-scoped; 7-day TTL like observations.
 CREATE TABLE IF NOT EXISTS indexed_files (
@@ -858,8 +858,8 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add mnemonic/internal/store/migrations/051_indexed_files.sql mnemonic/internal/context_harness/index.go mnemonic/internal/context_harness/search.go mnemonic/cmd/mnemonic/ctx_cmd.go mnemonic/internal/context_harness/index_test.go mnemonic/internal/context_harness/search_test.go
-git commit -m "feat: ctx index + indexed_files (051) + ctx_search RRF fusion (ADR-0025/0026)"
+git add mnemonic/internal/store/migrations/054_indexed_files.sql mnemonic/internal/context_harness/index.go mnemonic/internal/context_harness/search.go mnemonic/cmd/mnemonic/ctx_cmd.go mnemonic/internal/context_harness/index_test.go mnemonic/internal/context_harness/search_test.go
+git commit -m "feat: ctx index + indexed_files (054) + ctx_search RRF fusion (ADR-0025/0026)"
 ```
 
 **SATISFIES:** `ctx_search fuses sandbox and index via RRF` (acceptance.feature)
@@ -984,12 +984,12 @@ git commit -m "feat: ctx purge + Context Routing block in prime (ADR-0025)"
 
 ---
 
-### Task 7: CLM — config block + mirror + revision + migration 052
+### Task 7: CLM — config block + mirror + revision + migration 055
 
-> ⚠ one-way: migration `052_context_revisions` (new session-scoped table).
+> ⚠ one-way: migration `055_context_revisions` (new session-scoped table).
 
 **Files:**
-- Create: `mnemonic/internal/store/migrations/052_context_revisions.sql`
+- Create: `mnemonic/internal/store/migrations/055_context_revisions.sql`
 - Modify: `mnemonic/internal/config/load.go` (add `clm` block: struct field in `Indexing`, yaml key in `mnemonicSection`, `clmSection` struct, `DefaultCLM()`, `mergeCLM()`)
 - Create: `mnemonic/internal/context_harness/clm/mirror.go`
 - Create: `mnemonic/internal/context_harness/clm/revision.go`
@@ -1068,10 +1068,10 @@ func TestLoadCLM_ExplicitOn(t *testing.T) {
 Run: `go test ./internal/context_harness/clm/ -run 'TestRenderMirror' -v` and `go test ./internal/config/ -run 'TestCLM' -v`
 Expected: FAIL — `undefined: Mirror` / `undefined: DefaultCLM`.
 
-- [ ] **Step 3: Write migration 052 + config block**
+- [ ] **Step 3: Write migration 055 + config block**
 
 ```sql
--- store/migrations/052_context_revisions.sql
+-- store/migrations/055_context_revisions.sql
 -- CLM session-scoped audit (ADR-0028). Raw history + mirror are source of truth.
 CREATE TABLE IF NOT EXISTS context_revisions (
     id                 INTEGER PRIMARY KEY,
@@ -1251,8 +1251,8 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add mnemonic/internal/store/migrations/052_context_revisions.sql mnemonic/internal/config/load.go mnemonic/internal/context_harness/clm/mirror.go mnemonic/internal/context_harness/clm/revision.go mnemonic/internal/context_harness/clm/mirror_test.go mnemonic/internal/config/load_clm_test.go
-git commit -m "feat: clm config block + mirror + revision + context_revisions (052) (ADR-0027/0028)"
+git add mnemonic/internal/store/migrations/055_context_revisions.sql mnemonic/internal/config/load.go mnemonic/internal/context_harness/clm/mirror.go mnemonic/internal/context_harness/clm/revision.go mnemonic/internal/context_harness/clm/mirror_test.go mnemonic/internal/config/load_clm_test.go
+git commit -m "feat: clm config block + mirror + revision + context_revisions (055) (ADR-0027/0028)"
 ```
 
 **SATISFIES:** `CLM is off by default` + `mirror excludes the system prompt` (acceptance.feature)
@@ -1617,7 +1617,7 @@ git commit -m "feat: clm go-owns-state seam + resume + node checkpoint capture +
 
 - **Spec coverage:** all 13 briefing requirements map to tasks (1→Task1, 2→Task2, 3→Task3, 4→Task3, 5→Task5, 6→Task4/6, 7→Task6, 8→Task7, 9→Task7, 10→Task7/9, 11→Task8/9, 12→Task8, 13→Task1). No gaps.
 - **Must-haves coverage:** every truth (1-13) has a task + a `SATISFIES` scenario. Artifacts all named. Key links all wired.
-- **One-way-door completeness:** migrations 050/051/052 + the `content` route field all tagged `> ⚠ one-way:` on Tasks 1/2/5/7.
+- **One-way-door completeness:** migrations 053/054/055 + the `content` route field all tagged `> ⚠ one-way:` on Tasks 1/2/5/7.
 - **Placeholder scan:** `ctxIndex`/`ctxSearch`/`ctxPurge` are stubbed in Task 4 and implemented in Task 5/6 — named, not TBD. `activeSessionID` is noted with a concrete query. The Node helper functions are named with their regex/split logic. No "implement later".
 - **Type consistency:** `clm.Mirror`/`clm.Block`/`clm.Revision`/`clm.Edit` defined once (Task 7) and reused in Tasks 8/9. `config.CLM` defined once (Task 7). `hybrid.Hit`/`hybrid.Rank`/`hybrid.RRFK` match the existing `hybrid/rank.go` signatures. `context_harness.SearchHit`/`QueryResult`/`GateDecision` consistent across tasks.
 

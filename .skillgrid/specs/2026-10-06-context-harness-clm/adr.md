@@ -15,10 +15,10 @@
 
 ## New Durable ADRs Created
 
-- `.skillgrid/artifacts/04-adr-0025-context-harness-owner.md` — Context Harness owns the session context lifecycle: absorbs `session_inject` (import path change only, `mem_inject_session` unchanged), adds capture / `ctx_query` / routing / `ctx` CLI; capture gates on actual output. Migration 050.
-- `.skillgrid/artifacts/04-adr-0026-indexed-files-reuses-observations-schema.md` — `indexed_files` is a separate project-scoped table reusing the observations schema shape (Second Brain has no table of its own); `ctx_search` fuses sandbox + indexed via RRF. Migration 051.
+- `.skillgrid/artifacts/04-adr-0025-context-harness-owner.md` — Context Harness owns the session context lifecycle: absorbs `session_inject` (import path change only, `mem_inject_session` unchanged), adds capture / `ctx_query` / routing / `ctx` CLI; capture gates on actual output. Migration 053.
+- `.skillgrid/artifacts/04-adr-0026-indexed-files-reuses-observations-schema.md` — `indexed_files` is a separate project-scoped table reusing the observations schema shape (Second Brain has no table of its own); `ctx_search` fuses sandbox + indexed via RRF. Migration 054.
 - `.skillgrid/artifacts/04-adr-0027-clm-context-language-model.md` — CLM layer: Go owns state and decisions (budget, overflow guard, calibration, revision), Node owns the request path (render mirror, apply withhold, read edit); opt-in via the `clm:` config block.
-- `.skillgrid/artifacts/04-adr-0028-context-revisions-session-scoped.md` — `context_revisions` is session-scoped audit, purged at session end; raw history + mirror are the source of truth. Migration 052.
+- `.skillgrid/artifacts/04-adr-0028-context-revisions-session-scoped.md` — `context_revisions` is session-scoped audit, purged at session end; raw history + mirror are the source of truth. Migration 055.
 
 ## Supersessions
 

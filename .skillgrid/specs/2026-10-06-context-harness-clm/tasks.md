@@ -7,7 +7,7 @@
 
 ## Epic Summary
 
-Build the `context_harness` package (absorbs `session_inject`, import-path-only) that adds intercept-and-abstract capture (PostToolUse gate → session FTS5 `tool_outputs` sandbox), a deterministic `ctx_query`, a `ctx` CLI (stats/index/search/purge) with a proactive `indexed_files` index and RRF-fused `ctx_search`, a Context Routing block in `prime`, and the opt-in CLM layer (mirror + overflow guard + calibration + revision, Go owns state / Node owns the request path). Three new migrations (050/051/052), one Node hook change, one new OpenCode `context` plugin.
+Build the `context_harness` package (absorbs `session_inject`, import-path-only) that adds intercept-and-abstract capture (PostToolUse gate → session FTS5 `tool_outputs` sandbox), a deterministic `ctx_query`, a `ctx` CLI (stats/index/search/purge) with a proactive `indexed_files` index and RRF-fused `ctx_search`, a Context Routing block in `prime`, and the opt-in CLM layer (mirror + overflow guard + calibration + revision, Go owns state / Node owns the request path). Three new migrations (053/054/055), one Node hook change, one new OpenCode `context` plugin.
 
 ## Delivery Strategy
 
@@ -16,7 +16,7 @@ Build the `context_harness` package (absorbs `session_inject`, import-path-only)
 | Estimated changed lines | ~2,200–2,800 (Go ~1,600 + Node ~300 + migrations ~120 + tests ~400–700) |
 | 400-line budget risk | High |
 | Chained PRs recommended | Yes |
-| Suggested split | PR 1 (tracer: absorb + 050 + capture gate + ctx search) → PR 2 (ctx CLI + 051 + ctx_search fusion) → PR 3 (CLM: 052 + config + mirror/revision/overflow/calibrate + Node hook + OpenCode plugin) |
+| Suggested split | PR 1 (tracer: absorb + 053 + capture gate + ctx search) → PR 2 (ctx CLI + 054 + ctx_search fusion) → PR 3 (CLM: 055 + config + mirror/revision/overflow/calibrate + Node hook + OpenCode plugin) |
 | Delivery strategy | ask-on-risk |
 | Chain strategy | pending (user decision at execution) |
 
@@ -29,26 +29,26 @@ Chain strategy: pending
 
 | Unit | Goal | Likely PR | Focused test command | Runtime harness | Rollback boundary |
 |------|------|-----------|----------------------|-----------------|-------------------|
-| 1 | Tracer: absorb `session_inject`→`context_harness`, migration 050, capture gate stores a large tool output, `ctx search` returns that row (thin end-to-end through Node↔Go↔SQLite↔FTS) | PR 1 | `cd mnemonic && go test ./internal/context_harness/ -run 'TestMigration050\|TestDecideGate\|TestGateStores' -v` | Real scenario: run `hooks/tool-call-capture.js` against a live `mnemonic` HTTP server, feed a >4KB output, then `ctx search`. Rollback = `git revert` PR 1 (new package + 1 migration; `mem_inject_session` contract unchanged so no caller churn). | `mnemonic/internal/context_harness/` + `050_tool_outputs.sql` + `http/toolcalls.go` `content` field + hook gate |
-| 2 | `ctx` CLI group + `ctx index`/`indexed_files` (051) + `ctx_search` two-leg RRF fusion + Context Routing block + `ctx purge` | PR 2 | `cd mnemonic && go test ./internal/context_harness/ -run 'TestSearch\|TestIndex\|TestRenderRouting\|TestRunCtx' -v` | Real scenario: `ctx index <file>` then `ctx search <query>` returns RRF-fused rows with per-leg provenance; `prime` renders the routing block. Rollback = `git revert` PR 2 (new CLI subcommand + 1 migration; no behavior change to the capture path). | `mnemonic/cmd/mnemonic/ctx_cmd.go` + `051_indexed_files.sql` + `context_harness/{index,search,routing,purge}.go` + `loop/render.go` |
-| 3 | CLM: `clm:` config block, migration 052, mirror render, revision capture/validate/persist, overflow guard, calibration, Go owns state (SetCLM + resume), Node checkpoint capture, OpenCode `context` plugin | PR 3 | `cd mnemonic && go test ./internal/context_harness/clm/ -v && go test ./internal/config/ -run 'TestCLM' -v && node -e "require('./plugins/opencode/context/index.js')"` | Real scenario: enable `clm.enabled`, run a turn, the OpenCode `context` hook renders a `0600` mirror (no system prompt), the checkpoint captures a validated edit into `context_revisions`, overflow withholds, calibration corrects the factor. Rollback = `git revert` PR 3 (new sub-package + 1 migration + opt-in config; default-off so no behavior change when disabled). | `mnemonic/internal/context_harness/clm/` + `052_context_revisions.sql` + `config` `clm` block + `memory/clm.go` + hook checkpoint + `plugins/opencode/context/` |
+| 1 | Tracer: absorb `session_inject`→`context_harness`, migration 053, capture gate stores a large tool output, `ctx search` returns that row (thin end-to-end through Node↔Go↔SQLite↔FTS) | PR 1 | `cd mnemonic && go test ./internal/context_harness/ -run 'TestMigration053\|TestDecideGate\|TestGateStores' -v` | Real scenario: run `hooks/tool-call-capture.js` against a live `mnemonic` HTTP server, feed a >4KB output, then `ctx search`. Rollback = `git revert` PR 1 (new package + 1 migration; `mem_inject_session` contract unchanged so no caller churn). | `mnemonic/internal/context_harness/` + `053_tool_outputs.sql` + `http/toolcalls.go` `content` field + hook gate |
+| 2 | `ctx` CLI group + `ctx index`/`indexed_files` (054) + `ctx_search` two-leg RRF fusion + Context Routing block + `ctx purge` | PR 2 | `cd mnemonic && go test ./internal/context_harness/ -run 'TestSearch\|TestIndex\|TestRenderRouting\|TestRunCtx' -v` | Real scenario: `ctx index <file>` then `ctx search <query>` returns RRF-fused rows with per-leg provenance; `prime` renders the routing block. Rollback = `git revert` PR 2 (new CLI subcommand + 1 migration; no behavior change to the capture path). | `mnemonic/cmd/mnemonic/ctx_cmd.go` + `054_indexed_files.sql` + `context_harness/{index,search,routing,purge}.go` + `loop/render.go` |
+| 3 | CLM: `clm:` config block, migration 055, mirror render, revision capture/validate/persist, overflow guard, calibration, Go owns state (SetCLM + resume), Node checkpoint capture, OpenCode `context` plugin | PR 3 | `cd mnemonic && go test ./internal/context_harness/clm/ -v && go test ./internal/config/ -run 'TestCLM' -v && node -e "require('./plugins/opencode/context/index.js')"` | Real scenario: enable `clm.enabled`, run a turn, the OpenCode `context` hook renders a `0600` mirror (no system prompt), the checkpoint captures a validated edit into `context_revisions`, overflow withholds, calibration corrects the factor. Rollback = `git revert` PR 3 (new sub-package + 1 migration + opt-in config; default-off so no behavior change when disabled). | `mnemonic/internal/context_harness/clm/` + `055_context_revisions.sql` + `config` `clm` block + `memory/clm.go` + hook checkpoint + `plugins/opencode/context/` |
 
 > The four plain-text guard lines above are the **contract** — `skillgrid:subagent-execution` matches them literally. If risk is High, `Chained PRs recommended` MUST be `Yes` and every work unit MUST name a focused test, a runtime harness (or `N/A` + reason), and a rollback boundary.
 
 ## Tickets
 
-### TICKET-01 — Absorb `session_inject` → `context_harness` + migration 050 (tracer start)
+### TICKET-01 — Absorb `session_inject` → `context_harness` + migration 053 (tracer start)
 
-- **Scope:** Move `mnemonic/internal/session_inject/` into `mnemonic/internal/context_harness/` (import path change only — all 4 importers update), and add the `tool_outputs` FTS5 sandbox via migration `050_tool_outputs.sql`. This is the door check: if absorption breaks `mem_inject_session` or the migration is non-idempotent, stop.
-- **Acceptance:** (1) `mem_inject_session` MCP tool keeps its exact contract (params `query`, `all_projects`, `max_tokens` default 2000) — verified by a held-out call, not a diff read. (2) Migration `050` applies idempotently (re-run is a no-op) and creates `tool_outputs` + `tool_outputs_fts`. (3) `go build ./...` clean, all existing `session_inject` tests pass under the new path.
-- **SATISFIES:** `absorption preserves the mem_inject_session contract` + `migration 050 creates the sandbox` (acceptance.feature)
-- **Files:** `mnemonic/internal/context_harness/` (10 moved files: autoprepend, summary, retrieve, render, privacy, index_render + their tests), `mnemonic/internal/mcp/tools_session_inject.go`, `mnemonic/cmd/mnemonic/loop_cmd.go`, `mnemonic/internal/secondbrain/ask.go`, `mnemonic/internal/http/toolevents.go`, `mnemonic/internal/store/migrations/050_tool_outputs.sql` + `store/store.go` (migration registration is automatic by filename), `mnemonic/internal/store/migrations/050_tool_outputs_test.go`
+- **Scope:** Move `mnemonic/internal/session_inject/` into `mnemonic/internal/context_harness/` (import path change only — all 4 importers update), and add the `tool_outputs` FTS5 sandbox via migration `053_tool_outputs.sql`. This is the door check: if absorption breaks `mem_inject_session` or the migration is non-idempotent, stop.
+- **Acceptance:** (1) `mem_inject_session` MCP tool keeps its exact contract (params `query`, `all_projects`, `max_tokens` default 2000) — verified by a held-out call, not a diff read. (2) Migration `053` applies idempotently (re-run is a no-op) and creates `tool_outputs` + `tool_outputs_fts`. (3) `go build ./...` clean, all existing `session_inject` tests pass under the new path.
+- **SATISFIES:** `absorption preserves the mem_inject_session contract` + `migration 053 creates the sandbox` (acceptance.feature)
+- **Files:** `mnemonic/internal/context_harness/` (10 moved files: autoprepend, summary, retrieve, render, privacy, index_render + their tests), `mnemonic/internal/mcp/tools_session_inject.go`, `mnemonic/cmd/mnemonic/loop_cmd.go`, `mnemonic/internal/secondbrain/ask.go`, `mnemonic/internal/http/toolevents.go`, `mnemonic/internal/store/migrations/053_tool_outputs.sql` + `store/store.go` (migration registration is automatic by filename), `mnemonic/internal/store/migrations/053_tool_outputs_test.go`
 - **Size:** ~700 (M) — mostly file moves + 4 import-path edits + 1 migration + 2 tests
 - **Blocks:** TICKET-02, TICKET-03, TICKET-05
 - **Blocked by:** none
 - **Precondition:** `mnemonic/internal/session_inject/` exists with 7 source + 5 test files (the absorb source).
-- **Reversibility:** one-way — migration `050_tool_outputs` is a new table; a `git revert` drops the file but an already-migrated DB keeps the table (idempotent, harmless). The import-path rename is the real one-way step — callers must not be left pointing at the old path.
-- **Fails-when:** `go test ./internal/mcp/ -run 'TestInjectSession' -v` FAILs (contract churn), OR `go test ./internal/store/ -run 'TestMigration050' -v` FAILs (non-idempotent), OR `go build ./...` reports a dangling `session_inject` import.
+- **Reversibility:** one-way — migration `053_tool_outputs` is a new table; a `git revert` drops the file but an already-migrated DB keeps the table (idempotent, harmless). The import-path rename is the real one-way step — callers must not be left pointing at the old path.
+- **Fails-when:** `go test ./internal/mcp/ -run 'TestInjectSession' -v` FAILs (contract churn), OR `go test ./internal/store/ -run 'TestMigration053' -v` FAILs (non-idempotent), OR `go build ./...` reports a dangling `session_inject` import.
 
 ### TICKET-02 — Output Sandbox Gate (capture route carries `content` + gate stores)
 
@@ -84,17 +84,17 @@ Chain strategy: pending
 - **Blocked by:** TICKET-01 (package home)
 - **Fails-when:** `go test ./cmd/mnemonic/ -run 'TestRunCtx' -v` FAILs, OR `mnemonic ctx` with no args exits 0 instead of printing usage.
 
-### TICKET-05 — `ctx index` + `indexed_files` (051) + `ctx_search` RRF fusion
+### TICKET-05 — `ctx index` + `indexed_files` (054) + `ctx_search` RRF fusion
 
-- **Scope:** `context_harness/index.go` (read+chunk ~2KB+upsert into `indexed_files`, 7-day TTL, observations schema shape per ADR-0026) + `context_harness/search.go` (two-leg RRF fusion via `hybrid.Rank` RRFK=60 across `tool_outputs_fts` and `indexed_files_fts`, per-leg provenance) + migration `051_indexed_files.sql`. The `ctx index`/`ctx search` subcommands (from TICKET-04) now do real work. This is the tracer's fusion payoff.
+- **Scope:** `context_harness/index.go` (read+chunk ~2KB+upsert into `indexed_files`, 7-day TTL, observations schema shape per ADR-0026) + `context_harness/search.go` (two-leg RRF fusion via `hybrid.Rank` RRFK=60 across `tool_outputs_fts` and `indexed_files_fts`, per-leg provenance) + migration `054_indexed_files.sql`. The `ctx index`/`ctx search` subcommands (from TICKET-04) now do real work. This is the tracer's fusion payoff.
 - **Acceptance:** (1) `ctx index <file>` reads, chunks, and upserts rows into `indexed_files`. (2) `ctx search <query>` returns RRF-fused results across both FTS legs. (3) Each result carries per-leg provenance (which leg + path/line). (4) `indexed_files` rows expire after 7 days (TTL). (5) `hybrid.Rank` is the fusion engine (RRFK=60), not a new ranking impl.
 - **SATISFIES:** `ctx index writes chunks to indexed_files` + `ctx_search fuses sandbox and index via RRF` + `ctx_search results carry per-leg provenance` + `indexed_files has a 7-day TTL` (acceptance.feature)
-- **Files:** `mnemonic/internal/store/migrations/051_indexed_files.sql` (+ test), `mnemonic/internal/context_harness/index.go` (+ `index_test.go`), `mnemonic/internal/context_harness/search.go` (+ `search_test.go`), `mnemonic/cmd/mnemonic/ctx_cmd.go` (implement `ctxIndex`/`ctxSearch`)
+- **Files:** `mnemonic/internal/store/migrations/054_indexed_files.sql` (+ test), `mnemonic/internal/context_harness/index.go` (+ `index_test.go`), `mnemonic/internal/context_harness/search.go` (+ `search_test.go`), `mnemonic/cmd/mnemonic/ctx_cmd.go` (implement `ctxIndex`/`ctxSearch`)
 - **Size:** ~550 (M)
 - **Blocks:** none
 - **Blocked by:** TICKET-02 (the sandbox leg to fuse), TICKET-04 (the CLI subcommands)
-- **Reversibility:** one-way — migration `051_indexed_files` is a new table.
-- **Fails-when:** `go test ./internal/context_harness/ -run 'TestIndex\|TestSearch' -v` FAILs, OR a `ctx search` result lacks per-leg provenance, OR `go test ./internal/store/ -run 'TestMigration051' -v` FAILs.
+- **Reversibility:** one-way — migration `054_indexed_files` is a new table.
+- **Fails-when:** `go test ./internal/context_harness/ -run 'TestIndex\|TestSearch' -v` FAILs, OR a `ctx search` result lacks per-leg provenance, OR `go test ./internal/store/ -run 'TestMigration054' -v` FAILs.
 
 ### TICKET-06 — Context Routing block in `prime`
 
@@ -107,17 +107,17 @@ Chain strategy: pending
 - **Blocked by:** TICKET-01 (package home)
 - **Fails-when:** `go test ./internal/context_harness/ -run 'TestRenderRouting' -v` FAILs, OR `prime` output lacks the `## Context Routing` header.
 
-### TICKET-07 — CLM config block + migration 052 + mirror render
+### TICKET-07 — CLM config block + migration 055 + mirror render
 
-- **Scope:** `config/load.go` gains the `clm:` block (struct + section + `DefaultCLM()` off-by-default + `mergeCLM()`), routed to `memory.Service` via `SetCLM`. Migration `052_context_revisions.sql`. `context_harness/clm/mirror.go` — `RenderMirror` (`[[LIVE_CONTEXT ...]]` header + `[[CTX_TURN ...]]` blocks, system prompt EXCLUDED) + `WriteMirror` (0600 file).
-- **Acceptance:** (1) CLM is off by default (`clm.enabled` absent = off). (2) `clm.enabled: true` + `budget` are honored from config. (3) The reserve default (2048) survives an explicit budget. (4) `RenderMirror` produces the header + CTX_TURN blocks and does NOT include the system prompt. (5) `WriteMirror` writes a 0600 file. (6) Migration 052 applies idempotently.
-- **SATISFIES:** `CLM is off by default` + `clm config block is honored` + `mirror excludes the system prompt` + `mirror is written 0600` + `migration 052 creates context_revisions` (acceptance.feature)
-- **Files:** `mnemonic/internal/store/migrations/052_context_revisions.sql` (+ test), `mnemonic/internal/config/load.go` (+ `load_clm_test.go`), `mnemonic/internal/context_harness/clm/mirror.go` (+ `mirror_test.go`)
+- **Scope:** `config/load.go` gains the `clm:` block (struct + section + `DefaultCLM()` off-by-default + `mergeCLM()`), routed to `memory.Service` via `SetCLM`. Migration `055_context_revisions.sql`. `context_harness/clm/mirror.go` — `RenderMirror` (`[[LIVE_CONTEXT ...]]` header + `[[CTX_TURN ...]]` blocks, system prompt EXCLUDED) + `WriteMirror` (0600 file).
+- **Acceptance:** (1) CLM is off by default (`clm.enabled` absent = off). (2) `clm.enabled: true` + `budget` are honored from config. (3) The reserve default (2048) survives an explicit budget. (4) `RenderMirror` produces the header + CTX_TURN blocks and does NOT include the system prompt. (5) `WriteMirror` writes a 0600 file. (6) Migration 055 applies idempotently.
+- **SATISFIES:** `CLM is off by default` + `clm config block is honored` + `mirror excludes the system prompt` + `mirror is written 0600` + `migration 055 creates context_revisions` (acceptance.feature)
+- **Files:** `mnemonic/internal/store/migrations/055_context_revisions.sql` (+ test), `mnemonic/internal/config/load.go` (+ `load_clm_test.go`), `mnemonic/internal/context_harness/clm/mirror.go` (+ `mirror_test.go`)
 - **Size:** ~450 (M)
 - **Blocks:** TICKET-08, TICKET-09
 - **Blocked by:** TICKET-01 (package home)
-- **Reversibility:** one-way — migration `052_context_revisions` is a new table.
-- **Fails-when:** `go test ./internal/config/ -run 'TestCLM' -v` FAILs, OR `go test ./internal/context_harness/clm/ -run 'TestRenderMirror' -v` FAILs, OR `go test ./internal/store/ -run 'TestMigration052' -v` FAILs, OR the rendered mirror contains the system prompt.
+- **Reversibility:** one-way — migration `055_context_revisions` is a new table.
+- **Fails-when:** `go test ./internal/config/ -run 'TestCLM' -v` FAILs, OR `go test ./internal/context_harness/clm/ -run 'TestRenderMirror' -v` FAILs, OR `go test ./internal/store/ -run 'TestMigration055' -v` FAILs, OR the rendered mirror contains the system prompt.
 
 ### TICKET-08 — CLM overflow guard + calibration
 
@@ -147,12 +147,12 @@ Chain strategy: pending
 
 ```mermaid
 graph LR
-    T01[TICKET-01 absorb+050] --> T02[TICKET-02 capture gate]
+    T01[TICKET-01 absorb+053] --> T02[TICKET-02 capture gate]
     T01 --> T03[TICKET-03 ctx_query]
     T01 --> T04[TICKET-04 ctx CLI]
     T01 --> T06[TICKET-06 routing]
-    T01 --> T07[TICKET-07 CLM config+052+mirror]
-    T02 --> T05[TICKET-05 index+051+search]
+    T01 --> T07[TICKET-07 CLM config+055+mirror]
+    T02 --> T05[TICKET-05 index+054+search]
     T04 --> T05
     T04 --> T09[TICKET-09 revision+resume+node+plugin]
     T07 --> T08[TICKET-08 overflow+calibrate]
@@ -161,19 +161,19 @@ graph LR
 
 ## Execution Order
 
-- **Wave 1 (parallel):** TICKET-01 (door check — must land first; if it breaks `mem_inject_session` or migration 050, STOP)
-- **Wave 2 (parallel, after TICKET-01):** TICKET-02 (capture gate), TICKET-03 (ctx_query), TICKET-04 (ctx CLI), TICKET-06 (routing block), TICKET-07 (CLM config+052+mirror)
-- **Wave 3 (parallel, after their blockers):** TICKET-05 (index+051+search; after 02+04), TICKET-08 (overflow+calibrate; after 07)
+- **Wave 1 (parallel):** TICKET-01 (door check — must land first; if it breaks `mem_inject_session` or migration 053, STOP)
+- **Wave 2 (parallel, after TICKET-01):** TICKET-02 (capture gate), TICKET-03 (ctx_query), TICKET-04 (ctx CLI), TICKET-06 (routing block), TICKET-07 (CLM config+055+mirror)
+- **Wave 3 (parallel, after their blockers):** TICKET-05 (index+054+search; after 02+04), TICKET-08 (overflow+calibrate; after 07)
 - **Wave 4:** TICKET-09 (revision+resume+node+plugin; after 08+04) — the riskiest, last
 
 > **Acceptance-first (BDD is always on):** a ticket's failing acceptance scenario (its `SATISFIES` scenario) is written and confirmed RED *before* the implementation that makes it green. Within each ticket, the test step (Step 1-2 in the blueprint) is the RED confirmation.
 
-> **Tracer thread:** TICKET-01 (absorb + 050) is the door check and Wave 1. TICKET-02 (capture gate) is the first visible end-to-end behavior — a large tool output stored and retrievable. Later tickets thicken the path (query, CLI, index+search, routing, CLM).
+> **Tracer thread:** TICKET-01 (absorb + 053) is the door check and Wave 1. TICKET-02 (capture gate) is the first visible end-to-end behavior — a large tool output stored and retrievable. Later tickets thicken the path (query, CLI, index+search, routing, CLM).
 
 ## Slicing Notes
 
 - **9 blueprint tasks → 9 tickets** (1:1, no merges/splits). Each blueprint task is already a vertical, demoable, context-sized unit — the tracer thread maps cleanly. The only cross-cutting dependency is that the CLM tickets (07→08→09) form a serial chain, and the search fusion (05) needs both the sandbox leg (02) and the CLI subcommand (04).
 - **Risk ordering within Wave 2:** TICKET-02 (capture gate) is the highest-risk of the parallel set (Node↔Go↔SQLite contract) and lands in the same wave as the door check's dependents — if it surfaces a contract problem, it's caught before Wave 3 invests in the index/search.
-- **One-way doors (4):** migration 050 (TICKET-01), the `content` route field (TICKET-02), migration 051 (TICKET-05), migration 052 (TICKET-07). Each carries a human checkpoint.
+- **One-way doors (4):** migration 053 (TICKET-01), the `content` route field (TICKET-02), migration 054 (TICKET-05), migration 055 (TICKET-07). Each carries a human checkpoint.
 - **File-boundary assumption:** the `memory.Service` `clm config.CLM` field reuses the existing `mu` mutex (confirmed: `budgetOverrides` uses the same pattern in `service.go`). The OpenCode plugin loader path is assumed to be `.opencode/plugin.json` or the project's plugin registry — TICKET-09's executor should confirm the exact registration mechanism.
 - **Cite, don't restate:** per `ASSUMPTIONS.md § Locked constraints` (no new deps, fail-open floors per ADR-0016, pre-tool policy posture per ADR-0021), `ADR-0025/0026/0027/0028` (the in-force set from the change's `adr.md`), and the `mem_inject_session` contract-preservation requirement (briefing requirement 13).

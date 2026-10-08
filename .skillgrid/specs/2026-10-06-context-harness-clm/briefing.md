@@ -3,6 +3,8 @@
 > **STATUS:** `draft` (2026-10-06)
 > **Tier:** T2
 > **Path:** New Function (architecture in place; this adds a new subsystem)
+>
+> **AMENDMENT 2026-10-08 (CTX absorption):** Migrations renumbered 050→053 (`tool_outputs`), 051→054 (`indexed_files`), 052→055 (`context_revisions`) to clear the 050–052 slot for the Context Orchestrator's `ctx_*` tables (first CTX migration = 056). CLM's `tool_outputs` / `indexed_files` row counts are now a sub-slice of the unified `mnemonic ctx stats` surface (ADR-0034). This spec is `sliced` with 0 tickets executed, so the renumber is a clean spec-level correction; apply the renumbered filenames at execution time. See `.skillgrid/specs/2026-10-08-context-orchestrator/briefing.md` § CLM Absorption Amendment.
 
 ## Problem / Intent
 
@@ -70,7 +72,7 @@ Relevant existing flows this feature must respect:
   size estimator the CLM overflow guard and calibration build on.
 - **Migrations.** Latest is `049_session_checkpoint.sql`. `046`/`047` are taken
   (`046_entity_aliases.sql`, `047_session_agent.sql`). This change adds
-  `050_tool_outputs.sql`, `051_indexed_files.sql`, `052_context_revisions.sql`.
+  `053_tool_outputs.sql`, `054_indexed_files.sql`, `055_context_revisions.sql`.
 - **OpenCode seam.** OpenCode v2 exposes a `context` plugin hook that modifies
   `event.system`/`event.messages`/`event.tools` immediately before model dispatch; "changes
   affect only the outgoing model call, not persisted history." That is the exact seam the
@@ -240,8 +242,8 @@ Relevant existing flows this feature must respect:
     `query.go` (`ctx_query`), `search.go` (`ctx_search` two-leg RRF), `routing.go`
     (Context Routing block), `clm/` sub-package (`mirror.go`, `overflow.go`,
     `calibrate.go`, `validate.go`, `revision.go`).
-  - NEW `internal/mnemonic/store/migrations/050_tool_outputs.sql`,
-    `051_indexed_files.sql`, `052_context_revisions.sql`.
+  - NEW `internal/mnemonic/store/migrations/053_tool_outputs.sql`,
+    `054_indexed_files.sql`, `055_context_revisions.sql`.
   - CHANGED `hooks/tool-call-capture.js` — stop truncating above the threshold (add a
     `content` field for gated output); extend `checkpoint` mode to read the CLM mirror at
     turn-end and POST the edit.
@@ -331,7 +333,7 @@ Relevant existing flows this feature must respect:
   the interview). No further edit.
 - `.skillgrid/ARCHITECTURE.md`: Update §5 (packages: add `context_harness`, note
   `session_inject` absorbed), §8.1 (rename to Context Harness; add capture/query/routing/
-  CLI/CLM rows), §9 (migration table: add `050`/`051`/`052`), §10 (transport: capture route
+  CLI/CLM rows), §9 (migration table: add `053`/`054`/`055`), §10 (transport: capture route
   carries `content`; new OpenCode `context` plugin hook), §14 (config: `clm:` block), §16
   (hooks: `tool-call-capture.js` gain + checkpoint CLM read).
 
@@ -380,16 +382,16 @@ Relevant existing flows this feature must respect:
   state/decisions (budget, overflow, calibration, revision), Node owns the request path
   (render mirror, apply withhold, read edit); opt-in via `clm:` config.
 - `.skillgrid/artifacts/04-adr-0028-context-revisions-session-scoped.md` —
-  `context_revisions` is session-scoped audit (migration 052), purged at session end.
+  `context_revisions` is session-scoped audit (migration 055), purged at session end.
 
 ## Terms
 
 - Context Harness — `.skillgrid/artifacts/02-technical-terms.md`
 - Intercept-and-Abstract — same file
-- Sandbox Store — same file (migration 050)
+- Sandbox Store — same file (migration 053)
 - Output Sandbox Gate — same file
 - ctx_query — same file
-- indexed_files — same file (migration 051)
+- indexed_files — same file (migration 054)
 - Context Routing — same file
 - ctx CLI — same file
 - Context Language Model (CLM) — same file
