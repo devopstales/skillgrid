@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -105,6 +106,36 @@ func TestStartFailingStubIsFailOpen(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("finding_count = %d, want 0", count)
+	}
+}
+
+// TestStoreFindingsMidUpsertFailureMarksPartial covers the red-team finding: a
+// failure on a finding upsert after the raw parsed cleanly must mark the scan
+// row partial (not leave it a phantom status='ok' with finding_count=0).
+func TestStoreFindingsMidUpsertFailureMarksPartial(t *testing.T) {
+	svc := newTestService(t, func(ctx context.Context, bin string, args ...string) ([]byte, error) {
+		return fixtureBytes(t, "trivy.json"), nil
+	})
+	scan, err := svc.Start(context.Background(), "trivy", ".")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Force the finding upsert to fail deterministically.
+	svc.dbExec = func(_ context.Context, _ string, _ ...any) (sql.Result, error) {
+		return nil, errors.New("disk full: cannot upsert finding")
+	}
+	if _, err := svc.StoreFindings(context.Background(), scan.ID); err == nil {
+		t.Fatalf("StoreFindings = nil error, want the upsert error")
+	}
+	status, errText, count := scanRow(t, svc, scan.ID)
+	if status != "partial" {
+		t.Errorf("scan status = %q, want partial (a mid-upsert failure must not leave a phantom ok row)", status)
+	}
+	if !strings.Contains(errText, "cannot upsert finding") {
+		t.Errorf("error = %q, want it to carry the failure reason", errText)
+	}
+	if count != 0 {
+		t.Errorf("finding_count = %d, want 0 (no finding was stored)", count)
 	}
 }
 

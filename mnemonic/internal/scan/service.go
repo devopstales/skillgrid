@@ -32,6 +32,9 @@ type Service struct {
 	dataDir string
 	// Run defaults to an exec.Command runner; tests stub it.
 	Run RunnerFunc
+	// dbExec defaults to the store's ExecContext; tests may override it to
+	// inject a deterministic upsert failure (StoreFindings partial path).
+	dbExec func(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // Scan is the scans-table row returned by Start.
@@ -163,12 +166,16 @@ func (s *Service) StoreFindings(ctx context.Context, scanID string) (int, error)
 		return 0, fmt.Errorf("parse raw output of scan %s: %w", scanID, err)
 	}
 
+	execCtx := s.dbExec
+	if execCtx == nil {
+		execCtx = s.store.DB.ExecContext
+	}
 	for _, f := range findings {
 		f.Tool = tool
 		hash := DedupHash(tool, f.RuleID, f.Severity, f.Package, f.Version, f.File, f.Line)
 		f.Severity = NormalizeSeverity(tool, f.Severity)
 		links, _ := json.Marshal(f.Links)
-		if _, err := s.store.DB.ExecContext(ctx, `
+		if _, err := execCtx(ctx, `
 			INSERT INTO findings (
 				scan_id, tool, dedup_hash, severity, title, cve_id, rule_id,
 				package, version, fixed_version, file, line, message, links
@@ -189,6 +196,10 @@ func (s *Service) StoreFindings(ctx context.Context, scanID string) (int, error)
 			nullString(f.Package), nullString(f.Version), nullString(f.FixedVersion),
 			nullString(f.File), f.Line, nullString(f.Message), string(links),
 		); err != nil {
+			// Fail-open (ADR-0016): a mid-loop upsert failure marks the row
+			// partial rather than leaving a phantom status='ok' with
+			// finding_count=0 that scan_status/scan_diff would read as clean.
+			s.markScanPartial(ctx, scanID, fmt.Sprintf("upsert finding %s/%s: %v", f.RuleID, scanID, err))
 			return 0, fmt.Errorf("upsert finding %s/%s: %w", scanID, f.RuleID, err)
 		}
 	}
