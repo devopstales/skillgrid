@@ -150,6 +150,25 @@ and none of the coordinator's session narrative or the QA gate's prior PASS.
 - **Spec:** met-with-fixes
 - **Security:** secure-with-fixes
 - **Edge / Verification / Perf / Red-team:** met / met-with-fixes
-- **Floor (decides):** **met-with-fixes**
+- **Floor (decides):** **met** (fix loop complete — all 7 Important findings fixed + tested + committed; re-rendered below)
 - **Worst issue (across all lenses):** `dep_edges`/`dependencies` identifier asymmetry (bom-ref label vs purl) — `Affected`/`Graph` misalign on real CycloneDX SBOMs whose `bom-ref` is not a purl.
-- **Unfixed Important count (must be 0 to proceed):** 7 → **fix in the loop below, then re-render to 0.**
+- **Unfixed Important count (must be 0 to proceed):** **0**
+
+## Fix loop (receiving-code-review)
+
+> All 7 Important findings were verified at their cited `file:line`, fixed one at a
+> time, each with a test that was RED before the fix and GREEN after, and committed
+> with explicit paths (no sibling files bundled). Validation: both modules build;
+> `internal/scan`, `internal/dep`, `internal/mcp` all pass.
+
+| # | Finding (axis) | Fix | Commit |
+|---|----------------|-----|--------|
+| 1 | dep_edges/dependencies bom-ref vs purl (Standards+Perf+Red) | `parseCycloneDX` resolves edge endpoints through a `bom-ref→purl` map; nodes keyed by purl | `b063edb1` |
+| 2 | StoreFindings mid-upsert leaves phantom ok row (Red) | `markScanPartial` on a finding upsert error; `dbExec` injected for the test | `32d22313` |
+| 3 | No DB-level normalized-severity assertion (Verification) | `TestStoreFindingsNormalizesSeverityInDB` (semgrep ERROR/WARNING/NOTE → HIGH/MEDIUM/INFO in `findings.severity`) | `5cb18f55` |
+| 4 | akca scope creep (Spec) | Dropped the unrequested "store in mnemonic" section (unsupported `tool: "akca"`) | `dc43d821` |
+| 5 | wapiti bin-name mismatch (Standards) | `ScannerBin` resolver: `wapiti` → `wapiti3`; `Start` execs the bin | `6fc098d9` |
+| 6 | scanDataDir falls back to workspace (Standards) | `scanDataDirFallback` returns the store data dir (parent of DB), not `h.Root()`; split for testability | `c241f1de` |
+| 7 | No successful-path MCP handler dispatch test (Verification) | `TestScanReadHandlersDispatchToStore` + `TestDepIngestDispatchesToStore` (handler→store round-trip) | `867f41d6` |
+
+**Deferred (Minor, not fixed this pass):** N+1 per-finding upsert (no tx/batch); per-BFS-node `Affected` query; unbounded `Graph`/`scan List`; cross-tool `LatestDiff` noise; `error` column name; raw-file retention; trivy parser vuln-leg only. Logged as candidates for the next cycle — none are in-scope for this change's acceptance scenarios.
