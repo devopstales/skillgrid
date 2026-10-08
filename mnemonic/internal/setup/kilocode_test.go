@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tidwall/gjson"
 )
 
 func TestSetupKilo_InstallsPlugins(t *testing.T) {
@@ -27,6 +29,11 @@ func TestSetupKilo_InstallsPlugins(t *testing.T) {
 		t.Fatalf("read kilo config: %v", err)
 	}
 	got := pluginEntries(cfgData)
+	// The copied plugins default AGENT to "opencode", so the kilo install must
+	// pin env.SKILLGRID_AGENT=kilo or its traffic is mis-attributed.
+	if agent := gjson.Parse(string(cfgData)).Get("env.SKILLGRID_AGENT").String(); agent != "kilo" {
+		t.Fatalf("kilo config env.SKILLGRID_AGENT = %q, want kilo: %s", agent, cfgData)
+	}
 	for _, base := range nativePluginBases {
 		if !got["./plugin/"+base+".ts"] {
 			t.Fatalf("kilo config missing plugin entry %s: %s", base, cfgData)

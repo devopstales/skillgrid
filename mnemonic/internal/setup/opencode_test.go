@@ -34,6 +34,11 @@ func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 			t.Fatalf("opencode config missing plugin entry %s: %s", base, cfgData)
 		}
 	}
+	// OpenCode is the plugins' default harness, so the install must NOT pin
+	// env.SKILLGRID_AGENT (only a non-opencode harness like kilo needs it).
+	if gjson.Parse(string(cfgData)).Get("env.SKILLGRID_AGENT").Exists() {
+		t.Fatalf("opencode config should not set env.SKILLGRID_AGENT: %s", cfgData)
+	}
 	// The retired hook file and checkpoint plugin are no longer installed.
 	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "hook", "hooks.yaml")); err == nil {
 		t.Fatal("hooks.yaml should not be installed")

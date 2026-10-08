@@ -64,6 +64,14 @@ func installNativePlugins(home, repoRoot, cfgPath, harness string, dryRun bool) 
 			return err
 		}
 	}
+	// The native plugins default AGENT to "opencode" unless SKILLGRID_AGENT is
+	// set, so a non-opencode harness (kilo) must pin its own label or its
+	// memory/codeindex traffic is mis-attributed to opencode.
+	if harness != "opencode" {
+		if err := upsertAgentEnv(cfgPath, harness, dryRun); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -85,6 +93,25 @@ func upsertPrivateToolsEnv(cfgPath string, privateTools []string, dryRun bool) e
 	}
 	if dryRun {
 		logInfo("[dry-run] set env.SKILLGRID_MNEMONIC_PRIVATE_TOOLS in " + cfgPath)
+		return nil
+	}
+	return os.WriteFile(cfgPath, updated, 0o644)
+}
+
+// upsertAgentEnv writes SKILLGRID_AGENT=<harness> into the config env map so
+// the copied native plugins attribute their memory/codeindex traffic to the
+// harness that installed them (see installNativePlugins).
+func upsertAgentEnv(cfgPath, harness string, dryRun bool) error {
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read config %s: %w", cfgPath, err)
+	}
+	updated, err := sjson.SetBytes(data, "env.SKILLGRID_AGENT", harness)
+	if err != nil {
+		return fmt.Errorf("set env.SKILLGRID_AGENT: %w", err)
+	}
+	if dryRun {
+		logInfo("[dry-run] set env.SKILLGRID_AGENT=" + harness + " in " + cfgPath)
 		return nil
 	}
 	return os.WriteFile(cfgPath, updated, 0o644)

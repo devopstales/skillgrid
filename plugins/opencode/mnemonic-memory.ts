@@ -215,13 +215,11 @@ const factSearch = {
       .describe("Include soft-deleted facts (default false)"),
   },
   async execute(args) {
-    const params = new URLSearchParams()
-    if (args.query) params.set("query", args.query)
-    if (args.session_id) params.set("session_id", args.session_id)
-    if (args.project) params.set("project", args.project)
-    if (args.limit) params.set("limit", String(args.limit))
-    if (args.include_deleted) params.set("include_deleted", "true")
-    const data = await api("GET", `/facts/search?${params}`)
+    const body: Record<string, unknown> = {}
+    if (args.query) body.query = args.query
+    if (args.limit) body.limit = args.limit
+    if (args.include_deleted) body.include_deleted = true
+    const data = await api("POST", "/facts/search", body)
     return JSON.stringify(data)
   },
 }
@@ -321,11 +319,7 @@ const memSessionSummary = {
       ),
   },
   async execute(args) {
-    const data = await api(
-      "POST",
-      `/sessions/${args.session_id}/summary`,
-      args
-    )
+    const data = await api("GET", `/sessions/${args.session_id}/summary`)
     return JSON.stringify(data)
   },
 }
