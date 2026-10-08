@@ -24,7 +24,7 @@ Publishes sliced tickets to the configured tracker, drives their status through 
 - When a change needs to be tracked as work tickets.
 - When creating, updating, or closing tickets in the configured tracker (Backlog.md, GitHub, GitLab, Jira).
 
-**When NOT to use:** when ticketing is disabled in config (`ticketing.enabled: false`) — don't create tickets if the project doesn't track them.
+**When NOT to use:** only when there is no sliced `tasks.md` to publish. Slicing always invokes Ticketing; if `ticketing.enabled: false`, Ticketing records a local-only waiver instead of creating tracker items.
 
 ## Config
 
@@ -32,7 +32,7 @@ Read `.skillgrid/config.yaml` before starting. This skill reads:
 
 | Config key | Used for |
 |------------|----------|
-| `ticketing.enabled` | If `false`, skip this skill entirely |
+| `ticketing.enabled` | Tracker publication switch: `false` means record a local-only waiver after slicing; do not skip the Ticketing step itself |
 | `ticketing.type` | Tracker type: `backlogmd` \| `gh` \| `glab` \| `jira` |
 | `ticketing.project_key` | Jira project key (when `ticketing.type: jira`) |
 | `ticketing.backlogmd.dir` | Backlog.md directory (default `.backlog/`) |
@@ -65,7 +65,7 @@ backlog → ready → in-progress → review → done
 
 ### Step 1: Read Input
 
-1. Read `.skillgrid/config.yaml` for `ticketing.enabled` and `ticketing.type`. If `ticketing.enabled: false`, stop — skip this skill entirely. Execution reads from `tasks.md` directly.
+1. Read `.skillgrid/config.yaml` for `ticketing.enabled` and `ticketing.type`. If `ticketing.enabled: false`, do not create tracker items; record a local-only waiver and let execution read from `tasks.md` directly.
 2. Read `tasks.md` from `.skillgrid/specs/YYYY-MM-DD-<topic>/tasks.md`
 3. Parse: epic summary, tickets (title, scope, acceptance, files, size, blocks, blocked by), dependency graph, execution order (waves)
 
@@ -208,7 +208,7 @@ Creation alone is not enough. When `tasks.md` has a real tracker ID (from Step 3
 | **Review** | `in-progress` → `review` | Comment review verdict |
 | **Done** | `review` → `done` | Set status done; closing commit uses `Closes <ID>` |
 
-If no tracker ID exists (e.g. `ticketing.enabled: false`), skip all tracker mutations. Do not invent an id.
+If no tracker ID exists (e.g. `ticketing.enabled: false` or local-only waiver), skip all tracker mutations. Do not invent an id.
 
 ## Slicing Strategy
 
