@@ -31,6 +31,6 @@
 | W020 | 2026-10-07-replace-opencode-hooks-with-plugins | WARNING | 5 native TS plugins have no runtime route-contract test; a path typo would 404 silently in the live harness | qa-auto | 2026-10-08 | closed |
 | W021 | 2026-10-07-replace-opencode-hooks-with-plugins | WARNING | FindRepoRoot negative case (no new plugin files -> error, S20) is UNTESTED | qa-auto | 2026-10-08 | closed |
 | W022 | 2026-10-07-replace-opencode-hooks-with-plugins | WARNING | S23 (pnpm test) PRESENT_BEHAVIOR_UNVERIFIED - no pnpm harness for the 5 plugins | qa-auto | 2026-10-08 | closed |
-| W023 | 2026-10-07-replace-opencode-hooks-with-plugins | SUGGESTION | Trivy HIGH golang.org/x/text CVE-2026-56852 (no fix) - pre-existing transitive dep in mnemonic/go.mod, outside this diff | qa-auto | 2026-10-08 | open |
+| W023 | 2026-10-07-replace-opencode-hooks-with-plugins | SUGGESTION | Trivy HIGH golang.org/x/text CVE-2026-56852 (no fix) - pre-existing transitive dep in mnemonic/go.mod, outside this diff | qa-auto | 2026-10-08 | closed |
 | W024 | 2026-10-07-replace-opencode-hooks-with-plugins | SUGGESTION | ADR-0032/0033/0034/0035/0036 use bold-list frontmatter but check-adr-invariants.mjs expects YAML frontmatter | qa-auto | 2026-10-08 | closed |
 | W025 | 2026-10-07-replace-opencode-hooks-with-plugins | WARNING | state.yaml long context values (lines 10-16) unquoted -> malformed YAML, breaks state-drift (W017 pre-existing, now fixed + quoted) | qa-auto | 2026-10-08 | closed |

@@ -213,8 +213,8 @@ None open. All five from the first pass are resolved in this (fix) pass:
 - W-5: **FIXED** — state.yaml long context values quoted (lines 10–16); `state-drift-check.mjs` now reports `DRIFT: none`.
 
 ### SUGGESTION (nice to have)
-- S-1: Trivy HIGH `golang.org/x/text` CVE-2026-56852 (no fix) — pre-existing transitive dep in `mnemonic/go.mod`, outside this diff. Track in WINDOWS (W023) when a fix lands.
-- S-2: Trivy LOW dompurify/katex (skillgrid-ui) — pre-existing, W010-class.
+- S-1: **FIXED** — `golang.org/x/text` bumped v0.14.0 → v0.42.0 (indirect dep); Trivy now reports 0 CRITICAL / 0 HIGH, clearing CVE-2026-56852 (W023 closed).
+- S-2: Trivy LOW dompurify/katex (skillgrid-ui) — pre-existing, W010-class (no fix in this diff).
 - S-3: **FIXED** — ADR-0032..0036 converted from bold-list to YAML frontmatter (`status`/`supersedes`/`date`); `check-adr-invariants.mjs` now PASS (35 files, 36 rows).
 - S-4: `TestFactsAddAndSearch` bundles two behaviors — split for cleaner triangulation (optional, deferred).
 
@@ -224,7 +224,7 @@ None open. All five from the first pass are resolved in this (fix) pass:
 
 Machine verdict: PASS. No CRITICAL finding; all hard gates PASS. The first pass's CONCERNS cap is cleared: the PRESENT_BEHAVIOR_UNVERIFIED truth (S23) is now verified by a real plugin harness; S13/S19/S20 are covered by `TestNativePluginRouteContract` + the FindRepoRoot pair; the two regression gaps are closed; MISSING_RED clears on this commit; structure scope reports `DRIFT: none`. The only residual items are advisory (S-1/S-2 pre-existing Trivy) and one optional test split (S-4).
 
-Residual advisory (not gate-blocking): pre-existing context-harness WIP in the working tree (`toolevents.go`, `tools_scan.go`, `internal/mcp`) does not compile / hangs `go test ./internal/http/...` full-package — out of scope for this change; scoped package runs are green.
+Residual advisory (not gate-blocking): pre-existing context-harness WIP in the working tree (`ctx_query.go`, `migrate_054_test.go`, `cmd/mnemonic/ctx*.go`, `main.go`, `054_indexed_files.sql`) is uncommitted and out of scope for this change; scoped package runs (http/setup/install) are green. (The `tools_scan.go` / `toolevents.go` compile issue was resolved in `c241f1de`.) S-2 (Trivy LOW dompurify/katex, skillgrid-ui) and S-4 (optional `TestFactsAddAndSearch` split) remain advisory.
 
 ## Human Override
 (none — machine rendered PASS after the fix pass)
