@@ -1,10 +1,10 @@
 ---
 id: TASK-056
 title: '[FEATURE] MCP registration: registerScanTools + registerDepTools (mnemonic)'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-07 11:32'
-updated_date: '2026-10-07 11:35'
+updated_date: '2026-10-08 06:21'
 labels: []
 milestone: m-7
 dependencies:
@@ -55,3 +55,23 @@ Current State: mcp/server.go registers mem_*/code_*/web_* surfaces only.\n\nExpe
 4. go test ./internal/mnemonic/mcp/ -v + go build ./... -> green; pre-existing Registered tests still pass
 5. Commit: feat(mnemonic): register scan + dep MCP tools + Refs: TASK-056
 <!-- SECTION:PLAN:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+created: 2026-10-07 13:53
+---
+Wave 4 dispatch 2026-10-07: brief generated (.skillgrid/sdd/tasks/task-07-brief.md). Path correction: package is mnemonic/internal/mcp (NOT internal/mnemonic/mcp). Service construction via openService() -> h.Store(); scan.New(h.Store(), dataDir), dep.New(h.Store().DB).
+---
+
+created: 2026-10-08 06:21
+---
+Wave 4 complete 2026-10-08: commit c28cac60. 12 tools (6 scan_* + 6 dep_*) registered as thin adapters over scan.New/dep.New; TestAllToolsRegistered bumped 96->108 + 4 new tests GREEN; controller re-verified build + TestScanToolsRegistered/TestDepToolsRegistered/TestAllToolsRegistered PASS.
+---
+<!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+MCP registration complete: registerScanTools + registerDepTools wired in Start() and NewServer(). 12 thin adapters (scan_start/store_findings/list/get/status/diff + dep_ingest/list/get/affected/graph/runtime) over scan.New(h.Store(), dataDir) and dep.New(h.Store().DB). TestAllToolsRegistered bumped 96->108; 4 new tests + all pre-existing Registered tests GREEN. Commit c28cac60.
+<!-- SECTION:FINAL_SUMMARY:END -->
