@@ -139,6 +139,71 @@ func TestStoreFindingsMidUpsertFailureMarksPartial(t *testing.T) {
 	}
 }
 
+// TestStoreFindingsNormalizesSeverityInDB proves the stored findings.severity
+// column holds the normalized scale — the reason NormalizeSeverity exists. A
+// semgrep run has ERROR/WARNING/NOTE severities (off-scale); the row must be
+// stored as HIGH/MEDIUM/INFO, never the raw value. The trivy test fixture is
+// on-scale identity, so this is the only path that observes the remap.
+//
+// SATISFIES: `happy path trivy scan ingests findings with stable hash`
+// (findings row severity is normalized)
+func TestStoreFindingsNormalizesSeverityInDB(t *testing.T) {
+	svc := newTestService(t, func(ctx context.Context, bin string, args ...string) ([]byte, error) {
+		return fixtureBytes(t, "semgrep.json"), nil
+	})
+	scan, err := svc.Start(context.Background(), "semgrep", ".")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := svc.StoreFindings(context.Background(), scan.ID); err != nil {
+		t.Fatalf("StoreFindings: %v", err)
+	}
+
+	var rows [][2]string
+	srows, err := svc.store.DB.Query(
+		`SELECT rule_id, severity FROM findings WHERE scan_id = ?`, scan.ID)
+	if err != nil {
+		t.Fatalf("query findings: %v", err)
+	}
+	defer srows.Close()
+	for srows.Next() {
+		var rule, sev string
+		if err := srows.Scan(&rule, &sev); err != nil {
+			t.Fatalf("scan finding: %v", err)
+		}
+		rows = append(rows, [2]string{rule, sev})
+	}
+	if err := srows.Err(); err != nil {
+		t.Fatalf("iterate findings: %v", err)
+	}
+	if len(rows) != 4 {
+		t.Fatalf("stored findings = %d, want 4: %v", len(rows), rows)
+	}
+
+	// The raw semgrep severities must not survive into the DB column.
+	for _, r := range rows {
+		switch r[1] {
+		case "HIGH", "MEDIUM", "INFO":
+		default:
+			t.Errorf("stored severity %q for %s is off-scale (want HIGH/MEDIUM/INFO)", r[1], r[0])
+		}
+	}
+	byRule := map[string]string{}
+	for _, r := range rows {
+		byRule[r[0]] = r[1]
+	}
+	// ERROR -> HIGH, WARNING -> MEDIUM, NOTE -> INFO.
+	if got := byRule["python.lang.security.eval-used"]; got != "HIGH" {
+		t.Errorf("ERROR severity stored as %q, want HIGH", got)
+	}
+	if got := byRule["python.lang.best-elites.print-statements"]; got != "MEDIUM" {
+		t.Errorf("WARNING severity stored as %q, want MEDIUM", got)
+	}
+	if got := byRule["python.correctness.compare-to-constant"]; got != "INFO" {
+		t.Errorf("NOTE severity stored as %q, want INFO", got)
+	}
+}
+
 // TestStoreFindingsUnknownScan is a second StoreFindings input (triangulation):
 // an unknown scan id is reported, not swallowed.
 func TestStoreFindingsUnknownScan(t *testing.T) {
