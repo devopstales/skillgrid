@@ -317,6 +317,100 @@ func TestParseSBOMUnsupportedFormats(t *testing.T) {
 	}
 }
 
+// A real CycloneDX SBOM uses bom-ref as a short label ("app", "flask"), with
+// the actual purl in a separate field. The dependency node (purl) and the
+// edge endpoints (bom-ref) must resolve to the SAME identifier, or Affected and
+// Graph misalign: edges point at labels the graph searches by purl.
+const labelSBOM = `{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "components": [
+    {"type": "application", "bom-ref": "app", "purl": "pkg:pypi/app@1.0.0", "name": "app", "version": "1.0.0"},
+    {"type": "library", "bom-ref": "flask", "purl": "pkg:pypi/flask@3.0.2", "name": "flask", "version": "3.0.2"},
+    {"type": "library", "bom-ref": "werkzeug", "purl": "pkg:pypi/werkzeug@3.0.6", "name": "werkzeug", "version": "3.0.6"}
+  ],
+  "dependencies": [
+    {"ref": "app", "dependsOn": ["flask"]},
+    {"ref": "flask", "dependsOn": ["werkzeug"]}
+  ]
+}`
+
+func TestParseCycloneDXLabelBomRef(t *testing.T) {
+	pkgs, edges, err := ParseSBOM([]byte(labelSBOM))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	byPurl := map[string]Pkg{}
+	for _, p := range pkgs {
+		byPurl[p.Purl] = p
+	}
+	if _, ok := byPurl[purlApp]; !ok {
+		t.Fatalf("app purl not in pkgs: %v", pkgs)
+	}
+	if _, ok := byPurl[purlFlask]; !ok {
+		t.Fatalf("flask purl not in pkgs: %v", pkgs)
+	}
+	if len(edges) != 2 {
+		t.Fatalf("edges = %d, want 2: %v", len(edges), edges)
+	}
+	// The edge endpoints must be the SAME purls the node table is keyed by —
+	// not the bom-ref labels ("app"->"flask").
+	edgeSet := map[string]bool{}
+	for _, e := range edges {
+		edgeSet[e.From+"->"+e.To] = true
+	}
+	if !edgeSet[purlApp+"->"+purlFlask] {
+		t.Errorf("app->flask edge not keyed by purl (edge set = %v)", edgeSet)
+	}
+	if !edgeSet[purlFlask+"->"+purlWerkzeug] {
+		t.Errorf("flask->werkzeug edge not keyed by purl (edge set = %v)", edgeSet)
+	}
+}
+
+func TestIngestLabelBomRefGraphAligns(t *testing.T) {
+	st := openTestStore(t)
+	s := New(st.DB)
+	ctx := context.Background()
+
+	if err := s.Ingest(ctx, labelSBOM); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
+	// Affected must resolve the reverse dependency set by purl.
+	got, err := s.Affected(ctx, purlWerkzeug)
+	if err != nil {
+		t.Fatalf("affected: %v", err)
+	}
+	set := toSet(got)
+	if !set[purlFlask] || !set[purlApp] {
+		t.Errorf("Affected(%s) = %v, want {flask, app} (label bom-ref must not misalign the graph)", purlWerkzeug, got)
+	}
+	if len(got) != 2 {
+		t.Errorf("Affected(%s) = %v, want exactly 2", purlWerkzeug, got)
+	}
+
+	// Graph nodes and edges must both be purls.
+	g, err := s.Graph(ctx)
+	if err != nil {
+		t.Fatalf("graph: %v", err)
+	}
+	nodeSet := toSet(g.Nodes)
+	for _, p := range []string{purlApp, purlFlask, purlWerkzeug} {
+		if !nodeSet[p] {
+			t.Errorf("graph nodes missing purl %s (nodes=%v)", p, g.Nodes)
+		}
+	}
+	if len(g.Edges) != 2 {
+		t.Fatalf("graph edges = %d, want 2: %v", len(g.Edges), g.Edges)
+	}
+	for _, e := range g.Edges {
+		if !nodeSet[e.From] || !nodeSet[e.To] {
+			t.Errorf("graph edge %s->%s references a non-node identifier (label leaked)", e.From, e.To)
+		}
+	}
+}
+
 func toSet(in []string) map[string]bool {
 	out := make(map[string]bool, len(in))
 	for _, s := range in {
