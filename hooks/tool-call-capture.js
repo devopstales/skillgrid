@@ -26,6 +26,8 @@ function policyTimeoutMs() {
 }
 const AGENT = process.env.SKILLGRID_AGENT || "opencode"
 const MAX_PREVIEW = 500
+const CTX_BYPASS = process.env.SKILLGRID_CTX_BYPASS === "1"
+const CTX_THRESHOLD = 4096
 
 function contentHash(str) {
   let h = 0
@@ -388,6 +390,7 @@ async function main() {
     result_status: "success",
     content_hash: content === "" ? "" : contentHash(content),
     content_preview: truncate(content, MAX_PREVIEW),
+    content: (!CTX_BYPASS && rawOut.length > CTX_THRESHOLD) ? stripPrivateTags(rawOut) : "",
   }
 
   await post(`${BASE}/sessions/${encodeURIComponent(sessionId)}/tool-calls?directory=${encodeURIComponent(directory)}`, body)

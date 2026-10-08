@@ -2,8 +2,10 @@ package http
 
 import (
 	"net/http"
+	"os"
 	"strings"
 
+	"github.com/devopstales/skillgrid/mnemonic/internal/context_harness"
 	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
 )
 
@@ -18,6 +20,7 @@ type toolCallBody struct {
 	ResultStatus   string `json:"result_status"`
 	ContentHash    string `json:"content_hash"`
 	ContentPreview string `json:"content_preview"`
+	Content        string `json:"content"`
 }
 
 // handleToolCallCreate appends one harness tool call to the session's event
@@ -48,6 +51,13 @@ func (s *Server) handleToolCallCreate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if d := context_harness.DecideGate(b.Content, os.Getenv("SKILLGRID_CTX_BYPASS") == "1", context_harness.SandboxThreshold); d.Gate {
+		if _, err := context_harness.StoreToolOutput(r.Context(), h.Store().DB, b.SessionID, projectID, b.ToolName, b.Content); err != nil {
+			writeError(w, http.StatusInternalServerError, "sandbox store: "+err.Error())
+			return
+		}
+		b.ContentPreview = d.Summary + " — " + d.Pointer
 	}
 	payload := memory.HookPayload{
 		SessionID:      b.SessionID,
