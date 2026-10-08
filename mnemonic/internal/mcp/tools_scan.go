@@ -3,12 +3,14 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
 	"github.com/devopstales/skillgrid/mnemonic/internal/service"
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 func registerScanTools(s *server.MCPServer) {
@@ -73,12 +75,31 @@ func scanDiffTool() mcplib.Tool {
 	)
 }
 
-// scanDataDir locates the scan raw-output cache dir.
-func scanDataDir(h interface{ Root() string }) string {
+// scanDataDir locates the scan raw-output cache dir. It prefers the service
+// data dir (where the store lives); if that is unavailable it falls back to
+// the store's own data dir — the parent of the DB file — and only as a last
+// resort to the workspace root. Raw scans are data-dir artifacts (ADR-0030),
+// not repo content, so the workspace is the least-preferred landing place.
+func scanDataDir(h interface{
+	Root() string
+	Store() *store.Store
+}) string {
 	if d, err := service.DefaultDataDir(); err == nil {
 		return d
 	}
-	return h.Root()
+	return scanDataDirFallback(h.Root(), h.Store())
+}
+
+// scanDataDirFallback picks the store's data dir (parent of the DB file) when a
+// store is available, else the workspace root. Separated from scanDataDir so
+// the branch is testable without defeating service.DefaultDataDir.
+func scanDataDirFallback(root string, st *store.Store) string {
+	if st != nil {
+		if dir := filepath.Dir(st.Path()); dir != "" && dir != "." {
+			return dir
+		}
+	}
+	return root
 }
 
 func handleScanStart(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
