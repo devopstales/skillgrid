@@ -218,11 +218,23 @@ None open. All five from the first pass are resolved in this (fix) pass:
 - S-3: **FIXED** — ADR-0032..0036 converted from bold-list to YAML frontmatter (`status`/`supersedes`/`date`); `check-adr-invariants.mjs` now PASS (35 files, 36 rows).
 - S-4: `TestFactsAddAndSearch` bundles two behaviors — split for cleaner triangulation (optional, deferred).
 
+### Standards review (two-axis, post-QA)
+Spec axis: **Spec met? Yes** — all SATISFIES scenarios pass.
+Standards axis: **Standards met? With fixes** — triaged and resolved:
+- C1 **FIXED** (real bug) — `fact_search` sent `GET` to a POST-only route; a `GET` on a POST-only route falls through to the embedded SPA shell (200 `text/html`) and `api().json().catch(())` turns it into a silent `{}`. Now `POST /facts/search` with a JSON body.
+- I1 **FIXED** (real bug) — `mem_session_summary` sent `POST` to a GET-only route (always 405). Now `GET /sessions/{id}/summary`.
+- I2 **NOISE** — `requireWriteAuth` on POST routes is consistent with the whole mux; local-first `token==""` by default.
+- M1 **DEFER** — shared plugin roster is speculative until a 3rd consumer.
+- M2 **NOISE** — project is resolved server-side.
+- M3 **FIXED** (typo) — `state.yaml` `P26-10-02` value ended with a stray escaped quote (`re-attempt.\"`); removed.
+- kilo label **FIXED** (blueprint divergence) — `installNativePlugins` now writes `env.SKILLGRID_AGENT=<harness>` for non-opencode harnesses (kilo), so the copied plugins (which default `AGENT` to `"opencode"`) attribute kilo traffic correctly. Guarded by `TestSetupKilo_InstallsPlugins` (asserts `env.SKILLGRID_AGENT=kilo`) and `TestSetupOpenCode_InstallsPlugins` (asserts opencode does NOT set it).
+- Regression guard — `TestNativePluginRouteContract` check (3) verb-contracts the POST routes: probes the mux (a wrong verb 405s) and confirms the plugin source sends the right verb (catches C1-class silent flips). Verified to fail on a GET flip.
+
 ## Gate Decision
 
 **PASS**
 
-Machine verdict: PASS. No CRITICAL finding; all hard gates PASS. The first pass's CONCERNS cap is cleared: the PRESENT_BEHAVIOR_UNVERIFIED truth (S23) is now verified by a real plugin harness; S13/S19/S20 are covered by `TestNativePluginRouteContract` + the FindRepoRoot pair; the two regression gaps are closed; MISSING_RED clears on this commit; structure scope reports `DRIFT: none`. The only residual items are advisory (S-1/S-2 pre-existing Trivy) and one optional test split (S-4).
+Machine verdict: PASS. No CRITICAL finding; all hard gates PASS. The first pass's CONCERNS cap is cleared: the PRESENT_BEHAVIOR_UNVERIFIED truth (S23) is now verified by a real plugin harness; S13/S19/S20 are covered by `TestNativePluginRouteContract` + the FindRepoRoot pair; the two regression gaps are closed; MISSING_RED clears on this commit; structure scope reports `DRIFT: none`. The post-QA two-axis review verdict (Spec met: Yes; Standards met: With fixes) is resolved — C1 + I1 (silent verb flips) and the kilo `SKILLGRID_AGENT` label are fixed + guarded, M3 typo cleared; residual items are advisory (S-1/S-2 pre-existing Trivy, S-4 optional split).
 
 Residual advisory (not gate-blocking): pre-existing context-harness WIP in the working tree (`ctx_query.go`, `migrate_054_test.go`, `cmd/mnemonic/ctx*.go`, `main.go`, `054_indexed_files.sql`) is uncommitted and out of scope for this change; scoped package runs (http/setup/install) are green. (The `tools_scan.go` / `toolevents.go` compile issue was resolved in `c241f1de`.) S-2 (Trivy LOW dompurify/katex, skillgrid-ui) and S-4 (optional `TestFactsAddAndSearch` split) remain advisory.
 
