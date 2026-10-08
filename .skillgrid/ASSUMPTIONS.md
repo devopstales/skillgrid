@@ -108,8 +108,9 @@ The ADR index. One row per decision: a short description and a link to the full 
 | 0029 | Compaction advisory gate (one combined LLM call, fail-open) + `steering` column on `context_revisions` + proactive build; extends ADR-0027/0028; opt-in via `mnemonic.compaction` config | yes | `.skillgrid/artifacts/04-adr-0029-compaction-advisory-steering.md` |
 | 0030 | Scan findings store: structured `scan_*`/`dep_*` tables + FTS, not blobs or per-tool tables | yes | `.skillgrid/artifacts/04-adr-0030-scan-findings-structured-store.md` |
 | 0031 | Go 1.22+ minimum to build (raised from a locked constraint to a decision) | yes | `.skillgrid/artifacts/04-adr-0031-go-version-floor.md` |
+| 0032 | opencode + Kilo native TS plugin architecture: 5 plugins from `plugins/opencode/`, Kilo copy-at-install, shell hooks retired, facts HTTP routes | yes | `.skillgrid/artifacts/04-adr-0032-opencode-kilo-native-plugins.md` |
 
-**Highest sequence in use:** 0031 (next ADR is `04-adr-0032-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
+**Highest sequence in use:** 0032 (next ADR is `04-adr-0033-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 
 Operational rules (the hard limits a change must respect — build toolchain, commit format, dependency policy, spec/code zone order) live in `AGENTS.md`, not here. `AGENTS.md` is the real source for those; the onboarding skill renders them into the agent prompt. A rule that is actually a decision belongs in this index as an ADR instead.
 
