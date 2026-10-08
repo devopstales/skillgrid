@@ -25,6 +25,8 @@ Break a blueprint into vertical tracer-bullet tickets that each fit a single fre
 
 **When NOT to use:** the blueprint has 1-2 tasks. Just execute it directly with `skillgrid:subagent-execution` or `skillgrid:simple-execution`.
 
+**Task creation mandate:** Slicing ALWAYS uses the task creation skills (the tracker's task-creation tool — e.g. Backlog.md's `backlog_task_create`, or the tracker named in `.skillgrid/config.yaml` § `ticketing`). Never hand-write ticket rows without invoking the tracker's creation tool. **Prerequisite:** `acceptance.feature` must exist with valid syntax before slicing begins. **Position in artifact order:** Slicing is artifact #6 (briefing → blueprint → validation → cucumber tests → tasks → **slices**).
+
 ## Fast-Track Classification
 
 Before slicing, classify the change per `.skillgrid/config.yaml` `rules.fast_track`:
@@ -182,11 +184,7 @@ is the point.
 
 ### Step 6: Hand Off
 
-Check if ticketing is enabled:
-
-**If `ticketing.enabled: true` in `.skillgrid/config.yaml`** — invoke `skillgrid:ticketing` to publish these tickets to the configured tracker.
-
-**If `ticketing.enabled: false`** — skip ticketing, execute directly from `tasks.md`.
+Always invoke `skillgrid:ticketing` after slicing writes `tasks.md`. Slicing never branches around the Ticketing step; it hands off to the separate Ticketing skill, which reads `.skillgrid/config.yaml` and either publishes tickets to the configured tracker or records a local-only waiver when no tracker is active.
 
 **Update `state.yaml`:** set `pipeline.current_phase: slicing`.
 
@@ -246,4 +244,4 @@ Per `_shared/craft/measurement.md`.
 - [ ] Every ticket is sized for one fresh agent context (implement + test + commit without re-reading the blueprint)
 - [ ] The Fast-Track classification was applied — a `trivial`/`small` waiver record exists in `briefing.md`, or a full `tasks.md` with waves and acceptance criteria was produced
 - [ ] The Slicing Self-Review passed — no oversized, non-vertical, demoable-less, or placeholder tickets
-- [ ] Ticket IDs are present if `ticketing.enabled: true` (published to the configured tracker as an epic)
+- [ ] `skillgrid:ticketing` was invoked after `tasks.md` was produced, and its tracker outcome is recorded (published ticket/epic IDs, or a local-only waiver when no tracker is active)

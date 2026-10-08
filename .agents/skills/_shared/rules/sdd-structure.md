@@ -7,24 +7,24 @@ Single source of truth for filesystem layout, artifact names, and phase order. I
 This is the only full chain. Other skills cite this section in one line and restate only their own previous and next step.
 
 ```
-brainstorming → [research | prototype | sketch] → writing-blueprints → slicing → (user gate) → ticketing → execution → qa → requesting-code-review → receiving-code-review → ship → reflect
+brainstorming → [research | prototype | sketch] → writing-blueprints → blueprint-validation (critic subagent + user) → acceptance-test-authoring → slicing → (user gate) → ticketing → execution → qa → requesting-code-review → receiving-code-review → ship → reflect
 ```
 
-`research`, `prototype`, and `sketch` are optional pre-blueprint gates. The user gate after `slicing` is mandatory: the user confirms the slice before execution. Fast-track waivers skip earlier planning skills only as `fast-track.md` allows; they do not skip the tail (`qa` through `reflect`).
+`research`, `prototype`, and `sketch` are optional pre-blueprint gates. **Artifact creation order is permanent and sequential:** briefing → blueprint → blueprint validation → cucumber test file → tasks → slices. Never create the next artifact without the previous one existing. The user gate after `slicing` is mandatory: the user confirms the slice before execution. Fast-track waivers skip earlier planning skills only as `fast-track.md` allows; they do not skip the tail (`qa` through `reflect`).
 
 | Skill | Role |
 |---|---|
 | `using-skillgrid` | Orchestrator — detect, classify, route, resume, user gate |
 | `onboarding` | Bootstrap — detect facts; write `config.yaml` + `state.yaml` + `artifacts/` zone + AGENTS block |
-| `brainstorming` | Requirements gathering, ADR manifest |
+| `brainstorming` | Requirements gathering via questioning (agent answer-select tool), ADR manifest |
 | `interviewing` | Grilling the user to a shared understanding (drives ADRs) |
+| `acceptance-test-authoring` | BDD `acceptance.feature` — valid Cucumber syntax, traceability oracle |
+| `writing-blueprints` | Technical plan → `blueprint.md`; **must** run critic subagent review + user validation before completion |
 | `architectural-decision-records` | Domain model (terms in `artifacts/`) + ADR authoring / supersession |
-| `acceptance-test-authoring` | BDD `acceptance.feature` scenarios from intent |
 | `research` / `code-research` | External fact-finding → `findings.md` (Research section) |
 | `prototype` | Feasibility probe → `findings.md` (Prototype section) |
 | `sketch` | UI/interaction variants → `findings.md` (Sketch section) |
-| `writing-blueprints` | Technical plan → `blueprint.md` |
-| `slicing` | Vertical tickets → `tasks.md` |
+| `slicing` | Vertical tickets → `tasks.md`; **always** uses task creation skills |
 | `ticketing` | Publish to tracker, track status |
 | `subagent-execution` / `simple-execution` | Implement tickets |
 | `parallel-execution` | Fan out independent tasks across subagents |
@@ -109,8 +109,10 @@ The deepest artifact present in the active change dir determines the phase. This
 
 | Deepest artifact present | Derived phase | Next skill |
 |---|---|---|
-| `briefing.md` (+ `acceptance.feature`) | `spec` | `writing-blueprints` |
-| `blueprint.md` | `blueprint` | `slicing` |
+| `briefing.md` | `spec` | `writing-blueprints` |
+| `blueprint.md` (no validation) | `blueprint` | `blueprint-validation` (critic subagent + user) |
+| `blueprint.md` (validated) | `blueprint-validated` | `acceptance-test-authoring` |
+| `acceptance.feature` (valid syntax) | `spec-tests` | `slicing` |
 | `tasks.md` (no execution signal) | `slicing` | `subagent-execution` / `simple-execution` |
 | `tasks.md` + execution signal (`[x]` marks or `sdd/<plan>/progress.md`) | `execution` | `qa` |
 | `report.md` (QA half written) | `qa` | `requesting-code-review` |
@@ -199,13 +201,14 @@ notes: "Serial development: one change at a time."
 | Skill | Creates / updates | Path |
 |---|---|---|
 | onboarding | skeleton | `config.yaml`, `state.yaml`, `ASSUMPTIONS.md`, `ARCHITECTURE.md` (lazy), `artifacts/` zone (README + 06-research-findings), AGENTS block, `.gitignore` |
-| brainstorming | briefing + scenarios + state | `specs/<topic>/briefing.md`, `specs/<topic>/acceptance.feature`, `specs/<topic>/adr.md`, `artifacts/00-prd.md` (new project, or when scope changes), `ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (phase + current_change) |
+| brainstorming | briefing + state (questioning via agent answer-select tool) | `specs/<topic>/briefing.md`, `specs/<topic>/adr.md`, `artifacts/00-prd.md` (new project, or when scope changes), `ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (phase + current_change) |
 | architectural-decision-records | terms + ADRs | `artifacts/01-business-terms.md`, `artifacts/02-technical-terms.md`, `artifacts/04-adr-NNNN-slug.md`, `ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only) |
 | research | findings | `specs/<topic>/findings.md` (`## Research:` section) + durable findings to `artifacts/06-research-findings.md` |
 | prototype | findings + probe | `prototypes/NNN-name/` (`prototype.md` + throwaway code, permanently retained) + `specs/<topic>/findings.md` (`## Prototype:` section) |
 | sketch | findings | `specs/<topic>/findings.md` (`## Sketch:` section) |
-| writing-blueprints | plan + state | `specs/<topic>/blueprint.md`, `state.yaml` (phase) |
-| slicing | tickets + state | `specs/<topic>/tasks.md`, `state.yaml` (phase) |
+| writing-blueprints | plan + critic validation + state | `specs/<topic>/blueprint.md`, `state.yaml` (phase → `blueprint` then `blueprint-validated`) |
+| acceptance-test-authoring | BDD scenarios (valid Cucumber syntax) + state | `specs/<topic>/acceptance.feature`, `state.yaml` (phase) |
+| slicing | tickets + state (always via task creation skills) | `specs/<topic>/tasks.md`, `state.yaml` (phase) |
 | ticketing | tracker IDs | `specs/<topic>/tasks.md` (Tracker ID fields) |
 | execution | progress + state | `sdd/<plan>/progress.md` + `tasks.md` `[x]` marks + session `commit` events, `state.yaml` (phase) |
 | qa | report (QA half) + state | `specs/<topic>/report.md` (test plan + verdict + evidence; retro half left empty), `state.yaml` (phase) |

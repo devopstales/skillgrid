@@ -21,12 +21,16 @@ This skill derives BDD acceptance specs (Gherkin) from a requirement's intent, *
 
 - When authoring or updating BDD acceptance specs from a requirement, before implementation.
 - When converting a spec/blueprint into Gherkin scenarios (capability → requirement → scenario).
+- **Prerequisite:** `blueprint.md` must exist AND have passed two-stage validation (critic subagent + user approval). Never write `acceptance.feature` without a validated blueprint.
+- **Position in artifact order:** Artifact #4 in the permanent sequence (briefing → blueprint → validation → **cucumber test file** → tasks → slices).
 
 **When NOT to use:** For unit tests or integration tests — this is acceptance/BDD only. The Zone Rule keeps `.skillgrid/specs/` (spec zone) separate from code: this skill authors the spec zone, not the code zone.
 
 The acceptance suite executes Gherkin specs that live under `.skillgrid/specs/` against the running application. BDD is always on (non-negotiable, like TDD) — `bdd.enabled` is always `true` in `.skillgrid/config.yaml`. Specs are Markdown files named `acceptance.feature`: Markdown headings carry the capability, requirement, and scenario structure, while ` ```gherkin ` fences contain only Given/When/Then steps. The runner extracts them into real `.feature` files on every run, synthesizing `Feature:`/`Rule:`/`Scenario:` from the headings.
 
 Everything in this file is stack-agnostic. Tool-specific filenames, dependencies, commands, and examples live in the stack pack.
+
+**Syntax validation (mandatory):** After writing `acceptance.feature`, validate the Gherkin syntax before proceeding to slicing. Run the BDD runner in dry-run/parse mode (e.g. `cucumber-js --dry-run` for the javascript stack) to confirm the file parses. Fix any syntax errors before the file is considered complete. Invalid syntax blocks the next artifact.
 
 ## Choosing The Stack
 

@@ -30,6 +30,8 @@ Turns a raw idea into an approved design and spec before any implementation begi
 
 Help turn ideas into fully formed designs and specs through natural collaborative dialogue.
 
+**Questioning mandate:** Brainstorming ALWAYS uses questioning for mutual understanding. Use the agent's answer-select tool (`question` in opencode, `AskUserQuestion` in Claude Code, equivalent in other agents) to present options with tradeoffs. Never assume the user's preference — ask. One question at a time; stop and wait for the response before continuing.
+
 Start by classifying how much process the request needs, then work
 through your path: understand the context, refine the idea, present a
 design, and get your human partner's approval.

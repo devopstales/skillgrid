@@ -59,7 +59,17 @@ Conversation memory does not survive compaction, and no skill may assume it will
 
 ## Router
 
-The phase order after the first skill is `_shared/rules/sdd-structure.md`. This table names the first skill only.
+The phase order after the first skill is the single shared flow table in `_shared/rules/sdd-structure.md`. Do not duplicate that table here; this router names the first skill only.
+
+**Artifact creation order (permanent, sequential — never create the next without the previous existing):**
+1. `briefing.md` (brainstorming via questioning)
+2. `blueprint.md` (writing-blueprints)
+3. Blueprint validation (critic subagent → user review of options/benefits/weaknesses)
+4. `acceptance.feature` (valid Cucumber syntax)
+5. `tasks.md` (slicing via task creation skills)
+6. Slices → user gate → ticketing → execution
+
+**Execution model:** per-task subagents with only the necessary data in context. Propose parallel execution to the user when suitable — the user selects because of price burden.
 
 | Condition | First skill | Then |
 |---|---|---|

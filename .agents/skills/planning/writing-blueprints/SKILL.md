@@ -29,6 +29,12 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Save plans to:** `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md`
 
+**Blueprint validation (mandatory, two-stage — after writing, before proceeding):**
+1. **Critic subagent:** Dispatch a dedicated critic subagent with the blueprint content. The critic reviews for: architectural gaps, missing edge cases, untested assumptions, scope creep, and unclear interfaces. The critic returns a structured critique (issues + severity).
+2. **User review:** Present the blueprint + critic findings to the user. For each issue, present options with benefits and weaknesses. Use the agent's answer-select tool for the user to choose a resolution path. The user must approve the final blueprint before `acceptance.feature` is written.
+
+Never proceed to the next artifact without the blueprint being validated by both stages.
+
 **Role (do not rename):** `blueprint.md` is the *how* (implementation plan —
 steps, files, code, verification); the companion `briefing.md` is the *what*
 (requirements & intent). The header must read
