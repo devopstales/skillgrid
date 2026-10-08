@@ -71,3 +71,32 @@ func TestScanStartValidation(t *testing.T) {
 		t.Errorf("scan_start without target should be a validation error, got: %s", callResultText(t, res))
 	}
 }
+
+// TestScanReadHandlersDispatchToStore covers the review verification-gap: the
+// scan read handlers (scan_status, scan_list) must actually reach the store —
+// a wrong store or data-dir wiring ships undetected if only registration and
+// arg-validation are tested. They are pure store reads, so this proves the
+// handler→store seam without invoking a real scanner.
+func TestScanReadHandlersDispatchToStore(t *testing.T) {
+	SetService(service.New(t.TempDir()))
+	t.Cleanup(func() { SetService(nil) })
+
+	// scan_status: pure store read, must succeed and return a (possibly empty)
+	// per-tool map — not an error that would indicate a store-wiring failure.
+	statusRes, err := handleScanStatus(context.Background(), newCallTool("scan_status", map[string]any{}))
+	if err != nil {
+		t.Fatalf("handleScanStatus dispatch: %v", err)
+	}
+	if statusRes.IsError {
+		t.Errorf("scan_status should succeed, got: %s", callResultText(t, statusRes))
+	}
+
+	// scan_list: another store read; must succeed with an empty (valid) result.
+	listRes, err := handleScanList(context.Background(), newCallTool("scan_list", map[string]any{}))
+	if err != nil {
+		t.Fatalf("handleScanList dispatch: %v", err)
+	}
+	if listRes.IsError {
+		t.Errorf("scan_list should succeed, got: %s", callResultText(t, listRes))
+	}
+}
