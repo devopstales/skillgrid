@@ -40,6 +40,7 @@ func main() {
 		fmt.Fprintln(w, `  compact       Session-close one-liner`)
 		fmt.Fprintln(w, `  pages         Regenerate gitignored architecture and decisions pages`)
 		fmt.Fprintln(w, `  diff-impact   Caller counts for files in the current diff`)
+		fmt.Fprintln(w, `  ctx           Context harness: search (two-leg fusion), prime, stats`)
 		fmt.Fprintln(w, `  orient        Tier-1 code orientation (signature, TOC, map, list, metadata)`)
 		fmt.Fprintln(w, `  grep          Structural by-example grep (index-free, per-language AST)`)
 		fmt.Fprintln(w, `  callers       Graph callers for a symbol (confidence-labeled)`)
@@ -105,6 +106,9 @@ func main() {
 		return
 	case "diff-impact":
 		runDiffImpact(rest[1:])
+		return
+	case "ctx":
+		runCtx(rest)
 		return
 	case "orient":
 		runCodeIntel(version, rest)

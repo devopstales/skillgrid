@@ -1,0 +1,154 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+
+	"github.com/devopstales/skillgrid/mnemonic/internal/context_harness"
+)
+
+// runCtx is the `ctx` subcommand group: search (two-leg RRF fusion), prime
+// (session-start context, reusing the loop prime renderer), and stats (sandbox
+// + index row counts). Subcommands are dispatched by name; an unknown or missing
+// subcommand prints usage to stderr and exits 2.
+//
+// This is the CLI surface for the context harness (PR 2 / Unit 2a). Search is the
+// tracer's fusion payoff: it fuses the sandbox tool-output leg and the indexed
+// code-file leg and labels each result's source. It reuses context_harness.CtxSearch
+// (which owns the RRF fusion); this file only wires flags, opens the store, and
+// renders rows.
+func runCtx(args []string) {
+	// No args / bare "ctx": usage.
+	if len(args) == 0 {
+		ctxUsage()
+		os.Exit(2)
+	}
+	sub, rest := args[0], args[1:]
+	switch sub {
+	case "search":
+		runCtxSearch(rest)
+	case "prime":
+		runCtxPrime(rest)
+	case "stats":
+		runCtxStats(rest)
+	case "help", "-h", "--help":
+		ctxUsage()
+	default:
+		fmt.Fprintf(os.Stderr, "error: unknown ctx subcommand %q\n", sub)
+		ctxUsage()
+		os.Exit(2)
+	}
+}
+
+func ctxUsage() {
+	w := os.Stderr
+	fmt.Fprintln(w, "usage: mnemonic ctx <subcommand> [flags]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Subcommands:")
+	fmt.Fprintln(w, "  search <query>   Two-leg RRF fusion over sandbox tool outputs + indexed files (labels each source; -limit caps results)")
+	fmt.Fprintln(w, "  prime            Session-start context (reuses the loop prime renderer; --dir, --session)")
+	fmt.Fprintln(w, "  stats            Row counts for the sandbox (tool_outputs) and index (indexed_files)")
+}
+
+// ctxSearchFlags parses search flags: -limit caps the fused results.
+type ctxSearchFlags struct {
+	limit  int
+}
+
+func parseCtxSearchFlags(args []string, pos *[]string) ctxSearchFlags {
+	// Go's flag package stops at the first non-flag token, so a flag that
+	// follows a positional (e.g. "ctx search limitcap -limit 2") would be
+	// misread as a positional. Re-parse after each positional to keep
+	// positionals and flags interleavable.
+	f := ctxSearchFlags{limit: 20}
+	rest := args
+	for {
+		fs := flag.NewFlagSet("ctx search", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		fs.IntVar(&f.limit, "limit", f.limit, "max fused results to return")
+		if err := fs.Parse(rest); err != nil {
+			os.Exit(2)
+		}
+		left := fs.Args()
+		if len(left) == 0 {
+			*pos = append(*pos, fs.Args()...)
+			break
+		}
+		*pos = append(*pos, left[0])
+		rest = left[1:]
+	}
+	return f
+}
+
+func runCtxSearch(args []string) {
+	var pos []string
+	f := parseCtxSearchFlags(args, &pos)
+	query := ""
+	if len(pos) > 0 {
+		query = pos[0]
+	}
+	if len(query) == 0 {
+		fmt.Fprintln(os.Stderr, "error: ctx search requires a query")
+		ctxUsage()
+		os.Exit(2)
+	}
+
+	h, cleanup, err := openLoop(".")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+
+	results, err := context_harness.CtxSearch(h.Store().DB, query, f.limit)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	if len(results) == 0 {
+		fmt.Fprintln(os.Stdout, "no results")
+		return
+	}
+	for _, r := range results {
+		// r.Source is "sandbox" or "indexed"; r.ToolOrKind is the sandbox tool
+		// name or the indexed file kind; r.Rank is the 1-based fused position.
+		fmt.Fprintf(os.Stdout, "%d. [%s] %s (%s)\n    %s\n", r.Rank, r.Source, r.Name, r.ToolOrKind, r.Snippet)
+	}
+}
+
+func runCtxPrime(args []string) {
+	// Reuse the loop prime command's flag parsing + renderer so `ctx prime`
+	// and `prime` render identical session-start context.
+	dir, session := loopFlags("ctx prime", args)
+	fmt.Fprint(os.Stdout, primeText(dir, session))
+}
+
+func runCtxStats(args []string) {
+	// stats takes no flags beyond the shared -dir (accepted for consistency).
+	fs := flag.NewFlagSet("ctx stats", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.String("dir", ".", "repository directory")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+
+	h, cleanup, err := openLoop(".")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+
+	var sandbox, indexed int
+	if err := h.Store().DB.QueryRow(`SELECT count(*) FROM tool_outputs`).Scan(&sandbox); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	if err := h.Store().DB.QueryRow(`SELECT count(*) FROM indexed_files`).Scan(&indexed); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stdout, "sandbox (tool_outputs): %d\n", sandbox)
+	fmt.Fprintf(os.Stdout, "index (indexed_files): %d\n", indexed)
+}
