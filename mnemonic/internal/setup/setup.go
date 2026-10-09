@@ -26,6 +26,7 @@ const (
 	opencodeSquadPluginRel      = "plugins/opencode/skillgrid-squad.ts"
 	opencodeMemoryPluginRel     = "plugins/opencode/mnemonic-memory.ts"
 	opencodeCodeindexPluginRel  = "plugins/opencode/mnemonic-codeindex.ts"
+	opencodeContextPluginRel    = "plugins/opencode/skillgrid-context.ts"
 
 	cursorPluginRel = ".cursor-plugin/plugin.json"
 	cursorRuleRel   = "rules/mnemonic.mdc"
@@ -43,6 +44,7 @@ var nativePluginBases = []string{
 	"skillgrid-squad",
 	"mnemonic-memory",
 	"mnemonic-codeindex",
+	"skillgrid-context",
 }
 
 // RunSetup configures Mnemonic for the given agent (opencode, kilocode, cursor).

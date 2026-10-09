@@ -100,34 +100,25 @@ function withholdOldestToolMessages(messages) {
   }
 }
 
-export const SkillgridContext = async () => ({
-  experimental: {
-    chat: {
-      messages: {
-        transform: async (input, output) => {
-          try {
-            const messages = (output && output.messages) || null
-            if (!messages || messages.length === 0) return
-            const directory =
-              (input && input.directory) ||
-              (input && input.context && input.context.directory) ||
-              process.cwd()
-            const cfg = parseCLMConfig(directory)
-            if (!cfg.enabled) return
-            readMirror(directory)
-            let chars = 0
-            for (const entry of messages) {
-              chars += messageText(entry).length
-            }
-            const estimate = Math.floor(chars / BASE_FACTOR)
-            if (!cfg.budget) return
-            if (estimate + cfg.reserve <= cfg.budget) return
-            withholdOldestToolMessages(messages)
-          } catch {
-            // fail-open: never block the request
-          }
-        },
-      },
-    },
+export const SkillgridContext = async (ctx) => ({
+  "experimental.chat.messages.transform": async (input, output) => {
+    try {
+      const messages = (output && output.messages) || null
+      if (!messages || messages.length === 0) return
+      const directory = (ctx && ctx.directory) || process.cwd()
+      const cfg = parseCLMConfig(directory)
+      if (!cfg.enabled) return
+      readMirror(directory)
+      let chars = 0
+      for (const entry of messages) {
+        chars += messageText(entry).length
+      }
+      const estimate = Math.floor(chars / BASE_FACTOR)
+      if (!cfg.budget) return
+      if (estimate + cfg.reserve <= cfg.budget) return
+      withholdOldestToolMessages(messages)
+    } catch {
+      // fail-open: never block the request
+    }
   },
 })
