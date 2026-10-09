@@ -1,10 +1,10 @@
 ---
 id: TASK-090
 title: '[FEATURE] CTX T03 ctx: config block via ADR-0036 config.d (mnemonic)'
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-10-09 13:33'
-updated_date: '2026-10-09 13:39'
+updated_date: '2026-10-09 13:54'
 labels:
   - mnemonic
   - config

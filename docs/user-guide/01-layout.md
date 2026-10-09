@@ -118,6 +118,30 @@ Rules:
 
 This structure applies when a blueprint is large enough to warrant phase separation (typically 4+ phases or 20+ tasks). For smaller changes, use the standard single-folder layout above.
 
+## Dependencies & external tools
+
+Skillgrid itself is dependency-free — the hub is Go + bash + markdown. But skills invoke external tools at runtime. None are required to install or wire up hooks; each is **optional, on-demand, and named by the skill that uses it**. If a tool is missing, the skill says so and falls back or asks.
+
+| Tool | Used by | What it does | Install |
+|------|---------|--------------|---------|
+| `trivy` | `trivy`, `qa` | Vulnerability, secret, misconfig, SBOM scans (filesystem, image, repo, config) | `brew install trivy` (or Aqua installer / `go install`) |
+| `wapiti` | `wapiti` | Black-box DAST fuzzer (SQLi, XSS, command injection, XXE, CRLF, redirects, headers) against a live app | `pip install wapiti3` or `uv tool install wapiti3` (needs Python 3.12–3.14) |
+| `nuclei` | `nuclei` | Template-based vulnerability scanner (known CVEs, exposures, misconfigs) against a live target | `go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest` |
+| `akca` | `akca` | Evidence-oriented DAST scanner with adaptive testing + baselines/controls; headless-browser checks | `go install github.com/akha-security/akca@latest` (Go 1.25+; Chrome/Chromium/Edge for browser checks) |
+| `semgrep` | `owasp-security`, `semgrep` | Pattern-based SAST for security + correctness rules; works offline on source | `pip install semgrep` or `brew install semgrep` |
+| `cucumber-js` | `acceptance-test-authoring`, `test-driven-development`, `qa` | BDD runner for the `acceptance.feature` Gherkin suite (javascript stack); dry-run validates syntax | `npm install --save-dev @cucumber/cucumber` (project-local) |
+| `pygount` | `codebase-inspection` | LOC, language breakdown, file counts, code-vs-comment ratios | `pip install pygount` (approved by ADR-0015, user scope, never vendored) |
+| `jscpd` | `jscpd`, `dry-refactoring`, `codebase-refactoring` | Copy-paste detector (220+ languages): duplication %, dead code, complexity hotspots | `npx jscpd` (on-demand, no global install) |
+| `playwright` / `playwright-cli` | `dogfood`, `playwright-cli` | Browser automation for exploratory QA and web-app interaction | `npm install -g @playwright/cli` + `npx playwright install` |
+
+**Notes:**
+
+- **Trivy is advisory-only** in the QA gate by default — findings are reported, not blocking, unless `security.trivy.fail_on` is set (see [QA gate](08-guiding-principles.md#qa-gate)).
+- **BDD is always on.** The `cucumber-js` runner (javascript stack) or the stack-equivalent BDD runner is needed to author and validate `acceptance.feature`; `bdd.enabled` is always true.
+- **Scanner skills are specialist.** They don't open a spec folder and run when the user or an active pipeline skill names them — `qa` and `requesting-code-review` may call a scanner during a delivery change.
+- **Findings persist.** Scanner skills store results in Mnemonic (`scan_start` → `scan_store_findings`) so a finding's raw output and normalized records survive across sessions.
+- **No tool is vendored.** Each is installed on demand into the user/global scope (or project-local for the BDD runner), never committed into the hub.
+
 ## Naming conventions
 
 - Skill dir = skill name (kebab-case). Frontmatter `name:` matches the dir for 26 of 28 skills; `acceptance-test-authoring` and `mnemonic` carry no frontmatter (prose header instead).

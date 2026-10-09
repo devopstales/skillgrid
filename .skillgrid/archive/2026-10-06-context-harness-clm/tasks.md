@@ -1,6 +1,6 @@
 # Tasks — Context Harness (with CLM)
 
-> **STATUS:** `sliced` (2026-10-06)
+> **STATUS:** `done` (2026-10-09) — all 3 PRs implemented (TICKET-01–09). PR 3 (CLM) landed as `e6004abc` (055 + config + mirror), `8c1505bd` (mirror→blueprint shape), `b863895b` (overflow + calibration), `21f92ce8` (revision/resume + Go state seam + Node checkpoint capture + OpenCode context plugin), `2457a453` (flat-hook fix + installer wiring). Gated QA/review pass: `go build ./...` clean; clm/memory/http/setup/service/config packages green; gofmt clean on all touched files.
 
 > Sliced from `.skillgrid/specs/2026-10-06-context-harness-clm/blueprint.md`.
 > Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.

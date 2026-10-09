@@ -3,10 +3,10 @@ id: TASK-089
 title: >-
   [REFACTOR] CTX T01 CLM absorption: renumber CLM migrations 050/051/052 ->
   053/054/055 (mnemonic)
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-10-09 13:32'
-updated_date: '2026-10-09 13:32'
+updated_date: '2026-10-09 13:54'
 labels:
   - mnemonic
   - store
