@@ -1,10 +1,10 @@
 schema: skillgrid/state/v1
 pipeline:
-  current_phase: qa
-  current_change: 2026-10-07-replace-opencode-hooks-with-plugins
-  status: qa-pass-awaiting-ship
+  current_phase: idle
+  current_change: ""
+  status: awaiting-reflect
 progress:
-  completed_changes: 26
+  completed_changes: 27
   blocked_changes: 0
 constraints_ref: .skillgrid/ASSUMPTIONS.md
 P26-10-06-ctx: "2026-10-06: 2026-10-06-context-harness-clm BLUEPRINT DONE. Spec zone complete: briefing.md (13 reqs, clarity 0.13), acceptance.feature (13 reqs, G1-G27), adr.md (ADR 0025-0028). ADRs 0025-0028 written + in-force (ASSUMPTIONS.md updated, highest=0028). Migration numbers final: 050 tool_outputs, 051 indexed_files, 052 context_revisions. blueprint.md written: 9 tasks, 3 new migrations (050/051/052), 4 one-way doors, 9 SATISFIES lines, self-review clean, Plan Review READY FOR EXECUTION. NOTE: repo restructured during session — mnemonic Go code moved to standalone `mnemonic/` module (module path github.com/devopstales/skillgrid/mnemonic, CLI at mnemonic/cmd/mnemonic/); skillgrid CLI now installer-only. Blueprint paths updated to match. Next: slicing (tasks.md) then ticketing/execution. Prior change 2026-10-06-kanban-milestones was in qa — now paused, to be resumed after context-harness."
