@@ -28,6 +28,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"mem_capture_passive",
 		"mem_pin", "mem_unpin", "mem_unify",
 		"code_status", "code_index", "code_search", "code_read",
+		// ADR knowledge retrieval (2026-10-09-adr-knowledge-index, Part 2).
+		"adr_search",
 		"code_orient", "code_signature", "code_file_toc", "code_rationale",
 		"code_grep",
 		// Step 03 graph + composite tools.

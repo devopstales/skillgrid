@@ -274,8 +274,11 @@ type TierThresholdsConfig struct {
 
 // Indexing holds code index settings from indexing.yaml mnemonic section.
 type Indexing struct {
-	Include      []string
-	Exclude      []string
+	Include []string
+	Exclude []string
+	// DocInclude is the carve-out that indexes .skillgrid/**/*.md decision
+	// records despite the blanket **/.skillgrid/** Exclude. See codeindex.Config.
+	DocInclude   []string
 	ChunkLines   int
 	ChunkOverlap int
 	MaxFileSize  int
@@ -351,6 +354,7 @@ type indexingFile struct {
 type mnemonicSection struct {
 	Include      []string        `yaml:"include"`
 	Exclude      []string        `yaml:"exclude"`
+	DocInclude   []string        `yaml:"doc_include"`
 	ChunkLines   int             `yaml:"chunk_lines"`
 	ChunkOverlap int             `yaml:"chunk_overlap"`
 	MaxFileSize  int             `yaml:"max_file_size"`
@@ -623,6 +627,12 @@ func DefaultIndexing() Indexing {
 			"**/dist/**",
 			"**/.skillgrid/**",
 		},
+		// DocInclude carves the decision-record markdown back out of the
+		// blanket **/.skillgrid/** Exclude so ADRs / glossary / PRD / reports
+		// are indexed and searchable (adr_search reads them from chunks_fts).
+		DocInclude: []string{
+			"**/.skillgrid/**/*.md",
+		},
 		ChunkLines:   80,
 		ChunkOverlap: 10,
 		MaxFileSize:  MaxFileSizeDefault,
@@ -721,6 +731,9 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	}
 	if len(section.Exclude) > 0 {
 		out.Exclude = append([]string(nil), section.Exclude...)
+	}
+	if len(section.DocInclude) > 0 {
+		out.DocInclude = append([]string(nil), section.DocInclude...)
 	}
 	if section.ChunkLines > 0 {
 		out.ChunkLines = section.ChunkLines

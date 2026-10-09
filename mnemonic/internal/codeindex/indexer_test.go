@@ -261,12 +261,48 @@ func TestScanReturnsOversizedFiles(t *testing.T) {
 	if err := os.WriteFile(big, bigContent, 0o644); err != nil {
 		t.Fatalf("write big: %v", err)
 	}
-	files, err := Scan(root, []string{"**/*.go"}, nil)
+	files, err := Scan(root, []string{"**/*.go"}, nil, nil)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
 	if len(files) != 2 {
 		t.Fatalf("expected Scan to return both files (skip happens in Run), got %d", len(files))
+	}
+}
+
+// TestScanDocIncludeCarveOut verifies a file matching DocInclude is indexed even
+// when it matches Exclude (the .skillgrid carve-out), while an excluded file
+// outside the DocInclude glob is still skipped.
+func TestScanDocIncludeCarveOut(t *testing.T) {
+	root := t.TempDir()
+	// ADR under .skillgrid/artifacts: excluded by **/.skillgrid/** but
+	// carved out by **/.skillgrid/**/*.md.
+	adrDir := filepath.Join(root, ".skillgrid", "artifacts")
+	mustWrite(t, filepath.Join(adrDir, "04-adr-0001-decision.md"), "# D\n\nbody\n")
+	// A .skillgrid file outside the DocInclude glob (.yaml): stays excluded.
+	mustWrite(t, filepath.Join(root, ".skillgrid", "state.yaml"), "k: v\n")
+	// A normal Go file: indexed via the include.
+	mustWrite(t, filepath.Join(root, "main.go"), "package main\n")
+
+	include := []string{"**/*.go", "**/*.md"}
+	exclude := []string{"**/.skillgrid/**"}
+	docInclude := []string{"**/.skillgrid/**/*.md"}
+	files, err := Scan(root, include, exclude, docInclude)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f.Path] = true
+	}
+	if !got[".skillgrid/artifacts/04-adr-0001-decision.md"] {
+		t.Errorf("DocInclude ADR not indexed: %v", files)
+	}
+	if got[".skillgrid/state.yaml"] {
+		t.Errorf("excluded .yaml under .skillgrid was indexed")
+	}
+	if !got["main.go"] {
+		t.Errorf("main.go not indexed")
 	}
 }
 

@@ -1356,6 +1356,7 @@ func (s *Server) handleCodeIndex(w http.ResponseWriter, r *http.Request) {
 	idxCfg := codeindex.Config{
 		Include:      cfg.Include,
 		Exclude:      cfg.Exclude,
+		DocInclude:   cfg.DocInclude,
 		ChunkLines:   cfg.ChunkLines,
 		ChunkOverlap: cfg.ChunkOverlap,
 		MaxFileSize:  cfg.MaxFileSize,

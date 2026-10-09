@@ -27,6 +27,7 @@ func registerCodeTools(s *server.MCPServer) {
 		{codeIndexTool(), handleCodeIndex},
 		{codeSearchTool(), handleCodeSearch},
 		{codeReadTool(), handleCodeRead},
+		{adrSearchTool(), handleAdrSearch},
 		{codeDiffImpactTool(), handleCodeDiffImpact},
 	}
 	for _, entry := range tools {
@@ -65,6 +66,60 @@ func codeReadTool() mcplib.Tool {
 		mcplib.WithNumber("end_line", mcplib.Description("End line (1-based); defaults to start_line")),
 		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),
 	)
+}
+
+func adrSearchTool() mcplib.Tool {
+	return mcplib.NewTool("adr_search",
+		mcplib.WithDescription("Search ADR files (.skillgrid/artifacts/04-adr-*.md) by full-text and return structured decision metadata: status, date, supersedes, and superseded_by. Use to find a locked decision before designing or implementing. Use code_read on the returned path to fetch the full body. One-hop supersession: a result that is superseded by another matched ADR carries its successor's path."),
+		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search terms matched against the ADR body (FTS5)")),
+		mcplib.WithNumber("limit", mcplib.Description("Maximum ADR hits (default 10)")),
+		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),
+	)
+}
+
+func handleAdrSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	_, h, cleanup, err := openNamed(req.GetString("project", ""))
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+
+	query, err := req.RequireString("query")
+	if err != nil {
+		return toolError(err)
+	}
+
+	limit := int(req.GetFloat("limit", 10))
+	hits, err := search.AdrSearch(h.Store().DB, query, limit)
+	if err != nil {
+		return toolError(err)
+	}
+
+	out := make([]map[string]any, len(hits))
+	for i, hit := range hits {
+		out[i] = map[string]any{
+			"path":        hit.Path,
+			"title":       hit.Title,
+			"status":      hit.Status,
+			"date":        hit.Date,
+			"supersedes":  hit.Supersedes,
+			"snippet":     hit.Snippet,
+			"score":       hit.Score,
+		}
+		if hit.SupersededBy != "" {
+			out[i]["superseded_by"] = hit.SupersededBy
+		}
+	}
+
+	res, err := JSONResult(map[string]any{"hits": out})
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, len(hits))
+	for i, hit := range hits {
+		paths[i] = hit.Path
+	}
+	return applyFreshness(res, paths), nil
 }
 
 func handleCodeStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {

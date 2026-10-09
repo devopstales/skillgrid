@@ -80,7 +80,7 @@ func startAutoSync(svc *service.Service) {
 	}
 	cfg := config.Load(cwd)
 	idxCfg := codeindex.Config{
-		Include: cfg.Include, Exclude: cfg.Exclude,
+		Include: cfg.Include, Exclude: cfg.Exclude, DocInclude: cfg.DocInclude,
 		ChunkLines: cfg.ChunkLines, ChunkOverlap: cfg.ChunkOverlap, MaxFileSize: cfg.MaxFileSize,
 	}
 	// Wire the response path (auto-reopen ~5s + fingerprint gate + banner).
@@ -94,9 +94,10 @@ func startAutoSync(svc *service.Service) {
 	// create/modify/delete. The re-index is structural-only (no embedder).
 	var w *codeindex.Watcher
 	w = codeindex.NewWatcher(cwd, codeindex.WatchConfig{
-		Debounced: codeindex.DefaultDebounce,
-		Include:   cfg.Include,
-		Exclude:   cfg.Exclude,
+		Debounced:  codeindex.DefaultDebounce,
+		Include:    cfg.Include,
+		Exclude:    cfg.Exclude,
+		DocInclude: cfg.DocInclude,
 		OnSync: func(ctx context.Context, files []string) error {
 			// Mark the burst pending (feeds the banner until it syncs), then
 			// run the structural re-index (the (size,mtime)+hash guard makes it

@@ -48,6 +48,11 @@ var maxFileSize int64 = MaxFileSize
 type Config struct {
 	Include      []string
 	Exclude      []string
+	// DocInclude is a carve-out: a file matching a DocInclude glob is indexed
+	// even when it matches Exclude (it must still match Include when Include is
+	// non-empty). Used to index .skillgrid/**/*.md decision records that the
+	// blanket **/.skillgrid/** Exclude would otherwise hide.
+	DocInclude   []string
 	ChunkLines   int
 	ChunkOverlap int
 	MaxFileSize  int
@@ -116,8 +121,11 @@ type ScannedFile struct {
 	AstHash string
 }
 
-// Scan walks root and returns files matching include/exclude globs.
-func Scan(root string, include, exclude []string) ([]ScannedFile, error) {
+// Scan walks root and returns files matching include/exclude globs. A file
+// matching docInclude is indexed even when it matches exclude (it must still
+// match include when include is non-empty); the dir prune skips a dir only when
+// a DocInclude glob cannot still descend into it.
+func Scan(root string, include, exclude, docInclude []string) ([]ScannedFile, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -132,7 +140,7 @@ func Scan(root string, include, exclude []string) ([]ScannedFile, error) {
 			if err != nil {
 				return err
 			}
-			if rel != "." && shouldSkipDir(rel, exclude) {
+			if rel != "." && shouldSkipDir(rel, exclude, docInclude) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -149,10 +157,11 @@ func Scan(root string, include, exclude []string) ([]ScannedFile, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if matchesAny(exclude, rel) {
+		docIncluded := matchesAny(docInclude, rel)
+		if matchesAny(exclude, rel) && !docIncluded {
 			return nil
 		}
-		if len(include) > 0 && !matchesAny(include, rel) {
+		if len(include) > 0 && !matchesAny(include, rel) && !docIncluded {
 			return nil
 		}
 		contents, err := os.ReadFile(path)
@@ -175,7 +184,7 @@ func Scan(root string, include, exclude []string) ([]ScannedFile, error) {
 	return files, nil
 }
 
-func shouldSkipDir(rel string, exclude []string) bool {
+func shouldSkipDir(rel string, exclude, docInclude []string) bool {
 	rel = filepath.ToSlash(rel)
 	for _, pattern := range exclude {
 		pattern = filepath.ToSlash(strings.TrimSuffix(pattern, "/**"))
@@ -183,14 +192,114 @@ func shouldSkipDir(rel string, exclude []string) bool {
 		if pattern == "" {
 			continue
 		}
-		if rel == pattern || strings.HasPrefix(rel, pattern+"/") {
-			return true
+		if !excludedDirMatches(rel, pattern) {
+			continue
 		}
-		if matchesGlob(pattern, rel) || matchesGlob(pattern+"/**", rel) {
+		// A DocInclude glob that can still descend into this dir keeps it: the
+		// carve-out must not prune an ancestor of a DocInclude match.
+		if docIncludeDescends(docInclude, rel) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func excludedDirMatches(rel, pattern string) bool {
+	if rel == pattern || strings.HasPrefix(rel, pattern+"/") {
+		return true
+	}
+	return matchesGlob(pattern, rel) || matchesGlob(pattern+"/**", rel)
+}
+
+// docIncludeDescends reports whether any DocInclude glob could match a path
+// strictly under dir. A file under dir has the shape dir/sub/... , so a glob
+// can only match if its non-`**` leading path is a prefix of dir (or empty, for
+// a leading `**`). We test that by stripping dir's last path segment: the
+// pattern's non-`**` leading part must match the remaining prefix, or be
+// covered by a `**`. A `**` matches zero or more path segments, so a leading
+// `**` (e.g. `**/.skillgrid/**/*.md`) descends into the `.skillgrid` dir, while
+// a glob with no `**` does not descend into a nested dir.
+func docIncludeDescends(docInclude []string, dir string) bool {
+	dir = strings.TrimSuffix(filepath.ToSlash(dir), "/")
+	for _, pattern := range docInclude {
+		if globDescends(pattern, dir) {
 			return true
 		}
 	}
 	return false
+}
+
+// globDescends is the single-pattern core of docIncludeDescends. It returns
+// true if a file strictly under dir can match pattern. A file under dir has
+// the shape dir/sub/... , so dir's last segment is a *prefix* of any matching
+// path — the pattern's non-`**` leading segments must match a prefix of dir's
+// segment sequence (a `**` may skip zero or more of them). We check whether
+// the pattern's literal prefix aligns with dir's segments up to (excluding)
+// dir's last segment, because that last segment is the dir itself, not part of
+// the "ancestor before the file" that a `**` would cover.
+func globDescends(pattern, dir string) bool {
+	parts := splitGlob(pattern)
+	dirs := splitPath(dir)
+	// Only the pattern's prefix *before* its last `**` can align with dir's
+	// segments — anything after a `**` names a file (or subdir + file) that
+	// lives *inside* dir, not in dir's ancestor chain. So we compare the
+	// pre-`**` literal segments against dir (and a proper prefix of dir).
+	lastStar := -1
+	for i, p := range parts {
+		if p == "**" {
+			lastStar = i
+		}
+	}
+	if lastStar == -1 {
+		// No `**` at all: the glob can only match a file at a fixed depth,
+		// which can't be under an arbitrarily-nested dir.
+		return false
+	}
+	prefix := parts[:lastStar]
+	return patternLiteralPrefixMatches(prefix, dirs) || patternLiteralPrefixMatches(prefix, dirs[:len(dirs)-1])
+}
+
+// patternLiteralPrefixMatches reports whether the pattern's non-`**` segments
+// match the given dir-sequence prefix in order (a `**` skips zero or more).
+func patternLiteralPrefixMatches(parts, dirs []string) bool {
+	pi, di := 0, 0
+	for pi < len(parts) {
+		if parts[pi] == "**" {
+			pi++
+			continue
+		}
+		if di >= len(dirs) {
+			return false
+		}
+		if parts[pi] != dirs[di] {
+			return false
+		}
+		pi++
+		di++
+	}
+	return true
+}
+
+func splitGlob(pattern string) []string {
+	p := filepath.ToSlash(pattern)
+	var out []string
+	for _, s := range strings.Split(p, "/") {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func splitPath(path string) []string {
+	var out []string
+	for _, s := range strings.Split(filepath.ToSlash(path), "/") {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func matchesAny(patterns []string, path string) bool {
@@ -639,7 +748,7 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	if idx.emit == nil {
 		idx.emit = func(Event) {}
 	}
-	scanned, err := Scan(root, cfg.Include, cfg.Exclude)
+	scanned, err := Scan(root, cfg.Include, cfg.Exclude, cfg.DocInclude)
 	if err != nil {
 		return stats, err
 	}

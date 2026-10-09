@@ -257,3 +257,46 @@ func TestFingerprintGateEmbedderFree(t *testing.T) {
 		t.Errorf("expected the structural re-index to sync the new symbol gamma (embedder-free but not a no-op), got 0")
 	}
 }
+
+// TestFingerprintDocIncludeParity verifies the fingerprint walk applies the same
+// DocInclude carve-out as Scan: a DocInclude .md under an excluded dir is
+// fingerprinted (drift is detected when it changes), while an excluded non-doc
+// file under the same dir is not.
+func TestFingerprintDocIncludeParity(t *testing.T) {
+	idx, clean := newTestIndexer(t)
+	defer clean()
+	root := t.TempDir()
+	adrDir := filepath.Join(root, ".skillgrid", "artifacts")
+	mustWrite(t, filepath.Join(adrDir, "04-adr-0001-decision.md"), "# D\n\nbody\n")
+	mustWrite(t, filepath.Join(root, ".skillgrid", "state.yaml"), "k: v\n")
+	cfg := testCfg
+	cfg.DocInclude = []string{"**/.skillgrid/**/*.md"}
+	cfg.Exclude = append(cfg.Exclude, "**/.skillgrid/**")
+	cfg.Include = append(cfg.Include, "**/*.md")
+
+	// Initial index + store fingerprint.
+	if _, err := idx.Run(context.Background(), root, cfg); err != nil {
+		t.Fatalf("initial index: %v", err)
+	}
+	if err := StoreFingerprint(idx.store.DB, root, cfg, ExtractorStamp()); err != nil {
+		t.Fatalf("store fingerprint: %v", err)
+	}
+
+	// Drift: edit the DocInclude ADR (size + mtime change).
+	if err := os.WriteFile(filepath.Join(adrDir, "04-adr-0001-decision.md"), []byte("# D\n\nbody EDITED longer\n"), 0o644); err != nil {
+		t.Fatalf("edit adr: %v", err)
+	}
+	future := time.Now().Add(time.Second)
+	_ = os.Chtimes(filepath.Join(adrDir, "04-adr-0001-decision.md"), future, future)
+
+	changed, err := FingerprintDriftDB(idx.store.DB, root, cfg, ExtractorStamp())
+	if err != nil {
+		t.Fatalf("fingerprint drift: %v", err)
+	}
+	if _, ok := changed[".skillgrid/artifacts/04-adr-0001-decision.md"]; !ok {
+		t.Errorf("expected the DocInclude ADR to be fingerprinted (drift detected), got %v", changed)
+	}
+	if _, ok := changed[".skillgrid/state.yaml"]; ok {
+		t.Errorf("expected the excluded state.yaml to NOT be fingerprinted, got %v", changed)
+	}
+}

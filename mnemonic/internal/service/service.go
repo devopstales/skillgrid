@@ -1835,6 +1835,7 @@ func (s *Service) RunCodeIndex(ctx context.Context, directory string) (codeindex
 	idxCfg := codeindex.Config{
 		Include:      cfg.Include,
 		Exclude:      cfg.Exclude,
+		DocInclude:   cfg.DocInclude,
 		ChunkLines:   cfg.ChunkLines,
 		ChunkOverlap: cfg.ChunkOverlap,
 		MaxFileSize:  cfg.MaxFileSize,
@@ -1859,6 +1860,7 @@ func (s *Service) RunCodeIndexAt(ctx context.Context, projectID, directory strin
 	idxCfg := codeindex.Config{
 		Include:      cfg.Include,
 		Exclude:      cfg.Exclude,
+		DocInclude:   cfg.DocInclude,
 		ChunkLines:   cfg.ChunkLines,
 		ChunkOverlap: cfg.ChunkOverlap,
 		MaxFileSize:  cfg.MaxFileSize,
@@ -1885,6 +1887,7 @@ func (s *Service) RunCodeIndexPDG(ctx context.Context, directory string, pdg, ls
 	idxCfg := codeindex.Config{
 		Include:      cfg.Include,
 		Exclude:      cfg.Exclude,
+		DocInclude:   cfg.DocInclude,
 		ChunkLines:   cfg.ChunkLines,
 		ChunkOverlap: cfg.ChunkOverlap,
 		MaxFileSize:  cfg.MaxFileSize,
@@ -1913,6 +1916,7 @@ func (s *Service) RunCodeIndexPDGWithProgress(ctx context.Context, directory str
 	idxCfg := codeindex.Config{
 		Include:      cfg.Include,
 		Exclude:      cfg.Exclude,
+		DocInclude:   cfg.DocInclude,
 		ChunkLines:   cfg.ChunkLines,
 		ChunkOverlap: cfg.ChunkOverlap,
 		MaxFileSize:  cfg.MaxFileSize,

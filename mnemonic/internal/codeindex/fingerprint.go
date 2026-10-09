@@ -185,7 +185,7 @@ func walkFingerprint(root string, cfg Config, fn func(fingerprintRecord)) error 
 			if err != nil {
 				return err
 			}
-			if rel != "." && shouldSkipDir(rel, cfg.Exclude) {
+			if rel != "." && shouldSkipDir(rel, cfg.Exclude, cfg.DocInclude) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -199,10 +199,11 @@ func walkFingerprint(root string, cfg Config, fn func(fingerprintRecord)) error 
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if matchesAny(cfg.Exclude, rel) {
+		docIncluded := matchesAny(cfg.DocInclude, rel)
+		if matchesAny(cfg.Exclude, rel) && !docIncluded {
 			return nil
 		}
-		if len(cfg.Include) > 0 && !matchesAny(cfg.Include, rel) {
+		if len(cfg.Include) > 0 && !matchesAny(cfg.Include, rel) && !docIncluded {
 			return nil
 		}
 		fn(fingerprintRecord{RelPath: rel, Size: info.Size(), MtimeNs: info.ModTime().UnixNano()})

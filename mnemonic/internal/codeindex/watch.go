@@ -48,9 +48,11 @@ type WatchConfig struct {
 	Debounced time.Duration
 	// Include/Exclude are the 005 source filters (include/exclude + the
 	// implicit .gitignore handling in Scan). Non-source files (not matching
-	// Include, or matching Exclude) are ignored.
-	Include []string
-	Exclude []string
+	// Include, or matching Exclude) are ignored. DocInclude is the carve-out:
+	// a file matching it is treated as source even when it matches Exclude.
+	Include    []string
+	Exclude    []string
+	DocInclude []string
 	// OnSync is called (under the writer lock) when a debounced burst fires.
 	// The rel paths are the files observed (absolute paths under root). A nil
 	// OnSync means the watcher only tracks pending files (no re-index).
@@ -96,12 +98,13 @@ func (w *Watcher) Debounce() time.Duration {
 // a change inside an excluded directory is ignored.
 func (w *Watcher) IsSource(rel string) bool {
 	rel = filepath.ToSlash(rel)
+	docIncluded := matchesAny(w.cfg.DocInclude, rel)
 	for _, pattern := range w.cfg.Exclude {
-		if shouldSkipDir(rel, []string{pattern}) || matchesGlob(pattern, rel) {
+		if !docIncluded && (shouldSkipDir(rel, []string{pattern}, w.cfg.DocInclude) || matchesGlob(pattern, rel)) {
 			return false
 		}
 	}
-	if len(w.cfg.Include) > 0 && !matchesAny(w.cfg.Include, rel) {
+	if len(w.cfg.Include) > 0 && !matchesAny(w.cfg.Include, rel) && !docIncluded {
 		return false
 	}
 	return true
