@@ -115,8 +115,9 @@ The ADR index. One row per decision: a short description and a link to the full 
 | 0036 | CTX config lives at `config.d/ctx.yaml` (machine-local default + repo-local override), reuses the `config.d` loader | yes | `.skillgrid/artifacts/04-adr-0036-ctx-config-configd.md` |
 | 0037 | skill-pi permission layer: 3-tier config, Tree-sitter bash matching, tool hiding, diff preview, hybrid approvals | yes | `.skillgrid/artifacts/04-adr-0037-skill-pi-permission-extension.md` |
 | 0038 | skill-pi ticketing: `ticket` tool (10 actions) backed by the `backlog` MCP server over stdio, not vendored tk or direct file I/O | yes | `.skillgrid/artifacts/04-adr-0038-skill-pi-ticketing-backlog-adapter.md` |
+| 0042 | skill-pi npm dependency surface: exact pin `1.1.0` for `@earendil-works/pi-coding-agent`; `piConfig.configDir` min-version 1.1.0; npm shrinkwrap (no vendoring) | yes | `.skillgrid/artifacts/04-adr-0042-skill-pi-dependencies.md` |
 
-**Highest sequence in use:** 0038 (next ADR is `04-adr-0039-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
+**Highest sequence in use:** 0042 (next ADR is `04-adr-0043-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 
 Operational rules (the hard limits a change must respect — build toolchain, commit format, dependency policy, spec/code zone order) live in `AGENTS.md`, not here. `AGENTS.md` is the real source for those; the onboarding skill renders them into the agent prompt. A rule that is actually a decision belongs in this index as an ADR instead.
 
