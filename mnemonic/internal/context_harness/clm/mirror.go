@@ -1,11 +1,11 @@
 // Package clm is the Go-side mirror half of the Context Harness (CLM,
-// ADR-0027, TICKET-07). It renders the non-system turn contents into a 0600
-// mirror file that the Node request path reads and diffs.
+// ADR-0027). It renders the non-system turn contents into a 0600 mirror file
+// that the Node request path reads and diffs.
 //
 // The system prompt is EXCLUDED from the mirror — it is the prompt-injection
 // surface and is never mirrored. A fresh (empty) session renders revision 0.
-// RenderMirror is pure (no I/O); WriteMirror writes the rendered text to disk
-// at 0600, creating parent directories as needed.
+// RenderMirror is pure (no I/O); WriteMirror writes the rendered text to a
+// 0600 file, creating parent directories as needed.
 package clm
 
 import (
@@ -17,18 +17,30 @@ import (
 	"strings"
 )
 
-// Message is one turn of the session context. Role is one of user, assistant,
-// tool, or system; system turns are excluded from the mirror. Index is the
-// turn's position in the session (0-based). ID is the stable turn identifier
-// (defaults to the index). Content is the turn text.
-type Message struct {
-	Role    string
-	Content string
-	Index   int
-	ID      int
+// Block is one message in the mirror. Index is the turn's 0-based position in
+// the session; ID is the stable turn identifier; Role is one of user,
+// assistant, tool, or system (system blocks are excluded from the render);
+// Protected marks a turn the overflow guard must never withhold; Content is
+// the turn text.
+type Block struct {
+	Index     int
+	Role      string
+	ID        string
+	Protected bool
+	Content   string
 }
 
-// RenderMirror renders the Context Harness mirror for a session revision.
+// Mirror is the renderable context: framing (version, revision, nonce,
+// baseline) plus the per-turn blocks.
+type Mirror struct {
+	Version  int
+	Revision int
+	Nonce    string
+	Baseline string
+	Blocks   []Block
+}
+
+// RenderMirror renders the mirror text (header + CTX_TURN blocks).
 //
 // The output is:
 //
@@ -37,61 +49,62 @@ type Message struct {
 //	<turn content>
 //	...
 //
-// revision is the session's live revision number (0 for a fresh session).
-// nonce is the document nonce identifying this prompt revision. baseline is
-// the first 12 hex chars of sha256 over the non-system turn contents joined
-// by "\n" (stable across revision/nonce changes). System turns are omitted
-// entirely (prompt-injection surface). Every non-system turn gets a CTX_TURN
-// block followed by its content.
-func RenderMirror(revision int, nonce string, msgs []Message) string {
+// baseline is the first 12 hex chars of sha256 over the non-system block
+// contents joined by "\n"; it captures the context *content*, stable across
+// revision and nonce changes. System blocks are omitted entirely
+// (prompt-injection surface).
+func RenderMirror(m *Mirror) (string, error) {
+	if m == nil {
+		return "", fmt.Errorf("clm: render nil mirror")
+	}
+	baseline := baselineDigest(m.Blocks)
 	var b strings.Builder
-
-	baseline := baselineDigest(msgs)
-	fmt.Fprintf(&b, "[[LIVE_CONTEXT version=1 revision=%d document=%s baseline=%s]]\n",
-		revision, nonce, baseline)
-
-	for _, m := range msgs {
-		if m.Role == "system" {
+	fmt.Fprintf(&b, "[[LIVE_CONTEXT version=%d revision=%d document=%s baseline=%s]]\n",
+		m.Version, m.Revision, m.Nonce, baseline)
+	for _, blk := range m.Blocks {
+		if blk.Role == "system" {
 			continue
 		}
-		id := m.ID
-		if id == 0 {
-			id = m.Index
+		protected := "false"
+		if blk.Protected {
+			protected = "true"
 		}
-		fmt.Fprintf(&b, "[[CTX_TURN document=%s index=%d role=%s id=%d protected=false]]\n",
-			nonce, m.Index, m.Role, id)
-		b.WriteString(m.Content)
-		b.WriteString("\n")
+		fmt.Fprintf(&b, "[[CTX_TURN document=%s index=%d role=%s id=%s protected=%s]]\n%s\n",
+			m.Nonce, blk.Index, blk.Role, blk.ID, protected, blk.Content)
 	}
-	return b.String()
+	return b.String(), nil
 }
 
-// baselineDigest is the first 12 hex chars of sha256 over the non-system turn
-// contents joined by "\n". It is stable across revision and nonce changes —
-// it captures the *content* of the context, not its framing.
-func baselineDigest(msgs []Message) string {
+// baselineDigest is the first 12 hex chars of sha256 over the non-system block
+// contents joined by "\n".
+func baselineDigest(blocks []Block) string {
 	var parts []string
-	for _, m := range msgs {
-		if m.Role == "system" {
+	for _, blk := range blocks {
+		if blk.Role == "system" {
 			continue
 		}
-		parts = append(parts, m.Content)
+		parts = append(parts, blk.Content)
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
 	return hex.EncodeToString(sum[:])[:12]
 }
 
-// WriteMirror writes text to path at 0600 (owner read/write only — the mirror
-// can carry turn contents), creating parent directories as needed. The mirror
-// is a real file on disk, not an in-memory buffer.
-func WriteMirror(path, text string) error {
-	if dir := filepath.Dir(path); dir != "" {
+// WriteMirror writes the rendered mirror to <dir>/clm-mirror.txt at 0600
+// (owner read/write only — the mirror can carry turn contents), creating
+// parent directories as needed, and returns the written path.
+func WriteMirror(dir string, m *Mirror) (string, error) {
+	content, err := RenderMirror(m)
+	if err != nil {
+		return "", err
+	}
+	if dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("clm: create mirror dir %q: %w", dir, err)
+			return "", fmt.Errorf("clm: create mirror dir %q: %w", dir, err)
 		}
 	}
-	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
-		return fmt.Errorf("clm: write mirror %q: %w", path, err)
+	path := filepath.Join(dir, "clm-mirror.txt")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return "", fmt.Errorf("clm: write mirror %q: %w", path, err)
 	}
-	return nil
+	return path, nil
 }

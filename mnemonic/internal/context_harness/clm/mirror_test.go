@@ -13,83 +13,111 @@ import (
 	"testing"
 )
 
-func baseline(t *testing.T, msgs []Message) string {
-	t.Helper()
+// baselineDigestOf is the test-side oracle: first 12 hex chars of sha256 over
+// the non-system block contents joined by "\n".
+func baselineDigestOf(blocks []Block) string {
 	var parts []string
-	for _, m := range msgs {
-		if m.Role == "system" {
+	for _, b := range blocks {
+		if b.Role == "system" {
 			continue
 		}
-		parts = append(parts, m.Content)
+		parts = append(parts, b.Content)
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
 	return hex.EncodeToString(sum[:])[:12]
 }
 
 func TestRenderMirrorHeader(t *testing.T) {
-	msgs := []Message{{Role: "user", Content: "hello", Index: 0}}
-	got := RenderMirror(3, "abcnonce", msgs)
-	header := "[[LIVE_CONTEXT version=1 revision=3 document=abcnonce baseline=" + baseline(t, msgs) + "]]"
+	m := &Mirror{Version: 1, Revision: 3, Nonce: "abcnonce"}
+	m.Blocks = append(m.Blocks, Block{Index: 0, Role: "user", ID: "m1", Content: "hello"})
+	got, err := RenderMirror(m)
+	if err != nil {
+		t.Fatalf("RenderMirror: %v", err)
+	}
+	wantBase := baselineDigestOf(m.Blocks)
+	header := "[[LIVE_CONTEXT version=1 revision=3 document=abcnonce baseline=" + wantBase + "]]"
 	if !strings.HasPrefix(got, header) {
 		t.Fatalf("header mismatch.\ngot:  %q\nwant: %q...", got, header)
 	}
 }
 
 func TestRenderMirrorOmitsSystemTurns(t *testing.T) {
-	msgs := []Message{
-		{Role: "system", Content: "THE SYSTEM PROMPT", Index: 0},
-		{Role: "user", Content: "hi", Index: 1},
-		{Role: "assistant", Content: "yo", Index: 2},
+	m := &Mirror{Version: 1, Revision: 0, Nonce: "nonce0"}
+	m.Blocks = []Block{
+		{Index: 0, Role: "system", ID: "s0", Content: "THE SYSTEM PROMPT"},
+		{Index: 1, Role: "user", ID: "u1", Content: "hi"},
+		{Index: 2, Role: "assistant", ID: "a1", Content: "yo"},
 	}
-	got := RenderMirror(0, "nonce0", msgs)
+	got, err := RenderMirror(m)
+	if err != nil {
+		t.Fatalf("RenderMirror: %v", err)
+	}
 	if strings.Contains(got, "THE SYSTEM PROMPT") {
 		t.Fatalf("system turn content must not be mirrored (prompt-injection surface):\n%s", got)
+	}
+	if strings.Contains(got, "role=system") {
+		t.Fatalf("system turn must have no CTX_TURN block:\n%s", got)
 	}
 }
 
 func TestRenderMirrorFreshZeroRevision(t *testing.T) {
-	msgs := []Message{{Role: "user", Content: "fresh", Index: 0}}
-	got := RenderMirror(0, "freshnonce", msgs)
+	m := &Mirror{Version: 1, Revision: 0, Nonce: "freshnonce"}
+	m.Blocks = append(m.Blocks, Block{Index: 0, Role: "user", ID: "m0", Content: "fresh"})
+	got, err := RenderMirror(m)
+	if err != nil {
+		t.Fatalf("RenderMirror: %v", err)
+	}
 	if !strings.Contains(got, "revision=0") {
 		t.Fatalf("fresh revision must be 0:\n%s", got)
 	}
 }
 
 func TestRenderMirrorPerTurnBlocks(t *testing.T) {
-	msgs := []Message{
-		{Role: "system", Content: "sys", Index: 0},
-		{Role: "user", Content: "u1", Index: 1},
-		{Role: "assistant", Content: "a1", Index: 2},
-		{Role: "tool", Content: "t1", Index: 3},
+	m := &Mirror{Version: 1, Revision: 7, Nonce: "docnonce"}
+	m.Blocks = []Block{
+		{Index: 0, Role: "system", ID: "s0", Content: "sys"},
+		{Index: 1, Role: "user", ID: "u1", Content: "u1"},
+		{Index: 2, Role: "assistant", ID: "a1", Content: "a1"},
+		{Index: 3, Role: "tool", ID: "t1", Content: "t1"},
 	}
-	got := RenderMirror(7, "docnonce", msgs)
+	got, err := RenderMirror(m)
+	if err != nil {
+		t.Fatalf("RenderMirror: %v", err)
+	}
 	for _, want := range []string{
-		"[[CTX_TURN document=docnonce index=1 role=user id=1 protected=false]]",
+		"[[CTX_TURN document=docnonce index=1 role=user id=u1 protected=false]]",
 		"u1",
-		"[[CTX_TURN document=docnonce index=2 role=assistant id=2 protected=false]]",
+		"[[CTX_TURN document=docnonce index=2 role=assistant id=a1 protected=false]]",
 		"a1",
-		"[[CTX_TURN document=docnonce index=3 role=tool id=3 protected=false]]",
+		"[[CTX_TURN document=docnonce index=3 role=tool id=t1 protected=false]]",
 		"t1",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("mirror must contain %q:\n%s", want, got)
 		}
 	}
-	// System turn: no CTX_TURN block, no "role=system".
-	if strings.Contains(got, "role=system") {
-		t.Fatalf("system turn must be omitted, got:\n%s", got)
-	}
 }
 
 func TestRenderMirrorBaselineStable12Hex(t *testing.T) {
-	msgs := []Message{{Role: "user", Content: "a", Index: 0}, {Role: "assistant", Content: "b", Index: 1}}
-	got := RenderMirror(1, "n", msgs)
-	wantBase := baseline(t, msgs)
+	m := &Mirror{Version: 1, Revision: 1, Nonce: "n"}
+	m.Blocks = []Block{
+		{Index: 0, Role: "user", ID: "u0", Content: "a"},
+		{Index: 1, Role: "assistant", ID: "a1", Content: "b"},
+	}
+	got, err := RenderMirror(m)
+	if err != nil {
+		t.Fatalf("RenderMirror: %v", err)
+	}
+	wantBase := baselineDigestOf(m.Blocks)
 	if !strings.Contains(got, "baseline="+wantBase) {
 		t.Fatalf("baseline must be first 12 hex of sha256(non-system contents joined by \\n).\nwant %q\n got:\n%s", wantBase, got)
 	}
 	// Baseline is stable across renders with different revision/nonce.
-	got2 := RenderMirror(2, "different-nonce", msgs)
+	m2 := &Mirror{Version: 1, Revision: 2, Nonce: "different-nonce", Blocks: m.Blocks}
+	got2, err := RenderMirror(m2)
+	if err != nil {
+		t.Fatalf("RenderMirror: %v", err)
+	}
 	if !strings.Contains(got2, "baseline="+wantBase) {
 		t.Fatalf("baseline must not depend on revision or nonce")
 	}
@@ -100,10 +128,15 @@ func TestRenderMirrorBaselineStable12Hex(t *testing.T) {
 
 func TestWriteMirror0600AndBytes(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "nested", "mirror.md")
-	text := RenderMirror(1, "n", []Message{{Role: "user", Content: "x", Index: 0}})
-	if err := WriteMirror(path, text); err != nil {
+	m := &Mirror{Version: 1, Revision: 1, Nonce: "n"}
+	m.Blocks = append(m.Blocks, Block{Index: 0, Role: "user", ID: "m0", Content: "x"})
+	path, err := WriteMirror(dir, m)
+	if err != nil {
 		t.Fatalf("WriteMirror: %v", err)
+	}
+	want := filepath.Join(dir, "clm-mirror.txt")
+	if path != want {
+		t.Fatalf("WriteMirror path: got %q, want %q", path, want)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -112,19 +145,25 @@ func TestWriteMirror0600AndBytes(t *testing.T) {
 	if mode := info.Mode().Perm(); mode != 0o600 {
 		t.Fatalf("mirror file mode: got %o, want 600", mode)
 	}
+	rendered, err := RenderMirror(m)
+	if err != nil {
+		t.Fatalf("RenderMirror: %v", err)
+	}
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read mirror: %v", err)
 	}
-	if string(got) != text {
-		t.Fatalf("mirror bytes differ:\ngot:  %q\nwant: %q", string(got), text)
+	if string(got) != rendered {
+		t.Fatalf("mirror bytes differ:\ngot:  %q\nwant: %q", string(got), rendered)
 	}
 }
 
 func TestWriteMirrorCreatesParentDir(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "a", "b", "c", "mirror.md")
-	if err := WriteMirror(path, "text"); err != nil {
+	m := &Mirror{Version: 1, Revision: 1, Nonce: "n"}
+	m.Blocks = append(m.Blocks, Block{Index: 0, Role: "user", ID: "m0", Content: "x"})
+	path, err := WriteMirror(filepath.Join(dir, "a", "b", "c"), m)
+	if err != nil {
 		t.Fatalf("WriteMirror must create parent dirs: %v", err)
 	}
 	if info, err := os.Stat(path); err != nil || info.IsDir() {
