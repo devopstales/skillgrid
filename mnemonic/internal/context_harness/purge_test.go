@@ -59,9 +59,9 @@ func TestPurgeSession_ClearsToolOutputs(t *testing.T) {
 	}
 }
 
-// TestPurgeSession_FailOpenNoRevisions confirms purge does not error when the
-// context_revisions table (migration 055, a later PR) is absent, and still
-// purges tool_outputs.
+// TestPurgeSession_FailOpenNoRevisions confirms purge does not error when a
+// session has no context_revisions rows (the table exists from migration 055),
+// and still purges tool_outputs. The DELETE on an empty table is a no-op.
 func TestPurgeSession_FailOpenNoRevisions(t *testing.T) {
 	st, err := store.Open(t.TempDir(), "ctxproj")
 	if err != nil {
@@ -69,22 +69,11 @@ func TestPurgeSession_FailOpenNoRevisions(t *testing.T) {
 	}
 	defer st.Close()
 
-	// Fail-open precondition: context_revisions must NOT exist yet in PR 2.
-	var present int
-	if err := st.DB.QueryRow(
-		`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'context_revisions'`,
-	).Scan(&present); err != nil {
-		t.Fatalf("sqlite_master: %v", err)
-	}
-	if present != 0 {
-		t.Fatalf("precondition failed: context_revisions exists in PR 2 store")
-	}
-
 	purgeSeed(t, st, "s1", "ctxproj", "bash")
 
 	n, err := PurgeSession(st.DB, "ctxproj", "s1")
 	if err != nil {
-		t.Fatalf("purge should be fail-open with no context_revisions, got: %v", err)
+		t.Fatalf("purge should be fail-open with no context_revisions rows, got: %v", err)
 	}
 	if n != 1 {
 		t.Fatalf("expected 1 deleted, got %d", n)

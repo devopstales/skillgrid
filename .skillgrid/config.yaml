@@ -192,6 +192,17 @@ bdd:
 mnemonic:
   enabled: true
   data_dir: ~/.skillgrid/mnemonic
+  # Context Harness CLM (ADR-0027) — OPT-IN, off by default. Uncomment to
+  # enable; Go owns state/config/mirror, the Node plugin owns the request path.
+  # Env overrides (win when present + parseable): SKILLGRID_CTX_CLM (on/off),
+  # SKILLGRID_CTX_CLM_BUDGET (int tokens), SKILLGRID_CTX_CLM_RESERVE (int tokens).
+  # clm:
+  #   enabled: true
+  #   budget: 0        # 0 = the model's context window (supplied at request time)
+  #   reserve: 2048    # output-token reserve held back from budget
+  #   reminders: 50/75/90
+  #   guard: true      # fail-open switch: false renders the mirror but never blocks
+  #   cap: 0           # compression strategy selector; 0 = off (no compression)
 
 # --- Research ---
 # Investigate a question against primary sources into a cited `## Research:`

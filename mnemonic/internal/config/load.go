@@ -131,6 +131,47 @@ type Dedup struct {
 	LLM bool
 }
 
+// CLM is the mnemonic.claude section (Context Harness CLM, ADR-0027,
+// TICKET-07): the Go-side "context length management" config. The Context
+// Harness is OPT-IN (ADR-0027): Enabled defaults to false so the deterministic
+// request path is byte-identical until an operator enables it. Go owns
+// state/config/mirror; the Node plugin owns the request path (not this ticket).
+//
+// Budget is the context window in tokens; 0 means "the model's window" (the
+// caller supplies it at request time). Reserve is the output-token reserve
+// held back from Budget (default 2048). Reminders is the percentage threshold
+// list that triggers a "context nearly full" reminder (default "50/75/90").
+// Guard is the fail-open switch: when false the mirror is rendered but the
+// request path never blocks on it (default true). Cap is the compression
+// strategy selector (default 0 = off, no compression; the request path picks a
+// strategy by this value).
+//
+// Env overrides (ADR-0027): SKILLGRID_CTX_CLM (on/off), SKILLGRID_CTX_CLM_BUDGET
+// (int), SKILLGRID_CTX_CLM_RESERVE (int). A present, parseable env var WINS
+// over the YAML value; a missing or unparseable env var keeps the merged value.
+type CLM struct {
+	Enabled   bool
+	Budget    int
+	Reserve   int
+	Reminders string
+	Guard     bool
+	Cap       int
+}
+
+// DefaultCLM is the production default for the mnemonic.claude block: OFF
+// (opt-in), zero budget (model window), 2048-token reserve, 50/75/90 reminders,
+// guard on, no compression cap.
+func DefaultCLM() CLM {
+	return CLM{
+		Enabled:   false,
+		Budget:    0,
+		Reserve:   2048,
+		Reminders: "50/75/90",
+		Guard:     true,
+		Cap:       0,
+	}
+}
+
 // Improvement is the mnemonic.improve section (014 step 08): the
 // self-improvement feedback loop (retrieval-usage boost/decay re-ranking in
 // mem_search). OPT-IN: Enabled defaults to false so the default search
@@ -296,6 +337,10 @@ type Indexing struct {
 	Checkpoint Checkpoint
 	// Inject is the mnemonic.inject section (session-start Memory Index).
 	Inject Inject
+	// CLM is the mnemonic.claude section (Context Harness CLM, ADR-0027,
+	// TICKET-07): the Context Harness switch + context-length knobs. OPT-IN —
+	// Enabled defaults to false; the other fields carry production defaults.
+	CLM CLM
 }
 
 type indexingFile struct {
@@ -364,6 +409,12 @@ type mnemonicSection struct {
 	Checkpoint checkpointSection `yaml:"checkpoint"`
 	// Inject is the mnemonic.inject section (session-start Memory Index).
 	Inject injectSection `yaml:"inject"`
+	// CLM is the mnemonic.claude section (Context Harness CLM, ADR-0027,
+	// TICKET-07): the Context Harness switch + context-length knobs. Enabled
+	// is a pointer so "absent" (→ default false, opt-in) is distinguishable
+	// from an explicit true. Guard is a pointer so an absent key keeps the
+	// default true while an explicit false opts out of the fail-open guard.
+	CLM clmSection `yaml:"clm"`
 }
 
 type retrievalBudgetSection struct {
@@ -394,6 +445,20 @@ type injectSection struct {
 	Summaries    *int `yaml:"summaries"`
 	Observations *int `yaml:"observations"`
 	MaxTokens    *int `yaml:"max_tokens"`
+}
+
+// clmSection is the mnemonic.claude section (Context Harness CLM, ADR-0027,
+// TICKET-07). Every field is a pointer so an absent key keeps the production
+// default while an explicit value is applied as-is: Enabled absent → false
+// (opt-in), an explicit true turns the Context Harness on. Guard absent → the
+// default true is kept; an explicit false opts out of the fail-open guard.
+type clmSection struct {
+	Enabled   *bool   `yaml:"enabled"`
+	Budget    *int    `yaml:"budget"`
+	Reserve   *int    `yaml:"reserve"`
+	Reminders *string `yaml:"reminders"`
+	Guard     *bool   `yaml:"guard"`
+	Cap       *int    `yaml:"cap"`
 }
 
 // mergeCheckpoint maps mnemonic.checkpoint YAML onto Checkpoint. Invalid
@@ -568,6 +633,7 @@ func DefaultIndexing() Indexing {
 		Decay:        DefaultDecay(),
 		Checkpoint:   DefaultCheckpoint(),
 		Inject:       DefaultInject(),
+		CLM:          DefaultCLM(),
 	}
 }
 
@@ -731,6 +797,11 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	}
 	out.Checkpoint = mergeCheckpoint(defaults.Checkpoint, section.Checkpoint)
 	out.Inject = mergeInject(defaults.Inject, section.Inject)
+	// CLM (ADR-0027, TICKET-07): the Context Harness switch + context-length
+	// knobs. OPT-IN — Enabled defaults to false (absent → deterministic
+	// request path). Env overrides (SKILLGRID_CTX_CLM / _BUDGET / _RESERVE)
+	// win over the merged YAML value when present and parseable.
+	out.CLM = mergeCLM(defaults.CLM, section.CLM)
 	return out
 }
 
@@ -972,6 +1043,71 @@ func mergeLLM(base LLMConfig, section llmSection) LLMConfig {
 		}
 	}
 	return out
+}
+
+// mergeCLM maps the mnemonic.claude YAML section (Context Harness CLM,
+// ADR-0027, TICKET-07) to the CLM struct, then applies the env overrides.
+// Every key is a pointer: an absent key keeps the production default (Enabled
+// false — opt-in; Guard true; Reserve 2048; Reminders 50/75/90), an explicit
+// value is applied as-is. Finally, applyCLMEnv layers the SKILLGRID_CTX_CLM*
+// env vars on top — a present, parseable env var wins.
+func mergeCLM(base CLM, section clmSection) CLM {
+	out := base
+	if section.Enabled != nil {
+		out.Enabled = *section.Enabled
+	}
+	if section.Budget != nil {
+		out.Budget = *section.Budget
+	}
+	if section.Reserve != nil {
+		out.Reserve = *section.Reserve
+	}
+	if section.Reminders != nil {
+		out.Reminders = *section.Reminders
+	}
+	if section.Guard != nil {
+		out.Guard = *section.Guard
+	}
+	if section.Cap != nil {
+		out.Cap = *section.Cap
+	}
+	return applyCLMEnv(out)
+}
+
+// applyCLMEnv layers the Context Harness env overrides (ADR-0027) on top of the
+// merged CLM value: SKILLGRID_CTX_CLM (on/off), SKILLGRID_CTX_CLM_BUDGET (int),
+// SKILLGRID_CTX_CLM_RESERVE (int). A present, parseable env var WINS over the
+// merged YAML value; a missing or unparseable env var keeps the value. This
+// keeps the CLM client pure — the loader owns the env fallback.
+func applyCLMEnv(clm CLM) CLM {
+	// SKILLGRID_CTX_CLM: on/true/1 → enabled; off/false/0 → disabled.
+	if raw := os.Getenv("SKILLGRID_CTX_CLM"); raw != "" {
+		switch {
+		case raw == "1" || raw == "true" || raw == "on":
+			clm.Enabled = true
+		case raw == "0" || raw == "false" || raw == "off":
+			clm.Enabled = false
+		default:
+			log.Printf("warning: SKILLGRID_CTX_CLM must be on/off (got %q), keeping config value %v", raw, clm.Enabled)
+		}
+	}
+	// SKILLGRID_CTX_CLM_BUDGET: a parseable positive int wins over config.
+	if raw := os.Getenv("SKILLGRID_CTX_CLM_BUDGET"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			clm.Budget = n
+		} else {
+			log.Printf("warning: SKILLGRID_CTX_CLM_BUDGET must be a positive integer (got %q), keeping config value %d", raw, clm.Budget)
+		}
+	}
+	// SKILLGRID_CTX_CLM_RESERVE: a parseable positive int wins over config.
+	if raw := os.Getenv("SKILLGRID_CTX_CLM_RESERVE"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			clm.Reserve = n
+		} else {
+			log.Printf("warning: SKILLGRID_CTX_CLM_RESERVE must be a positive integer (got %q), keeping config value %d", raw, clm.Reserve)
+		}
+	}
+	return clm
 }
 
 func mergeWebCache(defaults WebCache, section webCacheSection) WebCache {

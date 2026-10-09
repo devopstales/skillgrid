@@ -6,9 +6,10 @@ import (
 	"fmt"
 )
 
-// contextRevisionsTable is the revisions table added by a later migration
-// (055, a subsequent PR in the context-harness chain). It does not exist yet in
-// PR 2, so PurgeSession probes for it and purges fail-open when absent.
+// contextRevisionsTable is the CLM revision audit table added by migration 055
+// (ADR-0027/0028, TICKET-07). It is session-scoped and purged at session end.
+// PurgeSession probes for it and purges fail-open when absent, so the same call
+// stays forward-compatible if the table is ever dropped.
 const contextRevisionsTable = "context_revisions"
 
 // PurgeSession clears the session-scoped context-harness sandbox for one
@@ -17,8 +18,8 @@ const contextRevisionsTable = "context_revisions"
 // the total rows deleted across both tables.
 //
 // Fail-open by design: a table that is absent is skipped (not an error), so the
-// same purge works across the PR-2 store (tool_outputs only) and the later
-// store (tool_outputs + context_revisions) without callers branching.
+// same purge works across stores with and without context_revisions without
+// callers branching.
 func PurgeSession(db *sql.DB, project, sessionID string) (int, error) {
 	if db == nil {
 		return 0, errors.New("purge: nil db")
