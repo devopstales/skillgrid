@@ -7,7 +7,7 @@ created_date: '2026-10-02 08:58'
 updated_date: '2026-10-06 08:35'
 labels:
   - mnemonic-memory-improvements
-milestone: m-1
+milestone: 2026-09-24-mnemonic-memory-improvements
 dependencies: []
 references:
   - .skillgrid/specs/2026-09-24-mnemonic-memory-improvements/briefing.md

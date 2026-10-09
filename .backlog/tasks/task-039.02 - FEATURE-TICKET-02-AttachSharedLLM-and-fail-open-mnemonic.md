@@ -6,7 +6,7 @@ assignee: []
 created_date: '2026-10-03 09:38'
 updated_date: '2026-10-06 08:35'
 labels: []
-milestone: m-4
+milestone: 2026-10-02-mnemonic-llm-provider
 dependencies:
   - TASK-039.01
 references:

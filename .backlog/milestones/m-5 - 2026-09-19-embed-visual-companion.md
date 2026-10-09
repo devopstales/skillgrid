@@ -1,6 +1,6 @@
 ---
 id: m-5
-title: "visual-companion"
+title: "2026-09-19-embed-visual-companion"
 ---
 
 ## Description

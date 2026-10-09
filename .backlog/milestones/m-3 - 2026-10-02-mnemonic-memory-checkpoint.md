@@ -1,6 +1,6 @@
 ---
 id: m-3
-title: "memory-checkpoint"
+title: "2026-10-02-mnemonic-memory-checkpoint"
 ---
 
 ## Description

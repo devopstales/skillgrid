@@ -1,6 +1,6 @@
 ---
 id: m-6
-title: "kanban-milestones"
+title: "2026-10-06-kanban-milestones"
 ---
 
 ## Description

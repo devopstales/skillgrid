@@ -6,7 +6,7 @@ assignee: []
 created_date: '2026-10-07 11:32'
 updated_date: '2026-10-07 12:38'
 labels: []
-milestone: m-7
+milestone: 2026-10-05-mnemonic-scan-findings
 dependencies: []
 references:
   - .skillgrid/specs/2026-10-05-mnemonic-scan-findings/briefing.md

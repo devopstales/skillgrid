@@ -6,7 +6,7 @@ assignee: []
 created_date: '2026-10-07 11:32'
 updated_date: '2026-10-07 13:34'
 labels: []
-milestone: m-7
+milestone: 2026-10-05-mnemonic-scan-findings
 dependencies:
   - TASK-054
 references:

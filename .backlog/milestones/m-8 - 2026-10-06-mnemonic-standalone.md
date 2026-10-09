@@ -1,6 +1,6 @@
 ---
 id: m-8
-title: "mnemonic-standalone-module"
+title: "2026-10-06-mnemonic-standalone"
 ---
 
 ## Description

@@ -11,7 +11,7 @@ labels:
     .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/tasks.md --ref
     .skillgrid/specs/2026-10-02-mnemonic-webui-rewrite/acceptance.feature
     --plain
-milestone: m-2
+milestone: 2026-10-02-mnemonic-webui-rewrite
 dependencies:
   - TASK-034
   - TASK-035

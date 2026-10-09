@@ -1,6 +1,6 @@
 ---
 id: m-4
-title: "shared-llm-provider"
+title: "2026-10-02-mnemonic-llm-provider"
 ---
 
 ## Description

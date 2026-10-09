@@ -7,7 +7,7 @@ created_date: '2026-10-02 08:59'
 updated_date: '2026-10-06 08:35'
 labels:
   - mnemonic-memory-improvements
-milestone: m-1
+milestone: 2026-09-24-mnemonic-memory-improvements
 dependencies:
   - TASK-030.01
 references:

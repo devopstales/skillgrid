@@ -1,6 +1,6 @@
 ---
 id: m-2
-title: "mnemonic-webui-rewrite"
+title: "2026-10-02-mnemonic-webui-rewrite"
 ---
 
 ## Description

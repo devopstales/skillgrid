@@ -1,6 +1,6 @@
 ---
 id: m-1
-title: "mnemonic-memory-improvements"
+title: "2026-09-24-mnemonic-memory-improvements"
 ---
 
 ## Description

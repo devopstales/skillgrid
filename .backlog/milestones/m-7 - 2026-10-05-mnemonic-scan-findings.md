@@ -1,6 +1,6 @@
 ---
 id: m-7
-title: "mnemonic-scan-findings"
+title: "2026-10-05-mnemonic-scan-findings"
 ---
 
 ## Description

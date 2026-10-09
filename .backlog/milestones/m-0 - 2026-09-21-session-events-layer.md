@@ -1,6 +1,6 @@
 ---
 id: m-0
-title: "session-events-layer"
+title: "2026-09-21-session-events-layer"
 ---
 
 ## Description
