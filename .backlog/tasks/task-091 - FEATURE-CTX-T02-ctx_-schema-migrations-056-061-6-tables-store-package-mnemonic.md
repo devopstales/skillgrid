@@ -3,7 +3,7 @@ id: TASK-091
 title: >-
   [FEATURE] CTX T02 ctx_ schema: migrations 056-061 (6 tables) + store package
   (mnemonic)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:33'
 updated_date: '2026-10-09 13:39'
