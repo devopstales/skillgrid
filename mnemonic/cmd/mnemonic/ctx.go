@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"flag"
 	"fmt"
 	"os"
@@ -32,6 +33,8 @@ func runCtx(args []string) {
 		runCtxPrime(rest)
 	case "stats":
 		runCtxStats(rest)
+	case "purge":
+		runCtxPurge(rest)
 	case "help", "-h", "--help":
 		ctxUsage()
 	default:
@@ -49,6 +52,7 @@ func ctxUsage() {
 	fmt.Fprintln(w, "  search <query>   Two-leg RRF fusion over sandbox tool outputs + indexed files (labels each source; -limit caps results)")
 	fmt.Fprintln(w, "  prime            Session-start context (reuses the loop prime renderer; --dir, --session)")
 	fmt.Fprintln(w, "  stats            Row counts for the sandbox (tool_outputs) and index (indexed_files)")
+	fmt.Fprintln(w, "  purge            Clear the session sandbox (tool_outputs, and context_revisions when present); prints rows removed (-project, -session)")
 }
 
 // ctxSearchFlags parses search flags: -limit caps the fused results.
@@ -151,4 +155,45 @@ func runCtxStats(args []string) {
 	}
 	fmt.Fprintf(os.Stdout, "sandbox (tool_outputs): %d\n", sandbox)
 	fmt.Fprintf(os.Stdout, "index (indexed_files): %d\n", indexed)
+}
+
+// runCtxPurge clears the session-scoped context-harness sandbox and prints the
+// number of rows removed. It opens the store via openLoop (directory-resolved,
+// matching search/stats), then delegates to ctxPurge.
+func runCtxPurge(args []string) {
+	fs := flag.NewFlagSet("ctx purge", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "project id (default: resolved from -dir)")
+	session := fs.String("session", "default", "session id to purge")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+
+	h, cleanup, err := openLoop(".")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+
+	// -project is optional: default to the store's resolved project so the
+	// sandbox (keyed by the store's project) is targeted without extra flags.
+	pid := *project
+	if pid == "" {
+		pid = h.ProjectID()
+	}
+	n, err := ctxPurge(h.Store().DB, pid, *session)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stdout, "purged %d row(s)\n", n)
+}
+
+// ctxPurge is the testable purge code path: it clears the session sandbox
+// (tool_outputs, and context_revisions when present) for (project, session) and
+// returns the deleted row count. Factored from runCtxPurge so the test can call
+// it directly without shelling out.
+func ctxPurge(db *sql.DB, project, session string) (int, error) {
+	return context_harness.PurgeSession(db, project, session)
 }

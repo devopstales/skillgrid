@@ -1,11 +1,14 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
 // runCtxCapture runs fn with stdout+stderr redirected and returns their combined
@@ -167,9 +170,51 @@ func TestRunCtxSearch_Limit(t *testing.T) {
 // path is exercised by the binary, not the test process).
 func TestRunCtxUsage_MentionsSubcommands(t *testing.T) {
 	out := runCtxCapture(t, func() { ctxUsage() })
-	for _, want := range []string{"search", "prime", "stats"} {
+	for _, want := range []string{"search", "prime", "stats", "purge"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("usage missing %q, got:\n%s", want, out)
 		}
+	}
+}
+
+// TestRunCtxPurge exercises the ctx purge code path directly through ctxPurge
+// (no shelling out): it seeds a sandbox row and asserts the purge clears it and
+// reports the deleted count.
+func TestRunCtxPurge(t *testing.T) {
+	st, err := store.Open(t.TempDir(), "ctxproj")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	if _, err := st.DB.Exec(`INSERT INTO tool_outputs (session_id, project_id, tool_name, output, size_bytes, created_at)
+		VALUES ('s1', 'ctxproj', 'bash', 'purge-payload', 13, datetime('now'))`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	n, err := ctxPurge(st.DB, "ctxproj", "s1")
+	if err != nil {
+		t.Fatalf("ctxPurge: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 deleted, got %d", n)
+	}
+	var remaining int
+	if err := st.DB.QueryRow(
+		`SELECT count(*) FROM tool_outputs WHERE session_id = ? AND project_id = ?`,
+		"s1", "ctxproj",
+	).Scan(&remaining); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expected 0 rows after purge, got %d", remaining)
+	}
+}
+
+// TestCtxPurgeNilDB guards the helper against a nil db.
+func TestCtxPurgeNilDB(t *testing.T) {
+	var db *sql.DB
+	if _, err := ctxPurge(db, "ctxproj", "s1"); err == nil {
+		t.Fatalf("expected error for nil db")
 	}
 }
