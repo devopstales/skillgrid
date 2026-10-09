@@ -121,6 +121,7 @@ func primeText(dir, session string) string {
 		ChangedFiles: files,
 		ImpactLines:  impact,
 		MemoryIndex:  memoryIndex,
+		Routing:      context_harness.RenderRouting(),
 	})
 }
 

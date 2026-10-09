@@ -52,6 +52,35 @@ func TestRenderPrimeNoMemoryIndex(t *testing.T) {
 	}
 }
 
+func TestRenderPrime_RoutingBlock(t *testing.T) {
+	routing := "## Context Routing\nretrieve → ctx search"
+	got := RenderPrime(PrimeInput{MemoryIndex: "mem-index", Routing: routing})
+	if !contains(got, "## Memory") {
+		t.Fatalf("expected ## Memory section:\n%s", got)
+	}
+	if !contains(got, "mem-index") {
+		t.Fatalf("expected memory index content:\n%s", got)
+	}
+	if !contains(got, "## Context Routing") {
+		t.Fatalf("expected ## Context Routing header:\n%s", got)
+	}
+	if !contains(got, "retrieve → ctx search") {
+		t.Fatalf("expected routing text:\n%s", got)
+	}
+	memAt := indexOf(got, "## Memory")
+	routeAt := indexOf(got, "## Context Routing")
+	if memAt < 0 || routeAt < 0 || routeAt <= memAt {
+		t.Fatalf("routing must render after the Memory block; memory at %d, routing at %d\n%s", memAt, routeAt, got)
+	}
+}
+
+func TestRenderPrimeRoutingOptional(t *testing.T) {
+	got := RenderPrime(PrimeInput{MemoryIndex: "mem-index"})
+	if contains(got, "## Context Routing") {
+		t.Fatalf("empty Routing must not add section:\n%s", got)
+	}
+}
+
 func TestOneLinerFromSummary(t *testing.T) {
 	summary := "## Goal\nwire the hooks\n\n## Next Steps\nlater\n"
 	if got := OneLinerFromSummary(summary); got != "wire the hooks" {

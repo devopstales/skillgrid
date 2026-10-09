@@ -20,6 +20,7 @@ type PrimeInput struct {
 	ChangedFiles []string
 	ImpactLines  []string
 	MemoryIndex  string
+	Routing      string
 }
 
 // RenderPrime formats the block injected at session start.
@@ -52,6 +53,13 @@ func RenderPrime(in PrimeInput) string {
 		b.WriteString("\n## Memory\n")
 		b.WriteString(idx)
 		if !strings.HasSuffix(idx, "\n") {
+			b.WriteByte('\n')
+		}
+	}
+	if routing := strings.TrimSpace(in.Routing); routing != "" {
+		b.WriteString("\n")
+		b.WriteString(routing)
+		if !strings.HasSuffix(routing, "\n") {
 			b.WriteByte('\n')
 		}
 	}
