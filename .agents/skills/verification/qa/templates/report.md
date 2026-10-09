@@ -218,10 +218,27 @@
 | P0 pass rate | <run P0 tests> | <quality.p0_pass_rate> | <actual %> | PASS / FAIL |
 | P1 pass rate | <run P1 tests> | <quality.p1_pass_rate> | <actual %> | PASS / FAIL |
 | Trivy security | <security.trivy.command or "not configured"> | <security.trivy.fail_on or "report only"> | <n findings ≥ fail_on> | PASS / FAIL / N/A |
+| Duplication (jscpd) | <duplication.command or "not configured"> | <duplication.fail_on or "report only"> | <actual % of changed files> | PASS / FAIL / N/A |
 
 **Quality config status:** <configured / not configured — using defaults>
 
 **Dead code (if configured):** <n findings — SUGGESTION> / N/A
+
+**Duplication (if configured):** scoped to <changed-files / duplication.target>; <n clones · P%> — advisory (SUGGESTION) unless `duplication.fail_on` > 0.
+
+## Duplication
+
+> Per `skillgrid:qa` Step 9 (Duplication / jscpd). Scoped to the changed files.
+> Advisory by default; a clone introduced by this change is a SUGGESTION (FAIL only if `duplication.fail_on` > 0 and exceeded).
+
+**Command:** `npx jscpd --reporters ai <flags> <changed-files>` (or N/A — <reason: command empty / change too small>)
+
+**Result:** <n clones · P% duplication> — scope: <COMPLETE / TRUNCATED / n/a>
+
+| Files (lines) | Kind | Introduced? | Severity | Note |
+|---------------|------|-------------|----------|------|
+| <a.go:10-25 ~ b.go:42-57> | exact | yes / no / pre-existing | SUGGESTION | <refactor hint or "looks intentional"> |
+
 
 ## State Drift
 

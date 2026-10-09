@@ -35,6 +35,22 @@ quality:
   p0_pass_rate: 100
   p1_pass_rate: 95
 
+# --- Duplication Check (jscpd) ---
+# The skillgrid:qa skill runs this in the Code Quality Gate (Step 9), scoped to
+# the files changed in the current change. Advisory by default: it reports
+# SUGGESTION findings and never FAILs the gate. Set duplication.fail_on to a
+# numeric threshold to hard-gate (jscpd --threshold), like Trivy's fail_on.
+# command: the jscpd invocation ("" = disabled, skip the check)
+# target: what to scan (default: the changed files of the current change)
+# fail_on: duplication % that FAILs the gate (0 = report only, never block)
+# formats: comma-separated language list ("" = all jscpd supports)
+duplication:
+  command: "npx jscpd"
+  target: "changed-files"
+  fail_on: 0 # advisory; set e.g. 20 to hard-gate at 20% duplication
+  formats: "" # all languages
+  ignore: "**/node_modules/**,**/dist/**,**/*.min.*,**/*_test.go,**/migrations/**"
+
 # --- Security Scan (Trivy) ---
 # Trivy is a multi-scanner: vulnerability (CVE), misconfiguration, secret,
 # and license. The skillgrid:qa skill runs it during the Security Audit step.

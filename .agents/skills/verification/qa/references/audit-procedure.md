@@ -180,8 +180,21 @@ Run the commands from `config.yaml` and compare against the `quality:` threshold
 | P0 pass rate | run P0 tests from test plan | `quality.p0_pass_rate` (default 100) | Any P0 test fails |
 | P1 pass rate | run P1 tests from test plan | `quality.p1_pass_rate` (default 95) | P1 pass rate < threshold |
 | Trivy security | `security.trivy.command` | `security.trivy.fail_on` ("" = report only) | Any finding ≥ `fail_on` severity (if set) |
+| Duplication | `duplication.command` (jscpd) | `duplication.fail_on` (0 = report only) | Duplication % > `fail_on` (if `fail_on` > 0) |
 
 **Mutation testing:** if `testing.mutation` is empty, this gate is N/A (not a FAIL). If set, run it and report the mutation score. A surviving mutant is a concrete specification of missing coverage — treat it as a failing test.
+
+**Duplication (jscpd):** if `duplication.command` is empty, this gate is N/A (not a FAIL). If set, run jscpd scoped to `duplication.target`:
+
+1. **Resolve the target.** When `duplication.target` is `changed-files`, build the file list from the change's own scope — the `tasks.md` Files column + `blueprint.md` Global Constraints (the same set Step 6b uses for changed-file coverage). Pass that list to jscpd so the scan covers only what this change touched — it is fast, per-PR, and keeps clone noise low. If the change is too small to be meaningful (fewer than ~2 changed files), record `Duplication: n/a — change too small to be meaningful` and move on.
+2. **Run the scan.** `npx jscpd --reporters ai <flags from config> <target>`. Apply `duplication.formats` (as `--format`, when non-empty) and `duplication.ignore` (as `--ignore`). Read the AI-reporter clone list and the trailing `<N> clones · <P>% duplication` line.
+3. **Classify.** jscpd's exit code only trips when `duplication.fail_on` > 0 and the % exceeds it — that is a **FAIL** (a code-quality gate below threshold). When `fail_on` is 0, the % is advisory:
+   - a clone **introduced by this change** (at least one file in the pair is a changed file) that is a real copy (not a test boilerplate, migration, or generated table) → **SUGGESTION** naming the two files/lines and a one-line refactor hint;
+   - a clone where both sides are pre-existing (unchanged files) → **SUGGESTION** only if it is large; otherwise note "pre-existing duplication, out of scope for this change";
+   - boilerplate that is *supposed* to look alike (DTOs, test fixtures, migration DDL, enum-like maps) → **SUGGESTION** with a note "looks intentional", not a defect to chase.
+4. **Trigger the jscpd skill** for interpretation when (a) `fail_on` is set and tripped, or (b) exact clones were found that are worth refactoring. The skill owns the output format, the Type-2/Type-3 (renamed/similar) passes, and `--summary` hotspot ranking. Do **not** run the noisy `--ignore-identifiers` / `--similarity` passes at the gate — they are candidate-generators for the **dry-refactoring** skill, not gate evidence. Record each finding in the report's `## Duplication` section (files, lines, kind, %, severity).
+
+A duplication finding is never a CRITICAL and never flips the four-state verdict on its own while `fail_on` is 0 — it is advisory, exactly like a Trivy finding with `fail_on` empty.
 
 **Dead code:** if a dead-code tool is configured, run it and report findings as SUGGESTION. Not a hard gate.
 
