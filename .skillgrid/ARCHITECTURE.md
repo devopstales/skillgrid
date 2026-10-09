@@ -1,7 +1,7 @@
 # Skillgrid v2 — System Architecture
 
-> **Version:** 2.0
-> **Last Updated:** 2026-10-05
+> **Version:** 2.1
+> **Last Updated:** 2026-10-07
 > **Status:** Active Development
 > **Source of truth:** this file describes the *live* repo/program structure. Decisions live in `.skillgrid/ASSUMPTIONS.md` (LOCKED `### ADR-NNNN` set) — this file never re-argues them, it points at them.
 
@@ -33,32 +33,34 @@
 
 ## 1. Architecture Overview
 
-Skillgrid is a **single Go binary** that acts as an *agentic memory + code-intel + workflow* engine. One process serves three clients: the **agent harness** (Cursor / OpenCode / Kilo) over MCP-stdio and shell hooks, the **operator** over a local HTTP API, and the **dashboard** (a React SPA compiled *into* the binary). It dogfoods its own `.skillgrid/` state zone and SDD pipeline — this repo is simultaneously the product and its first customer.
+Skillgrid is a **single Go binary** that acts as an *agentic memory + code-intel + workflow* engine. One process serves three clients: the **agent harness** (Cursor / OpenCode / Kilo) over MCP-stdio and native TS plugins, the **operator** over a local HTTP API, and the **dashboard** (a React SPA compiled *into* the binary). It dogfoods its own `.skillgrid/` state zone and SDD pipeline — this repo is simultaneously the product and its first customer.
+
+The engine is its own Go module (`mnemonic/`, module `github.com/devopstales/skillgrid/mnemonic`) — the Mnemonic engine, code index, MCP server, HTTP API, and embedded dashboard all live there. `skillgrid-cli/` is a thin shell module (installer + command facades) that depends on `mnemonic/` via a `replace` directive and builds the shipped `skillgrid` binary. (ADR-0033 formalizes the multi-module Go workspace; the `mnemonic` standalone split was the 2026-10-06-mnemonic-standalone change, a design decision rather than a numbered ADR.)
 
 ### High-Level System Diagram
 
 ```
-                    ┌──────────────────────────────────────────────────────┐
+                     ┌──────────────────────────────────────────────────────┐
  AGENT HARNESS      │                skillgrid  (single Go binary)         │
  (Cursor / OpenCode │                                                      │
-  / Kilo)           │  cmd/skillgrid/main.go  (flag.FlagSet + switch)      │
-   │  hooks.yaml /  │   ├─ install ────▶ ~/.skillgrid/ + agent config merge│
-   │  hooks-cursor  │   ├─ setup ──────▶ plugins → agent config merge      │
-   │  ─── hooks/*.sh▶│   ├─ init/index ▶▶ codeindex (tree-sitter → chunk → │
-   │  (session,tool, │   │             │   graph → embed → community)      │
-   │   policy,stop) │   ├─ mcp ──────── stdio MCP (mcp-go) ──────┐        │
-   │         ▲       │   ├─ serve ───── HTTP :7438 ──────────────┤        │
-   │         └───────│   │   ├─ REST (memory/sessions/policy/…)  │        │
-   │  (capture POST, │   │   ├─ embedded SPA (skillgrid-ui dist) │        │
-   │   checkpoint,   │   │   └─ /openapi.yaml + /swagger         │        │
-   │   stop gate)    │   └───────────────────────┬──────────────┘        │
-                     │                           ▼                         │
-                     │         internal/mnemonic/service.Service           │
-                     │         (facade: memory · codeindex · webcache)     │
-                     │                           ▼                         │
-                     │   ~/.skillgrid/mnemonic/<projectID>.sqlite (WAL)    │
-                     │   embedded migrations · FTS5 (porter/trigram) · vec0│
-                     └─────────────────────────────────────────────────────┘
+  / Kilo)           │  cmd/mnemonic/main.go  (flag.FlagSet + switch)       │
+    │  5 native TS   │   ├─ install ────▶ ~/.skillgrid/ + agent config merge│
+    │  plugins /     │   ├─ setup ──────▶ 5 TS plugins → agent config      │
+    │  cursor hooks  │   ├─ init/index ▶▶ codeindex (tree-sitter → chunk → │
+    │  (session,tool, │   │             │   graph → embed → community)      │
+    │   policy,stop) │   ├─ mcp ──────── stdio MCP (mcp-go) ──────┐        │
+    │         ▲       │   ├─ serve ───── HTTP :7438 ──────────────┤        │
+    │         └───────│   │   ├─ REST (memory/facts/sessions/policy/…)    │
+    │  (capture POST, │   │   ├─ embedded SPA (skillgrid-ui dist) │        │
+    │   checkpoint,   │   │   └─ /openapi.yaml + /swagger         │        │
+    │   stop gate)    │   └───────────────────────┬──────────────┘        │
+                      │                           ▼                         │
+                      │            internal/service.Service                 │
+                      │          (facade: memory · codeindex · webcache)    │
+                      │                           ▼                         │
+                      │   ~/.skillgrid/mnemonic/<projectID>.sqlite (WAL)    │
+                      │   embedded migrations · FTS5 (porter/trigram) · vec0│
+                      └─────────────────────────────────────────────────────┘
  REPO CONTENT (shipped by `skillgrid install`, the "Hub Content")
  .agents/skills/ (SDD pipeline + _shared rules)      .skillgrid/ (config,
  hooks/  git-hooks/  plugins/  config.d/  rules/      state, specs, artifacts)
@@ -83,10 +85,16 @@ Skillgrid is a **single Go binary** that acts as an *agentic memory + code-intel
 
 ```
 /
-├── skillgrid-cli/      Go module — the ENTIRE runtime (installer, Mnemonic engine,
-│                       MCP server, HTTP API, embedded dashboard)
-├── skillgrid-ui/       Vite + React 19 SPA; dist/ is built INTO the Go binary (go:embed)
-├── plugins/            Per-agent plugin assets: opencode/ (hooks.yaml), kilo/, cursor/mcp.json
+├── mnemonic/           Go MODULE — the ENTIRE runtime engine (module
+│                       `github.com/devopstales/skillgrid/mnemonic`): Mnemonic
+│                       engine, code index, MCP server, HTTP API, embedded
+│                       dashboard, installer core (internal/setup). cmd/mnemonic.
+├── skillgrid-cli/      Thin Go MODULE — the `skillgrid` binary: installer
+│                       command + facades over `mnemonic/` (go.mod `replace`
+│                       ../mnemonic). cmd/skillgrid.
+├── skillgrid-ui/       Vite + React 19 SPA; dist/ is built INTO the binary (go:embed)
+├── plugins/            Per-agent plugin assets: opencode/ (5 native TS plugins),
+│                       kilo/, cursor/mcp.json
 ├── .agents/skills/     THE SKILL GRID — 7 category dirs + _shared/ reference library
 ├── .cursor-plugin/     Cursor plugin manifest (plugin.json, marketplace.json)
 ├── rules/              Cursor-native rule: mnemonic.mdc (always-apply memory protocol)
@@ -105,8 +113,8 @@ Two distinct "content" worlds, deliberately separated:
 
 | World | Owner | Lives | Example |
 |-------|-------|-------|---------|
-| **Runtime** (binary) | the Go module | `skillgrid-cli/` | `service.Service`, `codeindex`, `store` |
-| **Hub Content** (shipped) | the installer | `plugins/ hooks/ git-hooks/ config.d/ rules/ .agents/skills/` | `hooks.yaml`, `block.md`, `indexing.yaml` |
+| **Runtime** (binary) | the engine Go module | `mnemonic/` (+ thin `skillgrid-cli/` shell) | `service.Service`, `codeindex`, `store` |
+| **Hub Content** (shipped) | the installer | `plugins/ hooks/ git-hooks/ config.d/ rules/ .agents/skills/` | the 5 native TS plugins, `block.md`, `indexing.yaml` |
 
 The installer (`skillgrid install`) *stages* Hub Content into machine locations (`~/.skillgrid/plugins/`, `~/.skillgrid/hooks/`, `~/.skillgrid/git-hooks/`) and merges MCP entries into the agent config — it never edits the repo.
 
@@ -116,12 +124,11 @@ The installer (`skillgrid install`) *stages* Hub Content into machine locations 
 
 ### 3.1 Module & entry point
 
-`skillgrid-cli/go.mod`:
+The engine module `mnemonic/go.mod` (module `github.com/devopstales/skillgrid/mnemonic`) holds the runtime. `skillgrid-cli/go.mod` is a thin shell that pulls it in with a local `replace`:
 
 ```go
-module github.com/devopstales/skillgrid/skillgrid-cli
-
-go 1.26
+// mnemonic/go.mod  — the engine (module github.com/devopstales/skillgrid/mnemonic)
+go 1.26.0
 
 require (
     github.com/mark3labs/mcp-go       v0.58.0   // MCP server
@@ -132,9 +139,13 @@ require (
     github.com/charmbracelet/huh          v1.0.0    // TUI multiselect
     ...
 )
+
+// skillgrid-cli/go.mod  — the thin shell (module .../skillgrid-cli)
+require github.com/devopstales/skillgrid/mnemonic v0.0.0-...
+replace github.com/devopstales/skillgrid/mnemonic => ../mnemonic
 ```
 
-Entry point `cmd/skillgrid/main.go` is **not** cobra — a single `flag.FlagSet` for install flags plus a `switch rest0` on the first bare argument. Version is baked at build time:
+Two entry points, two binaries. The engine `mnemonic/cmd/mnemonic/main.go` is **not** cobra — a single `flag.FlagSet` for install flags plus a `switch rest0` on the first bare argument; it carries the MCP server, HTTP `serve`, code index, and (with `-tags ui`) the embedded dashboard. `skillgrid-cli/cmd/skillgrid/main.go` is the thin installer shell. Version is baked at build time:
 
 ```go
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -142,35 +153,36 @@ var version = "dev"
 ```
 
 ```bash
-# Taskfile.yml
+# Taskfile.yml  — two binaries
 build:
   cmds:
-    - go build -tags ui -ldflags "-s -w -X main.version=..." -o dist/skillgrid ./cmd/skillgrid
+    - cd mnemonic      && go build -tags ui -ldflags "-s -w -X main.version=..." -o dist/mnemonic ./cmd/mnemonic
+    - cd skillgrid-cli && go build -ldflags "-s -w -X main.version=..." -o dist/skillgrid ./cmd/skillgrid
 ```
 
-The `ui` build tag is what activates the embedded SPA; without it the binary is smaller and serves no dashboard.
+The `-tags ui` flag on the **engine** build is what activates the embedded SPA (it compiles `skillgrid-ui/dist` in via `//go:embed`); without it the `mnemonic` binary is smaller and serves no dashboard.
 
 ### 3.2 Layering
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  TRANSPORT LAYER                                                 │
-│  cmd/skillgrid/*.go  (main.go dispatch, mcp.go, serve, init…)     │
+│  mnemonic/cmd/mnemonic/*.go  (main.go dispatch, mcp.go, serve…)   │
 │   ├─ MCP stdio (mcp-go)     ── agent harness                     │
 │   ├─ HTTP :7438 (ServeMux)  ── operator + dashboard              │
 │   └─ TUI (huh)              ── interactive prompts               │
 ├──────────────────────────────────────────────────────────────────┤
 │  SERVICE FACADE                                                  │
-│  internal/mnemonic/service.Service + ProjectHandle               │
+│  mnemonic/internal/service.Service + ProjectHandle               │
 │   (opens a project ONCE, refcounted store pool; the single seam  │
 │    every transport funnels through)                              │
 ├──────────────────────────────────────────────────────────────────┤
 │  SUBSYSTEM LAYER                                                 │
-│  memory · codeindex · graph · search · hybrid · embedder ·        │
-│  webcache · skills · session_inject · checkpoint · policy · …     │
+│  memory · facts · codeindex · graph · search · hybrid · embedder ·│
+│  webcache · skills · context_harness · checkpoint · policy · …    │
 ├──────────────────────────────────────────────────────────────────┤
 │  DATA LAYER                                                      │
-│  internal/mnemonic/store  (SQLite WAL + embedded migrations +    │
+│  mnemonic/internal/store  (SQLite WAL + embedded migrations +     │
 │   FTS5 + vec0)  ──▶  ~/.skillgrid/mnemonic/<projectID>.sqlite    │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -206,13 +218,14 @@ Hand-rolled dispatch (no cobra). The full surface from `main.go` usage:
 
 ## 5. Mnemonic Engine — Package Structure
 
-`skillgrid-cli/internal/mnemonic/` — 34 sub-packages. The load-bearing ones:
+`mnemonic/internal/` — the engine module's package tree. The load-bearing ones:
 
 | Package | Responsibility |
 |---------|----------------|
 | `store/` | SQLite wrapper + embedded migrations (`store/migrations/*.sql`). Refcounted pool, WAL retry, `vec0` registration. |
 | `service/` | **The facade** — `Service` + `ProjectHandle`; `DefaultDataDir()` = `~/.skillgrid/mnemonic`. |
 | `memory/` | Observations: save/retrieve, FTS+vector retrieval, decay, importance tiers, governance, distill/dream consolidation, provenance. |
+| `facts/` | **Fact Memory** — the durable, project-scoped fact store (`facts.Store`: `Add` / `SearchWith` / `Forget` / `Decay` / `DecayAll`) over the `facts` table (`011_facts_skills.sql`); surfaced by the five `POST /facts*` routes (ADR-0032) and the `mnemonic-memory.ts` plugin. |
 | `codeindex/` | Incremental indexer (`indexer.go` ~1975 lines), `watch.go` (fsnotify), `fingerprint.go` (staleness gate), `graph.go` (symbol/call graph), opt-in `pdg_*`/`lsp_*` edge tiers. |
 | `extract/` | tree-sitter symbol/edge extraction per language. |
 | `graph/` | Graph queries: `impact.go` (blast radius), `resolve.go`, `span.go`, `coverage.go`. |
@@ -331,6 +344,19 @@ Key seams are all injectable with a deterministic fallback (the fail-open patter
 
 **Second brain** (`mem_ask`, `secondbrain/`) is a read side over the same store: cited answers with a fail-open LLM seam.
 
+### 8.0 Fact Memory (durable facts)
+
+Fact Memory is a **separate** memory lane from observations: a flat, durable, project-scoped set of *facts* — short, checkable statements the agent asserts once and re-reads across sessions. Where observations carry a decay curve and importance tiers, facts are deliberately permanent until explicitly forgotten or decayed.
+
+| Seam | What it does | Entry point |
+|------|--------------|-------------|
+| Store | `facts.Store` — `Add` / `SearchWith` / `Forget` / `Decay` / `DecayAll` over the `facts` table (`011_facts_skills.sql`) | `mnemonic/internal/facts/` |
+| HTTP | five **POST** routes, all write-gated: `POST /facts` (add → `{id}`), `POST /facts/search` (→ `{facts}`), `POST /facts/{id}/forget` (→ 204), `POST /facts/{id}/decay`, `POST /facts/decay-all` | `mnemonic/internal/http/facts.go` |
+| MCP tool | `mem_fact_*` family (add/search/forget) exposed over stdio | `mnemonic/internal/mcp/` |
+| Native plugin | `mnemonic-memory.ts` — `fact_add` / `fact_search` / `fact_forget` tools for OpenCode/Kilo; the project resolves server-side, the session id is optional and recorded on the `session_events` trail (defaults to `"project"`) | `plugins/opencode/mnemonic-memory.ts` |
+
+> **Route-verb contract.** The five fact routes are POST. The `mnemonic/internal/http` package serves the embedded SPA as a fallback, so a *wrong* verb (a `GET` to a POST-only route) returns the SPA shell (200 `text/html`), not a 405 — and a client that does `.json().catch(() => ({}))` silently turns that into `{}`. `plugin_route_contract_test.go` pins each plugin's HTTP verb to its route to catch exactly that class of bug.
+
 ### 8.1 Context Harness (session context lifecycle)
 
 The Context Harness (ADR-0025) owns the full context lifecycle of a session. It absorbed `session_inject` (import path change only — public signatures and the `mem_inject_session` contract are unchanged) and adds capture, structured query, proactive index, routing, a `ctx` CLI, and the Context Language Model layer.
@@ -360,8 +386,8 @@ The Context Harness (ADR-0025) owns the full context lifecycle of a session. It 
 | Seam | What it does | Entry point |
 |------|--------------|-------------|
 | `ctx_query` | Deterministic counts / lists / existence over the code index (no JS, no line ranges in v1) | `context_harness/query.go` |
-| `ctx index` | Reads, chunks (~2KB, bounded ~100/call), and upserts rows into `indexed_files` (migration 051), reusing the observations schema shape (Second Brain has no table of its own — `secondbrain/ask.go:74` calls `session_inject.HybridObservations` over `observations`+`observations_fts`); 7-day TTL | `context_harness/index.go` |
-| `ctx_search` | Two-leg RRF fusion of `tool_outputs_fts` (session) + `indexed_files_fts` (project) via `hybrid.Rank` (RRFK=60); results carry per-leg provenance | `context_harness/search.go` |
+| `ctx index` | Reads, chunks (~2KB, bounded ~100/call), and upserts rows into `indexed_files` (migration 054), reusing the observations schema shape (Second Brain has no table of its own — `secondbrain/ask.go:74` calls `session_inject.HybridObservations` over `observations`+`observations_fts`); 7-day TTL | `context_harness/index.go` |
+| `ctx_query` | Deterministic two-leg RRF fusion (K=60, local constant — keeps the package free of a `hybrid` dependency) over `tool_outputs_fts` (session sandbox) + `indexed_files_fts` (project index), keyed on the normalized tool/file name: a cross-leg hit accumulates `1/(K+rank)` per matching leg and outranks a single-leg hit; each leg is fail-open (absent table or MATCH error degrades to the other leg); cross-leg metadata is reported as `sandbox`. `CtxSearch` is the thin stable wrapper over it | `context_harness/ctx_query.go` |
 | `ctx` CLI | `stats` / `index` / `search` / `purge` (purge clears `tool_outputs` + `context_revisions`) | `cmd/skillgrid/ctx_cmd.go` |
 | Context Routing | `prime` injects a ~80-word tool map (counts/lists → `ctx_query`, retrieve → `ctx_search`, index → `ctx index`, memory → `mem_*`); advisory, not blocking | `context_harness/routing.go` |
 
@@ -374,7 +400,7 @@ The Context Harness (ADR-0025) owns the full context lifecycle of a session. It 
 | Calibration | The size estimate (starts ~4 chars/token) is corrected against the provider's own token count for each request; the corrected factor is stored per session | `context_harness/clm/calibrate.go` |
 | Context Revision | One accepted mirror edit, persisted to `context_revisions` (migration 052, session-scoped audit — raw history + mirror are the source of truth); validated at turn-end (nonce match, legal message sequence, tool-call-group repair) and activated for the next request; on resume the highest `revision` is reconstructed and its anchor (count + SHA-256 digest) re-validated, a mismatch falling back to raw context | `context_harness/clm/revision.go`, `store/migrations/052_context_revisions.sql` |
 
-Wired by the harness hooks, not by the agent: `hooks/opencode-session-start.sh` (and the cursor equivalent) run `skillgrid prime` on session start; `*-session-end.sh` run `skillgrid compact` on idle/end. Recovery after compaction is then: `mem_session_summary` → `mem_context` → `mem_inject_session` (the L1→L2→L3 retrieval workflow).
+Wired by the harness plugins, not by the agent: on OpenCode/Kilo the native `skillgrid-compaction.ts` plugin claims the checkpoint on `session.idle` (and `skillgrid-events.ts` fires the session-start capture); on Cursor the `cursor-session-*.sh` shell hooks do the same. Recovery after compaction is then: `mem_session_summary` → `mem_context` → `mem_inject_session` (the L1→L2→L3 retrieval workflow).
 
 
 ---
@@ -408,15 +434,15 @@ Migration timeline (forward-only, additive):
 | Migration | Adds |
 |-----------|------|
 | `001` | initial schema + 002–039 squashed (sessions, observations, files, chunks, web_cache, BLOB embeddings) |
-| `011` | `facts` / `skills` / `skills_fts` / `skill_usage` (executable-skill registry) |
+| `011` | `facts` (Fact Memory) / `skills` / `skills_fts` / `skill_usage` (executable-skill registry) |
 | `040` | `session_events` audit trail |
 | `042` | `vec_symbols` / `vec_chunks` `vec0(768)` tables (mirror BLOB source of truth) |
 | `043` | `lifecycle_log` (audit) |
 | `044` | bitemporal (`valid_at` / `invalid_at` / `superseded_by`) |
 | `045`–`049` | search aids, entity aliases, session agent, session usage, session checkpoint |
 | `050` | `tool_outputs` + `tool_outputs_fts` — Context Harness Sandbox Store (session-scoped, ADR-0025) |
-| `051` | `indexed_files` + `indexed_files_fts` — proactive index reusing the observations schema shape (project-scoped, ADR-0026) |
 | `052` | `context_revisions` — CLM session-scoped audit of accepted mirror edits (ADR-0028) |
+| `054` | `indexed_files` + `indexed_files_fts` (external-content FTS5 over name/kind/language/content) — project-scoped proactive index (ADR-0026) and the second fusion leg of `ctx_query` |
 
 Growth is bounded by TTL soft-expiry (default 7 days), distill/dream consolidation, 90-day `session_events` retention, and a snapshot-retention cap (default 10). `tool_outputs` and `context_revisions` are session-scoped and purged at session end; `indexed_files` carries the 7-day TTL like observations.
 
@@ -445,7 +471,7 @@ The two transports share **one facade** — no logic duplication between the age
 
 ### 10.1 MCP stdio (agent)
 
-`cmd/skillgrid/mcp.go` → `internal/mnemonic/mcp/server.go`:
+`mnemonic/cmd/mnemonic/mcp.go` → `mnemonic/internal/mcp/server.go`:
 
 ```go
 const (
@@ -465,18 +491,21 @@ Stdio transport, spawned by the harness ("trusted by construction"). Tool groups
 
 ### 10.2 HTTP :7438 (operator + dashboard)
 
-`internal/mnemonic/http/server.go` — Go 1.22+ `ServeMux` method+wildcard routing:
+`mnemonic/internal/http/server.go` — Go 1.22+ `ServeMux` method+wildcard routing:
 
 ```go
 s.mux.HandleFunc("GET /health", s.handleHealth)
 s.mux.HandleFunc("POST /sessions", s.requireWriteAuth(s.handleSessionCreate))
 s.mux.HandleFunc("POST /sessions/{id}/checkpoint/claim", s.requireWriteAuth(s.handleCheckpointClaim))
+s.mux.HandleFunc("POST /facts", s.requireWriteAuth(s.handleFactAdd))
+s.mux.HandleFunc("POST /facts/search", s.requireWriteAuth(s.handleFactSearch))
 ```
 
 - **Reads are open, writes are bearer-protected** via `SKILLGRID_HTTP_TOKEN` (`requireWriteAuth`).
 - Binds `127.0.0.1` by default (loopback-only).
 - Serves the embedded SPA at `/`, OpenAPI at `/openapi.yaml`, Swagger UI at `/swagger`.
 - The capture route `POST /sessions/{id}/tool-calls` carries `content` (full output) in addition to `content_preview` so the Output Sandbox Gate can store gated output (ADR-0025). A CLM edit is posted at turn-end via the `checkpoint` capture path and validated/persisted by Go (ADR-0027).
+- The native plugins are verb-contract-guarded against the live mux by `http/plugin_route_contract_test.go`: every route a plugin calls is probed for registration (404 = stale path), and the POST-only routes (`/policy/evaluate`, `/facts/search`, `/facts`, `/sessions`, `/code/index`) are probed for verb specificity — a POST-only route answers the opposite verb with the embedded SPA shell (200 `text/html`), so a GET sent to a POST route parses to `{}` in the live harness instead of failing (the C1 bug class: `fact_search` used to GET `/facts/search`; `mem_session_summary` POSTed a GET-only `/sessions/{id}/summary`). The test pins both the plugin source and the mux verb.
 - The OpenCode plugin module registers a `context` hook (v2 plugins) that renders the CLM mirror, applies the Go withhold decision, and reads the model's edit — the only component in the request path that can transform the outgoing model call without rewriting persisted history.
 
 ### 10.3 The `skillgrid init` preamble (rendered from config)
@@ -498,7 +527,7 @@ skillgrid-ui/
 │   └── features/     # adr/ decisions/ docs/ git/ kanban/ mnemonic/ observe/
 │                     # overview/ plans/ prototypes/ security/ sessions/
 │                     # settings/ swagger/ tracker/
-└── vite.config.ts    # build.outDir → ../skillgrid-cli/internal/mnemonic/http/ui/dist
+└── vite.config.ts    # build.outDir → ../mnemonic/internal/http/ui/dist
 ```
 
 ### Data flow
@@ -524,40 +553,35 @@ In **dev**, Vite proxies the API prefixes to `:7438`. In **prod** the built `dis
 
 ## 12. Plugin Architecture (Multi-Agent)
 
-One content source, three agent targets, all wired by `skillgrid setup <agent>`. The repo assets are the source of truth; setup **stages** them to machine locations and **merges** MCP entries into the agent config (idempotent, with `BEGIN/END SKILLGRID MNEMONIC` sentinels for Kilo).
+One content source, three agent targets, all wired by `skillgrid setup <agent>`. The repo assets are the source of truth; setup **stages** them to machine locations and **merges** MCP entries into the agent config (idempotent, with `BEGIN/END SKILLGRID MNEMONIC` sentinels for Kilo). For non-opencode harnesses setup also pins `env.SKILLGRID_AGENT=<harness>` in the agent config (`installNativePlugins` → `upsertAgentEnv`): the native plugins default `AGENT` to `"opencode"`, so without the pin kilo's memory/codeindex traffic would be mis-attributed (fix 2026-10-07-replace-opencode-hooks-with-plugins, kilo item).
 
 ```
         repo Hub Content (source of truth)
                 │  skillgrid setup <agent>  (stage + merge, idempotent)
-   ┌────────────┼─────────────────────────────┐
-   ▼            ▼                             ▼
-opencode/     kilo/                          cursor/
-hooks.yaml    hooks.yaml                     .cursor-plugin/plugin.json
-(+checkpoint  (+ SKILLGRID_AGENT=kilo)       (hooks, rules, agents,
-  .ts plugin)                                skills, mcpServers)
-   │            │                             │
-   ▼            ▼                             ▼
-~/.config/    ~/.config/                     ~/.cursor/plugins/…
-opencode/     kilo/                          + rules/mnemonic.mdc
-```
+    ┌────────────┼─────────────────────────────┐
+    ▼            ▼                             ▼
+ opencode/     kilo/                          cursor/
+ 5 native TS   same 5 native TS               .cursor-plugin/plugin.json
+ plugins       plugins + SKILLGRID_AGENT=kilo (hooks, rules, agents,
+               env pin (copied at install)     skills, mcpServers)
+    │            │                             │
+    ▼            ▼                             ▼
+ ~/.config/    ~/.config/                     ~/.cursor/plugins/…
+ opencode/     kilo/                          + rules/mnemonic.mdc
+ plugin/       plugin/
+ ```
 
-`plugins/opencode/hooks.yaml` — one event → one thin shell script → shared workers in `hooks/`:
+The shell-era `plugins/{opencode,kilo}/hooks.yaml` (one event → one `.sh` → a `hooks/` worker) is **retired** for OpenCode/Kilo (ADR-0032). They now run **5 native TypeScript plugins** from a single source dir `plugins/opencode/`, staged to `~/.config/opencode/plugin/`; Kilo's installer copies each file to `~/.config/kilo/plugin/` and pins `env.SKILLGRID_AGENT=kilo`:
 
-```yaml
-hooks:
-  - id: mnemonic-session-start
-    event: session.created
-    actions:
-      - bash:
-          command: "$HOME/.skillgrid/hooks/opencode-session-start.sh"
-          timeout: 10000
-  - id: mnemonic-policy
-    event: tool.before.*
-    actions:
-      - bash:
-          command: "$HOME/.skillgrid/hooks/opencode-policy.sh"
-          timeout: 3000
-```
+| Plugin | Owns |
+|--------|------|
+| `skillgrid-events.ts` | posts each tool call to `skillgrid serve`; enforces the policy gate (a denied tool throws and blocks); fail-open on errors |
+| `skillgrid-compaction.ts` | on `session.idle` claims a memory checkpoint (same route as the Cursor `stop` hook) and prompts the session when due |
+| `skillgrid-squad.ts` | multi-agent / squad coordination |
+| `mnemonic-memory.ts` | `mem_*` + `fact_*` (add/search/forget) tools over HTTP — the Fact Memory lane (§8.0) |
+| `mnemonic-codeindex.ts` | `code_*` code-intel tools over HTTP |
+
+`.cursor-plugin/plugin.json` — the whole Cursor manifest:
 
 `.cursor-plugin/plugin.json` — the whole Cursor manifest:
 
@@ -574,7 +598,7 @@ hooks:
 
 **Two distinct "skill" registries** — do not confuse them:
 - **SKILL.md skills** (the grid) — loaded by the harness via the plugin's `skills` glob / `~/.agents/` copy. No runtime registry.
-- **Executable-skill registry** (SQLite `skills` + `skills_fts`, `internal/mnemonic/skills/execute.go`) — script skills with a `code_path`, run sandboxed by `skillgrid skill`.
+- **Executable-skill registry** (SQLite `skills` + `skills_fts`, `mnemonic/internal/skills/execute.go`) — script skills with a `code_path`, run sandboxed by `skillgrid skill`.
 
 ---
 
@@ -631,7 +655,7 @@ Three config layers with different owners:
 
 ### 14.1 Mnemonic indexing config — 3-way merge
 
-`config.Load(startDir)` (`internal/mnemonic/config/load.go`) — precedence lowest→highest:
+`config.Load(startDir)` (`mnemonic/internal/config/load.go`) — precedence lowest→highest:
 
 ```
 built-in defaults  <  home-local (~/.skillgrid/config.d/indexing.yaml)  <  first repo-local .skillgrid/config.d/indexing.yaml walking up from startDir
@@ -699,6 +723,8 @@ brainstorming ─▶ [research | prototype | sketch] ─▶ writing-blueprints �
 | ship | folder move | `specs/…` → `archive/…` (integration first) |
 | reflect | `report.md` retro half | terminal; completes GO/NO-GO + lessons |
 
+**Tracker mapping** (canonical in `_shared/rules/ticketing/backlogmd-formatting.md`): a Backlog **milestone is named after the full spec folder** (`YYYY-MM-DD-<topic>` from `specs/` or `archive/`), never a short slug or numeric ID — the `milestone → spec` mapping is 1:1 and recoverable from the tracker alone.
+
 **Machine-readable state**: `briefing.md`/`tasks.md` carry a STATUS banner parsed by the `/plans` HTTP endpoint — `> **STATUS:** \`in-progress\` (2026-10-03)`, values `draft → sliced → in-progress → complete → shipped` (+ `stalled/blocked/revised/superseded`).
 
 **Gates wired in code** (not just prose):
@@ -728,9 +754,9 @@ git-hooks/  (thin shims, installed to ~/.skillgrid/git-hooks/)
 | `pre-commit` → go vet | `go vet` on staged Go packages only |
 | `stop` → `stop-tests.js` | Runs `.skillgrid/config.yaml testing.runner`; blocks the agent's turn-end and hands back failures |
 | `gate-stop` | Runs the acceptance `#### Gates` fresh; blocks turn-end while any G<n> unmet |
-| `tool.before.*` → `opencode-policy.sh` | **Fail-open except here, which exits 2 to block a tool** (ADR-0021 pre-tool policy) |
+| `tool.before.*` → `skillgrid-events.ts` | **Fail-open except here, which throws to block a tool** (ADR-0021 pre-tool policy; the retired `opencode-policy.sh` is gone for OpenCode/Kilo) |
 
-Session/tool observation: `hooks/tool-call-capture.js` (one shared worker for all three agents) fire-and-forget POSTs tool-call summaries to `http://127.0.0.1:7438`, redacting output for `private_tools`; fail-open, always exit 0. Its PostToolUse path now gates on actual output size (Output Sandbox Gate, ADR-0025): above the threshold it POSTs the full `content` for the sandbox instead of only the 500-char preview. Its `checkpoint` mode (the turn-end seam) additionally reads the CLM mirror and POSTs the model's edit for validation when CLM is on (ADR-0027). The OpenCode `context` plugin hook renders the mirror and applies the withhold decision before each model request.
+Session/tool observation: on OpenCode/Kilo the native `skillgrid-events.ts` plugin posts each tool call to `http://127.0.0.1:7438`, redacting output for `private_tools`; fail-open (errors and unreachable servers are swallowed), and it enforces the policy gate by throwing when the server denies a tool. Its PostToolUse path gates on actual output size (Output Sandbox Gate, ADR-0025): above the threshold it POSTs the full `content` for the sandbox instead of only the 500-char preview. On **Cursor** the shell-era `hooks/tool-call-capture.js` worker still does this (`cursor-tool-capture.sh` → `tool-call-capture.js`); its `checkpoint` mode (the turn-end seam) additionally reads the CLM mirror and POSTs the model's edit for validation when CLM is on (ADR-0027). The OpenCode `context` plugin hook renders the mirror and applies the withhold decision before each model request.
 
 ---
 
@@ -741,7 +767,7 @@ The single most important cross-cutting invariant: **an agent must never hard-cr
 - **LLM seams are injectable with a deterministic fallback.** `memory/types.go`: *"A nil seam (or one that errors) leaves dedup to the deterministic hash fallback — the fallback is always available."* `dedup.llm`, `extraction.llm`, `improve` all follow this.
 - **Config loader never hard-fails** — warn + default on absent/malformed keys.
 - **"FTS5 is the floor"** (`knowledge/hybrid-degradation.md`) — the vector/semantic legs degrade; the lexical leg always answers.
-- **Policy hooks fail-open** except `opencode-policy.sh` (exits 2 to block).
+- **Policy hooks fail-open** except the policy gate, which blocks a denied tool — `skillgrid-events.ts` (throw) on OpenCode/Kilo, the Cursor `before*` hooks on Cursor.
 - **Errors** are wrapped with `%w`; the HTTP layer maps resolve/open failures to 400/500 via `withProjectHandle`.
 - **Logging** is deliberately minimal — `internal/logging/logging.go` is 27 lines of stderr `fmt` helpers (no JSON logger).
 
@@ -755,15 +781,15 @@ The single most important cross-cutting invariant: **an agent must never hard-cr
 # Taskfile.yml
 test:
   cmds:
-    - cd skillgrid-cli && go vet ./...
-    - cd skillgrid-cli && go test ./...
+    - cd mnemonic && go vet ./...
+    - cd mnemonic && go test ./...
 seed-test:
   desc: Run the Mnemonic all-stores seed integration tests (memory + code index + web cache).
   cmds:
-    - cd skillgrid-cli && go test -v -run TestSeed ./internal/mnemonic/integration/
+    - cd mnemonic && go test -v -run TestSeed ./internal/integration/
 ```
 
-Scale: **~355 `*_test.go` files, ~1,206 `Test*` functions.** Standard `testing` package + table tests + `httptest`; integration under `internal/mnemonic/integration/` (`TestSeedMemory`, `TestSeedCodeIndex`, `TestSeedWebCache`, `TestSeedAllStoresVisibleOverHTTP`). No test-framework dependency in `go.mod`.
+Scale: **~355 `*_test.go` files, ~1,206 `Test*` functions.** Standard `testing` package + table tests + `httptest`; integration under `mnemonic/internal/integration/` (`TestSeedMemory`, `TestSeedCodeIndex`, `TestSeedWebCache`, `TestSeedAllStoresVisibleOverHTTP`). No test-framework dependency in `go.mod`.
 
 ### UI
 
@@ -814,13 +840,17 @@ Scale: **~355 `*_test.go` files, ~1,206 `Test*` functions.** Standard `testing` 
 | Write gating | `requireWriteAuth` on every mutating route; `SKILLGRID_HTTP_TOKEN` |
 | Tool-output redaction | `private_tools` config allowlist; redacted before the capture POST |
 | Memory privacy | `<private>…</private>` tags stripped at save time |
-| Tool blocking | `opencode-policy.sh` exit 2 (the one non-fail-open hook) |
+| Tool blocking | policy gate — `skillgrid-events.ts` throw (OpenCode/Kilo) / Cursor `before*` hooks (the one non-fail-open seam) |
 | Data isolation | one `<projectID>.sqlite` per project; no cross-project reads |
 
 ---
 
-## Appendix — Known Gaps (verified 2026-10-05)
+## Appendix — Known Gaps (verified 2026-10-09)
 
 - Root `AGENTS.md` preamble was rewritten by `skillgrid init` in the `2026-10-02-mnemonic-project-init` change; its *pre* text ("poetry/pnpm/Flask") was a stale leftover — the live instructions come from the generated `## Skillgrid` block convention.
-- `scripts/sdd-gate.sh` is currently an empty file (0 lines) — the gate logic lives in `hooks/gate-state.js`.
 - The live semantic leg is the in-memory vector cache; the in-SQL `vec0` path (`042_vec0_tables.sql`) is built but deferred — the BLOB tables are the source of truth.
+
+## Change log
+
+- **2026-10-09** — `feat(ctx): add ctx_query and two-leg RRF ctx_search fusion` (276e8c61): migration 054 (`indexed_files` + `indexed_files_fts` external-content FTS5) becomes the second fusion leg of the Context Harness; `ctx_query.go` implements the two-leg RRF (K=60 local constant) with per-leg fail-open, cross-leg score accumulation on a normalized tool/file key, and sandbox-preferred metadata; `CtxSearch` is the stable wrapper. CLI `ctx search` / `ctx prime` / `ctx stats` surface. Shipped with `2026-10-07-replace-opencode-hooks-with-plugins` fixes (`eebf185a`): plugin verb contract — `fact_search` POSTs `/facts/search`, `mem_session_summary` GETs `/sessions/{id}/summary`, guard in `http/plugin_route_contract_test.go`; kilo setup pins `env.SKILLGRID_AGENT=kilo`. Milestone titles now match spec folder names 1:1 (`3285abe6`). Spec folder archived (`7efe3fa0`).
+- **2026-10-05** — baseline for this revision (v2.0).
