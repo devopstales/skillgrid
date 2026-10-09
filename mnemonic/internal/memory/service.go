@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/devopstales/skillgrid/mnemonic/internal/config"
 	"github.com/devopstales/skillgrid/mnemonic/internal/project"
 	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
@@ -148,6 +149,11 @@ type Service struct {
 	// restoreMu guards the restoreRowFn seam (read by the restore loop, written
 	// by tests before a restore).
 	restoreMu sync.Mutex
+	// clm is the Context Harness (CLM, ADR-0027) config. The zero value is
+	// disabled (Enabled false), so a Service built directly in unit tests
+	// keeps CLM off. The service layer sets it from the config.CLM block in
+	// openProject via SetCLM.
+	clm config.CLM
 	// rowLockHold is a test-only seam called by UpdateRow WITH the write lock
 	// held (after BEGIN IMMEDIATE returns, before the UPDATE). The concurrency
 	// test uses it to make writer A hold the lock until writer B is already

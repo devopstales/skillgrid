@@ -516,6 +516,11 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
 		Enabled: cfg.Hooks.Enabled,
 		Timeout: cfg.Hooks.Timeout,
 	})
+	// Context Harness (CLM, ADR-0027): route the clm config block to the memory
+	// service so the Go-owns-state seam (CLMConfig) and the revision-persist
+	// handler see the operator's budget/reserve/guard. Off by default (Enabled
+	// false), so a config without the section keeps the request path unchanged.
+	mem.SetCLM(cfg.CLM)
 	h := &ProjectHandle{
 		store:          st,
 		projectID:      projectID,

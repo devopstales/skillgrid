@@ -110,6 +110,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /sessions/{id}/title", s.requireWriteAuth(s.handleSessionSetTitle))
 	s.mux.HandleFunc("POST /sessions/{id}/tool-calls", s.requireWriteAuth(s.handleToolCallCreate))
 	s.mux.HandleFunc("POST /sessions/{id}/checkpoint/claim", s.requireWriteAuth(s.handleCheckpointClaim))
+	s.mux.HandleFunc("POST /sessions/{id}/clm/revision", s.requireWriteAuth(s.handleCLMRevision))
 	s.mux.HandleFunc("POST /sessions/{id}/usage", s.requireWriteAuth(s.handleSessionUsage))
 	s.mux.HandleFunc("POST /policy/evaluate", s.requireWriteAuth(s.handlePolicyEvaluate))
 	s.mux.HandleFunc("GET /policy", s.handlePolicyGet)
