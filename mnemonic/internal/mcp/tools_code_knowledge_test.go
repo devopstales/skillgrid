@@ -125,8 +125,10 @@ func TestKnowledgeTools(t *testing.T) {
 	// tools removed by the session events layer consolidation; all keep
 	// their names + required params).
 	// + 6 scan_* / 6 dep_* MCP tools (2026-10-05-mnemonic-scan-findings, TICKET-07).
-	if len(tools) != 108 {
-		t.Errorf("expected 108 tools, got %d", len(tools))
+	// + 4 structured knowledge-doc retrieval tools (report/briefing/blueprint/
+	// findings_search; 2026-10-09-adr-knowledge-index).
+	if len(tools) != 113 {
+		t.Errorf("expected 113 tools, got %d", len(tools))
 	}
 
 	// code_docs returns the indexed docs (a query, not an error).

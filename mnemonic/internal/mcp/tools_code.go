@@ -28,6 +28,10 @@ func registerCodeTools(s *server.MCPServer) {
 		{codeSearchTool(), handleCodeSearch},
 		{codeReadTool(), handleCodeRead},
 		{adrSearchTool(), handleAdrSearch},
+		{reportSearchTool(), handleReportSearch},
+		{briefingSearchTool(), handleBriefingSearch},
+		{blueprintSearchTool(), handleBlueprintSearch},
+		{findingsSearchTool(), handleFindingsSearch},
 		{codeDiffImpactTool(), handleCodeDiffImpact},
 	}
 	for _, entry := range tools {
@@ -109,6 +113,104 @@ func handleAdrSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		if hit.SupersededBy != "" {
 			out[i]["superseded_by"] = hit.SupersededBy
 		}
+	}
+
+	res, err := JSONResult(map[string]any{"hits": out})
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, len(hits))
+	for i, hit := range hits {
+		paths[i] = hit.Path
+	}
+	return applyFreshness(res, paths), nil
+}
+
+func reportSearchTool() mcplib.Tool {
+	return mcplib.NewTool("report_search",
+		mcplib.WithDescription("Search QA/ship report files (.skillgrid/**/report.md) by full-text and return structured metadata: gate (PASS/FAIL/CONCERNS/WAIVED), generated timestamp, and the change path it covers. Use to find how a past change was gated. Use code_read on the returned path to fetch the full body."),
+		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search terms matched against the report body (FTS5)")),
+		mcplib.WithNumber("limit", mcplib.Description("Maximum report hits (default 10)")),
+		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),
+	)
+}
+
+func briefingSearchTool() mcplib.Tool {
+	return mcplib.NewTool("briefing_search",
+		mcplib.WithDescription("Search design briefing files (.skillgrid/**/briefing.md) by full-text and return structured metadata: status (e.g. draft/approved). Briefings are the 'what' — requirements and intent — for a change. Use to find the intent behind a past or current change. Use code_read on the returned path to fetch the full body."),
+		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search terms matched against the briefing body (FTS5)")),
+		mcplib.WithNumber("limit", mcplib.Description("Maximum briefing hits (default 10)")),
+		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),
+	)
+}
+
+func blueprintSearchTool() mcplib.Tool {
+	return mcplib.NewTool("blueprint_search",
+		mcplib.WithDescription("Search implementation blueprint files (.skillgrid/**/blueprint.md) by full-text and return structured metadata: status (e.g. PROPOSED/APPROVED) and tier (e.g. T2). Blueprints are the 'how' — steps, files, verification. Use to find the implementation plan for a change. Use code_read on the returned path to fetch the full body."),
+		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search terms matched against the blueprint body (FTS5)")),
+		mcplib.WithNumber("limit", mcplib.Description("Maximum blueprint hits (default 10)")),
+		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),
+	)
+}
+
+func findingsSearchTool() mcplib.Tool {
+	return mcplib.NewTool("findings_search",
+		mcplib.WithDescription("Search research findings files (.skillgrid/**/findings.md) by full-text and return structured metadata: status (e.g. complete), mode (e.g. research), date, and type. Use to find prior research on a topic before re-investigating. Use code_read on the returned path to fetch the full body."),
+		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search terms matched against the findings body (FTS5)")),
+		mcplib.WithNumber("limit", mcplib.Description("Maximum findings hits (default 10)")),
+		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),
+	)
+}
+
+func handleReportSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	return handleKnowledgeSearch(req, search.ReportSearch)
+}
+
+func handleBriefingSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	return handleKnowledgeSearch(req, search.BriefingSearch)
+}
+
+func handleBlueprintSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	return handleKnowledgeSearch(req, search.BlueprintSearch)
+}
+
+func handleFindingsSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	return handleKnowledgeSearch(req, search.FindingsSearch)
+}
+
+// handleKnowledgeSearch is the shared handler for the four structured
+// knowledge-doc searches. searchFn runs the type-specific FTS + metadata
+// extraction over the store.
+func handleKnowledgeSearch(req mcplib.CallToolRequest, searchFn func(db *sql.DB, query string, limit int) ([]search.KnowledgeHit, error)) (*mcplib.CallToolResult, error) {
+	_, h, cleanup, err := openNamed(req.GetString("project", ""))
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+
+	query, err := req.RequireString("query")
+	if err != nil {
+		return toolError(err)
+	}
+
+	limit := int(req.GetFloat("limit", 10))
+	hits, err := searchFn(h.Store().DB, query, limit)
+	if err != nil {
+		return toolError(err)
+	}
+
+	out := make([]map[string]any, len(hits))
+	for i, hit := range hits {
+		m := map[string]any{
+			"path":    hit.Path,
+			"title":   hit.Title,
+			"snippet": hit.Snippet,
+			"score":   hit.Score,
+		}
+		for k, v := range hit.Meta {
+			m[k] = v
+		}
+		out[i] = m
 	}
 
 	res, err := JSONResult(map[string]any{"hits": out})

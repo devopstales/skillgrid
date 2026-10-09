@@ -30,6 +30,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"code_status", "code_index", "code_search", "code_read",
 		// ADR knowledge retrieval (2026-10-09-adr-knowledge-index, Part 2).
 		"adr_search",
+		// Structured knowledge-doc retrieval (2026-10-09-adr-knowledge-index).
+		"report_search", "briefing_search", "blueprint_search", "findings_search",
 		"code_orient", "code_signature", "code_file_toc", "code_rationale",
 		"code_grep",
 		// Step 03 graph + composite tools.
