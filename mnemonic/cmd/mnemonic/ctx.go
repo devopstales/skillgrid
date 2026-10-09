@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/context_harness"
 )
@@ -35,6 +37,8 @@ func runCtx(args []string) {
 		runCtxStats(rest)
 	case "purge":
 		runCtxPurge(rest)
+	case "index":
+		runCtxIndex(rest)
 	case "help", "-h", "--help":
 		ctxUsage()
 	default:
@@ -53,6 +57,7 @@ func ctxUsage() {
 	fmt.Fprintln(w, "  prime            Session-start context (reuses the loop prime renderer; --dir, --session)")
 	fmt.Fprintln(w, "  stats            Row counts for the sandbox (tool_outputs) and index (indexed_files)")
 	fmt.Fprintln(w, "  purge            Clear the session sandbox (tool_outputs, and context_revisions when present); prints rows removed (-project, -session)")
+	fmt.Fprintln(w, "  index <path>     Index a file (or a directory of files) into the context-harness FTS index; re-indexing is idempotent (-project)")
 }
 
 // ctxSearchFlags parses search flags: -limit caps the fused results.
@@ -196,4 +201,81 @@ func runCtxPurge(args []string) {
 // it directly without shelling out.
 func ctxPurge(db *sql.DB, project, session string) (int, error) {
 	return context_harness.PurgeSession(db, project, session)
+}
+
+// runCtxIndex indexes a single file or a directory of files into the
+// context-harness FTS index. When a directory is given it walks the tree and
+// indexes every regular file. Re-indexing the same file is idempotent
+// (INSERT ... ON CONFLICT DO UPDATE on the (project, name, start_line) unique
+// index). The 7-day TTL purge (DefaultIndexedTTL) runs before indexing so
+// expired chunks are removed before new ones are written.
+func runCtxIndex(args []string) {
+	fs := flag.NewFlagSet("ctx index", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	project := fs.String("project", "", "project id (default: resolved from -dir)")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	pos := fs.Args()
+	if len(pos) == 0 {
+		fmt.Fprintln(os.Stderr, "error: ctx index requires a file or directory path")
+		ctxUsage()
+		os.Exit(2)
+	}
+
+	h, cleanup, err := openLoop(".")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+
+	pid := *project
+	if pid == "" {
+		pid = h.ProjectID()
+	}
+
+	// Purge expired indexed rows before writing new ones.
+	deleted, err := context_harness.PurgeExpiredIndexed(h.Store().DB, pid, time.Now(), context_harness.DefaultIndexedTTL)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error purging expired index:", err)
+		os.Exit(1)
+	}
+	if deleted > 0 {
+		fmt.Fprintf(os.Stderr, "purged %d expired indexed row(s)\n", deleted)
+	}
+
+	// Collect files: a single path is used directly; a directory is walked.
+	var files []string
+	info, err := os.Stat(pos[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	if info.IsDir() {
+		root := pos[0]
+		filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
+			if err != nil {
+				return nil // skip unreadable entries
+			}
+			if fi.IsDir() {
+				return nil
+			}
+			files = append(files, path)
+			return nil
+		})
+	} else {
+		files = []string{pos[0]}
+	}
+
+	totalChunks := 0
+	for _, f := range files {
+		n, err := context_harness.IndexFile(h.Store().DB, pid, f)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error indexing %s: %v\n", f, err)
+			os.Exit(1)
+		}
+		totalChunks += n
+	}
+	fmt.Fprintf(os.Stdout, "indexed %d file(s), %d chunk(s)\n", len(files), totalChunks)
 }

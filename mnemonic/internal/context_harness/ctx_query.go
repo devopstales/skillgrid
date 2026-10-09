@@ -24,13 +24,25 @@ const (
 // Snippet is the first 200 chars of the matched text; Score is the fused
 // reciprocal-rank value; Rank is the 1-based position in the final fused
 // (descending score) order.
+//
+// Provenance (additive metadata, does not affect the RRF math): Path is the
+// sandbox tool name for a sandbox hit or the indexed file name for an indexed
+// hit; StartLine/EndLine are the 1-based line range of the matched indexed
+// chunk (0 when the hit is sandbox-only or the row predates line provenance);
+// Legs lists every leg that matched this candidate (e.g. ["sandbox","indexed"]
+// for a cross-leg hit, or the single leg). Legs is the authoritative per-leg
+// record; Source remains the reported-from leg for backward compatibility.
 type CtxResult struct {
-	Source     string
-	ToolOrKind string
-	Name       string
-	Snippet    string
-	Score      float64
-	Rank       int
+	Source     string   `json:"source"`
+	ToolOrKind string   `json:"tool_or_kind"`
+	Name       string   `json:"name"`
+	Snippet    string   `json:"snippet"`
+	Score      float64  `json:"score"`
+	Rank       int      `json:"rank"`
+	Path       string   `json:"path,omitempty"`
+	StartLine  int      `json:"start_line,omitempty"`
+	EndLine    int      `json:"end_line,omitempty"`
+	Legs       []string `json:"legs"`
 }
 
 // CtxSearch is the thin wrapper the CLI and MCP surface call. It delegates to
@@ -69,6 +81,13 @@ func CtxQuery(db *sql.DB, query string, limit int) ([]CtxResult, error) {
 		name       string
 		snippet    string
 		source     string
+		// per-leg provenance; at most one hit per leg per candidate key.
+		sandboxPath   string
+		sandboxHit    bool
+		indexedPath   string
+		indexedStart  int
+		indexedEnd    int
+		indexedHit    bool
 	}
 	m := make(map[string]*fused)
 	get := func(k string) *fused {
@@ -92,11 +111,18 @@ func CtxQuery(db *sql.DB, query string, limit int) ([]CtxResult, error) {
 		f.name = h.name
 		f.snippet = h.snippet
 		f.source = sourceSandbox
+		f.sandboxPath = h.path
+		f.sandboxHit = true
 	}
 	for _, h := range indexedHits {
 		k := candidateKey(h.name)
 		f := get(k)
 		f.score += 1.0 / (RRFK + float64(h.rank))
+		// Record per-leg provenance unconditionally.
+		f.indexedPath = h.path
+		f.indexedStart = h.startLine
+		f.indexedEnd = h.endLine
+		f.indexedHit = true
 		// Only fill metadata when sandbox did NOT claim this key (indexed-only
 		// candidate). A sandbox-claimed key keeps its sandbox metadata even if
 		// indexed also matched (cross-leg hit reports as sandbox).
@@ -124,6 +150,27 @@ func CtxQuery(db *sql.DB, query string, limit int) ([]CtxResult, error) {
 	results := make([]CtxResult, 0, len(keys))
 	for i, k := range keys {
 		f := m[k]
+		legs := make([]string, 0, 2)
+		if f.sandboxHit {
+			legs = append(legs, sourceSandbox)
+		}
+		if f.indexedHit {
+			legs = append(legs, sourceIndexed)
+		}
+		// Path/line-range: prefer the sandbox leg for cross-leg hits (matches
+		// the Source preference); indexed leg provides the line range.
+		var path string
+		var startLine, endLine int
+		if f.sandboxHit {
+			path = f.sandboxPath
+		}
+		if f.indexedHit {
+			if path == "" {
+				path = f.indexedPath
+			}
+			startLine = f.indexedStart
+			endLine = f.indexedEnd
+		}
 		results = append(results, CtxResult{
 			Source:     f.source,
 			ToolOrKind: f.toolOrKind,
@@ -131,6 +178,10 @@ func CtxQuery(db *sql.DB, query string, limit int) ([]CtxResult, error) {
 			Snippet:    f.snippet,
 			Score:      f.score,
 			Rank:       i + 1,
+			Path:       path,
+			StartLine:  startLine,
+			EndLine:    endLine,
+			Legs:       legs,
 		})
 	}
 	return results, nil
@@ -138,12 +189,18 @@ func CtxQuery(db *sql.DB, query string, limit int) ([]CtxResult, error) {
 
 // legHit is one ranked hit from a single leg. name is the candidate identity
 // shared across legs (sandbox tool name / indexed file name); rank is the
-// 1-based FTS rank within that leg.
+// 1-based FTS rank within that leg. path/startLine/endLine carry per-leg
+// provenance: for the sandbox leg path is the tool name and the line range is
+// 0; for the indexed leg path is the file name and the line range comes from
+// the indexed_files row.
 type legHit struct {
 	name       string
 	rank       int
 	toolOrKind string
 	snippet    string
+	path       string
+	startLine  int
+	endLine    int
 }
 
 // legSandbox queries tool_outputs_fts. Fail-open: any error (absent table,
@@ -171,7 +228,8 @@ LIMIT 200`
 			return out
 		}
 		rank++
-		out = append(out, legHit{name: tool, rank: rank, toolOrKind: tool, snippet: snippet(output)})
+		// Sandbox provenance: path is the tool name; no line range.
+		out = append(out, legHit{name: tool, rank: rank, toolOrKind: tool, snippet: snippet(output), path: tool})
 	}
 	return out
 }
@@ -180,7 +238,7 @@ LIMIT 200`
 // slice.
 func legIndexed(db *sql.DB, matches string) []legHit {
 	const q = `
-SELECT f.rowid, i.name, i.kind, i.content
+SELECT f.rowid, i.name, i.kind, i.content, i.start_line, i.end_line
 FROM indexed_files_fts f
 JOIN indexed_files i ON i.id = f.rowid
 WHERE indexed_files_fts MATCH ?
@@ -197,11 +255,20 @@ LIMIT 200`
 	for rows.Next() {
 		var id int64
 		var name, kind, content string
-		if err := rows.Scan(&id, &name, &kind, &content); err != nil {
+		var startLine, endLine int
+		if err := rows.Scan(&id, &name, &kind, &content, &startLine, &endLine); err != nil {
 			return out
 		}
 		rank++
-		out = append(out, legHit{name: name, rank: rank, toolOrKind: kind, snippet: snippet(content)})
+		out = append(out, legHit{
+			name:      name,
+			rank:      rank,
+			toolOrKind: kind,
+			snippet:   snippet(content),
+			path:      name,
+			startLine: startLine,
+			endLine:   endLine,
+		})
 	}
 	return out
 }

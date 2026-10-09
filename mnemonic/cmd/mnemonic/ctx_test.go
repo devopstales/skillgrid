@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -170,7 +171,7 @@ func TestRunCtxSearch_Limit(t *testing.T) {
 // path is exercised by the binary, not the test process).
 func TestRunCtxUsage_MentionsSubcommands(t *testing.T) {
 	out := runCtxCapture(t, func() { ctxUsage() })
-	for _, want := range []string{"search", "prime", "stats", "purge"} {
+	for _, want := range []string{"search", "prime", "stats", "purge", "index"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("usage missing %q, got:\n%s", want, out)
 		}
@@ -216,5 +217,68 @@ func TestCtxPurgeNilDB(t *testing.T) {
 	var db *sql.DB
 	if _, err := ctxPurge(db, "ctxproj", "s1"); err == nil {
 		t.Fatalf("expected error for nil db")
+	}
+}
+
+// TestRunCtxIndex indexes a single file via the ctx index subcommand and
+// asserts the row count matches the chunk count. It also verifies that
+// re-indexing the same file is idempotent (row count does not grow).
+func TestRunCtxIndex(t *testing.T) {
+	ctxSeed(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "ctxindex.go")
+	content := "package ctxindex\n\nfunc CtxIndexToken() string { return \"ctxindex-token\" }\n"
+	if err := os.WriteFile(src, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// First index: should write >=1 chunk.
+	out := runCtxCapture(t, func() { runCtx([]string{"index", src}) })
+	if !strings.Contains(out, "indexed 1 file(s)") {
+		t.Fatalf("index output missing file count, got:\n%s", out)
+	}
+	if !strings.Contains(out, "chunk(s)") {
+		t.Fatalf("index output missing chunk count, got:\n%s", out)
+	}
+
+	// Verify the row was written.
+	oldSvc := cliService
+	_ = oldSvc
+	// Use a fresh service for the assertion (the runCtx call above used
+	// the same data dir via ctxSeed).
+	dataDir := os.Getenv("SKILLGRID_MNEMONIC_DATA_DIR")
+	_ = dataDir
+	svc, err := newMnemonicService(os.Getenv("SKILLGRID_MNEMONIC_DATA_DIR"))
+	if err != nil {
+		t.Fatalf("service: %v", err)
+	}
+	h, cleanup, err := svc.OpenForDirectory(".")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer cleanup()
+	var n int
+	if err := h.Store().DB.QueryRow(
+		`SELECT count(*) FROM indexed_files WHERE name = 'ctxindex.go'`,
+	).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n == 0 {
+		t.Fatalf("expected >=1 indexed_files row for ctxindex.go, got 0")
+	}
+	firstCount := n
+
+	// Re-index: idempotent, row count must not grow.
+	out = runCtxCapture(t, func() { runCtx([]string{"index", src}) })
+	if !strings.Contains(out, "indexed 1 file(s)") {
+		t.Fatalf("re-index output missing file count, got:\n%s", out)
+	}
+	if err := h.Store().DB.QueryRow(
+		`SELECT count(*) FROM indexed_files WHERE name = 'ctxindex.go'`,
+	).Scan(&n); err != nil {
+		t.Fatalf("re-count: %v", err)
+	}
+	if n != firstCount {
+		t.Fatalf("re-index grew row count to %d, want %d (idempotent upsert)", n, firstCount)
 	}
 }
