@@ -62,7 +62,7 @@ func ctxUsage() {
 
 // ctxSearchFlags parses search flags: -limit caps the fused results.
 type ctxSearchFlags struct {
-	limit  int
+	limit int
 }
 
 func parseCtxSearchFlags(args []string, pos *[]string) ctxSearchFlags {

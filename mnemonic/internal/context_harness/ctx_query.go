@@ -82,12 +82,12 @@ func CtxQuery(db *sql.DB, query string, limit int) ([]CtxResult, error) {
 		snippet    string
 		source     string
 		// per-leg provenance; at most one hit per leg per candidate key.
-		sandboxPath   string
-		sandboxHit    bool
-		indexedPath   string
-		indexedStart  int
-		indexedEnd    int
-		indexedHit    bool
+		sandboxPath  string
+		sandboxHit   bool
+		indexedPath  string
+		indexedStart int
+		indexedEnd   int
+		indexedHit   bool
 	}
 	m := make(map[string]*fused)
 	get := func(k string) *fused {
@@ -261,13 +261,13 @@ LIMIT 200`
 		}
 		rank++
 		out = append(out, legHit{
-			name:      name,
-			rank:      rank,
+			name:       name,
+			rank:       rank,
 			toolOrKind: kind,
-			snippet:   snippet(content),
-			path:      name,
-			startLine: startLine,
-			endLine:   endLine,
+			snippet:    snippet(content),
+			path:       name,
+			startLine:  startLine,
+			endLine:    endLine,
 		})
 	}
 	return out
