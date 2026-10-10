@@ -818,28 +818,53 @@ func (s *Service) applyUpdateToCandidate(ctx context.Context, candidateID int64,
 	if appErr := s.AppendVersion(ctx, candidateID, 1); appErr == nil {
 		// recorded
 	}
-	_, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations SET
-			source = ?,
+	// FTS columns may change (title/content/type): capture the old values
+	// for the delete half of the FTS replace below.
+	var oldTitle, oldContent, oldType, project string
+	if err := s.store.DB.QueryRowContext(ctx, `
+		SELECT title, content, type, project FROM observations_core WHERE id = ?`,
+		candidateID,
+	).Scan(&oldTitle, &oldContent, &oldType, &project); err != nil {
+		return fmt.Errorf("candidate upsert: load row: %w", err)
+	}
+	// TICKET-03: direct split-table writes (view UPDATEs report
+	// RowsAffected 0 and would misfire not-found checks downstream).
+	if _, err := s.store.DB.ExecContext(ctx, `
+		UPDATE observation_provenance SET source = ? WHERE observation_id = ?`,
+		source, candidateID,
+	); err != nil {
+		return fmt.Errorf("candidate upsert: %w", err)
+	}
+	if _, err := s.store.DB.ExecContext(ctx, `
+		UPDATE observations_core SET
 			session_id = ?, type = ?, title = ?, content = ?,
 			normalized_hash = ?, revision_count = revision_count + 1,
-			last_seen_at = ?,
 			updated_at = ?
 		WHERE id = ?`,
-		source, in.SessionID, in.Type, in.Title, in.Content, hash, now, now, candidateID,
-	)
-	if err != nil {
+		in.SessionID, in.Type, in.Title, in.Content, hash, now, candidateID,
+	); err != nil {
+		return fmt.Errorf("candidate upsert: %w", err)
+	}
+	if _, err := s.store.DB.ExecContext(ctx, `
+		UPDATE observation_stats SET last_seen_at = ? WHERE observation_id = ?`,
+		now, candidateID,
+	); err != nil {
+		return fmt.Errorf("candidate upsert: %w", err)
+	}
+	if err := ftsReplaceObs(ctx, s.store.DB, candidateID,
+		oldTitle, oldContent, oldType, in.Title, in.Content, in.Type, project); err != nil {
 		return fmt.Errorf("candidate upsert: %w", err)
 	}
 	return nil
 }
 
-// insertObservation writes a brand-new observation row and returns its id. It is
-// the extracted INSERT half of Save (TICKET-04): the FTS index is kept in sync by
-// the observations_fts trigger, so only the INSERT (plus the post-insert best-
-// effort stamping of importance and graph_ref) lives here. valid_at is stamped to
-// now (ADR-0011: a new row is valid from creation); invalid_at and superseded_by
-// start NULL.
+// insertObservation writes a brand-new observation row and returns its id.
+// TICKET-03: direct split-table write in ONE tx (core + all five side
+// rows + FTS), never through the compat view — view-mediated inserts leave
+// LastInsertId stale (engine limit), so every Save caller got id 1. The
+// core INSERT runs first and its real LastInsertId keys the side rows.
+// valid_at is stamped to now (ADR-0011: a new row is valid from creation);
+// invalid_at and superseded_by start NULL.
 func (s *Service) insertObservation(ctx context.Context, in SaveInput, source, owner, hash, now, memoryType string) (int64, error) {
 	var promptID sql.NullInt64
 	if in.CapturePrompt {
@@ -867,24 +892,15 @@ func (s *Service) insertObservation(ctx context.Context, in SaveInput, source, o
 		}
 		provenanceJSON = sql.NullString{String: string(b), Valid: true}
 	}
-	res, err := s.store.DB.ExecContext(ctx, `
-		INSERT INTO observations (
-			session_id, type, title, content, project, scope, topic_key,
-			normalized_hash, revision_count, created_at, updated_at, source, prompt_id, tool_name,
-			owner, visibility, status, retrieval_usage, expires_at,
-			importance_score, recency_decay, maturity_tier, provenance, memory_type,
-			valid_at, invalid_at, superseded_by
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?, 0, 1, 'fresh', ?, ?, ?, NULL, NULL)`,
-		in.SessionID, in.Type, in.Title, in.Content, s.projectID, in.Scope, nullString(in.TopicKey),
-		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt), provenanceJSON, nullString(memoryType),
-		now, nullString(""),
-	)
+	id, err := txInsertSplitObservation(ctx, s.store.DB, splitInsertArgs{
+		SessionID: in.SessionID, Type: in.Type, Title: in.Title, Content: in.Content,
+		Project: s.projectID, Scope: in.Scope, TopicKey: nullString(in.TopicKey),
+		Hash: hash, Now: now, Source: source, PromptID: nullableInt(promptID),
+		ToolName: nullString(in.ToolName), Owner: owner, ExpiresAt: nullString(expiresAt),
+		Provenance: provenanceJSON, MemoryType: nullString(memoryType),
+	})
 	if err != nil {
-		return 0, fmt.Errorf("insert observation: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("last insert id: %w", err)
+		return 0, err
 	}
 	// AKL importance (014 step 13): stamp the importance_score /
 	// recency_decay / maturity_tier columns on save (a 0-usage, age-0 row
@@ -896,7 +912,7 @@ func (s *Service) insertObservation(ctx context.Context, in SaveInput, source, o
 	// and must never fail the save.
 	if ref := s.graphRefForSource(ctx, source); ref.Valid {
 		if _, err := s.store.DB.ExecContext(ctx, `
-			UPDATE observations SET graph_ref = ? WHERE id = ?`, ref.Int64, id); err != nil {
+			UPDATE observation_provenance SET graph_ref = ? WHERE observation_id = ?`, ref.Int64, id); err != nil {
 			return 0, fmt.Errorf("set graph_ref: %w", err)
 		}
 	}
@@ -987,18 +1003,13 @@ func (s *Service) SearchWithScope(ctx context.Context, query, matchMode, scope s
 	}
 	args = append(args, limit)
 	rows, err := s.store.DB.QueryContext(ctx, `
-		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
-		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
-		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
-		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
-		       o.valid_at, o.invalid_at, o.superseded_by
-		FROM observations o
+		SELECT `+obsSplitSelectCols+`
+		FROM `+obsSplitFrom+`
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
-  		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
-  		  AND (o.invalid_at IS NULL OR o.invalid_at = '' OR strftime('%s', o.invalid_at) > strftime('%s', 'now'))
-  		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
+   		  AND (st.expires_at IS NULL OR st.expires_at = '' OR strftime('%s', st.expires_at) > strftime('%s', 'now'))
+   		  AND (tm.invalid_at IS NULL OR tm.invalid_at = '' OR strftime('%s', tm.invalid_at) > strftime('%s', 'now'))
+   		ORDER BY COALESCE(st.pinned, 0) DESC, bm25(observations_fts)
 		LIMIT ?`,
 		args...,
 	)
@@ -1049,11 +1060,11 @@ func (s *Service) Recent(ctx context.Context, limit int) ([]Observation, error) 
 		limit = defaultSearchLimit
 	}
 	rows, err := s.store.DB.QueryContext(ctx, `
-		SELECT `+obsSelectCols+`
-		FROM observations
-		WHERE deleted_at IS NULL AND project = ?
-		AND (invalid_at IS NULL OR invalid_at = '' OR strftime('%s', invalid_at) > strftime('%s', 'now'))
-		ORDER BY created_at DESC, id DESC
+		SELECT `+obsSplitSelectCols+`
+		FROM `+obsSplitFrom+`
+		WHERE o.deleted_at IS NULL AND o.project = ?
+		AND (tm.invalid_at IS NULL OR tm.invalid_at = '' OR strftime('%s', tm.invalid_at) > strftime('%s', 'now'))
+		ORDER BY o.created_at DESC, o.id DESC
 		LIMIT ?`,
 		s.projectID, limit,
 	)
@@ -1075,11 +1086,11 @@ func (s *Service) RecentObservations(ctx context.Context, limit int) ([]Observat
 		limit = defaultSearchLimit
 	}
 	rows, err := s.store.DB.QueryContext(ctx, `
-		SELECT `+obsSelectCols+`
-		FROM observations
-		WHERE deleted_at IS NULL AND project = ?
-		AND (invalid_at IS NULL OR invalid_at = '' OR strftime('%s', invalid_at) > strftime('%s', 'now'))
-		ORDER BY created_at DESC, id DESC
+		SELECT `+obsSplitSelectCols+`
+		FROM `+obsSplitFrom+`
+		WHERE o.deleted_at IS NULL AND o.project = ?
+		AND (tm.invalid_at IS NULL OR tm.invalid_at = '' OR strftime('%s', tm.invalid_at) > strftime('%s', 'now'))
+		ORDER BY o.created_at DESC, o.id DESC
 		LIMIT ?`,
 		s.projectID, limit,
 	)
@@ -1111,11 +1122,11 @@ func (s *Service) RecentWithType(ctx context.Context, memoryType string, limit i
 		limit = defaultSearchLimit
 	}
 	rows, err := s.store.DB.QueryContext(ctx, `
-		SELECT `+obsSelectCols+`
-		FROM observations
-		WHERE deleted_at IS NULL AND project = ? AND memory_type = ?
-		AND (invalid_at IS NULL OR invalid_at = '' OR strftime('%s', invalid_at) > strftime('%s', 'now'))
-		ORDER BY created_at DESC, id DESC
+		SELECT `+obsSplitSelectCols+`
+		FROM `+obsSplitFrom+`
+		WHERE o.deleted_at IS NULL AND o.project = ? AND pr.memory_type = ?
+		AND (tm.invalid_at IS NULL OR tm.invalid_at = '' OR strftime('%s', tm.invalid_at) > strftime('%s', 'now'))
+		ORDER BY o.created_at DESC, o.id DESC
 		LIMIT ?`,
 		s.projectID, memoryType, limit,
 	)
@@ -1132,9 +1143,9 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 		return Observation{}, errors.New("memory service not initialized")
 	}
 	row := s.store.DB.QueryRowContext(ctx, `
-		SELECT `+obsSelectCols+`
-		FROM observations
-		WHERE id = ? AND deleted_at IS NULL AND project = ?`,
+		SELECT `+obsSplitSelectCols+`
+		FROM `+obsSplitFrom+`
+		WHERE o.id = ? AND o.deleted_at IS NULL AND o.project = ?`,
 		id, s.projectID,
 	)
 	var obs Observation

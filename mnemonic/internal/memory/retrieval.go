@@ -471,7 +471,9 @@ func (s *Service) hasDirectoryChildren(ctx context.Context, dir string) bool {
 func (s *Service) obsEmbedding(ctx context.Context, id int64) (Vector, error) {
 	var blob []byte
 	err := s.store.DB.QueryRowContext(ctx, `
-		SELECT embedding FROM observations WHERE id = ? AND project = ?`,
+		SELECT vc.embedding FROM observation_vectors vc
+		JOIN observations_core c ON c.id = vc.observation_id
+		WHERE vc.observation_id = ? AND c.project = ?`,
 		id, s.projectID,
 	).Scan(&blob)
 	if errors.Is(err, sql.ErrNoRows) {

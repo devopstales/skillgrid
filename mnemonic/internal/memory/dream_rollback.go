@@ -187,45 +187,45 @@ func (de *DreamExecutor) txExec(ctx context.Context, tx *sql.Tx, query string, a
 // execSnapshot writes one observation back to its captured pre-distill column
 // values, upserting by id (the row may have been soft-deleted or rewritten by
 // the failed dream; restoring must bring it back regardless).
+//
+// The compat VIEW rejects INSERT ... ON CONFLICT ("cannot UPSERT a view"), so
+// the restore writes the split tables directly: one INSERT OR REPLACE per
+// table. The six per-table statements are issued through the rollback exec
+// seam; the executor runs them on the rollback transaction, so the whole
+// restore (and the sweep) still commits atomically. The atomicity test's
+// failing executor keys off exec CALLS, so each row's restore is one unit.
 func execSnapshot(ctx context.Context, tx *sql.Tx, s *ObservationSnapshot, exec distillRollbackExec) error {
-	return exec(ctx, tx, `
-		INSERT INTO observations (
+	if err := exec(ctx, tx, `
+		INSERT OR REPLACE INTO observations_core (
 			id, session_id, type, title, content, project, scope, topic_key,
-			normalized_hash, revision_count, owner, visibility, status,
-			retrieval_usage, prompt_id, created_at, updated_at, pinned,
-			duplicate_count, last_seen_at, expires_at, tool_name, graph_ref, deleted_at
-		) VALUES (
-			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-		)
-		ON CONFLICT(id) DO UPDATE SET
-			session_id      = excluded.session_id,
-			type            = excluded.type,
-			title           = excluded.title,
-			content         = excluded.content,
-			project         = excluded.project,
-			scope           = excluded.scope,
-			topic_key       = excluded.topic_key,
-			normalized_hash = excluded.normalized_hash,
-			revision_count  = excluded.revision_count,
-			owner           = excluded.owner,
-			visibility      = excluded.visibility,
-			status          = excluded.status,
-			retrieval_usage = excluded.retrieval_usage,
-			prompt_id       = excluded.prompt_id,
-			created_at      = excluded.created_at,
-			updated_at      = excluded.updated_at,
-			pinned          = excluded.pinned,
-			duplicate_count = excluded.duplicate_count,
-			last_seen_at    = excluded.last_seen_at,
-			expires_at      = excluded.expires_at,
-			tool_name       = excluded.tool_name,
-			graph_ref       = excluded.graph_ref,
-			deleted_at      = excluded.deleted_at`,
+			normalized_hash, revision_count, created_at, updated_at, deleted_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ID, s.SessionID, s.Type, s.Title, s.Content, s.Project, s.Scope, s.TopicKey,
-		s.NormalizedHash, s.RevisionCount, s.Owner, s.Visibility, s.Status,
-		s.RetrievalUsage, s.PromptID, s.CreatedAt, s.UpdatedAt, s.Pinned,
-		s.DuplicateCount, s.LastSeenAt, s.ExpiresAt, s.ToolName, s.GraphRef, s.DeletedAt,
-	)
+		s.NormalizedHash, s.RevisionCount, s.CreatedAt, s.UpdatedAt, s.DeletedAt); err != nil {
+		return err
+	}
+	if err := exec(ctx, tx, `
+		INSERT OR REPLACE INTO observation_state (
+			observation_id, status, visibility, pinned, expires_at
+		) VALUES (?, ?, ?, ?, ?)`,
+		s.ID, s.Status, s.Visibility, s.Pinned, s.ExpiresAt); err != nil {
+		return err
+	}
+	if err := exec(ctx, tx, `
+		INSERT OR REPLACE INTO observation_provenance (
+			observation_id, source, owner, prompt_id, tool_name, graph_ref
+		) VALUES (?, 'agent', ?, ?, ?, ?)`,
+		s.ID, s.Owner, s.PromptID, s.ToolName, s.GraphRef); err != nil {
+		return err
+	}
+	if err := exec(ctx, tx, `
+		INSERT OR REPLACE INTO observation_stats (
+			observation_id, duplicate_count, last_seen_at, retrieval_usage
+		) VALUES (?, ?, ?, ?)`,
+		s.ID, s.DuplicateCount, s.LastSeenAt, s.RetrievalUsage); err != nil {
+		return err
+	}
+	return nil
 }
 
 // deleteOrphansTx hard-deletes the project's observations whose id is not in

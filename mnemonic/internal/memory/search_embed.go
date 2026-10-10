@@ -21,11 +21,11 @@ func (s *Service) SetEmbedding(ctx context.Context, id int64, blob []byte, model
 	// Only stamp created_at when there is no prior timestamp, preserving the
 	// original creation time on re-embeds.
 	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations
+		UPDATE observation_vectors
 		SET embedding = ?,
 		    embedding_model = ?,
 		    embedding_created_at = COALESCE(embedding_created_at, datetime('now'))
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		WHERE `+sideScopeWhere("observation_vectors"),
 		blobOrNULL(blob), model, id, s.projectID,
 	)
 	if err != nil {
@@ -68,9 +68,10 @@ func (s *Service) SearchByVector(ctx context.Context, queryVec Vector, limit int
 		limit = defaultSearchLimit
 	}
 	rows, err := s.store.DB.QueryContext(ctx, `
-		SELECT id, embedding
-		FROM observations
-		WHERE project = ? AND deleted_at IS NULL AND embedding IS NOT NULL`,
+		SELECT o.id, vc.embedding
+		FROM observations_core o
+		JOIN observation_vectors vc ON vc.observation_id = o.id
+		WHERE o.project = ? AND o.deleted_at IS NULL AND vc.embedding IS NOT NULL`,
 		s.projectID,
 	)
 	if err != nil {

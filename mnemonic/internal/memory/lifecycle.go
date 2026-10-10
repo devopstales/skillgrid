@@ -22,8 +22,8 @@ func (s *Service) Pin(ctx context.Context, id int64) error {
 		return errors.New("memory service not initialized")
 	}
 	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations SET pinned = 1
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		UPDATE observation_state SET pinned = 1
+		WHERE `+sideScopeWhere("observation_state"),
 		id, s.projectID,
 	)
 	if err != nil {
@@ -42,8 +42,8 @@ func (s *Service) Unpin(ctx context.Context, id int64) error {
 		return errors.New("memory service not initialized")
 	}
 	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations SET pinned = 0
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		UPDATE observation_state SET pinned = 0
+		WHERE `+sideScopeWhere("observation_state"),
 		id, s.projectID,
 	)
 	if err != nil {
@@ -62,7 +62,9 @@ func (s *Service) Pinned(ctx context.Context, id int64) (bool, error) {
 	}
 	var pinned int
 	err := s.store.DB.QueryRowContext(ctx, `
-		SELECT pinned FROM observations WHERE id = ? AND project = ?`,
+		SELECT st.pinned FROM observation_state st
+		JOIN observations_core c ON c.id = st.observation_id
+		WHERE st.observation_id = ? AND c.project = ?`,
 		id, s.projectID,
 	).Scan(&pinned)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -88,8 +90,8 @@ func (s *Service) SetExpiresAt(ctx context.Context, id int64, value string) erro
 		}
 	}
 	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations SET expires_at = ?
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		UPDATE observation_state SET expires_at = ?
+		WHERE `+sideScopeWhere("observation_state"),
 		nullString(value), id, s.projectID,
 	)
 	if err != nil {
@@ -112,10 +114,10 @@ func (s *Service) BumpDuplicate(ctx context.Context, id int64) {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, _ = s.store.DB.ExecContext(ctx, `
-		UPDATE observations
+		UPDATE observation_stats
 		SET duplicate_count = COALESCE(duplicate_count, 0) + 1,
 		    last_seen_at = ?
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		WHERE `+sideScopeWhere("observation_stats"),
 		now, id, s.projectID,
 	)
 }
@@ -142,16 +144,23 @@ func (s *Service) MarkSuperseded(ctx context.Context, oldID, newID int64) error 
 		}
 	}()
 	res, err := tx.ExecContext(ctx, `
-		UPDATE observations
-		SET invalid_at = ?, superseded_by = ?, status = ?
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
-		nullString(now), newID, StatusSuperseded, oldID, s.projectID,
+		UPDATE observation_temporal
+		SET invalid_at = ?, superseded_by = ?
+		WHERE `+sideScopeWhere("observation_temporal"),
+		nullString(now), newID, oldID, s.projectID,
 	)
 	if err != nil {
 		return fmt.Errorf("mark_superseded: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("mark_superseded: observation %d not found", oldID)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE observation_state SET status = ?
+		WHERE `+sideScopeWhere("observation_state"),
+		StatusSuperseded, oldID, s.projectID,
+	); err != nil {
+		return fmt.Errorf("mark_superseded: %w", err)
 	}
 	// Record the supersedes edge (src=old → dst=new) within the same
 	// transaction for atomicity. modernc.org/sqlite does not support
@@ -199,10 +208,11 @@ func (s *Service) TTLSoftExpiry(ctx context.Context) (int, error) {
 	// timestamps both compare as integer seconds, not as raw strings (where 'T' > ' '
 	// would mis-order same-day values).
 	err := s.store.DB.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM observations
-		WHERE project = ? AND deleted_at IS NULL
-		  AND expires_at IS NOT NULL AND expires_at != ''
-		  AND strftime('%s', expires_at) <= strftime('%s', 'now')`,
+		SELECT COUNT(*) FROM observations_core c
+		JOIN observation_state st ON st.observation_id = c.id
+		WHERE c.project = ? AND c.deleted_at IS NULL
+		  AND st.expires_at IS NOT NULL AND st.expires_at != ''
+		  AND strftime('%s', st.expires_at) <= strftime('%s', 'now')`,
 		s.projectID,
 	).Scan(&n)
 	if err != nil {
@@ -219,11 +229,12 @@ func (s *Service) TTLRetire(ctx context.Context) (int, error) {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations
-		SET deleted_at = ?
+		UPDATE observations_core SET deleted_at = ?
 		WHERE project = ? AND (deleted_at IS NULL OR deleted_at = '')
-		  AND expires_at IS NOT NULL AND expires_at != ''
-		  AND strftime('%s', expires_at) <= strftime('%s', 'now')`,
+		  AND EXISTS (SELECT 1 FROM observation_state st
+		    WHERE st.observation_id = observations_core.id
+		      AND st.expires_at IS NOT NULL AND st.expires_at != ''
+		      AND strftime('%s', st.expires_at) <= strftime('%s', 'now'))`,
 		now, s.projectID,
 	)
 	if err != nil {

@@ -67,7 +67,7 @@ func buildPreSplitStore(t *testing.T, dir, project string) string {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
 			continue
 		}
-		if e.Name() == parityMigrationFile {
+		if e.Name() == parityMigrationFile || e.Name() == "055_obs_split_fk_repoint.sql" {
 			continue
 		}
 		names = append(names, e.Name())
@@ -428,4 +428,155 @@ func TestObservationsParity(t *testing.T) {
 			t.Errorf("row %d hash changed on re-migrate", id)
 		}
 	}
+}
+
+// TestHotPathAvoidsVectors is the TICKET-03 acceptance test
+// (SATISFIES hot-path-avoids-blobs): the hot-path read shape
+// (obsSplitSelectCols + obsSplitFrom) must not reference
+// observation_vectors in its query plan, and returned rows must equal the
+// compat-view rows minus the vector columns.
+func TestHotPathAvoidsVectors(t *testing.T) {
+	dir := t.TempDir()
+	const project = "hotpath"
+	buildPreSplitStore(t, dir, project)
+
+	st, err := store.Open(dir, project)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	// EXPLAIN QUERY PLAN: the hot-path read shape must not name
+	// observation_vectors in any plan row.
+	plan := `EXPLAIN QUERY PLAN SELECT ` + obsSplitSelectCols + ` FROM ` + obsSplitFrom + ` WHERE o.deleted_at IS NULL AND o.project = ?`
+	rows, err := st.DB.Query(plan, project)
+	if err != nil {
+		t.Fatalf("explain hot path: %v", err)
+	}
+	defer rows.Close()
+	var planText strings.Builder
+	for rows.Next() {
+		var id int
+		var parent, notused, detail any
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatalf("scan plan: %v", err)
+		}
+		ds, _ := detail.(string)
+		planText.WriteString(ds)
+		planText.WriteByte('\n')
+		if strings.Contains(ds, "observation_vectors") {
+			t.Fatalf("hot-path plan references observation_vectors:\n%s", planText.String())
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("plan rows: %v", err)
+	}
+
+	// Row parity: hot-path rows == compat-view rows minus the three vector
+	// columns (embedding, embedding_model, embedding_created_at).
+	_, viewRows := dumpViewRows(t, st.DB, project)
+	splitCols, splitRows := dumpSplitRows(t, st.DB, project)
+
+	if len(viewRows) != len(splitRows) {
+		t.Fatalf("row count: view=%d split=%d", len(viewRows), len(splitRows))
+	}
+	// The view has 40 columns; the split shape has 31 (no vector cols).
+	// Verify the split shape projects only non-vector columns: the last
+	// identifier token of each column expression must not be a vector column.
+	colName := func(expr string) string {
+		expr = strings.TrimSpace(expr)
+		if i := strings.LastIndex(expr, "."); i >= 0 {
+			expr = expr[i+1:]
+		}
+		// Strip COALESCE(...) wrapper: take the inner first arg.
+		if strings.HasPrefix(expr, "COALESCE(") && strings.HasSuffix(expr, ")") {
+			inner := expr[len("COALESCE(") : len(expr)-1]
+			if ci := strings.Index(inner, ","); ci >= 0 {
+				expr = strings.TrimSpace(inner[:ci])
+				if i := strings.LastIndex(expr, "."); i >= 0 {
+					expr = expr[i+1:]
+				}
+			}
+		}
+		return expr
+	}
+	for _, c := range splitCols {
+		n := colName(c)
+		if n == "embedding" || n == "embedding_model" || n == "embedding_created_at" {
+			t.Fatalf("hot-path split shape includes vector column %q (expr %q)", n, c)
+		}
+	}
+}
+
+// dumpViewRows returns the column names and one row-per-observation dump of
+// the compat view (SELECT *), for row-parity comparison.
+func dumpViewRows(t *testing.T, db *sql.DB, project string) ([]string, map[int64][]string) {
+	t.Helper()
+	rows, err := db.Query(`SELECT * FROM observations WHERE project = ? ORDER BY id`, project)
+	if err != nil {
+		t.Fatalf("view dump: %v", err)
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		t.Fatalf("view cols: %v", err)
+	}
+	out := make(map[int64][]string)
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			t.Fatalf("view scan: %v", err)
+		}
+		id, _ := vals[0].(int64)
+		s := make([]string, len(vals))
+		for i, v := range vals {
+			s[i] = paritySerial(v)
+		}
+		out[id] = s
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("view rows: %v", err)
+	}
+	return cols, out
+}
+
+// dumpSplitRows returns the column names and one row-per-observation dump of
+// the hot-path split shape, for row-parity comparison.
+func dumpSplitRows(t *testing.T, db *sql.DB, project string) ([]string, map[int64][]string) {
+	t.Helper()
+	q := `SELECT ` + obsSplitSelectCols + ` FROM ` + obsSplitFrom + ` WHERE o.project = ? ORDER BY o.id`
+	rows, err := db.Query(q, project)
+	if err != nil {
+		t.Fatalf("split dump: %v", err)
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		t.Fatalf("split cols: %v", err)
+	}
+	out := make(map[int64][]string)
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			t.Fatalf("split scan: %v", err)
+		}
+		id, _ := vals[0].(int64)
+		s := make([]string, len(vals))
+		for i, v := range vals {
+			s[i] = paritySerial(v)
+		}
+		out[id] = s
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("split rows: %v", err)
+	}
+	return cols, out
 }

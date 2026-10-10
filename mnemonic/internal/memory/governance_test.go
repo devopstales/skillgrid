@@ -284,13 +284,35 @@ func TestLegacyEmptyOwnerConsistency(t *testing.T) {
 
 	// Simulate a legacy (pre-017) observation: the row exists with an empty
 	// owner and the default visibility. The FTS trigger indexes it on insert.
-	var legacyID int64
-	if err := fx.st.DB.QueryRow(`
-		INSERT INTO observations (session_id, type, title, content, project, scope, normalized_hash, created_at, updated_at, source)
+	// Direct split-table insert: the compat VIEW leaves LastInsertId stale
+	// (engine limit), so the seeder writes core + side rows directly.
+	res, err := fx.st.DB.Exec(`
+		INSERT INTO observations_core (session_id, type, title, content, project, scope, normalized_hash, created_at, updated_at)
 		VALUES ('s1', 'decision', 'legacyempty note', 'legacyempty note body', 'legacyempty', 'project', 'h-legacy',
-		        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'agent')
-		RETURNING id`).Scan(&legacyID); err != nil {
+		        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+	if err != nil {
 		t.Fatalf("insert legacy row: %v", err)
+	}
+	legacyID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("legacy row id: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_state (observation_id, status, visibility) VALUES (?, 'active', 'private')`, legacyID); err != nil {
+		t.Fatalf("legacy state: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_provenance (observation_id, source) VALUES (?, 'agent')`, legacyID); err != nil {
+		t.Fatalf("legacy provenance: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_temporal (observation_id, valid_at) VALUES (?, '2026-01-01T00:00:00Z')`, legacyID); err != nil {
+		t.Fatalf("legacy temporal: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observations_fts(rowid, title, content, type, project)
+		VALUES (?, 'legacyempty note', 'legacyempty note body', 'decision', 'legacyempty')`, legacyID); err != nil {
+		t.Fatalf("legacy fts: %v", err)
 	}
 
 	// Both read paths must agree: the row is private (COALESCE default) and its
@@ -622,13 +644,33 @@ func TestOwnerScopedSearchPopulatedOwner(t *testing.T) {
 	fx := newOwnerFixture(t, "popowner")
 	ctx := context.Background()
 
-	var id int64
-	if err := fx.st.DB.QueryRow(`
-		INSERT INTO observations (session_id, type, title, content, project, scope, owner, normalized_hash, created_at, updated_at, source)
-		VALUES ('s1', 'decision', 'popowner note', 'popowner note body', 'popowner', 'project', 'ownerA', 'h-pop',
-		        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'agent')
-		RETURNING id`).Scan(&id); err != nil {
+	res, err := fx.st.DB.Exec(`
+		INSERT INTO observations_core (session_id, type, title, content, project, scope, normalized_hash, created_at, updated_at)
+		VALUES ('s1', 'decision', 'popowner note', 'popowner note body', 'popowner', 'project', 'h-pop',
+		        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+	if err != nil {
 		t.Fatalf("insert owned row: %v", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("owned row id: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_state (observation_id, status, visibility) VALUES (?, 'active', 'private')`, id); err != nil {
+		t.Fatalf("owned state: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_provenance (observation_id, source, owner) VALUES (?, 'agent', 'ownerA')`, id); err != nil {
+		t.Fatalf("owned provenance: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_temporal (observation_id, valid_at) VALUES (?, '2026-01-01T00:00:00Z')`, id); err != nil {
+		t.Fatalf("owned temporal: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observations_fts(rowid, title, content, type, project)
+		VALUES (?, 'popowner note', 'popowner note body', 'decision', 'popowner')`, id); err != nil {
+		t.Fatalf("owned fts: %v", err)
 	}
 
 	// Blank reader (default single-user case) sees the corpus.
@@ -670,13 +712,33 @@ func TestReadAsBlankReaderSeesCorpus(t *testing.T) {
 	fx := newOwnerFixture(t, "popowner2")
 	ctx := context.Background()
 
-	var id int64
-	if err := fx.st.DB.QueryRow(`
-		INSERT INTO observations (session_id, type, title, content, project, scope, owner, normalized_hash, created_at, updated_at, source)
-		VALUES ('s1', 'decision', 'fetchme note', 'fetchme note body', 'popowner2', 'project', 'ownerA', 'h-fetch',
-		        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'agent')
-		RETURNING id`).Scan(&id); err != nil {
+	res, err := fx.st.DB.Exec(`
+		INSERT INTO observations_core (session_id, type, title, content, project, scope, normalized_hash, created_at, updated_at)
+		VALUES ('s1', 'decision', 'fetchme note', 'fetchme note body', 'popowner2', 'project', 'h-fetch',
+		        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+	if err != nil {
 		t.Fatalf("insert owned row: %v", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("owned row id: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_state (observation_id, status, visibility) VALUES (?, 'active', 'private')`, id); err != nil {
+		t.Fatalf("owned state: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_provenance (observation_id, source, owner) VALUES (?, 'agent', 'ownerA')`, id); err != nil {
+		t.Fatalf("owned provenance: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_temporal (observation_id, valid_at) VALUES (?, '2026-01-01T00:00:00Z')`, id); err != nil {
+		t.Fatalf("owned temporal: %v", err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observations_fts(rowid, title, content, type, project)
+		VALUES (?, 'fetchme note', 'fetchme note body', 'decision', 'popowner2')`, id); err != nil {
+		t.Fatalf("owned fts: %v", err)
 	}
 
 	// Blank reader (default case) fetches the private row.
