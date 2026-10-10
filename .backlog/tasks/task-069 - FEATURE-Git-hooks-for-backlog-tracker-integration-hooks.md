@@ -4,7 +4,7 @@ title: '[FEATURE] Git hooks for backlog + tracker integration (hooks)'
 status: in-progress
 assignee: []
 created_date: '2026-10-10 07:39'
-updated_date: '2026-10-10 07:40'
+updated_date: '2026-10-10 07:45'
 labels: []
 dependencies: []
 references:
@@ -42,3 +42,9 @@ Expected State:
 - [ ] #6 Tests pass
 - [ ] #7 No new warnings introduced
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented in 803cba1a: hooks/ticketing.js + ticketing-guard/pre-push/post-merge, checkpoint-state wiring (guard/guard-msg/prepare-msg/pre-push/post-merge-check), git-hooks shims (prepare-commit-msg/pre-push/post-merge), Go tests green (install pkg ok), docs updated. Remaining: review + AC check-off + close.
+<!-- SECTION:NOTES:END -->

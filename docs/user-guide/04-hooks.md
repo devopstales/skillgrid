@@ -6,8 +6,11 @@ AISkillGrid enforces discipline with two kinds of hooks: **git hooks** (commit-t
 
 | Hook | Type | Blocks when |
 |------|------|-------------|
-| `pre-commit` | git | cwd drift, commit on a protected branch/detached HEAD, spec-zone mixed with code-zone, generated/scratch staged |
-| `commit-msg` | git | non-conventional subject, or a `Co-Authored-By` / `Generated-By` AI trailer |
+| `pre-commit` | git | cwd drift, commit on a protected branch/detached HEAD, spec-zone mixed with code-zone, staged backlog task missing type/references/DoD, generated/scratch staged |
+| `commit-msg` | git | non-conventional subject, a `Co-Authored-By` / `Generated-By` AI trailer, or a `Refs:`/`Closes:` footer with no parseable Tracker ID |
+| `prepare-commit-msg` | git | never — appends `Refs: <id>` from `SKILLGRID_TRACKER_REF` when the message has no footer yet |
+| `pre-push` | git | a `Closes:`/`Fixes:`/`Resolves:` footer with no parseable Tracker ID in the outgoing range |
+| `post-merge` | git | never — advisory `backlog doctor` (read-only) after merges |
 | `stop` | agent Stop | `testing.runner` is red |
 | `gate-stop` | agent Stop | any `G<n>` unmet, or a happy-path requirement missing its gate |
 
@@ -17,18 +20,26 @@ AISkillGrid enforces discipline with two kinds of hooks: **git hooks** (commit-t
 
 ```text
 hooks/                # logic, JavaScript (staged to ~/.skillgrid/hooks/)
-├── checkpoint-state.js        # dispatcher + guard-msg
+├── checkpoint-state.js        # dispatcher + guard-msg + prepare-msg + pre-push + post-merge-check
 ├── precommit-guard.js         # cwd-drift + protected-ref/detached
 ├── precommit-zone-guard.js    # spec-zone XOR code-zone
+├── ticketing.js               # shared tracker lib: config resolve, ID shapes, footer + completeness checks
+├── ticketing-guard.js         # staged backlog tasks carry type/references/DoD
+├── ticketing-pre-push.js      # outgoing Refs/Closes validation (local git log only)
+├── ticketing-post-merge.js    # post-merge `backlog doctor` (read-only, advisory)
 ├── precommit-ignore-guard.js  # generated/scratch paths (auto-fix + FATAL)
+├── precommit-go-vet.js        # vet staged Go packages
 ├── gate-lint.js               # advisory linter for #### Gates
 ├── gate-state.js              # gate state engine (--status / --reverify)
 ├── gate-stop.js               # agent Stop: gate-level
 ├── stop-tests.js              # agent Stop: suite-level
 └── session-start.js           # harness SessionStart: inject the router
-git-hooks/            # thin shims, JavaScript (staged to ~/.skillgrid/git-hooks/)
+git-hooks/            # thin shims (staged to ~/.skillgrid/git-hooks/)
 ├── pre-commit.js   ──> ../hooks/checkpoint-state.js guard
 ├── commit-msg.js   ──> ../hooks/checkpoint-state.js guard-msg "$1"
+├── prepare-commit-msg ──> ../hooks/checkpoint-state.js prepare-msg "$1" (never blocks)
+├── pre-push        ──> ../hooks/checkpoint-state.js pre-push "$@" (stdin passes through)
+├── post-merge      ──> ../hooks/checkpoint-state.js post-merge-check "$@" (always exit 0)
 ├── stop.js         ──> ../hooks/stop-tests.js        (drains stdin)
 └── gate-stop.js    ──> ../hooks/gate-stop.js         (reads harness JSON for session_id)
 plugins/              # harness adapters (installed from ~/.skillgrid/plugins/)
@@ -111,8 +122,10 @@ checkpoints off in config: `mnemonic.checkpoint.enabled: false` in
    - *cwd drift* (worktrees only): a prior `cd` left the worktree toplevel.
    - *protected ref / detached HEAD*: committing on `main`/`master`/`develop`/`trunk`/`release/` (override `SKILLGRID_PROTECTED_BRANCHES`) or a detached HEAD. First commit of a repo (unborn HEAD) is allowed. In a worktree, the branch must match the per-agent regex `^(agent-|worktree-agent-|worktree-wf_)[A-Za-z0-9._/-]+$` (override `SKILLGRID_AGENT_BRANCH_REGEX`).
 2. **`precommit-zone-guard.js`** — FATAL if a commit stages both spec-zone (`.skillgrid/specs/**` or `acceptance-tests/features/`) and code in one shot. Spec is committed *before* the code that satisfies it.
-3. **`precommit-ignore-guard.js`** — FATAL (and auto-fix) on generated/scratch paths: `acceptance-tests/.extracted/*` and the worktree dir (from `worktree_dir:`, default `.worktrees/`, plus `worktrees/`). If a path is already gitignored it is unstaged + WARNING; if not, the dir is **auto-added to `.gitignore`** ("auto-git"), unstaged, NOTE.
-4. **`gate-lint.js`** — **advisory** only (always exit 0). Flags a gate id not matching `G<n>`, a runnable gate missing CHECK/EXPECT, blank CHECK/EXPECT, an EXPECT that is a bare number also appearing in CHECK (tautology), an `ABANDON` with a blank reason, and a happy-path requirement with no gate (traceability gap).
+3. **`ticketing-guard.js`** — FATAL if a staged `.backlog/tasks/*.md` file is missing frontmatter `type:`, has an empty `references:`, or has no Definition of Done checklist items (`<!-- DOD:BEGIN -->`). A missing Implementation Plan is WARNING-only: the `backlog` CLI itself creates plan-less triage tasks, so blocking on it would fight the CLI. Only runs for `ticketing.type: backlogmd`; `gh`/`glab`/`jira` have no local state to validate. No-op when `ticketing.enabled: false`.
+4. **`precommit-ignore-guard.js`** — FATAL (and auto-fix) on generated/scratch paths: `acceptance-tests/.extracted/*` and the worktree dir (from `worktree_dir:`, default `.worktrees/`, plus `worktrees/`). If a path is already gitignored it is unstaged + WARNING; if not, the dir is **auto-added to `.gitignore`** ("auto-git"), unstaged, NOTE.
+5. **`precommit-go-vet.js`** — FATAL if `go vet` fails on staged Go packages.
+6. **`gate-lint.js`** — **advisory** only (always exit 0). Flags a gate id not matching `G<n>`, a runnable gate missing CHECK/EXPECT, blank CHECK/EXPECT, an EXPECT that is a bare number also appearing in CHECK (tautology), an `ABANDON` with a blank reason, and a happy-path requirement with no gate (traceability gap).
 
 Every FATAL prints a `RECOVERY:` line and exits 1, blocking the commit.
 
@@ -122,7 +135,21 @@ Every FATAL prints a `RECOVERY:` line and exits 1, blocking the commit.
 
 - Subject must match the conventional-commits regex `^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9._-]+\))?!?: .+` → FATAL + RECOVERY (exit 1) if not.
 - Rejects `Co-Authored-By` / `Generated-By` AI-attribution trailers → FATAL (exit 1).
+- A `Refs:` / `Closes:` / `Fixes:` / `Resolves:` footer (any casing, colon optional) must carry a parseable Tracker ID — `TASK-069` (backlog), `#42` (gh/glab), `PROJ-123` (jira) → FATAL (exit 1) when present-but-unparseable. Footers stay optional: no footer passes.
 - Exit 2 if the message file is missing.
+
+## Tracker hooks (ticketing)
+
+The ticketing skill's lifecycle (`Refs:` per commit, `Closes` on done, the backlog completeness gate) is enforced by hooks that read `ticketing.*` from `.skillgrid/config.yaml`. Every one fail-opens: ticketing disabled, unknown type, missing CLI, or any infra error exits 0. Only an explicit policy violation blocks.
+
+| Hook | What it does | Source |
+|------|--------------|--------|
+| `prepare-commit-msg` | Appends `Refs: <id>` from `SKILLGRID_TRACKER_REF` (exported by the agent from the active `tasks.md` Tracker ID, e.g. `SKILLGRID_TRACKER_REF=TASK-069 git commit …`) when the message has no footer yet. No env → no-op. Never blocks. | `checkpoint-state.js prepare-msg` |
+| `pre-commit` (ticketing step) | Backlog completeness gate on staged `<backlogDir>/tasks/*.md`: FATAL on missing `type:` / empty `references:` / empty DoD; WARNING on missing Implementation Plan. See the pre-commit chain above. | `ticketing-guard.js` via `checkpoint-state.js guard` |
+| `pre-push` | Validates footers on outgoing commits (local `git log` only, max 100 per ref, never network): malformed `Closes:`/`Fixes:`/`Resolves:` → FATAL; malformed `Refs:` → WARNING. No upstream info → exit 0. | `ticketing-pre-push.js` via `checkpoint-state.js pre-push` (stdin passes through) |
+| `post-merge` | Runs read-only `backlog doctor` (duplicate task IDs are what merges introduce in a file-based tracker) with a 60s timeout; prints the diagnosis as WARNING. `gh`/`glab`/`jira` have nothing local to reconcile. Always exit 0. | `ticketing-post-merge.js` via `checkpoint-state.js post-merge-check` |
+
+Shared logic (config resolve, ID shapes, footer parsing) lives in `hooks/ticketing.js`, required by all four — no side effects on require, so the rules stay identical across hooks.
 
 ## Agent Stop hooks
 
@@ -168,6 +195,9 @@ Parses a change's `#### Gates` blocks and reports each `G<n>`'s state. A gate is
 | `SKILLGRID_TEST_CMD` | Override the `testing.runner` command |
 | `SKILLGRID_GATE_TIMEOUT` | Per-CHECK timeout for `--reverify` (default 120s) |
 | `SKILLGRID_GATE_MAX_BLOCKS` | Stop-hook no-progress release threshold (default 6) |
+| `SKILLGRID_TICKETING_ENABLED` | `0`/`false` disables all tracker guards (overrides `ticketing.enabled`) |
+| `SKILLGRID_TICKETING_TYPE` | Overrides `ticketing.type` (`backlogmd` \| `gh` \| `glab` \| `jira`) |
+| `SKILLGRID_TRACKER_REF` | Active Tracker ID consumed by the `prepare-commit-msg` injector |
 
 ## Agent tool hooks (beyond git + Stop)
 
