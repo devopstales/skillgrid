@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** PROPOSED
+**Status:** VALIDATED (critic 2026-10-10: VALIDATED-WITH-FIXES, all Critical applied)
 
 **Tier:** T2
 
@@ -12,7 +12,7 @@
 
 **Architecture:** This plan builds five independent features that are integrated into the existing `mnemonic` Go module. Feature 1 (Growth) and Feature 2 (Health) extend the existing `secondbrain` lifecycle. Feature 3 (Knowledge Class) adds a new database dimension for durability. Feature 4 (PageRank) optimizes code indexing. Feature 5 (Confidence Gate) adds a deterministic filter for real-time capture.
 
-**Tech Stack:** Go 1.25, SQLite, Tree-sitter, BM25/FTS5
+**Tech Stack:** Go 1.26 (`mnemonic/go.mod`), SQLite, Tree-sitter, BM25/FTS5
 
 **Spec:** `.skillgrid/artifacts/06-spec-second-brain-learnings.md`
 
@@ -30,15 +30,18 @@
 - `mem_lifecycle health` returns actionable recommendations for high duplicate density, low embedding coverage, and stale data.
 - `mem_save` infers `knowledge_class` from `type` if not provided (e.g., decision → convention).
 - `mem_search` with `knowledge_class=convention` returns only convention-classed observations.
-- `code_index` with `--embed-top 50` embeds only the top 50% of symbols by centrality.
+- `code_index` with `--embed-top 50` embeds ≤ ceil(N/2) centrality-selected code symbols *plus* the doc-bearing + recently-changed carve-out; gate=100 (default) reproduces today's vector set; index output reports embedded/skipped counts.
 - `mem_capture_suggest` with high-confidence text returns a save suggestion but does not persist it.
 
 **Artifacts** (files that must exist with real implementation, not stubs):
-- `skillgrid-cli/internal/mnemonic/secondbrain/lifecycle.go` — Contains `GrowthTimeline` and extended `healthRecommendations`.
-- `skillgrid-cli/internal/mnemonic/store/migrations/00N_add_knowledge_class.sql` — Database migration for Feature 3.
-- `skillgrid-cli/internal/mnemonic/memory/service.go` — Handles `knowledge_class` logic in `Save` and `Update`.
-- `skillgrid-cli/internal/mnemonic/codeindex/indexer.go` — Implements the centrality-based embedding gate.
-- `skillgrid-cli/internal/mnemonic/secondbrain/infer.go` — Contains `ClassifyCapture` for Feature 5.
+- `mnemonic/internal/secondbrain/lifecycle.go` — Contains `GrowthTimeline` and extended `healthRecommendations`.
+- `mnemonic/internal/store/migrations/051_add_knowledge_class.sql` — Database migration for Feature 3 (051 claimed by this change; CLM 053–055 / CTX 056+ untouched).
+- `mnemonic/internal/memory/service.go` — Handles `knowledge_class` logic in `Save` and `Update`.
+- `mnemonic/internal/memory/search_blend.go` — Optional `knowledge_class` filter + per-class labeling.
+- `mnemonic/internal/codeindex/indexer.go` — Implements the centrality-based embedding gate (centrality from existing `codeindex/graph.go`; there is no `graph_index.go` on disk).
+- `mnemonic/internal/secondbrain/infer.go` — Contains `ClassifyCapture` for Feature 5.
+- `mnemonic/internal/mcp/tools_memory.go` — `mem_lifecycle growth`, `mem_save`/`mem_search` `knowledge_class` params, `mem_capture_suggest` registration.
+- `artifacts/04-adr-0037-knowledge-class-dimension.md` — ADR for the additive durability dimension (reserve 0037; highest in use is 0036).
 
 **Key links** (critical connections between artifacts that must work together):
 - `GrowthTimeline` must exclude soft-deleted and archived rows from the cumulative total.
@@ -60,14 +63,14 @@
 ## Task 1: Growth Timeline
 
 **Files:**
-- Modify: `skillgrid-cli/internal/mnemonic/secondbrain/lifecycle.go`
-- Modify: `skillgrid-cli/internal/mnemonic/mcp/tools_memory.go`
-- Test: `skillgrid-cli/internal/mnemonic/secondbrain/lifecycle_test.go`
+- Modify: `mnemonic/internal/secondbrain/lifecycle.go`
+- Modify: `mnemonic/internal/mcp/tools_memory.go`
+- Test: `mnemonic/internal/secondbrain/lifecycle_test.go`
 
 **Interfaces:**
 - Produces: `func GrowthTimeline(project string, granularity string) ([]PeriodCount, error)`
 
-**SATISFIES:** `growth-timeline` scenario in `acceptance.feature`
+**SATISFIES:** `growth-timeline` scenario in `acceptance.feature` (pending acceptance-test-authoring)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -81,7 +84,7 @@ func TestGrowthTimeline_Monthly(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./skillgrid-cli/internal/mnemonic/secondbrain/... -v -run TestGrowthTimeline_Monthly`
+Run: `cd mnemonic && go test ./internal/secondbrain/... -v -run TestGrowthTimeline_Monthly`
 Expected: FAIL with "undefined: GrowthTimeline"
 
 - [ ] **Step 3: Write minimal implementation**
@@ -90,13 +93,13 @@ Implement `GrowthTimeline` using a `strftime` based bucketing query in `lifecycl
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./skillgrid-cli/internal/mnemonic/secondbrain/... -v -run TestGrowthTimeline_Monthly`
+Run: `cd mnemonic && go test ./internal/secondbrain/... -v -run TestGrowthTimeline_Monthly`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/secondbrain/
+git add mnemonic/internal/secondbrain/
 git commit -m "feat(mnemonic): add growth timeline to secondbrain lifecycle"
 ```
 
@@ -105,27 +108,29 @@ git commit -m "feat(mnemonic): add growth timeline to secondbrain lifecycle"
 ## Task 2: Health Recommendations
 
 **Files:**
-- Modify: `skillgrid-cli/internal/mnemonic/secondbrain/lifecycle.go`
-- Test: `skillgrid-cli/internal/mnemonic/secondbrain/lifecycle_test.go`
+- Modify: `mnemonic/internal/secondbrain/lifecycle.go`
+- Test: `mnemonic/internal/secondbrain/lifecycle_test.go`
 
 **Interfaces:**
 - Consumes: `HealthReport` struct from `lifecycle.go`
 
-**SATISFIES:** `health-recommendations` scenario in `acceptance.feature`
+**SATISFIES:** `health-recommendations` scenario in `acceptance.feature` (pending acceptance-test-authoring)
+
+> NOTE: unit-test the pure `healthRecommendations` function directly (not `Health()`) to avoid the 24h health file cache. Target severities per spec: dedup HIGH (density>0.05, keep current code), embeddings MEDIUM with embedder-off no-nag gate, stale MEDIUM with total>10 guard, cleanup LOW, review LOW.
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
 func TestHealthRecommendations_HighDensity(t *testing.T) {
+    // Call healthRecommendations pure function directly (not Health(), avoids 24h cache)
     // Create fixture with high duplicate density
-    // Call healthRecommendations
-    // Assert MEDIUM severity dedup recommendation
+    // Assert HIGH severity dedup recommendation present
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./skillgrid-cli/internal/mnemonic/secondbrain/... -v -run TestHealthRecommendations_HighDensity`
+Run: `cd mnemonic && go test ./internal/secondbrain/... -v -run TestHealthRecommendations_HighDensity`
 Expected: FAIL (recommendation missing)
 
 - [ ] **Step 3: Write minimal implementation**
@@ -134,13 +139,13 @@ Extend `healthRecommendations` with the 5 rules defined in the spec.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./skillgrid-cli/internal/mnemonic/secondbrain/... -v`
+Run: `cd mnemonic && go test ./internal/secondbrain/... -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/secondbrain/
+git add mnemonic/internal/secondbrain/
 git commit -m "feat(mnemonic): expand health recommendations for secondbrain"
 ```
 
@@ -148,19 +153,19 @@ git commit -m "feat(mnemonic): expand health recommendations for secondbrain"
 
 ## Task 3: Knowledge Class Dimension
 
-> ⚠ **one-way:** Adding a database column `knowledge_class` to `observations`. STOP for user approval.
+> ⚠ **one-way:** Adding a database column `knowledge_class` to `observations`. STOP for user approval. Soft one-way: the heuristic backfill rewrites existing rows (re-runnable but data-mutating) — snapshot/backup before Task 3 Step 3.
 
 **Files:**
-- Create: `skillgrid-cli/internal/mnemonic/store/migrations/00N_add_knowledge_class.sql`
-- Modify: `skillgrid-cli/internal/mnemonic/memory/service.go`
-- Modify: `skillgrid-cli/internal/mnemonic/memory/search_blend.go`
-- Test: `skillgrid-cli/internal/mnemonic/memory/service_test.go`
+- Create: `mnemonic/internal/store/migrations/051_add_knowledge_class.sql`
+- Modify: `mnemonic/internal/memory/service.go`
+- Modify: `mnemonic/internal/memory/search_blend.go`
+- Test: `mnemonic/internal/memory/service_test.go`
 
 **Interfaces:**
 - Produces: `KnowledgeClass` field on `observation` structs.
 - Produces: `inferKnowledgeClass` helper function.
 
-**SATISFIES:** `knowledge-class` scenario in `acceptance.feature`
+**SATISFIES:** `knowledge-class` scenario in `acceptance.feature` (pending acceptance-test-authoring)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -173,7 +178,7 @@ func TestSave_KnowledgeClassInfer(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./skillgrid-cli/internal/mnemonic/memory/... -v -run TestSave_KnowledgeClassInfer`
+Run: `cd mnemonic && go test ./internal/memory/... -v -run TestSave_KnowledgeClassInfer`
 Expected: FAIL
 
 - [ ] **Step 3: Write minimal implementation**
@@ -182,13 +187,13 @@ Add the migration and the `inferKnowledgeClass` logic in `service.go`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./skillgrid-cli/internal/mnemonic/memory/... -v`
+Run: `cd mnemonic && go test ./internal/memory/... -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/
+git add mnemonic/internal/
 git commit -m "feat(mnemonic): add knowledge class dimension to observations"
 ```
 
@@ -197,26 +202,28 @@ git commit -m "feat(mnemonic): add knowledge class dimension to observations"
 ## Task 4: PageRank-guided Embedding
 
 **Files:**
-- Modify: `skillgrid-cli/internal/mnemonic/codeindex/indexer.go`
-- Test: `skillgrid-cli/internal/mnemonic/codeindex/indexer_test.go`
+- Modify: `mnemonic/internal/codeindex/indexer.go`
+- Test: `mnemonic/internal/codeindex/indexer_test.go`
 
 **Interfaces:**
 - Produces: `--embed-top` CLI flag.
 
-**SATISFIES:** `pagerank-embed` scenario in `acceptance.feature`
+**SATISFIES:** `pagerank-embed` scenario in `acceptance.feature` (pending acceptance-test-authoring)
 
 - [ ] **Step 1: Write the failing test**
 
 ```go
-func TestIndex_EMBEDTop(t *testing.T) {
+func TestIndex_EmbedTop(t *testing.T) {
     // Index a fixture with N symbols
-    // Verify only top-centrality symbols have vectors
+    // With gate=50: assert ≤ ceil(N/2) centrality-selected code symbols embedded,
+    //   doc-bearing + recently-changed always embedded, output reports embedded/skipped counts
+    // With gate=100: assert identical vector set to ungated behavior
 }
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./skillgrid-cli/internal/mnemonic/codeindex/... -v -run TestIndex_EMBEDTop`
+Run: `cd mnemonic && go test ./internal/codeindex/... -v -run TestIndex_EmbedTop`
 Expected: FAIL
 
 - [ ] **Step 3: Write minimal implementation**
@@ -225,13 +232,13 @@ Implement centrality ranking and the embedding gate in `indexer.go`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./skillgrid-cli/internal/mnemonic/codeindex/... -v`
+Run: `cd mnemonic && go test ./internal/codeindex/... -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/codeindex/
+git add mnemonic/internal/codeindex/
 git commit -m "feat(mnemonic): add PageRank-guided embedding selection"
 ```
 
@@ -240,15 +247,15 @@ git commit -m "feat(mnemonic): add PageRank-guided embedding selection"
 ## Task 5: Confidence-gated Capture
 
 **Files:**
-- Modify: `skillgrid-cli/internal/mnemonic/secondbrain/infer.go`
-- Modify: `skillgrid-cli/internal/mnemonic/mcp/tools_memory.go`
-- Test: `skillgrid-cli/internal/mnemonic/secondbrain/capture_test.go`
+- Modify: `mnemonic/internal/secondbrain/infer.go`
+- Modify: `mnemonic/internal/mcp/tools_memory.go`
+- Test: `mnemonic/internal/secondbrain/capture_test.go`
 
 **Interfaces:**
 - Produces: `ClassifyCapture(text string) (trigger string, confidence float64)`
 - Produces: `mem_capture_suggest` MCP tool.
 
-**SATISFIES:** `confidence-capture` scenario in `acceptance.feature`
+**SATISFIES:** `confidence-capture` scenario in `acceptance.feature` (pending acceptance-test-authoring)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -261,7 +268,7 @@ func TestCaptureSuggest_HighConfidence(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./skillgrid-cli/internal/mnemonic/secondbrain/... -v -run TestCaptureSuggest_HighConfidence`
+Run: `cd mnemonic && go test ./internal/secondbrain/... -v -run TestCaptureSuggest_HighConfidence`
 Expected: FAIL
 
 - [ ] **Step 3: Write minimal implementation**
@@ -270,13 +277,13 @@ Add `ClassifyCapture` and the `mem_capture_suggest` tool registration.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./skillgrid-cli/internal/mnemonic/... -v`
+Run: `cd mnemonic && go test ./internal/... -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skillgrid-cli/internal/mnemonic/
+git add mnemonic/internal/
 git commit -m "feat(mnemonic): add confidence-gated real-time capture"
 ```
 
@@ -284,11 +291,12 @@ git commit -m "feat(mnemonic): add confidence-gated real-time capture"
 
 ## Self-Review Checklist
 
-- [ ] **Spec coverage:** All 5 features from the spec have corresponding tasks.
-- [ ] **Must-haves coverage:** Every spec requirement is mapped to a truth/artifact/link.
-- [ ] **One-way-door:** The DB migration in Task 3 is tagged.
-- [ ] **Placeholder scan:** No "TBD" or "implement later" found.
-- [ ] **Type consistency:** Signatures match across tasks.
+- [x] **Spec coverage:** All 5 features from the spec have corresponding tasks.
+- [x] **Must-haves coverage:** Every spec requirement is mapped to a truth/artifact/link. Briefing criteria 1–6 ↔ 6 truths; criterion 7 (test command) covered by Task Steps 2/4.
+- [x] **One-way-door:** The DB migration in Task 3 is tagged (+ soft backfill note).
+- [x] **Placeholder scan:** No "TBD" or "implement later" found (`00N` → `051` resolved).
+- [x] **Type consistency:** Signatures match across tasks.
+- [x] **Validation:** Critic VALIDATED-WITH-FIXES 2026-10-10, all Critical applied (paths → `mnemonic/`, commands → `cd mnemonic && go test ./internal/...`, migration `051`, Task 4 truth carve-out).
 
 ## Execution Handoff
 

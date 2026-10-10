@@ -22,12 +22,12 @@ Mnemonic's "second brain" lacks several capabilities present in `claude-os` that
     4. `mem_search` with `knowledge_class=convention` returns only convention-classed observations.
     5. `code_index` with `--embed-top 50` embeds only the top 50% of symbols by centrality.
     6. `mem_capture_suggest` with high-confidence text returns a save suggestion but does not persist it.
-    7. `go test ./skillgrid-cli/internal/mnemonic/...` passes.
+    7. `cd mnemonic && go test ./internal/...` passes.
 - **Out of scope:** Replacing existing dedup/consolidation, changing the AKL decay model, or implementing a separate KB-per-class.
 
 ## Context
 
-- **Existing flows:** The second brain is implemented in `skillgrid-cli/internal/mnemonic/`.
+- **Existing flows:** The second brain is implemented in `mnemonic/internal/` (standalone module; was `skillgrid-cli/internal/mnemonic/` pre-restructure).
 - **Files:** `secondbrain/lifecycle.go` (health/growth), `memory/service.go` (save/search), `codeindex/indexer.go` (embedding).
 - **Constraints:**
     - `per 05-locked-constraints.md`: No new dependencies without an ADR.

@@ -1,8 +1,8 @@
 schema: skillgrid/state/v1
 pipeline:
   current_phase: slicing
-  current_change: 2026-10-10-obs-split-hnsw
-  status: sliced-awaiting-execution-choice
+  current_change: 2026-10-06-second-brain-learnings
+  status: sliced-awaiting-user-gate
 progress:
   completed_changes: 26
   blocked_changes: 0

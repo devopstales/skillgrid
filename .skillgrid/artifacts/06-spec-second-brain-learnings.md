@@ -4,7 +4,7 @@ Status: DRAFT · Date: 2026-10-06 · Source: `~/git/ai-test/claude-os` (broberts
 
 ## Context
 
-We compared mnemonic's second-brain architecture against claude-os's and isolated four
+We compared mnemonic's second-brain architecture against claude-os's and isolated five
 concepts that are genuinely adoptable — i.e. things mnemonic does **not** already have and
 that improve a "second brain." This spec plans all four. It deliberately **excludes** the
 concepts where the clone and mnemonic have already converged (two-phase `lifecycle_log`
@@ -16,7 +16,7 @@ places where mnemonic already leads (AKL decay, bitemporal supersede, typed
 
 - `HealthReport` already carries `CountsByType`, `EmbeddingCoverage`, `AgeDistribution`,
   `DuplicateDensity`, and `Recommendations []HealthRecommendation{Severity, Message}` —
-  `skillgrid-cli/internal/mnemonic/secondbrain/lifecycle.go:52`. Recommendation
+  `mnemonic/internal/secondbrain/lifecycle.go:52`. Recommendation
   *generation* exists (`healthRecommendations`, `lifecycle.go:251`).
 - There is **no** time-series growth/period grouping anywhere in the memory store — the only
   `strftime` usages are `'%s'` epoch math for expiry (`memory/lifecycle.go:198`,
@@ -66,9 +66,9 @@ lacks entirely.
   `HealthReport` can surface "N added this month, total M."
 
 **Files.**
-- `skillgrid-cli/internal/mnemonic/secondbrain/lifecycle.go` — `GrowthTimeline` method +
+- `mnemonic/internal/secondbrain/lifecycle.go` — `GrowthTimeline` method +
   `growth` action branch in the `mem_lifecycle` dispatcher.
-- `skillgrid-cli/internal/mnemonic/mcp/tools_memory.go` — action enum + param docs.
+- `mnemonic/internal/mcp/tools_memory.go` — action enum + param docs.
 - Test: `secondbrain/lifecycle_test.go` (synthetic observations across 3+ periods,
   verify cumulative `total` and soft-deleted exclusion).
 
@@ -77,7 +77,7 @@ lacks entirely.
   `[{Jan, a1, a1}, {Feb, a2, a1+a2}, {Mar, a3, a1+a2+a3}]`.
 - A soft-deleted March row does not count toward March `added` nor the cumulative `total`.
 - Empty store returns `[]` (not null, not error).
-- `pnpm test` / `go test ./skillgrid-cli/internal/mnemonic/...` pass.
+- `cd mnemonic && go test ./internal/...` pass.
 
 ---
 
@@ -110,7 +110,7 @@ fail-open: on probe error `Recommendations` stays `[]` (already enforced by
 `TestLifecycle_HealthNeverThrows`).
 
 **Files.**
-- `skillgrid-cli/internal/mnemonic/secondbrain/lifecycle.go` — `healthRecommendations` rules.
+- `mnemonic/internal/secondbrain/lifecycle.go` — `healthRecommendations` rules.
 - Test: `secondbrain/lifecycle_test.go` — one case per rule, threshold-tripped and
   not-tripped; ordering stable.
 
@@ -134,7 +134,7 @@ just by type. Mnemonic has `type` (kind) and `scope` (project/user/global) but n
 **Design.**
 - New nullable column `knowledge_class` on `observations` ∈
   `episodic | convention | doc | unclassified` (default `unclassified`). Migration
-  `00N_add_knowledge_class.sql`. **Orthogonal** to `type` and `scope`.
+  `051_add_knowledge_class.sql` (051 claimed by this change; CLM 053-055 / CTX 056+ untouched). **Orthogonal** to `type` and `scope`.
 - **Backfill (heuristic, non-load-bearing):** `decision, convention, architecture, config,
   standing` → `convention`; `session_log, learning, discovery, bugfix` → `episodic`;
   everything else stays `unclassified`. Backfill is best-effort and re-runnable; a wrong
@@ -156,13 +156,13 @@ just by type. Mnemonic has `type` (kind) and `scope` (project/user/global) but n
   `knowledge_class` is additive and nullable.
 
 **Files.**
-- `skillgrid-cli/internal/mnemonic/store/migrations/00N_add_knowledge_class.sql` — column +
+- `mnemonic/internal/store/migrations/051_add_knowledge_class.sql` — column +
   index `(project, knowledge_class)`.
-- `skillgrid-cli/internal/mnemonic/memory/service.go` — Save/Update accept + infer
+- `mnemonic/internal/memory/service.go` — Save/Update accept + infer
   `knowledge_class`; backfill helper.
-- `skillgrid-cli/internal/mnemonic/memory/search_blend.go` — optional `knowledge_class`
+- `mnemonic/internal/memory/search_blend.go` — optional `knowledge_class`
   filter + per-class labeling in results.
-- `skillgrid-cli/internal/mnemonic/mcp/tools_memory.go` — param on `mem_save`/`mem_update`/
+- `mnemonic/internal/mcp/tools_memory.go` — param on `mem_save`/`mem_update`/
   `mem_search`.
 - ADR: `04-adr-002X-knowledge-class-dimension.md` (additive durability dimension; why not a
   KB-per-class; backfill is advisory).
@@ -175,7 +175,7 @@ just by type. Mnemonic has `type` (kind) and `scope` (project/user/global) but n
   session_log→episodic) and never fails.
 - All prior `mem_search` results unchanged when no `knowledge_class` filter is passed
   (additive, zero behavior change for existing callers).
-- `pnpm typecheck` + `pnpm test` pass.
+- `cd mnemonic && go test ./internal/...` pass.
 
 ---
 
@@ -206,9 +206,9 @@ eagerly (`codeindex/indexer.go:515`) with no centrality gate.
   graph already exposes. Not a change to FTS5/lexical retrieval (unaffected).
 
 **Files.**
-- `skillgrid-cli/internal/mnemonic/codeindex/indexer.go` — centrality ranking + embed gate
+- `mnemonic/internal/codeindex/indexer.go` — centrality ranking + embed gate
   in the eager pass.
-- `skillgrid-cli/internal/mnemonic/codeindex/graph_index.go` (or existing graph builder) —
+- `mnemonic/internal/codeindex/graph.go` (existing graph builder; there is no `graph_index.go` on disk) —
   expose degree/PageRank per symbol.
 - `codeindex/symbol_embeddings.go` — apply the gate when writing vectors.
 - Test: `codeindex/eager_embed_test.go` — with gate=50, only top-centrality symbols get
@@ -220,7 +220,7 @@ eagerly (`codeindex/indexer.go:515`) with no centrality gate.
 - Gate at 100 (default) produces the identical set of vectors as today (no regression).
 - A symbol skipped by the gate has a NULL vector and its lookup degrades, not errors.
 - Index output reports the embedded/skipped counts.
-- `go test ./skillgrid-cli/internal/mnemonic/codeindex/...` passes.
+- `go test ./mnemonic/internal/codeindex/...` passes.
 
 ---
 
@@ -252,9 +252,9 @@ prompt-gate. This adds a *filter*, not a replacement — the agent still leads.
   primary capture authority; this is an optional deterministic gate the agent may consult.
 
 **Files.**
-- `skillgrid-cli/internal/mnemonic/secondbrain/infer.go` (or new `capture.go`) —
+- `mnemonic/internal/secondbrain/infer.go` (or new `capture.go`) —
   `ClassifyCapture` + threshold.
-- `skillgrid-cli/internal/mnemonic/mcp/tools_memory.go` — `mem_capture_suggest` tool +
+- `mnemonic/internal/mcp/tools_memory.go` — `mem_capture_suggest` tool +
   registration in the tool table (`tools_memory.go:37`).
 - Test: `secondbrain/capture_test.go` — each trigger pattern at high/low confidence;
   suggest-then-save flow; below-threshold returns no suggestion; no row written by suggest.
@@ -266,7 +266,7 @@ prompt-gate. This adds a *filter*, not a replacement — the agent still leads.
 - After the agent confirms with `mem_save`, exactly one observation exists, with the
   suggested `knowledge_class`.
 - `mem_capture_suggest` is idempotent in that it never writes (repeated calls, same result).
-- `go test ./skillgrid-cli/internal/mnemonic/...` passes.
+- `go test ./mnemonic/internal/...` passes.
 
 ---
 
@@ -280,8 +280,7 @@ prompt-gate. This adds a *filter*, not a replacement — the agent still leads.
   `strftime` only for date bucketing; WAL-locked opens retried with backoff.
 - **No new DB:** all five features ride the existing per-project SQLite file; only one new
   nullable column (Feature 3) and one optional index.
-- **Testing:** TDD — each feature ships with the listed tests red-then-green; `pnpm test`,
-  `pnpm lint`, `pnpm typecheck` before completion.
+- **Testing:** TDD — each feature ships with the listed tests red-then-green; `cd mnemonic && go test ./internal/...` before completion.
 
 ## Suggested order (dependency-aware)
 
