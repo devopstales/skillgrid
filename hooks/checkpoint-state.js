@@ -8,9 +8,12 @@
 // rebinds the shims to its binary; the subcommand contract stays stable.
 //
 // Subcommands:
-//   guard        pre-commit guards (delegates to precommit-guard.js)
-//   guard-msg    validate a commit message file (conventional + no Co-Authored-By)
-//   post-check   post-commit deletion check (delegates to precommit-guard.js)
+//   guard            pre-commit guards (delegates to precommit-guard.js)
+//   guard-msg        validate a commit message file (conventional + no Co-Authored-By + tracker footer format)
+//   prepare-msg      prepare-commit-msg injector: append `Refs: <id>` from SKILLGRID_TRACKER_REF (no-op otherwise, never blocks)
+//   pre-push         validate Refs/Closes footers on outgoing commits (blocks only malformed Closes)
+//   post-merge-check post-merge tracker consistency (advisory, never blocks)
+//   post-check       post-commit deletion check (delegates to precommit-guard.js)
 //
 // (The snapshot/restore subcommands were removed in the session-events-layer
 // consolidation: the durable record is the commit's [skillgrid-context] block
@@ -42,6 +45,8 @@ function cmdGuard() {
   let rc = runJs(GUARD, 'guard'); // cwd-drift + protected-ref/detached
   if (rc !== 0) return process.exit(rc);
   rc = runJs(path.join(SCRIPT_DIR, 'precommit-zone-guard.js'));
+  if (rc !== 0) return process.exit(rc);
+  rc = runJs(path.join(SCRIPT_DIR, 'ticketing-guard.js')); // staged tracker files carry type/references/DoD
   if (rc !== 0) return process.exit(rc);
   rc = runJs(path.join(SCRIPT_DIR, 'precommit-ignore-guard.js'));
   if (rc !== 0) return process.exit(rc);
@@ -90,6 +95,45 @@ function cmdGuardMsg() {
     process.stderr.write('RECOVERY: remove the trailer line and re-stage the commit message.\n');
     process.exit(1);
   }
+
+  // Tracker footers (Refs:/Closes: from the ticketing lifecycle) are optional
+  // but must reference a parseable Tracker ID when present. Absence passes.
+  const ticketing = require('./ticketing');
+  const bad = ticketing.invalidFooters(text);
+  if (bad.length > 0) {
+    process.stderr.write('FATAL: commit message has tracker footer(s) with no parseable Tracker ID.\n');
+    for (const f of bad) process.stderr.write(`    - ${f.keyword}: ${f.value}\n`);
+    process.stderr.write('  Expected an ID like TASK-069 (backlog), #42 (gh/glab), or PROJ-123 (jira).\n');
+    process.stderr.write('RECOVERY: fix the footer, or drop it when the commit needs no tracker link.\n');
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+// prepare-msg appends `Refs: <id>` from SKILLGRID_TRACKER_REF (exported by the
+// agent from the active tasks.md Tracker ID) when the message has no tracker
+// footer yet. No env, no-op. Never blocks: always exits 0.
+function cmdPrepareMsg() {
+  const msgFile = REST[0] || '';
+  const ref = (process.env.SKILLGRID_TRACKER_REF || '').trim();
+  if (!msgFile || !ref || !fs.existsSync(msgFile)) process.exit(0);
+  const ticketing = require('./ticketing');
+  const text = fs.readFileSync(msgFile, 'utf8');
+  if (ticketing.parseFooters(text).length > 0) process.exit(0);
+  const sep = text.endsWith('\n') ? '' : '\n';
+  fs.writeFileSync(msgFile, `${text}${sep}\nRefs: ${ref}\n`);
+  process.exit(0);
+}
+
+function cmdPrePush() {
+  const rc = runJs(path.join(SCRIPT_DIR, 'ticketing-pre-push.js'), ...REST);
+  process.exit(rc === null ? 0 : rc);
+}
+
+// post-merge-check is advisory by construction (ticketing-post-merge.js always
+// exits 0); the `|| true` belt holds if node itself fails to spawn.
+function cmdPostMergeCheck() {
+  runJs(path.join(SCRIPT_DIR, 'ticketing-post-merge.js'), ...REST);
   process.exit(0);
 }
 
@@ -100,10 +144,19 @@ switch (SUBCMD) {
   case 'guard-msg':
     cmdGuardMsg();
     break;
+  case 'prepare-msg':
+    cmdPrepareMsg();
+    break;
+  case 'pre-push':
+    cmdPrePush();
+    break;
+  case 'post-merge-check':
+    cmdPostMergeCheck();
+    break;
   case 'post-check':
     cmdPostCheck();
     break;
   default:
-    process.stderr.write(`unknown subcommand: ${SUBCMD} (expected guard|guard-msg|post-check)\n`);
+    process.stderr.write(`unknown subcommand: ${SUBCMD} (expected guard|guard-msg|prepare-msg|pre-push|post-merge-check|post-check)\n`);
     process.exit(2);
 }
