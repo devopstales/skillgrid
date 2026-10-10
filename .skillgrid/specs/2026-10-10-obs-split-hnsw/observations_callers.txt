@@ -1,0 +1,65 @@
+# Observations caller audit (TICKET-01, SATISFIES hnsw-recall-latency door check)
+# Generated: 2026-10-10, branch release/2
+# Command (repo root): rg -n 'FROM observations' mnemonic/internal/memory --glob '!*_test.go' --no-heading | sort
+# Scope: production (non-test) read/write sites touching the `observations` god-table.
+# Purpose: R2 split guard — every site below must keep its bitemporal
+# (invalid_at / superseded_by) filter when the table splits behind the compat view.
+# Sites: 58 (requirement: 7+ read sites).
+mnemonic/internal/memory/crosslink.go:32:		FROM observations o
+mnemonic/internal/memory/crosslink.go:70:		FROM observations o
+mnemonic/internal/memory/dream.go:346:		FROM observations
+mnemonic/internal/memory/dream_rollback.go:247:		DELETE FROM observations
+mnemonic/internal/memory/dream_rollback.go:65:		FROM observations
+mnemonic/internal/memory/export.go:97:		FROM observations o
+mnemonic/internal/memory/governance.go:150:		SELECT content FROM observations
+mnemonic/internal/memory/governance.go:185:		SELECT COALESCE(revision_count,0) FROM observations
+mnemonic/internal/memory/governance.go:288:		FROM observations WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+mnemonic/internal/memory/governance.go:359:		FROM observations WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+mnemonic/internal/memory/governance.go:461:		FROM observations o
+mnemonic/internal/memory/governance.go:509:		FROM observations o
+mnemonic/internal/memory/governance.go:94:		SELECT visibility FROM observations
+mnemonic/internal/memory/handoff.go:282:		FROM observations
+mnemonic/internal/memory/hub.go:428:		FROM observations o
+mnemonic/internal/memory/importance.go:276:		`SELECT maturity_tier FROM observations WHERE id = ?`, id,
+mnemonic/internal/memory/importance.go:307:		FROM observations
+mnemonic/internal/memory/layer/layers.go:103:				SELECT title, content FROM observations
+mnemonic/internal/memory/lifecycle.go:202:		SELECT COUNT(*) FROM observations
+mnemonic/internal/memory/lifecycle.go:65:		SELECT pinned FROM observations WHERE id = ? AND project = ?`,
+mnemonic/internal/memory/observation_relations.go:144:		SELECT title FROM observations
+mnemonic/internal/memory/provenance.go:69:		SELECT provenance FROM observations
+mnemonic/internal/memory/relations.go:215:		SELECT COUNT(*) FROM observations
+mnemonic/internal/memory/retrieval.go:277:		FROM observations o
+mnemonic/internal/memory/retrieval.go:377:		FROM observations o
+mnemonic/internal/memory/retrieval.go:459:		SELECT COUNT(*) FROM observations
+mnemonic/internal/memory/retrieval.go:474:		SELECT embedding FROM observations WHERE id = ? AND project = ?`,
+mnemonic/internal/memory/review_cycle.go:37:		FROM observations
+mnemonic/internal/memory/search_blend.go:275:		FROM observations o
+mnemonic/internal/memory/search_embed.go:72:		FROM observations
+mnemonic/internal/memory/service.go:1053:		FROM observations
+mnemonic/internal/memory/service.go:1079:		FROM observations
+mnemonic/internal/memory/service.go:1115:		FROM observations
+mnemonic/internal/memory/service.go:1136:		FROM observations
+mnemonic/internal/memory/service.go:1639:		SELECT COUNT(*) FROM observations
+mnemonic/internal/memory/service.go:1661:		SELECT type, COUNT(*) FROM observations
+mnemonic/internal/memory/service.go:1682:		SELECT MIN(created_at), MAX(created_at) FROM observations
+mnemonic/internal/memory/service.go:2085:		`SELECT created_at FROM observations WHERE project = ? AND deleted_at IS NULL
+mnemonic/internal/memory/service.go:2186:		FROM observations
+mnemonic/internal/memory/service.go:2519:		FROM observations o
+mnemonic/internal/memory/service.go:568:		SELECT id FROM observations
+mnemonic/internal/memory/service.go:618:			SELECT id FROM observations
+mnemonic/internal/memory/service.go:771:		FROM observations
+mnemonic/internal/memory/service.go:996:		FROM observations o
+mnemonic/internal/memory/session_promotion.go:255:		SELECT id FROM observations
+mnemonic/internal/memory/session_promotion.go:292:		SELECT id FROM observations
+mnemonic/internal/memory/skills.go:130:		FROM observations
+mnemonic/internal/memory/snapshots.go:111:	FROM observations
+mnemonic/internal/memory/snapshots.go:390:	q := `DELETE FROM observations WHERE project = ?`
+mnemonic/internal/memory/timeline_update.go:130:			DELETE FROM observations WHERE id = ? AND project = ?`,
+mnemonic/internal/memory/timeline_update.go:179:		SELECT created_at FROM observations
+mnemonic/internal/memory/timeline_update.go:224:		FROM observations ` + where + `
+mnemonic/internal/memory/timeline_update.go:57:			SELECT title, content, type FROM observations
+mnemonic/internal/memory/timeline_update.go:86:			SELECT COALESCE(revision_count,0) FROM observations
+mnemonic/internal/memory/types.go:112:		SELECT content FROM observations
+mnemonic/internal/memory/types.go:142:			`SELECT COUNT(*) FROM observations WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+mnemonic/internal/memory/types.go:151:		`SELECT id FROM observations WHERE project = ? AND deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 1`,
+mnemonic/internal/memory/types.go:334:		SELECT id FROM observations
