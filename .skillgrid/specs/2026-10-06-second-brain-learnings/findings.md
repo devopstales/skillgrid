@@ -29,3 +29,34 @@
 
 - Items 1–2 → spec Feature 5 § Confidence-gated capture + Feature 3 § Durability (amended 2026-10-10, additive only; gates G3/G4/G6 unchanged).
 - Items 3–6 → follow-up change candidate (not sliced, not ticketed).
+- Repocodex items 1–7 below → ALL follow-up (current 5 tickets frozen; no blueprint/task deltas).
+
+## Research: repocodex (2026-10-10)
+
+**Sources:** `github.com/azaylamba/repocodex` (README, `docs/agents.md`, `docs/how-it-works.md`, `docs/memory.md` OKF v0.2 consumer guide) + live usage in `/data/git/AI/test-project` (`.repocodex.toml`: `engine_version 0.0.2`, `posture = "shadow"`, no `.context/` bundle yet — adoption playground). Docs + config only; no code executed.
+
+**What it is:** Git-native "why next to code" with a pin check. Concepts (`TechnicalDecision`/`InvariantContract`/`BusinessWorkflow`/`GuardrailDecision`, one per why, orthogonal types) live in an OKF bundle at `.context/` beside the code. Each pins live text via `verification.anchors` (`path` + `all_of` terms, optional `near`) and checkable `claims` literals. CLI over ripgrep+git: `repocodex context <paths>` (retrieve why before edit, file-keyed via generated reverse index at `.repocodex/reverse-index.md`) + `repocodex validate --diff` (`LIVE / WEAK / WRITE + skipped_memory / REANCHOR / RECONCILE+DRIFT / CLAIM_BROKEN`). Pre-commit hook + CI + agent skills enforce the loop; `memory-exempt` is the governed hotfix override. Python 3.11+, requires `rg` on PATH.
+
+**Core insight for our problem:** freshness as content-based attestation, not time-based expiry. An ADR is stale when its anchors break, not 7 days after writing — obsoletes the TTL mindset behind D17 (ingest rows expiring) and the re-crawl instinct. Don't crawl for learnings after the fact; record at the point of change and prove liveness continuously.
+
+### Transferable mechanisms (ranked; ALL follow-up — current 5 tickets frozen)
+
+1. **Anchor liveness for ADRs.** Optional `verification:` frontmatter (anchors + claims) on `artifacts/04-adr-*.md` + a check beside the drift guards re-running anchors (`LIVE/DRIFT/CLAIM_BROKEN`). New third guard: spec-zone drift, structure drift, *knowledge liveness*. Land WARNING-only first.
+2. **File-path-keyed why retrieval.** Deterministic "which decisions pin these files" lookup (reverse-index shape) next to `ctx_query`/`code_search`: ingest anchored concepts as observations with file-path metadata. Fixes the probabilistic-miss failure mode (same one pi-hermes-memory's standing-instructions names).
+3. **Knowledge-coverage ratchet (the structural fix for "how does it learn").** `WRITE` + `skipped_memory` when a substantive edit touches an uncovered file; turn cannot finish until a pinning concept lands in the same change. Ours already owns the cousins (spec zone, zone guard, ship drift check = anticipated-files→diff); this is the reverse (diff-paths→knowledge-coverage). Land in `qa`/pre-commit as WARNING first.
+4. **Why-change protocol.** Intent change requires `supersedes` + `rationale` in the same change — completes our ADR IRON RULE + bitemporal chain (ADR-0011); adopt the `rationale` requirement explicitly.
+5. **Unanchored pages are still knowledge.** No-`verification` concepts load, just don't arm the pin check. Vocabulary for reports/retrospectives: process learnings first-class without anchors; conventions carry pins. Maps onto `knowledge_class` (episodic vs convention); legitimizes `reflect` → `06-research-findings.md` as designed.
+6. **Shadow posture for every new gate.** Every liveness/coverage check lands as `qa` WARNING / `WINDOWS.md` entry before ever blocking (matches fail-open; mirrors test-project `posture = "shadow"`). Borrow `memory-exempt` shape for hotfixes (our fast-track waiver is the same; add one-command repair flow).
+7. **Git-native journal + paired commits.** Append-only decision journal (their `.context/log.md` grouped by date) + "concept + reverse index ship in one commit, desync fails" — extend our `[skillgrid-context]` commit discipline to concept+index pairs.
+
+### Explicitly NOT borrowed
+
+- Storage layout (`.context/` OKF bundle) — our SQLite SoT (ADR-0012) and `.skillgrid/` zones stand. Mechanisms only.
+- Distribution already matches (their MCP + installed skills ≈ our Hub Content via `install`); imitate their skill copy "follow that skill; do not invent a substitute".
+
+### Proposed shape (recap, for the follow-up change)
+
+- Keep init ingest (bootstrap) + fix D17/D18 (`ExpiresAt` far-future, stable `Owner`).
+- Add anchor liveness (1) + file-path retrieval (2): prove freshness, find decisions deterministically.
+- Add coverage ratchet (3) in shadow mode: learn at write time, no crawler.
+- Reports stay unanchored knowledge via `reflect` (5).
