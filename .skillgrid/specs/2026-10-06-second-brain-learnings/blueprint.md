@@ -263,6 +263,8 @@ git commit -m "feat(mnemonic): add PageRank-guided embedding selection"
 func TestCaptureSuggest_HighConfidence(t *testing.T) {
     // Call suggest with "We're switching from X to Y"
     // Verify suggested:true and NO DB row created
+    // Strong pattern ("don't do that") fires; weak ("no") + directive ("use X") fires;
+    // weak alone does not; negative ("no worries") suppresses
 }
 ```
 
@@ -273,7 +275,7 @@ Expected: FAIL
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add `ClassifyCapture` and the `mem_capture_suggest` tool registration.
+Add `ClassifyCapture` (two-pass structure per spec: strong patterns always fire; weak patterns require a directive word; negative patterns suppress; sets user-overridable via config) and the `mem_capture_suggest` tool registration.
 
 - [ ] **Step 4: Run test to verify it passes**
 

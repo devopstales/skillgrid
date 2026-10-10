@@ -66,6 +66,8 @@ Feature: Second-Brain Learnings (growth, health, knowledge-class, embed gate, ca
     When I call mem_capture_suggest with "We're switching from Bootstrap to Tailwind"
     Then trigger switching is returned with confidence at least 0.75 and suggested true with a draft
     And no observation row is created by the suggest call
+    And a strong correction ("don't do that") is suggested while weak alone ("no") is not and weak with directive ("no, use pnpm") is
+    And a negative phrase ("no worries") suppresses the suggestion
     When I call mem_capture_suggest with "hey what's up"
     Then suggested false is returned and no row is created
     And after the agent confirms with mem_save exactly one observation exists with the suggested knowledge_class

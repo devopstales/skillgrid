@@ -166,6 +166,10 @@ just by type. Mnemonic has `type` (kind) and `scope` (project/user/global) but n
   `mem_search`.
 - ADR: `04-adr-002X-knowledge-class-dimension.md` (additive durability dimension; why not a
   KB-per-class; backfill is advisory).
+- **Borrow under consideration (pi-hermes-memory research 2026-10-10):** `tool-quirk`
+  class + `failure_reason` field on failure writes. Open micro-decision for implementation:
+  default keeps the 4 classes; add `tool-quirk` only if a test demands it. See
+  `specs/2026-10-06-second-brain-learnings/findings.md`.
 - Tests: migration up/backfill, save-infer, search filter, result labeling.
 
 **Acceptance.**
@@ -237,6 +241,13 @@ prompt-gate. This adds a *filter*, not a replacement — the agent still leads.
   `now_using`, `implement_change`, `performance_issue`, `bug_fixed`,
   `architecture_change`, `rejected_idea`, `edge_case`. Confidence is a deterministic score
   (keyword strength + phrase position), **not** LLM — keeps it cheap and testable.
+- **Correction-detector structure (adopted 2026-10-10 from pi-hermes-memory
+  `src/handlers/correction-detector.ts`):** two-pass filter — **strong** patterns
+  ("don't do that", "I said") always fire; **weak** patterns ("no", "wrong") fire only
+  with a **directive word** (`use/do/change/...`, checked over the message remainder);
+  **negative** patterns ("no worries", "no problem") suppress even on strong/weak match.
+  Pattern sets are user-overridable via config (strong/weak/negative + directive words).
+  The 0.75 default threshold is retained as the weak-pattern confidence floor.
 - New tool `mem_capture_suggest(text)`: runs the classifier; if `confidence >= threshold`
   (default 0.75) it returns a *suggested* save (type + draft title + `knowledge_class` from
   Feature 3) **without** persisting — the agent (or user) confirms by calling `mem_save`.
@@ -257,7 +268,8 @@ prompt-gate. This adds a *filter*, not a replacement — the agent still leads.
 - `mnemonic/internal/mcp/tools_memory.go` — `mem_capture_suggest` tool +
   registration in the tool table (`tools_memory.go:37`).
 - Test: `secondbrain/capture_test.go` — each trigger pattern at high/low confidence;
-  suggest-then-save flow; below-threshold returns no suggestion; no row written by suggest.
+  strong-pattern fires, weak-with-directive fires, weak-alone does not, negative
+  suppresses; suggest-then-save flow; below-threshold returns no suggestion; no row written by suggest.
 
 **Acceptance.**
 - `"We're switching from Bootstrap to Tailwind"` → trigger `switching`, confidence ≥ 0.75,
