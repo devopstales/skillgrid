@@ -17,12 +17,12 @@ Split the `observations` god-table into core + 5 side tables behind a compat vie
 | 400-line budget risk | High |
 | Chained PRs recommended | Yes |
 | Suggested split | PR 1 (TICKET-01 bench+audit) → PR 2 (TICKET-02+03 split+migrate callers) → PR 3 (TICKET-04+05+06 ANN+namespaces) |
-| Delivery strategy | ask-on-risk |
-| Chain strategy | pending |
+| Delivery strategy | exception-ok |
+| Chain strategy | size:exception (maintainer-approved single PR, 2026-10-10) |
 
-Decision needed before apply: Yes
+Decision needed before apply: No
 Chained PRs recommended: Yes
-Chain strategy: pending
+Chain strategy: size:exception
 400-line budget risk: High
 
 ### Suggested Work Units
