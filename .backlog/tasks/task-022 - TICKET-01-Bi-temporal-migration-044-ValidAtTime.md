@@ -4,9 +4,10 @@ title: 'TICKET-01: Bi-temporal migration 044 + ValidAtTime'
 status: done
 assignee: []
 created_date: '2026-10-01 18:15'
-updated_date: '2026-10-01 20:11'
+updated_date: '2026-10-11 15:47'
 labels:
   - bitemporal-audn
+milestone: m-10
 dependencies: []
 references:
   - .skillgrid/specs/2026-09-24-bitemporal-audn/briefing.md
