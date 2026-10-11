@@ -547,7 +547,7 @@ func splitSQLStatements(s string) []string {
 					j++
 				}
 				if j < len(s) && s[j] == ';' {
-					cur.WriteString(s[i:j+1])
+					cur.WriteString(s[i : j+1])
 					i = j
 				} else {
 					// bare END (001 writes a newline then END on its own line)

@@ -120,8 +120,8 @@ case_workspace() {
   local top
   top=$(cd "$WORK/ws" && git rev-parse --show-toplevel)
   case "$da" in
-    "$top/.skillgrid/sdd/plan-a") PASS=$((PASS + 1)); RESULTS+=("PASS  workspace: dir is <root>/.skillgrid/sdd/<slug>") ;;
-    *) FAIL=$((FAIL + 1)); RESULTS+=("FAIL  workspace: dir is <root>/.skillgrid/sdd/<slug> (got $da)") ;;
+    "$top/.skillgrid/sdd/2026-09-21-alpha") PASS=$((PASS + 1)); RESULTS+=("PASS  workspace: dir is <root>/.skillgrid/sdd/<spec-folder>") ;;
+    *) FAIL=$((FAIL + 1)); RESULTS+=("FAIL  workspace: dir is <root>/.skillgrid/sdd/<spec-folder> (got $da)") ;;
   esac
 
   if [ -d "$da" ] && [ -d "$db" ]; then
@@ -189,11 +189,11 @@ case_brief() {
   ( cd "$WORK/brief" && bash "$BRIEF" .skillgrid/specs/2026-09-21-alpha/plan-a.md 1 >/dev/null 2>&1 )
   expect_rc "task-brief: existing task exits 0" 0 "$?"
   expect_file "task-brief: default outfile lands in plan A's dir" \
-    "$WORK/brief/.skillgrid/sdd/plan-a/task-1-brief.md"
+    "$WORK/brief/.skillgrid/sdd/2026-09-21-alpha/task-1-brief.md"
 
-  if grep -q "Do the first thing" "$WORK/brief/.skillgrid/sdd/plan-a/task-1-brief.md" \
-    && grep -q "fake heading inside a fence" "$WORK/brief/.skillgrid/sdd/plan-a/task-1-brief.md" \
-    && ! grep -q "Do the second thing" "$WORK/brief/.skillgrid/sdd/plan-a/task-1-brief.md"; then
+  if grep -q "Do the first thing" "$WORK/brief/.skillgrid/sdd/2026-09-21-alpha/task-1-brief.md" \
+    && grep -q "fake heading inside a fence" "$WORK/brief/.skillgrid/sdd/2026-09-21-alpha/task-1-brief.md" \
+    && ! grep -q "Do the second thing" "$WORK/brief/.skillgrid/sdd/2026-09-21-alpha/task-1-brief.md"; then
     PASS=$((PASS + 1)); RESULTS+=("PASS  task-brief: extracts only Task 1, fence-aware")
   else
     FAIL=$((FAIL + 1)); RESULTS+=("FAIL  task-brief: extracts only Task 1, fence-aware")
@@ -202,8 +202,8 @@ case_brief() {
   # plan B's brief must not leak into plan A's dir
   ( cd "$WORK/brief" && bash "$BRIEF" .skillgrid/specs/2026-09-21-beta/plan-b.md 2 >/dev/null 2>&1 )
   expect_rc "task-brief: plan B task exits 0" 0 "$?"
-  if [ -f "$WORK/brief/.skillgrid/sdd/plan-b/task-2-brief.md" ] \
-    && [ ! -f "$WORK/brief/.skillgrid/sdd/plan-a/task-2-brief.md" ]; then
+  if [ -f "$WORK/brief/.skillgrid/sdd/2026-09-21-beta/task-2-brief.md" ] \
+    && [ ! -f "$WORK/brief/.skillgrid/sdd/2026-09-21-alpha/task-2-brief.md" ]; then
     PASS=$((PASS + 1)); RESULTS+=("PASS  task-brief: plan B brief stays in plan B dir")
   else
     FAIL=$((FAIL + 1)); RESULTS+=("FAIL  task-brief: plan B brief stays in plan B dir")
@@ -232,7 +232,7 @@ case_review() {
   local short_base short_head want
   short_base=$(cd "$WORK/review" && git rev-parse --short "$base")
   short_head=$(cd "$WORK/review" && git rev-parse --short "$head")
-  want="$WORK/review/.skillgrid/sdd/plan-a/review-${short_base}..${short_head}.diff"
+  want="$WORK/review/.skillgrid/sdd/2026-09-21-alpha/review-${short_base}..${short_head}.diff"
   expect_file "review-package: default outfile lands in plan's dir" "$want"
 
   if grep -q "## Commits" "$want" && grep -q "## Files changed" "$want" \
