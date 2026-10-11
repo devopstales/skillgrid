@@ -250,38 +250,101 @@ func (s *Service) sessionPseudoFileID(ctx context.Context, sessionID, now string
 // content so the FTS update trigger reindexes the node with the latest summary.
 func (s *Service) upsertPromotedObservation(ctx context.Context, sessionID, title, content, now string) (int64, error) {
 	db := s.store.DB
+	// Read the live split tables (not the compat VIEW) so the dedup lookup is
+	// a real point query and the id it returns is authoritative.
 	var existingID int64
 	err := db.QueryRowContext(ctx, `
-		SELECT id FROM observations
-		WHERE project = ? AND type = 'session_log' AND title = ?
-		  AND deleted_at IS NULL
-		ORDER BY id LIMIT 1`,
+		SELECT c.id FROM observations_core c
+		WHERE c.project = ? AND c.type = 'session_log' AND c.title = ?
+		  AND c.deleted_at IS NULL
+		ORDER BY c.id LIMIT 1`,
 		s.projectID, title,
 	).Scan(&existingID)
 	if err == nil {
+		// Touch the existing node in place: content (core), last_seen_at
+		// (stats), updated_at (core). The INSTEAD OF UPDATE trigger would do
+		// the same fan-out but reports RowsAffected 0 through the view, and a
+		// direct split write is the owned path (TICKET-03). content is an FTS
+		// column, so the index is re-synced by explicit values.
+		var oldContent string
+		if err := db.QueryRowContext(ctx, `
+			SELECT content FROM observations_core WHERE id = ?`, existingID).Scan(&oldContent); err != nil {
+			return 0, fmt.Errorf("load promoted content: %w", err)
+		}
 		if _, err := db.ExecContext(ctx, `
-			UPDATE observations SET content = ?, last_seen_at = ?, updated_at = ? WHERE id = ?`,
-			content, now, now, existingID); err != nil {
+			UPDATE observations_core SET content = ?, updated_at = ? WHERE id = ?`,
+			content, now, existingID); err != nil {
 			return 0, fmt.Errorf("touch promoted observation: %w", err)
+		}
+		if _, err := db.ExecContext(ctx, `
+			UPDATE observation_stats SET last_seen_at = ? WHERE observation_id = ?`,
+			now, existingID); err != nil {
+			return 0, fmt.Errorf("touch promoted observation: %w", err)
+		}
+		if err := ftsReplaceObs(ctx, db, existingID, title, oldContent, "session_log", title, content, "session_log", s.projectID); err != nil {
+			return 0, err
 		}
 		return existingID, nil
 	}
 	if err != sql.ErrNoRows {
 		return 0, fmt.Errorf("dedup lookup promoted observation: %w", err)
 	}
+	// Fresh node: a single core INSERT (a real table, so LastInsertId is exact)
+	// plus the side rows the view trigger would have fanned out, and the FTS
+	// entry maintained by explicit values (TICKET-03 owned write path). The
+	// INSTEAD OF INSERT trigger leaves LastInsertId stale through the view, so
+	// the promotion path writes the split tables directly.
 	res, err := db.ExecContext(ctx, `
-		INSERT INTO observations (
+		INSERT INTO observations_core (
 			session_id, type, title, content, project, scope, topic_key,
-			normalized_hash, revision_count, created_at, updated_at, source, prompt_id, tool_name,
-			owner, visibility, status, retrieval_usage, expires_at
-		) VALUES (?, 'session_log', ?, ?, ?, ?, ?, ?, 0, ?, ?, 'session_promotion', NULL, NULL, ?, 'private', 'active', 0, NULL)`,
-		sessionID, title, content, s.projectID, "", nullString("session:"+sessionID),
-		normalizedHash(title, content, "session_log"), now, now, sessionID,
+			normalized_hash, revision_count, created_at, updated_at, deleted_at
+		) VALUES (?, 'session_log', ?, ?, ?, 'project', ?, ?, 0, ?, ?, NULL)`,
+		sessionID, title, content, s.projectID, nullString("session:"+sessionID),
+		normalizedHash(title, content, "session_log"), now, now,
 	)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO observation_state (
+			observation_id, status, visibility, archived_at, archive_reason,
+			review_after, expires_at, pinned
+		) VALUES (?, 'active', 'private', NULL, NULL, NULL, NULL, 0)`, id); err != nil {
+		return 0, err
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO observation_provenance (
+			observation_id, source, prompt_id, tool_name, provenance,
+			owner, memory_type, graph_ref
+		) VALUES (?, 'session_promotion', NULL, NULL, NULL, ?, NULL, NULL)`,
+		id, sessionID); err != nil {
+		return 0, err
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO observation_stats (
+			observation_id, duplicate_count, last_seen_at, retrieval_usage,
+			importance_score, recency_decay, maturity_tier, risk_score
+		) VALUES (?, 0, NULL, 0, 0, 1, 'fresh', NULL)`, id); err != nil {
+		return 0, err
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO observation_temporal (observation_id, valid_at, invalid_at, superseded_by)
+		VALUES (?, ?, NULL, NULL)`, id, now); err != nil {
+		return 0, err
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO observation_vectors (observation_id, embedding, embedding_model, embedding_created_at)
+		VALUES (?, NULL, NULL, NULL)`, id); err != nil {
+		return 0, err
+	}
+	if err := ftsInsertObs(ctx, db, id, title, content, "session_log", s.projectID); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // sessionObservationIDs lists the live observation ids of the session,

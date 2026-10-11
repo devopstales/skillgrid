@@ -65,10 +65,13 @@ type obsExecer interface {
 }
 
 // ftsInsertObs mirrors the legacy observations_fts_insert trigger for one
-// directly-written row.
+// directly-written row. INSERT OR REPLACE makes it idempotent: the 059
+// migration rebuilds the index from observations_core, so a row already has a
+// FTS entry when a caller re-syncs it — a plain INSERT would collide on the
+// rowid and fail.
 func ftsInsertObs(ctx context.Context, x obsExecer, id int64, title, content, typ, project string) error {
 	_, err := x.ExecContext(ctx, `
-		INSERT INTO observations_fts(rowid, title, content, type, project)
+		INSERT OR REPLACE INTO observations_fts(rowid, title, content, type, project)
 		VALUES (?, ?, ?, ?, ?)`,
 		id, title, content, typ, project,
 	)
@@ -78,26 +81,39 @@ func ftsInsertObs(ctx context.Context, x obsExecer, id int64, title, content, ty
 	return nil
 }
 
-// ftsDeleteObs mirrors the legacy observations_fts_delete trigger: the old
-// column values must be passed (FTS5 deletes by indexed terms).
+// ftsDeleteObs removes observation id's row from observations_fts.
+//
+// observations_fts is a STANDALONE FTS5 table (migration 059): it no longer
+// has a content table to reconcile a 'delete' command against, and the
+// modernc.org/sqlite driver does not support the FTS5 'delete' command on a
+// standalone table (it returns "SQL logic error"). The driver-supported way to
+// remove a row is the 'rebuild' command, which reconstructs the whole index
+// from the table's own rows. A standalone FTS5 table's rows persist until a
+// DELETE statement removes them, so: delete the row, then rebuild — the
+// rebuilt index excludes the removed row. (rebuild is O(index); these writes
+// are low-frequency governance ops, not the hot search path.)
 func ftsDeleteObs(ctx context.Context, x obsExecer, id int64, title, content, typ, project string) error {
-	_, err := x.ExecContext(ctx, `
-		INSERT INTO observations_fts(observations_fts, rowid, title, content, type, project)
-		VALUES ('delete', ?, ?, ?, ?, ?)`,
-		id, title, content, typ, project,
-	)
-	if err != nil {
+	if _, err := x.ExecContext(ctx, `DELETE FROM observations_fts WHERE rowid = ?`, id); err != nil {
 		return fmt.Errorf("fts delete %d: %w", id, err)
+	}
+	if _, err := x.ExecContext(ctx, `
+		INSERT INTO observations_fts(observations_fts) VALUES ('rebuild')`); err != nil {
+		return fmt.Errorf("fts rebuild %d: %w", id, err)
 	}
 	return nil
 }
 
-// ftsReplaceObs mirrors the legacy observations_fts_update trigger.
+// ftsReplaceObs mirrors the legacy observations_fts_update trigger. The row is
+// updated in place (delete old terms + insert new terms, one command) — a
+// standalone table's rows are owned by the table, so no rebuild is needed.
 func ftsReplaceObs(ctx context.Context, x obsExecer, id int64, oldTitle, oldContent, oldType, newTitle, newContent, newType, project string) error {
-	if err := ftsDeleteObs(ctx, x, id, oldTitle, oldContent, oldType, project); err != nil {
-		return err
+	if _, err := x.ExecContext(ctx, `
+		UPDATE observations_fts SET title = ?, content = ?, type = ?, project = ?
+		WHERE rowid = ?`,
+		newTitle, newContent, newType, project, id); err != nil {
+		return fmt.Errorf("fts replace %d: %w", id, err)
 	}
-	return ftsInsertObs(ctx, x, id, newTitle, newContent, newType, project)
+	return nil
 }
 
 // sideScopeWhere returns the WHERE fragment scoping a side-table point

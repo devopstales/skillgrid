@@ -39,10 +39,9 @@ func seedMemoryStore(t *testing.T, dataDir string) {
 		INSERT INTO observations (session_id, type, title, content, project, scope, topic_key, source, owner, visibility, status, revision_count, pinned, created_at, updated_at, normalized_hash)
 		VALUES ('sess-1', 'bugfix', 'Fix login bug', 'bug body v1', 'http-test', 'project', 'bugs/login', 'agent', 'sess-1', 'team', 'active', 0, 0, '2026-09-01T10:20:00Z', '2026-09-01T10:20:00Z', 'hash-c');
 
-		-- FTS rows are maintained by triggers on the save path; seed the test
-		-- rows directly so hybrid/fts search can match them.
-		INSERT INTO observations_fts (rowid, title, content, type, project)
-		SELECT id, title, content, type, project FROM observations;
+		-- FTS rows are maintained by the INSTEAD OF INSERT trigger on the
+		-- compat VIEW (054, restored after 059 made observations_fts
+		-- standalone), so no explicit FTS seed is needed here.
 
 		-- 013 version history: the login bugfix is edited twice, so the audit
 		-- trail + governance version list have two prior revisions.

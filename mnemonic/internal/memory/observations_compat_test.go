@@ -67,7 +67,14 @@ func buildPreSplitStore(t *testing.T, dir, project string) string {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
 			continue
 		}
-		if e.Name() == parityMigrationFile || e.Name() == "055_obs_split_fk_repoint.sql" {
+		// Skip the 054 split and its 055/059 follow-ups: this fixture stops at
+		// the pre-split schema (observations still a TABLE) so the real
+		// store.Open path can apply the split + follow-ups on a copy and the
+		// test verifies the migration actually did the work. 055 repoints the
+		// split FKs and 059 converts observations_fts to standalone — both
+		// assume the 054 split (observations_core) already exists, so they must
+		// not run against the pre-split table.
+		if e.Name() == parityMigrationFile || e.Name() == "055_obs_split_fk_repoint.sql" || e.Name() == "059_obs_fts_standalone.sql" {
 			continue
 		}
 		names = append(names, e.Name())

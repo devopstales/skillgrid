@@ -268,6 +268,16 @@ INSTEAD OF INSERT ON observations BEGIN
         VALUES
         (last_insert_rowid(), NEW.embedding, NEW.embedding_model,
          NEW.embedding_created_at);
+    -- 059 note: this FTS row is owned by the standalone observations_fts
+    -- (migration 059 made it contentless, so the insert no longer reconciles
+    -- against the `observations` VIEW — the failure that removed it in the
+    -- external-content era). It must run AFTER the five side inserts: with
+    -- external content, a FTS insert before the side rows existed made FTS5
+    -- read the (incomplete) view and fail inside a multi-statement seed. As
+    -- the final statement of the trigger, the row is complete, and the
+    -- standalone table needs no reconcile. Idempotent against the 059
+    -- rebuild (same rowid) because a fresh DB is empty when 054's backfill
+    -- runs, and a post-059 view insert only ever follows a rebuild.
     INSERT INTO observations_fts(rowid, title, content, type, project)
         VALUES
         (last_insert_rowid(), NEW.title, NEW.content, NEW.type,
@@ -311,20 +321,35 @@ INSTEAD OF UPDATE ON observations BEGIN
         embedding = NEW.embedding, embedding_model = NEW.embedding_model,
         embedding_created_at = NEW.embedding_created_at
         WHERE observation_id = OLD.id;
-    INSERT INTO observations_fts(observations_fts, rowid, title, content, type, project)
-        VALUES ('delete', OLD.id, OLD.title, OLD.content, OLD.type, OLD.project);
-    INSERT INTO observations_fts(rowid, title, content, type, project)
-        VALUES (NEW.id, NEW.title, NEW.content, NEW.type, NEW.project);
+    -- 059 note: the legacy trigger used the FTS5 'delete' command here, which
+    -- modernc.org/sqlite does not support on a standalone FTS5 table
+    -- (observations_fts after 059). Re-sync the FTS row by updating it in
+    -- place: the row already exists (INSTEAD OF INSERT / the 059 rebuild), so
+    -- SET the new values. This keeps a view-mediated UPDATE's FTS effect
+    -- identical to the legacy trigger (old terms out, new terms in) without
+    -- the unsupported 'delete' command. The Go fts*Obs helpers (TICKET-03
+    -- owned path) do the same in-place update for direct-table writes.
+    UPDATE observations_fts SET
+        title = NEW.title, content = NEW.content, type = NEW.type,
+        project = NEW.project
+        WHERE rowid = OLD.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS observations_view_delete
 INSTEAD OF DELETE ON observations BEGIN
-    INSERT INTO observations_fts(observations_fts, rowid, title, content, type, project)
-        VALUES ('delete', OLD.id, OLD.title, OLD.content, OLD.type, OLD.project);
+    -- 059 note: the legacy trigger used the FTS5 'delete' command here; it is
+    -- unsupported on a standalone FTS5 table under modernc.org/sqlite. Remove
+    -- the FTS row and rebuild the index (the same operation ftsDeleteObs does
+    -- for the TICKET-03 owned path). The rebuild runs after the side/core
+    -- deletes, so the index reflects the deletion.
     DELETE FROM observation_vectors WHERE observation_id = OLD.id;
     DELETE FROM observation_temporal WHERE observation_id = OLD.id;
     DELETE FROM observation_stats WHERE observation_id = OLD.id;
     DELETE FROM observation_provenance WHERE observation_id = OLD.id;
     DELETE FROM observation_state WHERE observation_id = OLD.id;
     DELETE FROM observations_core WHERE id = OLD.id;
+    -- FTS removal: drop the row, then rebuild the index so the deleted
+    -- observation's terms are gone (replaces the legacy 'delete' command).
+    DELETE FROM observations_fts WHERE rowid = OLD.id;
+    INSERT INTO observations_fts(observations_fts) VALUES ('rebuild');
 END;

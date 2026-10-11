@@ -49,22 +49,59 @@ func newDecisionTestServer(t *testing.T) (*Server, *service.ProjectHandle) {
 	return s, h
 }
 
-// seedDecision inserts a type=decision observation directly via the store and
-// returns its id. created is the RFC3339 timestamp used for created_at
-// (updated_at matches), so tests control ordering deterministically.
+// seedDecision inserts a type=decision observation and returns its id.
+// created is the RFC3339 timestamp used for created_at (updated_at matches),
+// so tests control ordering deterministically.
+//
+// It writes the split tables (observations_core + the side rows) directly
+// rather than through the compat VIEW: an INSTEAD OF INSERT through the view
+// leaves LastInsertId stale (0), so the route under test would point at a
+// non-existent id. A core INSERT is a real table, so LastInsertId is exact.
 func seedDecision(t *testing.T, h *service.ProjectHandle, topicKey, contentJSON, visibility, created string) int64 {
 	t.Helper()
 	db := h.Store().DB
-	res, err := db.Exec(`INSERT INTO observations
-		(session_id, type, title, content, project, scope, topic_key, owner, visibility, status, revision_count, normalized_hash, created_at, updated_at)
-		VALUES ('s-dec', 'decision', 'Decision: `+strings.ReplaceAll(topicKey, "interview/", "")+`', ?, ?, 'project', ?, 's-dec', ?, 'active', 0, 'hash-' || ?, ?, ?)`,
-		contentJSON, proj, topicKey, visibility, topicKey, created, created)
+	title := "Decision: " + strings.ReplaceAll(topicKey, "interview/", "")
+	hash := "hash-" + topicKey
+	res, err := db.Exec(`INSERT INTO observations_core
+		(session_id, type, title, content, project, scope, topic_key,
+		 revision_count, normalized_hash, created_at, updated_at, deleted_at)
+		VALUES ('s-dec', 'decision', ?, ?, ?, 'project', ?, 0, ?, ?, ?, NULL)`,
+		title, contentJSON, proj, topicKey, hash, created, created)
 	if err != nil {
-		t.Fatalf("seed decision: %v", err)
+		t.Fatalf("seed decision core: %v", err)
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
 		t.Fatalf("seed decision last insert id: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO observation_state
+		(observation_id, status, visibility, archived_at, archive_reason, review_after, expires_at, pinned)
+		VALUES (?, 'active', ?, NULL, NULL, NULL, NULL, 0)`, id, visibility); err != nil {
+		t.Fatalf("seed decision state: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO observation_provenance
+		(observation_id, source, prompt_id, tool_name, provenance, owner, memory_type, graph_ref)
+		VALUES (?, 's-dec', NULL, NULL, NULL, 's-dec', NULL, NULL)`, id); err != nil {
+		t.Fatalf("seed decision provenance: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO observation_stats
+		(observation_id, duplicate_count, last_seen_at, retrieval_usage, importance_score, recency_decay, maturity_tier, risk_score)
+		VALUES (?, 0, NULL, 0, 0, 1, 'fresh', NULL)`, id); err != nil {
+		t.Fatalf("seed decision stats: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO observation_temporal
+		(observation_id, valid_at, invalid_at, superseded_by)
+		VALUES (?, ?, NULL, NULL)`, id, created); err != nil {
+		t.Fatalf("seed decision temporal: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO observation_vectors
+		(observation_id, embedding, embedding_model, embedding_created_at)
+		VALUES (?, NULL, NULL, NULL)`, id); err != nil {
+		t.Fatalf("seed decision vectors: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO observations_fts(rowid, title, content, type, project)
+		VALUES (?, ?, ?, 'decision', ?)`, id, title, contentJSON, proj); err != nil {
+		t.Fatalf("seed decision fts: %v", err)
 	}
 	return id
 }
