@@ -1,9 +1,13 @@
 package hybrid
 
 import (
+	"context"
+	"database/sql"
+	"fmt"
 	"sync"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/memory"
+	"github.com/devopstales/skillgrid/mnemonic/internal/vectorstore"
 )
 
 // vecEntry is one decoded vector ready for cosine scoring. A zero vector
@@ -86,4 +90,50 @@ func (c *vecCache) Invalidate(dbPath, model string) {
 		c.symbols = nil
 		c.chunks = nil
 	}
+}
+
+// HNSW symbol top-K via the embedded HNSW index (ADR-0037). Returns ok=true
+// with the top-K hits when the HNSW graph is non-empty, or ok=false (the
+// caller falls back to the vec0 path or in-memory cache). Any HNSW error
+// degrades to ok=false — never a hard fail.
+func hnswSymbolHits(ctx context.Context, db *sql.DB, qVec []float32, limit int) ([]vectorHit, bool, error) {
+	n, err := vectorstore.Count(ctx, db, "hnsw_nodes")
+	if err != nil {
+		return nil, false, nil // table absent (pre-057 store) — fall through
+	}
+	if n == 0 {
+		return nil, false, nil // empty graph — fall through
+	}
+	idx := vectorstore.NewHnsw(db, "embeddings", "symbol_id")
+	hits, err := idx.Search(ctx, qVec, limit)
+	if err != nil {
+		return nil, false, nil // corrupt graph — fall through (brute force inside Search)
+	}
+	vh := make([]vectorHit, 0, len(hits))
+	for _, h := range hits {
+		vh = append(vh, vectorHit{ID: fmt.Sprintf("sym:%d", h.ID), Sim: h.Sim})
+	}
+	return vh, true, nil
+}
+
+// HNSW chunk top-K via the embedded HNSW index (ADR-0037). Same contract as
+// hnswSymbolHits for the chunk path.
+func hnswChunkHits(ctx context.Context, db *sql.DB, qVec []float32, limit int) ([]vectorHit, bool, error) {
+	n, err := vectorstore.Count(ctx, db, "hnsw_nodes")
+	if err != nil {
+		return nil, false, nil
+	}
+	if n == 0 {
+		return nil, false, nil
+	}
+	idx := vectorstore.NewHnsw(db, "chunk_embeddings", "chunk_id")
+	hits, err := idx.Search(ctx, qVec, limit)
+	if err != nil {
+		return nil, false, nil
+	}
+	vh := make([]vectorHit, 0, len(hits))
+	for _, h := range hits {
+		vh = append(vh, vectorHit{ID: fmt.Sprintf("chunk:%d", h.ID), Sim: h.Sim})
+	}
+	return vh, true, nil
 }
