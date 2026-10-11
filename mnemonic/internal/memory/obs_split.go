@@ -115,14 +115,14 @@ func sideScopeWhere(table string) string {
 // table. Nullable columns use driver-ready values (nil for NULL).
 type splitInsertArgs struct {
 	SessionID, Type, Title, Content, Project, Scope string
-	TopicKey                                       any
-	Hash, Now, Source                              string
-	PromptID                                       any
-	ToolName                                       any
-	Owner                                          string
-	ExpiresAt                                      any
-	Provenance                                     any
-	MemoryType                                     any
+	TopicKey                                        any
+	Hash, Now, Source                               string
+	PromptID                                        any
+	ToolName                                        any
+	Owner                                           string
+	ExpiresAt                                       any
+	Provenance                                      any
+	MemoryType                                      any
 }
 
 // txInsertSplitObservation writes core + all five side rows + the FTS entry
