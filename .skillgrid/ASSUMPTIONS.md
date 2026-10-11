@@ -113,7 +113,7 @@ The ADR index. One row per decision: a short description and a link to the full 
 | 0034 | `ctx` is a `mnemonic` subcommand group (`mnemonic ctx …`), not a standalone binary; `mnemonic stats` unchanged | yes | `.skillgrid/artifacts/04-adr-0034-ctx-cli-mnemonic-subcommand.md` |
 | 0035 | CTX judgment model is local Ollama (default `tev1:0.8b` via `/v1/systemone`), fail-open to pre-filter | yes | `.skillgrid/artifacts/04-adr-0035-local-ollama-judgment-model.md` |
 | 0036 | CTX config lives at `config.d/ctx.yaml` (machine-local default + repo-local override), reuses the `config.d` loader | yes | `.skillgrid/artifacts/04-adr-0036-ctx-config-configd.md` |
-| 0037 | HNSW embedded ANN index: pure Go (no new dep), M=16, efCon=64, efSearch=32, persisted in SQLite (057), degrades to brute force | yes | `.skillgrid/artifacts/04-adr-0037-embedded-ann-index.md` |
+| 0037 | HNSW embedded ANN index: pure Go (no new dep), M=16, efCon=64, efSearch=96, persisted in SQLite (057), `source`-namespaced node ids (058, symbol/chunk), degrades to brute force | yes | `.skillgrid/artifacts/04-adr-0037-embedded-ann-index.md` |
 
 **Highest sequence in use:** 0037 (next ADR is `04-adr-0038-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 

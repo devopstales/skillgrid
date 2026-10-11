@@ -869,3 +869,239 @@ func TestHnswRemoveTombstones(t *testing.T) {
 		}
 	}
 }
+
+// ---- HNSW source-namespacing (TICKET-06, SATISFIES hnsw-recall-latency L-1) ----
+
+// TestHnswSourceNamespacingNoCollision is the L-1 regression (SATISFIES
+// hnsw-recall-latency): symbol_id 1 and chunk_id 1 are two independent
+// autoincrement spaces that both start at 1. With the 058 source partition,
+// each lives in its own hnsw_nodes graph and neither overwrites the other —
+// the symbol leg serves the symbol vector and the chunk leg serves the chunk
+// vector. Without the partition, the node_id-1 rows would collide and each leg
+// would serve the other's vector.
+func TestHnswSourceNamespacingNoCollision(t *testing.T) {
+	db := mustOpen(t)
+	ctx := context.Background()
+
+	// Parent rows for both id spaces (FK plumbing).
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ivfSeedSymbol(t, tx, 1) // symbols id 1
+	seedChunk(t, tx, 1)     // chunks id 1
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Distinct vectors: symbol-1 is basis-5, chunk-1 is basis-6. They are
+	// orthogonal, so a collision would be detectable (each leg would return
+	// the other's vector).
+	hSym := NewHnswSource(db, "embeddings", "symbol_id", "symbol")
+	hChn := NewHnswSource(db, "chunk_embeddings", "chunk_id", "chunk")
+	if err := hSym.Upsert(ctx, 1, makeVec(t, 5)); err != nil {
+		t.Fatalf("symbol upsert 1: %v", err)
+	}
+	if err := hChn.Upsert(ctx, 1, makeVec(t, 6)); err != nil {
+		t.Fatalf("chunk upsert 1: %v", err)
+	}
+
+	// The symbol leg must serve the symbol vector (basis-5), not the chunk's.
+	symHits, err := hSym.Search(ctx, makeVec(t, 5), 1)
+	if err != nil {
+		t.Fatalf("symbol search: %v", err)
+	}
+	if len(symHits) != 1 || symHits[0].ID != 1 {
+		t.Fatalf("symbol leg top-1 = %v, want [1]", symHits)
+	}
+	if symHits[0].Sim < 0.999 {
+		t.Fatalf("symbol leg self-sim = %f, want ~1 (collision: served the other vector)", symHits[0].Sim)
+	}
+
+	// The chunk leg must serve the chunk vector (basis-6), not the symbol's.
+	chnHits, err := hChn.Search(ctx, makeVec(t, 6), 1)
+	if err != nil {
+		t.Fatalf("chunk search: %v", err)
+	}
+	if len(chnHits) != 1 || chnHits[0].ID != 1 {
+		t.Fatalf("chunk leg top-1 = %v, want [1]", chnHits)
+	}
+	if chnHits[0].Sim < 0.999 {
+		t.Fatalf("chunk leg self-sim = %f, want ~1 (collision: served the other vector)", chnHits[0].Sim)
+	}
+
+	// CountSource must partition: exactly one node per source, not a combined
+	// count that would confuse "symbol graph empty" from "chunk graph empty".
+	nSym, err := CountSource(ctx, db, "symbol")
+	if err != nil || nSym != 1 {
+		t.Fatalf("CountSource(symbol) = %d (err %v), want 1", nSym, err)
+	}
+	nChn, err := CountSource(ctx, db, "chunk")
+	if err != nil || nChn != 1 {
+		t.Fatalf("CountSource(chunk) = %d (err %v), want 1", nChn, err)
+	}
+}
+
+// TestHnswSourcePartitionIsolation asserts that a removal in one partition
+// does not touch the other: removing chunk_id 1 leaves symbol_id 1 intact
+// (and vice versa would hold symmetrically). This pins the (source, node_id)
+// primary key at the graph level.
+func TestHnswSourcePartitionIsolation(t *testing.T) {
+	db := mustOpen(t)
+	ctx := context.Background()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ivfSeedSymbol(t, tx, 1)
+	seedChunk(t, tx, 1)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	hSym := NewHnswSource(db, "embeddings", "symbol_id", "symbol")
+	hChn := NewHnswSource(db, "chunk_embeddings", "chunk_id", "chunk")
+	if err := hSym.Upsert(ctx, 1, makeVec(t, 5)); err != nil {
+		t.Fatalf("symbol upsert 1: %v", err)
+	}
+	if err := hChn.Upsert(ctx, 1, makeVec(t, 6)); err != nil {
+		t.Fatalf("chunk upsert 1: %v", err)
+	}
+	// Remove chunk 1: the symbol 1 graph row must survive.
+	if err := hChn.Remove(ctx, 1); err != nil {
+		t.Fatalf("chunk remove 1: %v", err)
+	}
+	nChn, err := CountSource(ctx, db, "chunk")
+	if err != nil || nChn != 0 {
+		t.Fatalf("CountSource(chunk) after remove = %d (err %v), want 0", nChn, err)
+	}
+	nSym, err := CountSource(ctx, db, "symbol")
+	if err != nil || nSym != 1 {
+		t.Fatalf("CountSource(symbol) after chunk remove = %d (err %v), want 1 (isolated)", nSym, err)
+	}
+	// The symbol leg still serves its own vector.
+	symHits, err := hSym.Search(ctx, makeVec(t, 5), 1)
+	if err != nil {
+		t.Fatalf("symbol search after chunk remove: %v", err)
+	}
+	if len(symHits) != 1 || symHits[0].ID != 1 {
+		t.Fatalf("symbol leg after chunk remove top-1 = %v, want [1]", symHits)
+	}
+}
+
+// TestHnswCacheIdentity asserts the A-4 per-DB index cache: repeated
+// GetHnswSymbolIndex / GetHnswChunkIndex calls on the same *sql.DB return the
+// SAME warmed index (no per-call bulk-reload), a different *sql.DB builds a
+// fresh one, and ResetHnswCacheForTest drops the cache so the next query sees
+// fresh rows.
+func TestHnswCacheIdentity(t *testing.T) {
+	db := mustOpen(t)
+	ctx := context.Background()
+	ResetHnswCacheForTest()
+
+	// Same DB -> same instance (cache hit).
+	a := GetHnswSymbolIndex(db)
+	b := GetHnswSymbolIndex(db)
+	if a != b {
+		t.Fatal("GetHnswSymbolIndex returned different instances for the same *sql.DB (cache miss)")
+	}
+	ca := GetHnswChunkIndex(db)
+	cb := GetHnswChunkIndex(db)
+	if ca != cb {
+		t.Fatal("GetHnswChunkIndex returned different instances for the same *sql.DB (cache miss)")
+	}
+	if a == ca {
+		t.Fatal("symbol and chunk caches returned the same *HnswIndex (partition leak)")
+	}
+
+	// A different *sql.DB -> a fresh instance (the cache is keyed by the DB
+	// pointer, not a global singleton).
+	db2 := mustOpen(t)
+	ResetHnswCacheForTest()
+	d := GetHnswSymbolIndex(db2)
+	if d == a {
+		t.Fatal("GetHnswSymbolIndex for a different *sql.DB reused the cached instance")
+	}
+
+	// Reset drops the cache: the next call builds a new instance even for the
+	// same DB (tests that seed raw rows between queries rely on this).
+	ResetHnswCacheForTest()
+	e := GetHnswSymbolIndex(db)
+	if e == a {
+		t.Fatal("GetHnswSymbolIndex after ResetHnswCacheForTest reused the dropped instance")
+	}
+
+	// The cached index is functional: a fresh warm-load over a seeded corpus
+	// still answers a query (proves the cache holds a live, queryable index
+	// and not a stale/nil handle).
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ivfSeedSymbol(t, tx, 1)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Upsert(ctx, 1, makeVec(t, 0)); err != nil {
+		t.Fatalf("cached symbol upsert: %v", err)
+	}
+	hits, err := e.Search(ctx, makeVec(t, 0), 1)
+	if err != nil {
+		t.Fatalf("cached symbol search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != 1 {
+		t.Fatalf("cached symbol search top-1 = %v, want [1]", hits)
+	}
+}
+
+// TestHnswFallbackEmptyGraph asserts the HnswSymbols / HnswChunks public entry
+// points report ok=false (the caller falls through to the legacy path) when
+// the partition's graph is empty, and ok=true when it is populated. This is
+// the durable hybrid query's contract (A-4): an empty graph must not force a
+// full brute-force scan through the ANN path.
+func TestHnswFallbackEmptyGraph(t *testing.T) {
+	db := mustOpen(t)
+	ctx := context.Background()
+	ResetHnswCacheForTest()
+
+	// Empty partitions: ok=false, no error.
+	_, ok, err := HnswSymbols(ctx, db, makeVec(t, 0), 5)
+	if err != nil {
+		t.Fatalf("HnswSymbols empty: %v", err)
+	}
+	if ok {
+		t.Fatal("HnswSymbols ok=true on an empty symbol graph, want false (fall through)")
+	}
+	_, okC, err := HnswChunks(ctx, db, makeVec(t, 0), 5)
+	if err != nil {
+		t.Fatalf("HnswChunks empty: %v", err)
+	}
+	if okC {
+		t.Fatal("HnswChunks ok=true on an empty chunk graph, want false (fall through)")
+	}
+
+	// Populate the symbol graph via the legacy vec0 path + a symbol BLOB row,
+	// then drive the ANN path: it must report ok=true and serve the vector.
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ivfSeedSymbol(t, tx, 1)
+	writeEmbeddingBlob(t, tx, 1, encodeFloat32s(makeVec(t, 0)))
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	h := GetHnswSymbolIndex(db)
+	if err := h.Upsert(ctx, 1, makeVec(t, 0)); err != nil {
+		t.Fatalf("symbol upsert: %v", err)
+	}
+	hits, okS, err := HnswSymbols(ctx, db, makeVec(t, 0), 1)
+	if err != nil {
+		t.Fatalf("HnswSymbols populated: %v", err)
+	}
+	if !okS {
+		t.Fatal("HnswSymbols ok=false on a populated symbol graph, want true")
+	}
+	if len(hits) != 1 || hits[0].ID != 1 {
+		t.Fatalf("HnswSymbols populated top-1 = %v, want [1]", hits)
+	}
+}

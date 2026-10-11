@@ -14,7 +14,7 @@ import (
 // HnswIndex is the 3rd VectorIndex adapter (ADR-0037): a pure-Go HNSW
 // (Hierarchical Navigable Small World) graph over the BLOB source-of-truth
 // table. No new dependency (cgo-free, ADR-0006/0009 invariants). The graph
-// persists in SQLite (migration 057: hnsw_nodes / hnsw_links / hnsw_meta)
+// persists in SQLite (migration 058: hnsw_nodes / hnsw_links / hnsw_meta)
 // so it survives process restarts (warm-load on first Search).
 //
 // Layout: the in-memory graph is map[int64]*hnswNode (adjacency per layer).
@@ -38,6 +38,7 @@ import (
 type HnswIndex struct {
 	db     *sql.DB
 	source bruteSource // BLOB table the HNSW mirrors
+	part   string      // graph partition ("symbol" | "chunk"): symbol_id and chunk_id are two autoincrement spaces, both starting at 1
 
 	// Graph state (guarded by mu).
 	mu       sync.RWMutex
@@ -69,9 +70,25 @@ type hnswNode struct {
 // empty until the first Search (lazy warm-load from SQLite) or Upsert.
 // Search degrades to brute force when the graph is empty or corrupt.
 func NewHnsw(db *sql.DB, table, idCol string) *HnswIndex {
+	return NewHnswSource(db, table, idCol, partitionFor(table))
+}
+
+// NewHnsw builds an HNSW index over the named BLOB table with an explicit
+// graph partition. The partition names the id space the node ids live in:
+// symbol_id and chunk_id are two independent autoincrement spaces (both start
+// at 1), so they must not share one hnsw_nodes graph (L-1, TICKET-06).
+
+// NewHnswSource builds an HNSW index over the named BLOB table with an
+// explicit graph partition. The partition names the id space the node ids
+// live in: symbol_id and chunk_id are two independent autoincrement spaces
+// (both start at 1), so they must not share one hnsw_nodes graph (L-1,
+// TICKET-06). The two canonical sources map to their partitions:
+// "embeddings" -> "symbol", "chunk_embeddings" -> "chunk".
+func NewHnswSource(db *sql.DB, table, idCol, source string) *HnswIndex {
 	return &HnswIndex{
 		db:       db,
 		source:   bruteSource{table: table, idCol: idCol},
+		part:     source,
 		nodes:    map[int64]*hnswNode{},
 		top:      0,
 		dim:      -1,
@@ -80,6 +97,20 @@ func NewHnsw(db *sql.DB, table, idCol string) *HnswIndex {
 		efCon:    64,
 		efSearch: 96,
 		ml:       0.5,
+	}
+}
+
+// partitionFor derives the graph partition from the BLOB source table (the
+// two known id spaces). Unknown tables fall back to the table name itself,
+// which still namespaces the id space.
+func partitionFor(table string) string {
+	switch table {
+	case "embeddings":
+		return "symbol"
+	case "chunk_embeddings":
+		return "chunk"
+	default:
+		return table
 	}
 }
 
@@ -195,15 +226,16 @@ func (h *HnswIndex) Upsert(ctx context.Context, id int64, vec []float32) error {
 		id, "hnsw", len(vec), vb, "1970-01-01T00:00:00Z", ""); err != nil {
 		return fmt.Errorf("hnsw upsert %d blob: %w", id, err)
 	}
-	// 2. Write the graph rows (hnsw_nodes + hnsw_links).
+	// 2. Write the graph rows (hnsw_nodes + hnsw_links) in this index's
+	// source partition (L-1: symbol and chunk id spaces must not mix).
 	lvl := h.levelFor()
 	if _, err := tx.ExecContext(ctx,
-		`INSERT OR REPLACE INTO hnsw_nodes (node_id, level, vector) VALUES (?,?,vec_f32(?))`,
-		id, lvl, vb); err != nil {
+		`INSERT OR REPLACE INTO hnsw_nodes (source, node_id, level, vector) VALUES (?,?,?,vec_f32(?))`,
+		h.part, id, lvl, vb); err != nil {
 		return fmt.Errorf("hnsw upsert %d node: %w", id, err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM hnsw_links WHERE node_id = ?`, id); err != nil {
+		`DELETE FROM hnsw_links WHERE source = ? AND node_id = ?`, h.part, id); err != nil {
 		return fmt.Errorf("hnsw upsert %d links: %w", id, err)
 	}
 	// 3. Update the in-memory graph (if loaded).
@@ -258,15 +290,15 @@ func (h *HnswIndex) Remove(ctx context.Context, id int64) error {
 		return fmt.Errorf("hnsw remove %d blob: %w", id, err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM hnsw_nodes WHERE node_id = ?`, id); err != nil {
+		`DELETE FROM hnsw_nodes WHERE source = ? AND node_id = ?`, h.part, id); err != nil {
 		return fmt.Errorf("hnsw remove %d node: %w", id, err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM hnsw_links WHERE node_id = ?`, id); err != nil {
+		`DELETE FROM hnsw_links WHERE source = ? AND node_id = ?`, h.part, id); err != nil {
 		return fmt.Errorf("hnsw remove %d links: %w", id, err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM hnsw_links WHERE neighbor_id = ?`, id); err != nil {
+		`DELETE FROM hnsw_links WHERE source = ? AND neighbor_id = ?`, h.part, id); err != nil {
 		return fmt.Errorf("hnsw remove %d backlinks: %w", id, err)
 	}
 	h.mu.Lock()
@@ -293,9 +325,9 @@ func (h *HnswIndex) ensureLoaded(ctx context.Context) error {
 	if loaded {
 		return nil
 	}
-	// Read all nodes.
+	// Read all nodes in this index's source partition.
 	rows, err := h.db.QueryContext(ctx,
-		`SELECT node_id, level, vector FROM hnsw_nodes`)
+		`SELECT node_id, level, vector FROM hnsw_nodes WHERE source = ?`, h.part)
 	if err != nil {
 		return fmt.Errorf("hnsw load nodes: %w", err)
 	}
@@ -326,9 +358,9 @@ func (h *HnswIndex) ensureLoaded(ctx context.Context) error {
 		// back to brute force, which is also empty).
 		return nil
 	}
-	// Read all links.
+	// Read all links in this index's source partition.
 	linkRows, err := h.db.QueryContext(ctx,
-		`SELECT node_id, layer, neighbor_id FROM hnsw_links`)
+		`SELECT node_id, layer, neighbor_id FROM hnsw_links WHERE source = ?`, h.part)
 	if err != nil {
 		return fmt.Errorf("hnsw load links: %w", err)
 	}

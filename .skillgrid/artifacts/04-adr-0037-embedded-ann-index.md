@@ -18,7 +18,7 @@ The HNSW graph layout (nodes + adjacency + meta) persists in SQLite (`hnsw_nodes
 
 **Implement HNSW from scratch in `mnemonic/internal/vectorstore/hnsw.go`** (stdlib only: `context`, `database/sql`, `math`, `math/rand`, `sort`, `sync`). No new Go dependency. The `HnswIndex` struct implements the `VectorIndex` interface (Search/Upsert/Remove/Name) as the 3rd adapter alongside `BruteForce` and `IVFIndex`.
 
-Parameters: `M=16` (max connections per node at layers > 0), `efConstruction=64` (candidate beam during insert), `efSearch=32` (candidate beam during query). Level distribution: geometric with `ml=0.5` (expected max level ~log_2(n)). Neighbor selection uses the standard HNSW heuristic (alpha=1.0 diversity pruning at insert time).
+Parameters: `M=16` (max connections per node at layers > 0), `efConstruction=64` (candidate beam during insert), `efSearch=96` (candidate beam during query; the recall/latency knob — lower to 64 for sub-10ms warm at scale, trading a few recall points). Level distribution: geometric with `ml=0.5` (expected max level ~log_2(n)). Neighbor selection uses the standard HNSW heuristic (alpha=1.0 diversity pruning at insert time).
 
 The graph persists as three tables (migration 057): `hnsw_nodes (node_id, level, vector BLOB)`, `hnsw_links (node_id, layer, neighbor_id)`, `hnsw_meta (key, value)` (top node, node count, dim). Warm-load reads the tables into the in-memory `map[int64]*node` on first Search (lazy, idempotent). `Upsert` dual-writes the BLOB row + the graph rows in one short tx (MaxOpenConns=1 safe). `Remove` tombstones the node and deletes its links.
 

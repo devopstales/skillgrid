@@ -15,6 +15,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sync"
 
 	_ "modernc.org/sqlite/vec"
 )
@@ -43,6 +44,21 @@ func Count(ctx context.Context, db *sql.DB, table string) (int, error) {
 	err := db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count %s: %w", table, err)
+	}
+	return n, nil
+}
+
+// CountSource returns the number of HNSW graph nodes in one source partition
+// (migration 058: the hnsw_nodes pair is keyed (source, node_id)). symbol_id
+// and chunk_id are two independent autoincrement spaces (both start at 1), so
+// each leg must count only its own partition — a combined count cannot
+// distinguish "symbol graph empty" from "chunk graph empty" (L-1, TICKET-06).
+func CountSource(ctx context.Context, db *sql.DB, source string) (int, error) {
+	var n int
+	err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM hnsw_nodes WHERE source = ?`, source).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count hnsw source %s: %w", source, err)
 	}
 	return n, nil
 }
@@ -95,6 +111,59 @@ func DeleteChunks(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+// hnswCache keeps one warmed HnswIndex per (db, source) partition so a
+// durable hybrid query does not bulk-reload the whole graph from SQLite on
+// every call (TICKET-06, A-4). The key embeds the *sql.DB pointer: every
+// store opens its own DB, and tests that seed raw SQL rows directly (bypassing
+// the cache) reset it before re-querying.
+var hnswCache = struct {
+	sync.Mutex
+	cur  *sql.DB
+	syms *HnswIndex
+	chns *HnswIndex
+}{}
+
+// GetHnswSymbolIndex returns the cached symbol HNSW index (partition "symbol"
+// over the embeddings BLOB table), building it on first use.
+func GetHnswSymbolIndex(db *sql.DB) *HnswIndex {
+	hnswCache.Lock()
+	defer hnswCache.Unlock()
+	if hnswCache.cur != db {
+		hnswCache.cur = db
+		hnswCache.syms = NewHnswSource(db, "embeddings", "symbol_id", "symbol")
+		hnswCache.chns = NewHnswSource(db, "chunk_embeddings", "chunk_id", "chunk")
+	}
+	return hnswCache.syms
+}
+
+// GetHnswChunkIndex returns the cached chunk HNSW index (partition "chunk"
+// over the chunk_embeddings BLOB table), building it on first use.
+func GetHnswChunkIndex(db *sql.DB) *HnswIndex {
+	hnswCache.Lock()
+	defer hnswCache.Unlock()
+	if hnswCache.cur != db {
+		hnswCache.cur = db
+		hnswCache.syms = NewHnswSource(db, "embeddings", "symbol_id", "symbol")
+		hnswCache.chns = NewHnswSource(db, "chunk_embeddings", "chunk_id", "chunk")
+	}
+	return hnswCache.chns
+}
+
+// InvalidateHnswCache drops the cached HNSW indexes when the store handle
+// changes, forcing a fresh warm-load from SQLite.
+func InvalidateHnswCache() {
+	hnswCache.Lock()
+	defer hnswCache.Unlock()
+	hnswCache.cur = nil
+	hnswCache.syms = nil
+	hnswCache.chns = nil
+}
+
+// ResetHnswCacheForTest clears the cache entirely. Test-only: tests that seed
+// graph rows via raw SQL between Search calls must call this so the next
+// query sees the fresh rows (mirrors hybrid.ResetVectorCacheForTest).
+func ResetHnswCacheForTest() { InvalidateHnswCache() }
+
 // SearchHit is one top-K result: the rowid and its cosine distance from the
 // query vector (vec_distance_cosine, in [0, 2]; similarity = 1 - distance).
 type SearchHit struct {
@@ -142,6 +211,54 @@ func search(ctx context.Context, db *sql.DB, table string, queryVec []float32, l
 		return nil, fmt.Errorf("rows %s: %w", table, err)
 	}
 	return hits, nil
+}
+
+// HnswSymbols returns the top-K symbol_id by cosine similarity served by the
+// embedded HNSW index (ADR-0037). It reports ok=false (the caller falls
+// through to the legacy path) when the store predates migration 058 or the
+// symbol graph is empty; any other HNSW error degrades to the exact in-SQL
+// vec0 scan (brute force), never a hard fail.
+func HnswSymbols(ctx context.Context, db *sql.DB, queryVec []float32, limit int) ([]SearchHit, bool, error) {
+	n, err := CountSource(ctx, db, "symbol")
+	if err != nil {
+		return nil, false, nil // table absent (pre-058 store) — fall through
+	}
+	if n == 0 {
+		return nil, false, nil // empty symbol graph — fall through
+	}
+	idx := GetHnswSymbolIndex(db)
+	hits, err := idx.Search(ctx, queryVec, limit)
+	if err != nil {
+		fb, ferr := SearchSymbols(ctx, db, queryVec, limit) // corrupt graph — exact brute force
+		if ferr != nil {
+			return nil, false, ferr
+		}
+		return fb, true, nil
+	}
+	return hits, true, nil
+}
+
+// HnswChunks returns the top-K chunk_id by cosine similarity served by the
+// embedded HNSW index (ADR-0037). Same contract as HnswSymbols for the chunk
+// path.
+func HnswChunks(ctx context.Context, db *sql.DB, queryVec []float32, limit int) ([]SearchHit, bool, error) {
+	n, err := CountSource(ctx, db, "chunk")
+	if err != nil {
+		return nil, false, nil
+	}
+	if n == 0 {
+		return nil, false, nil
+	}
+	idx := GetHnswChunkIndex(db)
+	hits, err := idx.Search(ctx, queryVec, limit)
+	if err != nil {
+		fb, ferr := SearchChunks(ctx, db, queryVec, limit)
+		if ferr != nil {
+			return nil, false, ferr
+		}
+		return fb, true, nil
+	}
+	return hits, true, nil
 }
 
 // encodeF32 is the package-local little-endian float32 encoder (same layout as

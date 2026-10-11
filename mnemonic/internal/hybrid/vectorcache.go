@@ -97,17 +97,9 @@ func (c *vecCache) Invalidate(dbPath, model string) {
 // caller falls back to the vec0 path or in-memory cache). Any HNSW error
 // degrades to ok=false — never a hard fail.
 func hnswSymbolHits(ctx context.Context, db *sql.DB, qVec []float32, limit int) ([]vectorHit, bool, error) {
-	n, err := vectorstore.Count(ctx, db, "hnsw_nodes")
-	if err != nil {
-		return nil, false, nil // table absent (pre-057 store) — fall through
-	}
-	if n == 0 {
-		return nil, false, nil // empty graph — fall through
-	}
-	idx := vectorstore.NewHnsw(db, "embeddings", "symbol_id")
-	hits, err := idx.Search(ctx, qVec, limit)
-	if err != nil {
-		return nil, false, nil // corrupt graph — fall through (brute force inside Search)
+	hits, ok, err := vectorstore.HnswSymbols(ctx, db, qVec, limit)
+	if err != nil || !ok {
+		return nil, false, nil // table absent / empty graph — fall through
 	}
 	vh := make([]vectorHit, 0, len(hits))
 	for _, h := range hits {
@@ -119,16 +111,8 @@ func hnswSymbolHits(ctx context.Context, db *sql.DB, qVec []float32, limit int) 
 // HNSW chunk top-K via the embedded HNSW index (ADR-0037). Same contract as
 // hnswSymbolHits for the chunk path.
 func hnswChunkHits(ctx context.Context, db *sql.DB, qVec []float32, limit int) ([]vectorHit, bool, error) {
-	n, err := vectorstore.Count(ctx, db, "hnsw_nodes")
-	if err != nil {
-		return nil, false, nil
-	}
-	if n == 0 {
-		return nil, false, nil
-	}
-	idx := vectorstore.NewHnsw(db, "chunk_embeddings", "chunk_id")
-	hits, err := idx.Search(ctx, qVec, limit)
-	if err != nil {
+	hits, ok, err := vectorstore.HnswChunks(ctx, db, qVec, limit)
+	if err != nil || !ok {
 		return nil, false, nil
 	}
 	vh := make([]vectorHit, 0, len(hits))
