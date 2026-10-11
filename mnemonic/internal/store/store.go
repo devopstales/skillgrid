@@ -395,6 +395,21 @@ func migrate(db *sql.DB) error {
 		appliedCount++
 		squashSkipped = true
 	}
+	// Pre-squash stores recorded 001_schema.sql without executing it (or have
+	// no marker at all), so their `observations` table never gained the columns
+	// 054's data-copy reads. Backfill them (and the two child tables 055
+	// rebuilds) before the 054+ batch runs, but only while 054 is still due —
+	// a store that already passed 054 never runs the probes. The per-column
+	// probe makes it a no-op on any store that has the columns (fresh builds
+	// included). migrationDone returns true once 054 is RECORDED, so the
+	// backfill runs only while it is NOT yet recorded (i.e. still about to run).
+	if alreadyDone, err := migrationDone(db, "054_obs_split.sql"); err != nil {
+		return err
+	} else if !alreadyDone {
+		if err := backfillPreSplitObservations(db); err != nil {
+			return fmt.Errorf("backfill pre-split observations: %w", err)
+		}
+	}
 	for _, name := range names {
 		// On a pre-squash database 001_schema.sql was already recorded above
 		// without being executed; skip it explicitly (the done check below
@@ -413,8 +428,8 @@ func migrate(db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", name, err)
 		}
-		if _, err := db.Exec(string(sqlBytes)); err != nil {
-			return fmt.Errorf("exec %s: %w", name, err)
+		if err := execMigrationFile(db, name, string(sqlBytes)); err != nil {
+			return err
 		}
 		if _, err := db.Exec(`INSERT INTO index_meta (key, schema_version) VALUES (?, 1)`, "migration:"+name); err != nil {
 			return fmt.Errorf("record %s: %w", name, err)
@@ -428,6 +443,328 @@ func migrate(db *sql.DB) error {
 		appliedCount,
 	); err != nil {
 		return fmt.Errorf("record schema_version: %w", err)
+	}
+	return nil
+}
+
+// execMigrationFile executes a migration's statements ONE PER STATEMENT rather
+// than as a single db.Exec batch. The difference matters: a batch prepared via
+// the driver stops at the first error but leaves earlier statements already
+// applied, so a file that partially applies can leave the schema in a half
+// state where a later file (e.g. 054 reading columns 001 adds) fails. On a
+// legacy store 001_schema.sql's ADD COLUMNs are duplicates (the columns exist
+// from an earlier partial apply); executing per statement means the duplicate
+// stops 001 there, and — because that duplicate means every 054-required
+// column is already present — the backfill has already ensured 054's reads
+// succeed, so we record 001 and move on. Fresh stores apply 001 fully (no
+// duplicate) and continue normally. A statement that fails for a reason other
+// than a duplicate column is a genuine schema error and aborts the upgrade.
+func execMigrationFile(db *sql.DB, name, contents string) error {
+	for _, stmt := range splitSQLStatements(contents) {
+		if stmt == "" {
+			continue
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			if isDuplicateColumnErr(err) {
+				// Already present (partial apply on a legacy store). Safe to
+				// skip: the column the next migration needs exists.
+				continue
+			}
+			return fmt.Errorf("exec %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// isDuplicateColumnErr reports whether a SQL error is "duplicate column
+// name", the only ADD COLUMN failure that is safe to skip on a partially
+// migrated store.
+func isDuplicateColumnErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "duplicate column name")
+}
+
+// splitSQLStatements splits a migration script into individual statements.
+// Semicolons terminate plain statements, but a CREATE TRIGGER / CREATE INDEX
+// / CREATE VIEW body runs from its BEGIN to its matching END, whose `END;`
+// (or a bare `END` on its own line, as 001_schema.sql writes) is the real
+// terminator — a naive semicolon split would shred the trigger body and leave
+// a dangling `END` that fails with "incomplete input". Single-quoted strings,
+// -- line comments, and /* block */ comments are skipped so their contents
+// never split a statement.
+func splitSQLStatements(s string) []string {
+	var (
+		out    []string
+		cur    strings.Builder
+		inS    bool // inside 'string'
+		inLine bool // inside -- comment
+		inBLK  bool // inside /* */
+		inTrig bool // inside a CREATE TRIGGER body (BEGIN...END)
+	)
+	flush := func() {
+		out = append(out, strings.TrimSpace(cur.String()))
+		cur.Reset()
+	}
+	// hasTrigKeyword reports whether the accumulated statement has opened a
+	// trigger (so the next BEGIN starts its body). Only CREATE TRIGGER opens
+	// a body; CREATE INDEX/VIEW have no BEGIN...END to track.
+	opensTrigger := func() bool {
+		return strings.Contains(cur.String(), "CREATE TRIGGER")
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case inLine:
+			if c == '\n' {
+				inLine = false
+			}
+			cur.WriteByte(c)
+		case inBLK:
+			if c == '*' && i+1 < len(s) && s[i+1] == '/' {
+				cur.WriteString("*/")
+				i++
+				inBLK = false
+			} else {
+				cur.WriteByte(c)
+			}
+		case inS:
+			if c == '\'' {
+				if i+1 < len(s) && s[i+1] == '\'' { // escaped ''
+					cur.WriteString("''")
+					i++
+				} else {
+					inS = false
+					cur.WriteByte(c)
+				}
+			} else {
+				cur.WriteByte(c)
+			}
+		case inTrig:
+			// Inside a trigger body: look for the END terminator (word-boundary
+			// match, optional trailing ';'). Everything else accumulates.
+			if (c == 'E' || c == 'e') && matchWord(s, i, "END") {
+				j := i + 3
+				for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
+					j++
+				}
+				if j < len(s) && s[j] == ';' {
+					cur.WriteString(s[i:j+1])
+					i = j
+				} else {
+					// bare END (001 writes a newline then END on its own line)
+					cur.WriteString(s[i : i+3])
+					i += 2
+				}
+				flush()
+				inTrig = false
+			} else {
+				cur.WriteByte(c)
+			}
+		default:
+			switch c {
+			case '\'':
+				inS = true
+				cur.WriteByte(c)
+			case '-':
+				if i+1 < len(s) && s[i+1] == '-' {
+					inLine = true
+					cur.WriteString("--")
+					i++
+				} else {
+					cur.WriteByte(c)
+				}
+			case '/':
+				if i+1 < len(s) && s[i+1] == '*' {
+					inBLK = true
+					cur.WriteString("/*")
+					i++
+				} else {
+					cur.WriteByte(c)
+				}
+			case ';':
+				flush()
+			default:
+				cur.WriteByte(c)
+				// A CREATE TRIGGER statement's first BEGIN opens its body.
+				if (c == 'B' || c == 'b') && matchWord(s, i, "BEGIN") {
+					if opensTrigger() {
+						inTrig = true
+					}
+				}
+			}
+		}
+	}
+	flush()
+	return out
+}
+
+// matchWord reports whether s[i:] starts the identifier w (case-insensitive)
+// as a whole word (not followed by another identifier character).
+func matchWord(s string, i int, w string) bool {
+	if i+len(w) > len(s) {
+		return false
+	}
+	for k := 0; k < len(w); k++ {
+		a, b := s[i+k], w[k]
+		if a >= 'A' && a <= 'Z' {
+			a += 'a' - 'A'
+		}
+		if a >= 'a' && a <= 'z' {
+			b += 'a' - 'A'
+		}
+		if a != b {
+			return false
+		}
+	}
+	if i+len(w) < len(s) {
+		n := s[i+len(w)]
+		if (n >= 'a' && n <= 'z') || (n >= 'A' && n <= 'Z') || (n >= '0' && n <= '9') || n == '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// migrationDone reports whether a named migration has already been recorded
+// in index_meta. Used to gate the pre-split backfill on 054 still being due.
+func migrationDone(db *sql.DB, name string) (bool, error) {
+	var done bool
+	if err := db.QueryRow(`SELECT COUNT(*) > 0 FROM index_meta WHERE key = ?`, "migration:"+name).Scan(&done); err != nil {
+		return false, fmt.Errorf("check %s: %w", name, err)
+	}
+	return done, nil
+}
+
+// preSplitObservationColumns lists every `observations` column that 054's
+// data-copy reads (all 41 non-id columns) but that a pre-squash store may be
+// missing. 001_schema.sql adds most via ALTER TABLE; 043 adds archived_at /
+// archive_reason; 044 adds valid_at / invalid_at / superseded_by. A
+// pre-squash store that skipped 001 (recorded without executing) never gained
+// any of them, so 054's bare-column SELECT fails at prepare time. The
+// per-column probe makes this a no-op on stores that already have every
+// column (fresh builds, or legacy stores that ran the individual 002–053
+// migrations before the squash).
+var preSplitObservationColumns = []struct {
+	name string
+	ddl  string
+}{
+	// 054 observation_state
+	{"status", "status TEXT NOT NULL DEFAULT 'active'"},
+	{"visibility", "visibility TEXT NOT NULL DEFAULT 'private'"},
+	{"archived_at", "archived_at TEXT"},
+	{"archive_reason", "archive_reason TEXT"},
+	{"review_after", "review_after TEXT"},
+	{"expires_at", "expires_at TEXT"},
+	{"pinned", "pinned INTEGER NOT NULL DEFAULT 0"},
+	// 054 observation_provenance
+	{"source", "source TEXT NOT NULL DEFAULT 'agent'"},
+	{"prompt_id", "prompt_id INTEGER"},
+	{"tool_name", "tool_name TEXT"},
+	{"provenance", "provenance TEXT"},
+	{"owner", "owner TEXT"},
+	{"memory_type", "memory_type TEXT"},
+	{"graph_ref", "graph_ref INTEGER"},
+	// 054 observation_stats
+	{"duplicate_count", "duplicate_count INTEGER NOT NULL DEFAULT 0"},
+	{"last_seen_at", "last_seen_at TEXT"},
+	{"retrieval_usage", "retrieval_usage INTEGER NOT NULL DEFAULT 0"},
+	{"importance_score", "importance_score REAL"},
+	{"recency_decay", "recency_decay REAL"},
+	{"maturity_tier", "maturity_tier TEXT"},
+	{"risk_score", "risk_score REAL"},
+	// 054 observation_temporal
+	{"valid_at", "valid_at TEXT"},
+	{"invalid_at", "invalid_at TEXT"},
+	{"superseded_by", "superseded_by INTEGER"},
+	// 054 observation_vectors
+	{"embedding", "embedding BLOB"},
+	{"embedding_model", "embedding_model TEXT"},
+	{"embedding_created_at", "embedding_created_at TEXT"},
+}
+
+// backfillPreSplitObservations adds the pre-split columns and child tables a
+// 054-migrating store is missing. SQLite has no `ADD COLUMN IF NOT EXISTS`
+// and this driver's trigger/USING forms for guarding it do not parse, so each
+// add is probed with pragma_table_info first and run only when absent.
+// Idempotent: a store that already has every column (fresh build) is a no-op,
+// and the whole step is gated on 054 still being due.
+func backfillPreSplitObservations(db *sql.DB) error {
+	// Fresh stores have no observations table yet (001_schema.sql creates it
+	// later in this same migrate() run), so there is nothing to backfill. The
+	// per-column probe below would also no-op, but the table-existence guard
+	// short-circuits the whole step for the common fresh case.
+	var tableExists int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','view') AND name = 'observations'`).Scan(&tableExists); err != nil {
+		return fmt.Errorf("probe observations table: %w", err)
+	}
+	if tableExists == 0 {
+		return nil
+	}
+	for _, c := range preSplitObservationColumns {
+		var exists int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('observations') WHERE name = ?`, c.name).Scan(&exists); err != nil {
+			return fmt.Errorf("probe %s: %w", c.name, err)
+		}
+		if exists > 0 {
+			continue
+		}
+		if _, err := db.Exec(`ALTER TABLE observations ADD COLUMN ` + c.ddl); err != nil {
+			return fmt.Errorf("add %s: %w", c.name, err)
+		}
+	}
+	// observation_versions + acl_grants: 055 rebuilds them to repoint their
+	// FKs at observations_core, reading existing rows. A pre-squash store that
+	// never ran 001_schema.sql's CREATE TABLE for them would make 055 fail with
+	// "no such table", so create them when absent. But when 001_schema.sql is
+	// still due (a legacy store about to execute it), 001 creates them itself —
+	// creating them here would pre-empt 001's CREATE TABLE IF NOT EXISTS with a
+	// stale `REFERENCES observations(id)` FK (001's version is then corrected
+	// by 055, ours would not be). So only create when 001 has already run.
+	if alreadyDone, err := migrationDone(db, "001_schema.sql"); err != nil {
+		return err
+	} else if alreadyDone {
+		// observations_fts: 054's INSTEAD OF triggers (and the legacy
+		// observations_fts_* triggers that ride along on RENAME) all write to
+		// observations_fts. A pre-squash store that skipped 001 never created
+		// it, so the triggers fail with "no such table". 054's triggers
+		// maintain the index themselves, so we do NOT create the legacy
+		// AFTER INSERT/UPDATE/DELETE triggers here (they would double-write).
+		var ftsExists int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'observations_fts'`).Scan(&ftsExists); err != nil {
+			return fmt.Errorf("probe observations_fts: %w", err)
+		}
+		if ftsExists == 0 {
+			if _, err := db.Exec(`
+				CREATE VIRTUAL TABLE observations_fts USING fts5(
+					title, content, type, project,
+					content='observations', content_rowid='id',
+					tokenize='porter'
+				)
+			`); err != nil {
+				return fmt.Errorf("create observations_fts: %w", err)
+			}
+		}
+		if _, err := db.Exec(`
+			CREATE TABLE IF NOT EXISTS observation_versions (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+				revision INTEGER NOT NULL,
+				content TEXT NOT NULL,
+				created_at TEXT NOT NULL
+			)
+		`); err != nil {
+			return fmt.Errorf("create observation_versions: %w", err)
+		}
+		if _, err := db.Exec(`
+			CREATE TABLE IF NOT EXISTS acl_grants (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+				grantee TEXT NOT NULL,
+				grant_type TEXT NOT NULL DEFAULT 'agent',
+				created_at TEXT NOT NULL
+			)
+		`); err != nil {
+			return fmt.Errorf("create acl_grants: %w", err)
+		}
 	}
 	return nil
 }
