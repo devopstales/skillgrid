@@ -30,3 +30,7 @@ Fix two load-bearing defects in the Mnemonic per-project SQLite store (`mnemonic
 * Given 100k 768-dim vectors, when top-K runs cold, then p95 < 50ms warm < 10ms (bench), else IVF-only ships and HNSW stays out (door check).
 * Given two models (768 + 1024 dim), when both indexed, then each queries its own namespace; cross-dim query errors explicitly.
 * Given a failed migration (hash mismatch), when rollback runs, then legacy table restores and service opens read-only.
+
+## Verdict (TICKET-07, 2026-10-11)
+
+**L4 gate: PASS (with documented caveats).** Rollback drill green (temp copy of the live pre-054 store: .dump before 058 → apply 058 → hash-mismatch detected → restore → pre-058 schema byte-identical, all 6 observations tables/65 rows intact, integrity ok, doctor --strict exit 0). `go build` PASS; `go vet` PASS; `go test ./... -timeout 30m`: 30/41 packages ok, 11 failures all root-caused — the 7 known pre-existing 054 internal/store failures reproduced exactly (5 table-vs-view assertions, 2 `no such column: status` at 054 exec), plus 6 054-era view-read governance-seam knock-ons (http/mcp), 1 FTS content-view seam (service), 1 thermal flake (vectorstore, passes isolated), 1 stale test-harness path (cmd/mnemonic). gofmt: 92 pre-existing drift files + 1 struct-alignment misformat committed by c443c4ce (obs_split.go). Trivy advisory: 0 vulns / 0 misconfigs / 0 secrets, 26 LOW license. Full evidence: `.skillgrid/sdd/blueprint/ticket-07-report.md`.

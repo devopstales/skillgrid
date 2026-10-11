@@ -34,3 +34,9 @@
 | W023 | 2026-10-07-replace-opencode-hooks-with-plugins | SUGGESTION | Trivy HIGH golang.org/x/text CVE-2026-56852 (no fix) - pre-existing transitive dep in mnemonic/go.mod, outside this diff | qa-auto | 2026-10-08 | closed |
 | W024 | 2026-10-07-replace-opencode-hooks-with-plugins | SUGGESTION | ADR-0032/0033/0034/0035/0036 use bold-list frontmatter but check-adr-invariants.mjs expects YAML frontmatter | qa-auto | 2026-10-08 | closed |
 | W025 | 2026-10-07-replace-opencode-hooks-with-plugins | WARNING | state.yaml long context values (lines 10-16) unquoted -> malformed YAML, breaks state-drift (W017 pre-existing, now fixed + quoted) | qa-auto | 2026-10-08 | closed |
+| W026 | 2026-10-10-obs-split-hnsw | WARNING | governance write path (decision answers, review marks) reads through compat view; 404 on freshly-saved obs (6 http + 1 mcp test) | qa-auto | 2026-10-11 | open |
+| W027 | 2026-10-10-obs-split-hnsw | WARNING | observations_fts FTS5 content='observations' (the view) -> delete-by-terms SQLITE_CORRUPT (TestStatusExplicit) | qa-auto | 2026-10-11 | open |
+| W028 | 2026-10-10-obs-split-hnsw | WARNING | P1 pass rate ~93% < 95% threshold (3 pkgs: http/mcp/service — W026/W027 knock-ons) | qa-auto | 2026-10-11 | open |
+| W029 | 2026-10-10-obs-split-hnsw | WARNING | TestHnswWarmLatency asserts <10ms warm; ~19ms on loaded host (passes isolated) | qa-auto | 2026-10-11 | open |
+| W030 | 2026-10-10-obs-split-hnsw | SUGGESTION | cmd/mnemonic init_cmd_test.go blockMDPath relative depth wrong since cmd move a78dab58 (pre-existing) | qa-auto | 2026-10-11 | open |
+| W031 | 2026-10-10-obs-split-hnsw | SUGGESTION | 92 pre-existing gofmt drift files in mnemonic module (not touched by this change) | qa-auto | 2026-10-11 | open |
