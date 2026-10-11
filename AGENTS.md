@@ -1,6 +1,66 @@
 # Repository Instructions
 
-This is the **real source of truth for the operational rules** a change must respect — the hard limits a build, commit, or change must follow. The onboarding skill renders the `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block below into this file.
+This is the **real source of truth for the operational rules** a change must respect — the hard limits a build, commit, or change must follow. The onboarding skill renders the `
+
+<!-- skillgrid-preamble:start -->
+# Standards
+
+## Environment & Tooling
+
+- **Language**: go build ./...
+- **Package manager**: <detect>
+- **Task runner**: <detect>
+- **Install**: go build ./...
+- **Test**: go test ./...
+- **Lint**: <detect>
+- **Format**: gofmt -w ./...
+- **Build (dev)**: go build ./...
+- **Run (dev)**: <detect>
+- **Docker (dev deps)**: <detect>
+- **Security scan**: trivy fs . --scanners vuln --severity CRITICAL,HIGH,MEDIUM,LOW
+
+## Engineering Standards
+
+No engineering standards yet — see `.skillgrid/ASSUMPTIONS.md`.
+
+## Security & Escalation Boundaries
+
+No security boundaries yet — see `.skillgrid/ASSUMPTIONS.md`.
+
+## Dependency Policies
+
+No dependency policies yet — see `the manifest`.
+
+## Architecture Constraints
+
+No architecture constraints yet — see `.skillgrid/ASSUMPTIONS.md`.
+
+## Definition of Done
+
+No definition of done yet — see `CI config`.
+
+## Issue Tracker
+
+Backlog.md — see the `## Skillgrid` Issue Tracker block for conventions.
+
+## Memory
+
+Mnemonic — reference `~/.agents/skills/_shared/rules/mnemonic-memory.md`
+
+## Code Indexing
+
+Mnemonic — reference `~/.agents/skills/_shared/rules/mnemonic-memory.md` (Code Index Ladder)
+
+## Testing standards
+
+reference `~/.agents/skills/_shared/rules/code-standards.md`
+
+## SDD Standards
+
+reference `~/.agents/skills/_shared/rules/sdd-structure.md`
+<!-- skillgrid-preamble:end -->
+
+<!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block below into this file.
 
 **What belongs here:** operational rules (toolchain floor, commit format, dependency policy, spec/code zone order, enforcement hooks). **What does NOT belong here:** design *decisions* — those are ADRs, indexed in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` with their bodies in `.skillgrid/artifacts/04-adr-NNNN-slug.md`. If a rule is really "we decided X over Y because Z," it is an ADR, not an operational rule.
 
