@@ -21,6 +21,7 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 | `acceptance-test-authoring` | BDD `acceptance.feature` — valid Cucumber syntax, traceability oracle |
 | `writing-blueprints` | Technical plan → `blueprint.md`; **must** run critic subagent review + user validation before completion |
 | `architectural-decision-records` | Domain model (terms in `artifacts/`) + ADR authoring / supersession |
+| `knowledge-base` | Read/maintain the `.skillgrid/` OKF knowledge base — recall before re-deriving; concepts live in `decisions/`/`invariants/`/`workflows/`/`glossary/`/`reference/` with `index.md`+`log.md`+`reverse-index.md` updated in the same edit |
 | `research` / `code-research` | External fact-finding → `findings.md` (Research section) |
 | `prototype` | Feasibility probe → `findings.md` (Prototype section) |
 | `sketch` | UI/interaction variants → `findings.md` (Sketch section) |
@@ -203,6 +204,7 @@ notes: "Serial development: one change at a time."
 | onboarding | skeleton | `config.yaml`, `state.yaml`, `ASSUMPTIONS.md`, `ARCHITECTURE.md` (lazy), `artifacts/` zone (README + 06-research-findings), AGENTS block, `.gitignore` |
 | brainstorming | briefing + state (questioning via agent answer-select tool) | `specs/<topic>/briefing.md`, `specs/<topic>/adr.md`, `artifacts/00-prd.md` (new project, or when scope changes), `ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (phase + current_change) |
 | architectural-decision-records | terms + ADRs | `artifacts/01-business-terms.md`, `artifacts/02-technical-terms.md`, `artifacts/04-adr-NNNN-slug.md`, `ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only) |
+| knowledge-base | concepts + catalogs | `.skillgrid/<decisions\|invariants\|workflows\|glossary\|reference>/*.md` + root `index.md` / `log.md` / `reverse-index.md` (same-edit rule; post-R6 paths, pre-R6 `artifacts/`); ADR numbering stays with `architectural-decision-records` |
 | research | findings | `specs/<topic>/findings.md` (`## Research:` section) + durable findings to `artifacts/06-research-findings.md` |
 | prototype | findings + probe | `prototypes/NNN-name/` (`prototype.md` + throwaway code, permanently retained) + `specs/<topic>/findings.md` (`## Prototype:` section) |
 | sketch | findings | `specs/<topic>/findings.md` (`## Sketch:` section) |
