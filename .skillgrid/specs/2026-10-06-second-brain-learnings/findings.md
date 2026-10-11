@@ -60,3 +60,279 @@
 - Add anchor liveness (1) + file-path retrieval (2): prove freshness, find decisions deterministically.
 - Add coverage ratchet (3) in shadow mode: learn at write time, no crawler.
 - Reports stay unanchored knowledge via `reflect` (5).
+
+## Proposal: `.skillgrid` as OKF v0.2 wiki (2026-10-10)
+
+Full text: `okf-wiki-plan.md` (same dir). RESTRUCTURE portion promoted to GOAL
+(briefing R6, 2026-10-10) — pending spec-zone delta + re-gate; SKILLS portion
+stays follow-up. Frozen TICKET-01..05 unaffected.
+
+- Format OKF v0.2 confirmed; SoT hybrid (OKF bundle durable, SQLite retrieval
+  index); DISSOLVE `artifacts/` into top-level `decisions/|invariants/|
+  workflows/|glossary/|reference/`, root `index.md|log.md|reverse-index.md`,
+  `archive/` → `xarchive/`; OKF frontmatter + indexing for all
+  `.skillgrid/**/*.md` except YAML; pins via borrowed pattern, no new dep;
+  reference sweep over every in-repo `artifacts/`/`archive/` path.
+- Revisits the "Explicitly NOT borrowed — storage layout" line above: layout +
+  format adoption is now a GOAL (briefing R6, same change; mechanisms-only
+  stance stands for TICKET-01..05, which are frozen).
+- New ADR takes the next free number at authoring time (NOT 0037/0038 — 0037 taken by the embedded-ANN index, 0038 reserved by
+  TICKET-03 for the knowledge-class dimension; expect 0039); it amends ADR-0012,
+  never deletes.
+
+## Research: vector-DB-demotion video (2026-10-10)
+
+**Source:** YouTube `YLkSfz3EFGw` (transcript fetched 2026-10-10 via
+youtube-transcript skill; auto/manual captions as available). Topic: "is the
+vector database dead" — TurboPuffer v3 demotes the vector index to one index
+among keyword/filters; three challengers evaluated (agentic search, live MCP
+connectors, compiled knowledge/OKF).
+
+**Key evidence (as claimed in the video; single-source, treat as leads):**
+
+1. **Agentic search beats fixed RAG pipelines on hard questions, ~3× cost.**
+   PipesHub on Google FRAMES (824 Qs, 12k Wikipedia articles): agent 92.7% vs
+   best-of-18 pipelines 78.9%; multi-hop (5+ articles) 90% vs 62%. Agent ≈
+   perfect-retrieval ceiling (93%). Cost: ~3×/question; slowest answers 134s vs
+   54s; 7% of questions ate 37% of budget. LREC'26 study: same pattern (>3×
+   input tokens, +50% time; plain reranker beat the agent at ranking).
+2. **BM25 often beats vectors inside the loop on enterprise data.** Enterprise
+   RAGBench (~500k docs: Slack/Gmail/Jira/Confluence/GitHub): BM25 68.8% vs
+   vectors 51.4% — vectors lost even on questions written to favor them
+   (embeddings trained on public text miss code names/acronyms/ticket IDs:
+   "customer IDs need equality, not a soulmate"). Counterpoint: BrowseComp Plus
+   with GPT-5 agent — 70.1% embedding retriever vs 55.9% BM25, fewer searches
+   (BM25 side called badly tuned); Cursor +12.5% adding semantic over grep.
+   Embedding cost itself trivial (OpenAI small: $0.02/1M tokens) — the loop is
+   the expensive part.
+3. **Live MCP connectors skip the index; apps gatekeep bulk export.** MS
+   federated Copilot connectors fetch live over MCP (no index); Anthropic Claw
+   marketplace (2,000+ connectors, opened 2026-09-23); OpenAI restricts personal
+   app-sync to admins; Slack API bans bulk export since 2025. Price: Glean
+   measured live-connector tasks $2.98 vs $0.58 indexed, >3× tokens; Glean added
+   182 live MCP templates (2026-09-22).
+4. **Compiled-wiki (OKF-style) economics caution — directly relevant to
+   `okf-wiki-plan.md`.** August study of the compile-upfront claim: wiki cost
+   ~100× a RAG index to build (expected) but ~21× MORE tokens per query —
+   "no break-even point exists". Citations far better (40% of wiki claims held
+   up vs 19% RAG) — but n=13 questions, single author: warning light, not
+   verdict. OKF repo itself quiet: last commit 2026-08-21 (sole contributor),
+   88 issue comments unanswered. Idea continues in LangChain OpenWiki, Pinecone
+   Nexus (compile company data ahead of time).
+5. **Video verdict:** vector DB demoted from center to one tool. Default for new
+   builds: agent + cheap search tools (keyword first, vectors for fuzzy
+   meaning, live connectors for unowned apps); one-shot pipeline for cheap/fast
+   high-volume lookups; grep + notes file for coding agents / small corpora;
+   Postgres+pgvector (<10M vectors; patch to 0.8.7) per TurboPuffer CTO; compile
+   knowledge only when stable + valuable. Deciding question: how many hops per
+   query, and can users wait ~2 min for slow ones?
+
+**Implications for the OKF-wiki proposal (follow-up change, not this one):**
+
+- The proposal's hybrid SoT + FTS-first recall direction is *aligned* with the
+  verdict (keyword/BM25 first, vectors as one leg — exactly Mnemonic's
+  "FTS5 is the floor" + RRF design). No direction change.
+- The August study is a scope warning: keep the bundle SMALL and curated
+  (decisions/invariants/workflows/glossary — tens of files, human-scale), never
+  a whole-corpus pre-compile. Our per-query cost stays flat because recall is
+  index-lookup + one-hop titles, not "paste the wiki into the prompt". Record
+  this as a design constraint in the follow-up briefing (bundle size cap;
+  no auto-compiled corpus dumps).
+- Citation-quality upside (40% vs 19%) supports the anchors + `verified`
+  frontmatter discipline — the part of the proposal that makes claims checkable.
+- OKF upstream quiet (single contributor, unanswered issues) confirms the
+  borrow-pattern-no-dep decision: depend on the *format text* (SPEC v0.2,
+  already fetched into this thread), not the repo's future.
+
+**Traceability:** follow-up change candidate (OKF-wiki follow-up briefing,
+design-constraint section). Frozen TICKET-01..05 untouched.
+
+## Research: openwiki deep-dive (2026-10-10)
+
+**Sources:** local repo `/data/git/AI/openwiki` (v0.7.2, TypeScript) explored
+via 3 parallel research subagents (pipeline / MCP+search / skills+output) +
+live example: `openwiki/` bundle the user generated on `/data/git/AI/test-project`
+(8 pages, single init run `3dded03a`, `completedBy: opencode`,
+`status: complete`). No code executed, no files modified outside this entry.
+
+**What it is:** CLI that writes/maintains agent documentation as a linked
+Markdown wiki (OKF v0.2). Durable page-job queue
+(`begin → plan → N page workers → finish`), not one big agent. Ownership
+split: agent does semantic research + single-page prose; OpenWiki owns
+queue/state/claim-IDs/verification/indexes/finalization.
+
+### Generation pipeline (`src/agent/`, `src/generation/`, `src/claims/`, `src/okf/`)
+
+1. **Begin** (`repository-run.ts:388`): refresh `AGENTS.md` managed
+   `<!-- OPENWIKI:START/END -->` block, snapshot sources (git fingerprint),
+   Claims preflight, atomic write `openwiki/.run.json`. Updates no-op cleanly.
+2. **Planner worker** (read-only tools + one `submit_plan` tool): repo-specific
+   taxonomy (systems/workflows, NOT source-tree mirror) → ordered `PageJob[]`.
+   `init` must include `quickstart.md`; `update` auto-injects stale-claim jobs.
+   Prompts: `src/agent/repository-prompts.ts`; claim fragments:
+   `src/claims/guidance.ts`.
+3. **Page workers** (concurrency 1–8, quickstart held back last): each sandboxed
+   to ONE writable path; sparse claim decisions (confirm/new+revised/retract);
+   durability proved (`pageVersion == sha256` + verification projected) before
+   job completion; failures restore + mark `skipped`.
+4. **Finish** (fully deterministic, `wiki-finalizer.ts:248`): mermaid validate →
+   `index.md` sync → link check → claim-sources projection → `generated`
+   stamps. `.run.json` deleted LAST (the commit point); earlier throws stay
+   resumable.
+
+### Output structure (confirmed in test-project example)
+
+`index.md` (generated nav only, root carries `okf_version: "0.2"`) +
+`quickstart.md` (task router) + `<topic>/page.md` (H2-sectioned prose) +
+per-dir `index.md` + `INSTRUCTIONS.md` (user brief, never rewritten) +
+`.claims/<page>.json` (claims + `repo://path#Lx-Ly` versioned evidence) +
+`.page-manifest.json` (coverage ledger: page → sha256 + gitHead + runId) +
+`.last-update.json` / `.run.json`. Frontmatter split enforced by skill:
+agent authors `type/title/description/tags`, system stamps
+`verified/sources/generated`. `log.md` reserved-but-unwritten by the pipeline.
+
+### MCP (10 tools, `integrations/core/protocol.ts:14`)
+
+- **Lifecycle:** `begin, submit_plan, next_page, inspect_page_claims,
+  submit_page, finish` (Pi bridge re-exposes only these 6).
+- **Retrieval (model-free, local, read-only):** `search` (compact ranked
+  sections), `read` (exact-anchor full sections, GitHub slugs),
+  `list_workspaces`, `list_wikis`. Skill mandates LAZY retrieval (never
+  preload; stop once grounded; verify against source).
+- Cross-repo via `openwiki link` registry (`~/.openwiki/wiki-workspaces.json`);
+  ambiguity returns explicit `workspace_required` instead of guessing.
+
+### Indexing (3 indexes + 1 disposable ranker, deliberately separated)
+
+- `.page-manifest.json` = coverage ledger; `.claims/*.json` = grounding state;
+  per-call in-memory FTS5 (`porter unicode61`, BM25 title 8 / heading 6 /
+  desc 4 / identifiers 3 / prose 1) over H2-section units = the ONLY search
+  index (rebuilt per call → cannot go stale); `graph.json` = visualizer-only
+  export, never read by search.
+
+### Skills (3)
+
+`integrations/openwiki/SKILL.md` (read-vs-generate modes, 8-step lifecycle,
+page/claims/file contracts, non-negotiable boundaries) +
+`skills/mermaid-diagrams/` (diagrams as validated quality gate, degrade to
+`text` + repair ticket) + `skills/write-connector/` (built-in-TS-only,
+`custom-mcp`-first, strict secret/state discipline).
+
+### Adopted into the OKF-wiki proposal (`okf-wiki-plan.md`, follow-up only)
+
+1. Ownership split (agent prose / scripts own stamps+indexes) → basis of
+   proposed `knowledge-authoring` skill.
+2. Sparse claim decisions + one-writable-path sandbox → matches our Files-column
+   scope guard; adopt "state only what changed" for ADR updates.
+3. Lazy retrieval + stopping rule → extend `mnemonic` skill verbatim in spirit.
+4. Disposable ranking index + sections-as-units (frontmatter-weighted, H2
+   sections) → recall design constraint (query-side, no schema change).
+5. Graph/visualizer derived-only, read-only viz, degraded-diagram discipline →
+   proposed `knowledge-diagrams` + lint behavior.
+6. Explicit-ambiguity (`workspace_required`) → candidate for our
+   cross-project reads (currently silent `all_projects`).
+
+### Explicitly NOT adopted
+
+- `.run.json`-style run state (our SDD `tasks.md` + `state.yaml` already own
+  queue/state — no duplicate); `.claims/` sidecars (frontmatter-embedded
+  `verification.anchors` per repocodex pattern unless bundle exceeds ~100
+  concepts); `log.md`-as-reserved-unwritten (we write `log.md` as decision
+  journal per repocodex); managed `AGENTS.md` block rewrite (our sentinel
+  block stays lean-pointer style).
+
+**Traceability:** seeds the follow-up OKF-wiki change (4 proposed skills:
+`knowledge-authoring`, `knowledge-retrieval` via `mnemonic`,
+`knowledge-lint`, `knowledge-diagrams`; sidecar-vs-frontmatter open point for
+its briefing). Frozen TICKET-01..05 untouched.
+
+## Research: byo-seedx-graph-lessons (2026-10-11)
+
+**Sources:** `Lyra-stellAI/BYO-LLM-WIKI` README (layered KG layers 0–7,
+contextual RAG, eval planes, skill gating, MCP deny-by-default) +
+`CaoYuhaoCarl/seedx` README + raw `docs/specs/output-artifact-layout.md` +
+raw `docs/adr/0001-question-to-mastery-architecture.md` (reader classes,
+path-only index, `_agent/`/`_run/` split, contract artifact, main-agent
+hygiene, ADR revisit sections). Docs only; no code executed.
+
+**BYO adoptions (all scoped, LLM-heavy parts refused):**
+1. Layer vocabulary `source → section → chunk → entity → topic → synthesis`
+   → our `workflow → concept → file → symbol` (R10/R12 tour order).
+2. Init→ingest→query→lint as the one lifecycle vocabulary across
+   onboarding/authoring/recall/lint skills (record in `sdd-structure.md`
+   at execution time, not here).
+3. Eval-vs-observability planes kept separate (qa verdicts vs
+   `session_events`; lint never judges, trails never gate).
+4. Deterministic chunk prefixes `path · symbol · scope` (R13; the cheap
+   half of contextual retrieval — no LLM summaries per the 21×/query video
+   lesson, no OpenAI embeddings per local-first).
+5. MMR-vs-RRF ablation before any ranker change (BYO: MMR 0.909 vs
+   graph-RAG 0.788); graph-traversal retrieval stays rejected.
+6. HNSW question moot: pure-Go adapter already landed (`hnsw.go`,
+   migration 057, ADR-0037) with brute-force degrade.
+
+**SeedX adoptions:** reader-class paragraph in root `index.md`;
+`_` = internal for future folders; index entries paths-only (new
+`okf-lint.mjs` check); ADR revisit sections as template norm (ADR-0012
+already has them); `knowledge-base` recall hardened toward paths-first.
+Parked: JSONL run-log mirror, `_`-folder reshuffle, committed-agent
+`sdd/` question.
+
+**Collision recorded (not just researched):** ADR-0037 was taken by the
+landed embedded-ANN index while this sliced change assumed a 0036 highest —
+two changes raced one sequence number (live serial-development violation,
+surfaced by the LOCKED index as designed). Renumbered in this spec:
+knowledge-class → 0038, R6 amendment → 0039, fusion contract → 0040
+(verify-highest-at-authoring still applies to each).
+
+**Traceability:** R13 ↔ Task 14 ↔ @step-14 (G15); conventions into
+`okf-wiki-plan.md` + R6 scope notes; TICKET-13 after TICKET-04.
+Frozen TICKET-01..05 untouched.
+
+## Research: autodidact autonomous wiki loop (2026-10-11)
+
+**Sources:** `DamonChen-anan/autodidact-skill` README (13★, 5 commits, MIT) —
+autonomous research agent on Karpathy's llm-wiki: topic in, structured wiki
+out. Four skills (`autodidact/questioner/researcher/wiki`), loop
+`question → parallel search → raw/ → quality-weighted compile → gap audit →`
+next round driven by the audit. Docs only; no code executed.
+
+**Mechanisms worth stealing (all process, no dependency):**
+1. **Quantified stop rule.** Halts when audit gaps diminish (≤60% of previous
+   round) + question overlap >70% + no pending user questions + no new raw
+   files. Our iterative loops (`deep-research`, multi-round ingest) stop on
+   judgment; adopt gap-diminishing + overlap thresholds as convergence
+   criteria there.
+2. **Trajectory persisted, not just the distillation.** `outputs/`
+   (`research_state.json` full trajectory + `research_summary.md` +
+   `rounds/` per-round audit reports) alongside `raw/` (immutable sources)
+   and `wiki/` (compiled). Our `findings.md` keeps only the consolidation —
+   adopt per-round audit sections (or a `rounds/` dir) so a future reader can
+   see what was asked, what failed, and what each round closed. Same lesson
+   as SeedX's run-log, independently arrived at.
+3. **User-question inbox with highest priority.** `outputs/user_questions.md`
+   (`## Pending`) is picked up next round above agent-generated questions —
+   steering without interrupting. Adopt as convention for long-running
+   execution/research: a `questions.md` inbox the orchestrator checks per
+   wave, rather than stop-the-world gates for every steer.
+4. **`--background` to skip basics.** Declared prior knowledge prunes the
+   question tree (their FAQ fix for "not deep enough": topic too broad or
+   basics un-skipped). Adopt in `brainstorming` interviews: accept a
+   background statement up front to collapse rounds 1–N.
+5. **Decomposable skills, standalone-usable.** `/wiki compile`, `/wiki
+   compile --files`, `/wiki check` run independently — validates our
+   authoring-vs-lint satellite split (knowledge-base maintain half vs
+   `okf-lint.mjs`).
+6. **Pause/resume = rerun same command; context check + `/compact` at 50%.**
+   Both match our resume-from-artifacts discipline and compaction advisory
+   (ADR-0027..0029) — validation, no change.
+
+**Explicitly NOT adopted:** the fully autonomous web→wiki loop (cost lesson
+from the video entry: ~100× build, ~21×/query — our propose+confirm and
+human gates stand); agent-browser dependency (our Context7/Exa/fetch stack
+stands, same fallback shape they use with plain WebSearch).
+
+**Traceability:** no new requirement — process refinements for existing
+skills (`deep-research` stop criteria, `brainstorming` background intake,
+per-round audit trail, questions-inbox convention). Slice as follow-up
+skill deltas after R6–R13 gate; do not widen this change.

@@ -1,7 +1,7 @@
-Feature: Second-Brain Learnings (growth, health, knowledge-class, embed gate, capture gate)
+Feature: Second-Brain Learnings (growth, health, knowledge-class, embed gate, capture gate, fused recall, promotion, onboarding)
   As a Mnemonic operator
-  I want growth timeline, actionable health, durability class, centrality-gated embeddings, and confidence-gated capture
-  So that the second brain is observable, maintainable, and cheap
+  I want growth timeline, actionable health, durability class, centrality-gated embeddings, confidence-gated capture, fused web recall, reflect-time promotion, and onboarding recall with bootstrap
+  So that the second brain is observable, maintainable, and cheap, and project knowledge compounds across sessions
 
   Background:
     Given the mnemonic Go module at mnemonic/
@@ -84,3 +84,106 @@ Feature: Second-Brain Learnings (growth, health, knowledge-class, embed gate, ca
     #### Gates
     # G7: CHECK: cd mnemonic && go test ./internal/... -v
     # G7: EXPECT: PASS, whole module green
+
+  @step-07 @fused-recall
+  Scenario: fused recall labeled
+    Given one observation and one unexpired web_cache row and one expired web_cache row sharing a term
+    When I call mem_search for that term
+    Then the observation hit is present
+    And the unexpired web_cache hit is present labeled corpus web_cache with source, url, fetched_at, and expires_at
+    And the retrieve pointer resolves via web_cache_get
+    And the expired web_cache row is absent
+    And observations-only behavior is otherwise unchanged
+    #### Gates
+    # G8: CHECK: cd mnemonic && go test ./internal/memory/... -run TestMemSearch_FusedWebCache -v
+    # G8: EXPECT: PASS, web hit labeled, expired excluded, vector leg observations-only
+
+  @step-08 @promotion-candidates
+  Scenario: promotion candidates proposed
+    Given the reflect skill with the promotion step
+    When a change closes with web_cache entries from its sessions
+    Then report.md carries a Web-cache promotion candidates section with one card per entry
+    And every card cites its cache id and url with a proposed concept home
+    And no concept file is written by the promotion itself
+    #### Gates
+    # G9: CHECK: grep -c 'promotion candidates' .agents/skills/lifecycle/reflect/SKILL.md
+    # G9: EXPECT: count at least 2 (step plus verification or template pointer)
+
+  @step-09 @onboarding-recall-bootstrap
+  Scenario: onboarding recall and bootstrap
+    Given the onboarding skill with recall-before-detect and bootstrap steps
+    When onboarding re-runs on a project with recorded knowledge
+    Then index.md, the log tail, and memory are consulted before re-detecting facts
+    And brownfield enroll yields draft candidates with anchors for one-at-a-time confirmation
+    And unconfirmed drafts are dropped and fresh projects skip recall with a note
+    #### Gates
+    # G10: CHECK: grep -c -e 'recall-before-detect' -e 'Step 1.5b' .agents/skills/lifecycle/onboarding/SKILL.md .agents/skills/lifecycle/onboarding/references/process.md
+    # G10: EXPECT: count at least 3 across both files (rule plus procedure plus verification)
+
+  @step-10 @knowledge-graph-view
+  Scenario: knowledge concept graph view
+    Given a fixture bundle with 4 concepts, one orphan, one broken link, one deprecated page, plus index.md and log.md
+    When I derive the knowledge graph
+    Then 4 nodes carry their frontmatter fields with edges only for resolving links
+    And the orphan is flagged and the broken link is tolerated without error
+    And index.md and log.md are excluded from nodes
+    And an empty bundle yields an empty state, not an error
+    #### Gates
+    # G11: CHECK: cd mnemonic && go test ./internal/knowledge/... -v
+    # G11: EXPECT: PASS, derive per call over current Markdown, no store, read-only route
+
+  @step-11 @explicit-search-scope
+  Scenario: explicit search scope
+    Given two non-empty project buckets sharing a term
+    When I call mem_search with all_projects true
+    Then the response carries a scope block naming both buckets with counts ahead of merged ranks
+    And a default scoped search is byte-identical in shape to today with no scope block
+    #### Gates
+    # G12: CHECK: cd mnemonic && go test ./internal/mcp/... -run TestMemSearch_ScopeBlock -v
+    # G12: EXPECT: PASS, additive scope block, existing federated tests green unmodified
+
+  @step-12 @okf-lint
+  Scenario: knowledge lint script verdicts
+    Given a clean fixture bundle and a drifted fixture bundle (broken link, missing index entry, broken claim, stable page missing generated)
+    When I run okf-lint.mjs over each fixture
+    Then the clean bundle exits 0 with DRIFT clean and SCOPE COMPLETE
+    And the drifted bundle exits 1 naming the broken link, the index gap, the broken claim, and the missing provenance
+    And neither run writes to the fixture directories
+    #### Gates
+    # G13: CHECK: node .agents/skills/verification/qa/scripts/okf-lint.mjs test/fixtures/okf-clean && node .agents/skills/verification/qa/scripts/okf-lint.mjs test/fixtures/okf-drift; test $? -eq 1
+    # G13: EXPECT: clean exits 0 with DRIFT clean, drifted exits 1 with all four finding classes, read-only both
+
+  @step-13 @teaching-graph-page
+  Scenario: teaching graph page
+    Given a fixture repo with modules, calls, imports, an orphan, a broken concept link, and a deprecated page
+    When I browse tree to canvas and canvas to tree
+    Then directory selection filters the canvas and node selection reveals its file
+    And the inspector shows identity with lines, connections grouped by edge kind with source lines, and a code preview
+    And search centers a named symbol and the tour completes at least 3 stops
+    And locals expand ephemerally with an empty store diff
+    And orphan, broken-link, deprecated, empty, and degraded states all render
+    #### Gates
+    # G14: CHECK: cd mnemonic && go test ./internal/... -run 'TestGraphEnrich_Lines|TestLocalsResolver_Ephemeral' -v
+    # G14: EXPECT: PASS, lines served, locals ephemeral with store untouched, no new endpoint
+
+  @step-14 @contextualized-retrieval
+  Scenario: contextualized retrieval
+    Given a fixture with colliding code names across files
+    When I index with deterministic path-symbol-scope prefixes
+    Then embedded text carries the prefix while display text stays raw
+    And prefixed retrieval beats raw on the fixture's code-name queries
+    And the MMR-vs-RRF ablation numbers are recorded with the ranker unchanged
+    #### Gates
+    # G15: CHECK: cd mnemonic && go test ./internal/codeindex/... -run TestChunkPrefix_Context -v
+    # G15: EXPECT: PASS, prefix present, raw display unchanged, ablation recorded either way
+
+  @step-15 @knowledge-moves
+  Scenario: knowledge moves land intact
+    Given the post-R6 layout with dissolved artifacts and xarchive
+    When I run okf-lint over the repo
+    Then it exits 0 with DRIFT clean and SCOPE COMPLETE
+    And every LOCKED row resolves and git log follow shows history through both moves
+    And code_search for a relocated ADR title returns the decisions path
+    #### Gates
+    # G16: CHECK: node .agents/skills/verification/qa/scripts/okf-lint.mjs .
+    # G16: EXPECT: exit 0, DRIFT clean, SCOPE COMPLETE, artifacts and archive gone, history intact
