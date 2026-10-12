@@ -60,6 +60,14 @@ func (p *Proxy) Handler() http.Handler {
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// WebSocket upgrade requests bypass the savings transform entirely: WS
+	// frames are not JSON chat requests, so they pass through verbatim.
+	// The proxy hijacks the connection and pipes both directions (T05).
+	if isWebSocketUpgrade(r) {
+		_ = p.forwardWebSocket(w, r)
+		return
+	}
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "proxy: reading request body: "+err.Error(), http.StatusBadRequest)
@@ -184,12 +192,31 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, body []byte) (in
 		ct = "application/json"
 	}
 	w.Header().Set("Content-Type", ct)
+	// M3: explicitly passthrough Content-Length and Transfer-Encoding from
+	// the upstream response so the client sees the exact framing the
+	// upstream used, instead of relying on Go to re-encode the framing
+	// (which can drop Content-Length on a chunked body, or vice versa).
+	if cl := res.Header.Get("Content-Length"); cl != "" {
+		w.Header().Set("Content-Length", cl)
+	}
+	if te := res.Header.Get("Transfer-Encoding"); te != "" {
+		w.Header().Set("Transfer-Encoding", te)
+	}
 	w.WriteHeader(res.Status)
 	if res.Body != nil {
 		_, _ = io.Copy(w, res.Body)
 		_ = res.Body.Close()
 	}
 	return res.Status, ct
+}
+
+// forwardWebSocket pipes a WebSocket upgrade request through to the upstream:
+// it dials the upstream, relays the client's handshake, and pipes the
+// hijacked connection in both directions. It is a pure passthrough — no
+// savings transform, no retry (a failed handshake is reported to the client
+// as a 502, never a 500; ADR-0016 fail-open).
+func (p *Proxy) forwardWebSocket(w http.ResponseWriter, r *http.Request) error {
+	return pipeWebSocket(w, r, p.upstream)
 }
 
 // baseUpstream captures the resolved upstream endpoint + auth for the provider

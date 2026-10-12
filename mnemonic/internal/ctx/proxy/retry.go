@@ -24,6 +24,12 @@ func realSleep(d time.Duration) { time.Sleep(d) }
 type retryResult struct {
 	Status int
 	Body   io.ReadCloser
+	// Header is the upstream response's full header set, captured on the
+	// attempt the body is kept (2xx success or the final non-2xx attempt).
+	// Used for passthrough of framing headers (Content-Length,
+	// Transfer-Encoding) so the client sees the exact framing the upstream
+	// used.
+	Header http.Header
 	// ContentType is the upstream response's Content-Type, captured on the
 	// attempt the body is kept (2xx success or the final non-2xx attempt).
 	ContentType string
@@ -104,6 +110,7 @@ func callWithRetry(ctx context.Context, do func() (*http.Response, error), maxRe
 			return retryResult{
 				Status:      resp.StatusCode,
 				Body:        resp.Body,
+				Header:      resp.Header,
 				ContentType: resp.Header.Get("Content-Type"),
 				Attempts:    attempt,
 			}
@@ -115,6 +122,7 @@ func callWithRetry(ctx context.Context, do func() (*http.Response, error), maxRe
 		last = retryResult{
 			Status:      resp.StatusCode,
 			Body:        readAllCloser(resp),
+			Header:      resp.Header,
 			ContentType: resp.Header.Get("Content-Type"),
 			Attempts:    attempt,
 		}
