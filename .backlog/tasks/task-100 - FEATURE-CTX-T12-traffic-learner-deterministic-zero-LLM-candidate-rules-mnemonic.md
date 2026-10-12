@@ -3,10 +3,10 @@ id: TASK-100
 title: >-
   [FEATURE] CTX T12 traffic learner: deterministic zero-LLM candidate rules
   (mnemonic)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:38'
-updated_date: '2026-10-09 13:42'
+updated_date: '2026-10-12 15:14'
 labels:
   - mnemonic
   - traffic
