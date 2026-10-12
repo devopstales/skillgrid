@@ -91,8 +91,9 @@ func (s *Service) Share(ctx context.Context, id int64, in ShareInput) error {
 	// The observation must exist and belong to this project before we touch it.
 	var cur string
 	if err := s.store.DB.QueryRowContext(ctx, `
-		SELECT visibility FROM observations
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`, id, s.projectID).Scan(&cur); err != nil {
+		SELECT st.visibility FROM observation_state st
+		JOIN observations_core c ON c.id = st.observation_id
+		WHERE st.observation_id = ? AND c.project = ? AND c.deleted_at IS NULL`, id, s.projectID).Scan(&cur); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("observation %d not found", id)
 		}
@@ -106,27 +107,46 @@ func (s *Service) Share(ctx context.Context, id int64, in ShareInput) error {
 			}
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
-		if _, err := s.store.DB.ExecContext(ctx, `
+		// FK is repointed at observations_core (055), so the grant writes run
+		// in a plain transaction.
+		tx, err := s.store.DB.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("clear grants: begin: %w", err)
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+		if _, err := tx.ExecContext(ctx, `
 			DELETE FROM acl_grants WHERE observation_id = ?`, id); err != nil {
 			return fmt.Errorf("clear grants: %w", err)
 		}
 		for _, g := range in.Grants {
-			if _, err := s.store.DB.ExecContext(ctx, `
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO acl_grants (observation_id, grantee, grant_type, created_at)
 				VALUES (?, ?, 'agent', ?)`, id, strings.TrimSpace(g), now); err != nil {
 				return fmt.Errorf("insert grant: %w", err)
 			}
 		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("clear grants: %w", err)
+		}
+		committed = true
 	}
-	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations SET visibility = ?, updated_at = ?
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
-		vis, time.Now().UTC().Format(time.RFC3339), id, s.projectID)
-	if err != nil {
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := s.store.DB.ExecContext(ctx, `
+		UPDATE observation_state SET visibility = ?
+		WHERE `+sideScopeWhere("observation_state"),
+		vis, id, s.projectID); err != nil {
 		return fmt.Errorf("share: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("observation %d not found", id)
+	if _, err := s.store.DB.ExecContext(ctx, `
+		UPDATE observations_core SET updated_at = ?
+		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		now, id, s.projectID); err != nil {
+		return fmt.Errorf("share: %w", err)
 	}
 	return nil
 }
@@ -155,11 +175,27 @@ func (s *Service) AppendVersion(ctx context.Context, id int64, revision int) err
 		return fmt.Errorf("load observation: %w", err)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := s.store.DB.ExecContext(ctx, `
+	// FK is repointed at observations_core (055), so the version insert runs
+	// in a plain transaction.
+	tx, err := s.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("append version: begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO observation_versions (observation_id, revision, content, created_at)
 		VALUES (?, ?, ?, ?)`, id, revision, content, now); err != nil {
 		return fmt.Errorf("append version: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("append version: %w", err)
+	}
+	committed = true
 	return nil
 }
 
@@ -181,9 +217,10 @@ func (s *Service) UpdateContent(ctx context.Context, id int64, newContent string
 	// reached) before the UPDATE below rewrites content and advances
 	// revision_count — the same append, never-overwrite rule as mem_update.
 	var curRev int
+	var curTitle, curContent, curType string
 	if err := s.store.DB.QueryRowContext(ctx, `
-		SELECT COALESCE(revision_count,0) FROM observations
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`, id, s.projectID).Scan(&curRev); err != nil {
+		SELECT COALESCE(revision_count,0), title, content, type FROM observations_core
+		WHERE id = ? AND project = ? AND deleted_at IS NULL`, id, s.projectID).Scan(&curRev, &curTitle, &curContent, &curType); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("observation %d not found", id)
 		}
@@ -194,7 +231,7 @@ func (s *Service) UpdateContent(ctx context.Context, id int64, newContent string
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations SET content = ?,
+		UPDATE observations_core SET content = ?,
 			revision_count = COALESCE(revision_count,0) + 1,
 			updated_at = ?
 		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
@@ -204,6 +241,10 @@ func (s *Service) UpdateContent(ctx context.Context, id int64, newContent string
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("observation %d not found", id)
+	}
+	if err := ftsReplaceObs(ctx, s.store.DB, id,
+		curTitle, curContent, curType, curTitle, newContent, curType, s.projectID); err != nil {
+		return fmt.Errorf("update content: %w", err)
 	}
 	return nil
 }
@@ -218,15 +259,22 @@ func (s *Service) SetStatus(ctx context.Context, id int64, status string) error 
 	if !IsValidStatus(status) {
 		return fmt.Errorf("invalid status %q (valid: %s|superseded|archived)", status, StatusActive)
 	}
+	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations SET status = ?, updated_at = ?
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
-		status, time.Now().UTC().Format(time.RFC3339), id, s.projectID)
+		UPDATE observation_state SET status = ?
+		WHERE `+sideScopeWhere("observation_state"),
+		status, id, s.projectID)
 	if err != nil {
 		return fmt.Errorf("set status: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("observation %d not found", id)
+	}
+	if _, err := s.store.DB.ExecContext(ctx, `
+		UPDATE observations_core SET updated_at = ?
+		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		now, id, s.projectID); err != nil {
+		return fmt.Errorf("set status: %w", err)
 	}
 	return nil
 }
@@ -239,9 +287,9 @@ func (s *Service) BumpRetrievalUsage(ctx context.Context, id int64) {
 		return
 	}
 	_, _ = s.store.DB.ExecContext(ctx, `
-		UPDATE observations
+		UPDATE observation_stats
 		SET retrieval_usage = COALESCE(retrieval_usage, 0) + 1
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`, id, s.projectID)
+		WHERE `+sideScopeWhere("observation_stats"), id, s.projectID)
 }
 
 // Version is a single row of the append-only version history.
@@ -284,8 +332,10 @@ func (s *Service) Governance(ctx context.Context, id int64) (Governance, error) 
 	var g Governance
 	var owner sql.NullString
 	if err := s.store.DB.QueryRowContext(ctx, `
-		SELECT owner, visibility, status, COALESCE(revision_count,0), COALESCE(retrieval_usage,0)
-		FROM observations WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		SELECT pr.owner, COALESCE(st.visibility,'private'), COALESCE(st.status,'active'),
+		       COALESCE(o.revision_count,0), COALESCE(sa.retrieval_usage,0)
+		FROM `+obsSplitFrom+`
+		WHERE o.id = ? AND o.project = ? AND o.deleted_at IS NULL`,
 		id, s.projectID).Scan(&owner, &g.Visibility, &g.Status, &g.RevisionCount, &g.RetrievalUsage); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return g, fmt.Errorf("observation %d not found", id)
@@ -355,8 +405,9 @@ func (s *Service) canRead(ctx context.Context, obsID int64, owner, readerOwner, 
 	var oOwner sql.NullString
 	var vis, status string
 	err := s.store.DB.QueryRowContext(ctx, `
-		SELECT owner, COALESCE(visibility, 'private'), COALESCE(status, 'active')
-		FROM observations WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		SELECT pr.owner, COALESCE(st.visibility,'private'), COALESCE(st.status,'active')
+		FROM `+obsSplitFrom+`
+		WHERE o.id = ? AND o.project = ? AND o.deleted_at IS NULL`,
 		obsID, s.projectID).Scan(&oOwner, &vis, &status)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -418,15 +469,15 @@ func (s *Service) visibilityFilter(owner, readerOwner, readerAgent string) (clau
 		// asset explicitly granted to them. NOT their own rows (those are
 		// owned by owner) and NOT other owners' private assets.
 		args = append(args, readerAgent)
-		clause = `(COALESCE(o.visibility,'private') = 'team'
-			OR (COALESCE(o.visibility,'private') IN ('restricted','agent')
+		clause = `(COALESCE(st.visibility,'private') = 'team'
+			OR (COALESCE(st.visibility,'private') IN ('restricted','agent')
 			    AND EXISTS (SELECT 1 FROM acl_grants g
 			               WHERE g.observation_id = o.id AND g.grantee = ?)))`
 	} else {
 		// The reader is the owner (or owner-identity match): see their own +
 		// any non-private asset in the project.
 		args = append(args, owner)
-		clause = `(o.owner = ? OR COALESCE(o.visibility,'private') != 'private')`
+		clause = `(pr.owner = ? OR COALESCE(st.visibility,'private') != 'private')`
 	}
 	return clause, args
 }
@@ -452,19 +503,14 @@ func (s *Service) SearchOwner(ctx context.Context, readerOwner, query, matchMode
 	args = append(args, clauseArgs...)
 	args = append(args, limit)
 	rows, err := s.store.DB.QueryContext(ctx, `
-		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
-		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
-		   COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
-		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
-		       o.valid_at, o.invalid_at, o.superseded_by
-		FROM observations o
+		SELECT `+obsSplitSelectCols+`
+		FROM `+obsSplitFrom+`
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.project = ? AND o.deleted_at IS NULL
-		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
-		  AND (o.invalid_at IS NULL OR o.invalid_at = '' OR strftime('%s', o.invalid_at) > strftime('%s', 'now'))
+		  AND (st.expires_at IS NULL OR st.expires_at = '' OR strftime('%s', st.expires_at) > strftime('%s', 'now'))
+		  AND (tm.invalid_at IS NULL OR tm.invalid_at = '' OR strftime('%s', tm.invalid_at) > strftime('%s', 'now'))
 		  AND `+clause+`
-		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
+		ORDER BY COALESCE(st.pinned, 0) DESC, bm25(observations_fts)
 		LIMIT ?`,
 		args...,
 	)
@@ -500,16 +546,11 @@ func (s *Service) AdminCrossOwnerList(ctx context.Context, adminOwner string) ([
 		return nil, errors.New("memory service not initialized")
 	}
 	rows, err := s.store.DB.QueryContext(ctx, `
-		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
-		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
-		   COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
-		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
-		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
-		       o.valid_at, o.invalid_at, o.superseded_by
-		FROM observations o
+		SELECT `+obsSplitSelectCols+`
+		FROM `+obsSplitFrom+`
 		WHERE o.deleted_at IS NULL AND o.project = ?
-		  AND (o.owner = ? OR COALESCE(o.visibility, 'private') != 'private')
-		  AND (o.invalid_at IS NULL OR o.invalid_at = '' OR strftime('%s', o.invalid_at) > strftime('%s', 'now'))
+		  AND (pr.owner = ? OR COALESCE(st.visibility,'private') != 'private')
+		  AND (tm.invalid_at IS NULL OR tm.invalid_at = '' OR strftime('%s', tm.invalid_at) > strftime('%s', 'now'))
 		ORDER BY o.created_at DESC, o.id DESC
 		LIMIT 500`, s.projectID, adminOwner)
 	if err != nil {

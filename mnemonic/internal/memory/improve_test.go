@@ -37,14 +37,16 @@ func seedImproveObs(t *testing.T, fx *ownerFixture, title, body, owner string, u
 	created := fmtS(now.Add(-createdOffset))
 	updated := fmtS(now)
 	expires := fmtS(now.Add(7 * 24 * time.Hour))
+	// Direct split-table insert: the compat VIEW leaves LastInsertId stale
+	// (engine limit), so the seeder writes core + side rows directly and uses
+	// the core INSERT's real LastInsertId.
 	res, err := fx.st.DB.Exec(`
-		INSERT INTO observations (
+		INSERT INTO observations_core (
 			session_id, type, title, content, project, scope,
-			normalized_hash, created_at, updated_at, source,
-			owner, visibility, status, retrieval_usage, expires_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			normalized_hash, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		fx.sessionID, "decision", title, body, fx.svc.ProjectID(), "",
-		"", created, updated, "manual", owner, "private", "active", usage, expires,
+		"", created, updated,
 	)
 	if err != nil {
 		t.Fatalf("seed observation %q: %v", title, err)
@@ -52,6 +54,31 @@ func seedImproveObs(t *testing.T, fx *ownerFixture, title, body, owner string, u
 	id, err := res.LastInsertId()
 	if err != nil {
 		t.Fatalf("seed last insert id %q: %v", title, err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_state (observation_id, status, visibility, expires_at)
+		VALUES (?, 'active', 'private', ?)`, id, expires); err != nil {
+		t.Fatalf("seed state %q: %v", title, err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_provenance (observation_id, source, owner)
+		VALUES (?, 'manual', ?)`, id, owner); err != nil {
+		t.Fatalf("seed provenance %q: %v", title, err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_stats (observation_id, retrieval_usage)
+		VALUES (?, ?)`, id, usage); err != nil {
+		t.Fatalf("seed stats %q: %v", title, err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observation_temporal (observation_id, valid_at)
+		VALUES (?, ?)`, id, created); err != nil {
+		t.Fatalf("seed temporal %q: %v", title, err)
+	}
+	if _, err := fx.st.DB.Exec(`
+		INSERT INTO observations_fts(rowid, title, content, type, project)
+		VALUES (?, ?, ?, ?, ?)`, id, title, body, "decision", fx.svc.ProjectID()); err != nil {
+		t.Fatalf("seed fts %q: %v", title, err)
 	}
 	// Stamp the importance columns like Save() would (014 step 13), so the
 	// query-time re-rank reads the same stored values production sees.

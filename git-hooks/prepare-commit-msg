@@ -1,0 +1,9 @@
+#!/bin/sh
+# prepare-commit-msg — append `Refs: <id>` from SKILLGRID_TRACKER_REF when the
+# message has no tracker footer yet. Fail-open: never blocks the commit.
+# The agent exports the active Tracker ID (from tasks.md) before committing,
+# e.g. SKILLGRID_TRACKER_REF=TASK-069 git commit -m "...".
+HOOK_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+command -v node >/dev/null 2>&1 || exit 0
+node "$HOOK_DIR/../hooks/checkpoint-state.js" prepare-msg "$1" >/dev/null 2>&1 || true
+exit 0

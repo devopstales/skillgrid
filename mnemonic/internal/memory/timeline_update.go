@@ -28,80 +28,75 @@ func (s *Service) Update(ctx context.Context, id int64, in UpdateInput) error {
 	}
 	hasContent := strings.TrimSpace(in.Title) != "" || strings.TrimSpace(in.Content) != ""
 
-	type kv struct{ col, val string }
-	kvs := []kv{}
+	// All Update fields are core columns (title, content, type, scope,
+	// topic_key, normalized_hash, revision_count, updated_at).
+	var curTitle, curContent, curType string
+	var curRev int
+	if err := s.store.DB.QueryRowContext(ctx, `
+		SELECT title, content, type, COALESCE(revision_count,0) FROM observations_core
+		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		id, s.projectID,
+	).Scan(&curTitle, &curContent, &curType, &curRev); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("observation %d not found", id)
+		}
+		return fmt.Errorf("load observation: %w", err)
+	}
+
+	sets := []string{}
+	args := []any{}
 	if v := strings.TrimSpace(in.Title); v != "" {
-		kvs = append(kvs, kv{"title", v})
+		sets = append(sets, "title = ?")
+		args = append(args, v)
 	}
 	if v := strings.TrimSpace(in.Content); v != "" {
-		kvs = append(kvs, kv{"content", v})
+		sets = append(sets, "content = ?")
+		args = append(args, v)
 	}
 	if v := strings.TrimSpace(in.Type); v != "" {
 		if !IsValidType(v) {
 			return fmt.Errorf("invalid type %q", v)
 		}
-		kvs = append(kvs, kv{"type", v})
+		sets = append(sets, "type = ?")
+		args = append(args, v)
 	}
 	if v := strings.TrimSpace(in.Scope); v != "" {
-		kvs = append(kvs, kv{"scope", v})
+		sets = append(sets, "scope = ?")
+		args = append(args, v)
 	}
 	if v := strings.TrimSpace(in.TopicKey); v != "" {
-		kvs = append(kvs, kv{"topic_key", v})
+		sets = append(sets, "topic_key = ?")
+		args = append(args, v)
 	}
 
 	if hasContent {
-		// Recompute the dedup hash from the *resulting* title/content so the
-		// 24h dedupe window keeps working after an in-place edit.
-		var curTitle, curContent, curType string
-		if err := s.store.DB.QueryRowContext(ctx, `
-			SELECT title, content, type FROM observations
-			WHERE id = ? AND project = ? AND deleted_at IS NULL`,
-			id, s.projectID,
-		).Scan(&curTitle, &curContent, &curType); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("observation %d not found", id)
-			}
-			return fmt.Errorf("load observation: %w", err)
-		}
 		if strings.TrimSpace(in.Title) != "" {
 			curTitle = in.Title
 		}
 		if strings.TrimSpace(in.Content) != "" {
 			curContent = in.Content
 		}
-		kvs = append(kvs, kv{"normalized_hash", normalizedHash(curTitle, curContent, curType)})
+		sets = append(sets, "normalized_hash = ?")
+		args = append(args, normalizedHash(curTitle, curContent, curType))
 	}
 
-	if len(kvs) == 0 {
+	if len(sets) == 0 {
 		return errors.New("no fields to update")
 	}
 
 	// Governance (013 step 01): a mem_update appends a version, it does not
-	// silently overwrite. Capture the pre-update state (tagged with the
-	// revision about to be reached) before the UPDATE below rewrites content
-	// and advances revision_count. Best-effort: never blocks the update.
+	// silently overwrite. Best-effort: never blocks the update.
 	if hasContent {
-		var curRev int
-		if err := s.store.DB.QueryRowContext(ctx, `
-			SELECT COALESCE(revision_count,0) FROM observations
-			WHERE id = ? AND project = ? AND deleted_at IS NULL`, id, s.projectID).Scan(&curRev); err == nil {
-			if appErr := s.AppendVersion(ctx, id, curRev+1); appErr == nil {
-				// recorded
-			}
+		if appErr := s.AppendVersion(ctx, id, curRev+1); appErr != nil {
+			// recorded
 		}
 	}
 
-	sets := make([]string, 0, len(kvs)+2)
-	args := make([]any, 0, len(kvs)+2)
-	for _, pair := range kvs {
-		sets = append(sets, pair.col+" = ?")
-		args = append(args, pair.val)
-	}
 	sets = append(sets, "revision_count = COALESCE(revision_count,0) + 1")
 	sets = append(sets, "updated_at = ?")
 	args = append(args, time.Now().UTC().Format(time.RFC3339), id, s.projectID)
 	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations SET `+strings.Join(sets, ", ")+`
+		UPDATE observations_core SET `+strings.Join(sets, ", ")+`
 		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
 		args...,
 	)
@@ -110,6 +105,23 @@ func (s *Service) Update(ctx context.Context, id int64, in UpdateInput) error {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("observation %d not found", id)
+	}
+	// FTS: the update may change title/content/type — the FTS index must
+	// track the new values (mirrors the legacy observations_fts_update
+	// trigger that fired on view-mediated writes).
+	newTitle, newContent, newType := curTitle, curContent, curType
+	if v := strings.TrimSpace(in.Title); v != "" {
+		newTitle = v
+	}
+	if v := strings.TrimSpace(in.Content); v != "" {
+		newContent = v
+	}
+	if v := strings.TrimSpace(in.Type); v != "" {
+		newType = v
+	}
+	if err := ftsReplaceObs(ctx, s.store.DB, id,
+		curTitle, curContent, curType, newTitle, newContent, newType, s.projectID); err != nil {
+		return fmt.Errorf("update observation: %w", err)
 	}
 	return nil
 }
@@ -121,18 +133,40 @@ func (s *Service) Delete(ctx context.Context, id int64, hard bool) error {
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return errors.New("memory service not initialized")
 	}
-	verb, query, args := "soft-delete", `
-		UPDATE observations SET deleted_at = ?
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
-		[]any{time.Now().UTC().Format(time.RFC3339), id, s.projectID}
-	if hard {
-		verb, query, args = "hard-delete", `
-			DELETE FROM observations WHERE id = ? AND project = ?`,
-			[]any{id, s.projectID}
+	if !hard {
+		res, err := s.store.DB.ExecContext(ctx, `
+			UPDATE observations_core SET deleted_at = ?
+			WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+			time.Now().UTC().Format(time.RFC3339), id, s.projectID,
+		)
+		if err != nil {
+			return fmt.Errorf("soft-delete observation: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return fmt.Errorf("observation %d not found", id)
+		}
+		return nil
 	}
-	res, err := s.store.DB.ExecContext(ctx, query, args...)
+	// Hard delete: FTS delete with old values, then sides, then core.
+	var title, content, typ, project string
+	if err := s.store.DB.QueryRowContext(ctx, `
+		SELECT title, content, type, project FROM observations_core WHERE id = ?`, id,
+	).Scan(&title, &content, &typ, &project); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("observation %d not found", id)
+		}
+		return fmt.Errorf("hard-delete observation: %w", err)
+	}
+	if err := ftsDeleteObs(ctx, s.store.DB, id, title, content, typ, project); err != nil {
+		return fmt.Errorf("hard-delete observation: %w", err)
+	}
+	if err := deleteSplitSides(ctx, s.store.DB, id); err != nil {
+		return fmt.Errorf("hard-delete observation: %w", err)
+	}
+	res, err := s.store.DB.ExecContext(ctx, `
+		DELETE FROM observations_core WHERE id = ? AND project = ?`, id, project)
 	if err != nil {
-		return fmt.Errorf("%s observation: %w", verb, err)
+		return fmt.Errorf("hard-delete observation: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("observation %d not found", id)

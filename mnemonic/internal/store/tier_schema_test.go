@@ -43,7 +43,7 @@ func tableExists(t *testing.T, db *sql.DB, name string) bool {
 	t.Helper()
 	var n int
 	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, name,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','view') AND name=?`, name,
 	).Scan(&n); err != nil {
 		t.Fatalf("sqlite_master %s: %v", name, err)
 	}

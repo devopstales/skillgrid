@@ -1,0 +1,5 @@
+# Local Obsidian workspace state stays machine-local; only app.json (shared
+# vault settings: excluded-files filters) is committed.
+*
+!app.json
+!.gitignore

@@ -273,7 +273,7 @@ func (s *Service) stampImportance(ctx context.Context, id int64, retrievalUsage 
 
 	var prevTier sql.NullString
 	if err := s.store.DB.QueryRowContext(ctx,
-		`SELECT maturity_tier FROM observations WHERE id = ?`, id,
+		`SELECT maturity_tier FROM observation_stats WHERE observation_id = ?`, id,
 	).Scan(&prevTier); err != nil && !errors_IsNoRows(err) {
 		return // best-effort: a tier lookup failure never blocks the save
 	}
@@ -284,8 +284,8 @@ func (s *Service) stampImportance(ctx context.Context, id int64, retrievalUsage 
 	stored = NextMaturityTier(stored, tier)
 
 	if _, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations SET importance_score = ?, recency_decay = ?, maturity_tier = ?
-		WHERE id = ?`,
+		UPDATE observation_stats SET importance_score = ?, recency_decay = ?, maturity_tier = ?
+		WHERE observation_id = ?`,
 		score, decay, stored, id,
 	); err != nil {
 		// Best-effort: the importance columns are advisory (ranking +
@@ -303,9 +303,9 @@ func (s *Service) RecomputeImportance(ctx context.Context) error {
 		return fmt.Errorf("memory service not initialized")
 	}
 	rows, err := s.store.DB.QueryContext(ctx, `
-		SELECT id, created_at, COALESCE(retrieval_usage, 0)
-		FROM observations
-		WHERE project = ? AND deleted_at IS NULL`,
+		SELECT o.id, o.created_at, COALESCE(sa.retrieval_usage, 0)
+		FROM `+obsSplitFrom+`
+		WHERE o.project = ? AND o.deleted_at IS NULL`,
 		s.projectID,
 	)
 	if err != nil {

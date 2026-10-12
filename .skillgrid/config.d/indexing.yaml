@@ -1,0 +1,15 @@
+mnemonic:
+  include:
+    - "**/*.cjs"
+    - "**/*.cts"
+    - "**/*.js"
+    - "**/*.mjs"
+    - "**/*.mts"
+    - "**/*.ts"
+    - "**/*.tsx"
+    - "**/*.md"
+  exclude:
+    - "**/node_modules/**"
+    - "**/.git/**"
+    - "**/dist/**"
+    - "**/.skillgrid/**"

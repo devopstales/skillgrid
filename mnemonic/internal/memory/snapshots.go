@@ -215,72 +215,109 @@ type restoreRowFn func(ctx context.Context, tx txHandle, row *SnapshotRow) error
 
 // restoreRowDefault is the default restore-row executor: it upserts one row on
 // the restore transaction (a soft-deleted row is brought back by the explicit
-// deleted_at value, an existing row is overwritten exactly).
+// deleted_at value, an existing row is overwritten exactly). The upsert runs
+// on observations_core + side tables directly — the compat VIEW rejects
+// ON CONFLICT ("cannot UPSERT a view"), so the restore writes core + sides.
 func restoreRowDefault(ctx context.Context, tx txHandle, row *SnapshotRow) error {
-	if _, err := tx.ExecContext(ctx, restoreUpsertSQL,
+	// Core upsert (13 columns).
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO observations_core (
+			id, session_id, type, title, content, project, scope, topic_key,
+			normalized_hash, revision_count, created_at, updated_at, deleted_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			session_id      = excluded.session_id,
+			type            = excluded.type,
+			title           = excluded.title,
+			content         = excluded.content,
+			project         = excluded.project,
+			scope           = excluded.scope,
+			topic_key       = excluded.topic_key,
+			normalized_hash = excluded.normalized_hash,
+			revision_count  = excluded.revision_count,
+			created_at      = excluded.created_at,
+			updated_at      = excluded.updated_at,
+			deleted_at      = excluded.deleted_at`,
 		row.ID, row.SessionID, row.Type, row.Title, row.Content, row.Project, row.Scope,
-		row.TopicKey, row.Source, row.NormalizedHash, row.RevisionCount, row.PromptID,
-		row.CreatedAt, row.UpdatedAt, row.Pinned, row.DuplicateCount, row.LastSeenAt,
-		row.ExpiresAt, row.ToolName, row.Owner, row.Visibility, row.Status, row.RetrievalUsage,
-		row.ImportanceScore, row.RecencyDecay, row.MaturityTier, row.Provenance, row.MemoryType,
-		row.GraphRef, row.DeletedAt, row.ReviewAfter, blobOrNULL(row.Embedding),
-		row.EmbeddingModel, row.EmbeddingCreated,
+		row.TopicKey, row.NormalizedHash, row.RevisionCount,
+		row.CreatedAt, row.UpdatedAt, row.DeletedAt,
+	); err != nil {
+		return err
+	}
+	// State upsert (7 columns).
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO observation_state (
+			observation_id, status, visibility, review_after, expires_at, pinned
+		) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(observation_id) DO UPDATE SET
+			status       = excluded.status,
+			visibility   = excluded.visibility,
+			review_after = excluded.review_after,
+			expires_at   = excluded.expires_at,
+			pinned       = excluded.pinned`,
+		row.ID, row.Status, row.Visibility, row.ReviewAfter, row.ExpiresAt, row.Pinned,
+	); err != nil {
+		return err
+	}
+	// Provenance upsert (7 columns).
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO observation_provenance (
+			observation_id, source, prompt_id, tool_name, provenance, owner, memory_type, graph_ref
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(observation_id) DO UPDATE SET
+			source      = excluded.source,
+			prompt_id   = excluded.prompt_id,
+			tool_name   = excluded.tool_name,
+			provenance  = excluded.provenance,
+			owner       = excluded.owner,
+			memory_type = excluded.memory_type,
+			graph_ref   = excluded.graph_ref`,
+		row.ID, row.Source, row.PromptID, row.ToolName, row.Provenance, row.Owner, row.MemoryType, row.GraphRef,
+	); err != nil {
+		return err
+	}
+	// Stats upsert (7 columns).
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO observation_stats (
+			observation_id, duplicate_count, last_seen_at, retrieval_usage,
+			importance_score, recency_decay, maturity_tier
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(observation_id) DO UPDATE SET
+			duplicate_count  = excluded.duplicate_count,
+			last_seen_at     = excluded.last_seen_at,
+			retrieval_usage  = excluded.retrieval_usage,
+			importance_score = excluded.importance_score,
+			recency_decay    = excluded.recency_decay,
+			maturity_tier    = excluded.maturity_tier`,
+		row.ID, row.DuplicateCount, row.LastSeenAt, row.RetrievalUsage,
+		row.ImportanceScore, row.RecencyDecay, row.MaturityTier,
+	); err != nil {
+		return err
+	}
+	// Temporal: the snapshot schema does not capture valid_at/invalid_at/
+	// superseded_by, so the temporal row is only created (not overwritten) —
+	// a restore of a row that had no temporal row gets one (valid_at NULL).
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO observation_temporal (observation_id)
+		VALUES (?)`,
+		row.ID,
+	); err != nil {
+		return err
+	}
+	// Vectors upsert (3 columns).
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO observation_vectors (observation_id, embedding, embedding_model, embedding_created_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(observation_id) DO UPDATE SET
+			embedding            = excluded.embedding,
+			embedding_model      = excluded.embedding_model,
+			embedding_created_at = excluded.embedding_created_at`,
+		row.ID, blobOrNULL(row.Embedding), row.EmbeddingModel, row.EmbeddingCreated,
 	); err != nil {
 		return err
 	}
 	return nil
 }
-
-// restoreUpsertSQL is the per-row restore statement: an upsert by id that
-// writes every captured column (including deleted_at), so a restore is an
-// exact round-trip of the point-in-time view.
-const restoreUpsertSQL = `
-	INSERT INTO observations (
-		id, session_id, type, title, content, project, scope, topic_key,
-		source, normalized_hash, revision_count, prompt_id, created_at, updated_at,
-		pinned, duplicate_count, last_seen_at, expires_at, tool_name,
-		owner, visibility, status, retrieval_usage,
-		importance_score, recency_decay, maturity_tier, provenance, memory_type,
-		graph_ref, deleted_at, review_after, embedding, embedding_model,
-		embedding_created_at
-	) VALUES (
-		?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-		?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-	)
-	ON CONFLICT(id) DO UPDATE SET
-		session_id      = excluded.session_id,
-		type            = excluded.type,
-		title           = excluded.title,
-		content         = excluded.content,
-		project         = excluded.project,
-		scope           = excluded.scope,
-		topic_key       = excluded.topic_key,
-		source          = excluded.source,
-		normalized_hash = excluded.normalized_hash,
-		revision_count  = excluded.revision_count,
-		prompt_id       = excluded.prompt_id,
-		created_at      = excluded.created_at,
-		updated_at      = excluded.updated_at,
-		pinned          = excluded.pinned,
-		duplicate_count = excluded.duplicate_count,
-		last_seen_at    = excluded.last_seen_at,
-		expires_at      = excluded.expires_at,
-		tool_name       = excluded.tool_name,
-		owner           = excluded.owner,
-		visibility      = excluded.visibility,
-		status          = excluded.status,
-		retrieval_usage = excluded.retrieval_usage,
-		importance_score = excluded.importance_score,
-		recency_decay  = excluded.recency_decay,
-		maturity_tier  = excluded.maturity_tier,
-		provenance     = excluded.provenance,
-		memory_type    = excluded.memory_type,
-		graph_ref      = excluded.graph_ref,
-		deleted_at      = excluded.deleted_at,
-		review_after      = excluded.review_after,
-		embedding         = excluded.embedding,
-		embedding_model   = excluded.embedding_model,
-		embedding_created_at = excluded.embedding_created_at`
 
 // RestoreSnapshot deserializes snapshotID and replaces the project's current
 // observations state with it (014 step 20.1). The whole restore is ONE

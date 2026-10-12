@@ -77,10 +77,14 @@ func (s *Service) MarkReviewed(ctx context.Context, id int64) (reviewAfter strin
 	now := time.Now().UTC()
 	// Max(NULL, now) so re-marking a future review_after pushes it forward.
 	next := now.Add(DefaultReviewInterval).Format(time.RFC3339)
+	// review_after lives on observation_state (054 split). Write the side table
+	// directly: an INSTEAD OF UPDATE through the compat VIEW reports
+	// RowsAffected 0 (engine-level, TICKET-03), which would misfire the
+	// not-found check below. The sideScopeWhere EXISTS scopes the write to a
+	// live row of this project.
 	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations
-		SET review_after = ?
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		UPDATE observation_state SET review_after = ?
+		WHERE `+sideScopeWhere("observation_state"),
 		next, id, s.projectID,
 	)
 	if err != nil {
@@ -102,9 +106,13 @@ func (s *Service) SetReviewAfter(ctx context.Context, id int64, reviewAfter stri
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return errors.New("memory service not initialized")
 	}
+	// observation_state owns review_after (054 split); write it directly so the
+	// write lands on a real table (view INSTEAD OF UPDATE reports RowsAffected
+	// 0). The no-op RowsAffected() call below is preserved for parity — the
+	// error, not the count, is what matters here.
 	res, err := s.store.DB.ExecContext(ctx, `
-		UPDATE observations SET review_after = ?
-		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
+		UPDATE observation_state SET review_after = ?
+		WHERE `+sideScopeWhere("observation_state"),
 		reviewAfter, id, s.projectID,
 	)
 	if err != nil {

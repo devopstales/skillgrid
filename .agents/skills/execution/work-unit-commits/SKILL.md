@@ -110,8 +110,8 @@ checkpoint, not mid-command). Never commit broken tests or mid-edit state.
 
 | Layer | Path (repo → staged) | What |
 |-------|----------------------|------|
-| **Hook entrypoints (shims)** | `git-hooks/pre-commit.js`, `git-hooks/commit-msg.js`, `git-hooks/stop.js`, `git-hooks/gate-stop.js` → `~/.skillgrid/git-hooks/` | one-line shims that call the entrypoint |
-| **Implementation** | `hooks/checkpoint-state.js` (subcommands `guard` / `guard-msg` / `post-check`), `hooks/precommit-guard.js`, `hooks/precommit-zone-guard.js`, `hooks/precommit-ignore-guard.js`, `hooks/gate-lint.js`, `hooks/gate-state.js`, `hooks/gate-stop.js`, `hooks/stop-tests.js` → `~/.skillgrid/hooks/` | the actual logic |
+| **Hook entrypoints (shims)** | `git-hooks/pre-commit.js`, `git-hooks/commit-msg.js`, `git-hooks/prepare-commit-msg`, `git-hooks/pre-push`, `git-hooks/post-merge`, `git-hooks/stop.js`, `git-hooks/gate-stop.js` → `~/.skillgrid/git-hooks/` | one-line shims that call the entrypoint |
+| **Implementation** | `hooks/checkpoint-state.js` (subcommands `guard` / `guard-msg` / `prepare-msg` / `pre-push` / `post-merge-check` / `post-check`), `hooks/precommit-guard.js`, `hooks/precommit-zone-guard.js`, `hooks/precommit-ignore-guard.js`, `hooks/ticketing.js`, `hooks/ticketing-guard.js`, `hooks/ticketing-pre-push.js`, `hooks/ticketing-post-merge.js`, `hooks/gate-lint.js`, `hooks/gate-state.js`, `hooks/gate-stop.js`, `hooks/stop-tests.js` → `~/.skillgrid/hooks/` | the actual logic |
 
 The shims resolve their implementation relative to themselves
 (`../hooks/checkpoint-state.js`), so the two dirs stage together and work
@@ -140,6 +140,11 @@ one is a one-line change in `checkpoint-state.js`.
 | `pre-commit` | **spec-zone XOR code-zone** (precommit-zone-guard.js) | BDD zone rule — commit `.skillgrid/specs/` before code, never both in one commit (simple-execution, subagent-execution, acceptance-test-authoring, qa, writing-blueprints) | FATAL + split-into-two RECOVERY |
 | `pre-commit` | **generated/scratch not tracked** (precommit-ignore-guard.js) | `acceptance-tests/.extracted/` and the worktree dir stay untracked (acceptance-test-authoring, isolated-workspace) | auto-adds to `.gitignore` + unstages + FATAL |
 | `commit-msg` | **conventional subject + no AI-attribution trailer** | commit format (work-unit-commits, branch-pr convention) | FATAL + RECOVERY |
+| `commit-msg` | **tracker footer format** (ticketing) | a `Refs:`/`Closes:`/`Fixes:`/`Resolves:` footer must carry a parseable Tracker ID (`TASK-069`, `#42`, `PROJ-123`); footers stay optional, absence passes | FATAL + RECOVERY |
+| `prepare-commit-msg` | **Refs injector seam** (ticketing) | appends `Refs: <id>` from `SKILLGRID_TRACKER_REF` (exported by the agent from the active tasks.md Tracker ID) when the message has no footer yet | no-op without the env var, never blocks |
+| `pre-commit` | **backlog completeness** (ticketing-guard.js) | staged `.backlog/tasks/*.md` carry frontmatter `type:`, non-empty `references:`, and DoD items (ticketing completeness gate); missing Implementation Plan is WARNING-only (the CLI creates plan-less triage tasks) | FATAL + fix-via-CLI RECOVERY |
+| `pre-push` | **outgoing footer check** (ticketing-pre-push.js) | no malformed `Closes:`/`Fixes:`/`Resolves:` in the outgoing range (local `git log` only, never network) | FATAL on Closes, WARNING on advisory `Refs:` |
+| `post-merge` | **duplicate-ID scan** (ticketing-post-merge.js) | `backlog doctor` (read-only) after merges; gh/glab/jira have nothing local to reconcile | WARNING, never blocks |
 | `pre-commit` | **gate blocks well-formed** (gate-lint.js) | every runnable `G<n>` carries CHECK+EXPECT, ABANDON has a reason, no happy-path requirement lacks a gate (acceptance-test-authoring, test-driven-verification) | WARNING (advisory, never blocks) |
 | `stop` (agent hook, `--with-stop`) | **tests must pass** (stop-tests.js) | "commit after the gate is green" / "run the full suite before committing" — blocks the stop on a red `testing.runner` (execution + qa skills) | blocks stop + shows failures |
 | `gate-stop` (agent hook, `--with-stop`) | **every gate met** (gate-stop.js → gate-state.js) | "no done-claim while any happy-path gate is unmet or abandoned" — fresh `--reverify`; blocks the stop on an unmet `G<n>` or a happy-path requirement with no gate; HANDOFF note when only `ABANDON` remain; 6-block loop guard (test-driven-verification) | blocks stop + lists outstanding gates |
@@ -160,7 +165,7 @@ node hooks/checkpoint-state.js post-check
 **CLI wiring:** the hooks are one-line shims over `hooks/checkpoint-state.js`,
 staged to `~/.skillgrid/` by `skillgrid install`, which also points
 `core.hooksPath` at `~/.skillgrid/git-hooks`. The subcommand contract
-(`guard` / `guard-msg` / `post-check`) is the stable seam.
+(`guard` / `guard-msg` / `prepare-msg` / `pre-push` / `post-merge-check` / `post-check`) is the stable seam.
 
 ## The commit event stream
 

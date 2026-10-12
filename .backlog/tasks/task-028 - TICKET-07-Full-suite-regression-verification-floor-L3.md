@@ -4,9 +4,10 @@ title: 'TICKET-07: Full-suite regression + verification floor (L3)'
 status: done
 assignee: []
 created_date: '2026-10-01 18:24'
-updated_date: '2026-10-02 07:59'
+updated_date: '2026-10-11 15:47'
 labels:
   - bitemporal-audn
+milestone: m-10
 dependencies:
   - TASK-027
 references:

@@ -12,7 +12,7 @@ All 30 in-force ADRs (0001–0036, excluding removed 0014/0015) were reviewed ag
 
 | ADR | File | Summary |
 |-----|------|---------|
-| ADR-0037 | `.skillgrid/artifacts/04-adr-0037-skill-pi-permission-extension.md` | skill-pi permission layer: 3-tier config, Tree-sitter bash matching, tool hiding, diff preview, hybrid approvals |
+| ADR-0039 | `.skillgrid/artifacts/04-adr-0039-skill-pi-permission-extension.md` | skill-pi permission layer: 3-tier config, Tree-sitter bash matching, tool hiding, diff preview, hybrid approvals |
 | ADR-0038 | `.skillgrid/artifacts/04-adr-0038-skill-pi-ticketing-backlog-adapter.md` | skill-pi ticketing: `ticket` tool (10 actions) + `/tickets` command backed by the `backlog` MCP server over stdio; no vendored tk, no direct file I/O |
 
 ## Terms added

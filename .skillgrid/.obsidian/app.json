@@ -1,0 +1,8 @@
+{
+  "userIgnoreFilters": [
+    "sdd/",
+    ".lock",
+    "config.yaml",
+    "state.yaml"
+  ]
+}

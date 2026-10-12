@@ -283,11 +283,21 @@ func vectorLeg(ctx context.Context, db *sql.DB, query, language string, emb embe
 	if len(qVec.Data) == 0 {
 		return nil, "embedder returned empty vector", nil
 	}
-	// Durable path (ADR-0009, option G): when MNEMONIC_VECTOR_DB is on and the
-	// vec_symbols table is non-empty, serve the top-K from the in-SQL vec
-	// table and share the metadata join below. The in-memory hot path (the
-	// default) is byte-identical when the flag is off or the vec table is
-	// empty (durableSymbolHits returns ok=false and we fall through).
+	// Durable path (ADR-0009, option G): when MNEMONIC_VECTOR_DB is on, serve
+	// the top-K from the best available ANN backend. HNSW (ADR-0037, migration
+	// 057) takes priority over the legacy vec0 path when the graph is
+	// non-empty. The in-memory hot path (the default) is byte-identical when
+	// the flag is off or all ANN tables are empty.
+	if DurableEnabled() {
+		if hhits, ok, err := hnswSymbolHits(ctx, db, qVec.Data, limit); err != nil {
+			return nil, "", err
+		} else if ok {
+			if err := symbolMetadataJoin(ctx, db, hhits); err != nil {
+				return nil, "", err
+			}
+			return hhits, "", nil
+		}
+	}
 	if durable, warn, ok, err := durableSymbolHits(ctx, db, qVec, limit); err != nil {
 		return nil, "", err
 	} else if ok {
@@ -526,10 +536,19 @@ func chunkVectorLeg(ctx context.Context, db *sql.DB, query, language string, emb
 	if len(qVec.Data) == 0 {
 		return nil, "embedder returned empty vector", nil
 	}
-	// Durable path (ADR-0009, option G): when MNEMONIC_VECTOR_DB is on and the
-	// vec_chunks table is non-empty, serve the top-K from the in-SQL vec table
-	// and share the chunk metadata join. The in-memory hot path (the default)
-	// is byte-identical when the flag is off or the vec table is empty.
+	// Durable path (ADR-0009, option G): HNSW (ADR-0037) takes priority over
+	// the legacy vec0 path when the graph is non-empty.
+	if DurableEnabled() {
+		if hhits, ok, err := hnswChunkHits(ctx, db, qVec.Data, limit); err != nil {
+			return nil, "", err
+		} else if ok {
+			joined, err := chunkMetadataJoin(ctx, db, language, hhits)
+			if err != nil {
+				return nil, "", err
+			}
+			return joined, "", nil
+		}
+	}
 	if durable, warn, ok, err := durableChunkHits(ctx, db, qVec, limit); err != nil {
 		return nil, "", err
 	} else if ok {

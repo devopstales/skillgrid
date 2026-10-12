@@ -113,8 +113,9 @@ The ADR index. One row per decision: a short description and a link to the full 
 | 0034 | `ctx` is a `mnemonic` subcommand group (`mnemonic ctx …`), not a standalone binary; `mnemonic stats` unchanged | yes | `.skillgrid/artifacts/04-adr-0034-ctx-cli-mnemonic-subcommand.md` |
 | 0035 | CTX judgment model is local Ollama (default `tev1:0.8b` via `/v1/systemone`), fail-open to pre-filter | yes | `.skillgrid/artifacts/04-adr-0035-local-ollama-judgment-model.md` |
 | 0036 | CTX config lives at `config.d/ctx.yaml` (machine-local default + repo-local override), reuses the `config.d` loader | yes | `.skillgrid/artifacts/04-adr-0036-ctx-config-configd.md` |
-| 0037 | skill-pi permission layer: 3-tier config, Tree-sitter bash matching, tool hiding, diff preview, hybrid approvals | yes | `.skillgrid/artifacts/04-adr-0037-skill-pi-permission-extension.md` |
+| 0037 | HNSW embedded ANN index: pure Go (no new dep), M=16, efCon=64, efSearch=96, persisted in SQLite (065), `source`-namespaced node ids (066, symbol/chunk), degrades to brute force | yes | `.skillgrid/artifacts/04-adr-0037-embedded-ann-index.md` |
 | 0038 | skill-pi ticketing: `ticket` tool (10 actions) backed by the `backlog` MCP server over stdio, not vendored tk or direct file I/O | yes | `.skillgrid/artifacts/04-adr-0038-skill-pi-ticketing-backlog-adapter.md` |
+| 0039 | skill-pi permission layer: 3-tier config, Tree-sitter bash matching, tool hiding, diff preview, hybrid approvals | yes | `.skillgrid/artifacts/04-adr-0039-skill-pi-permission-extension.md` |
 | 0042 | skill-pi npm dependency surface: exact pin `1.1.0` for `@earendil-works/pi-coding-agent`; `piConfig.configDir` min-version 1.1.0; npm shrinkwrap (no vendoring) | yes | `.skillgrid/artifacts/04-adr-0042-skill-pi-dependencies.md` |
 
 **Highest sequence in use:** 0042 (next ADR is `04-adr-0043-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.

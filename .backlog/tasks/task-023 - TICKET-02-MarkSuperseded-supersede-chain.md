@@ -4,9 +4,10 @@ title: 'TICKET-02: MarkSuperseded + supersede chain'
 status: done
 assignee: []
 created_date: '2026-10-01 18:17'
-updated_date: '2026-10-01 20:25'
+updated_date: '2026-10-11 15:47'
 labels:
   - bitemporal-audn
+milestone: m-10
 dependencies:
   - TASK-022
 references:
