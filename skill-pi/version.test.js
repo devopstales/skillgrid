@@ -10,13 +10,23 @@ test('skill-pi module skeleton is correct', () => {
   const pkgPath = path.join(skillPiDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 
-  const dep = pkg.dependencies && pkg.dependencies['@earendil-works/pi-coding-agent'];
-  assert.ok(dep, 'dependencies["@earendil-works/pi-coding-agent"] must exist');
-  assert.match(dep, /^\d+\.\d+\.\d+$/, 'version must be an exact pin, got: ' + dep);
+  // pi is host-provided: it must be a peerDependency with "*" (not a runtime
+  // dependency, which would create a duplicate module — see pi's loader warning).
+  const peer = pkg.peerDependencies && pkg.peerDependencies['@earendil-works/pi-coding-agent'];
+  assert.ok(peer, 'peerDependencies["@earendil-works/pi-coding-agent"] must exist');
+  assert.strictEqual(peer, '*', 'peer dependency range must be "*", got: ' + peer);
 
+  // The exact pin (R12 / ADR-0042) is enforced at install time (Taskfile
+  // skill-pi:install) and recorded in pi-version.txt.
   const piVersionPath = path.join(skillPiDir, 'pi-version.txt');
   const piVersion = fs.readFileSync(piVersionPath, 'utf8').trim();
-  assert.strictEqual(piVersion, dep, 'pi-version.txt must equal package.json dependency string');
+  assert.match(piVersion, /^\d+\.\d+\.\d+$/, 'pi-version.txt must be an exact pin, got: ' + piVersion);
+
+  assert.strictEqual(
+    pkg.dependencies && pkg.dependencies['@earendil-works/pi-coding-agent'],
+    undefined,
+    'pi must not also be a runtime dependency (duplicate module risk)'
+  );
 
   assert.strictEqual(pkg.piConfig && pkg.piConfig.name, 'skill-pi');
   assert.strictEqual(pkg.piConfig && pkg.piConfig.configDir, '.skill-pi');

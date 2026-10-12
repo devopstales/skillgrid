@@ -5,6 +5,9 @@
 #   task test         go vet && go test in both modules
 #   task skill-check  skill-hygiene guard (anatomy invariants + line budgets + hot paths)
 #   task seed-test     run the Mnemonic all-stores seed integration tests
+#   task skill-pi:install install the pinned pi runtime into ~/.skill-pi
+#   task skill-pi:build build skill-pi (syntax check + executable bin + pi install + link)
+#   task skill-pi:test run the skill-pi Node test suite (node --test)
 #   task site:build    build the Hugo docs site into site/public
 #   task site:serve    run the Hugo dev server for the docs site
 #   task gh-pages      build the site + publish it to the gh-pages branch
@@ -55,6 +58,7 @@ tasks:
       - rm -f ~/.local/bin/{{.MEM_BIN}} ~/.local/bin/{{.CLI_BIN}}
       - cp {{.OUT}}/{{.MEM_BIN}} ~/.local/bin/
       - cp {{.OUT}}/{{.CLI_BIN}} ~/.local/bin/
+      - task: skill-pi:build
 
   all:
     desc: Cross-build linux amd64+386 and darwin amd64+arm64.
@@ -80,17 +84,36 @@ tasks:
       - cd {{.CLI_DIR}} && GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.version={{.VERSION}}" -o ../{{.OUT}}/{{.CLI_BIN}}-darwin-arm64 {{.CLI_PKG}}
 
   test:
-    desc: Run go vet and go test ./... in both modules.
+    desc: Run go vet and go test ./... in both modules, then the skill-pi Node suite.
     cmds:
       - cd {{.MEM_DIR}} && go vet ./...
       - cd {{.MEM_DIR}} && go test ./...
       - cd {{.CLI_DIR}} && go vet ./...
       - cd {{.CLI_DIR}} && go test ./...
+      - task: skill-pi:test
 
   seed-test:
     desc: Run the Mnemonic all-stores seed integration tests (memory + code index + web cache).
     cmds:
       - cd {{.MEM_DIR}} && go test -v -run TestSeed ./internal/integration/
+
+  skill-pi:install:
+    desc: Install the pinned pi runtime (1.1.0) into ~/.skill-pi. pi is a peerDependency of skill-pi ("*"); the pin is enforced here per R12/ADR-0042.
+    cmds:
+      - cp skill-pi/package.json ~/.skill-pi/package.json
+      - cd ~/.skill-pi && npm install @earendil-works/pi-coding-agent@1.1.0 --save-exact
+
+  skill-pi:build:
+    desc: Build skill-pi (syntax check, executable bin, dev link on PATH, pi runtime install).
+    deps:
+      - skill-pi:install
+    cmds:
+      - cd skill-pi && node --check bin/skill-pi.js && chmod +x bin/skill-pi.js && npm link
+
+  skill-pi:test:
+    desc: Run skill-pi Node test suite (node --test skill-pi/...).
+    cmds:
+      - cd skill-pi && node --test
 
   skill-check:
     desc: Skill-hygiene guard — anatomy invariants, line budgets, hot-path ceilings (scripts/check-skillgrid-skills.mjs).
