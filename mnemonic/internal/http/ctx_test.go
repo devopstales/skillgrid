@@ -1,11 +1,44 @@
 package http
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
+
+// doLoopback is a loopback-address variant of do (server_test.go): the ctx
+// observability routes are loopback-only (TICKET-10), and do's
+// httptest.NewRequest defaults RemoteAddr to 192.0.2.1 (a TEST-NET address,
+// not loopback). These tests exercise the route from the local operator
+// perspective, so they force a loopback origin.
+func doLoopback(t *testing.T, h http.Handler, method, target string, body any) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	var reader *bytes.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal body: %v", err)
+		}
+		reader = bytes.NewReader(b)
+	} else {
+		reader = bytes.NewReader(nil)
+	}
+	req := httptest.NewRequest(method, target, reader)
+	req.RemoteAddr = "127.0.0.1:54321"
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	var out map[string]any
+	dec := json.NewDecoder(bytes.NewReader(rr.Body.Bytes()))
+	_ = dec.Decode(&out)
+	return rr, out
+}
 
 // TestCTXStats_FailOpenDefault verifies GET /stats responds 200 with
 // zero-valued JSON when no proxy sessions exist (the common case before any
@@ -18,7 +51,7 @@ func TestCTXStats_FailOpenDefault(t *testing.T) {
 		}
 	}()
 
-	rr, out := do(t, s.Handler(), http.MethodGet, "/stats?project="+proj, nil)
+	rr, out := doLoopback(t, s.Handler(), http.MethodGet, "/stats?project="+proj, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -65,7 +98,7 @@ func TestCTXStats_WithSeededSessions(t *testing.T) {
 	}
 	st.Close()
 
-	rr, out := do(t, s.Handler(), http.MethodGet, "/stats?project="+proj, nil)
+	rr, out := doLoopback(t, s.Handler(), http.MethodGet, "/stats?project="+proj, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -96,7 +129,7 @@ func TestCTXStatsHistory_FailOpenDefault(t *testing.T) {
 		}
 	}()
 
-	rr, out := do(t, s.Handler(), http.MethodGet, "/stats-history?project="+proj, nil)
+	rr, out := doLoopback(t, s.Handler(), http.MethodGet, "/stats-history?project="+proj, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -137,7 +170,7 @@ func TestCTXStatsHistory_WithSeededBuckets(t *testing.T) {
 	}
 	st.Close()
 
-	rr, out := do(t, s.Handler(), http.MethodGet, "/stats-history?project="+proj, nil)
+	rr, out := doLoopback(t, s.Handler(), http.MethodGet, "/stats-history?project="+proj, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}

@@ -189,14 +189,18 @@ func (s *Server) registerRoutes() {
 }
 
 // registerCtxRoutes mounts the Context Orchestrator observability read routes
-// (plan §17, TICKET-09): GET /stats (live session metrics) and GET
-// /stats-history (durable savings history). Both are read-only and fail-open
-// (ADR-0016). They live on the mnemonic serve mux, NOT the proxy loopback mux
-// (ctx/proxy's /stats + /v1/compress are a separate handler tree), so there is
-// no route collision.
+// (plan §17, TICKET-09/10): GET /stats (live session metrics), GET
+// /stats-history (durable savings history), GET /metrics (Prometheus text),
+// and GET /api/session-summaries (paginated session summaries). All are
+// read-only, fail-open (ADR-0016), and loopback-only (a non-loopback origin
+// gets 403 before the store is opened). They live on the mnemonic serve mux,
+// NOT the proxy loopback mux (ctx/proxy's /stats + /v1/compress are a
+// separate handler tree), so there is no route collision.
 func (s *Server) registerCtxRoutes() {
 	s.mux.HandleFunc("GET /stats", s.handleCTXStats)
 	s.mux.HandleFunc("GET /stats-history", s.handleCTXStatsHistory)
+	s.mux.HandleFunc("GET /metrics", s.handleCTXMetrics)
+	s.mux.HandleFunc("GET /api/session-summaries", s.handleCTXSessionSummaries)
 }
 
 // registerGraphRoutes mounts the Phase 4 mnemonic vector-graph routes. The API
