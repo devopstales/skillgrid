@@ -1,7 +1,7 @@
 ---
 id: TASK-090
 title: '[FEATURE] CTX T03 ctx: config block via ADR-0036 config.d (mnemonic)'
-status: in-progress
+status: done
 assignee: []
 created_date: '2026-10-09 13:33'
 updated_date: '2026-10-09 13:54'
