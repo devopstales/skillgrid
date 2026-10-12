@@ -39,6 +39,8 @@ func runCtx(args []string) {
 		runCtxPurge(rest)
 	case "index":
 		runCtxIndex(rest)
+	case "proxy":
+		runCtxProxy(rest)
 	case "help", "-h", "--help":
 		ctxUsage()
 	default:
