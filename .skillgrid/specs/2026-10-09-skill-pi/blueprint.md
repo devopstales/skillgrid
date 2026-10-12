@@ -821,11 +821,92 @@ The swarm slice layers on the proven foundation: the main pi lead runs a goal-lo
   ```bash
   git add skill-pi/extensions/skillgrid-squad.test.ts skill-pi/system/ skill-pi/prompts/
   git commit -m "feat(skill-pi): end-to-end goal-loop swarm (tracer complete)"
-  ```
-
----
-
-## Self-Review
+   ```
+ 
+ ---
+ 
+ ## Addendum: the auth extension — multi-provider OAuth + API-key (post-2026-10-09 user request)
+ 
+ A user-requested extension that extends pi's provider list with (a) **multi-account** auth
+ (multiple credentials for the same provider), (b) **Kilo Code** device-flow OAuth,
+ (c) **opencode zen** device-flow OAuth, (d) **Ollama Cloud** API-key auth, and (e) a
+ **local OpenAI-compatible** endpoint (Ollama / vLLM) with optional API key. Sources:
+ `hjanuschka/pi-multi-pas`, `MasuRii/pi-multi-auth`, `fgrehm/pi-ollama-cloud`,
+ `luongnv89/pi-extensions`. This is a new tracer-level capability layered on the proven
+ foundation; it is additive (a new `extensions/auth.js`) and does not modify T1–T10.
+ 
+ ### Design decisions (locked for this addendum)
+ 
+ 1. **Multi-account mechanism.** pi's native `auth.json` stores one credential per provider
+    id. Multiple accounts for one provider = **register the provider under multiple ids**
+    (`kilo`, `kilo-2`, `kilo-work`, …) — the exact pattern `pi-multi-auth` uses
+    (`AuthWriter` writes a credential per provider id). The extension exposes a
+    `/skillgrid-account <provider> [suffix]` command that (re)registers `provider[-suffix]`
+    with the shared provider config, so the user can hold several logged-in identities
+    side-by-side and switch with the normal `/model` flow. This is *registration*
+    multiplicity, not a rotation/quota engine.
+ 
+ 2. **No rotation / quota / failover engine.** `pi-multi-pas`'s pool + subscription model is
+    intentionally excluded. pi handles credential storage, refresh, and rotation natively once
+    a provider is registered; this extension only supplies the provider definition and the
+    OAuth login flow.
+ 
+ 3. **All four targets via `pi.registerProvider(name, config)`.** Confirmed against the
+    installed `pi` 1.1.0 `ProviderConfig` (core/extensions/types.d.ts:1390): `{ name?,
+    baseUrl?, apiKey?, api?, headers?, authHeader?, models?, refreshModels?(ctx),
+    oauth?: { name, isSubscription?, login(cb), refreshToken(cred,signal), getApiKey(cred) } }`.
+    Chat models (`ProviderChatModelConfig`) require `{ id, name, input, cost, reasoning,
+    contextWindow, maxTokens }`.
+ 
+ ### Endpoints (verified from source; placeholders marked)
+ 
+ | Provider | id | wire (`api`) | baseUrl | auth | models |
+ |---|---|---|---|---|---|
+ | Kilo Code | `kilo` (+ `kilo-<suffix>`) | `openai-completions` | `https://api.kilo.ai` | **device-flow OAuth** | `refreshModels` → `GET /v1/models` |
+ | opencode zen | `opencode-zen` (+ suffix) | `openai-completions` | `https://opencode.ai/zen/v1` *(placeholder — confirm against opencode source)* | **device-flow OAuth** | `refreshModels` → `GET /v1/models` |
+ | Ollama Cloud | `ollama-cloud` | `openai-completions` | `https://ollama.com/v1` | API-key `apiKey: "$OLLAMA_API_KEY"`, `authHeader: true` | `refreshModels` → `GET /v1/models` + `POST /api/show` |
+ | Local OpenAI (Ollama/vLLM) | `local-openai` | `openai-completions` | env `SKILL_PI_LOCAL_BASE_URL` (default `http://localhost:11434/v1`) | optional `apiKey` (env or none) | `refreshModels` → `GET /v1/models` |
+ 
+ **Kilo device-flow (confirmed):** `POST https://api.kilo.ai/api/device-auth/codes`
+ → `{ code, verificationUrl, expiresIn }`; poll `GET …/api/device-auth/codes/{code}`
+ (202 pending / 403 denied / 410 expired); token reused as access+refresh, ~365-day expiry;
+ `getApiKey: cred => cred.access`.
+ 
+ **opencode zen (skeleton):** same device-code shape as Kilo; exact authorize/poll URLs are
+ placeholders pending `anomalyco/opencode` source confirmation. `getApiKey` maps the issued
+ token. `OPENCODE_API_KEY` env is the API-key fallback (registered as `opencode-zen-key` if
+ the env is present and no OAuth login has run).
+ 
+ ### Files
+ 
+ - **`skill-pi/extensions/auth.js`** (new, CJS) — `factory(pi)` registers the four providers;
+   exports pure internals (`makeKiloOAuth`, `makeZenOAuth`, `makeOllamaCloudConfig`,
+   `makeLocalOpenAIConfig`, `registerAccounts`, `__test`) for tests. No `fetch` is performed
+   at registration time; `refreshModels` closures fetch lazily when pi requests the catalog.
+ - **`skill-pi/extensions/auth.test.js`** (new) — TDD red→green: each provider registers with
+   the required `ProviderChatModelConfig` fields; OAuth `login` drives `onDeviceCode` +
+   `onPrompt` and returns `{ access, refresh, expires }`; `getApiKey` maps access→key;
+   `refreshModels` maps a mocked `/v1/models` body to `ProviderModelConfig[]`;
+   `registerAccounts` registers `kilo`, `kilo-2` under distinct ids.
+ - **`skill-pi/package.json`** — add `./extensions/auth.js` to `pi.extensions`.
+ 
+ ### Verification
+ 
+ - `node --test skill-pi/extensions/auth.test.js` green (red→green discipline).
+ - Full suite `node --test` in `skill-pi/` green (no regression to splash/launcher tests).
+ - Smoke: `node -e "require('./skill-pi/extensions/auth.js')"` loads without throwing;
+   `__test` surface is importable.
+ 
+ ### Acceptance (see `acceptance.feature` — "happy path auth-providers-register")
+ 
+ A pi session under skill-pi exposes `kilo`, `opencode-zen`, `ollama-cloud`, and
+ `local-openai` as selectable providers; `/skillgrid-account kilo work` registers a second
+   `kilo-work` id; Ollama Cloud sends `Authorization: Bearer $OLLAMA_API_KEY`; the local
+   endpoint honors `SKILL_PI_LOCAL_BASE_URL` and works keyless.
+ 
+ ---
+ 
+ ## Self-Review
 
 1. **Spec coverage:** *Tracer A (R1–R22):* R1→T2, R2→T2, R3→T2, R4→T2/T3, R5→T4, R6→T5, R7→T5, R8→T5, R9→T6, R10→T7, R11→T7, R12→T1/T9, R13→T8, R14→T2, R15→T2/T8, R16→T3, R17→T3, R18→T2, R19→T5, R20→T2/T8, R21→T9, R22→T2. *Tracer B (swarm R1–R8):* R1→T14, R2→T17, R3→T15, R4→T18, R5→T16, R6→T11/T12/T13/T19, R7→T18/T20, R8→T17. All requirements have a task. ✓
 2. **Must-haves coverage:** each truth maps to a task's test (foundation: module-skeleton→T1, launcher/shim/respawn/where/subcommands→T2, config/system-delta→T3, ports→T4, permission/tickets/context/bridge→T5, TUI→T6, memory-sync/skills→T7, installer/trust→T8, chronos/version-pair→T9, e2e→T10; swarm: migration→T11, spawn-by-goal→T12, query→T13, role→T15, worktree→T16, spawn/serial→T17, gate/checkpoint→T18, dashboard→T19, e2e→T20). ✓

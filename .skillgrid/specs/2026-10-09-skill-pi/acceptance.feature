@@ -103,8 +103,28 @@ Feature: skill-pi foundation
     And code_search, code_read, code_status, code_index are registered
     And event capture tools are registered
     And the compaction summary tool is registered
-    When I call mem_save from the pi session
-    Then the observation lands in the mnemonic store
+     When I call mem_save from the pi session
+     Then the observation lands in the mnemonic store
+
+  # --- Addendum: auth extension — multi-provider OAuth + API-key ---
+
+  Scenario: happy path auth-providers-register
+    Given a pi session run under skill-pi
+    When I inspect the provider registry
+    Then kilo, opencode-zen, ollama-cloud, and local-openai are registered as providers
+    And kilo uses the openai-completions wire against https://api.kilo.ai
+    And opencode-zen uses the openai-completions wire against https://opencode.ai/zen/v1
+    And ollama-cloud uses the openai-completions wire against https://ollama.com/v1
+    And local-openai uses the openai-completions wire against $SKILL_PI_LOCAL_BASE_URL (default http://localhost:11434/v1)
+    When I run /skillgrid-account kilo work
+    Then a second provider id kilo-work is registered with the same Kilo OAuth config
+    And kilo and kilo-work hold independent credentials
+    When Ollama Cloud publishes a model
+    Then the request carries Authorization: Bearer $OLLAMA_API_KEY
+    When the local endpoint is keyless and SKILL_PI_LOCAL_BASE_URL is set
+    Then local-openai still lists models via GET $SKILL_PI_LOCAL_BASE_URL/models
+    When I complete the Kilo device-flow login
+    Then getApiKey returns the issued access token and credentials persist ~365 days
 
   # --- Task 5: four new extensions — permission, tickets, context, mcp-bridge (R6, R7, R8, R19) ---
 
