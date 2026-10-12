@@ -98,15 +98,16 @@ tasks:
       - cd {{.MEM_DIR}} && go test -v -run TestSeed ./internal/integration/
 
   skill-pi:install:
-    desc: Install the pinned pi runtime (1.1.0) into ~/.skill-pi. pi is a peerDependency of skill-pi ("*"); the pin is enforced here per R12/ADR-0042.
+    desc: Install skill-pi's bundled pi runtime (1.1.0) into its own node_modules. pi is a bundled dependency (exact pin, R12/ADR-0042); a global install self-contains it. Keeps ~/.skill-pi config-only.
     cmds:
-      - cp skill-pi/package.json ~/.skill-pi/package.json
-      - cd ~/.skill-pi && npm install @earendil-works/pi-coding-agent@1.1.0 --save-exact
+      - cd skill-pi && npm install --no-audit --no-fund
 
   skill-pi:build:
-    desc: Build skill-pi (syntax check, executable bin, dev link on PATH, pi runtime install).
+    desc: Build skill-pi (syntax check, executable bin, dev link on PATH, pi runtime install). SKILL_PI_TRUST_AUTO=1 seeds the repo trust so the dev link skips the interactive trust prompt.
     deps:
       - skill-pi:install
+    env:
+      SKILL_PI_TRUST_AUTO: "1"
     cmds:
       - cd skill-pi && node --check bin/skill-pi.js && chmod +x bin/skill-pi.js && npm link
 

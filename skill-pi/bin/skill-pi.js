@@ -14,7 +14,23 @@ function agentDir() {
 }
 
 function piBin() {
-  return process.env.SKILL_PI_PI_BIN || path.join(agentDir(), 'node_modules', '.bin', 'pi');
+  if (process.env.SKILL_PI_PI_BIN) return process.env.SKILL_PI_PI_BIN;
+  // Pinned runtime is a bundled dependency: after `npm i -g skill-pi`, pi lives
+  // under this package's own node_modules, not the global root. Resolve it
+  // there first (omegon-pi pattern), then fall back to the global root.
+  const bundled = path.join(
+    SKILL_PI_ROOT, 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'bundle', 'cli.js'
+  );
+  if (fs.existsSync(bundled)) return bundled;
+  try {
+    const { execFileSync } = require('node:child_process');
+    const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
+    const globalCandidate = path.join(globalRoot, '@earendil-works', 'pi-coding-agent', 'dist', 'bundle', 'cli.js');
+    if (fs.existsSync(globalCandidate)) return globalCandidate;
+  } catch (_) {
+    // fall through to a bare pi on PATH
+  }
+  return 'pi';
 }
 
 function readPinnedVersion() {

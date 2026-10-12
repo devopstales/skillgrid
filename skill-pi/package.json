@@ -18,13 +18,16 @@
     "url": "git+https://github.com/skillgrid/skillgrid-v2.git"
   },
   "bin": {
-    "skill-pi": "./bin/skill-pi.js"
+    "skill-pi": "./bin/skill-pi.js",
+    "pi": "./bin/pi.mjs"
   },
   "main": "index.js",
   "files": [
     "bin/",
     "lib/",
     "extensions/",
+    "skills/",
+    "prompts/",
     "index.js",
     "pi-version.txt",
     "mcp.json",
@@ -46,15 +49,10 @@
     "prompts": ["./prompts"],
     "themes": ["./themes"]
   },
-  "peerDependencies": {
+  "dependencies": {
     "@earendil-works/pi-coding-agent": "1.1.0"
   },
-  "peerDependenciesMeta": {
-    "@earendil-works/pi-coding-agent": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "@earendil-works/pi-coding-agent": "1.1.0"
-  }
+  "bundleDependencies": [
+    "@earendil-works/pi-coding-agent"
+  ]
 }

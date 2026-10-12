@@ -10,36 +10,41 @@ test('skill-pi module skeleton is correct', () => {
   const pkgPath = path.join(skillPiDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 
-  // pi is host-provided, not forced: it must be an optional peerDependency
-  // (gentle-pi model) at the exact pin, plus a devDependency pin for the
-  // build. It must NOT be a runtime `dependencies` entry, which would create
-  // a duplicate pi module (see pi's loader warning).
-  const peer = pkg.peerDependencies && pkg.peerDependencies['@earendil-works/pi-coding-agent'];
-  assert.ok(peer, 'peerDependencies["@earendil-works/pi-coding-agent"] must exist');
+  // skill-pi is a self-contained pi distribution: pi is a bundled exact
+  // dependency (not a peer), so `npm i -g skill-pi` ships the pinned runtime
+  // under the package's own node_modules. The exact pin (R12 / ADR-0042) is
+  // recorded in pi-version.txt and must equal the dependency pin.
+  const dep = pkg.dependencies && pkg.dependencies['@earendil-works/pi-coding-agent'];
+  assert.ok(dep, 'dependencies["@earendil-works/pi-coding-agent"] must exist');
 
-  // The exact pin (R12 / ADR-0042) is recorded in pi-version.txt and must
-  // equal the peer pin and the devDependency pin (ADR-0042 invariant).
   const piVersionPath = path.join(skillPiDir, 'pi-version.txt');
   const piVersion = fs.readFileSync(piVersionPath, 'utf8').trim();
   assert.match(piVersion, /^\d+\.\d+\.\d+$/, 'pi-version.txt must be an exact pin, got: ' + piVersion);
-  assert.strictEqual(peer, piVersion, 'peer pin must equal pi-version.txt, got: ' + peer);
-  const devPin = pkg.devDependencies && pkg.devDependencies['@earendil-works/pi-coding-agent'];
-  assert.strictEqual(devPin, piVersion, 'devDependencies pin must equal pi-version.txt, got: ' + devPin);
+  assert.strictEqual(dep, piVersion, 'dependency pin must equal pi-version.txt, got: ' + dep);
 
-  // Optional peer: pi is provided by the host distribution, never bundled.
-  const peerMeta = pkg.peerDependenciesMeta && pkg.peerDependenciesMeta['@earendil-works/pi-coding-agent'];
-  assert.ok(peerMeta && peerMeta.optional === true, 'peerDependenciesMeta must mark pi optional');
-
-  assert.strictEqual(
-    pkg.dependencies && pkg.dependencies['@earendil-works/pi-coding-agent'],
-    undefined,
-    'pi must not also be a runtime dependency (duplicate module risk)'
+  // Bundled, so a global install self-contains pi.
+  assert.ok(
+    Array.isArray(pkg.bundleDependencies) && pkg.bundleDependencies.includes('@earendil-works/pi-coding-agent'),
+    'bundleDependencies must include pi so a global install ships it'
   );
+
+  // pi is no longer host-provided: it must not remain a peerDependency.
+  assert.strictEqual(
+    pkg.peerDependencies && pkg.peerDependencies['@earendil-works/pi-coding-agent'],
+    undefined,
+    'pi must not be a peerDependency now that it is a bundled dependency'
+  );
+
+  // Both bins ship: skill-pi (canonical) and pi (distribution pass-through).
+  assert.strictEqual(pkg.bin && pkg.bin['pi'], './bin/pi.mjs');
+  assert.ok(fs.existsSync(path.join(skillPiDir, 'bin', 'pi.mjs')), 'bin/pi.mjs must exist');
 
   // pi 1.1.0 reads piConfig.configDir from the package dir the launcher points
   // at via PI_PACKAGE_DIR (= skill-pi/). That is what sets the project config
   // dir to ".skill-pi". The `pi` key is the resource manifest (extensions,
-  // skills, prompts, themes). pi must not be a runtime dependency (ADR-0042).
+  // skills, prompts, themes). pi is now a bundled runtime dependency (exact
+  // 1.1.0) — the peer/host-provided model was superseded 2026-10-12, see
+  // ADR-0042 "Supersession" section.
   assert.strictEqual(pkg.piConfig && pkg.piConfig.name, 'skill-pi');
   assert.strictEqual(pkg.piConfig && pkg.piConfig.configDir, '.skill-pi');
   assert.ok(
