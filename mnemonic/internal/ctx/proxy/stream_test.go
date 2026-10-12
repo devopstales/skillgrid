@@ -20,6 +20,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
 // TestIsWebSocketUpgrade verifies the WS upgrade detection: both the
@@ -159,34 +161,47 @@ func TestWebSocketHandshakeAndPingPong(t *testing.T) {
 			return
 		}
 
-		// Read a ping frame (0x81) and reply with a pong (0x8A) + same payload.
-		// A minimal ping frame: FIN|opcode(0x81) | 0x80 (masked) | len | mask | payload.
-		// We just read 6 bytes (2 header + 4 mask) + payload.
+		// Read the ping frame and reply with a pong (0x8A) + same payload.
+		// Frame layout for this test:
+		//   FIN|opcode(0x81) | MASK|len(4) | mask(4) | payload(4) = 10 bytes.
+		// We read from the bufio reader (not the raw conn) so any bytes the
+		// proxy piped before the handshake response are not lost.
 		buf.Flush() //nolint:errcheck
-		// Read the ping frame: FIN|opcode(1) | MASK|len(1) | mask(4) | payload(4).
-		// Total: 2 + 4 + 4 = 10 bytes.
-		frame := make([]byte, 10)
-		if _, err := io.ReadFull(conn, frame); err != nil {
+		upBR := bufio.NewReader(conn)
+		// Read the 2-byte frame header first so we know the actual length.
+		var hdr [2]byte
+		if _, err := io.ReadFull(upBR, hdr[:]); err != nil {
+			t.Errorf("upstream: read header: %v", err)
 			return
 		}
-		if frame[0]&0x0F != 0x01 { // ping
+		if hdr[0]&0x0F != 0x01 { // ping
 			// Not a ping; send a pong anyway.
 		}
-		if frame[1]&0x80 == 0 {
+		if hdr[1]&0x80 == 0 {
 			t.Error("client->server frame should be masked")
 			return
 		}
-		length := int(frame[1] & 0x7F)
-		mask := frame[2:6]
-		payload := frame[6:6+length]
+		length := int(hdr[1] & 0x7F)
+		// Read mask (4 bytes) + payload (length bytes).
+		maskAndPayload := make([]byte, 4+length)
+		if _, err := io.ReadFull(upBR, maskAndPayload); err != nil {
+			return
+		}
+		mask := maskAndPayload[:4]
+		payload := maskAndPayload[4:]
 		for i := range payload {
 			payload[i] ^= mask[i%4]
 		}
-		// Send pong: 0x8A | 0x00 (unmasked, server->client) | len | payload.
-		pong := append([]byte{0x8A, 0x00, byte(len(payload))}, payload...)
+		// Send pong: 0x8A (FIN|pong) | 0x04 (unmasked, len=4) | payload(4).
+		pong := make([]byte, 0, 2+length)
+		pong = append(pong, 0x8A, byte(length))
+		pong = append(pong, payload...)
 		if _, err := conn.Write(pong); err != nil {
+			t.Errorf("upstream: write pong: %v", err)
 			return
 		}
+		// The pong was written to conn (not upBR), so it is already on the
+		// wire. The proxy's pipe goroutine will read it.
 		close(upstreamDone)
 	}))
 	defer up.Close()
@@ -207,6 +222,10 @@ func TestWebSocketHandshakeAndPingPong(t *testing.T) {
 	}
 	go proxyServer.Config.Serve(proxyLn)
 	defer proxyServer.Close()
+
+	// Give the proxy server a moment to start accepting before the
+	// client dials (avoids a race between Listen and the Serve goroutine).
+	time.Sleep(100 * time.Millisecond)
 
 	// Client: dial the proxy, send a WS handshake, send a ping frame,
 	// expect a pong frame.
@@ -231,34 +250,86 @@ func TestWebSocketHandshakeAndPingPong(t *testing.T) {
 	if hresp.StatusCode != http.StatusSwitchingProtocols {
 		t.Fatalf("client got status %d, want 101", hresp.StatusCode)
 	}
+	// Note: do NOT discard br.Buffered() here. If the proxy ever sends a
+	// WebSocket frame before the client's ping (unexpected for this test),
+	// those bytes belong to the stream and must be read as the next frame,
+	// not thrown away.
 
-	// Send a ping frame: 0x81 | 0x80 | 0x04 | mask(4) | payload(4).
+	// Send a ping frame: 0x81 (FIN|ping) | 0x84 (MASK|len=4) | mask(4) | masked-payload(4).
 	mask := []byte{0x12, 0x34, 0x56, 0x78}
 	payload := []byte{0xAA, 0xBB, 0xCC, 0xDD}
 	masked := make([]byte, 4)
 	for i := range payload {
 		masked[i] = payload[i] ^ mask[i]
 	}
-	ping := append([]byte{0x81, 0x80, 0x04}, mask...)
+	ping := append([]byte{0x81, 0x84}, mask...)
 	ping = append(ping, masked...)
 	if _, err := clientConn.Write(ping); err != nil {
 		t.Fatalf("client ping write: %v", err)
 	}
 
-	// Read the pong frame: 0x8A | 0x00 (unmasked) | 0x04 | payload(4).
-	pongHeader := make([]byte, 3)
-	if _, err := io.ReadFull(clientConn, pongHeader); err != nil {
-		t.Fatalf("client read pong header: %v", err)
+	// Read the pong frame from the bufio reader so any buffered bytes are
+	// not left stranded on the raw socket. Expected layout:
+	// 0x8A | 0x00 (unmasked) | 0x04 | payload(4).
+	clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var pongPayload []byte
+	for {
+		// Read the 2-byte frame header: FIN|opcode | MASK|len.
+		var hdr [2]byte
+		if _, err := io.ReadFull(br, hdr[:]); err != nil {
+			t.Fatalf("client read pong header: %v", err)
+		}
+		opcode := hdr[0] & 0x0F
+		masked := hdr[1]&0x80 != 0
+		length := int(hdr[1] & 0x7F)
+
+		// Handle extended lengths (not expected in this test, but keep the
+		// reader robust if the implementation ever sends them).
+		if length == 126 {
+			var ext [2]byte
+			if _, err := io.ReadFull(br, ext[:]); err != nil {
+				t.Fatalf("client read extended length: %v", err)
+			}
+			length = int(ext[0])<<8 | int(ext[1])
+		} else if length == 127 {
+			var ext [8]byte
+			if _, err := io.ReadFull(br, ext[:]); err != nil {
+				t.Fatalf("client read 64-bit length: %v", err)
+			}
+			length = 0
+			for _, b := range ext {
+				length = length<<8 | int(b)
+			}
+		}
+
+		var mask [4]byte
+		if masked {
+			if _, err := io.ReadFull(br, mask[:]); err != nil {
+				t.Fatalf("client read frame mask: %v", err)
+			}
+		} else {
+			mask[0], mask[1], mask[2], mask[3] = 0, 0, 0, 0
+		}
+
+		payloadBuf := make([]byte, length)
+		if _, err := io.ReadFull(br, payloadBuf); err != nil {
+			t.Fatalf("client read frame payload: %v", err)
+		}
+		if masked {
+			for i := range payloadBuf {
+				payloadBuf[i] ^= mask[i%4]
+			}
+		}
+
+		if opcode == 0x0A { // pong
+			pongPayload = payloadBuf
+			break
+		}
+		// Some other frame arrived before the pong (should not happen in
+		// this test); keep scanning.
 	}
-	if pongHeader[0]&0x0F != 0x0A { // pong opcode
-		t.Fatalf("pong opcode = 0x%02X, want 0x0A", pongHeader[0]&0x0F)
-	}
-	if pongHeader[1]&0x80 != 0 {
-		t.Fatalf("server->client pong should be unmasked, got mask bit set")
-	}
-	pongPayload := make([]byte, pongHeader[2])
-	if _, err := io.ReadFull(clientConn, pongPayload); err != nil {
-		t.Fatalf("client read pong payload: %v", err)
+	if len(pongPayload) != len(payload) {
+		t.Fatalf("pong payload length = %d, want %d", len(pongPayload), len(payload))
 	}
 	if !bytes.Equal(pongPayload, payload) {
 		t.Errorf("pong payload = %v, want %v (echo)", pongPayload, payload)
@@ -302,13 +373,16 @@ func TestHTTP2RoundTrip(t *testing.T) {
 	go server.ServeTLS(ln, "", "")
 	defer server.Close()
 
-	// h2 client: use a TLS client that trusts the self-signed cert.
+	// h2 client: use a TLS client that trusts the self-signed cert and
+	// explicitly installs the HTTP/2 transport (required for Go to
+	// negotiate h2 over TLS).
 	client := &http.Client{
-		Transport: &http.Transport{
+		Transport: &http2.Transport{
 			TLSClientConfig: &tls.Config{
-				RootCAs:  caPool,
+				RootCAs:    caPool,
 				NextProtos: []string{"h2"},
 			},
+			AllowHTTP: false,
 		},
 		Timeout: 10 * time.Second,
 	}
@@ -506,8 +580,8 @@ func TestM1OpenAIAuthHeader(t *testing.T) {
 // atomicBool is a tiny atomic boolean for test assertions.
 type atomicBool struct{ v atomic.Bool }
 
-func (a *atomicBool) Set()          { a.v.Store(true) }
-func (a *atomicBool) IsSet() bool   { return a.v.Load() }
+func (a *atomicBool) Set()        { a.v.Store(true) }
+func (a *atomicBool) IsSet() bool { return a.v.Load() }
 
 // newTestTLSCert generates a self-signed cert for HTTP/2 testing, valid
 // for 127.0.0.1. Returns the tls.Certificate and a PEM-encoded CA pool

@@ -81,7 +81,7 @@ func pipeWebSocket(w http.ResponseWriter, r *http.Request, u baseUpstream) error
 	// bytes past the 101 status line (the first WebSocket frame from the
 	// upstream), so it must be used as the upstream->client pipe source
 	// to avoid losing those bytes.
-	br := bufio.NewReader(conn)
+	br := bufio.NewReaderSize(conn, 16384)
 	hresp, err := http.ReadResponse(br, handshake)
 	if err != nil {
 		w.Header().Set("Content-Type", "text/plain")
