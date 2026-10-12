@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -95,7 +96,7 @@ func pipeWebSocket(w http.ResponseWriter, r *http.Request, u baseUpstream) error
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte("proxy: websocket upstream rejected handshake (status " + strconv.Itoa(hresp.StatusCode) + ")"))
-		return err
+		return fmt.Errorf("ws: upstream rejected handshake: %d", hresp.StatusCode)
 	}
 
 	// Hijack the client connection so we own the raw bytes.

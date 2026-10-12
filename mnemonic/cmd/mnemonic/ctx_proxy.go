@@ -121,11 +121,17 @@ func runCtxProxy(args []string) {
 	}
 	log.Info("listening", "addr", ln.Addr().String())
 
-	// Serve HTTP with graceful shutdown. HTTP/2 (h2c, prior knowledge)
-	// is enabled by sniffing the HTTP/2 client preface on each connection
-	// and upgrading to h2c when present. The proxy's upstream connections
-	// are plain HTTP (no TLS), so h2c is the correct negotiation path.
-	srv := &http.Server{Handler: h2cHandler(proxy.Handler())}
+	// Serve HTTP with graceful shutdown. The serve entry accepts both
+	// HTTP/1 and cleartext HTTP/2 (h2c, prior knowledge) on the same
+	// listener: Server.Protocols with UnencryptedHTTP2 lets net/http
+	// sniff the h2 client preface and upgrade to h2c, while still
+	// serving HTTP/1 to clients that do not send a preface. The proxy's
+	// upstream connections are plain HTTP (no TLS), so h2c is the
+	// correct negotiation path for the loopback entry.
+	protos := &http.Protocols{}
+	protos.SetHTTP1(true)
+	protos.SetUnencryptedHTTP2(true)
+	srv := &http.Server{Handler: proxy.Handler(), Protocols: protos}
 	go func() {
 		<-ctx.Done()
 		log.Info("shutdown signal received")
@@ -146,30 +152,31 @@ func runCtxProxy(args []string) {
 }
 
 // isLoopbackBind reports whether bind is a loopback address: 127.0.0.1,
-// ::1, ::ffff:127.0.0.1, or "localhost". An empty bind (meaning "all
-// interfaces") is NOT loopback. External IPs, 0.0.0.0, and :: are not
-// loopback. This replaces the T04 string allow-list (M2).
+// ::1, ::ffff:127.0.0.1, or "localhost" (conventionally loopback; a
+// /etc/hosts override is ignored for this warning heuristic). An empty
+// bind (meaning "all interfaces") is NOT loopback. External IPs, 0.0.0.0,
+// and :: are not loopback. This replaces the T04 string allow-list (M2).
 func isLoopbackBind(bind string) bool {
-	if bind == "" || bind == "localhost" {
+	switch bind {
+	case "":
+		// "all interfaces" is not loopback.
 		return false
+	case "localhost":
+		// Conventionally loopback; a /etc/hosts override is ignored for
+		// this warning heuristic.
+		return true
 	}
 	// Try to parse as an IP (with or without zone).
-	ip := net.ParseIP(bind)
-	if ip != nil {
+	if ip := net.ParseIP(bind); ip != nil {
 		return ip.IsLoopback()
 	}
-	// "localhost" resolves to loopback by convention, but it is also a
-	// name that could be overridden in /etc/hosts; treat it as loopback
-	// for the warning heuristic.
 	return false
 }
 
-// h2cHandler returns h unchanged. HTTP/2 (h2c, prior knowledge) support on
-// the loopback serve entry is provided by the Go 1.24+ net/http server,
-// which automatically detects the h2 client preface on cleartext
-// connections and negotiates h2c. No handler wrapping is required; this
-// function exists as a seam for the future (e.g. if a custom h2c adapter
-// becomes necessary).
-func h2cHandler(h http.Handler) http.Handler {
-	return h
-}
+// Cleartext HTTP/2 (h2c, prior-knowledge) support on the loopback serve
+// entry is provided by the Go 1.24+ net/http server, not by a handler
+// wrapper. Setting Server.Protocols with UnencryptedHTTP2 (done at the
+// serve site) makes net/http sniff the h2 client preface on each cleartext
+// connection and serve it over HTTP/2, while HTTP/1 clients are served
+// unchanged. No h2c handler wrapping is required (the x/net/http2/h2c
+// adapter is deprecated for this use).
