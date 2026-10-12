@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -71,12 +72,21 @@ func newSharedStore(t *testing.T, project string) *ctxstore.Store {
 // and body, recording every request it sees.
 func newUpstreamServer(t *testing.T, status int, body string, seen *[]string) *httptest.Server {
 	t.Helper()
+	return newUpstreamServerWithContentType(t, status, body, "application/json", seen)
+}
+
+// newUpstreamServerWithContentType is newUpstreamServer with an explicit
+// response Content-Type (for streaming-passthrough tests).
+func newUpstreamServerWithContentType(t *testing.T, status int, body, contentType string, seen *[]string) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		if seen != nil {
 			*seen = append(*seen, string(b))
 		}
-		w.Header().Set("Content-Type", "application/json")
+		if contentType != "" {
+			w.Header().Set("Content-Type", contentType)
+		}
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(body))
 	}))
@@ -222,6 +232,43 @@ func TestServeHTTPProviderRetryVerbatim(t *testing.T) {
 	}
 }
 
+// TestServeHTTPOpenAICompatEndToEnd is the OpenAI-compatibility end-to-end
+// check (AC 2b): the proxy must forward an OpenAI-shape request to the
+// configured upstream and pass the response (and savings headers) through to
+// the client unchanged.
+func TestServeHTTPOpenAICompatEndToEnd(t *testing.T) {
+	clientBody := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi there"}],"temperature":0.2}`)
+	var seen []string
+	up := newUpstreamServer(t, http.StatusOK, `{"id":"chatcmpl-1","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"hello"}}]}`, &seen)
+	defer up.Close()
+	cfg := testConfig("passthrough", 0, 0)
+	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(clientBody)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	// Passthrough forwards the exact OpenAI request body verbatim.
+	if len(seen) != 1 || seen[0] != string(clientBody) {
+		t.Fatalf("forwarded body = %q, want verbatim OpenAI body %q", seen, clientBody)
+	}
+	// The upstream response passes through to the client unchanged.
+	if got := w.Body.String(); got != `{"id":"chatcmpl-1","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"hello"}}]}` {
+		t.Errorf("client body = %q, want verbatim upstream response", got)
+	}
+	// Savings headers are still written on the OpenAI-compat path.
+	if got := w.Header().Get(HeaderMode); got != "passthrough" {
+		t.Errorf("X-CTX-Mode = %q, want passthrough", got)
+	}
+	if got := w.Header().Get(HeaderSavings); got != "0" {
+		t.Errorf("X-CTX-Savings = %q, want 0 (passthrough)", got)
+	}
+}
+
 // TestServeHTTPTransportError502 proves that when the provider is unreachable
 // (a transport-level error with no upstream status), the proxy renders a 502
 // after exhausting retries — the client still completes, no panic, no 500.
@@ -346,6 +393,72 @@ func TestServeHTTPSessionIDDerived(t *testing.T) {
 	}
 	if !strings.HasPrefix(sessions[0].SessionID, "sess-") {
 		t.Errorf("derived session id = %q, want a sess- prefixed id", sessions[0].SessionID)
+	}
+}
+
+// TestServeHTTPStreamResponsePassthrough proves the streaming passthrough
+// behavior: the proxy streams the upstream response body into the client
+// (no full buffering) and preserves the upstream's Content-Type, so large
+// streamed responses do not require the whole body in memory.
+func TestServeHTTPStreamResponsePassthrough(t *testing.T) {
+	big := strings.Repeat("x", 256*1024) // 256 KiB
+	var seen []string
+	up := newUpstreamServerWithContentType(t, http.StatusOK, big, "text/event-stream", &seen)
+	defer up.Close()
+	cfg := testConfig("passthrough", 0, 0)
+	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"messages":[]}`))
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want the upstream's text/event-stream", got)
+	}
+	if w.Body.String() != big {
+		t.Fatalf("streamed body length = %d, want %d", len(w.Body.String()), len(big))
+	}
+}
+
+// TestTransformPreservesNonMessageFields proves the in-place transform keeps
+// the request's non-message fields (model, max_tokens, temperature, ...) on
+// the wire — only the messages array is compressed, so the upstream still
+// receives the full request shape (review fix for the lossy re-encode).
+func TestTransformPreservesNonMessageFields(t *testing.T) {
+	body := []byte(`{"model":"claude-3-5-sonnet","max_tokens":1024,"temperature":0.7,"messages":[{"role":"user","content":"the quick brown"},{"role":"assistant","content":"fox jumps over"},{"role":"user","content":"the lazy dog"}]}`)
+	out, cacheHit, err := applyTransform(ModeToken, body)
+	if err != nil {
+		t.Fatalf("applyTransform: %v", err)
+	}
+	if out == nil {
+		t.Fatalf("applyTransform returned nil body")
+	}
+	if cacheHit {
+		t.Errorf("cacheHit = true, want false (token mode)")
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("forwarded body is not valid JSON: %v", err)
+	}
+	if doc["model"] != "claude-3-5-sonnet" {
+		t.Errorf("model = %v, want preserved claude-3-5-sonnet", doc["model"])
+	}
+	if doc["max_tokens"] != float64(1024) {
+		t.Errorf("max_tokens = %v, want preserved 1024", doc["max_tokens"])
+	}
+	if doc["temperature"] != 0.7 {
+		t.Errorf("temperature = %v, want preserved 0.7", doc["temperature"])
+	}
+	// The messages array is the one field that was compressed.
+	msgBytes, err := json.Marshal(doc["messages"])
+	if err != nil {
+		t.Fatalf("marshal messages: %v", err)
+	}
+	if !strings.Contains(string(msgBytes), "[ctx-summarized") {
+		t.Errorf("messages not summarized: %s", msgBytes)
 	}
 }
 

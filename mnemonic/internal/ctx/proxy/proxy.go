@@ -85,26 +85,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	effectiveMode := mode
 	cacheHit := false
 	if mode != ModePassthrough {
-		msgs, perr := parseMessages(body)
-		if perr != nil {
-			// Unparseable: fail open to passthrough with the original body.
+		if b, hit, terr := applyTransform(mode, body); terr == nil {
+			if b != nil {
+				forwardBody = b
+				cacheHit = hit
+			}
+		} else {
 			forwardBody = body
 			effectiveMode = ModePassthrough
-		} else {
-			tmsgs, terr := transform(mode, msgs)
-			if terr != nil {
-				// Compression fault: degrade to passthrough.
-				forwardBody = body
-				effectiveMode = ModePassthrough
-			} else {
-				if b, e := encodeMessages(tmsgs); e == nil {
-					forwardBody = b
-					cacheHit = mode == ModeCache && headSplit(msgs) > 0
-				} else {
-					forwardBody = body
-					effectiveMode = ModePassthrough
-				}
-			}
 		}
 	}
 	tokensAfter := EstimateTokens(forwardBody)
@@ -120,22 +108,19 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Forward to the upstream with the correct API key, retrying on a non-2xx
-	// or transport error.
-	res := p.forward(r, forwardBody)
+	// or transport error. The response body is streamed directly into w.
+	p.forward(w, r, forwardBody)
 
 	// Emit telemetry (fail-open: a missing ctx table is a no-op write).
 	p.recordTelemetry(r, upstream.Name, string(effectiveMode), sv)
-
-	// Write the upstream response verbatim.
-	w.Header().Set("Content-Type", res.contentType)
-	w.WriteHeader(res.status)
-	_, _ = w.Write(res.body)
 }
 
 // forward builds and issues the upstream request (with the configured API key
-// injected, the client's Authorization/x-api-key replaced) and returns the
-// upstream status/body verbatim after the retry budget.
-func (p *Proxy) forward(r *http.Request, body []byte) forwardResult {
+// injected, the client's Authorization/x-api-key replaced), and streams the
+// upstream response straight into w after the retry budget. The upstream
+// status/content-type is returned for the caller to inspect, and the response
+// body has already been copied to w by the time this returns.
+func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, body []byte) (int, string) {
 	u := p.upstream
 	ctx := r.Context()
 
@@ -144,7 +129,10 @@ func (p *Proxy) forward(r *http.Request, body []byte) forwardResult {
 	if baseURL == "" {
 		// No upstream configured: fail open — return a 502 with a clear body
 		// (the client still completes, no panic).
-		return forwardResult{status: http.StatusBadGateway, contentType: "text/plain", body: []byte("proxy: no upstream configured for " + u.Name)}
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("proxy: no upstream configured for " + u.Name))
+		return http.StatusBadGateway, "text/plain"
 	}
 
 	fullURL := baseURL
@@ -154,7 +142,10 @@ func (p *Proxy) forward(r *http.Request, body []byte) forwardResult {
 	fullURL += strings.TrimLeft(path, "/")
 	pu, err := url.Parse(fullURL)
 	if err != nil {
-		return forwardResult{status: http.StatusBadGateway, contentType: "text/plain", body: []byte("proxy: bad upstream URL: " + err.Error())}
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("proxy: bad upstream URL: " + err.Error()))
+		return http.StatusBadGateway, "text/plain"
 	}
 
 	do := func() (*http.Response, error) {
@@ -181,24 +172,24 @@ func (p *Proxy) forward(r *http.Request, body []byte) forwardResult {
 
 	res := callWithRetry(ctx, do, p.cfg.Proxy.ProviderRetries, p.cfg.Proxy.ProviderRetryBackoffMs, p.sleep)
 	if res.Err != nil {
-		return forwardResult{
-			status:      http.StatusBadGateway,
-			contentType: "text/plain",
-			body:        []byte("proxy: provider unreachable: " + res.Err.Error()),
-		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("proxy: provider unreachable: " + res.Err.Error()))
+		return http.StatusBadGateway, "text/plain"
 	}
-	return forwardResult{
-		status:      res.Status,
-		contentType: "application/json",
-		body:        res.Body,
+	// Stream the upstream body into w, preserving the upstream's
+	// Content-Type (JSON, SSE, ...) so streamed responses pass through as-is.
+	ct := res.ContentType
+	if ct == "" {
+		ct = "application/json"
 	}
-}
-
-// forwardResult is the verbatim upstream outcome.
-type forwardResult struct {
-	status      int
-	contentType string
-	body        []byte
+	w.Header().Set("Content-Type", ct)
+	w.WriteHeader(res.Status)
+	if res.Body != nil {
+		_, _ = io.Copy(w, res.Body)
+		_ = res.Body.Close()
+	}
+	return res.Status, ct
 }
 
 // baseUpstream captures the resolved upstream endpoint + auth for the provider

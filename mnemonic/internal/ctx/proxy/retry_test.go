@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -37,8 +39,8 @@ func TestCallWithRetrySuccessFirstTry(t *testing.T) {
 	if res.Status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", res.Status)
 	}
-	if string(res.Body) != `{"ok":true}` {
-		t.Fatalf("body = %q, want verbatim", res.Body)
+	if got := string(mustReadBody(t, res.Body)); got != `{"ok":true}` {
+		t.Fatalf("body = %q, want verbatim", got)
 	}
 	if attempts != 1 {
 		t.Errorf("attempts = %d, want 1", attempts)
@@ -95,8 +97,8 @@ func TestCallWithRetryVerbatimBody(t *testing.T) {
 	if res.Status != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502", res.Status)
 	}
-	if string(res.Body) != `{"error":"provider blew up"}` {
-		t.Fatalf("body = %q, want verbatim", res.Body)
+	if got := string(mustReadBody(t, res.Body)); got != `{"error":"provider blew up"}` {
+		t.Fatalf("body = %q, want verbatim", got)
 	}
 	// 1 + 2 retries = 3 attempts, 2 backoffs.
 	if res.Attempts != 3 {
@@ -120,12 +122,30 @@ func TestCallWithRetryTransportError(t *testing.T) {
 	if res.Err == nil {
 		t.Fatalf("expected res.Err set on transport failure")
 	}
-	if res.Err != errTestDial {
-		t.Errorf("res.Err = %v, want %v", res.Err, errTestDial)
+	if !errors.Is(res.Err, errTestDial) {
+		t.Errorf("res.Err = %v, want wrapped %v", res.Err, errTestDial)
+	}
+	if !errors.Is(res.Err, noUpstreamStatus) {
+		t.Errorf("res.Err = %v, want wrapped %v", res.Err, noUpstreamStatus)
 	}
 	if errs != 3 {
 		t.Errorf("attempts = %d, want 3", errs)
 	}
+}
+
+// mustReadBody consumes a retryResult body and returns its bytes (or an empty
+// slice for a nil body), closing the reader.
+func mustReadBody(t *testing.T, rc io.ReadCloser) []byte {
+	t.Helper()
+	if rc == nil {
+		return nil
+	}
+	defer rc.Close()
+	b, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	return b
 }
 
 // TestBackoffMsSequence proves the exponential sequence base, 2*base, 4*base.

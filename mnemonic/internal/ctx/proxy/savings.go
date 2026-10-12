@@ -127,24 +127,44 @@ func summarize(m message) string {
 	return "[ctx-summarized " + m.Role + "]"
 }
 
-// parseMessages decodes the upstream request body into the normalized
-// messages shape. It tolerates a missing/empty messages array.
-func parseMessages(body []byte) ([]message, error) {
-	if len(body) == 0 {
-		return nil, nil
+// applyTransform decodes the request body as a JSON object, transforms only
+// the messages array in-place, and re-encodes the full object. This preserves
+// all non-message fields (model, max_tokens, stream, etc.) instead of the
+// lossy re-encoding of a bare {messages:[...]} shape. A parse or transform
+// fault is returned as a non-nil error so the caller can fail open to
+// passthrough (ADR-0016).
+func applyTransform(mode Mode, body []byte) ([]byte, bool, error) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, false, err
 	}
-	var m messages
-	if err := json.Unmarshal(body, &m); err != nil {
-		return nil, err
+	rawMsgs, ok := doc["messages"]
+	// A missing or empty messages array means there is nothing to compress.
+	if !ok || len(rawMsgs) == 0 {
+		return nil, false, nil
 	}
-	return m.Messages, nil
-}
+	var msgs []message
+	if err := json.Unmarshal(rawMsgs, &msgs); err != nil {
+		return nil, false, err
+	}
 
-// encodeMessages encodes a normalized messages slice to the wire JSON shape
-// {model?, messages:[{role,content}]} — the common core both Anthropic and
-// OpenAI request bodies share. The proxy re-encodes the (possibly compressed)
-// messages into this shape for forwarding; the upstream tolerates the
-// normalized message content.
-func encodeMessages(msgs []message) ([]byte, error) {
-	return json.Marshal(messages{Messages: msgs})
+	cacheHit := false
+	if mode == ModeCache {
+		cacheHit = headSplit(msgs) > 0
+	}
+
+	tmsgs, err := transform(mode, msgs)
+	if err != nil {
+		return nil, false, err
+	}
+	newRaw, err := json.Marshal(tmsgs)
+	if err != nil {
+		return nil, false, err
+	}
+	doc["messages"] = newRaw
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return nil, false, err
+	}
+	return out, cacheHit, nil
 }

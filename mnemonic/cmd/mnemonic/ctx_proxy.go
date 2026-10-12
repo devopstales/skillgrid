@@ -94,6 +94,13 @@ func runCtxProxy(args []string) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	log.Info("starting ctx proxy", "bind", b, "port", p, "mode", string(effectiveMode))
 
+	// Warn (do not fail) when the proxy is bound to a non-loopback address.
+	// The CTX proxy carries upstream credentials and is designed for
+	// 127.0.0.1; a wider bind may expose it to the network.
+	if b != "127.0.0.1" && b != "localhost" && b != "::1" && b != "" {
+		log.Warn("ctx proxy bound to a non-loopback address", "bind", b)
+	}
+
 	// Build the proxy handler.
 	proxy := ctxproxy.New(cfg, cs, log, effectiveMode)
 
