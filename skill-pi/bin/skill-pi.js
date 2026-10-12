@@ -188,7 +188,14 @@ function spawnPi(argv, shimDir) {
     stdio: 'inherit',
     env: {
       ...process.env,
-      PI_CODING_AGENT_DIR: agentDir(),
+      // Point pi's getPackageDir() at skill-pi/ so its own package.json
+      // (piConfig: name "skill-pi", configDir ".skill-pi") is the one pi reads.
+      // This sets APP_NAME="skill-pi" and CONFIG_DIR_NAME=".skill-pi".
+      PI_PACKAGE_DIR: SKILL_PI_ROOT,
+      // pi reads its agent dir from `${APP_NAME}_CODING_AGENT_DIR` (=
+      // SKILL_PI_CODING_AGENT_DIR once PI_PACKAGE_DIR names skill-pi).
+      // Without it pi would default to ~/.skill-pi/agent (CONFIG_DIR_NAME/agent).
+      SKILL_PI_CODING_AGENT_DIR: agentDir(),
       PI_SKIP_VERSION_CHECK: '1',
     },
   });

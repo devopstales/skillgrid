@@ -28,8 +28,16 @@ test('skill-pi module skeleton is correct', () => {
     'pi must not also be a runtime dependency (duplicate module risk)'
   );
 
+  // pi 1.1.0 reads piConfig.configDir from the package dir the launcher points
+  // at via PI_PACKAGE_DIR (= skill-pi/). That is what sets the project config
+  // dir to ".skill-pi". The `pi` key is the resource manifest (extensions,
+  // skills, prompts, themes). pi must not be a runtime dependency (ADR-0042).
   assert.strictEqual(pkg.piConfig && pkg.piConfig.name, 'skill-pi');
   assert.strictEqual(pkg.piConfig && pkg.piConfig.configDir, '.skill-pi');
+  assert.ok(
+    Array.isArray(pkg.pi && pkg.pi.extensions),
+    'pi.extensions must be an array manifest entry'
+  );
   assert.strictEqual(pkg.bin && pkg.bin['skill-pi'], './bin/skill-pi.js');
 
   const readme = fs.readFileSync(path.join(skillPiDir, 'README.md'), 'utf8');

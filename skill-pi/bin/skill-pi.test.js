@@ -28,7 +28,7 @@ function makeEnv(home, rootName, extra) {
     'const fs = require("fs");',
     'try {',
     '  if (process.env.SKILL_PI_TEST_LOG) fs.appendFileSync(process.env.SKILL_PI_TEST_LOG, "1");',
-    '  if (process.env.SKILL_PI_TEST_ARGV) fs.writeFileSync(process.env.SKILL_PI_TEST_ARGV, JSON.stringify({ argv: process.argv.slice(2), skip: process.env.PI_SKIP_VERSION_CHECK, agentDir: process.env.PI_CODING_AGENT_DIR }));',
+    '  if (process.env.SKILL_PI_TEST_ARGV) fs.writeFileSync(process.env.SKILL_PI_TEST_ARGV, JSON.stringify({ argv: process.argv.slice(2), skip: process.env.PI_SKIP_VERSION_CHECK, agentDir: process.env.SKILL_PI_CODING_AGENT_DIR }));',
     '} catch (e) {}',
     'if (process.env.SKILL_PI_TEST_EXIT) process.exit(parseInt(process.env.SKILL_PI_TEST_EXIT, 10)); else process.exit(0);',
   ].join('\n');
