@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
@@ -18,15 +19,22 @@ import (
 )
 
 // Proxy is the loopback LLM proxy. It owns the resolved config, a fail-open
-// ctx store accessor for telemetry, a logger, and the effective mode (a plain
-// field — switchable by T06).
+// ctx store accessor for telemetry, a logger, and the effective mode. The mode
+// is guarded by mu: it is read on the hot forward path (RLock) and written by
+// SetMode (Lock), so a runtime switch (T06) is safe against concurrent
+// forwarding. The lock is held only for the field read/write, never across I/O.
 type Proxy struct {
 	cfg      *config.CtxConfig
 	store    *store.Store
 	log      *slog.Logger
-	mode     Mode
 	sleep    Sleep
 	upstream baseUpstream
+
+	// mu guards mode and lastChangeID.
+	mu               sync.RWMutex
+	mode             Mode
+	lastChangeID     string
+	SetModeEventSink func(old, new Mode, reason string)
 }
 
 // New builds a Proxy from resolved config, the shared ctx store accessor (may
@@ -60,6 +68,19 @@ func (p *Proxy) Handler() http.Handler {
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// T06 routes short-circuit BEFORE the forward path: /v1/compress is a
+	// loopback-only local transform (no upstream), and /stats reports live
+	// metrics + the current mode. Both are served on the same loopback
+	// listener, so they share the proxy's trust boundary.
+	if r.URL.Path == compressPath {
+		p.serveCompress(w, r)
+		return
+	}
+	if r.URL.Path == statsPath {
+		p.serveStats(w, r)
+		return
+	}
+
 	// WebSocket upgrade requests bypass the savings transform entirely: WS
 	// frames are not JSON chat requests, so they pass through verbatim.
 	// The proxy hijacks the connection and pipes both directions (T05).
@@ -79,8 +100,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Determine the effective mode for this request. T04: the startup-resolved
 	// p.mode is authoritative (T06 adds per-request override). The mode used
-	// for the transform is what the savings header reports.
-	mode := p.mode
+	// for the transform is what the savings header reports. It is read under
+	// the RWMutex so a concurrent SetMode (runtime switch) is safe.
+	mode := p.GetMode()
 
 	// Token count BEFORE the transform: count on the exact wire bytes the
 	// client sent. This is the deterministic "before" for the savings delta.
