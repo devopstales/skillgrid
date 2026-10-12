@@ -41,6 +41,8 @@ func runCtx(args []string) {
 		runCtxIndex(rest)
 	case "proxy":
 		runCtxProxy(rest)
+	case "wrap":
+		runCtxWrap(rest)
 	case "help", "-h", "--help":
 		ctxUsage()
 	default:
@@ -61,6 +63,7 @@ func ctxUsage() {
 	fmt.Fprintln(w, "  purge            Clear the session sandbox (tool_outputs, and context_revisions when present); prints rows removed (-project, -session)")
 	fmt.Fprintln(w, "  index <path>     Index a file (or a directory of files) into the context-harness FTS index; re-indexing is idempotent (-project)")
 	fmt.Fprintln(w, "  proxy            Start the loopback LLM proxy: forwards Anthropic/OpenAI requests with a mode-selected context transform, X-CTX-Savings headers, provider retry, and per-turn telemetry (-bind, -port, -mode, -dir)")
+	fmt.Fprintln(w, "  wrap <agent>     Tier-2 launcher: start the proxy, inject the agent's base-URL env to point at it, back up the prior config (first wrap only), and launch the agent subprocess (-bind, -port, -bin, -dir)")
 }
 
 // ctxSearchFlags parses search flags: -limit caps the fused results.
