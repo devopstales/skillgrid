@@ -3,7 +3,7 @@ id: TASK-092
 title: >-
   [FEATURE] CTX T04 proxy core: token/cache/passthrough + savings headers +
   fail-open (mnemonic)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:34'
 updated_date: '2026-10-09 13:40'
