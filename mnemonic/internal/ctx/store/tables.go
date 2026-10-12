@@ -434,3 +434,41 @@ func (s *Store) ListTrafficMemories(sessionID string) ([]*TrafficMemory, error) 
 	}
 	return out, rows.Err()
 }
+
+// ListAllTrafficMemories returns every ctx_traffic_memories row across all
+// sessions, ordered by created_at then memory_id. Added for the traffic
+// learner's global max_memories eviction (T12); additive — it does not change
+// the table DDL. Fail-open to an empty slice when the table is missing
+// (ADR-0016).
+func (s *Store) ListAllTrafficMemories() ([]*TrafficMemory, error) {
+	rows, err := s.queryFailOpen("ctx_traffic_memories", `
+		SELECT memory_id, session_id, category, memory_text,
+		       evidence_json, confidence, created_at
+		FROM ctx_traffic_memories ORDER BY created_at, memory_id`)
+	if err != nil {
+		return nil, err
+	}
+	if rows == nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var out []*TrafficMemory
+	for rows.Next() {
+		var m TrafficMemory
+		if err := rows.Scan(&m.MemoryID, &m.SessionID, &m.Category, &m.MemoryText,
+			&m.EvidenceJSON, &m.Confidence, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &m)
+	}
+	return out, rows.Err()
+}
+
+// DeleteTrafficMemory removes one ctx_traffic_memories row by memory_id.
+// Added for the traffic learner's eviction (T12); additive — it does not
+// change the table DDL. Fail-open: a missing table degrades to a no-op
+// (ADR-0016).
+func (s *Store) DeleteTrafficMemory(memoryID string) error {
+	return s.execFailOpen("ctx_traffic_memories", `
+		DELETE FROM ctx_traffic_memories WHERE memory_id = ?`, memoryID)
+}

@@ -1,0 +1,46 @@
+# traffic/rules.yaml — human-editable rules for the zero-LLM traffic learner
+# (plan §18.3). Rules are applied in file order; the first matching rule wins
+# for a given trigger. Each rule declares a category (error_recovery |
+# environment | preference | architecture), a deterministic pattern, a base
+# confidence in [0,1], and a short human-auditable description.
+#
+# Patterns are simple and deterministic (repetition counts, same-target, path
+# prefix) — no free-text regex, so extraction is stable across Go versions.
+# A memory below the learner's min_confidence is not stored; the store is
+# capped by max_memories (oldest low-confidence evicted first).
+rules:
+  # error_recovery: a tool_result{status:error} followed, on the same target,
+  # by a tool_result{status:ok} — a fail-then-retry. Captures the working
+  # command or path.
+  - id: er_fail_then_ok
+    category: error_recovery
+    pattern: fail_then_ok
+    confidence: 0.8
+    description: "A tool call failed then recovered on retry for the same target."
+
+  # environment: the same tool/target pair used repeatedly — a stable fact
+  # (working command, path, or tool the environment relies on).
+  - id: env_repeated_command
+    category: environment
+    pattern: repetition
+    confidence: 0.7
+    min_times: 3
+    description: "A command or tool is used repeatedly in this environment."
+
+  # preference: a user_message fragment repeated across turns — a repeated
+  # user correction or usage pattern.
+  - id: pref_repeated_message
+    category: preference
+    pattern: message_repetition
+    confidence: 0.7
+    min_times: 2
+    description: "The user repeats a correction or usage request."
+
+  # architecture: repeated reads/edits of files under one common path prefix —
+  # a file-structure or coding-convention pattern.
+  - id: arch_common_prefix
+    category: architecture
+    pattern: path_prefix
+    confidence: 0.7
+    min_times: 3
+    description: "Files under a common directory are read or edited repeatedly."
