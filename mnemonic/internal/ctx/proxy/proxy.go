@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
+	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/observability"
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
 )
 
@@ -313,6 +314,21 @@ func (p *Proxy) recordTelemetry(r *http.Request, upstream, mode string, sv savin
 			CacheHits:    boolToInt(sv.CacheHit),
 		})
 	}
+
+	// Fold this turn into the durable savings history (ctx_stats_history).
+	// Fail-open: WriteSavings no-ops (and returns 0) when the table is
+	// missing, so a missing ctx_stats_history never errors the request
+	// (ADR-0016). The bucket counters are merged idempotently on BucketID.
+	_ = observability.WriteSavings(p.store, []*observability.Saving{{
+		SavingID:     fmt.Sprintf("save-%d-%s", now, sessionID),
+		SessionID:    sessionID,
+		Turn:         turn,
+		Upstream:     upstream,
+		Mode:         mode,
+		TokensBefore: int64(sv.Before),
+		TokensAfter:  int64(sv.After),
+		CreatedAt:    now / 1e9, // window alignment is on unix seconds
+	}})
 }
 
 // sessionID returns the request's stable session id: the X-CTX-Session header

@@ -342,6 +342,59 @@ func TestServeHTTPWritesTelemetry(t *testing.T) {
 	}
 }
 
+// TestServeHTTPTelemetryWritesStatsHistory proves the per-turn bucket writer is
+// wired into recordTelemetry: after ONE proxied turn, a ctx_stats_history row
+// exists for the turn's hour bucket with the compressed token delta, one
+// request, and one session (the per-saving lower bound). This is the
+// integration gap the reviewer flagged — before the wiring, the writer was
+// built + unit-tested but never called in production, so GET /stats-history
+// stayed empty in a deployed process.
+func TestServeHTTPTelemetryWritesStatsHistory(t *testing.T) {
+	cs := newSharedStore(t, "ctxstatshist")
+	clientBody := []byte(`{"messages":[{"role":"user","content":"hello world test"}]}`)
+	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, nil)
+	defer up.Close()
+	cfg := testConfig("token", 0, 0)
+	p := newTestProxy(t, cfg, cs, ModeToken, up)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(clientBody)))
+	req.Header.Set(SessionHeader, "sess-statshist")
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	// The turn's savings row (source of the fold) must carry the delta.
+	savings, err := cs.ListProxySavings("sess-statshist")
+	if err != nil {
+		t.Fatalf("ListProxySavings: %v", err)
+	}
+	if len(savings) != 1 {
+		t.Fatalf("savings rows = %d, want 1", len(savings))
+	}
+	wantSaved := savings[0].TokensBefore - savings[0].TokensAfter
+
+	// The per-turn writer must have folded the turn into the hour bucket.
+	buckets, err := cs.ListStatsBuckets("hourly")
+	if err != nil {
+		t.Fatalf("ListStatsBuckets(hourly): %v", err)
+	}
+	if len(buckets) != 1 {
+		t.Fatalf("hourly buckets = %d, want 1", len(buckets))
+	}
+	b := buckets[0]
+	if b.TokensSaved != wantSaved {
+		t.Errorf("hourly tokens_saved = %d, want %d (the turn's delta)", b.TokensSaved, wantSaved)
+	}
+	if b.Requests != 1 {
+		t.Errorf("hourly requests = %d, want 1", b.Requests)
+	}
+	if b.Sessions != 1 {
+		t.Errorf("hourly sessions = %d, want 1 (per-saving lower bound)", b.Sessions)
+	}
+}
+
 // TestServeHTTPTelemetryNilStoreNoop proves ADR-0016 fail-open at telemetry:
 // with a nil ctx store accessor the proxy still serves and returns the correct
 // savings headers — the telemetry write is a no-op, never a 500.

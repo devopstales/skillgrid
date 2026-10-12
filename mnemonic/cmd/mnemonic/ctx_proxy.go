@@ -13,6 +13,7 @@ import (
 	"time"
 
 	ctxconfig "github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
+	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/observability"
 	ctxproxy "github.com/devopstales/skillgrid/mnemonic/internal/ctx/proxy"
 	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
 	"github.com/devopstales/skillgrid/mnemonic/internal/loop"
@@ -108,9 +109,29 @@ func runCtxProxy(args []string) {
 	// Build the proxy handler.
 	proxy := ctxproxy.New(cfg, cs, log, effectiveMode)
 
-	// Set up signal handling for graceful shutdown.
+	// Set up signal handling for graceful shutdown. The signal context is
+	// created before the rollup so the rollup's stop channel can be tied to
+	// it (the rollup must not outlive the server's shutdown signal).
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Start the periodic stats-history rollup (plan §17.3). The rollup
+	// re-derives ctx_stats_history buckets from ctx_proxy_savings on a tick,
+	// correcting the per-saving Sessions lower bound to the exact
+	// distinct-session count — this is what keeps GET /stats-history current
+	// "without a restart". A 1h tick is the configured default (the config
+	// has no tick key yet; T11 may add one). The stop channel is tied to the
+	// graceful-shutdown signal context via a small goroutine: when ctx fires,
+	// the channel closes and the deferred stopRollup joins the rollup
+	// goroutine (no leak). Fail-open: a nil store (no shared handle) makes
+	// the rollup a no-op (ADR-0016).
+	rollupStop := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		close(rollupStop)
+	}()
+	stopRollup := observability.StartRollup(cs, time.Hour, rollupStop)
+	defer stopRollup()
 
 	// Create the listener.
 	addr := fmt.Sprintf("%s:%d", b, p)
@@ -146,6 +167,10 @@ func runCtxProxy(args []string) {
 	}
 
 	log.Info("proxy stopped")
+	// The deferred stopRollup() already joined the rollup goroutine before
+	// this point (defers run LIFO, after cleanup is registered). The store
+	// handle is still open here, so the last tick can finish while it is
+	// valid. No leak: stopRollup blocks until the goroutine exits.
 	if h != nil {
 		cleanup()
 	}

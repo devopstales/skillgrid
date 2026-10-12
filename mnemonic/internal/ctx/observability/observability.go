@@ -26,7 +26,8 @@ const (
 	Hourly Granularity = "hourly"
 	// Daily rolls up per calendar day.
 	Daily Granularity = "daily"
-	// Weekly rolls up per ISO week.
+	// Weekly rolls up per 7-day window (aligned to the Unix epoch, not to
+	// ISO week boundaries).
 	Weekly Granularity = "weekly"
 	// Monthly rolls up per calendar month.
 	Monthly Granularity = "monthly"
