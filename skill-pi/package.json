@@ -30,6 +30,7 @@
     "mcp.json",
     "settings.json",
     "system/",
+    "themes/",
     "README.md"
   ],
   "engines": {
@@ -40,7 +41,7 @@
     "configDir": ".skill-pi"
   },
   "pi": {
-    "extensions": ["./extensions"],
+    "extensions": ["./extensions/splash.js", "./extensions/tokyo-night-footer.ts"],
     "skills": ["./skills"],
     "prompts": ["./prompts"],
     "themes": ["./themes"]
