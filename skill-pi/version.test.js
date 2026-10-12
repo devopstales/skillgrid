@@ -10,17 +10,25 @@ test('skill-pi module skeleton is correct', () => {
   const pkgPath = path.join(skillPiDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 
-  // pi is host-provided: it must be a peerDependency with "*" (not a runtime
-  // dependency, which would create a duplicate module — see pi's loader warning).
+  // pi is host-provided, not forced: it must be an optional peerDependency
+  // (gentle-pi model) at the exact pin, plus a devDependency pin for the
+  // build. It must NOT be a runtime `dependencies` entry, which would create
+  // a duplicate pi module (see pi's loader warning).
   const peer = pkg.peerDependencies && pkg.peerDependencies['@earendil-works/pi-coding-agent'];
   assert.ok(peer, 'peerDependencies["@earendil-works/pi-coding-agent"] must exist');
-  assert.strictEqual(peer, '*', 'peer dependency range must be "*", got: ' + peer);
 
-  // The exact pin (R12 / ADR-0042) is enforced at install time (Taskfile
-  // skill-pi:install) and recorded in pi-version.txt.
+  // The exact pin (R12 / ADR-0042) is recorded in pi-version.txt and must
+  // equal the peer pin and the devDependency pin (ADR-0042 invariant).
   const piVersionPath = path.join(skillPiDir, 'pi-version.txt');
   const piVersion = fs.readFileSync(piVersionPath, 'utf8').trim();
   assert.match(piVersion, /^\d+\.\d+\.\d+$/, 'pi-version.txt must be an exact pin, got: ' + piVersion);
+  assert.strictEqual(peer, piVersion, 'peer pin must equal pi-version.txt, got: ' + peer);
+  const devPin = pkg.devDependencies && pkg.devDependencies['@earendil-works/pi-coding-agent'];
+  assert.strictEqual(devPin, piVersion, 'devDependencies pin must equal pi-version.txt, got: ' + devPin);
+
+  // Optional peer: pi is provided by the host distribution, never bundled.
+  const peerMeta = pkg.peerDependenciesMeta && pkg.peerDependenciesMeta['@earendil-works/pi-coding-agent'];
+  assert.ok(peerMeta && peerMeta.optional === true, 'peerDependenciesMeta must mark pi optional');
 
   assert.strictEqual(
     pkg.dependencies && pkg.dependencies['@earendil-works/pi-coding-agent'],
