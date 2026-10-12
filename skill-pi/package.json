@@ -41,7 +41,7 @@
     "configDir": ".skill-pi"
   },
   "pi": {
-    "extensions": ["./extensions/splash.js", "./extensions/tokyo-night-footer.ts"],
+    "extensions": ["./extensions/splash.js", "./extensions/auth.js", "./extensions/skillgrid-tui.ts"],
     "skills": ["./skills"],
     "prompts": ["./prompts"],
     "themes": ["./themes"]
