@@ -9,11 +9,51 @@ import (
 // backupPath derives the predictable backup location for an agent:
 // <config file>.ctx-backup when the agent has a config file, otherwise
 // <backup dir>/<agent>.env.bak for env-only agents.
-func backupPath(agent Agent, configPath string) string {
+func backupPath(agent Agent, configPath string, backupDir string) string {
 	if configPath != "" {
 		return configPath + ".ctx-backup"
 	}
-	return filepath.Join(defaultBackupDir, agent.Name+".env.bak")
+	if backupDir == "" {
+		backupDir = defaultBackupDir
+	}
+	return filepath.Join(backupDir, agent.Name+".env.bak")
+}
+
+// wrapStatePath is the persisted wrap-state marker for an agent:
+// <state dir>/ctx/wrap-state/<agent>.wrapped. It is the durable idempotency
+// signal across separate `ctx wrap <agent>` CLI invocations: because env
+// injection is written only into the launched subprocess (not the parent
+// shell), the marker is what tells a later invocation "this agent was already
+// wrapped here" so it skips inject + backup without re-reading a non-persistent
+// parent env.
+func wrapStatePath(stateDir, agentName string) string {
+	base := stateDir
+	if base == "" {
+		base = "."
+	}
+	return filepath.Join(base, ".skillgrid", "ctx", "wrap-state", agentName+".wrapped")
+}
+
+// recordWrapState writes the persisted wrap-state marker. It runs on the
+// first wrap, after the backup, so a later invocation is idempotent even when
+// the parent env was not itself rewritten. Fail-open (ADR-0016): the error is
+// returned for the caller to surface, not swallowed.
+func recordWrapState(stateDir, agentName string) error {
+	path := wrapStatePath(stateDir, agentName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("wrap: creating wrap-state dir: %w", err)
+	}
+	return os.WriteFile(path, []byte("wrapped "+agentName+"\n"), 0o644)
+}
+
+// hasWrapState reports whether a prior wrap left a persisted wrap-state marker
+// for this agent in stateDir.
+func hasWrapState(stateDir, agentName string) bool {
+	if stateDir == "" {
+		return false
+	}
+	_, err := os.Stat(wrapStatePath(stateDir, agentName))
+	return err == nil
 }
 
 // defaultBackupDir is the fallback backup location for env-only agents
@@ -30,8 +70,8 @@ var defaultBackupDir = filepath.Join(".skillgrid", "ctx", "wrap-backups")
 //
 // Returns (false, err) on I/O failure; the caller treats that as
 // fail-open-abort (ADR-0016): no backup, no write, clear error.
-func WriteBackup(agent Agent, configPath string, env func(string) string) (bool, error) {
-	path := backupPath(agent, configPath)
+func WriteBackup(agent Agent, configPath, backupDir string, env func(string) string) (bool, error) {
+	path := backupPath(agent, configPath, backupDir)
 
 	if _, err := os.Stat(path); err == nil {
 		// Backup exists: already wrapped (or a previous wrap wrote it).
@@ -72,8 +112,8 @@ func WriteBackup(agent Agent, configPath string, env func(string) string) (bool,
 // config-file agents get their original bytes (or the file is removed when
 // none existed); env-only agents get their original env value. It exists so
 // `ctx wrap` is reversible; T14/ops surface the CLI verb.
-func RestoreBackup(agent Agent, configPath string) error {
-	path := backupPath(agent, configPath)
+func RestoreBackup(agent Agent, configPath, backupDir string) error {
+	path := backupPath(agent, configPath, backupDir)
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("wrap: reading backup %s: %w", path, err)

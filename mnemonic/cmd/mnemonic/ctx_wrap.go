@@ -67,6 +67,7 @@ func runCtxWrap(args []string) {
 		Env:       os.Environ(),
 		Port:      p,
 		Bind:      b,
+		StateDir:  *dir,
 		Log:       log,
 	}, ctxwrap.DefaultStartProxy)
 	if err != nil {

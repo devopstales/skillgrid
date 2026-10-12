@@ -30,6 +30,10 @@ type Options struct {
 	Env []string
 	// BackupDir overrides the default backup dir (tests use t.TempDir()).
 	BackupDir string
+	// StateDir is the repository root for the persisted wrap-state marker
+	// (defaults to "."; the CLI passes the -dir repo root). It is the
+	// durable idempotency signal across separate `ctx wrap` invocations.
+	StateDir string
 	// Port overrides the proxy port; 0 means "use the configured port
 	// (cfg.Proxy.Port, default 8787)". Tests that need an ephemeral port
 	// pass EphemeralPort.
@@ -177,7 +181,14 @@ func Wrap(opts Options, startProxy StartProxy) (Result, func(), error) {
 	}
 
 	// 3. Idempotency: already wrapped? Skip inject + backup, still launch.
-	if alreadyWrapped(opts.Env, *agent) {
+	// Two signals, OR'd:
+	//   (a) the parent env already targets the loopback proxy (in-process
+	//       re-run / user exported it), OR
+	//   (b) a persisted wrap-state marker exists in the repo — the durable
+	//       signal that a prior `ctx wrap <agent>` already injected here.
+	// (b) is what makes the CLI re-run idempotent across separate invocations,
+	// since env injection is not persisted into the parent shell.
+	if alreadyWrapped(opts.Env, *agent) || hasWrapState(opts.StateDir, agent.Name) {
 		log.Info("wrap: already wrapped, skipping inject+backup", "agent", agent.Name)
 		res.Injected = false
 		res.BackedUp = false
@@ -198,7 +209,7 @@ func Wrap(opts Options, startProxy StartProxy) (Result, func(), error) {
 			return res, nil, err
 		}
 		res.BackedUp = backedUp
-		res.BackupPath = backupPath(*agent, configPathFor(*agent))
+		res.BackupPath = backupPath(*agent, configPathFor(*agent), opts.BackupDir)
 		if !backedUp {
 			// A backup already exists from a prior wrap: treat as
 			// already wrapped (no double-inject either).
@@ -216,6 +227,16 @@ func Wrap(opts Options, startProxy StartProxy) (Result, func(), error) {
 	// 5. Inject: the subprocess env gets the base-URL var pointed at the
 	//    proxy (config files are untouched — env injection only, T07).
 	res.Injected = true
+
+	// 5b. Persist the wrap-state marker so a LATER separate `ctx wrap
+	//     <agent>` invocation is idempotent (env injection is not persisted
+	//     into the parent shell, so the marker is the durable signal).
+	//     Fail-open (ADR-0016): a marker write error surfaces, not panics.
+	if opts.StateDir != "" {
+		if err := recordWrapState(opts.StateDir, agent.Name); err != nil {
+			return res, nil, err
+		}
+	}
 
 	// 6. Launch the agent subprocess with the injected env.
 	cmd, err := launch(opts, *agent, base)
@@ -248,19 +269,15 @@ func launch(opts Options, agent Agent, base string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-// writeBackupWithDir runs the backup with an optional dir override.
+// writeBackupWithDir runs the backup with an optional dir override, threading
+// the dir through the helpers (no package-global mutation).
 func writeBackupWithDir(opts Options, agent Agent) (bool, error) {
-	if opts.BackupDir == "" {
-		return WriteBackup(agent, configPathFor(agent), envGetter(opts.Env))
+	if opts.BackupDir != "" {
+		if err := os.MkdirAll(opts.BackupDir, 0o755); err != nil {
+			return false, fmt.Errorf("wrap: creating backup dir %s: %w", opts.BackupDir, err)
+		}
 	}
-	// Mkdir the override dir and redirect the default dir for this call.
-	if err := os.MkdirAll(opts.BackupDir, 0o755); err != nil {
-		return false, fmt.Errorf("wrap: creating backup dir %s: %w", opts.BackupDir, err)
-	}
-	prev := defaultBackupDir
-	defaultBackupDir = opts.BackupDir
-	defer func() { defaultBackupDir = prev }()
-	return WriteBackup(agent, configPathFor(agent), envGetter(opts.Env))
+	return WriteBackup(agent, configPathFor(agent), opts.BackupDir, envGetter(opts.Env))
 }
 
 // envGetter adapts a []string env to the env func the backup uses.

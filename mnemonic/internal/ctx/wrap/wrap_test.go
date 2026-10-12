@@ -457,3 +457,97 @@ func TestAlreadyWrapped(t *testing.T) {
 		t.Error("var absent should NOT be wrapped")
 	}
 }
+
+// --- I1: CLI re-run idempotency via persisted wrap-state --------------------------
+
+// TestWrapCLIRerunIdempotent: two SEPARATE `wrap` invocations in the same repo
+// share a fresh parent env each time (env injection is not persisted into the
+// parent shell). The persisted wrap-state marker makes the second invocation
+// idempotent — no re-inject, no re-backup — even though its env does NOT
+// already point at the proxy. This is the real-CLI idempotency path the
+// env-only `alreadyWrapped` predicate alone cannot see.
+func TestWrapCLIRerunIdempotent(t *testing.T) {
+	cfg := newTestCfg(t, nil)
+	stateDir := t.TempDir() // repo root for the wrap-state marker
+	backupDir := t.TempDir()
+	rec := &proxyRecorder{}
+	start := func(c *ctxconfig.CtxConfig, bind string, p int) (string, string, func(), error) {
+		return rec.start(t, c, bind, p)
+	}
+
+	// Invocation 1: fresh env (not wrapped). Must inject + backup + record.
+	res1, stop1, err := Wrap(Options{
+		Cfg: cfg, AgentName: "claude",
+		Binary: "sh", Args: []string{"-c", "true"},
+		Env:       envWith("PATH=/usr/bin:/bin"),
+		BackupDir: backupDir, StateDir: stateDir,
+		Stdout: &strings.Builder{}, Stderr: &strings.Builder{},
+	}, start)
+	if err != nil {
+		t.Fatalf("first wrap: %v", err)
+	}
+	if !res1.Injected || !res1.BackedUp {
+		t.Fatalf("first wrap should inject+backup, got %+v", res1)
+	}
+	if err := res1.Command.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	stop1()
+
+	// Invocation 2: a FRESH parent env (NOT pointing at the proxy) — exactly
+	// what a second separate `ctx wrap claude` sees. Idempotency must come
+	// from the persisted wrap-state marker, not from the env.
+	res2, stop2, err := Wrap(Options{
+		Cfg: cfg, AgentName: "claude",
+		Binary: "sh", Args: []string{"-c", "true"},
+		Env:       envWith("PATH=/usr/bin:/bin"),
+		BackupDir: backupDir, StateDir: stateDir,
+		Stdout: &strings.Builder{}, Stderr: &strings.Builder{},
+	}, start)
+	if err != nil {
+		t.Fatalf("second wrap: %v", err)
+	}
+	defer stop2()
+	if res2.Injected || res2.BackedUp {
+		t.Fatalf("second wrap (fresh env, persisted marker) must not inject/backup again, got %+v", res2)
+	}
+	if err := res2.Command.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Exactly one backup across both invocations.
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var backups int
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".bak") || strings.HasSuffix(e.Name(), ".ctx-backup") {
+			backups++
+		}
+	}
+	if backups != 1 {
+		t.Fatalf("expected exactly 1 backup after two CLI runs, got %d", backups)
+	}
+}
+
+// --- M2: RestoreBackup is exercised (was exported-but-unreferenced) --------------
+
+// TestRestoreBackupEnvOnly: for an env-only agent the restore is a no-op on the
+// process env (the subprocess gets a fresh env per launch), and it reads the
+// backup written by WriteBackup in the same dir — proving the exported API is
+// reachable and coherent, not dead.
+func TestRestoreBackupEnvOnly(t *testing.T) {
+	agent := Agent{Name: "claude", Provider: providerAnthropic, EnvVar: "ANTHROPIC_BASE_URL"}
+	dir := t.TempDir()
+	// Write a backup capturing a prior provider base URL.
+	if ok, err := WriteBackup(agent, "", dir, func(string) string { return "https://api.anthropic.com" }); err != nil {
+		t.Fatal(err)
+	} else if !ok {
+		t.Fatal("WriteBackup should have written (no prior backup)")
+	}
+	// Restore is a no-op for env-only agents (no config file to revert).
+	if err := RestoreBackup(agent, "", dir); err != nil {
+		t.Fatalf("RestoreBackup env-only should be a no-op, got %v", err)
+	}
+}
