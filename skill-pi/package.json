@@ -9,6 +9,7 @@
   "bin": {
     "skill-pi": "./bin/skill-pi.js"
   },
+  "main": "index.js",
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.1.0"
   }
