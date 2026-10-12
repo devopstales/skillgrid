@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -67,6 +68,11 @@ func realProxyStoreStartProxy(
 	upstream *httptest.Server,
 ) func(c *ctxconfig.CtxConfig, bind string, port int) (string, string, func(), error) {
 	t.Helper()
+	// NOTE: wrap tests must not call t.Parallel() while this process-env
+	// mutation exists. proxyEnvMu serializes the Setenv→build→restore window so
+	// the env read by detectUpstream during ctxproxy.New is the httptest
+	// upstream, not a sibling test's value.
+	proxyEnvMu.Lock()
 	prevBase, hadBase := os.LookupEnv("ANTHROPIC_BASE_URL")
 	_ = os.Setenv("ANTHROPIC_BASE_URL", upstream.URL)
 	t.Cleanup(func() {
@@ -75,6 +81,7 @@ func realProxyStoreStartProxy(
 		} else {
 			_ = os.Unsetenv("ANTHROPIC_BASE_URL")
 		}
+		proxyEnvMu.Unlock()
 	})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -94,6 +101,10 @@ func realProxyStoreStartProxy(
 	}
 }
 
+// proxyEnvMu serializes the process-global ANTHROPIC_BASE_URL mutation window
+// inside realProxyStoreStartProxy (Setenv→build→restore).
+var proxyEnvMu sync.Mutex
+
 // TestWrapE2ETurnThroughProxy: wrap claude → the stub agent POSTs one turn
 // to the injected proxy base URL → the proxy (token mode, savings headers
 // on, real shared store) transforms, forwards to the httptest upstream,
@@ -112,11 +123,20 @@ func TestWrapE2ETurnThroughProxy(t *testing.T) {
 	}
 
 	// The fake LLM provider: a valid chat-completion response, 200, and a
-	// record of the bodies it saw (to prove the transform reached it).
-	var upstreamBodies []string
+	// record of the bodies it saw (to prove the transform reached it). The
+	// handler runs in the proxy's goroutine, so upstreamBodies is guarded by a
+	// mutex — the read below happens after res.Command.Wait() returns, which
+	// gives the proxy's request goroutine an opportunity to append, so without
+	// the lock go test -race would flag the append/read pair.
+	var (
+		upstreamMu     sync.Mutex
+		upstreamBodies []string
+	)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
+		upstreamMu.Lock()
 		upstreamBodies = append(upstreamBodies, string(b))
+		upstreamMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"type":"message","role":"assistant","content":"ok"}`))
@@ -177,11 +197,14 @@ func TestWrapE2ETurnThroughProxy(t *testing.T) {
 
 	// 2. The upstream received the TRANSFORMED body (token mode compresses
 	//    every message's content to the deterministic summary marker).
-	if len(upstreamBodies) != 1 {
-		t.Fatalf("upstream saw %d request(s), want exactly 1", len(upstreamBodies))
+	upstreamMu.Lock()
+	bodies := append([]string(nil), upstreamBodies...)
+	upstreamMu.Unlock()
+	if len(bodies) != 1 {
+		t.Fatalf("upstream saw %d request(s), want exactly 1", len(bodies))
 	}
-	if !strings.Contains(upstreamBodies[0], "[ctx-summarized") {
-		t.Fatalf("upstream body not summarized by the proxy: %q", upstreamBodies[0])
+	if !strings.Contains(bodies[0], "[ctx-summarized") {
+		t.Fatalf("upstream body not summarized by the proxy: %q", bodies[0])
 	}
 
 	// 3. Telemetry landed on the real shared store for the session the stub
