@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mnemonic": {
+      "command": "mnemonic",
+      "args": ["mcp", "stdio"],
+      "env": {},
+      "description": "skillgrid memory + code index. Base URL resolved at runtime from SKILLGRID_CHECKPOINT_URL / SKILLGRID_MNEMONIC_HTTP_URL (default http://127.0.0.1:7438); the CTX proxy (mnemonic ctx wrap pi) overrides it via env, so no URL literal lives here."
+    }
+  }
+}
