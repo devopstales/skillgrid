@@ -1,7 +1,7 @@
 package traffic
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -63,6 +63,14 @@ type evidenceItem struct {
 // deterministic order. A candidate below MinConfidence is NOT emitted. The
 // result is ordered by (rule file order, ascending seq) — no map iteration, no
 // wall clock, no randomness leak into identity or order.
+//
+// Cross-rule first-match-wins contract (plan §18.3): rules are applied in file
+// order and consume events as they go. A candidate that is emitted (i.e. it
+// passes the MinConfidence floor) marks every evidence-event Seq as consumed;
+// a later rule's candidate whose evidence overlaps even ONE consumed event is
+// skipped (partial overlap = already won, for determinism). A candidate below
+// MinConfidence is skipped WITHOUT consuming its events, so a later rule may
+// still use them — mirroring "a memory below min_confidence is not stored".
 func (l *Learner) Extract(sessionID string, events []Event) []*ctxstore.TrafficMemory {
 	if l == nil {
 		return nil
@@ -71,10 +79,18 @@ func (l *Learner) Extract(sessionID string, events []Event) []*ctxstore.TrafficM
 	if clock == nil {
 		clock = func() int64 { return 0 }
 	}
+	consumed := make(map[int]bool)
 	var out []*ctxstore.TrafficMemory
 	for _, rule := range l.Rules {
 		for _, cand := range matchRule(rule, events) {
+			// A candidate below MinConfidence is dropped without consuming its
+			// events: a later rule may still use them (see the contract above).
 			if cand.conf < l.MinConfidence {
+				continue
+			}
+			// The first matching rule wins these events: if any evidence event
+			// was already consumed by an earlier emitted candidate, skip.
+			if eventsConsumed(consumed, cand.events) {
 				continue
 			}
 			m := &ctxstore.TrafficMemory{
@@ -87,9 +103,24 @@ func (l *Learner) Extract(sessionID string, events []Event) []*ctxstore.TrafficM
 				CreatedAt:    clock(),
 			}
 			out = append(out, m)
+			for _, e := range cand.events {
+				consumed[e.Seq] = true
+			}
 		}
 	}
 	return out
+}
+
+// eventsConsumed reports whether ANY of ev's event Seqs is already present in
+// consumed. Partial overlap counts as consumed: once an earlier rule has won
+// any part of a candidate's evidence, the candidate is skipped (determinism).
+func eventsConsumed(consumed map[int]bool, ev []Event) bool {
+	for _, e := range ev {
+		if consumed[e.Seq] {
+			return true
+		}
+	}
+	return false
 }
 
 // candidate is a single rule match awaiting emission. key is the stable
@@ -285,14 +316,18 @@ func pathPrefix(rule Rule, events []Event) []candidate {
 	if len(targets) < rule.MinTimes {
 		return nil
 	}
-	// Find the longest directory prefix shared by at least MinTimes targets.
+	// Find the longest DIRECTORY prefix shared by at least MinTimes targets.
 	// Try progressively shorter prefixes (from the longest common ancestor).
+	// Only path-boundary candidates (ending in "/") are accepted: a candidate
+	// that is a whole filename (e.g. "src.go" shared by "src.go" and
+	// "src.go.bak") is a string-prefix false positive, not a directory, and
+	// must yield zero candidates (AC#3: no-matching signal → zero candidates).
 	bestPrefix := ""
 	for i := 0; i <= len(targets[0]); i++ {
-		// Candidate prefix = targets[0][:i], must be a dir boundary or full path.
+		// Candidate prefix = targets[0][:i], must end at a path boundary.
 		cand := targets[0][:i]
-		// Only consider prefixes that end at a path boundary or are a full path.
-		if i == len(targets[0]) || (i > 0 && targets[0][i-1] == '/') {
+		// Only consider prefixes that end at a path boundary (a "/").
+		if i > 0 && targets[0][i-1] == '/' {
 			n := 0
 			for _, t := range targets {
 				if strings.HasPrefix(t, cand) {
@@ -304,7 +339,9 @@ func pathPrefix(rule Rule, events []Event) []candidate {
 			}
 		}
 	}
-	if bestPrefix == "" {
+	// Directory-boundary guard: reject full-filename degenerate matches so a
+	// no-matching signal yields zero candidates.
+	if bestPrefix == "" || !strings.HasSuffix(bestPrefix, "/") {
 		return nil
 	}
 	// Evidence: all events under the winning prefix, in seq order.
@@ -327,12 +364,15 @@ func pathPrefix(rule Rule, events []Event) []candidate {
 
 // ---- deterministic identity + text helpers ----
 
-// memoryID is a stable, deterministic identity: hex(sha1(sessionID + "\x00" +
-// ruleID + "\x00" + key)). Same input → same id, so re-runs dedupe via
-// INSERT OR REPLACE. No wall clock, no randomness.
+// memoryID is a stable, deterministic identity: hex(sha256(sessionID + "\x00" +
+// ruleID + "\x00" + key)) truncated to the first 20 bytes. Same input → same
+// id, so re-runs dedupe via INSERT OR REPLACE. No wall clock, no randomness.
+// Truncation to 20 bytes (40 hex chars) keeps the id shape identical to the
+// original sha1 output; sha256 is used as the digest (sha1 is deprecated).
+// This is an identity, not a security primitive.
 func memoryID(sessionID, ruleID, key string) string {
-	h := sha1.Sum([]byte(sessionID + "\x00" + ruleID + "\x00" + key))
-	return hex.EncodeToString(h[:])
+	h := sha256.Sum256([]byte(sessionID + "\x00" + ruleID + "\x00" + key))
+	return hex.EncodeToString(h[:20])
 }
 
 // fragmentKey is a stable short identity for a free-text fragment (the first

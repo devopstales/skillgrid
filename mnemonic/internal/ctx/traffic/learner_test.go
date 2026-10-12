@@ -2,6 +2,7 @@ package traffic
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -97,6 +98,107 @@ func TestExtract_ArchitecturePrefix(t *testing.T) {
 	}
 	if got[0].Category != "architecture" {
 		t.Errorf("category = %q, want architecture", got[0].Category)
+	}
+}
+
+// TestExtract_PathPrefix_FileStringPrefixIsNotDirectory: two distinct file
+// targets where one is a STRING prefix of the other ("src.go", "src.go.bak")
+// must yield ZERO candidates — "src.go" is a filename, not a directory
+// boundary (C1: pathPrefix false-positive). MinTimes=2 is satisfied by the two
+// distinct targets, so only the dir-boundary guard can reject it.
+func TestExtract_PathPrefix_FileStringPrefixIsNotDirectory(t *testing.T) {
+	l := NewLearner(testRules(), 0, 0)
+	// testRules has arch_common_prefix with MinTimes=3; use a dedicated rule
+	// set with MinTimes=2 so two distinct targets are enough to match.
+	rules := []Rule{
+		{ID: "arch_min2", Category: "architecture", Pattern: PatternPathPrefix, Confidence: 0.7, MinTimes: 2, Description: "common prefix (min 2)"},
+	}
+	l = NewLearner(rules, 0, 0)
+	events := []Event{
+		{Kind: "file_read", Target: "src.go", Seq: 1},
+		{Kind: "file_read", Target: "src.go.bak", Seq: 2},
+	}
+	got := l.Extract("sess-c1-neg", events)
+	if len(got) != 0 {
+		t.Fatalf("len(candidates) = %d, want 0 (full-filename prefix is not a directory)", len(got))
+	}
+}
+
+// TestExtract_PathPrefix_DirectoryPrefixYieldsCandidate: file targets under a
+// shared directory (C1 positive) yield exactly one candidate keyed by that
+// directory prefix.
+func TestExtract_PathPrefix_DirectoryPrefixYieldsCandidate(t *testing.T) {
+	rules := []Rule{
+		{ID: "arch_min2", Category: "architecture", Pattern: PatternPathPrefix, Confidence: 0.7, MinTimes: 2, Description: "common prefix (min 2)"},
+	}
+	l := NewLearner(rules, 0, 0)
+	events := []Event{
+		{Kind: "file_read", Target: "src/a.go", Seq: 1},
+		{Kind: "file_read", Target: "src/b.go", Seq: 2},
+		{Kind: "file_read", Target: "src/c.go", Seq: 3},
+	}
+	got := l.Extract("sess-c1-pos", events)
+	if len(got) != 1 {
+		t.Fatalf("len(candidates) = %d, want 1 (shared directory prefix)", len(got))
+	}
+	if got[0].Category != "architecture" {
+		t.Errorf("category = %q, want architecture", got[0].Category)
+	}
+	// The evidence key must be the directory prefix "src/" (visible via the
+	// evidence JSON's targets — all under src/).
+	if !strings.Contains(got[0].MemoryText, "src/") {
+		t.Errorf("memory text = %q, want it to reference prefix src/", got[0].MemoryText)
+	}
+}
+
+// TestExtract_CrossRuleFirstMatchWins: two identical rules over the same event
+// corpus — the first rule's emitted candidate consumes the events, so the
+// second (later) rule emits ZERO. Total candidates == the first rule's count,
+// not double. This asserts the cross-rule event-consumption contract (C2)
+// directly, independent of the shipped rules.yaml patterns.
+func TestExtract_CrossRuleFirstMatchWins(t *testing.T) {
+	// Two messageRepetition rules, same pattern, same MinTimes, both eligible
+	// for the same two repeated user_messages.
+	rules := []Rule{
+		{ID: "pref_first", Category: "preference", Pattern: PatternMessageRepetition, Confidence: 0.7, MinTimes: 2, Description: "first rule"},
+		{ID: "pref_second", Category: "preference", Pattern: PatternMessageRepetition, Confidence: 0.7, MinTimes: 2, Description: "second rule"},
+	}
+	l := NewLearner(rules, 0, 0)
+	events := []Event{
+		{Kind: "user_message", Message: "please use tabs", Seq: 1},
+		{Kind: "user_message", Message: "please use tabs", Seq: 2},
+	}
+	got := l.Extract("sess-c2", events)
+	if len(got) != 1 {
+		t.Fatalf("len(candidates) = %d, want 1 (first rule consumes the events; second must emit 0)", len(got))
+	}
+	// Exactly one candidate, and it must be the FIRST rule's.
+	// (MemoryID is derived from rule ID; just assert the count and that the
+	// evidence came from a single rule — no duplicate memories.)
+}
+
+// TestExtract_CrossRuleBelowFloorDoesNotConsume: a candidate below MinConfidence
+// is skipped WITHOUT consuming its events, so a later rule that matches the
+// same events still emits (C2 scoping decision).
+func TestExtract_CrossRuleBelowFloorDoesNotConsume(t *testing.T) {
+	rules := []Rule{
+		{ID: "pref_low", Category: "preference", Pattern: PatternMessageRepetition, Confidence: 0.4, MinTimes: 2, Description: "low confidence rule"},
+		{ID: "pref_high", Category: "preference", Pattern: PatternMessageRepetition, Confidence: 0.8, MinTimes: 2, Description: "high confidence rule"},
+	}
+	// MinConfidence floor = 0.6: the first rule (0.4) is below the floor, so it
+	// is dropped and must NOT consume the events; the second rule (0.8) then
+	// still matches and emits.
+	l := NewLearner(rules, 0.6, 0)
+	events := []Event{
+		{Kind: "user_message", Message: "please use tabs", Seq: 1},
+		{Kind: "user_message", Message: "please use tabs", Seq: 2},
+	}
+	got := l.Extract("sess-c2-floor", events)
+	if len(got) != 1 {
+		t.Fatalf("len(candidates) = %d, want 1 (below-floor rule must not consume events)", len(got))
+	}
+	if got[0].Confidence != 0.8 {
+		t.Errorf("confidence = %v, want 0.8 (the high-confidence later rule)", got[0].Confidence)
 	}
 }
 
