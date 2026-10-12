@@ -235,8 +235,7 @@ test('trust: fresh auto-accept writes trust.json keyed by shim realpath; second 
   const trust = JSON.parse(fs.readFileSync(trustFile, 'utf8'));
   const expectedKey = fs.realpathSync(shim);
   assert.ok(expectedKey in trust, 'trust.json must have a key matching the shim realpath, got: ' + JSON.stringify(Object.keys(trust)));
-  assert.strictEqual(trust[expectedKey].trusted, true);
-  assert.ok(!Number.isNaN(Date.parse(trust[expectedKey].since)), 'since must be an ISO timestamp');
+  assert.strictEqual(trust[expectedKey], true, 'trust value must be boolean true (pi readTrustFile contract)');
 
   const res2 = await launch([], { cwd: root, env });
   assert.strictEqual(res2.code, 0, 'second run must exit 0 without re-prompting');

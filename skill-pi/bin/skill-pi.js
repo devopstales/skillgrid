@@ -137,14 +137,14 @@ function writeTrust(trust) {
 
 function recordTrust(shimDir) {
   const trust = readTrust();
-  trust[fs.realpathSync(shimDir)] = { trusted: true, since: new Date().toISOString() };
+  trust[fs.realpathSync(shimDir)] = true;
   writeTrust(trust);
 }
 
 function ensureTrusted(shimDir, onTrusted) {
   const key = fs.realpathSync(shimDir);
   const trust = readTrust();
-  if (trust[key] && trust[key].trusted) {
+  if (trust[key] === true) {
     onTrusted();
     return;
   }
