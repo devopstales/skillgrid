@@ -24,6 +24,7 @@
   "files": [
     "bin/",
     "lib/",
+    "extensions/",
     "index.js",
     "pi-version.txt",
     "mcp.json",
