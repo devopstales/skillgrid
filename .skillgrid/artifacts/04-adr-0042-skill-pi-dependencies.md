@@ -115,6 +115,90 @@ Revisit this ADR (write a superseding ADR) when **any** of:
    if `pi-tui` and `pi-coding-agent` have independent release cadences,
    the two pins may need separate version.txt files or a combined
    version manifest.
-3. The repo's npm dependency policy changes (ADR-0008 superseded) —
-   if the repo moves to vendoring or a different lock strategy, the
-   supply chain posture section of this ADR must be re-validated.
+ 3. The repo's npm dependency policy changes (ADR-0008 superseded) —
+    if the repo moves to vendoring or a different lock strategy, the
+    supply chain posture section of this ADR must be re-validated.
+
+## Supersession: pi is a bundled distribution dependency (2026-10-12)
+
+This section amends the above: it records the shift from *peer
+(host-provided) pi* to *bundled exact-dependency pi*, made so a single
+global `skill-pi` install ships a working `pi` without a separate host
+install. The **exact-pin strategy of this ADR is unchanged** — pi is still
+pinned to `1.1.0` and still guarded by `pi-version.txt` + `version.test.js`.
+What changes is *how the pinned pi reaches the user*: it is now shipped
+inside the `skill-pi` package itself, rather than expected to already exist
+on the host.
+
+### What changed
+
+- `@earendil-works/pi-coding-agent` moved from `peerDependencies` to
+  `dependencies` (exact `1.1.0`), with `bundleDependencies` so `npm i -g
+  skill-pi` materializes pi under the package's own `node_modules`.
+  `~/.skill-pi/` is now config/state only — no `node_modules`, no
+  `package-lock.json`, no `package.json` there (the shrinkwrap claim in the
+  original Decision Outcome above was about the install *target* and no longer
+  applies; the lock now lives in the package, not `~/.skill-pi/`).
+- A second bin, `bin/pi.mjs`, re-enters the `skill-pi` launcher so a bare
+  `pi` carries the Skillgrid extensions/system prompt (modelled on
+  omegon-pi's `bin/pi.mjs`). `bin/pi.mjs` is ESM and does a fire-and-forget
+  `import('./skill-pi.js')`.
+- The launcher's `piBin()` resolves pi in order:
+  `SKILL_PI_PI_BIN` (env override) → `<SKILL_PI_ROOT>/node_modules/.bin/pi`
+  (the bundled copy a global install places there) → global-root
+  `node_modules/.bin/pi` → bare `pi` on PATH. The bundled path wins in a
+  global install, so the shipped `pi` is the pinned `1.1.0`.
+
+### Why it is not a contradiction
+
+Option A of this ADR is *"exact pin, never a range"*; that is preserved.
+What the original text implied as *"never vendored / host-provided"* is the
+part superseded: pi is now a **dependency** of `skill-pi` (exact `1.1.0`)
+that npm bundles into the published tarball on `npm i -g`. It is not a
+vendored committed copy (Option C is still rejected — pi comes from npm at
+install time, not from the repo tree) and it is not a host prerequisite
+(anymore). The supply-chain posture is the same: pinned, from npm, verified
+by the same `pi-version.txt` equality test.
+
+### Implementation (amendment)
+
+- `skill-pi/package.json` — `dependencies['@earendil-works/pi-coding-agent'] = "1.1.0"`,
+  `bundleDependencies` includes it, `bin.pi = "./bin/pi.mjs"`, `bin['skill-pi']`
+  unchanged; `files` ships `skills/` and `prompts/`.
+- `skill-pi/bin/pi.mjs` — ESM re-entry shim.
+- `skill-pi/bin/skill-pi.js` — `piBin()` bundled-first resolution.
+- `skill-pi/version.test.js` — now asserts the bundled-dep invariant (exact
+  `dependencies` pin == `pi-version.txt`, `bundleDependencies` includes pi,
+  no `peerDependencies` entry, `bin.pi` + `bin/pi.mjs` present).
+
+### Consequences (amendment)
+
+- Good: one `npm i -g skill-pi` gives a working `pi` + `skill-pi` with the
+  extensions; no separate host pi install; `~/.skill-pi/` stays config-only.
+- Good: the exact pin and `pi-version.txt` guard are unchanged, so R12 is
+  still enforced at `node --test` time.
+- Bad: `npm i -g skill-pi` now downloads the full pi tree (the 1.1.0 bundle),
+  so install is heavier than the peer model. Accepted: it is the price of a
+  self-contained distribution, and the version is still exact-pinned.
+- Bad: `npm pack` from the source dir does **not** ship a
+  `bundleDependencies` dependency (verified: 0 pi files in the tarball); only
+  a real `npm i -g .` / `npm link` materializes it. The consumption test for
+  this module is a global install, not `npm pack` inspection.
+- Bad: a dev `npm link` republishes the `pi` bin and collides with any
+  pre-existing global `pi` (`EEXIST`). Mitigation: the `skill-pi:build` Task
+  runs with `SKILL_PI_TRUST_AUTO=1` and the stale standalone pi global is
+  removed once the bundled model is in place.
+
+### Revisit criteria (amendment)
+
+Revisit (supersede again) when any of:
+
+1. pi ships a 2.x major — bump the exact pin and `pi-version.txt`; the
+   bundle is unaffected except for the pinned version.
+2. pi's published tarball is restructured such that `bundleDependencies`
+   no longer yields a resolvable `node_modules/.bin/pi` under a global
+   install — `piBin()`'s bundled-first resolution must be re-validated.
+3. Skillgrid needs to run under an *externally* managed pi (e.g. a host that
+   already ships a different pi) — reintroduce a host-provided override
+   path above the bundled one (the `SKILL_PI_PI_BIN` env already allows
+   per-invocation override without a code change).
