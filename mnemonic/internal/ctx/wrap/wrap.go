@@ -11,7 +11,9 @@ import (
 	"time"
 
 	ctxconfig "github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
+	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/judgment"
 	ctxproxy "github.com/devopstales/skillgrid/mnemonic/internal/ctx/proxy"
+	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/traffic"
 )
 
 // Options configures one Wrap run.
@@ -95,6 +97,12 @@ func DefaultStartProxy(cfg *ctxconfig.CtxConfig, bind string, port int) (string,
 	mode := ctxproxy.Mode(cfg.Proxy.Mode)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	p := ctxproxy.New(cfg, nil, log, mode)
+	// T13/ADR-0034: prewire the traffic gate and judgment cache. The wrap path
+	// has no shared store (nil), so both are fail-open no-ops here; this keeps
+	// the build symmetric with the `ctx proxy` CLI and lets a future store
+	// seam flow through without changing the StartProxy signature.
+	p.SetGate(traffic.NewGate(nil))
+	p.SetJudgment(judgment.New(cfg.Judgment, nil, nil))
 	srv := &http.Server{Handler: p.Handler()}
 	go func() { _ = srv.Serve(ln) }()
 	stop := func() {

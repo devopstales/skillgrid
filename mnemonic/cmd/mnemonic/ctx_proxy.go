@@ -13,9 +13,11 @@ import (
 	"time"
 
 	ctxconfig "github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
+	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/judgment"
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/observability"
 	ctxproxy "github.com/devopstales/skillgrid/mnemonic/internal/ctx/proxy"
 	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/traffic"
 	"github.com/devopstales/skillgrid/mnemonic/internal/loop"
 )
 
@@ -108,6 +110,15 @@ func runCtxProxy(args []string) {
 
 	// Build the proxy handler.
 	proxy := ctxproxy.New(cfg, cs, log, effectiveMode)
+
+	// T13/ADR-0034: wire the traffic human-gate and the judgment engine.
+	// Both are fail-open (ADR-0016): a nil store degrades each to a no-op.
+	// The judgment engine always runs (prefilter is deterministic and the
+	// model call is fail-open); the cache is store-backed when a store is
+	// available, and disabled (nil) otherwise. The gate injects applied
+	// traffic memories into the compression context (the T13 seam).
+	proxy.SetGate(traffic.NewGate(cs))
+	proxy.SetJudgment(judgment.New(cfg.Judgment, judgment.NewStoreCache(cs), nil))
 
 	// Set up signal handling for graceful shutdown. The signal context is
 	// created before the rollup so the rollup's stop channel can be tied to

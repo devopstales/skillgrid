@@ -1,10 +1,13 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/judgment"
 )
 
 // The five savings headers added to every proxied response (plan 16.5).
@@ -125,6 +128,77 @@ func transform(mode Mode, msgs []message) ([]message, error) {
 // is exactly computable from the wire bytes.
 func summarize(m message) string {
 	return "[ctx-summarized " + m.Role + "]"
+}
+
+// judgmentTransform is the ADR-0034 judgment pipeline (prefilter → judge →
+// compress) applied to a single message's content. It returns the compressed
+// content. Fail-open (ADR-0016): the engine never returns a blocking error; a
+// model fault degrades to the deterministic pre-filter decision, and the
+// compressor is truncate-only (never expands, never deletes).
+func judgmentTransform(ctx context.Context, j *judgment.Judgment, m message) message {
+	if len(m.Content) == 0 {
+		return m
+	}
+	d, _ := j.Judge(ctx, judgment.Unit{Role: m.Role, Content: m.Content})
+	compressed := judgment.Compress(judgment.Unit{Role: m.Role, Content: m.Content}, d)
+	return message{Role: m.Role, Content: compressed.Content}
+}
+
+// applyTransformWithJudgment is the judgment-aware variant of applyTransform.
+// When the engine is nil it falls back to the pure deterministic transform.
+// Otherwise it runs the ADR-0034 pipeline per message, using the request
+// context so a client disconnect bounds the (already short-timeout) Ollama call.
+func applyTransformWithJudgment(mode Mode, body []byte, j *judgment.Judgment) ([]byte, bool, error) {
+	if j == nil {
+		return applyTransform(mode, body)
+	}
+	ctx := context.Background()
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, false, err
+	}
+	rawMsgs, ok := doc["messages"]
+	if !ok || len(rawMsgs) == 0 {
+		return nil, false, nil
+	}
+	var msgs []message
+	if err := json.Unmarshal(rawMsgs, &msgs); err != nil {
+		return nil, false, err
+	}
+	cacheHit := false
+	if mode == ModeCache {
+		cacheHit = headSplit(msgs) > 0
+	}
+	out := make([]message, len(msgs))
+	switch mode {
+	case ModePassthrough:
+		copy(out, msgs)
+	case ModeToken:
+		for i, m := range msgs {
+			out[i] = judgmentTransform(ctx, j, m)
+		}
+	case ModeCache:
+		head := headSplit(msgs)
+		for i, m := range msgs {
+			if i < head {
+				out[i] = m // frozen stable prefix
+			} else {
+				out[i] = judgmentTransform(ctx, j, m)
+			}
+		}
+	default:
+		return nil, false, fmt.Errorf("proxy: unknown mode %q", mode)
+	}
+	newRaw, err := json.Marshal(out)
+	if err != nil {
+		return nil, false, err
+	}
+	doc["messages"] = newRaw
+	outb, err := json.Marshal(doc)
+	if err != nil {
+		return nil, false, err
+	}
+	return outb, cacheHit, nil
 }
 
 // applyTransform decodes the request body as a JSON object, transforms only

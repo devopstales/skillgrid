@@ -600,3 +600,42 @@ func (s *Store) execTrafficStatus(memoryID, status string, appliedAt *int64, app
 	}
 	return n > 0, nil
 }
+
+// JudgmentCache is one row of ctx_judgment_cache (069).
+type JudgmentCache struct {
+	Fingerprint string
+	Decision    string
+	Score       float64
+	JudgedAt    int64
+}
+
+// PutJudgmentCache upserts a judgment cache row (fail-open).
+func (s *Store) PutJudgmentCache(fingerprint, decision string, score float64, judgedAt int64) error {
+	query := `INSERT OR REPLACE INTO ctx_judgment_cache (fingerprint, decision, score, judged_at) VALUES (?, ?, ?, ?)`
+	_, err := s.db.Exec(query, fingerprint, decision, score, judgedAt)
+	if err != nil {
+		if failOpenOpen(err, "ctx_judgment_cache") {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// GetJudgmentCache retrieves a judgment cache row by fingerprint (fail-open).
+func (s *Store) GetJudgmentCache(fingerprint string) (*JudgmentCache, error) {
+	query := `SELECT fingerprint, decision, score, judged_at FROM ctx_judgment_cache WHERE fingerprint = ?`
+	row := s.db.QueryRow(query, fingerprint)
+	var jc JudgmentCache
+	err := row.Scan(&jc.Fingerprint, &jc.Decision, &jc.Score, &jc.JudgedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		if failOpenOpen(err, "ctx_judgment_cache") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &jc, nil
+}

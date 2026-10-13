@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
+	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/judgment"
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/observability"
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/traffic"
@@ -39,7 +40,12 @@ type Proxy struct {
 	// under Lock), never held across I/O.
 	gate *traffic.Gate
 
-	// mu guards mode, lastChangeID, and gate.
+	// judge is the ADR-0034 judgment engine (prefilter → judge → compress).
+	// Nil means the judgment layer is not wired; the transform then uses the
+	// pure deterministic placeholder. Guarded by mu alongside gate.
+	judge *judgment.Judgment
+
+	// mu guards mode, lastChangeID, gate, and judge.
 	mu               sync.RWMutex
 	mode             Mode
 	lastChangeID     string
@@ -60,6 +66,22 @@ func (p *Proxy) gateRef() *traffic.Gate {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.gate
+}
+
+// SetJudgment installs (or clears with nil) the ADR-0034 judgment engine used
+// by the compression pipeline (prefilter → judge → compress). It is safe to
+// call concurrently with forwarding (guarded by mu).
+func (p *Proxy) SetJudgment(j *judgment.Judgment) {
+	p.mu.Lock()
+	p.judge = j
+	p.mu.Unlock()
+}
+
+// judgeRef returns the installed judgment engine (nil when none), under RLock.
+func (p *Proxy) judgeRef() *judgment.Judgment {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.judge
 }
 
 // New builds a Proxy from resolved config, the shared ctx store accessor (may
@@ -146,7 +168,18 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	effectiveMode := mode
 	cacheHit := false
 	if mode != ModePassthrough {
-		if b, hit, terr := applyTransform(mode, body); terr == nil {
+		// ADR-0034: when the judgment cache is wired, run the judgment pipeline
+		// (prefilter → judge → compress); otherwise use the pure deterministic
+		// transform. A fault fails open to passthrough (ADR-0016).
+		var b []byte
+		var hit bool
+		var terr error
+		if j := p.judgeRef(); j != nil {
+			b, hit, terr = applyTransformWithJudgment(mode, body, j)
+		} else {
+			b, hit, terr = applyTransform(mode, body)
+		}
+		if terr == nil {
 			if b != nil {
 				forwardBody = b
 				cacheHit = hit
