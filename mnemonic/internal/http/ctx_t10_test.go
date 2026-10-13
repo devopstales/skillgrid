@@ -137,6 +137,42 @@ func TestCTXSessionSummaries_Pagination(t *testing.T) {
 	}
 }
 
+// TestCTXSessionSummaries_LimitCap verifies the limit query param is capped at
+// 100 (brief: default 50, max 100) regardless of how large a value is
+// requested.
+func TestCTXSessionSummaries_LimitCap(t *testing.T) {
+	s, dataDir := newToolCallsServer(t)
+	defer closeStore(t, dataDir)
+
+	// Seed 120 rows: more than the 100 cap so a request for ?limit=100000
+	// must return exactly 100 (the cap), not all 120.
+	seedSessionSummaries(t, dataDir, 120)
+
+	rr, out := doGetCtx(t, s, "/api/session-summaries?project="+proj+"&limit=100000", "127.0.0.1:1")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	items, _ := out["items"].([]any)
+	if len(items) != 100 {
+		t.Fatalf("limit=100000 expected 100 items (the cap), got %d", len(items))
+	}
+	// A cursor is emitted because 20 rows remain past the capped page.
+	if out["next"] == "" {
+		t.Errorf("expected non-empty next cursor (120 rows, 100 returned), got %q", out["next"])
+	}
+
+	// The lower bound is already the 50 default: an unparseable limit falls
+	// back to 50 (and the cap never lowers a valid value below it).
+	rr2, out2 := doGetCtx(t, s, "/api/session-summaries?project="+proj+"&limit=0", "127.0.0.1:2")
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("limit=0 expected 200, got %d: %s", rr2.Code, rr2.Body.String())
+	}
+	items2, _ := out2["items"].([]any)
+	if len(items2) != 50 {
+		t.Fatalf("limit=0 expected the 50 default, got %d", len(items2))
+	}
+}
+
 // TestCTXLoopbackOnly verifies all four ctx routes reject a non-loopback
 // origin with 403 + a loopback-only JSON body (no data leak).
 func TestCTXLoopbackOnly(t *testing.T) {

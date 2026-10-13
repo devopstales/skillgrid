@@ -48,15 +48,15 @@ func ctxObservabilityConfig(ctx context.Context, root string) *config.CtxConfig 
 	return cfg
 }
 
-// requireLoopback rejects any non-loopback origin to a ctx observability
-// route with 403 and a "loopback only" body that carries no data (plan §17,
-// TICKET-10). The ctx_* tables hold per-session token/cache counters and
-// summary JSON that are meant for the local agent and operator, not for
-// arbitrary network peers on the same host. Loopback covers the IPv4
-// 127.0.0.0/8 range, IPv6 ::1, and an absent RemoteAddr (the httptest and
-// in-process caller convention). It runs before withProjectHandle so the
-// 403 short-circuits the store open.
-func requireLoopback(w http.ResponseWriter, r *http.Request) bool {
+// requireLoopback reports whether the request origin is loopback for a ctx
+// observability route (plan §17, TICKET-10). The ctx_* tables hold per-session
+// token/cache counters and summary JSON that are meant for the local agent and
+// operator, not for arbitrary network peers on the same host; the caller
+// rejects a non-loopback origin with 403 + a "loopback only" body that carries
+// no data. Loopback covers the IPv4 127.0.0.0/8 range, IPv6 ::1, and an absent
+// RemoteAddr (the httptest and in-process caller convention). It runs before
+// withProjectHandle so the 403 short-circuits the store open.
+func requireLoopback(r *http.Request) bool {
 	addr := r.RemoteAddr
 	if addr == "" {
 		return true
@@ -66,9 +66,9 @@ func requireLoopback(w http.ResponseWriter, r *http.Request) bool {
 	if h, _, err := net.SplitHostPort(addr); err == nil {
 		host = h
 	}
-	// A bare IP literal that is loopback passes; a name or non-loopback IP
-	// (proxy-injected peer, forwarded host) is rejected — names are never
-	// loopback by definition here.
+	// A bare IP literal that is loopback passes. A name or non-loopback IP
+	// (proxy-injected peer, forwarded host) is rejected: names are not
+	// parseable IPs and are therefore rejected, even `localhost`.
 	ip, err := netip.ParseAddr(host)
 	if err != nil {
 		return false
@@ -82,7 +82,7 @@ func requireLoopback(w http.ResponseWriter, r *http.Request) bool {
 // it is populated here but not wired into any header (out of scope). A nil or
 // table-missing store yields a zero-valued Stats, always 200.
 func (s *Server) handleCTXStats(w http.ResponseWriter, r *http.Request) {
-	if !requireLoopback(w, r) {
+	if !requireLoopback(r) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "ctx observability routes are loopback only"})
 		return
 	}
@@ -104,7 +104,7 @@ func (s *Server) handleCTXStats(w http.ResponseWriter, r *http.Request) {
 // an empty per-granularity list (the JSON shape stays stable: every requested
 // granularity appears, possibly empty), always 200.
 func (s *Server) handleCTXStatsHistory(w http.ResponseWriter, r *http.Request) {
-	if !requireLoopback(w, r) {
+	if !requireLoopback(r) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "ctx observability routes are loopback only"})
 		return
 	}
@@ -135,7 +135,7 @@ func (s *Server) handleCTXStatsHistory(w http.ResponseWriter, r *http.Request) {
 // /stats (ctx_proxy_sessions via observability.Snapshot), so the two routes
 // cannot disagree on the live totals.
 func (s *Server) handleCTXMetrics(w http.ResponseWriter, r *http.Request) {
-	if !requireLoopback(w, r) {
+	if !requireLoopback(r) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "ctx observability routes are loopback only"})
 		return
 	}
@@ -191,7 +191,7 @@ type sessionSummaryItem struct {
 }
 
 // sessionSummaryPage is the paginated response: the items for this page plus
-// an opaque next cursor (the row offset of the following page, "" when the
+// a next cursor (the numeric row offset of the following page, "" when the
 // page is the last).
 type sessionSummaryPage struct {
 	Items []sessionSummaryItem `json:"items"`
@@ -205,7 +205,7 @@ type sessionSummaryPage struct {
 // Store.ListSessionSummaries keeps pages deterministic. Fail-open: a missing
 // table yields 200 with an empty items list, never a 500 (ADR-0016).
 func (s *Server) handleCTXSessionSummaries(w http.ResponseWriter, r *http.Request) {
-	if !requireLoopback(w, r) {
+	if !requireLoopback(r) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "ctx observability routes are loopback only"})
 		return
 	}
@@ -215,6 +215,11 @@ func (s *Server) handleCTXSessionSummaries(w http.ResponseWriter, r *http.Reques
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			limit = n
 		}
+	}
+	// Cap at 100 (brief: default 50, max 100); a non-positive or unparseable
+	// limit already fell back to the 50 default above.
+	if limit > 100 {
+		limit = 100
 	}
 	cursor := 0
 	if v := q.Get("cursor"); v != "" {
