@@ -31,7 +31,7 @@ func NewGate(s *ctxstore.Store) *Gate {
 	return &Gate{store: s}
 }
 
-// Apply promotes a traffic memory to applied (active). It returns a clear
+// Apply promotes a traffic memory to applied (status "applied"). It returns a clear
 // "not found" error when the memory id does not exist (the human-gate: only
 // existing candidates can be applied). Re-applying an already-applied memory
 // is an idempotent no-op (it refreshes applied_at). A nil/missing store is a
@@ -52,7 +52,7 @@ func (g *Gate) Apply(memoryID string) error {
 	return err
 }
 
-// Revoke demotes a traffic memory to revoked (reverted). It returns a clear
+// Revoke demotes a traffic memory to revoked (status "revoked"). It returns a clear
 // "not found" error when the memory id does not exist. Re-revoking is
 // idempotent. A nil/missing store is a fail-open no-op (ADR-0016).
 func (g *Gate) Revoke(memoryID string) error {

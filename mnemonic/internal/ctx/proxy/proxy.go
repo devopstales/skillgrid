@@ -379,7 +379,10 @@ func (p *Proxy) recordTelemetry(r *http.Request, upstream, mode string, sv savin
 }
 
 // sessionID returns the request's stable session id: the X-CTX-Session header
-// if present, else a stable id derived from the client address (RemoteAddr).
+// if present, else a stable opaque bucket key derived from the client address
+// (RemoteAddr) — not a checksum. Without the header, all local traffic from one
+// host collapses to the same bucket, so per-session memory is host-scoped until
+// the client sets the header.
 func sessionID(r *http.Request) string {
 	if id := strings.TrimSpace(r.Header.Get(SessionHeader)); id != "" {
 		return id
