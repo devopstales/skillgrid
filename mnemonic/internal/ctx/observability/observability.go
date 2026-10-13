@@ -312,19 +312,18 @@ func Recompute(s *ctxstore.Store) int {
 }
 
 // StartRollup launches a background goroutine that re-derives the
-// ctx_stats_history buckets (Recompute) and the per-session
-// ctx_session_summaries rows (SummarizeSessions) every tick until stop is
-// closed. It returns a stop function that closes stop and waits for the
-// goroutine to exit (no leak). The first pass (Recompute + SummarizeSessions)
-// runs immediately so a fresh process backfills both the history and the
-// session summaries before the first tick. A non-positive tick falls back to
-// a 5-minute default.
+// ctx_stats_history buckets (Recompute) every tick until stop is closed. The
+// stats rollup always runs; the per-session ctx_session_summaries rollup
+// (SummarizeSessions) rides the same loop only when sessionSummary is true, so
+// it is gated on the caller's config (cfg.Observability.SessionSummary) at this
+// call site. It returns a stop function that closes stop and waits for the
+// goroutine to exit (no leak). The first pass runs immediately so a fresh
+// process backfills the history (and, when enabled, the session summaries)
+// before the first tick. A non-positive tick falls back to a 5-minute default.
 //
-// The session-summary rollup rides this same loop (no separate goroutine): it
-// is gated on the caller's config (cfg.Observability.SessionSummary), which is
-// enforced at the call sites, and is fail-open (ADR-0016) so it never disturbs
-// the stats rollup it runs alongside.
-func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (stopFn func()) {
+// The session-summary rollup is fail-open (ADR-0016) so a failed or disabled
+// pass never disturbs the stats rollup it runs alongside.
+func StartRollup(s *ctxstore.Store, tick time.Duration, sessionSummary bool, stop chan struct{}) (stopFn func()) {
 	if s == nil {
 		return func() {}
 	}
@@ -338,9 +337,12 @@ func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (sto
 	go func() {
 		defer wg.Done()
 		defer close(done)
-		// Immediate first pass: stats history + per-session summaries.
+		// Immediate first pass: stats history, and per-session summaries when
+		// the operator enabled the session-summary rollup.
 		_ = Recompute(s)
-		summarizePass(s)
+		if sessionSummary {
+			summarizePass(s)
+		}
 		t := time.NewTicker(tick)
 		defer t.Stop()
 		for {
@@ -349,7 +351,9 @@ func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (sto
 				return
 			case <-t.C:
 				_ = Recompute(s)
-				summarizePass(s)
+				if sessionSummary {
+					summarizePass(s)
+				}
 			}
 		}
 	}()
@@ -364,9 +368,7 @@ func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (sto
 // error on a fault the operator should not be blocked on by a stats tick — so
 // the error is intentionally dropped; a failed pass simply yields no new rows.
 func summarizePass(s *ctxstore.Store) {
-	if _, err := SummarizeSessions(s, time.Now().Unix()); err != nil {
-		_ = err
-	}
+	_, _ = SummarizeSessions(s, time.Now().Unix())
 }
 
 // Snapshot returns the live session-metric snapshot (plan §17.2/§17.5) from

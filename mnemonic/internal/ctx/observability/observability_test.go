@@ -193,7 +193,7 @@ func TestStartRollup_WritesWithoutRestart(t *testing.T) {
 		t.Fatalf("PutProxySaving: %v", err)
 	}
 	stop := make(chan struct{})
-	stopFn := StartRollup(c, 20*time.Millisecond, stop)
+	stopFn := StartRollup(c, 20*time.Millisecond, true, stop)
 	// Wait for the immediate first pass (or a tick) to land rows.
 	deadline := time.Now().Add(2 * time.Second)
 	var n int
@@ -478,6 +478,70 @@ func TestSummarizeSessions_FailOpen(t *testing.T) {
 	c := ctxstore.New(st)
 	if n, err := SummarizeSessions(c, 1_800_000_000); err != nil || n != 0 {
 		t.Errorf("missing tables: got (%d, %v), want (0, nil)", n, err)
+	}
+}
+
+// TestStartRollup_SummarizeGate verifies StartRollup honors the sessionSummary
+// flag: with the flag false the periodic rollup writes stats-history rows but
+// NO ctx_session_summaries rows (the flag is gated on
+// cfg.Observability.SessionSummary at this call site), and with the flag true
+// it does write the summaries.
+func TestStartRollup_SummarizeGate(t *testing.T) {
+	newSeededStore := func(t *testing.T) *ctxstore.Store {
+		t.Helper()
+		_, c := freshStore(t)
+		if err := c.PutProxySession(&ctxstore.ProxySession{
+			SessionID: "sess-gate", Agent: "opencode", Mode: "token",
+			StartedAt: 1_699_999_900, EndedAt: 1_700_000_200,
+			Requests: 1, TokensBefore: 5000, TokensAfter: 2000,
+		}); err != nil {
+			t.Fatalf("PutProxySession: %v", err)
+		}
+		return c
+	}
+
+	// Enabled: the immediate first pass must land a summary row.
+	{
+		c := newSeededStore(t)
+		stop := make(chan struct{})
+		stopFn := StartRollup(c, 20*time.Millisecond, true, stop)
+		deadline := time.Now().Add(2 * time.Second)
+		var n int
+		for {
+			rows, err := c.ListSessionSummaries()
+			if err == nil {
+				n = len(rows)
+			}
+			if n > 0 {
+				break
+			}
+			if time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		stopFn()
+		if n == 0 {
+			t.Fatalf("sessionSummary=true: rollup did not write a ctx_session_summaries row")
+		}
+	}
+
+	// Disabled: no summary row may ever appear (even after a tick), while the
+	// stats rollup keeps running independently.
+	{
+		c := newSeededStore(t)
+		stop := make(chan struct{})
+		stopFn := StartRollup(c, 20*time.Millisecond, false, stop)
+		// Give the immediate first pass and at least one tick time to run.
+		time.Sleep(120 * time.Millisecond)
+		stopFn()
+		rows, err := c.ListSessionSummaries()
+		if err != nil {
+			t.Fatalf("ListSessionSummaries: %v", err)
+		}
+		if len(rows) != 0 {
+			t.Fatalf("sessionSummary=false: rollup must not write summaries, got %d rows", len(rows))
+		}
 	}
 }
 
