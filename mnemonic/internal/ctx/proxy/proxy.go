@@ -17,6 +17,7 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/observability"
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
+	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/traffic"
 )
 
 // Proxy is the loopback LLM proxy. It owns the resolved config, a fail-open
@@ -31,11 +32,34 @@ type Proxy struct {
 	sleep    Sleep
 	upstream baseUpstream
 
-	// mu guards mode and lastChangeID.
+	// gate is the traffic human-gate (T13). Nil (the default) means no active
+	// traffic memories are injected into the compression context — the
+	// context-injection seam is fail-open and a no-op when unset (ADR-0016).
+	// Guarded by mu (read on the forward path under RLock, written by SetGate
+	// under Lock), never held across I/O.
+	gate *traffic.Gate
+
+	// mu guards mode, lastChangeID, and gate.
 	mu               sync.RWMutex
 	mode             Mode
 	lastChangeID     string
 	SetModeEventSink func(old, new Mode, reason string)
+}
+
+// SetGate installs (or clears with nil) the traffic human-gate used to inject
+// applied traffic memories into the compression context. It is safe to call
+// concurrently with forwarding (guarded by mu).
+func (p *Proxy) SetGate(g *traffic.Gate) {
+	p.mu.Lock()
+	p.gate = g
+	p.mu.Unlock()
+}
+
+// gateRef returns the installed traffic gate (nil when none), under RLock.
+func (p *Proxy) gateRef() *traffic.Gate {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.gate
 }
 
 // New builds a Proxy from resolved config, the shared ctx store accessor (may
@@ -104,6 +128,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// for the transform is what the savings header reports. It is read under
 	// the RWMutex so a concurrent SetMode (runtime switch) is safe.
 	mode := p.GetMode()
+
+	// T13 context-injection seam: prepend applied (active) traffic memories to
+	// the request's message list so they appear in the compression context.
+	// Fail-open (ADR-0016): no gate, no active memories, or a fault leave the
+	// body unchanged. The session id is the same one telemetry uses.
+	body = prependMemoryContext(body, p.memoryContext(r))
 
 	// Token count BEFORE the transform: count on the exact wire bytes the
 	// client sent. This is the deterministic "before" for the savings delta.
@@ -263,6 +293,23 @@ func detectUpstream(client *http.Client, env func(string) string) baseUpstream {
 	}
 	// Default upstream: anthropic (the loopback proxy's primary target).
 	return baseUpstream{Name: "anthropic", BaseURL: "https://api.anthropic.com", AuthHeader: "x-api-key", AuthValue: env("ANTHROPIC_API_KEY"), client: client}
+}
+
+// memoryContext returns the applied traffic-memory context block for the
+// request's session (empty when no gate is set or no active memories exist).
+// It never returns an error to the caller: a gate/store fault degrades to ""
+// so the compression context is unchanged (ADR-0016 fail-open).
+func (p *Proxy) memoryContext(r *http.Request) string {
+	g := p.gateRef()
+	if g == nil {
+		return ""
+	}
+	sid := sessionID(r)
+	ctx, err := activeMemoryContext(g, sid)
+	if err != nil {
+		return ""
+	}
+	return ctx
 }
 
 // recordTelemetry writes the per-turn savings row + session counters to the

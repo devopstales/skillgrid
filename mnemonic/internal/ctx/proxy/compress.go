@@ -46,6 +46,11 @@ func (p *Proxy) serveCompress(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = r.Body.Close()
 
+	// T13 context-injection seam: prepend applied (active) traffic memories so
+	// the compression context includes them. Fail-open (ADR-0016): no gate, no
+	// active memories, or a fault leave the body unchanged.
+	body = prependMemoryContext(body, p.memoryContext(r))
+
 	// Run the same transform the forward path uses. A nil/empty result (no
 	// messages, or passthrough) or a transform fault both fail open to the
 	// original body (ADR-0016) — the caller still completes.

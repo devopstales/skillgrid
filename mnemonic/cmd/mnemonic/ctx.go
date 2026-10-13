@@ -43,6 +43,8 @@ func runCtx(args []string) {
 		runCtxProxy(rest)
 	case "wrap":
 		runCtxWrap(rest)
+	case "learn":
+		runCtxLearn(rest)
 	case "help", "-h", "--help":
 		ctxUsage()
 	default:
@@ -64,6 +66,10 @@ func ctxUsage() {
 	fmt.Fprintln(w, "  index <path>     Index a file (or a directory of files) into the context-harness FTS index; re-indexing is idempotent (-project)")
 	fmt.Fprintln(w, "  proxy            Start the loopback LLM proxy: forwards Anthropic/OpenAI requests with a mode-selected context transform, X-CTX-Savings headers, provider retry, and per-turn telemetry (-bind, -port, -mode, -dir)")
 	fmt.Fprintln(w, "  wrap <agent>     Tier-2 launcher: start the proxy, inject the agent's base-URL env to point at it, back up the prior config (first wrap only), and launch the agent subprocess (-bind, -port, -bin, -dir)")
+	fmt.Fprintln(w, "  learn <verb>     Human-gate for traffic memories (T13):")
+	fmt.Fprintln(w, "                     apply <id>   Promote an existing candidate to applied (it enters the compression context)")
+	fmt.Fprintln(w, "                     revoke <id>  Demote an applied memory to revoked (it leaves the compression context)")
+	fmt.Fprintln(w, "                     (-dir resolves the store; a non-existent id is a clear error — the human-gate)")
 }
 
 // ctxSearchFlags parses search flags: -limit caps the fused results.

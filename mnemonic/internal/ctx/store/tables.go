@@ -87,7 +87,12 @@ type RollupRow struct {
 	CacheHits   int64
 }
 
-// TrafficMemory is one row of ctx_traffic_memories (061).
+// TrafficMemory is one row of ctx_traffic_memories (061, status columns added
+// by 068). Status is one of "candidate" (the learner proposed it; the default
+// until a human applies it), "applied" (ctx learn apply promoted it into the
+// compression context) or "revoked" (ctx learn revoke demoted it so the
+// learner stops re-suggesting it). AppliedAt is a pointer: nil means NULL
+// (never applied).
 type TrafficMemory struct {
 	MemoryID     string
 	SessionID    string
@@ -96,6 +101,61 @@ type TrafficMemory struct {
 	EvidenceJSON string
 	Confidence   float64
 	CreatedAt    int64
+	Status       string
+	AppliedAt    *int64
+}
+
+// hasTrafficMemoryStatus probes whether the live ctx_traffic_memories table
+// carries the 068 status column. Writers use it to decide whether they may
+// name the column in an UPDATE/INSERT, and readers use it to drop the
+// applied_at column from their SELECT; on a pre-068 schema every traffic
+// accessor degrades fail-open rather than erroring (ADR-0016).
+func (s *Store) hasTrafficMemoryStatus() bool {
+	var n int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('ctx_traffic_memories') WHERE name = 'status'`,
+	).Scan(&n); err != nil {
+		return false
+	}
+	return n > 0
+}
+
+// trafficMemorySelectCols returns the shared SELECT column list for every
+// ctx_traffic_memories reader. On a live 068 schema it names status (COALESCEd
+// to its 'candidate' default) and applied_at; on a pre-068 schema (no status
+// column) it drops applied_at and SELECTs the COALESCE literal, so a row on an
+// old store reads as candidate/NULL instead of erroring on the unknown column
+// (ADR-0016). The two branches return exactly nine columns, matching
+// scanTrafficMemory.
+func (s *Store) trafficMemorySelectCols() string {
+	if s.hasTrafficMemoryStatus() {
+		return `
+		memory_id, session_id, category, memory_text,
+		evidence_json, confidence, created_at,
+		COALESCE(status, 'candidate') AS status,
+		applied_at`
+	}
+	// Pre-068: no status/applied_at columns. SELECT the candidate literal and
+	// SQL NULL so the nine-column scan succeeds (applied_at scans to a nil
+	// *int64).
+	return `
+		memory_id, session_id, category, memory_text,
+		evidence_json, confidence, created_at,
+		'candidate' AS status,
+		NULL AS applied_at`
+}
+
+// scanTrafficMemory scans one ctx_traffic_memories row.
+func (s *Store) scanTrafficMemory(row interface {
+	Scan(dest ...any) error
+}) (*TrafficMemory, error) {
+	var m TrafficMemory
+	err := row.Scan(&m.MemoryID, &m.SessionID, &m.Category, &m.MemoryText,
+		&m.EvidenceJSON, &m.Confidence, &m.CreatedAt, &m.Status, &m.AppliedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
 }
 
 // ---- ctx_proxy_sessions ----
@@ -384,36 +444,44 @@ func (s *Store) Rollup() ([]RollupRow, error) {
 // ---- ctx_traffic_memories ----
 
 func (s *Store) PutTrafficMemory(m *TrafficMemory) error {
+	// A pre-068 store has no status/applied_at columns (ADR-0016): writing them
+	// would hard-fail, so insert the base columns only and let the readers
+	// COALESCE the status to its 'candidate' default.
+	if !s.hasTrafficMemoryStatus() {
+		return s.execFailOpen("ctx_traffic_memories", `
+			INSERT OR REPLACE INTO ctx_traffic_memories
+				(memory_id, session_id, category, memory_text,
+				 evidence_json, confidence, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			m.MemoryID, m.SessionID, m.Category, m.MemoryText,
+			m.EvidenceJSON, m.Confidence, m.CreatedAt)
+	}
 	return s.execFailOpen("ctx_traffic_memories", `
 		INSERT OR REPLACE INTO ctx_traffic_memories
 			(memory_id, session_id, category, memory_text,
-			 evidence_json, confidence, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			 evidence_json, confidence, created_at, status, applied_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.MemoryID, m.SessionID, m.Category, m.MemoryText,
-		m.EvidenceJSON, m.Confidence, m.CreatedAt)
+		m.EvidenceJSON, m.Confidence, m.CreatedAt, m.Status, m.AppliedAt)
 }
 
 func (s *Store) GetTrafficMemory(memoryID string) (*TrafficMemory, error) {
-	var m TrafficMemory
-	err := s.db.QueryRow(`
-		SELECT memory_id, session_id, category, memory_text,
-		       evidence_json, confidence, created_at
-		FROM ctx_traffic_memories WHERE memory_id = ?`, memoryID).
-		Scan(&m.MemoryID, &m.SessionID, &m.Category, &m.MemoryText,
-			&m.EvidenceJSON, &m.Confidence, &m.CreatedAt)
+	row := s.db.QueryRow(`
+		SELECT `+s.trafficMemorySelectCols()+`
+		FROM ctx_traffic_memories WHERE memory_id = ?`, memoryID)
+	m, err := s.scanTrafficMemory(row)
 	if err == sql.ErrNoRows || failOpenOpen(err, "ctx_traffic_memories") {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &m, nil
+	return m, nil
 }
 
 func (s *Store) ListTrafficMemories(sessionID string) ([]*TrafficMemory, error) {
 	rows, err := s.queryFailOpen("ctx_traffic_memories", `
-		SELECT memory_id, session_id, category, memory_text,
-		       evidence_json, confidence, created_at
+		SELECT `+s.trafficMemorySelectCols()+`
 		FROM ctx_traffic_memories WHERE session_id = ?
 		ORDER BY created_at, memory_id`, sessionID)
 	if err != nil {
@@ -425,12 +493,11 @@ func (s *Store) ListTrafficMemories(sessionID string) ([]*TrafficMemory, error) 
 	defer rows.Close()
 	var out []*TrafficMemory
 	for rows.Next() {
-		var m TrafficMemory
-		if err := rows.Scan(&m.MemoryID, &m.SessionID, &m.Category, &m.MemoryText,
-			&m.EvidenceJSON, &m.Confidence, &m.CreatedAt); err != nil {
+		m, err := s.scanTrafficMemory(rows)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, &m)
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }
@@ -442,8 +509,7 @@ func (s *Store) ListTrafficMemories(sessionID string) ([]*TrafficMemory, error) 
 // (ADR-0016).
 func (s *Store) ListAllTrafficMemories() ([]*TrafficMemory, error) {
 	rows, err := s.queryFailOpen("ctx_traffic_memories", `
-		SELECT memory_id, session_id, category, memory_text,
-		       evidence_json, confidence, created_at
+		SELECT `+s.trafficMemorySelectCols()+`
 		FROM ctx_traffic_memories ORDER BY created_at, memory_id`)
 	if err != nil {
 		return nil, err
@@ -454,12 +520,11 @@ func (s *Store) ListAllTrafficMemories() ([]*TrafficMemory, error) {
 	defer rows.Close()
 	var out []*TrafficMemory
 	for rows.Next() {
-		var m TrafficMemory
-		if err := rows.Scan(&m.MemoryID, &m.SessionID, &m.Category, &m.MemoryText,
-			&m.EvidenceJSON, &m.Confidence, &m.CreatedAt); err != nil {
+		m, err := s.scanTrafficMemory(rows)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, &m)
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }
@@ -471,4 +536,67 @@ func (s *Store) ListAllTrafficMemories() ([]*TrafficMemory, error) {
 func (s *Store) DeleteTrafficMemory(memoryID string) error {
 	return s.execFailOpen("ctx_traffic_memories", `
 		DELETE FROM ctx_traffic_memories WHERE memory_id = ?`, memoryID)
+}
+
+// SetTrafficMemoryStatus transitions one ctx_traffic_memories row to status
+// ("candidate" | "applied" | "revoked"). Apply (status="applied") stamps
+// appliedAt (unix millis); any demotion away from applied (revoked or
+// candidate) clears applied_at to NULL — per the T13 brief, applied_at is set
+// only while a memory is active, NULL otherwise.
+//
+// Returns (true, nil) when the row exists and was updated. Returns
+// (false, nil) — NOT an error — when the row does not exist (the gate maps
+// this to its not-found error) or the table is missing (ADR-0016 fail-open).
+// Any other error (corrupt row, constraint) propagates.
+func (s *Store) SetTrafficMemoryStatus(memoryID, status string, appliedAt *int64) (bool, error) {
+	if status == "applied" {
+		// Activating: stamp the provided applied_at.
+		return s.execTrafficStatus(memoryID, status, appliedAt, "set")
+	}
+	// Demoting (revoked/candidate): clear applied_at so it is NULL again.
+	return s.execTrafficStatus(memoryID, status, nil, "clear")
+}
+
+// execTrafficStatus runs the status UPDATE, choosing the applied_at handling
+// by appliedAtMode: "set" writes the provided timestamp (apply), "clear"
+// resets applied_at to NULL (revoke/demote). A missing table or a pre-068
+// schema (no status column) degrades to (false, nil) — the write is lost, not
+// fatal (ADR-0016).
+func (s *Store) execTrafficStatus(memoryID, status string, appliedAt *int64, appliedAtMode string) (bool, error) {
+	if !s.hasTrafficMemoryStatus() {
+		// Pre-068 schema (or missing table): the status cannot be persisted.
+		// Degrade to a no-op rather than an unknown-column error.
+		var exists int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM ctx_traffic_memories WHERE memory_id = ?`, memoryID).Scan(&exists); err != nil {
+			if failOpenOpen(err, "ctx_traffic_memories") {
+				return false, nil
+			}
+			return false, err
+		}
+		return exists > 0, nil
+	}
+	query := `UPDATE ctx_traffic_memories SET status = ?`
+	if appliedAtMode == "set" {
+		query += `, applied_at = ?`
+	} else {
+		query += `, applied_at = NULL`
+	}
+	query += ` WHERE memory_id = ?`
+	args := []any{status}
+	if appliedAtMode == "set" {
+		args = append(args, appliedAt)
+	}
+	args = append(args, memoryID)
+	res, err := s.db.Exec(query, args...)
+	if err != nil {
+		if failOpenOpen(err, "ctx_traffic_memories") {
+			return false, nil
+		}
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
