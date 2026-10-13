@@ -175,7 +175,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var hit bool
 		var terr error
 		if j := p.judgeRef(); j != nil {
-			b, hit, terr = applyTransformWithJudgment(mode, body, j)
+			b, hit, terr = applyTransformWithJudgment(r.Context(), mode, body, j)
 		} else {
 			b, hit, terr = applyTransform(mode, body)
 		}

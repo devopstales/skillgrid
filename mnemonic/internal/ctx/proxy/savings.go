@@ -148,11 +148,10 @@ func judgmentTransform(ctx context.Context, j *judgment.Judgment, m message) mes
 // When the engine is nil it falls back to the pure deterministic transform.
 // Otherwise it runs the ADR-0034 pipeline per message, using the request
 // context so a client disconnect bounds the (already short-timeout) Ollama call.
-func applyTransformWithJudgment(mode Mode, body []byte, j *judgment.Judgment) ([]byte, bool, error) {
+func applyTransformWithJudgment(ctx context.Context, mode Mode, body []byte, j *judgment.Judgment) ([]byte, bool, error) {
 	if j == nil {
 		return applyTransform(mode, body)
 	}
-	ctx := context.Background()
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return nil, false, err
