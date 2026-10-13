@@ -133,6 +133,23 @@ func runCtxProxy(args []string) {
 	stopRollup := observability.StartRollup(cs, time.Hour, rollupStop)
 	defer stopRollup()
 
+	// T11: a final session-summary rollup at shutdown, run while the shared
+	// handle is still open (deferred here so it runs BEFORE the deferred
+	// stopRollup joins the rollup goroutine and BEFORE the deferred cleanup
+	// closes the handle — defers run LIFO). It is gated on the operator's
+	// session-summary config and fail-open (ADR-0016): a nil store or a
+	// missing table is a no-op. The periodic loop also re-derives summaries
+	// each tick; this final pass ensures a summary row exists for a session
+	// that closed between the last tick and shutdown.
+	if cfg.Observability.SessionSummary {
+		defer func() {
+			if cs == nil {
+				return
+			}
+			_, _ = observability.SummarizeSessions(cs, time.Now().Unix())
+		}()
+	}
+
 	// Create the listener.
 	addr := fmt.Sprintf("%s:%d", b, p)
 	ln, err := net.Listen("tcp", addr)

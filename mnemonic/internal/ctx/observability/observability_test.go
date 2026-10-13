@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -302,6 +303,181 @@ func TestStatsHistory_SurvivesReopen(t *testing.T) {
 				t.Errorf("StatsHistory %s: wrong values %+v", g, buckets[0])
 			}
 		}
+	}
+}
+
+// TestSummarizeSessions_WritesPerSession verifies SummarizeSessions derives
+// one ctx_session_summaries row per distinct ctx_proxy_sessions row with the
+// correct field mapping: duration_ms (ended-started), turns (requests),
+// tokens_saved (before-after, clamped), cache_invalidations carried over, and
+// the deterministic summary_json. Judgment/prefilter/shaping/traffic columns
+// are left at zero/NULL (T12/T14 populate them later).
+func TestSummarizeSessions_WritesPerSession(t *testing.T) {
+	_, c := freshStore(t)
+	// sess-1: a positive saving. sess-2: a negative saving (after > before)
+	// that must clamp to 0, and a negative duration (ended < started) that
+	// must clamp to 0 as well.
+	if err := c.PutProxySession(&ctxstore.ProxySession{
+		SessionID: "sess-1", Agent: "opencode", Mode: "cache",
+		StartedAt: 1_700_000_000, EndedAt: 1_700_000_120,
+		Requests: 5, TokensBefore: 10000, TokensAfter: 7000,
+		CacheHits: 3, CacheInvalidations: 1,
+	}); err != nil {
+		t.Fatalf("PutProxySession sess-1: %v", err)
+	}
+	if err := c.PutProxySession(&ctxstore.ProxySession{
+		SessionID: "sess-2", Agent: "claude", Mode: "token",
+		StartedAt: 1_700_000_500, EndedAt: 1_700_000_400, // negative duration
+		Requests: 3, TokensBefore: 9000, TokensAfter: 12000, // negative saving
+	}); err != nil {
+		t.Fatalf("PutProxySession sess-2: %v", err)
+	}
+
+	written, err := SummarizeSessions(c, 1_800_000_000)
+	if err != nil {
+		t.Fatalf("SummarizeSessions: %v", err)
+	}
+	if written != 2 {
+		t.Fatalf("SummarizeSessions: expected 2 rows written, got %d", written)
+	}
+
+	rows, err := c.ListSessionSummaries()
+	if err != nil {
+		t.Fatalf("ListSessionSummaries: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 summary rows, got %d", len(rows))
+	}
+	byID := make(map[string]*ctxstore.SessionSummary, len(rows))
+	for _, r := range rows {
+		byID[r.SessionID] = r
+	}
+
+	s1, ok := byID["sess-1"]
+	if !ok {
+		t.Fatalf("missing summary row for sess-1")
+	}
+	if s1.DurationMS != 120 {
+		t.Errorf("sess-1 duration_ms = %d, want 120 (1_700_000_120-1_700_000_000)", s1.DurationMS)
+	}
+	if s1.Turns != 5 {
+		t.Errorf("sess-1 turns = %d, want 5 (requests)", s1.Turns)
+	}
+	if s1.TokensSaved != 3000 {
+		t.Errorf("sess-1 tokens_saved = %d, want 3000 (10000-7000)", s1.TokensSaved)
+	}
+	if s1.CacheInvalidations != 1 {
+		t.Errorf("sess-1 cache_invalidations = %d, want 1", s1.CacheInvalidations)
+	}
+	if s1.Agent != "opencode" {
+		t.Errorf("sess-1 agent = %q, want opencode", s1.Agent)
+	}
+	if s1.JudgmentKeeps != 0 || s1.JudgmentTruncs != 0 || s1.PrefilterPins != 0 || s1.PrefilterDeads != 0 {
+		t.Errorf("sess-1 judgment/prefilter columns must be 0 here, got %+v", s1)
+	}
+	if s1.ShapingApplied != nil || s1.EffortRouted != 0 || s1.TrafficMemories != 0 {
+		t.Errorf("sess-1 shaping/effort/traffic columns must be zero/nil, got shaping=%v effort=%d traffic=%d", s1.ShapingApplied, s1.EffortRouted, s1.TrafficMemories)
+	}
+	if s1.CreatedAt != 1_800_000_000 {
+		t.Errorf("sess-1 created_at = %d, want the passed now", s1.CreatedAt)
+	}
+	// summary_json must be the deterministic digest.
+	var js struct {
+		Mode         string `json:"mode"`
+		Requests     int64  `json:"requests"`
+		TokensBefore int64  `json:"tokens_before"`
+		TokensAfter  int64  `json:"tokens_after"`
+		TokensSaved  int64  `json:"tokens_saved"`
+	}
+	if err := json.Unmarshal([]byte(s1.SummaryJSON), &js); err != nil {
+		t.Fatalf("sess-1 summary_json not valid JSON: %v (%q)", err, s1.SummaryJSON)
+	}
+	if js.Mode != "cache" || js.Requests != 5 || js.TokensBefore != 10000 || js.TokensAfter != 7000 || js.TokensSaved != 3000 {
+		t.Errorf("sess-1 summary_json = %+v, want mode=cache requests=5 before=10000 after=7000 saved=3000", js)
+	}
+
+	s2, ok := byID["sess-2"]
+	if !ok {
+		t.Fatalf("missing summary row for sess-2")
+	}
+	if s2.DurationMS != 0 {
+		t.Errorf("sess-2 duration_ms = %d, want 0 (negative clamped)", s2.DurationMS)
+	}
+	if s2.TokensSaved != 0 {
+		t.Errorf("sess-2 tokens_saved = %d, want 0 (negative clamped)", s2.TokensSaved)
+	}
+	if s2.Turns != 3 {
+		t.Errorf("sess-2 turns = %d, want 3 (requests)", s2.Turns)
+	}
+}
+
+// TestSummarizeSessions_Idempotent verifies re-running the rollup over the
+// same sessions does not append duplicate rows: PutSessionSummary is INSERT OR
+// REPLACE on the session_id PK, so the row count is stable across rolls.
+func TestSummarizeSessions_Idempotent(t *testing.T) {
+	_, c := freshStore(t)
+	for _, sess := range []string{"sess-1", "sess-2", "sess-3"} {
+		if err := c.PutProxySession(&ctxstore.ProxySession{
+			SessionID: sess, Agent: "opencode", Mode: "token",
+			StartedAt: 1_700_000_000, EndedAt: 1_700_000_100,
+			Requests: 2, TokensBefore: 1000, TokensAfter: 400,
+		}); err != nil {
+			t.Fatalf("PutProxySession %s: %v", sess, err)
+		}
+	}
+	if n, err := SummarizeSessions(c, 1_800_000_000); err != nil || n != 3 {
+		t.Fatalf("first roll: got (%d, %v), want (3, nil)", n, err)
+	}
+	// Re-roll the same sessions; the PK upsert must keep the count at 3.
+	if n, err := SummarizeSessions(c, 1_800_000_000); err != nil || n != 3 {
+		t.Fatalf("second roll: got (%d, %v), want (3, nil)", n, err)
+	}
+	rows, err := c.ListSessionSummaries()
+	if err != nil {
+		t.Fatalf("ListSessionSummaries: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 summary rows after two rolls (idempotent), got %d", len(rows))
+	}
+	// No duplicate session_ids.
+	seen := make(map[string]int, len(rows))
+	for _, r := range rows {
+		seen[r.SessionID]++
+	}
+	for id, n := range seen {
+		if n != 1 {
+			t.Errorf("duplicate summary row for %s: %d rows", id, n)
+		}
+	}
+}
+
+// TestSummarizeSessions_FailOpen verifies the writer degrades to (0, nil) —
+// never an error — when the store is nil or the ctx_* tables are missing
+// (ADR-0016).
+func TestSummarizeSessions_FailOpen(t *testing.T) {
+	// nil store.
+	if n, err := SummarizeSessions(nil, 1_800_000_000); err != nil || n != 0 {
+		t.Errorf("nil store: got (%d, %v), want (0, nil)", n, err)
+	}
+
+	// Missing tables: open a store, drop the six ctx_* tables, wrap in the
+	// accessor, and confirm a roll is a no-op (0, nil).
+	st, err := store.Open(t.TempDir(), "obs-sum-nomigrate")
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	for _, table := range []string{
+		"ctx_proxy_sessions", "ctx_proxy_savings", "ctx_proxy_mode_history",
+		"ctx_session_summaries", "ctx_stats_history", "ctx_traffic_memories",
+	} {
+		if _, err := st.DB.Exec(`DROP TABLE IF EXISTS ` + table); err != nil {
+			t.Fatalf("drop %s: %v", table, err)
+		}
+	}
+	c := ctxstore.New(st)
+	if n, err := SummarizeSessions(c, 1_800_000_000); err != nil || n != 0 {
+		t.Errorf("missing tables: got (%d, %v), want (0, nil)", n, err)
 	}
 }
 

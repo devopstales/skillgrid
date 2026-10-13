@@ -311,11 +311,19 @@ func Recompute(s *ctxstore.Store) int {
 	return written
 }
 
-// StartRollup launches a background goroutine that calls Recompute every tick
-// until stop is closed. It returns a stop function that closes stop and waits
-// for the goroutine to exit (no leak). The first Recompute runs immediately so
-// a fresh process backfills the history before the first tick. A non-positive
-// tick falls back to a 5-minute default.
+// StartRollup launches a background goroutine that re-derives the
+// ctx_stats_history buckets (Recompute) and the per-session
+// ctx_session_summaries rows (SummarizeSessions) every tick until stop is
+// closed. It returns a stop function that closes stop and waits for the
+// goroutine to exit (no leak). The first pass (Recompute + SummarizeSessions)
+// runs immediately so a fresh process backfills both the history and the
+// session summaries before the first tick. A non-positive tick falls back to
+// a 5-minute default.
+//
+// The session-summary rollup rides this same loop (no separate goroutine): it
+// is gated on the caller's config (cfg.Observability.SessionSummary), which is
+// enforced at the call sites, and is fail-open (ADR-0016) so it never disturbs
+// the stats rollup it runs alongside.
 func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (stopFn func()) {
 	if s == nil {
 		return func() {}
@@ -330,8 +338,9 @@ func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (sto
 	go func() {
 		defer wg.Done()
 		defer close(done)
-		// Immediate first pass.
+		// Immediate first pass: stats history + per-session summaries.
 		_ = Recompute(s)
+		summarizePass(s)
 		t := time.NewTicker(tick)
 		defer t.Stop()
 		for {
@@ -340,12 +349,23 @@ func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (sto
 				return
 			case <-t.C:
 				_ = Recompute(s)
+				summarizePass(s)
 			}
 		}
 	}()
 	return func() {
 		once.Do(func() { close(stop) })
 		wg.Wait()
+	}
+}
+
+// summarizePass runs one session-summary rollup, discarding the row count and
+// error. The rollup is fail-open (ADR-0016) — SummarizeSessions only returns an
+// error on a fault the operator should not be blocked on by a stats tick — so
+// the error is intentionally dropped; a failed pass simply yields no new rows.
+func summarizePass(s *ctxstore.Store) {
+	if _, err := SummarizeSessions(s, time.Now().Unix()); err != nil {
+		_ = err
 	}
 }
 
