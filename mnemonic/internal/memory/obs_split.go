@@ -86,18 +86,24 @@ func ftsInsertObs(ctx context.Context, x obsExecer, id int64, title, content, ty
 // observations_fts is a STANDALONE FTS5 table (migration 059): it no longer
 // has a content table to reconcile a 'delete' command against, and the
 // modernc.org/sqlite driver does not support the FTS5 'delete' command on a
-// standalone table (it returns "SQL logic error"). The driver-supported way to
-// remove a row is the 'rebuild' command, which reconstructs the whole index
-// from the table's own rows. A standalone FTS5 table's rows persist until a
-// DELETE statement removes them, so: delete the row, then rebuild — the
-// rebuilt index excludes the removed row. (rebuild is O(index); these writes
-// are low-frequency governance ops, not the hot search path.)
+// standalone table (it returns "SQL logic error"). Removing one row therefore
+// costs a full rebuild — but the rebuild must SELECT from the LIVE source
+// table (observations_core), not run the 'rebuild' command against the FTS
+// table's own rows: 'rebuild' re-reads observations_fts, so after the DELETE
+// it would re-derive the index from whatever rows remain — and if any
+// surviving core row has no FTS row (a write that failed mid-trigger), its
+// terms vanish from the index. Rebuilding from observations_core re-derives
+// every row's entry from the source of truth, so the index converges on the
+// live set. (Rebuild is O(index); these writes are low-frequency governance
+// ops, not the hot search path.)
 func ftsDeleteObs(ctx context.Context, x obsExecer, id int64, title, content, typ, project string) error {
-	if _, err := x.ExecContext(ctx, `DELETE FROM observations_fts WHERE rowid = ?`, id); err != nil {
-		return fmt.Errorf("fts delete %d: %w", id, err)
+	if _, err := x.ExecContext(ctx, `DELETE FROM observations_fts`); err != nil {
+		return fmt.Errorf("fts clear %d: %w", id, err)
 	}
 	if _, err := x.ExecContext(ctx, `
-		INSERT INTO observations_fts(observations_fts) VALUES ('rebuild')`); err != nil {
+		INSERT INTO observations_fts(rowid, title, content, type, project)
+		SELECT id, title, content, type, project
+		FROM observations_core WHERE id != ?`, id); err != nil {
 		return fmt.Errorf("fts rebuild %d: %w", id, err)
 	}
 	return nil

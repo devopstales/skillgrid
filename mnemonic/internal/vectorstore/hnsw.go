@@ -48,7 +48,7 @@ type HnswIndex struct {
 	// is O(1) to locate the descent start instead of an O(n) scan per query.
 	dim int // vector dimension (from the corpus); -1 until first load
 
-	// Tunables (ADR-0037): M=16, efConstruction=64, efSearch=32. M0 = 2*M.
+	// Tunables (ADR-0037): M=16, efConstruction=64, efSearch=96. M0 = 2*M.
 	M        int // max connections per node at layers > 0
 	M0       int // max connections at layer 0 (typically 2*M)
 	efCon    int // candidate beam during insert

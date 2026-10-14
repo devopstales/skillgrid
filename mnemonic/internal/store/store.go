@@ -403,7 +403,7 @@ func migrate(db *sql.DB) error {
 	// probe makes it a no-op on any store that has the columns (fresh builds
 	// included). migrationDone returns true once 054 is RECORDED, so the
 	// backfill runs only while it is NOT yet recorded (i.e. still about to run).
-	if alreadyDone, err := migrationDone(db, "054_obs_split.sql"); err != nil {
+	if alreadyDone, err := migrationDone(db, "062_obs_split.sql"); err != nil {
 		return err
 	} else if !alreadyDone {
 		if err := backfillPreSplitObservations(db); err != nil {
@@ -493,12 +493,13 @@ func isDuplicateColumnErr(err error) bool {
 // never split a statement.
 func splitSQLStatements(s string) []string {
 	var (
-		out    []string
-		cur    strings.Builder
-		inS    bool // inside 'string'
-		inLine bool // inside -- comment
-		inBLK  bool // inside /* */
-		inTrig bool // inside a CREATE TRIGGER body (BEGIN...END)
+		out       []string
+		cur       strings.Builder
+		inS       bool // inside 'string'
+		inLine    bool // inside -- comment
+		inBLK     bool // inside /* */
+		inTrig    bool // inside a CREATE TRIGGER body (BEGIN...END)
+		trigInStr bool // inside a 'string' within a trigger body
 	)
 	flush := func() {
 		out = append(out, strings.TrimSpace(cur.String()))
@@ -540,7 +541,29 @@ func splitSQLStatements(s string) []string {
 			}
 		case inTrig:
 			// Inside a trigger body: look for the END terminator (word-boundary
-			// match, optional trailing ';'). Everything else accumulates.
+			// match, optional trailing ';'). Everything else accumulates. String
+			// literals are tracked here too: a literal containing the word END or
+			// BEGIN ('...the END is near') must not terminate the body, so the
+			// inS sub-state applies unchanged while inTrig is active.
+			if c == '\'' && !trigInStr {
+				trigInStr = true
+				cur.WriteByte(c)
+				break
+			}
+			if c == '\'' && trigInStr {
+				if i+1 < len(s) && s[i+1] == '\'' { // escaped ''
+					cur.WriteString("''")
+					i++
+					break
+				}
+				trigInStr = false
+				cur.WriteByte(c)
+				break
+			}
+			if trigInStr {
+				cur.WriteByte(c)
+				break
+			}
 			if (c == 'E' || c == 'e') && matchWord(s, i, "END") {
 				j := i + 3
 				for j < len(s) && (s[j] == ' ' || s[j] == '\t') {
@@ -556,6 +579,7 @@ func splitSQLStatements(s string) []string {
 				}
 				flush()
 				inTrig = false
+				trigInStr = false
 			} else {
 				cur.WriteByte(c)
 			}

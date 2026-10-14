@@ -348,8 +348,21 @@ INSTEAD OF DELETE ON observations BEGIN
     DELETE FROM observation_provenance WHERE observation_id = OLD.id;
     DELETE FROM observation_state WHERE observation_id = OLD.id;
     DELETE FROM observations_core WHERE id = OLD.id;
-    -- FTS removal: drop the row, then rebuild the index so the deleted
-    -- observation's terms are gone (replaces the legacy 'delete' command).
+    -- FTS removal: this trigger is a multi-statement seed, so the core row
+    -- may still be visible to reads issued between its statements (unlike a
+    -- single-statement transaction). Two parts: drop the deleted row's own
+    -- FTS entry, then re-derive the index from the LIVE core table (same
+    -- shape ftsDeleteObs uses for direct-table writes) so every survivor's
+    -- entry is re-indexed from the source of truth. The 'rebuild' command
+    -- would re-read observations_fts's own rows instead and drop the entries
+    -- of any surviving core row that has no FTS row (a seed that failed
+    -- mid-trigger). O(index) per view-delete: view-mediated deletes are rare
+    -- (production writes hit the split tables directly; this trigger is the
+    -- safety net).
     DELETE FROM observations_fts WHERE rowid = OLD.id;
-    INSERT INTO observations_fts(observations_fts) VALUES ('rebuild');
+    INSERT INTO observations_fts(rowid, title, content, type, project)
+        SELECT c.id, c.title, c.content, c.type, c.project
+        FROM observations_core AS c
+        WHERE c.id != OLD.id
+          AND NOT EXISTS (SELECT 1 FROM observations_fts f WHERE f.rowid = c.id);
 END;
