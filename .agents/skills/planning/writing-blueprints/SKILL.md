@@ -337,7 +337,7 @@ After the plan review gate passes, check if slicing is needed:
 
 **If the blueprint has 1-2 tasks** — skip slicing, execute directly.
 
-**Update `state.yaml`:** set `pipeline.current_change: <topic>` and `pipeline.current_phase: blueprint`.
+**Update `state.yaml`:** set `changes.<topic>.phase: blueprint` (the entry was created by brainstorming; if it's missing, add it with `status: in_progress`).
 
 Then offer execution choice:
 

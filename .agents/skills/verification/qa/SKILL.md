@@ -145,7 +145,7 @@ not per-change.
 
 Present the gate verdict and the finding counts.
 
-**Update `state.yaml`:** set `pipeline.current_phase: qa`.
+**Update `state.yaml`:** set `changes.<topic>.phase: qa`.
 
 Then route. The tail after this gate is in `_shared/rules/sdd-structure.md`. This skill's next step is `requesting-code-review`.
 

@@ -328,7 +328,7 @@ delete this plan's workspace (`rm -rf <workspace>`) — the git history is
 the record now. Sibling directories belong to other plans; leave them
 alone.
 
-**Update `state.yaml`:** set `pipeline.current_phase: executing`.
+**Update `state.yaml`:** set `changes.<topic>.phase: execution`.
 
 Use skillgrid:ship.
 

@@ -250,7 +250,7 @@
 
 | Field | Stale (state.yaml) | Derived (spec zone) |
 |-------|-------------------|---------------------|
-| <pipeline.current_phase> | <stale> | <derived> |
+| <changes.<slug>.phase> | <stale> | <derived> |
 
 **Fix applied:** <state.yaml patched to match / no drift / parse error: <detail>>
 

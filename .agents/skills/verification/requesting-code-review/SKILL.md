@@ -150,7 +150,7 @@ clean or capped per `_shared/planning/rigor-tiers.md` (fix loop cap).
 - If all tickets in the epic are `done`: set epic status → `done`
 - Use the tracker adapter from `skillgrid:ticketing` (Backlog.md CLI, `gh`, `glab`, `jira`)
 
-**6. Update `state.yaml`:** set `pipeline.current_phase: review`.
+**6. Update `state.yaml`:** set `changes.<topic>.phase: review`.
 
 ## Example
 

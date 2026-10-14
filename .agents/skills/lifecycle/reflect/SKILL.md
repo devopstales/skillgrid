@@ -141,7 +141,7 @@ The test mirrors the distillation heuristic: *would the same lesson strengthen a
 
 ### Step 3.5: Update `state.yaml`
 
-Set `pipeline.current_phase: reflect` (the terminal phase). `ship` already appended the topic to `progress.completed_changes` and cleared `current_change`; leave those as-is. If `current_change` was not cleared (e.g. ship degraded), clear it here so the pipeline reads idle after close.
+Set `changes.<topic>.phase: complete` (the terminal phase). `ship` already removed the entry from the `changes:` map and incremented `progress.completed_changes`; if the entry was removed by ship, re-add it with `phase: complete` and `status: complete` so the terminal state is recorded. If the entry still exists (ship degraded), update it in place.
 
 ### Step 3.6: Environment Retro (sub-phase)
 

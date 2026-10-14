@@ -14,6 +14,15 @@
  *   1 — drift detected (prints field/stale/derived table)
  *   2 — usage/parse error (state.yaml missing or unparseable)
  *
+ * state/v2 (parallel development): state.yaml carries a `changes:` map,
+ * one entry per in-flight change. The guard checks, for EVERY change dir
+ * under specs/ and EVERY map entry:
+ *   1 presence  — a specs/ dir without a map entry (or vice versa) is drift
+ *   2 phase     — map phase ≠ phase derived from the dir's artifacts is drift
+ *
+ * Legacy v1 (single `pipeline.current_change`) still parses and is checked
+ * against the newest specs/ dir, so pre-migration state files keep working.
+ *
  * ADR: ASSUMPTIONS.md § ### ADR-0008 (Node.js + yaml package, read-only verifier)
  */
 
@@ -38,11 +47,6 @@ function derivePhase(changeDir) {
   if (tasks) return "slicing";
   if (blueprint) return "blueprint";
   return "spec";
-}
-
-function hasFilledVerdict(reportContent) {
-  const m = reportContent.match(/\*\*Verdict:\*\*\s*(\w+)/);
-  return m && m[1] !== "" && m[1] !== "PASS / CONCERNS / FAIL / WAIVED";
 }
 
 function hasExecutionSignal(changeDir) {
@@ -77,12 +81,6 @@ function worstScope(a, b) {
   return SCOPE_RANK[b] > SCOPE_RANK[a] ? b : a;
 }
 
-// Scope of the active-change spec-zone enumeration. The guard's drift verdict
-// is only meaningful over the set of change dirs it could actually enumerate:
-// - specs dir missing -> UNSCOPED (the enumeration the guard would run has no
-//   boundary; the "no active change" answer is a non-answer, not a clean bill)
-// - specs dir unreadable -> UNREADABLE
-// - otherwise -> COMPLETE (the listing was read in full)
 function specsDirScope(specsDir) {
   if (!existsSync(specsDir)) return "UNSCOPED";
   try {
@@ -93,7 +91,6 @@ function specsDirScope(specsDir) {
   }
 }
 
-// Scope of the single active change dir the phase/completion checks read.
 function changeDirScope(changeDir) {
   if (!existsSync(changeDir)) return "UNREADABLE";
   try {
@@ -118,6 +115,16 @@ function isShippable(reportContent) {
   return false;
 }
 
+// --- v2: the changes map ---
+// Returns Map<changeSlug, { phase, status }> or null when absent.
+
+function readChangesMap(state) {
+  if (state && state.changes && typeof state.changes === "object") {
+    return new Map(Object.entries(state.changes));
+  }
+  return null;
+}
+
 // --- Main ---
 
 function main() {
@@ -125,7 +132,6 @@ function main() {
   const sgDir = join(root, ".skillgrid");
   const statePath = join(sgDir, "state.yaml");
   const specsDir = join(sgDir, "specs");
-  const sddDir = join(sgDir, "sdd");
 
   // Parse state.yaml
   if (!existsSync(statePath)) {
@@ -141,11 +147,10 @@ function main() {
     process.exit(2);
   }
 
-  const currentPhase = state?.pipeline?.current_phase || "";
-  const currentChange = state?.pipeline?.current_change || "";
   const completedChanges = state?.progress?.completed_changes ?? 0;
+  const changesMap = readChangesMap(state);
 
-  // Find active change dir(s)
+  // Enumerate change dirs under specs/
   let activeDirs = [];
   if (existsSync(specsDir)) {
     activeDirs = readdirSync(specsDir, { withFileTypes: true })
@@ -154,81 +159,109 @@ function main() {
       .sort();
   }
 
-  // No active change: if state is also clear, clean; if state names a change, drift
-  if (activeDirs.length === 0) {
-    const scope = specsDirScope(specsDir);
-    if (currentChange === "" || currentChange === undefined) {
-      console.log("DRIFT: none");
-      console.log(`SCOPE: ${scope}`);
-      process.exit(0);
-    }
-    // state names a change but no specs dir exists → drift
-    const drifts = [
-      {
-        field: "current_change",
-        stale: currentChange,
-        derived: "(none — no active change in specs/)",
-      },
-    ];
-    printDrift(drifts, scope);
-    process.exit(1);
-  }
-
-  // Determine the active change: if state names one, use it; else use newest
-  const stateNamed = activeDirs.includes(currentChange);
-  const activeChange = stateNamed ? currentChange : activeDirs[activeDirs.length - 1];
-  const changeDir = join(specsDir, activeChange);
-
   const drifts = [];
+  let scope = specsDirScope(specsDir);
 
-  // Check 1: phase — only when there's an active change to derive from.
-  // When current_change is empty (shipped/idle), the dirs under specs/ are
-  // closed changes, not the active one — no phase to derive.
-  if (currentChange !== "" && stateNamed) {
-    const derivedPhase = derivePhase(changeDir);
-    if (derivedPhase !== null && currentPhase !== derivedPhase) {
-      drifts.push({
-        field: "pipeline.current_phase",
-        stale: currentPhase || "(empty)",
-        derived: derivedPhase,
-      });
+  if (changesMap) {
+    // --- v2: bidirectional presence + per-change phase ---
+    for (const dir of activeDirs) {
+      scope = worstScope(scope, changeDirScope(join(specsDir, dir)));
+      if (!changesMap.has(dir)) {
+        drifts.push({
+          field: "changes",
+          stale: `(no entry)`,
+          derived: `${dir} present in specs/ — add changes.${dir}`,
+        });
+        continue;
+      }
+      const derivedPhase = derivePhase(join(specsDir, dir));
+      const entry = changesMap.get(dir);
+      if (derivedPhase !== null && entry?.phase && entry.phase !== derivedPhase) {
+        drifts.push({
+          field: `changes.${dir}.phase`,
+          stale: String(entry.phase),
+          derived: derivedPhase,
+        });
+      }
+    }
+    for (const slug of [...changesMap.keys()].sort()) {
+      if (!activeDirs.includes(slug)) {
+        drifts.push({
+          field: "changes",
+          stale: slug,
+          derived: `(no specs/${slug} dir — remove the entry or restore the dir)`,
+        });
+      }
+    }
+
+    // Check 3 (completion) — v2: any shippable change whose entry is still
+    // mapped (not shipped) while completed_changes is 0.
+    for (const dir of activeDirs) {
+      const reportPath = join(specsDir, dir, "report.md");
+      if (!existsSync(reportPath)) continue;
+      const reportContent = readFileSync(reportPath, "utf8");
+      if (isShippable(reportContent) && completedChanges < 1) {
+        drifts.push({
+          field: "progress.completed_changes",
+          stale: String(completedChanges),
+          derived: `≥ 1 (shippable verdict for ${dir}, not yet counted)`,
+        });
+        break;
+      }
+    }
+  } else {
+    // --- Legacy v1: single pipeline.current_change ---
+    const currentPhase = state?.pipeline?.current_phase || "";
+    const currentChange = state?.pipeline?.current_change || "";
+
+    if (activeDirs.length === 0) {
+      if (currentChange !== "" && currentChange !== undefined) {
+        drifts.push({
+          field: "pipeline.current_change",
+          stale: currentChange,
+          derived: "(none — no active change in specs/)",
+        });
+      }
+    } else {
+      const stateNamed = activeDirs.includes(currentChange);
+      const activeChange = stateNamed
+        ? currentChange
+        : activeDirs[activeDirs.length - 1];
+      const changeDir = join(specsDir, activeChange);
+      scope = worstScope(scope, changeDirScope(changeDir));
+
+      if (currentChange !== "" && stateNamed) {
+        const derivedPhase = derivePhase(changeDir);
+        if (derivedPhase !== null && currentPhase !== derivedPhase) {
+          drifts.push({
+            field: "pipeline.current_phase",
+            stale: currentPhase || "(empty)",
+            derived: derivedPhase,
+          });
+        }
+      }
+      if (currentChange !== "" && !stateNamed) {
+        drifts.push({
+          field: "pipeline.current_change",
+          stale: currentChange,
+          derived: activeChange,
+        });
+      }
+      for (const dir of activeDirs) {
+        const reportPath = join(specsDir, dir, "report.md");
+        if (!existsSync(reportPath)) continue;
+        const reportContent = readFileSync(reportPath, "utf8");
+        if (isShippable(reportContent) && completedChanges < 1) {
+          drifts.push({
+            field: "progress.completed_changes",
+            stale: String(completedChanges),
+            derived: `≥ 1 (shippable verdict for ${dir}, not yet counted)`,
+          });
+          break;
+        }
+      }
     }
   }
-
-  // Check 2: change — only flags when current_change is non-empty and
-  // doesn't match any dir under specs/. An empty current_change with dirs
-  // present is the normal post-ship / idle state (no in-flight change).
-  if (currentChange !== "" && !stateNamed) {
-    drifts.push({
-      field: "pipeline.current_change",
-      stale: currentChange,
-      derived: activeChange,
-    });
-  }
-
-  // Check 3: completion — scan ALL active change dirs for shippable
-  // verdicts. If any change has a shippable verdict (PASS, WAIVED, or
-  // CONCERNS+override) and completed_changes is 0, that's drift: at least
-  // one change has reached the ship-able state but the counter wasn't
-  // incremented.
-  for (const dir of activeDirs) {
-    const dirPath = join(specsDir, dir);
-    const reportPath = join(dirPath, "report.md");
-    if (!existsSync(reportPath)) continue;
-    const reportContent = readFileSync(reportPath, "utf8");
-    if (isShippable(reportContent) && completedChanges < 1) {
-      drifts.push({
-        field: "progress.completed_changes",
-        stale: String(completedChanges),
-        derived: `≥ 1 (shippable verdict for ${dir}, not yet counted)`,
-      });
-      break;
-    }
-  }
-
-  // Composite scope: the worst of the enumeration scope and the active change
-  // dir the phase/completion checks read (verification-scope.md: worst-scope-wins).
-  const scope = worstScope(specsDirScope(specsDir), changeDirScope(changeDir));
 
   if (drifts.length === 0) {
     console.log("DRIFT: none");
@@ -250,7 +283,9 @@ function printDrift(drifts, scope) {
   }
   console.log("");
   console.log(`SCOPE: ${scope}`);
-  console.log("Fix: update .skillgrid/state.yaml to match the spec-zone artifacts.");
+  console.log(
+    "Fix: update .skillgrid/state.yaml to match the spec-zone artifacts (changes map in v2)."
+  );
 }
 
 main();

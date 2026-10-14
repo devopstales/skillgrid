@@ -60,8 +60,8 @@ Wait for the user's response. If they request changes, make them and re-run the 
 
 **Implementation:**
 
-- **Update `state.yaml`:** set `pipeline.current_change: <topic>` and `pipeline.current_phase: spec`.
-- **Acquire session lock:** run `node scripts/state-lock.mjs acquire <topic> [session-id]`. Exit 1 (conflict with an active lock for a different change) → surface the warning to the user (advisory, don't block). Exit 0 → continue. The lock is released by `skillgrid:ship` when it clears `current_change`.
+- **Update `state.yaml`:** add `changes.<topic>: { phase: spec, status: in_progress }` to the `changes:` map. If the entry already exists (re-running brainstorming), update its `phase` and `status`.
+- **Acquire session lock:** run `node scripts/state-lock.mjs acquire <topic> [session-id]`. Exit 1 (conflict with an active lock for a different change) → surface the warning to the user (advisory, don't block). Exit 0 → continue. The lock is released by `skillgrid:ship` when it removes the `changes.<topic>` entry.
 - Invoke the skillgrid:writing-blueprints skill to create a detailed implementation plan
 - Do NOT invoke any other skill. skillgrid:writing-blueprints is the next step.
 

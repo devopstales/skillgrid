@@ -46,9 +46,9 @@ request (the agent re-reading and re-interpreting the prose).
 
 ```markdown
 # BAD — prose describing a deterministic check
-If the state file has `current_phase: spec` but the spec directory contains
-`blueprint.md`, there is a drift. Report it as a WARNING. If the state file
-is missing or unparseable, report the parse error as a WARNING.
+If the state file has `changes.<slug>.phase: spec` but the spec directory
+contains `blueprint.md`, there is a drift. Report it as a WARNING. If the
+state file is missing or unparseable, report the parse error as a WARNING.
 
 # GOOD — one line calling the script
 Run `node .agents/skills/verification/qa/scripts/state-drift-check.mjs` from the project

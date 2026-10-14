@@ -69,7 +69,7 @@ Mnemonic (when `mnemonic.enabled: true`) is a **fallback index**, not a layer: u
 
 ### 1. Locate the topic
 
-Read `.skillgrid/state.yaml` first — `pipeline.current_change` + `pipeline.current_phase` name the topic and phase in one glance. If `current_change` is empty, fall back to the newest directory under `conventions.specs_root` (default `.skillgrid/specs/`) that has in-flight artifacts — an uncompleted `tasks.md`, a latest commit whose `[skillgrid-context]` block has non-empty `Remaining:`, or a ledger. A branch name or ticket ID names the topic directly. If nothing is in flight, this skill is not for you; go back to `skillgrid:using-skillgrid`.
+Read `.skillgrid/state.yaml` first — the `changes:` map lists every in-flight change with its `slug`, `phase`, and `status`. If the user names a specific change, locate its entry. If no change is named, list all in-flight entries (those with `status: in_progress`) and ask which one to resume, or default to the most recently active. If the map is empty, fall back to the newest directory under `conventions.specs_root` (default `.skillgrid/specs/`) that has in-flight artifacts — an uncompleted `tasks.md`, a latest commit whose `[skillgrid-context]` block has non-empty `Remaining:`, or a ledger. A branch name or ticket ID names the topic directly. If nothing is in flight, this skill is not for you; go back to `skillgrid:using-skillgrid`.
 
 ### 2. Read the layers, in order
 
@@ -87,12 +87,12 @@ and if they disagree, **trust the disk and repair the pointer**:
 
 | Field | Trust | Repair |
 |-------|-------|--------|
-| `pipeline.current_change` | the newest in-flight spec dir on disk | point it at that dir |
-| `pipeline.current_phase` | the phase the spec-zone artifacts actually show (the table in Step 2) | set it to the artifact-derived phase |
+| `changes.<slug>` entries | the in-flight spec dirs on disk (bidirectional: every `specs/<slug>/` dir needs a map entry and vice versa) | add missing entries or remove stale ones |
+| `changes.<slug>.phase` | the phase the spec-zone artifacts actually show (the table in Step 2) | set it to the artifact-derived phase |
 | `completed_changes` | the archived spec dirs (`.skillgrid/archive/`) | add the dir that moved to archive |
 
 Rules:
-- **Never reset** `pipeline` or `progress` to a "clean" value to make the drift
+- **Never reset** `changes` or `progress` to a "clean" value to make the drift
   go away — reconcile each drifted field to its artifact-derived value and note
   what you changed.
 - A drift you find here is **advisory at resume**: it never blocks the resume,

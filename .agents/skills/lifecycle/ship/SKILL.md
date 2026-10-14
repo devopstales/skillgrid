@@ -149,7 +149,7 @@ If the change is **trivial** (per the trivial-skip rule in `_shared/planning/rig
 **Next**: reflect — completes `report.md`'s retro half in the archive (integration + retro + archive summary) + session close
 ```
 
-**Update `state.yaml`:** append the shipped `<topic>` to `progress.completed_changes`, and clear `pipeline.current_change` + `pipeline.current_phase` (the pipeline is now idle, awaiting the next change or `reflect`).
+**Update `state.yaml`:** remove the `changes.<topic>` entry from the map, and increment `progress.completed_changes`. If the change was blocked, also decrement `progress.blocked_changes`. (The pipeline is now idle for this change; other changes may remain in the map.)
 
 **Release session lock:** run `node scripts/state-lock.mjs release <topic>`. Always exit 0 (no-op if the lock doesn't name this change).
 

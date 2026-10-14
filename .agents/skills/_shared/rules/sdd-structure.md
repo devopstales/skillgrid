@@ -106,7 +106,7 @@ Planning-phase detection (which spec files exist, whether `tasks.md` is checked)
 
 ### Phase derivation (canonical)
 
-The deepest artifact present in the active change dir determines the phase. This is the single source of truth for routing — `state.yaml`'s `pipeline.current_phase` is a cache, not the source.
+The deepest artifact present in the change dir determines the phase. This is the single source of truth for routing — `state.yaml`'s `changes.<slug>.phase` is a cache, not the source.
 
 | Deepest artifact present | Derived phase | Next skill |
 |---|---|---|
@@ -172,24 +172,29 @@ This is a bounded routing token, not human prose. The human-readable explanation
 
 Two complementary files, both committed. They are the project-level state and knowledge — distinct from the per-change `specs/` artifacts.
 
-**`state.yaml`** is the *dynamic* project state — where the project is right now. It is updated on every phase transition by the pipeline skill that owns that phase. Schema:
+**`state.yaml`** is the *dynamic* project state — where the project is right now. It is updated on every phase transition by the pipeline skill that owns that phase. Schema (v2, `changes:` map):
 
 ```yaml
-schema: skillgrid/state/v1
-pipeline:
-  current_phase: "execution"          # brainstorming | blueprint | slicing | execution | qa | review | ship | reflect
-  current_change: "2026-09-21-sessions-activity-unification"
-  status: in_progress
+schema: skillgrid/state/v2
+changes:
+  2026-09-21-sessions-activity-unification:
+    phase: "execution"                # spec | blueprint | slicing | execution | qa | review | ship | reflect | complete
+    status: in_progress               # in_progress | blocked | complete
+  2026-10-08-context-orchestrator:
+    phase: "execution"
+    status: in_progress
 progress:
   completed_changes: 18
   blocked_changes: 0
 constraints_ref: .skillgrid/ASSUMPTIONS.md                       # pointer, not a copy
-notes: "Serial development: one change at a time."
+notes: "Parallel development: changes map tracks in-flight changes."
 ```
 
-- `pipeline.current_change` + `current_phase` are the **resume pointer** — `resume` and `using-skillgrid` read them first, replacing the old "find newest `specs/` dir" heuristic.
+- The `changes:` map is the **resume pointer** — `resume` and `using-skillgrid` read it first, replacing the old "find newest `specs/` dir" heuristic. Each entry's `slug` is the `specs/<slug>/` directory name; `phase` + `status` describe where that change is right now.
+- **Parallel development:** multiple changes may coexist in the map simultaneously. There is no single "active" change — every entry is its own independent pipeline position.
 - `constraints_ref` points at `.skillgrid/ASSUMPTIONS.md` (the durable project understanding); operational rules live in AGENTS.md's `### Rules` section, not in `state.yaml`.
-- Onboarding creates it. `ship` increments `completed_changes` and clears `current_change`. `reflect` writes the terminal phase.
+- Onboarding creates it with an empty `changes:` map. `ship` removes the change's entry from the map and increments `completed_changes`. `reflect` sets the entry's `phase: complete`.
+- **Legacy v1** (single `pipeline.current_change` + `current_phase`) is still parsed by the drift guard for backward compatibility, but new writes use v2.
 
 **`ASSUMPTIONS.md`** (root) is the *durable* project understanding — the four tiers `## VERIFIED` / `## INFERRED (HYPOTHESIS)` / `## LOCKED` / `## Open Questions`. `## LOCKED` is **the ADR index only**: one pointer row per in-force decision (a short description + the path to the record). `status`, `supersedes`, and `date` live in the file's frontmatter, not the row. The decision body is the file. Operational rules that are *not* decisions (build toolchain floor, commit format, dependency policy, spec/code zone order) live in AGENTS.md's `### Rules` section, not here.
 
@@ -202,7 +207,7 @@ notes: "Serial development: one change at a time."
 | Skill | Creates / updates | Path |
 |---|---|---|
 | onboarding | skeleton | `config.yaml`, `state.yaml`, `ASSUMPTIONS.md`, `ARCHITECTURE.md` (lazy), `artifacts/` zone (README + 06-research-findings), AGENTS block, `.gitignore` |
-| brainstorming | briefing + state (questioning via agent answer-select tool) | `specs/<topic>/briefing.md`, `specs/<topic>/adr.md`, `artifacts/00-prd.md` (new project, or when scope changes), `ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (phase + current_change) |
+| brainstorming | briefing + state (questioning via agent answer-select tool) | `specs/<topic>/briefing.md`, `specs/<topic>/adr.md`, `artifacts/00-prd.md` (new project, or when scope changes), `ASSUMPTIONS.md` (VERIFIED/INFERRED tiers auto-written; LOCKED on user OK), `state.yaml` (`changes.<topic>` entry) |
 | architectural-decision-records | terms + ADRs | `artifacts/01-business-terms.md`, `artifacts/02-technical-terms.md`, `artifacts/04-adr-NNNN-slug.md`, `ASSUMPTIONS.md` (§ `LOCKED` ADR index pointer row only) |
 | knowledge-base | concepts + catalogs | `.skillgrid/<decisions\|invariants\|workflows\|glossary\|reference>/*.md` + root `index.md` / `log.md` / `reverse-index.md` (same-edit rule; post-R6 paths, pre-R6 `artifacts/`); ADR numbering stays with `architectural-decision-records` |
 | research | findings | `specs/<topic>/findings.md` (`## Research:` section) + durable findings to `artifacts/06-research-findings.md` |
@@ -215,7 +220,7 @@ notes: "Serial development: one change at a time."
 | execution | progress + state | `sdd/<plan>/progress.md` + `tasks.md` `[x]` marks + session `commit` events, `state.yaml` (phase) |
 | qa | report (QA half) + state | `specs/<topic>/report.md` (test plan + verdict + evidence; retro half left empty), `state.yaml` (phase) |
 | review | findings + state | `specs/<topic>/` (review artifacts), `state.yaml` (phase) |
-| ship | move + state | **moves** `specs/<topic>/` → `archive/YYYY-MM-DD-<topic>/`; `state.yaml` (completed_changes +1, current_change cleared) |
+| ship | move + state | **moves** `specs/<topic>/` → `archive/YYYY-MM-DD-<topic>/`; `state.yaml` (remove `changes.<topic>` entry, completed_changes +1) |
 | reflect | report (retro half) + state + artifacts | completes `archive/YYYY-MM-DD-<topic>/report.md` in place (from `## Final-State Facts` onward); lifts durable findings to `artifacts/06-research-findings.md`; `state.yaml` (terminal phase) + Mnemonic session close |
 
 ## Writing Rules
@@ -246,8 +251,8 @@ usage/parse error.
 
 | Check | Spec-zone source of truth | `state.yaml` field | Drift when |
 |-------|--------------------------|-------------------|------------|
-| 1 phase | deepest present artifact in `specs/<change>/` | `pipeline.current_phase` | field ≠ derived phase |
-| 2 change | active change dir under `specs/` | `pipeline.current_change` | field names a dir that isn't the active one |
+| 1 phase | deepest present artifact in `specs/<change>/` | `changes.<slug>.phase` | map entry's phase ≠ derived phase |
+| 2 presence | every `specs/<slug>/` dir vs `changes:` map keys | `changes:` map | dir exists without a map entry, or map entry names a dir that doesn't exist (bidirectional) |
 | 3 completion | `report.md` shippable verdict (PASS, WAIVED, or CONCERNS+override) on any change dir | `progress.completed_changes` | shippable change exists but counter is 0 |
 
 ### Phase derivation (Check 1)
@@ -263,8 +268,7 @@ matching the Artifact File Paths table above:
 | `tasks.md` + `sdd/<plan>/progress.md` with `[x]` or `tasks.md` with `[x]` | `execution` |
 | `report.md` (any content — qa writes the Test Plan first, then the verdict) | `qa` |
 
-When `current_change` is empty (shipped/idle), no phase is derived — the
-dirs under `specs/` are closed changes, not the active one.
+For v2: every `specs/<slug>/` dir is compared against its `changes.<slug>` entry. A dir with no map entry is presence drift (Check 2); a map entry with no dir is also presence drift. Phase drift (Check 1) is per-entry.
 
 ### Wiring
 
@@ -316,15 +320,16 @@ block — it warns.
 **CLI:** `node scripts/state-lock.mjs <acquire|release|check> [args]`.
 
 **Lifecycle:**
-- **`brainstorming`** (acquire): after setting `current_change`, runs
+- **`brainstorming`** (acquire): after adding the `changes.<topic>` entry, runs
   `acquire <topic> [session-id]`. Exit 1 (active lock for a different
   change) → surface the conflict warning (advisory). Exit 0 → continue.
-- **`ship`** (release): after clearing `current_change`, runs
+- **`ship`** (release): after removing the `changes.<topic>` entry, runs
   `release <topic>`. Always exit 0.
 - **Stale threshold:** 2 hours. A stale lock is overwritten with a warning.
 
-**Rule:** advisory only. The serial rule ("one change at a time") is a human
-decision; the lock surfaces conflicts without enforcing them.
+**Rule:** advisory only. With parallel development, the lock warns about
+concurrent sessions touching the *same* change; different changes can
+proceed independently.
 
 ## Byte budget (SKILL.md size ratchet)
 

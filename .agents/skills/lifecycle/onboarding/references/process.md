@@ -215,8 +215,8 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 
 **2. Write `.skillgrid/state.yaml` (create if absent; merge if present):**
 - Schema per `_shared/rules/sdd-structure.md` (§ `state.yaml` and `artifacts/`).
-- Initialize: `pipeline.current_phase: brainstorming`, `pipeline.current_change: ""`, `pipeline.status: pending`, `progress.completed_changes: <count of `.skillgrid/archive/*/` dirs>`, `progress.blocked_changes: 0`, `constraints_ref: .skillgrid/ASSUMPTIONS.md`, `notes: ""`.
-- If the file already exists (re-onboarding), keep the existing `pipeline` + `progress` values; only fill missing keys. Never reset `completed_changes`.
+- Initialize: `schema: skillgrid/state/v2`, `changes: {}` (empty map — filled as changes start), `progress.completed_changes: <count of `.skillgrid/archive/*/` dirs>`, `progress.blocked_changes: 0`, `constraints_ref: .skillgrid/ASSUMPTIONS.md`, `notes: ""`.
+- If the file already exists (re-onboarding), keep the existing `changes` + `progress` values; only fill missing keys. Never reset `completed_changes`. If the file is still v1 (has `pipeline:` instead of `changes:`), migrate: move `pipeline.current_change` + `pipeline.current_phase` into a single `changes.<slug>` entry if `current_change` is non-empty; remove the `pipeline:` key.
 
 **3. Create the durable-knowledge zone (create if absent; merge if present):**
 - If `.skillgrid/ASSUMPTIONS.md` is absent, create it from the shape in `_shared/rules/sdd-structure.md` — the four tiers `## VERIFIED`, `## INFERRED (HYPOTHESIS)`, `## LOCKED` (the ADR index: one pointer row per in-force decision, path to `artifacts/04-adr-NNNN-slug.md`; `status`/`supersedes`/`date` live in the file's frontmatter, not the row), and `## Open Questions`. Operational rules are NOT a tier here — they live in AGENTS.md's `### Rules` section. On a fresh project the tiers start empty.

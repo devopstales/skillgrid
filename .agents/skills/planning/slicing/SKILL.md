@@ -186,7 +186,7 @@ is the point.
 
 Always invoke `skillgrid:ticketing` after slicing writes `tasks.md`. Slicing never branches around the Ticketing step; it hands off to the separate Ticketing skill, which reads `.skillgrid/config.yaml` and either publishes tickets to the configured tracker or records a local-only waiver when no tracker is active.
 
-**Update `state.yaml`:** set `pipeline.current_phase: slicing`.
+**Update `state.yaml`:** set `changes.<topic>.phase: slicing`.
 
 Then present the execution choice:
 
