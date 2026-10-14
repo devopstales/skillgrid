@@ -1,9 +1,10 @@
 ---
 id: TASK-086
 title: T18 Checkpoint (goal.ts) + two-review done gate
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:14'
+updated_date: '2026-10-14 09:33'
 labels:
   - skill-pi
   - swarm

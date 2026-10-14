@@ -1,9 +1,10 @@
 ---
-id: TASK-069
+id: TASK-103
 title: T01 skill-pi/ module skeleton + ADR-0042 dependency pin
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:07'
+updated_date: '2026-10-14 09:33'
 labels:
   - skill-pi
   - tracing

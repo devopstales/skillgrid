@@ -1,10 +1,10 @@
 ---
 id: TASK-096
 title: '[FEATURE] CTX T08 wrap E2E: agent turn through proxy with savings (mnemonic)'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:35'
-updated_date: '2026-10-09 13:41'
+updated_date: '2026-10-12 11:10'
 labels:
   - mnemonic
   - wrap
@@ -61,3 +61,9 @@ Expected State:
 3. Assert the agent's source tree is byte-identical before/after the launch.
 4. SATISFIES scenario: wrap-e2e-savings.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Test-only ticket: added `mnemonic/internal/ctx/wrap/e2e_test.go` proving the launcher (T07) + proxy (T04/T05) + store (T02) path works end-to-end. A wrapped claude (bash+curl stub that reads the injected ANTHROPIC_BASE_URL) POSTs one real turn to `<proxy>/v1/messages`; the real proxy (token mode, SavingsHeaders on, real shared store) transforms the body ([ctx-summarized] marker), forwards to an httptest upstream, and writes X-CTX-Savings non-zero + status 200 back. Telemetry lands on the real shared store (ListProxySavings/GetProxySession for the x-ctx-session tag) and the agent source tree is byte-identical before/after. SATISFIES wrap-core4-launches end-to-end Then clause. Commits: 6035d03a (E2E) + 5a5c38fb (review F1 proxyEnvMu env-guard + NOTE, F4 upstreamMu race-guard; -race clean). No production code changed.
+<!-- SECTION:FINAL_SUMMARY:END -->

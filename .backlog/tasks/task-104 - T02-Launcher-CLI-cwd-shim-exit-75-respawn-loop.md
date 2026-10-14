@@ -1,14 +1,15 @@
 ---
-id: TASK-070
+id: TASK-104
 title: T02 Launcher CLI + cwd shim + exit-75 respawn loop
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:08'
+updated_date: '2026-10-14 09:33'
 labels:
   - skill-pi
   - tracing
 dependencies:
-  - TASK-069
+  - TASK-103
 references:
   - .skillgrid/specs/2026-10-09-skill-pi/tasks.md
   - .skillgrid/specs/2026-10-09-skill-pi/acceptance.feature

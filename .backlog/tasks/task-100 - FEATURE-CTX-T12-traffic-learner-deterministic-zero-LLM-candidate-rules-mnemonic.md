@@ -6,7 +6,7 @@ title: >-
 status: done
 assignee: []
 created_date: '2026-10-09 13:38'
-updated_date: '2026-10-12 15:14'
+updated_date: '2026-10-12 16:50'
 labels:
   - mnemonic
   - traffic
@@ -64,3 +64,9 @@ Expected State:
 4. Tests: a deterministic corpus produces the same candidate set on repeated runs; categories assigned correctly; a candidate is created only when its trigger rule matches.
 5. SATISFIES scenarios: traffic-deterministic, traffic-categorize, traffic-no-false-positive.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+CTX traffic learner (zero-LLM deterministic candidate rules). internal/ctx/traffic/{rules,learner,evict}.go + rules.yaml (4 rules: er_fail_then_ok 0.8, env_repeated_command 0.7, pref_message_repetition 0.7, arch_path_prefix 0.7). Pure Learner.Extract (no http/model → extract path cannot LLM). Cross-rule first-match-wins via consumed map[int]bool keyed by event Seq (emitted candidate consumes evidence; below-floor skips without consuming). pathPrefix restricted to directory boundaries (no-shared-dir corpus → 0 candidates, AC#3). Deterministic identity memoryID=hex(sha256[:20](sessionID|ruleID|key)). EvictToBound enforces max_memories (confidence ASC, created_at ASC, fail-open). Additive store methods ListAllTrafficMemories/DeleteTrafficMemory (fail-open). Stdlib only, shared store (ADR-0033). Impls dc20f834 + rework f92e97f5 (closed C1 pathPrefix false-positive, C2 cross-rule first-match-wins, I2 sha1→sha256). Gates green: build 0, traffic 30/30, store ok, vet 0. Review Spec SATISFIED, Quality APPROVED (2 Minor parked).
+<!-- SECTION:FINAL_SUMMARY:END -->

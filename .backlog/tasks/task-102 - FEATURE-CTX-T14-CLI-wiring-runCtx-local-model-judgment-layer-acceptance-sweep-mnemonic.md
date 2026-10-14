@@ -3,10 +3,10 @@ id: TASK-102
 title: >-
   [FEATURE] CTX T14 CLI wiring (runCtx) + local-model judgment layer +
   acceptance sweep (mnemonic)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:39'
-updated_date: '2026-10-09 13:44'
+updated_date: '2026-10-13 19:03'
 labels:
   - mnemonic
   - cli

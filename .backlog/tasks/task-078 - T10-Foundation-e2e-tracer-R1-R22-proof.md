@@ -1,9 +1,10 @@
 ---
 id: TASK-078
 title: T10 Foundation e2e tracer (R1-R22 proof)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:11'
+updated_date: '2026-10-14 09:33'
 labels:
   - skill-pi
   - tracing

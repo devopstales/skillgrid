@@ -1,9 +1,10 @@
 ---
 id: TASK-085
 title: T17 Subagent spawner (spawn.ts) + role prompts
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:14'
+updated_date: '2026-10-14 09:33'
 labels:
   - skill-pi
   - swarm

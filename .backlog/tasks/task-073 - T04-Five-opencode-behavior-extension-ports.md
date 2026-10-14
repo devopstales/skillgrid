@@ -1,9 +1,10 @@
 ---
 id: TASK-073
 title: T04 Five opencode-behavior extension ports
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:09'
+updated_date: '2026-10-14 09:33'
 labels:
   - skill-pi
   - tracing

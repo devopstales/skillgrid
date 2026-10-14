@@ -1,9 +1,10 @@
 ---
 id: TASK-084
 title: T16 Worktree isolation (worktree.ts)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:13'
+updated_date: '2026-10-14 09:33'
 labels:
   - skill-pi
   - swarm

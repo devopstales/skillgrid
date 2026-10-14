@@ -3,10 +3,10 @@ id: TASK-093
 title: >-
   [FEATURE] CTX T05 proxy protocol passthrough: HTTP/1.1, HTTP/2, SSE, WebSocket
   (mnemonic)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:34'
-updated_date: '2026-10-09 13:40'
+updated_date: '2026-10-12 08:59'
 labels:
   - mnemonic
   - proxy
@@ -63,3 +63,9 @@ Expected State:
 5. Add a test: an HTTP/2 request completes without truncation.
 6. SATISFIES scenarios: proxy-sse, proxy-websocket, proxy-http2.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T05 protocol passthrough complete. stream.go (WS upgrade detect + hijack bidirectional pipe, bufio 16KiB, hop-by-hop strip, upstream-auth replace; 502 returns descriptive err) + stream_test.go (SSE 50-chunk in-order/complete, WS handshake+ping/pong, TLS/ALPN h2, cleartext h2c round-trip asserting proto==HTTP/2.0, M1 Bearer replace, M3 chunked body). proxy.go routes WS BEFORE savings transform; M3 explicit Content-Length/Transfer-Encoding copy. ctx_proxy.go: real h2c via Server.Protocols{HTTP1,UnencryptedHTTP2} (no-op h2cHandler removed), M2 isLoopbackBind via net.ParseIP().IsLoopback() + localhost->loopback. Closed T04-parked M1/M2/M3. Commits b954758a+e611a2fb (impl) + d87218ca (fix: real h2c + 4 Minors). Review Approved (1 Imp + 4 Minor, all closed). Gates green: build 0, ctx/proxy 34 tests ok, store+config ok, vet 0, gofmt clean. Stdlib only (x/net test-only).
+<!-- SECTION:FINAL_SUMMARY:END -->

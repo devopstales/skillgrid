@@ -1,9 +1,10 @@
 ---
 id: TASK-075
 title: T06 pi-tui TUI
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:10'
+updated_date: '2026-10-14 09:33'
 labels:
   - skill-pi
   - tracing

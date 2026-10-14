@@ -1,9 +1,10 @@
 ---
 id: TASK-071
 title: T03 Global config + system prompt delta
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:08'
+updated_date: '2026-10-14 09:33'
 labels:
   - skill-pi
   - tracing

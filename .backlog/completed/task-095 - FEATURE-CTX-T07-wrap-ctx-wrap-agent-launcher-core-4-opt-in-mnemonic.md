@@ -1,10 +1,10 @@
 ---
 id: TASK-095
 title: '[FEATURE] CTX T07 wrap: ctx wrap <agent> launcher (core-4 + opt-in) (mnemonic)'
-status: needs-triage
+status: wontfix
 assignee: []
 created_date: '2026-10-09 13:35'
-updated_date: '2026-10-09 13:41'
+updated_date: '2026-10-12 10:34'
 labels:
   - mnemonic
   - wrap
@@ -66,3 +66,9 @@ Expected State:
 6. Tests: wrap claude starts proxy + injects config + writes backup + launches stub; turn completes with savings headers; re-run idempotent; opt-in aider works, non-opt-in rejected.
 7. SATISFIES scenarios: wrap-launch, wrap-idempotent, wrap-optin.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T07 (wrap launcher) complete. Impl ba1e4ab1 + I1/M1/M2 fix 52f56e48. Review APPROVED (0 Crit, 1 Imp closed, 2 Minor parked). `ctx wrap <agent>` starts loopback proxy, backs up pre-inject state, env-injects the base-URL, launches the agent subprocess; core-4 + opt-in, idempotent across CLI re-runs via persisted wrap-state marker; agent code never modified. SATISFIES wrap-core4-launches + wrap-optin-agent.
+<!-- SECTION:FINAL_SUMMARY:END -->

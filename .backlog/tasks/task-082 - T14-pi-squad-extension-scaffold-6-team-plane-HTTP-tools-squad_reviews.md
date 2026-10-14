@@ -1,9 +1,10 @@
 ---
 id: TASK-082
 title: T14 pi squad extension scaffold (6 team-plane HTTP tools + squad_reviews)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:12'
+updated_date: '2026-10-14 09:33'
 labels:
   - skill-pi
   - swarm

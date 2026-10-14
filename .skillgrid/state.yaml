@@ -27,9 +27,6 @@ changes:
   2026-10-09-adr-knowledge-index:
     phase: blueprint
     status: in-progress
-  2026-10-09-skill-pi:
-    phase: execution
-    status: in-progress
   2026-10-10-obs-split-hnsw:
     phase: qa
     status: qa-gate-pass

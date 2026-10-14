@@ -3,10 +3,10 @@ id: TASK-094
 title: >-
   [FEATURE] CTX T06 /v1/compress endpoint (loopback-only) + mode-switch runtime
   (mnemonic)
-status: needs-triage
+status: wontfix
 assignee: []
 created_date: '2026-10-09 13:34'
-updated_date: '2026-10-09 13:41'
+updated_date: '2026-10-12 09:40'
 labels:
   - mnemonic
   - proxy
@@ -65,3 +65,21 @@ Expected State:
 5. Tests: loopback POST returns compressed list with no upstream call; non-loopback POST -> 404 (assert not 403); cache->token switch writes history + emits event + GET /stats shows token; env+restart starts in that mode.
 6. SATISFIES scenarios: compress-loopback, compress-404, mode-switch, mode-env.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+T06 (TASK-094) /v1/compress endpoint (loopback-only) + mode-switch runtime. Commit b478a781. Review APPROVED (0 Crit/0 Imp, 4 Minor parked). SATISFIES compress-endpoint-loopback, mode-switch-emitted.
+
+compress.go: POST /v1/compress loopback-only via net.ParseIP(host).IsLoopback(); non-loopback -> 404 (not 403), method-agnostic; reuses applyTransform with NO upstream call + NO savings headers; ADR-0016 fail-open to input on transform fault; GET /stats exposes current mode + live session counters.
+mode.go: GetMode() (RLock), SetMode(new, reason) validates + same-mode no-op + flips under write lock + writes ctx_proxy_mode_history row + fires SetModeEventSink (I/O + sink outside lock).
+proxy.go: sync.RWMutex guards mode; /v1/compress + /stats short-circuit before the forward path; forward path reads p.GetMode().
+
+ACs all green: loopback 200 + 0 upstream (token+cache), non-loopback 404-not-403, switch -> history row + event + /stats token, CTX_PROXY_MODE restart-to-mode. Stdlib only, shared store (ADR-0033). Gates green (build 0, ctx/proxy ok, store+config ok, vet 0, gofmt clean).
+
+[skillgrid-context]
+change: 2026-10-08-context-orchestrator
+ticket: TASK-094
+wave: 4
+pr: PR2
+<!-- SECTION:FINAL_SUMMARY:END -->

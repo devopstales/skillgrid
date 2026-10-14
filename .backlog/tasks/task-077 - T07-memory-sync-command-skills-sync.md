@@ -1,9 +1,10 @@
 ---
 id: TASK-077
 title: T07 /memory-sync command + skills sync
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:10'
+updated_date: '2026-10-14 09:33'
 labels:
   - skill-pi
   - tracing

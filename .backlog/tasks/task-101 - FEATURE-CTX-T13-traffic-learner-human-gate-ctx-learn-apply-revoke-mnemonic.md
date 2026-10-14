@@ -3,10 +3,10 @@ id: TASK-101
 title: >-
   [FEATURE] CTX T13 traffic learner human-gate: ctx learn apply/revoke
   (mnemonic)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-09 13:38'
-updated_date: '2026-10-09 13:44'
+updated_date: '2026-10-13 09:54'
 labels:
   - mnemonic
   - traffic
@@ -39,18 +39,18 @@ Expected State:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 go test ./internal/ctx/traffic/... green: apply marks a candidate promoted and it appears in subsequent compression context
-- [ ] #2 revoke reverts a promoted candidate; it no longer appears
-- [ ] #3 A non-candidate id is rejected with a clear error (human-gate: only existing candidates promote)
+- [x] #1 go test ./internal/ctx/traffic/... green: apply marks a candidate promoted and it appears in subsequent compression context
+- [x] #2 revoke reverts a promoted candidate; it no longer appears
+- [x] #3 A non-candidate id is rejected with a clear error (human-gate: only existing candidates promote)
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Tests pass (`go test ./...` for touched packages)
-- [ ] #2 Lint and formatting pass
-- [ ] #3 Edge cases covered
-- [ ] #4 No new warnings introduced
-- [ ] #5 Spec/docs updated if behavior changes
+- [x] #1 Tests pass (`go test ./...` for touched packages)
+- [x] #2 Lint and formatting pass
+- [x] #3 Edge cases covered
+- [x] #4 No new warnings introduced
+- [x] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -63,3 +63,9 @@ Expected State:
 5. Tests: apply marks promoted + appears in context; revoke reverts + disappears; non-candidate id rejected.
 6. SATISFIES scenarios: learn-apply, learn-revoke, learn-gate.
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Human-gate promotion lifecycle for traffic memories (plan §18 M23, no automatic promotion). Migration 068_ctx_traffic_memory_status.sql adds status (candidate/applied/revoked, default candidate) + applied_at to ctx_traffic_memories idempotently (duplicate-column skip makes re-runs safe; CREATE TABLE carries cols for fresh DB). Store: TrafficMemory gains Status/AppliedAt; SetTrafficMemoryStatus(memoryID, status, appliedAt) returns (bool,error) — appliedAtMode "set" (apply) vs "clear" (demote → applied_at NULL); pre-068 fail-open (ADR-0016) in trafficMemorySelectCols(), PutTrafficMemory(), and a hasTrafficMemoryStatus() probe so the UPDATE degrades to a no-op when the cols are absent. Gate: internal/ctx/traffic/gate.go NewGate(*ctxstore.Store) with Apply(id), Revoke(id), ActiveMemories(sessionID) — all nil-store safe; not-found error only surfaces in the CLI, never the request path. Context seam: internal/ctx/proxy/memcontext.go activeMemoryContext/prependMemoryContext + proxy.go SetGate/gateRef/memoryContext wired into serveCompress (compress.go) so applied memories are prepended to subsequent compression context; default proxy runs nil gate → fail-open, no behavior change until T14 wires cfg.Traffic. CLI: cmd/mnemonic/ctx_learn.go runCtxLearnAction(apply|revoke) + ctx.go dispatch, openCtxStoreForLearn reuses the runCtxProxy store-resolution pattern. Stdlib only. Gates green: go build ./... exit 0; go test ./internal/ctx/traffic/... (6 gate tests) ok; ./internal/ctx/store/... (incl. TestMigration068TrafficMemoryStatus) ok; ./internal/ctx/proxy/... (5 context-injection tests) ok; go vet exit 0; gofmt -l on the 10 touched files clean. AC1 apply-promoted+appears (TestGate_ApplyPromotesAndIsActive + memcontext tests), AC2 revoke-reverts+disappears (TestGate_RevokeRevertsAndDisappears, row kept status=revoked applied_at=NULL), AC3 non-candidate id rejected (TestGate_NotFoundRejected, no row created). Commit 41ec139e.
+<!-- SECTION:FINAL_SUMMARY:END -->
