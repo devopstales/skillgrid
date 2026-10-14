@@ -7,6 +7,7 @@
 #   task seed-test     run the Mnemonic all-stores seed integration tests
 #   task skill-pi:install install the pinned pi runtime into ~/.skill-pi
 #   task skill-pi:build build skill-pi (syntax check + executable bin + pi install + link)
+#   task skill-pi:uninstall uninstall the dev link, node_modules, and per-project .skill-pi/ shim
 #   task skill-pi:test run the skill-pi Node test suite (node --test)
 #   task site:build    build the Hugo docs site into site/public
 #   task site:serve    run the Hugo dev server for the docs site
@@ -110,6 +111,13 @@ tasks:
       SKILL_PI_TRUST_AUTO: "1"
     cmds:
       - cd skill-pi && node --check bin/skill-pi.js && chmod +x bin/skill-pi.js && npm link
+
+  skill-pi:uninstall:
+    desc: "Uninstall skill-pi dev setup (inverse of skill-pi:build): npm unlink, remove node_modules, remove per-project .skill-pi/ shim. Leaves ~/.skill-pi/ config intact."
+    cmds:
+      - npm unlink -g skill-pi --no-audit --no-fund || true
+      - rm -rf skill-pi/node_modules
+      - rm -rf .skill-pi
 
   skill-pi:test:
     desc: Run skill-pi Node test suite (node --test skill-pi/...).
