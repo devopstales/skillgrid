@@ -130,19 +130,35 @@ parked), Spec PARTIAL-with-accepted-deviations (F1 parked to a named follow-on; 
 
 ## Findings triage (receiving-code-review)
 
-| Item | Sort | Action |
+| Item | Sort | Disposition |
 |---|---|---|
-| SEC1 judgment endpoint loopback validation | fix now | add host validation in `mergeJudgment` + test |
-| F2 snapshot writer `.skillgrid/ctx/stats_history.json` | fix now | `observability/snapshot.go` atomic write + test |
-| S1 `var _ = httptest.NewServer` | fix now | drop unused import + line |
-| S2 triple mode-resolution | fix now | fold `resolveModeFromEnv` into `ResolveMode` |
-| S3 wall-clock mode-change ID | fix now | clock seam / deterministic salt |
-| SEC3 hop-by-hop strip on forward | fix now (trivial) | reuse `isHopByHopHeader` in `forward` |
-| F1 `ctx metrics`/`ctx traffic` CLI verbs | park | follow-on ticket (HTTP surfaces exist) |
-| F3 SessionEnd-hook mechanism | park | recorded deviation |
-| F4a 3rd-module shape | park | recorded deviation (blueprint override) |
-| F4b Live-view header | park | UI follow-on |
-| SEC2 non-loopback bind ack | park | defense-in-depth follow-on |
+| SEC1 judgment endpoint loopback validation | fix now | **FIXED** — `mergeJudgment` rejects non-loopback `endpoint` (fail-open to previous value); `TestJudgmentEndpointLoopbackOnly` (6 cases) |
+| F2 snapshot writer `.skillgrid/ctx/stats_history.json` | fix now | **FIXED** — `observability/snapshot.go` `WriteHistorySnapshot` (atomic tmp+rename), wired into the rollup `pass` gated on `cfg.Observability.HistorySnapshot`; 3 tests (matches-DB, survives-re-index, nil-store fail-open) |
+| S1 `var _ = httptest.NewServer` | fix now | **FIXED** — import + shim dropped from `mode_test.go` |
+| S2 triple mode-resolution | fix now | **FIXED** — `resolveModeFromEnv` folded into `ResolveMode` (call sites updated) |
+| S3 wall-clock mode-change ID | fix now | **FIXED** — `mode-%d-%d` (process-start ns + per-proxy sequence), collision-free, `ChangedAt` from a single `time.Now()` |
+| SEC3 hop-by-hop strip on forward | fix now (trivial) | **FIXED** — `forward` now skips `isHopByHopHeader(k)`; `TestForwardStripsHopByHopHeaders` |
+| F1 `ctx metrics`/`ctx traffic` CLI verbs | park | follow-on ticket (HTTP surfaces `/metrics` + `/stats` cover the observability intent; verbs named in tasks.md Unit 5 for a later change) |
+| F3 SessionEnd-hook mechanism | park | recorded deviation — row semantics met; tick-driven aggregation |
+| F4a 3rd-module shape | park | recorded deviation — blueprint "No go.work change" overrides briefing req 1; ADR-0033 intent (shared read-only handle, ctx_-only tables) fully met |
+| F4b Live-view header | park | UI follow-on — `/stats` Mode field met; SPA header is the UI's concern |
+| SEC2 non-loopback bind ack | park | defense-in-depth follow-on — opt-in + warning as designed |
+
+**Re-verification after fixes:** `go build` + `go vet` exit 0; `go test ./mnemonic/... ./skillgrid-cli/...
+-count=1` green (zero failures); gofmt clean on `mnemonic/internal/ctx/`. Fix commit: see git log
+(`fix(ctx): close three-axis review findings — SEC1/F2/S1-S3/SEC3`).
+
+## Floor (final, post-fix)
+
+| Axis | Verdict | Weakest open item |
+|---|---|---|
+| Standards | PASS | none (3 Minors fixed) |
+| Spec | PASS-with-accepted-deviations | F1 parked to a named follow-on; F3/F4 recorded deviations |
+| Security | PASS | SEC2 (LOW, by-design) parked |
+
+**FLOOR:** no CRITICAL, no open Important, no exploitable finding reachable under the loopback
+trust boundary. The change is review-clean for ship; F1/F3/F4/SEC2 are recorded open items for
+the next change (carried in WINDOWS.md / Open Items).
 
 ## Human Override
 
