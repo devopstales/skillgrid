@@ -26,7 +26,7 @@ Fix two load-bearing defects in the Mnemonic per-project SQLite store (`mnemonic
 
 ## Acceptance (happy + edge + failure)
 
-* Given a pre-split store, when `054` migrates, then row-hash parity holds and all 7 `invalid_at` read sites filter superseded rows.
+* Given a pre-split store, when the obs-split migration (blueprint `054`, landed as `062_obs_split.sql` after the CLM/CTX rebase) migrates, then row-hash parity holds and all 7 `invalid_at` read sites filter superseded rows.
 * Given 100k 768-dim vectors, when top-K runs cold, then p95 < 50ms warm < 10ms (bench), else IVF-only ships and HNSW stays out (door check).
 * Given two models (768 + 1024 dim), when both indexed, then each queries its own namespace; cross-dim query errors explicitly.
 * Given a failed migration (hash mismatch), when rollback runs, then legacy table restores and service opens read-only.

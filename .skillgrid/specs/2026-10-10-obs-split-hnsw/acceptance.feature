@@ -5,7 +5,7 @@ Feature: Mnemonic obs-split + embedded ANN index
 
   Scenario: obs-parity-after-split
     Given a pre-split project store copy
-    When migration 054 rebuilds observations into core + side tables behind a compat view
+    When migration 062 (054_obs_split.sql, rebased per TICKET-02 Precondition) rebuilds observations into core + side tables behind a compat view
     Then row-hash parity holds for all rows
     And the 7 bitemporal read sites still filter superseded rows via invalid_at
 
