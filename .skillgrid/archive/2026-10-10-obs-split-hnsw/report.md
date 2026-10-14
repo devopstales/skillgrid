@@ -306,23 +306,24 @@ the gate. No CRITICAL findings, no truth UNVERIFIED, no scenario uncovered, no T
 > A human decision always overrides this machine verdict.
 > An epic that fails its criteria with no human decision is recorded as **not accepted** — never as silently accepted.
 
-**Human decision (fill in):** <accept / accept-with-open-items / reject> — <name> — <date>
+**Human decision (fill in):** accept-with-open-items — paladm (user) — 2026-10-14 (ship on the same branch after review round 1: 4 findings fixed, 5 parked as W039)
 
 <!-- reflect completes this half at archive time -->
 
 ## Final-State Facts
 
-**Shipped:** <what actually shipped>
-**Base branch:** <base-branch> · **Chain strategy:** <strategy>
-**Integration:** <merged @ <commit> | PR <url> | kept branch <name>> (from ship context)
+**Shipped:** observations god-table split into core + 5 side tables behind a compat VIEW with INSTEAD OF triggers (migrations 062-063, rebased from blueprint 054/055), hot-path reads rewritten off the view (obs_split.go), VectorIndex seam with BruteForce/IVF/Hnsw adapters (064-066), FTS standalone fix (067), per-model HNSW source-namespacing, ADR-0037 accepted, plus review-round-1 fixes (FTS delete rebuild from live core, splitter END-in-literal state, ADR-0037 renumber).
+**Base branch:** release/2 (working branch, user-kept per prior changes) · **Chain strategy:** size-exception
+**Integration:** kept branch `release/2` (option 3 — same-branch ship, no merge to main, no push; user decision 2026-10-14)
 
 ## Gates
 
 | Gate | Result |
 |------|--------|
-| Ship gate | ✅ success + `diff -r` empty (or: blocked — {reason}) |
-| QA gate | ✅ {PASS \| WAIVED \| CONCERNS — human override recorded} |
-| Verdict gate (advisory) | {accepted \| accepted-with-open-items \| rejected} — recorded, not enforced |
+| Ship gate | ✅ success + `diff -r` empty (git mv, readback empty; archive commit on release/2) |
+| QA gate | ✅ PASS (re-rendered after W-1/W-2 fix c6cab1d9) |
+| Review gate (advisory) | ✅ met-with-fixes — 3 axes Grade B (fresh subagent contexts); SEC1/SEC2/S4/renumber fixed round 1 (review.md); S1/S2/S3/S5/S6-R4 parked → W039 |
+| Verdict gate (advisory) | accepted-with-open-items — recorded, not enforced |
 
 ## Decisions
 
@@ -330,25 +331,37 @@ the gate. No CRITICAL findings, no truth UNVERIFIED, no scenario uncovered, no T
 
 | Decision | Tradeoff | Why | Source |
 |----------|----------|-----|--------|
-| <choice made> | <what was given up> | <why it won> | <file:line / commit / ADR / ticket> |
+| Expand-phase split with INSTEAD OF triggers, not direct-callers-from-day-one | Triggers are a write-path safety net with 4 documented engine limits (stale LastInsertId, zero RowsAffected, no UPSERT, NULL RETURNING); ~60 write-path tests failed on them pre-TICKET-03 | The view kept all 58 pre-split callers working during migration; TICKET-03 then moved the hot path off it (expand→migrate, contract deferred one release) | `062_obs_split.sql:48-64` header; commits 81edc9f2 → c443c4ce |
+| Per-statement migration exec + pre-squash backfill instead of whole-file Exec | A mid-file failure no longer leaves index_meta unrecorded under a half-applied file; backfill adds missing 001 columns before the split | The 7 known pre-existing store failures (table-vs-view assertions, no-such-column at the split) were all half-applied-file artifacts | `internal/store/store.go` execMigrationFile/splitSQLStatements (67b9e26d); QA Findings W-3 |
+| FTS removal = clear + re-derive from live observations_core, not the 'rebuild' command | O(index) per hard-delete (vs O(1) ideal) | 'rebuild' re-reads the FTS table's own rows — a survivor without a FTS row goes invisible (SEC1); the re-derive converges the index on the live set | `obs_split.go` ftsDeleteObs + 062 INSTEAD OF DELETE trigger (review fix commit); TestFtsDeleteSurvivingRowsStayIndexed |
+| HNSW/IVF shipped as read-wired, write-unwired adapters (parked S1) | Two dead ANN paths + a dead hnsw_meta table at ship time; YAGNI breach acknowledged | The writer (indexer embedPass dual-write) is a separate vertical slice; the read path degrades gracefully (ok=false → vec0 fallback) so ship is safe without it | review.md Disposition S1-S5; WINDOWS W039 |
+| T3 fresh-model parallel-review declined; 3 fresh contexts Grade B instead | Model-family blind spots not covered (same model family as implementer) | Decline recorded in review.md; three axes independent (no-leaks contract held) | review.md Independence table |
 
 ## Lessons
 
 | Lesson | Root Cause | Do Differently | Source |
 |--------|-----------|----------------|--------|
-| <what to do differently> | <why it went wrong — root, not symptom> | <the concrete change> | <file:line / commit / ticket> |
+| A standalone FTS5 table's 'rebuild' command re-reads the FTS table's OWN rows — safe only when every source row has a FTS row | FTS5 'rebuild' is documented as "rebuild from the content table"; a standalone table IS its own content, so delete-then-rebuild silently drops entries of rows the index was already missing | The robust delete shape is `DELETE <row>; INSERT ... SELECT FROM <live source>` (or clear + re-derive excluding the id). Applies to any future FTS-on-standalone-table maintenance. | SEC1 (review.md); `obs_split.go` ftsDeleteObs; TestFtsDeleteSurvivingRowsStayIndexed |
+| In a multi-statement INSTEAD OF DELETE trigger the core row is still visible to reads between statements | SQLite executes trigger statements as one seed; a query issued mid-seed (or the FTS5 'rebuild' re-read) sees the pre-delete row set | A trigger that re-derives state from a table it is itself deleting from must exclude the deleted id explicitly (`NOT EXISTS (id != OLD.id)`) | 062 INSTEAD OF DELETE trigger; probe: observations_fts rows=1 vs observations_core rows=0 right after DELETE |
+| A SQL-statement splitter that word-matches END in trigger bodies must track string-literal state inside the body | The inTrig state machine had no inS sub-state, so 'END' in a literal would terminate the body and shred the file into a re-failing half-applied migration | Merge the inS sub-state into inTrig; regression-test with a trigger literal containing END (mechanical → a check, now the test) | SEC2 (review.md); `store.go` splitSQLStatements; TestSplitSQLStatementsTriggerLiteralEnd |
+| Blueprint migration numbers (054/055) drifted to on-disk (062-067) because sibling changes (CLM 053-055, CTX 056-061) landed first — and the spec zone never recorded the renumber | The TICKET-02 Precondition forced a rebase at execution time, but only migration headers + ADR recorded it; acceptance.feature/briefing still said 054 | At ship, renumber the spec zone (acceptance.feature, briefing Verdict) to match on-disk reality before the archive move | tasks.md:59 Precondition; 062-067 headers; review.md S6-migration-054 (fixed) |
 
 ## Patterns
 
 | Pattern | Reuse | Source |
 |---------|-------|--------|
-| <named reusable approach / convention> | <when a future change should apply it> | <file:line / commit / ticket> |
+| Expand→migrate→contract with a compat VIEW + INSTEAD OF triggers for a god-table split; row-hash parity test on a store copy as the migration gate; legacy table kept one release as the rollback window | Any future wide-table split; the parity test shape (pre/post sha256 over SELECT * + idempotent re-migrate) is reusable | 81edc9f2 TestObservationsParity; 062 header; briefing R5 |
+| Graceful-degradation ANN contract: every adapter's corrupt/missing state degrades to brute force (ok=false), never a hard fail; the routing layer treats ok=false as fall-through | Any new VectorIndex adapter (the W039 writer ticket adds upserts under the same contract); any future in-SQL extension path | `ivf.go:Search`, `hnsw.go:Search`, `vectorcache.go:hnswSymbolHits` (9d1ca413) |
+| Review-round-1 triage: mechanical findings (SEC1/SEC2/S4) fixed same-session with regression tests; the architectural follow-up (S1 writer) parked as ONE named ticket (W039) carrying S2/S3/S5/S6-R4 | Any T3 review round: fix the mechanical now, bundle the architectural into a single follow-up with explicit rulings in review.md Disposition | review.md Disposition table; WINDOWS W037-W039 |
 
 ## Surprises
 
 | Surprise | Signal | Source |
 |----------|--------|--------|
-| <non-obvious gotcha / edge case / behavior> | <what the evidence shows> | <file:line / commit / scenario> |
+| `LastInsertId()` after a view INSERT returns a STALE counter, and `RowsAffected()` after a view UPDATE/DELETE is always 0 — inserts/updates inside INSTEAD OF trigger programs do not advance sqlite3_last_insert_rowid | ~60 write-path tests failed on exactly these 4 mechanisms (stale LastInsertId, zero RowsAffected, NULL RETURNING, rejected UPSERT) when the view first landed | 062_obs_split.sql:48-59 header ("Write-API limits through the VIEW"); TICKET-02 report |
+| The modernc.org/sqlite driver does not support the FTS5 'delete' command on a standalone FTS5 table ("SQL logic error") | 067 had to convert observations_fts to standalone; the fts*Obs helpers use in-place UPDATE / delete+re-derive instead | `obs_split.go:84-104` ftsDeleteObs comment; 067 header |
+| The HNSW tables were created (065), then dropped+recreated with the source partition in the SAME migration run (066) — the drop is lossless only by the accident that no writer existed yet | 066 header + hnsw.go:17; the 065 header still says "lands at 057 (next free)" (review Minor 8 FYI) | 065/066 headers; review.md Minor 8 |
+| Thermal flake: TestHnswWarmLatency asserts <10ms warm but measures ~19ms on a loaded host (concurrent test fan-out); passes in isolation (146s) | W-4 / WINDOWS W029, open advisory | report.md Verification-Gap Audit; W029 |
 
 ## Environment Retro
 
@@ -356,43 +369,55 @@ the gate. No CRITICAL findings, no truth UNVERIFIED, no scenario uncovered, no T
 
 | Category | Finding | Fix lands in | Source |
 |----------|---------|--------------|--------|
-| <navigation \| automated checks \| coding standards \| steering no-ops \| tool economy \| information access> | <what to change + why> | <linter rule / pre-commit / CI job / ARCHITECTURE.md pointer / steering file / tooling> | <file:line / commit / tool call / session symptom> |
+| Navigation | The SDD ledger `.skillgrid/sdd/blueprint/` still holds the OLD topic (2026-10-05-mnemonic-scan-findings) — a resumed session for a different change will read a stale progress.md and the obs-split run has no ledger at all (its record lives only in report.md + WINDOWS.md). | A per-topic ledger convention: `.skillgrid/sdd/<topic>/progress.md` (the 2026-10-08-context-orchestrator change already uses this shape) — route future execution runs to their own topic dir; flag the shared `blueprint/` dir as scan-findings-legacy. | session: ledger read at execution start showed scan-findings topic; `.skillgrid/sdd/2026-10-08-context-orchestrator/` as the working per-topic precedent |
+| Information access | No tracker tickets exist for this change (LOCAL-ONLY ticketing waiver at slicing) — W026-W039 live in WINDOWS.md and there is no `TASK-1xx` ID map for TICKET-01..07, so the task→commit→diff chain is recoverable from git only via the `[skillgrid-context]` blocks. | When backlog MCP tools are available, publish the change's tickets (milestone m-11 + 7 tickets + the W039 follow-up) and record the ID map in the archived tasks.md (the pattern 2026-10-08-context-orchestrator follows: TICKET-xx → TASK-0yy). | tasks.md Slicing Notes ("Ticketing: local-only waiver"); `.backlog/` contains no obs-split-hnsw tasks (verified at execution) |
+| Tool economy | `mem_save` FK-fails without a live session (error 787) — the first save of the session had to `mem_session_start` first; the shape (session_id required) is not documented in the AGENTS.md engram protocol. | Add one line to the engram protocol (or the mnemonic shared rules): "mem_save requires an active session_id — call mem_session_start (or the platform's session hook) before the first save of a session." | session: first mem_save → `insert observation: constraint failed: FOREIGN KEY constraint failed (787)`, fixed by mem_session_start |
 
 ## Acceptance Verdict
 
-**Verdict:** accepted | accepted-with-open-items | rejected
+**Verdict:** accepted-with-open-items
 
-**Grounding:** <goal from briefing.md + the Goal-Backward Verification / Traceability Matrix evidence above that supports the verdict>
+**Grounding:** briefing goal — split the observations god-table (hot reads stop scanning vector BLOBs, bitemporal preserved) + embedded cgo-free ANN with per-model dim namespaces. Goal-Backward Verification: all 4 truths VERIFIED (parity hash, WAL/MaxOpenConns=1, recall@10 >= 0.95 at 100k, 768+1024 coexistence); all 6 acceptance scenarios covered by tests that ran and passed (Traceability Matrix 6/6). The review floor is met-with-fixes with the mechanical findings fixed and tested; the one scenario whose code path diverged from its Given/When/Then (per-model-dim-namespaces — closed by source-namespacing, R4 dim work parked) is named as open item W039.
 
-**Reasoning:** <2–3 sentences: what drove the verdict>
+**Reasoning:** The migration, the read path, and the ANN read path all shipped verified and green on the integrated tree (full `mnemonic` suite ok). What did NOT ship is the ANN *writer* and R4's dim unpin — a follow-up, not a defect: the read path degrades gracefully (ok=false → vec0), so nothing regressed. Accepted with the open items named.
 
 ## Open Items (→ next change)
 
-- <item + path to resolution> (or "None")
+- **W039 (open):** ANN writer follow-up — route the indexer `embedPass` dual-write through the cached `HnswIndex`/`IVFIndex` upserts (pass the real model, not the "hnsw"/"ivf" placeholder, into the BLOB `model` column); drop or use `hnsw_meta`; wire IVF as the first ANN path per the blueprint; R4 dim unpin (remove the `Dim = 768` pin at `vectorstore/store.go:27`, per-(model,dim) namespaces, typed cross-dim error). Path: one ticket, milestone with this change's archive; carries review S1/S2/S3/S5/S6-R4.
+- **W029 (open, advisory):** HNSW warm latency thermal flake — adjust the gate or add a `-short` skip (pre-existing; passes in isolation).
+- **W030 (open, advisory):** cmd/mnemonic `blockMDPath` relative depth stale since the cmd move a78dab58 (pre-existing, outside this change).
+- **W031 (open, advisory):** 92 pre-existing gofmt drift files in the mnemonic module (not touched by this change).
+- **Process (from Environment Retro):** per-topic SDD ledger convention (the shared `.skillgrid/sdd/blueprint/` dir is legacy scan-findings state); publish this change's tracker tickets when backlog MCP tools are available; document the `mem_save` session_id prerequisite.
 
 ## Prior-Change Follow-Through
 
 | Prior open item (from previous archived change) | Addressed by this change? | Evidence |
 |--------------------------------------------------|---------------------------|----------|
-| <item> | yes / no / partially | <commit / file:line / scenario, or "still open"> |
+| 2026-10-08-context-orchestrator W032 (install fixtures missing 6th plugin) | no (owned by CTX; fixed in CTX's own session) | 306351bc (CTX branch, closed in WINDOWS.md) |
+| 2026-10-08-context-orchestrator W033-W036 (ctx.go clone, ctx metrics/traffic verbs, Live-view header, loopback bind ack) | no — CTX follow-ons, outside this change's scope | still open in WINDOWS.md |
+| 2026-10-05-mnemonic-scan-findings (scan-findings open items) | no — no scan/dep tables touched by this change | n/a |
+| This change's own W-1/W-2/W-3 (QA half, point-in-time) | yes — closed before ship | c6cab1d9 (governance write paths + FTS standalone); final-state authority: closed, not open |
 
 ## Move Evidence (from ship context)
 
 **From:** `.skillgrid/specs/2026-10-10-obs-split-hnsw/` → **To:** `.skillgrid/archive/2026-10-10-obs-split-hnsw/`
-**`diff -r` readback:** <empty → PASS | verbatim output → FAIL>
+**`diff -r` readback:** empty → PASS (git mv, readback run in the ship transaction; source verified gone)
 
 ## Overrides / Waivers / Contradictions
 
-- <QA waiver, human CONCERNS override, size-exception, or "None">
-- <Unrankable contradiction: both statements + sources + when written — or "None">
+- T3 fresh-model parallel-review recommendation declined by the coordinator (three fresh contexts, Grade B) — recorded in review.md Independence.
+- Ticketing local-only waiver at slicing (no backlog MCP tools in the slicing session); tracker publish deferred (Open Items above).
+- Size-exception single-PR delivery (maintainer-approved 2026-10-10) — 400-line budget risk High, ~1800-2400 lines.
+- No unrankable contradictions: the QA half's "7 known pre-existing 054 store failures" (point-in-time) vs the final green suite is ranked by Final-State Authority (repo at close wins; fix landed in 67b9e26d + c6cab1d9).
 
 ## Lineage (observation IDs)
 
 Every artifact read this close, for traceability:
 
-- briefing: {id}
-- blueprint: {id}
-- tasks: {id}
-- ship: {id}
-- report (QA half): {id}
-- research / findings / ADRs: {ids or "none"}
+- briefing: 172 (exec decision obs; the briefing.md artifact itself is in the archive)
+- blueprint: 172 (same session obs; blueprint.md in the archive)
+- tasks: 172
+- ship: 174 (`skillgrid/2026-10-10-obs-split-hnsw/ship`)
+- report (QA half): in-archive `report.md` (qa wrote it pre-move; no separate observation)
+- review: 173 (`changes/2026-10-10-obs-split-hnsw/review` — SEC1/SEC2/parked items + round-1 completion)
+- research / findings / ADRs: ADR-0037 (`04-adr-0037-embedded-ann-index.md`, reworded in review round 1); no findings.md for this change (prototype/bench evidence is `bench_test.go` + `observations_callers.txt` in the archive)

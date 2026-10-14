@@ -27,6 +27,9 @@ changes:
   2026-10-09-adr-knowledge-index:
     phase: blueprint
     status: in-progress
+  2026-10-10-obs-split-hnsw:
+    phase: complete
+    status: complete
 progress:
   completed_changes: 29
   blocked_changes: 0
