@@ -141,7 +141,7 @@ func runCtxProxy(args []string) {
 		<-ctx.Done()
 		close(rollupStop)
 	}()
-	stopRollup := observability.StartRollup(cs, time.Hour, cfg.Observability.SessionSummary, rollupStop)
+	stopRollup := observability.StartRollup(cs, time.Hour, cfg.Observability.SessionSummary, cfg.Observability.HistorySnapshot, rollupStop)
 	defer stopRollup()
 
 	// T11: a final session-summary rollup at shutdown, run while the shared
