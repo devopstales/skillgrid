@@ -235,14 +235,16 @@ func TestMemoryAndPersonasBoundary(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
 
-	// Memory assets the setup writers need: the 5 native TS plugins (single
-	// opencode source), the memory-protocol block, and the 3 shared workers.
+	// Memory assets the setup writers need: the 6 native TS plugins (single
+	// opencode source — the 6th, skillgrid-context, was wired in 2457a453),
+	// the memory-protocol block, and the 3 shared workers.
 	for _, f := range []string{
 		"plugins/opencode/skillgrid-compaction.ts",
 		"plugins/opencode/skillgrid-events.ts",
 		"plugins/opencode/skillgrid-squad.ts",
 		"plugins/opencode/mnemonic-memory.ts",
 		"plugins/opencode/mnemonic-codeindex.ts",
+		"plugins/opencode/skillgrid-context.ts",
 		"plugins/opencode/memory-protocol.md",
 		"plugins/kilo/memory-protocol.md",
 		"plugins/_shared/memory-protocol.md",
@@ -337,6 +339,7 @@ func TestSetupAgentsIntegration(t *testing.T) {
 		"plugins/opencode/skillgrid-squad.ts",
 		"plugins/opencode/mnemonic-memory.ts",
 		"plugins/opencode/mnemonic-codeindex.ts",
+		"plugins/opencode/skillgrid-context.ts",
 		"plugins/opencode/memory-protocol.md",
 		"plugins/kilo/memory-protocol.md",
 		"plugins/_shared/memory-protocol.md",
