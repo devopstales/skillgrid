@@ -25,7 +25,7 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
-const parityMigrationFile = "054_obs_split.sql"
+const parityMigrationFile = "062_obs_split.sql"
 
 // parityCols is only used for fixture INSERTs; the hash dump itself is
 // column-agnostic (SELECT * + sqlite column names) so a view column-order
@@ -74,7 +74,7 @@ func buildPreSplitStore(t *testing.T, dir, project string) string {
 		// split FKs and 059 converts observations_fts to standalone — both
 		// assume the 054 split (observations_core) already exists, so they must
 		// not run against the pre-split table.
-		if e.Name() == parityMigrationFile || e.Name() == "055_obs_split_fk_repoint.sql" || e.Name() == "059_obs_fts_standalone.sql" {
+		if e.Name() == parityMigrationFile || e.Name() == "063_obs_split_fk_repoint.sql" || e.Name() == "067_obs_fts_standalone.sql" {
 			continue
 		}
 		names = append(names, e.Name())
