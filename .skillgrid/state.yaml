@@ -28,8 +28,8 @@ changes:
     phase: blueprint
     status: in-progress
   2026-10-10-obs-split-hnsw:
-    phase: qa
-    status: qa-gate-pass
+    phase: review
+    status: review-clean-ready-to-ship
 progress:
   completed_changes: 28
   blocked_changes: 0
