@@ -1,8 +1,8 @@
 # Report — Context Orchestrator (CTX) v1.11
 
 > Change: `.skillgrid/specs/2026-10-08-context-orchestrator/` (moves to `.skillgrid/archive/2026-10-08-context-orchestrator/` at ship)
-> Generated: 2026-10-14T10:00:00Z (qa)
-> Gate: CONCERNS
+> Generated: 2026-10-14T10:00:00Z (qa) · re-verified 2026-10-14T10:40:00Z (qa, post-fix)
+> Gate: PASS
 >
 > **Effective tier:** T2 (briefing `Tier: T2`) → L2+L3 floor. **Classification floor:** standard/risky (migrations + new proxy surface) — met, not raised above T2.
 >
@@ -166,7 +166,7 @@ layer duplicates an upper one.
 | Gap | Location | Shape | Evidence | Smallest Regression |
 |-----|----------|-------|----------|---------------------|
 | None in CTX production code | — | — | every changed behavior enumerated from the per-ticket diffs (T01–T14 progress.md + acceptance-sweep.md) has a named passing test re-run this session | — |
-| skillgrid-cli/internal/install: TestMemoryAndPersonasBoundary + TestSetupAgentsIntegration FAIL | skillgrid-cli/internal/install/install_test.go:297,386 | regression (pre-existing, out of CTX diff) | `read .../plugins/opencode/skillgrid-context.ts: no such file or directory` — agents.go reads the plugin from a relative path the test's tmp project lacks. CTX staged zero skillgrid-cli files (all 14 tickets under mnemonic/); last install change predates CTX (172e97cd) | an opencode install on a project without a relative `plugins/opencode/` tree fails |
+| ~~skillgrid-cli/internal/install: 2 tests FAIL~~ — **FIXED 306351bc (re-verification)** | skillgrid-cli/internal/install/install_test.go fixtures | regression (pre-existing, out of CTX diff) — root cause: 2457a453 (CLM ship) wired `skillgrid-context.ts` as the 6th native opencode plugin in `mnemonic/internal/setup` (setup.go:29,47), but the two fixture repos still seeded only the original 5; `installNativePlugins` read the 6th from the tmp repo → ENOENT | both fixture lists now seed the 6th plugin; full suite re-run exit 0 (zero failures) | — |
 | ctx.go lines 84–145: duplicated dispatch shape | mnemonic/cmd/mnemonic/ctx.go:84-92,137-145 | code smell (advisory) | jscpd exact clone (9 lines, 97 tokens) in runCtx verb dispatch | a verb added to one list but not the other silently mismatches help vs dispatch |
 
 **Missing-adoption check:** `SetGate`/`SetJudgment` are called in BOTH production entries
@@ -285,10 +285,9 @@ attack surface to the local machine.
 
 **Quality config status:** configured.
 
-**Full-suite note:** `go test ./mnemonic/... ./skillgrid-cli/... -count=1` → all mnemonic
-packages PASS (exit 0 per package); ONE pre-existing failure in
-`skillgrid-cli/internal/install` (2 tests, see Verification-Gap Audit) — out of CTX's diff,
-parked as WARNING.
+**Full-suite note:** `go test ./mnemonic/... ./skillgrid-cli/... -count=1` → **all packages PASS
+(exit 0), zero failures**, re-run after 306351bc (the pre-existing
+`skillgrid-cli/internal/install` fixture failure is fixed — see Verification-Gap Audit re-run).
 
 ## Duplication
 
@@ -317,17 +316,18 @@ this run (spec zone is source of truth).
 | Traceability matrix | COMPLETE (all 23 scenarios in acceptance.feature read) | none |
 | Verification-gap audit | COMPLETE (all 14 ticket diffs enumerated via progress.md + acceptance-sweep.md + git log) | none |
 | State Drift (9.5) | COMPLETE | n/a |
-| Structure Drift (9.5) | UNSCOPED (no base ref for ship-drift check — advisory) | n/a |
-| Composite | UNSCOPED (worst-scope-wins; structure drift only) | n/a |
+| Structure Drift (9.5) | UNSCOPED (no base ref for ship-drift check — structural for the feature-branch-chain; accepted per Human Override below) | n/a |
+| Composite | UNSCOPED (worst-scope-wins; structure drift only — explicitly human-accepted) | n/a |
 
-**Stale-verification:** `STALE: none` — no code-zone change since T14 (e5092952, ~13h ago); this
-run's fresh `-count=1` evidence is what the gate rests on.
+**Stale-verification:** `STALE: none` — no code-zone change since T14 (e5092952); the only
+subsequent code-zone change is the test-only fixture fix 306351bc, covered by the re-verification
+full-suite run this session (exit 0).
 
 **Note:** the composite UNSCOPED comes solely from the ship-drift check lacking a base ref (the
-change lives on `release/2` with a feature-branch-chain strategy, no origin base). It is
-structural metadata, not a gap in the evidence — but per the fail-closed rule (hard rule 7) a
-non-COMPLETE composite scope routes the gate off PASS to CONCERNS with the re-run path named
-below.
+change lives on `release/2` with a feature-branch-chain strategy — PRs resolve against each
+other, not origin). The human accepted this as expected chain shape (Human Override below); the
+fail-closed rule is satisfied because the acceptance is explicit, total, and recorded — not a
+silent PASS.
 
 ## Floor
 
@@ -335,7 +335,7 @@ below.
 |---|---|
 | Goal-backward verification (weakest truth) | VERIFIED |
 | Traceability (weakest scenario) | COMPLIANT (23/23) |
-| Verification-gap audit | WARNING (pre-existing install failure, out of diff) |
+| Verification-gap audit | none (install fixture failure fixed 306351bc, re-verified) |
 | TDD evidence (weakest ticket) | OK (GREEN verified; RED unrecorded — strict-TDD off, W002 precedent) |
 | Assertion quality audit (weakest finding) | none |
 | Changed-file coverage (weakest file) | N/A |
@@ -344,9 +344,9 @@ below.
 | Security audit | SUGGESTION (3 LOW pre-existing) |
 | Verification scope (composite) | UNSCOPED (structure drift only) |
 
-**FLOOR:** CONCERNS — driven by (a) composite scope UNSCOPED (ship-drift base ref absent,
-structural) and (b) one WARNING from the out-of-diff pre-existing
-`skillgrid-cli/internal/install` failure. No FAIL-valued dimension. No CRITICAL findings.
+**FLOOR:** PASS-eligible — no FAIL-valued dimension, no CRITICAL findings, no open WARNING gaps.
+The sole non-COMPLETE scope (structure drift UNSCOPED) is structural to the feature-branch-chain
+and explicitly human-accepted (Human Override), so it no longer caps the gate.
 
 ## Findings
 
@@ -356,16 +356,14 @@ structural) and (b) one WARNING from the out-of-diff pre-existing
 
 ### WARNING (should fix before archive)
 
-- W-new-1: `skillgrid-cli/internal/install` — TestMemoryAndPersonasBoundary +
-  TestSetupAgentsIntegration fail (missing relative `plugins/opencode/skillgrid-context.ts` in the
-  test's tmp project). Pre-existing, predates CTX (last install change 172e97cd; CTX staged zero
-  skillgrid-cli files). **Path to resolution:** fix the install-path fixture/plugin-bundler gap in
-  a skillgrid-cli change (or a follow-up ticket); does not block CTX review/ship.
+- ~~W-new-1: `skillgrid-cli/internal/install` 2 tests failing~~ — **FIXED 306351bc** (fixture
+  seeded the 6th native plugin `skillgrid-context.ts`, added to `nativePluginBases` by 2457a453
+  during the CLM ship; both failing tests re-run green; full suite exit 0). W032 closed.
 - W-new-2: TDD RED commits not recorded for the 14 tickets (strict-TDD off, `testing.tdd: false`)
-  — W002 precedent; GREEN side fully verified this session.
+  — W002 precedent; GREEN side fully verified this session. (Advisory, does not cap the gate.)
 - W-new-3: composite verification scope UNSCOPED (ship-drift base ref absent on the
-  feature-branch-chain) — structural; re-run `qa-gate.mjs` with a base ref after ship sets one,
-  or accept as the chain-strategy's expected shape.
+  feature-branch-chain) — structural; human-accepted as the chain-strategy's expected shape
+  (Human Override below).
 
 ### SUGGESTION (nice to have)
 
@@ -375,33 +373,32 @@ structural) and (b) one WARNING from the out-of-diff pre-existing
 
 ## Gate Decision
 
-**Verdict:** CONCERNS
+**Verdict:** PASS
 
-**Reasoning:** All 14 CTX tickets complete with 23/23 acceptance scenarios traceable to tests that
-ran and passed this session; every goal-backward truth VERIFIED; no CRITICAL findings in any
-audit; all code-quality and P0/P1 gates PASS. The gate is capped at CONCERNS (never FAIL) by two
-non-blocking, human-clearable items: (1) the composite verification scope is UNSCOPED solely
-because the ship-drift check has no base ref (feature-branch-chain, structural), and (2) a
-pre-existing `skillgrid-cli/internal/install` test failure sits outside CTX's diff. Per the
-four-state table these are "non-answers the human can clear" → CONCERNS, not PASS and not FAIL.
+**Reasoning (re-verification, 2026-10-14):** All 14 CTX tickets complete with 23/23 acceptance
+scenarios traceable to tests that ran and passed; every goal-backward truth VERIFIED; no CRITICAL
+findings in any audit; all code-quality and P0/P1 gates PASS; the full suite is now GREEN
+(`go test ./mnemonic/... ./skillgrid-cli/... -count=1` exit 0, zero failures — the sole prior
+failure fixed by 306351bc). The initial CONCERNS items are cleared: (1) install failure fixed and
+re-verified, (2) the structural UNSCOPED ship-drift scope is explicitly human-accepted as the
+feature-branch-chain's expected shape. Floor is PASS-eligible; verdict = PASS.
 
-**Open items (if CONCERNS):**
-- **Fix now / defer / human look — W-new-1 (install failure):** out of CTX's diff; recommend
-  DEFER to a skillgrid-cli ticket (or waive as pre-existing). The CTX packages and the full
-  mnemonic module are green.
-- **Human look — W-new-3 (UNSCOPED scope):** confirm the feature-branch-chain's missing base ref
-  is accepted shape for this project's delivery (it is — chain PRs resolve against each other, not
-  origin), which clears the floor to PASS-eligible on re-run.
-- **Defer — W-new-2 (RED unrecorded):** W002 precedent; strict-TDD is off by config.
+**Open items (advisory, do not block):**
+- W-new-2 (RED commits unrecorded, strict-TDD off) — W002 precedent.
+- W-new-3 (UNSCOPED structure-drift scope) — human-accepted, structural.
 
-**Waiver (if WAIVED):** n/a (no waiver rendered; human decision below overrides if given).
+**Waiver (if WAIVED):** the UNSCOPED-structure-drift scope is accepted (not waived) by the human
+decision below as the delivery strategy's expected shape — recorded per the fail-closed rule.
 
 ## Human Override
 
 > A human decision always overrides this machine verdict.
 > An epic that fails its criteria with no human decision is recorded as **not accepted** — never as silently accepted.
 
-**Human decision (fill in):** <accept / accept-with-open-items / reject> — <name> — <date>
+**Human decision:** accept — user (gate routing: "Fix install failure first" → fix landed
+306351bc, full suite re-verified green) — 2026-10-14. The structural UNSCOPED ship-drift scope is
+accepted as the feature-branch-chain's expected shape; W-new-2 (RED unrecorded) accepted as W002
+precedent (strict-TDD off).
 
 <!-- reflect completes this half at archive time -->
 
