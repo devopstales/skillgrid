@@ -45,9 +45,10 @@ type Proxy struct {
 	// pure deterministic placeholder. Guarded by mu alongside gate.
 	judge *judgment.Judgment
 
-	// mu guards mode, lastChangeID, gate, and judge.
+	// mu guards mode, modeChangeSeq, lastChangeID, gate, and judge.
 	mu               sync.RWMutex
 	mode             Mode
+	modeChangeSeq    int
 	lastChangeID     string
 	SetModeEventSink func(old, new Mode, reason string)
 }
@@ -248,8 +249,12 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, body []byte) (in
 			return nil, err
 		}
 		// Copy the client's headers, then inject/replace the auth header.
+		// Hop-by-hop headers (RFC 7230: Transfer-Encoding, Connection,
+		// Upgrade, Keep-Alive, …) are NOT forwarded: the body is re-sent as a
+		// fresh bytes.Reader, so the client's framing headers would
+		// desynchronize the upstream's request parsing (CWE-841).
 		for k, vs := range r.Header {
-			if strings.EqualFold(k, "Authorization") || strings.EqualFold(k, "x-api-key") || strings.EqualFold(k, "Content-Length") {
+			if strings.EqualFold(k, "Authorization") || strings.EqualFold(k, "x-api-key") || strings.EqualFold(k, "Content-Length") || isHopByHopHeader(k) {
 				continue
 			}
 			for _, v := range vs {

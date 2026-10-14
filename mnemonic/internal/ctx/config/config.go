@@ -15,6 +15,8 @@ package config
 
 import (
 	"context"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -25,10 +27,10 @@ import (
 // Every field is populated with a safe default by DefaultCtxConfig; Load only
 // overrides the keys that a machine-local or repo-local ctx.yaml sets.
 type CtxConfig struct {
-	Proxy       Proxy       `yaml:"proxy"`
-	Wrap        Wrap        `yaml:"wrap"`
-	Judgment    Judgment    `yaml:"judgment"`
-	Traffic     Traffic     `yaml:"traffic_learning"`
+	Proxy         Proxy         `yaml:"proxy"`
+	Wrap          Wrap          `yaml:"wrap"`
+	Judgment      Judgment      `yaml:"judgment"`
+	Traffic       Traffic       `yaml:"traffic_learning"`
 	Observability Observability `yaml:"observability"`
 }
 
@@ -39,18 +41,18 @@ type CtxConfig struct {
 // the mutable tail). It is also settable at startup / runtime and via the
 // CTX_PROXY_MODE env var, checked by the proxy after config (ADR-0016 fail-open).
 type Proxy struct {
-	Enabled            bool     `yaml:"enabled"`
-	Bind               string   `yaml:"bind"`
-	Port               int      `yaml:"port"`
-	Mode               string   `yaml:"mode"`
-	CompressEndpoint   string   `yaml:"compress_endpoint"`
-	NonLoopbackStatus  int      `yaml:"non_loopback_status"`
-	SavingsHeaders     bool     `yaml:"savings_headers"`
-	FailOpen           bool     `yaml:"fail_open"`
-	ProviderRetries    int      `yaml:"provider_retries"`
-	ProviderRetryBackoffMs int  `yaml:"provider_retry_backoff_ms"`
-	PassthroughProtocols []string `yaml:"passthrough_protocols"`
-	Upstreams          []string `yaml:"upstreams"`
+	Enabled                bool     `yaml:"enabled"`
+	Bind                   string   `yaml:"bind"`
+	Port                   int      `yaml:"port"`
+	Mode                   string   `yaml:"mode"`
+	CompressEndpoint       string   `yaml:"compress_endpoint"`
+	NonLoopbackStatus      int      `yaml:"non_loopback_status"`
+	SavingsHeaders         bool     `yaml:"savings_headers"`
+	FailOpen               bool     `yaml:"fail_open"`
+	ProviderRetries        int      `yaml:"provider_retries"`
+	ProviderRetryBackoffMs int      `yaml:"provider_retry_backoff_ms"`
+	PassthroughProtocols   []string `yaml:"passthrough_protocols"`
+	Upstreams              []string `yaml:"upstreams"`
 }
 
 // Wrap is the ctx wrap (tier-2 agent launcher) configuration. Agents is the
@@ -91,14 +93,14 @@ type Traffic struct {
 // mnemonic serve mux. MetricsPath is the Prometheus text route (default
 // /metrics).
 type Observability struct {
-	Enabled        bool   `yaml:"enabled"`
-	Stats          bool   `yaml:"stats"`
-	StatsHistory   bool   `yaml:"stats_history"`
-	Metrics        bool   `yaml:"metrics"`
-	MetricsPath    string `yaml:"metrics_path"`
-	HistoryRollups []string `yaml:"history_rollups"`
-	HistorySnapshot string `yaml:"history_snapshot"`
-	SessionSummary bool   `yaml:"session_summary"`
+	Enabled         bool     `yaml:"enabled"`
+	Stats           bool     `yaml:"stats"`
+	StatsHistory    bool     `yaml:"stats_history"`
+	Metrics         bool     `yaml:"metrics"`
+	MetricsPath     string   `yaml:"metrics_path"`
+	HistoryRollups  []string `yaml:"history_rollups"`
+	HistorySnapshot string   `yaml:"history_snapshot"`
+	SessionSummary  bool     `yaml:"session_summary"`
 }
 
 // DefaultCtxConfig returns the production defaults for every CTX key. An
@@ -252,12 +254,34 @@ func mergeJudgment(base *Judgment, l Judgment) {
 	if l.Model != "" {
 		base.Model = l.Model
 	}
-	if l.Endpoint != "" {
+	if l.Endpoint != "" && judgmentEndpointIsLoopback(l.Endpoint) {
+		// The judgment layer POSTs message content to this endpoint (ADR-0035:
+		// "local Ollama"). A non-loopback endpoint — especially one set by a
+		// repo-local ctx.yaml — would exfiltrate that content to a remote
+		// host, so a non-loopback override is ignored (fail-open to the
+		// previous value) rather than honored.
 		base.Endpoint = l.Endpoint
 	}
 	if l.Threshold != 0 {
 		base.Threshold = l.Threshold
 	}
+}
+
+// judgmentEndpointIsLoopback reports whether endpoint's host is a loopback
+// address (127.0.0.0/8, ::1). The host is parsed, not dialed: a URL without a
+// host, or whose host is a name that does not parse as an IP literal, is NOT
+// loopback (fail-closed — the "localhost" name is rejected the same way the
+// proxy's requireLoopback rejects it).
+func judgmentEndpointIsLoopback(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := u.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 func mergeTraffic(base *Traffic, l Traffic) {

@@ -193,7 +193,7 @@ func TestStartRollup_WritesWithoutRestart(t *testing.T) {
 		t.Fatalf("PutProxySaving: %v", err)
 	}
 	stop := make(chan struct{})
-	stopFn := StartRollup(c, 20*time.Millisecond, true, stop)
+	stopFn := StartRollup(c, 20*time.Millisecond, true, "", stop)
 	// Wait for the immediate first pass (or a tick) to land rows.
 	deadline := time.Now().Add(2 * time.Second)
 	var n int
@@ -504,7 +504,7 @@ func TestStartRollup_SummarizeGate(t *testing.T) {
 	{
 		c := newSeededStore(t)
 		stop := make(chan struct{})
-		stopFn := StartRollup(c, 20*time.Millisecond, true, stop)
+		stopFn := StartRollup(c, 20*time.Millisecond, true, "", stop)
 		deadline := time.Now().Add(2 * time.Second)
 		var n int
 		for {
@@ -531,7 +531,7 @@ func TestStartRollup_SummarizeGate(t *testing.T) {
 	{
 		c := newSeededStore(t)
 		stop := make(chan struct{})
-		stopFn := StartRollup(c, 20*time.Millisecond, false, stop)
+		stopFn := StartRollup(c, 20*time.Millisecond, false, "", stop)
 		// Give the immediate first pass and at least one tick time to run.
 		time.Sleep(120 * time.Millisecond)
 		stopFn()

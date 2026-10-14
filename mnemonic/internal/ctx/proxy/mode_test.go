@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 )
@@ -160,7 +159,3 @@ func TestRestartToModeFromEnv(t *testing.T) {
 		t.Fatalf("GetMode() = %q, want token (CTX_PROXY_MODE must win over config)", m)
 	}
 }
-
-// httptest is referenced so the import is used when the upstream server is
-// constructed in tests above.
-var _ = httptest.NewServer

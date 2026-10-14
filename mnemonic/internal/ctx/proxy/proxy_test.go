@@ -11,9 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"bytes"
 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
 	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
 	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+	"sync"
 )
 
 // errTestDial is a transport-level error used by tests to simulate an
@@ -542,4 +544,57 @@ func itoa(n int) string {
 		return "-" + string(b)
 	}
 	return string(b)
+}
+
+// TestForwardStripsHopByHopHeaders is the guard for the CWE-841 review
+// finding: the client's hop-by-hop framing headers (Transfer-Encoding,
+// Connection, …) must NOT be forwarded to the upstream, because the proxy
+// re-sends the body as a fresh bytes.Reader — a forwarded Transfer-Encoding
+// would desynchronize the upstream's request parsing.
+func TestForwardStripsHopByHopHeaders(t *testing.T) {
+	var upstreamMu sync.Mutex
+	var gotTransferEncoding, gotConnection, gotContentType string
+	var upstreamSeen []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamMu.Lock()
+		gotTransferEncoding = r.Header.Get("Transfer-Encoding")
+		gotConnection = r.Header.Get("Connection")
+		gotContentType = r.Header.Get("Content-Type")
+		upstreamSeen = append(upstreamSeen, r.Method+" "+r.URL.Path)
+		upstreamMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := testConfig("token", 0, 0)
+	p := newTestProxy(t, cfg, nil, ModeToken, upstream)
+
+	body := []byte(`{"model":"x","messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Transfer-Encoding", "chunked")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("X-Api-Key", "client-key")
+	rec := httptest.NewRecorder()
+
+	p.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	upstreamMu.Lock()
+	defer upstreamMu.Unlock()
+	if len(upstreamSeen) != 1 {
+		t.Fatalf("upstream requests = %d, want 1", len(upstreamSeen))
+	}
+	if gotTransferEncoding != "" {
+		t.Errorf("upstream saw Transfer-Encoding = %q, want stripped (proxy re-sends the body)", gotTransferEncoding)
+	}
+	if gotConnection != "" {
+		t.Errorf("upstream saw Connection = %q, want stripped (hop-by-hop)", gotConnection)
+	}
+	if gotContentType != "application/json" {
+		t.Errorf("upstream Content-Type = %q, want application/json (endpoint content type preserved)", gotContentType)
+	}
 }

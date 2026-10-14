@@ -181,7 +181,7 @@ func TestMachineLocalWinsOverBuiltinWhenNoRepoLocal(t *testing.T) {
 // neither file present -> all defaults.
 func TestNeitherFilePresentUsesDefaults(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // empty home
-	repo := t.TempDir() // empty repo
+	repo := t.TempDir()           // empty repo
 	c, err := load(t, repo)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -263,5 +263,53 @@ func TestCLM_StillResolvesFromSkillgridConfig(t *testing.T) {
 	}
 	if cfg.Reserve != 2048 {
 		t.Fatalf("clm.reserve sentinel from .skillgrid/config.yaml: got %d, want 2048 (default)", cfg.Reserve)
+	}
+}
+
+// TestJudgmentEndpointLoopbackOnly is the guard for the ADR-0035 "local
+// Ollama" trust boundary: a non-loopback judgment.endpoint — especially from a
+// repo-local ctx.yaml (the layer that wins per key) — would exfiltrate message
+// content to a remote host, so the loader must ignore non-loopback overrides.
+func TestJudgmentEndpointLoopbackOnly(t *testing.T) {
+	cases := []struct {
+		name     string
+		endpoint string
+		wantKeep bool // true = the override is honored
+	}{
+		{"loopback-ipv4", "http://127.0.0.1:9999/v1/systemone", true},
+		{"loopback-ipv6", "http://[::1]:9999/v1/systemone", true},
+		{"remote-hostname", "http://ollama.example.com:11434/v1/systemone", false},
+		{"remote-ipv4", "http://10.0.0.5:11434/v1/systemone", false},
+		{"no-host", "http:///v1/systemone", false},
+		{"malformed", "not a url", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			start := t.TempDir()
+			dir := filepath.Join(start, "config.d")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			yaml := "judgment:\n  endpoint: " + tc.endpoint + "\n"
+			if err := os.WriteFile(filepath.Join(dir, "ctx.yaml"), []byte(yaml), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			c, err := load(t, start)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			def := DefaultCtxConfig().Judgment.Endpoint
+			if tc.wantKeep {
+				if c.Judgment.Endpoint != tc.endpoint {
+					t.Fatalf("endpoint = %q, want the loopback override %q", c.Judgment.Endpoint, tc.endpoint)
+				}
+			} else {
+				if c.Judgment.Endpoint != def {
+					t.Fatalf("endpoint = %q, want the default %q (non-loopback override must be ignored)", c.Judgment.Endpoint, def)
+				}
+			}
+		})
 	}
 }

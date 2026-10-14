@@ -60,10 +60,10 @@ func TestResolveModePriority(t *testing.T) {
 func TestResolveModeFromEnv(t *testing.T) {
 	envs := map[string]string{"CTX_PROXY_MODE": "token"}
 	env := func(k string) string { return envs[k] }
-	if m := resolveModeFromEnv("", "cache", env); m != ModeToken {
+	if m := ResolveMode("", "cache", env); m != ModeToken {
 		t.Errorf("env override should win: got %q", m)
 	}
-	if m := resolveModeFromEnv("passthrough", "cache", env); m != ModePassthrough {
+	if m := ResolveMode("passthrough", "cache", env); m != ModePassthrough {
 		t.Errorf("flag override should beat env: got %q", m)
 	}
 }

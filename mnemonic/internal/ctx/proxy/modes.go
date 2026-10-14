@@ -71,18 +71,13 @@ func resolveMode(override, cfgMode, envValue string) Mode {
 	return ModeCache
 }
 
-// resolveModeFromEnv reads the CTX_PROXY_MODE env var via env and resolves the
-// effective mode.
-func resolveModeFromEnv(override, cfgMode string, env func(string) string) Mode {
-	return resolveMode(override, cfgMode, env(envModeVar))
-}
-
-// ResolveMode is the exported mode-resolution entry point for the CLI: it
-// resolves the effective mode from, in priority order, an explicit override
-// (the CLI --mode flag), the CTX_PROXY_MODE env var, then the config value.
-// An empty/invalid override falls through to the next layer.
+// ResolveMode is the mode-resolution entry point (exported for the CLI): it
+// reads the CTX_PROXY_MODE env var via env and resolves the effective mode
+// from, in priority order, an explicit override (the CLI --mode flag), the
+// env var, then the config value. An empty/invalid layer falls through to the
+// next.
 func ResolveMode(override, cfgMode string, env func(string) string) Mode {
-	return resolveModeFromEnv(override, cfgMode, env)
+	return resolveMode(override, cfgMode, env(envModeVar))
 }
 
 // messages is a normalized, transport-agnostic view of the request's

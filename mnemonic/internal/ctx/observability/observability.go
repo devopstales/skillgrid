@@ -323,7 +323,7 @@ func Recompute(s *ctxstore.Store) int {
 //
 // The session-summary rollup is fail-open (ADR-0016) so a failed or disabled
 // pass never disturbs the stats rollup it runs alongside.
-func StartRollup(s *ctxstore.Store, tick time.Duration, sessionSummary bool, stop chan struct{}) (stopFn func()) {
+func StartRollup(s *ctxstore.Store, tick time.Duration, sessionSummary bool, snapshotPath string, stop chan struct{}) (stopFn func()) {
 	if s == nil {
 		return func() {}
 	}
@@ -337,12 +337,10 @@ func StartRollup(s *ctxstore.Store, tick time.Duration, sessionSummary bool, sto
 	go func() {
 		defer wg.Done()
 		defer close(done)
-		// Immediate first pass: stats history, and per-session summaries when
-		// the operator enabled the session-summary rollup.
-		_ = Recompute(s)
-		if sessionSummary {
-			summarizePass(s)
-		}
+		// Immediate first pass: stats history, per-session summaries when the
+		// operator enabled the session-summary rollup, and the durable JSON
+		// snapshot when a snapshot path is configured.
+		pass(s, sessionSummary, snapshotPath)
 		t := time.NewTicker(tick)
 		defer t.Stop()
 		for {
@@ -350,10 +348,7 @@ func StartRollup(s *ctxstore.Store, tick time.Duration, sessionSummary bool, sto
 			case <-stop:
 				return
 			case <-t.C:
-				_ = Recompute(s)
-				if sessionSummary {
-					summarizePass(s)
-				}
+				pass(s, sessionSummary, snapshotPath)
 			}
 		}
 	}()
@@ -363,12 +358,23 @@ func StartRollup(s *ctxstore.Store, tick time.Duration, sessionSummary bool, sto
 	}
 }
 
-// summarizePass runs one session-summary rollup, discarding the row count and
-// error. The rollup is fail-open (ADR-0016) — SummarizeSessions only returns an
-// error on a fault the operator should not be blocked on by a stats tick — so
-// the error is intentionally dropped; a failed pass simply yields no new rows.
-func summarizePass(s *ctxstore.Store) {
-	_, _ = SummarizeSessions(s, time.Now().Unix())
+// pass runs one rollup pass: recompute the stats-history buckets, then the
+// optional per-session summaries and the optional durable JSON snapshot.
+// Every step is fail-open (ADR-0016) — a fault in any step yields no new rows
+// / no new file but never blocks the tick.
+func pass(s *ctxstore.Store, sessionSummary bool, snapshotPath string) {
+	_ = Recompute(s)
+	if sessionSummary {
+		// The rollup is fail-open (ADR-0016) — SummarizeSessions only returns
+		// an error on a fault the operator should not be blocked on by a
+		// stats tick — so the error is intentionally dropped.
+		_, _ = SummarizeSessions(s, time.Now().Unix())
+	}
+	if snapshotPath != "" {
+		// The snapshot mirrors ctx_stats_history to disk so it survives a
+		// re-index (@step-13). Fail-open: a write fault yields no file.
+		_ = WriteHistorySnapshot(s, snapshotPath, nil)
+	}
 }
 
 // Snapshot returns the live session-metric snapshot (plan §17.2/§17.5) from
