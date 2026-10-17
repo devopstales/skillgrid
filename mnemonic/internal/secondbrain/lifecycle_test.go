@@ -548,6 +548,80 @@ func TestLifecycle_ArchiveStale(t *testing.T) {
 	}
 }
 
+// --- Growth timeline ---
+
+// seedGrowthRow stores one observation backdated to the given RFC3339 stamp.
+// When softDelete is true the row's deleted_at is set after insert.
+func seedGrowthRow(t *testing.T, svc *service.Service, project string, createdAt string, softDelete bool) int64 {
+	t.Helper()
+	ensureSession(t, svc, project)
+	hh, cleanup, err := svc.Open(project)
+	if err != nil {
+		t.Fatalf("open %s: %v", project, err)
+	}
+	defer cleanup()
+	id, err := hh.Memory().Save(context.Background(), memory.SaveInput{
+		Title: "growth row", Type: "decision", Content: "growth content",
+		Scope: "project", SessionID: sessionA,
+	})
+	if err != nil {
+		t.Fatalf("growth save: %v", err)
+	}
+	if _, err := hh.Store().DB.Exec(`UPDATE observations SET created_at = ? WHERE id = ?`, createdAt, id); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	if softDelete {
+		if _, err := hh.Store().DB.Exec(
+			`UPDATE observations SET deleted_at = ? WHERE id = ?`,
+			time.Now().UTC().Format(time.RFC3339), id,
+		); err != nil {
+			t.Fatalf("soft delete: %v", err)
+		}
+	}
+	return id
+}
+
+func TestGrowthTimeline_Monthly(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t, false)
+	project := "growth-monthly"
+
+	seedGrowthRow(t, svc, project, "2026-01-15T00:00:00Z", false) // January (a1)
+	seedGrowthRow(t, svc, project, "2026-02-10T00:00:00Z", false) // February (a2)
+	seedGrowthRow(t, svc, project, "2026-03-05T00:00:00Z", false) // March (a3)
+	seedGrowthRow(t, svc, project, "2026-03-20T00:00:00Z", true)  // March, soft-deleted (excluded)
+
+	out, err := GrowthTimeline(ctx, svc, project, "month")
+	if err != nil {
+		t.Fatalf("GrowthTimeline: %v", err)
+	}
+	if len(out) != 3 {
+		t.Fatalf("expected 3 periods, got %d: %+v", len(out), out)
+	}
+	// January: a1 added, a1 total.
+	if out[0].Added != 1 || out[0].Total != 1 {
+		t.Errorf("January = %+v, want {Added:1 Total:1}", out[0])
+	}
+	// February: a2 added, a1+a2 total (cumulative).
+	if out[1].Added != 1 || out[1].Total != 2 {
+		t.Errorf("February = %+v, want {Added:1 Total:2}", out[1])
+	}
+	// March: a3 added (soft-deleted row excluded), a1+a2+a3 total.
+	if out[2].Added != 1 || out[2].Total != 3 {
+		t.Errorf("March = %+v, want {Added:1 Total:3}", out[2])
+	}
+
+	// Empty store: an empty (non-nil) slice, no error.
+	emptySvc := newTestService(t, false)
+	empty, err := GrowthTimeline(ctx, emptySvc, "growth-empty", "month")
+	if err != nil {
+		t.Fatalf("GrowthTimeline empty: %v", err)
+	}
+	if empty == nil || len(empty) != 0 {
+		t.Errorf("expected non-nil empty slice on empty store, got %#v", empty)
+	}
+}
+
 // --- Audit log ---
 
 func TestLifecycle_AuditRow(t *testing.T) {

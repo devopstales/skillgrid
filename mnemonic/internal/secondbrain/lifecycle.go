@@ -286,6 +286,70 @@ func healthRecommendations(total int, byType map[string]int, embedded int, cover
 	return recs
 }
 
+// --- Growth timeline ---
+
+// PeriodCount is one bucket of a cumulative growth timeline: Added is the
+// number of observations created in the period, Total is the running cumulative
+// live count up to and including that period.
+type PeriodCount struct {
+	Period string `json:"period"`
+	Added  int    `json:"added"`
+	Total  int    `json:"total"`
+}
+
+// GrowthTimeline buckets a project's live observations (non-deleted,
+// non-archived) by created_at at the requested granularity and returns the
+// cumulative added/total per period, ascending. Granularity is "day", "week",
+// or "month" (case-insensitive); anything else is an error. Period labels use
+// SQLite strftime buckets ("%Y-%m-%d", "%Y-%W", "%Y-%m" respectively). A
+// project with no live observations returns an empty (non-nil) slice, not an
+// error.
+func GrowthTimeline(ctx context.Context, svc *service.Service, projectID string, granularity string) ([]PeriodCount, error) {
+	format, ok := map[string]string{
+		"day":   "%Y-%m-%d",
+		"week":  "%Y-%W",
+		"month": "%Y-%m",
+	}[strings.ToLower(strings.TrimSpace(granularity))]
+	if !ok {
+		return nil, fmt.Errorf("growth timeline: unsupported granularity %q (want day|week|month)", granularity)
+	}
+	h, cleanup, err := svc.Open(projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	db := h.Memory().DB()
+	if db == nil {
+		return []PeriodCount{}, nil
+	}
+	rx, err := db.QueryContext(ctx, `
+		SELECT strftime(?, created_at) AS period, COUNT(*)
+		FROM observations
+		WHERE project = ? AND deleted_at IS NULL AND archived_at IS NULL
+		GROUP BY period
+		ORDER BY period ASC`, format, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rx.Close()
+	out := []PeriodCount{}
+	total := 0
+	for rx.Next() {
+		var p PeriodCount
+		if err := rx.Scan(&p.Period, &p.Added); err != nil {
+			return nil, err
+		}
+		total += p.Added
+		p.Total = total
+		out = append(out, p)
+	}
+	if err := rx.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // --- Health file cache (24h, per-project) ---
 
 type healthCacheFile struct {

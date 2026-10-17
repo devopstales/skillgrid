@@ -77,6 +77,32 @@ func TestMemLifecycleDispatch(t *testing.T) {
 		t.Error("archive without subaction should be a value error")
 	}
 
+	// growth: read-only, no required params beyond action
+	res, err = handleMemLifecycle(context.Background(), newCallTool("mem_lifecycle", map[string]any{
+		"action":      "growth",
+		"project":     "test-project",
+		"granularity": "month",
+	}))
+	if err != nil {
+		t.Fatalf("growth dispatch: %v", err)
+	}
+	if res.IsError {
+		t.Errorf("growth returned error: %s", callResultText(t, res))
+	}
+
+	// growth: invalid granularity → value error
+	res, err = handleMemLifecycle(context.Background(), newCallTool("mem_lifecycle", map[string]any{
+		"action":      "growth",
+		"project":     "test-project",
+		"granularity": "fortnight",
+	}))
+	if err != nil {
+		t.Fatalf("growth (bad granularity) dispatch: %v", err)
+	}
+	if !res.IsError {
+		t.Error("growth with invalid granularity should be a value error")
+	}
+
 	// unknown action → value error
 	res, err = handleMemLifecycle(context.Background(), newCallTool("mem_lifecycle", map[string]any{
 		"action":  "bogus",

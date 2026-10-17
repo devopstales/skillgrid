@@ -53,8 +53,8 @@ func memAskTool() mcplib.Tool {
 
 func memLifecycleTool() mcplib.Tool {
 	return mcplib.NewTool("mem_lifecycle",
-		mcplib.WithDescription("Lifecycle actions over the memory store: health report, dedup scan/merge, consolidate, archive/restore. Every mutating op is audited in the lifecycle_log table. Action: health | dedup_scan | dedup_merge | consolidate | archive."),
-		mcplib.WithString("action", mcplib.Required(), mcplib.Description("Action: health | dedup_scan | dedup_merge | consolidate | archive")),
+		mcplib.WithDescription("Lifecycle actions over the memory store: health report, dedup scan/merge, consolidate, archive/restore, growth timeline. Every mutating op is audited in the lifecycle_log table. Action: health | dedup_scan | dedup_merge | consolidate | archive | growth."),
+		mcplib.WithString("action", mcplib.Required(), mcplib.Description("Action: health | dedup_scan | dedup_merge | consolidate | archive | growth")),
 		mcplib.WithString("subaction", mcplib.Description("Archive subaction: archive | restore | list | stale")),
 		mcplib.WithString("project", mcplib.Description("Optional project name to scope the action under (defaults to the CWD-resolved project).")),
 		mcplib.WithArray("obs_ids", mcplib.Description("Observation IDs the action applies to (dedup_merge, consolidate, archive).")),
@@ -62,6 +62,7 @@ func memLifecycleTool() mcplib.Tool {
 		mcplib.WithNumber("stale_days", mcplib.Description("Stale threshold in days (archive stale subaction; default 90).")),
 		mcplib.WithBoolean("dry_run", mcplib.Description("For dedup_scan: return clusters without writing (default true).")),
 		mcplib.WithString("new_title", mcplib.Description("Title for the consolidated observation (consolidate action).")),
+		mcplib.WithString("granularity", mcplib.Description("Growth timeline bucket size: day | week | month (growth action; default month).")),
 	)
 }
 
@@ -299,6 +300,18 @@ func handleMemLifecycle(ctx context.Context, req mcplib.CallToolRequest) (*mcpli
 			}
 		}
 		return JSONResult(out)
+
+	case "growth":
+		granularity := strings.ToLower(strings.TrimSpace(req.GetString("granularity", "month")))
+		timeline, err := secondbrain.GrowthTimeline(ctx, svc, projectID, granularity)
+		if err != nil {
+			return toolError(err)
+		}
+		return JSONResult(map[string]any{
+			"project":     projectID,
+			"granularity": granularity,
+			"timeline":    timeline,
+		})
 
 	default:
 		return toolError(fmt.Errorf("%w: %q", errBadAction, action))
