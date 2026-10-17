@@ -216,6 +216,61 @@ func TestScannerCommandsIncludesJscpd(t *testing.T) {
 	}
 }
 
+// TestParseAkca maps the fixture's three evidence-driven findings into
+// findings (rule_id=ruleId, file=url, raw severity kept for
+// NormalizeSeverity, title carries the proof payload/status).
+//
+// SATISFIES: `dast-auto-from-config` (akca leg)
+func TestParseAkca(t *testing.T) {
+	fs, err := Parse("akca", fixtureBytes(t, "akca.json"))
+	if err != nil {
+		t.Fatalf("Parse(akca): %v", err)
+	}
+	if len(fs) != 3 {
+		t.Fatalf("Parse(akca) = %d findings, want 3", len(fs))
+	}
+	f := fs[0]
+	if f.Tool != "akca" {
+		t.Errorf("Tool = %q, want akca", f.Tool)
+	}
+	if f.RuleID != "sqli" {
+		t.Errorf("RuleID = %q, want sqli", f.RuleID)
+	}
+	if f.File != "/search" {
+		t.Errorf("File = %q, want /search", f.File)
+	}
+	if got := NormalizeSeverity("akca", f.Severity); got != "HIGH" {
+		t.Errorf("NormalizeSeverity(akca, %q) = %q, want HIGH", f.Severity, got)
+	}
+	if len(f.Links) != 1 || f.Links[0] != "/search" {
+		t.Errorf("Links = %v, want [/search]", f.Links)
+	}
+	if got := fs[1].RuleID; got != "xss" {
+		t.Errorf("second RuleID = %q, want xss", got)
+	}
+	if got := NormalizeSeverity("akca", fs[1].Severity); got != "MEDIUM" {
+		t.Errorf("NormalizeSeverity(akca, %q) = %q, want MEDIUM", fs[1].Severity, got)
+	}
+	if got := NormalizeSeverity("akca", fs[2].Severity); got != "INFO" {
+		t.Errorf("NormalizeSeverity(akca, %q) = %q, want INFO", fs[2].Severity, got)
+	}
+}
+
+// TestScannerCommandsIncludesAkca: akca must be runnable via Start.
+func TestScannerCommandsIncludesAkca(t *testing.T) {
+	if _, ok := scannerCommands["akca"]; !ok {
+		t.Error("scannerCommands missing akca; must be runnable via Start")
+	}
+}
+
+// TestParseAkcaBadInput is a second akca input (triangulation): malformed
+// JSON is a clear error, not a zero-value finding set.
+func TestParseAkcaBadInput(t *testing.T) {
+	if _, err := Parse("akca", []byte("not-json")); err == nil {
+		t.Fatal("Parse(akca, bad input) = nil error, want an error")
+	}
+}
+
 // TestParseNucleiBadLine is a second nuclei input (triangulation): a
 // non-JSON line is a clear error, not a silent skip.
 func TestParseNucleiBadLine(t *testing.T) {

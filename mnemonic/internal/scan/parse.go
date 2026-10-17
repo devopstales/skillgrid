@@ -38,6 +38,8 @@ func Parse(tool string, data []byte) ([]Finding, error) {
 		return parseSemgrep(data)
 	case "jscpd":
 		return parseJscpd(data)
+	case "akca":
+		return parseAkca(data)
 	default:
 		return nil, fmt.Errorf("parse: unsupported tool %q", tool)
 	}
@@ -84,11 +86,11 @@ func parseTrivy(data []byte) ([]Finding, error) {
 				Line:         0,
 				Message:      message,
 			}
-		if v.PrimaryURL != "" {
-			f.Links = append(f.Links, v.PrimaryURL)
-		}
-		f.Links = append(f.Links, v.References...)
-		findings = append(findings, f)
+			if v.PrimaryURL != "" {
+				f.Links = append(f.Links, v.PrimaryURL)
+			}
+			f.Links = append(f.Links, v.References...)
+			findings = append(findings, f)
 		}
 	}
 	return findings, nil
@@ -129,8 +131,8 @@ func parseNuclei(data []byte) ([]Finding, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	for dec.More() {
 		var entry struct {
-			TemplateID  string `json:"template-id"`
-			Info        struct {
+			TemplateID string `json:"template-id"`
+			Info       struct {
 				Severity string `json:"severity"`
 			} `json:"info"`
 			MatcherName string `json:"matcher-name"`
@@ -218,6 +220,38 @@ func parseJscpd(data []byte) ([]Finding, error) {
 			Title:    fmt.Sprintf("duplicate block %s↔%s", c.Offsets[0].Name, c.Offsets[1].Name),
 			File:     c.Offsets[0].Name,
 			Line:     c.Offsets[0].Start.Line,
+		})
+	}
+	return findings, nil
+}
+
+// parseAkca maps akca's evidence-driven findings[] (ruleId/severity/url/
+// proof.payload/proof.status) into findings (rule_id=ruleId, file=url, raw
+// severity kept for NormalizeSeverity, title carries the proof evidence).
+func parseAkca(data []byte) ([]Finding, error) {
+	var report struct {
+		Findings []struct {
+			RuleID   string `json:"ruleId"`
+			Severity string `json:"severity"`
+			URL      string `json:"url"`
+			Proof    struct {
+				Payload string `json:"payload"`
+				Status  int    `json:"status"`
+			} `json:"proof"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("parse akca: %w", err)
+	}
+	var findings []Finding
+	for _, f := range report.Findings {
+		findings = append(findings, Finding{
+			Tool:     "akca",
+			RuleID:   f.RuleID,
+			Severity: f.Severity,
+			Title:    fmt.Sprintf("%s %s (proof: %s→%d)", f.RuleID, f.URL, f.Proof.Payload, f.Proof.Status),
+			File:     f.URL,
+			Links:    []string{f.URL},
 		})
 	}
 	return findings, nil

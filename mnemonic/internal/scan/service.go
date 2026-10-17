@@ -79,6 +79,7 @@ var scannerCommands = map[string][]string{
 	"nuclei":  {"-u"},
 	"semgrep": {"scan", "--json"},
 	"jscpd":   {"--reporters", "json"},
+	"akca":    {"scan"},
 }
 
 // scannerBins maps a tool key to the binary Start execs. For every tool the

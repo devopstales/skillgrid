@@ -33,6 +33,11 @@ var toolSeverityMaps = map[string]map[string]string{
 		"WARNING": "MEDIUM",
 		"NOTE":    "INFO",
 	},
+	"akca": {
+		"ERROR":   "HIGH",
+		"WARNING": "MEDIUM",
+		"INFO":    "INFO",
+	},
 }
 
 // NormalizeSeverity maps a scanner-specific severity to the normalized
