@@ -30,7 +30,7 @@ Mnemonic's "second brain" lacks several capabilities present in `claude-os` that
     12. Multi-bucket search carries an explicit scope block; default single-bucket output is byte-identical to today.
     13. One graph page teaches the repo: synced tree/canvas/inspector, guided tour, concept toggle, on-demand locals.
     14. Chunks carry deterministic context prefixes; two-layer rank formalized; MMR-vs-RRF decided by ablation numbers.
-- **Out of scope:** Replacing existing dedup/consolidation, changing the AKL decay model, implementing a separate KB-per-class, adopting a repocodex-style `.context/` bundle, or adding openwiki-style generation skills (skills stay follow-up; see below).
+- **Out of scope:** Replacing existing dedup/consolidation, changing the AKL decay model, implementing a separate KB-per-class, adding openwiki-style generation skills (skills stay follow-up; see below), or adopting repocodex's standalone `repocodex write` 7-check write gate as a separate CLI subcommand (the gate *checks* — distinctiveness, identity prefix — inform our `okf-lint.mjs` rules; our OKF writes go through the existing skill pipeline). Note: R6 (this change) DOES adopt the repocodex `.context/`-equivalent layout as `.skillgrid/`-native OKF folders — the exclusion applies to importing the repocodex Python package as a dependency, not to the layout/pattern.
 
 ## Context
 
@@ -140,6 +140,13 @@ Mnemonic's "second brain" lacks several capabilities present in `claude-os` that
       reference sweep over every
       in-repo `artifacts/`/`archive/` path (config, sdd-structure, skills,
       hooks, dashboard).
+      **Telemetry (borrowed from repocodex `metrics.jsonl`):** shadow-posture
+      telemetry sink — append-only JSONL of lint/validate events (drift
+      detected, anchors re-anchored, false positives resolved) with a
+      computed `false_drift_rate` field. Gitignored, overridable via env
+      var, not memory. Purpose: data trail that justifies promoting a
+      shadow gate (WARNING) to ratchet (blocking) based on measured
+      precision, not gut feeling.
     - **Acceptance:** TBD — requires a spec-zone delta (blueprint task +
       acceptance Gate + sliced ticket) and a re-gate before execution. Must not
       break the R1–R5 traceability chain or the ADR IRON RULE (`git mv` only).
@@ -213,7 +220,9 @@ lands and the change re-gates. TICKET-01..05 stay frozen.
   User-confirmed Q&A (2026-10-10, layout revised same day): OKF v0.2,
   hybrid SoT, dissolve-`artifacts/` scope, native pins.
 - **Consolidated evidence:** `findings.md` — `## Research: repocodex`
-  (anchor liveness, file-path retrieval, coverage ratchet, shadow posture),
+  (anchor liveness, file-path retrieval, coverage ratchet, shadow posture,
+  closed blocking set, posture semantics, write gate, metrics.jsonl
+  telemetry, validate envelope shape — per `docs/architecture.md`),
   `## Research: vector-DB-demotion video` (BM25-first verdict; compiled-wiki
   cost caution: ~100× build, ~21×/query — bundle stays small/curated),
   `## Research: openwiki deep-dive` (page-job pipeline, ownership split,

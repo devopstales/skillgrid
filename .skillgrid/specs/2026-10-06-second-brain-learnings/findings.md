@@ -33,9 +33,36 @@
 
 ## Research: repocodex (2026-10-10)
 
-**Sources:** `github.com/azaylamba/repocodex` (README, `docs/agents.md`, `docs/how-it-works.md`, `docs/memory.md` OKF v0.2 consumer guide) + live usage in `/data/git/AI/test-project` (`.repocodex.toml`: `engine_version 0.0.2`, `posture = "shadow"`, no `.context/` bundle yet — adoption playground). Docs + config only; no code executed.
+**Sources:** `github.com/azaylamba/repocodex` (README, `docs/agents.md`, `docs/how-it-works.md`, `docs/memory.md` OKF v0.2 consumer guide, `docs/architecture.md` engine architecture) + live usage in `/data/git/AI/test-project` (`.repocodex.toml`: `engine_version 0.0.2`, `posture = "shadow"`, no `.context/` bundle yet — adoption playground). Docs + config only; no code executed.
 
 **What it is:** Git-native "why next to code" with a pin check. Concepts (`TechnicalDecision`/`InvariantContract`/`BusinessWorkflow`/`GuardrailDecision`, one per why, orthogonal types) live in an OKF bundle at `.context/` beside the code. Each pins live text via `verification.anchors` (`path` + `all_of` terms, optional `near`) and checkable `claims` literals. CLI over ripgrep+git: `repocodex context <paths>` (retrieve why before edit, file-keyed via generated reverse index at `.repocodex/reverse-index.md`) + `repocodex validate --diff` (`LIVE / WEAK / WRITE + skipped_memory / REANCHOR / RECONCILE+DRIFT / CLAIM_BROKEN`). Pre-commit hook + CI + agent skills enforce the loop; `memory-exempt` is the governed hotfix override. Python 3.11+, requires `rg` on PATH.
+
+**Engine architecture (from `docs/architecture.md`):** Deterministic attester (`engine/` package, no LLM) with 11 modules: `gate` (write gate + identity prefixes), `match` (term compile, regions, markers, claims), `liveness` (LIVE/WEAK/REANCHOR/DRIFT + CLAIM_BROKEN), `relocate` (rename + pickaxe candidates), `ratchet` (skipped-memory / first-touch / region discharge), `contradiction` (shared claim subject + double supersede), `impact` (intent-side `impacted_scenarios`), `code_impact` (advisory hit ranking), `blocking` (closed `REQUIRED_CHECK_REASONS`), `dilution` (advisory warnings), `ack` (review-ack token for `memory-exempt`).
+
+**Closed blocking set** (5 reasons only; everything else is advisory):
+1. `drift` — unrepaired DRIFT
+2. `claim_broken` — any claim finding
+3. `skipped_memory` — covered-file maintenance or first-touch of uncovered eligible file, undischarged
+4. `index_sync` — committed reverse index out of sync with anchors
+5. `contradiction` — two live concepts assert different literals for same claim subject, or two live concepts supersede same predecessor
+
+Never blocks solely because `.context/` changed, WEAK degraded, dilution warned, or an agent-judged finding appeared.
+
+**Posture semantics (as shipped):**
+
+| Posture | Blocking behavior |
+|---|---|
+| `shadow` (default) | Blocks ONLY on undischarged `skipped_memory` (including first-touch). Other required reasons computed + reported but non-blocking. |
+| `ratchet` | Any reason in the closed blocking set denies. |
+| `full` | Same as `ratchet` in validate today. Scheduled sampling is the separate `repocodex audit` command. |
+
+**Write gate (7 checks, fails closed):** match (anchor terms hit pinned path) → in-file uniqueness (term combo locates unique region) → distinctiveness (≥1 term under ceiling; path-only/import-only rejected) → claims (each literal in owning anchor's `all_of` + matched region) → exclusions (not in gitignore/`.repocodexignore`/config exclusion) → identity prefix (authored types under mapped folders) → markers/regex dialect. Reject payloads include `tighten`, `term_counts`, `suggestions`.
+
+**Telemetry:** `.repocodex/metrics.jsonl` (gitignored; overridable via `REPOCODEX_METRICS_SINK`). Append-only JSONL: `{"event": <name>, "at": <utc>, ...payload}`. `validate` appends drift/reconcile events. `false_drift_rate` (share of DRIFT later shown false by reanchor reconcile) is a computed field in every validate envelope. Purpose: measure pin-check precision over the recorded window to inform shadow→ratchet promotion.
+
+**Validate envelope (shape):** JSON with `result` (LIVE|WEAK|REANCHOR|RECONCILE|CLAIM_BROKEN|CONTRADICTION|WRITE), `posture`, `blocking`, `blocking_reasons[]`, `outcomes[]`, `lost[]`, `weak[]`, `claim_findings[]`, `patches[]`, `candidates[]`, `impacted_scenarios[]` (intent-side impact in every envelope: changed files → reverse index → concepts → OKF links → other pins), `dilution_warnings[]`, `identity_prefix_warnings[]`, `contradictions[]`, `index_sync[]`, `skipped_memory[]`, `changed_files[]`, `memory_exempt`, `exemption_refused`, `audit_entries[]`, `repair_tasks[]`, `false_drift_rate`, `latency_ms`, `engine_version`.
+
+**Tree-mutation honesty:** Engine modules emit verdicts + patches; callers apply. Exceptions: `validate` appends metrics to `.repocodex/metrics.jsonl`; `audit` may deprecate orphan/expired drafts (GC); `write`/`reconcile`/`relocate`/`bootstrap`/`install` intentionally mutate the tree. Default `validate` without `--apply-patches` leaves `.context/` unchanged.
 
 **Core insight for our problem:** freshness as content-based attestation, not time-based expiry. An ADR is stale when its anchors break, not 7 days after writing — obsoletes the TTL mindset behind D17 (ingest rows expiring) and the re-crawl instinct. Don't crawl for learnings after the fact; record at the point of change and prove liveness continuously.
 
@@ -43,7 +70,7 @@
 
 1. **Anchor liveness for ADRs.** Optional `verification:` frontmatter (anchors + claims) on `artifacts/04-adr-*.md` + a check beside the drift guards re-running anchors (`LIVE/DRIFT/CLAIM_BROKEN`). New third guard: spec-zone drift, structure drift, *knowledge liveness*. Land WARNING-only first.
 2. **File-path-keyed why retrieval.** Deterministic "which decisions pin these files" lookup (reverse-index shape) next to `ctx_query`/`code_search`: ingest anchored concepts as observations with file-path metadata. Fixes the probabilistic-miss failure mode (same one pi-hermes-memory's standing-instructions names).
-3. **Knowledge-coverage ratchet (the structural fix for "how does it learn").** `WRITE` + `skipped_memory` when a substantive edit touches an uncovered file; turn cannot finish until a pinning concept lands in the same change. Ours already owns the cousins (spec zone, zone guard, ship drift check = anticipated-files→diff); this is the reverse (diff-paths→knowledge-coverage). Land in `qa`/pre-commit as WARNING first.
+3. **Knowledge-coverage ratchet (the structural fix for "how does it learn").** `WRITE` + `skipped_memory` when a substantive edit touches an uncovered file; turn cannot finish until a pinning concept lands in the same change, **or** every substantive hunk falls inside a matched region of an attesting anchor (LIVE classification alone does NOT discharge the whole file; comment/whitespace-only edits do not arm; working-tree scope diffs against HEAD). Ours already owns the cousins (spec zone, zone guard, ship drift check = anticipated-files→diff); this is the reverse (diff-paths→knowledge-coverage). Land in `qa`/pre-commit as WARNING first.
 4. **Why-change protocol.** Intent change requires `supersedes` + `rationale` in the same change — completes our ADR IRON RULE + bitemporal chain (ADR-0011); adopt the `rationale` requirement explicitly.
 5. **Unanchored pages are still knowledge.** No-`verification` concepts load, just don't arm the pin check. Vocabulary for reports/retrospectives: process learnings first-class without anchors; conventions carry pins. Maps onto `knowledge_class` (episodic vs convention); legitimizes `reflect` → `06-research-findings.md` as designed.
 6. **Shadow posture for every new gate.** Every liveness/coverage check lands as `qa` WARNING / `WINDOWS.md` entry before ever blocking (matches fail-open; mirrors test-project `posture = "shadow"`). Borrow `memory-exempt` shape for hotfixes (our fast-track waiver is the same; add one-command repair flow).
@@ -53,6 +80,7 @@
 
 - Storage layout (`.context/` OKF bundle) — our SQLite SoT (ADR-0012) and `.skillgrid/` zones stand. Mechanisms only.
 - Distribution already matches (their MCP + installed skills ≈ our Hub Content via `install`); imitate their skill copy "follow that skill; do not invent a substitute".
+- The `repocodex write` 7-check write gate as a standalone command — our OKF writes go through the existing skill pipeline (brainstorming → writing-blueprints), not a separate write gate. The gate *checks* (distinctiveness, identity prefix) inform our lint rules but don't become a separate CLI subcommand.
 
 ### Proposed shape (recap, for the follow-up change)
 
@@ -60,6 +88,7 @@
 - Add anchor liveness (1) + file-path retrieval (2): prove freshness, find decisions deterministically.
 - Add coverage ratchet (3) in shadow mode: learn at write time, no crawler.
 - Reports stay unanchored knowledge via `reflect` (5).
+- Borrow `metrics.jsonl` shape for our shadow-posture telemetry: append-only JSONL of drift/reconcile events + `false_drift_rate` in the validate output. This is the data trail that justifies promoting a shadow gate to ratchet (findings item 6). Gitignored, overridable, not memory.
 
 ## Proposal: `.skillgrid` as OKF v0.2 wiki (2026-10-10)
 

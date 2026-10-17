@@ -27,6 +27,7 @@
 - **OKF:** Open Knowledge Format v0.2 — a directory of Markdown concepts with YAML frontmatter (`type` required; `index.md`/`log.md` reserved).
 - **Concept:** One unit of knowledge = one `.md` file; identity folders `decisions/`/`invariants/`/`workflows/` per repocodex pattern.
 - **Reverse index:** Generated, committed `path → concept` map (repocodex `.repocodex/reverse-index.md` pattern, reimplemented natively).
+- **OKF metrics:** Append-only JSONL telemetry sink (`.skillgrid/okf-metrics.jsonl`, gitignored) recording lint/validate events + `false_drift_rate`; borrowed from repocodex `metrics.jsonl` pattern; operational artifact, not memory, not indexed.
 
 ## Must-Haves (goal-backward verification)
 
@@ -49,6 +50,7 @@
 - Multi-bucket `mem_search` carries an explicit scope block; default single-bucket output unchanged (federated tests green unmodified).
 - Fixture repo browses both ways (tree↔canvas), inspector shows identity + typed connections with source lines + preview, tour completes ≥3 stops, locals expand ephemerally with an empty store diff.
 - Prefixed chunks carry path/symbol/scope context; MMR-vs-RRF ablation numbers recorded before any ranker change.
+- `okf-lint.mjs` appends a JSONL event to `.skillgrid/okf-metrics.jsonl` (or `OKF_METRICS_SINK` override) per run; the file is gitignored; `false_drift_rate` is 0.0 on first run and computed from prior-run findings on subsequent runs; a telemetry-write failure does not change the exit code.
 
 **Artifacts** (files that must exist with real implementation, not stubs):
 - `mnemonic/internal/secondbrain/lifecycle.go` — Contains `GrowthTimeline` and extended `healthRecommendations`.
@@ -76,6 +78,7 @@
 - `skillgrid-ui/src/features/mnemonic/GraphPage.tsx` (+ tree panel, enriched inspector, search box, layer filters, tour mode, concept toggle, locals expansion) — R12 teaching upgrade.
 - `mnemonic/internal/mcp/tools_memory.go` (descriptions + scope block) + description-only touch on `tools_secondbrain.go`/`tools_session_inject.go`.
 - `mnemonic/internal/codeindex/indexer.go` — deterministic `path · symbol · scope` chunk prefixes; `hybrid/rank.go` — ablation-only (no ranker change without winning numbers, recorded in `findings.md`).
+- `.gitignore` — `.skillgrid/okf-metrics.jsonl` entry (telemetry sink, operational artifact).
 
 **Key links** (critical connections between artifacts that must work together):
 - `GrowthTimeline` must exclude soft-deleted and archived rows from the cumulative total.
@@ -665,13 +668,16 @@ git commit -m "feat(mnemonic): explicit scope block on multi-bucket search"
 
 ---
 
-## Task 12: okf-lint.mjs knowledge lint script
+## Task 12: okf-lint.mjs knowledge lint script (+ shadow-posture telemetry)
 
 > Node-only task (no Go, no migration, no new dependency — `yaml` npm package only, per ADR-0008). Follows the existing guard conventions (`state-drift-check.mjs`: read-only, exit 0/1/2, `SCOPE:` line per ADR-0010, `[project-root]` arg). Disjoint files from all other tasks — parallel-safe. Lands before Task 6 executes (Task 6 Step 4 consumes it).
+>
+> **Telemetry (borrowed from repocodex `metrics.jsonl`):** the lint script appends a JSONL event per run to `.skillgrid/okf-metrics.jsonl` (gitignored; overridable via `OKF_METRICS_SINK` env var). Event shape: `{"event": "lint", "at": <iso-utc>, "drift": <n>, "findings": [...], "false_drift_rate": <0.0-1.0>}`. `false_drift_rate` = share of previously-reported drift findings that were absent on the next run (i.e., false positives). Purpose: measured data trail for promoting the lint gate from WARNING (shadow) to blocking (ratchet) — mirrors repocodex's `shadow`→`ratchet` posture promotion. The telemetry file is NOT memory, NOT a concept, NOT indexed by SQLite — it is an operational artifact that lives or dies with the working tree.
 
 **Files:**
 - Create: `.agents/skills/verification/qa/scripts/okf-lint.mjs`
 - Create: fixture bundles + runner evidence (e.g. `test/fixtures/okf-clean/`, `test/fixtures/okf-drift/` — co-locate with the script if the repo convention prefers script-local fixtures; keep both fixtures committed)
+- Modify: `.gitignore` (add `.skillgrid/okf-metrics.jsonl`)
 
 **Interfaces:**
 - Consumes: knowledge roots post-R6 (`decisions/ invariants/ workflows/ glossary/ reference/` + root `index.md`/`log.md`/`reverse-index.md`) with pre-R6 `artifacts/` fallback; working-tree file reads for anchor matching.
@@ -683,19 +689,26 @@ git commit -m "feat(mnemonic): explicit scope block on multi-bucket search"
 
 Create `okf-clean` (2–3 concepts, valid frontmatter, complete index, resolving links, live anchors, synced reverse-index) and `okf-drift` (one broken link, one unindexed concept, one broken claim literal, one `stable` page missing `generated`). Record the expected verdicts in a comment header. No script yet — `node .../okf-lint.mjs` errors (missing file), which is the failing state.
 
-- [ ] **Step 2: Implement the seven checks (green)**
+- [ ] **Step 2: Implement the seven checks + telemetry sink (green)**
 
 frontmatter-valid → index-complete → links-unbroken (in-bundle targets only, no network) → no-`[[wikilink]]`-syntax (relative Markdown links only; unresolvable `[[ ]]` is a finding) → provenance-required (`status: stable` ⇒ `generated` present, plus `sources` when anchored; `draft` exempt — the agent never self-stamps) → claims-require-verification → anchors-match liveness (`all_of` honoring `near`/`scope_lines`, literals in matched region; report LIVE/DRIFT/CLAIM_BROKEN per anchor) → reverse-index-sync → orphans advisory-only. Layout detection first (post-R6 roots, else `artifacts/` fallback, else UNSCOPED).
 
-- [ ] **Step 3: Run G13 + prove read-only**
+**Telemetry:** after the checks complete, append one JSONL event to `.skillgrid/okf-metrics.jsonl` (path overridable via `OKF_METRICS_SINK`). Before appending, read the previous file (if any) and compute `false_drift_rate`: findings reported in the previous run that are ABSENT in this run are false positives; rate = false / total_previous_drift (0.0 if no previous run). The telemetry write is the ONLY side-effect of the script (it is otherwise read-only); a telemetry-write failure is non-fatal (warn to stderr, still exit with the correct code).
+
+- [ ] **Step 3: Run G13 + prove read-only + prove telemetry**
 
 ```bash
 node .agents/skills/verification/qa/scripts/okf-lint.mjs test/fixtures/okf-clean
 node .agents/skills/verification/qa/scripts/okf-lint.mjs test/fixtures/okf-drift; test $? -eq 1
-git status --short test/fixtures/ | wc -l   # must be 0 (no writes)
+git status --short test/fixtures/ | wc -l   # must be 0 (no fixture writes)
+# telemetry: run twice on the drifted fixture, verify JSONL appends
+OKF_METRICS_SINK=/tmp/okf-test-metrics.jsonl node .agents/skills/verification/qa/scripts/okf-lint.mjs test/fixtures/okf-drift 2>/dev/null; true
+OKF_METRICS_SINK=/tmp/okf-test-metrics.jsonl node .agents/skills/verification/qa/scripts/okf-lint.mjs test/fixtures/okf-drift 2>/dev/null; true
+wc -l /tmp/okf-test-metrics.jsonl   # must be 2 (two appends)
+cat /tmp/okf-test-metrics.jsonl | head -1 | node -e "const d=JSON.parse(require('fs').readFileSync(0)); if(d.event!=='lint'||typeof d.false_drift_rate!=='number') process.exit(1)"
 ```
 
-Expected: clean exits 0 (`DRIFT: clean`, `SCOPE: COMPLETE`); drifted exits 1 naming all three finding classes; fixtures unmodified.
+Expected: clean exits 0 (`DRIFT: clean`, `SCOPE: COMPLETE`); drifted exits 1 naming all three finding classes; fixtures unmodified; telemetry file has exactly 2 lines, each a valid JSON object with `event: "lint"` and a numeric `false_drift_rate` (0.0 on the first run).
 
 - [ ] **Step 4: Commit (scripts zone)**
 

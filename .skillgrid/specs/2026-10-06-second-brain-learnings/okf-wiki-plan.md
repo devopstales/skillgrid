@@ -127,6 +127,13 @@ claims: [{ subject, literal }]                  # REQUIRED for InvariantContract
    check, orphan report, `claims`-requires-`verification` check, reverse-index
    regen + sync check. Lands advisory-first (repocodex `shadow` posture): WARN
    in `qa` report `## OKF Lint` section; blocking only by a later user OK.
+   **Telemetry:** `okf-lint.mjs` appends a JSONL event per run to
+   `.skillgrid/okf-metrics.jsonl` (gitignored; `OKF_METRICS_SINK` override).
+   Event: `{"event":"lint","at":<iso>,"drift":<n>,"findings":[...],"false_drift_rate":<f>}`.
+   `false_drift_rate` = prior-run findings absent this run / prior total
+   (repocodex `metrics.jsonl` pattern). This is the measured data trail for
+   promoting the gate from shadow (WARNING) to ratchet (blocking) — the
+   promotion decision is made on numbers, not gut feeling.
 2. **Retrieval layer (existing Mnemonic):** confirm `.skillgrid/**/*.md` is
    indexed (`config.d/indexing.yaml` excludes must not drop it;
    `ARCHITECTURE.md` §6.3 claims `md` is included — verify, don't assume),

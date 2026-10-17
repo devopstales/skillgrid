@@ -1,6 +1,6 @@
 # Tasks — 2026-10-06-second-brain-learnings (sliced)
 
-> **STATUS:** `sliced` (2026-10-11)
+> **STATUS:** `sliced` (2026-10-11, delta 2026-10-17: TICKET-11 telemetry sink + .gitignore)
 
 **Change:** 2026-10-06-second-brain-learnings
 **Tier:** T2 · **Build shape:** Journey · **Delivery:** single branch, 14 tickets, High review risk (~2000–2800 lines: Go features + recall paths + graph views + lint script + bundle moves)
@@ -209,18 +209,18 @@ Chain strategy: stacked-to-main (single-branch; each unit PR merges to main in o
 - **Verify:** `cd mnemonic && go test ./internal/mcp/... -run TestMemSearch_ScopeBlock -v` PASS; full `./internal/mcp/...` green with federated tests untouched
 - [ ] done
 
-### TICKET-11: okf-lint.mjs knowledge lint script + fixtures
+### TICKET-11: okf-lint.mjs knowledge lint script + fixtures (+ shadow-posture telemetry)
 
-- **Scope:** Read-only drift guard with nine checks over clean + drifted fixtures.
-- **Acceptance:** Clean exits 0 (DRIFT clean, SCOPE COMPLETE); drifted exits 1 naming all four finding classes; fixtures unmodified.
+- **Scope:** Read-only drift guard with nine checks + telemetry sink over clean + drifted fixtures.
+- **Acceptance:** Clean exits 0 (DRIFT clean, SCOPE COMPLETE); drifted exits 1 naming all four finding classes; fixtures unmodified; telemetry appends exactly one JSONL line per run to `.skillgrid/okf-metrics.jsonl` (or `OKF_METRICS_SINK` override) with `event:"lint"` + numeric `false_drift_rate` (0.0 first run); telemetry-write failure is non-fatal (warn to stderr, exit code unchanged); `.skillgrid/okf-metrics.jsonl` is gitignored.
 - **SATISFIES:** R6 (tooling half) ↔ @step-12 `okf-lint` (G13)
-- **Files:** `.agents/skills/verification/qa/scripts/okf-lint.mjs` (NEW), fixture bundle + runner test (e.g. `test/fixtures/okf-clean/`, `test/fixtures/okf-drift/` — co-location decided at authoring, recorded in commit message)
+- **Files:** `.agents/skills/verification/qa/scripts/okf-lint.mjs` (NEW), fixture bundle + runner test (e.g. `test/fixtures/okf-clean/`, `test/fixtures/okf-drift/` — co-location decided at authoring, recorded in commit message), `.gitignore` (add `.skillgrid/okf-metrics.jsonl`)
 - **Size:** ~M (500–1500)
 - **Blocks:** TICKET-14 (its verification consumes the script)
 - **Blocked by:** none (Node-only, no Go)
-- **Do:** Read-only Node verifier (existing guard conventions: exit 0 clean / 1 drift / 2 usage-parse, `SCOPE:` line per ADR-0010, `[project-root]` arg, `yaml` package only). Checks: (1) frontmatter-valid (parseable YAML, non-empty `type`, reserved `index.md`/`log.md` exempt except root `okf_version`); (2) index-complete both directions (concepts ↔ catalogs); (3) links-unbroken (in-bundle Markdown targets only, no network); (4) no-`[[wikilink]]`-syntax (relative Markdown links only — vault-compatible single syntax); (5) provenance-required (`status: stable` ⇒ `generated` present, plus `sources` when anchored; `draft` exempt — the agent never self-stamps); (6) claims-require-verification (`InvariantContract` ⇒ `claims[]` ⇒ `verification.anchors`); (7) anchors-match liveness (`all_of` terms in pinned path honoring `near`/`scope_lines`, claim literals in matched region → LIVE/DRIFT/CLAIM_BROKEN); (8) reverse-index-sync (regenerate expected map, diff committed file); (9) orphans advisory-only (never fails). Layout-aware: post-R6 roots with pre-R6 `artifacts/` fallback; neither found ⇒ UNSCOPED. Never writes (no `--fix`; callers apply).
-- **Reversibility:** fully reversible (new script + fixtures; delete to revert).
-- **Verify:** G13 gates PASS; `node scripts/check-skillgrid-skills.mjs` unaffected (script, not skill)
+- **Do:** Read-only Node verifier (existing guard conventions: exit 0 clean / 1 drift / 2 usage-parse, `SCOPE:` line per ADR-0010, `[project-root]` arg, `yaml` package only). Checks: (1) frontmatter-valid (parseable YAML, non-empty `type`, reserved `index.md`/`log.md` exempt except root `okf_version`); (2) index-complete both directions (concepts ↔ catalogs); (3) links-unbroken (in-bundle Markdown targets only, no network); (4) no-`[[wikilink]]`-syntax (relative Markdown links only — vault-compatible single syntax); (5) provenance-required (`status: stable` ⇒ `generated` present, plus `sources` when anchored; `draft` exempt — the agent never self-stamps); (6) claims-require-verification (`InvariantContract` ⇒ `claims[]` ⇒ `verification.anchors`); (7) anchors-match liveness (`all_of` terms in pinned path honoring `near`/`scope_lines`, claim literals in matched region → LIVE/DRIFT/CLAIM_BROKEN); (8) reverse-index-sync (regenerate expected map, diff committed file); (9) orphans advisory-only (never fails). Layout-aware: post-R6 roots with pre-R6 `artifacts/` fallback; neither found ⇒ UNSCOPED. Never writes concepts (no `--fix`; callers apply). **Telemetry (repocodex `metrics.jsonl` pattern, delta 2026-10-17):** after the checks complete, append one JSONL event to `.skillgrid/okf-metrics.jsonl` (path overridable via `OKF_METRICS_SINK`; parent dir auto-created). Event: `{"event":"lint","at":<iso-utc>,"drift":<n>,"findings":[<finding strings>],"false_drift_rate":<0.0-1.0>}`. `false_drift_rate` computation: read the prior file (if any), collect the previous run's finding strings, count how many are ABSENT in this run (false positives), rate = false / total_previous_drift (0.0 if no prior run or no prior drift). This is the ONLY write side-effect of the script; a telemetry-write failure (permissions, disk) warns to stderr and does NOT change the exit code. Purpose: measured data trail for promoting the lint gate from shadow (WARNING in qa) to ratchet (blocking) — the promotion decision is made on `false_drift_rate` numbers, not gut feeling.
+- **Reversibility:** fully reversible (new script + fixtures + one .gitignore line; delete to revert).
+- **Verify:** G13 gates PASS; telemetry: `OKF_METRICS_SINK=/tmp/okf-test-metrics.jsonl node .../okf-lint.mjs test/fixtures/okf-drift 2>/dev/null; true` run twice → `wc -l /tmp/okf-test-metrics.jsonl` = 2, first line is valid JSON with `event:"lint"` + numeric `false_drift_rate`; `node scripts/check-skillgrid-skills.mjs` unaffected (script, not skill); `git check-ignore .skillgrid/okf-metrics.jsonl` resolves.
 - [ ] done
 
 ### TICKET-12: Teaching graph page (single page, tour, locals)
