@@ -6,6 +6,7 @@
 package report
 
 import (
+	"context"
 	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
@@ -50,13 +51,18 @@ type Service struct {
 	root    string
 	dataDir string
 	cfg     Config
-	run     scan.RunnerFunc // defaults to exec; tests stub
+	run     scan.RunnerFunc        // defaults to exec; tests stub
+	probe   probeFunc              // defaults to the real HTTP HEAD probe; tests stub
 }
+
+// probeFunc probes whether a URL is reachable. A non-nil error means
+// unreachable. Tests stub it; the default does an HTTP HEAD with a 3s timeout.
+type probeFunc func(ctx context.Context, url string) error
 
 // New creates a report service bound to a project store. root is the
 // workspace root to scan; dataDir is the scan raw-output cache dir.
 func New(st *store.Store, root, dataDir string, cfg Config) *Service {
-	return &Service{store: st, root: root, dataDir: dataDir, cfg: cfg, run: scan.ExecRunner}
+	return &Service{store: st, root: root, dataDir: dataDir, cfg: cfg, run: scan.ExecRunner, probe: probeURL}
 }
 
 // SetRunner swaps the scanner runner (the real exec runner by default).

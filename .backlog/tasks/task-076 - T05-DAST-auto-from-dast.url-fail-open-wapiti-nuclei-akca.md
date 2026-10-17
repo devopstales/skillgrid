@@ -1,10 +1,10 @@
 ---
 id: TASK-076
 title: T05 DAST auto from dast.url + fail-open (wapiti/nuclei/akca)
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-10-17 18:49'
-updated_date: '2026-10-17 18:49'
+updated_date: '2026-10-17 20:15'
 labels:
   - quality-report
 milestone: m-10

@@ -1,9 +1,10 @@
 ---
 id: TASK-074
 title: T03 akca parser + scannerCommands arm
-status: needs-triage
+status: in-progress
 assignee: []
 created_date: '2026-10-17 18:49'
+updated_date: '2026-10-17 19:41'
 labels:
   - quality-report
 milestone: m-10

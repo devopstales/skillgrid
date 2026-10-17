@@ -18,12 +18,12 @@ One command produces a unified quality report (CVE, SAST, DAST, duplication, cod
 | 400-line budget risk | High |
 | Chained PRs recommended | Yes |
 | Suggested split | PR 1 (report core + endpoints) → PR 2 (parsers + debt + DAST + full static set) → PR 3 (coverage dispatch) → PR 4 (dashboard + acceptance) |
-| Delivery strategy | ask-on-risk |
-| Chain strategy | feature-branch-chain |
+| Delivery strategy | auto-chain |
+| Chain strategy | stacked-to-main |
 
-Decision needed before apply: Yes
+Decision needed before apply: No
 Chained PRs recommended: Yes
-Chain strategy: feature-branch-chain
+Chain strategy: stacked-to-main
 400-line budget risk: High
 
 ### Suggested Work Units

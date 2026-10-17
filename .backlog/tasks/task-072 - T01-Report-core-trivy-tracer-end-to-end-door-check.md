@@ -1,9 +1,10 @@
 ---
 id: TASK-072
 title: 'T01 Report core: trivy tracer end-to-end (door check)'
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-17 18:49'
+updated_date: '2026-10-17 19:35'
 labels:
   - quality-report
 milestone: m-10

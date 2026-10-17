@@ -3,9 +3,10 @@ id: TASK-075
 title: >-
   T04 Coverage: migration 060 + detected dispatch (detect + CmdFor +
   StoreCoverage + Go parse)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-17 18:49'
+updated_date: '2026-10-17 20:15'
 labels:
   - quality-report
 milestone: m-10
