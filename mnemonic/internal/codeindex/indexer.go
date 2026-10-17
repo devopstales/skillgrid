@@ -46,8 +46,8 @@ var maxFileSize int64 = MaxFileSize
 
 // Config controls incremental indexing behavior.
 type Config struct {
-	Include      []string
-	Exclude      []string
+	Include []string
+	Exclude []string
 	// DocInclude is a carve-out: a file matching a DocInclude glob is indexed
 	// even when it matches Exclude (it must still match Include when Include is
 	// non-empty). Used to index .skillgrid/**/*.md decision records that the
@@ -105,6 +105,13 @@ type Stats struct {
 	// restores the terminal.
 	UnresolvedMembers int  `json:"-"`
 	UnresolvedKnown   bool `json:"-"`
+	// EmbeddedSymbols / SkippedSymbols are the embedding-gate (TICKET-04)
+	// accounting: how many code symbols were embedded vs left with a NULL
+	// vector by the centrality cut in the LAST run. Both are 0 when the gate
+	// was not active (gate 100, the default) or no embedder was set — the
+	// default run is byte-for-byte today's behavior.
+	EmbeddedSymbols int `json:"-"`
+	SkippedSymbols  int `json:"-"`
 }
 
 // ScannedFile is a candidate file discovered under the index root.
@@ -574,6 +581,22 @@ type Indexer struct {
 	// embedDone/embedTotal track items embedded since the embed phase
 	// started, for per-item progress events.
 	embedDone, embedTotal int
+	// statsEmbeddedGate/statsSkippedGate are the last run's embedding-gate
+	// accounting, computed from the store at the end of embedPass and copied
+	// into Stats.EmbeddedSymbols/SkippedSymbols by Run (0/0 when the gate is
+	// not active).
+	statsEmbeddedGate, statsSkippedGate int
+	// recentChangedPaths is the set of file paths that changed since the
+	// PREVIOUS index run, computed by Run (from the files table as it existed
+	// before this run rewrote it) and consumed by the embedding gate's
+	// recently-changed carve-out. Reset at the start of each Run.
+	recentChangedPaths map[string]struct{}
+	// embedGatePct is the embedding-gate percentage (TICKET-04): the eager
+	// pass embeds at most ceil(N*pct/100) code symbols by use-centrality,
+	// plus the doc-bearing and recently-changed carve-outs. 0 (the default)
+	// means "embed everything" — today's behavior — so the gate is opt-in and
+	// backward compatible.
+	embedGatePct int
 }
 
 // New creates an Indexer backed by st.
@@ -623,6 +646,19 @@ func (idx *Indexer) WithLSPTiming(d time.Duration) *Indexer {
 // embedding pass. A nil embedder (the default) skips the pass entirely.
 func (idx *Indexer) WithEmbedder(e embedder.Embedder) *Indexer {
 	idx.emb = e
+	return idx
+}
+
+// WithEmbedGate sets the embedding-gate percentage (TICKET-04): when set to a
+// value in [1,99], the eager embedding pass embeds at most ceil(N*pct/100)
+// code symbols by use-centrality (in-+out-degree over call/reference edges),
+// plus the doc-bearing (rationale) and recently-changed carve-outs, and leaves
+// every other code symbol with a NULL vector (it degrades to lexical, not an
+// error — ADR-0009). 0 or >=100 embeds everything (today's behavior). The
+// run's Stats report the embedded/skipped counts so the cost tradeoff is
+// visible.
+func (idx *Indexer) WithEmbedGate(pct int) *Indexer {
+	idx.embedGatePct = pct
 	return idx
 }
 
@@ -757,6 +793,18 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	if err != nil {
 		return stats, err
 	}
+	// Recently-changed carve-out input (TICKET-04): the files whose recorded
+	// mtime/size/content changed since the PREVIOUS index run. Computed from
+	// the files table AS IT EXISTED before this run rewrites it (loadExisting
+	// reads the pre-run state), so a cold index (no prior rows) yields an
+	// empty set and an unchanged warm run yields an empty set — only a file
+	// genuinely edited since the last index is "recently changed."
+	idx.recentChangedPaths = make(map[string]struct{})
+	for _, file := range scanned {
+		if prev, ok := existing[file.Path]; ok && !fileUnchanged(prev, file) {
+			idx.recentChangedPaths[file.Path] = struct{}{}
+		}
+	}
 	scannedPaths := make(map[string]struct{}, len(scanned))
 	targetUIDs := make(map[string]struct{})
 
@@ -814,6 +862,8 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 		if err := idx.embedPass(ctx, tx); err != nil {
 			fmt.Fprintf(os.Stderr, "warn: embed pass: %v\n", err)
 		}
+		stats.EmbeddedSymbols = idx.statsEmbeddedGate
+		stats.SkippedSymbols = idx.statsSkippedGate
 	}
 	// Stale edges: an edge whose to_name no longer matches any live symbol and
 	// whose to_id is null is a dangling name-only edge; drop it. (Name-only
@@ -1226,6 +1276,24 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 		return nil
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
+	// Embedding gate (TICKET-04): when active (pct in [1,99]) the pass embeds
+	// at most ceil(N*pct/100) code symbols by use-centrality, plus the
+	// doc-bearing (rationale) and recently-changed carve-outs, and deletes the
+	// vectors of code symbols cut by the gate so a lowered gate releases its
+	// vectors (they become NULL and degrade to lexical — ADR-0009). At 0 (the
+	// default) or >=100 the pass embeds everything: today's behavior, and the
+	// gate accounting stays at 0/0 so the default run is unchanged.
+	var embedGate map[int64]struct{}
+	if idx.embedGatePct >= 1 && idx.embedGatePct <= 99 {
+		gate, err := idx.buildEmbedGate(tx)
+		if err != nil {
+			return fmt.Errorf("build embed gate: %w", err)
+		}
+		embedGate = gate.selected
+		if err := releaseGatedEmbeddings(ctx, tx, dim, gate.selected); err != nil {
+			return err
+		}
+	}
 	// Count the items that still need a vector under the current model
 	// (the model-swap guard below clears stale rows before embedding, so the
 	// count reflects the work actually done). Used for progress reporting.
@@ -1270,7 +1338,7 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 	// Symbol-level embedding: embed each symbol's name + signature, tagged
 	// with its language (the cocoindex partition key, relational form).
 	rows, err := tx.Query(`
-		SELECT s.id, s.name, s.signature, s.language
+		SELECT s.id, s.name, s.signature, s.kind, s.language
 		FROM symbols s
 		ORDER BY s.id
 	`)
@@ -1283,9 +1351,20 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 		var symID int64
-		var name, sig, lang string
-		if err := rows.Scan(&symID, &name, &sig, &lang); err != nil {
+		var name, sig, kind, lang string
+		if err := rows.Scan(&symID, &name, &sig, &kind, &lang); err != nil {
 			return err
+		}
+		isCode := kind == "function" || kind == "method" || kind == "class"
+		// Embedding gate (TICKET-04): a code symbol the gate did not select
+		// keeps a NULL vector (it degrades to lexical, not an error). Non-code
+		// symbols (route nodes, ...) are outside the gate and always embed.
+		// The embedded/skipped counts are computed from the store at the end
+		// of the pass (authoritative), not accumulated here.
+		if embedGate != nil && isCode {
+			if _, inGate := embedGate[symID]; !inGate {
+				continue
+			}
 		}
 		// Skip if already embedded with the current model (model-swap clears
 		// all rows above, so an existing row is by definition current-model).
@@ -1336,8 +1415,26 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 	}
 	// Chunk-level embedding (037): embed each AST chunk's text so semantic
 	// recall works for non-symbol code (lambdas, config, doc spans) — the
-	// chunk-level recall cocoindex-code is built around.
-	return idx.embedChunks(ctx, tx, model, dim, now)
+	// chunk-level recall cocoindex-code is built around. The gate applies to
+	// symbol selection (the "code symbols" the ticket names); chunk vectors
+	// are the non-symbol semantic leg and remain eager.
+	if err := idx.embedChunks(ctx, tx, model, dim, now); err != nil {
+		return err
+	}
+	// Publish the gate accounting to the run's stats. When the gate is active
+	// the counts are computed from the store (authoritative: how many code
+	// symbols ended up with a vector vs a NULL one); otherwise they stay
+	// 0/0 so the default run is unchanged.
+	if embedGate != nil {
+		var codeTotal, codeEmbedded int
+		_ = tx.QueryRow(`SELECT COUNT(*) FROM symbols WHERE kind IN ('function','method','class')`).Scan(&codeTotal)
+		_ = tx.QueryRow(`SELECT COUNT(*) FROM symbols s
+			WHERE s.kind IN ('function','method','class')
+			  AND EXISTS (SELECT 1 FROM embeddings e WHERE e.symbol_id = s.id AND e.model = ?)`, model).Scan(&codeEmbedded)
+		idx.statsEmbeddedGate = codeEmbedded
+		idx.statsSkippedGate = codeTotal - codeEmbedded
+	}
+	return nil
 }
 
 // embedChunks embeds each chunk's text (ast chunks first, then line windows)
@@ -1408,6 +1505,220 @@ func (idx *Indexer) embedChunks(ctx context.Context, tx *sql.Tx, model string, d
 		}
 	}
 	return rows.Err()
+}
+
+// embedGatePlan is the gate's decision for one run: the code symbol IDs that
+// are allowed a vector (top-centrality within budget, plus the carve-outs),
+// and the number of code symbols it cuts.
+type embedGatePlan struct {
+	selected map[int64]struct{}
+	skipped  int
+}
+
+// buildEmbedGate computes the embedding-gate decision (TICKET-04). The
+// selected set is the top ceil(N*pct/100) code symbols by use-centrality
+// (in-+out-degree over call/reference edges, from the existing graph — not a
+// new PageRank engine) union the carve-outs:
+//
+//   - doc-bearing: a code symbol that carries a rationale node (the extracted
+//     NOTE/WHY/ADR doc);
+//   - recently-changed: a code symbol in a file whose recorded mtime is newer
+//     than the last index run (a change since the previous index).
+//
+// Carve-outs always embed, whatever their centrality. Ties are broken by
+// symbol id (deterministic).
+func (idx *Indexer) buildEmbedGate(tx *sql.Tx) (embedGatePlan, error) {
+	var plan embedGatePlan
+	plan.selected = make(map[int64]struct{})
+	rows, err := tx.Query(`
+		SELECT s.id FROM symbols s
+		WHERE s.kind IN ('function','method','class')
+		ORDER BY s.id`)
+	if err != nil {
+		return plan, err
+	}
+	var code []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return plan, err
+		}
+		code = append(code, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return plan, err
+	}
+	rows.Close()
+	n := len(code)
+	if n == 0 {
+		return plan, nil
+	}
+	// Carve-outs first (always embedded, whatever their centrality). The
+	// recently-changed carve-out is run-scoped: it is computed by Run against
+	// the files that existed BEFORE this run (idx.recentChangedPaths), not
+	// from this run's just-written rows.
+	var carveOuts map[int64]struct{}
+	if err := carveOutSymbolIDs(tx, idx.recentChangedPaths, &carveOuts); err != nil {
+		return plan, err
+	}
+	for id := range carveOuts {
+		plan.selected[id] = struct{}{}
+	}
+	// Top-centrality within budget: rank by centrality desc, id asc
+	// (deterministic ties), take the first ceil(N*pct/100). Centrality comes
+	// from the committed graph (Centrality) — the run's edges are written in
+	// this same tx, so the committed state matches the target-state graph.
+	budget := (n*idx.embedGatePct + 99) / 100
+	cen, err := Centrality(idx.store)
+	if err != nil {
+		return plan, err
+	}
+	type ranked struct {
+		id    int64
+		score int
+	}
+	var rest []ranked
+	for _, id := range code {
+		if _, ok := carveOuts[id]; ok {
+			continue
+		}
+		rest = append(rest, ranked{id: id, score: cen[id]})
+	}
+	sort.SliceStable(rest, func(i, j int) bool {
+		if rest[i].score != rest[j].score {
+			return rest[i].score > rest[j].score
+		}
+		return rest[i].id < rest[j].id
+	})
+	taken := 0
+	for _, r := range rest {
+		if taken >= budget {
+			break
+		}
+		plan.selected[r.id] = struct{}{}
+		taken++
+	}
+	plan.skipped = n - len(plan.selected)
+	return plan, nil
+}
+
+// carveOutSymbolIDs fills *out with the code symbol IDs that always embed:
+// doc-bearing symbols (a rationale node on them) and symbols in the recently-
+// changed files (recentChangedPaths — the files that changed since the
+// PREVIOUS index run, computed by Run before the graph pass rewrites the
+// files table).
+func carveOutSymbolIDs(tx *sql.Tx, recentChangedPaths map[string]struct{}, out *map[int64]struct{}) error {
+	if *out == nil {
+		*out = make(map[int64]struct{})
+	}
+	// Doc-bearing: a code symbol with a rationale node (the extracted
+	// NOTE/WHY/ADR doc).
+	rows, err := tx.Query(`
+		SELECT DISTINCT s.id FROM symbols s
+		JOIN rationale r ON r.symbol_id = s.id
+		WHERE s.kind IN ('function','method','class')`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		(*out)[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	// Recently-changed: a code symbol in one of the run's recently-changed
+	// files (computed against the previous run's state by Run).
+	if len(recentChangedPaths) > 0 {
+		placeholders := make([]string, 0, len(recentChangedPaths))
+		args := make([]interface{}, 0, len(recentChangedPaths))
+		for p := range recentChangedPaths {
+			placeholders = append(placeholders, "?")
+			args = append(args, p)
+		}
+		srows, err := tx.Query(fmt.Sprintf(`
+			SELECT s.id FROM symbols s
+			JOIN files f ON f.id = s.file_id
+			WHERE s.kind IN ('function','method','class')
+			  AND f.path IN (%s)`, strings.Join(placeholders, ",")), args...)
+		if err != nil {
+			return err
+		}
+		for srows.Next() {
+			var id int64
+			if err := srows.Scan(&id); err != nil {
+				srows.Close()
+				return err
+			}
+			(*out)[id] = struct{}{}
+		}
+		if err := srows.Err(); err != nil {
+			srows.Close()
+			return err
+		}
+		srows.Close()
+	}
+	return nil
+}
+
+// releaseGatedEmbeddings deletes the vectors of code symbols the gate cut
+// (not in selected), and re-mirrors the retained vectors into vec_symbols so
+// the durable path stays consistent with the BLOB table (dimension-gated, as
+// the normal upsert path is). The released symbols keep a NULL vector — they
+// degrade to lexical (ADR-0009), they do not error.
+func releaseGatedEmbeddings(ctx context.Context, tx *sql.Tx, dim int, selected map[int64]struct{}) error {
+	// Build the NOT IN (...) predicate for the selected (retained) IDs.
+	ids := make([]string, 0, len(selected))
+	args := make([]interface{}, 0, len(selected))
+	for id := range selected {
+		ids = append(ids, "?")
+		args = append(args, id)
+	}
+	if len(ids) > 0 {
+		q := fmt.Sprintf(`DELETE FROM embeddings WHERE symbol_id NOT IN (%s)
+			AND symbol_id IN (SELECT id FROM symbols WHERE kind IN ('function','method','class'))`,
+			strings.Join(ids, ","))
+		if _, err := tx.Exec(q, args...); err != nil {
+			return fmt.Errorf("release gated embeddings: %w", err)
+		}
+	}
+	// Reconcile the vec_symbols mirror: drop the stale derived index and
+	// re-mirror every retained vector (a no-op for dimensions != vecDim).
+	if dim == vecDim {
+		if err := vectorstore.DeleteSymbols(ctx, tx); err != nil {
+			return fmt.Errorf("clear vec_symbols for gate: %w", err)
+		}
+		rows, err := tx.Query(`
+			SELECT e.symbol_id, e.model, e.dim, e.vector FROM embeddings e
+			JOIN symbols s ON s.id = e.symbol_id
+			ORDER BY e.symbol_id`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var symID int64
+			var m string
+			var d int
+			var blob []byte
+			if err := rows.Scan(&symID, &m, &d, &blob); err != nil {
+				return err
+			}
+			if err := vectorstore.UpsertSymbol(ctx, tx, symID, m, d, blob); err != nil {
+				return fmt.Errorf("vec re-mirror symbol %d: %w", symID, err)
+			}
+		}
+		return rows.Err()
+	}
+	return nil
 }
 
 // extractFile runs the Extractor for one scanned file and returns its symbols,
@@ -1991,6 +2302,13 @@ func pruneFileFootprint(tx *sql.Tx, fileID int64) error {
 		return err
 	}
 	return nil
+}
+
+// fileUnchanged reports whether a scanned file is identical to its previous
+// index row (the same mtime + size + content-hash guard the per-file skip
+// uses). A file that fails this check changed since the last index run.
+func fileUnchanged(prev existingFile, file ScannedFile) bool {
+	return prev.MtimeNs == file.MtimeNs && prev.Size == file.Size && prev.ContentHash == file.Hash
 }
 
 func loadExistingFiles(db *sql.DB) (map[string]existingFile, error) {
