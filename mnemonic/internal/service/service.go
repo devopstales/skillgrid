@@ -2215,6 +2215,16 @@ func (h *ProjectHandle) Store() *store.Store { return h.store }
 // on-disk artifacts such as the skills store and to resolve git diff roots.
 func (h *ProjectHandle) Root() string { return h.root }
 
+// DataDir returns the mnemonic data directory the owning service uses for
+// per-project SQLite stores and raw scan caches. Empty when the handle was
+// constructed without a backing service.
+func (h *ProjectHandle) DataDir() string {
+	if h.distillService == nil {
+		return ""
+	}
+	return h.distillService.dataDir
+}
+
 // CommunityResult is the code_communities answer (LLM-free labeled
 // subsystems + a stable content-hash cache key).
 type CommunityResult = community.Result

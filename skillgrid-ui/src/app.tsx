@@ -150,6 +150,12 @@ const securityRoute = createRoute({
   component: lazyPage(() => import('./features/security/SecurityPage').then((m) => ({ default: m.SecurityPage }))),
 })
 
+const reportsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reports',
+  component: lazyPage(() => import('./features/reports/ReportsPage').then((m) => ({ default: m.ReportsPage }))),
+})
+
 const notFoundRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/__404__',
@@ -178,6 +184,7 @@ const routeTree = rootRoute.addChildren([
   webCacheRoute,
   teamsRoute,
   securityRoute,
+  reportsRoute,
   notFoundRoute,
 ])
 

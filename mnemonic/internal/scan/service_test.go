@@ -511,3 +511,65 @@ func TestGetReturnsScan(t *testing.T) {
 		t.Error("Get(unknown) = nil error, want an error")
 	}
 }
+
+// TestFindingsByScan returns the stored normalized findings ordered by id;
+// an error-row scan yields nil, nil (fail-open mapping input); an unknown
+// scan id is an error.
+//
+// SATISFIES: happy path cve-trivy-report (report reads findings back)
+func TestFindingsByScan(t *testing.T) {
+	raw := fixtureBytes(t, "trivy.json")
+	svc := newTestService(t, func(ctx context.Context, _ string, _ ...string) ([]byte, error) {
+		return raw, nil
+	})
+	ctx := context.Background()
+
+	// A failed scan (error row).
+	failed := newTestService(t, func(ctx context.Context, _ string, _ ...string) ([]byte, error) {
+		return nil, errors.New("trivy blew up")
+	})
+	failed.store = svc.store
+	failedScan, err := failed.Start(ctx, "trivy", ".")
+	if err != nil {
+		t.Fatalf("Start failed scan: %v", err)
+	}
+	if fs, err := svc.FindingsByScan(ctx, failedScan.ID); err != nil {
+		t.Errorf("FindingsByScan(error-row) = %v, want nil error", err)
+	} else if fs != nil {
+		t.Errorf("FindingsByScan(error-row) = %v, want nil", fs)
+	}
+
+	// A successful scan with one CVE.
+	okScan, err := svc.Start(ctx, "trivy", ".")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, err := svc.StoreFindings(ctx, okScan.ID); err != nil {
+		t.Fatalf("StoreFindings: %v", err)
+	}
+	fs, err := svc.FindingsByScan(ctx, okScan.ID)
+	if err != nil {
+		t.Fatalf("FindingsByScan: %v", err)
+	}
+	if len(fs) != 1 {
+		t.Fatalf("FindingsByScan = %d findings, want 1", len(fs))
+	}
+	f := fs[0]
+	if f.CVEID != "CVE-2024-1234" {
+		t.Errorf("cve_id = %q, want CVE-2024-1234", f.CVEID)
+	}
+	if f.Package != "flask" || f.FixedVersion != "3.0.0" || f.File != "requirements.txt" {
+		t.Errorf("finding not normalized: %+v", f)
+	}
+	if f.Tool != "trivy" {
+		t.Errorf("tool = %q, want trivy", f.Tool)
+	}
+	if f.Severity != "HIGH" {
+		t.Errorf("severity = %q, want the normalized HIGH", f.Severity)
+	}
+
+	// An unknown scan id is an error.
+	if _, err := svc.FindingsByScan(ctx, "no-such-scan"); err == nil {
+		t.Error("FindingsByScan(unknown) = nil error, want an error")
+	}
+}

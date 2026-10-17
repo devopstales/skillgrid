@@ -56,6 +56,11 @@ func New(st *store.Store, dataDir string) *Service {
 	return &Service{store: st, dataDir: dataDir, Run: execRunner}
 }
 
+// ExecRunner is the default RunnerFunc: it execs the scanner binary and
+// returns its stdout. Exported so packages outside scan (the report
+// collector) can default a stubbable run seam to the real runner.
+var ExecRunner RunnerFunc = execRunner
+
 func execRunner(ctx context.Context, bin string, args ...string) ([]byte, error) {
 	var stdout strings.Builder
 	cmd := exec.CommandContext(ctx, bin, args...)
@@ -234,6 +239,54 @@ func (s *Service) StoreFindings(ctx context.Context, scanID string) (int, error)
 		return 0, fmt.Errorf("update scans row: %w", err)
 	}
 	return count, nil
+}
+
+// FindingsByScan returns the normalized findings stored for a scan, ordered
+// by id. A scan row with status='error' returns nil, nil: the caller maps
+// that to a fail-open "error" source (ADR-0016), never a silent "ok" with no
+// findings. An unknown scan id is an error.
+func (s *Service) FindingsByScan(ctx context.Context, scanID string) ([]Finding, error) {
+	var status string
+	err := s.store.DB.QueryRowContext(ctx,
+		`SELECT status FROM scans WHERE id = ?`, scanID,
+	).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("scan %s not found", scanID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load scan %s: %w", scanID, err)
+	}
+	if status == "error" {
+		return nil, nil
+	}
+	rows, err := s.store.DB.QueryContext(ctx, `
+		SELECT tool, severity, title, COALESCE(cve_id, ''), COALESCE(rule_id, ''),
+			COALESCE(package, ''), COALESCE(version, ''), COALESCE(fixed_version, ''),
+			COALESCE(file, ''), COALESCE(line, 0), COALESCE(message, ''), COALESCE(links, '[]')
+		FROM findings WHERE scan_id = ? ORDER BY id`, scanID)
+	if err != nil {
+		return nil, fmt.Errorf("query findings for scan %s: %w", scanID, err)
+	}
+	defer rows.Close()
+	var out []Finding
+	for rows.Next() {
+		var f Finding
+		var links string
+		if err := rows.Scan(&f.Tool, &f.Severity, &f.Title, &f.CVEID, &f.RuleID,
+			&f.Package, &f.Version, &f.FixedVersion, &f.File, &f.Line, &f.Message, &links); err != nil {
+			return nil, fmt.Errorf("scan finding row: %w", err)
+		}
+		if links != "[]" && links != "" {
+			if err := json.Unmarshal([]byte(links), &f.Links); err != nil {
+				return nil, fmt.Errorf("unmarshal finding links: %w", err)
+			}
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate findings for scan %s: %w", scanID, err)
+	}
+	return out, nil
 }
 
 func (s *Service) markScanPartial(ctx context.Context, scanID, why string) {

@@ -177,6 +177,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /projects", s.handleProjects)
 	s.mux.HandleFunc("GET /project/current", s.handleProjectCurrent)
 
+	// Unified quality report (ADR-0038): JUnit XML for CI + JSON for the
+	// dashboard. Write-auth wrapped — Collect launches scanner subprocesses.
+	s.mux.HandleFunc("GET /report/{fmt}", s.requireWriteAuth(s.handleReport))
+
 	s.registerTeamsRoutes()
 	s.registerTrackerRoutes()
 	s.registerDocsRoutes()

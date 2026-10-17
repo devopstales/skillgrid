@@ -32,6 +32,7 @@ export default defineConfig({
           '/project',
           '/projects',
           '/prototypes',
+          '/report',
           '/search',
           '/security',
           '/sdd',
