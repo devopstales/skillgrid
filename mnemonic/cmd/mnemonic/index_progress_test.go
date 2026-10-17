@@ -261,6 +261,43 @@ func TestFinishIndexPrintsAfterRestore(t *testing.T) {
 	}
 }
 
+// TestFinishIndexPrintsEmbedGateLine: when the run's gate accounting is
+// active (non-0 embedded), the embed line is printed AFTER the terminal
+// restore; with 0/0 accounting (gate inactive, the default) the line is
+// absent — the default index output is unchanged.
+func TestFinishIndexPrintsEmbedGateLine(t *testing.T) {
+	rep := &orderReporter{}
+	out := &orderWriter{o: rep}
+	errw := &orderWriter{o: rep}
+	finishIndex(rep, codeindex.Stats{
+		FilesIndexed:    38,
+		ChunksAdded:     61,
+		EmbeddedSymbols: 55,
+		SkippedSymbols:  27,
+	}, out, errw)
+	if out.early || errw.early {
+		t.Fatal("summary was written before the terminal was restored")
+	}
+	if got := out.buf.String(); got != "indexed: 38 files, 61 chunks (+0 skipped, -0 deleted)\nembed: 55 embedded, 27 skipped\n" {
+		t.Errorf("stdout = %q", got)
+	}
+}
+
+// TestFinishIndexOmitsInactiveEmbedGate: 0/0 gate accounting prints no
+// embed line — the default (gate 100) index output stays byte-for-byte.
+func TestFinishIndexOmitsInactiveEmbedGate(t *testing.T) {
+	rep := &orderReporter{}
+	out := &orderWriter{o: rep}
+	errw := &orderWriter{o: rep}
+	finishIndex(rep, codeindex.Stats{FilesIndexed: 38, ChunksAdded: 61}, out, errw)
+	if out.early || errw.early {
+		t.Fatal("summary was written before the terminal was restored")
+	}
+	if got := out.buf.String(); got != "indexed: 38 files, 61 chunks (+0 skipped, -0 deleted)\n" {
+		t.Errorf("stdout = %q", got)
+	}
+}
+
 // TestFinishIndexOmitsUnknownUnresolved: a failed count query prints no
 // unresolved line, and the indexed line is still after restore.
 func TestFinishIndexOmitsUnknownUnresolved(t *testing.T) {

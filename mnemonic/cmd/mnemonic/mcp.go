@@ -250,15 +250,17 @@ func runIndex(version string, args []string) {
 	fs := flag.NewFlagSet("index", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var (
-		dir     string
-		project string
-		pdg     bool
-		lsp     bool
+		dir      string
+		project  string
+		pdg      bool
+		lsp      bool
+		embedTop int
 	)
 	fs.StringVar(&dir, "dir", ".", "directory to index")
 	fs.StringVar(&project, "project", envOr("SKILLGRID_MNEMONIC_PROJECT", ""), "fixed project identity")
 	fs.BoolVar(&pdg, "pdg", false, "opt-in per-function CFG + PDG pass (fills cfg_blocks/cfg_edges/pdg_edges)")
 	fs.BoolVar(&lsp, "lsp", false, "opt-in LSP edge tier (adds LSP_RESOLVED member-call edges; best-effort, static index unchanged when no server)")
+	fs.IntVar(&embedTop, "embed-top", 100, "embed at most this percent of code symbols (by use-centrality, plus doc/recent carve-outs); 100 = embed everything (default)")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), "usage: skillgrid index [flags]")
 		fmt.Fprintln(fs.Output(), "  Run incremental code indexing for a directory.")
@@ -292,7 +294,7 @@ func runIndex(version string, args []string) {
 	rep.Start()
 	defer rep.Done()
 
-	stats, err := svc.RunCodeIndexPDGWithProgress(ctx, dir, pdg, lsp, rep.Event)
+	stats, err := svc.RunCodeIndexPDGWithProgress(ctx, dir, pdg, lsp, embedTop, rep.Event)
 	if err != nil {
 		// os.Exit skips the deferred Done, which would leave a TTY in raw mode.
 		rep.Done()

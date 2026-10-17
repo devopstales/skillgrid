@@ -233,4 +233,11 @@ func finishIndex(rep progressReporter, stats codeindex.Stats, stdout, stderr io.
 	rep.Done()
 	fmt.Fprintf(stdout, "indexed: %d files, %d chunks (+%d skipped, -%d deleted)\n",
 		stats.FilesIndexed, stats.ChunksAdded, stats.FilesSkipped, stats.FilesDeleted)
+	// Embedding-gate accounting (TICKET-04): printed only when the gate was
+	// active in the last run — 0/0 (gate 100, the default) keeps the default
+	// output byte-for-byte unchanged.
+	if stats.EmbeddedSymbols > 0 || stats.SkippedSymbols > 0 {
+		fmt.Fprintf(stdout, "embed: %d embedded, %d skipped\n",
+			stats.EmbeddedSymbols, stats.SkippedSymbols)
+	}
 }

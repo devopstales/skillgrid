@@ -17,7 +17,7 @@ func TestRunCodeIndexPDGWithProgress(t *testing.T) {
 	mustWriteSvc(t, filepath.Join(root, "main.go"), "package main\n\nfunc alpha() {\n\tbeta()\n}\n\nfunc beta() {}\n")
 
 	var events []codeindex.Event
-	stats, err := svc.RunCodeIndexPDGWithProgress(context.Background(), root, false, false, func(e codeindex.Event) {
+	stats, err := svc.RunCodeIndexPDGWithProgress(context.Background(), root, false, false, 100, func(e codeindex.Event) {
 		events = append(events, e)
 	})
 	if err != nil {

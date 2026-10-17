@@ -20,6 +20,8 @@ import (
 //     the run classifies it as recently changed — the second carve-out.
 //
 // Total code symbols: 11 (core + fn0..fn7 + documented + recent).
+const totalSymbolsForFixture = 11
+
 func embedTopFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -61,12 +63,17 @@ func countCodeSymbols(t *testing.T, db *sql.DB) int {
 }
 
 // vectorSet returns the store's symbol vector set keyed by symbol name. A
-// symbol with no embedding row (NULL vector) is simply absent.
+// symbol with no embedding row (NULL vector) is simply absent. The
+// symbol_id IS NOT NULL guard counts ONLY symbol vectors: a chunk's row is
+// keyed by chunk_id, so without it any chunk row with a non-NULL symbol_id
+// would be miscounted as a symbol vector and the bound check below would
+// measure the wrong set.
 func vectorSet(t *testing.T, db *sql.DB) map[string][]byte {
 	t.Helper()
 	rows, err := db.Query(`
 		SELECT s.name, e.vector FROM embeddings e
-		JOIN symbols s ON s.id = e.symbol_id`)
+		JOIN symbols s ON s.id = e.symbol_id
+		WHERE e.symbol_id IS NOT NULL`)
 	if err != nil {
 		t.Fatalf("query vectors: %v", err)
 	}
@@ -84,6 +91,83 @@ func vectorSet(t *testing.T, db *sql.DB) map[string][]byte {
 		t.Fatalf("rows: %v", err)
 	}
 	return out
+}
+
+// TestIndex_EmbedTopConfigFlag covers the Config-driven wiring of the
+// embedding gate: Config.EmbedTop is the value the CLI's --embed-top flag
+// binds. The same behavior as WithEmbedGate must hold when the percentage
+// comes from Config instead of the builder seam — the flag is only real if
+// the run honors it.
+func TestIndex_EmbedTopConfigFlag(t *testing.T) {
+	t.Run("Config.EmbedTop 50 embeds at most half plus carve-outs", func(t *testing.T) {
+		idx, clean := newTestIndexerWithEmbedder(t)
+		defer clean()
+		root := embedTopFixture(t)
+
+		if _, err := idx.Run(context.Background(), root, testCfg); err != nil {
+			t.Fatalf("baseline run: %v", err)
+		}
+		recent := filepath.Join(root, "recent.go")
+		if err := os.WriteFile(recent, []byte("package main\n\nfunc recent() {\n\tcore()\n\trecentChanged()\n}\n"), 0o644); err != nil {
+			t.Fatalf("rewrite recent.go: %v", err)
+		}
+		forceRecent(t, recent)
+
+		cfg := testCfg
+		cfg.EmbedTop = 50
+		stats, err := idx.Run(context.Background(), root, cfg)
+		if err != nil {
+			t.Fatalf("run with Config.EmbedTop=50: %v", err)
+		}
+
+		n := countCodeSymbols(t, idx.store.DB)
+		if n != totalSymbolsForFixture {
+			t.Fatalf("fixture invariant: expected %d code symbols, got %d", totalSymbolsForFixture, n)
+		}
+		// Same bound as the WithEmbedGate test: at most ceil(N/2) code symbols
+		// PLUS the 2 carve-outs (documented, recent).
+		embedded := vectorSet(t, idx.store.DB)
+		if cap := (n+1)/2 + 2; len(embedded) > cap {
+			t.Errorf("Config.EmbedTop 50: expected at most %d embedded code symbols, got %d: %v", cap, len(embedded), names(embedded))
+		}
+		// The gate must actually cut through the Config path too.
+		if len(embedded) == n {
+			t.Fatalf("Config.EmbedTop 50: expected the gate to cut some symbols, but all %d are embedded: %v", n, names(embedded))
+		}
+		for _, want := range []string{"documented", "recent"} {
+			if _, ok := embedded[want]; !ok {
+				t.Errorf("carve-out %q must always be embedded; embedded set: %v", want, names(embedded))
+			}
+		}
+		// The counts must be reported through the Config path as well.
+		if stats.EmbeddedSymbols != len(embedded) {
+			t.Errorf("reported embedded=%d but store holds %d vectors", stats.EmbeddedSymbols, len(embedded))
+		}
+		if stats.SkippedSymbols == 0 {
+			t.Errorf("expected skipped symbols to be reported, got 0 (stats: %+v)", stats)
+		}
+	})
+
+	t.Run("Config.EmbedTop 100 embeds everything (default)", func(t *testing.T) {
+		idx, clean := newTestIndexerWithEmbedder(t)
+		defer clean()
+		root := embedTopFixture(t)
+
+		cfg := testCfg
+		cfg.EmbedTop = 100
+		stats, err := idx.Run(context.Background(), root, cfg)
+		if err != nil {
+			t.Fatalf("run with Config.EmbedTop=100: %v", err)
+		}
+		// Gate >=100 is inactive: no accounting, every code symbol embedded.
+		n := countCodeSymbols(t, idx.store.DB)
+		if embedded := vectorSet(t, idx.store.DB); len(embedded) != n {
+			t.Errorf("Config.EmbedTop 100: expected all %d code symbols embedded, got %d", n, len(embedded))
+		}
+		if stats.EmbeddedSymbols != 0 || stats.SkippedSymbols != 0 {
+			t.Errorf("gate inactive: expected 0/0 accounting, got embedded=%d skipped=%d", stats.EmbeddedSymbols, stats.SkippedSymbols)
+		}
+	})
 }
 
 // TestIndex_EmbedTop covers @step-04 pagerank-embed (TICKET-04): the

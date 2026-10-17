@@ -1906,7 +1906,10 @@ func (s *Service) RunCodeIndexPDG(ctx context.Context, directory string, pdg, ls
 // RunCodeIndexPDGWithProgress is RunCodeIndexPDG with a live progress
 // callback threaded into the indexer's Config.Progress (the CLI's `index`
 // command renders it). A nil progress is exactly the RunCodeIndexPDG path.
-func (s *Service) RunCodeIndexPDGWithProgress(ctx context.Context, directory string, pdg, lsp bool, progress func(codeindex.Event)) (codeindex.Stats, error) {
+// embedTop is the --embed-top percentage (default 100 = embed everything):
+// it binds Config.EmbedTop so the centrality gate (TICKET-04) is reachable
+// from the CLI.
+func (s *Service) RunCodeIndexPDGWithProgress(ctx context.Context, directory string, pdg, lsp bool, embedTop int, progress func(codeindex.Event)) (codeindex.Stats, error) {
 	h, cleanup, err := s.openProjectForDirectory(directory)
 	if err != nil {
 		return codeindex.Stats{}, err
@@ -1923,6 +1926,7 @@ func (s *Service) RunCodeIndexPDGWithProgress(ctx context.Context, directory str
 		PDG:          pdg,
 		LSP:          lsp,
 		Progress:     progress,
+		EmbedTop:     embedTop,
 	}
 	idx := codeindex.New(h.store)
 	if emb := resolveEmbedder(h.root); emb != nil {

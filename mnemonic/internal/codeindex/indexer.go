@@ -72,6 +72,12 @@ type Config struct {
 	// indexing goroutine; keep it non-blocking (the CLI forwards events to
 	// a channel or a line writer).
 	Progress func(Event)
+	// EmbedTop is the embedding-gate percentage (TICKET-04): when in [1,99],
+	// the eager embedding pass embeds at most ceil(N*pct/100) code symbols by
+	// use-centrality, plus the doc-bearing and recently-changed carve-outs.
+	// 0 (the zero value) or >=100 embeds everything — today's behavior. The
+	// CLI's --embed-top flag binds this (default 100).
+	EmbedTop int
 }
 
 // Event is one progress report emitted during Indexer.Run. Phase is a stable
@@ -784,6 +790,13 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
 	if idx.emit == nil {
 		idx.emit = func(Event) {}
 	}
+	// Config-driven embed gate (TICKET-04): the CLI's --embed-top value binds
+	// Config.EmbedTop; a zero value (zero Config) means "unbound" and keeps
+	// the builder's WithEmbedGate value, so explicit-seam callers are
+	// unchanged when they pass a zero Config.
+	if cfg.EmbedTop != 0 {
+		idx.embedGatePct = cfg.EmbedTop
+	}
 	scanned, err := Scan(root, cfg.Include, cfg.Exclude, cfg.DocInclude)
 	if err != nil {
 		return stats, err
@@ -1290,6 +1303,10 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("build embed gate: %w", err)
 		}
 		embedGate = gate.selected
+		// Note: if a model swap occurs in this run, the swap's full DELETE
+		// supersedes this release — the symbol loop re-embeds exactly
+		// selected∪non-code. The vec_symbols rebuild here is redundant in that
+		// path but harmless.
 		if err := releaseGatedEmbeddings(ctx, tx, dim, gate.selected); err != nil {
 			return err
 		}
@@ -1431,6 +1448,14 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 		_ = tx.QueryRow(`SELECT COUNT(*) FROM symbols s
 			WHERE s.kind IN ('function','method','class')
 			  AND EXISTS (SELECT 1 FROM embeddings e WHERE e.symbol_id = s.id AND e.model = ?)`, model).Scan(&codeEmbedded)
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM symbols WHERE kind IN ('function','method','class')`).Scan(&codeTotal); err != nil {
+			return fmt.Errorf("gate accounting (code total): %w", err)
+		}
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM symbols s
+			WHERE s.kind IN ('function','method','class')
+			  AND EXISTS (SELECT 1 FROM embeddings e WHERE e.symbol_id = s.id AND e.model = ?)`, model).Scan(&codeEmbedded); err != nil {
+			return fmt.Errorf("gate accounting (code embedded): %w", err)
+		}
 		idx.statsEmbeddedGate = codeEmbedded
 		idx.statsSkippedGate = codeTotal - codeEmbedded
 	}
