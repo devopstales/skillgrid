@@ -113,7 +113,7 @@
 
 **Files:**
 - Modify: `mnemonic/internal/secondbrain/lifecycle.go`
-- Modify: `mnemonic/internal/mcp/tools_memory.go`
+- Modify: `mnemonic/internal/mcp/tools_secondbrain.go` (mem_lifecycle is registered here, not tools_memory.go — corrected 2026-10-17)
 - Test: `mnemonic/internal/secondbrain/lifecycle_test.go`
 
 **Interfaces:**
