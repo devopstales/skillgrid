@@ -114,8 +114,9 @@ The ADR index. One row per decision: a short description and a link to the full 
 | 0035 | CTX judgment model is local Ollama (default `tev1:0.8b` via `/v1/systemone`), fail-open to pre-filter | yes | `.skillgrid/artifacts/04-adr-0035-local-ollama-judgment-model.md` |
 | 0036 | CTX config lives at `config.d/ctx.yaml` (machine-local default + repo-local override), reuses the `config.d` loader | yes | `.skillgrid/artifacts/04-adr-0036-ctx-config-configd.md` |
 | 0037 | HNSW embedded ANN index: pure Go (no new dep), M=16, efCon=64, efSearch=96, persisted in SQLite (057), `source`-namespaced node ids (058, symbol/chunk), degrades to brute force | yes | `.skillgrid/artifacts/04-adr-0037-embedded-ann-index.md` |
+| 0038 | Unified quality report: report service over the findings store (not a new pipeline), JUnit XML + JSON emit, `/reports` dashboard page; jscpd + akca become installed scanners; coverage = detected dispatch (line %, 5 langs); DAST auto from `dast.url`, fail-open | yes | `.skillgrid/artifacts/04-adr-0038-unified-quality-report.md` |
 
-**Highest sequence in use:** 0037 (next ADR is `04-adr-0038-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
+**Highest sequence in use:** 0038 (next ADR is `04-adr-0039-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 
 Operational rules (the hard limits a change must respect — build toolchain, commit format, dependency policy, spec/code zone order) live in `AGENTS.md`, not here. `AGENTS.md` is the real source for those; the onboarding skill renders them into the agent prompt. A rule that is actually a decision belongs in this index as an ADR instead.
 
