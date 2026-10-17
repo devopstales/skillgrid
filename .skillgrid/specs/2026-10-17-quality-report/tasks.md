@@ -155,6 +155,21 @@ graph LR
 
 > **Acceptance-first (BDD is always on):** each ticket's `SATISFIES` scenario is written into `acceptance.feature` (done — 24 scenarios) and confirmed RED before the implementation that makes it green. `acceptance.feature` already exists with valid syntax, satisfying the slicing prerequisite.
 
+## Ticketing (published to Backlog.md)
+
+Epic **TASK-071** + tickets **TASK-072..TASK-079** (milestone m-10, label `quality-report`, status `needs-triage`). Dependency edges wired in the tracker:
+
+| Ticket | Tracker ID | Blocked by |
+|--------|-----------|------------|
+| TICKET-01 (T01 report core / trivy tracer) | TASK-072 | none |
+| TICKET-02 (T02 jscpd parser) | TASK-073 | none |
+| TICKET-03 (T03 akca parser) | TASK-074 | none |
+| TICKET-04 (T04 coverage 060 + dispatch) | TASK-075 | none |
+| TICKET-05 (T05 DAST auto) | TASK-076 | TASK-072, TASK-074 |
+| TICKET-06 (T06 wire static + coverage + debt) | TASK-077 | TASK-072, TASK-073, TASK-075, TASK-076 |
+| TICKET-07 (T07 scan_report MCP + parity) | TASK-078 | TASK-072, TASK-077 |
+| TICKET-08 (T08 dashboard + acceptance + QA) | TASK-079 | TASK-078 |
+
 ## Slicing Notes
 
 - **Tracer thread honored:** TICKET-01 is the thin end-to-end path (collect → emit → route → page) and carries the door check. Every later ticket thickens one source or layer.
