@@ -171,7 +171,7 @@ Touches subprocesses (scanner CLIs) + a Mnemonic tool contract (new `scan_report
 - Seam: the `report.Service` is the seam — `Collect` can be altered (add sources, change dispatch) without touching the emitters or the HTTP routes. Adapters: prod `Collect` + a stubbed-runner test double (≥2, seam justified).
 - Deletion test: deleting `report` reappears the "run seven scanners by hand and eyeball them" complexity across the operator, CI, and dashboard. Not a pass-through.
 
-**SATISFIES:** `happy path report-aggregates-static-sources`, `happy path junit-xml-per-tool-testsuite`, `happy path json-report-shape`, `happy path cve-trivy-report`, `happy path dashboard-reports-page`
+**SATISFIES:** `happy path report-aggregates-static-sources`, `edge report-source-error-is-fail-open`, `happy path junit-xml-per-tool-testsuite`, `happy path junit-xml-zero-finding-source-is-empty-testsuite`, `happy path json-report-shape`, `happy path cve-trivy-report`, `happy path report-http-endpoints`, `happy path dashboard-reports-page`
 
 - [ ] **Step 1: Write the failing test** (collector: trivy source, fail-open shell)
 
@@ -785,7 +785,7 @@ func TestCollectDebt(t *testing.T) {
 - Produces: `collectDAST(ctx) []SourceResult` — if `DastURL` is empty, returns `nil` (no DAST section). If set, a reachability probe (HEAD, 3s timeout); unreachable → all three `SourceResult{Status:"unavailable"}`. Reachable → run wapiti/nuclei/akca via the scan service.
 - Seam / Deletion test: collector arm; the reachability probe is the seam (prod HTTP probe + test stub).
 
-**SATISFIES:** `happy path dast-auto-from-config`, `edge dast-unreachable-fail-open`
+**SATISFIES:** `happy path dast-auto-from-config`, `edge dast-unreachable-fail-open`, `happy path dast-unset-is-absent`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -864,7 +864,7 @@ func TestCollect_FullStaticSet(t *testing.T) {
 - Seam: none new (mirrors `registerScanTools`).
 - Deletion test: pass-through (thin MCP wrapper over the same `Collect`+emitter the HTTP route uses).
 
-**SATISFIES:** `happy path report-aggregates-static-sources` (MCP leg)
+**SATISFIES:** `happy path report-aggregates-static-sources` (MCP leg), `happy path report-mcp-tool-registered`, `happy path report-mcp-http-parity`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -931,7 +931,7 @@ func handleScanReport(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 - Seam: each panel is a pure presentational component (props in, no fetch) — testable in isolation.
 - Deletion test: each panel reappears the "read raw JSON" complexity for its capability. Not pass-through.
 
-**SATISFIES:** `happy path dashboard-reports-page`, `edge dashboard-dast-conditional`
+**SATISFIES:** `happy path dashboard-reports-page`, `edge dashboard-dast-conditional`, `happy path dashboard-dast-unavailable`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -971,7 +971,7 @@ it('shows DAST unavailable when the section has status=unavailable', async () =>
 
 **SATISFIES:** all scenarios (this task makes the whole `acceptance.feature` green and confirms the full suite).
 
-- [ ] **Step 1: Author `acceptance.feature`** with the scenarios named in the task SATISFIES lines: `report-aggregates-static-sources`, `junit-xml-per-tool-testsuite`, `json-report-shape`, `cve-trivy-report`, `sast-semgrep-report`, `duplication-jscpd-report`, `debt-markers-report`, `dast-auto-from-config`, `dast-unreachable-fail-open`, `coverage-dispatch-{go,ts,py,rs,java}`, `coverage-tool-missing-unavailable`, `dashboard-reports-page`, `dashboard-dast-conditional`.
+- [ ] **Step 1: Author `acceptance.feature`** — already authored (24 scenarios) with every scenario named in the task SATISFIES lines: `report-aggregates-static-sources`, `report-source-error-is-fail-open`, `junit-xml-per-tool-testsuite`, `junit-xml-zero-finding-source-is-empty-testsuite`, `json-report-shape`, `cve-trivy-report`, `sast-semgrep-report`, `duplication-jscpd-report`, `debt-markers-report`, `dast-auto-from-config`, `dast-unreachable-fail-open`, `dast-unset-is-absent`, `coverage-dispatch-{go,ts,py,rs,java}`, `coverage-tool-missing-unavailable`, `dashboard-reports-page`, `dashboard-dast-conditional`, `dashboard-dast-unavailable`, `report-http-endpoints`, `report-mcp-tool-registered`, `report-mcp-http-parity`. Confirm the suite runs them all.
 - [ ] **Step 2: Run the BDD dry-run + full suite**
 
 Run: `go test ./...` and `cd skillgrid-ui && npx vitest run`
