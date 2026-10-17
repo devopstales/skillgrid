@@ -1,0 +1,11 @@
+{ "name": "jscpd", "version": "4.0.0", "duplication": {
+  "totalTokens": 100, "loc": 20, "minimumLength": 50,
+  "clones": [
+    { "offsets": [ {"name":"src/a.ts","start":{"line":10,"column":1},"end":{"line":20,"column":1}},
+                    {"name":"src/b.ts","start":{"line":5,"column":1},"end":{"line":15,"column":1}} ],
+      "percent": 100, "lines": 10, "tokens": 50 },
+    { "offsets": [ {"name":"src/c.ts","start":{"line":1,"column":1},"end":{"line":8,"column":1}},
+                    {"name":"src/d.ts","start":{"line":2,"column":1},"end":{"line":9,"column":1}} ],
+      "percent": 90, "lines": 7, "tokens": 45 }
+  ]
+}}

@@ -161,6 +161,61 @@ func TestParseSemgrep(t *testing.T) {
 	}
 }
 
+// TestParseJscpd maps the fixture's two clones into findings
+// (rule_id=duplication, file=first offset, line=first offset start line,
+// severity hardcoded MEDIUM — no severity map entry).
+//
+// SATISFIES: `happy path duplication-jscpd-report`
+func TestParseJscpd(t *testing.T) {
+	fs, err := Parse("jscpd", fixtureBytes(t, "jscpd.json"))
+	if err != nil {
+		t.Fatalf("Parse(jscpd): %v", err)
+	}
+	if len(fs) != 2 {
+		t.Fatalf("Parse(jscpd) = %d findings, want 2", len(fs))
+	}
+	f := fs[0]
+	if f.RuleID != "duplication" {
+		t.Errorf("RuleID = %q, want duplication", f.RuleID)
+	}
+	if f.File != "src/a.ts" {
+		t.Errorf("File = %q, want src/a.ts", f.File)
+	}
+	if f.Severity != "MEDIUM" {
+		t.Errorf("Severity = %q, want MEDIUM", f.Severity)
+	}
+	if f.Line != 10 {
+		t.Errorf("Line = %d, want 10", f.Line)
+	}
+	if f.Tool != "jscpd" {
+		t.Errorf("Tool = %q, want jscpd", f.Tool)
+	}
+	if got := fs[1].File; got != "src/c.ts" {
+		t.Errorf("second File = %q, want src/c.ts", got)
+	}
+}
+
+// TestParseDispatchIncludesJscpd: every known tool dispatches without an
+// "unsupported" error, even for trivial input.
+func TestParseDispatchIncludesJscpd(t *testing.T) {
+	for _, tool := range []string{"trivy", "wapiti", "nuclei", "semgrep", "jscpd"} {
+		_, err := Parse(tool, []byte("{}"))
+		if err == nil {
+			continue // valid {} may parse to zero findings
+		}
+		if got := err.Error(); got == "parse: unsupported tool \""+tool+"\"" {
+			t.Errorf("Parse(%s): unsupported error for a known tool: %v", tool, err)
+		}
+	}
+}
+
+// TestScannerCommandsIncludesJscpd: jscpd must be runnable via Start.
+func TestScannerCommandsIncludesJscpd(t *testing.T) {
+	if _, ok := scannerCommands["jscpd"]; !ok {
+		t.Error("scannerCommands missing jscpd; must be runnable via Start")
+	}
+}
+
 // TestParseNucleiBadLine is a second nuclei input (triangulation): a
 // non-JSON line is a clear error, not a silent skip.
 func TestParseNucleiBadLine(t *testing.T) {

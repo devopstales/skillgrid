@@ -78,6 +78,7 @@ var scannerCommands = map[string][]string{
 	"wapiti":  {"--url", "-", "-o", "json"},
 	"nuclei":  {"-u"},
 	"semgrep": {"scan", "--json"},
+	"jscpd":   {"--reporters", "json"},
 }
 
 // scannerBins maps a tool key to the binary Start execs. For every tool the

@@ -36,6 +36,8 @@ func Parse(tool string, data []byte) ([]Finding, error) {
 		return parseNuclei(data)
 	case "semgrep":
 		return parseSemgrep(data)
+	case "jscpd":
+		return parseJscpd(data)
 	default:
 		return nil, fmt.Errorf("parse: unsupported tool %q", tool)
 	}
@@ -180,6 +182,42 @@ func parseSemgrep(data []byte) ([]Finding, error) {
 			File:     r.Path,
 			Line:     r.Start.Line,
 			Message:  r.Extra.Message,
+		})
+	}
+	return findings, nil
+}
+
+// parseJscpd maps jscpd's `--reporters json` duplication.clones[] entries into
+// findings (rule_id=duplication, file/line=first offset, severity hardcoded
+// MEDIUM — jscpd carries no raw severity, so no severity map entry exists).
+func parseJscpd(data []byte) ([]Finding, error) {
+	var report struct {
+		Duplication struct {
+			Clones []struct {
+				Offsets []struct {
+					Name  string `json:"name"`
+					Start struct {
+						Line int `json:"line"`
+					} `json:"start"`
+				} `json:"offsets"`
+			} `json:"clones"`
+		} `json:"duplication"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("parse jscpd: %w", err)
+	}
+	var findings []Finding
+	for _, c := range report.Duplication.Clones {
+		if len(c.Offsets) < 2 {
+			continue
+		}
+		findings = append(findings, Finding{
+			Tool:     "jscpd",
+			RuleID:   "duplication",
+			Severity: "MEDIUM",
+			Title:    fmt.Sprintf("duplicate block %s↔%s", c.Offsets[0].Name, c.Offsets[1].Name),
+			File:     c.Offsets[0].Name,
+			Line:     c.Offsets[0].Start.Line,
 		})
 	}
 	return findings, nil
