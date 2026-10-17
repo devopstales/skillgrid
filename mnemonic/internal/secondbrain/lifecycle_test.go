@@ -98,10 +98,10 @@ func seedNearDupes(t *testing.T, svc *service.Service, project string, pairs int
 		// per copy so Save's 24h (title+content+type) dedup keeps them as
 		// distinct rows.
 		id, err := hh.Memory().Save(context.Background(), memory.SaveInput{
-			Title: fmt.Sprintf("near dupe %d canonical", p),
-			Type:  "decision",
+			Title:   fmt.Sprintf("near dupe %d canonical", p),
+			Type:    "decision",
 			Content: content,
-			Scope: "project", SessionID: sessionA,
+			Scope:   "project", SessionID: sessionA,
 		})
 		if err != nil {
 			t.Fatalf("seed near-dupe save: %v", err)
@@ -109,10 +109,10 @@ func seedNearDupes(t *testing.T, svc *service.Service, project string, pairs int
 		writeNearDupeEmbedding(t, hh, project, id, content)
 		for c := 1; c < pairs; c++ {
 			id, err := hh.Memory().Save(context.Background(), memory.SaveInput{
-				Title: fmt.Sprintf("near dupe %d copy %d", p, c),
-				Type:  "decision",
+				Title:   fmt.Sprintf("near dupe %d copy %d", p, c),
+				Type:    "decision",
 				Content: content,
-				Scope: "project", SessionID: sessionA,
+				Scope:   "project", SessionID: sessionA,
 			})
 			if err != nil {
 				t.Fatalf("seed near-dupe save: %v", err)
@@ -268,6 +268,200 @@ func TestLifecycle_HealthNeverThrows(t *testing.T) {
 		}
 		if len(rep.Recommendations) != 0 {
 			t.Errorf("phase %d: expected empty recommendations on error, got %v", i, rep.Recommendations)
+		}
+	}
+}
+
+// --- healthRecommendations (pure rules, TICKET-02) ---
+
+// now2026 is a pinned reference time so the review rule (review_after <= now)
+// is deterministic across runs.
+var now2026 = time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+
+// findRec reports whether a fired rule's recommendation is present (matched by
+// a stable message fragment) and returns it when it is.
+func findRec(t *testing.T, recs []HealthRecommendation, msgFragment string) *HealthRecommendation {
+	t.Helper()
+	for i := range recs {
+		if strings.Contains(recs[i].Message, msgFragment) {
+			return &recs[i]
+		}
+	}
+	return nil
+}
+
+// TestHealthRecommendations_HighDensity: density > 0.05 fires the HIGH dedup
+// rule; all other rules off.
+func TestHealthRecommendations_HighDensity(t *testing.T) {
+	recs := healthRecommendations(healthInput{
+		Total: 10, ByType: map[string]int{"decision": 10},
+		Coverage: 1, Density: 0.2,
+		Age: map[string]int{"<1d": 10},
+	}, now2026)
+	r := findRec(t, recs, "run dedup merge")
+	if r == nil {
+		t.Fatalf("expected HIGH dedup recommendation for density 0.2, got %+v", recs)
+	}
+	if r.Severity != "HIGH" {
+		t.Errorf("dedup severity = %q, want HIGH", r.Severity)
+	}
+	if len(recs) != 1 {
+		t.Errorf("expected exactly 1 recommendation, got %d: %+v", len(recs), recs)
+	}
+}
+
+// TestHealthRecommendations_EmbeddingsOff is the NO-NAG gate: zero embedding
+// coverage with the embedder OFF fires no embeddings recommendation at all.
+func TestHealthRecommendations_EmbeddingsOff(t *testing.T) {
+	recs := healthRecommendations(healthInput{
+		Total: 10, ByType: map[string]int{"decision": 10},
+		Coverage: 0, EmbedderActive: false,
+		Age: map[string]int{"<1d": 10},
+	}, now2026)
+	if r := findRec(t, recs, "re-embedding"); r != nil {
+		t.Errorf("embedder off must not nag about embeddings: %+v", recs)
+	}
+	if len(recs) != 0 {
+		t.Errorf("expected no recommendations, got %+v", recs)
+	}
+}
+
+// TestHealthRecommendations_EmbeddingsOn: zero coverage with the embedder
+// ACTIVE fires the MEDIUM embeddings recommendation.
+func TestHealthRecommendations_EmbeddingsOn(t *testing.T) {
+	recs := healthRecommendations(healthInput{
+		Total: 10, ByType: map[string]int{"decision": 10},
+		Coverage: 0, EmbedderActive: true,
+		Age: map[string]int{"<1d": 10},
+	}, now2026)
+	r := findRec(t, recs, "re-embedding")
+	if r == nil {
+		t.Fatalf("expected MEDIUM embeddings recommendation, got %+v", recs)
+	}
+	if r.Severity != "MEDIUM" {
+		t.Errorf("embeddings severity = %q, want MEDIUM", r.Severity)
+	}
+}
+
+// TestHealthRecommendations_Stale: total > 10 with more than half the rows
+// older than 90d fires the MEDIUM stale rule.
+func TestHealthRecommendations_Stale(t *testing.T) {
+	recs := healthRecommendations(healthInput{
+		Total: 12, ByType: map[string]int{"decision": 12},
+		Coverage: 1,
+		Age:      map[string]int{"<1d": 5, "90-365d": 4, ">1y": 3}, // 7 of 12 > 90d
+	}, now2026)
+	r := findRec(t, recs, "archive stale")
+	if r == nil {
+		t.Fatalf("expected MEDIUM stale recommendation, got %+v", recs)
+	}
+	if r.Severity != "MEDIUM" {
+		t.Errorf("stale severity = %q, want MEDIUM", r.Severity)
+	}
+	if !strings.Contains(r.Message, "7 of 12") {
+		t.Errorf("stale message must name the stale fraction: %q", r.Message)
+	}
+}
+
+// TestHealthRecommendations_AllOff: every rule below threshold yields an
+// empty (non-nil) list.
+func TestHealthRecommendations_AllOff(t *testing.T) {
+	recs := healthRecommendations(healthInput{
+		Total: 5, ByType: map[string]int{"decision": 5},
+		Embedded: 5, Coverage: 1, Density: 0.0,
+		Age:            map[string]int{"<1d": 5},
+		EmbedderActive: true,                                 // even the most nag-prone rule stays silent
+		Archived:       1,                                    // 20% < 30%
+		ReviewAfter:    []string{"2027-01-01T00:00:00Z", ""}, // future + empty
+	}, now2026)
+	if recs == nil {
+		t.Fatal("expected a non-nil empty slice")
+	}
+	if len(recs) != 0 {
+		t.Errorf("expected no recommendations, got %+v", recs)
+	}
+}
+
+// TestHealthRecommendations_Cleanup: archived over 30% of total fires the
+// LOW cleanup rule; at or under 30% it does not.
+func TestHealthRecommendations_Cleanup(t *testing.T) {
+	recs := healthRecommendations(healthInput{
+		Total: 10, ByType: map[string]int{"decision": 10},
+		Coverage: 1,
+		Age:      map[string]int{"<1d": 10},
+		Archived: 4, // 40% > 30%
+	}, now2026)
+	r := findRec(t, recs, "purge")
+	if r == nil {
+		t.Fatalf("expected LOW cleanup recommendation at 40%% archived, got %+v", recs)
+	}
+	if r.Severity != "LOW" {
+		t.Errorf("cleanup severity = %q, want LOW", r.Severity)
+	}
+	// Boundary: exactly 30% is not "over 30%".
+	if recs2 := healthRecommendations(healthInput{
+		Total: 10, ByType: map[string]int{"decision": 10}, Coverage: 1,
+		Age: map[string]int{"<1d": 10}, Archived: 3,
+	}, now2026); findRec(t, recs2, "purge") != nil {
+		t.Errorf("exactly 30%% archived must not fire cleanup: %+v", recs2)
+	}
+}
+
+// TestHealthRecommendations_ReviewDue: any observation with review_after <=
+// now fires the LOW review rule; a future review_after does not.
+func TestHealthRecommendations_ReviewDue(t *testing.T) {
+	recs := healthRecommendations(healthInput{
+		Total: 2, ByType: map[string]int{"decision": 2},
+		Coverage:    1,
+		Age:         map[string]int{"<1d": 2},
+		ReviewAfter: []string{"2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z"},
+	}, now2026)
+	r := findRec(t, recs, "review")
+	if r == nil {
+		t.Fatalf("expected LOW review recommendation for due review_after, got %+v", recs)
+	}
+	if r.Severity != "LOW" {
+		t.Errorf("review severity = %q, want LOW", r.Severity)
+	}
+	if recs2 := healthRecommendations(healthInput{
+		Total: 1, ByType: map[string]int{"decision": 1}, Coverage: 1,
+		Age:         map[string]int{"<1d": 1},
+		ReviewAfter: []string{"2027-01-01T00:00:00Z"},
+	}, now2026); findRec(t, recs2, "review") != nil {
+		t.Errorf("future review_after must not fire: %+v", recs2)
+	}
+}
+
+// TestHealthRecommendations_StableOrdering: identical inputs fire every rule
+// and produce byte-identical output on repeated calls.
+func TestHealthRecommendations_StableOrdering(t *testing.T) {
+	in := healthInput{
+		Total: 20, ByType: map[string]int{"decision": 10, "learning": 10},
+		Embedded: 1, Coverage: 0.05, Density: 0.3,
+		Age:            map[string]int{"30-90d": 8, "90-365d": 9, ">1y": 3},
+		EmbedderActive: true,
+		Archived:       8, // 40%
+		ReviewAfter:    []string{"", "2026-06-01T00:00:00Z", "2027-01-01T00:00:00Z"},
+	}
+	first := healthRecommendations(in, now2026)
+	if len(first) != 5 {
+		t.Fatalf("expected all 5 rules to fire, got %d: %+v", len(first), first)
+	}
+	// The fixed table order: dedup, embeddings, stale, cleanup, review.
+	for i, want := range []string{"HIGH", "MEDIUM", "MEDIUM", "LOW", "LOW"} {
+		if first[i].Severity != want {
+			t.Errorf("rule %d severity = %q, want %q", i, first[i].Severity, want)
+		}
+	}
+	for call := 0; call < 3; call++ {
+		again := healthRecommendations(in, now2026)
+		if len(again) != len(first) {
+			t.Fatalf("call %d: length drift %d vs %d", call, len(again), len(first))
+		}
+		for i := range first {
+			if again[i] != first[i] {
+				t.Fatalf("call %d: rule %d drifted: %+v vs %+v", call, i, again[i], first[i])
+			}
 		}
 	}
 }

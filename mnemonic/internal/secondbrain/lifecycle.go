@@ -50,14 +50,14 @@ type HealthRecommendation struct {
 // source for the later _health_warnings layer. DuplicateDensity is the
 // fraction (0..1) of live observations that belong to a near-duplicate cluster.
 type HealthReport struct {
-	Total             int                     `json:"total"`
-	CountsByType      map[string]int          `json:"counts_by_type"`
-	EmbeddingCoverage float64                 `json:"embedding_coverage"`
-	AgeDistribution   map[string]int          `json:"age_distribution"`
-	DuplicateDensity  float64                 `json:"duplicate_density"`
-	Recommendations   []HealthRecommendation  `json:"recommendations"`
-	GeneratedAt       string                  `json:"generated_at"`
-	Cached            bool                    `json:"_cached"`
+	Total             int                    `json:"total"`
+	CountsByType      map[string]int         `json:"counts_by_type"`
+	EmbeddingCoverage float64                `json:"embedding_coverage"`
+	AgeDistribution   map[string]int         `json:"age_distribution"`
+	DuplicateDensity  float64                `json:"duplicate_density"`
+	Recommendations   []HealthRecommendation `json:"recommendations"`
+	GeneratedAt       string                 `json:"generated_at"`
+	Cached            bool                   `json:"_cached"`
 }
 
 // DedupCluster is one near-duplicate group: the canonical (kept) id plus the
@@ -89,21 +89,126 @@ type ArchiveResult struct {
 // Archived is one row of the archive list subaction: an archived observation
 // with its reason and stamp.
 type Archived struct {
-	ID           int64  `json:"id"`
-	Title        string `json:"title"`
+	ID            int64  `json:"id"`
+	Title         string `json:"title"`
 	ArchiveReason string `json:"archive_reason"`
-	ArchivedAt   string `json:"archived_at"`
+	ArchivedAt    string `json:"archived_at"`
 }
 
 // --- Health ---
 
 // healthRow is the per-observation facts Health needs (id, type, created_at,
-// whether an embedding blob exists). Kept minimal so the query is cheap.
+// whether an embedding blob exists, the review-after stamp). Kept minimal so
+// the query is cheap.
 type healthRow struct {
-	ID        int64
-	Type      string
-	CreatedAt string
-	HasEmbed  bool
+	ID          int64
+	Type        string
+	CreatedAt   string
+	HasEmbed    bool
+	ReviewAfter string
+}
+
+// healthInput is the computed-metrics snapshot the pure healthRecommendations
+// rules evaluate: the same data healthComputeFromMem already gathers (no extra
+// store query for the rules themselves). EmbedderActive is the no-nag gate for
+// the embeddings rule; Archived is the project's archived count; ReviewAfter
+// the raw per-row review-after stamps.
+type healthInput struct {
+	Total          int
+	ByType         map[string]int
+	Embedded       int
+	Coverage       float64
+	Density        float64
+	Age            map[string]int
+	EmbedderActive bool
+	Archived       int
+	ReviewAfter    []string
+}
+
+// healthRule is one fixed-severity rule: a predicate over the computed
+// metrics plus the message it emits. The table's order IS the stable output
+// order (dedup, embeddings, stale, cleanup, review).
+type healthRule struct {
+	severity string
+	match    func(in healthInput, now time.Time) bool
+	message  func(in healthInput) string
+}
+
+// healthRules is the five-rule table healthRecommendations evaluates in order.
+var healthRules = []healthRule{
+	{ // dedup: HIGH duplicate pressure
+		severity: "HIGH",
+		match:    func(in healthInput, _ time.Time) bool { return in.Density > 0.05 },
+		message: func(in healthInput) string {
+			return fmt.Sprintf("high duplicate density (%.0f%%); run dedup merge", in.Density*100)
+		},
+	},
+	{ // embeddings: MEDIUM coverage gap — NO-NAG: silent when no embedder is active
+		severity: "MEDIUM",
+		match: func(in healthInput, _ time.Time) bool {
+			return in.EmbedderActive && in.Total > 0 && in.Coverage < 0.5
+		},
+		message: func(in healthInput) string {
+			return fmt.Sprintf("embedding coverage low (%.0f%% of %d); consider re-embedding", in.Coverage*100, in.Total)
+		},
+	},
+	{ // stale: MEDIUM when most of a non-trivial store is older than 90d
+		severity: "MEDIUM",
+		match: func(in healthInput, _ time.Time) bool {
+			old90 := in.Age["90-365d"] + in.Age[">1y"]
+			return in.Total > 10 && old90 > in.Total/2
+		},
+		message: func(in healthInput) string {
+			return fmt.Sprintf("%d of %d observations older than 90d; consider archive stale",
+				in.Age["90-365d"]+in.Age[">1y"], in.Total)
+		},
+	},
+	{ // cleanup: LOW when archived rows are over 30% of the project
+		severity: "LOW",
+		match: func(in healthInput, _ time.Time) bool {
+			return in.Total > 0 && float64(in.Archived) > 0.3*float64(in.Total)
+		},
+		message: func(in healthInput) string {
+			return fmt.Sprintf("%d archived observations (%.0f%% of %d); consider purge",
+				in.Archived, float64(in.Archived)/float64(in.Total)*100, in.Total)
+		},
+	},
+	{ // review: LOW when any observation's review_after has passed
+		severity: "LOW",
+		match: func(in healthInput, now time.Time) bool {
+			for _, s := range in.ReviewAfter {
+				if s == "" {
+					continue
+				}
+				ts, err := time.Parse(time.RFC3339, s)
+				if err != nil {
+					continue
+				}
+				if !ts.After(now) {
+					return true
+				}
+			}
+			return false
+		},
+		message: func(in healthInput) string {
+			return "one or more observations are due for review; run review cycle"
+		},
+	},
+}
+
+// healthRecommendations evaluates the fixed healthRules table over the
+// computed metrics and returns the fired recommendations in the table's
+// (stable) order. Empty (non-nil) when no rule fires. now is the reference
+// time for the review rule (healthComputeFromMem passes time.Now(); tests
+// pin it).
+func healthRecommendations(in healthInput, now time.Time) []HealthRecommendation {
+	recs := []HealthRecommendation{}
+	for _, r := range healthRules {
+		if r.match(in, now) {
+			recs = append(recs, HealthRecommendation{Severity: r.severity, Message: r.message(in)})
+		}
+	}
+	return recs
 }
 
 // healthProbe is the injectable metric computation. A non-nil override (set by
@@ -172,18 +277,29 @@ func healthComputeFromMem(ctx context.Context, mem *memory.Service, projectID st
 	if db == nil {
 		return HealthReport{}, fmt.Errorf("health: no store handle for project %q", projectID)
 	}
+	// Archived (non-deleted, non-live) count feeds the cleanup rule; the
+	// health query's review_after join pulls the per-row review stamp. Both
+	// are part of this pass — the pure rules add no queries of their own.
+	var archived int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM observations
+		WHERE project = ? AND deleted_at IS NULL AND archived_at IS NOT NULL`, projectID).Scan(&archived); err != nil {
+		return HealthReport{}, err
+	}
 	var rows []healthRow
 	rx, err := db.QueryContext(ctx, `
-		SELECT id, type, created_at, CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END
-		FROM observations
-		WHERE project = ? AND deleted_at IS NULL`, projectID)
+		SELECT o.id, o.type, o.created_at, CASE WHEN o.embedding IS NOT NULL THEN 1 ELSE 0 END,
+		       COALESCE(os.review_after, '')
+		FROM observations o
+		LEFT JOIN observation_state os ON os.observation_id = o.id
+		WHERE o.project = ? AND o.deleted_at IS NULL`, projectID)
 	if err != nil {
 		return HealthReport{}, err
 	}
 	defer rx.Close()
 	for rx.Next() {
 		var r healthRow
-		if err := rx.Scan(&r.ID, &r.Type, &r.CreatedAt, &r.HasEmbed); err != nil {
+		if err := rx.Scan(&r.ID, &r.Type, &r.CreatedAt, &r.HasEmbed, &r.ReviewAfter); err != nil {
 			return HealthReport{}, err
 		}
 		rows = append(rows, r)
@@ -217,7 +333,23 @@ func healthComputeFromMem(ctx context.Context, mem *memory.Service, projectID st
 	// deterministic normalized-hash floor (same as DedupScan's degrade path).
 	density := healthDuplicateDensity(ctx, mem, projectID, rows)
 
-	recs := healthRecommendations(len(rows), byType, embedded, coverage, density, age)
+	// EmbedderActive is the NO-NAG gate for the embeddings rule: with no
+	// embedder the store is structurally un-embedded, so nagging is noise.
+	reviewAfter := make([]string, len(rows))
+	for i, r := range rows {
+		reviewAfter[i] = r.ReviewAfter
+	}
+	recs := healthRecommendations(healthInput{
+		Total:          len(rows),
+		ByType:         byType,
+		Embedded:       embedded,
+		Coverage:       coverage,
+		Density:        density,
+		Age:            age,
+		EmbedderActive: memory.EmbeddingEnabled(),
+		Archived:       archived,
+		ReviewAfter:    reviewAfter,
+	}, time.Now())
 	return HealthReport{
 		Total:             len(rows),
 		CountsByType:      byType,
@@ -261,29 +393,6 @@ func healthDuplicateDensity(ctx context.Context, mem *memory.Service, projectID 
 	}
 	_, density, _ := runDedupScan(ctx, mem, projectID)
 	return density
-}
-
-// healthRecommendations are the pure rules over the computed metrics
-// (blueprint Task 6): HIGH duplicate pressure, MEDIUM cleanup/stale/coverage.
-func healthRecommendations(total int, byType map[string]int, embedded int, coverage, density float64, age map[string]int) []HealthRecommendation {
-	var recs []HealthRecommendation
-	if density > 0.05 {
-		recs = append(recs, HealthRecommendation{Severity: "HIGH",
-			Message: fmt.Sprintf("high duplicate density (%.0f%%); run dedup merge", density*100)})
-	}
-	if total > 0 && coverage < 0.5 {
-		recs = append(recs, HealthRecommendation{Severity: "MEDIUM",
-			Message: fmt.Sprintf("embedding coverage low (%.0f%% of %d); consider re-embedding", coverage*100, total)})
-	}
-	old90 := age["90-365d"] + age[">1y"]
-	if total > 10 && old90 > total/2 {
-		recs = append(recs, HealthRecommendation{Severity: "MEDIUM",
-			Message: fmt.Sprintf("%d of %d observations older than 90d; consider archive stale", old90, total)})
-	}
-	if recs == nil {
-		recs = []HealthRecommendation{}
-	}
-	return recs
 }
 
 // --- Growth timeline ---
