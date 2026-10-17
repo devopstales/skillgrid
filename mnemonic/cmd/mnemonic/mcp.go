@@ -302,7 +302,7 @@ func runIndex(version string, args []string) {
 	finishIndex(rep, stats, os.Stdout, os.Stderr)
 }
 
-// runSetup installs agent plugins (opencode|kilocode|cursor).
+// runSetup installs agent plugins (opencode|kilocode|cursor|pi).
 func runSetup(version string, args []string) {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -310,12 +310,14 @@ func runSetup(version string, args []string) {
 		agent    string
 		repoRoot string
 		dryRun   bool
+		home     string
 	)
-	fs.StringVar(&agent, "agent", "", "agent to configure: opencode, kilocode, cursor")
+	fs.StringVar(&agent, "agent", "", "agent to configure: opencode, kilocode, cursor, pi")
 	fs.StringVar(&repoRoot, "repo-root", "", "skillgrid repo root (auto-detected)")
 	fs.BoolVar(&dryRun, "dry-run", false, "print planned changes without writing")
+	fs.StringVar(&home, "home", "", "agent home dir (default: $HOME; pi uses its agent dir)")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), `usage: skillgrid setup <opencode|kilocode|cursor> [flags]
+		fmt.Fprintln(fs.Output(), `usage: skillgrid setup <opencode|kilocode|cursor|pi> [flags]
   (equivalently: skillgrid setup --agent <agent> [flags])
   Install Mnemonic plugins for an AI agent.`)
 		fs.PrintDefaults()
@@ -337,7 +339,7 @@ func runSetup(version string, args []string) {
 	}
 
 	if agent == "" {
-		fmt.Fprintln(os.Stderr, "error: missing agent (opencode, kilocode, or cursor)")
+		fmt.Fprintln(os.Stderr, "error: missing agent (opencode, kilocode, cursor, or pi)")
 		os.Exit(2)
 	}
 	mcpEntries, err := setup.LoadMCPConfig(repoRoot)
@@ -345,7 +347,7 @@ func runSetup(version string, args []string) {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
-	if err := setup.RunSetup(agent, repoRoot, mcpEntries, "", dryRun); err != nil {
+	if err := setup.RunSetup(agent, repoRoot, mcpEntries, home, dryRun); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

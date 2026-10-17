@@ -53,7 +53,7 @@ func main() {
 		fmt.Fprintln(w, `  explain       Symbol node + degree + connections ranked by degree`)
 		fmt.Fprintln(w, `  impact        Risk-tiered blast radius (WILL BREAK / LIKELY AFFECTED)`)
 		fmt.Fprintln(w, `  explore       Composite: source + call-flow + blast radius in one call`)
-		fmt.Fprintln(w, `  setup         Install agent plugins (opencode|kilocode|cursor)`)
+		fmt.Fprintln(w, `  setup         Install agent plugins (opencode|kilocode|cursor|pi)`)
 		fmt.Fprintln(w, `  migrate       Backfill mnemonic tier sidecars (--tier)`)
 		fmt.Fprintln(w, `  trail         Inspect retrieval trails (recent|show)`)
 		fmt.Fprintln(w, `  search        Hybrid code search (FTS + signals + semantic, per-signal provenance)`)
