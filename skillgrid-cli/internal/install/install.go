@@ -251,18 +251,23 @@ func verbPrereqs(c *Config) {
 	}
 }
 
+// selectAgents asks which agents to configure. Default is ALL UNSELECTED:
+// with no --agent flags the user must opt in, so a plain `skillgrid install`
+// never configures a harness the user didn't ask for. --yes is the explicit
+// "configure everything" path. skill-pi and pi are optional agents (ADR-0043)
+// — they appear in the list but are never auto-selected.
 func selectAgents(c *Config) error {
 	if len(c.Agents) > 0 {
 		return nil
 	}
 	if c.Yes {
-		c.Agents = []string{"opencode", "kilo", "cursor"}
-		VerboseOut(c, "default selection (yes mode): opencode, kilo, cursor")
+		c.Agents = availableAgentKeys()
+		VerboseOut(c, "default selection (yes mode): all agents (" + strings.Join(c.Agents, ", ") + ")")
 		return nil
 	}
 	if !mnemonic.Interactive() {
-		c.Agents = []string{"opencode", "kilo"}
-		VerboseOut(c, "non-interactive default: opencode, kilo")
+		// Non-interactive and no explicit selection: nothing to configure.
+		VerboseOut(c, "non-interactive, no agents selected — skipping agent install (use --agent or --yes)")
 		return nil
 	}
 
@@ -274,7 +279,7 @@ func selectAgents(c *Config) error {
 			Value: a.Key,
 		}
 	}
-	selected, _, err := mnemonic.MultiSelect("Install skillgrid for which agents? (a=all, q=cancel)", opts)
+	selected, _, err := mnemonic.MultiSelect("Install skillgrid for which agents? (none selected by default, a=all, q=cancel)", opts)
 	if err != nil {
 		return err
 	}
@@ -284,6 +289,16 @@ func selectAgents(c *Config) error {
 	}
 	c.Agents = selected
 	return nil
+}
+
+// availableAgentKeys returns the installable agent keys in display order.
+func availableAgentKeys() []string {
+	agents := AvailableAgents()
+	keys := make([]string, len(agents))
+	for i, a := range agents {
+		keys[i] = a.Key
+	}
+	return keys
 }
 
 func installAgents(c *Config) error {

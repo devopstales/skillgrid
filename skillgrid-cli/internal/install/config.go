@@ -65,12 +65,16 @@ type Agent struct {
 	Hint string
 }
 
-// AvailableAgents returns the installable agents (first cut: opencode, kilo, cursor).
+// AvailableAgents returns the installable agents (opencode, kilo, cursor,
+// skill-pi). skill-pi is a first-class harness (ADR-0038/0039/0042): its
+// mnemonic extension is installed by the memory component (mnemonic setup pi,
+// ADR-0043) — this row only owns the npm CLI install.
 func AvailableAgents() []Agent {
 	return []Agent{
 		{Key: "opencode", Name: "OpenCode", NPM: "opencode-ai", Bin: "opencode", Hint: "npm: opencode-ai"},
 		{Key: "kilo", Name: "Kilo", NPM: "@kilocode/cli", Bin: "kilo", Hint: "npm: @kilocode/cli"},
 		{Key: "cursor", Name: "Cursor", NPM: "", Bin: "", Hint: "app-side only"},
+		{Key: "skill-pi", Name: "Skill-Pi", NPM: "@devopstales/skill-pi", Bin: "skill-pi", Hint: "npm: @devopstales/skill-pi"},
 	}
 }
 

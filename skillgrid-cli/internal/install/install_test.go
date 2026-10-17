@@ -9,13 +9,14 @@ import (
 
 func TestAvailableAgents(t *testing.T) {
 	got := AvailableAgents()
-	if len(got) != 3 {
-		t.Fatalf("want 3 agents, got %d", len(got))
+	if len(got) != 4 {
+		t.Fatalf("want 4 agents, got %d", len(got))
 	}
 	want := map[string]struct{ npm, bin string }{
 		"opencode": {"opencode-ai", "opencode"},
 		"kilo":     {"@kilocode/cli", "kilo"},
 		"cursor":   {"", ""},
+		"skill-pi": {"@devopstales/skill-pi", "skill-pi"},
 	}
 	for _, a := range got {
 		w := want[a.Key]
@@ -239,6 +240,7 @@ func TestMemoryAndPersonasBoundary(t *testing.T) {
 	// opencode source — the 6th, skillgrid-context, was wired in 2457a453),
 	// the memory-protocol block, and the 3 shared workers.
 	for _, f := range []string{
+		"plugins/opencode/opencode-v2.ts",
 		"plugins/opencode/skillgrid-compaction.ts",
 		"plugins/opencode/skillgrid-events.ts",
 		"plugins/opencode/skillgrid-squad.ts",
@@ -334,6 +336,7 @@ func TestSetupAgentsIntegration(t *testing.T) {
 	repo := t.TempDir()
 
 	files := []string{
+		"plugins/opencode/opencode-v2.ts",
 		"plugins/opencode/skillgrid-compaction.ts",
 		"plugins/opencode/skillgrid-events.ts",
 		"plugins/opencode/skillgrid-squad.ts",
@@ -558,33 +561,51 @@ func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
 		}
 	}
 
-	// All 5 native TS plugins are present under each harness's plugin dir and
-	// byte-identical to the single opencode source.
+	// The 6 native TS plugins + the V2 shim are byte-identical to the single
+	// opencode source. OpenCode v2 discovers them from ~/.config/opencode/
+	// plugins/ (ADR-0045); Kilo keeps the v1 plugin/ dir + config registration.
 	pluginBases := []string{
+		"opencode-v2",
 		"skillgrid-compaction",
 		"skillgrid-events",
 		"skillgrid-squad",
 		"mnemonic-memory",
 		"mnemonic-codeindex",
 	}
-	for _, harness := range []string{"opencode", "kilo"} {
-		for _, base := range pluginBases {
-			dst := filepath.Join(home, ".config", harness, "plugin", base+".ts")
-			got, err := os.ReadFile(dst)
-			if err != nil {
-				t.Fatalf("%s missing plugin %s: %v", harness, base, err)
-			}
-			want, err := os.ReadFile(filepath.Join(repo, "plugins", "opencode", base+".ts"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(got) != string(want) {
-				t.Fatalf("%s plugin %s differs from the opencode source", harness, base)
-			}
+	// OpenCode: v2 discovery dir (plugins/), no config registration required.
+	for _, base := range pluginBases {
+		dst := filepath.Join(home, ".config", "opencode", "plugins", base+".ts")
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatalf("opencode missing plugin %s: %v", base, err)
+		}
+		want, err := os.ReadFile(filepath.Join(repo, "plugins", "opencode", base+".ts"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("opencode plugin %s differs from the opencode source", base)
+		}
+	}
+	// Kilo: v1 plugin/ dir + config registration (reads its own config file).
+	for _, base := range pluginBases {
+		dst := filepath.Join(home, ".config", "kilo", "plugin", base+".ts")
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatalf("kilo missing plugin %s: %v", base, err)
+		}
+		want, err := os.ReadFile(filepath.Join(repo, "plugins", "opencode", base+".ts"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("kilo plugin %s differs from the opencode source", base)
 		}
 	}
 
-	// Each harness config registers all 5 plugins and no retired entry.
+	// Each harness config carries no retired entry; opencode also registers the
+	// v2 discovery paths (harmless, kept for a v1 downgrade) and kilo the v1
+	// ./plugin/ paths.
 	for _, rel := range []string{
 		".config/opencode/opencode.jsonc",
 		".config/kilo/kilo.jsonc",
@@ -594,9 +615,13 @@ func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(b)
+		prefix := "./plugins/"
+		if rel == ".config/kilo/kilo.jsonc" {
+			prefix = "./plugin/"
+		}
 		for _, base := range pluginBases {
-			if !strings.Contains(text, "./plugin/"+base+".ts") {
-				t.Fatalf("%s missing plugin ./plugin/%s.ts:\n%s", rel, base, text)
+			if !strings.Contains(text, prefix+base+".ts") {
+				t.Fatalf("%s missing plugin %s%s.ts:\n%s", rel, prefix, base, text)
 			}
 		}
 		for _, retired := range []string{"opencode-command-hooks", "opencode-yaml-hooks", "skillgrid-checkpoint.ts", "hooks.yaml"} {
