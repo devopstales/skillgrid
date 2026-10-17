@@ -27,6 +27,9 @@ func main() {
 		fmt.Fprintln(w, `  sync-repo     Sync git repo contents without full install`)
 		fmt.Fprintln(w, `  help          Show this help`)
 		fmt.Fprintln(w)
+		fmt.Fprintln(w, `Install flags: --lsp installs LSP servers and configures them for the`)
+		fmt.Fprintln(w, `selected agents (opencode "lsp" section, skill-pi conf.d/lsp.conf + cclsp).`)
+		fmt.Fprintln(w)
 	}
 
 	var (
@@ -41,6 +44,7 @@ func main() {
 		vAgents     string
 		vSkipTools  bool
 		vSkipAgents bool
+		vLSP        bool
 		vProvider   string
 		vSkipProvider bool
 		vBaseURL    string
@@ -62,6 +66,8 @@ func main() {
 	fs.StringVar(&vAgents, "agents", "", "comma-separated agent keys (opencode,kilo,cursor,skill-pi); none by default")
 	fs.BoolVar(&vSkipTools, "skip-tools", false, "skip global npm tool install")
 	fs.BoolVar(&vSkipAgents, "skip-agents", false, "skip the ~/.agents override step")
+	fs.BoolVar(&vLSP, "lsp", false, "install LSP servers (gopls, pyright, cclsp/typescript, rust-analyzer, jj-language-server) and configure them for the selected agents")
+	fs.BoolVar(&vLSP, "l", false, "shorthand for --lsp")
 	fs.StringVar(&vProvider, "provider", "local", "LLM/embedder provider: local (Ollama) or external (OpenAI-compatible)")
 	fs.StringVar(&vProvider, "p", "local", "shorthand for --provider")
 	fs.BoolVar(&vSkipProvider, "skip-provider", false, "skip the LLM/embedder provider setup step")
@@ -165,6 +171,7 @@ func main() {
 		SkipClone:      vSkip,
 		SkipTools:      vSkipTools,
 		SkipAgentsCopy: vSkipAgents,
+		LSP:            vLSP,
 		Provider:       vProvider,
 		SkipProvider:   vSkipProvider,
 		LLMBaseURL:     vBaseURL,
@@ -198,6 +205,8 @@ func reorderArgs(args []string) []string {
 		"skip-tools":    true,
 		"skip-agents":   true,
 		"skip-provider": true,
+		"lsp":           true,
+		"l":             true,
 	}
 	var flags, positional []string
 	seenSep := false

@@ -31,6 +31,9 @@ type Config struct {
 	SkipClone      bool
 	SkipTools      bool
 	SkipAgentsCopy bool
+	// LSP opts into LSP server installation + harness configuration
+	// (opencode "lsp" object, skill-pi conf.d/lsp.conf + cclsp package).
+	LSP bool
 
 	// Provider setup (ADR-0023, TICKET-03): which LLM/embedder host to wire
 	// into the home config. Provider is "local" (Ollama) or "external"

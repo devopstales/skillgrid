@@ -49,6 +49,7 @@ var lspExtToLang = map[string]string{
 	".ts": "typescript", ".tsx": "tsx", ".js": "javascript", ".mts": "typescript",
 	".rs": "rust",
 	".c": "c", ".h": "c", ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp",
+	".java": "java",
 }
 
 // LSPFile is one file the LSP tier resolves.
@@ -119,6 +120,7 @@ var defaultServers = map[string][]string{
 	"rust":       {"rust-analyzer"},
 	"c":          {"clangd"},
 	"cpp":        {"clangd"},
+	"java":       {"jj-language-server"},
 }
 
 // anyServerAvailable reports whether any scanned language has a resolvable

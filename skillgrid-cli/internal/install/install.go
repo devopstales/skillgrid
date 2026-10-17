@@ -107,6 +107,12 @@ func Run(c *Config) error {
 				}
 			}
 		}
+		if c.LSP {
+			info("configuring LSP for agents: " + strings.Join(c.Agents, ", "))
+			if err := configureLSP(c); err != nil {
+				return err
+			}
+		}
 	}
 
 	if c.SkipTools {
@@ -119,6 +125,14 @@ func Run(c *Config) error {
 		info("installing security tools (wapiti3, akca, nuclei)")
 		if err := installSecurityTools(c); err != nil {
 			return err
+		}
+		if c.LSP {
+			info("installing LSP servers (gopls, pyright, cclsp, typescript, rust-analyzer, jj-language-server)")
+			if err := installLSPTools(c); err != nil {
+				return err
+			}
+		} else {
+			verb("skipping LSP server install (use --lsp)")
 		}
 	}
 

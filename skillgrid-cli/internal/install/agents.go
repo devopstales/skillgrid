@@ -177,6 +177,15 @@ func backupAgentConfigs(c *Config) error {
 		case "cursor":
 			files = []string{filepath.Join(home, ".cursor", "mcp.json")}
 			dirs = []string{filepath.Join(home, ".cursor", "agents")}
+		case "skill-pi":
+			agentDir := filepath.Join(home, ".skill-pi", "agent")
+			if v := os.Getenv("SKILL_PI_AGENT_DIR"); v != "" {
+				agentDir = v
+			}
+			files = []string{
+				filepath.Join(agentDir, "settings.json"),
+				filepath.Join(filepath.Dir(agentDir), "conf.d", "lsp.conf"),
+			}
 		default:
 			continue
 		}

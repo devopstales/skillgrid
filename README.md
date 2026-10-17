@@ -41,6 +41,7 @@ skillgrid --skip-clone              skip the git clone step
 skillgrid --agents opencode,kilo    preset agents (skip prompt)
 skillgrid --skip-tools              skip global npm tool install
 skillgrid --skip-agents             skip the ~/.agents override step
+skillgrid --lsp                     install LSP servers + configure them for the selected agents
 skillgrid --sync-repo PATH          sync a local repo path into the hub instead of cloning
 ```
 
