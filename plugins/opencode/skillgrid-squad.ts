@@ -236,3 +236,37 @@ export const SkillgridSquad = async () => ({
     squad_mark_done: tool(squadMarkDone),
   },
 })
+
+// V2 entrypoint (ADR-0032 V2 port). The V1 named export above is kept for
+// V1.18.29+ harnesses; @opencode/plugin is a bundled OpenCode dependency.
+const { Plugin } = await importPlugin()
+const { makeTool } = await import("./opencode-v2.ts")
+const v2tool = makeTool()
+
+async function importPlugin() {
+  try {
+    return await import("@opencode/plugin")
+  } catch {
+    return { Plugin: { define: (def) => def } }
+  }
+}
+
+export default Plugin.define({
+  id: "skillgrid.squad",
+  async setup(ctx) {
+    const defs = []
+    for (const [name, d] of Object.entries({
+      squad_spawn_task: squadSpawnTask,
+      squad_pull_next_task: squadPullNextTask,
+      squad_submit_output: squadSubmitOutput,
+      squad_submit_review: squadSubmitReview,
+      squad_read_task: squadReadTask,
+      squad_mark_done: squadMarkDone,
+    })) {
+      defs.push(v2tool.wrap({ ...d, name }))
+    }
+    await ctx.tool.transform((editor) => {
+      for (const def of defs) editor.add(def)
+    })
+  },
+})

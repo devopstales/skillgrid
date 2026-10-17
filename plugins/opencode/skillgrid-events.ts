@@ -166,3 +166,60 @@ export const SkillgridEvents = async () => ({
     }
   },
 })
+
+// V2 entrypoint (ADR-0032 V2 port). Reuses the same handleToolBefore/After;
+// the V2 tool hooks pass a single mutable `event` instead of `(input, output)`,
+// so we map event → {input, output} and call the shared handlers. The policy
+// block (a thrown error from handleToolBefore) must propagate out of the V2
+// hook to actually block the write, so the block is re-thrown and every other
+// error fails open — exactly the V1 contract. @opencode/plugin is a bundled
+// OpenCode dependency.
+const { Plugin } = await importPlugin()
+
+async function importPlugin() {
+  try {
+    return await import("@opencode/plugin")
+  } catch {
+    return { Plugin: { define: (def) => def } }
+  }
+}
+
+export default Plugin.define({
+  id: "skillgrid.events",
+  async setup(ctx) {
+    await ctx.tool.hook("execute.before", async (event) => {
+      const input = {
+        sessionID: event.sessionID,
+        tool: event.tool,
+        args: event.input,
+      }
+      const output = { args: event.input, result: event.output }
+      try {
+        await handleToolBefore(input, output)
+      } catch (err) {
+        if (err && err.message && err.message.includes("blocked by skillgrid policy")) {
+          throw err
+        }
+      }
+    })
+    await ctx.tool.hook("execute.after", async (event) => {
+      try {
+        const input = {
+          sessionID: event.sessionID,
+          tool: event.tool,
+          args: event.input,
+        }
+        const output = {
+          args: event.input,
+          result:
+            event.status === "completed"
+              ? event.result
+              : event.error?.message ?? null,
+        }
+        await handleToolAfter(input, output)
+      } catch {
+        // fail-open: never block the agent on capture failure
+      }
+    })
+  },
+})

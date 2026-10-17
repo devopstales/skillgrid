@@ -338,3 +338,45 @@ export const MnemonicMemory = async () => ({
     mem_session_summary: tool(memSessionSummary),
   },
 })
+
+// V2 entrypoint (ADR-0032 V2 port): the same tool map, registered through the
+// V2 tool editor. The V1 named export above is kept for V1.18.29+ harnesses.
+// @opencode/plugin is a bundled OpenCode dependency, so it resolves at load.
+const { Plugin } = await importPlugin()
+const { makeTool } = await import("./opencode-v2.ts")
+const v2tool = makeTool()
+
+// @opencode/plugin is a bundled OpenCode dependency; in the repo smoke test
+// (plain Node) it is absent, so fall back to a local Plugin.define stub that
+// still records the id + setup for inspection.
+async function importPlugin() {
+  try {
+    return await import("@opencode/plugin")
+  } catch {
+    return { Plugin: { define: (def) => def } }
+  }
+}
+
+export default Plugin.define({
+  id: "skillgrid.mnemonic-memory",
+  async setup(ctx) {
+    const defs = []
+    for (const [name, d] of Object.entries({
+      mem_save: memSave,
+      mem_search: memSearch,
+      mem_get_observation: memGetObservation,
+      fact_add: factAdd,
+      fact_search: factSearch,
+      fact_forget: factForget,
+      fact_decay: factDecay,
+      mem_session_start: memSessionStart,
+      mem_session_end: memSessionEnd,
+      mem_session_summary: memSessionSummary,
+    })) {
+      defs.push(v2tool.wrap({ ...d, name }))
+    }
+    await ctx.tool.transform((editor) => {
+      for (const def of defs) editor.add(def)
+    })
+  },
+})

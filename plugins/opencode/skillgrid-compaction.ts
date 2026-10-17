@@ -170,3 +170,51 @@ export const SkillgridCompaction = async () => ({
     }
   },
 })
+
+// V2 entrypoint (ADR-0032 V2 port). Subscribes to the V2 server event stream
+// for the same three lifecycle events. Note: V1's
+// `experimental.session.compacting` (pre-compact context file) has no V2 hook
+// equivalent, so that branch is dropped in V2 — the session row's
+// summary/observations are still refreshed by `session.compacted`.
+// @opencode/plugin is a bundled OpenCode dependency.
+const { Plugin } = await importPlugin()
+
+async function importPlugin() {
+  try {
+    return await import("@opencode/plugin")
+  } catch {
+    return { Plugin: { define: (def) => def } }
+  }
+}
+
+export default Plugin.define({
+  id: "skillgrid.compaction",
+  async setup(ctx) {
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        for await (const event of ctx.event.subscribe({
+          signal: controller.signal,
+        })) {
+          const sessionID =
+            event?.properties?.sessionID || event?.sessionID || ""
+          if (!sessionID) continue
+          switch (event.type) {
+            case "session.created":
+              await handleSessionCreated(sessionID)
+              break
+            case "session.idle":
+              await handleSessionIdle(sessionID)
+              break
+            case "session.compacted":
+              await handleSessionCompacted(sessionID)
+              break
+          }
+        }
+      } catch {
+        // stream closed — cleanup aborts the controller
+      }
+    })()
+    return () => controller.abort()
+  },
+})

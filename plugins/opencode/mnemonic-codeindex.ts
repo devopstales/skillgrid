@@ -135,3 +135,36 @@ export const MnemonicCodeIndex = async () => ({
     code_files: tool(codeFiles),
   },
 })
+
+// V2 entrypoint (ADR-0032 V2 port). The V1 named export above is kept for
+// V1.18.29+ harnesses; @opencode/plugin is a bundled OpenCode dependency.
+const { Plugin } = await importPlugin()
+const { makeTool } = await import("./opencode-v2.ts")
+const v2tool = makeTool()
+
+async function importPlugin() {
+  try {
+    return await import("@opencode/plugin")
+  } catch {
+    return { Plugin: { define: (def) => def } }
+  }
+}
+
+export default Plugin.define({
+  id: "skillgrid.codeindex",
+  async setup(ctx) {
+    const defs = []
+    for (const [name, d] of Object.entries({
+      code_status: codeStatus,
+      code_index: codeIndex,
+      code_search: codeSearch,
+      code_read: codeRead,
+      code_files: codeFiles,
+    })) {
+      defs.push(v2tool.wrap({ ...d, name }))
+    }
+    await ctx.tool.transform((editor) => {
+      for (const def of defs) editor.add(def)
+    })
+  },
+})
