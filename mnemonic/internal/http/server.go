@@ -201,6 +201,14 @@ func (s *Server) registerCtxRoutes() {
 	s.mux.HandleFunc("GET /stats-history", s.handleCTXStatsHistory)
 	s.mux.HandleFunc("GET /metrics", s.handleCTXMetrics)
 	s.mux.HandleFunc("GET /api/session-summaries", s.handleCTXSessionSummaries)
+	// ADR-0044: ctx sandbox routes — the HTTP surface for the harness
+	// sandbox so native extensions (Pi ctx_* tools + tool_result overflow)
+	// store and recall oversized tool output through the server.
+	s.mux.HandleFunc("POST /ctx/capture", s.requireWriteAuth(s.handleCtxCapture))
+	s.mux.HandleFunc("GET /ctx/search", s.handleCtxSearch)
+	s.mux.HandleFunc("GET /ctx/get/{id}", s.handleCtxGet)
+	s.mux.HandleFunc("GET /ctx/stats", s.handleCtxStats)
+	s.mux.HandleFunc("DELETE /ctx/sessions/{id}", s.requireWriteAuth(s.handleCtxSessionPurge))
 }
 
 // registerGraphRoutes mounts the Phase 4 mnemonic vector-graph routes. The API
