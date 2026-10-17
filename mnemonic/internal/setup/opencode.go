@@ -45,13 +45,38 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 	if err := installOpenCodeHookScripts(home, repoRoot, dryRun); err != nil {
 		return err
 	}
-	return installNativePlugins(home, repoRoot, cfgPath, "opencode", dryRun)
+	return installOpenCodeNativePlugins(home, repoRoot, cfgPath, dryRun)
 }
 
-// installNativePlugins copies the 5 native TS plugins from plugins/opencode/
+// installOpenCodeNativePlugins copies the native TS plugins (ADR-0032/0045)
+// into ~/.config/opencode/plugins/ — OpenCode v2's discovery directory, which
+// loads direct .ts files without a config registration. The legacy "plugin"
+// config array is kept only to carry the retired-entry cleanup
+// (dropRetiredPlugins above); the v2 discovery is what actually loads them.
+// Kilo uses a different installer (installNativePlugins) that keeps the v1
+// plugin/ dir + config registration, because Kilo reads its own config file.
+func installOpenCodeNativePlugins(home, repoRoot, cfgPath string, dryRun bool) error {
+	pluginDir := filepath.Join(home, ".config", "opencode", "plugins")
+	for _, base := range nativePluginBases {
+		srcRel := "plugins/opencode/" + base + ".ts"
+		dst := filepath.Join(pluginDir, base+".ts")
+		if err := copyFromRepo(repoRoot, srcRel, dst, dryRun); err != nil {
+			return err
+		}
+		// Register in the config too: harmless under v2 (discovery wins) and
+		// keeps the legacy v1 path working if the harness is downgraded.
+		if err := upsertPluginKey(cfgPath, "./plugins/"+base+".ts", dryRun); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// installNativePlugins copies the native TS plugins from plugins/opencode/
 // into ~/.config/<harness>/plugin/ and registers each "./plugin/<name>.ts" in
-// the harness config (shared by the OpenCode and Kilo installers per
-// ADR-0032 — Kilo copies from the same opencode source dir).
+// the harness config (Kilo installer, per ADR-0032 — Kilo copies from the same
+// opencode source dir and reads its own config file, so it keeps the v1
+// plugin/ dir + config registration).
 func installNativePlugins(home, repoRoot, cfgPath, harness string, dryRun bool) error {
 	pluginDir := filepath.Join(home, ".config", harness, "plugin")
 	for _, base := range nativePluginBases {

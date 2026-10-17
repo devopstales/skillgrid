@@ -17,9 +17,10 @@ func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 	if err := SetupOpenCode(home, repoRoot, nil, nil, false); err != nil {
 		t.Fatalf("SetupOpenCode: %v", err)
 	}
-	// The 5 native TS plugins are copied into the harness plugin dir.
+	// The native TS plugins are copied into OpenCode v2's discovery dir,
+	// ~/.config/opencode/plugins/ (ADR-0045), not the legacy v1 plugin/ dir.
 	for _, base := range nativePluginBases {
-		dst := filepath.Join(home, ".config", "opencode", "plugin", base+".ts")
+		dst := filepath.Join(home, ".config", "opencode", "plugins", base+".ts")
 		if _, err := os.Stat(dst); err != nil {
 			t.Fatalf("missing plugin %s: %v", base, err)
 		}
@@ -30,7 +31,7 @@ func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 	}
 	plugins := pluginEntries(cfgData)
 	for _, base := range nativePluginBases {
-		if !plugins["./plugin/"+base+".ts"] {
+		if !plugins["./plugins/"+base+".ts"] {
 			t.Fatalf("opencode config missing plugin entry %s: %s", base, cfgData)
 		}
 	}
@@ -43,7 +44,7 @@ func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "hook", "hooks.yaml")); err == nil {
 		t.Fatal("hooks.yaml should not be installed")
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "plugin", "skillgrid-checkpoint.ts")); err == nil {
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "plugins", "skillgrid-checkpoint.ts")); err == nil {
 		t.Fatal("skillgrid-checkpoint.ts should not be installed")
 	}
 	if plugins["opencode-yaml-hooks"] {
@@ -63,7 +64,7 @@ func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 		t.Fatalf("SetupOpenCode dry-run: %v", err)
 	}
 	for _, base := range nativePluginBases {
-		if _, err := os.Stat(filepath.Join(homeDry, ".config", "opencode", "plugin", base+".ts")); err == nil {
+		if _, err := os.Stat(filepath.Join(homeDry, ".config", "opencode", "plugins", base+".ts")); err == nil {
 			t.Fatalf("dry-run must not write plugin %s", base)
 		}
 	}
@@ -98,7 +99,7 @@ func TestSetupOpenCode_DropsRetiredPlugins(t *testing.T) {
 	}
 	want := map[string]bool{"keep-me": true}
 	for _, base := range nativePluginBases {
-		want["./plugin/"+base+".ts"] = true
+		want["./plugins/"+base+".ts"] = true
 	}
 	for entry := range want {
 		if !got[entry] {
