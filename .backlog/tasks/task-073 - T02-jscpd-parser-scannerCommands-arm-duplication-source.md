@@ -1,9 +1,10 @@
 ---
 id: TASK-073
 title: T02 jscpd parser + scannerCommands arm (duplication source)
-status: needs-triage
+status: done
 assignee: []
 created_date: '2026-10-17 18:49'
+updated_date: '2026-10-17 21:39'
 labels:
   - quality-report
 milestone: m-10
@@ -32,9 +33,9 @@ Build shape: tracer thread. Fails-when: see tasks.md TICKET-02.
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Tests pass (`go test ./...` for touched packages)
-- [ ] #2 Lint and formatting pass
-- [ ] #3 Edge cases covered
-- [ ] #4 No new warnings introduced
-- [ ] #5 Spec/docs updated if behavior changes
+- [x] #1 Tests pass (`go test ./...` for touched packages)
+- [x] #2 Lint and formatting pass
+- [x] #3 Edge cases covered
+- [x] #4 No new warnings introduced
+- [x] #5 Spec/docs updated if behavior changes
 <!-- DOD:END -->
