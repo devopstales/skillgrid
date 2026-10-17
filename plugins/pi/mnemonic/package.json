@@ -1,0 +1,23 @@
+{
+  "name": "@devopstales/skillgrid-pi-mnemonic",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Mnemonic persistent memory for the skill-pi coding agent: mem_*/fact_*/code_*/ctx_* tools over the mnemonic HTTP server, prompt capture, tool-output sandbox receipts, and compaction recovery (ADR-0043/0044).",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "files": [
+    "api.js",
+    "index.ts",
+    "mnemonic-memory.ts",
+    "mnemonic-facts.ts",
+    "mnemonic-codeindex.ts",
+    "ctx-sandbox.ts",
+    "skillgrid-events.ts",
+    "skillgrid-compaction.ts",
+    "package.json"
+  ]
+}

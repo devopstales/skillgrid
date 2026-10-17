@@ -38,7 +38,14 @@ const (
 // nativePluginBases are the 5 native TS plugin file bases (ADR-0032), in
 // registration order. Both harnesses install them from plugins/opencode/<base>.ts
 // to ~/.config/<harness>/plugin/<base>.ts and register "./plugin/<base>.ts".
+// nativePluginBases are the 5 native TS plugin file bases (ADR-0032), in
+// registration order, plus the V2 bootstrap shim. Both harnesses install them
+// from plugins/opencode/<base>.ts to ~/.config/<harness>/plugin/<base>.ts and
+// register "./plugin/<name>.ts". The shim (opencode-v2.ts) carries no hooks of
+// its own — it is a dependency of the V2 entrypoints — but it must ship next
+// to the plugins for their `./opencode-v2.ts` import to resolve.
 var nativePluginBases = []string{
+	"opencode-v2",
 	"skillgrid-compaction",
 	"skillgrid-events",
 	"skillgrid-squad",
@@ -75,8 +82,13 @@ func RunSetup(agent, repoRoot string, mcpEntries []MCPServerConfig, home string,
 		return SetupKiloCode(home, repoRoot, mcpEntries, config.Load(home).PrivateTools, dryRun)
 	case "cursor":
 		return SetupCursor(home, repoRoot, mcpEntries, dryRun)
+	case "pi", "skill-pi":
+		// Pi (skill-pi) uses a single native extension copied into the agent
+		// dir; the launcher's explicit extension enumeration discovers it, so
+		// no MCP or settings.json registration is needed (ADR-0043).
+		return SetupPi(home, repoRoot, dryRun)
 	default:
-		return fmt.Errorf("unknown agent %q (use opencode, kilocode, or cursor)", agent)
+		return fmt.Errorf("unknown agent %q (use opencode, kilocode, cursor, or pi)", agent)
 	}
 }
 
