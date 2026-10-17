@@ -51,8 +51,8 @@ type Service struct {
 	root    string
 	dataDir string
 	cfg     Config
-	run     scan.RunnerFunc        // defaults to exec; tests stub
-	probe   probeFunc              // defaults to the real HTTP HEAD probe; tests stub
+	run     scan.RunnerFunc // defaults to exec; tests stub
+	probe   probeFunc       // defaults to the real HTTP HEAD probe; tests stub
 }
 
 // probeFunc probes whether a URL is reachable. A non-nil error means
