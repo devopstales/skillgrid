@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Knowledge-class dimension (ADR-0038, TICKET-03): a nullable durability
+// Knowledge-class dimension (ADR-0046, TICKET-03): a nullable durability
 // label on observations distinguishing episodic (session-specific) from
 // convention (durable) knowledge. The column lives on observations_core
 // (migration 070, one-way); existing rows stay NULL until
@@ -106,7 +106,7 @@ func (s *Service) BackfillKnowledgeClass(ctx context.Context) (int, error) {
 }
 
 // classFilterClause is the knowledge_class WHERE fragment ("" = unfiltered,
-// byte-identical SQL to pre-ADR-0038). A non-empty class must be one of the
+// byte-identical SQL to pre-ADR-0046). A non-empty class must be one of the
 // four valid values (exact match — unclassified rows are only returned when
 // the caller explicitly asks for unclassified).
 func classFilterClause(class string) (string, error) {
@@ -122,7 +122,7 @@ func classFilterClause(class string) (string, error) {
 
 // SearchWithKnowledgeClass is Search (default scope) + the optional
 // knowledge_class filter + per-row class labeling. An empty class leaves the
-// query UNCHANGED from pre-ADR-0038 (no WHERE fragment, no extra args) — the
+// query UNCHANGED from pre-ADR-0046 (no WHERE fragment, no extra args) — the
 // no-regression contract — while every hit carries its per-row class label
 // (a NULL row is surfaced as "unclassified").
 func (s *Service) SearchWithKnowledgeClass(ctx context.Context, query, matchMode, class string, limit int) ([]Observation, error) {
@@ -164,7 +164,7 @@ func (s *Service) SearchWithKnowledgeClass(ctx context.Context, query, matchMode
 	if err != nil {
 		return nil, err
 	}
-	// Per-class labeling (ADR-0038): a row whose class is still NULL
+	// Per-class labeling (ADR-0046): a row whose class is still NULL
 	// (pre-backfill, or a type the heuristic does not cover) is surfaced as
 	// "unclassified" so the caller always knows each hit's class.
 	for i := range out {
