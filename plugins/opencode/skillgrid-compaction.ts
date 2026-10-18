@@ -176,12 +176,49 @@ export const SkillgridCompaction = async () => ({
   },
 })
 
-// v2 entry point: schema-valid { id, setup }. Full v2 compaction-context wiring
-// is a follow-up (the v1 experimental.session.compacting hook has no 1:1 v2
-// equivalent yet); this keeps the plugin loadable in every v2 build.
+// v2 entry point: { id, setup }. The v1 `event` hook has no v2 equivalent on
+// PluginContext, so setup subscribes to the SDK SSE stream and maps the session
+// lifecycle + compaction events to the same POST/GET calls the v1 handler made:
+//   session.created                  -> POST /sessions            (register row)
+//   session.idle                      -> POST /sessions/{id}/end
+//   session.compacted                 -> GET /context/compaction  (refresh row)
+//   session.next.compaction.started   -> GET /context/compaction + write tmp file
+//                                          (v1 experimental.session.compacting substitute)
 export default define({
   id: "skillgrid-compaction",
   setup: async (_ctx) => {
-    // fail-open no-op; see skillgrid-compaction v2-migration note (TASK-081)
+    const ctrl = new AbortController()
+    try {
+      const { v2SSE } = await import("./skillgrid-v2sse")
+      for await (const event of v2SSE(ctrl.signal)) {
+        const sid = event?.properties?.sessionID
+        if (!sid) continue
+        switch (event.type) {
+          case "session.created":
+            await handleSessionCreated(sid)
+            break
+          case "session.idle":
+            await handleSessionIdle(sid)
+            break
+          case "session.compacted":
+            await handleSessionCompacted(sid)
+            break
+          case "session.next.compaction.started": {
+            const ctx = await buildContext(sid)
+            if (ctx) {
+              const ctxFile = path.join(
+                os.tmpdir(),
+                "skillgrid-precompact-" + sid + ".txt"
+              )
+              fs.writeFileSync(ctxFile, ctx.text)
+            }
+            break
+          }
+        }
+      }
+    } catch {
+      // fail-open: the v1 path already covers the hook; a broken SSE stream must
+      // never break plugin setup
+    }
   },
 })

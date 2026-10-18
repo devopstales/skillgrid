@@ -172,13 +172,71 @@ export const SkillgridEvents = async () => ({
   },
 })
 
-// v2 entry point: a schema-valid { id, setup } definition. The v2 PluginContext
-// exposes agent/command/skill/aisdk/integration domains (no v1 tool.execute.*
-// bus), so full capture wiring for v2 is a follow-up; this keeps the plugin
-// loadable (no LoadError) in every v2 build. setup is a fail-open no-op.
+// v2 entry point: { id, setup }. The v1 `tool.execute.before` (policy gate,
+// block-by-throw) has NO v2 equivalent — there is no mutating before-hook — so
+// it stays v1-only and the gate is best-effort in v2. `tool.execute.after`
+// (capture) IS reproducible via the SSE `session.next.tool.*` events, so setup
+// subscribes and posts each tool call/result to /memory/session-events, mirroring
+// handleToolAfter. usage tokens are not present on these events (v2 gap) and are
+// omitted; result preview is derived from the success/failed content.
 export default define({
   id: "skillgrid-events",
   setup: async (_ctx) => {
-    // fail-open no-op; see skillgrid-events v2-migration note (TASK-081)
+    const ctrl = new AbortController()
+    // callID -> { tool, args, file } captured from .called, joined on .success/.failed
+    const inflight = new Map()
+    try {
+      const { v2SSE } = await import("./skillgrid-v2sse")
+      for await (const event of v2SSE(ctrl.signal)) {
+        const props = event?.properties || {}
+        const sessionID = props.sessionID
+        if (!sessionID) continue
+        const tool = props.tool || null
+        const callID = props.callID
+        if (!callID) continue
+
+        if (event.type === "session.next.tool.called") {
+          inflight.set(callID, { tool, args: props.input || {} })
+        } else if (event.type === "session.next.tool.success" || event.type === "session.next.tool.failed") {
+          const meta = inflight.get(callID)
+          inflight.delete(callID)
+          const args = meta?.args || {}
+          const resultText =
+            event.type === "session.next.tool.failed"
+              ? String(props.error?.message || props.error || "")
+              : firstText(props.content)
+          await postJSON("/memory/session-events", {
+            session_id: sessionID,
+            agent: AGENT,
+            action: mapToolType(meta?.tool || tool),
+            tool: meta?.tool || tool,
+            file: extractFilePath(args),
+            command:
+              mapToolType(meta?.tool || tool) === "command_exec"
+                ? args.command || args.cmd || null
+                : null,
+            result_preview: resultText ? stripPrivateTags(resultText.slice(0, MAX_PREVIEW)) : null,
+            result_hash: resultText ? contentHash(resultText) : null,
+            sensitive:
+              sensitivePath(extractFilePath(args)) ||
+              (args.command && /(\.env|secret|token|password)/i.test(args.command)),
+            source: "skillgrid-events",
+          })
+        }
+      }
+    } catch {
+      // fail-open: capture is observe-only; a broken SSE stream must never break
+      // plugin setup or the agent
+    }
   },
 })
+
+// firstText pulls the first text block out of a v2 LlmToolContent[] result.
+function firstText(content) {
+  if (!Array.isArray(content)) return null
+  for (const c of content) {
+    if (c && typeof c.text === "string" && c.text) return c.text
+    if (c && typeof c === "string") return c
+  }
+  return null
+}
