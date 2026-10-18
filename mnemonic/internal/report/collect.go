@@ -10,13 +10,24 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/scan"
 )
 
+// staticScanTools are the scanner-backed static sources, run through the
+// shared scan pipeline (Start → StoreFindings → read back).
+var staticScanTools = []string{"trivy", "semgrep", "jscpd"}
+
 // Collect gathers every configured source into a Report. The static set runs
-// always; the DAST section runs only when dast.url is configured. Fail-open
-// (ADR-0016): a source that errors is present with Status "error"; Collect
-// itself never fails on a source error.
+// always: the scanner-backed tools, the debt marker grep, and the detected-
+// dispatch coverage source. The DAST section runs only when dast.url is
+// configured. Fail-open (ADR-0016): a source that errors is present with
+// Status "error"; Collect itself never fails on a source error.
 func (s *Service) Collect(ctx context.Context) (*Report, error) {
 	rep := &Report{GeneratedAt: time.Now().UTC()}
-	rep.Static = append(rep.Static, s.collectTrivy(ctx))
+	for _, tool := range staticScanTools {
+		rep.Static = append(rep.Static, s.collectScanTool(ctx, tool, s.root))
+	}
+	rep.Static = append(rep.Static, s.collectDebt(ctx))
+	covRes, covRows := s.collectCoverage(ctx)
+	rep.Static = append(rep.Static, covRes)
+	rep.Coverage = covRows
 	rep.Dynamic = s.collectDAST(ctx)
 	return rep, nil
 }
@@ -24,29 +35,6 @@ func (s *Service) Collect(ctx context.Context) (*Report, error) {
 // dastTools are the dynamic (DAST) sources, run against cfg.DastURL when it is
 // set. wapiti/nuclei/akca all have scannerCommands + Parse arms.
 var dastTools = []string{"wapiti", "nuclei", "akca"}
-
-// collectTrivy runs the trivy tracer over the project: Start + StoreFindings
-// through the real scan service, then reads the normalized findings back.
-// Every failure path is fail-open: the source is present with Status "error".
-func (s *Service) collectTrivy(ctx context.Context) SourceResult {
-	scanSvc := scan.New(s.store, s.dataDir)
-	scanSvc.Run = s.run
-	sc, err := scanSvc.Start(ctx, "trivy", s.root)
-	if err != nil {
-		return SourceResult{Tool: "trivy", Status: "error"}
-	}
-	if sc.Status == "error" {
-		return SourceResult{Tool: "trivy", Status: "error"}
-	}
-	if _, err := scanSvc.StoreFindings(ctx, sc.ID); err != nil {
-		return SourceResult{Tool: "trivy", Status: "error"}
-	}
-	fs, err := scanSvc.FindingsByScan(ctx, sc.ID) // read back normalized findings
-	if err != nil {
-		return SourceResult{Tool: "trivy", Status: "error"}
-	}
-	return SourceResult{Tool: "trivy", Status: "ok", Findings: fs}
-}
 
 // collectDAST runs the DAST sources against cfg.DastURL. Empty DastURL → nil
 // (no DAST section). Unreachable target → all three tools present with Status
@@ -72,9 +60,10 @@ func (s *Service) collectDAST(ctx context.Context) []SourceResult {
 	return res
 }
 
-// collectScanTool runs one scanner against a target and reads its normalized
-// findings back. Fail-open (ADR-0016): every error path is Status "error"
-// with no returned error.
+// collectScanTool runs one scanner (static or DAST tool) against a target and
+// reads its normalized findings back: Start + StoreFindings through the real
+// scan service, then FindingsByScan read-back. Fail-open (ADR-0016): every
+// error path is Status "error" with no returned error.
 func (s *Service) collectScanTool(ctx context.Context, tool, target string) SourceResult {
 	scanSvc := scan.New(s.store, s.dataDir)
 	scanSvc.Run = s.run

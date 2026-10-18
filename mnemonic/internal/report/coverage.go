@@ -3,11 +3,15 @@ package report
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Kind is the detected project language of a scanned root (R9).
@@ -64,6 +68,36 @@ func CmdFor(k Kind) (bin string, args []string, err error) {
 	}
 }
 
+// collectCoverage runs the detected kind's native coverage tool and upserts
+// the parsed per-file line-% rows into the coverage table (R9, line % only).
+// Fail-open (ADR-0016): an undetectable kind, a missing binary, a runner
+// error, an unparseable output, or a store error all map to that source's
+// "unavailable"/"error" status with no rows and no propagated error.
+func (s *Service) collectCoverage(ctx context.Context) (SourceResult, []CoverageRow) {
+	unavailable := SourceResult{Tool: "coverage", Status: "unavailable"}
+	kind := DetectKind(s.root)
+	bin, args, err := CmdFor(kind)
+	if err != nil {
+		return unavailable, nil // unknown kind: no native coverage tool
+	}
+	if _, err := exec.LookPath(bin); err != nil {
+		return unavailable, nil // kind detected but the tool is not on PATH
+	}
+	out, err := s.run(ctx, bin, args...)
+	if err != nil {
+		return SourceResult{Tool: "coverage", Status: "error"}, nil
+	}
+	rows, err := parseCover(kind, out)
+	if err != nil {
+		return SourceResult{Tool: "coverage", Status: "error"}, nil
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := StoreCoverage(ctx, s.store.DB, s.root, rows, now); err != nil {
+		return SourceResult{Tool: "coverage", Status: "error"}, nil
+	}
+	return SourceResult{Tool: "coverage", Status: "ok"}, rows
+}
+
 // StoreCoverage upserts per-file line-coverage rows into the coverage table,
 // one row per (project, file); a re-scan updates pct_line and scanned_at
 // instead of duplicating. now is the scanned_at stamp.
@@ -83,15 +117,227 @@ func StoreCoverage(ctx context.Context, db *sql.DB, project string, rows []Cover
 
 // parseCover is the per-kind coverage-output dispatcher: each kind emits a
 // different JSON/text shape (Go cover profile, Istanbul, coverage.py,
-// llvm-cov, JaCoCo). Only the Go arm exists this task; the other four land
-// in Task 6 as new switch arms.
+// llvm-cov, JaCoCo).
 func parseCover(k Kind, data []byte) ([]CoverageRow, error) {
 	switch k {
 	case KindGo:
 		return parseCoverGo(data)
+	case KindTS:
+		return parseCoverTS(data)
+	case KindPy:
+		return parseCoverPy(data)
+	case KindRust:
+		return parseCoverRust(data)
+	case KindJava:
+		return parseCoverJava(data)
 	default:
 		return nil, fmt.Errorf("no coverage parser for kind %q", k)
 	}
+}
+
+// covFileStats accumulates per-file covered/total line counts while parsing a
+// coverage report; fileCoverageRows converts them to rows, sorted by file so
+// parsers with map-based fixtures produce deterministic output.
+type covFileStats struct{ covered, total int }
+
+func fileCoverageRows(files map[string]*covFileStats) []CoverageRow {
+	files_ := make([]string, 0, len(files))
+	for f := range files {
+		files_ = append(files_, f)
+	}
+	sort.Strings(files_)
+	rows := make([]CoverageRow, 0, len(files))
+	for _, f := range files_ {
+		fs := files[f]
+		pct := 0.0
+		if fs.total > 0 {
+			pct = 100.0 * float64(fs.covered) / float64(fs.total)
+		}
+		rows = append(rows, CoverageRow{File: f, Pkg: f, PctLine: pct})
+	}
+	return rows
+}
+
+// parseCoverTS maps Istanbul (nyc) coverage-final.json — a map keyed by file
+// path whose values carry per-file "statement"/"line" summary counters
+// (total lines and uncovered lines) — to per-file line-% rows. Pkg is the
+// file path (Istanbul carries no package).
+func parseCoverTS(data []byte) ([]CoverageRow, error) {
+	var perFile map[string]struct {
+		Summary struct {
+			Line struct {
+				Total     int `json:"total"`
+				Uncovered int `json:"uncovered"`
+			} `json:"line"`
+		} `json:"s"`
+	}
+	if err := json.Unmarshal(data, &perFile); err != nil {
+		return nil, fmt.Errorf("parse istanbul coverage: %w", err)
+	}
+	files := map[string]*covFileStats{}
+	for file, f := range perFile {
+		total := f.Summary.Line.Total
+		files[file] = &covFileStats{covered: total - f.Summary.Line.Uncovered, total: total}
+	}
+	rows := fileCoverageRows(files)
+	for i := range rows {
+		rows[i].Pkg = ""
+	}
+	return rows, nil
+}
+
+// parseCoverPy maps coverage.py's --cov-report=json — the per-file entries of
+// "files" keyed by relative path, each carrying "executed_lines" and/or
+// "missing" line-number arrays (or a "summary" statements/missed pair) and
+// "excluded_lines" — to per-file line-% rows. Pkg is the file path
+// (coverage.py carries no package).
+func parseCoverPy(data []byte) ([]CoverageRow, error) {
+	var report struct {
+		Files map[string]struct {
+			ExecutedLines []int `json:"executed_lines"`
+			Missing       []int `json:"missing"`
+			ExcludedLines []int `json:"excluded_lines"`
+			Summary       struct {
+				Statements int `json:"statements"`
+				Missed     int `json:"missed"`
+			} `json:"summary"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("parse coverage.py report: %w", err)
+	}
+	files := map[string]*covFileStats{}
+	for file, f := range report.Files {
+		excluded := map[int]bool{}
+		for _, l := range f.ExcludedLines {
+			excluded[l] = true
+		}
+		executed := map[int]bool{}
+		for _, l := range f.ExecutedLines {
+			if !excluded[l] {
+				executed[l] = true
+			}
+		}
+		for _, l := range f.Missing {
+			if !excluded[l] {
+				executed[l] = false
+			}
+		}
+		fs := &covFileStats{}
+		for line, hit := range executed {
+			_ = line
+			fs.total++
+			if hit {
+				fs.covered++
+			}
+		}
+		if f.Summary.Statements > 0 {
+			// The summary is the authoritative statement count when present.
+			fs = &covFileStats{covered: f.Summary.Statements - f.Summary.Missed, total: f.Summary.Statements}
+		}
+		files[file] = fs
+	}
+	rows := fileCoverageRows(files)
+	for i := range rows {
+		rows[i].Pkg = ""
+	}
+	return rows, nil
+}
+
+// parseCoverRust maps cargo-llvm-cov --json — the "data" array of per-file
+// entries (name, regions: covered/total) — to per-file rows. Line % is
+// derived from the region counts (the report carries no separate line
+// counts); Pkg is the crate name from the entry path.
+func parseCoverRust(data []byte) ([]CoverageRow, error) {
+	var report struct {
+		Data []struct {
+			Name    string `json:"name"`
+			Regions struct {
+				Covered int `json:"covered"`
+				Total   int `json:"total"`
+			} `json:"regions"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("parse llvm-cov report: %w", err)
+	}
+	files := map[string]*covFileStats{}
+	for _, d := range report.Data {
+		fs := files[d.Name]
+		if fs == nil {
+			fs = &covFileStats{}
+			files[d.Name] = fs
+		}
+		fs.covered += d.Regions.Covered
+		fs.total += d.Regions.Total
+	}
+	rows := make([]CoverageRow, 0, len(files))
+	for name, fs := range files {
+		pkg := name
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			pkg = name[:i]
+		}
+		pct := 0.0
+		if fs.total > 0 {
+			pct = 100.0 * float64(fs.covered) / float64(fs.total)
+		}
+		rows = append(rows, CoverageRow{File: name, Pkg: pkg, PctLine: pct})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].File < rows[j].File })
+	return rows, nil
+}
+
+// parseCoverJava maps JaCoCo's JSON report — "classes[]", each with a package
+// path (e.g. "com/x"), source filename, and "coverage" (0) counters with
+// "missed" and "covered" — to per-file rows; the package is the class's
+// package path.
+func parseCoverJava(data []byte) ([]CoverageRow, error) {
+	var report struct {
+		Classes []struct {
+			SourceFilename string `json:"sourcefilename"`
+			Package        string `json:"package"`
+			Coverage       map[string]struct {
+				Missed  int `json:"missed"`
+				Covered int `json:"covered"`
+			} `json:"coverage"`
+		} `json:"classes"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("parse jacoco report: %w", err)
+	}
+	files := map[string]*covFileStats{}
+	pkgs := map[string]string{}
+	for _, c := range report.Classes {
+		counter, ok := c.Coverage["LINE"]
+		if !ok {
+			continue
+		}
+		fs := files[c.SourceFilename]
+		if fs == nil {
+			fs = &covFileStats{}
+			files[c.SourceFilename] = fs
+		}
+		fs.covered += counter.Covered
+		fs.total += counter.Missed + counter.Covered
+		if _, seen := pkgs[c.SourceFilename]; !seen {
+			pkgs[c.SourceFilename] = c.Package
+		}
+	}
+	files_ := make([]string, 0, len(files))
+	for f := range files {
+		files_ = append(files_, f)
+	}
+	sort.Strings(files_)
+	rows := make([]CoverageRow, 0, len(files))
+	for _, f := range files_ {
+		fs := files[f]
+		pct := 0.0
+		if fs.total > 0 {
+			pct = 100.0 * float64(fs.covered) / float64(fs.total)
+		}
+		rows = append(rows, CoverageRow{File: f, Pkg: pkgs[f], PctLine: pct})
+	}
+	return rows, nil
 }
 
 // parseCoverGo extracts per-file line-coverage rows from a Go cover profile:

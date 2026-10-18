@@ -15,16 +15,20 @@ const dastDASTURL = "http://dast.local:8080"
 // fixtures). Inline because the scan package's fixtureBytes is unexported.
 var wapitiFixture = []byte(`{"report":[{"type":"SQL Injection","info":"sqli","url":"https://example.com/login"}]}`)
 var nucleiFixture = []byte(`{"template-id":"cves/2023/cve-2023-12345.yaml","info":{"severity":"high"},"matcher-name":"cve-2023-12345","host":"https://example.com"}` + "\n")
-var akcaFixture = []byte(`{"findings":[{"ruleId":"sqli","severity":"ERROR","url":"/search","method":"GET"}]}`)
+var akcaFixture = []byte(`{"findings":[{"ruleId":"sqli","severity":"ERROR","url":"/search","file":"/search?x=%27%20OR%201=1","method":"GET"}]}`)
 
 // dastRunner is the collect runner for the DAST tests: it returns the fixture
-// for each DAST bin (wapiti3 is the installed wapiti binary), and the trivy
-// fixture for trivy so the static source also runs ok.
+// for each DAST bin (wapiti3 is the installed wapiti binary), and the static
+// fixtures for trivy/semgrep/jscpd so the static sources run ok.
 func dastRunner(failBins map[string]bool) scan.RunnerFunc {
 	return func(_ context.Context, bin string, _ ...string) ([]byte, error) {
 		switch bin {
 		case "trivy":
 			return trivyFixture, nil
+		case "semgrep":
+			return semgrepFixture, nil
+		case "jscpd":
+			return jscpdFixture, nil
 		case "wapiti3":
 			if failBins["wapiti"] {
 				return nil, errors.New("wapiti: exploded")
@@ -81,8 +85,8 @@ func TestCollectDAST_Unreachable_FailOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Collect must be fail-open, got %v", err)
 	}
-	if len(rep.Static) != 1 {
-		t.Fatalf("Static = %d sources, want 1: %v", len(rep.Static), rep.Static)
+	if len(rep.Static) != 5 {
+		t.Fatalf("Static = %d sources, want 5 (full static set): %v", len(rep.Static), rep.Static)
 	}
 	if len(rep.Dynamic) != 3 {
 		t.Fatalf("Dynamic = %d sources, want 3: %v", len(rep.Dynamic), rep.Dynamic)
@@ -100,9 +104,11 @@ func TestCollectDAST_Unreachable_FailOpen(t *testing.T) {
 			t.Errorf("%s findings = %d, want 0 (unavailable)", tool, len(sr.Findings))
 		}
 	}
-	for bin := range called {
-		if bin != "trivy" {
-			t.Errorf("scanner %q ran although the target was unreachable", bin)
+	// No DAST scanner may have run although the target was unreachable
+	// (static sources — trivy/semgrep/jscpd — still run and are allowed).
+	for _, tool := range dastTools {
+		if called[tool] || called[scan.ScannerBin(tool)] {
+			t.Errorf("DAST scanner %q ran although the target was unreachable", tool)
 		}
 	}
 }
@@ -143,9 +149,21 @@ func TestCollectDAST_Reachable_RunsThree(t *testing.T) {
 		}
 		if sr.Status != "ok" {
 			t.Errorf("%s status = %q, want ok", w.tool, sr.Status)
+			continue
 		}
 		if len(sr.Findings) < w.minFind {
 			t.Errorf("%s findings = %d, want >= %d", w.tool, len(sr.Findings), w.minFind)
+		}
+		if w.tool == "akca" {
+			// dast-auto-from-config: akca findings are parsed with rule id
+			// and file.
+			f := sr.Findings[0]
+			if f.RuleID != "sqli" {
+				t.Errorf("akca finding rule id = %q, want sqli", f.RuleID)
+			}
+			if f.File == "" {
+				t.Errorf("akca finding file = %q, want a non-empty file", f.File)
+			}
 		}
 	}
 }
@@ -154,7 +172,7 @@ func TestCollectDAST_Reachable_RunsThree(t *testing.T) {
 // others succeed → that tool is present with Status "error", the others stay
 // ok. Fail-open (ADR-0016): one tool's failure never drops the other tools.
 //
-// SATISFIES: dast-unreachable-fail-open
+// SATISFIES: dast-auto-from-config (per-tool failure clause)
 func TestCollectDAST_PerToolError_FailOpen(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)

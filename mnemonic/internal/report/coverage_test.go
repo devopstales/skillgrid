@@ -21,6 +21,17 @@ func mkProject(t *testing.T, files ...string) string {
 	return d
 }
 
+// reportFixtureBytes reads a fixture from this package's fixtures dir (the
+// scan package's equivalent helper is unexported).
+func reportFixtureBytes(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("fixtures", name))
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", name, err)
+	}
+	return b
+}
+
 func TestDetectKind(t *testing.T) {
 	cases := []struct {
 		files []string
@@ -146,5 +157,38 @@ func TestParseCoverDispatcher(t *testing.T) {
 	}
 	if _, err := parseCover(KindUnknown, nil); err == nil {
 		t.Error("parseCover(KindUnknown) = no error; want an error")
+	}
+}
+
+// TestParseCover_AllKinds maps each of the four non-Go fixtures to its
+// expected per-file line-% rows (line % only — R9).
+//
+// SATISFIES: coverage-dispatch-ts / coverage-dispatch-py / coverage-dispatch-rs / coverage-dispatch-java
+func TestParseCover_AllKinds(t *testing.T) {
+	cases := []struct {
+		kind Kind
+		file string
+		want []CoverageRow
+	}{
+		{KindTS, "cover.ts.json", []CoverageRow{{File: "src/a.ts", Pkg: "", PctLine: 75}}},
+		{KindPy, "cover.py.json", []CoverageRow{{File: "a.py", Pkg: "", PctLine: 100}}},
+		{KindRust, "cover.rs.json", []CoverageRow{{File: "crate/lib.rs", Pkg: "crate", PctLine: 60}}},
+		{KindJava, "cover.java.json", []CoverageRow{{File: "Main.java", Pkg: "com/x", PctLine: 80}}},
+	}
+	for _, c := range cases {
+		rows, err := parseCover(c.kind, reportFixtureBytes(t, c.file))
+		if err != nil {
+			t.Errorf("parseCover(%q, %s): %v", c.kind, c.file, err)
+			continue
+		}
+		if len(rows) != len(c.want) {
+			t.Errorf("parseCover(%q) = %d rows, want %d: %+v", c.kind, len(rows), len(c.want), rows)
+			continue
+		}
+		for i, w := range c.want {
+			if rows[i].File != w.File || rows[i].Pkg != w.Pkg || rows[i].PctLine != w.PctLine {
+				t.Errorf("parseCover(%q)[%d] = %+v, want %+v", c.kind, i, rows[i], w)
+			}
+		}
 	}
 }

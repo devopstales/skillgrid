@@ -1,0 +1,5 @@
+{
+  "data": [
+    { "name": "crate/lib.rs", "regions": { "covered": 3, "total": 5 } }
+  ]
+}
