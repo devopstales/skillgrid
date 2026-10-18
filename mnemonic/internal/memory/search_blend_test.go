@@ -163,6 +163,55 @@ func TestMemSearch_ExpiredExcluded(t *testing.T) {
 	}
 }
 
+// TestMemSearch_FusedWebCacheDecayOn (TICKET-06, review fix): with the
+// default decay config ENABLED, sortHitsByDecay re-scores every hit on its
+// Observation fields — and a fused web hit's Observation is empty, so it
+// reads as unpinned/zero-recency and would sink below the observations. The
+// decay re-append in SearchOwnerScopedBlend re-attaches the web hits in
+// their fused (BM25) order; this test pins that order AND survival past the
+// limit cut. Without the re-append the web hits would sink behind the
+// observation and the second one would be cut by the limit — the count
+// assertion catches a regression the companion TestMemSearch_FusedWebCache
+// (decay off, single web hit) cannot.
+func TestMemSearch_FusedWebCacheDecayOn(t *testing.T) {
+	t.Setenv("MNEMONIC_EMBED", "")
+	fx := newOwnerFixture(t, "fuse-web-decay")
+	ctx := context.Background()
+	// Default decay config — decay is ON, unlike the decay-off companion.
+	fx.svc.SetDecay(DefaultDecayConfig())
+
+	future := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	fetched := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	// Two web rows sharing the term: with the re-append the fused order is
+	// [web1, web2, obs] → the limit cut keeps both web rows.
+	webID := seedWebRow(t, fx, "fuse-web-decay", "fetch", "kumquat api", "kumquat api docs", "https://example.com/kumquat", fetched, future)
+	secondWebID := seedWebRow(t, fx, "fuse-web-decay", "fetch", "kumquat page", "kumquat page notes", "https://example.com/kumquat-page", fetched, future)
+
+	hits, err := fx.svc.SearchOwnerScopedBlend(ctx, fx.ownerA, "", "kumquat", "any", "", 2, Vector{})
+	if err != nil {
+		t.Fatalf("blend: %v", err)
+	}
+
+	if len(hits) != 2 {
+		t.Fatalf("hits = %d, want 2 (limit cut): %+v", len(hits), hits)
+	}
+	// The re-append keeps the web hits in their fused (BM25) order; without
+	// it both would sink and the second would be cut by the limit.
+	first, ok := findWebHit(hits, webID)
+	if !ok {
+		t.Fatalf("unexpired web hit %d dropped by limit cut with decay on: %+v", webID, hits)
+	}
+	if first.WebCacheID != webID || hits[0] != first {
+		t.Fatalf("first hit is not web hit %d in fused order: %+v", webID, hits)
+	}
+	if !strings.Contains(first.Retrieve, "web_cache_get id="+fmt.Sprint(webID)) {
+		t.Fatalf("web hit retrieve pointer = %q, want web_cache_get id=%d", first.Retrieve, webID)
+	}
+	if _, ok := findWebHit(hits, secondWebID); !ok {
+		t.Fatalf("second fused web hit %d cut by the limit with decay on (re-append regression): %+v", secondWebID, hits)
+	}
+}
+
 func TestOwnerScopedBlendKeywordFloor(t *testing.T) {
 	t.Setenv("MNEMONIC_EMBED", "")
 	fx := newOwnerFixture(t, "blend-kw")

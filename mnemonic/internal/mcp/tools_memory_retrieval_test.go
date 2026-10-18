@@ -110,6 +110,7 @@ func TestBudgetedRetrievalMCP(t *testing.T) {
 		Observations []struct {
 			ID      int64  `json:"id"`
 			Content string `json:"content"`
+			Corpus  string `json:"corpus"`
 		} `json:"observations"`
 		Count int `json:"count"`
 	}
@@ -118,6 +119,14 @@ func TestBudgetedRetrievalMCP(t *testing.T) {
 	}
 	if len(searchOut.Observations) == 0 {
 		t.Fatal("mem_search returned no observations")
+	}
+	// ADR-0047 contract: every mem_search hit is corpus-labeled, so callers
+	// can distinguish observation hits (corpus=observations) from fused web
+	// hits (corpus=web_cache) by one field.
+	for _, o := range searchOut.Observations {
+		if o.Corpus != "observations" {
+			t.Fatalf("in-list observation hit corpus = %q, want observations: %+v", o.Corpus, o)
+		}
 	}
 	var firstID int64
 	for _, o := range searchOut.Observations {

@@ -488,7 +488,7 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		if hit.Corpus == memory.CorpusWebCache {
 			// Fused web hit (ADR-0047): render as a web_cache entry with the
 			// retrieve pointer, not as an observation DTO.
-			observations = append(observations, fusedWebHitDTO(hit))
+			observations = append(observations, fusedWebHitDTO(h.Memory().Budget(), hit))
 			continue
 		}
 		observations = append(observations, budgetedSearchHitDTOs(h.Memory().Budget(), []memory.SearchHit{hit}, unfold)...)
@@ -1552,6 +1552,12 @@ func budgetedSearchHitDTOs(b *memory.Budget, hits []memory.SearchHit, unfold str
 	}
 	out := budgetedObservationDTOs(b, obs, unfold)
 	for i := range out {
+		// corpus labels the hit kind for callers (ADR-0047): observation hits
+		// carry corpus=observations; fused web_cache hits carry
+		// corpus=web_cache, so the two fused result sets stay distinguishable
+		// by one field. Set here (not in observationDTO) so the raw
+		// mem_get_observation full-content path keeps its response shape.
+		out[i]["corpus"] = memory.CorpusObservations
 		out[i]["score"] = hits[i].Score
 		out[i]["matched_via"] = hits[i].MatchedVia
 		out[i]["signals"] = signalMap(hits[i].Signals)
@@ -1561,17 +1567,19 @@ func budgetedSearchHitDTOs(b *memory.Budget, hits []memory.SearchHit, unfold str
 
 // fusedWebHitDTO renders a fused web_cache hit (ADR-0047) as a flat entry in
 // the mem_search observations list: corpus=web_cache + the row's own
-// provenance labels + the web_cache_get retrieve pointer. The budget is not
-// applied — a web hit carries no body in the list (web_cache_get fetches the
-// full content), so there is nothing to preview.
-func fusedWebHitDTO(hit memory.SearchHit) map[string]any {
+// provenance labels + the web_cache_get retrieve pointer. The char budget is
+// applied to the label fields (source/url/fetched_at/expires_at) so a web row
+// with a long URL cannot blow the list budget — the same inListContent
+// projection budgetedObservationDTOs applies to observation content (a web
+// hit carries no body in the list; web_cache_get fetches the full content).
+func fusedWebHitDTO(b *memory.Budget, hit memory.SearchHit) map[string]any {
 	return map[string]any{
 		"corpus":      memory.CorpusWebCache,
 		"id":          hit.WebCacheID,
-		"source":      hit.WebSource,
-		"url":         hit.WebURL,
-		"fetched_at":  hit.WebFetchedAt,
-		"expires_at":  hit.WebExpiresAt,
+		"source":      inListContent(b, hit.WebSource),
+		"url":         inListContent(b, hit.WebURL),
+		"fetched_at":  inListContent(b, hit.WebFetchedAt),
+		"expires_at":  inListContent(b, hit.WebExpiresAt),
 		"matched_via": hit.MatchedVia,
 		"score":       hit.Score,
 		"signals":     signalMap(hit.Signals),
