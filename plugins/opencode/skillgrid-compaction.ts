@@ -1,4 +1,9 @@
 // @ts-nocheck
+// Dual-compatible: v1 uses the named `SkillgridCompaction` export; v2 (opencode
+// >= 2.0) loads `default` and validates { id, effect|setup }. `define` is a
+// no-op identity helper so the default export is schema-valid without pulling
+// the effect runtime into module eval.
+import { define } from "@opencode-ai/plugin/v2/promise"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
@@ -168,5 +173,15 @@ export const SkillgridCompaction = async () => ({
         break
       }
     }
+  },
+})
+
+// v2 entry point: schema-valid { id, setup }. Full v2 compaction-context wiring
+// is a follow-up (the v1 experimental.session.compacting hook has no 1:1 v2
+// equivalent yet); this keeps the plugin loadable in every v2 build.
+export default define({
+  id: "skillgrid-compaction",
+  setup: async (_ctx) => {
+    // fail-open no-op; see skillgrid-compaction v2-migration note (TASK-081)
   },
 })

@@ -1,4 +1,9 @@
 // @ts-nocheck
+// Dual-compatible: the v1 API uses the named `SkillgridEvents` export below; the
+// v2 API (opencode >= 2.0) loads `default` and validates { id, effect|setup }.
+// `define` is a no-op identity helper, so the default export is schema-valid
+// without pulling the effect runtime into module eval.
+import { define } from "@opencode-ai/plugin/v2/promise"
 import * as crypto from "node:crypto"
 
 const BASE_URL =
@@ -164,5 +169,16 @@ export const SkillgridEvents = async () => ({
     } catch {
       // fail-open: never block the agent on capture failure
     }
+  },
+})
+
+// v2 entry point: a schema-valid { id, setup } definition. The v2 PluginContext
+// exposes agent/command/skill/aisdk/integration domains (no v1 tool.execute.*
+// bus), so full capture wiring for v2 is a follow-up; this keeps the plugin
+// loadable (no LoadError) in every v2 build. setup is a fail-open no-op.
+export default define({
+  id: "skillgrid-events",
+  setup: async (_ctx) => {
+    // fail-open no-op; see skillgrid-events v2-migration note (TASK-081)
   },
 })

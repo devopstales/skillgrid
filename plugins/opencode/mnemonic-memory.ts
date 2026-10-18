@@ -1,5 +1,10 @@
 // @ts-nocheck
+// Dual-compatible: v1 uses the named `MnemonicMemory` export; v2 (opencode >=
+// 2.0) loads `default` and validates { id, effect|setup }. `define` is a no-op
+// identity helper so the default export is schema-valid without pulling the
+// effect runtime into module eval.
 import { tool } from "@opencode-ai/plugin"
+import { define } from "@opencode-ai/plugin/v2/promise"
 
 const BASE_URL =
   process.env.SKILLGRID_CHECKPOINT_URL ||
@@ -344,5 +349,15 @@ export const MnemonicMemory = async () => ({
     mem_session_start: tool(memSessionStart),
     mem_session_end: tool(memSessionEnd),
     mem_session_summary: tool(memSessionSummary),
+  },
+})
+
+// v2 entry point: schema-valid { id, setup }. The mem_* tools are also exposed
+// via the mnemonic MCP server (the working v2 path); this keeps the plugin
+// loadable in every v2 build. Native v2 tool registration is a follow-up.
+export default define({
+  id: "skillgrid-mnemonic-memory",
+  setup: async (_ctx) => {
+    // fail-open no-op; tools available via mnemonic MCP (TASK-081)
   },
 })
