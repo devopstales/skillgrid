@@ -51,8 +51,9 @@ These principles govern *what goes in the block*. The block's exact shape and th
 The full step-by-step procedure lives in `references/process.md` — load it when actually running onboarding. The spine here names the decision and the handoff; the reference holds the steps.
 
 ```
-Step 1    Detect     — read project, detect facts (never guess); git worktree guard
+Step 1    Detect     — recall-before-detect (re-runs), then read project, detect facts (never guess); git worktree guard
 Step 1.5  Enroll     — brownfield only: mark existing capabilities, reverse-engineer conventions
+Step 1.5b Bootstrap  — brownfield only: enrolled conventions become draft candidates with anchors; confirm one at a time, drop unconfirmed
 Step 1.7  Generate   — fill .skillgrid/ARCHITECTURE.md <detect> markers with verified facts
 Step 2    Confirm    — present each detected fact, confirm one at a time
 Step 3    Write      — config.yaml, state.yaml, durable-knowledge zone, AGENTS.md block (idempotent upsert), tracker bootstrap, commit, skillgrid init
@@ -60,6 +61,7 @@ Step 4    Verify     — show written artifacts; confirm no leftover <detect> ma
 ```
 
 Key invariants the spine must keep (details in `references/process.md`):
+- **Recall before detect.** On a re-run, Step 1 reads `.skillgrid/index.md` + the `log.md` tail + `mem_context`/`mem_search` *before* re-detecting facts — recorded knowledge is an earlier source than a fresh detection pass, and a fact the knowledge base already answers is not re-detected. Fresh projects skip recall with a note (nothing recorded yet).
 - **Detect, never guess.** Source precedence: AGENTS.md/CLAUDE.md → `.skillgrid/config.yaml` → Mnemonic → git remote → project files.
 - **TDD and BDD are non-negotiable.** Always `tdd: true`, `bdd.enabled: true`.
 - **AGENTS.md block is an idempotent upsert** between `<!-- skillgrid:start -->` / `<!-- skillgrid:end -->` — running onboarding twice never duplicates it.
@@ -69,12 +71,13 @@ Key invariants the spine must keep (details in `references/process.md`):
 ## Merge Mode (Re-running)
 
 If `.skillgrid/config.yaml` already exists:
-1. Read the existing config
-2. Re-detect facts (stack may have changed)
-3. Show what changed: "Detected changes: test runner changed from X to Y. Update?"
-4. Merge: update changed values, keep user-customized `rules:` sections
-5. Re-write AGENTS.md block (idempotent upsert) — `{rules_block}` is owned by AGENTS.md's own `### Rules` section (edit there); the block re-renders from that section, not from `ASSUMPTIONS.md`
-6. Reconcile `state.yaml` + the durable-knowledge zone: fill missing keys in `state.yaml` (never reset `pipeline`/`progress`); ensure `ASSUMPTIONS.md` / `ARCHITECTURE.md` exist; if `ARCHITECTURE.md` was scaffolded but still has unfilled `<detect>` markers (a stack change or first-pass gap), re-run Step 1.7 to fill them — never clobber the filled sections, only replace `<detect>` markers with newly detected facts; create any missing `artifacts/` stubs; run the brownfield migration (architecture into the root file; ADR bodies out to `artifacts/04-adr-*.md` with a path row left in `ASSUMPTIONS.md`; `00-prd.md` stays in `artifacts/`; locked constraints and glossary as in the migration bullet) if the project was onboarded before this layout
+1. **Recall (recall-before-detect).** Read `.skillgrid/index.md` + the tail of `log.md` + `mem_context`/`mem_search` (degrade to filesystem-only reads when Mnemonic is unavailable — say so). Facts already recorded there (stack, tracker, testing capabilities, conventions) are *not* re-detected — they are re-confirmed instead. This is evidenced: the re-run states what it recalled before detecting anything.
+2. Read the existing config
+3. Re-detect facts (stack may have changed)
+4. Show what changed: "Detected changes: test runner changed from X to Y. Update?"
+5. Merge: update changed values, keep user-customized `rules:` sections
+6. Re-write AGENTS.md block (idempotent upsert) — `{rules_block}` is owned by AGENTS.md's own `### Rules` section (edit there); the block re-renders from that section, not from `ASSUMPTIONS.md`
+7. Reconcile `state.yaml` + the durable-knowledge zone: fill missing keys in `state.yaml` (never reset `pipeline`/`progress`); ensure `ASSUMPTIONS.md` / `ARCHITECTURE.md` exist; if `ARCHITECTURE.md` was scaffolded but still has unfilled `<detect>` markers (a stack change or first-pass gap), re-run Step 1.7 to fill them — never clobber the filled sections, only replace `<detect>` markers with newly detected facts; create any missing `artifacts/` stubs; run the brownfield migration (architecture into the root file; ADR bodies out to `artifacts/04-adr-*.md` with a path row left in `ASSUMPTIONS.md`; `00-prd.md` stays in `artifacts/`; locked constraints and glossary as in the migration bullet) if the project was onboarded before this layout
 
 ## What This Does NOT Do
 
@@ -87,7 +90,7 @@ If `.skillgrid/config.yaml` already exists:
 
 | Rationalization | Reality |
 |---|---|
-| "The config already looks right — skip re-detection" | Stack and test runner drift between runs. Merge mode exists exactly to re-detect and show what changed. |
+| "The config already looks right — skip re-detection" | Stack and test runner drift between runs. Merge mode exists exactly to re-detect and show what changed — but recall before detect: facts the knowledge base already recorded are re-confirmed from `index.md`/`log.md`/memory, not blindly re-detected. |
 | "The manifests are obvious — no need to confirm with the user" | Step 2 is explicit: present each fact, confirm one at a time. A wrong `tdd` or tracker value silently breaks every later phase. |
 | "I'll bootstrap the tracker after onboarding is done" | If `ticketing.enabled: true`, the CLI must be verified during onboarding (`gh --version`, `backlog status`, etc.). A tracker that isn't verified can't be trusted later. |
 | "Both AGENTS.md and CLAUDE.md exist — write the block to both" | Two full blocks are two sources that drift. Write full to `AGENTS.md`, one-line pointer in `CLAUDE.md`. |
@@ -110,6 +113,8 @@ If `.skillgrid/config.yaml` already exists:
 
 ## Verification
 
+- [ ] Recall is evidenced: on a re-run, the run states what it recalled from `.skillgrid/index.md`, the `log.md` tail, and `mem_context`/`mem_search` *before* re-detecting (fresh project: recall skipped with an explicit note)
+- [ ] Step 1.5b bootstrap (brownfield only): every drafted convention candidate carries `status: draft` AND `verification.anchors`; each was confirmed one at a time (→ `stable`), and no unconfirmed draft survives — unconfirmed drafts are dropped, never kept as zombies
 - [ ] `.skillgrid/config.yaml` exists and parses (`yaml` load succeeds); every detected field (stack, testing, commands, ticketing, TDD, commit discipline, BDD) is filled
 - [ ] `.skillgrid/state.yaml` exists, parses, and has `pipeline` + `progress` + `constraints_ref` pointing at `.skillgrid/ASSUMPTIONS.md` (existing values preserved on re-run)
 - [ ] `.skillgrid/ASSUMPTIONS.md` exists with the four tiers; `.skillgrid/ARCHITECTURE.md` exists, was scaffolded by `skillgrid init` (or copied by hand), and its `<detect>` markers are filled with verified facts for everything that exists (brownfield: all 17 sections addressed; greenfield: only sections with real content filled, the rest honestly left `<detect>` or dropped); every cited `file:line` was re-verified against the code

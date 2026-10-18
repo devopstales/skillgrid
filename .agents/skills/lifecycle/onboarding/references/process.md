@@ -3,8 +3,9 @@
 The step-by-step procedure for `skillgrid:onboarding`. Load this only when actually running onboarding. The spine (What It Does, Merge Mode, Rationalizations, Red Flags, Verification) stays in SKILL.md.
 
 ## Contents
-- Step 1: Detect
+- Step 1: Detect (recall-before-detect first, on re-runs)
 - Step 1.5: Enroll (brownfield)
+- Step 1.5b: Bootstrap (brownfield)
 - Step 1.7: Generate ARCHITECTURE.md
 - Step 2: Present & Confirm
 - Step 3: Write
@@ -13,6 +14,8 @@ The step-by-step procedure for `skillgrid:onboarding`. Load this only when actua
 ## Step 1: Detect
 
 Read the project and detect facts. Never guess — detect, then confirm.
+
+**Recall before detect (re-runs only).** If `.skillgrid/config.yaml` already exists, don't start with a blank-slate detection pass. **Orient + recall:** read `.skillgrid/index.md` (one-line knowledge catalog) + the tail of `.skillgrid/log.md`, then `mem_context` + `mem_search` over recorded facts (stack, tracker, testing capabilities, conventions). Mnemonic unavailable → read the Markdown directly and note the degraded recall. **Skip, don't re-detect:** a fact the recalled knowledge already answers is *re-confirmed*, not re-detected; re-detect only what recall didn't answer (or where you suspect drift). **Evidence it:** state what you recalled before detecting anything — "Recalled from `index.md`/`log.md`/memory: stack X, tracker Y. Re-detecting: nothing / test runner." **Fresh projects:** skip recall (nothing recorded yet) — say so and go straight to detection.
 
 **Source precedence** (for project name, stack, testing, tracker): **AGENTS.md/CLAUDE.md → `.skillgrid/config.yaml` → Mnemonic → git remote → project files**. First source that answers wins; later sources fill gaps. Do not re-scan the world for a fact that an earlier source already answers.
 
@@ -128,6 +131,16 @@ If Step 1 shows an existing codebase (real commit history + feature code, not ju
 4. **Nested AGENTS.md note.** Area-specific rules (a payments module, a UI kit) live in `<area>/AGENTS.md` — the root block stays global and lean. Note the areas that would warrant their own file; create them lazily (ship's reconcile creates one for a net-new area, never for a pre-existing undocumented one — it flags instead).
 
 A greenfield project (scaffold, no feature history) skips Step 1.5 — there is nothing to enroll.
+
+## Step 1.5b: Bootstrap (brownfield)
+
+After Step 1.5 reverse-engineers the conventions, **bootstrap them into the knowledge base as checkable drafts** so a future session inherits them. This is an *addition* — the `skillgrid init --docs` ingest (Step 3 item 10) is unchanged.
+
+1. **Create draft candidates.** For each enrolled convention, create a candidate concept per the `skillgrid:knowledge-base` contract with `status: draft` and `verification.anchors` — stable literals from the code the convention is observed in (`{ path, all_of: [...] }`). A draft without `verification.anchors` cannot be confirmed against the code and must not be written.
+2. **Confirm one at a time.** Present each draft individually — the convention, anchor file(s), quoted literal: "This convention: X, anchored at `path:line`. Confirm?" Only an explicit yes promotes it (`status: stable` + `verified` attestation).
+3. **Drop what isn't confirmed.** An unconfirmed draft is **dropped** — removed, never kept as a `draft` zombie; the default outcome is drop.
+
+Greenfield projects skip Step 1.5b — nothing enrolled to bootstrap.
 
 ## Step 1.7: Generate ARCHITECTURE.md
 
@@ -331,6 +344,7 @@ mnemonic:
 ## Step 4: Verify
 
 Show the user:
+- **Recall evidence (re-runs only)** and **Step 1.5b bootstrap outcome (brownfield only)** — per the SKILL.md verification items (what was recalled; each draft's anchor, confirm/drop outcome, no unconfirmed draft survives)
 - The written config (summarized, not full file)
 - The `state.yaml` + `artifacts/` zone created
 - The AGENTS.md block (with the `### Rules` section as the real source of the operational rules; decisions live in `ASSUMPTIONS.md` § LOCKED)
