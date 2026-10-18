@@ -78,7 +78,7 @@ func memSaveTool() mcplib.Tool {
 
 func memSearchTool() mcplib.Tool {
 	return mcplib.NewTool("mem_search",
-		mcplib.WithDescription("Full-text search over saved observations using FTS5, with unexpired web_cache findings fused into the same results (ADR-0047): each hit carries corpus=observations or corpus=web_cache; web hits carry source/url/fetched_at/expires_at and a `web_cache_get id=N` retrieve pointer for the full body. The knowledge_class filter applies to the observations leg only. Pass `project` to scope or override the CWD-resolved project, and `scope` to restrict the visibility scope (project/user/global). Set `all_projects=true` to span every store — ranks are merged across projects so a parent directory can find memories saved under a child project."),
+		mcplib.WithDescription("Ranked, budgeted recall over saved observations (FTS5) with unexpired web_cache findings fused into the same results (ADR-0047). Returns one merged `observations[]` list — in-list hits are compact previews (char-budgeted, with a retrieve pointer; the full body comes from mem_get_observation) — plus count and project, and a buckets_hit[] scope block when the merged ranks span ≥2 non-empty project buckets (a provenance label: per-bucket counts, never a re-rank). Per hit: corpus=observations or corpus=web_cache (web hits carry source/url/fetched_at/expires_at + a `web_cache_get id=N` pointer), score, matched_via, and per-signal breakdown. The knowledge_class filter applies to the observations leg only. Pass `project` to scope or override the CWD-resolved project, and `scope` to restrict visibility (project/user/global); all_projects=true spans every store with ranks merged cross-project so a parent directory can find memories saved under a child project."),
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search keywords")),
 		mcplib.WithString("match_mode", mcplib.Description("Term matching: any (default) or all")),
 		mcplib.WithNumber("limit", mcplib.Description("Maximum results (default 20)")),
@@ -383,12 +383,22 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		if err != nil {
 			return toolError(err)
 		}
+		observations := stampKeywordSignals(budgetedObservationDTOs(h.Memory().Budget(), res.Hits, unfold))
 		out := map[string]any{
 			"project":          "all",
 			"all_projects":     true,
 			"count":            len(res.Hits),
-			"observations":     stampKeywordSignals(budgetedObservationDTOs(h.Memory().Budget(), res.Hits, unfold)),
+			"observations":     observations,
 			"_health_warnings": memHealthWarnings(),
+		}
+		// Explicit scope block (TICKET-10, @step-11 G12): when the merged
+		// ranks span ≥2 distinct non-empty buckets, an ADDITIVE provenance
+		// block names each bucket with its per-bucket count. It is a LABEL,
+		// never a ranker — the merged ranks keep their order and content
+		// (envelope-additive). A single-bucket result carries no block: the
+		// default shape stays byte-identical to today.
+		if buckets := scopeBlockForHits(res.Hits); buckets != nil {
+			out["buckets_hit"] = buckets
 		}
 		if res.Truncated {
 			out["truncated"] = true
@@ -521,6 +531,37 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 // a named helper so the two branches stay self-documenting.
 func memHealthWarnings() []string {
 	return []string{}
+}
+
+// scopeBlockForHits is the additive explicit-scope block (TICKET-10,
+// @step-11 G12): per-bucket counts over the merged ranks, returned ONLY when
+// the ranks span ≥2 distinct non-empty buckets. It is a LABELING/PROVENANCE
+// block — it never reorders or re-ranks (the counts are derived from the
+// final merged result, in first-seen bucket order, and are attached to the
+// response envelope as a sibling of `observations`, which the block only
+// labels). A single-bucket result returns nil: the default shape must stay
+// byte-identical to today.
+//
+// ponytail: the block counts the BUDGETED merged result (post-truncation),
+// so its counts always match what the caller actually sees in `observations`
+// — a pre-truncation count would overstate buckets the item cap emptied.
+func scopeBlockForHits(hits []memory.Observation) []map[string]any {
+	counts := map[string]int{}
+	order := []string{}
+	for _, h := range hits {
+		if _, seen := counts[h.Project]; !seen {
+			order = append(order, h.Project)
+		}
+		counts[h.Project]++
+	}
+	if len(counts) < 2 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(order))
+	for _, b := range order {
+		out = append(out, map[string]any{"bucket": b, "count": counts[b]})
+	}
+	return out
 }
 
 func handleMemContext(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {

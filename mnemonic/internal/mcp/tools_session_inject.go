@@ -15,7 +15,7 @@ func registerSessionInjectTools(s *server.MCPServer) {
 
 func memInjectSessionTool() mcplib.Tool {
 	return mcplib.NewTool("mem_inject_session",
-		mcplib.WithDescription("On-demand session context injection: hybrid (BM25 FTS + optional semantic vector, RRF-fused) retrieval of injectable observations rendered into a token-cost-annotated context block. Degrades to BM25-only (degraded=true) when no embedder is configured; never a hard fail."),
+		mcplib.WithDescription("On-demand session context injection: hybrid (BM25 FTS + optional semantic vector, RRF-fused) retrieval of injectable observations rendered into a ready-to-inject `block` (a token-cost-annotated context string) plus the ranked `items[]` it was built from. Envelope: block, items, total_tokens (the token budget the block consumes), degraded (true when the vector leg was skipped and BM25-only ran; never a hard fail). Pass project to scope, or all_projects=true to widen retrieval to every project bucket."),
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search terms for the injectable observations")),
 		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
 		mcplib.WithBoolean("all_projects", mcplib.Description("Widen retrieval to every project bucket in the data directory (default false)")),

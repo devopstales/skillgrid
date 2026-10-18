@@ -42,7 +42,7 @@ func registerSecondBrainTools(s *server.MCPServer) {
 
 func memAskTool() mcplib.Tool {
 	return mcplib.NewTool("mem_ask",
-		mcplib.WithDescription("Ask the brain a question and get a cited answer. Deterministic no-LLM floor: gathers relevant observations via blended search (FTS5 + vector RRF; degrades to keyword-only when no embedder) and returns token-bounded, citation-bearing results. matched_via is keyword or hybrid; degraded is true when the vector leg was skipped. Pass project to scope, or all_projects=true to span every store."),
+		mcplib.WithDescription("Ask the brain a question and get a cited answer: a token-bounded `citations[]` (id, title, type, snippet, project) plus an `answer` grounded in those citations, matched via deterministic blended search (FTS5 + vector RRF; degrades to keyword-only when no embedder). Envelope: answer, matched_via (keyword|hybrid), degraded (true when the vector leg was skipped), sources, citations, and _total_tokens (the citation token budget consumed). Pass project to scope, or all_projects=true to span every store."),
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("The question or keywords to ask the brain")),
 		mcplib.WithString("mode", mcplib.Description("Answer mode: cited (default, deterministic no-LLM floor) or llm (prose with [obs:<id>] citations, failing open to the cited floor on LLM error/timeout).")),
 		mcplib.WithString("project", mcplib.Description("Optional project name to scope the answer under (defaults to the CWD-resolved project).")),
@@ -53,7 +53,7 @@ func memAskTool() mcplib.Tool {
 
 func memLifecycleTool() mcplib.Tool {
 	return mcplib.NewTool("mem_lifecycle",
-		mcplib.WithDescription("Lifecycle actions over the memory store: health report, dedup scan/merge, consolidate, archive/restore, growth timeline. Every mutating op is audited in the lifecycle_log table. Action: health | dedup_scan | dedup_merge | consolidate | archive | growth."),
+		mcplib.WithDescription("Lifecycle actions over the memory store: health report, dedup scan/merge, consolidate, archive/restore, growth timeline. Every mutating op is audited in the lifecycle_log table. Action: health | dedup_scan | dedup_merge | consolidate | archive | growth. Response is action-shaped: health → project + health report; dedup_scan → clusters + density (+ degraded when a store skipped its vector leg); dedup_merge → merged + canonical; consolidate → new_id + the consolidated ids; archive → subaction + affected (+ stale/listed where applicable); growth → granularity + cumulative timeline. Read the action before asserting on a field: the envelope changes with it."),
 		mcplib.WithString("action", mcplib.Required(), mcplib.Description("Action: health | dedup_scan | dedup_merge | consolidate | archive | growth")),
 		mcplib.WithString("subaction", mcplib.Description("Archive subaction: archive | restore | list | stale")),
 		mcplib.WithString("project", mcplib.Description("Optional project name to scope the action under (defaults to the CWD-resolved project).")),
