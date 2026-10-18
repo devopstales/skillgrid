@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -208,31 +209,19 @@ func DeriveConceptGraph(root string) (ConceptGraph, error) {
 // base) so every node carries a display title.
 func parseConceptFrontmatter(id string, src []byte) conceptFrontmatter {
 	var fm conceptFrontmatter
-	b := src
-	if len(b) > 0 && b[0] == '\r' {
-		b = b[1:]
-	}
-	if strings.HasPrefix(string(b), "---\n") {
+	// Normalize CRLF so a Windows-authored frontmatter block still closes.
+	b := bytes.ReplaceAll(src, []byte("\r\n"), []byte("\n"))
+	if bytes.HasPrefix(b, []byte("---\n")) {
 		rest := b[len("---\n"):]
-		if end := bytesIndex(rest, []byte("\n---")); end >= 0 {
-			var err error
+		if end := bytes.Index(rest, []byte("\n---")); end >= 0 {
+			// Malformed frontmatter → zero values (tolerance contract).
 			_ = yaml.Unmarshal(rest[:end], &fm)
-			_ = err
 		}
 	}
 	if strings.TrimSpace(fm.Title) == "" {
 		fm.Title = id
 	}
 	return fm
-}
-
-func bytesIndex(b, sub []byte) int {
-	for i := 0; i+len(sub) <= len(b); i++ {
-		if string(b[i:i+len(sub)]) == string(sub) {
-			return i
-		}
-	}
-	return -1
 }
 
 // conceptLink matches a markdown link [text](target) whose target is a

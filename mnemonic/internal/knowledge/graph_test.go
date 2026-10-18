@@ -9,9 +9,9 @@ import (
 // writeConceptBundle writes the fixture knowledge bundle (TICKET-09,
 // @step-10 knowledge-graph-view): four concepts — a decision (links to the
 // invariant and to a broken .md), a deprecated invariant (links to the
-// workflow), a workflow (no links, hence the orphan), and a reference
-// (links to the decision and to the broken .md) — plus index.md, log.md and
-// reverse-index.md catalogs.
+// workflow), a workflow (linked by the invariant), and a reference (links
+// to the decision and to the broken .md; no inbound links, hence the
+// orphan) — plus index.md, log.md and reverse-index.md catalogs.
 func writeConceptBundle(t *testing.T, root string) {
 	t.Helper()
 	files := map[string]string{
