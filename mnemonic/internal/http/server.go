@@ -178,6 +178,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /projects", s.handleProjects)
 	s.mux.HandleFunc("GET /project/current", s.handleProjectCurrent)
 
+	// TICKET-09: open read of the read-only knowledge concept graph, derived
+	// per call from the project's knowledge bundle (h.Root()).
+	s.mux.HandleFunc("GET /knowledge/graph", s.handleKnowledgeGraph)
+
 	s.registerTeamsRoutes()
 	s.registerTrackerRoutes()
 	s.registerDocsRoutes()
