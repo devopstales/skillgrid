@@ -41,8 +41,8 @@ func IsValidKnowledgeClass(c string) bool {
 	return ok
 }
 
-// inferKnowledgeClass maps the coarse observation type to its durability
-// class (the ADR-0038 heuristic):
+// InferKnowledgeClass maps the coarse observation type to its durability
+// class (the ADR-0046 heuristic):
 //
 //	decision, convention, architecture, config, standing -> convention
 //	session_log, learning, discovery, bugfix             -> episodic
@@ -53,7 +53,7 @@ func IsValidKnowledgeClass(c string) bool {
 // column and callers may read it back, but nothing routes on it. doc/prd/
 // research/roadmap are not in the coarse validTypes set, so they only ever
 // fire on types a caller coerces or on a future taxonomy expansion.
-func inferKnowledgeClass(typ string) string {
+func InferKnowledgeClass(typ string) string {
 	switch strings.ToLower(strings.TrimSpace(typ)) {
 	case "decision", "convention", "architecture", "config", "standing":
 		return KnowledgeClassConvention

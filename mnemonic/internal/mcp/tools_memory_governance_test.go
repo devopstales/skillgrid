@@ -39,8 +39,9 @@ func TestMemGovernanceTools(t *testing.T) {
 	// Tool surface: 96 baseline + 6 scan_* / 6 dep_* MCP tools
 	// (2026-10-05-mnemonic-scan-findings, TICKET-07)
 	// + 1 adr_search + 4 knowledge search tools (report/briefing/blueprint/findings).
-	if len(tools) != 113 {
-		t.Errorf("expected 113 tools, got %d", len(tools))
+	// + 1 mem_capture_suggest (2026-10-06-second-brain-learnings, TICKET-05).
+	if len(tools) != 114 {
+		t.Errorf("expected 114 tools, got %d", len(tools))
 	}
 
 	// Existing 005 mem_* tools keep their names + required params unchanged.

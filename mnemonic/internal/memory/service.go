@@ -561,7 +561,7 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 	// inferKnowledgeClass when the taxonomy grows, not a second classifier.
 	in.KnowledgeClass = strings.ToLower(strings.TrimSpace(in.KnowledgeClass))
 	if in.KnowledgeClass == "" {
-		in.KnowledgeClass = inferKnowledgeClass(in.Type)
+		in.KnowledgeClass = InferKnowledgeClass(in.Type)
 	}
 	if !IsValidKnowledgeClass(in.KnowledgeClass) {
 		return SaveResult{}, fmt.Errorf("invalid knowledge_class %q (allowed: episodic, convention, doc, unclassified)", in.KnowledgeClass)

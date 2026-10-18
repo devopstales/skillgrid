@@ -47,6 +47,7 @@ func registerMemoryTools(s *server.MCPServer) {
 		{memSessionSummaryTool(), handleMemSessionSummary},
 		{memSessionSetTitleTool(), handleMemSessionSetTitle},
 		{memCapturePassiveTool(), handleMemCapturePassive},
+		{memCaptureSuggestTool(), handleMemCaptureSuggest},
 		{memSuggestTopicKeyTool(), handleMemSuggestTopicKey},
 		{memPinTool(), handleMemPin},
 		{memUnpinTool(), handleMemUnpin},
@@ -174,6 +175,31 @@ func handleMemCapturePassive(ctx context.Context, req mcplib.CallToolRequest) (*
 		return toolError(err)
 	}
 	return JSONResult(res)
+}
+
+func memCaptureSuggestTool() mcplib.Tool {
+	return mcplib.NewTool("mem_capture_suggest",
+		mcplib.WithDescription("Suggest whether free-form text is worth saving to memory. Deterministic two-pass classifier (no LLM): strong patterns (\"we decided to\", \"always use\", ...) fire on their own; weak patterns (\"no\", \"use\", \"avoid\") fire only with a directive word; negative patterns (\"no worries\") suppress. Returns suggested=true with a draft (trigger, confidence, suggested knowledge_class) at confidence >= 0.75, suggested=false below. NEVER persists a row — the agent confirms separately via mem_save, passing the suggested knowledge_class."),
+		mcplib.WithString("text", mcplib.Required(), mcplib.Description("The free-form text to classify for a capture suggestion")),
+	)
+}
+
+// handleMemCaptureSuggest renders secondbrain.SuggestCapture as the
+// mem_capture_suggest tool result. The classifier is pure and the handler
+// never opens a store write path — the call is idempotent and read-only;
+// confirmation (mem_save) is a separate, persisting step. Errors are
+// returned as values, never thrown: blank text is a value error, everything
+// else resolves to suggested:true|false.
+func handleMemCaptureSuggest(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	text, err := req.RequireString("text")
+	if err != nil {
+		return toolError(err)
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return toolError(errors.New("text is required"))
+	}
+	return JSONResult(secondbrain.SuggestCapture(text))
 }
 
 func memSuggestTopicKeyTool() mcplib.Tool {
