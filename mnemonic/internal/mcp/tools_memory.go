@@ -277,6 +277,19 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 		})
 	}
 
+	// Self-heal the session row (TASK-080): a named session_id that has no
+	// sessions row otherwise fails the core INSERT's FK
+	// (observations_core.session_id -> sessions.id, FK ON) and rolls back the
+	// whole save. EnsureSession is idempotent — it only inserts when the row is
+	// absent and never re-resolves the project from the directory — so a
+	// registered session is untouched. This mirrors the other session-aware
+	// handlers (http/toolcalls.go, http/policy.go, http/server.go).
+	//
+	// Registration is best-effort: if it fails, the save below still reports
+	// the real error (the FK still fails for a genuinely unregistrable
+	// session), so there is nothing to shadow — hence the result is discarded.
+	_, _ = h.Memory().EnsureSession(ctx, sessionID, projectID, h.Root(), "", harnessFromContext(ctx))
+
 	res, err := h.Memory().SaveWithAction(ctx, saveInput)
 	if err != nil {
 		return toolError(err)
