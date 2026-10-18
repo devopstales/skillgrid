@@ -19,16 +19,44 @@ type SearchSignals struct {
 }
 
 // SearchHit is one owner-scoped search result plus the fusion explanation.
+// Observation rows carry Corpus "observations"; fused web_cache rows
+// (ADR-0047) carry Corpus "web_cache" with WebCacheID/labels filled and an
+// empty Observation (a web row is not an observation — it is retrieved via
+// web_cache_get id=<WebCacheID>).
 type SearchHit struct {
 	Observation Observation
 	Score       float64
 	MatchedVia  string
 	Signals     SearchSignals
+	// Corpus is "observations" (the default) or "web_cache" (fused web hit).
+	Corpus string
+	// WebCacheID keys the retrieve pointer (web_cache_get id=<WebCacheID>);
+	// set on web_cache hits only.
+	WebCacheID int64
+	// WebSource / WebURL / WebFetchedAt / WebExpiresAt are the web_cache
+	// row labels (set on web_cache hits only).
+	WebSource    string
+	WebURL       string
+	WebFetchedAt string
+	WebExpiresAt string
+	// Retrieve is the caller-facing full-body pointer ("web_cache_get id=N"
+	// for web hits, "mem_get_observation id=N" for observation hits).
+	Retrieve string
 }
 
-// SearchOwnerScopedBlend is the mem_search read path. Both legs honor the
-// owner visibility filter. An empty query vector or a disabled embedder
-// keeps the FTS order and reports matched_via=keyword.
+// CorpusObservations / CorpusWebCache label the fused mem_search result set
+// (ADR-0047).
+const (
+	CorpusObservations = "observations"
+	CorpusWebCache     = "web_cache"
+)
+
+// SearchOwnerScopedBlend is the mem_search read path. The observation legs
+// (FTS + vector) honor the owner visibility filter; the web_cache FTS leg
+// (ADR-0047) fuses unexpired, project-scoped web_cache rows into the same
+// result set via RRF (k=60) — labeled corpus=web_cache, never part of the
+// vector leg. An empty query vector or a disabled embedder keeps the FTS
+// order and reports matched_via=keyword.
 func (s *Service) SearchOwnerScopedBlend(ctx context.Context, readerOwner, readerAgent, query, matchMode, scope string, limit int, queryVec Vector) ([]SearchHit, error) {
 	if s == nil || s.store == nil || s.store.DB == nil {
 		return nil, fmt.Errorf("memory service not initialized")
@@ -41,6 +69,8 @@ func (s *Service) SearchOwnerScopedBlend(ctx context.Context, readerOwner, reade
 		return nil, err
 	}
 
+	// ponytail: the web key prefixes ":" so it can never collide with the
+	// "<obs id>:<project>" observation keys below.
 	keyOf := func(id int64, project string) string {
 		return fmt.Sprintf("%d:%s", id, project)
 	}
@@ -50,6 +80,21 @@ func (s *Service) SearchOwnerScopedBlend(ctx context.Context, readerOwner, reade
 		k := keyOf(o.ID, o.Project)
 		ftsRank[k] = i
 		byKey[k] = o
+	}
+
+	// Fused web_cache leg (ADR-0047): a second FTS MATCH over web_cache_fts,
+	// project-scoped, excluding expired rows. The vector leg stays
+	// observations-only (no web rows are ever embedded).
+	webRank := map[string]int{}
+	byWeb := map[string]WebHit{}
+	webHits, wErr := s.projectWebCacheFTS(ctx, query, matchMode, limit)
+	if wErr != nil {
+		return nil, wErr
+	}
+	for i, w := range webHits {
+		k := fmt.Sprintf(":%d", w.ID)
+		webRank[k] = i
+		byWeb[k] = w
 	}
 
 	vecRank := map[string]int{}
@@ -101,17 +146,26 @@ func (s *Service) SearchOwnerScopedBlend(ctx context.Context, readerOwner, reade
 		}
 	}
 
-	order := make([]string, 0, len(byKey))
+	order := make([]string, 0, len(byKey)+len(byWeb))
 	if !useVec {
 		for _, o := range fts {
 			order = append(order, keyOf(o.ID, o.Project))
 		}
+		// FTS order is the observation floor; fused web rows follow the
+		// observation hits in their own BM25 order (ADR-0047: with no vector
+		// leg there is no RRF to interleave with).
+		for _, w := range webHits {
+			order = append(order, fmt.Sprintf(":%d", w.ID))
+		}
 	} else {
-		ids := make([]string, 0, len(byKey))
+		ids := make([]string, 0, len(byKey)+len(byWeb))
 		for k := range byKey {
 			ids = append(ids, k)
 		}
-		order = ReciprocalRankFusion(ids, ftsRank, vecRank, 60)
+		for k := range byWeb {
+			ids = append(ids, k)
+		}
+		order = ReciprocalRankFusion3(ids, ftsRank, vecRank, webRank, 60)
 	}
 
 	cfg := s.decayCfg
@@ -121,6 +175,28 @@ func (s *Service) SearchOwnerScopedBlend(ctx context.Context, readerOwner, reade
 	now := time.Now().UTC()
 	hits := make([]SearchHit, 0, len(order))
 	for _, k := range order {
+		// A fused web_cache hit (ADR-0047): the Observation fields are empty,
+		// so the observation-shaped signals all read zero and the label
+		// fields carry the row's own provenance.
+		if w, isWeb := byWeb[k]; isWeb {
+			wk := 0.0
+			if r, hasWebRank := webRank[k]; hasWebRank {
+				wk = 1 / float64(1+r)
+			}
+			hits = append(hits, SearchHit{
+				Corpus:       CorpusWebCache,
+				Score:        wk,
+				MatchedVia:   "keyword",
+				Signals:      SearchSignals{Keyword: wk},
+				WebCacheID:   w.ID,
+				WebSource:    w.Source,
+				WebURL:       w.URL,
+				WebFetchedAt: w.FetchedAt,
+				WebExpiresAt: w.ExpiresAt,
+				Retrieve:     fmt.Sprintf("web_cache_get id=%d", w.ID),
+			})
+			continue
+		}
 		o, ok := byKey[k]
 		if !ok {
 			continue
@@ -158,15 +234,88 @@ func (s *Service) SearchOwnerScopedBlend(ctx context.Context, readerOwner, reade
 				score = 1
 			}
 		}
-		hits = append(hits, SearchHit{Observation: o, Score: score, MatchedVia: via, Signals: sig})
+		hits = append(hits, SearchHit{
+			Observation: o,
+			Score:       score,
+			MatchedVia:  via,
+			Signals:     sig,
+			Corpus:      CorpusObservations,
+			Retrieve:    fmt.Sprintf("mem_get_observation id=%d", o.ID),
+		})
 	}
 	if s.decayCfg.Enabled {
 		hits = sortHitsByDecay(hits, now, cfg)
+		// Fused web hits (ADR-0047) are not observations: sortHitsByDecay
+		// re-scores them on empty Observation fields, which would sink them
+		// to the bottom. Re-append them after the observation hits in their
+		// own fused order.
+		obs, web := hits[:0], hits[:0]
+		for _, h := range hits {
+			if h.Corpus == CorpusWebCache {
+				web = append(web, h)
+			} else {
+				obs = append(obs, h)
+			}
+		}
+		hits = append(obs, web...)
 	}
 	if len(hits) > limit {
 		hits = hits[:limit]
 	}
 	return hits, nil
+}
+
+// WebHit is one fused web_cache row surfaced by mem_search (ADR-0047). The
+// labels are the row's own provenance — a web hit is labeled, not scored like
+// an observation.
+type WebHit struct {
+	ID        int64
+	Source    string
+	URL       string
+	FetchedAt string
+	ExpiresAt string
+}
+
+// projectWebCacheFTS is the fused web_cache leg of mem_search (ADR-0047): an
+// FTS MATCH over web_cache_fts restricted to this project's rows and to rows
+// that are not yet expired (expires_at NULL/blank or in the future). It
+// shares buildFTSQuery with the observation FTS leg, and an empty FTS query
+// (no searchable terms) yields no web hits without an error.
+func (s *Service) projectWebCacheFTS(ctx context.Context, query, matchMode string, limit int) ([]WebHit, error) {
+	if s == nil || s.store == nil || s.store.DB == nil {
+		return nil, fmt.Errorf("memory service not initialized")
+	}
+	ftsQuery := buildFTSQuery(query, matchMode)
+	if ftsQuery == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = defaultSearchLimit
+	}
+	rows, err := s.store.DB.QueryContext(ctx, `
+		SELECT w.id, w.source, w.url, w.fetched_at, w.expires_at
+		FROM web_cache w
+		INNER JOIN web_cache_fts ON web_cache_fts.rowid = w.id
+		WHERE web_cache_fts MATCH ? AND w.project = ?
+		  AND (w.expires_at IS NULL OR w.expires_at = ''
+		       OR strftime('%s', w.expires_at) > strftime('%s', 'now'))
+		ORDER BY bm25(web_cache_fts)
+		LIMIT ?`,
+		ftsQuery, s.projectID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("web cache fused search: %w", err)
+	}
+	defer rows.Close()
+	var out []WebHit
+	for rows.Next() {
+		var w WebHit
+		if err := rows.Scan(&w.ID, &w.Source, &w.URL, &w.FetchedAt, &w.ExpiresAt); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
 }
 
 // vectorHitLive reports whether a vector-only hit may be returned: it must

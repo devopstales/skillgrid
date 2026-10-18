@@ -2,9 +2,166 @@ package memory
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
+
+// seedWebRow inserts a web_cache row (+ FTS via trigger) into the fixture store
+// and returns its id. Used by the fused-recall tests (TICKET-06).
+func seedWebRow(t *testing.T, fx *ownerFixture, project, source, title, content, url string, fetchedAt, expiresAt string) int64 {
+	t.Helper()
+	res, err := fx.st.DB.Exec(`
+		INSERT INTO web_cache (project, source, cache_key, url, title, query, content, content_hash, fetched_at, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		project, source, fmt.Sprintf("%s-%s", source, title), url, title, "kumquat", content, "h", fetchedAt, expiresAt, fetchedAt)
+	if err != nil {
+		t.Fatalf("insert web_cache: %v", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("web_cache last insert id: %v", err)
+	}
+	return id
+}
+
+// findWebHit returns the fused hit for a web_cache row (Corpus "web_cache").
+func findWebHit(hits []SearchHit, webID int64) (SearchHit, bool) {
+	for _, h := range hits {
+		if h.Corpus == "web_cache" && h.WebCacheID == webID {
+			return h, true
+		}
+	}
+	return SearchHit{}, false
+}
+
+// TestMemSearch_FusedWebCache (TICKET-06): mem_search now fuses unexpired
+// web_cache rows into the observation recall. An unexpired web row sharing a
+// term surfaces labeled (corpus=web_cache + source/url/fetched_at/expires_at +
+// retrieve pointer) and resolvable via web_cache_get; an expired row sharing
+// the same term is absent; observations-only behavior is otherwise unchanged.
+func TestMemSearch_FusedWebCache(t *testing.T) {
+	t.Setenv("MNEMONIC_EMBED", "")
+	fx := newOwnerFixture(t, "fuse-web")
+	ctx := context.Background()
+	// Deterministic: the fused web hit must keep its fused position, not ride
+	// the observation decay sort (ADR-0047).
+	fx.svc.SetDecay(DecayConfig{Enabled: false})
+
+	obsID, err := fx.svc.Save(ctx, SaveInput{
+		SessionID: fx.sessionID, Type: "decision",
+		Title: "kumquat decision", Content: "kumquat decision notes", Owner: fx.ownerA,
+	})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	future := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	past := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	fetched := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	webID := seedWebRow(t, fx, "fuse-web", "fetch", "kumquat api", "kumquat api docs", "https://example.com/kumquat", fetched, future)
+	expiredID := seedWebRow(t, fx, "fuse-web", "fetch", "kumquat stale", "kumquat stale page", "https://example.com/kumquat-stale", fetched, past)
+
+	hits, err := fx.svc.SearchOwnerScopedBlend(ctx, fx.ownerA, "", "kumquat", "any", "", 10, Vector{})
+	if err != nil {
+		t.Fatalf("blend: %v", err)
+	}
+
+	// Observation hit present and unchanged in shape.
+	if len(hits) == 0 || hits[0].Observation.ID != obsID {
+		t.Fatalf("observation hit missing or reordered: %+v", hits)
+	}
+	if hits[0].Corpus != "observations" {
+		t.Fatalf("observation hit corpus = %q, want observations", hits[0].Corpus)
+	}
+
+	// Unexpired web hit present + labeled.
+	wh, ok := findWebHit(hits, webID)
+	if !ok {
+		t.Fatalf("unexpired web hit %d missing: %+v", webID, hits)
+	}
+	if wh.WebSource != "fetch" || wh.WebURL != "https://example.com/kumquat" ||
+		wh.WebFetchedAt != fetched || wh.WebExpiresAt != future {
+		t.Fatalf("web hit labels = %+v", wh)
+	}
+	if !strings.Contains(wh.Retrieve, "web_cache_get id="+fmt.Sprint(webID)) {
+		t.Fatalf("web hit retrieve pointer = %q, want web_cache_get id=%d", wh.Retrieve, webID)
+	}
+
+	// Expired web row absent.
+	if _, leaked := findWebHit(hits, expiredID); leaked {
+		t.Fatalf("expired web row %d leaked: %+v", expiredID, hits)
+	}
+
+	// The retrieve pointer actually resolves: web_cache_get semantics are a
+	// project-scoped SELECT by id (the MCP tool wraps this same query).
+	var gotTitle, gotURL, gotExpires, gotFetched string
+	err = fx.st.DB.QueryRow(`
+		SELECT title, url, expires_at, fetched_at FROM web_cache WHERE id = ? AND project = ?`,
+		webID, "fuse-web").Scan(&gotTitle, &gotURL, &gotExpires, &gotFetched)
+	if err != nil {
+		t.Fatalf("retrieve pointer does not resolve: %v", err)
+	}
+	if gotTitle != "kumquat api" || gotURL != "https://example.com/kumquat" ||
+		gotExpires != future || gotFetched != fetched {
+		t.Fatalf("retrieve pointer resolved to wrong row: %q %q %q %q", gotTitle, gotURL, gotExpires, gotFetched)
+	}
+}
+
+// TestMemSearch_NoWebCache (TICKET-06): a project with no web_cache rows keeps
+// the exact observations-only behavior (the no-regression contract).
+func TestMemSearch_NoWebCache(t *testing.T) {
+	t.Setenv("MNEMONIC_EMBED", "")
+	fx := newOwnerFixture(t, "fuse-none")
+	ctx := context.Background()
+
+	id, err := fx.svc.Save(ctx, SaveInput{
+		SessionID: fx.sessionID, Type: "decision",
+		Title: "durian stand", Content: "durian stand notes", Owner: fx.ownerA,
+	})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	hits, err := fx.svc.SearchOwnerScopedBlend(ctx, fx.ownerA, "", "durian", "any", "", 10, Vector{})
+	if err != nil {
+		t.Fatalf("blend: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Observation.ID != id || hits[0].Corpus != "observations" {
+		t.Fatalf("no-web-cache behavior changed: %+v", hits)
+	}
+	if hits[0].MatchedVia != "keyword" {
+		t.Fatalf("matched_via = %q, want keyword", hits[0].MatchedVia)
+	}
+}
+
+// TestMemSearch_ExpiredExcluded (TICKET-06): when the ONLY web_cache rows
+// sharing the term are expired, none of them surface.
+func TestMemSearch_ExpiredExcluded(t *testing.T) {
+	t.Setenv("MNEMONIC_EMBED", "")
+	fx := newOwnerFixture(t, "fuse-exp")
+	ctx := context.Background()
+
+	obsID, err := fx.svc.Save(ctx, SaveInput{
+		SessionID: fx.sessionID, Type: "decision",
+		Title: "longan note", Content: "longan note", Owner: fx.ownerA,
+	})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	past := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	fetched := time.Now().UTC().Add(-time.Hour * 2).Format(time.RFC3339)
+	seedWebRow(t, fx, "fuse-exp", "fetch", "longan one", "longan one", "https://example.com/l1", fetched, past)
+	seedWebRow(t, fx, "fuse-exp", "fetch", "longan two", "longan two", "https://example.com/l2", fetched, past)
+
+	hits, err := fx.svc.SearchOwnerScopedBlend(ctx, fx.ownerA, "", "longan", "any", "", 10, Vector{})
+	if err != nil {
+		t.Fatalf("blend: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Observation.ID != obsID {
+		t.Fatalf("expired web rows surfaced: %+v", hits)
+	}
+}
 
 func TestOwnerScopedBlendKeywordFloor(t *testing.T) {
 	t.Setenv("MNEMONIC_EMBED", "")

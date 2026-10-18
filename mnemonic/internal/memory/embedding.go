@@ -75,6 +75,28 @@ func ReciprocalRankFusion(ids []string, ftsRanks map[string]int, vecRanks map[st
 	if k <= 0 {
 		k = 60
 	}
+	return rrfOrder(ids, k, rankPair{ftsRanks}, rankPair{vecRanks})
+}
+
+// ReciprocalRankFusion3 is ReciprocalRankFusion with a third ranked list —
+// the fused web_cache FTS leg (ADR-0047). A list that ranks no id
+// contributes nothing, so an empty web list reproduces the two-list fusion
+// exactly.
+func ReciprocalRankFusion3(ids []string, ftsRanks, vecRanks, webRanks map[string]int, k int) []string {
+	if k <= 0 {
+		k = 60
+	}
+	return rrfOrder(ids, k, rankPair{ftsRanks}, rankPair{vecRanks}, rankPair{webRanks})
+}
+
+// rrfOrder ranks ids by the sum of 1/(k+rank+1) over every list that ranks
+// the id. Unranked lists contribute nothing, so a (fts, vec, web) call where
+// one list is empty reproduces the two-list fusion exactly.
+type rankPair struct {
+	ranks map[string]int
+}
+
+func rrfOrder(ids []string, k int, lists ...rankPair) []string {
 	type scored struct {
 		id    string
 		score float64
@@ -82,11 +104,10 @@ func ReciprocalRankFusion(ids []string, ftsRanks map[string]int, vecRanks map[st
 	out := make([]scored, 0, len(ids))
 	for _, id := range ids {
 		score := 0.0
-		if r, ok := ftsRanks[id]; ok {
-			score += 1.0 / float64(k+r+1)
-		}
-		if r, ok := vecRanks[id]; ok {
-			score += 1.0 / float64(k+r+1)
+		for _, lp := range lists {
+			if r, ok := lp.ranks[id]; ok {
+				score += 1.0 / float64(k+r+1)
+			}
 		}
 		if score > 0 {
 			out = append(out, scored{id: id, score: score})

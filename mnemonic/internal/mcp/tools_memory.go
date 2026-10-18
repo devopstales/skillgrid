@@ -78,7 +78,7 @@ func memSaveTool() mcplib.Tool {
 
 func memSearchTool() mcplib.Tool {
 	return mcplib.NewTool("mem_search",
-		mcplib.WithDescription("Full-text search over saved observations using FTS5. Pass `project` to scope or override the CWD-resolved project, and `scope` to restrict the visibility scope (project/user/global). Set `all_projects=true` to span every store — ranks are merged across projects so a parent directory can find memories saved under a child project."),
+		mcplib.WithDescription("Full-text search over saved observations using FTS5, with unexpired web_cache findings fused into the same results (ADR-0047): each hit carries corpus=observations or corpus=web_cache; web hits carry source/url/fetched_at/expires_at and a `web_cache_get id=N` retrieve pointer for the full body. The knowledge_class filter applies to the observations leg only. Pass `project` to scope or override the CWD-resolved project, and `scope` to restrict the visibility scope (project/user/global). Set `all_projects=true` to span every store — ranks are merged across projects so a parent directory can find memories saved under a child project."),
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search keywords")),
 		mcplib.WithString("match_mode", mcplib.Description("Term matching: any (default) or all")),
 		mcplib.WithNumber("limit", mcplib.Description("Maximum results (default 20)")),
@@ -421,7 +421,9 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 	// blended is the per-hit explanation (score / matched_via / signals).
 	// The class-filtered path has no fusion, so its hits carry zero scores
 	// and matched_via=keyword — the DTO contract (search hit shape) is kept
-	// identical for both branches.
+	// identical for both branches. Fused web_cache hits (ADR-0047) are
+	// observation-shaped zero-value Observations carrying Corpus
+	// "web_cache" + labels; the DTO builder renders them as web entries.
 	var blended []memory.SearchHit
 	res, err := applyBudget(h.Memory().Budget(), ctx, func(bctx context.Context) ([]memory.Observation, error) {
 		queryVec := memory.Vector{}
@@ -433,17 +435,23 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 			}
 		}
 		if knowledgeClass == "" {
-			// Default path: the pre-ADR-0038 blend, unchanged (the
-			// no-regression contract). Each hit carries its own class via
-			// the Observation.KnowledgeClass field (additive, omitempty).
+			// Default path: the blend + fused web_cache leg (ADR-0047).
+			// Each observation hit carries its own class via the
+			// Observation.KnowledgeClass field (additive, omitempty).
 			hits, bErr := h.Memory().SearchOwnerScopedBlend(bctx, readerOwner, readerAgent, query, matchMode, scope, limit, queryVec)
 			if bErr != nil {
 				return nil, bErr
 			}
 			blended = hits
-			obs := make([]memory.Observation, len(hits))
-			for i, hit := range hits {
-				obs[i] = hit.Observation
+			obs := make([]memory.Observation, 0, len(hits))
+			for _, hit := range hits {
+				if hit.Corpus == memory.CorpusWebCache {
+					// A web hit is not an observation: it is surfaced from
+					// the blended hit itself and excluded from the
+					// observation DTO list.
+					continue
+				}
+				obs = append(obs, hit.Observation)
 			}
 			return obs, nil
 		}
@@ -453,6 +461,8 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 		// class-scoped search is advisory, not a precision-critical hybrid.
 		// Upgrade path: extend SearchByVector with the class clause if the
 		// vector leg is ever needed for class-filtered results.
+		// Web hits are not classed (ADR-0047), so the class-filtered path
+		// is observations-only.
 		fits, fErr := h.Memory().SearchWithKnowledgeClass(bctx, query, matchMode, knowledgeClass, limit)
 		if fErr != nil {
 			return nil, fErr
@@ -466,12 +476,26 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 	if err != nil {
 		return toolError(err)
 	}
+	// blended may carry more hits than res.Hits (the fused web_cache hits,
+	// ADR-0047, are not observations). Truncation keeps the first len
+	// res.Hits hits in fused order — observations and web hits interleave by
+	// rank, so a web hit at a top rank is kept, not dropped.
 	if len(blended) > len(res.Hits) {
 		blended = blended[:len(res.Hits)]
 	}
+	observations := make([]map[string]any, 0, len(res.Hits))
+	for _, hit := range blended {
+		if hit.Corpus == memory.CorpusWebCache {
+			// Fused web hit (ADR-0047): render as a web_cache entry with the
+			// retrieve pointer, not as an observation DTO.
+			observations = append(observations, fusedWebHitDTO(hit))
+			continue
+		}
+		observations = append(observations, budgetedSearchHitDTOs(h.Memory().Budget(), []memory.SearchHit{hit}, unfold)...)
+	}
 	out := map[string]any{
 		"project":      projectID,
-		"observations": budgetedSearchHitDTOs(h.Memory().Budget(), blended, unfold),
+		"observations": observations,
 		"count":        len(res.Hits),
 		// _health_warnings (TICKET-06): the inline, non-breaking lifecycle
 		// warnings for the concrete project this search ran under. It uses the
@@ -1533,6 +1557,26 @@ func budgetedSearchHitDTOs(b *memory.Budget, hits []memory.SearchHit, unfold str
 		out[i]["signals"] = signalMap(hits[i].Signals)
 	}
 	return out
+}
+
+// fusedWebHitDTO renders a fused web_cache hit (ADR-0047) as a flat entry in
+// the mem_search observations list: corpus=web_cache + the row's own
+// provenance labels + the web_cache_get retrieve pointer. The budget is not
+// applied — a web hit carries no body in the list (web_cache_get fetches the
+// full content), so there is nothing to preview.
+func fusedWebHitDTO(hit memory.SearchHit) map[string]any {
+	return map[string]any{
+		"corpus":      memory.CorpusWebCache,
+		"id":          hit.WebCacheID,
+		"source":      hit.WebSource,
+		"url":         hit.WebURL,
+		"fetched_at":  hit.WebFetchedAt,
+		"expires_at":  hit.WebExpiresAt,
+		"matched_via": hit.MatchedVia,
+		"score":       hit.Score,
+		"signals":     signalMap(hit.Signals),
+		"_retrieve":   hit.Retrieve,
+	}
 }
 
 func stampKeywordSignals(dtos []map[string]any) []map[string]any {
