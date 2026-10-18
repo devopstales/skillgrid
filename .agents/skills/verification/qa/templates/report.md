@@ -394,6 +394,25 @@ MISSING_RED / UNREADABLE, the floor caps the gate accordingly.>
 
 - <item + path to resolution> (or "None")
 
+## Web-cache promotion candidates
+
+<!-- Written by `skillgrid:reflect` Step 3.7 (retro half), not qa. Proposals, never
+     writes: one card per selected web_cache entry. No concept file is written by
+     the promotion itself — a card becomes a concept only on explicit human
+     confirmation, and concept + index/log entries land in the same edit.
+     Unconfirmed candidates expire harmlessly. -->
+
+<!-- If no entries were selected, replace this section with one line:
+     "No web-cache promotion candidates — web cache disabled/empty." -->
+
+### Candidate: <title, from the cache entry>
+
+- **Concept home:** <where the concept would live, e.g. `decisions/` or `invariants/`>
+- **Why:** <why this is worth promoting — reusable across changes, not true for this change alone>
+- **sources:** <the cache source — context7 | exa | deepwiki | fetch | manual>
+- **Claim:** <the checkable claim, one falsifiable statement>
+- **Cache id + URL:** <id> · <url>
+
 ## Prior-Change Follow-Through
 
 | Prior open item (from previous archived change) | Addressed by this change? | Evidence |

@@ -13,12 +13,13 @@ metadata:
 
 **Announce at start:** "I'm using the skillgrid:reflect skill to close this change."
 
-You are the **TERMINAL** phase — the close of the SDD cycle. `ship` already integrated the work and moved the change folder to `.skillgrid/archive/YYYY-MM-DD-<topic>/`. You do exactly three things:
+You are the **TERMINAL** phase — the close of the SDD cycle. `ship` already integrated the work and moved the change folder to `.skillgrid/archive/YYYY-MM-DD-<topic>/`. You do exactly five things:
 
 1. **Complete `report.md`** — the merged report already exists (qa wrote the QA half in the spec folder, ship moved the folder); you complete its retro half IN PLACE in the archive: final-state facts, gate results, sourced learnings (Decisions / Lessons / Patterns / Surprises), acceptance verdict, move evidence, lineage.
 2. **Environment retro** — invoke the Skill tool with `skillgrid:environment-retro` to close the loop on the *environment* (checks, navigation, steering no-ops, tool economy), appending its `## Environment Retro` section to `report.md`.
-3. **Persist to Mnemonic** — the report + any high-value learning.
-4. **Close the session** — `mem_session_summary` + `mem_session_end`.
+3. **Propose web-cache promotion candidates** — select this change's `web_cache` entries, distill each into a candidate card under `report.md` → `## Web-cache promotion candidates` + Open Items. You **propose** — you never write concepts yourself.
+4. **Persist to Mnemonic** — the report + any high-value learning.
+5. **Close the session** — `mem_session_summary` + `mem_session_end`.
 
 You are the **completion checkpoint**: you are the last chance to honestly say what worked, what did not, and whether the change is accepted. You are also the **lineage endpoint** — the report is the record a future reader consults to learn what shipped and when.
 
@@ -147,6 +148,38 @@ Set `changes.<topic>.phase: complete` (the terminal phase). `ship` already remov
 
 Invoke the Skill tool with `skillgrid:environment-retro`. It sweeps the six environment categories (navigation, automated checks, coding standards, steering-file no-ops, tool economy, information access) and appends a `## Environment Retro` section to the same `report.md`, every row sourced and naming where each fix lands. It **proposes** — real builds (a new hook, linter rule, CI job, steering-file edit) come back as `mem_save` findings and offered follow-up tickets, not inline code edits. A clean session legitimately produces no findings; do not force one. Run it after the retro half is written and before session close, so the environment loop closes in the same session that ran.
 
+### Step 3.7: Propose Web-Cache Promotion Candidates (proposals, never concepts)
+
+Research done during this change (via the `skillgrid:mnemonic` web-cache protocol) leaves `web_cache` entries in the per-project store. Step 3.7 turns the change-worthy ones into **promotion candidates** — a proposal the human confirms. It does NOT write concepts: a candidate is a card in `report.md`, not a file in the knowledge zone.
+
+**Select** — this change's entries only. Match by `session_id` in the change's sessions (the session(s) this change ran in, including this closing one); when `session_id` is absent, by the fetched-at window of the change (its planning → ship span) plus topic tags (the briefing topic / research queries). A clean close legitimately selects zero entries — do not force one.
+
+**Distill** — each selected entry into one **candidate card** (shape below). One card per entry.
+
+**Propose** — append the cards under `report.md` → `## Web-cache promotion candidates` (merged template section) and name the pending confirmations in `## Open Items (→ next change)`.
+
+**Candidate card shape** — every field required:
+
+```
+### Candidate: <title, from the cache entry>
+- **Concept home:** <where the concept would live, e.g. `decisions/` or `invariants/`>
+- **Why:** <why this is worth promoting — reusable across changes, not true for this change alone>
+- **sources:** <the cache source — context7 | exa | deepwiki | fetch | manual>
+- **Claim:** <the checkable claim, one falsifiable statement>
+- **Cache id + URL:** <id> · <url>
+```
+
+**Explicit-confirmation rule:**
+
+- Confirmation is **EXPLICIT before any write** — no candidate becomes a concept until the human says yes to it.
+- If interactive before close: confirm the candidates now; on a `yes`, the concept file **and** its `index.md` / `log.md` entries land in the **same edit** (the same-edit rule — a concept without its index entry is drift the moment it lands).
+- Not interactive (or the human defers): defer the confirmation to the next session/change — the candidate stays a card in the archive.
+- Unconfirmed candidates **expire harmlessly** — they are proposals recorded in the archived report, never committed concepts. Nothing to clean up, nothing re-confirmed by default.
+
+**Verification (checkable):** every candidate card cites its cache id AND URL — a card missing either is malformed and is not a candidate.
+
+> If `mnemonic.enabled` is `false` or the web cache is empty, skip Step 3.7 with a one-line note in `report.md` ("No web-cache promotion candidates — web cache disabled/empty"); do not write the section heading empty.
+
 ### Step 4: Persist to Mnemonic + Close the Session (you own this)
 
 `reflect` is the **only** phase that closes the session. Follow [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md).
@@ -216,6 +249,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - You are **read-only over the archive** — you do not modify shipped code or the folder layout. You complete exactly one file in place (`report.md` — its retro half, from `## Final-State Facts` onward) in the moved folder and persist to Mnemonic.
 - **Every learning is sourced.** A finding with no file:line / commit / ticket / scenario is a guess — either cite it or mark it undiagnosed.
 - **The acceptance verdict is advisory.** `rejected` is recorded and surfaced, never a hard block. The human decides follow-up.
+- **Web-cache promotion candidates are proposals, not writes.** Step 3.7 proposes — it never writes a concept file. Confirmation is explicit before any write; on confirm, concept + index/log entries land in the same edit; unconfirmed candidates expire harmlessly.
 - **The report reflects FINAL state** per the Final-State Authority hierarchy — never echo stale `report.md` (QA half) / ledger "pending" claims as current facts; record unrankable contradictions explicitly.
 - **You own session close** — `mem_session_summary` + `mem_session_end` run here and only here. Sub-agents in earlier phases emit `## Key Learnings` only and do not close the session.
 - **Record every observation ID you read** into the report — the report is the lineage endpoint.
@@ -253,6 +287,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 | "The discoveries are obvious, no need to source them." | Unsourced is a guess, not a learning. Every entry needs a file:line, commit, ticket, or scenario — otherwise mark it undiagnosed. |
 | "The QA half of `report.md` says pending, so I'll carry that into the retro half." | Per Final-State Authority, the QA half is a point-in-time snapshot. Rank against ship context / the repo at close and report the final state, citing where the fix landed. |
 | "A `rejected` verdict should block the cycle." | The verdict is advisory — recorded and surfaced, never a hard block. The human decides follow-up. Don't conflate it with the (hard) QA Gate. |
+| "The web-cache findings are obviously worth keeping — I'll write the concepts now." | Step 3.7 proposes; the human confirms. A concept written without explicit confirmation (and its index/log entries in the same edit) is drift before it lands. Proposals expire harmlessly; unconfirmed writes do not. |
 
 ## Red Flags
 
@@ -263,6 +298,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 - A reusable Lesson/Surprise was recorded only as a one-off in `report.md`, never triaged as a process bug routed to the governing skill or `_shared` rule — the next change repeats it.
 - The session was closed by an earlier phase, or not closed at all — close is `reflect`'s job and only its job.
 - The report is missing observation IDs for the artifacts read (the lineage endpoint is incomplete).
+- A web-cache promotion candidate card is missing its cache id or URL — or a concept file appeared in the knowledge zone without an explicit human confirmation.
 
 ## Verification
 
@@ -270,6 +306,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 - [ ] `report.md` written into the moved folder with every learning sourced (file:line / commit / ticket / scenario) and an acceptance verdict recorded.
 - [ ] `report.md` includes final-state facts, gate results, the `diff -r` reference, and the observation IDs of every artifact read.
 - [ ] Every Lesson/Surprise was triaged process-bug vs one-off: process bugs named the governing skill/`_shared` rule and were recorded as follow-up tickets; one-offs stayed in `report.md` alone.
+- [ ] Web-cache promotion candidates: every card cites its cache id AND URL (malformed cards dropped or fixed); no concept file was written by Step 3.7 itself (proposals only, explicit human confirmation before any write).
 - [ ] Session persisted and closed: `mem_session_summary` present with all 6 sections (Goal / Instructions / Discoveries / Accomplished / Next Steps / Relevant Files) non-empty, followed by `mem_session_end`.
 - [ ] Change marked closed: return envelope states the change, verdict, location, and "Next: none — cycle complete" (or the blocked reason, if gated).
 
