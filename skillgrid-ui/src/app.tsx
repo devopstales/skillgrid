@@ -42,6 +42,14 @@ const graphRoute = createRoute({
   component: lazyPage(() => import('./features/mnemonic/GraphPage').then((m) => ({ default: m.GraphPage }))),
 })
 
+const knowledgeGraphRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/knowledge/graph',
+  component: lazyPage(() =>
+    import('./features/mnemonic/KnowledgeGraphPage').then((m) => ({ default: m.KnowledgeGraphPage })),
+  ),
+})
+
 const filesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/mnemonic/files',
@@ -160,6 +168,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   trackerRoute,
   graphRoute,
+  knowledgeGraphRoute,
   filesRoute,
   memoriesRoute,
   sessionsRoute,
