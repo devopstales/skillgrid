@@ -17,21 +17,35 @@ func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 	if err := SetupOpenCode(home, repoRoot, nil, nil, false); err != nil {
 		t.Fatalf("SetupOpenCode: %v", err)
 	}
-	// The 5 native TS plugins are copied into the harness plugin dir.
+	// The 5 native TS plugins are copied into the harness plugins/ dir (plural —
+	// where OpenCode auto-discovers local plugins), alongside the shared v2 SSE
+	// helper and the custom tools/ dir.
+	pluginsDir := filepath.Join(home, ".config", "opencode", "plugins")
 	for _, base := range nativePluginBases {
-		dst := filepath.Join(home, ".config", "opencode", "plugin", base+".ts")
+		dst := filepath.Join(pluginsDir, base+".ts")
 		if _, err := os.Stat(dst); err != nil {
 			t.Fatalf("missing plugin %s: %v", base, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(pluginsDir, "skillgrid-v2sse.ts")); err != nil {
+		t.Fatalf("missing skillgrid-v2sse.ts: %v", err)
+	}
+	// The custom tools are copied to the harness tools/ dir (auto-discovered by
+	// OpenCode; one file per tool). At least mem_save must be present.
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "tools", "mem_save.ts")); err != nil {
+		t.Fatalf("missing tools/mem_save.ts: %v", err)
 	}
 	cfgData, err := os.ReadFile(AgentConfigPath(home, "opencode"))
 	if err != nil {
 		t.Fatalf("read opencode config: %v", err)
 	}
 	plugins := pluginEntries(cfgData)
+	// No "./plugin/<name>.ts" entries are registered anymore: local plugins in
+	// plugins/ auto-load, so the redundant (and previously mis-pathed) config
+	// array is gone.
 	for _, base := range nativePluginBases {
-		if !plugins["./plugin/"+base+".ts"] {
-			t.Fatalf("opencode config missing plugin entry %s: %s", base, cfgData)
+		if plugins["./plugin/"+base+".ts"] {
+			t.Fatalf("opencode config should not register ./plugin/%s.ts (auto-discovered): %s", base, cfgData)
 		}
 	}
 	// The retired hook file and checkpoint plugin are no longer installed.
@@ -45,7 +59,7 @@ func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 		t.Fatalf("opencode config should not register opencode-yaml-hooks: %s", cfgData)
 	}
 
-	// Dry-run must not write the plugins.
+	// Dry-run must not write the plugins or tools.
 	homeDry := t.TempDir()
 	cfgPath := AgentConfigPath(homeDry, "opencode")
 	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
@@ -58,9 +72,12 @@ func TestSetupOpenCode_InstallsPlugins(t *testing.T) {
 		t.Fatalf("SetupOpenCode dry-run: %v", err)
 	}
 	for _, base := range nativePluginBases {
-		if _, err := os.Stat(filepath.Join(homeDry, ".config", "opencode", "plugin", base+".ts")); err == nil {
+		if _, err := os.Stat(filepath.Join(homeDry, ".config", "opencode", "plugins", base+".ts")); err == nil {
 			t.Fatalf("dry-run must not write plugin %s", base)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(homeDry, ".config", "opencode", "tools", "mem_save.ts")); err == nil {
+		t.Fatal("dry-run must not write tools/mem_save.ts")
 	}
 }
 
@@ -91,10 +108,9 @@ func TestSetupOpenCode_DropsRetiredPlugins(t *testing.T) {
 			t.Fatalf("retired plugin %q still registered: %s", retired, data)
 		}
 	}
+	// Only "keep-me" survives; installNativePlugins no longer adds
+	// "./plugin/<base>.ts" entries (auto-discovered from plugins/).
 	want := map[string]bool{"keep-me": true}
-	for _, base := range nativePluginBases {
-		want["./plugin/"+base+".ts"] = true
-	}
 	for entry := range want {
 		if !got[entry] {
 			t.Fatalf("missing plugin %q: %s", entry, data)

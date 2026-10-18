@@ -48,19 +48,68 @@ func SetupOpenCode(home, repoRoot string, mcpEntries []MCPServerConfig, privateT
 	return installNativePlugins(home, repoRoot, cfgPath, "opencode", dryRun)
 }
 
-// installNativePlugins copies the 5 native TS plugins from plugins/opencode/
-// into ~/.config/<harness>/plugin/ and registers each "./plugin/<name>.ts" in
-// the harness config (shared by the OpenCode and Kilo installers per
-// ADR-0032 — Kilo copies from the same opencode source dir).
+// installNativePlugins copies the native TS assets from plugins/opencode/ into
+// ~/.config/<harness>/plugins/ and ~/.config/<harness>/tools/ (shared by the
+// OpenCode and Kilo installers per ADR-0032 — Kilo copies from the same opencode
+// source dir).
+//
+// It no longer registers a "plugin" config array: local plugins in
+// ~/.config/<harness>/plugins/ are auto-discovered by OpenCode, and the 21
+// custom tools in tools/ are auto-discovered the same way. Registering
+// "./plugin/<name>.ts" in the config array pointed at the wrong (singular)
+// path and double-registered each plugin, so it was dropped (see TASK-082).
+//
+// The set copied: the 5 plugin sources, the shared v2 SSE helper
+// (skillgrid-v2sse.ts, imported by the compaction/events plugins), and every
+// tool file under plugins/opencode/tools/ (one file per tool; filename = tool
+// name for the OpenCode tools/ loader).
 func installNativePlugins(home, repoRoot, cfgPath, harness string, dryRun bool) error {
-	pluginDir := filepath.Join(home, ".config", harness, "plugin")
+	pluginDir := filepath.Join(home, ".config", harness, "plugins")
+	toolDir := filepath.Join(home, ".config", harness, "tools")
+
 	for _, base := range nativePluginBases {
 		srcRel := "plugins/opencode/" + base + ".ts"
 		dst := filepath.Join(pluginDir, base+".ts")
 		if err := copyFromRepo(repoRoot, srcRel, dst, dryRun); err != nil {
 			return err
 		}
-		if err := upsertPluginKey(cfgPath, "./plugin/"+base+".ts", dryRun); err != nil {
+	}
+
+	// Shared v2 SSE helper (the compaction + events plugins import it for their
+	// v2 `setup` hook wiring).
+	if err := copyFromRepo(repoRoot, "plugins/opencode/skillgrid-v2sse.ts",
+		filepath.Join(pluginDir, "skillgrid-v2sse.ts"), dryRun); err != nil {
+		return err
+	}
+
+	// The custom tools (one file per tool). The repo source dir is
+	// plugins/opencode/tools/; the installed dir is ~/.config/<harness>/tools/.
+	if err := copyToolDir(repoRoot, "plugins/opencode/tools", toolDir, dryRun); err != nil {
+		return err
+	}
+	return nil
+}
+
+// copyToolDir copies every *.ts file in the repo tools/ source dir into the
+// installed tools/ dir, creating the destination. A missing source dir is not
+// an error (the tools are optional; an older checkout without them still
+// installs the plugins).
+func copyToolDir(repoRoot, srcRel, dstDir string, dryRun bool) error {
+	srcDir := filepath.Join(repoRoot, srcRel)
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read tools dir %s: %w", srcDir, err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".ts") {
+			continue
+		}
+		srcRelFile := srcRel + "/" + e.Name()
+		dst := filepath.Join(dstDir, e.Name())
+		if err := copyFromRepo(repoRoot, srcRelFile, dst, dryRun); err != nil {
 			return err
 		}
 	}
