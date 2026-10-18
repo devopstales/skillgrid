@@ -65,7 +65,7 @@ Chosen: a nullable `knowledge_class` column
    backfill).
 3. **Optional search filter** — `SearchWithKnowledgeClass` adds an exact-
    match `WHERE` fragment only when a class is supplied; an empty class
-   leaves the query byte-identical to the pre-0038 shape (the
+   leaves the query byte-identical to the pre-0046 shape (the
    no-regression contract). Every hit on this path carries its per-row
    class label (NULL surfaced as `unclassified`).
 4. **Additive read contract** — the column is appended to the compat view
@@ -80,7 +80,7 @@ store, so ADR-0012 (single source of truth) holds unchanged.
 ## Consequences
 
 - **Additive, no behavior change unfiltered.** The default `mem_search`
-  path is the pre-0038 blend; the class filter is opt-in per call.
+  path is the pre-0046 blend; the class filter is opt-in per call.
 - **Backfill is re-runnable and side-effect-free on already-labeled
   rows.** Safe to call from any init path, any number of times.
 - **The heuristic is non-load-bearing.** It may be wrong (e.g. a
@@ -91,7 +91,7 @@ store, so ADR-0012 (single source of truth) holds unchanged.
    and the three INSTEAD OF triggers (they name explicit column lists, so
    they must carry the new column), and creates
    `idx_obs_knowledge_class (knowledge_class, project)`. There is no
-   down-migration; the pre-0038 schema is recoverable only from a pre-070
+   down-migration; the pre-0046 schema is recoverable only from a pre-070
    dump.
 - **Search filter is FTS-leg only.** The class-filtered path rides the
    keyword leg (no vector fusion) — the class is a structural label, and a

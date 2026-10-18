@@ -54,13 +54,13 @@
 
 **Artifacts** (files that must exist with real implementation, not stubs):
 - `mnemonic/internal/secondbrain/lifecycle.go` — Contains `GrowthTimeline` and extended `healthRecommendations`.
-- `mnemonic/internal/store/migrations/051_add_knowledge_class.sql` — Database migration for Feature 3 (051 claimed by this change — 051/052 free, verified 2026-10-11; 053–058 occupied: tool_outputs/obs_split/ivf/hnsw, untouched).
+- `mnemonic/internal/store/migrations/070_add_knowledge_class.sql` — Database migration for Feature 3 (070, not 051: 051–053 are CLM, 054–058 occupied; runner name-sorted, verified 2026-10-18).
 - `mnemonic/internal/memory/service.go` — Handles `knowledge_class` logic in `Save` and `Update`.
 - `mnemonic/internal/memory/search_blend.go` — Optional `knowledge_class` filter + per-class labeling.
 - `mnemonic/internal/codeindex/indexer.go` — Implements the centrality-based embedding gate (centrality from existing `codeindex/graph.go`; there is no `graph_index.go` on disk).
 - `mnemonic/internal/secondbrain/infer.go` — Contains `ClassifyCapture` for Feature 5.
 - `mnemonic/internal/mcp/tools_memory.go` — `mem_lifecycle growth`, `mem_save`/`mem_search` `knowledge_class` params, `mem_capture_suggest` registration.
-- `artifacts/04-adr-0038-knowledge-class-dimension.md` — ADR for the additive durability dimension (reserve 0038; 0037 taken by the embedded-ANN index, highest in use is 0037).
+- `artifacts/04-adr-0046-knowledge-class-dimension.md` — ADR for the additive durability dimension (0046, not 0038: 0038 is skill-pi ticketing; 0045 was highest in use, verified 2026-10-18).
 - `decisions/04-adr-*.md` (relocated via `git mv` from `artifacts/`, history preserved) — OKF frontmatter added (`type: TechnicalDecision`), `status/supersedes/date` untouched.
 - `invariants/<slug>.md` — one per locked constraint, `type: InvariantContract` + `claims[]` where a checkable literal exists.
 - `workflows/sdd-pipeline.md` (+ per-domain flows) — `type: BusinessWorkflow`, one anchor per participating site.
@@ -205,7 +205,7 @@ git commit -m "feat(mnemonic): expand health recommendations for secondbrain"
 > ⚠ **one-way:** Adding a database column `knowledge_class` to `observations`. STOP for user approval. Soft one-way: the heuristic backfill rewrites existing rows (re-runnable but data-mutating) — snapshot/backup before Task 3 Step 3.
 
 **Files:**
-- Create: `mnemonic/internal/store/migrations/051_add_knowledge_class.sql`
+- Create: `mnemonic/internal/store/migrations/070_add_knowledge_class.sql`
 - Modify: `mnemonic/internal/memory/service.go`
 - Modify: `mnemonic/internal/memory/search_blend.go`
 - Test: `mnemonic/internal/memory/service_test.go`

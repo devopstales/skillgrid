@@ -101,11 +101,11 @@ Chain strategy: stacked-to-main (single-branch; each unit PR merges to main in o
 - **Scope:** Nullable durability dimension on observations with inference + backfill + ADR-0038.
 - **Acceptance:** Decision reads back convention; filter + labels work; unfiltered search unchanged; migration applies once.
 - **SATISFIES:** @step-03 `knowledge-class` (G3, G4)
-- **Files:** `mnemonic/internal/store/migrations/051_add_knowledge_class.sql` (NEW), `mnemonic/internal/memory/service.go`, `mnemonic/internal/memory/search_blend.go`, `mnemonic/internal/mcp/tools_memory.go`, `.skillgrid/artifacts/04-adr-0038-knowledge-class-dimension.md` (NEW), `mnemonic/internal/memory/service_test.go`
+- **Files:** `mnemonic/internal/store/migrations/070_add_knowledge_class.sql` (NEW — 070, not 051: 051 is CLM; runner name-sorted), `mnemonic/internal/memory/service.go`, `mnemonic/internal/memory/knowledge_class.go` (NEW), `mnemonic/internal/memory/search_blend.go`, `mnemonic/internal/mcp/tools_memory.go`, `.skillgrid/artifacts/04-adr-0046-knowledge-class-dimension.md` (NEW — 0046, not 0038: 0038 is skill-pi ticketing), `mnemonic/internal/memory/knowledge_class_test.go`
 - **Size:** ~M (500–1500)
 - **Blocks:** TICKET-05, TICKET-06
-- **Blocked by:** none (migration reservation 051; 053–058 occupied, untouched)
-- **Do:** Nullable `knowledge_class episodic|convention|doc|unclassified` + index `(project, knowledge_class)`; `inferKnowledgeClass(type)` on save/update; re-runnable heuristic backfill (decision/convention/architecture/config/standing→convention; session_log/learning/discovery/bugfix→episodic); `mem_search` optional filter + per-class labels; ADR-0038 (why dimension not KB-per-class).
+- **Blocked by:** none (migration 070; 051–053 are CLM, 054–058 occupied, untouched)
+- **Do:** Nullable `knowledge_class episodic|convention|doc|unclassified` + index `(knowledge_class, project)` (class-leading for equality access); `inferKnowledgeClass(type)` on save/update; re-runnable heuristic backfill (decision/convention/architecture/config/standing→convention; session_log/learning/discovery/bugfix→episodic); `mem_search` optional filter (FTS-leg-only) + per-class labels; ADR-0046 (why dimension not KB-per-class).
 - **Reversibility:** one-way (ADD COLUMN, no down-migrations; runner applies once). Soft one-way: backfill mutates rows — snapshot/backup before applying.
 - **Verify:** `cd mnemonic && go test ./internal/memory/... -run TestSave_KnowledgeClassInfer -v` PASS; migration file present; unfiltered search unchanged
 - **Precondition:** snapshot/backup of the target store exists and is restorable.

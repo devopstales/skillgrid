@@ -36,7 +36,7 @@ Feature: Second-Brain Learnings (growth, health, knowledge-class, embed gate, ca
 
   @step-03 @knowledge-class
   Scenario: happy path knowledge class infer and search
-    Given migration 051_add_knowledge_class applied with column knowledge_class and index on project and knowledge_class
+    Given migration 070_add_knowledge_class applied with column knowledge_class and index on knowledge_class and project
     When I save a type decision observation without knowledge_class
     Then it reads back knowledge_class convention
     And mem_search with knowledge_class convention returns only convention rows, each labeled
@@ -45,7 +45,7 @@ Feature: Second-Brain Learnings (growth, health, knowledge-class, embed gate, ca
     #### Gates
     # G3: CHECK: cd mnemonic && go test ./internal/memory/... -run TestSave_KnowledgeClassInfer -v
     # G3: EXPECT: PASS, additive nullable column, heuristic backfill re-runnable, zero behavior change unfiltered
-    # G4: CHECK: migration file mnemonic/internal/store/migrations/051_add_knowledge_class.sql exists with index
+    # G4: CHECK: migration file mnemonic/internal/store/migrations/070_add_knowledge_class.sql exists with index
     # G4: EXPECT: file present, applies once via migration tracker, no down-migration required
 
   @step-04 @pagerank-embed
