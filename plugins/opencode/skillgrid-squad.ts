@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { tool } from "@opencode-ai/plugin"
+
 const BASE_URL =
   process.env.SKILLGRID_CHECKPOINT_URL ||
   process.env.SKILLGRID_MNEMONIC_HTTP_URL ||
