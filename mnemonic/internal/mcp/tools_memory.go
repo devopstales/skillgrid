@@ -71,6 +71,7 @@ func memSaveTool() mcplib.Tool {
 		mcplib.WithBoolean("infer", mcplib.Description("Deterministically infer empty metadata (default false). When true, an empty type is filled from the type heuristic and an empty topic_key from the stable segment; agent-provided values are never overwritten. type stays required — inference fills it, it does not waive it.")),
 		mcplib.WithString("tool_name", mcplib.Description("Optional provenance for which tool produced the save (e.g. mem_save).")),
 		mcplib.WithString("owner", mcplib.Description("Optional creating user/agent identity. Blank falls back to the session_id, so the same session that saved can read it back and a different owner is gated by mem_search / mem_get_observation.")),
+		mcplib.WithString("knowledge_class", mcplib.Description("Optional durability class (ADR-0038): episodic (session-specific) | convention (durable) | doc | unclassified. Blank is inferred deterministically from type (decision/convention/architecture/config/standing → convention, session_log/learning/discovery/bugfix → episodic, doc/prd/research/roadmap → doc, anything else → unclassified). Agent-provided values are never overwritten by inference.")),
 	)
 }
 
@@ -86,6 +87,7 @@ func memSearchTool() mcplib.Tool {
 		mcplib.WithString("reader_owner", mcplib.Description("Optional reader identity for per-owner visibility enforcement. Blank means the current session's owner. A private observation is invisible to a different owner until shared via mem_share.")),
 		mcplib.WithString("reader_agent", mcplib.Description("Optional reader agent id for restricted/agent ACL grants.")),
 		mcplib.WithString("unfold", mcplib.Description("Comma-separated observation ids to return in full. Other hits stay a preview plus a retrieve id.")),
+		mcplib.WithString("knowledge_class", mcplib.Description("Optional durability-class filter (ADR-0038): episodic | convention | doc | unclassified. Blank (the default) leaves the search unchanged — every row is returned and each hit carries its own knowledge_class label. A set filter returns only rows of that class (exact match; unclassified rows only match 'unclassified').")),
 	)
 }
 
@@ -260,16 +262,17 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 	// behaviour for existing callers).
 	infer := req.GetBool("infer", false)
 	saveInput := memory.SaveInput{
-		Title:         title,
-		Type:          typ,
-		Content:       content,
-		Scope:         scope,
-		TopicKey:      req.GetString("topic_key", ""),
-		SessionID:     sessionID,
-		CapturePrompt: capturePrompt,
-		ProjectName:   projectName,
-		ToolName:      req.GetString("tool_name", ""),
-		Owner:         owner,
+		Title:          title,
+		Type:           typ,
+		Content:        content,
+		Scope:          scope,
+		TopicKey:       req.GetString("topic_key", ""),
+		SessionID:      sessionID,
+		CapturePrompt:  capturePrompt,
+		ProjectName:    projectName,
+		ToolName:       req.GetString("tool_name", ""),
+		Owner:          owner,
+		KnowledgeClass: strings.TrimSpace(req.GetString("knowledge_class", "")),
 	}
 	if infer {
 		secondbrain.ApplyInfer(&saveInput, secondbrain.InferType, func(typ, title string) string {
@@ -322,6 +325,14 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 	matchMode := req.GetString("match_mode", "any")
 	limit := int(req.GetFloat("limit", 20))
 	scope := strings.TrimSpace(req.GetString("scope", ""))
+	// Durability-class filter (ADR-0038): validated up front so a bad class
+	// fails before any store read (the memory service re-validates as the
+	// trust boundary; the early check just names the tool param). Blank
+	// leaves the search unchanged.
+	knowledgeClass := strings.TrimSpace(req.GetString("knowledge_class", ""))
+	if knowledgeClass != "" && !memory.IsValidKnowledgeClass(knowledgeClass) {
+		return toolError(fmt.Errorf("invalid knowledge_class %q (allowed: episodic, convention, doc, unclassified)", knowledgeClass))
+	}
 	allProjects := req.GetBool("all_projects", false)
 	unfold := req.GetString("unfold", "")
 	// Reader identity (change 013 step 01). The per-owner read-enforcement seam
@@ -381,6 +392,10 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 	// (enforced by a deadline-bound read context, so a slow read is cut, never
 	// hung). The full content is pulled on demand via mem_get_observation (the
 	// only full-content path) using each hit's id.
+	// blended is the per-hit explanation (score / matched_via / signals).
+	// The class-filtered path has no fusion, so its hits carry zero scores
+	// and matched_via=keyword — the DTO contract (search hit shape) is kept
+	// identical for both branches.
 	var blended []memory.SearchHit
 	res, err := applyBudget(h.Memory().Budget(), ctx, func(bctx context.Context) ([]memory.Observation, error) {
 		queryVec := memory.Vector{}
@@ -391,16 +406,36 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
 				}
 			}
 		}
-		hits, bErr := h.Memory().SearchOwnerScopedBlend(bctx, readerOwner, readerAgent, query, matchMode, scope, limit, queryVec)
-		if bErr != nil {
-			return nil, bErr
+		if knowledgeClass == "" {
+			// Default path: the pre-ADR-0038 blend, unchanged (the
+			// no-regression contract). Each hit carries its own class via
+			// the Observation.KnowledgeClass field (additive, omitempty).
+			hits, bErr := h.Memory().SearchOwnerScopedBlend(bctx, readerOwner, readerAgent, query, matchMode, scope, limit, queryVec)
+			if bErr != nil {
+				return nil, bErr
+			}
+			blended = hits
+			obs := make([]memory.Observation, len(hits))
+			for i, hit := range hits {
+				obs[i] = hit.Observation
+			}
+			return obs, nil
 		}
-		blended = hits
-		obs := make([]memory.Observation, len(hits))
-		for i, hit := range hits {
-			obs[i] = hit.Observation
+		// Class-filtered path: the exact-match filter + per-row labeling.
+		// ponytail: the filter rides the FTS leg only (no vector leg) —
+		// the class dimension is a lexical/structural label, and a
+		// class-scoped search is advisory, not a precision-critical hybrid.
+		// Upgrade path: extend SearchByVector with the class clause if the
+		// vector leg is ever needed for class-filtered results.
+		fits, fErr := h.Memory().SearchWithKnowledgeClass(bctx, query, matchMode, knowledgeClass, limit)
+		if fErr != nil {
+			return nil, fErr
 		}
-		return obs, nil
+		blended = make([]memory.SearchHit, len(fits))
+		for i, o := range fits {
+			blended[i] = memory.SearchHit{Observation: o, MatchedVia: "keyword"}
+		}
+		return fits, nil
 	})
 	if err != nil {
 		return toolError(err)
@@ -1396,6 +1431,12 @@ func observationDTO(o memory.Observation) map[string]any {
 		"visibility":      o.Visibility,
 		"status":          o.Status,
 		"retrieval_usage": o.RetrievalUsage,
+	}
+	if o.KnowledgeClass != "" {
+		// Additive durability label (ADR-0038): present only when the row
+		// carries a class (inferred on save, or backfilled). Pre-backfill
+		// NULL rows keep the pre-0038 response shape (no key).
+		m["knowledge_class"] = o.KnowledgeClass
 	}
 	if o.TopicKey != "" {
 		m["topic_key"] = o.TopicKey

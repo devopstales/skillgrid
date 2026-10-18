@@ -315,6 +315,11 @@ type SaveInput struct {
 	// validation). When set, it must be one of the 10 — an unknown value is
 	// rejected with a clear error before any write.
 	MemoryType string
+	// KnowledgeClass is the optional durability class (ADR-0038): one of
+	// episodic | convention | doc | unclassified. Empty lets Save/Update
+	// infer it from Type (inferKnowledgeClass); when set, it must be one of
+	// the four — an unknown value is rejected before any write.
+	KnowledgeClass string
 }
 
 // PassiveInput is a raw block of text (assistant reply, Task output, etc.)
@@ -385,6 +390,12 @@ type Observation struct {
 	// (014 step 18). Empty = the row was not given a type (pre-028 rows read
 	// back empty — the pre-028 contract is unchanged). Additive + omitempty.
 	MemoryType string `json:"memory_type,omitempty"`
+	// KnowledgeClass is the durability label (ADR-0038): episodic |
+	// convention | doc | unclassified. Inferred from Type on save when the
+	// caller does not supply one; pre-backfill NULL rows read back as
+	// "unclassified" (COALESCE label) on the hot-read paths, empty here
+	// otherwise. Additive + omitempty.
+	KnowledgeClass string `json:"knowledge_class,omitempty"`
 	// ValidAt is the bi-temporal "valid from" timestamp (ADR-0011). Stamped
 	// at save time with created_at. Empty = pre-migration row (treated as
 	// valid from the beginning).
@@ -540,6 +551,21 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 	if in.MemoryType != "" && !IsValidMemoryType(in.MemoryType) {
 		return SaveResult{}, fmt.Errorf("invalid memory_type %q (allowed: profile, preferences, entities, events, identity, soul, cases, trajectories, experiences, skill)", in.MemoryType)
 	}
+	// Durability class (ADR-0038): an empty knowledge_class is inferred from
+	// the (already-validated) type — the heuristic is non-load-bearing. A
+	// supplied value must be one of the four; it is rejected before any write
+	// so the store never holds an invalid class.
+	//
+	// ponytail: the heuristic is a closed map over the current type taxonomy
+	// (new types default to "unclassified"); the upgrade path is to widen
+	// inferKnowledgeClass when the taxonomy grows, not a second classifier.
+	in.KnowledgeClass = strings.ToLower(strings.TrimSpace(in.KnowledgeClass))
+	if in.KnowledgeClass == "" {
+		in.KnowledgeClass = inferKnowledgeClass(in.Type)
+	}
+	if !IsValidKnowledgeClass(in.KnowledgeClass) {
+		return SaveResult{}, fmt.Errorf("invalid knowledge_class %q (allowed: episodic, convention, doc, unclassified)", in.KnowledgeClass)
+	}
 
 	source := in.Source
 	if source == "" {
@@ -600,7 +626,7 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 		}
 		return s.completeSaveWithAction(ctx, in, SaveResult{Action: VerdictUpdate, ObservationID: d.CandidateID})
 	case d.Reason == "llm" && d.Verdict == VerdictDelete && d.CandidateID > 0:
-		newID, err := s.insertObservation(ctx, in, source, owner, hash, now, memoryType)
+		newID, err := s.insertObservation(ctx, in, source, owner, hash, now, memoryType, in.KnowledgeClass)
 		if err != nil {
 			return SaveResult{}, err
 		}
@@ -637,7 +663,7 @@ func (s *Service) SaveWithAction(ctx context.Context, in SaveInput) (SaveResult,
 		}
 	}
 
-	newID, err := s.insertObservation(ctx, in, source, owner, hash, now, memoryType)
+	newID, err := s.insertObservation(ctx, in, source, owner, hash, now, memoryType, in.KnowledgeClass)
 	if err != nil {
 		return SaveResult{}, err
 	}
@@ -857,6 +883,16 @@ func (s *Service) applyUpdateToCandidate(ctx context.Context, candidateID int64,
 	); err != nil {
 		return fmt.Errorf("candidate upsert: %w", err)
 	}
+	// Durability class (ADR-0038): an upsert never clobbers a row's existing
+	// class; it only fills it while the row is still NULL (re-runnable, same
+	// semantics as BackfillKnowledgeClass).
+	if _, err := s.store.DB.ExecContext(ctx, `
+		UPDATE observations_core SET knowledge_class = ?
+		WHERE id = ? AND knowledge_class IS NULL`,
+		in.KnowledgeClass, candidateID,
+	); err != nil {
+		return fmt.Errorf("candidate upsert: %w", err)
+	}
 	if err := ftsReplaceObs(ctx, s.store.DB, candidateID,
 		oldTitle, oldContent, oldType, in.Title, in.Content, in.Type, project); err != nil {
 		return fmt.Errorf("candidate upsert: %w", err)
@@ -871,7 +907,7 @@ func (s *Service) applyUpdateToCandidate(ctx context.Context, candidateID int64,
 // core INSERT runs first and its real LastInsertId keys the side rows.
 // valid_at is stamped to now (ADR-0011: a new row is valid from creation);
 // invalid_at and superseded_by start NULL.
-func (s *Service) insertObservation(ctx context.Context, in SaveInput, source, owner, hash, now, memoryType string) (int64, error) {
+func (s *Service) insertObservation(ctx context.Context, in SaveInput, source, owner, hash, now, memoryType, knowledgeClass string) (int64, error) {
 	var promptID sql.NullInt64
 	if in.CapturePrompt {
 		promptID = s.latestPromptForSession(ctx, in.SessionID)
@@ -904,6 +940,7 @@ func (s *Service) insertObservation(ctx context.Context, in SaveInput, source, o
 		Hash: hash, Now: now, Source: source, PromptID: nullableInt(promptID),
 		ToolName: nullString(in.ToolName), Owner: owner, ExpiresAt: nullString(expiresAt),
 		Provenance: provenanceJSON, MemoryType: nullString(memoryType),
+		KnowledgeClass: nullString(knowledgeClass),
 	})
 	if err != nil {
 		return 0, err
@@ -1157,7 +1194,7 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	var obs Observation
 	var topicKey sql.NullString
 	var promptID sql.NullInt64
-	var lastSeen, expires, toolName, owner, tier, prov, memType, validAt, invalidAt sql.NullString
+	var lastSeen, expires, toolName, owner, tier, prov, memType, validAt, invalidAt, kClass sql.NullString
 	var pinned, dups, usage int
 	var score, decay sql.NullFloat64
 	err := row.Scan(
@@ -1165,7 +1202,7 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 		&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 		&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
 		&score, &decay, &tier, &prov, &memType,
-		&validAt, &invalidAt, &obs.SupersededBy,
+		&validAt, &invalidAt, &obs.SupersededBy, &kClass,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1181,6 +1218,9 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
 	}
 	if invalidAt.Valid {
 		obs.InvalidAt = invalidAt.String
+	}
+	if kClass.Valid {
+		obs.KnowledgeClass = kClass.String
 	}
 	obs.setImportanceColumns(score, decay, tier)
 	if p, ok, perr := parseProvenanceColumn(prov); perr != nil {
@@ -2413,7 +2453,7 @@ const obsSelectCols = `
 	COALESCE(pinned, 0), COALESCE(duplicate_count, 0), last_seen_at, expires_at, tool_name,
 	owner, COALESCE(visibility, 'private'), COALESCE(status, 'active'), COALESCE(retrieval_usage, 0),
 	importance_score, recency_decay, maturity_tier, provenance, memory_type,
-	valid_at, invalid_at, superseded_by`
+	valid_at, invalid_at, superseded_by, knowledge_class`
 
 func scanObservations(rows *sql.Rows) ([]Observation, error) {
 	var out []Observation
@@ -2421,7 +2461,7 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
 		var obs Observation
 		var topicKey sql.NullString
 		var promptID sql.NullInt64
-		var lastSeen, expires, toolName, owner, tier, prov, memType, validAt, invalidAt sql.NullString
+		var lastSeen, expires, toolName, owner, tier, prov, memType, validAt, invalidAt, kClass sql.NullString
 		var pinned, dups, usage int
 		var score, decay sql.NullFloat64
 		if err := rows.Scan(
@@ -2429,7 +2469,7 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
 			&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
 			&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
 			&score, &decay, &tier, &prov, &memType,
-			&validAt, &invalidAt, &obs.SupersededBy,
+			&validAt, &invalidAt, &obs.SupersededBy, &kClass,
 		); err != nil {
 			return nil, fmt.Errorf("scan observation: %w", err)
 		}
@@ -2441,6 +2481,9 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
 		}
 		if invalidAt.Valid {
 			obs.InvalidAt = invalidAt.String
+		}
+		if kClass.Valid {
+			obs.KnowledgeClass = kClass.String
 		}
 		obs.setImportanceColumns(score, decay, tier)
 		if p, ok, perr := parseProvenanceColumn(prov); perr != nil {
@@ -2530,7 +2573,7 @@ func (s *Service) ValidAtTime(ctx context.Context, query, since string) ([]Obser
 		COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
 		o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
 		o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
-		o.valid_at, o.invalid_at, o.superseded_by`
+		o.valid_at, o.invalid_at, o.superseded_by, o.knowledge_class`
 	rows, err := s.store.DB.QueryContext(ctx, `
 		SELECT `+btSelectCols+`
 		FROM observations o

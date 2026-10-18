@@ -45,7 +45,7 @@ const obsSplitSelectCols = `
 	COALESCE(st.pinned, 0), COALESCE(sa.duplicate_count, 0), sa.last_seen_at, st.expires_at, pr.tool_name,
 	pr.owner, COALESCE(st.visibility, 'private'), COALESCE(st.status, 'active'), COALESCE(sa.retrieval_usage, 0),
 	sa.importance_score, sa.recency_decay, sa.maturity_tier, pr.provenance, pr.memory_type,
-	tm.valid_at, tm.invalid_at, tm.superseded_by`
+	tm.valid_at, tm.invalid_at, tm.superseded_by, o.knowledge_class`
 
 // obsSplitFrom is the hot-read FROM shape: core plus every side table the
 // hot columns live in, LEFT JOINed exactly like the compat view. No
@@ -145,6 +145,7 @@ type splitInsertArgs struct {
 	ExpiresAt                                       any
 	Provenance                                      any
 	MemoryType                                      any
+	KnowledgeClass                                  any
 }
 
 // txInsertSplitObservation writes core + all five side rows + the FTS entry
@@ -168,10 +169,11 @@ func txInsertSplitObservation(ctx context.Context, db *sql.DB, a splitInsertArgs
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO observations_core (
 			session_id, type, title, content, project, scope, topic_key,
-			normalized_hash, revision_count, created_at, updated_at, deleted_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL)`,
+			normalized_hash, revision_count, created_at, updated_at, deleted_at,
+			knowledge_class
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?)`,
 		a.SessionID, a.Type, a.Title, a.Content, a.Project, a.Scope, a.TopicKey,
-		a.Hash, a.Now, a.Now,
+		a.Hash, a.Now, a.Now, a.KnowledgeClass,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert observation: %w", err)

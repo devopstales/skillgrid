@@ -419,7 +419,7 @@ func rawSQLSearch(ctx context.Context, fx *ownerFixture, query string) ([]Observ
 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
 		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance, o.memory_type,
-		       o.valid_at, o.invalid_at, o.superseded_by
+		       o.valid_at, o.invalid_at, o.superseded_by, o.knowledge_class
 		FROM observations o
 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?

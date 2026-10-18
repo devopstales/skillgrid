@@ -67,14 +67,16 @@ func buildPreSplitStore(t *testing.T, dir, project string) string {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
 			continue
 		}
-		// Skip the 054 split and its 055/059 follow-ups: this fixture stops at
-		// the pre-split schema (observations still a TABLE) so the real
-		// store.Open path can apply the split + follow-ups on a copy and the
-		// test verifies the migration actually did the work. 055 repoints the
-		// split FKs and 059 converts observations_fts to standalone — both
-		// assume the 054 split (observations_core) already exists, so they must
-		// not run against the pre-split table.
-		if e.Name() == parityMigrationFile || e.Name() == "063_obs_split_fk_repoint.sql" || e.Name() == "067_obs_fts_standalone.sql" {
+		// Skip the 054 split and its 055/059/062 follow-ups: this fixture
+		// stops at the pre-split schema (observations still a TABLE) so the
+		// real store.Open path can apply the split + follow-ups on a copy and
+		// the test verifies the migration actually did the work. 055 repoints
+		// the split FKs, 059 converts observations_fts to standalone, and
+		// 062 (knowledge class) rebuilds the split view + triggers — all
+		// assume the 054 split (observations_core) already exists, so they
+		// must not run against the pre-split table.
+		if e.Name() == parityMigrationFile || e.Name() == "063_obs_split_fk_repoint.sql" ||
+			e.Name() == "067_obs_fts_standalone.sql" || e.Name() == "070_add_knowledge_class.sql" {
 			continue
 		}
 		names = append(names, e.Name())
@@ -194,13 +196,25 @@ type paritySnap struct {
 	retired []int64
 }
 
-// snapshotParity dumps SELECT * ORDER BY id with canonical per-value
-// serialization, plus the still-valid / superseded id sets (ADR-0011 rule:
-// invalid_at NULL or ” = still true).
+// parityDumpCols is the explicit column set the parity dump hashes. It is
+// SELECT * MINUS knowledge_class: 070 (ADR-0038) is one-way and the pre-split
+// fixture (built with 070 skipped) has no such column, so SELECT * would
+// diverge pre-table vs post-view on exactly that column. An explicit list
+// keeps the pre-table / post-view comparison valid across that dimension.
+// NOTE: a new pre-070 observations column must be added here too (it is
+// absent from the fixture table).
+var parityDumpCols = strings.Join(parityAllCols, ", ")
+
+// snapshotParity dumps id + the parity column set (id FIRST, always) in
+// canonical per-value serialization, plus the still-valid / superseded id
+// sets (ADR-0011 rule: invalid_at NULL or ” = still true). The id is
+// selected explicitly first: 001's `observations` table predates a leading
+// `id` column (it arrives with a later squash), so `SELECT id, ...` works
+// uniformly on the pre-split table and the rebuilt view.
 func snapshotParity(t *testing.T, db *sql.DB) paritySnap {
 	t.Helper()
 	snap := paritySnap{hashes: map[int64]string{}}
-	rows, err := db.Query(`SELECT * FROM observations ORDER BY id`)
+	rows, err := db.Query(`SELECT id, ` + parityDumpCols + ` FROM observations ORDER BY id`)
 	if err != nil {
 		t.Fatalf("dump observations: %v", err)
 	}
@@ -225,11 +239,7 @@ func snapshotParity(t *testing.T, db *sql.DB) paritySnap {
 			h.Write([]byte(paritySerial(v)))
 			h.Write([]byte{0x1f})
 		}
-		id, ok := vals[0].(int64)
-		if !ok {
-			rows.Close()
-			t.Fatalf("id column type %T, want int64", vals[0])
-		}
+		id := vals[0].(int64)
 		snap.hashes[id] = hex.EncodeToString(h.Sum(nil))
 	}
 	rows.Close()
