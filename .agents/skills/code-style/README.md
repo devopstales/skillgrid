@@ -18,8 +18,25 @@ process is right.
 |---|---|
 | [`style-review`](style-review/) | Post-hoc audit of Markdown prose against agent-style's 21 rules (RULE-01..12 canonical + RULE-A..I field-observed): deterministic + semantic scorecard, on-confirm polish to `FILE.reviewed.md`, and A/B delta between two drafts. |
 | [`codebase-design`](codebase-design/) | Shared vocabulary for designing deep modules (module, interface, depth, seam, adapter, leverage, locality). The design language `writing-blueprints` and `architecture-decision-records` draw on for "deep vs shallow" interface judgments. |
+| [`go`](go/) | Google's official Go style guide: gofmt, naming, error handling, interfaces, concurrency, package organization. |
+| [`typescript`](typescript/) | Google's official TypeScript style guide: strict mode, types, interfaces, null handling, naming, imports. |
+| [`javascript`](javascript/) | Google's official JavaScript (ES6+) style guide: const/let, arrow functions, template literals, JSDoc. |
+| [`python`](python/) | Google's official Python style guide (PEP 8 +): type annotations, docstrings, imports, comprehensions. |
+| [`java`](java/) | Google's official Java style guide: naming, formatting, Javadoc, exceptions, lambdas, streams. |
+| [`cpp`](cpp/) | Google's official C++ style guide: headers, naming, RAII, smart pointers, modern C++. |
+| [`csharp`](csharp/) | Google's official C# style guide: naming, LINQ, async/await, XML docs. |
+| [`html-css`](html-css/) | Google's official HTML/CSS style guide: formatting, naming, semantics, accessibility. |
+| [`angularjs`](angularjs/) | Google's official AngularJS style guide: controllers, services, directives, modules. |
+| [`objective-c`](objective-c/) | Google's official Objective-C style guide: naming, memory management, protocols. |
+| [`swift`](swift/) | Google's official Swift style guide: naming, optionals, protocols, error handling. |
+| [`shell`](shell/) | Google's official Shell scripting style guide: Bash, naming, error handling, portability. |
+| [`r`](r/) | Google's official R style guide: naming, formatting, functions, documentation. |
+| [`common-lisp`](common-lisp/) | Google's official Common Lisp style guide: naming, macros, packages. |
+| [`vim-script`](vim-script/) | Google's official Vim script style guide: plugin structure, naming, portability. |
+| [`json`](json/) | Google's official JSON style guide: formatting, naming, structure. |
+| [`markdown`](markdown/) | Google's official Markdown style guide: formatting, structure, links, lists. |
 
-## The two axes
+## The three axes
 
 - **Prose (writing style).** The agent-style v0.9.0 rule set (ADR-0039) in two
   phases: **generation-time** — the compact 21-rule directives at
@@ -33,6 +50,11 @@ process is right.
   "depth" as leverage at the interface. It is a vocabulary, not a gate — other
   skills invoke it when their step is a design decision about a seam or
   interface.
+- **Language style guides.** 17 Google official style guides (ADR-0039), one
+  skill per language. Each fires when the agent writes, reviews, or refactors
+  code in that language. The guides are advisory (naming, formatting, common
+  patterns) and defer to the repo's formatter (`gofmt` for Go, `tsc` for
+  TypeScript, etc.) where the two disagree.
 
 ## Group invariants
 
@@ -54,9 +76,18 @@ process is right.
 
 ## Upstream
 
-The group vendors [agent-style v0.9.0](https://github.com/yzhao062/agent-style)
-(CC-BY-4.0, Yue Zhao): the 21-rule prose ruleset plus its `style-review`
-skill, fixture corpus, detectors, and revision prompt. When agent-style
-releases, bump the vendored copies under
-`style-review/references/` and the ruleset it cites; the skill's
-self-verification handshake names the pinned version.
+Two upstreams, both vendored:
+
+- **agent-style v0.9.0** (CC-BY-4.0, Yue Zhao) — the 21-rule prose ruleset
+  plus its `style-review` skill, fixture corpus, detectors, and revision
+  prompt. When agent-style releases, bump the vendored copies under
+  `style-review/references/` and the ruleset it cites; the skill's
+  self-verification handshake names the pinned version.
+- **Google style guides** (MIT, TestDino 2026, from
+  [testdino-hq/google-styleguides-skills](https://github.com/testdino-hq/google-styleguides-skills))
+  — 17 language style guides derived from
+  [google.github.io/styleguide](https://google.github.io/styleguide/). One
+  skill directory per language; each `SKILL.md` is the quick-reference entry
+  point, each `<lang>.md` is the full guide. When the upstream updates,
+  re-copy the language directories and re-apply the skillgrid frontmatter
+  (license, metadata, based_on, description trigger).
