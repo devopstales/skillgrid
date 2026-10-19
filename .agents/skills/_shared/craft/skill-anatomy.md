@@ -17,6 +17,7 @@ Companion contracts (this file assumes they exist and are honored):
 - [../references/threat-matrix.md](../references/threat-matrix.md) — applicability-driven threats.
 - [../references/strict-tdd.md](../references/strict-tdd.md) — RED → GREEN → TRIANGULATE → REFACTOR.
 - [code-standards.md](../rules/code-standards.md) — global, language-agnostic code standards for any skill that writes or reviews code.
+- [../../code-style/README.md](../../code-style/README.md) — the `code-style` group: prose/writing-style skills (agent-style ruleset + `style-review` audit), separate from this group's skill-construction craft.
 
 ## File location
 

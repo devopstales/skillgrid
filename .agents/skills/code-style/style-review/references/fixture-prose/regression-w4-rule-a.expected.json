@@ -1,0 +1,15 @@
+{
+  "fixture": "regression-w4-rule-a.md",
+  "purpose": "RULE-A boundary cases. True negatives: a genuine two-item list (the directive prefers two natural items over a padded triad), a three-entry bibliography whose items carry real content, a three-platform enumeration, a checklist whose steps repeat the opening 'Run the', and a preposition-led per-platform enumeration. The last three are short and the last two also repeat their opening words, so a length-only or repeated-first-two-words test flags all of them; the directive names checklist steps as a genuine list, so neither shortness nor a repeated opening is evidence on its own. True positives: a numbered causal chain, which numbering must not exempt, plus the five BAD list examples copied from RULE-A's own section of RULES.md. What separates the groups is whether the items read as sentence shards: an opening coordinator or relative pronoun, some-but-not-all items leading with 'Per', or a repeated subject-and-copula clause opening.",
+  "total_violations": 7,
+  "per_rule_count": {
+    "RULE-A": 6,
+    "RULE-C": 1
+  },
+  "cross_rule_note": "The RULE-C hit is on the release checklist, whose three steps all open with 'Run'. It is recorded rather than engineered away: RULE-A correctly leaves the checklist alone, and whether RULE-C should treat deliberately parallel imperative steps as monotone repetition is a separate question about RULE-C's own precision, outside this fixture's scope.",
+  "expected_skipped_rules": [
+    "RULE-01", "RULE-02", "RULE-03", "RULE-04", "RULE-07",
+    "RULE-08", "RULE-09", "RULE-10", "RULE-11",
+    "RULE-F", "RULE-H"
+  ]
+}

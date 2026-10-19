@@ -1,0 +1,13 @@
+{
+  "fixture": "regression-w3-rule-g.md",
+  "purpose": "Exercises RULE-G sentence-style exclusions, case-invariant tokens, exact minor-word casing, boundary capitalization, and hyphenated compounds.",
+  "total_violations": 5,
+  "per_rule_count": {
+    "RULE-G": 5
+  },
+  "expected_skipped_rules": [
+    "RULE-01", "RULE-02", "RULE-03", "RULE-04", "RULE-07",
+    "RULE-08", "RULE-09", "RULE-10", "RULE-11",
+    "RULE-F", "RULE-H"
+  ]
+}

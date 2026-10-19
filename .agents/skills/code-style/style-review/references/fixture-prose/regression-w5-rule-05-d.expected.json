@@ -1,0 +1,14 @@
+{
+  "fixture": "regression-w5-rule-05-d.md",
+  "purpose": "Reject cliché substrings inside longer words, allow one deliberate transition per paragraph, and retain true positives for RULE-05 and RULE-D. The two boundary classes are deliberately different and both are pinned here: RULE-05 stops at a word character only, so `a novelty-detection` stays suppressed while `paradigm shift-based` and `state-of-the-art-system` fire; RULE-D also stops at a hyphen, so `Furthermore-based` is read as a compound modifier and not as the standalone sentence opener the rule names.",
+  "total_violations": 4,
+  "per_rule_count": {
+    "RULE-05": 3,
+    "RULE-D": 1
+  },
+  "expected_skipped_rules": [
+    "RULE-01", "RULE-02", "RULE-03", "RULE-04", "RULE-07",
+    "RULE-08", "RULE-09", "RULE-10", "RULE-11",
+    "RULE-F", "RULE-H"
+  ]
+}
