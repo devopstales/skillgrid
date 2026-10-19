@@ -10,6 +10,17 @@ budgets, anti-rationalization), and from [../verification](../verification/),
 which gates correctness. A skill lives here when its verdict is about **surface
 quality of writing**, not about whether the code or process is right.
 
+The group has two phases, both from the same agent-style v0.9.0 rule set
+(ADR-0039):
+
+- **Generation-time** — the compact 21-rule directives live at
+  [`../_shared/rules/prose-style.md`](../_shared/rules/prose-style.md) (shared
+  convention, referenced from `AGENTS.md` and `skill-anatomy.md`). Agents apply
+  the rules *while writing*; it is not a skill and does not live in this group's
+  directory.
+- **Review-time** — the `style-review` skill below is the opt-in post-hoc audit
+  against the same rules (scorecard, write-beside polish, A/B compare).
+
 ## Members
 
 | Skill | What it does |
