@@ -265,6 +265,13 @@ async function loadPlugin(file) {
         const toolResults = piEvents.filter(([n]) => n === "tool_result").map(([, h]) => h)
         if (toolResults.length > 0) {
           const ctx = { cwd: "/tmp", sessionManager: { getSessionId: () => "pi-session-1" } }
+          check(toolResults.length >= 2, "tool_result has the SDD commit-capture handler")
+          // Await every subscribed tool_result handler first: the SDD
+          // commit-capture handler (skillgrid-sdd-events) also subscribes,
+          // and its await-serialized fetch must not interleave with the
+          // overflow handler's fetch below (mock server, receipt order).
+          for (const handler of toolResults)
+            await handler({ toolName: "bash", input: { command: "ls" }, content: [{ type: "text", text: "ok" }] }, ctx)
           // Oversized: replaced with a receipt.
           const big = "x".repeat(5000)
           const outBig = await toolResults[0](
