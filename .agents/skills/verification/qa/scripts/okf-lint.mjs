@@ -143,7 +143,7 @@ function readConceptFile(absPath) {
   const raw = readFileSync(absPath, "utf8");
   const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!m) {
-    return { frontmatter: null, body: raw, parseError: null, hasFence: true };
+    return { frontmatter: null, body: raw, parseError: null };
   }
   let data = null;
   let parseError = null;
@@ -154,7 +154,7 @@ function readConceptFile(absPath) {
   }
   const fm =
     data && typeof data === "object" && !Array.isArray(data) ? data : null;
-  return { frontmatter: fm, body: m[2], parseError, hasFence: true };
+  return { frontmatter: fm, body: m[2], parseError };
 }
 
 function readBodyFile(absPath) {
@@ -384,7 +384,10 @@ function main() {
   for (const f of mdFiles) {
     const rel = relToRoot(bundleRoot, f);
     const base = rel.split("/").pop();
-    if (base === "index.md" || base === "log.md") {
+    // Pre-R6 artifacts/ fallback: README.md is the root catalog (the
+    // post-R6 root catalog is index.md). Treat it as reserved so it is
+    // checked for okf_version and links, not linted as a concept.
+    if (base === "index.md" || base === "log.md" || base === "README.md") {
       reserved.push({ rel, content: readBodyFile(f) });
       continue;
     }
@@ -400,7 +403,10 @@ function main() {
       isDirCatalog: rel.endsWith("index.md"),
     });
   }
-  const rootIndex = reserved.find((r) => r.rel === "index.md");
+  // Root catalog: index.md (post-R6 / bundle-root) or README.md (pre-R6).
+  const rootIndex =
+    reserved.find((r) => r.rel === "index.md") ||
+    reserved.find((r) => r.rel === "README.md");
 
   const findings = [];
   const find = (kind, rel, detail) =>
@@ -431,7 +437,7 @@ function main() {
     if (versionMissing) {
       find(
         "frontmatter-invalid",
-        "index.md",
+        rootIndex.rel,
         "root catalog missing `okf_version`",
       );
     }
@@ -440,14 +446,12 @@ function main() {
   // --- Check 2: index-complete (both directions) ---
   const entrySet = new Set();
   const catalogs = [];
-  if (rootIndex) catalogs.push({ rel: "index.md", content: rootIndex.content });
+  if (rootIndex) catalogs.push({ rel: rootIndex.rel, content: rootIndex.content });
   for (const c of concepts) {
     if (c.isDirCatalog) {
-      const m = c.body.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
-      const bodyText = m ? c.body.slice(m[0].length) : c.body;
-      const fmMatch = readConceptFile(c.abs);
-      const full = fmMatch.hasFence ? fmMatch.body : c.body;
-      catalogs.push({ rel: c.rel, content: full });
+      // c.body is already fence-stripped (readConceptFile), so use it as the
+      // catalog content directly — no re-read of the frontmatter needed.
+      catalogs.push({ rel: c.rel, content: c.body });
     }
   }
   for (const cat of catalogs) {
@@ -469,14 +473,9 @@ function main() {
     }
   }
   for (const entry of [...entrySet].sort()) {
-    const resolved = relToRoot(
-      bundleRoot,
-      join(bundleRoot, entry),
-    );
     if (!existsSync(join(bundleRoot, entry))) {
       find("index-incomplete", entry, "catalog entry does not resolve");
     }
-    void resolved;
   }
 
   // --- Check 3: links-unbroken (in-bundle Markdown targets only) ---

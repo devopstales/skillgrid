@@ -18,12 +18,14 @@ verification:
   anchors:
     - path: go.mod
       all_of:
-        - go 1.23
+        - go 1.22
       near: module example.com
       scope_lines: 40
 ---
 
 # Go 1.23+ Build Floor
 
-The claim literal above says `go 1.23` while the pinned `go.mod` still reads
-`go 1.22` — the anchors-match liveness check must report CLAIM_BROKEN.
+The pinned `go.mod` still reads `go 1.22` (the `all_of` term matches, so the
+region is found) but the claim literal says `go 1.23`, which is absent from the
+matched region — the anchors-match liveness check must report DRIFT (a
+literal-only drift, exercising the union-of-regions claim check).

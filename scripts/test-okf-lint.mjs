@@ -78,6 +78,11 @@ function assert(name, cond, detail = "") {
   assert("drift: names index-incomplete", r.stdout.includes("index-incomplete"), r.stdout);
   assert("drift: names link-broken", r.stdout.includes("link-broken"), r.stdout);
   assert("drift: names provenance-missing", r.stdout.includes("provenance-missing"), r.stdout);
+  // Literal-only drift: the go.mod anchor's all_of term matches (region found)
+  // but the claim literal "go 1.23" is absent from the matched region, so the
+  // union-of-regions claim check reports DRIFT (not CLAIM_BROKEN).
+  assert("drift: names anchor-drift (literal-only)", r.stdout.includes("anchor-drift"), r.stdout);
+  assert("drift: claim literal reported absent from region", r.stdout.includes('claim literal "go 1.23" not in any matched region'), r.stdout);
   assert("drift: SCOPE: COMPLETE", /^SCOPE: COMPLETE$/m.test(r.stdout), r.stdout);
 }
 
@@ -185,9 +190,9 @@ function countLines(p) {
   mkdirSync(join(root, ".skillgrid"), { recursive: true });
   const env = { OKF_METRICS_SINK: join(root, "metrics.jsonl") };
   const r = runLint(root, env);
-  assert("layout-unscopecd: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
-  assert("layout-unscopecd: SCOPE: UNSCOPED", /^SCOPE: UNSCOPED$/m.test(r.stdout), r.stdout);
-  assert("layout-unscopecd: not a clean bill", !r.stdout.includes("DRIFT: clean"), r.stdout);
+  assert("layout-unscoped: exit 0", r.code === 0, `got ${r.code}: ${r.stderr}`);
+  assert("layout-unscoped: SCOPE: UNSCOPED", /^SCOPE: UNSCOPED$/m.test(r.stdout), r.stdout);
+  assert("layout-unscoped: not a clean bill", !r.stdout.includes("DRIFT: clean"), r.stdout);
   rmSync(root, { recursive: true, force: true });
 }
 
