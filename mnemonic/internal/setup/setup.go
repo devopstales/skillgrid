@@ -35,17 +35,13 @@ const (
 	kiloEndMarker   = "<!-- END SKILLGRID MNEMONIC -->"
 )
 
-// nativePluginBases are the 5 native TS plugin file bases (ADR-0032), in
+// nativePluginBases are the 6 native TS plugin file bases (ADR-0032), in
 // registration order. Both harnesses install them from plugins/opencode/<base>.ts
-// to ~/.config/<harness>/plugin/<base>.ts and register "./plugin/<base>.ts".
-// nativePluginBases are the 5 native TS plugin file bases (ADR-0032), in
-// registration order, plus the V2 bootstrap shim. Both harnesses install them
-// from plugins/opencode/<base>.ts to ~/.config/<harness>/plugin/<base>.ts and
-// register "./plugin/<name>.ts". The shim (opencode-v2.ts) carries no hooks of
-// its own — it is a dependency of the V2 entrypoints — but it must ship next
-// to the plugins for their `./opencode-v2.ts` import to resolve.
+// to ~/.config/<harness>/plugin/<base>.ts and register "./plugin/<name>.ts".
+// Every file is a full plugin (default export {id, setup}) — OpenCode v2
+// discovers every file in plugins/ and rejects anything without a default
+// definition, so there is no separate bootstrap shim.
 var nativePluginBases = []string{
-	"opencode-v2",
 	"skillgrid-compaction",
 	"skillgrid-events",
 	"skillgrid-squad",
