@@ -158,6 +158,15 @@ func Scan(root string, include, exclude, docInclude []string) ([]ScannedFile, er
 			}
 			return nil
 		}
+		// A dangling symlink has no resolvable target, so d.Info() (which
+		// follows the link) returns "no such file or directory". Skip it
+		// instead of aborting the whole index — a dead link is a skip, not a
+		// fatal error.
+		if d.Type()&fs.ModeSymlink != 0 {
+			if _, statErr := os.Stat(path); statErr != nil {
+				return nil
+			}
+		}
 		info, err := d.Info()
 		if err != nil {
 			return err

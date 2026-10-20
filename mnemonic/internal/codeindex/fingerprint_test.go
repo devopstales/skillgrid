@@ -300,3 +300,37 @@ func TestFingerprintDocIncludeParity(t *testing.T) {
 		t.Errorf("expected the excluded state.yaml to NOT be fingerprinted, got %v", changed)
 	}
 }
+
+// TestWalkFingerprintSkipsDanglingSymlink verifies the fingerprint stat-walk
+// skips a symlink whose target is gone (a dead link must not abort the ~3ms
+// drift walk) while a healthy symlink is still fingerprinted.
+func TestWalkFingerprintSkipsDanglingSymlink(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "real.go"), "package main\n")
+	if err := os.Symlink("real.go", filepath.Join(root, "link.go")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	if err := os.Symlink("gone.go", filepath.Join(root, "dangling.go")); err != nil {
+		t.Fatalf("symlink dangling: %v", err)
+	}
+	cfg := Config{
+		Include: []string{"**/*.go"},
+		Exclude: []string{"**/node_modules/**", "**/.git/**"},
+	}
+	seen := map[string]bool{}
+	err := walkFingerprint(root, cfg, func(rec fingerprintRecord) {
+		seen[rec.RelPath] = true
+	})
+	if err != nil {
+		t.Fatalf("walkFingerprint: %v (a dangling symlink must not abort the walk)", err)
+	}
+	if !seen["real.go"] {
+		t.Errorf("real.go not fingerprinted")
+	}
+	if !seen["link.go"] {
+		t.Errorf("healthy symlink link.go not fingerprinted")
+	}
+	if seen["dangling.go"] {
+		t.Errorf("dangling symlink dangling.go was fingerprinted (expected skipped)")
+	}
+}

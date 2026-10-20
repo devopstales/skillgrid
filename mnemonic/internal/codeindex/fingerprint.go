@@ -190,6 +190,14 @@ func walkFingerprint(root string, cfg Config, fn func(fingerprintRecord)) error 
 			}
 			return nil
 		}
+		// Skip a dangling symlink (target gone) — d.Info() follows the link
+		// and would otherwise hard-fail the fingerprint walk. A dead link is
+		// a skip, not a fatal error.
+		if d.Type()&fs.ModeSymlink != 0 {
+			if _, statErr := os.Stat(path); statErr != nil {
+				return nil
+			}
+		}
 		info, err := d.Info()
 		if err != nil {
 			return err

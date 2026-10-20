@@ -626,6 +626,7 @@ func DefaultIndexing() Indexing {
 			"**/.git/**",
 			"**/dist/**",
 			"**/.skillgrid/**",
+			"**/.worktrees/**",
 		},
 		// DocInclude carves the decision-record markdown back out of the
 		// blanket **/.skillgrid/** Exclude so ADRs / glossary / PRD / reports

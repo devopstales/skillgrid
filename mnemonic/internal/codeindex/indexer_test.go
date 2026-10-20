@@ -306,6 +306,39 @@ func TestScanDocIncludeCarveOut(t *testing.T) {
 	}
 }
 
+// TestScanSkipsDanglingSymlink verifies a symlink whose target is gone is
+// skipped (not a fatal error) so a dead link cannot abort the whole index,
+// while a healthy symlink to a real file is still indexed.
+func TestScanSkipsDanglingSymlink(t *testing.T) {
+	root := t.TempDir()
+	// A healthy symlink: target exists, should be indexed.
+	mustWrite(t, filepath.Join(root, "real.go"), "package main\n")
+	if err := os.Symlink("real.go", filepath.Join(root, "link.go")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	// A dangling symlink: target was removed, must be skipped, not fatal.
+	if err := os.Symlink("gone.go", filepath.Join(root, "dangling.go")); err != nil {
+		t.Fatalf("symlink dangling: %v", err)
+	}
+	files, err := Scan(root, []string{"**/*.go"}, nil, nil)
+	if err != nil {
+		t.Fatalf("scan: %v (a dangling symlink must not abort the index)", err)
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f.Path] = true
+	}
+	if !got["real.go"] {
+		t.Errorf("real.go not indexed")
+	}
+	if !got["link.go"] {
+		t.Errorf("healthy symlink link.go not indexed")
+	}
+	if got["dangling.go"] {
+		t.Errorf("dangling symlink dangling.go was indexed (expected skipped)")
+	}
+}
+
 func itoa(i int) string {
 	if i == 0 {
 		return "0"
