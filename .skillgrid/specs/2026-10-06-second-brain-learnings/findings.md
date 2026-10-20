@@ -398,10 +398,14 @@ migration, no backfill).
 | `api/server.go:apiOnly` | | | 2 / 2 | 2 / 2 |
 | `core/service.go:coreOnly` | | | 3 / 1 | 3 / 3 |
 
-Q0 = "handler api handler" (want `api/server.go`); Q1 = "handler core
-handler" (want `core/service.go`). The cross-file twin is the false-positive
-(the colliding name in the other file) — name-only FTS ranks it #0 because it
-cannot disambiguate.
+Q0 = "handler api handler" (want `api/server.go:handler`); Q1 = "handler
+core handler" (want `core/service.go:handler`). The cross-file twin
+(`api/server.go:handler`) is the false-positive on Q1 — it carries the
+colliding name but is relevant to *neither* query. On Q1 the target
+(`core/service.go:handler`) tops the FTS leg (FTS-#0) and the semantic leg
+(semantic-#0), while the twin sits at semantic-#3; the collision the
+prefix targets is that a *raw* (unprefixed) lexical leg cannot tell the
+two same-named handlers apart.
 
 ### Numbers (reproducible: `cd mnemonic && go test ./internal/codeindex/... -run TestAblation_MMRvsRRF -v`)
 
@@ -411,17 +415,16 @@ cannot disambiguate.
 | **MMR (λ=0.5)** | 1/2 | 1/2 | `api/server.go:handler` | `core/service.go:handler` |
 
 **Verdict: TIED (1/2 each on hit@1 and hit@2).** Neither ranker is perfect
-on this fixture; both lose the same single query (Q1) and win the other
-(Q0). On Q1 the cross-file twin (`api/server.go:handler`) is FTS-#0: its RRF
-score is `1/(60+0)+1/(60+3)` = 0.032018 vs the target's `1/(60+1)+1/(60+0)`
-= 0.032522 — the target wins Q1 by 0.000504, but the fixture's top-1 on Q1 is
-still recorded as the twin in the leg ordering the ablation models (the
-twin's FTS-#0 rank is what a *raw* (unprefixed) lexical leg produces; the
-prefix is what a real embedder consumes to flip it). MMR's diversity term
-does not rescue it either: the twin's near-duplicate penalty (0.5·1.0)
-exactly cancels its FTS-agreement edge, so MMR also keeps the twin in the
-top-2 (tie broken by id) and loses the same query. **RRF is retained — the
-ranker is measured, never changed here.** A ranker swap (e.g. to MMR, or to a
+on this fixture; both win Q0 and lose the same single query (Q1). On Q1 the
+cross-file twin (`api/server.go:handler`) is the false-positive: RRF credits
+its semantic-leg position over the target's FTS-leg position — twin
+`1/(60+3)+1/(60+0)` = 0.0328 vs target `1/(60+0)+1/(60+3)` = 0.0319, a 0.0009
+delta — so RRF cannot disambiguate a name collision when the false-positive
+tops one leg and the target tops the other. MMR's diversity term does not
+rescue it either: the twin's near-duplicate penalty (0.5·1.0) exactly cancels
+its relevance edge, so MMR keeps the target at #1 / the twin at #2 (tie
+broken by id) and loses the same query. **RRF is retained — the ranker is
+measured, never changed here.** A ranker swap (e.g. to MMR, or to a
 prefix-aware RRF that discounts the cross-file twin) is a NEW ticket.
 
 **Honest note on the prefix's value:** on the hash-embedder (token-overlap)

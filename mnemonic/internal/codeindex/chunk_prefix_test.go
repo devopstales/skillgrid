@@ -588,8 +588,11 @@ func TestAblation_MMRvsRRF(t *testing.T) {
 		t.Errorf("ablation flip: MMR (hit@1=%d hit@2=%d) beats RRF (hit@1=%d hit@2=%d) — record in findings.md and open a ranker ticket; do NOT change rank.go here",
 			mmr.HitAt1, mmr.HitAt2, rrf.HitAt1, rrf.HitAt2)
 	}
-	// Fixture invariants (the measured numbers): both rankers lose exactly
-	// Query 1 (the FTS-#0 false-positive) and win Query 0.
+	// Fixture invariants (PINNED, not measured): the harness asserts the
+	// current 1/2-vs-1/2 tie so a real measurement change fails loudly here
+	// and forces the findings.md record to be re-checked. The flip assertion
+	// above (MMR > RRF) is the genuine "measure and report" gate; these are a
+	// regression lock on the fixture, not a fresh measurement.
 	if rrf.HitAt1 != 1 || rrf.HitAt2 != 1 {
 		t.Errorf("fixture invariant: RRF must score 1/2 on both hit@1 and hit@2 (got hit@1=%d hit@2=%d)", rrf.HitAt1, rrf.HitAt2)
 	}
@@ -718,9 +721,8 @@ func TestAblation_PrefixedBeatsRawOnCodeNameQueries(t *testing.T) {
 	// text has no mention of the query. This is the acceptance line: prefixed
 	// retrieval resolves the code-name query to a code-name chunk.
 	topPrefixed := docs[0]
-	topChunk := chunks[0] // docs[i] corresponds to chunks[i] (same iteration order)
-	_ = topChunk
-	// Re-find the chunk for topPrefixed.id.
+	// Re-find the chunk for topPrefixed.id (docs[i] corresponds to chunks[i]
+	// by iteration order, but the assertion needs the chunk's text, not its id).
 	var topIsHandler bool
 	for _, c := range chunks {
 		if fmt.Sprintf("%s:%d", c.Path, c.StartLine) == topPrefixed.id {
