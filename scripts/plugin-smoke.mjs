@@ -32,23 +32,30 @@ function check(cond, msg) {
 }
 
 // ── mock opencode SDK ────────────────────────────────────────────────────────
+// In V1, `tool.schema.string()` etc. return chainable proxies; the V2
+// `wrap()` in each plugin converts the collapsed arg objects to JSON Schema
+// by reading `.schema` (and `.optional` as a flag). The mock mirrors that:
+// each chainable returns an object whose `.schema` is the final JSON Schema
+// and whose `.optional` carries the `.optional()` flag.
 const mockSchema = {
-  string: () => mockSchemaFn("string"),
-  number: () => mockSchemaFn("number"),
-  boolean: () => mockSchemaFn("boolean"),
-  object: () => mockSchemaFn("object"),
-  any: () => mockSchemaFn("any"),
+  string: () => mockSchemaFn({ type: "string" }),
+  number: () => mockSchemaFn({ type: "number" }),
+  boolean: () => mockSchemaFn({ type: "boolean" }),
+  object: () => mockSchemaFn({ type: "object", properties: {} }),
+  any: () => mockSchemaFn({ type: "string" }),
 }
-function mockSchemaFn(kind) {
+function mockSchemaFn(schema, optional) {
   return {
-    describe: () => mockSchemaFn(kind),
-    optional: () => mockSchemaFn(kind),
-    nullable: () => mockSchemaFn(kind),
-    min: () => mockSchemaFn(kind),
-    max: () => mockSchemaFn(kind),
-    array: () => mockSchemaFn(kind),
-    enum: () => mockSchemaFn(kind),
-    union: () => mockSchemaFn(kind),
+    schema,
+    optional,
+    describe: (d) => mockSchemaFn({ ...schema, description: d }, optional),
+    optional: () => mockSchemaFn(schema, true),
+    nullable: () => mockSchemaFn(schema, optional),
+    min: () => mockSchemaFn(schema, optional),
+    max: () => mockSchemaFn(schema, optional),
+    array: () => mockSchemaFn(schema, optional),
+    enum: () => mockSchemaFn(schema, optional),
+    union: () => mockSchemaFn(schema, optional),
   }
 }
 // The plugins call the top-level `tool(def)` and read `tool.schema.*`, so the
@@ -59,10 +66,6 @@ const mockTool = Object.assign((def) => ({
   args: { ...(def.args || {}) },
 }), { schema: mockSchema })
 globalThis.tool = mockTool
-globalThis.opencode = {
-  plugin: { tool: mockTool },
-  schema: mockSchema,
-}
 
 // ── mock HTTP server: answers every /teams, /policy, /observations, /search,
 //    /facts, /sessions, /context, /code path with 200 + a JSON body so the
@@ -154,6 +157,15 @@ const plugins = [
     tools: ["code_status", "code_index", "code_search", "code_read", "code_files"],
     kind: "tool",
     sample: { tool: "code_status", args: {} },
+  },
+  {
+    file: "plugins/opencode/skillgrid-context.ts",
+    factory: "SkillgridContext",
+    tools: [],
+    kind: "sessionHook", // V2: ctx.session.hook("context", ...)
+    events: [
+      ["experimental.chat.messages.transform", { sessionID: "s1" }, { messages: [] }],
+    ],
   },
 ]
 
@@ -349,7 +361,9 @@ for (const p of plugins) {
     try {
       const added = []
       const hooked = []
+      const sessionHooks = []
       const mockCtx = {
+        directory: "/tmp",
         tool: {
           transform: async (cb) => {
             cb({
@@ -359,6 +373,11 @@ for (const p of plugins) {
           },
           hook: async (name, cb) => {
             hooked.push([name, cb])
+          },
+        },
+        session: {
+          hook: async (name, cb) => {
+            sessionHooks.push([name, cb])
           },
         },
         event: {
@@ -383,6 +402,18 @@ for (const p of plugins) {
         check(hooked.length >= 2, "v2 setup registers tool hooks (before+after)")
       } else if (p.kind === "eventHandler") {
         check(true, "v2 setup subscribes to the event stream")
+      } else if (p.kind === "sessionHook") {
+        check(
+          sessionHooks.some(([n]) => n === "context") &&
+            sessionHooks.length === 1,
+          "v2 setup registers the context session hook",
+        )
+        const ctxHook = sessionHooks.find(([n]) => n === "context")
+        if (ctxHook) {
+          // CLM disabled (no config in /tmp): handler must be a no-op.
+          await ctxHook[1]({ messages: [{ info: { role: "user" }, parts: [{ type: "text", text: "hi" }] }] })
+          check(true, "context hook runs (CLM off = no-op)")
+        }
       }
     } catch (err) {
       check(false, "v2 setup: " + err.message)
