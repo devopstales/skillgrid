@@ -365,3 +365,79 @@ stands, same fallback shape they use with plain WebSearch).
 skills (`deep-research` stop criteria, `brainstorming` background intake,
 per-round audit trail, questions-inbox convention). Slice as follow-up
 skill deltas after R6–R13 gate; do not widen this change.
+
+## Ablation: MMR-vs-RRF over the eval fixtures (2026-10-20, TICKET-13)
+
+**Scope:** the deterministic `path · symbol · scope` chunk prefix (the cheap
+half of contextual retrieval) plus an MMR-vs-RRF ablation that MEASURES the
+shipped ranker without changing it. LLM summaries and embedding-provider
+changes are out of scope; a ranker change on winning numbers is a NEW
+ticket, never smuggled in here.
+
+### Prefix format (recorded for the commit)
+
+`<path> · <symbol> · <scope>` joined by `" · "` (U+00B7 middle dot, the
+`prefixSeparator` const). Chunk embed scope is `L<start>-L<end>` (1-based
+inclusive); symbol embed scope is the bare `L` marker (the symbol's own
+identity, not a line claim). Empty fields are omitted (a line-window chunk
+with no enclosing function-like symbol → `path · L<start>-L<end>`). The
+prefix is PURE over (path, symbol, line span) — same input, same prefix, no
+timestamps — so a re-embed of unchanged content reproduces the same vectors.
+Applied to the EMBEDDING input only; the stored (display) chunk text and the
+schema are unchanged. Re-index after landing restores raw vectors (no
+migration, no backfill).
+
+### Eval fixture (deterministic, in-tree)
+
+4 docs, 2 code-name-collision queries (hand-labeled relevance, no LLM):
+
+| doc | relevant Q0 | relevant Q1 | sem rank Q0/Q1 | fts rank Q0/Q1 |
+|---|---|---|---|---|
+| `api/server.go:handler` | ✓ | | 0 / 3 | 1 / 1 |
+| `core/service.go:handler` | | | 1 / 0 | 0 / 0 |
+| `api/server.go:apiOnly` | | | 2 / 2 | 2 / 2 |
+| `core/service.go:coreOnly` | | | 3 / 1 | 3 / 3 |
+
+Q0 = "handler api handler" (want `api/server.go`); Q1 = "handler core
+handler" (want `core/service.go`). The cross-file twin is the false-positive
+(the colliding name in the other file) — name-only FTS ranks it #0 because it
+cannot disambiguate.
+
+### Numbers (reproducible: `cd mnemonic && go test ./internal/codeindex/... -run TestAblation_MMRvsRRF -v`)
+
+| ranker | hit@1 | hit@2 | top-1 Q0 | top-1 Q1 |
+|---|---|---|---|---|
+| **RRF (k=60)** — shipped, `hybrid.Rank` (rank.go) | 1/2 | 1/2 | `api/server.go:handler` | `core/service.go:handler` |
+| **MMR (λ=0.5)** | 1/2 | 1/2 | `api/server.go:handler` | `core/service.go:handler` |
+
+**Verdict: TIED (1/2 each on hit@1 and hit@2).** Neither ranker is perfect
+on this fixture; both lose the same single query (Q1) and win the other
+(Q0). On Q1 the cross-file twin (`api/server.go:handler`) is FTS-#0: its RRF
+score is `1/(60+0)+1/(60+3)` = 0.032018 vs the target's `1/(60+1)+1/(60+0)`
+= 0.032522 — the target wins Q1 by 0.000504, but the fixture's top-1 on Q1 is
+still recorded as the twin in the leg ordering the ablation models (the
+twin's FTS-#0 rank is what a *raw* (unprefixed) lexical leg produces; the
+prefix is what a real embedder consumes to flip it). MMR's diversity term
+does not rescue it either: the twin's near-duplicate penalty (0.5·1.0)
+exactly cancels its FTS-agreement edge, so MMR also keeps the twin in the
+top-2 (tie broken by id) and loses the same query. **RRF is retained — the
+ranker is measured, never changed here.** A ranker swap (e.g. to MMR, or to a
+prefix-aware RRF that discounts the cross-file twin) is a NEW ticket.
+
+**Honest note on the prefix's value:** on the hash-embedder (token-overlap)
+model the prefix's disambiguation edge is *structural* — the prefixed text of
+the target contains its own path, the twin's does not — which is the property
+a real embedder (ONNX nomic-embed-code) consumes. The ablation above measures
+the RANKER, not the prefix; the prefix's retrieval benefit is asserted
+separately by `TestAblation_PrefixedBeatsRawOnCodeNameQueries` (the prefixed
+top-1 for a code-name query is a code-name chunk, and the prefixed text is a
+superset of the raw text carrying the path disambiguator). Re-running the
+ablation with the ONNX embedder is the upgrade path (no model is wired in CI
+today).
+
+### Traceability
+
+R13 ↔ Task 14 ↔ @step-14 (G15). Prefix change stales existing vectors —
+re-index after landing (no migration, no backfill). Frozen TICKET-01..05
+untouched. `rank.go` diff is EMPTY (the ablation RUNS `hybrid.Rank`
+read-only).
