@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-06-mnemonic-standalone — tasks"
+status: draft
+
+---
+
 # Tasks — Mnemonic Standalone Module
 
 > **STATUS:** `done` (2026-10-07)

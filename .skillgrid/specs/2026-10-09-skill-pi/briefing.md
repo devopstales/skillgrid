@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-09-skill-pi — briefing"
+status: draft
+
+---
+
 # skill-pi — Design Briefing (requirements & intent)
 
 > **STATUS:** `draft` (2026-10-09)
@@ -532,7 +539,7 @@ agent experience opencode/kilo users get, with Pi as the runtime.
 
 ## Impact on Global Docs
 
-- `.skillgrid/artifacts/00-prd.md`: Add `skill-pi` as a shipped component /
+- `.skillgrid/reference/00-prd.md`: Add `skill-pi` as a shipped component /
   feature (new harness distribution).
 - `.skillgrid/ASSUMPTIONS.md`: New ADR row(s) for the `@earendil-works/pi-*`
   npm dependency surface (ADR-0008 precedent) — confirm ADR-0037 and ADR-0038
@@ -587,10 +594,10 @@ agent experience opencode/kilo users get, with Pi as the runtime.
 
 ## Decisions (ADR)
 
-- `.skillgrid/artifacts/04-adr-0037-permission-extension.md` — permission
+- `.skillgrid/decisions/04-adr-0037-permission-extension.md` — permission
   extension: 3-tier config, Tree-sitter bash matching, pre-start tool hiding,
   diff preview, hybrid approvals, fail-closed default.
-- `.skillgrid/artifacts/04-adr-0038-ticketing-mcp-adapter.md` — ticketing:
+- `.skillgrid/decisions/04-adr-0038-ticketing-mcp-adapter.md` — ticketing:
   `ticket` tool backed by the `backlog` MCP server (Backlog.md single source
   of truth), not tk.
 - New ADR (to be recorded): `@earendil-works/pi-coding-agent` +
@@ -599,14 +606,14 @@ agent experience opencode/kilo users get, with Pi as the runtime.
 ## Terms
 
 - **skill-pi** — the opinionated, non-fork distribution of Pi built on the
-  skillgrid standards (this feature). `.skillgrid/artifacts/02-technical-terms.md`
+  skillgrid standards (this feature). `.skillgrid/glossary/02-technical-terms.md`
   (new term).
 - **cwd shim** — the per-project directory under `~/.skill-pi/cwd/<project>/`
   whose `package.json` carries `piConfig.configDir = ".skill-pi"`, through
   which pi's `join(cwd, CONFIG_DIR_NAME)` resolves to the real project's
-  `.skill-pi/`. `.skillgrid/artifacts/02-technical-terms.md` (new term).
+  `.skill-pi/`. `.skillgrid/glossary/02-technical-terms.md` (new term).
 - **extension port** — a `skill-pi/extensions/*.ts` file that ports the
   behavior of a `plugins/opencode/*.ts` plugin to Pi's `ExtensionAPI`.
-  `.skillgrid/artifacts/02-technical-terms.md` (new term).
+  `.skillgrid/glossary/02-technical-terms.md` (new term).
 - **Extractor** — existing term (mnemonic code index); referenced by ADR-0037
   for the Tree-sitter bash-matching dependency. No change.

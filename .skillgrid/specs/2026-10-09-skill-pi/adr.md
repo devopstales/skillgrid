@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-09-skill-pi — adr"
+status: draft
+
+---
+
 # ADR Review Manifest — skill-pi
 
 > **Change:** `2026-10-09-skill-pi`
@@ -12,12 +19,12 @@ All 30 in-force ADRs (0001–0036, excluding removed 0014/0015) were reviewed ag
 
 | ADR | File | Summary |
 |-----|------|---------|
-| ADR-0039 | `.skillgrid/artifacts/04-adr-0039-skill-pi-permission-extension.md` | skill-pi permission layer: 3-tier config, Tree-sitter bash matching, tool hiding, diff preview, hybrid approvals |
-| ADR-0038 | `.skillgrid/artifacts/04-adr-0038-skill-pi-ticketing-backlog-adapter.md` | skill-pi ticketing: `ticket` tool (10 actions) + `/tickets` command backed by the `backlog` MCP server over stdio; no vendored tk, no direct file I/O |
+| ADR-0039 | `.skillgrid/decisions/04-adr-0039-skill-pi-permission-extension.md` | skill-pi permission layer: 3-tier config, Tree-sitter bash matching, tool hiding, diff preview, hybrid approvals |
+| ADR-0038 | `.skillgrid/decisions/04-adr-0038-skill-pi-ticketing-backlog-adapter.md` | skill-pi ticketing: `ticket` tool (10 actions) + `/tickets` command backed by the `backlog` MCP server over stdio; no vendored tk, no direct file I/O |
 
 ## Terms added
 
-Four new terms added to `.skillgrid/artifacts/02-technical-terms.md`:
+Four new terms added to `.skillgrid/glossary/02-technical-terms.md`:
 
 - **Permission Extension** — the skill-pi Pi extension that gates tool calls
 - **Tool Hiding** — the pre-start mechanism where deny/ask tools are hidden from the agent

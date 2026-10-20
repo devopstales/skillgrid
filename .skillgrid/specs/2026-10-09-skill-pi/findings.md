@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-09-skill-pi — findings"
+status: draft
+
+---
+
 # Findings — skill-pi (customized Pi agent for skillgrid)
 
 > **Decision this serves:** Where and how skillgrid ships `skill-pi`, a customized

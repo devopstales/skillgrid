@@ -1,8 +1,15 @@
+---
+type: Spec
+title: "2026-10-02-skillgrid-workflow-updates — briefing"
+status: draft
+
+---
+
 # Skillgrid Release/2 — Engineering Operating System (design briefing)
 
 > **STATUS:** `draft` (2026-10-09) — Release/2 Engineering Operating System Plan folded into this spec as the master vision (Option B, replace in-place). Existing workflow-update reqs 1–24 (rounds 3–12) are preserved as **sub-requirements** under the plan's phased roadmap (33-item initial order). **First slice** (the executable wedge) is TBD — the Release/2 vision re-opens scoping; the prior first-slice cut (reqs 21+19+8) is retained as a candidate but not confirmed under the new vision.
 >
-> **Master plan:** `.skillgrid/artifacts/skillgrid-workflow-update-plan.md` (1169 lines, 41 sections) — the authoritative vision this briefing operationalizes.
+> **Master plan:** `.skillgrid/decisions/skillgrid-workflow-update-plan.md` (1169 lines, 41 sections) — the authoritative vision this briefing operationalizes.
 >
 > **Topic:** 2026-10-02-skillgrid-workflow-updates
 > **Date:** 2026-10-02 (origin); 2026-10-09 (Release/2 fold)
@@ -220,7 +227,7 @@ Supporting components:
 
 ## 8. Requirements
 
-The Release/2 plan (`.skillgrid/artifacts/skillgrid-workflow-update-plan.md`) is the master requirement set. It is organized into 41 sections; the operational requirement set for this spec is the **33-item Initial Implementation Order** (plan §39), grouped into 8 Phases (plan §38). The existing workflow-update reqs 1–24 (from prior interview rounds 3–12) are **sub-requirements** that map to specific phases.
+The Release/2 plan (`.skillgrid/decisions/skillgrid-workflow-update-plan.md`) is the master requirement set. It is organized into 41 sections; the operational requirement set for this spec is the **33-item Initial Implementation Order** (plan §39), grouped into 8 Phases (plan §38). The existing workflow-update reqs 1–24 (from prior interview rounds 3–12) are **sub-requirements** that map to specific phases.
 
 ### 8.1 Master Requirement Set (Release/2 Phases)
 
@@ -649,11 +656,11 @@ A green helper suite is not the verdict for this change. The fresh check is: a p
 
 ## 11. Impact on Global Docs
 
-- `.skillgrid/artifacts/00-prd.md`: **Release/2 updates the PRD** — the product description changes from "skill installer" to "artifact-driven engineering operating system." The PRD needs a revision to reflect the new vision.
+- `.skillgrid/reference/00-prd.md`: **Release/2 updates the PRD** — the product description changes from "skill installer" to "artifact-driven engineering operating system." The PRD needs a revision to reflect the new vision.
 - `.skillgrid/ASSUMPTIONS.md`: **Release/2 will add ADRs** for the Go runtime architecture, artifact schema decisions, policy engine design, and verification engine design. Each is a one-way door requiring an ADR.
 - `.skillgrid/ARCHITECTURE.md`: **Release/2 creates and maintains** `.skillgrid/ARCHITECTURE.md` (req 22). The high-level architecture diagram (plan §4) becomes the canonical architecture reference.
-- `.skillgrid/artifacts/06-research-findings.md`: Durable distillation of the GSD, BMAD, colemedin-skills, Superpowers, and Matt comparisons (written with the prior draft). Release/2 findings (plan §2: "OpenSpec, BMAD, Superpowers, intent-driven templates, and other projects are research inputs") are captured here.
-- `.skillgrid/artifacts/skillgrid-workflow-update-plan.md`: **The master plan** — 1169 lines, 41 sections. This briefing operationalizes it.
+- `.skillgrid/reference/06-research-findings.md`: Durable distillation of the GSD, BMAD, colemedin-skills, Superpowers, and Matt comparisons (written with the prior draft). Release/2 findings (plan §2: "OpenSpec, BMAD, Superpowers, intent-driven templates, and other projects are research inputs") are captured here.
+- `.skillgrid/decisions/skillgrid-workflow-update-plan.md`: **The master plan** — 1169 lines, 41 sections. This briefing operationalizes it.
 
 ---
 

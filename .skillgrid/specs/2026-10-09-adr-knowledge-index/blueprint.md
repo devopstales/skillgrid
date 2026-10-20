@@ -1,3 +1,10 @@
+---
+type: Blueprint
+title: "2026-10-09-adr-knowledge-index — blueprint"
+status: draft
+
+---
+
 # Blueprint — ADR-aware knowledge index + retrieval
 
 Two independent, additive pieces. No schema migration, no new dependency.
@@ -20,7 +27,7 @@ when it matches `Exclude`, while still honoring `Include` (when non-empty).
   `SkipDir` when `shouldSkipDir(rel, exclude)` is true AND no `DocInclude` pattern has a
   prefix that could descend into `rel`. (Implementation note: `**/.skillgrid/**/*.md` makes the
   `.skillgrid` dir itself an ancestor — the carve-out must not prune it.)
-- Test: `indexer_test.go` — a tree with `.skillgrid/artifacts/04-adr-0001-x.md`,
+- Test: `indexer_test.go` — a tree with `.skillgrid/decisions/04-adr-0001-x.md`,
   `.skillgrid/state.yaml`, `src/main.go`. Assert the ADR is scanned, the yaml is not, the Go file
   is.
 

@@ -1,3 +1,10 @@
+---
+type: Blueprint
+title: "2026-10-07-mnemonic-compaction-v2 — blueprint"
+status: draft
+
+---
+
 # Mnemonic Compaction v2 — Implementation Blueprint (steps, files, verification)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

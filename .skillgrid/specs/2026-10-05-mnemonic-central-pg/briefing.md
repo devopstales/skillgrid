@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-05-mnemonic-central-pg — briefing"
+status: draft
+
+---
+
 # Mnemonic Central PG (team-shared memory state) — Design Briefing (requirements & intent)
 
 > **STATUS:** `accepted` (2026-10-05)

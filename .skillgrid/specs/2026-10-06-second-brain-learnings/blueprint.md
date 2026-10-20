@@ -1,3 +1,10 @@
+---
+type: Blueprint
+title: "2026-10-06-second-brain-learnings — blueprint"
+status: draft
+
+---
+
 # Second-Brain Learnings — Implementation Blueprint (steps, files, verification)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -12,11 +19,11 @@
 
 **Goal:** Implement 5 learnable concepts (Growth, Health, Knowledge Class, PageRank, Confidence Gate) to improve mnemonic's "second brain" capabilities, plus restructure the knowledge zone as an OKF v0.2 wiki (R6), fuse web_cache into mem_search recall (R7), promote cache findings at reflect time (R8), wire recall + bootstrap into onboarding (R9), render the bundle as a read-only concept graph (R10), harden the recall MCP contract (R11), and teach the repo through one combined graph page (R12).
 
-**Architecture:** This plan builds five independent features that are integrated into the existing `mnemonic` Go module. Feature 1 (Growth) and Feature 2 (Health) extend the existing `secondbrain` lifecycle. Feature 3 (Knowledge Class) adds a new database dimension for durability. Feature 4 (PageRank) optimizes code indexing. Feature 5 (Confidence Gate) adds a deterministic filter for real-time capture. Task 6 (Knowledge-base restructure) is docs-only: it dissolves `.skillgrid/artifacts/` into top-level OKF folders, renames `archive/` to `xarchive/`, and records the hybrid-SoT decision in a new ADR. Task 6 makes no Go *behavior* change (path-string sweep only, verified via `git show --stat` per Step 6) and runs after (or parallel to, disjoint files) Tasks 1–5.
+**Architecture:** This plan builds five independent features that are integrated into the existing `mnemonic` Go module. Feature 1 (Growth) and Feature 2 (Health) extend the existing `secondbrain` lifecycle. Feature 3 (Knowledge Class) adds a new database dimension for durability. Feature 4 (PageRank) optimizes code indexing. Feature 5 (Confidence Gate) adds a deterministic filter for real-time capture. Task 6 (Knowledge-base restructure) is docs-only: it dissolves `.skillgrid/decisions/` into top-level OKF folders, renames `archive/` to `xarchive/`, and records the hybrid-SoT decision in a new ADR. Task 6 makes no Go *behavior* change (path-string sweep only, verified via `git show --stat` per Step 6) and runs after (or parallel to, disjoint files) Tasks 1–5.
 
 **Tech Stack:** Go 1.26 (`mnemonic/go.mod`), SQLite, Tree-sitter, BM25/FTS5; Task 6 is Markdown + `git mv` + Node lint scripts only.
 
-**Spec:** `.skillgrid/artifacts/06-spec-second-brain-learnings.md`
+**Spec:** `.skillgrid/decisions/06-spec-second-brain-learnings.md`
 
 ## Terms
 
@@ -68,7 +75,7 @@
 - `.skillgrid/index.md` (OKF root catalog, `okf_version: "0.2"`; was `artifacts/README.md`), `.skillgrid/log.md`, `.skillgrid/reverse-index.md` (generated, committed); per-dir `index.md` catalogs (incl. `decisions/index.md` absorbing `03-adr-index.md`).
 - `xarchive/` (renamed from `archive/` via `git mv`, history preserved; closed changes immutable).
 - `artifacts/` REMOVED (dissolved; verified empty before removal).
-- New ADR amending ADR-0012 (hybrid SoT: OKF bundle durable, SQLite retrieval index) — next free number at authoring time (NOT 0037/0038; expect 0039).
+- New ADR amending ADR-0012 (hybrid SoT: OKF bundle durable, SQLite retrieval index) — 0048 (0039 was taken by skill-pi permission extension; 0047 was highest in use).
 - `mnemonic/internal/memory/search_blend.go` (+ `service.go` query sites) — fused RRF path over `observations_fts` + `web_cache_fts`; `mcp/tools_memory.go` `mem_search` description update.
 - New ADR recording the always-fused `mem_search` contract (behavior shift for every caller) — next free number at authoring time (NOT 0037/0038/0039; expect 0040; verify `ASSUMPTIONS.md` "Highest sequence in use" first).
 - `.agents/skills/lifecycle/reflect/SKILL.md` (+ report template section) — promotion-candidates step.
@@ -345,13 +352,13 @@ git commit -m "feat(mnemonic): add confidence-gated real-time capture"
 > ⚠ **one-way (index-level):** Rewriting the LOCKED index paths + authoring the ADR-0012 amendment requires explicit user OK (LOCKED rule). STOP for user approval before Step 3. Docs-only task: no Go *behavior* change (path strings only), no migration, no new dependency. Disjoint file set from Tasks 1–5 (parallel-safe once approved). Executes as tasks.md TICKET-14 (lint tooling is TICKET-11).
 
 **Files:**
-- Move (`git mv` only): `.skillgrid/artifacts/04-adr-*.md` → `.skillgrid/decisions/04-adr-*.md` (history preserved; `0014/0015-removed.md` rows stay frozen)
+- Move (`git mv` only): `.skillgrid/decisions/04-adr-*.md` → `.skillgrid/decisions/04-adr-*.md` (history preserved; `0014/0015-removed.md` rows stay frozen)
 - Move (`git mv` only): `.skillgrid/archive/` → `.skillgrid/xarchive/` (history preserved; closed changes immutable)
 - Create: `.skillgrid/decisions/` + `invariants/` + `workflows/` + `glossary/` + `reference/` contents (splits of `artifacts/05-locked-constraints.md`, `artifacts/01/02-*-terms.md`, `artifacts/00-prd.md`, `artifacts/06/07/08/09-*.md`)
 - Create: `.skillgrid/index.md` (`okf_version: "0.2"` root catalog; was `artifacts/README.md`) — doubles as the Obsidian vault home (sections per folder + per-audience start-here pointers; `.skillgrid/` itself is the vault with committed `.obsidian/app.json` shared filters, local workspace state gitignored inside it), `.skillgrid/log.md`, `.skillgrid/reverse-index.md` (generated, committed), per-dir `index.md` catalogs
 - Convention (vault-compatible, lint-enforced): links are relative Markdown `[text](path.md)` only — no `[[wikilinks]]` (one syntax renders in Obsidian, GitHub, and the linter alike; unresolvable `[[ ]]` is an `okf-lint.mjs` finding)
-- Remove: `.skillgrid/artifacts/` (only after verified empty)
-- Create: new ADR amending ADR-0012 in `decisions/` — next free number at authoring time (NOT 0037/0038; expect 0039; verify `ASSUMPTIONS.md` "Highest sequence in use" first)
+- Remove: `.skillgrid/decisions/` (only after verified empty)
+- Create: `decisions/04-adr-0048-hybrid-sot.md` amending ADR-0012 — 0048 (0039 was taken by skill-pi permission extension; 0047 was highest in use)
 - Modify: `.skillgrid/ASSUMPTIONS.md` (LOCKED rows → new paths), `ARCHITECTURE.md` §9 state-zone diagram, `config.yaml` (`conventions.artifacts`), `_shared/rules/sdd-structure.md` + all skills citing `artifacts/…` or `specs/…→archive/`, `ship`/`reflect`/`resume`/`qa` scripts + hooks, dashboard `/plans` + docs endpoints if they hardcode paths
 - Modify (frontmatter only): relocated ADR files (add `type/title/description/generated`; `status/supersedes/date` untouched), `ARCHITECTURE.md`, `specs/*` + `xarchive/*` pages (`status: draft/stable/deprecated`)
 - Never touch: `.skillgrid/config.yaml` values other than the path keys above, `.skillgrid/state.yaml` (machine state, excluded)
@@ -375,7 +382,7 @@ Expected: clean `.skillgrid/` worktree (no uncommitted spec-zone changes — com
 - [ ] **Step 2: Dry-run the move list and verify it fails clean**
 
 ```bash
-git mv --dry-run .skillgrid/artifacts/04-adr-0001-prd-scope-whole-hub.md .skillgrid/decisions/04-adr-0001-prd-scope-whole-hub.md
+git mv --dry-run .skillgrid/decisions/04-adr-0001-prd-scope-whole-hub.md .skillgrid/decisions/04-adr-0001-prd-scope-whole-hub.md
 git mv --dry-run .skillgrid/archive .skillgrid/xarchive
 ```
 

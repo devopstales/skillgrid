@@ -1,3 +1,10 @@
+---
+type: Blueprint
+title: "2026-10-05-mnemonic-central-pg — blueprint"
+status: draft
+
+---
+
 # Mnemonic Central PG — Implementation Blueprint (steps, files, verification)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -26,7 +33,7 @@
 - **Sync ID** — client-generated UUIDv7 stable identity of a synced entity row. (New.)
 - **Enroll / unenroll** — client-side per-project opt-in/out to sync. (New.)
 - **Token = PG role** — managed token `egm_<env>_<prefix>_<secret>` maps 1:1 to PG role `mem_<prefix>`. (New, per ADR-0024.)
-- Existing terms (observation, prompt, fact, skill, web cache, session, edges, team) — see `.skillgrid/artifacts/01-business-terms.md` / `02-technical-terms.md`.
+- Existing terms (observation, prompt, fact, skill, web cache, session, edges, team) — see `.skillgrid/glossary/01-business-terms.md` / `02-technical-terms.md`.
 
 ## Must-Haves (goal-backward verification)
 
@@ -65,7 +72,7 @@
 ## Global Constraints
 
 - Go 1.22+ minimum to build.
-- No new dependencies without an ADR — only `pgx/v5`, named in `.skillgrid/artifacts/04-adr-0024-central-pg-shared-memory-state.md`.
+- No new dependencies without an ADR — only `pgx/v5`, named in `.skillgrid/decisions/04-adr-0024-central-pg-shared-memory-state.md`.
 - Local store unchanged: per-project SQLite, WAL, pure-Go driver, embedded migrations (per ADR-0012). Migration 045 is additive tables only.
 - Bi-temporal save path (per ADR-0011) remains the local classifier; sync transports rows, never re-classifies.
 - Fail-open: sync never blocks or fails a local write (per ADR-0016 floors).

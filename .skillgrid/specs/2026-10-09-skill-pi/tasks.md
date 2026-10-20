@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-09-skill-pi — tasks"
+status: draft
+
+---
+
 # Tasks — skill-pi
 
 > **STATUS:** `ticketed` (2026-10-09)
@@ -85,9 +92,9 @@ Chain strategy: stacked-to-main
 ### TICKET-01 — `skill-pi/` module skeleton + ADR-0042 dependency pin
 
 - **Scope:** Create the `skill-pi/` top-level module with `package.json` (piConfig identity + exact pi pin), `pi-version.txt`, ADR-0042, and README.
-- **Acceptance:** `pi-version.txt` content equals the `package.json` dependency string for `@earendil-works/pi-coding-agent` (exact, no `^`/`~`/range). ADR-0042 is in `.skillgrid/artifacts/` and indexed in `.skillgrid/ASSUMPTIONS.md` § `LOCKED`. README names the min pi version for `piConfig.configDir`.
+- **Acceptance:** `pi-version.txt` content equals the `package.json` dependency string for `@earendil-works/pi-coding-agent` (exact, no `^`/`~`/range). ADR-0042 is in `.skillgrid/decisions/` and indexed in `.skillgrid/ASSUMPTIONS.md` § `LOCKED`. README names the min pi version for `piConfig.configDir`.
 - **SATISFIES:** `skill-pi-module-skeleton`
-- **Files:** `skill-pi/package.json`, `skill-pi/pi-version.txt`, `skill-pi/README.md`, `.skillgrid/artifacts/04-adr-0042-skill-pi-dependencies.md`, `.skillgrid/ASSUMPTIONS.md`, `skill-pi/version.test.js`
+- **Files:** `skill-pi/package.json`, `skill-pi/pi-version.txt`, `skill-pi/README.md`, `.skillgrid/decisions/04-adr-0042-skill-pi-dependencies.md`, `.skillgrid/ASSUMPTIONS.md`, `skill-pi/version.test.js`
 - **Size:** ~150 (S)
 - **Blocks:** TICKET-02, TICKET-03, TICKET-09
 - **Blocked by:** none

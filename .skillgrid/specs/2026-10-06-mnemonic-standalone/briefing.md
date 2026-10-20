@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-06-mnemonic-standalone — briefing"
+status: draft
+
+---
+
 # Mnemonic Standalone Module — Design Briefing (requirements & intent)
 
 **Status:** PROPOSED

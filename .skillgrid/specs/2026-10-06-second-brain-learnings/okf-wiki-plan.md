@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-06-second-brain-learnings — okf-wiki-plan"
+status: draft
+
+---
+
 # Proposal: `.skillgrid` as an OKF v0.2 llm-wiki (decisions / invariants / workflows split)
 
 > **STATUS:** `draft` (2026-10-10; restructure promoted to goal 2026-10-10)

@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-06-second-brain-learnings — briefing"
+status: draft
+
+---
+
 # Second-Brain Learnings — Design Briefing (requirements & intent)
 
 > **STATUS:** `draft` (2026-10-06)
@@ -179,7 +186,7 @@ Mnemonic's "second brain" lacks several capabilities present in `claude-os` that
 
 ## Impact on Global Docs
 
-- `.skillgrid/artifacts/00-prd.md`: Add "Second-Brain Learnings" to the feature list.
+- `.skillgrid/reference/00-prd.md`: Add "Second-Brain Learnings" to the feature list.
 - `.skillgrid/ASSUMPTIONS.md`: None.
 - `.skillgrid/ARCHITECTURE.md`: Note the `knowledge_class` dimension in the `observations` table description.
 
@@ -242,5 +249,5 @@ lands and the change re-gates. TICKET-01..05 stay frozen.
 
 ## Terms
 
-- **Second Brain:** See `.skillgrid/artifacts/01-business-terms.md`.
+- **Second Brain:** See `.skillgrid/glossary/01-business-terms.md`.
 - **Knowledge Class:** A new dimension added in this change.

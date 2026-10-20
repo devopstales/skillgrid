@@ -1,3 +1,10 @@
+---
+type: Blueprint
+title: "2026-10-02-skillgrid-workflow-updates — blueprint"
+status: draft
+
+---
+
 # Skillgrid Release/2 — Tracer-Bullet Slice Implementation Blueprint (steps, files, verification)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -14,7 +21,7 @@
 
 **Tech Stack:** Go 1.22+ (module declares 1.26.0), stdlib `regexp`/`bufio` for markdown extraction (`gopkg.in/yaml.v3` already in `go.mod` for later schema files — no new dep either way, per AGENTS.md § Rules), Node.js `.mjs` helpers with fixture tests (existing `scripts/test-*.mjs` pattern, ADR-0008).
 
-**Spec:** `.skillgrid/specs/2026-10-02-skillgrid-workflow-updates/briefing.md` — Release/2 tracer-bullet scope per `plan.md` §3 (the slice components); master vision per `.skillgrid/artifacts/skillgrid-workflow-update-plan.md`.
+**Spec:** `.skillgrid/specs/2026-10-02-skillgrid-workflow-updates/briefing.md` — Release/2 tracer-bullet scope per `plan.md` §3 (the slice components); master vision per `.skillgrid/decisions/skillgrid-workflow-update-plan.md`.
 
 **Findings:** `.skillgrid/specs/2026-10-02-skillgrid-workflow-updates/findings.md` — GSD mechanism borrow (deterministic state + plan-check + Nyquist) and the BMAD script contract (JSON stdout, atomic write, `--dry-run`, tests beside the script, "agent decides *which*; script owns everything after").
 
@@ -43,7 +50,7 @@ None beyond the spec's. The Release/2 term list in `briefing.md` §15 (Execution
 - [`scripts/validation-matrix-check.mjs` — the JS validation-matrix checker (coverage-only, cell split mirrors Go)]
 - [`scripts/test-validation-matrix.mjs` — fixture-driven tests for the JS checker + Go/JS contract case (same shape as `scripts/test-state-drift.mjs`)]
 - [`scripts/test-skill-wiring.mjs` — grep tests for the SKILL.md binding (committed with the skill edit, never red between tasks)]
-- [`.skillgrid/artifacts/04-adr-0046-release2-runtime-home.md` — ADR: Go runtime lives in `skillgrid-cli` as `internal/<engine>/` packages (0046, not plan.md's stale 0032)]
+- [`.skillgrid/decisions/04-adr-0046-release2-runtime-home.md` — ADR: Go runtime lives in `skillgrid-cli` as `internal/<engine>/` packages (0046, not plan.md's stale 0032)]
 
 **Key links** (critical connections between artifacts that must work together):
 - [`validate.Validate` must read the spec folder from the project root (the dir containing `.skillgrid/`), and the CLI must pass the topic through unchanged]
@@ -83,7 +90,7 @@ None beyond the spec's. The Release/2 term list in `briefing.md` §15 (Execution
 - `scripts/validation-matrix-check.mjs` — JS twin of the coverage check (the same two extraction functions in JS, cell split mirroring the Go implementation), read-only, JSON stdout, exit 0/1/2.
 - `scripts/test-validation-matrix.mjs` — fixture tests (temp trees: complete matrix → 0; missing row → 1 + named req; usage error → 2; **Go/JS contract fixture**: the same `briefing.md` + `blueprint.md` parsed by both implementations yields identical req-ID sets).
 - `scripts/test-skill-wiring.mjs` — grep tests for the `writing-blueprints` SKILL.md binding (script path named + exit-1-as-fail contract); committed in the same task as the skill edit so no task leaves a red test behind.
-- `.skillgrid/artifacts/04-adr-0046-release2-runtime-home.md` — ADR body (frontmatter `status: accepted`, `date: 2026-10-17`): context (Release/2 needs a Go runtime home; open question in briefing §13; plan.md §5 named this ADR-0032, which is in force for the plugin architecture, so this decision records as 0046), decision (`skillgrid-cli/internal/<engine>` packages in the existing module; no new module; `mnemonic/` untouched), consequences (module boundary unchanged; ADR-0033's three-module workspace is unaffected — it governs the `ctx/` library module, this adds packages inside `skillgrid-cli/`).
+- `.skillgrid/decisions/04-adr-0046-release2-runtime-home.md` — ADR body (frontmatter `status: accepted`, `date: 2026-10-17`): context (Release/2 needs a Go runtime home; open question in briefing §13; plan.md §5 named this ADR-0032, which is in force for the plugin architecture, so this decision records as 0046), decision (`skillgrid-cli/internal/<engine>` packages in the existing module; no new module; `mnemonic/` untouched), consequences (module boundary unchanged; ADR-0033's three-module workspace is unaffected — it governs the `ctx/` library module, this adds packages inside `skillgrid-cli/`).
 - `.agents/skills/planning/writing-blueprints/SKILL.md` — validation section: add the script invocation + exit-code contract to the "Blueprint validation (mandatory, two-stage)" block (modify only that block; no other edits).
 
 ---
@@ -1121,11 +1128,11 @@ git commit -m "feat(scripts): validation-matrix-check.mjs with fixture tests"
 ### Task 5: ADR-0046 — Go runtime home
 
 **Files:**
-- Create: `.skillgrid/artifacts/04-adr-0046-release2-runtime-home.md`
+- Create: `.skillgrid/decisions/04-adr-0046-release2-runtime-home.md`
 - Modify: `.skillgrid/ASSUMPTIONS.md` (append one index row under `## LOCKED` → ADR index; update "Highest sequence in use" to 0046)
 
 **Interfaces:**
-- Consumes: the ADR format used by every file in `.skillgrid/artifacts/` (frontmatter `status: accepted`, `date`, `supersedes:` empty; body: Context / Decision / Consequences — one decision per file, per ADR-0019)
+- Consumes: the ADR format used by every file in `.skillgrid/decisions/` (frontmatter `status: accepted`, `date`, `supersedes:` empty; body: Context / Decision / Consequences — one decision per file, per ADR-0019)
 - Produces: the in-force decision that Release/2 Go runtime packages live in `skillgrid-cli/internal/<engine>/`
 - Seam: none (documentation artifact)
 - Deletion test: future engine packages have no named home — the briefing's open question ("mnemonic/ module or new skillgrid-runtime/ module?") re-opens
@@ -1194,7 +1201,7 @@ Options considered:
 
 - [ ] **Step 2: Verify format**
 
-Run: `grep -c "^status: accepted" .skillgrid/artifacts/04-adr-0046-release2-runtime-home.md`
+Run: `grep -c "^status: accepted" .skillgrid/decisions/04-adr-0046-release2-runtime-home.md`
 Expected: `1`. (The ADR invariants script `scripts/check-adr-invariants.mjs` runs in QA; it is the held-out check.)
 
 - [ ] **Step 3: Update the index**
@@ -1202,7 +1209,7 @@ Expected: `1`. (The ADR invariants script `scripts/check-adr-invariants.mjs` run
 In `.skillgrid/ASSUMPTIONS.md`, under the ADR index table, add the row — **exactly matching the on-file row shape** (4 cells: `# | Description | In force | File`, backticked path last), the same shape as rows 0001–0045:
 
 ```
-| 0046 | Release/2 Go runtime home: `skillgrid-cli/internal/<engine>/` packages, no new module, `mnemonic/` untouched | yes | `.skillgrid/artifacts/04-adr-0046-release2-runtime-home.md` |
+| 0046 | Release/2 Go runtime home: `skillgrid-cli/internal/<engine>/` packages, no new module, `mnemonic/` untouched | yes | `.skillgrid/decisions/04-adr-0046-release2-runtime-home.md` |
 ```
 
 and update `**Highest sequence in use:** 0045` → `0046` (next ADR is `04-adr-0047-slug.md`). Do not "correct" the shape to the script's stale 6-column header comment — the parser matches the 4-column rows (its `.*?` absorbs Description + In force); a wrong-shaped row silently breaks the pre-commit bijection check.
@@ -1215,7 +1222,7 @@ Expected: **no NEW violations** beyond the pre-existing baseline. Known baseline
 - [ ] **Step 5: Commit**
 
 ```bash
-git add .skillgrid/artifacts/04-adr-0046-release2-runtime-home.md .skillgrid/ASSUMPTIONS.md
+git add .skillgrid/decisions/04-adr-0046-release2-runtime-home.md .skillgrid/ASSUMPTIONS.md
 git commit -m "docs(adr): 0046 Release/2 Go runtime home — skillgrid-cli internal packages"
 ```
 

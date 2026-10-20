@@ -1,3 +1,10 @@
+---
+type: Blueprint
+title: "2026-10-09-skill-pi — blueprint"
+status: draft
+
+---
+
 # skill-pi — Implementation Blueprint (steps, files, verification)
 
 > **Role:** this is the *how* — the implementation plan: concrete steps,
@@ -93,7 +100,7 @@
 - `skill-pi/themes/` — TUI theme tokens (R9).
 - `skill-pi/bin/skill-pi.test.js`, `skill-pi/extensions/*.test.ts`, `skill-pi/tui/*.test.ts` — the TS test harness (minimal `node --test` / vitest setup; recorded as an assumption).
 - `skillgrid-cli/` (Go, modified) — `install`/`sync-repo`/`setup` extended to copy `skill-pi/` → `~/.skill-pi/`, `npm ci` the pinned pi, materialize `<project>/.skill-pi/` + the shim, put `skill-pi` on PATH (R13).
-- `.skillgrid/artifacts/04-adr-00XX-skill-pi-dependencies.md` — the `@earendil-works/pi-coding-agent` + `pi-tui` dependency ADR (ADR-0008 precedent) (R12, R9).
+- `.skillgrid/decisions/04-adr-00XX-skill-pi-dependencies.md` — the `@earendil-works/pi-coding-agent` + `pi-tui` dependency ADR (ADR-0008 precedent) (R12, R9).
 
 *Tracer B — the swarm slice:*
 - `skill-pi/extensions/skillgrid-squad.ts` — pi extension: 7 team-plane HTTP tools (the 6-tool port of `plugins/opencode/skillgrid-squad.ts` **plus a `squad_reviews` read tool** — the two-review gate's read path, defect A) + `swarm_spawn` + `goal_mark`/`goal_resume` + role discovery + worktree hook.
@@ -162,7 +169,7 @@
 | **Routing (dashboard goal view)** | Applicable: a new dashboard route/query renders goal → tasks. | The query is a single `SELECT` grouped by `goal_id` with `GROUP BY status`; an ungrouped task (`goal_id IS NULL`) is shown under a "(no goal)" bucket, not dropped. | dashboard test: a goal with tasks in 3 statuses renders 3 counts; a task with `goal_id IS NULL` appears under "(no goal)" and is not lost. |
 | **Trust persistence (`~/.skill-pi/trust.json`)** | Applicable: pi's trust decision is keyed by the shim's canonicalized (realpath'd) path; a wrong key means the trust prompt fires every run. | The trust store lives at `~/.skill-pi/trust.json` (under the relocated global dir, R20); the key is the shim's realpath (not the shim path, not the real root) so that the per-project shim and its realpath are stable; the first-run prompt fires once per project and persists. | `skill-pi.test.js` (or `permission.test.ts`): after accepting the trust prompt, `~/.skill-pi/trust.json` contains a key equal to the shim's realpath; a second run in the same project does not fire the prompt. |
 | **PR automation** | N/A: no PR creation in this change; worktree branches are committed locally, merge-back is offered, not automated. | — | — |
-| **`_shared/{planning,craft,verification,knowledge}/` files** | N/A: this change adds a new top-level `skill-pi/` module + Go installer/plane changes; it does not edit shared skill/standard files. (ADR files are added under `.skillgrid/artifacts/`, which is the knowledge zone, but they are new ADRs, not edits to `_shared/`.) | — | — |
+| **`_shared/{planning,craft,verification,knowledge}/` files** | N/A: this change adds a new top-level `skill-pi/` module + Go installer/plane changes; it does not edit shared skill/standard files. (ADR files are added under `.skillgrid/decisions/`, which is the knowledge zone, but they are new ADRs, not edits to `_shared/`.) | — | — |
 
 ## File Structure
 
@@ -209,12 +216,12 @@ The foundation is proven end-to-end before the swarm slice (Tracer B) is layered
 - Create: `skill-pi/` (top-level dir at repo root, sibling to `plugins/`, `mnemonic/`)
 - Create: `skill-pi/package.json` — `name: "skill-pi"`, `piConfig: { name: "skill-pi", configDir: ".skill-pi" }`, `bin: { "skill-pi": "./bin/skill-pi.js" }`, exact-pinned `@earendil-works/pi-coding-agent` dep (the pin chosen at exec time from findings.md; no `^`/`~`/range).
 - Create: `skill-pi/pi-version.txt` — single line, the exact pi version (must equal the `package.json` dependency string).
-- Create: `.skillgrid/artifacts/04-adr-0042-skill-pi-dependencies.md` — the `@earendil-works/pi-coding-agent` + `@earendil-works/pi-tui` dependency ADR (ADR-0008 precedent; names the min pi version for `piConfig.configDir`, the pin, the supply-chain posture: pinned deps + shrinkwrap, no vendoring).
+- Create: `.skillgrid/decisions/04-adr-0042-skill-pi-dependencies.md` — the `@earendil-works/pi-coding-agent` + `@earendil-works/pi-tui` dependency ADR (ADR-0008 precedent; names the min pi version for `piConfig.configDir`, the pin, the supply-chain posture: pinned deps + shrinkwrap, no vendoring).
 - Create: `skill-pi/README.md` — names the minimum pi version for `piConfig.configDir`, the pin, and the install/sync flow.
 
 **Interfaces:**
 - Consumes: findings.md (the pi version + the `piConfig.configDir` min-version contract).
-- Produces: a `skill-pi/` module with its identity (`package.json`), its version pin (`pi-version.txt`), and its dependency ADR (in `.skillgrid/artifacts/`, indexed in `.skillgrid/ASSUMPTIONS.md` § `LOCKED`).
+- Produces: a `skill-pi/` module with its identity (`package.json`), its version pin (`pi-version.txt`), and its dependency ADR (in `.skillgrid/decisions/`, indexed in `.skillgrid/ASSUMPTIONS.md` § `LOCKED`).
 - Seam: the `package.json` + `pi-version.txt` pair — every later task (launcher, installer, TUI) reads these; a version drift between them is the single most likely silent failure (R12↔R13).
 - Deletion test: removing `package.json`'s `piConfig` block makes pi ignore `configDir` and fall back to `~/.pi/` (violates R1). Removing `pi-version.txt` leaves the launcher's min-version guard (R12) with nothing to read.
 - Adapters: 1 (the real `package.json`); the test asserts the pair's equality.
@@ -231,7 +238,7 @@ The foundation is proven end-to-end before the swarm slice (Tracer B) is layered
   Run: `node --test skill-pi/version.test.js`. Expected: PASS.
 - [ ] **Step 5: Commit**
   ```bash
-  git add skill-pi/ .skillgrid/artifacts/04-adr-0042-skill-pi-dependencies.md .skillgrid/ASSUMPTIONS.md skill-pi/version.test.js
+  git add skill-pi/ .skillgrid/decisions/04-adr-0042-skill-pi-dependencies.md .skillgrid/ASSUMPTIONS.md skill-pi/version.test.js
   git commit -m "feat(skill-pi): module skeleton + pi dependency ADR (ADR-0042)"
   ```
 

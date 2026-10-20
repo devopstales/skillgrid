@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-20-parallel-cleave-port — briefing"
+status: draft
+
+---
+
 # Parallel Decomposition (Cleave Port) — Design Briefing (requirements & intent)
 
 > **STATUS:** `draft` (2026-10-20)
@@ -303,7 +310,7 @@ not OS subprocesses).
 
 ## Impact on Global Docs
 
-- `.skillgrid/artifacts/00-prd.md`: None (the PRD's engine scope is unchanged;
+- `.skillgrid/reference/00-prd.md`: None (the PRD's engine scope is unchanged;
   this is the skills/content zone).
 - `.skillgrid/ASSUMPTIONS.md`: One line under **VERIFIED** noting the three
   guardrail scripts exist and where (so a future session can find them), plus —
@@ -346,11 +353,11 @@ not OS subprocesses).
 
 ## Decisions (ADR)
 
-- **ADR-0020** (`.skillgrid/artifacts/04-adr-0020-sdd-ledger-owns-execution.md`)
+- **ADR-0020** (`.skillgrid/decisions/04-adr-0020-sdd-ledger-owns-execution.md`)
   — the scripts are inputs to the ledger, never a second execution record.
-- **ADR-0016** (`.skillgrid/artifacts/04-adr-0016-second-brain-capability-layer.md`)
+- **ADR-0016** (`.skillgrid/decisions/04-adr-0016-second-brain-capability-layer.md`)
   — new skill scripts are governed skills-content, not a new runtime component.
-- **ADR-0003** (`.skillgrid/artifacts/04-adr-0003-v1.0-line-engine-trustworthy.md`)
+- **ADR-0003** (`.skillgrid/decisions/04-adr-0003-v1.0-line-engine-trustworthy.md`)
   — the scripts run at plan/execution time (JS pipeline helpers), not inside the
   single Go binary; the cgo-free single-binary invariant is untouched.
 - No **new** ADR for this change (see Open Questions).

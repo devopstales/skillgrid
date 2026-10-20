@@ -1,8 +1,15 @@
+---
+type: Spec
+title: "2026-10-02-skillgrid-workflow-updates — plan"
+status: draft
+
+---
+
 # Skillgrid Release/2 — Engineering Operating System (Implementation Plan)
 
 > **STATUS:** `draft` (2026-10-09) — Operationalizes the "Release/2 — Engineering Operating System" vision.
 >
-> **Master plan:** `.skillgrid/artifacts/skillgrid-workflow-update-plan.md`
+> **Master plan:** `.skillgrid/decisions/skillgrid-workflow-update-plan.md`
 > **Briefing:** `briefing.md` (spec vision and requirements)
 > **Topic:** 2026-10-02-skillgrid-workflow-updates
 > **Date:** 2026-10-09

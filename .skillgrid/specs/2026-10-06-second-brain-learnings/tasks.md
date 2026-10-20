@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-06-second-brain-learnings — tasks"
+status: draft
+
+---
+
 # Tasks — 2026-10-06-second-brain-learnings (sliced)
 
 > **STATUS:** `sliced` (2026-10-11, delta 2026-10-17: TICKET-11 telemetry sink + .gitignore)
@@ -26,7 +33,7 @@
 | 9 | TICKET-11 (okf-lint.mjs + fixtures) | No deps; TICKET-14 consumes it — lands before TICKET-14 executes |
 | 10 | TICKET-12 (teaching graph page) | After TICKET-09 payloads for the full picture; fixture-first so it can build in parallel |
 | 11 | TICKET-13 (chunk prefixes + ablation) | After TICKET-04 (shares indexer.go); ranker measured-not-changed |
-| 12 | TICKET-14 (bundle moves + sweep + ADR-0039) ⚠ index-level | After TICKET-11 (lint verifies the moves); STOP for LOCKED OK |
+| 12 | TICKET-14 (bundle moves + sweep + ADR-0048) ⚠ index-level | After TICKET-11 (lint verifies the moves); STOP for LOCKED OK |
 
 ## Dependency graph
 
@@ -101,7 +108,7 @@ Chain strategy: stacked-to-main (single-branch; each unit PR merges to main in o
 - **Scope:** Nullable durability dimension on observations with inference + backfill + ADR-0038.
 - **Acceptance:** Decision reads back convention; filter + labels work; unfiltered search unchanged; migration applies once.
 - **SATISFIES:** @step-03 `knowledge-class` (G3, G4)
-- **Files:** `mnemonic/internal/store/migrations/070_add_knowledge_class.sql` (NEW — 070, not 051: 051 is CLM; runner name-sorted), `mnemonic/internal/memory/service.go`, `mnemonic/internal/memory/knowledge_class.go` (NEW), `mnemonic/internal/memory/search_blend.go`, `mnemonic/internal/mcp/tools_memory.go`, `.skillgrid/artifacts/04-adr-0046-knowledge-class-dimension.md` (NEW — 0046, not 0038: 0038 is skill-pi ticketing), `mnemonic/internal/memory/knowledge_class_test.go`
+- **Files:** `mnemonic/internal/store/migrations/070_add_knowledge_class.sql` (NEW — 070, not 051: 051 is CLM; runner name-sorted), `mnemonic/internal/memory/service.go`, `mnemonic/internal/memory/knowledge_class.go` (NEW), `mnemonic/internal/memory/search_blend.go`, `mnemonic/internal/mcp/tools_memory.go`, `.skillgrid/decisions/04-adr-0046-knowledge-class-dimension.md` (NEW — 0046, not 0038: 0038 is skill-pi ticketing), `mnemonic/internal/memory/knowledge_class_test.go`
 - **Size:** ~M (500–1500)
 - **Blocks:** TICKET-05, TICKET-06
 - **Blocked by:** none (migration 070; 051–053 are CLM, 054–058 occupied, untouched)
@@ -251,12 +258,12 @@ Chain strategy: stacked-to-main (single-branch; each unit PR merges to main in o
 - **Verify:** `cd mnemonic && go test ./internal/codeindex/... -run TestChunkPrefix_Context -v` PASS; `git diff --stat` shows `rank.go` untouched
 - [ ] done
 
-### TICKET-14: Bundle moves + sweep + ADR-0039 ⚠ index-level
+### TICKET-14: Bundle moves + sweep + ADR-0048 ⚠ index-level
 
 - **Scope:** Dissolve `artifacts/`, rename `archive/`→`xarchive/`, frontmatter pass, catalogs, reference sweep, hybrid-SoT ADR.
 - **Acceptance:** Lint clean + SCOPE COMPLETE; LOCKED resolves; history intact through both moves; relocated ADR recallable; two zone-clean commits.
 - **SATISFIES:** @step-15 `knowledge-moves` (G16)
-- **Files:** Moves (`git mv` only): `artifacts/04-adr-*.md` (37 files) → `decisions/`, `archive/` → `xarchive/`; splits into `invariants/`/`glossary/`/`reference/`, new `workflows/sdd-pipeline.md`; new root `index.md`/`log.md`/`reverse-index.md` + per-dir catalogs; remove `artifacts/` when empty; new ADR-0039 amending ADR-0012 in `decisions/`; `ASSUMPTIONS.md` LOCKED rows, `ARCHITECTURE.md` §9, `config.yaml` path keys, `sdd-structure.md` + skills + hooks + dashboard paths (reference sweep); frontmatter-only pass over relocated ADRs (`status/supersedes/date` untouched), `ARCHITECTURE.md`, `specs/*` + `xarchive/*`; never `config.yaml` values, never `state.yaml`
+- **Files:** Moves (`git mv` only): `artifacts/04-adr-*.md` (37 files) → `decisions/`, `archive/` → `xarchive/`; splits into `invariants/`/`glossary/`/`reference/`, new `workflows/sdd-pipeline.md`; new root `index.md`/`log.md`/`reverse-index.md` + per-dir catalogs; remove `artifacts/` when empty; new ADR-0048 amending ADR-0012 in `decisions/`; `ASSUMPTIONS.md` LOCKED rows, `ARCHITECTURE.md` §9, `config.yaml` path keys, `sdd-structure.md` + skills + hooks + dashboard paths (reference sweep); frontmatter-only pass over relocated ADRs (`status/supersedes/date` untouched), `ARCHITECTURE.md`, `specs/*` + `xarchive/*`; never `config.yaml` values, never `state.yaml`
 - **Size:** ~M (500–1500 review-weight; moves + prose, no code logic)
 - **Blocks:** TICKET-09 + TICKET-12 tail verification (their `fixture-only` commits schedule it here)
 - **Blocked by:** TICKET-11 (lint verifies the moves — lands first)
@@ -264,7 +271,7 @@ Chain strategy: stacked-to-main (single-branch; each unit PR merges to main in o
 - **Reversibility:** costly (revert possible but LOCKED flips + sweep must be unpicked together — one revert unit, never partial).
 - **Verify:** `okf-lint.mjs` exit 0 with `DRIFT: clean` + `SCOPE: COMPLETE`; zero MISSING LOCKED rows; `artifacts/` + `archive/` gone; `git log --follow` intact; `code_search` hits new paths
 - **Precondition:** TICKET-11 merged AND user approval for the LOCKED-index rewrite recorded (STOP).
-- [ ] done — **STOP: user approval required before Step 3 + LOCKED OK for ADR-0039**
+- [ ] done — **STOP: user approval required before Step 3 + LOCKED OK for ADR-0048**
 
 ## Execution notes
 

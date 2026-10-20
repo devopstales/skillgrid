@@ -1,3 +1,10 @@
+---
+type: Blueprint
+title: "2026-10-20-parallel-cleave-port — blueprint"
+status: draft
+
+---
+
 # Parallel Decomposition (Cleave Port) — Implementation Blueprint (steps, files, verification)
 
 > **Role:** this is the *how* — the implementation plan: concrete steps,
@@ -65,7 +72,7 @@ candidate ADR row only if the review deems the scripts cross-change infra).
 - **stable issue key** — `file + symbol + issue-type`, the identity used to
   detect that an issue *reappeared* (the same issue) vs. a new one. (Sharpened
   this plan.)
-- Canonical terms live in `.skillgrid/artifacts/` (`01-business-terms.md` /
+- Canonical terms live in `.skillgrid/decisions/` (`01-business-terms.md` /
   `02-technical-terms.md`); nothing here redefines them.
 
 ## Must-Haves (goal-backward verification)

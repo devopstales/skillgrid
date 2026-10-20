@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-07-mnemonic-compaction-v2 — briefing"
+status: draft
+
+---
+
 # Mnemonic Compaction v2 — Design Briefing (requirements & intent)
 
 > **STATUS:** `draft` (2026-10-07)
@@ -211,9 +218,9 @@ The concrete visual target for the three `skillgrid context` screens. The block 
 
 ## Impact on Global Docs
 
-- `.skillgrid/artifacts/04-adr-index.md`: add ADR-0029.
+- `.skillgrid/decisions/04-adr-index.md`: add ADR-0029.
 - `.skillgrid/ARCHITECTURE.md`: note the `steering` column on `context_revisions` and the new `/compaction/advice` route.
-- `.skillgrid/artifacts/07-mnemonic-tool-surface.md`: add `mem_compact_advice`, `mem_context_usage`, `mem_context_revisions`.
+- `.skillgrid/reference/07-mnemonic-tool-surface.md`: add `mem_compact_advice`, `mem_context_usage`, `mem_context_revisions`.
 
 ## Clarity Report
 
@@ -248,4 +255,4 @@ The concrete visual target for the three `skillgrid context` screens. The block 
 - **Advisory Gate:** The compact-adviser logic — a 0–1 score that decides whether it is safe to compact now.
 - **Steering:** A natural-language instruction the model can evolve, re-injected into each compaction prompt (the CLM in-context-learning knob).
 - **Proactive Build:** A background pre-summarization so the real compaction event is instant.
-- **Second Brain:** See `.skillgrid/artifacts/01-business-terms.md`.
+- **Second Brain:** See `.skillgrid/glossary/01-business-terms.md`.

@@ -1,3 +1,10 @@
+---
+type: Spec
+title: "2026-10-06-second-brain-learnings — findings"
+status: draft
+
+---
+
 # Findings — 2026-10-06-second-brain-learnings (consolidated research/prototype/sketch evidence)
 
 > **STATUS:** `draft` (2026-10-10)

@@ -1,10 +1,17 @@
+---
+type: Spec
+title: "2026-10-09-adr-knowledge-index — briefing"
+status: draft
+
+---
+
 # Briefing — ADR-aware knowledge index + retrieval
 
 ## Problem
 
 The `mnemonic` code index is blind to the project's own decision records. `DefaultIndexing()`
 excludes `**/.skillgrid/**` (`mnemonic/internal/config/load.go:624`), so every ADR
-(`.skillgrid/artifacts/04-adr-NNNN-slug.md`, 32+ files), `ASSUMPTIONS.md`, the glossary, the
+(`.skillgrid/decisions/04-adr-NNNN-slug.md`, 32+ files), `ASSUMPTIONS.md`, the glossary, the
 PRD, specs, and shipped reports are invisible to `code_search` / `code_explore`. An agent asking
 "what did we decide about vector search?" gets nothing from the index, even though ADR-0006/0009
 are the answer on disk.
@@ -48,7 +55,7 @@ path for the full Context/Decision/Consequences body. No full-body return in thi
 
 ## Acceptance
 
-1. After `code_index`, an ADR file under `.skillgrid/artifacts/` appears in the index and is
+1. After `code_index`, an ADR file under `.skillgrid/decisions/` appears in the index and is
    returned by `adr_search` for a term from its body.
 2. `adr_search "vector search"` returns ADR-0006/ADR-0009 with `status`, `supersedes`, `date`,
    `title`, `snippet`, `score`.
