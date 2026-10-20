@@ -1,5 +1,5 @@
 ---
-name: _shared
+name: shared
 description: Shared Skillgrid references consumed by other skills (standards for AGENTS.md, skill-craft rules, mnemonic protocol, threat matrix, TDD cycle, agent-config block). Not invokable.
 disable-model-invocation: true
 user-invocable: false
