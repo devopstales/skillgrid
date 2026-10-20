@@ -111,6 +111,7 @@ func TestGraphEnrich_Lines(t *testing.T) {
 	if sig, _ := n["signature"].(string); sig != "func Add(a, b int) int" {
 		t.Errorf("signature = %q, want %q", sig, "func Add(a, b int) int")
 	}
+
 	// existing fields untouched (no regression of the pre-TICKET-12 shape)
 	for _, key := range []string{"id", "uid", "label", "type", "language", "path", "degree", "community"} {
 		if _, ok := n[key]; !ok {
@@ -260,4 +261,45 @@ func dbContent(db *sql.DB) (string, error) {
 		rows.Close()
 	}
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(b.String()))), nil
+}
+
+// TestGraphEnrich_EdgeLines (TRIANGULATE) — the additive edge line is served:
+// a store with edges (the standard 5-node chain fixture) must return edges
+// carrying their stored line numbers.
+func TestGraphEnrich_EdgeLines(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
+	seedGraphStore(t, dataDir)
+	svc := service.New(dataDir)
+	h := NewServer(svc).Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/mnemonic/graph/data?project="+proj, nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET graph: expected 200, got %d (%s)", rr.Code, rr.Body.String())
+	}
+	var m map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &m); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	edges := m["edges"].([]any)
+	if len(edges) == 0 {
+		t.Fatalf("expected 4 edges, got 0")
+	}
+	// seedGraphStore stores the 4 calls edges at lines 10, 11, 12, 13
+	want := map[float64]bool{10: false, 11: false, 12: false, 13: false}
+	for _, e := range edges {
+		em, _ := e.(map[string]any)
+		if l, ok := em["line"].(float64); ok {
+			if _, known := want[l]; known {
+				want[l] = true
+			}
+		}
+	}
+	for line, seen := range want {
+		if !seen {
+			t.Errorf("expected an edge with stored line %v, missing: %v", line, edges)
+		}
+	}
 }

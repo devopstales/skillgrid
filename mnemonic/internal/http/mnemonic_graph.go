@@ -59,6 +59,10 @@ type graphEdge struct {
 	Weight     float64 `json:"weight"`
 	Directed   bool    `json:"directed"`
 	Confidence string  `json:"confidence,omitempty"`
+	// TICKET-12 additive: the source line in the FROM file where the edge was
+	// observed (feeds the inspector's per-edge source-line rows). Omitted
+	// when the indexer did not record one.
+	Line int `json:"line,omitempty"`
 }
 
 // graphResponse is GET /mnemonic/graph.
@@ -151,6 +155,7 @@ func loadGraph(ctx context.Context, st *store.Store) (map[int64]*graphNode, []gr
 			Weight:     1,
 			Directed:   true,
 			Confidence: e.Confidence,
+			Line:       e.Line,
 		})
 		// undirected degree for sizing
 		nodes[e.FromID].Degree++
