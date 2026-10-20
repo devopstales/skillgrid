@@ -25,9 +25,13 @@ Skillgrid already decomposes a directive into parallel leaves
 that make a parallel run safe and convergent live only as *prose an agent must
 re-derive every time*, not as deterministic logic:
 
-1. **Wave ordering.** A leaf is dispatchable only when its `Needs:` are
+1. **Wave ordering.** A leaf is dispatchable only when its dependencies are
    satisfied — but the dispatch *order* (which leaves form wave 0, wave 1, …)
-   is computed by the agent by hand each run. Cleave does this deterministically
+   is computed by the agent by hand each run. The dependency graph lives in the
+   `tasks.md` `slicing` writes: per-ticket `- **Blocked by:** <ids>` bullets
+   **and** a `## Dependency graph` mermaid block (the two must be read together —
+   decision A+B — bullets are authoritative, mermaid is the consistency
+   cross-check). Cleave does this deterministically
    (`computeDispatchWaves`, a Kahn topological sort) and also breaks
    dependency **cycles** (`detectAndBreakCycles`). Skillgrid has no equivalent.
 2. **Dirty-tree preflight.** `skillgrid:isolated-workspace` requires a clean
@@ -56,9 +60,12 @@ not OS subprocesses).
   `skill-write` rule (logic that repeats identically every run lives in a
   script the agent calls, not prose the agent re-interprets).
 - **Success criteria:**
-  - `scripts/compute-waves` reads a `tasks.md` `Needs:` graph and emits the
-    dispatch wave ordering (wave 0, wave 1, …) deterministically; a cyclic graph
-    yields the cycle-named leaves broken and a warning, not an infinite loop.
+  - `scripts/compute-waves` reads a `tasks.md` graph — per-ticket `- **Blocked
+    by:** <ids>` bullets (primary) + a `## Dependency graph` mermaid block
+    (cross-check, decision A+B) — and emits the dispatch wave ordering (wave 0,
+    wave 1, …) deterministically; a cyclic graph yields the cycle-named leaves
+    broken and a warning, and a bullets-vs-mermaid disagreement yields a
+    `MISMATCH:` line (bullets win), not an infinite loop.
   - `scripts/classify-dirty` reads `git status --porcelain` + the change's
     `Owns:` globs and emits the related / unrelated / volatile buckets with a
     suggested checkpoint message; a volatile-only tree is auto-resolvable.
@@ -150,15 +157,23 @@ not OS subprocesses).
 1. **R1 — Deterministic wave ordering:**
    - **Current:** `concurrent-leaves.md` says "A wave is a set of leaves whose
      `Needs:` are all satisfied" but the agent computes the order by hand; there
-     is no cycle handling.
-   - **Target:** A script reads a `tasks.md` (or a task JSON/MDL file) carrying
-     per-task `Needs:` edges and emits an ordered list of waves (wave 0 = no
-     unsatisfied deps, wave N = leaves whose deps are all in earlier waves),
-     plus a deadlock/cycle note when the graph cannot fully order.
-   - **Acceptance:** Running the script on a 4-task graph with one dependency
-     edge emits exactly two waves with the dependent task in the later wave;
-     running it on a 2-task cycle emits both tasks (broken) and a named-cycle
-     warning; running it on an empty graph emits zero waves without error.
+     is no cycle handling. The dependency graph is already in `tasks.md` as
+     per-ticket `- **Blocked by:** <ids>` bullets + a `## Dependency graph`
+     mermaid block — the agent just doesn't turn it into an order.
+   - **Target:** A script reads a `tasks.md` carrying per-ticket `- **Blocked
+     by:** <ids>` bullets (primary) **and** a `## Dependency graph` mermaid block
+     (consistency cross-check — decision A+B: bullets authoritative, disagreement
+     is a `MISMATCH:` line, not a silent pick) and emits an ordered list of waves
+     (wave 0 = no unsatisfied deps, wave N = leaves whose deps are all in earlier
+     waves), plus a `CYCLE:` note when the graph cannot fully order and a `MISMATCH:`
+     line when the two sources disagree.
+   - **Acceptance:** Running the script on a 3-ticket graph whose bullets +
+     mermaid agree (T3 blocked by T2; T1, T2 free) emits exactly two waves with
+     T3 in the later wave; running it on a 2-ticket cycle emits both tasks
+     (broken) and a named-cycle warning; running it on a graph where a ticket's
+     bullets disagree with its mermaid edges emits a `MISMATCH:` line and still
+     exits 0 (bullets win); running it on an empty graph emits zero waves without
+     error.
    - **Acceptance scenario:** `happy path compute-waves-orders-independent-and-dependent` → `acceptance.feature`
 
 2. **R2 — Dirty-tree classification + preflight actions:**
@@ -216,16 +231,26 @@ not OS subprocesses).
     Go binary):
     - `.agents/skills/execution/parallel-execution/scripts/compute-waves`
     - `.agents/skills/execution/isolated-workspace/scripts/classify-dirty`
+    - `.agents/skills/execution/parallel-execution/scripts/churn-check`
   - New skill prose edits:
-    - `concurrent-leaves.md` (wave step + Churn breaker section)
+    - `concurrent-leaves.md` (wave step gated ≥4 leaves + Churn breaker section
+      naming `churn-check`)
     - `isolated-workspace/SKILL.md` (preflight classify step)
     - `subagent-execution/` task-loop reference (pointer to the churn breaker)
   - Tests: one fixture-based test per script (RED→GREEN), plus a prose-presence
     check for R4.
 - **Interfaces:**
-  - `compute-waves` — input: a task list where each task has `id` and
-    `needs: []` (parsed from `tasks.md` `Needs:` lines or a small JSON);
-    output: a printed ordered array of waves (`[["a","b"],["c"]]`) and, when a
+  - `compute-waves` — input: a `tasks.md` carrying per-ticket `- **Blocked
+    by:** <ids>` bullets (primary) + a `## Dependency graph` mermaid block
+    (cross-check, decision A+B); output: a printed ordered wave list (`WAVE 0: …`,
+    `WAVE 1: …`) plus `CYCLE:`/`DROPPED:`/`MISMATCH:`/`DUP:` lines and, on a
+    genuinely unparseable graph, a `PARSE:` line + exit 2; a cycle is broken and
+    named, not a crash.
+  - `churn-check` — input: two files, one stable issue key (`file|symbol|
+    issue-type`) per line (prev round, current round) + optional threshold;
+    output: `REAPPEAR n/m (frac)` + `FIRES: true|false` (true iff frac ≥ 0.5).
+    The reappear-fraction calculation lives here (deterministic, per
+    `skill-write`); the prose states the stop-park-escalate decision.
     cycle is broken, a `CYCLE:` line naming the affected task ids. Exit 0 on a
     valid (possibly cycle-broken) graph; non-zero on unparseable input.
   - `classify-dirty` — input: repo path + one or more `Owns:` globs (plus the
@@ -268,10 +293,13 @@ not OS subprocesses).
   `ship-drift-check.mjs` (each emits a machine-parseable `SCOPE:`/`DRIFT:` line)
   — model the output contract the same way: a stable line format the skill
   prose and the test both parse.
-- **Edge cases:** a self-`Needs:` (a task depending on itself) is dropped before
-  wave computation; a `Needs:` reference to an unknown task id is dropped and
-  reported; `Owns:` glob matching is case-sensitive on path, anchored to repo
-  root; the volatile allowlist is a fixed const (not config) in v1.
+- **Edge cases:** a self-`Blocked by:` (a ticket depending on itself) is dropped
+  before wave computation; a `Blocked by:` reference to an unknown ticket id is
+  dropped and reported (`DROPPED:`); bullets-vs-mermaid disagreement is a
+  `MISMATCH:` line (bullets win); a duplicate ticket id is a `DUP:` line (first
+  wins); `Owns:` glob matching is case-sensitive on path, anchored to repo root,
+  and a dirty submodule path is bucketed by its own path (not expanded); the
+  volatile allowlist is a fixed const (not config) in v1.
 
 ## Impact on Global Docs
 
@@ -303,14 +331,11 @@ not OS subprocesses).
 | 2 | Port the complexity-assess gate too? | No — `brainstorming`'s trivial/standard/risky + fast-track already gate decompose-vs-execute. |
 | 3 | Scripts in JS or Go? | JS under the owning skills' `scripts/` (repo's pipeline-helper pattern); no new Go command, no ADR. |
 | 4 | New ADR for the port? | Default no — skill content under ADR-0016; revisit only if promoted to cross-change infra. |
+| 5 | What does `compute-waves` parse for the graph? | **A+B (user, post-critic):** the per-ticket `- **Blocked by:**` bullets are primary; the `## Dependency graph` mermaid block is a consistency cross-check; disagreement → `MISMATCH:` line (bullets win). The critic refuted the original `Needs:`-in-`tasks.md` premise (no `tasks.md` carries `Needs:` lines). |
+| 6 | Is the churn fraction prose or a script? | A `churn-check` script (deterministic, per `skill-write`); the prose states the stop-park-escalate decision. |
 
 ## Open Questions & Assumptions
 
-- **Question:** Should `compute-waves` parse `tasks.md` `Needs:` lines directly,
-  or take a small JSON the agent extracts? — *Assumption: parse `tasks.md`
-  directly* (keeps the agent from a manual extraction step); the `Needs:` line
-  format is the one `concurrent-leaves.md` / `subagent-execution` already write
-  (`Task <N>: Needs: <ids>`).
 - **Assumption:** The volatile allowlist is a fixed const in `classify-dirty`
   for v1 (not read from `config.yaml`). Revisit if a project needs a custom
   volatile set.

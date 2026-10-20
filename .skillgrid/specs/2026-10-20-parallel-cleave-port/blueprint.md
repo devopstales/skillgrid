@@ -72,19 +72,27 @@ candidate ADR row only if the review deems the scripts cross-change infra).
 
 **Truths** (observable behaviors that must hold):
 
-- Running `scripts/compute-waves` on a 4-task graph with a single `c needs b`
-  edge prints exactly two waves, with `c` in the later wave and `a`/`b` in
-  wave 0; exit code 0. (R1)
-- Running `scripts/compute-waves` on a 2-task cycle prints both tasks (broken
-  into the same wave) and a `CYCLE:` line naming them; exit code 0 (a broken
-  cycle is a recoverable input, not a crash). (R1)
-- Running `scripts/compute-waves` on a task with a self-`Needs:` or a `Needs:`
-  reference to an unknown id drops that edge, reports it on a `DROPPED:` line,
-  and still orders the rest; exit code 0. (R1)
-- Running `scripts/compute-waves` on an empty task list prints `WAVES: 0` (or
-  an empty wave list) without error; exit code 0. (R1)
-- Running `scripts/compute-waves` on unparseable input prints a `PARSE:` error
-  line and exits non-zero (2). (R1)
+- Running `scripts/compute-waves` on a 3-ticket `tasks.md` whose `Blocked by:`
+  bullets + mermaid block agree (T3 blocked by T2; T1, T2 free) prints exactly
+  two waves, with `T3` in the later wave and `T1`/`T2` in wave 0; exit code 0.
+  (R1)
+- Running `scripts/compute-waves` on a 2-ticket cycle (T1 blocked by T2, T2
+  blocked by T1) prints both tickets (broken into the same wave) and a `CYCLE:`
+  line naming them; exit code 0 (a broken cycle is a recoverable input, not a
+  crash). (R1)
+- Running `scripts/compute-waves` on a ticket with a self-`Blocked by:` or a
+  `Blocked by:` reference to an unknown id drops that edge, reports it on a
+  `DROPPED: <id> blocked-by <self|unknown>` line, and still orders the rest;
+  exit code 0. (R1)
+- Running `scripts/compute-waves` on a `tasks.md` where a ticket's `Blocked by:`
+  bullet set disagrees with its mermaid incoming edges prints a `MISMATCH:` line
+  naming the ticket, proceeds on the bullets, and exits 0. (R1, decision A+B)
+- Running `scripts/compute-waves` on a duplicate ticket id prints a `DUP:` line,
+  keeps the first occurrence's edges, and exits 0. (R1)
+- Running `scripts/compute-waves` on an empty/edge-less `tasks.md` prints
+  `WAVES: 0` without error; exit code 0. (R1)
+- Running `scripts/compute-waves` on unparseable input (a `## Dependency graph`
+  block with no ticket ids or edges) prints a `PARSE:` line and exits 2. (R1)
 - Running `scripts/classify-dirty` in a fixture repo with 1 related, 1 volatile,
   1 unrelated dirty file prints the three paths under `RELATED:`, `VOLATILE:`,
   `UNRELATED/UNKNOWN:` respectively, a non-empty `CHECKPOINT:` message covering
@@ -106,19 +114,25 @@ candidate ADR row only if the review deems the scripts cross-change infra).
 **Artifacts** (files that must exist with real implementation, not stubs):
 
 - `.agents/skills/execution/parallel-execution/scripts/compute-waves` — Node
-  script, stdlib only, parses `tasks.md` `Needs:` edges, prints ordered waves +
-  `CYCLE:`/`DROPPED:` lines.
+  script, stdlib only, parses `tasks.md` `Blocked by:` bullets (primary) +
+  `## Dependency graph` mermaid (cross-check), prints ordered waves +
+  `CYCLE:`/`DROPPED:`/`MISMATCH:`/`DUP:` lines.
 - `.agents/skills/execution/parallel-execution/tests/compute-waves.test.mjs` —
   fixture-based test (subprocess) covering linear, diamond, cycle, self/unknown
-  edge, empty, unparseable.
+  edge, bullets-vs-mermaid mismatch, duplicate id, empty, unparseable.
 - `.agents/skills/execution/isolated-workspace/scripts/classify-dirty` — Node
   script, stdlib only, reads `git status --porcelain` + `Owns:` globs, prints
   buckets + `CHECKPOINT:` + `AUTO_RESOLVABLE:`.
 - `.agents/skills/execution/isolated-workspace/tests/classify-dirty.test.mjs` —
   fixture-repo test (creates a temp git repo) covering mixed, volatile-only,
   all-related, no-git.
-- `concurrent-leaves.md` — wave step naming `compute-waves` + a **Churn
-  breaker** section.
+- `.agents/skills/execution/parallel-execution/scripts/churn-check` — Node
+  script, stdlib only, computes the reappear fraction over two rounds' issue
+  lists, prints `REAPPEAR n/m (frac)` + `FIRES: true|false`.
+- `.agents/skills/execution/parallel-execution/tests/churn-check.test.mjs` —
+  fixture test (fires at ≥0.5, not below, empty-prev).
+- `concurrent-leaves.md` — wave step naming `compute-waves` (gated ≥4 leaves) +
+  a **Churn breaker** section naming `churn-check`.
 - `isolated-workspace/SKILL.md` — preflight step naming `classify-dirty`.
 - `subagent-execution/` — a reference line from its task loop to the churn
   breaker.
@@ -127,14 +141,23 @@ candidate ADR row only if the review deems the scripts cross-change infra).
 
 **Key links** (critical connections that must work together):
 
-- `compute-waves` must read the *same* `Task <N>: Needs: <ids>` line format that
-  `concurrent-leaves.md` and `subagent-execution` already tell the agent to
-  write — a format mismatch means the script silently drops every edge.
+- `compute-waves` must parse the *same* `tasks.md` graph `slicing` writes:
+  per-ticket `- **Blocked by:** <ids>` bullets (primary) **and** the
+  `## Dependency graph` mermaid block (cross-check). The two must be read
+  together (decision A+B): bullets are authoritative, mermaid is the
+  consistency check, disagreement is a `MISMATCH:` line, not a silent pick.
+  Parsing only one of the two would silently mis-order on a drifted graph.
 - `classify-dirty`'s `Owns:` glob input must match the `Task <N>: Owns: <globs>`
-  line format already written by `concurrent-leaves.md`.
+  line format already written by `concurrent-leaves.md` (the dispatch brief /
+  ledger, not `tasks.md`).
 - The skill prose in `concurrent-leaves.md` must invoke `compute-waves` *before*
   the first dispatch and instruct the agent to dispatch only the current wave —
   the script's output is the dispatch order, not advice.
+- **Wave gate (critic):** `compute-waves` is invoked only when the plan has ≥4
+  leaves in flight (or ≥2 `Blocked by:` edges) — matching
+  `concurrent-leaves.md`'s existing note that wave machinery "only pays off at
+  4+ leaves." Below that, the agent orders by hand (the prose contract is
+  enough).
 - The churn-breaker rule must compose with `subagent-execution`'s existing
   round cap (5): the breaker is a *convergence* stop that can fire *before* the
   cap; the cap remains the *hard* stop. The two are different signals and the
@@ -176,8 +199,9 @@ before implementing):
 ## File Structure
 
 - `.agents/skills/execution/parallel-execution/scripts/compute-waves`
-  — pure graph→waves CLI (parse `Needs:`, Kahn order, cycle break). One
-  responsibility: given a task graph, print dispatch order.
+  — pure graph→waves CLI (parse `Blocked by:` bullets + mermaid cross-check,
+  Kahn order, cycle break). One responsibility: given a `tasks.md` graph, print
+  dispatch order.
 - `.agents/skills/execution/parallel-execution/tests/compute-waves.test.mjs`
   — subprocess test over fixture task lists.
 - `.agents/skills/execution/isolated-workspace/scripts/classify-dirty`
@@ -185,9 +209,15 @@ before implementing):
   responsibility: classify a dirty tree against `Owns:` globs.
 - `.agents/skills/execution/isolated-workspace/tests/classify-dirty.test.mjs`
   — temp-git-repo test over fixture dirty trees.
+- `.agents/skills/execution/parallel-execution/scripts/churn-check`
+  — reappear-fraction CLI (`REAPPEAR n/m (frac)` + `FIRES:`). One
+  responsibility: given two rounds' issue lists, report whether the breaker
+  fires.
+- `.agents/skills/execution/parallel-execution/tests/churn-check.test.mjs`
+  — fixture test (fires ≥0.5, not below, empty-prev).
 - `.agents/skills/execution/parallel-execution/references/concurrent-leaves.md`
-  — modify: add the wave-computation step (name `compute-waves`) + a **Churn
-  breaker** section.
+  — modify: add the wave-computation step (name `compute-waves`, gated ≥4
+  leaves) + a **Churn breaker** section naming `churn-check`.
 - `.agents/skills/execution/isolated-workspace/SKILL.md`
   — modify: add the preflight-classify step (name `classify-dirty`).
 - `.agents/skills/execution/subagent-execution/SKILL.md` (or its
@@ -201,32 +231,46 @@ before implementing):
 
 ### Task 1: `compute-waves` script + test (the door check)
 
-> **Checkpoint:** this is the door check. If `tasks.md` `Needs:` lines cannot
-> be parsed reliably from the real `tasks.md` the pipeline produces, STOP — the
-> premise (parse `tasks.md` directly) is wrong and the briefing's Open
-> Question must be resolved (switch to a JSON input the agent extracts) before
-> Tasks 2–5 proceed.
+> **Checkpoint / door check (corrected per critic + user decision A+B).** The
+> dependency graph in a real `tasks.md` does **not** use `Needs:` lines — it
+> uses per-ticket `- **Blocked by:** <ids>` bullets (stable, line-based, written
+> by `slicing` today) **and** a `## Dependency graph` mermaid `graph TD` block
+> (the declared graph). The script parses **both**: the bullets are the primary
+> edge source; the mermaid block is a consistency cross-check. **Stop if** the
+> real `tasks.md` bullets cannot be parsed reliably — that is the premise this
+> door check actually tests (not a `Needs:` line, which does not exist in
+> `tasks.md`).
 
 **Files:**
 - Create: `.agents/skills/execution/parallel-execution/scripts/compute-waves`
 - Test: `.agents/skills/execution/parallel-execution/tests/compute-waves.test.mjs`
-- Read (format source, do not edit): an existing `tasks.md` that contains
-  `Task <N>: Needs: <ids>` lines (e.g.
-  `.skillgrid/specs/2026-10-06-second-brain-learnings/tasks.md`) to lock the
-  exact line grammar the parser must accept.
+- Read (format source, do not edit): the real sample
+  `.skillgrid/specs/2026-10-06-second-brain-learnings/tasks.md` — it carries
+  the `## Dependency graph` mermaid block and per-ticket `- **Blocked by:**
+  <ids>` bullets. Lock the exact grammar the parser accepts against it.
 
 **Interfaces:**
-- Consumes: none (self-contained).
+- Consumes: a `tasks.md` (or stdin) carrying per-ticket `- **Blocked by:**
+  <ids>` bullets and a `## Dependency graph` mermaid `graph TD` block.
 - Produces: a CLI `compute-waves <tasks-file>` (or stdin) whose stdout is a
   stable line format:
   - `WAVES: <count>`
-  - `WAVE 0: <id> <id> ...` (one line per wave, in order)
-  - `DROPPED: <id> needs <missing|self> <reason>` (per pruned edge)
+  - `WAVE <i>: <id> <id> ...` (one line per wave, in order; ids sorted)
+  - `DROPPED: <id> blocked-by <self|unknown>` (per pruned edge; `<reason>` is a
+    fixed enum, no free text)
   - `CYCLE: <id> <id> ...` (ids whose edges were cleared to break a cycle)
-  - `PARSE: <reason>` + exit 2 on unparseable input
-- Seam: the script's `parseNeeds(lines) -> {tasks, edges}` function — the
-  place the `tasks.md` grammar is interpreted. Behavior can change there without
-  touching the wave algorithm.
+  - `MISMATCH: <id> bullets=<set> mermaid=<set>` (a ticket whose `Blocked by:`
+    bullet set differs from its mermaid incoming edges; the script proceeds on
+    the bullets and names the conflict)
+  - `DUP: <id>` (a ticket id that appears more than once; first occurrence's
+    edges win; a warning, not an error)
+  - `PARSE: <reason>` + exit 2 on genuinely unparseable input (a `## Dependency
+    graph` block present but no ticket ids or edges can be extracted)
+  - `WAVES: 0` for an empty/edge-less graph; exit 0 (a valid empty graph is not
+    an error)
+- Seam: the script's `parseGraph(text) -> {ids, edges, source}` function — the
+  place the `tasks.md` grammar (bullets + mermaid) is interpreted. Behavior can
+  change there without touching the wave algorithm.
 - Deletion test: if deleted, the agent re-derives wave order by hand every run
   (the gap this task closes); callers are the `concurrent-leaves.md` prose
   (Task 4) and its test.
@@ -236,34 +280,55 @@ before implementing):
 **SATISFIES:** `compute-waves-orders-independent-and-dependent`
 
 - [ ] **Step 1: Write the failing test.** Fixture cases (write each as a temp
-  `tasks.md` the test feeds the script via its arg or stdin):
-  - linear + diamond → expect exact wave lines
+  `tasks.md` the test feeds the script via its arg or stdin). Each fixture uses
+  the **real** grammar: `- **Blocked by:**` bullets + a matching `## Dependency
+  graph` mermaid block.
+  - linear + diamond (bullets + mermaid agree) → expect exact `WAVE` lines
   - 2-cycle → expect both ids on one `CYCLE:` line + both emitted
-  - self-`Needs:` + unknown-id `Needs:` → expect `DROPPED:` lines, rest ordered
-  - empty → expect `WAVES: 0`
-  - unparseable (a line that matches neither a task nor the grammar) → expect
-    `PARSE:` + exit 2
+  - self-`Blocked by:` + `Blocked by:` to an unknown id → expect `DROPPED:`
+    lines, rest ordered
+  - bullets vs mermaid disagree on one ticket → expect a `MISMATCH:` line, exit
+    still 0 (bullets win, conflict named)
+  - a duplicate ticket id → expect a `DUP:` line, exit 0, first-occurrence wins
+  - empty (no tickets / no edges) → expect `WAVES: 0`
+  - a `## Dependency graph` block present but unparseable (no ids, no edges) →
+    expect `PARSE:` + exit 2
 
   ```js
   import { test } from "node:test";
   import assert from "node:assert/strict";
   import { run } from "./helpers.mjs"; // helper: spawns node <script> <file>, returns {code, out}
 
-  test("linear: dependent task lands in a later wave", () => {
-    const out = run(`Task 1: Owns: a\nTask 2: Owns: b\nTask 3: Needs: 2\n`);
+  const tasks = (tickets, mermaid) =>
+    `## Dependency graph\n\`\`\`mermaid\ngraph TD\n${mermaid}\n\`\`\`\n\n` +
+    tickets.map(t => `### ${t.id}\n- **Blocked by:** ${t.blockedBy}`).join("\n\n");
+
+  test("linear: dependent task lands in a later wave (bullets+mermaid agree)", () => {
+    const out = run(tasks(
+      [{ id: "T1", blockedBy: "none" }, { id: "T2", blockedBy: "none" }, { id: "T3", blockedBy: "T2" }],
+      "T1 --> T3\nT2 --> T3"));
     assert.equal(out.code, 0);
-    assert.match(out.out, /WAVE 0: 1 2/);      // 1 and 2 have no needs
-    assert.match(out.out, /WAVE 1: 3/);         // 3 depends on 2
+    assert.match(out.out, /WAVE 0: T1 T2/);   // T1, T2 have no blockers
+    assert.match(out.out, /WAVE 1: T3/);       // T3 blocked by T2
   });
 
   test("cycle: broken and named, still emitted, exit 0", () => {
-    const out = run(`Task 1: Needs: 2\nTask 2: Needs: 1\n`);
+    const out = run(tasks(
+      [{ id: "T1", blockedBy: "T2" }, { id: "T2", blockedBy: "T1" }], "T1 --> T2\nT2 --> T1"));
     assert.equal(out.code, 0);
-    assert.match(out.out, /CYCLE: 1 2/);
+    assert.match(out.out, /CYCLE: T1 T2/);
+  });
+
+  test("bullets vs mermaid mismatch: MISMATCH line, exit 0, bullets win", () => {
+    const out = run(tasks(
+      [{ id: "T1", blockedBy: "none" }, { id: "T2", blockedBy: "T1" }], // T2 blocked by T1 (bullet)
+      "T1 --> T1"));                                                    // mermaid says T1 self-edge (disagrees)
+    assert.equal(out.code, 0);
+    assert.match(out.out, /MISMATCH:/);
   });
 
   test("empty: WAVES: 0, exit 0", () => {
-    const out = run(``);
+    const out = run(`## Dependency graph\n\`\`\`mermaid\ngraph TD\n\`\`\`\n`);
     assert.equal(out.code, 0);
     assert.match(out.out, /WAVES: 0/);
   });
@@ -278,27 +343,35 @@ before implementing):
 
 - [ ] **Step 3: Write minimal implementation.** `compute-waves`:
   1. Read the file (arg) or stdin.
-  2. Parse `Task <N>: Owns:` lines → task ids; `Task <N>: Needs: <a, b>` lines
-     → edges. Validate the grammar against the real `tasks.md` sample; any line
-     that is neither a recognized `Task`/`Owns`/`Needs` form nor a blank/heading
-     is a `PARSE:` error (exit 2). (Keep it lenient: ignore headings, blank
-     lines, checkbox marks.)
-  3. Prune: for each edge, drop self-`Needs:` and `Needs:` to an unknown id;
-     emit one `DROPPED:` line per pruned edge.
-  4. Kahn cycle break (Cleave's `detectAndBreakCycles`): compute in-degree, peel
-     in-degree-0 nodes; the un-visited set is the cycle → clear their `needs`,
+  2. Parse ticket ids from `### <id>` headings. Parse edges from
+     `- **Blocked by:** <a, b>` bullets (split on commas; `none`/blank = no
+     edge). Parse the `## Dependency graph` mermaid `graph TD` block for a
+     second edge set (`A --> B` = B is blocked by A). Be lenient: ignore other
+     headings, blank lines, checkbox marks, and the `## Waves` table (not
+     parsed — it is a human summary). A `## Dependency graph` block with neither
+     ids nor edges → `PARSE:` (exit 2).
+  3. Cross-check: for each ticket compare its bullet-blocker set to its mermaid
+     incoming-edge set; on disagreement emit `MISMATCH:` (bullets are
+     authoritative). A duplicate ticket id emits `DUP:` (first occurrence's
+     edges win).
+  4. Prune: drop self-`Blocked by:` and `Blocked by:` to an unknown id; emit
+     one `DROPPED: <id> blocked-by <self|unknown>` per pruned edge.
+  5. Kahn cycle break (Cleave's `detectAndBreakCycles`): compute in-degree, peel
+     in-degree-0 nodes; the un-visited set is the cycle → clear their edges,
      emit `CYCLE:` with those ids.
-  5. `computeDispatchWaves` (Cleave's): repeatedly emit all remaining tasks
-     whose `needs` are all satisfied; if a pass yields none but tasks remain
+  6. `computeDispatchWaves` (Cleave's): repeatedly emit all remaining tasks
+     whose blockers are all satisfied; if a pass yields none but tasks remain
      (shouldn't after cycle break — defensive), emit the residual as one final
      wave with a `CYCLE:` note.
-  6. Print `WAVES: <n>` then one `WAVE <i>: <ids>` line each, ids sorted.
+  7. Print `WAVES: <n>` then one `WAVE <i>: <ids>` line each, ids sorted.
 
   ```js
   #!/usr/bin/env node
   import { readFileSync } from "node:fs";
-  // ... parse, prune, detectAndBreakCycles, computeDispatchWaves, print WAVES/WAVE/DROPPED/CYCLE
-  // exit 0 on a valid (possibly cycle-broken) graph; exit 2 with PARSE: on unparseable input
+  // parseGraph: bullets (primary) + mermaid (cross-check) -> {ids, edges}
+  // cross-check (MISMATCH/DUP), prune (DROPPED), detectAndBreakCycles (CYCLE),
+  // computeDispatchWaves, print WAVES/WAVE/DROPPED/CYCLE/MISMATCH/DUP/PARSE
+  // exit 0 on a valid (possibly cycle-broken/mismatched) graph; exit 2 with PARSE: on unparseable input
   ```
 
 - [ ] **Step 4: Run test to verify it passes.**
@@ -323,15 +396,23 @@ before implementing):
 **Interfaces:**
 - Consumes: none (self-contained); reads `git status --porcelain` from the repo.
 - Produces: a CLI `classify-dirty <repo-path> <own-glob> [<own-glob> ...]` whose
-  stdout is:
-  - `RELATED: <path> ...` (one per line, or `RELATED: (none)`)
-  - `VOLATILE: <path> ...`
-  - `UNRELATED/UNKNOWN: <path> ...`
+  stdout is (each bucket header on its own line, then **one path per line**
+  indented beneath it — never a space-joined path list, so the test and the
+  skill prose parse it identically):
+  - `RELATED:` then one `  <path>` per related path (or `RELATED: (none)`)
+  - `VOLATILE:` then one `  <path>` per volatile path (or `VOLATILE: (none)`)
+  - `UNRELATED/UNKNOWN:` then one `  <path>` per path (or
+    `UNRELATED/UNKNOWN: (none)`)
   - `CHECKPOINT: <suggested commit message covering the related set>` (or
-    `CHECKPOINT: (nothing to checkpoint)` when related is empty)
+    `CHECKPOINT: (nothing to checkpoint)` — the empty-set marker — when related
+    is empty)
   - `AUTO_RESOLVABLE: true|false` (true iff related is empty AND
-    unrelated/unknown is empty AND volatile is non-empty)
+    unrelated/unknown is empty AND volatile is non-empty; a **clean** tree —
+    no dirty paths at all — is `AUTO_RESOLVABLE: false` with all three buckets
+    `(none)`, so the operator knows the script ran)
   - Exit 0 always (classification is advisory; the operator picks the action).
+- Paths are always resolved to **repo-root-relative** before glob matching. A
+  dirty **submodule** path is bucketed by its own path (it is not expanded).
 - Seam: `classify(path, ownGlobs, volatileAllowlist) -> bucket` — the pure
   decision function; the `git status` read and the printing wrap it.
 - Deletion test: if deleted, `isolated-workspace` reverts to a bare
@@ -428,20 +509,36 @@ before implementing):
 - Modify: the `subagent-execution` fix-loop text (locate where rounds 1–5 /
   the breaker adjudication are described — `SKILL.md` and/or
   `references/task-loop.md`; reference the churn breaker at that exact spot).
+- Create: `.agents/skills/execution/parallel-execution/scripts/churn-check` —
+  the deterministic half of the breaker (critic: the reappear-fraction is
+  repeated logic that belongs in a script per `skill-write`). The prose states
+  the *decision* (stop-park-escalate); the script states the *calculation*.
+- Test: `.agents/skills/execution/parallel-execution/tests/churn-check.test.mjs`
 
 **Interfaces:**
-- Produces: a named, checkable rule. The rule text MUST state all of:
+- Produces: a named, checkable rule **plus** a deterministic checker. The rule
+  text MUST state all of:
   - **Stable issue key:** `file + symbol + issue-type`.
-  - **Threshold:** reappear fraction ≥ **0.5** (default; overridable per change
-    by a one-line `Churn threshold: <n>` in the ledger).
+  - **Threshold:** reappear fraction ≥ **0.5** (Cleave-parity default;
+    overridable per change by a one-line `Churn threshold: <n>` in the ledger).
   - **Action:** stop the fix loop, park each still-open issue in the ledger
     with a `Ruling:`, and escalate; do **not** start the next round.
   - **Relation to the round cap:** the breaker is a *convergence* stop that can
     fire *before* the existing round-5 cap; the cap remains the *hard* stop.
-- Seam: none (in-prose rule).
+  - **The calculation is `churn-check`**, not the agent's arithmetic: the prose
+    tells the agent to run `churn-check` on the two rounds' issue lists and act
+    on its verdict.
+- `churn-check` CLI: `churn-check <prev-rounds-file> <current-rounds-file>
+  [threshold]` where each file is one stable issue key per line (`file|symbol|
+  issue-type`). Output: `REAPPEAR <n>/<m> (<fraction>)` + `FIRES: true|false`
+  (true iff fraction ≥ threshold, default 0.5). Exit 0 always (the verdict is
+  advisory; the agent decides the action).
+- Seam: `reappearFraction(prevKeys, curKeys) -> number` — the pure
+  calculation; the file read + printing wrap it.
 - Deletion test: if deleted, a non-converging review spins to the round cap
-  without a convergence flag (the gap this task closes).
-- Adapters: n/a (prose).
+  without a convergence flag (the gap this task closes); and the fraction is
+  re-derived by the agent each round (the `skill-write` gap).
+- Adapters: 2 (the prose decision + the `churn-check` calculation).
 
 **SATISFIES:** `churn-breaker-stops-reappearing-fix-loop`
 
@@ -469,38 +566,72 @@ before implementing):
   ```
 
 - [ ] **Step 2: Run test to verify it fails.** Expected: FAIL (section absent).
-- [ ] **Step 3: Write the rule.** Add the **Churn breaker** section to
+
+- [ ] **Step 3: Write the `churn-check` test (RED).** `churn-check.test.mjs`:
+  two rounds where 2 of 3 prev issues reappear (fraction 0.67 ≥ 0.5) → `FIRES:
+  true`; two rounds where 1 of 4 reappears (0.25 < 0.5) → `FIRES: false`;
+  empty prev round → `FIRES: false` (no baseline to churn against).
+
+  ```js
+  test("reappear fraction >= 0.5 fires", () => {
+    const prev = ["a|f|bug", "b|g|bug", "c|h|perf"];
+    const cur  = ["a|f|bug", "b|g|bug", "c|h|security"]; // a,b reappear (2/3)
+    const out = runChurn(prev, cur);
+    assert.match(out.out, /FIRES: true/);
+    assert.match(out.out, /REAPPEAR 2\/3/);
+  });
+  ```
+
+- [ ] **Step 4: Write `churn-check` (GREEN).** Read the two files (one key per
+  line), compute `reappearFraction = |prev ∩ cur| / |prev|` (0 when `prev` is
+  empty), print `REAPPEAR <n>/<m> (<frac>)` + `FIRES: true|false` against the
+  threshold (default 0.5, overridable by the 3rd arg). Exit 0.
+
+- [ ] **Step 5: Run `churn-check` test to verify it passes.** Expected: PASS.
+
+- [ ] **Step 6: Write the rule.** Add the **Churn breaker** section to
   `concurrent-leaves.md` and the one-line reference in the `subagent-execution`
-  fix loop, per the interface above. Cite Cleave `review.ts` as the source of
-  the 0.5 default in a parenthetical.
-- [ ] **Step 4: Run test to verify it passes.** Expected: PASS.
-- [ ] **Step 5: Commit.**
+  fix loop, per the interface above. The prose states the decision and tells
+  the agent to run `scripts/churn-check` on the two rounds' issue lists and act
+  on its `FIRES:` verdict. Cite Cleave `review.ts` as the source of the 0.5
+  default in a parenthetical.
+
+- [ ] **Step 7: Re-run the presence/shape test (Step 1) to verify it passes.**
+  Expected: PASS.
+- [ ] **Step 8: Commit.**
 
   ```bash
   git add .agents/skills/execution/parallel-execution/references/concurrent-leaves.md \
+          .agents/skills/execution/parallel-execution/scripts/churn-check \
+          .agents/skills/execution/parallel-execution/tests/churn-check.test.mjs \
           .agents/skills/execution/parallel-execution/tests/churn-breaker-prose.test.mjs \
           .agents/skills/execution/subagent-execution/
-  git commit -m "docs(skills): add review churn breaker rule to concurrent-leaves"
+  git commit -m "feat(skills): add review churn breaker (churn-check + concurrent-leaves rule)"
   ```
 
 ### Task 4: Wire the skill prose to the scripts
 
 **Files:**
 - Modify: `.agents/skills/execution/parallel-execution/references/concurrent-leaves.md`
-  — in the **Dispatch** section, add: run `scripts/compute-waves <tasks-file>`
-  before the first dispatch; dispatch only the current wave; re-run after each
-  wave completes to get the next.
+  — in the **Dispatch** section, add: when the plan has **≥4 leaves in flight
+  (or ≥2 `Blocked by:` edges)**, run `scripts/compute-waves <tasks-file>` before
+  the first dispatch; dispatch only the current wave; re-run after each wave
+  completes to get the next. Below that threshold, order by hand (the prose
+  contract is enough — matches `concurrent-leaves.md`'s existing "only pays off
+  at 4+ leaves" note).
 - Modify: `.agents/skills/execution/isolated-workspace/SKILL.md`
   — in the preflight/clean-tree step, add: if the tree is dirty, run
   `scripts/classify-dirty <repo> <Owns-globs...>`; present the three buckets to
   the operator with the five actions (checkpoint / stash-unrelated /
   stash-volatile / proceed-without-cleave / cancel); auto-resolve when
-  `AUTO_RESOLVABLE: true`; cap manual resolution at 3 attempts then stop and
-  name the remaining paths.
+  `AUTO_RESOLVABLE: true`; cap manual resolution at 3 attempts (Cleave-parity)
+  then stop and name the remaining paths.
 
 **Interfaces:**
-- Consumes: the `compute-waves` and `classify-dirty` CLIs (Tasks 1–2).
-- Produces: the run-when + use-output instructions R4 requires.
+- Consumes: the `compute-waves`, `classify-dirty`, and `churn-check` CLIs
+  (Tasks 1–3).
+- Produces: the run-when + use-output instructions R4 requires, including the
+  ≥4-leaf wave gate.
 - Seam / Deletion test / Adapters: none (prose wiring).
 
 **SATISFIES:** `skills-reference-deterministic-guardrails`
@@ -508,8 +639,8 @@ before implementing):
 - [ ] **Step 1: Write the presence check.** Extend
   `tests/churn-breaker-prose.test.mjs` (or a sibling
   `tests/wiring-prose.test.mjs`) to assert:
-  - `concurrent-leaves.md` references `compute-waves` with a run-when +
-    dispatch-only-current-wave instruction;
+  - `concurrent-leaves.md` references `compute-waves` with the ≥4-leaf (or ≥2
+    `Blocked by:`) gate + a dispatch-only-current-wave instruction;
   - `isolated-workspace/SKILL.md` references `classify-dirty` with the five
     actions + the 3-attempt cap + auto-resolve.
 
@@ -563,7 +694,7 @@ check that the manifest matches what landed).
 | Boundary | Applicability | Design response | Planned RED test |
 |---|---|---|---|
 | Shell command injection (the scripts build a `git` argv / spawn `node`) | Applicable | `classify-dirty` uses `child_process.execFileSync` (argv array, not a shell string) so a path with spaces/`$` is one arg, not interpreted; no user input is ever concatenated into a shell command string. | `classify-dirty.test.mjs` case with a dirty path containing a space + `$` classifies correctly and does not crash. |
-| Path traversal via `Owns:` globs / task `Needs:` ids | Applicable | `Owns:` globs are anchored to the repo root and matched by the script's own minimal matcher (no `..` segment crosses the root); `Needs:` ids are matched against the parsed task-id set, so a `Needs:` referencing `../../etc` is an unknown id → `DROPPED:`, never a file read. | `compute-waves.test.mjs` unknown-id case; `classify-dirty` case with a glob containing `..` that does not escape the root. |
+| Path traversal via `Owns:` globs / `Blocked by:` ticket ids | Applicable | `Owns:` globs are anchored to the repo root and matched by the script's own minimal matcher (no `..` segment crosses the root); `Blocked by:` ticket ids are matched against the parsed `### <id>` set, so a `Blocked by:` referencing an unknown id (e.g. `../../etc`) is `DROPPED:`, never a file read. | `compute-waves.test.mjs` unknown-id case; `classify-dirty` case with a glob containing `..` that does not escape the root. |
 | Executable-file classification (a dirty path that is a build artifact vs source) | Applicable | The volatile allowlist is a fixed, named `const` in `classify-dirty` (not heuristic); a path matching neither `Owns:` nor the allowlist is `unrelated/unknown`, never silently treated as volatile. | `classify-dirty.test.mjs` mixed case asserts a source file is NOT bucketed volatile. |
 | Version-control automation (checkpoint commit the script *suggests*) | N/A: the script only *suggests* a message; it never runs `git add`/`git commit`. The operator (or the existing `isolated-workspace` flow) performs the commit. | `classify-dirty` emits `CHECKPOINT:` as data, not a side effect; its test runs in a temp repo and asserts no new commit exists after the run. |
 | Subprocess / process integration (scripts spawned by the agent) | Applicable | Both scripts are stdlib-only, exit non-zero only on a defined error (`PARSE:`), and print a stable line format; the skill prose tells the agent to fall back to hand-ordering / hand-classification on a non-zero exit (fail-open, matching ADR-0021's fail-open posture). | `compute-waves.test.mjs` unparseable → exit 2; the prose references the fallback. |
@@ -582,18 +713,19 @@ skill prose names each script with a run-when + use-output instruction; and a
 review of the final diff confirms zero `go.mod`/`package.json` changes, zero
 `_shared/` rule edits, and zero new SDD-ledger state file.
 
-**Wrong condition:** A script cannot parse the real pipeline `tasks.md`
-`Needs:` grammar (door check fails), OR wiring requires a Go command / new npm
-dep / a second execution record to work — any of which means the "scripts +
-prose" approach is wrong and the runtime-port or Go-command approach must be
-reconsidered.
+**Wrong condition:** `compute-waves` cannot parse the real pipeline `tasks.md`
+`Blocked by:` bullets + mermaid block reliably (door check fails), OR wiring
+requires a Go command / new npm dep / a second execution record to work — any
+of which means the "scripts + prose" approach is wrong and the runtime-port or
+Go-command approach must be reconsidered.
 
 **Thinnest MVP:** Task 1 (`compute-waves` + its fixture test) — the first
 increment that makes dispatch order deterministic and is independently usable.
 
-**Door check:** Task 1. If the `Needs:` line grammar can't be parsed reliably
-from a real `tasks.md`, stop and resolve the briefing's Open Question (parse
-`tasks.md` vs. JSON input) before continuing.
+**Door check:** Task 1. If the `Blocked by:` bullet + mermaid grammar can't be
+parsed reliably from a real `tasks.md` (the user-resolved A+B input), stop and
+revisit the input source. (The earlier `Needs:`-in-`tasks.md` premise was
+refuted by the critic and is no longer the door-check subject.)
 
 ## Self-Review (run before handoff)
 
@@ -604,18 +736,23 @@ from a real `tasks.md`, stop and resolve the briefing's Open Question (parse
    section and enforced by the prose-wiring test (Task 4). One-way-door: None
    (stated).
 3. **Owed-Decision Gate (input coverage):** every value a script emits has a
-   named source — wave order from the `Needs:` graph (parse grammar named in
-   Task 1), bucket from the `Owns:` glob + volatile `const` (named in Task 2),
-   threshold 0.5 (named, Cleave-sourced, in Task 3). The one genuinely open
-   choice — `tasks.md` parse vs. JSON input — is captured as the door check
-   (Task 1) and the briefing's Open Question, not invented mid-build. No
-   `ASSUMED` block required.
+   named source — wave order from the `Blocked by:` bullets + mermaid graph
+   (decision A+B; parse grammar named in Task 1 against the real `tasks.md`
+   sample), bucket from the `Owns:` glob + volatile `const` (named in Task 2),
+   churn fraction from `churn-check` over the two rounds' issue lists (named in
+   Task 3), threshold 0.5 (named, Cleave-sourced, in Task 3). The one genuinely
+   open choice — which `tasks.md` source carries the graph — was **resolved by
+   the user (A+B: bullets primary, mermaid cross-check)** and is no longer owed.
+   No `ASSUMED` block required.
 4. **Placeholder scan:** no TBD / "implement later" / "similar to Task N" —
    each task names exact files, the exact output line format, and the exact
    test cases.
 5. **Type/name consistency:** the output line prefixes (`WAVES:`, `WAVE `,
-   `DROPPED:`, `CYCLE:`, `PARSE:`, `RELATED:`, `VOLATILE:`,
-   `UNRELATED/UNKNOWN:`, `CHECKPOINT:`, `AUTO_RESOLVABLE:`) are used
-   identically in the blueprint's Interfaces, the test asserts, and the
-   skill-prose references. The `Needs:`/`Owns:` line grammar is referenced
-   from the same named source (the real `tasks.md` sample) in Task 1 and Task 4.
+   `DROPPED:`, `CYCLE:`, `MISMATCH:`, `DUP:`, `PARSE:`, `RELATED:`,
+   `VOLATILE:`, `UNRELATED/UNKNOWN:`, `CHECKPOINT:`, `AUTO_RESOLVABLE:`,
+   `REAPPEAR`, `FIRES:`) are used identically in the blueprint's Interfaces,
+   the test asserts, and the skill-prose references. `DROPPED:` uses the fixed
+   enum `<self|unknown>` (no free text). The `Blocked by:` bullet / mermaid
+   grammar is referenced from the same named source (the real `tasks.md`
+   sample) in Task 1 and Task 4; the `Owns:` line format is referenced from the
+   dispatch brief / ledger (not `tasks.md`) in Task 2 and Task 4.
