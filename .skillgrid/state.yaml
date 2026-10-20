@@ -16,8 +16,8 @@ changes:
     phase: execution
     status: in-progress
   2026-10-06-second-brain-learnings:
-    phase: execution
-    status: in-progress
+    phase: complete
+    status: complete
   2026-10-07-mnemonic-compaction-v2:
     phase: blueprint
     status: in-progress
@@ -34,7 +34,7 @@ changes:
     phase: complete
     status: complete
 progress:
-  completed_changes: 29
+  completed_changes: 30
   blocked_changes: 0
 constraints_ref: .skillgrid/ASSUMPTIONS.md
 P26-10-06-ctx: "2026-10-09: 2026-10-06-context-harness-clm SHIPPED + REFLECTED (cycle closed). PR 3 (CLM layer) kept on release/2 (option 3, not merged/pushed). 5 commits: e6004abc → 8c1505bd → b863895b → 21f92ce8 → 2457a453. QA PASS (24/24 G13-G36, P0/P1 100%, 5/5 TDD, 0 CRITICAL). Review-waived (R1/R2 fixed in 2457a453). Archive moved specs/ → archive/ (diff -r empty). Rollback = git revert e6004abc 8c1505bd b863895b 21f92ce8 2457a453. Mnemonic: obs 142 (impl), 143 (ship). Migrations renumbered 050/051/052 → 053/054/055 (CTX starts 056). Open: S1 (baseFactor jitter), S2 (plugin e2e). CTX change 2026-10-08-context-orchestrator unblocked. ADRs 0025-0028 in-force. Reflect retro half completed in archive report.md; environment retro: 2 findings (OpenCode hook key undocumented, nativePluginBases registration hidden)."
