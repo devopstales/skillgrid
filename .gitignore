@@ -28,6 +28,10 @@ skillgrid-cli/out/
 .skillgrid/.cleave/
  .skillgrid/brainstorm/
 .skillgrid/cache/
+# okf-lint.mjs telemetry sink (repocodex metrics.jsonl pattern); operational
+# artifact, not memory. Repo-root-scoped: the guard itself runs on fixtures,
+# so its default sink lands under <fixture>/.skillgrid/ on manual runs.
+/.skillgrid/okf-metrics.jsonl
 
  ###############################
 # CocoIndex Code (ccc)

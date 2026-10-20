@@ -1,0 +1,3 @@
+# okf-lint telemetry sink: the lint's default sink is <bundle>/.skillgrid/,
+# so a manual run over a fixture lands here. Operational artifact — never commit.
+*/.skillgrid/
