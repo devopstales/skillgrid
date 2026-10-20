@@ -29,11 +29,39 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Save plans to:** `.skillgrid/specs/YYYY-MM-DD-<feature-name>/blueprint.md`
 
-**Blueprint validation (mandatory, two-stage — after writing, before proceeding):**
-1. **Critic subagent:** Dispatch a dedicated critic subagent with the blueprint content. The critic reviews for: architectural gaps, missing edge cases, untested assumptions, scope creep, and unclear interfaces. The critic returns a structured critique (issues + severity).
-2. **User review:** Present the blueprint + critic findings to the user. For each issue, present options with benefits and weaknesses. Use the agent's answer-select tool for the user to choose a resolution path. The user must approve the final blueprint before `acceptance.feature` is written.
+**Blueprint validation (after writing, before proceeding) — the critic stage is
+tier-gated; the user-decide loop is always mandatory:**
 
-Never proceed to the next artifact without the blueprint being validated by both stages.
+The two stages run in a **decide-then-fix loop, not a one-shot gate**: the
+critic's findings (or the user's own read of the blueprint) are routed back to
+the user *while the blueprint is still PROPOSED and cheap to change*. For each
+finding the user decides the resolution path, the blueprint is updated to
+reflect it, and only the *final* updated blueprint is approved. A critique
+surfaced only after the blueprint is committed — with no user decision feeding
+back into it — has missed its purpose.
+
+1. **Critic subagent (conditional).** Dispatch a dedicated critic subagent with
+   the blueprint content. The critic reviews for: architectural gaps, missing
+   edge cases, untested assumptions, scope creep, and unclear interfaces. It
+   returns a structured critique (issues + severity).
+   - **Mandatory** when `Tier: T2` or `T3`, or the change is not a fast-track
+     class, or a one-way-door decision is present.
+   - **Optional / skippable** for a `T0` or `T1` change, or a fast-track
+     `trivial` / `small` class (per `_shared/planning/fast-track.md`): the user
+     (or the controller) may skip it, recording `Critic: skipped (T0/T1 or
+     fast-track)` in the blueprint header. The Self-Review checklist still runs
+     — it is in-controller and always on.
+2. **User review (always mandatory).** Present the blueprint + critic findings
+   (or, when the critic was skipped, the blueprint + the Self-Review findings)
+   to the user. For each issue, present options with benefits and weaknesses.
+   Use the agent's answer-select tool for the user to choose a resolution path.
+   **Update the blueprint to reflect each decision, then re-present the final
+   blueprint.** The user must approve the final blueprint before
+   `acceptance.feature` is written.
+
+Never proceed to the next artifact without the user approving the final
+blueprint. The critic stage itself may be skipped only under the T0/T1 /
+fast-track condition above (and must be recorded as skipped).
 
 **Role (do not rename):** `blueprint.md` is the *how* (implementation plan —
 steps, files, code, verification); the companion `briefing.md` is the *what*
@@ -402,4 +430,6 @@ Per `_shared/craft/measurement.md`.
 - [ ] A placeholder scan (the No Placeholders patterns) returns zero hits across all tasks.
 - [ ] Every one-way-door decision is listed in the Must-Haves section and tagged `> ⚠ one-way:` on the task that implements it.
 - [ ] Self-Review and the Plan Review gate both ran and produced a verdict (READY FOR EXECUTION, or findings fixed inline).
+- [ ] The critic stage ran (T2/T3, non-fast-track, or one-way-door present) **or** is recorded as `Critic: skipped (T0/T1 or fast-track)` in the header — never silently absent.
+- [ ] The user-decide-then-fix loop ran: critic/user findings were routed to the user *while the blueprint was still PROPOSED*, each resolved, the blueprint updated to reflect the decisions, and the final blueprint approved by the user.
 - [ ] The Execution Handoff is present — slicing decision made and an execution approach (Subagent-Driven or Inline) is offered, so the plan is ready to hand off.

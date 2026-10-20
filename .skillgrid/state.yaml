@@ -27,6 +27,9 @@ changes:
   2026-10-09-adr-knowledge-index:
     phase: blueprint
     status: in-progress
+  2026-10-20-parallel-cleave-port:
+    phase: blueprint
+    status: queued
   2026-10-10-obs-split-hnsw:
     phase: complete
     status: complete
