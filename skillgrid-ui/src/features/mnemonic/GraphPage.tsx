@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as d3 from 'd3'
 import { fetchGraph } from './graph/api'
 import type { GraphEdge, GraphNode, GraphResponse } from './graph/types'
-import { apiGet } from '../../lib/api'
+import {
+  apiGet,
+} from '../../lib/api'
 import {
   EmptyState,
   ErrorState,
@@ -34,6 +36,116 @@ interface CodeStatus {
   last_indexed?: string
 }
 
+// ConceptNode is the shape of /knowledge/graph nodes (the concept overlay).
+interface ConceptNode {
+  id: string
+  title: string
+  type: string
+  description: string
+  tags: string[]
+  status: string
+  orphan: boolean
+  deprecated: boolean
+}
+interface ConceptGraphResponse {
+  nodes: ConceptNode[]
+  edges: { source: string; target: string }[]
+}
+
+// ---------------------------------------------------------------------------
+// Local (non-component) helpers — pure, testable in isolation.
+// ---------------------------------------------------------------------------
+
+// graphLines reads the additive `lines` field (TICKET-12 enrichment) from a
+// node, tolerating its absence (old payloads / unlocated symbols).
+function graphLines(n: GraphNode): { start: number; end: number } | null {
+  const l = (n as unknown as { lines?: { start: number; end: number } }).lines
+  if (!l || typeof l.start !== 'number' || typeof l.end !== 'number') return null
+  return l
+}
+
+// fileTree groups nodes by their file path (the tree panel source).
+function fileTree(nodes: GraphNode[]): Map<string, GraphNode[]> {
+  const m = new Map<string, GraphNode[]>()
+  for (const n of nodes) {
+    const arr = m.get(n.path) ?? []
+    arr.push(n)
+    m.set(n.path, arr)
+  }
+  for (const arr of m.values()) arr.sort((a, b) => a.label.localeCompare(b.label))
+  return m
+}
+
+// applyFilters keeps the nodes matching the kind/community/layer filters and
+// the newcomer cap (uncategorized nodes, community -1, are capped). Returns
+// the visible node set and the number hidden.
+function applyFilters(
+  nodes: GraphNode[],
+  kind: string,
+  community: string,
+  layer: string,
+  newcomerCap: number,
+): { visible: Set<number>; hidden: number } {
+  const visible = new Set<number>()
+  let uncategorized = 0
+  for (const n of nodes) {
+    if (kind !== 'all' && n.type !== kind) continue
+    if (community !== 'all' && String(n.community) !== community) continue
+    if (layer !== 'all' && !n.path.startsWith(layer)) continue
+    if (n.community === -1) {
+      // newcomer cap: limit uncategorized nodes to the first `cap`
+      if (uncategorized >= newcomerCap) continue
+      uncategorized++
+    }
+    visible.add(n.id)
+  }
+  return { visible, hidden: nodes.length - visible.size }
+}
+
+// TOUR_STOPS is the client-side teaching tour: workflow → decisions →
+// top-centrality (at least 3 stops, no endpoint involved).
+interface TourStop {
+  title: string
+  body: string
+  focus: (g: GraphResponse) => GraphNode | null
+}
+const TOUR_STOPS: TourStop[] = [
+  {
+    title: 'Workflow',
+    body: 'Start at the entry point: main orchestrates the call graph. Its outgoing calls are the workflow edges.',
+    focus: (g) => {
+      const main = g.nodes.find((n) => n.label === 'main' || n.label === 'Main' || n.type === 'route')
+      return main ?? g.nodes[0] ?? null
+    },
+  },
+  {
+    title: 'Decisions',
+    body: 'Community boundaries mark the architectural decisions: tightly-coupled clusters stay together. The concept overlay anchors ADRs onto these clusters.',
+    focus: (g) => {
+      // the most connected community is where the decisions live
+      const byCommunity = new Map<number, number>()
+      for (const n of g.nodes) {
+        if (n.community >= 0) byCommunity.set(n.community, (byCommunity.get(n.community) ?? 0) + n.degree)
+      }
+      let best: number | null = null
+      let bestScore = -1
+      for (const [c, s] of byCommunity) {
+        if (s > bestScore) {
+          bestScore = s
+          best = c
+        }
+      }
+      return g.nodes.find((n) => n.community === best) ?? g.nodes[0] ?? null
+    },
+  },
+  {
+    title: 'Top centrality',
+    body: 'This symbol has the highest degree in the graph: it is the hub. Change it first, and expect the widest blast radius.',
+    focus: (g) =>
+      [...g.nodes].sort((a, b) => b.degree - a.degree)[0] ?? null,
+  },
+]
+
 export function GraphPage() {
   const [graph, setGraph] = useState<GraphResponse | null>(null)
   const [codeStatus, setCodeStatus] = useState<CodeStatus | null>(null)
@@ -41,6 +153,18 @@ export function GraphPage() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<SimNode | null>(null)
   const [zoom, setZoom] = useState(1)
+  const [focusLabel, setFocusLabel] = useState<string | null>(null)
+
+  // teaching-page state (TICKET-12)
+  const [treeExpanded, setTreeExpanded] = useState<Set<string>>(new Set())
+  const [search, setSearch] = useState('')
+  const [kindFilter, setKindFilter] = useState('all')
+  const [communityFilter, setCommunityFilter] = useState('all')
+  const [layerFilter, setLayerFilter] = useState('all')
+  const [newcomerCap, setNewcomerCap] = useState(50)
+  const [conceptsOn, setConceptsOn] = useState(false)
+  const [concepts, setConcepts] = useState<ConceptGraphResponse | null>(null)
+  const [tourStep, setTourStep] = useState<number | null>(null)
   const graphRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -50,18 +174,112 @@ export function GraphPage() {
     apiGet<CodeStatus>('/code/status')
       .then(setCodeStatus)
       .catch((err: Error) => setStatusError(err.message))
+    apiGet<ConceptGraphResponse>('/knowledge/graph')
+      .then(setConcepts)
+      .catch(() => setConcepts(null)) // degraded: no overlay, never an error
   }, [])
 
-  const adjacency = useMemo(() => {
-    const map: Record<number, { incoming: number[]; outgoing: number[] }> = {}
-    for (const e of graph?.edges ?? []) {
-      if (!map[e.source]) map[e.source] = { incoming: [], outgoing: [] }
-      if (!map[e.target]) map[e.target] = { incoming: [], outgoing: [] }
-      map[e.target].incoming.push(e.source)
-      map[e.source].outgoing.push(e.target)
+  const tree = useMemo(() => fileTree(graph?.nodes ?? []), [graph])
+  const pathList = useMemo(() => [...tree.keys()].sort(), [tree])
+
+  const kinds = useMemo(
+    () => [...new Set((graph?.nodes ?? []).map((n) => n.type))].sort(),
+    [graph],
+  )
+  const communities = useMemo(
+    () =>
+      [...new Set((graph?.nodes ?? []).map((n) => n.community))]
+        .filter((c) => c >= 0)
+        .sort((a, b) => a - b),
+    [graph],
+  )
+  const layers = useMemo(() => {
+    const ls = new Set<string>()
+    for (const p of graph?.nodes ?? []) {
+      const dir = p.path.includes('/') ? p.path.slice(0, p.path.lastIndexOf('/')) : ''
+      if (dir) ls.add(dir)
     }
-    return map
+    return [...ls].sort()
   }, [graph])
+
+  const { visible, hidden } = useMemo(
+    () =>
+      applyFilters(graph?.nodes ?? [], kindFilter, communityFilter, layerFilter, newcomerCap),
+    [graph, kindFilter, communityFilter, layerFilter, newcomerCap],
+  )
+
+  const filteredNodes = useMemo(
+    () => (graph?.nodes ?? []).filter((n) => visible.has(n.id)),
+    [graph, visible],
+  )
+  const filteredEdges = useMemo(
+    () =>
+      (graph?.edges ?? []).filter((e) => visible.has(e.source) && visible.has(e.target)),
+    [graph, visible],
+  )
+
+  // both-ways sync: selecting a node in the graph reveals its file in the tree.
+  useEffect(() => {
+    if (!selected) return
+    setTreeExpanded((prev) => new Set(prev).add(selected.path))
+  }, [selected])
+
+  const selectNode = useCallback((id: number) => {
+    const n = graph?.nodes.find((x) => x.id === id)
+    if (!n) return
+    setSelected(n)
+    setFocusLabel(n.label)
+  }, [graph])
+
+  // search-to-focus: type a symbol → the graph centers on it.
+  useEffect(() => {
+    if (!search) {
+      setFocusLabel(null)
+      return
+    }
+    const q = search.toLowerCase()
+    const match = (graph?.nodes ?? []).find(
+      (n) => n.label.toLowerCase() === q || n.label.toLowerCase().includes(q),
+    )
+    if (match) {
+      setSelected(match)
+      setFocusLabel(match.label)
+      setTreeExpanded((prev) => new Set(prev).add(match.path))
+    } else {
+      setFocusLabel(null)
+    }
+  }, [search, graph])
+
+  // focus the graph on a file's nodes (tree → graph direction).
+  const focusFile = useCallback(
+    (path: string) => {
+      const nodes = tree.get(path) ?? []
+      if (nodes.length === 0) {
+        setFocusLabel(path)
+        return
+      }
+      const hub = [...nodes].sort((a, b) => b.degree - a.degree)[0]
+      setSelected(hub)
+      setFocusLabel(path)
+    },
+    [tree],
+  )
+
+  const startTour = useCallback(() => {
+    setTourStep(0)
+  }, [])
+  const nextTour = useCallback(() => {
+    setTourStep((s) => (s == null ? null : s + 1 >= TOUR_STOPS.length ? null : s + 1))
+  }, [])
+
+  const tourStop = tourStep != null && tourStep < TOUR_STOPS.length ? TOUR_STOPS[tourStep] : null
+
+  // tour: center the graph on the stop's focus symbol.
+  useEffect(() => {
+    if (!tourStop || !graph) return
+    const n = tourStop.focus(graph)
+    if (n) setSelected(n)
+  }, [tourStop, graph])
 
   const nodeById = useMemo(() => {
     const m: Record<number, GraphNode> = {}
@@ -74,8 +292,8 @@ export function GraphPage() {
     const container = graphRef.current
     const width = container.clientWidth || 800
     const height = container.clientHeight || 500
-    const nodes: SimNode[] = graph.nodes.map((n) => ({ ...n }))
-    const edges: SimLink[] = graph.edges.map((e: GraphEdge) => ({
+    const nodes: SimNode[] = filteredNodes.map((n) => ({ ...n }))
+    const edges: SimLink[] = filteredEdges.map((e: GraphEdge) => ({
       source: e.source,
       target: e.target,
       type: e.type,
@@ -145,12 +363,16 @@ export function GraphPage() {
       .on('click', (event, d) => {
         event.stopPropagation()
         setSelected(d)
+        setFocusLabel(d.label)
       })
 
     node.append('title').text((d) => `${d.label} (${d.type})\n${d.path}`)
 
     const gNode = g.node()
-    const clear = () => setSelected(null)
+    const clear = () => {
+      setSelected(null)
+      setFocusLabel(null)
+    }
     gNode?.addEventListener('click', clear)
 
     simulation.on('tick', () => {
@@ -167,8 +389,9 @@ export function GraphPage() {
       gNode?.removeEventListener('click', clear)
       svg.remove()
     }
-  }, [graph])
+  }, [filteredNodes, filteredEdges])
 
+  // selection highlight (neighbor emphasis).
   useEffect(() => {
     const container = graphRef.current
     if (!container || !selected || !graph) return
@@ -177,7 +400,7 @@ export function GraphPage() {
     const link = svg.selectAll<SVGLineElement, SimLink>('line')
     const selId = selected.id
     const neighborIds = new Set<number>([selId])
-    for (const e of graph.edges) {
+    for (const e of filteredEdges) {
       if (e.source === selId || e.target === selId) {
         neighborIds.add(e.source)
         neighborIds.add(e.target)
@@ -204,7 +427,7 @@ export function GraphPage() {
         const t = typeof e.target === 'object' ? e.target.id : e.target
         return s === selId || t === selId ? 1 : 0.1
       })
-  }, [selected, graph])
+  }, [selected, graph, filteredEdges])
 
   if (error) {
     return (
@@ -224,34 +447,116 @@ export function GraphPage() {
   const typeCounts: Record<string, number> = {}
   for (const n of graph.nodes) typeCounts[n.type] = (typeCounts[n.type] || 0) + 1
 
-  const selConn = selected ? adjacency[selected.id] || { incoming: [], outgoing: [] } : null
+  // typed connection groups for the inspector (per-edge source lines).
+  const selConn = selected
+    ? filteredEdges
+        .filter((e) => e.source === selected.id || e.target === selected.id)
+        .map((e) => {
+          const dir: 'incoming' | 'outgoing' = e.source === selected.id ? 'outgoing' : 'incoming'
+          const otherId = dir === 'outgoing' ? e.target : e.source
+          return { dir, otherId, type: e.type, line: e.line }
+        })
+        .reduce<Record<string, { dir: 'incoming' | 'outgoing'; otherId: number; type: string; line?: number }[]>>((acc, c) => {
+          (acc[c.type] ??= []).push(c)
+          return acc
+        }, {})
+    : null
 
-  const connRow = (dir: 'incoming' | 'outgoing', id: number) => {
-    const other = nodeById[id]
-    if (!other) return null
-    const verb = dir === 'incoming' ? '← called by' : '→ calls'
-    return (
-      <div key={dir + id} className="flex items-start gap-1.5 py-0.5">
-        <span className={`shrink-0 text-[10px] ${dir === 'incoming' ? 'text-warn' : 'text-accent'}`}>
-          {verb}
-        </span>
-        <div className="min-w-0">
-          <div className="truncate font-mono text-[11px] text-ink">{other.label}</div>
-          <div className="truncate font-mono text-[10px] text-ink-5">{other.path}</div>
-        </div>
-      </div>
-    )
-  }
+  const degraded = graph.degraded && filteredEdges.length === 0
+  const emptyFilters = filteredNodes.length === 0
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-edge p-4">
+      {/* toolbar: search, filters, newcomer cap, concept toggle, tour */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-edge p-3 text-xs">
+        <input
+          aria-label="Search symbols"
+          placeholder="Search symbols…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-40 rounded border border-edge bg-surface-800 px-2 py-1 text-xs text-ink placeholder:text-ink-5"
+        />
+        <select
+          aria-label="Kind"
+          value={kindFilter}
+          onChange={(e) => setKindFilter(e.target.value)}
+          className="rounded border border-edge bg-surface-800 px-2 py-1 text-xs text-ink"
+        >
+          <option value="all">kind: all</option>
+          {kinds.map((k) => (
+            <option key={k} value={k}>
+              kind: {k}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Community"
+          value={communityFilter}
+          onChange={(e) => setCommunityFilter(e.target.value)}
+          className="rounded border border-edge bg-surface-800 px-2 py-1 text-xs text-ink"
+        >
+          <option value="all">community: all</option>
+          {communities.map((c) => (
+            <option key={c} value={String(c)}>
+              community {c}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Layer"
+          value={layerFilter}
+          onChange={(e) => setLayerFilter(e.target.value)}
+          className="rounded border border-edge bg-surface-800 px-2 py-1 text-xs text-ink"
+        >
+          <option value="all">layer: all</option>
+          {layers.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </select>
+        <label className="flex items-center gap-1 text-ink-4">
+          newcomer cap
+          <input
+            aria-label="Newcomer cap"
+            type="number"
+            min={0}
+            value={newcomerCap}
+            onChange={(e) => setNewcomerCap(Number(e.target.value) || 0)}
+            className="w-14 rounded border border-edge bg-surface-800 px-1 py-1 text-xs text-ink"
+          />
+        </label>
+        <button
+          role="switch"
+          aria-checked={conceptsOn}
+          aria-label="Concepts overlay"
+          onClick={() => setConceptsOn((v) => !v)}
+          className={`rounded px-2 py-1 ${
+            conceptsOn ? 'bg-accent/20 text-accent' : 'bg-surface-800 text-ink-4'
+          }`}
+        >
+          Concepts {conceptsOn ? 'on' : 'off'}
+        </button>
+        <button
+          onClick={startTour}
+          disabled={tourStep != null}
+          className="rounded bg-accent/20 px-2 py-1 text-accent disabled:opacity-40"
+        >
+          Start tour
+        </button>
+        {focusLabel && <span className="text-ink-4">focused on {focusLabel}</span>}
+        {hidden > 0 && <span className="text-ink-5">{hidden} hidden</span>}
+      </div>
+
+      {/* header: stats + legend */}
+      <div className="flex items-center justify-between border-b border-edge px-4 py-2">
         <div>
           <h2 className="text-sm font-semibold">Code Graph</h2>
           <p className="text-xs text-ink-4">
-            {graph.nodes.length} nodes / {graph.edges.length} edges (limited to 500)
+            {filteredNodes.length}/{graph.nodes.length} nodes / {filteredEdges.length} edges
+            (limited to 500)
             {graph.truncated ? ' — truncated' : ''}
-            {graph.degraded ? ' — degraded' : ''}
+            {graph.degraded ? ' — degraded: no edges' : ''}
           </p>
         </div>
         <div className="flex gap-4 text-xs">
@@ -268,9 +573,119 @@ export function GraphPage() {
             ))}
         </div>
       </div>
-      <div className="flex flex-1">
-        <div ref={graphRef} className="min-h-[400px] flex-1 bg-surface-900" />
-        <div className="w-64 space-y-4 overflow-y-auto border-l border-edge p-4">
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* tree panel (two-way synced) */}
+        <div className="w-56 shrink-0 overflow-y-auto border-r border-edge p-3">
+          <SectionTitle>Files</SectionTitle>
+          {pathList.length === 0 ? (
+            <div className="text-xs text-ink-4">No files in the loaded window.</div>
+          ) : (
+            <div className="space-y-1">
+              {pathList.map((path) => {
+                const expanded = treeExpanded.has(path)
+                const focused = selected?.path === path
+                return (
+                  <div key={path}>
+                    <div
+                      className={`cursor-pointer truncate rounded px-1 py-0.5 font-mono text-[11px] ${
+                        focused ? 'bg-accent/20 text-accent' : 'text-ink-3 hover:bg-surface-800'
+                      }`}
+                      onClick={() => focusFile(path)}
+                      title={path}
+                    >
+                      {expanded ? '▾' : '▸'} {path}
+                    </div>
+                    {expanded && (
+                      <div className="ml-3 space-y-0.5">
+                        {(tree.get(path) ?? []).map((n) => (
+                          <div
+                            key={n.id}
+                            className={`cursor-pointer truncate rounded px-1 py-0.5 font-mono text-[11px] ${
+                              selected?.id === n.id
+                                ? 'bg-accent/20 text-accent'
+                                : 'text-ink-4 hover:bg-surface-800'
+                            }`}
+                            onClick={() => selectNode(n.id)}
+                            title={n.label}
+                          >
+                            {n.label}
+                            {graphLines(n) ? ` (${graphLines(n)!.start})` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* graph canvas + degraded states */}
+        <div className="relative min-h-[400px] flex-1 bg-surface-900">
+          <div ref={graphRef} className="h-full w-full" />
+          {degraded && (
+            <div className="absolute left-3 top-3 max-w-xs rounded border border-edge bg-surface-800/90 p-3">
+              <div className="text-xs font-semibold text-warn">degraded: no edges</div>
+              <div className="mt-1 text-xs text-ink-4">
+                Node-only view. Served file list:
+              </div>
+              <div className="mt-1 max-h-32 overflow-y-auto font-mono text-[10px] text-ink-3">
+                {(graph.files ?? pathList).map((p) => (
+                  <div key={p}>{p}</div>
+                ))}
+              </div>
+            </div>
+          )}
+          {emptyFilters && !degraded && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="rounded border border-edge bg-surface-800/90 p-4 text-center">
+                <div className="text-xs text-ink-3">no symbols match the filters</div>
+                <div className="mt-1 text-[11px] text-ink-5">
+                  Reset kind / community / layer to see the graph.
+                </div>
+              </div>
+            </div>
+          )}
+          {tourStop && (
+            <div className="absolute bottom-3 left-3 right-3 mx-auto max-w-md rounded border border-accent/40 bg-surface-800/95 p-4">
+              <div className="text-xs font-semibold text-accent">
+                {tourStop.title} — stop {(tourStep ?? 0) + 1} of {TOUR_STOPS.length}
+              </div>
+              <p className="mt-2 text-xs text-ink-3">{tourStop.body}</p>
+              <div className="mt-3 flex justify-end gap-2">
+                <button onClick={() => setTourStep(null)} className="rounded px-2 py-1 text-xs text-ink-4">
+                  End tour
+                </button>
+                <button
+                  onClick={nextTour}
+                  className="rounded bg-accent/20 px-2 py-1 text-xs text-accent"
+                >
+                  Next stop
+                </button>
+              </div>
+            </div>
+          )}
+          {conceptsOn && concepts && concepts.nodes.length > 0 && (
+            <div className="absolute bottom-3 right-3 max-h-64 w-52 overflow-y-auto rounded border border-edge bg-surface-800/95 p-3">
+              <div className="text-xs font-semibold text-ink-3">Concepts ({concepts.nodes.length})</div>
+              <div className="mt-1 space-y-1">
+                {concepts.nodes.map((c) => (
+                  <div key={c.id} className="text-[11px]">
+                    <span className="font-mono text-ink-3">{c.title}</span>
+                    <span className="text-ink-5"> · {c.type}</span>
+                    {c.orphan && <span className="text-warn"> · orphan</span>}
+                    {c.deprecated && <span className="text-warn"> · deprecated</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* inspector */}
+        <div className="w-72 shrink-0 space-y-4 overflow-y-auto border-l border-edge p-4">
           <div>
             <SectionTitle>Node Inspector</SectionTitle>
             {selected ? (
@@ -292,47 +707,101 @@ export function GraphPage() {
                     <span className="text-ink-3">{selected.degree} connections</span>
                     <span className="text-ink-4">Community</span>
                     <span className="text-ink-3">{selected.community}</span>
+                    {graphLines(selected) && (
+                      <>
+                        <span className="text-ink-4">Lines</span>
+                        <span className="text-ink-3">
+                          lines {graphLines(selected)!.start}-{graphLines(selected)!.end}
+                        </span>
+                      </>
+                    )}
+                    {(selected as unknown as { signature?: string }).signature && (
+                      <>
+                        <span className="text-ink-4">Signature</span>
+                        <span className="break-all font-mono text-[10px] text-ink-3">
+                          {(selected as unknown as { signature?: string }).signature}
+                        </span>
+                      </>
+                    )}
                     <span className="col-span-2 text-ink-4">File</span>
                     <span className="col-span-2 break-all font-mono text-[10px] text-accent">
                       {selected.path}
                     </span>
                   </div>
                 </div>
-                {selConn && (selConn.incoming.length > 0 || selConn.outgoing.length > 0) ? (
-                  <div>
-                    <div className="mb-1 text-[10px] uppercase tracking-wide text-ink-4">
-                      Connections ({selConn.incoming.length + selConn.outgoing.length})
-                    </div>
-                    <div className="max-h-64 space-y-0.5 overflow-y-auto">
-                      {selConn.incoming.slice(0, 30).map((id) => connRow('incoming', id))}
-                      {selConn.incoming.length > 30 && (
-                        <div className="text-[10px] text-ink-4">
-                          … {selConn.incoming.length - 30} more callers
+
+                {/* typed connection groups with per-edge source lines */}
+                {selConn && Object.keys(selConn).length > 0 ? (
+                  <div className="space-y-2">
+                    {Object.entries(selConn).map(([kind, conns]) => (
+                      <div key={kind}>
+                        <div className="mb-1 text-[10px] uppercase tracking-wide text-ink-4">
+                          {kind} ({conns.length})
                         </div>
-                      )}
-                      {selConn.outgoing.slice(0, 30).map((id) => connRow('outgoing', id))}
-                      {selConn.outgoing.length > 30 && (
-                        <div className="text-[10px] text-ink-4">
-                          … {selConn.outgoing.length - 30} more callees
+                        <div className="max-h-40 space-y-0.5 overflow-y-auto">
+                          {conns.slice(0, 20).map((c) => {
+                            const other = nodeById[c.otherId]
+                            if (!other) return null
+                            const verb = c.dir === 'incoming' ? '← from' : '→ to'
+                            return (
+                              <div key={c.dir + c.otherId + c.type} className="flex items-start gap-1.5 py-0.5">
+                                <span
+                                  className={`shrink-0 text-[10px] ${
+                                    c.dir === 'incoming' ? 'text-warn' : 'text-accent'
+                                  }`}
+                                >
+                                  {verb}
+                                </span>
+                                <div className="min-w-0">
+                                  <div className="truncate font-mono text-[11px] text-ink">
+                                    {other.label}
+                                    {c.line != null && (
+                                      <span className="text-ink-5"> L{c.line}</span>
+                                    )}
+                                  </div>
+                                  <div className="truncate font-mono text-[10px] text-ink-5">
+                                    {other.path}
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <div className="text-xs text-ink-4">
                     No edges in the loaded window (graph limited to 500 nodes).
                   </div>
                 )}
+
+                {/* ephemeral locals (on-demand, read-only) */}
+                <div>
+                  <div className="mb-1 text-[10px] uppercase tracking-wide text-ink-4">Locals</div>
+                  {graphLines(selected) &&
+                  (selected as unknown as { signature?: string }).signature ? (
+                    <div className="rounded border border-edge bg-surface-800 p-2 font-mono text-[10px] text-ink-3">
+                      {(selected as unknown as { signature?: string }).signature}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-ink-5">
+                      locals unavailable for this symbol (degraded: no source range)
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="text-xs text-ink-4">
-                <p>Click a node to inspect symbol, type, file, and callers / callees.</p>
+                <p>Click a node to inspect symbol, lines, typed connections, and locals.</p>
                 <p className="mt-2 text-ink-5">
-                  Edges are directed <code className="font-mono">calls</code> relations.
+                  Edges are directed <code className="font-mono">calls</code> /{' '}
+                  <code className="font-mono">imports</code> relations with source lines.
                 </p>
               </div>
             )}
           </div>
+
           <div>
             <SectionTitle>Index Status</SectionTitle>
             {statusError ? (
@@ -356,14 +825,15 @@ export function GraphPage() {
               <EmptyState message="No index status" />
             )}
           </div>
+
           <div>
             <SectionTitle>Controls</SectionTitle>
             <div className="space-y-1 text-xs text-ink-4">
               <div>Zoom: {zoom.toFixed(1)}x</div>
               <div>Click node → inspect + highlight</div>
-              <div>Drag nodes to reposition</div>
-              <div>Scroll to zoom, drag to pan</div>
-              <div>Click canvas to clear selection</div>
+              <div>Tree ↔ graph sync both ways</div>
+              <div>Search → centers the graph</div>
+              <div>Drag nodes / scroll to zoom</div>
             </div>
           </div>
         </div>

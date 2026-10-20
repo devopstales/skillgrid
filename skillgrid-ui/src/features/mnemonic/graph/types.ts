@@ -17,6 +17,9 @@ export interface GraphEdge {
   weight: number
   directed: boolean
   confidence?: string
+  /** TICKET-12: the source line in the FROM file where the edge was observed
+   *  (served by the stored edges.line; additive — old payloads omit it). */
+  line?: number
 }
 
 export interface GraphResponse {
