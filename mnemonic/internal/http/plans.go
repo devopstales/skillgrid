@@ -50,10 +50,10 @@ func sddRoot() string {
 }
 
 func sddSpecsDir() string   { return filepath.Join(sddRoot(), ".skillgrid", "specs") }
-func sddArchiveDir() string { return filepath.Join(sddRoot(), ".skillgrid", "archive") }
+func sddArchiveDir() string { return filepath.Join(sddRoot(), ".skillgrid", "xarchive") }
 
 // changeDir resolves a change id to its spec directory. Live specs win.
-// Archived changes live under .skillgrid/archive/<id>.
+// Archived changes live under .skillgrid/xarchive/<id>.
 func changeDir(id string) (string, bool) {
 	if id == "" || strings.Contains(id, "..") || strings.ContainsAny(id, `/\`) {
 		return "", false

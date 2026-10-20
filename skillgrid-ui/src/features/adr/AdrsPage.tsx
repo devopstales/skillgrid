@@ -9,7 +9,7 @@ import { parseOpenQuestions, type OpenQuestion } from '../decisions/api'
 // Questions section. INDEX_PATH is the legacy table for repos that have not
 // moved it yet.
 const ASSUMPTIONS_PATH = '.skillgrid/ASSUMPTIONS.md'
-const INDEX_PATH = '.skillgrid/artifacts/03-adr-index.md'
+const INDEX_PATH = '.skillgrid/decisions/03-adr-index.md'
 
 // loadAdrIndex reads ASSUMPTIONS.md for the in-force table and its Open
 // Questions, falling back to 03-adr-index.md when that file has no table.

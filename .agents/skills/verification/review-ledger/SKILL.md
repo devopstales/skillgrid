@@ -107,7 +107,7 @@ Commit `review-ledger.md` with the review round. Use the `work-unit-commits` pro
 
 ### Step 5: Surface Review Debt (at QA time)
 
-When `skillgrid:qa` runs for a **new** change, it reads `review-ledger.md` files from **prior archived changes** (`.skillgrid/archive/*/review-ledger.md`) and surfaces any findings with disposition `parked`:
+When `skillgrid:qa` runs for a **new** change, it reads `review-ledger.md` files from **prior archived changes** (`.skillgrid/xarchive/*/review-ledger.md`) and surfaces any findings with disposition `parked`:
 
 ```
 Review debt from prior changes:
@@ -157,7 +157,7 @@ Per `_shared/craft/measurement.md`.
 | | Indicator | Data source | Direction |
 |---|-----------|-------------|-----------|
 | Leading | % of review findings dispositioned in the same round (not parked) | `review-ledger.md` | should rise |
-| Lagging | Review debt: count of open parked findings across all archived changes | `.skillgrid/archive/*/review-ledger.md` | should fall |
+| Lagging | Review debt: count of open parked findings across all archived changes | `.skillgrid/xarchive/*/review-ledger.md` | should fall |
 
 ## Common Rationalizations
 

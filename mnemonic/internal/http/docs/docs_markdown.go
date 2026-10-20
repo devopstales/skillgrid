@@ -279,8 +279,8 @@ func NewContent(cwd string) http.Handler {
 	})
 }
 
-// archiveTwin maps `.skillgrid/specs/<change>/…` → `.skillgrid/archive/<change>/…`
-// when the archive file exists. Returns ("","") when no twin applies.
+// archiveTwin maps `.skillgrid/specs/<change>/…` → `.skillgrid/xarchive/<change>/…`
+// when the archived file exists. Returns ("","") when no twin applies.
 func archiveTwin(cwd, rel string) (twinRel, twinAbs string) {
 	slash := filepath.ToSlash(strings.TrimSpace(rel))
 	const prefix = ".skillgrid/specs/"
@@ -291,7 +291,7 @@ func archiveTwin(cwd, rel string) (twinRel, twinAbs string) {
 	if rest == "" || strings.Contains(rest, "..") {
 		return "", ""
 	}
-	twinRel = ".skillgrid/archive/" + rest
+	twinRel = ".skillgrid/xarchive/" + rest
 	if _, _, err := resolveMDPath(cwd, twinRel); err != nil {
 		return "", ""
 	}

@@ -1,6 +1,6 @@
 # Report — <feature>
 
-> Change: `.skillgrid/specs/YYYY-MM-DD-<topic>/` (moves to `.skillgrid/archive/YYYY-MM-DD-<topic>/` at ship)
+> Change: `.skillgrid/specs/YYYY-MM-DD-<topic>/` (moves to `.skillgrid/xarchive/YYYY-MM-DD-<topic>/` at ship)
 > Generated: <ISO 8601 timestamp> (qa)
 > Gate: PASS / CONCERNS / FAIL / WAIVED
 >
@@ -421,7 +421,7 @@ MISSING_RED / UNREADABLE, the floor caps the gate accordingly.>
 
 ## Move Evidence (from ship context)
 
-**From:** `.skillgrid/specs/YYYY-MM-DD-<topic>/` → **To:** `.skillgrid/archive/YYYY-MM-DD-<topic>/`
+**From:** `.skillgrid/specs/YYYY-MM-DD-<topic>/` → **To:** `.skillgrid/xarchive/YYYY-MM-DD-<topic>/`
 **`diff -r` readback:** <empty → PASS | verbatim output → FAIL>
 
 ## Overrides / Waivers / Contradictions

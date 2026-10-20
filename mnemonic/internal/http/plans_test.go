@@ -151,9 +151,9 @@ func TestPhase6_Plans(t *testing.T) {
 
 func TestPlanDetail_ReadsArchivedChange(t *testing.T) {
 	repo := t.TempDir()
-	dir := filepath.Join(repo, ".skillgrid", "archive", "2026-09-04-hermes-memory")
+	dir := filepath.Join(repo, ".skillgrid", "xarchive", "2026-09-04-hermes-memory")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir archive: %v", err)
+		t.Fatalf("mkdir xarchive: %v", err)
 	}
 	body := "# Change: 004-hermes-memory\n\n> **STATUS:** `revised`\n\nHermes Fact Memory\n"
 	if err := os.WriteFile(filepath.Join(dir, "briefing.md"), []byte(body), 0o644); err != nil {

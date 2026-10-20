@@ -4,7 +4,7 @@ import { AdrsPage } from './AdrsPage'
 import type { DocsContent } from '../docs/types'
 
 // The ADR index as the /docs/content endpoint returns it for
-// .skillgrid/artifacts/03-adr-index.md: a GFM table of the in-force set.
+// .skillgrid/decisions/03-adr-index.md: a GFM table of the in-force set.
 const INDEX_BODY = `# ADR Index
 
 Single source for the ADR in-force set.
@@ -31,9 +31,9 @@ const ASSUMPTIONS_BODY = `# ASSUMPTIONS
 
 | # | Title | Status | Supersedes | Date | In force | Record |
 |---|-------|--------|------------|------|----------|--------|
-| 0001 | PRD scope is the whole Hub Product, not the binary alone | accepted | — | 2026-09-16 | yes | \`.skillgrid/artifacts/04-adr-0001-prd-scope-whole-hub.md\` |
-| 0014 | (removed 2026-09-30) | superseded | — | 2026-09-29 | no | \`.skillgrid/artifacts/04-adr-0014-removed.md\` |
-| 0019 | Locked decisions are ADR files; ASSUMPTIONS.md holds the path | accepted | — | 2026-10-02 | yes | \`.skillgrid/artifacts/04-adr-0019-decisions-are-files.md\` |
+| 0001 | PRD scope is the whole Hub Product, not the binary alone | accepted | — | 2026-09-16 | yes | \`.skillgrid/decisions/04-adr-0001-prd-scope-whole-hub.md\` |
+| 0014 | (removed 2026-09-30) | superseded | — | 2026-09-29 | no | \`.skillgrid/decisions/04-adr-0014-removed.md\` |
+| 0019 | Locked decisions are ADR files; ASSUMPTIONS.md holds the path | accepted | — | 2026-10-02 | yes | \`.skillgrid/decisions/04-adr-0019-decisions-are-files.md\` |
 
 ### Locked constraints
 
@@ -79,7 +79,7 @@ describe('AdrsPage', () => {
         return Promise.resolve(
           jsonResponse(
             content(
-              '.skillgrid/artifacts/04-adr-0019-decisions-are-files.md',
+              '.skillgrid/decisions/04-adr-0019-decisions-are-files.md',
               '# Locked decisions are ADR files\n\n## Decision\n\nEach decision is one file.',
             ),
           ),
@@ -100,7 +100,7 @@ describe('AdrsPage', () => {
     expect(await screen.findByText(/Each decision is one file\./)).toBeTruthy()
     expect(
       fetched.some((u) =>
-        u.includes(encodeURIComponent('.skillgrid/artifacts/04-adr-0019-decisions-are-files.md')),
+        u.includes(encodeURIComponent('.skillgrid/decisions/04-adr-0019-decisions-are-files.md')),
       ),
     ).toBe(true)
   })
@@ -115,7 +115,7 @@ describe('AdrsPage', () => {
       }
       if (url.includes('03-adr-index.md')) {
         return Promise.resolve(
-          jsonResponse(content('.skillgrid/artifacts/03-adr-index.md', INDEX_BODY)),
+          jsonResponse(content('.skillgrid/decisions/03-adr-index.md', INDEX_BODY)),
         ) as unknown as Promise<Response>
       }
       return Promise.reject(new Error(`unexpected fetch ${url}`)) as unknown as Promise<Response>
@@ -176,7 +176,7 @@ Questions that are not yet decided and not yet prototyped.
         return Promise.resolve(jsonResponse({ error: 'doc not found' }, 404)) as unknown as Promise<Response>
       }
       return Promise.resolve(
-        jsonResponse(content('.skillgrid/artifacts/03-adr-index.md', STUB_INDEX_BODY)),
+        jsonResponse(content('.skillgrid/decisions/03-adr-index.md', STUB_INDEX_BODY)),
       ) as unknown as Promise<Response>
     })
 
@@ -187,7 +187,7 @@ Questions that are not yet decided and not yet prototyped.
 
   it('parses the ADR index table into rows (id, title, status, date, path)', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(content('.skillgrid/artifacts/03-adr-index.md', INDEX_BODY)), {
+      new Response(JSON.stringify(content('.skillgrid/decisions/03-adr-index.md', INDEX_BODY)), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -212,14 +212,14 @@ Questions that are not yet decided and not yet prototyped.
 
   it('clicking an ADR row fetches and displays the full record', async () => {
     const adrRecord = content(
-      '.skillgrid/artifacts/04-adr-0001-prd-scope-whole-hub.md',
+      '.skillgrid/decisions/04-adr-0001-prd-scope-whole-hub.md',
       '# PRD scope is the whole Hub Product\n\n## Decision Outcome\n\nChosen option: "The whole Hub Product".',
     )
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
       const url = typeof input === 'string' ? input : input.toString()
       if (url.includes('ASSUMPTIONS.md') || url.includes('03-adr-index.md')) {
         return Promise.resolve(
-          new Response(JSON.stringify(content('.skillgrid/artifacts/03-adr-index.md', INDEX_BODY)), {
+          new Response(JSON.stringify(content('.skillgrid/decisions/03-adr-index.md', INDEX_BODY)), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           }),
@@ -261,7 +261,7 @@ Questions that are not yet decided and not yet prototyped.
 
   it('renders status badges with appropriate color per status', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(content('.skillgrid/artifacts/03-adr-index.md', INDEX_BODY)), {
+      new Response(JSON.stringify(content('.skillgrid/decisions/03-adr-index.md', INDEX_BODY)), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -294,7 +294,7 @@ Questions that are not yet decided and not yet prototyped.
 | 0017 | A brand-new proposed decision | proposed | — | 2026-09-30 | no | [04-adr-0017](04-adr-0017-new-decision.md) |
 `
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(content('.skillgrid/artifacts/03-adr-index.md', proposedBody)), {
+      new Response(JSON.stringify(content('.skillgrid/decisions/03-adr-index.md', proposedBody)), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -313,7 +313,7 @@ Questions that are not yet decided and not yet prototyped.
       const url = typeof input === 'string' ? input : input.toString()
       if (url.includes('ASSUMPTIONS.md') || url.includes('03-adr-index.md')) {
         return Promise.resolve(
-          new Response(JSON.stringify(content('.skillgrid/artifacts/03-adr-index.md', INDEX_BODY)), {
+          new Response(JSON.stringify(content('.skillgrid/decisions/03-adr-index.md', INDEX_BODY)), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           }),

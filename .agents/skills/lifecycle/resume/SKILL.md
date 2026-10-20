@@ -89,7 +89,7 @@ and if they disagree, **trust the disk and repair the pointer**:
 |-------|-------|--------|
 | `changes.<slug>` entries | the in-flight spec dirs on disk (bidirectional: every `specs/<slug>/` dir needs a map entry and vice versa) | add missing entries or remove stale ones |
 | `changes.<slug>.phase` | the phase the spec-zone artifacts actually show (the table in Step 2) | set it to the artifact-derived phase |
-| `completed_changes` | the archived spec dirs (`.skillgrid/archive/`) | add the dir that moved to archive |
+| `completed_changes` | the archived spec dirs (`.skillgrid/xarchive/`) | add the dir that moved to archive |
 
 Rules:
 - **Never reset** `changes` or `progress` to a "clean" value to make the drift

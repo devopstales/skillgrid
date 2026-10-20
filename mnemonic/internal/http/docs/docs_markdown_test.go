@@ -34,7 +34,7 @@ func seedMDRepo(t *testing.T) string {
 	// backlog root -> .backlog/tasks/
 	write(".backlog/tasks/TASK-001-something.md", "---\nid: TASK-001\nstatus: in-progress\npriority: high\n---\n\n# Task one\n\nBody.\n")
 	// a hidden .skillgrid subdir (must NOT appear in the skillgrid root tree)
-	write(".skillgrid/archive/old-change/briefing.md", "# Old Briefing\n\nArchived.\n")
+	write(".skillgrid/xarchive/old-change/briefing.md", "# Old Briefing\n\nArchived.\n")
 	// docs root -> docs/
 	write("docs/guide.md", "# Guide\n\nSome guide text.\n")
 	// root *.md
@@ -122,7 +122,7 @@ func TestContentFallsBackToArchiveTwin(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("archive twin: got %d %s", code, body)
 	}
-	if !strings.Contains(body, `"path":".skillgrid/archive/old-change/briefing.md"`) {
+	if !strings.Contains(body, `"path":".skillgrid/xarchive/old-change/briefing.md"`) {
 		t.Fatalf("expected served path to be archive twin, got %s", body)
 	}
 	if !strings.Contains(body, "Archived.") {

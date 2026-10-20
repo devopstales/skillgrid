@@ -15,7 +15,7 @@ that still has authority.
      - ADR: `per .skillgrid/decisions/04-adr-NNNN-slug.md` (or `per ADR-NNNN`)
      - Product requirements: `per .skillgrid/decisions/00-prd.md`
      - Operational rule: `per AGENTS.md § Rules <bullet>` (the hard limits a change must respect)
-     - Prior change: `per .skillgrid/archive/2026-09-21-session-events-layer`
+     - Prior change: `per .skillgrid/xarchive/2026-09-21-session-events-layer`
 2. **Restate only when the citation is not enough to act.** If a reader must
    *do* something with the constraint (not just know it exists), you may
    restate the operative clause — but keep it to the clause, and still cite the

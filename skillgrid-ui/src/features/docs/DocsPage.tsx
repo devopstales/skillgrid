@@ -87,14 +87,14 @@ export function DocsPage() {
   const isPlan = useMemo(
     () =>
       !!content &&
-      (content.path.includes('.skillgrid/specs/') || content.path.includes('.skillgrid/archive/')) &&
+      (content.path.includes('.skillgrid/specs/') || content.path.includes('.skillgrid/xarchive/')) &&
       (content.path.endsWith('/briefing.md') || content.path.endsWith('/tasks.md')),
     [content],
   )
 
   const relatedPlanName = useMemo(() => {
     if (!isPlan || !content) return null
-    const m = /(?:specs|archive)\/([^/]+)\//.exec(content.path)
+    const m = /(?:specs|xarchive)\/([^/]+)\//.exec(content.path)
     return m ? m[1] : null
   }, [isPlan, content])
 

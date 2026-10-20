@@ -85,7 +85,7 @@ backlog → ready → in-progress → review → done
 - Title: `Epic: <epic summary from tasks.md>`
 - Body: epic summary + link to `tasks.md` + dependency graph
 - Status: `backlog`
-- **Milestone name = spec folder name** (e.g. `2026-10-06-mnemonic-standalone`). The milestone must be named after the full spec folder under `.skillgrid/specs/` or `.skillgrid/archive/`, never a short slug or numeric ID. This makes the `milestone → spec` mapping 1:1 and recoverable from the tracker alone.
+- **Milestone name = spec folder name** (e.g. `2026-10-06-mnemonic-standalone`). The milestone must be named after the full spec folder under `.skillgrid/specs/` or `.skillgrid/xarchive/`, never a short slug or numeric ID. This makes the `milestone → spec` mapping 1:1 and recoverable from the tracker alone.
 
 **Tickets** — one per ticket in tasks.md:
 - Title: per the formatting reference's title convention (e.g. `TICKET-<NN>: <title>` or `[TYPE] description (COMPONENT)`)
