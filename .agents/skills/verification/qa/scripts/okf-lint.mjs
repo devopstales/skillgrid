@@ -43,6 +43,11 @@
  * else pre-R6 `<root>/.skillgrid/artifacts/` fallback (README.md is the
  * root catalog). Neither found => SCOPE: UNSCOPED (exit 0, non-answer).
  *
+ * The bundle-root walk skips the non-concept zones of the `.skillgrid/`
+ * tree (specs/, xarchive/, sdd/, cache/, prototypes/, okf-metrics.jsonl,
+ * WINDOWS.md, config.d/): working-state and SDD artifacts, not OKF
+ * concepts (ADR-0048, TICKET-14).
+ *
  * Telemetry (repocodex metrics.jsonl pattern): after the checks, append ONE
  * JSONL event to `.skillgrid/okf-metrics.jsonl` (override with the
  * OKF_METRICS_SINK env var; parent dir auto-created):
@@ -102,6 +107,20 @@ function isDir(p) {
   }
 }
 
+// Non-concept zones of the .skillgrid/ tree: working state (sdd/, cache/,
+// specs/), shipped changes (xarchive/), throwaway work (prototypes/),
+// machine-local config (config.d/), the defect register (WINDOWS.md —
+// advisory, not a concept), and the telemetry sink.
+const NON_CONCEPT_ZONES = new Set([
+  "specs",
+  "xarchive",
+  "sdd",
+  "cache",
+  "prototypes",
+  "config.d",
+]);
+const NON_CONCEPT_FILES = new Set(["WINDOWS.md", "okf-metrics.jsonl"]);
+
 // --- Bundle enumeration ---
 
 function walkFiles(dir) {
@@ -117,6 +136,7 @@ function walkFiles(dir) {
     }
     for (const e of entries) {
       if (e.name.startsWith(".")) continue;
+      if (NON_CONCEPT_ZONES.has(e.name) || NON_CONCEPT_FILES.has(e.name)) continue;
       const p = join(d, e.name);
       if (e.isDirectory()) stack.push(p);
       else if (e.name.endsWith(".md")) out.push(p);

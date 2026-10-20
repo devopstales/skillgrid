@@ -96,11 +96,12 @@ Onboarding (and the skills that follow) maintain the **domain model** — the
 project's vocabulary and its architectural decisions:
 
 ```text
-.skillgrid/artifacts/
-├── 01-business-terms.md     # business glossary
-├── 02-technical-terms.md    # technical glossary
-├── 03-adr-index.md          # in-force ADR index
-└── 04-adr-*.md              # individual ADRs
+.skillgrid/
+├── glossary/                # 01-business-terms.md, 02-technical-terms.md
+├── decisions/               # 04-adr-*.md (individual ADRs) + 03-adr-index.md
+├── invariants/              # 05-locked-constraints.md
+├── reference/               # 00-prd.md, research findings, roadmaps
+└── workflows/               # SDD pipeline + domain flows
 ```
 
 In a mature repo you may already have some of this. If not, the files are

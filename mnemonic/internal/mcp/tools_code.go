@@ -74,7 +74,7 @@ func codeReadTool() mcplib.Tool {
 
 func adrSearchTool() mcplib.Tool {
 	return mcplib.NewTool("adr_search",
-		mcplib.WithDescription("Search ADR files (.skillgrid/artifacts/04-adr-*.md) by full-text and return structured decision metadata: status, date, supersedes, and superseded_by. Use to find a locked decision before designing or implementing. Use code_read on the returned path to fetch the full body. One-hop supersession: a result that is superseded by another matched ADR carries its successor's path."),
+		mcplib.WithDescription("Search ADR files (.skillgrid/decisions/04-adr-*.md) by full-text and return structured decision metadata: status, date, supersedes, and superseded_by. Use to find a locked decision before designing or implementing. Use code_read on the returned path to fetch the full body. One-hop supersession: a result that is superseded by another matched ADR carries its successor's path."),
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search terms matched against the ADR body (FTS5)")),
 		mcplib.WithNumber("limit", mcplib.Description("Maximum ADR hits (default 10)")),
 		mcplib.WithString("project", mcplib.Description("Optional project id. Wins over cwd resolution.")),

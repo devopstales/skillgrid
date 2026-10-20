@@ -20,7 +20,15 @@ var defaultIngestRoots = []string{
 	"docs",
 	".skillgrid/ASSUMPTIONS.md",
 	".skillgrid/ARCHITECTURE.md",
+	// R6 (ADR-0048): the knowledge bundle root + the pre-R6 artifacts zone
+	// (legacy repos). Missing roots are reported as Skipped, so listing both
+	// is a no-op for repos with only one of them.
 	".skillgrid/artifacts",
+	".skillgrid/decisions",
+	".skillgrid/glossary",
+	".skillgrid/reference",
+	".skillgrid/invariants",
+	".skillgrid/workflows",
 }
 
 const maxIngestBytes = 512 * 1024
@@ -107,7 +115,10 @@ func skipLabel(root string) string {
 		return root
 	}
 	// Prefer trailing slash for directory roots so tests accept "docs/" or "docs".
-	if root == "docs" || root == ".skillgrid/artifacts" {
+	if root == "docs" || root == ".skillgrid/artifacts" ||
+		root == ".skillgrid/decisions" || root == ".skillgrid/glossary" ||
+		root == ".skillgrid/reference" || root == ".skillgrid/invariants" ||
+		root == ".skillgrid/workflows" {
 		return root + "/"
 	}
 	return root
@@ -249,7 +260,12 @@ func ingestType(relSlash string) string {
 	switch {
 	case relSlash == ".skillgrid/ASSUMPTIONS.md",
 		relSlash == ".skillgrid/ARCHITECTURE.md",
-		strings.HasPrefix(relSlash, ".skillgrid/artifacts/"):
+		strings.HasPrefix(relSlash, ".skillgrid/artifacts/"),
+		strings.HasPrefix(relSlash, ".skillgrid/decisions/"),
+		strings.HasPrefix(relSlash, ".skillgrid/glossary/"),
+		strings.HasPrefix(relSlash, ".skillgrid/reference/"),
+		strings.HasPrefix(relSlash, ".skillgrid/invariants/"),
+		strings.HasPrefix(relSlash, ".skillgrid/workflows/"):
 		return "architecture"
 	default:
 		return "discovery"

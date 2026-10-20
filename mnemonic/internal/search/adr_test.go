@@ -74,7 +74,7 @@ This supersedes the earlier decision about ADR files.
 
 func TestAdrSearchReturnsStructuredHits(t *testing.T) {
 	db := newTestDB(t, map[string]string{
-		".skillgrid/artifacts/04-adr-0019-decisions-are-files.md": adr0019,
+		".skillgrid/decisions/04-adr-0019-decisions-are-files.md": adr0019,
 	})
 	hits, err := AdrSearch(db, "decision", 10)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestAdrSearchReturnsStructuredHits(t *testing.T) {
 		t.Fatalf("expected 1 hit, got %d", len(hits))
 	}
 	h := hits[0]
-	if h.Path != ".skillgrid/artifacts/04-adr-0019-decisions-are-files.md" {
+	if h.Path != ".skillgrid/decisions/04-adr-0019-decisions-are-files.md" {
 		t.Errorf("path = %q", h.Path)
 	}
 	if h.Status != "accepted" {
@@ -106,7 +106,7 @@ func TestAdrSearchReturnsStructuredHits(t *testing.T) {
 
 func TestAdrSearchFiltersNonAdrFiles(t *testing.T) {
 	db := newTestDB(t, map[string]string{
-		".skillgrid/artifacts/04-adr-0019-decisions-are-files.md": adr0019,
+		".skillgrid/decisions/04-adr-0019-decisions-are-files.md": adr0019,
 		".skillgrid/README.md":                                   "# Readme\n\ndecision text here\n",
 		"src/main.go":                                            "package main\n\ndecision decision\n",
 	})
@@ -121,8 +121,8 @@ func TestAdrSearchFiltersNonAdrFiles(t *testing.T) {
 
 func TestAdrSearchSupersedesChain(t *testing.T) {
 	db := newTestDB(t, map[string]string{
-		".skillgrid/artifacts/04-adr-0019-decisions-are-files.md": adr0019,
-		".skillgrid/artifacts/04-adr-0020-superseding-decision.md": adr0020,
+		".skillgrid/decisions/04-adr-0019-decisions-are-files.md": adr0019,
+		".skillgrid/decisions/04-adr-0020-superseding-decision.md": adr0020,
 	})
 	hits, err := AdrSearch(db, "decision", 10)
 	if err != nil {
@@ -143,14 +143,14 @@ func TestAdrSearchSupersedesChain(t *testing.T) {
 	if h20.Supersedes != "0019" {
 		t.Errorf("0020 supersedes = %q, want 0019", h20.Supersedes)
 	}
-	if h19.SupersededBy != ".skillgrid/artifacts/04-adr-0020-superseding-decision.md" {
+	if h19.SupersededBy != ".skillgrid/decisions/04-adr-0020-superseding-decision.md" {
 		t.Errorf("0019 supersededBy = %q, want the 0020 path", h19.SupersededBy)
 	}
 }
 
 func TestAdrSearchEmptyQuery(t *testing.T) {
 	db := newTestDB(t, map[string]string{
-		".skillgrid/artifacts/04-adr-0019-decisions-are-files.md": adr0019,
+		".skillgrid/decisions/04-adr-0019-decisions-are-files.md": adr0019,
 	})
 	hits, err := AdrSearch(db, "   ", 10)
 	if err != nil {

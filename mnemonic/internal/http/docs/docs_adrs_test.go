@@ -15,7 +15,7 @@ import (
 func seedADRs(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	dir := filepath.Join(root, ".skillgrid", "artifacts")
+	dir := filepath.Join(root, ".skillgrid", "decisions")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ This ADR was removed on 2026-09-30 by user request. The sequence number is retir
 	if err := os.MkdirAll(filepath.Join(root, ".skillgrid"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	idx := "# ASSUMPTIONS\n\n## LOCKED\n\n| 0001 | scope | `.skillgrid/artifacts/04-adr-0001-prd-scope.md` |\n"
+	idx := "# ASSUMPTIONS\n\n## LOCKED\n\n| 0001 | scope | `.skillgrid/decisions/04-adr-0001-prd-scope.md` |\n"
 	if err := os.WriteFile(filepath.Join(root, ".skillgrid", "ASSUMPTIONS.md"), []byte(idx), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestStep05_ListADRs(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if resp.Source != ".skillgrid/artifacts" {
+	if resp.Source != ".skillgrid/decisions" {
 		t.Errorf("source = %q", resp.Source)
 	}
 	// sorted by number ascending: 1, 2, 3.

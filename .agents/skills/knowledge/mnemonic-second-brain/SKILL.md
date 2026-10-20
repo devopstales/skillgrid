@@ -72,5 +72,5 @@ After each capture: `mem_search` with a keyword from the saved content returns t
 ## Related
 
 - skillgrid:mnemonic — the base mnemonic skill (`.agents/skills/knowledge/mnemonic/SKILL.md`)
-- `.skillgrid/artifacts/05-locked-constraints.md` — second-brain capability layer ADR
-- `.skillgrid/artifacts/09-claude-os-deep-dive.md` — verified steal list S1–S7
+- `.skillgrid/invariants/05-locked-constraints.md` — second-brain capability layer ADR
+- `.skillgrid/reference/09-claude-os-deep-dive.md` — verified steal list S1–S7

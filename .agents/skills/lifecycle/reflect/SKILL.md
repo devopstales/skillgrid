@@ -1,6 +1,6 @@
 ---
 name: reflect
-description: "Use when a change has been shipped (folder moved to .skillgrid/archive/) and you need to close the cycle with a sourced retrospective and the final-state archive report. The terminal phase after ship."
+description: "Use when a change has been shipped (folder moved to .skillgrid/xarchive/) and you need to close the cycle with a sourced retrospective and the final-state archive report. The terminal phase after ship."
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -13,7 +13,7 @@ metadata:
 
 **Announce at start:** "I'm using the skillgrid:reflect skill to close this change."
 
-You are the **TERMINAL** phase — the close of the SDD cycle. `ship` already integrated the work and moved the change folder to `.skillgrid/archive/YYYY-MM-DD-<topic>/`. You do exactly five things:
+You are the **TERMINAL** phase — the close of the SDD cycle. `ship` already integrated the work and moved the change folder to `.skillgrid/xarchive/YYYY-MM-DD-<topic>/`. You do exactly five things:
 
 1. **Complete `report.md`** — the merged report already exists (qa wrote the QA half in the spec folder, ship moved the folder); you complete its retro half IN PLACE in the archive: final-state facts, gate results, sourced learnings (Decisions / Lessons / Patterns / Surprises), acceptance verdict, move evidence, lineage.
 2. **Environment retro** — invoke the Skill tool with `skillgrid:environment-retro` to close the loop on the *environment* (checks, navigation, steering no-ops, tool economy), appending its `## Environment Retro` section to `report.md`.
@@ -25,18 +25,18 @@ You are the **completion checkpoint**: you are the last chance to honestly say w
 
 ## Overview
 
-The terminal SDD phase. After `ship` has integrated the work and moved the change folder to `.skillgrid/archive/`, `reflect` closes the cycle: it completes the merged `report.md` in place in the archive (qa's QA half is already there; you write the retro half from `## Final-State Facts` onward — integration evidence + retrospective + final-state facts + lineage), persists to Mnemonic, and closes the session. It is the last honest checkpoint of what shipped and the lineage endpoint a future reader consults to learn what landed and when.
+The terminal SDD phase. After `ship` has integrated the work and moved the change folder to `.skillgrid/xarchive/`, `reflect` closes the cycle: it completes the merged `report.md` in place in the archive (qa's QA half is already there; you write the retro half from `## Final-State Facts` onward — integration evidence + retrospective + final-state facts + lineage), persists to Mnemonic, and closes the session. It is the last honest checkpoint of what shipped and the lineage endpoint a future reader consults to learn what landed and when.
 
 ## When to Use
 
-- After completing a change that has been shipped — its folder moved to `.skillgrid/archive/YYYY-MM-DD-<topic>/` by `ship`.
+- After completing a change that has been shipped — its folder moved to `.skillgrid/xarchive/YYYY-MM-DD-<topic>/` by `ship`.
 - Before closing a work unit / the session — you need the sourced report and the session close.
 
 **When NOT to use:** mid-task before work is done — `reflect` captures the final state at close, not in-flight state. It also does not run on a change that never shipped (the Ship Gate blocks it).
 
 ## What You Receive
 
-- **Change folder:** now at `.skillgrid/archive/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` with the QA half complete, `review.md` — the committed code-review audit record).
+- **Change folder:** now at `.skillgrid/xarchive/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` with the QA half complete, `review.md` — the committed code-review audit record).
 - **Ship context** — from `ship`'s Return Envelope: base branch, chain strategy, integration test evidence, PR/merge outcome, worktree state, gate results, `diff -r` readback. (If ship's envelope is unavailable, recover from `mem_search("skillgrid/YYYY-MM-DD-<topic>/ship")` or git history.)
 - **`report.md` → `## Gate Decision` verdict** (the QA half, written by qa) + any human override.
 - **`review.md` → `## Verdict` floor + `## Independence`** — the review gate and the independence grade, to cite in the lineage (which findings were caught pre-merge, and on which grade).
@@ -74,7 +74,7 @@ This hierarchy governs how the report **reports** facts. It does not weaken the 
 
 ### Ship Gate (hard)
 
-- **Folder not in `archive/`** → **`blocked`** (reason `not-shipped`). Nothing shipped, nothing to reflect.
+- **Folder not in `xarchive/`** → **`blocked`** (reason `not-shipped`). Nothing shipped, nothing to reflect.
 - **Ship context missing** (no Return Envelope, no mnemonic, no git evidence of a clean move) → **`blocked`** (reason `ship-incomplete`). The folder move was not verified.
 - **Ship context present** + `diff -r` empty → proceed.
 
@@ -93,7 +93,7 @@ If a hard gate fails, **STOP and return `blocked`** with the failing gate named.
 
 ### Step 1: Load All Artifacts (recovery + lineage)
 
-1. Read the moved folder `.skillgrid/archive/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` — QA half complete, retro half empty, review artifacts, findings).
+1. Read the moved folder `.skillgrid/xarchive/YYYY-MM-DD-<topic>/` (briefing, blueprint, `tasks.md`, `report.md` — QA half complete, retro half empty, review artifacts, findings).
 2. Recover the ship context: from `ship`'s Return Envelope if available, else `mem_search(query: "skillgrid/YYYY-MM-DD-<topic>/ship")` → `mem_get_observation(id)`, else git history (`git log --oneline` on the base branch for the merge commit).
 3. Recover the Mnemonic copies (previews are not enough — always fetch full content). **Record the observation ID of every artifact you read — they go into the report for lineage.**
    - `mem_search(query: "skillgrid/YYYY-MM-DD-<topic>/blueprint")` → `mem_get_observation(id)`
@@ -109,7 +109,7 @@ Confirm, in order: **Ship Gate** → **QA Gate** → **Verdict Gate** (advisory)
 
 ### Step 3: Complete `report.md` (retro half)
 
-Complete the existing file IN PLACE in the moved folder (`.skillgrid/archive/YYYY-MM-DD-<topic>/report.md`) — do not recreate it. The QA half (through `## Gate Decision` + `## Human Override`) is already written by qa; fill the retro half from `## Final-State Facts` onward. Use the merged template [../../verification/qa/templates/report.md](../../verification/qa/templates/report.md) (see [templates/report.md](templates/report.md) for the pointer).
+Complete the existing file IN PLACE in the moved folder (`.skillgrid/xarchive/YYYY-MM-DD-<topic>/report.md`) — do not recreate it. The QA half (through `## Gate Decision` + `## Human Override`) is already written by qa; fill the retro half from `## Final-State Facts` onward. Use the merged template [../../verification/qa/templates/report.md](../../verification/qa/templates/report.md) (see [templates/report.md](templates/report.md) for the pointer).
 
 **Final-state facts** — what shipped, to which base, at which commit/PR (from ship context).
 
@@ -131,7 +131,7 @@ Complete the existing file IN PLACE in the moved folder (`.skillgrid/archive/YYY
 
 **Lineage** — the observation IDs of every artifact read (the lineage endpoint), **plus** the `review.md` facts: the review verdict floor, each axis's independence grade, and the Critical/Important findings caught pre-merge (so a future reader can see what review caught vs. what escaped).
 
-**Lift durable findings.** From the sourced learnings above (Surprises, Patterns, Decisions that constrain *future* work), append the ones that outlive this change to `.skillgrid/artifacts/06-research-findings.md` — the durable, cross-change distillation. A finding that is only true for this one change stays in `report.md` alone. This is the terminal catch: anything `research`/`prototype`/`sketch` missed while the sources were fresh still lands here at close.
+**Lift durable findings.** From the sourced learnings above (Surprises, Patterns, Decisions that constrain *future* work), append the ones that outlive this change to `.skillgrid/reference/06-research-findings.md` — the durable, cross-change distillation. A finding that is only true for this one change stays in `report.md` alone. This is the terminal catch: anything `research`/`prototype`/`sketch` missed while the sources were fresh still lands here at close.
 
 **Finding triage — process bug vs one-off.** For each Lesson and Surprise, classify it before it closes:
 
@@ -213,7 +213,7 @@ The `mem_session_summary` body uses the **six-section structure** (Goal / Instru
 
 **Change**: YYYY-MM-DD-<topic>
 **Verdict**: accepted | accepted-with-open-items | rejected
-**Location**: `.skillgrid/archive/YYYY-MM-DD-<topic>/report.md` · Mnemonic `skillgrid/YYYY-MM-DD-<topic>/report`
+**Location**: `.skillgrid/xarchive/YYYY-MM-DD-<topic>/report.md` · Mnemonic `skillgrid/YYYY-MM-DD-<topic>/report`
 **Status**: success | blocked
 
 ### Gates
@@ -302,7 +302,7 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 
 ## Verification
 
-- [ ] All gates passed before any write: Ship Gate (folder in `archive/`, ship context present, `diff -r` empty) + QA Gate (`PASS` / `WAIVED` / `CONCERNS`, no unresolved CRITICAL) — or `blocked` returned with no write.
+- [ ] All gates passed before any write: Ship Gate (folder in `xarchive/`, ship context present, `diff -r` empty) + QA Gate (`PASS` / `WAIVED` / `CONCERNS`, no unresolved CRITICAL) — or `blocked` returned with no write.
 - [ ] `report.md` written into the moved folder with every learning sourced (file:line / commit / ticket / scenario) and an acceptance verdict recorded.
 - [ ] `report.md` includes final-state facts, gate results, the `diff -r` reference, and the observation IDs of every artifact read.
 - [ ] Every Lesson/Surprise was triaged process-bug vs one-off: process bugs named the governing skill/`_shared` rule and were recorded as follow-up tickets; one-offs stayed in `report.md` alone.
@@ -313,9 +313,9 @@ The waiver is honored, never silently dropped — note `Fast-track: {trivial|sma
 ## References
 
 - [templates/report.md](templates/report.md) — thin pointer to the merged template at [../../verification/qa/templates/report.md](../../verification/qa/templates/report.md) (the `report.md` artifact shape: qa half + retro half — final-state + sourced learnings + verdict + lineage).
-- [`../ship/SKILL.md`](../ship/SKILL.md) — upstream; moved the folder to `.skillgrid/archive/` and produced the ship context (the Ship Gate evidence).
+- [`../ship/SKILL.md`](../ship/SKILL.md) — upstream; moved the folder to `.skillgrid/xarchive/` and produced the ship context (the Ship Gate evidence).
 - [`../../verification/qa/SKILL.md`](../../verification/qa/SKILL.md) — upstream; it wrote the QA half of `report.md` (through `## Gate Decision`), whose verdict drives the QA Gate and grounds the acceptance verdict.
-- [`../../_shared/rules/sdd-structure.md`](../../_shared/rules/sdd-structure.md) — the `archive/` layout, terminal phase order, and Mnemonic slots.
+- [`../../_shared/rules/sdd-structure.md`](../../_shared/rules/sdd-structure.md) — the `xarchive/` layout, terminal phase order, and Mnemonic slots.
 - [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md) — save shape, recovery ladder, session-close structure, and the observation-ID lineage the report must carry.
 - [`../../_shared/planning/fast-track.md`](../../_shared/planning/fast-track.md) — the light-variant waiver this phase honors.
 - [`../environment-retro/SKILL.md`](../environment-retro/SKILL.md) — the Step 3.6 sub-phase; sweeps the agent environment and appends the `## Environment Retro` section to this same `report.md` before session close.

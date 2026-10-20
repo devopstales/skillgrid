@@ -21,12 +21,12 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 
 | Artifact | Path |
 |----------|------|
-| Project knowledge (PRD, architecture, terms, ADRs, constraints, research) | `.skillgrid/artifacts/` |
+| Project knowledge (PRD, architecture, terms, ADRs, constraints, research) | `.skillgrid/decisions/` |
 | Project state (phase, current change, progress) | `.skillgrid/state.yaml` |
 | Specs (briefing, blueprint, tasks) | `.skillgrid/specs/` |
 | Execution ledger | `.skillgrid/sdd/` (gitignored) |
 
-**Domain model:** read the vocabulary + ADRs under `.skillgrid/artifacts/` (index: `README.md`) before designing or implementing.
+**Domain model:** read the vocabulary + ADRs under `.skillgrid/decisions/` (index: `README.md`) before designing or implementing.
 
 **Rules & standards:** operational rules are owned by this file's `### Rules` section (the real source — edit there). Shared standards are referenced, never inlined — each loads via the skills that apply it.
 
@@ -37,7 +37,7 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 
 ### Rules
 
-*Operational rules only — the real source of truth is this section (edit here). Design decisions do not live here; they are ADRs in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` → `.skillgrid/artifacts/04-adr-NNNN-slug.md`.*
+*Operational rules only — the real source of truth is this section (edit here). Design decisions do not live here; they are ADRs in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` → `.skillgrid/decisions/04-adr-NNNN-slug.md`.*
 
 {rules_block}
 
@@ -97,7 +97,7 @@ Run `skillgrid:onboarding` to update config after stack changes.
 
 The `## Skillgrid` block loads into context on **every** prompt in most agents, so it is a *navigation spine*, not a knowledge dump. Rules for editing it:
 
-- **Navigation, not conventions.** The block points at where things live (`.skillgrid/…`, tracker, memory). Project conventions, framework rules, delivery/PR steps, and how-to detail belong in the referenced files (`.skillgrid/artifacts/`, the skills, `docs/user-guide/`) — never inlined here.
+- **Navigation, not conventions.** The block points at where things live (`.skillgrid/…`, tracker, memory). Project conventions, framework rules, delivery/PR steps, and how-to detail belong in the referenced files (`.skillgrid/decisions/`, the skills, `docs/user-guide/`) — never inlined here.
 - **Reference, don't write.** A standards line in the block names ONE canonical file (or skill) and says "reference X for Y" — e.g. `**Coding conventions** — reference `.agents/skills/_shared/rules/code-standards.md` for detailed coding conventions.`. Never restate the standard's content; if you find yourself summarizing it in the block, delete the summary and keep the pointer.
 - **No "getting started / setup" section.** Onboarding, install, and first-run steps are not what the agent file is for; the agent already has the repo.
 - **Grow it only on an observed failure.** Add a line to the block only when the agent actually did something wrong that this file can prevent. Don't preemptively document mistakes it hasn't made. (See `skillgrid:onboarding` → *Keep the AGENTS.md block lean*.)

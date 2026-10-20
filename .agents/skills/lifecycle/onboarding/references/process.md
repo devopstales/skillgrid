@@ -127,7 +127,7 @@ If Step 1 shows an existing codebase (real commit history + feature code, not ju
 
 1. **Detect existing capabilities.** From the source tree, routes, manifests, and git history, list the features/capabilities that already exist (a few lines each — what it does, where it lives).
 2. **Mark them `existing`.** They are not planned-from-zero and not `planned` — they predate this workflow. Record them in the `## Skillgrid` block's context note (or the briefing of the first change) so `skillgrid:writing-blueprints` designs the next slice against them: the data they hold, the patterns they follow. The first blueprint's Build shape and File Structure start from "what's already there", not from an empty tree.
-3. **Reverse-engineer conventions.** Capture the project's actual conventions (error handling, naming, layering, test style) into the `## Skillgrid` block and the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`), from the code — not from assumptions about the stack. If a convention is surprising or undocumented, flag it for the user rather than guessing.
+3. **Reverse-engineer conventions.** Capture the project's actual conventions (error handling, naming, layering, test style) into the `## Skillgrid` block and the terms files (`glossary/01-business-terms.md` / `02-technical-terms.md`), from the code — not from assumptions about the stack. If a convention is surprising or undocumented, flag it for the user rather than guessing.
 4. **Nested AGENTS.md note.** Area-specific rules (a payments module, a UI kit) live in `<area>/AGENTS.md` — the root block stays global and lean. Note the areas that would warrant their own file; create them lazily (ship's reconcile creates one for a net-new area, never for a pre-existing undocumented one — it flags instead).
 
 A greenfield project (scaffold, no feature history) skips Step 1.5 — there is nothing to enroll.
@@ -192,9 +192,9 @@ Show the detected facts to the user. Confirm one at a time — don't dump everyt
 5. **AGENTS.md preamble** — "I'll fill the repo-specific AGENTS.md preamble (Key Directories, Security Boundaries, Dependency Policies, Architecture Constraints, Definition of Done, Engineering Standards) from what I detected in the repo. Here's the draft: [show the `agents.*` bullets/rows]. Correct?" (greenfield: "This is a greenfield project — I'll leave the repo-specific preamble sections empty for now; they fill in as the code takes shape. OK?")
 6. **Ticketing** — "Do you want to publish tickets to a tracker? I detected GitHub — I'd use `gh`. Or Backlog.md (local), GitLab, Jira, or none (tasks.md only)?"
 7. **ADR style** — "How should I format ADRs? Options: `madr-full` (detailed tradeoff record), `madr-minimal` (context/options/decision/consequences — recommended default), `nygard` (classic status/context/decision/consequences), `y-statement` (one sentence), or `custom` (your house format). I'll store the choice and never re-ask."
-8. **Artifact paths** — "Durable knowledge lives at the repo root: `.skillgrid/ASSUMPTIONS.md` (project understanding + all architectural decisions/ADRs + locked constraints) and `.skillgrid/ARCHITECTURE.md` (live repo/program structure). Durable artifacts (terms glossary + research findings): `.skillgrid/artifacts/`. Prototypes (feasibility probes, permanently retained): `.skillgrid/prototypes/`. State (dynamic: phase, current change, progress): `.skillgrid/state.yaml`. Specs: `.skillgrid/specs/`. Scratch: `.skillgrid/sdd/`. Worktrees: `.worktrees/`. Any overrides?"
+8. **Artifact paths** — "Durable knowledge lives at the repo root: `.skillgrid/ASSUMPTIONS.md` (project understanding + all architectural decisions/ADRs + locked constraints) and `.skillgrid/ARCHITECTURE.md` (live repo/program structure). Durable knowledge bundle (terms glossary + research findings + ADRs): `.skillgrid/` (`glossary/`, `reference/`, `decisions/`). Prototypes (feasibility probes, permanently retained): `.skillgrid/prototypes/`. State (dynamic: phase, current change, progress): `.skillgrid/state.yaml`. Specs: `.skillgrid/specs/`. Scratch: `.skillgrid/sdd/`. Worktrees: `.worktrees/`. Any overrides?"
 
-8. **Domain model** — "The architectural-decision-records skill maintains the project vocabulary at `.skillgrid/artifacts/01-business-terms.md` + `02-technical-terms.md` and the ADR trail as `.skillgrid/artifacts/04-adr-NNNN-slug.md`, with a pointer row in the `.skillgrid/ASSUMPTIONS.md` § `LOCKED` ADR index. ADRs use the `{adr_style}` format you just picked. Operational rules (the hard limits a change must respect) are owned by the AGENTS.md `### Rules` section, not `ASSUMPTIONS.md`. Nothing to set up — they appear on first use. OK?"
+8. **Domain model** — "The architectural-decision-records skill maintains the project vocabulary at `.skillgrid/glossary/01-business-terms.md` + `02-technical-terms.md` and the ADR trail as `.skillgrid/decisions/04-adr-NNNN-slug.md`, with a pointer row in the `.skillgrid/ASSUMPTIONS.md` § `LOCKED` ADR index. ADRs use the `{adr_style}` format you just picked. Operational rules (the hard limits a change must respect) are owned by the AGENTS.md `### Rules` section, not `ASSUMPTIONS.md`. Nothing to set up — they appear on first use. OK?"
 
 9. **BDD / Acceptance testing** — "Executable acceptance tests: always on (like TDD). Stack: `javascript` (cucumber-js). Specs live at `.skillgrid/specs/<id>/acceptance.feature`; the runner at `acceptance-tests/` is scaffolded on first use. The acceptance scenarios ARE the executable spec. Correct?"
 
@@ -227,17 +227,17 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 - Do NOT overwrite `rules:` sections the user has customized
 
 **2. Write `.skillgrid/state.yaml` (create if absent; merge if present):**
-- Schema per `_shared/rules/sdd-structure.md` (§ `state.yaml` and `artifacts/`).
-- Initialize: `schema: skillgrid/state/v2`, `changes: {}` (empty map — filled as changes start), `progress.completed_changes: <count of `.skillgrid/archive/*/` dirs>`, `progress.blocked_changes: 0`, `constraints_ref: .skillgrid/ASSUMPTIONS.md`, `notes: ""`.
+- Schema per `_shared/rules/sdd-structure.md` (§ `state.yaml` and the knowledge bundle).
+- Initialize: `schema: skillgrid/state/v2`, `changes: {}` (empty map — filled as changes start), `progress.completed_changes: <count of `.skillgrid/xarchive/*/` dirs>`, `progress.blocked_changes: 0`, `constraints_ref: .skillgrid/ASSUMPTIONS.md`, `notes: ""`.
 - If the file already exists (re-onboarding), keep the existing `changes` + `progress` values; only fill missing keys. Never reset `completed_changes`. If the file is still v1 (has `pipeline:` instead of `changes:`), migrate: move `pipeline.current_change` + `pipeline.current_phase` into a single `changes.<slug>` entry if `current_change` is non-empty; remove the `pipeline:` key.
 
 **3. Create the durable-knowledge zone (create if absent; merge if present):**
-- If `.skillgrid/ASSUMPTIONS.md` is absent, create it from the shape in `_shared/rules/sdd-structure.md` — the four tiers `## VERIFIED`, `## INFERRED (HYPOTHESIS)`, `## LOCKED` (the ADR index: one pointer row per in-force decision, path to `artifacts/04-adr-NNNN-slug.md`; `status`/`supersedes`/`date` live in the file's frontmatter, not the row), and `## Open Questions`. Operational rules are NOT a tier here — they live in AGENTS.md's `### Rules` section. On a fresh project the tiers start empty.
+- If `.skillgrid/ASSUMPTIONS.md` is absent, create it from the shape in `_shared/rules/sdd-structure.md` — the four tiers `## VERIFIED`, `## INFERRED (HYPOTHESIS)`, `## LOCKED` (the ADR index: one pointer row per in-force decision, path to `decisions/04-adr-NNNN-slug.md`; `status`/`supersedes`/`date` live in the file's frontmatter, not the row), and `## Open Questions`. Operational rules are NOT a tier here — they live in AGENTS.md's `### Rules` section. On a fresh project the tiers start empty.
 - If `.skillgrid/ARCHITECTURE.md` is absent, `skillgrid init` scaffolds it from `templates/architecture.md` (the deterministic structure: header + 17-section skeleton with `<detect>` markers). Onboarding then **fills** it — see *Step 1.7* above. Do not hand-write the 17-section skeleton; let init scaffold it and replace the `<detect>`/`<detect: …>` markers with detected facts. If `skillgrid` is not on PATH, fall back to copying `templates/architecture.md` yourself (filling `{project}`/`{version}`/`{last_updated}` by hand) so the zone is complete.
-- If `artifacts/README.md` is absent, create it from the topic-index shape in `_shared/rules/sdd-structure.md`.
-- If `artifacts/06-research-findings.md` is absent, create it with an empty `## Findings` list.
-- Brownfield migration of the old paths: if `artifacts/00-architecture.md` exists and `ARCHITECTURE.md` does not, fold the architecture into `ARCHITECTURE.md` and `git mv` the old file to `.skillgrid/archive/`. `artifacts/00-prd.md` stays where it is (it is the requirements reference); if `ASSUMPTIONS.md` is missing, create it from `templates/ASSUMPTIONS.md` with the product statement and a link to `00-prd.md`. If ADR bodies are inlined in `ASSUMPTIONS.md` and the matching `artifacts/04-adr-NNNN-slug.md` is missing, write each body out to that file and leave only the path in the `## LOCKED` ADR index. Do not fold ADR files or the PRD back into `ASSUMPTIONS.md`. If a legacy `### Locked constraints` section (or `artifacts/05-locked-constraints.md`) still exists, move those bullets into AGENTS.md's `### Rules` section (the operational rules now live there), then archive/delete the old section and `git mv` `05-locked-constraints.md` to `.skillgrid/archive/`. A legacy `.skillgrid/glossary/` → `01/02-*-terms.md`.
-- The terms files, the ADR files, `artifacts/00-prd.md`, and the ARCHITECTURE record are created lazily by their owning skills — onboarding only guarantees the zone + index + research stubs and the `ASSUMPTIONS.md` skeleton exist.
+- If `.skillgrid/index.md` is absent, create it from the root-catalog shape in `_shared/rules/sdd-structure.md`.
+- If `reference/06-research-findings.md` is absent, create it with an empty `## Findings` list.
+- Brownfield migration of the old paths: if a legacy `00-architecture.md` exists and `ARCHITECTURE.md` does not, fold the architecture into `ARCHITECTURE.md` and `git mv` the old file to `.skillgrid/xarchive/`. `reference/00-prd.md` stays where it is (it is the requirements reference); if `ASSUMPTIONS.md` is missing, create it from `templates/ASSUMPTIONS.md` with the product statement and a link to `00-prd.md`. If ADR bodies are inlined in `ASSUMPTIONS.md` and the matching `decisions/04-adr-NNNN-slug.md` is missing, write each body out to that file and leave only the path in the `## LOCKED` ADR index. Do not fold ADR files or the PRD back into `ASSUMPTIONS.md`. If a legacy `### Locked constraints` section (or `invariants/05-locked-constraints.md`) still exists, move those bullets into AGENTS.md's `### Rules` section (the operational rules now live there), then archive/delete the old section and `git mv` `05-locked-constraints.md` to `invariants/` (or `.skillgrid/xarchive/` if unlocking). A legacy `.skillgrid/glossary/` → `glossary/01/02-*-terms.md`.
+- The terms files, the ADR files, `reference/00-prd.md`, and the ARCHITECTURE record are created lazily by their owning skills — onboarding only guarantees the zone + index + research stubs and the `ASSUMPTIONS.md` skeleton exist.
 
 **4. Write AGENTS.md block (idempotent upsert):**
 - Render the canonical `## Skillgrid` block from `../../_shared/agent-config/block.md` (fill `{project}`, `{tracker_line}`, `{memory_line}`, `{rules_block}`)
@@ -256,10 +256,10 @@ If the user corrects anything, use their value. If they say "looks good" or "yes
 **5. Update `.gitignore`:**
 - Ensure `.skillgrid/sdd/` is gitignored (scratch, ephemeral)
 - Ensure `.skillgrid/brainstorm/` is gitignored (visual companion state)
-- Do NOT gitignore `.skillgrid/config.yaml`, `.skillgrid/state.yaml`, `.skillgrid/specs/`, or `.skillgrid/artifacts/` (committed artifacts)
+- Do NOT gitignore `.skillgrid/config.yaml`, `.skillgrid/state.yaml`, `.skillgrid/specs/`, or the `.skillgrid/` knowledge bundle (committed artifacts)
 
 **6. Tracker bootstrap (if `ticketing.enabled: true`):**
-- If `ticketing.type: backlogmd`: run `backlog init "<project>" --integration-mode cli --backlog-dir .backlog --config-location folder --zero-padded-ids 3`, verify with `backlog status`. Copy each existing `.skillgrid/artifacts/04-adr-NNNN-slug.md` into `.backlog/decisions/` (shape in `skillgrid:architectural-decision-records` → Backlog.md copy).
+- If `ticketing.type: backlogmd`: run `backlog init "<project>" --integration-mode cli --backlog-dir .backlog --config-location folder --zero-padded-ids 3`, verify with `backlog status`. Copy each existing `.skillgrid/decisions/04-adr-NNNN-slug.md` into `.backlog/decisions/` (shape in `skillgrid:architectural-decision-records` → Backlog.md copy).
 - If `ticketing.type: gh`: verify `gh` CLI is available (`gh --version`)
 - If `ticketing.type: glab`: verify `glab` CLI is available (`glab --version`)
 - If `ticketing.type: jira`: verify `jira` CLI is available (`jira config`)
@@ -330,7 +330,7 @@ mnemonic:
 - If the user chose the default (ONNX) and no `indexing.yaml` exists in the repo, skip the write — the built-in default applies without a file.
 
 **9. Commit:**
-- `git add .skillgrid/config.yaml` + `.skillgrid/state.yaml` + the `.skillgrid/artifacts/` files + the AGENTS.md file
+- `git add .skillgrid/config.yaml` + `.skillgrid/state.yaml` + the `.skillgrid/` knowledge bundle files + the AGENTS.md file
 - If `indexing.yaml` was written: `git add .skillgrid/config.d/indexing.yaml`
 - `git commit -m "chore: add Skillgrid config + state + artifacts"`
 
@@ -346,8 +346,8 @@ mnemonic:
 Show the user:
 - **Recall evidence (re-runs only)** and **Step 1.5b bootstrap outcome (brownfield only)** — per the SKILL.md verification items (what was recalled; each draft's anchor, confirm/drop outcome, no unconfirmed draft survives)
 - The written config (summarized, not full file)
-- The `state.yaml` + `artifacts/` zone created
+- The `state.yaml` + knowledge bundle zone created
 - The AGENTS.md block (with the `### Rules` section as the real source of the operational rules; decisions live in `ASSUMPTIONS.md` § LOCKED)
 - The rendered AGENTS.md preamble (`# Standards` region) — confirm it contains the rich sections with no leftover `<detect>` placeholder when the `agents:` config was filled
 - The filled `.skillgrid/ARCHITECTURE.md` — confirm the 17 sections are present and the `<detect>` markers are replaced with verified facts for everything that exists (greenfield: only the sections with real content are filled, the rest are honestly marked)
-- "Skills now read from `.skillgrid/config.yaml` + `.skillgrid/state.yaml` + `.skillgrid/ASSUMPTIONS.md` + `.skillgrid/ARCHITECTURE.md` + `.skillgrid/artifacts/`. Run `skillgrid:brainstorming` to start your first project."
+- "Skills now read from `.skillgrid/config.yaml` + `.skillgrid/state.yaml` + `.skillgrid/ASSUMPTIONS.md` + `.skillgrid/ARCHITECTURE.md` + the `.skillgrid/` knowledge bundle. Run `skillgrid:brainstorming` to start your first project."

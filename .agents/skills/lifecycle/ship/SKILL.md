@@ -15,7 +15,7 @@ metadata:
 You are the **INTEGRATION + ARCHIVE-MOVE** phase — the close-out step after `qa` and `review`, before the terminal `reflect`. You do two things:
 
 1. **Integrate the work** to its base branch (merge / PR / keep) — proven green on the *integrated* tree.
-2. **Close the change folder** — move `.skillgrid/specs/YYYY-MM-DD-<topic>/` to `.skillgrid/archive/YYYY-MM-DD-<topic>/` with a mechanical, verifiable move.
+2. **Close the change folder** — move `.skillgrid/specs/YYYY-MM-DD-<topic>/` to `.skillgrid/xarchive/YYYY-MM-DD-<topic>/` with a mechanical, verifiable move.
 
 The ship decision (GO / NO-GO + rollback plan) and the final `report.md` are written by `skillgrid:reflect` in the archived folder. Ship renders the decision in its Return Envelope; reflect persists it.
 
@@ -105,7 +105,7 @@ Fan-out selection, per-file lenses, and the red-team pass all follow `parallel-c
 - **Merge already landed** → `git revert <merge-commit> -m 1` (or `git reset --hard <pre-merge> ` only if nothing else has landed on the base). Verify tests green after the revert.
 - **PR open, not merged** → close the PR; the branch stays until the work lands or is re-based.
 - **Branch kept** → the branch is the rollback (it never left the repo).
-- **Folder already moved to `archive/`** → the move is the *last* step, so a NO-GO discovered before the move leaves it untouched. A NO-GO discovered *after* the move is corrected in the next change's `reflect`, not by un-archiving.
+- **Folder already moved to `xarchive/`** → the move is the *last* step, so a NO-GO discovered before the move leaves it untouched. A NO-GO discovered *after* the move is corrected in the next change's `reflect`, not by un-archiving.
 
 If the change is **trivial** (per the trivial-skip rule in `_shared/planning/rigor-tiers.md`, review escalation threshold), the rollback plan may be one line: "revert the single commit." The full plan is required otherwise.
 
@@ -119,7 +119,7 @@ If the change is **trivial** (per the trivial-skip rule in `_shared/planning/rig
 **Change**: YYYY-MM-DD-<topic>
 **Base branch**: {base-branch} · **Chain strategy**: {strategy}
 **Integration**: {merged to {base} @ {commit} | PR {url} | kept branch {name}}
-**Archived**: `.skillgrid/archive/YYYY-MM-DD-<topic>/` · Mnemonic `skillgrid/YYYY-MM-DD-<topic>/ship`
+**Archived**: `.skillgrid/xarchive/YYYY-MM-DD-<topic>/` · Mnemonic `skillgrid/YYYY-MM-DD-<topic>/ship`
 **Status**: success | blocked
 
 ### Ship Decision
@@ -137,7 +137,7 @@ If the change is **trivial** (per the trivial-skip rule in `_shared/planning/rig
 - {test command} on integrated tree: {N passed, M failed} → {green}
 
 ### Mechanical Move
-- Pre-move snapshot → `git mv`/`mv` → `.skillgrid/archive/YYYY-MM-DD-<topic>/`
+- Pre-move snapshot → `git mv`/`mv` → `.skillgrid/xarchive/YYYY-MM-DD-<topic>/`
 - `diff -r` readback: {empty → ✅ | verbatim output → FAIL}
 
 ### Overrides / Waivers
@@ -161,7 +161,7 @@ Close the final message with a `## Key Learnings` section — 1–5 standalone f
 - **Do not merge, push, or move until tests are green on the integrated tree.** A green run only proves the tree it ran on.
 - **The move is mechanical.** `cp -R`/`git mv`/`mv` via the shell only, NEVER model Read/Write — and a `diff -r` readback (empty = only passing evidence, verbatim in the result) after it. A skipped or non-empty `diff -r` FAILS the phase.
 - **The move is the LAST step** — everything that must be in the archive (the QA half of `report.md`, review artifacts) is already written when the folder leaves `specs/`, so the `diff -r` readback is exactly empty. Reflect completes `report.md`'s retro half (from `## Final-State Facts` onward) in place *after* the move, in the archive.
-- **The archive is an audit trail** — `.skillgrid/archive/` is created if absent; archived changes are never deleted or modified after the move, **except** the retro sections of `report.md` that reflect completes in place after the move (the QA half is pre-move and included in the `diff -r` readback; the retro half is appended after it).
+- **The archive is an audit trail** — `.skillgrid/xarchive/` is created if absent; archived changes are never deleted or modified after the move, **except** the retro sections of `report.md` that reflect completes in place after the move (the QA half is pre-move and included in the `diff -r` readback; the retro half is appended after it).
 - The integration decision (merge / PR / keep / discard) is the user's — present the menu and wait. Discard happens only on the typed word `discard`.
 - No release mechanics (no VERSION/CHANGELOG bump), no docs check (no Diataxis coverage) — in any variant. The human-facing record (PR body, changelog, release note, postmortem) is written by `skillgrid:document`, which ship invokes for the PR body when the user chooses the PR option (and offers the other types where applicable).
 - **Decision debt ships, it doesn't clear.** An `ASSUMED` blueprint flag is carried into the Return Envelope and the archive — never removed by shipping.
@@ -213,7 +213,7 @@ Per `_shared/craft/measurement.md`.
 - [ ] Workspace/status guard confirms clean state — not a read-only workspace, change folder inside allowed edit roots, no `FAIL`/unresolved CRITICAL.
 - [ ] The test suite is green on the integrated tree (fresh run, not the `qa` run).
 - [ ] The archive move is mechanical (`git mv`/`mv`) with an empty `diff -r` readback against the pre-move snapshot.
-- [ ] The change folder is at `.skillgrid/archive/YYYY-MM-DD-<topic>/` and the source is gone.
+- [ ] The change folder is at `.skillgrid/xarchive/YYYY-MM-DD-<topic>/` and the source is gone.
 - [ ] The Return Envelope is rendered with a GO/NO-GO verdict, basis, rollback plan, and ship context (base branch, integration evidence, gate results) for reflect.
 
 ## References
@@ -221,7 +221,7 @@ Per `_shared/craft/measurement.md`.
 - [integrate.md](references/integrate.md) — integrated-tree tests, the ship menu, the archive move, reconcile, and mnemonic.
 - [`../../verification/qa/SKILL.md`](../../verification/qa/SKILL.md) — upstream; it wrote the QA half of `report.md`, whose `## Gate Decision` verdict drives the QA Gate (read pre-move).
 - [`../../planning/slicing/SKILL.md`](../../planning/slicing/SKILL.md) — upstream; the `## Delivery Strategy` guard lines + work-unit table resolve the base branch.
-- [`../reflect/SKILL.md`](../reflect/SKILL.md) — next; reads the moved folder from `.skillgrid/archive/`, completes `report.md`'s retro half in place, owns session close.
+- [`../reflect/SKILL.md`](../reflect/SKILL.md) — next; reads the moved folder from `.skillgrid/xarchive/`, completes `report.md`'s retro half in place, owns session close.
 - [`../../_shared/planning/fast-track.md`](../../_shared/planning/fast-track.md) — the light-variant waiver this phase honors.
-- [`../../_shared/rules/sdd-structure.md`](../../_shared/rules/sdd-structure.md) — the `specs/` → `archive/` layout, phase order, and Mnemonic slots.
+- [`../../_shared/rules/sdd-structure.md`](../../_shared/rules/sdd-structure.md) — the `specs/` → `xarchive/` layout, phase order, and Mnemonic slots.
 - [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md) — save shape (`title == topic_key`, `scope: "project"`, active `session_id`).

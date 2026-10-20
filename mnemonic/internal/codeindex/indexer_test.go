@@ -275,9 +275,9 @@ func TestScanReturnsOversizedFiles(t *testing.T) {
 // outside the DocInclude glob is still skipped.
 func TestScanDocIncludeCarveOut(t *testing.T) {
 	root := t.TempDir()
-	// ADR under .skillgrid/artifacts: excluded by **/.skillgrid/** but
+	// ADR under .skillgrid/decisions: excluded by **/.skillgrid/** but
 	// carved out by **/.skillgrid/**/*.md.
-	adrDir := filepath.Join(root, ".skillgrid", "artifacts")
+	adrDir := filepath.Join(root, ".skillgrid", "decisions")
 	mustWrite(t, filepath.Join(adrDir, "04-adr-0001-decision.md"), "# D\n\nbody\n")
 	// A .skillgrid file outside the DocInclude glob (.yaml): stays excluded.
 	mustWrite(t, filepath.Join(root, ".skillgrid", "state.yaml"), "k: v\n")
@@ -295,7 +295,7 @@ func TestScanDocIncludeCarveOut(t *testing.T) {
 	for _, f := range files {
 		got[f.Path] = true
 	}
-	if !got[".skillgrid/artifacts/04-adr-0001-decision.md"] {
+	if !got[".skillgrid/decisions/04-adr-0001-decision.md"] {
 		t.Errorf("DocInclude ADR not indexed: %v", files)
 	}
 	if got[".skillgrid/state.yaml"] {

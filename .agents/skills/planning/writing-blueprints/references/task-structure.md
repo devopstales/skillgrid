@@ -55,7 +55,7 @@ layout/interaction. Omit if the change ran no research/prototype/sketch.]
   include this section. For a constraint or decision that is NOT earned by this
    change's spec but inherited from an operational rule or a prior ADR, CITE it
    rather than restate it (`per AGENTS.md § Rules <x>` /
-   `per .skillgrid/artifacts/04-adr-NNNN-slug.md`) per
+   `per .skillgrid/decisions/04-adr-NNNN-slug.md`) per
   `_shared/craft/cite-dont-restate.md` — the citation is the
   constraint; the cited artifact keeps authority singular.]
 

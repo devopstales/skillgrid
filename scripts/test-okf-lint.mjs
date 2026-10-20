@@ -219,6 +219,48 @@ function countLines(p) {
   rmSync(root, { recursive: true, force: true });
 }
 
+// --- Layout: bundle-root walk skips non-concept zones (specs/xarchive/sdd/
+//     cache/prototypes/config.d) — TICKET-14 (ADR-0048) ---
+
+{
+  const root = mkdtempSync(join(tmpdir(), "okf-t9-"));
+  writeFileSync(
+    join(root, "index.md"),
+    ["---", 'okf_version: "0.2"', "---", "", "# catalog", "", "- [concepts/a.md](concepts/a.md) — a"].join("\n"),
+  );
+  mkdirSync(join(root, "concepts"), { recursive: true });
+  writeFileSync(
+    join(root, "concepts", "a.md"),
+    ["---", "type: Reference", "---", "", "# a"].join("\n"),
+  );
+  // A broken concept inside each non-concept zone must NOT be seen.
+  for (const zone of ["specs", "xarchive", "sdd", "cache", "prototypes", "config.d"]) {
+    mkdirSync(join(root, zone), { recursive: true });
+    writeFileSync(
+      join(root, zone, "broken.md"),
+      ["---", "status: stable", "---", "", "# no type"].join("\n"),
+    );
+  }
+  // A broken root-level concept IS seen (the zones, not the root, are excluded).
+  writeFileSync(
+    join(root, "concepts-sibling.md"),
+    ["---", "status: stable", "---", "", "# no type, not listed"].join("\n"),
+  );
+  const env = { OKF_METRICS_SINK: join(root, "metrics.jsonl") };
+  const r = runLint(root, env);
+  assert(
+    "non-concept-zones: exactly the root-level finding (zones excluded)",
+    r.code === 1 && r.stdout.includes("concepts-sibling.md") && !r.stdout.includes("broken.md"),
+    `code=${r.code}\n${r.stdout}`,
+  );
+  assert(
+    "non-concept-zones: SCOPE COMPLETE",
+    /^SCOPE: COMPLETE$/m.test(r.stdout),
+    r.stdout,
+  );
+  rmSync(root, { recursive: true, force: true });
+}
+
 // --- Usage: missing arg / unreadable bundle -> exit 2 ---
 
 {

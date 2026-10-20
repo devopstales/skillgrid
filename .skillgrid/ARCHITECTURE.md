@@ -1,3 +1,11 @@
+---
+type: Reference
+title: "skillgrid Architecture"
+description: "Live system architecture: components, store, transports, SDD state zone."
+status: draft
+
+---
+
 # Skillgrid v2 — System Architecture
 
 > **Version:** 2.1
@@ -63,7 +71,7 @@ The engine is its own Go module (`mnemonic/`, module `github.com/devopstales/ski
                       └─────────────────────────────────────────────────────┘
  REPO CONTENT (shipped by `skillgrid install`, the "Hub Content")
  .agents/skills/ (SDD pipeline + _shared rules)      .skillgrid/ (config,
- hooks/  git-hooks/  plugins/  config.d/  rules/      state, specs, artifacts)
+ hooks/  git-hooks/  plugins/  config.d/  rules/      state, specs, knowledge bundle)
 ```
 
 ### Design Decisions
@@ -395,7 +403,7 @@ The Context Harness (ADR-0025) owns the full context lifecycle of a session. It 
 
 | Seam | What it does | Entry point |
 |------|--------------|-------------|
-| Context Mirror | A `0600` temp file the agent edits with ordinary file tools: `[[LIVE_CONTEXT version=1 revision=N document=<nonce> baseline=<digest>]]` header + `[[CTX_TURN document=<nonce> index=I role=R id=<id> protected=false]]` blocks; nonce is stable between accepted edits. Rendered before each request by the OpenCode `context` plugin hook (modifies the outgoing model call, not persisted history) | `context_harness/clm/mirror.go`, OpenCode plugin module |
+| Context Mirror | A `0600` temp file the agent edits with ordinary file tools: `[LIVE_CONTEXT version=1 revision=N document=<nonce> baseline=<digest>]` header + `[CTX_TURN document=<nonce> index=I role=R id=<id> protected=false]` blocks; nonce is stable between accepted edits. Rendered before each request by the OpenCode `context` plugin hook (modifies the outgoing model call, not persisted history) | `context_harness/clm/mirror.go`, OpenCode plugin module |
 | Overflow Guard | Computed in Go: when the calibrated estimate exceeds `budget − reserve`, the oldest tool results after the last edit are swapped for one-line notes; the withhold decision is stored on the revision and applied by the plugin | `context_harness/clm/overflow.go` |
 | Calibration | The size estimate (starts ~4 chars/token) is corrected against the provider's own token count for each request; the corrected factor is stored per session | `context_harness/clm/calibrate.go` |
 | Context Revision | One accepted mirror edit, persisted to `context_revisions` (migration 052, session-scoped audit — raw history + mirror are the source of truth); validated at turn-end (nonce match, legal message sequence, tool-call-group repair) and activated for the next request; on resume the highest `revision` is reconstructed and its anchor (count + SHA-256 digest) re-validated, a mismatch falling back to raw context | `context_harness/clm/revision.go`, `store/migrations/052_context_revisions.sql` |
@@ -455,11 +463,16 @@ A second, *human-readable* storage world — the SDD state zone, canonical in `_
 ├── config.yaml          # REQUIRED static SoT — stack, testing, tracker, rules.*
 ├── state.yaml           # DYNAMIC — phase, current change, progress
 ├── ASSUMPTIONS.md       # DURABLE — VERIFIED / INFERRED / LOCKED + ADR index
-├── artifacts/           # PRD, terms, ADR files (04-adr-NNNN-slug.md), research
+├── index.md             # root catalog (okf_version) — decisions/invariants/glossary/reference/workflows
+├── decisions/           # ADR files (04-adr-NNNN-slug.md), ADR index note
+├── invariants/          # locked constraints
+├── glossary/            # terms (01-business-terms.md, 02-technical-terms.md)
+├── reference/           # PRD (00-prd.md), research, roadmaps, plans
+├── workflows/           # SDD pipeline + domain flows
 ├── specs/               # ACTIVE change folders (YYYY-MM-DD-<topic>/)
 │   └── 2026-10-02-mnemonic-llm-provider/
 │       ├── briefing.md  acceptance.feature  blueprint.md  tasks.md  adr.md
-├── archive/             # CLOSED changes (immutable)
+├── xarchive/            # CLOSED changes (immutable; renamed from archive/, 2026-10-20)
 └── sdd/                 # scratch (gitignored): progress.md, briefs/, reviews/
 ```
 
@@ -717,13 +730,13 @@ brainstorming ─▶ [research | prototype | sketch] ─▶ writing-blueprints �
 | acceptance-test-authoring | `acceptance.feature` | BDD scenarios — the traceability oracle, with `#### Gates` blocks (G1…Gn: CHECK + EXPECT) |
 | writing-blueprints | `blueprint.md` | pure-technical plan, files per task, tests |
 | slicing | `tasks.md` | vertical tracer-bullet tickets, waves, dependencies, delivery strategy |
-| brainstorming | `adr.md` | ADR Review Manifest (pointers to `artifacts/04-adr-NNNN-slug.md`) |
+| brainstorming | `adr.md` | ADR Review Manifest (pointers to `decisions/04-adr-NNNN-slug.md`) |
 | qa | `report.md` `## Gate Decision` | four-state: `PASS / CONCERNS / FAIL / WAIVED` |
 | requesting-code-review | `review.md` | audit record, verdict floor `met` / `met-with-fixes` |
-| ship | folder move | `specs/…` → `archive/…` (integration first) |
+| ship | folder move | `specs/…` → `xarchive/…` (integration first) |
 | reflect | `report.md` retro half | terminal; completes GO/NO-GO + lessons |
 
-**Tracker mapping** (canonical in `_shared/rules/ticketing/backlogmd-formatting.md`): a Backlog **milestone is named after the full spec folder** (`YYYY-MM-DD-<topic>` from `specs/` or `archive/`), never a short slug or numeric ID — the `milestone → spec` mapping is 1:1 and recoverable from the tracker alone.
+**Tracker mapping** (canonical in `_shared/rules/ticketing/backlogmd-formatting.md`): a Backlog **milestone is named after the full spec folder** (`YYYY-MM-DD-<topic>` from `specs/` or `xarchive/`), never a short slug or numeric ID — the `milestone → spec` mapping is 1:1 and recoverable from the tracker alone.
 
 **Machine-readable state**: `briefing.md`/`tasks.md` carry a STATUS banner parsed by the `/plans` HTTP endpoint — `> **STATUS:** \`in-progress\` (2026-10-03)`, values `draft → sliced → in-progress → complete → shipped` (+ `stalled/blocked/revised/superseded`).
 

@@ -71,9 +71,10 @@ const MANIFEST = `# ADR Review Manifest
 
 function makeProject({ artifacts = {}, assumptions = "", specs = {} }) {
   const root = mkdtempSync(join(tmpdir(), "sgadr-"));
-  mkdirSync(join(root, ".skillgrid", "artifacts"), { recursive: true });
+  // R6 layout (ADR-0048): ADRs live in decisions/.
+  mkdirSync(join(root, ".skillgrid", "decisions"), { recursive: true });
   for (const [f, content] of Object.entries(artifacts)) {
-    writeFileSync(join(root, ".skillgrid", "artifacts", f), content);
+    writeFileSync(join(root, ".skillgrid", "decisions", f), content);
   }
   writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"), assumptions);
   for (const [dir, content] of Object.entries(specs)) {
@@ -94,7 +95,7 @@ function run() {
   function withTempRepo(setup) {
     const root = mkdtempSync(join(tmpdir(), "sgadr-repo-"));
     mkdirSync(join(root, "scripts"), { recursive: true });
-    mkdirSync(join(root, ".skillgrid", "artifacts"), { recursive: true });
+    mkdirSync(join(root, ".skillgrid", "decisions"), { recursive: true });
     mkdirSync(join(root, ".skillgrid", "specs"), { recursive: true });
     setup(root);
     copyFileSync(CHECK, join(root, "scripts", "check-adr-invariants.mjs"));
@@ -110,9 +111,9 @@ function run() {
   // 2. Clean: file + row + manifest → exit 0.
   {
     const r = withTempRepo((root) => {
-      writeFileSync(join(root, ".skillgrid", "artifacts", "04-adr-0001-test-decision.md"), ADR_BODY(1));
+      writeFileSync(join(root, ".skillgrid", "decisions", "04-adr-0001-test-decision.md"), ADR_BODY(1));
       writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"),
-        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/artifacts/04-adr-0001-test-decision.md") + "\n");
+        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/decisions/04-adr-0001-test-decision.md") + "\n");
       mkdirSync(join(root, ".skillgrid", "specs", "2026-10-07-test"), { recursive: true });
       writeFileSync(join(root, ".skillgrid", "specs", "2026-10-07-test", "adr.md"), MANIFEST);
     }, "clean");
@@ -123,7 +124,7 @@ function run() {
   // 3. Orphan file (no table row) → exit 1.
   {
     const r = withTempRepo((root) => {
-      writeFileSync(join(root, ".skillgrid", "artifacts", "04-adr-0001-test-decision.md"), ADR_BODY(1));
+      writeFileSync(join(root, ".skillgrid", "decisions", "04-adr-0001-test-decision.md"), ADR_BODY(1));
       writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"), ASSUMPTIONS_HEADER + "\n");
     }, "orphan");
     assert("orphan: exit 1", r.code === 1, r.out);
@@ -134,7 +135,7 @@ function run() {
   {
     const r = withTempRepo((root) => {
       writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"),
-        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/artifacts/04-adr-0001-test-decision.md") + "\n");
+        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/decisions/04-adr-0001-test-decision.md") + "\n");
     }, "dangling");
     assert("dangling: exit 1", r.code === 1, r.out);
     assert("dangling: names the row", r.out.includes("missing file"), r.out);
@@ -143,12 +144,12 @@ function run() {
   // 5. Duplicate number → exit 1.
   {
     const r = withTempRepo((root) => {
-      writeFileSync(join(root, ".skillgrid", "artifacts", "04-adr-0001-test-decision.md"), ADR_BODY(1));
-      writeFileSync(join(root, ".skillgrid", "artifacts", "04-adr-0001-other-decision.md"), ADR_BODY(1));
+      writeFileSync(join(root, ".skillgrid", "decisions", "04-adr-0001-test-decision.md"), ADR_BODY(1));
+      writeFileSync(join(root, ".skillgrid", "decisions", "04-adr-0001-other-decision.md"), ADR_BODY(1));
       writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"),
         ASSUMPTIONS_HEADER +
-        ROW("0001", ".skillgrid/artifacts/04-adr-0001-test-decision.md") + "\n" +
-        ROW("0001", ".skillgrid/artifacts/04-adr-0001-other-decision.md") + "\n");
+        ROW("0001", ".skillgrid/decisions/04-adr-0001-test-decision.md") + "\n" +
+        ROW("0001", ".skillgrid/decisions/04-adr-0001-other-decision.md") + "\n");
     }, "dup");
     assert("dup: exit 1", r.code === 1, r.out);
     assert("dup: names the number", r.out.includes("duplicated number 0001"), r.out);
@@ -158,9 +159,9 @@ function run() {
   {
     const noFm = "# ADR\n\n## Context\n\n## Decision\n\n## Consequences\n";
     const r = withTempRepo((root) => {
-      writeFileSync(join(root, ".skillgrid", "artifacts", "04-adr-0001-test-decision.md"), noFm);
+      writeFileSync(join(root, ".skillgrid", "decisions", "04-adr-0001-test-decision.md"), noFm);
       writeFileSync(join(root, ".skillgrid", "ASSUMPTIONS.md"),
-        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/artifacts/04-adr-0001-test-decision.md") + "\n");
+        ASSUMPTIONS_HEADER + ROW("0001", ".skillgrid/decisions/04-adr-0001-test-decision.md") + "\n");
     }, "frontmatter");
     assert("frontmatter: exit 1", r.code === 1, r.out);
     assert("frontmatter: names the field", r.out.includes("missing frontmatter field 'status'"), r.out);
@@ -175,7 +176,7 @@ function run() {
     }, "body-drift");
     assert("body-drift: exit 1", r.code === 1, r.out);
     assert("body-drift: names the spec", r.out.includes("specs/2026-10-05-drift/adr.md"), r.out);
-    assert("body-drift: tells the fix", r.out.includes("move the body to .skillgrid/artifacts"), r.out);
+    assert("body-drift: tells the fix", r.out.includes("move the body to .skillgrid/decisions"), r.out);
   }
 
   // 8. Manifest with a dangling pointer → exit 1.

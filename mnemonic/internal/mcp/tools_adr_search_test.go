@@ -40,7 +40,7 @@ date: 2026-10-05
 This supersedes the earlier decision.
 `
 
-// adrMCPFixture indexes a project whose .skillgrid/artifacts/ holds two ADRs
+// adrMCPFixture indexes a project whose .skillgrid/decisions/ holds two ADRs
 // and pins the project so the temp-dir fixture resolves to one stable bucket.
 func adrMCPFixture(t *testing.T) (dataDir, root string) {
 	t.Helper()
@@ -52,9 +52,9 @@ func adrMCPFixture(t *testing.T) (dataDir, root string) {
 	}
 	root = abs
 
-	artifacts := filepath.Join(root, ".skillgrid", "artifacts")
+	artifacts := filepath.Join(root, ".skillgrid", "decisions")
 	if err := os.MkdirAll(artifacts, 0o755); err != nil {
-		t.Fatalf("mkdir artifacts: %v", err)
+		t.Fatalf("mkdir decisions: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(artifacts, "04-adr-0001-decisions-are-files.md"), []byte(adrFixture0001), 0o644); err != nil {
 		t.Fatalf("write adr 0001: %v", err)
@@ -121,7 +121,7 @@ func TestAdrSearchTool(t *testing.T) {
 	if out.Hits[i1].SupersededBy == "" {
 		t.Errorf("0001 must be flagged superseded, got empty (text %s)", text)
 	}
-	if out.Hits[i1].SupersededBy != ".skillgrid/artifacts/04-adr-0002-superseding.md" {
+	if out.Hits[i1].SupersededBy != ".skillgrid/decisions/04-adr-0002-superseding.md" {
 		t.Errorf("0001 superseded_by = %q, want the 0002 path", out.Hits[i1].SupersededBy)
 	}
 	if out.Hits[i2].Supersedes != "0001" {

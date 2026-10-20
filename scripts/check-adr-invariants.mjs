@@ -2,15 +2,15 @@
 // check-adr-invariants.mjs — machine-checkable invariants for the ADR system.
 //
 // "A rule asks; a hook guarantees." This is the guarantee for the ADR home
-// rule: decision bodies live in .skillgrid/artifacts/04-adr-NNNN-slug.md,
+// rule: decision bodies live in .skillgrid/decisions/04-adr-NNNN-slug.md,
 // .skillgrid/ASSUMPTIONS.md holds the path (one in-force row per file), and a
 // spec's adr.md is a per-change manifest of POINTERS — never a copy of a body.
 //
 // Violations (each a FAIL):
-//   1. An artifacts ADR file has no row in the in-force table (orphan file).
-//   2. An in-force table row points at a missing artifacts file.
+//   1. An ADR file in decisions/ has no row in the in-force table (orphan file).
+//   2. An in-force table row points at a missing decisions file.
 //   3. A duplicated in-force number (two files, one number).
-//   4. An artifacts ADR file lacks the status/supersedes/date frontmatter.
+//   4. An ADR file in decisions/ lacks the status/supersedes/date frontmatter.
 //   5. A spec's adr.md is not a manifest — it carries a decision body
 //      (## Context / ## Decision / ## Consequences headings without the
 //      "ADR Review Manifest" header). This is the drift the 2026-10-05
@@ -36,7 +36,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const ARTIFACTS = path.join(ROOT, ".skillgrid", "artifacts");
+const ARTIFACTS = path.join(ROOT, ".skillgrid", "decisions");
 const SPECS = path.join(ROOT, ".skillgrid", "specs");
 const ASSUMPTIONS = path.join(ROOT, ".skillgrid", "ASSUMPTIONS.md");
 const jsonFlag = process.argv.includes("--json");
@@ -62,7 +62,7 @@ function parseInForceTable() {
   const content = readFileSync(ASSUMPTIONS, "utf8");
   const lines = [];
   for (const raw of content.split("\n")) {
-    // Table row: | 0001 | Title | accepted | — | 2026-09-16 | yes | `.skillgrid/artifacts/...` |
+    // Table row: | 0001 | Title | accepted | — | 2026-09-16 | yes | `.skillgrid/decisions/...` |
     const m = raw.match(/^\|\s*(\d{4})\s*\|.*?\|\s*`([^`]+)`\s*\|\s*$/);
     if (m) lines.push({ num: m[1], record: m[2] });
   }
@@ -87,7 +87,7 @@ function main() {
   }
   const tableRecords = new Set(table.map((r) => r.record));
   for (const f of files) {
-    const record = `.skillgrid/artifacts/${f}`;
+    const record = `.skillgrid/decisions/${f}`;
     if (!tableRecords.has(record)) {
       LINES.push(`DRIFT  ${f}: no in-force table row (orphan ADR file)`);
       FAIL = 1;
@@ -121,14 +121,14 @@ function main() {
       const isManifest = content.includes(MANIFEST_HEADER);
       const hasBody = BODY_HEADINGS.some((h) => new RegExp(`^${h.replace("##", "\\#\\#")}\\b`, "m").test(content));
       if (!isManifest && hasBody) {
-        LINES.push(`DRIFT  specs/${dir.name}/adr.md: decision body instead of manifest (move the body to .skillgrid/artifacts/04-adr-NNNN-slug.md)`);
+        LINES.push(`DRIFT  specs/${dir.name}/adr.md: decision body instead of manifest (move the body to .skillgrid/decisions/04-adr-NNNN-slug.md)`);
         FAIL = 1;
       }
       // Validate "New Durable ADRs Created" pointers exist.
       const section = content.split("## New Durable ADRs Created");
       if (section.length > 1) {
         const body = section[1].split("\n## ")[0];
-        for (const m of body.matchAll(/`(\.skillgrid\/artifacts\/04-adr-[a-z0-9.-]+\.md)`/g)) {
+        for (const m of body.matchAll(/`(\.skillgrid\/(?:artifacts|decisions)\/04-adr-[a-z0-9.-]+\.md)`/g)) {
           if (!existsSync(path.join(ROOT, m[1]))) {
             LINES.push(`DRIFT  specs/${dir.name}/adr.md: pointer to missing file ${m[1]}`);
             FAIL = 1;
@@ -151,7 +151,7 @@ function main() {
       console.log("ADR invariants: PASS");
     } else {
       console.log("ADR invariants: FAIL — a file drifted from the ADR home rule.");
-      console.log("Decision bodies belong in .skillgrid/artifacts/04-adr-NNNN-slug.md;");
+      console.log("Decision bodies belong in .skillgrid/decisions/04-adr-NNNN-slug.md;");
       console.log("ASSUMPTIONS.md holds the path; a spec adr.md is a manifest of pointers only.");
     }
   }

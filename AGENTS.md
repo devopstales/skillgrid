@@ -62,7 +62,7 @@ reference `~/.agents/skills/_shared/rules/sdd-structure.md`
 
 <!-- skillgrid:start -->` … `<!-- skillgrid:end -->` block below into this file.
 
-**What belongs here:** operational rules (toolchain floor, commit format, dependency policy, spec/code zone order, enforcement hooks). **What does NOT belong here:** design *decisions* — those are ADRs, indexed in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` with their bodies in `.skillgrid/artifacts/04-adr-NNNN-slug.md`. If a rule is really "we decided X over Y because Z," it is an ADR, not an operational rule.
+**What belongs here:** operational rules (toolchain floor, commit format, dependency policy, spec/code zone order, enforcement hooks). **What does NOT belong here:** design *decisions* — those are ADRs, indexed in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` with their bodies in `.skillgrid/decisions/04-adr-NNNN-slug.md`. If a rule is really "we decided X over Y because Z," it is an ADR, not an operational rule.
 
 **What this is:** skillgrid — a local-first engine for agent memory + code intelligence. Single Go binary, three transports (CLI, MCP stdio, HTTP/REST + embedded SPA). Decisions, observations, and code context persist outside the chat so AI coding agents keep working across sessions. See `.skillgrid/ASSUMPTIONS.md` § VERIFIED for the full product + stack description.
 
@@ -78,12 +78,12 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 
 | Artifact | Path |
 |----------|------|
-| Project knowledge (PRD, architecture, terms, ADRs, research) | `.skillgrid/artifacts/` |
+| Project knowledge (PRD, architecture, terms, ADRs, research) | `.skillgrid/` (OKF bundle: `decisions/` `invariants/` `glossary/` `reference/` `workflows/`) |
 | Project state (phase, current change, progress) | `.skillgrid/state.yaml` |
 | Specs (briefing, blueprint, tasks) | `.skillgrid/specs/` |
 | Execution ledger | `.skillgrid/sdd/` (gitignored) |
 
-**Domain model:** read the vocabulary + ADRs under `.skillgrid/artifacts/` (index: `README.md`) before designing or implementing. The ADR index is `.skillgrid/ASSUMPTIONS.md` § `LOCKED`; open the linked file for the full Context / Decision / Consequences.
+**Domain model:** read the vocabulary + ADRs under `.skillgrid/` (`glossary/` + `decisions/`, index: `index.md`) before designing or implementing. The ADR index is `.skillgrid/ASSUMPTIONS.md` § `LOCKED`; open the linked file for the full Context / Decision / Consequences.
 
 **Rules & standards:** the operational rules live under `### Rules` below. Shared standards are referenced, never inlined — each loads via the skills that apply it.
 
@@ -94,7 +94,7 @@ State: `.skillgrid/state.yaml` (dynamic) — where the project is right now (pha
 
 ### Rules
 
-*Operational rules only — the real source of truth is this section (edit here). Design decisions do not live here; they are ADRs in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` → `.skillgrid/artifacts/04-adr-NNNN-slug.md`.*
+*Operational rules only — the real source of truth is this section (edit here). Design decisions do not live here; they are ADRs in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` → `.skillgrid/decisions/04-adr-NNNN-slug.md`.*
 
 - **Go 1.22+ minimum to build** (ADR-0031). A `go.mod` below 1.22 is a drift signal; raising the floor is a new superseding ADR.
 - **No new dependencies without an ADR.** Adding a third-party dependency is a decision; record it in `.skillgrid/ASSUMPTIONS.md` § `LOCKED` before it lands (ADR-0008 is the `yaml`-package precedent).

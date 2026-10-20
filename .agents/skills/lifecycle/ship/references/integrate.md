@@ -163,7 +163,7 @@ step — the events already hold every committed unit.
 
 ### Step 7: Mechanical Move to Archive (LAST step)
 
-The change folder moves from `specs/` (active) to a top-level `archive/` (closed historical record). This is a **mechanical filesystem operation** — file content MUST NEVER pass through the model's Read/Write path. The only acceptable move is a native shell command (`git mv` / `mv`), verified by a structural `diff -r` readback.
+The change folder moves from `specs/` (active) to a top-level `xarchive/` (closed historical record). This is a **mechanical filesystem operation** — file content MUST NEVER pass through the model's Read/Write path. The only acceptable move is a native shell command (`git mv` / `mv`), verified by a structural `diff -r` readback.
 
 ```bash
 # Run as ONE shell transaction so the EXIT trap stays active.
@@ -173,9 +173,9 @@ trap 'rm -rf -- "$snapshot_root"' EXIT
 cp -R ".skillgrid/specs/YYYY-MM-DD-<topic>" "$snapshot_root/source"
 
 # Mechanical move (MANDATORY): git mv when tracked, mv otherwise.
-mkdir -p .skillgrid/archive
-if ! git mv ".skillgrid/specs/YYYY-MM-DD-<topic>" ".skillgrid/archive/YYYY-MM-DD-<topic>"; then
-  mv ".skillgrid/specs/YYYY-MM-DD-<topic>" ".skillgrid/archive/YYYY-MM-DD-<topic>" || exit $?
+mkdir -p .skillgrid/xarchive
+if ! git mv ".skillgrid/specs/YYYY-MM-DD-<topic>" ".skillgrid/xarchive/YYYY-MM-DD-<topic>"; then
+  mv ".skillgrid/specs/YYYY-MM-DD-<topic>" ".skillgrid/xarchive/YYYY-MM-DD-<topic>" || exit $?
 fi
 
 # The source must be gone before comparing the archived tree to its snapshot.
@@ -184,7 +184,7 @@ if [ -e ".skillgrid/specs/YYYY-MM-DD-<topic>" ] || [ -L ".skillgrid/specs/YYYY-M
 fi
 
 # MANDATORY readback: only an empty diff passes.
-diff -r "$snapshot_root/source" ".skillgrid/archive/YYYY-MM-DD-<topic>"
+diff -r "$snapshot_root/source" ".skillgrid/xarchive/YYYY-MM-DD-<topic>"
 diff_status=$?
 [ "$diff_status" -ne 0 ] && exit "$diff_status"
 ```
@@ -204,14 +204,14 @@ lines it owns. It never rewrites curated prose.
 | Target | Reconcile does | Owner of the rest |
 |---|---|---|
 | `## Skillgrid` block (AGENTS.md / CLAUDE.md) | surgical update of drifted facts (stack, commands) via the sentinel upsert | onboarding (structure), human (curated prose) |
-| `.skillgrid/artifacts/` terms (01-business-terms.md + 02-technical-terms.md) | add one line per new term the change introduced that is absent | `architectural-decision-records` (definitions) |
- | `.skillgrid/artifacts/04-adr-*.md` (index: `ASSUMPTIONS.md` § LOCKED ADR index) | **flag only** — in-force ADRs the diff contradicts or supersedes, listed for the human | `architectural-decision-records` (an accepted ADR file is never deleted — supersede with a new file, don't edit) |
+| `.skillgrid/glossary/` terms (01-business-terms.md + 02-technical-terms.md) | add one line per new term the change introduced that is absent | `architectural-decision-records` (definitions) |
+ | `.skillgrid/decisions/04-adr-*.md` (index: `ASSUMPTIONS.md` § LOCKED ADR index) | **flag only** — in-force ADRs the diff contradicts or supersedes, listed for the human | `architectural-decision-records` (an accepted ADR file is never deleted — supersede with a new file, don't edit) |
 | Archived change folder | read (for the debt list); never modified after the move | the archive is an audit trail |
 | `.skillgrid/config.yaml` | **flag only** — a detected stack/runner change the human should re-onboard for | onboarding (merge mode) |
 
 **Process:**
 1. Re-verify the `## Skillgrid` block facts against the repo (manifests, test runner, commands). If a line drifted (the change introduced a new dependency or changed the runner), update that line via the idempotent sentinel upsert (same sentinels as onboarding). If the drift is structural (a new area with its own conventions, a renamed runner), flag it — do not restructure.
-2. Terms: scan the change's new/modified files for terms absent from the terms files (`artifacts/01-business-terms.md` / `02-technical-terms.md`). Add one line each (term + one-line definition) to the right file. If a term needs a real definition and ADR, flag for `architectural-decision-records` instead of guessing.
+2. Terms: scan the change's new/modified files for terms absent from the terms files (`glossary/01-business-terms.md` / `02-technical-terms.md`). Add one line each (term + one-line definition) to the right file. If a term needs a real definition and ADR, flag for `architectural-decision-records` instead of guessing.
 3. ADRs: list in-force ADRs the diff contradicts or supersedes. **Flag, never edit** — ADR immutability holds. The human decides whether a superseding ADR is owed.
 4. Config: if the change changed the stack or test runner in a way `config.yaml` doesn't reflect, flag "run `skillgrid:onboarding` (merge mode)" — do not edit the config.
 5. **Open decision debt:** list every `ASSUMED` blueprint in the archive (from Step 6) into the Return Envelope's `Open decision debt` line.

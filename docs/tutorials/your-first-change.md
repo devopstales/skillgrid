@@ -336,7 +336,7 @@ Move on.
 
 ```text
 .skillgrid/specs/YYYY-MM-DD-health-endpoint/
-  → .skillgrid/archive/YYYY-MM-DD-health-endpoint/
+  → .skillgrid/xarchive/YYYY-MM-DD-health-endpoint/
 ```
 
 with a `git mv` + `diff -r` readback. A folder in `archive/` is **closed** —
@@ -358,7 +358,7 @@ never resumed. `specs/` holds only *active* changes.
 Then it persists the learnings to **Mnemonic** and closes the session with
 `mem_session_summary` + `mem_session_end`.
 
-Open `.skillgrid/archive/YYYY-MM-DD-health-endpoint/report.md`. This is the
+Open `.skillgrid/xarchive/YYYY-MM-DD-health-endpoint/report.md`. This is the
 record a future reader consults to learn what shipped and when.
 
 > [!TIP]

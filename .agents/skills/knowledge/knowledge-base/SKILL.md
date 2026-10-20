@@ -19,7 +19,7 @@ Operate the project's durable knowledge: an OKF v0.2 bundle at `.skillgrid/` plu
 
 Two modes. **Read** (cheap, lazy): recall decisions/invariants/findings only when they bear on the task, stop once grounded. **Maintain** (through the pipeline): author or revise concepts as `decisions/`/`invariants/`/`workflows/` pages with checkable pins, keeping `index.md` + `log.md` + `reverse-index.md` in the same edit. The split mirrors OpenWiki's: the agent owns judgment and prose; deterministic state (STATUS banners, `state.yaml`, stamps, indexes) is written by the owning skill or script, never hand-edited.
 
-Layout (post-R6; pre-R6 projects use `artifacts/` — same rules, old paths):
+Layout (this project is post-R6: the bundle root is `.skillgrid/` itself; pre-R6 projects use `artifacts/` with `README.md` as root catalog — same rules, old paths):
 
 ```
 .skillgrid/
@@ -39,7 +39,7 @@ Layout (post-R6; pre-R6 projects use `artifacts/` — same rules, old paths):
 
 **When NOT to use:** for transient within-session notes (session state file, not concepts); for episodic memory that belongs in `mem_save` (a bugfix story, a session summary — use skillgrid:mnemonic); for code orientation without a knowledge question (code index directly); for trivially reversible choices (no concept — see the ADR-sparingly test in skillgrid:architectural-decision-records).
 
-**Config:** Read `.skillgrid/config.yaml` first. `conventions.artifacts` is the knowledge root (default `.skillgrid/`); `mnemonic.enabled: false` degrades recall to filesystem-only (same degraded contract as skillgrid:mnemonic — emit `Degraded: mnemonic` and continue).
+**Config:** Read `.skillgrid/config.yaml` first. `conventions.artifacts` is the knowledge root (default `.skillgrid/` post-R6; pre-R6 `.skillgrid/artifacts/`); `mnemonic.enabled: false` degrades recall to filesystem-only (same degraded contract as skillgrid:mnemonic — emit `Degraded: mnemonic` and continue).
 
 ## Read the knowledge base
 

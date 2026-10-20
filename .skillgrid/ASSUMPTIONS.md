@@ -1,6 +1,6 @@
 # ASSUMPTIONS
 
-The live record of what skillgrid *is*, which decisions are in force, and what is *locked*. Decision bodies live in `.skillgrid/artifacts/04-adr-NNNN-slug.md`; this file stores the path. The terms glossaries (`.skillgrid/artifacts/01-business-terms.md`, `02-technical-terms.md`) are a separate glossary.
+The live record of what skillgrid *is*, which decisions are in force, and what is *locked*. Decision bodies live in `.skillgrid/decisions/04-adr-NNNN-slug.md`; this file stores the path. The terms glossaries (`.skillgrid/glossary/01-business-terms.md`, `02-technical-terms.md`) are a separate glossary.
 
 **Read order:** VERIFIED (what we know to be true) → INFERRED (hypotheses we are acting on) → LOCKED (the ADR index — in-force decisions) → Open Questions.
 
@@ -10,7 +10,7 @@ The live record of what skillgrid *is*, which decisions are in force, and what i
 - **LOCKED** — the ADR index: one pointer row per in-force decision (path only). Requires an explicit user OK to add a row. Supersede by a new file + table flip; **never delete an ADR file or its row** (the IRON RULE). Operational rules that are *not* decisions live in `AGENTS.md`, not here.
 - **Open Questions** — questions that are not yet decided and not yet prototyped.
 
-Product requirements live in `.skillgrid/artifacts/00-prd.md` (reference). Locked decisions are files under `.skillgrid/artifacts/04-adr-NNNN-slug.md`. This file's in-force table stores the path only (ADR-0019).
+Product requirements live in `.skillgrid/reference/00-prd.md` (reference). Locked decisions are files under `.skillgrid/decisions/04-adr-NNNN-slug.md`. This file's in-force table stores the path only (ADR-0019).
 
 ---
 
@@ -49,7 +49,7 @@ Confirmed against the code, a prototype, or a primary source. These are the fact
 
 ### Product requirements
 
-The target users, personas, MoSCoW feature table, user flows, non-functional requirements, release line, and competitive position are in `.skillgrid/artifacts/00-prd.md`. Open it when a change touches scope or acceptance. The one-paragraph product statement is the **Product** bullet at the top of this tier.
+The target users, personas, MoSCoW feature table, user flows, non-functional requirements, release line, and competitive position are in `.skillgrid/reference/00-prd.md`. Open it when a change touches scope or acceptance. The one-paragraph product statement is the **Product** bullet at the top of this tier.
 
 ---
 
@@ -77,55 +77,56 @@ The ADR index. One row per decision: a short description and a link to the full 
 
 | # | Description | In force | File |
 |---|-------------|----------|------|
-| 0001 | PRD scope is the whole Hub Product, not the binary alone | yes | `.skillgrid/artifacts/04-adr-0001-prd-scope-whole-hub.md` |
-| 0002 | PRD framing is engine-first, not installer-first | yes | `.skillgrid/artifacts/04-adr-0002-prd-engine-first-framing.md` |
-| 0003 | v1.0 line is "the engine is trustworthy"; UI is Phase 2 | yes | `.skillgrid/artifacts/04-adr-0003-v1.0-line-engine-trustworthy.md` |
-| 0004 | PRD component map is a 4-way decomposition | yes | `.skillgrid/artifacts/04-adr-0004-four-component-decomposition.md` |
-| 0005 | Trust boundary: MCP-spawned process with project read access | yes | `.skillgrid/artifacts/04-adr-0005-trust-boundary-mcp-spawn-model.md` |
-| 0006 | Vector search: in-memory brute-force cosine, no SQLite vector extension (amended by 0009) | yes | `.skillgrid/artifacts/04-adr-0006-vector-search-in-memory-brute-force.md` |
-| 0007 | SDD multi-method docs viewer with generic, existence-gated doc roots | yes | `.skillgrid/artifacts/04-adr-0007-sdd-multi-method-docs-viewer.md` |
-| 0008 | State drift guard: Node.js + `yaml` package, read-only verifier | yes | `.skillgrid/artifacts/04-adr-0008-state-drift-guard-js-yaml.md` |
-| 0009 | Vector search: in-SQL sqlite-vec latency corrected; viant deferred; revisit path confirmed | yes | `.skillgrid/artifacts/04-adr-0009-vector-search-in-sql-latency-viant-deferred.md` |
-| 0010 | Verification scope discriminator: a zero is never a bare zero | yes | `.skillgrid/artifacts/04-adr-0010-verification-scope-discriminator.md` |
-| 0011 | Observations are bi-temporal; the save path classifies each write as Add/Update/Delete/Noop | yes | `.skillgrid/artifacts/04-adr-0011-observations-are-bitemporal.md` |
-| 0012 | SQLite as the second-brain store; llm-wiki markdown files rejected | yes | `.skillgrid/artifacts/04-adr-0012-sqlite-as-second-brain.md` |
-| 0013 | Source of truth: the repo is authoritative; Backlog task ID ↔ commit SHA is the linkage | yes | `.skillgrid/artifacts/04-adr-0013-repo-source-of-truth.md` |
-| 0014 | (removed 2026-09-30) | no | `.skillgrid/artifacts/04-adr-0014-removed.md` |
-| 0015 | (removed 2026-09-30) | no | `.skillgrid/artifacts/04-adr-0015-removed.md` |
-| 0016 | Mnemonic second-brain capability layer | yes | `.skillgrid/artifacts/04-adr-0016-second-brain-capability-layer.md` |
-| 0017 | Embedded SPA code graph uses D3 force layout (replaces Sigma) | yes | `.skillgrid/artifacts/04-adr-0017-d3-force-graph.md` |
-| 0018 | mem_search returns additive per-signal scores; RRF runs only on the owner-scoped path | yes | `.skillgrid/artifacts/04-adr-0018-mem-search-additive-signals.md` |
-| 0019 | Locked decisions are ADR files; ASSUMPTIONS.md holds the path | yes | `.skillgrid/artifacts/04-adr-0019-decisions-are-files.md` |
-| 0020 | Execution coordination lives in the SDD ledger; Mnemonic stores an index | yes | `.skillgrid/artifacts/04-adr-0020-sdd-ledger-owns-execution.md` |
-| 0021 | Pre-tool policy is opt-in, first-match field rules, and fails open | yes | `.skillgrid/artifacts/04-adr-0021-pre-tool-policy-fail-open.md` |
-| 0022 | The host agent is the memory observer; checkpoints are server-gated | yes | `.skillgrid/artifacts/04-adr-0022-host-agent-memory-checkpoint.md` |
-| 0023 | Mnemonic chat LLM is OpenAI-compatible HTTP only; one client attaches all seams | yes | `.skillgrid/artifacts/04-adr-0023-openai-compatible-llm-provider.md` |
-| 0024 | Team-shared memory state: local SQLite + outbox journal against a VM PostgreSQL (LWW + tombstones, tokens-as-roles, schema-per-project) | yes | `.skillgrid/artifacts/04-adr-0024-central-pg-shared-memory-state.md` |
-| 0025 | Context Harness owns the session context lifecycle (absorbs `session_inject`; capture, `ctx_query`, routing, `ctx` CLI) | yes | `.skillgrid/artifacts/04-adr-0025-context-harness-owner.md` |
-| 0026 | `indexed_files` reuses the observations schema shape; `ctx_search` fuses sandbox + indexed via RRF | yes | `.skillgrid/artifacts/04-adr-0026-indexed-files-reuses-observations-schema.md` |
-| 0027 | Context Harness implements the Context Language Model (mirror + overflow guard + calibration; Go owns state, Node owns request path; opt-in via `clm:` config) | yes | `.skillgrid/artifacts/04-adr-0027-clm-context-language-model.md` |
-| 0028 | `context_revisions` is session-scoped audit (purged at session end; raw history + mirror are the source of truth) | yes | `.skillgrid/artifacts/04-adr-0028-context-revisions-session-scoped.md` |
-| 0029 | Compaction advisory gate (one combined LLM call, fail-open) + `steering` column on `context_revisions` + proactive build; extends ADR-0027/0028; opt-in via `mnemonic.compaction` config | yes | `.skillgrid/artifacts/04-adr-0029-compaction-advisory-steering.md` |
-| 0030 | Scan findings store: structured `scan_*`/`dep_*` tables + FTS, not blobs or per-tool tables | yes | `.skillgrid/artifacts/04-adr-0030-scan-findings-structured-store.md` |
-| 0031 | Go 1.22+ minimum to build (raised from a locked constraint to a decision) | yes | `.skillgrid/artifacts/04-adr-0031-go-version-floor.md` |
-| 0032 | opencode + Kilo native TS plugin architecture: 5 plugins from `plugins/opencode/`, Kilo copy-at-install, shell hooks retired, facts HTTP routes | yes | `.skillgrid/artifacts/04-adr-0032-opencode-kilo-native-plugins.md` |
-| 0033 | Three-module Go workspace: `ctx/` is a library module importing `mnemonic`, no own DB handle | yes | `.skillgrid/artifacts/04-adr-0033-three-module-workspace-ctx.md` |
-| 0034 | `ctx` is a `mnemonic` subcommand group (`mnemonic ctx …`), not a standalone binary; `mnemonic stats` unchanged | yes | `.skillgrid/artifacts/04-adr-0034-ctx-cli-mnemonic-subcommand.md` |
-| 0035 | CTX judgment model is local Ollama (default `tev1:0.8b` via `/v1/systemone`), fail-open to pre-filter | yes | `.skillgrid/artifacts/04-adr-0035-local-ollama-judgment-model.md` |
-| 0036 | CTX config lives at `config.d/ctx.yaml` (machine-local default + repo-local override), reuses the `config.d` loader | yes | `.skillgrid/artifacts/04-adr-0036-ctx-config-configd.md` |
-| 0037 | HNSW embedded ANN index: pure Go (no new dep), M=16, efCon=64, efSearch=96, persisted in SQLite (065), `source`-namespaced node ids (066, symbol/chunk), degrades to brute force | yes | `.skillgrid/artifacts/04-adr-0037-embedded-ann-index.md` |
-| 0038 | skill-pi ticketing: `ticket` tool (10 actions) backed by the `backlog` MCP server over stdio, not vendored tk or direct file I/O | yes | `.skillgrid/artifacts/04-adr-0038-skill-pi-ticketing-backlog-adapter.md` |
-| 0039 | skill-pi permission layer: 3-tier config, Tree-sitter bash matching, tool hiding, diff preview, hybrid approvals | yes | `.skillgrid/artifacts/04-adr-0039-skill-pi-permission-extension.md` |
- | 0042 | skill-pi npm dependency surface: exact pin `1.1.0` for `@earendil-works/pi-coding-agent`; `piConfig.configDir` min-version 1.1.0; pi is a **bundled** exact dependency (`dependencies` + `bundleDependencies`, not peer/host-provided) so `npm i -g skill-pi` self-contains pi — amended 2026-10-12, see "Supersession" in the ADR | yes | `.skillgrid/artifacts/04-adr-0042-skill-pi-dependencies.md` |
-| 0043 | skill-pi Mnemonic memory extension: Pi-native folder `plugins/pi/mnemonic/` (index.ts entrypoint + mem_*/fact_*/code_* tool files over existing HTTP routes, prompt capture on before_agent_start, Memory Protocol injection, compaction context), `mnemonic setup pi` copies the folder into the agent-dir extensions | yes | `.skillgrid/artifacts/04-adr-0043-skill-pi-mnemonic-extension.md` |
+| 0001 | PRD scope is the whole Hub Product, not the binary alone | yes | `.skillgrid/decisions/04-adr-0001-prd-scope-whole-hub.md` |
+| 0002 | PRD framing is engine-first, not installer-first | yes | `.skillgrid/decisions/04-adr-0002-prd-engine-first-framing.md` |
+| 0003 | v1.0 line is "the engine is trustworthy"; UI is Phase 2 | yes | `.skillgrid/decisions/04-adr-0003-v1.0-line-engine-trustworthy.md` |
+| 0004 | PRD component map is a 4-way decomposition | yes | `.skillgrid/decisions/04-adr-0004-four-component-decomposition.md` |
+| 0005 | Trust boundary: MCP-spawned process with project read access | yes | `.skillgrid/decisions/04-adr-0005-trust-boundary-mcp-spawn-model.md` |
+| 0006 | Vector search: in-memory brute-force cosine, no SQLite vector extension (amended by 0009) | yes | `.skillgrid/decisions/04-adr-0006-vector-search-in-memory-brute-force.md` |
+| 0007 | SDD multi-method docs viewer with generic, existence-gated doc roots | yes | `.skillgrid/decisions/04-adr-0007-sdd-multi-method-docs-viewer.md` |
+| 0008 | State drift guard: Node.js + `yaml` package, read-only verifier | yes | `.skillgrid/decisions/04-adr-0008-state-drift-guard-js-yaml.md` |
+| 0009 | Vector search: in-SQL sqlite-vec latency corrected; viant deferred; revisit path confirmed | yes | `.skillgrid/decisions/04-adr-0009-vector-search-in-sql-latency-viant-deferred.md` |
+| 0010 | Verification scope discriminator: a zero is never a bare zero | yes | `.skillgrid/decisions/04-adr-0010-verification-scope-discriminator.md` |
+| 0011 | Observations are bi-temporal; the save path classifies each write as Add/Update/Delete/Noop | yes | `.skillgrid/decisions/04-adr-0011-observations-are-bitemporal.md` |
+| 0012 | SQLite as the second-brain store; llm-wiki markdown files rejected | yes | `.skillgrid/decisions/04-adr-0012-sqlite-as-second-brain.md` |
+| 0013 | Source of truth: the repo is authoritative; Backlog task ID ↔ commit SHA is the linkage | yes | `.skillgrid/decisions/04-adr-0013-repo-source-of-truth.md` |
+| 0014 | (removed 2026-09-30) | no | `.skillgrid/decisions/04-adr-0014-removed.md` |
+| 0015 | (removed 2026-09-30) | no | `.skillgrid/decisions/04-adr-0015-removed.md` |
+| 0016 | Mnemonic second-brain capability layer | yes | `.skillgrid/decisions/04-adr-0016-second-brain-capability-layer.md` |
+| 0017 | Embedded SPA code graph uses D3 force layout (replaces Sigma) | yes | `.skillgrid/decisions/04-adr-0017-d3-force-graph.md` |
+| 0018 | mem_search returns additive per-signal scores; RRF runs only on the owner-scoped path | yes | `.skillgrid/decisions/04-adr-0018-mem-search-additive-signals.md` |
+| 0019 | Locked decisions are ADR files; ASSUMPTIONS.md holds the path | yes | `.skillgrid/decisions/04-adr-0019-decisions-are-files.md` |
+| 0020 | Execution coordination lives in the SDD ledger; Mnemonic stores an index | yes | `.skillgrid/decisions/04-adr-0020-sdd-ledger-owns-execution.md` |
+| 0021 | Pre-tool policy is opt-in, first-match field rules, and fails open | yes | `.skillgrid/decisions/04-adr-0021-pre-tool-policy-fail-open.md` |
+| 0022 | The host agent is the memory observer; checkpoints are server-gated | yes | `.skillgrid/decisions/04-adr-0022-host-agent-memory-checkpoint.md` |
+| 0023 | Mnemonic chat LLM is OpenAI-compatible HTTP only; one client attaches all seams | yes | `.skillgrid/decisions/04-adr-0023-openai-compatible-llm-provider.md` |
+| 0024 | Team-shared memory state: local SQLite + outbox journal against a VM PostgreSQL (LWW + tombstones, tokens-as-roles, schema-per-project) | yes | `.skillgrid/decisions/04-adr-0024-central-pg-shared-memory-state.md` |
+| 0025 | Context Harness owns the session context lifecycle (absorbs `session_inject`; capture, `ctx_query`, routing, `ctx` CLI) | yes | `.skillgrid/decisions/04-adr-0025-context-harness-owner.md` |
+| 0026 | `indexed_files` reuses the observations schema shape; `ctx_search` fuses sandbox + indexed via RRF | yes | `.skillgrid/decisions/04-adr-0026-indexed-files-reuses-observations-schema.md` |
+| 0027 | Context Harness implements the Context Language Model (mirror + overflow guard + calibration; Go owns state, Node owns request path; opt-in via `clm:` config) | yes | `.skillgrid/decisions/04-adr-0027-clm-context-language-model.md` |
+| 0028 | `context_revisions` is session-scoped audit (purged at session end; raw history + mirror are the source of truth) | yes | `.skillgrid/decisions/04-adr-0028-context-revisions-session-scoped.md` |
+| 0029 | Compaction advisory gate (one combined LLM call, fail-open) + `steering` column on `context_revisions` + proactive build; extends ADR-0027/0028; opt-in via `mnemonic.compaction` config | yes | `.skillgrid/decisions/04-adr-0029-compaction-advisory-steering.md` |
+| 0030 | Scan findings store: structured `scan_*`/`dep_*` tables + FTS, not blobs or per-tool tables | yes | `.skillgrid/decisions/04-adr-0030-scan-findings-structured-store.md` |
+| 0031 | Go 1.22+ minimum to build (raised from a locked constraint to a decision) | yes | `.skillgrid/decisions/04-adr-0031-go-version-floor.md` |
+| 0032 | opencode + Kilo native TS plugin architecture: 5 plugins from `plugins/opencode/`, Kilo copy-at-install, shell hooks retired, facts HTTP routes | yes | `.skillgrid/decisions/04-adr-0032-opencode-kilo-native-plugins.md` |
+| 0033 | Three-module Go workspace: `ctx/` is a library module importing `mnemonic`, no own DB handle | yes | `.skillgrid/decisions/04-adr-0033-three-module-workspace-ctx.md` |
+| 0034 | `ctx` is a `mnemonic` subcommand group (`mnemonic ctx …`), not a standalone binary; `mnemonic stats` unchanged | yes | `.skillgrid/decisions/04-adr-0034-ctx-cli-mnemonic-subcommand.md` |
+| 0035 | CTX judgment model is local Ollama (default `tev1:0.8b` via `/v1/systemone`), fail-open to pre-filter | yes | `.skillgrid/decisions/04-adr-0035-local-ollama-judgment-model.md` |
+| 0036 | CTX config lives at `config.d/ctx.yaml` (machine-local default + repo-local override), reuses the `config.d` loader | yes | `.skillgrid/decisions/04-adr-0036-ctx-config-configd.md` |
+| 0037 | HNSW embedded ANN index: pure Go (no new dep), M=16, efCon=64, efSearch=96, persisted in SQLite (065), `source`-namespaced node ids (066, symbol/chunk), degrades to brute force | yes | `.skillgrid/decisions/04-adr-0037-embedded-ann-index.md` |
+| 0038 | skill-pi ticketing: `ticket` tool (10 actions) backed by the `backlog` MCP server over stdio, not vendored tk or direct file I/O | yes | `.skillgrid/decisions/04-adr-0038-skill-pi-ticketing-backlog-adapter.md` |
+| 0039 | skill-pi permission layer: 3-tier config, Tree-sitter bash matching, tool hiding, diff preview, hybrid approvals | yes | `.skillgrid/decisions/04-adr-0039-skill-pi-permission-extension.md` |
+ | 0042 | skill-pi npm dependency surface: exact pin `1.1.0` for `@earendil-works/pi-coding-agent`; `piConfig.configDir` min-version 1.1.0; pi is a **bundled** exact dependency (`dependencies` + `bundleDependencies`, not peer/host-provided) so `npm i -g skill-pi` self-contains pi — amended 2026-10-12, see "Supersession" in the ADR | yes | `.skillgrid/decisions/04-adr-0042-skill-pi-dependencies.md` |
+| 0043 | skill-pi Mnemonic memory extension: Pi-native folder `plugins/pi/mnemonic/` (index.ts entrypoint + mem_*/fact_*/code_* tool files over existing HTTP routes, prompt capture on before_agent_start, Memory Protocol injection, compaction context), `mnemonic setup pi` copies the folder into the agent-dir extensions | yes | `.skillgrid/decisions/04-adr-0043-skill-pi-mnemonic-extension.md` |
 
-| 0044 | context-harness sandbox over HTTP (POST /ctx/capture, GET /ctx/search, GET /ctx/get/{id}, GET /ctx/stats loopback-only, DELETE /ctx/sessions/{id}) + Pi tool_result overflow receipts ([skillgrid-ctx] marker, 4096-byte mirrored gate) + ctx_search/ctx_get/ctx_stats/ctx_purge Pi tools + promptSnippet on all 20 Pi tools | yes | `.skillgrid/artifacts/04-adr-0044-ctx-sandbox-http-and-pi-receipts.md` |
+| 0044 | context-harness sandbox over HTTP (POST /ctx/capture, GET /ctx/search, GET /ctx/get/{id}, GET /ctx/stats loopback-only, DELETE /ctx/sessions/{id}) + Pi tool_result overflow receipts ([skillgrid-ctx] marker, 4096-byte mirrored gate) + ctx_search/ctx_get/ctx_stats/ctx_purge Pi tools + promptSnippet on all 20 Pi tools | yes | `.skillgrid/decisions/04-adr-0044-ctx-sandbox-http-and-pi-receipts.md` |
 
-| 0045 | OpenCode V2 plugin port: dual V1+V2 entrypoints for the 6 native plugins (V1 named export kept + V2 `Plugin.define` default), shared `opencode-v2.ts` shim (`makeTool` JSON-Schema builder + deferred `opencode.event` bus), `skillgrid-context` V1-only (no V2 hook for `experimental.chat.messages.transform`), installer ships the shim | yes | `.skillgrid/artifacts/04-adr-0045-opencode-v2-plugin-port.md` |
-| 0046 | Knowledge class dimension: nullable `knowledge_class` column (episodic\|convention\|doc\|unclassified) on observations, heuristic inference on save, re-runnable backfill, optional search filter (FTS-leg-only), migration 070 — additive on ADR-0012, no KB-per-class | yes | `.skillgrid/artifacts/04-adr-0046-knowledge-class-dimension.md` |
-| 0047 | Fused mem_search contract: every mem_search also FTS-MATCHes web_cache_fts (project-scoped, expired excluded), RRF-fused (k=60) with the observations leg, web hits labeled corpus=web_cache + source/url/fetched_at/expires_at + web_cache_get retrieve pointer; vector leg stays observations-only — a BEHAVIOR SHIFT for every mem_search caller | yes | `.skillgrid/artifacts/04-adr-0047-fused-mem-search-contract.md` |
+| 0045 | OpenCode V2 plugin port: dual V1+V2 entrypoints for the 6 native plugins (V1 named export kept + V2 `Plugin.define` default), shared `opencode-v2.ts` shim (`makeTool` JSON-Schema builder + deferred `opencode.event` bus), `skillgrid-context` V1-only (no V2 hook for `experimental.chat.messages.transform`), installer ships the shim | yes | `.skillgrid/decisions/04-adr-0045-opencode-v2-plugin-port.md` |
+| 0046 | Knowledge class dimension: nullable `knowledge_class` column (episodic\|convention\|doc\|unclassified) on observations, heuristic inference on save, re-runnable backfill, optional search filter (FTS-leg-only), migration 070 — additive on ADR-0012, no KB-per-class | yes | `.skillgrid/decisions/04-adr-0046-knowledge-class-dimension.md` |
+| 0047 | Fused mem_search contract: every mem_search also FTS-MATCHes web_cache_fts (project-scoped, expired excluded), RRF-fused (k=60) with the observations leg, web hits labeled corpus=web_cache + source/url/fetched_at/expires_at + web_cache_get retrieve pointer; vector leg stays observations-only — a BEHAVIOR SHIFT for every mem_search caller | yes | `.skillgrid/decisions/04-adr-0047-fused-mem-search-contract.md` |
+| 0048 | Hybrid source of truth: SQLite (mnemonic) is the SoT for observations + code intelligence; the `.skillgrid/` Markdown bundle is the SoT for the knowledge base (decisions/invariants/glossary/reference/workflows), `xarchive/` for shipped changes — amends ADR-0012; dissolves the pre-R6 `artifacts` zone into the bundle root and renames `archive/` to `xarchive/` (R6 layout) | yes | `.skillgrid/decisions/04-adr-0048-hybrid-sot.md` |
 
-**Highest sequence in use:** 0047 (next ADR is `04-adr-0048-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record; the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
+**Highest sequence in use:** 0048 (next ADR is `04-adr-0049-slug.md`). This index is a pointer — the body of each decision is the linked file (ADR-0019). Number 0012 is the SQLite store record (amended by ADR-0048: the `.skillgrid/` Markdown bundle is the durable SoT for the knowledge base; SQLite remains the SoT for observations + code intelligence); the 2026-09-29 consolidation text that was inlined under that number is preserved in ADR-0019 and is not in force.
 
 Operational rules (the hard limits a change must respect — build toolchain, commit format, dependency policy, spec/code zone order) live in `AGENTS.md`, not here. `AGENTS.md` is the real source for those; the onboarding skill renders them into the agent prompt. A rule that is actually a decision belongs in this index as an ADR instead.
 

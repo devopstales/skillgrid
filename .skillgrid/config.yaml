@@ -82,10 +82,10 @@ conventions:
   artifacts_root: .skillgrid
   scratch_dir: .skillgrid/sdd
   specs_dir: .skillgrid/specs
-  archive_dir: .skillgrid/archive
+  archive_dir: .skillgrid/xarchive
   # Durable project knowledge (PRD, architecture, terms, ADRs, constraints, research).
   # Replaces the former docs/PRD.md, docs/ARCHITECTURE.md, .skillgrid/glossary/, .skillgrid/adr/.
-  artifacts: .skillgrid/artifacts
+  artifacts: .skillgrid
   # Dynamic project state (phase, current change, progress). Updated by pipeline skills.
   state_file: .skillgrid/state.yaml
   registry: docs/skillgrid/agents/skill-registry.md # optional; never a workflow gate

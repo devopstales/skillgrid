@@ -11,9 +11,13 @@ import (
 	"strings"
 )
 
-// adrFilesGlob is where locked decisions live (ADR-0019). ASSUMPTIONS.md
+// adrFilesGlobs is where locked decisions live (ADR-0019; R6 layout ADR-0048:
+// the pre-R6 artifacts zone + the decisions/ bundle folder). ASSUMPTIONS.md
 // stores the path; these files store the body. Relative to docsCwd.
-const adrFilesGlob = ".skillgrid/artifacts/04-adr-*.md"
+var adrFilesGlobs = []string{
+	".skillgrid/artifacts/04-adr-*.md",
+	".skillgrid/decisions/04-adr-*.md",
+}
 
 // assumptionsPath is the index. A repo with this file and no ADR files is an
 // empty list, not a 404. A repo with neither is a 404.
@@ -41,8 +45,9 @@ type adrSummary struct {
 }
 
 // NewADRs returns the GET /docs/adrs handler bound to cwd. It parses
-// `.skillgrid/artifacts/04-adr-*.md` and returns them as JSON so the Decisions
-// panel can surface the repo's ADR files.
+// the ADR files (`.skillgrid/artifacts/` pre-R6, `.skillgrid/decisions/` R6)
+// and returns them as JSON so the Decisions panel can surface the repo's
+// ADR files.
 func NewADRs(cwd string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		adrs, err := ParseADRs(r.Context(), cwd)
@@ -55,20 +60,25 @@ func NewADRs(cwd string) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"source":  ".skillgrid/artifacts",
+			"source":  adrSourceFor(adrs),
 			"summary": adrSummaryFor(adrs),
 			"adrs":    adrs,
 		})
 	})
 }
 
-// ParseADRs reads `.skillgrid/artifacts/04-adr-*.md`. Missing artifacts and a
-// missing ASSUMPTIONS.md return os.ErrNotExist (→ 404). An index with no ADR
-// files returns an empty slice.
+// ParseADRs reads the ADR files (`.skillgrid/artifacts/` pre-R6,
+// `.skillgrid/decisions/` R6). Missing ADR directories and a missing
+// ASSUMPTIONS.md return os.ErrNotExist (→ 404). An index with no ADR files
+// returns an empty slice.
 func ParseADRs(ctx context.Context, cwd string) ([]ADR, error) {
-	matches, err := filepath.Glob(filepath.Join(cwd, filepath.FromSlash(adrFilesGlob)))
-	if err != nil {
-		return nil, err
+	var matches []string
+	for _, g := range adrFilesGlobs {
+		ms, err := filepath.Glob(filepath.Join(cwd, filepath.FromSlash(g)))
+		if err != nil {
+			return nil, err
+		}
+		matches = append(matches, ms...)
 	}
 	if len(matches) == 0 {
 		if _, statErr := os.Stat(filepath.Join(cwd, filepath.FromSlash(assumptionsPath))); statErr != nil {
@@ -94,11 +104,28 @@ func ParseADRs(ctx context.Context, cwd string) ([]ADR, error) {
 			return nil, err
 		}
 		num, _ := strconv.Atoi(m[1])
-		rel := filepath.ToSlash(filepath.Join(".skillgrid", "artifacts", name))
+		relp, err := filepath.Rel(cwd, full)
+		if err != nil {
+			return nil, err
+		}
+		rel := filepath.ToSlash(relp)
 		out = append(out, adrFromFile(string(data), num, m[1], rel))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Number < out[j].Number })
 	return out, nil
+}
+
+// adrSourceFor reports the directory that actually yielded the ADR files, so
+// the dashboard surfaces the repo's real layout (legacy artifacts/ vs R6
+// decisions/). An empty list has no source.
+func adrSourceFor(adrs []ADR) string {
+	if len(adrs) == 0 {
+		return ".skillgrid/artifacts"
+	}
+	if src := adrs[0].Source; src != "" {
+		return filepath.Dir(src)
+	}
+	return ".skillgrid/artifacts"
 }
 
 func adrFromFile(content string, num int, digits, source string) ADR {

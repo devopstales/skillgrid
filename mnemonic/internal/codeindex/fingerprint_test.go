@@ -266,7 +266,7 @@ func TestFingerprintDocIncludeParity(t *testing.T) {
 	idx, clean := newTestIndexer(t)
 	defer clean()
 	root := t.TempDir()
-	adrDir := filepath.Join(root, ".skillgrid", "artifacts")
+	adrDir := filepath.Join(root, ".skillgrid", "decisions")
 	mustWrite(t, filepath.Join(adrDir, "04-adr-0001-decision.md"), "# D\n\nbody\n")
 	mustWrite(t, filepath.Join(root, ".skillgrid", "state.yaml"), "k: v\n")
 	cfg := testCfg
@@ -293,7 +293,7 @@ func TestFingerprintDocIncludeParity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fingerprint drift: %v", err)
 	}
-	if _, ok := changed[".skillgrid/artifacts/04-adr-0001-decision.md"]; !ok {
+	if _, ok := changed[".skillgrid/decisions/04-adr-0001-decision.md"]; !ok {
 		t.Errorf("expected the DocInclude ADR to be fingerprinted (drift detected), got %v", changed)
 	}
 	if _, ok := changed[".skillgrid/state.yaml"]; ok {

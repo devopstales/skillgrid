@@ -517,7 +517,7 @@ func TestInitSentinelTemplateComesFromBlockMD(t *testing.T) {
 	}
 	// The rendered rows must carry block.md's exact row text, proving the
 	// template came from block.md (the old CLI template's rows differ).
-	const wantRow = "| Project knowledge (PRD, architecture, terms, ADRs, constraints, research) | `.skillgrid/artifacts/` |"
+	const wantRow = "| Project knowledge (PRD, architecture, terms, ADRs, constraints, research) | `.skillgrid/decisions/` |"
 	if !strings.Contains(tmpl, wantRow) {
 		t.Fatalf("template missing block.md's Artifacts row:\n%s", tmpl)
 	}

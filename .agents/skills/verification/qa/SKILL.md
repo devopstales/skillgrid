@@ -29,7 +29,7 @@ Own the quality gate. Produce a test plan with layer selection, verify the goal 
 - `quality.p0_pass_rate` — minimum P0 pass rate % (default 100)
 - `quality.p1_pass_rate` — minimum P1 pass rate % (default 95)
 - `conventions.specs_root` (default `.skillgrid/specs/`) — the change's artifacts
-- `conventions.artifacts` (default `.skillgrid/artifacts/`) — vocabulary (terms files) for findings
+- `conventions.artifacts` (default `.skillgrid/`) — vocabulary (terms files under `glossary/`) for findings
 - `ticketing.enabled` — update ticket status at gate transitions
 - `security.trivy.command` — Trivy scan command ("" = disabled, use manual fallback)
 - `security.trivy.severities` — minimum Trivy severity to report (default "CRITICAL")

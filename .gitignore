@@ -57,3 +57,4 @@ site/public/
 .playwright-mcp/
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
+.skillgrid/okf-metrics.jsonl

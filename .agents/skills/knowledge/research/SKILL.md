@@ -152,7 +152,7 @@ evidence in one file.
 
 **Cross-change findings.** If a finding outlives this change (an external API
 fact, a version's behavior, a domain constraint, a library limitation that will
-constrain *future* work), also append it to `.skillgrid/artifacts/06-research-findings.md`
+constrain *future* work), also append it to `.skillgrid/reference/06-research-findings.md`
 (the durable, cross-change distillation). A finding that is only true for this
 one change stays in the per-change `findings.md` alone. `reflect` does the same
 lift at close — doing it here catches the durable facts while the sources are

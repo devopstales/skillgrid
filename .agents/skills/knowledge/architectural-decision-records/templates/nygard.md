@@ -1,6 +1,6 @@
 # ADR entry template — nygard
 
-> Write this file as `.skillgrid/artifacts/04-adr-NNNN-slug.md`.
+> Write this file as `.skillgrid/decisions/04-adr-NNNN-slug.md`.
 > Add one pointer row to the `## LOCKED` ADR index in `.skillgrid/ASSUMPTIONS.md`.
 > Do not paste this body into `ASSUMPTIONS.md`.
 

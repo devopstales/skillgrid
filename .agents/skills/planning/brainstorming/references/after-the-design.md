@@ -2,7 +2,7 @@
 
 **Documentation:**
 
-- **New Project:** create `.skillgrid/artifacts/00-prd.md` from `templates/PRD.md`,
+- **New Project:** create `.skillgrid/reference/00-prd.md` from `templates/PRD.md`,
   `.skillgrid/ASSUMPTIONS.md` from `templates/ASSUMPTIONS.md` (product statement,
   VERIFIED/INFERRED tiers, the in-force table, locked constraints; it links to
   `00-prd.md`), and
@@ -15,9 +15,9 @@
   `.skillgrid/specs/YYYY-MM-DD-<topic>/briefing.md` and fill it in. The
   `> **STATUS:** \`draft\` (YYYY-MM-DD)` banner on line 3 is required (see
   `_shared/rules/sdd-structure.md` § STATUS Banner). If
-  the feature changes `.skillgrid/artifacts/00-prd.md` (scope, feature, metric), the
+  the feature changes `.skillgrid/reference/00-prd.md` (scope, feature, metric), the
   global `.skillgrid/ASSUMPTIONS.md` (new VERIFIED fact, a new ADR file under
-  `artifacts/`) or `.skillgrid/ARCHITECTURE.md`
+  `decisions/`) or `.skillgrid/ARCHITECTURE.md`
   (new component, data store, integration), update those too — only when they exist
   AND the feature actually changes them.
   - (User preferences for spec location override this default)
@@ -36,7 +36,7 @@ project), look at it with fresh eyes:
 6. **Ambiguity check:** Could any requirement be interpreted two different ways? If so, pick one and make it explicit.
 7. **Feasibility verdict present:** Does the spec's Context section contain the 2-line codebase feasibility verdict? If not, add it.
 
-For a **new project**, also verify `.skillgrid/artifacts/00-prd.md`,
+For a **new project**, also verify `.skillgrid/reference/00-prd.md`,
 `.skillgrid/ASSUMPTIONS.md`, and `.skillgrid/ARCHITECTURE.md` are complete: no
 template placeholders left, the requirements in `00-prd.md` match the product
 statement in ASSUMPTIONS.md and the components in ARCHITECTURE.md, and the
@@ -51,7 +51,7 @@ After the spec review loop passes, ask the user to review the written
 spec (and `00-prd.md`, `ASSUMPTIONS.md`, and ARCHITECTURE for a new project) before
 proceeding:
 
-> "Spec written and committed to `<path>` (plus `.skillgrid/artifacts/00-prd.md`,
+> "Spec written and committed to `<path>` (plus `.skillgrid/reference/00-prd.md`,
 > `.skillgrid/ASSUMPTIONS.md`, and `.skillgrid/ARCHITECTURE.md` for a new project).
 > Please review and let me know if you want to make any changes before we start
 > writing out the implementation plan."
