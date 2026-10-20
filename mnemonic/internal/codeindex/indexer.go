@@ -368,6 +368,68 @@ func globToRegexp(pattern string) (*regexp.Regexp, error) {
 	return regexp.Compile(b.String())
 }
 
+// prefixSeparator is the deterministic separator of the embedding-text
+// context prefix (TICKET-13, @step-14). The prefix format is exactly:
+//
+//	path + " · " + symbol + " · " + scope
+//
+// e.g. `api/server.go · handler · L3-L5`. It is PURE over (path, symbol,
+// line span) — same input, same prefix, no timestamps or randomness — so a
+// re-embed of unchanged content reproduces the same vectors. The prefix is
+// prepended to the EMBEDDING input only: the stored (display) chunk text and
+// the schema are unchanged, and a re-index after the prefix lands restores
+// raw vectors (no migration).
+const prefixSeparator = " · "
+
+// chunkPrefix returns the deterministic `path · symbol · scope` prefix for
+// one embed unit:
+//
+//	chunk embed:  <path> · <enclosing symbol> · L<start>-L<end>
+//	(symbol field omitted when the chunk has no enclosing function-like
+//	symbol — a line-window chunk of file-level code)
+//	symbol embed: <path> · <symbol> · L  (scope is the bare "L" marker —
+//	the symbol's own identity, not a line claim)
+//
+// Empty fields are omitted rather than emitted as blank separators, keeping
+// the prefix deterministic and token-cheap.
+func chunkPrefix(path, symbol, scope string) string {
+	parts := []string{path}
+	if symbol != "" {
+		parts = append(parts, symbol)
+	}
+	if scope != "" {
+		parts = append(parts, scope)
+	}
+	return strings.Join(parts, prefixSeparator)
+}
+
+// symbolSpan is one file's function-like symbols with their line spans.
+type symbolSpan struct {
+	Name      string
+	StartLine int
+	EndLine   int
+}
+
+// enclosingSymbol returns the function-like symbol whose span contains
+// startLine (the chunk's first line). A chunk that is itself a symbol chunk
+// (startLine == the symbol's startLine) matches that symbol; a line-window
+// chunk with no enclosing function-like symbol yields "". Ties (nested
+// spans, e.g. a method inside a class span) are broken by the TIGHTEST span
+// (smallest end-start), then by name — deterministic.
+func enclosingSymbol(spans []symbolSpan, startLine int) string {
+	best, bestLen := "", -1
+	for _, s := range spans {
+		if startLine < s.StartLine || startLine > s.EndLine {
+			continue
+		}
+		l := s.EndLine - s.StartLine
+		if bestLen < 0 || l < bestLen || (l == bestLen && s.Name < best) {
+			best, bestLen = s.Name, l
+		}
+	}
+	return best
+}
+
 // Chunk represents a slice of a file for FTS indexing. Kind is "lines" (the
 // default fixed-window behavior of ChunkLines) or "ast" (a symbol boundary
 // from ChunkLinesAst). The embedding tier prefers ast chunks for semantic
@@ -1354,9 +1416,12 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 	}
 	// Symbol-level embedding: embed each symbol's name + signature, tagged
 	// with its language (the cocoindex partition key, relational form).
+	// The EMBEDDING text gains the deterministic `path · symbol · L` context
+	// prefix (TICKET-13); the stored symbol row (display) is unchanged.
 	rows, err := tx.Query(`
-		SELECT s.id, s.name, s.signature, s.kind, s.language
+		SELECT s.id, s.name, s.signature, s.kind, s.language, f.path
 		FROM symbols s
+		JOIN files f ON f.id = s.file_id
 		ORDER BY s.id
 	`)
 	if err != nil {
@@ -1368,8 +1433,8 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 		var symID int64
-		var name, sig, kind, lang string
-		if err := rows.Scan(&symID, &name, &sig, &kind, &lang); err != nil {
+		var name, sig, kind, lang, path string
+		if err := rows.Scan(&symID, &name, &sig, &kind, &lang, &path); err != nil {
 			return err
 		}
 		isCode := kind == "function" || kind == "method" || kind == "class"
@@ -1390,7 +1455,9 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 		if err == nil && existingModel == model {
 			continue
 		}
-		text := name
+		// Embedding input: deterministic `path · symbol · L` prefix + the
+		// raw name (+ signature). Display text (the stored row) is untouched.
+		text := chunkPrefix(path, name, "L") + "\n" + name
 		if sig != "" {
 			text += "\n" + sig
 		}
@@ -1464,31 +1531,79 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
 
 // embedChunks embeds each chunk's text (ast chunks first, then line windows)
 // and stores the vector + language in chunk_embeddings. It is idempotent per
-// model: a chunk already embedded with the current model is skipped.
+// model: a chunk already embedded with the current model is skipped. The
+// EMBEDDING input gains the deterministic `path · symbol · L<start>-L<end>`
+// context prefix (TICKET-13); the stored (display) chunk text is unchanged.
 func (idx *Indexer) embedChunks(ctx context.Context, tx *sql.Tx, model string, dim int, now string) error {
 	// A chunk's language is the language of the first (lowest start_line)
 	// symbol in its file — files have no language column; symbols do. A file
 	// with no symbols yields '' (non-code), which is fine for the filter.
 	rows, err := tx.Query(`
-		SELECT c.id, c.text, COALESCE((
+		SELECT c.id, c.text, c.start_line, c.end_line, f.path, COALESCE((
 			SELECT s.language FROM symbols s
 			WHERE s.file_id = c.file_id
 			ORDER BY s.start_line, s.id LIMIT 1
 		), '')
 		FROM chunks c
+		JOIN files f ON f.id = c.file_id
 		ORDER BY (CASE c.kind WHEN 'ast' THEN 0 ELSE 1 END), c.file_id, c.start_line
 	`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
+	// Per-file symbol spans for the prefix's enclosing-symbol field, loaded
+	// lazily and cached (one query per distinct file, not per chunk).
+	spanCache := map[int64][]symbolSpan{}
+	var spansByFile func(fileID int64) ([]symbolSpan, error)
+	spansByFile = func(fileID int64) ([]symbolSpan, error) {
+		if spans, ok := spanCache[fileID]; ok {
+			return spans, nil
+		}
+		srows, err := tx.Query(`
+			SELECT s.name, s.start_line, s.end_line FROM symbols s
+			WHERE s.file_id = ? AND s.kind IN ('function','method','class')
+			ORDER BY s.start_line, s.id`, fileID)
+		if err != nil {
+			return nil, err
+		}
+		defer srows.Close()
+		var spans []symbolSpan
+		for srows.Next() {
+			var sp symbolSpan
+			if err := srows.Scan(&sp.Name, &sp.StartLine, &sp.EndLine); err != nil {
+				return nil, err
+			}
+			spans = append(spans, sp)
+		}
+		if err := srows.Err(); err != nil {
+			return nil, err
+		}
+		spanCache[fileID] = spans
+		return spans, nil
+	}
+	// fileIDByPath resolves a chunk's file id from its path (cached).
+	pathIDCache := map[string]int64{}
+	var fileIDByPath func(path string) (int64, error)
+	fileIDByPath = func(path string) (int64, error) {
+		if id, ok := pathIDCache[path]; ok {
+			return id, nil
+		}
+		var id int64
+		if err := tx.QueryRow(`SELECT id FROM files WHERE path = ?`, path).Scan(&id); err != nil {
+			return 0, err
+		}
+		pathIDCache[path] = id
+		return id, nil
+	}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		var chunkID int64
-		var text, lang string
-		if err := rows.Scan(&chunkID, &text, &lang); err != nil {
+		var text, lang, path string
+		var startLine, endLine int
+		if err := rows.Scan(&chunkID, &text, &startLine, &endLine, &path, &lang); err != nil {
 			return err
 		}
 		var existingModel string
@@ -1496,7 +1611,17 @@ func (idx *Indexer) embedChunks(ctx context.Context, tx *sql.Tx, model string, d
 		if err == nil && existingModel == model {
 			continue
 		}
-		vec, err := idx.emb.Embed(ctx, text)
+		// Embedding input: deterministic `path · symbol · L<start>-L<end>`
+		// prefix + the raw chunk text. Display text (the stored row) is
+		// untouched.
+		symbol := ""
+		if fileID, err := fileIDByPath(path); err == nil {
+			if spans, err := spansByFile(fileID); err == nil {
+				symbol = enclosingSymbol(spans, startLine)
+			}
+		}
+		prefixed := chunkPrefix(path, symbol, fmt.Sprintf("L%d-L%d", startLine, endLine)) + "\n" + text
+		vec, err := idx.emb.Embed(ctx, prefixed)
 		if err != nil {
 			continue
 		}
