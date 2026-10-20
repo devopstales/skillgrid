@@ -12,12 +12,31 @@ export let Type
 try {
   ;({ Type } = await import("typebox"))
 } catch {
-  Type = globalThis.__typebox || {
-    Object: (props) => ({ kind: "object", properties: props }),
-    String: (d) => ({ kind: "string", ...d }),
-    Number: (d) => ({ kind: "number", ...d }),
-    Boolean: (d) => ({ kind: "boolean", ...d }),
-    Optional: (t) => ({ ...t, optional: true }),
+  try {
+    // In skill-pi the extension loads from <agent-dir>/extensions/<folder>/
+    // (outside pi's node_modules), so the bare specifier never resolves.
+    // Walk up from this file to the nearest ancestor with node_modules and
+    // load typebox from there (skill-pi's root).
+    const { createRequire } = await import("node:module")
+    const { dirname, join } = await import("node:path")
+    const { fileURLToPath } = await import("node:url")
+    let dir = dirname(fileURLToPath(import.meta.url))
+    for (let i = 0; i < 12 && dir !== dirname(dir); i++) {
+      try {
+        ;({ Type } = createRequire(join(dir, "package.json"))("typebox"))
+        break
+      } catch {}
+      dir = dirname(dir)
+    }
+  } catch {}
+  if (!Type) {
+    Type = globalThis.__typebox || {
+      Object: (props) => ({ kind: "object", properties: props }),
+      String: (d) => ({ kind: "string", ...d }),
+      Number: (d) => ({ kind: "number", ...d }),
+      Boolean: (d) => ({ kind: "boolean", ...d }),
+      Optional: (t) => ({ ...t, optional: true }),
+    }
   }
 }
 
