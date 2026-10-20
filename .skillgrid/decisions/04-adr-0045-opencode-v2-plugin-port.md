@@ -1,6 +1,6 @@
 ---
 type: TechnicalDecision
-title: "OpenCode V2 plugin port: dual V1+V2 entrypoints for the 6 native plugins (V1 named export kept + V2 `Plugin.define` default), shared `opencode-v2.ts` shim (`makeTool` JSON-Schema builder + deferred `opencode.event` bus), `skillgrid-context` V1-only (no V2 hook for `experimental.chat.messages.transform`), installer ships the shim"
+title: "OpenCode V2 plugin port: dual V1+V2 entrypoints for the 6 native plugins (V1 named export kept + V2 `Plugin.define` default), per-file local `wrap()` (JSON-Schema converter), `skillgrid-context` via `ctx.session.hook(\"context\")`, no shim — every file in plugins/ must default-export {id, setup}"
 status: "accepted"
 supersedes: none
 date: 2026-10-17
@@ -31,30 +31,30 @@ named export (for V1.18.29+ harnesses) and gains a V2 `Plugin.define({id,
 setup(ctx)})` default export. This preserves the kilo/cursor/V1 users while
 making the V2 harness load the same source.
 
-- **`plugins/opencode/opencode-v2.ts`** (new, shared shim): restores the two
-  module-load globals V1 relied on and V2 no longer injects.
-  - `makeTool()` — a JSON-Schema builder (`.describe`/`.optional` fluent chain
-    that emits JSON Schema, V2's validation shape) + `wrap()` that turns a V1
-    `{description, args, execute}` into a V2 `{name, description, input,
-    execute}` with a stringified result (V1's `JSON.stringify` contract).
-  - `globalThis.opencode.event.on` — a deferred event bus (handlers register at
-    module load; `setEventStream` wires it to the V2 server stream).
-  - The shim is a dependency of the V2 entrypoints, not a hook owner.
-
-- **Per-file V2 default exports** (V1 named export kept verbatim):
+- **Per-file V2 default exports** (V1 named export kept verbatim). Verified
+  against the opencode v2.0.28 binary (`PluginModule.load`): the default export
+  must be `{id, setup(fn)}` or `{id, effect(fn)}` — OpenCode v2 discovers
+  **every file** in `~/.config/opencode/plugins/` and rejects any file without
+  a default definition, so there is no separate bootstrap shim.
   - `mnemonic-memory.ts`, `mnemonic-codeindex.ts`, `skillgrid-squad.ts` —
-    `ctx.tool.transform` over the same tool map.
+    `ctx.tool.transform` over the same tool map. Each file carries a local
+    `wrap()` that converts the V1 arg schema (the `tool.schema.*` calls, which
+    collapse to plain objects) into JSON Schema; the result is stringified
+    (V1's `JSON.stringify` contract).
   - `skillgrid-events.ts` — `ctx.tool.hook("execute.before"/"execute.after")`
     reusing the shared `handleToolBefore`/`handleToolAfter`; the policy-block
     rethrow is preserved (a block must propagate out of the V2 hook to block
     the write).
   - `skillgrid-compaction.ts` — `ctx.event.subscribe()` for
-    `session.created`/`session.idle`/`session.compacted`.
-  - `skillgrid-context.ts` — **not ported to V2.** It needs
-    `experimental.chat.messages.transform` (CLM budget withholding), which has
-    no V2 hook equivalent. It stays V1-only; in the V2 harness the CLM request
-    path is simply inactive (the mirror is byte-identical when CLM is off, so
-    no behavior change by default).
+    `session.created`/`session.idle`/`session.compacted`, plus
+    `session.compaction.started` for the pre-compact context file (the V2
+    equivalent of V1's `experimental.session.compacting`).
+  - `skillgrid-context.ts` — ported to V2 via `ctx.session.hook("context")`.
+    The binary's LLM request path fires the `context` session hook on every
+    request (primary / compaction / generate) with `{messages, system, tools}`
+    — the same shape the V1 `experimental.chat.messages.transform` sees. The
+    CLM withhold logic is reused verbatim; off by default (byte-identical path
+    when CLM is disabled), every step fail-open.
 
 - **`@opencode/plugin` is a bundled OpenCode dependency**, so the V2 entrypoint
   import resolves at load in the real harness. The repo smoke test (plain Node)
@@ -63,38 +63,36 @@ making the V2 harness load the same source.
   fallback), so it verifies the V2 registrations without the package.
 
 - **Installer:** `nativePluginBases` in `mnemonic/internal/setup/setup.go`
-  gains `opencode-v2` so the shim ships next to the plugins for the V2
-  entrypoints' `./opencode-v2.ts` import to resolve. The Go tests iterate
-  `nativePluginBases`, so they cover the shim automatically.
+  is the 6 plugin file bases (no shim — there is none). The Go tests iterate
+  `nativePluginBases`, so they cover every installed file.
   - **OpenCode** copies into `~/.config/opencode/plugins/` — the v2 discovery
     directory — via `installOpenCodeNativePlugins` (a new opencode-specific
-    function). The legacy `plugin` config array is kept only to carry the
-    retired-entry cleanup; v2 discovery is what actually loads the plugins.
+    function). The `plugin` config array is kept (the v2.0.28 binary's config
+    schema reads `"plugin"` and appends to discovery; the docs call it
+    `plugin`, not `plugins`); v2 discovery + the array together load the
+    plugins.
   - **Kilo** keeps the v1 `~/.config/kilo/plugin/` dir + config registration
     (`installNativePlugins`), because Kilo reads its own config file and has
     no v2 discovery equivalent.
 
 ## Consequences
 
-- **Positive:** the V2 harness loads all skillgrid plugins again — memory,
-  code-index, squad, policy gate, session capture, and compaction. V1 harnesses
-  (and kilo/cursor, which copy from the same source) are unaffected.
-- **Negative / dropped in V2:**
-  - `skillgrid-context`'s CLM `experimental.chat.messages.transform` is
-    inactive in V2 (no equivalent hook). Off by default, so no change unless
-    CLM is enabled.
-  - `skillgrid-compaction`'s `experimental.session.compacting` pre-compact
-    context file is dropped in V2 (no equivalent hook); the session row's
-    summary/observations are still refreshed by `session.compacted`.
+- **Positive:** the V2 harness loads all 6 skillgrid plugins — memory,
+  code-index, squad, policy gate, session capture, compaction, and the CLM
+  context hook. V1 harnesses (and kilo/cursor, which copy from the same
+  source) are unaffected.
+- **Negative / caveats:**
+  - `skillgrid-context`'s CLM transform now runs on **every** LLM request via
+    the `context` session hook, not only the chat-messages path. The cost
+    guard is cheap (a directory walk + config read) and the whole hook is
+    no-op when CLM is disabled (off by default), but it is a per-request cost
+    the V1 transform did not have.
   - The V2 tool hooks' exact event field shape (`event.input`/`event.result`/
     `event.status`) is inferred from the V2 docs' examples, not verified
-    against a live V2 tool call (the installed harness's model auth returns
-    HTTP 400 in this environment). The event→`{input,output}` mapping is
+    against a live V2 tool call. The event→`{input,output}` mapping is
     fail-open: a field mismatch degrades capture to no-ops, it never blocks.
 - **One-way gate:** when OpenCode drops V1 plugin support, delete the V1 named
-  exports and the `importPlugin()` fallback; the V2 default exports and the
-  shim stay. `skillgrid-context` should be ported (or retired) at that point,
-  since its V1-only CLM transform will stop loading.
+  exports and the `importPlugin()` fallback; the V2 default exports stay.
 
 ## Installer defaults (companion decision, same change)
 
