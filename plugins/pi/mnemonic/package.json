@@ -3,6 +3,26 @@
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devopstales/skillgrid.git"
+  },
+  "homepage": "https://github.com/devopstales/skillgrid/tree/main/plugins/pi/mnemonic",
+  "bugs": {
+    "url": "https://github.com/devopstales/skillgrid/issues"
+  },
+  "keywords": [
+    "pi",
+    "extension",
+    "coding-agent",
+    "memory",
+    "mnemonic",
+    "skillgrid"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://npm.pkg.github.com"
+  },
   "description": "Mnemonic persistent memory for the skill-pi coding agent: mem_*/fact_*/code_*/ctx_* tools over the mnemonic HTTP server, prompt capture, tool-output sandbox receipts, and compaction recovery (ADR-0043/0044).",
   "pi": {
     "extensions": [
