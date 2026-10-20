@@ -52,23 +52,23 @@ type lines struct {
 
 // graphEdge is one edge as served to the frontend.
 type graphEdge struct {
-	ID         string `json:"id"`
-	Source     int64  `json:"source"`
-	Target     int64  `json:"target"`
-	Type       string `json:"type"`
+	ID         string  `json:"id"`
+	Source     int64   `json:"source"`
+	Target     int64   `json:"target"`
+	Type       string  `json:"type"`
 	Weight     float64 `json:"weight"`
-	Directed   bool   `json:"directed"`
-	Confidence string `json:"confidence,omitempty"`
+	Directed   bool    `json:"directed"`
+	Confidence string  `json:"confidence,omitempty"`
 }
 
 // graphResponse is GET /mnemonic/graph.
 type graphResponse struct {
-	Nodes     []graphNode  `json:"nodes"`
-	Edges     []graphEdge  `json:"edges"`
-	Truncated bool         `json:"truncated"`
-	Degraded  bool         `json:"degraded"`
-	Files     []string     `json:"files,omitempty"`
-	Project   string       `json:"project"`
+	Nodes     []graphNode `json:"nodes"`
+	Edges     []graphEdge `json:"edges"`
+	Truncated bool        `json:"truncated"`
+	Degraded  bool        `json:"degraded"`
+	Files     []string    `json:"files,omitempty"`
+	Project   string      `json:"project"`
 }
 
 // nodeRow is the raw symbol row (before degree/community enrichment).
