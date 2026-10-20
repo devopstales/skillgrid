@@ -88,26 +88,10 @@ func TestGlobalTools(t *testing.T) {
 	}
 }
 
-func TestSecurityToolsIncludeSemgrep(t *testing.T) {
-	tools := SecurityTools()
-	var found bool
-	for _, tl := range tools {
-		if tl.Name == "semgrep" {
-			found = true
-			if tl.Manager != "uv" || tl.Bin != "semgrep" {
-				t.Fatalf("semgrep config wrong: %+v", tl)
-			}
-		}
-	}
-	if !found {
-		t.Fatal("semgrep missing from SecurityTools()")
-	}
-}
-
 func TestSecurityTools(t *testing.T) {
 	got := SecurityTools()
-	if len(got) != 5 {
-		t.Fatalf("want 5 security tools, got %d", len(got))
+	if len(got) != 4 {
+		t.Fatalf("want 4 security tools, got %d", len(got))
 	}
 	want := map[string]struct {
 		manager string
@@ -118,11 +102,6 @@ func TestSecurityTools(t *testing.T) {
 			manager: "uv",
 			bin:     "wapiti3",
 			args:    []string{"tool", "install", "wapiti3"},
-		},
-		"semgrep": {
-			manager: "uv",
-			bin:     "semgrep",
-			args:    []string{"tool", "install", "semgrep"},
 		},
 		"akca": {
 			manager: "go",
@@ -240,7 +219,6 @@ func TestMemoryAndPersonasBoundary(t *testing.T) {
 	// opencode source — the 6th, skillgrid-context, was wired in 2457a453),
 	// the memory-protocol block, and the 3 shared workers.
 	for _, f := range []string{
-		"plugins/opencode/opencode-v2.ts",
 		"plugins/opencode/skillgrid-compaction.ts",
 		"plugins/opencode/skillgrid-events.ts",
 		"plugins/opencode/skillgrid-squad.ts",
@@ -336,7 +314,6 @@ func TestSetupAgentsIntegration(t *testing.T) {
 	repo := t.TempDir()
 
 	files := []string{
-		"plugins/opencode/opencode-v2.ts",
 		"plugins/opencode/skillgrid-compaction.ts",
 		"plugins/opencode/skillgrid-events.ts",
 		"plugins/opencode/skillgrid-squad.ts",
@@ -561,11 +538,10 @@ func TestInstallCreatesOpenCodeHookLayout(t *testing.T) {
 		}
 	}
 
-	// The 6 native TS plugins + the V2 shim are byte-identical to the single
-	// opencode source. OpenCode v2 discovers them from ~/.config/opencode/
-	// plugins/ (ADR-0045); Kilo keeps the v1 plugin/ dir + config registration.
+	// The 6 native TS plugins are byte-identical to the single opencode source.
+	// OpenCode v2 discovers them from ~/.config/opencode/plugins/ (ADR-0045);
+	// Kilo keeps the v1 plugin/ dir + config registration.
 	pluginBases := []string{
-		"opencode-v2",
 		"skillgrid-compaction",
 		"skillgrid-events",
 		"skillgrid-squad",
