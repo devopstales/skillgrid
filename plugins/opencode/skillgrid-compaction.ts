@@ -172,11 +172,10 @@ export const SkillgridCompaction = async () => ({
 })
 
 // V2 entrypoint (ADR-0032 V2 port). Subscribes to the V2 server event stream
-// for the same three lifecycle events. Note: V1's
-// `experimental.session.compacting` (pre-compact context file) has no V2 hook
-// equivalent, so that branch is dropped in V2 — the session row's
-// summary/observations are still refreshed by `session.compacted`.
-// @opencode/plugin is a bundled OpenCode dependency.
+// for the same three lifecycle events. V1's
+// `experimental.session.compacting` (pre-compact context file) maps to the
+// V2 `session.compaction.started` stream event — same pre-compact timing, so
+// the branch is kept. @opencode/plugin is a bundled OpenCode dependency.
 const { Plugin } = await importPlugin()
 
 async function importPlugin() {
@@ -209,6 +208,20 @@ export default Plugin.define({
             case "session.compacted":
               await handleSessionCompacted(sessionID)
               break
+            case "session.compaction.started": {
+              // Pre-compact context file — the V2 equivalent of V1's
+              // experimental.session.compacting (fire before the compact
+              // runs, so the context file still exists at compaction time).
+              const c = await buildContext(sessionID)
+              if (c) {
+                const ctxFile = path.join(
+                  os.tmpdir(),
+                  "skillgrid-precompact-" + sessionID + ".txt"
+                )
+                fs.writeFileSync(ctxFile, c.text)
+              }
+              break
+            }
           }
         }
       } catch {

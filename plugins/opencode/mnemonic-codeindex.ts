@@ -138,9 +138,35 @@ export const MnemonicCodeIndex = async () => ({
 
 // V2 entrypoint (ADR-0032 V2 port). The V1 named export above is kept for
 // V1.18.29+ harnesses; @opencode/plugin is a bundled OpenCode dependency.
-const { Plugin } = await importPlugin()
-const { makeTool } = await import("./opencode-v2.ts")
-const v2tool = makeTool()
+// The V2 editor takes JSON-Schema inputs, so wrap converts the V1 arg schema
+// (tool.schema.* calls, which collapse to plain objects) to JSON Schema.
+// Every value is optional (the V1 harness validated at the harness boundary);
+// unknown args are rejected by additionalProperties:false.
+function wrap(definition) {
+  const properties = {}
+  const required = []
+  for (const [k, v] of Object.entries(definition.args || {})) {
+    if (v && v.__optional) {
+      properties[k] = v.schema
+    } else {
+      properties[k] = v.schema
+      required.push(k)
+    }
+  }
+  return {
+    name: definition.name,
+    description: definition.description,
+    input: {
+      type: "object",
+      properties,
+      ...(required.length ? { required } : {}),
+      additionalProperties: false,
+    },
+    async execute(input) {
+      return JSON.stringify(await definition.execute(input))
+    },
+  }
+}
 
 async function importPlugin() {
   try {
@@ -149,6 +175,8 @@ async function importPlugin() {
     return { Plugin: { define: (def) => def } }
   }
 }
+
+const { Plugin } = await importPlugin()
 
 export default Plugin.define({
   id: "skillgrid.codeindex",
@@ -161,7 +189,7 @@ export default Plugin.define({
       code_read: codeRead,
       code_files: codeFiles,
     })) {
-      defs.push(v2tool.wrap({ ...d, name }))
+      defs.push(wrap({ ...d, name }))
     }
     await ctx.tool.transform((editor) => {
       for (const def of defs) editor.add(def)

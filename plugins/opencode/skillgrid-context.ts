@@ -122,3 +122,44 @@ export const SkillgridContext = async (ctx) => ({
     }
   },
 })
+
+// V2 entrypoint (ADR-0032 V2 port). Verified against the opencode v2.0.28
+// binary: there is no chat-messages transform hook, but the `context`
+// session hook fires on every LLM request path (primary / compaction /
+// generate) with `{messages, system, tools}` — the same shape the V1
+// transform sees. Off by default (CLM disabled), every step fail-open.
+async function importPlugin() {
+  try {
+    return await import("@opencode/plugin")
+  } catch {
+    return { Plugin: { define: (def) => def } }
+  }
+}
+
+const { Plugin } = await importPlugin()
+
+export default Plugin.define({
+  id: "skillgrid.context",
+  async setup(ctx) {
+    ctx.session.hook("context", async (event) => {
+      try {
+        const messages = event?.messages || null
+        if (!messages || messages.length === 0) return
+        const directory = ctx.directory || process.cwd()
+        const cfg = parseCLMConfig(directory)
+        if (!cfg.enabled) return
+        readMirror(directory)
+        let chars = 0
+        for (const entry of messages) {
+          chars += messageText(entry).length
+        }
+        const estimate = Math.floor(chars / BASE_FACTOR)
+        if (!cfg.budget) return
+        if (estimate + cfg.reserve <= cfg.budget) return
+        withholdOldestToolMessages(messages)
+      } catch {
+        // fail-open: never block the request
+      }
+    })
+  },
+})

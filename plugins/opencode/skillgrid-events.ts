@@ -174,8 +174,6 @@ export const SkillgridEvents = async () => ({
 // hook to actually block the write, so the block is re-thrown and every other
 // error fails open — exactly the V1 contract. @opencode/plugin is a bundled
 // OpenCode dependency.
-const { Plugin } = await importPlugin()
-
 async function importPlugin() {
   try {
     return await import("@opencode/plugin")
@@ -183,6 +181,8 @@ async function importPlugin() {
     return { Plugin: { define: (def) => def } }
   }
 }
+
+const { Plugin } = await importPlugin()
 
 export default Plugin.define({
   id: "skillgrid.events",

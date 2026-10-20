@@ -341,10 +341,35 @@ export const MnemonicMemory = async () => ({
 
 // V2 entrypoint (ADR-0032 V2 port): the same tool map, registered through the
 // V2 tool editor. The V1 named export above is kept for V1.18.29+ harnesses.
-// @opencode/plugin is a bundled OpenCode dependency, so it resolves at load.
-const { Plugin } = await importPlugin()
-const { makeTool } = await import("./opencode-v2.ts")
-const v2tool = makeTool()
+// The V2 editor takes JSON-Schema inputs, so wrap converts the V1 arg schema
+// (tool.schema.* calls, which collapse to plain objects) to JSON Schema.
+// Every value is optional (the V1 harness validated at the harness boundary);
+// unknown args are rejected by additionalProperties:false.
+function wrap(definition) {
+  const properties = {}
+  const required = []
+  for (const [k, v] of Object.entries(definition.args || {})) {
+    if (v && v.__optional) {
+      properties[k] = v.schema
+    } else {
+      properties[k] = v.schema
+      required.push(k)
+    }
+  }
+  return {
+    name: definition.name,
+    description: definition.description,
+    input: {
+      type: "object",
+      properties,
+      ...(required.length ? { required } : {}),
+      additionalProperties: false,
+    },
+    async execute(input) {
+      return JSON.stringify(await definition.execute(input))
+    },
+  }
+}
 
 // @opencode/plugin is a bundled OpenCode dependency; in the repo smoke test
 // (plain Node) it is absent, so fall back to a local Plugin.define stub that
@@ -356,6 +381,8 @@ async function importPlugin() {
     return { Plugin: { define: (def) => def } }
   }
 }
+
+const { Plugin } = await importPlugin()
 
 export default Plugin.define({
   id: "skillgrid.mnemonic-memory",
@@ -373,7 +400,7 @@ export default Plugin.define({
       mem_session_end: memSessionEnd,
       mem_session_summary: memSessionSummary,
     })) {
-      defs.push(v2tool.wrap({ ...d, name }))
+      defs.push(wrap({ ...d, name }))
     }
     await ctx.tool.transform((editor) => {
       for (const def of defs) editor.add(def)
