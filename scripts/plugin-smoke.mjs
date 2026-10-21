@@ -265,9 +265,21 @@ async function loadPlugin(file) {
         const toolResults = piEvents.filter(([n]) => n === "tool_result").map(([, h]) => h)
         if (toolResults.length > 0) {
           const ctx = { cwd: "/tmp", sessionManager: { getSessionId: () => "pi-session-1" } }
+          check(toolResults.length >= 2, "tool_result has the SDD commit-capture handler")
+          // The SDD commit-capture handler (skillgrid-sdd-events) subscribes
+          // first and returns undefined for every tool_result; the ctx-sandbox
+          // overflow handler is the one that replaces oversized content with a
+          // receipt. Exercise it explicitly, never by subscription index.
+          const overflow = toolResults.find((h) => h.name === "handler")
+          // Await every subscribed tool_result handler first: the SDD
+          // commit-capture handler (skillgrid-sdd-events) also subscribes,
+          // and its await-serialized fetch must not interleave with the
+          // overflow handler's fetch below (mock server, receipt order).
+          for (const handler of toolResults)
+            await handler({ toolName: "bash", input: { command: "ls" }, content: [{ type: "text", text: "ok" }] }, ctx)
           // Oversized: replaced with a receipt.
           const big = "x".repeat(5000)
-          const outBig = await toolResults[0](
+          const outBig = await overflow(
             { toolName: "bash", input: { command: "make test" }, content: [{ type: "text", text: big }] },
             ctx,
           )
@@ -277,13 +289,13 @@ async function loadPlugin(file) {
             "tool_result overflow returns receipt for oversized output",
           )
           // Small: untouched (undefined → pi keeps original content).
-          const outSmall = await toolResults[0](
+          const outSmall = await overflow(
             { toolName: "bash", input: { command: "ls" }, content: [{ type: "text", text: "ok" }] },
             ctx,
           )
           check(outSmall === undefined, "tool_result small output passes through")
           // Our own ctx_* tools: skipped (recursion guard).
-          const outSkip = await toolResults[0](
+          const outSkip = await overflow(
             { toolName: "ctx_search", input: { query: "x" }, content: [{ type: "text", text: big }] },
             ctx,
           )

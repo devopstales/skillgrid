@@ -71,6 +71,7 @@ var piExtensionFiles = []string{
 	"mnemonic-codeindex.ts",
 	"ctx-sandbox.ts",
 	"skillgrid-events.ts",
+	"skillgrid-sdd-events.ts",
 	"skillgrid-compaction.ts",
 }
 

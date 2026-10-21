@@ -20,6 +20,7 @@
  *   mnemonic-codeindex.ts  — code_* tools
  *   ctx-sandbox.ts         — ctx_* tools + tool_result overflow receipts (ADR-0044)
  *   skillgrid-events.ts    — session + prompt-capture handlers
+ *   skillgrid-sdd-events.ts— SDD commit + gate-stop capture
  *   skillgrid-compaction.ts— compaction context recovery
  *
  * Environment:
@@ -45,6 +46,7 @@ import {
 import { factAdd, factSearch, factForget } from "./mnemonic-facts.ts"
 import { codeStatus, codeIndex, codeSearch, codeRead } from "./mnemonic-codeindex.ts"
 import { registerSessionHandlers } from "./skillgrid-events.ts"
+import { registerSddEventCapture } from "./skillgrid-sdd-events.ts"
 import { buildCompactionContext } from "./skillgrid-compaction.ts"
 import {
   ctxSearch,
@@ -90,6 +92,10 @@ export default function skillgridMnemonic(pi) {
 
   // Session start / prompt capture / shutdown (fail-open, in skillgrid-events.js)
   registerSessionHandlers(pi)
+
+  // SDD capture: work-unit commit events (tool_result on git commit) and the
+  // gate-stop state at quit (fail-open, in skillgrid-sdd-events.js)
+  registerSddEventCapture(pi)
 
   // ADR-0044: oversized tool results become server-side receipts with the
   // retrieval path (pi-context pattern). Fail-open, in ctx-sandbox.js.

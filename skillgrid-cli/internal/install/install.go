@@ -97,6 +97,11 @@ func Run(c *Config) error {
 			if err := installAgentConfig(c, key); err != nil {
 				return fmt.Errorf("harness config %s: %w", key, err)
 			}
+			if key == "skill-pi" {
+				if err := installPiHookBridge(c); err != nil {
+					return fmt.Errorf("harness config %s: %w", key, err)
+				}
+			}
 		}
 		if !c.SkipAgentsCopy {
 			info("installing personas: " + strings.Join(c.Agents, ", "))
