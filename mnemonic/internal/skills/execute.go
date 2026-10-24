@@ -28,7 +28,10 @@ const DefaultTimeout = 10 * time.Second
 const maxOutputBytes = 1 << 20
 
 // SkillResult is the outcome of one sandboxed skill execution. UsageID is
-// zero when no skill_usage row was written (failure, timeout, or reject).
+// zero when no skill_usage row was written (reject — the skill never ran, so
+// there is no outcome to log). Since the C2 fix (TICKET-07) every executed
+// run logs a row: success → 'success', non-zero exit → 'failure', timeout →
+// 'error'.
 type SkillResult struct {
 	Stdout   string
 	Stderr   string
@@ -118,9 +121,9 @@ func isNoRows(err error) bool {
 }
 
 // Execute is ExecuteWith with no session id: the skill runs and a
-// skill_usage row is logged on success, but no skill_use session trail row
-// is written (the CLI default when --session-id / SKILLGRID_SESSION_ID are
-// unset).
+// skill_usage row is logged on every outcome (C2: success, failure, and
+// timeout all log), but no skill_use session trail row is written (the CLI
+// default when --session-id / SKILLGRID_SESSION_ID are unset).
 func (s *Store) Execute(ctx context.Context, name, input string) (SkillResult, error) {
 	return s.ExecuteWith(ctx, name, input, "")
 }
@@ -128,9 +131,12 @@ func (s *Store) Execute(ctx context.Context, name, input string) (SkillResult, e
 // ExecuteWith runs a live Agent Skill in the sandbox: the code file is read
 // from its registry code_path (which must stay under .skillgrid/files/skills/),
 // the language-specific runner is dispatched with a per-call deadline, and
-// stdout/stderr are captured with a 1MB cap. On a zero-exit run a skill_usage
-// row is written (stamping session_id when one is supplied) and, when
-// sessionID is non-empty, a skill_use session_events trail row is appended
+// stdout/stderr are captured with a 1MB cap. On every executed run a
+// skill_usage row is written — outcome 'success' on a zero exit, 'failure'
+// on a non-zero exit, 'error' on a sandbox timeout (C2, TICKET-07: the
+// usage table is a success-rate signal, so failures must be logged too) —
+// stamping session_id when one is supplied and, when sessionID is non-empty,
+// a skill_use session_events trail row is appended
 // (mirroring the facts store, which logs its trail inside the store so both
 // the MCP tool and the CLI write it). Rejections (unknown language, path
 // escape, soft-deleted, missing skill) error before any subprocess is spawned.
@@ -209,19 +215,17 @@ func (s *Store) ExecuteWith(ctx context.Context, name, input, sessionID string) 
 		return result, fmt.Errorf("run skill %q: %w", name, runErr)
 	}
 
-	if exitCode == 0 && !timedOut {
-		uid, err := s.insertUsage(ctx, id, sessionID)
-		if err != nil {
-			return result, fmt.Errorf("skill ran (exit 0) but logging skill_usage failed: %w", err)
-		}
-		result.UsageID = uid
-		if sessionID != "" {
-			// The trail row is logged here (not in the MCP layer) so the CLI
-			// `skill execute --session-id` writes the same skill_use event the
-			// MCP use_skill tool does — parity with the facts trail.
-			if err := s.insertSkillUseEvent(ctx, sessionID, name, result); err != nil {
-				return result, fmt.Errorf("skill ran (exit 0) but logging the skill_use trail failed: %w", err)
-			}
+	uid, err := s.insertUsage(ctx, id, sessionID, result.Outcome(), result.Stderr)
+	if err != nil {
+		return result, fmt.Errorf("skill ran but logging skill_usage failed: %w", err)
+	}
+	result.UsageID = uid
+	if sessionID != "" {
+		// The trail row is logged here (not in the MCP layer) so the CLI
+		// `skill execute --session-id` writes the same skill_use event the
+		// MCP use_skill tool does — parity with the facts trail.
+		if err := s.insertSkillUseEvent(ctx, sessionID, name, result); err != nil {
+			return result, fmt.Errorf("skill ran but logging the skill_use trail failed: %w", err)
 		}
 	}
 	return result, nil
@@ -265,18 +269,20 @@ func buildSkillCommand(language string, runner []string, codePath, input string)
 	return exec.Command(args[0], args[1:]...), nil
 }
 
-// insertUsage writes the skill_usage row for a successful run and returns its
-// id. sessionID is stamped on the row when non-empty (it was previously always
+// insertUsage writes the skill_usage row for an executed run and returns its
+// id. outcome is 'success' | 'failure' | 'error' (C2: every executed run
+// logs); stderr is captured so the failure row carries its diagnostic.
+// sessionID is stamped on the row when non-empty (it was previously always
 // NULL, which is what this plumb fixes).
-func (s *Store) insertUsage(ctx context.Context, skillID int64, sessionID string) (int64, error) {
+func (s *Store) insertUsage(ctx context.Context, skillID int64, sessionID, outcome, stderr string) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	var sid any
 	if sessionID != "" {
 		sid = sessionID
 	}
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO skill_usage (skill_id, session_id, timestamp)
-		VALUES (?, ?, ?)`, skillID, sid, now)
+		INSERT INTO skill_usage (skill_id, session_id, timestamp, outcome, stderr)
+		VALUES (?, ?, ?, ?, ?)`, skillID, sid, now, outcome, stderr)
 	if err != nil {
 		return 0, fmt.Errorf("insert skill_usage: %w", err)
 	}

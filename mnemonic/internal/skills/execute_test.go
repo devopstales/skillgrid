@@ -76,8 +76,10 @@ func TestExecuteBashSkillCapturesStdoutAndUsage(t *testing.T) {
 }
 
 // TestExecuteBashSkillStderrAndExitCode covers the non-zero exit boundary:
-// stderr is captured and the exit code reported; no skill_usage row is written
-// for a failed run.
+// stderr is captured and the exit code reported. With the C2 fix (TICKET-07)
+// the failed run now logs a skill_usage row with outcome='failure' and the
+// captured stderr, so the usage row is a success-rate signal, not just an
+// activity counter.
 func TestExecuteBashSkillStderrAndExitCode(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available")
@@ -106,8 +108,21 @@ func TestExecuteBashSkillStderrAndExitCode(t *testing.T) {
 	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM skill_usage`).Scan(&n); err != nil {
 		t.Fatalf("count skill_usage: %v", err)
 	}
-	if n != 0 {
-		t.Errorf("skill_usage rows = %d, want 0 for a failed run", n)
+	if n != 1 {
+		t.Fatalf("skill_usage rows = %d, want 1 for a failed run (C2: failures are logged)", n)
+	}
+	var outcome string
+	var stderr sql.NullString
+	if err := st.DB.QueryRow(
+		`SELECT outcome, stderr FROM skill_usage WHERE skill_id = (SELECT id FROM skills WHERE name = 'fail-bash')`).
+		Scan(&outcome, &stderr); err != nil {
+		t.Fatalf("read failed-run usage row: %v", err)
+	}
+	if outcome != "failure" {
+		t.Errorf("outcome = %q, want failure", outcome)
+	}
+	if !strings.Contains(stderr.String, "oops") {
+		t.Errorf("stderr = %q, want the captured %q", stderr.String, "oops")
 	}
 }
 
@@ -279,8 +294,10 @@ func TestExecuteSandboxTimeout(t *testing.T) {
 	if !res.TimedOut {
 		t.Error("TimedOut = false, want true for a skill past the deadline")
 	}
-	if res.UsageID != 0 {
-		t.Errorf("UsageID = %d, want 0 (no usage row for a timeout)", res.UsageID)
+	// C2 (TICKET-07): timeouts now log a skill_usage row with outcome='error'
+	// (previously: no row, UsageID 0).
+	if res.UsageID <= 0 {
+		t.Errorf("UsageID = %d, want > 0 (timeout rows are logged, C2)", res.UsageID)
 	}
 	if elapsed > 10*time.Second {
 		t.Errorf("Execute took %v, want bounded well under 10s", elapsed)
@@ -318,8 +335,9 @@ func TestExecuteSandboxTimeoutGoLanguage(t *testing.T) {
 	if !res.TimedOut {
 		t.Error("TimedOut = false, want true for a go skill past the deadline")
 	}
-	if res.UsageID != 0 {
-		t.Errorf("UsageID = %d, want 0 (no usage row for a timeout)", res.UsageID)
+	// C2 (TICKET-07): timeout rows are logged (outcome='error').
+	if res.UsageID <= 0 {
+		t.Errorf("UsageID = %d, want > 0 (timeout rows are logged, C2)", res.UsageID)
 	}
 	if elapsed > 10*time.Second {
 		t.Errorf("Execute took %v, want bounded well under 10s", elapsed)

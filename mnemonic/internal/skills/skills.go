@@ -32,6 +32,12 @@ type Store struct {
 	// Timeout is the sandbox execution deadline; zero uses DefaultTimeout
 	// (10s). Tests shrink it to keep the suite fast.
 	Timeout time.Duration
+
+	// LLM is the optional patch proposer for Amend (the skill improvement
+	// loop, TICKET-07). Nil (the default) means auto-amend is off: Amend
+	// errors rather than guessing. The MCP layer attaches the shared
+	// ADR-0023 client; tests inject a stub.
+	LLM func(ctx context.Context, system, user string) (string, error)
 }
 
 // New wraps the project store's database handle and workspace root. project

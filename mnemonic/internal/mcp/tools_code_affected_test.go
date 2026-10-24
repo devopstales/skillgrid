@@ -84,8 +84,8 @@ func TestAffectedTools(t *testing.T) {
 	// + 6 scan_* / 6 dep_* MCP tools (2026-10-05-mnemonic-scan-findings, TICKET-07).
 	// + 1 adr_search + 4 knowledge search tools (report/briefing/blueprint/findings).
 	// + 1 mem_capture_suggest (2026-10-06-second-brain-learnings, TICKET-05).
-	if len(tools) != 114 {
-		t.Errorf("expected 114 tools, got %d", len(tools))
+	if len(tools) != 117 {
+		t.Errorf("expected 117 tools, got %d", len(tools))
 	}
 
 	// code_affected runs the traversal (changed -> affected test files).

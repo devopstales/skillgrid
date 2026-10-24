@@ -128,8 +128,8 @@ func TestKnowledgeTools(t *testing.T) {
 	// + 4 structured knowledge-doc retrieval tools (report/briefing/blueprint/
 	// findings_search; 2026-10-09-adr-knowledge-index).
 	// + 1 mem_capture_suggest (2026-10-06-second-brain-learnings, TICKET-05).
-	if len(tools) != 114 {
-		t.Errorf("expected 114 tools, got %d", len(tools))
+	if len(tools) != 117 {
+		t.Errorf("expected 117 tools, got %d", len(tools))
 	}
 
 	// code_docs returns the indexed docs (a query, not an error).

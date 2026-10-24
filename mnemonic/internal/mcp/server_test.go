@@ -76,6 +76,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"write_skill", "list_skills", "search_skills",
 		// Agent Skill sandbox executor (2026-09-04-hermes-memory, TICKET-04).
 		"use_skill",
+		// Skill improvement loop (2026-10-24-global-llm-wiki, TICKET-07).
+		"inspect_skill", "amend_skill", "evaluate_skill",
 		// Hybrid BM25+vector fact/skill search (2026-09-04-hermes-memory, TICKET-05).
 		"hybrid_search",
 		// On-demand session context injection (2026-09-24-mnemonic-session-inject, TICKET-05).
