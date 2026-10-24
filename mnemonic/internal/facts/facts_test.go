@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"math"
 	"strconv"
 	"strings"
@@ -594,8 +595,8 @@ func TestFusedSearchReturnsBothStoresInterleaved(t *testing.T) {
 	proj := New(pst.DB, "factstest")
 	glob := New(gst.DB, GlobalProjectID)
 
-	seedFusedFact(t, gst.DB, "user prefers concise responses", "user")       // global rank 1
-	seedFusedFact(t, gst.DB, "responses are too verbose here too", "memory") // global rank 2 (tiebreak order: id)
+	seedFusedFact(t, gst.DB, "user prefers concise responses", "user")               // global rank 1
+	seedFusedFact(t, gst.DB, "responses are too verbose here too", "memory")         // global rank 2 (tiebreak order: id)
 	seedFusedFact(t, pst.DB, "responses are handled in the project layer", "memory") // project rank 1
 	seedFusedFact(t, pst.DB, "responses in this repo are verbose", "memory")         // project rank 2
 
@@ -786,10 +787,10 @@ func TestFusedSearchTrailGoesToProjectStoreOnly(t *testing.T) {
 		t.Fatalf("fact_search trail missing from the project store: %v", err)
 	}
 	var ev struct {
-		Query       string  `json:"query"`
-		Mode        string  `json:"mode"`
-		GlobalIDs   []int64 `json:"global_ids"`
-		ProjectIDs  []int64 `json:"project_ids"`
+		Query      string  `json:"query"`
+		Mode       string  `json:"mode"`
+		GlobalIDs  []int64 `json:"global_ids"`
+		ProjectIDs []int64 `json:"project_ids"`
 	}
 	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
 		t.Fatalf("parse trail payload %q: %v", payload, err)
@@ -855,6 +856,250 @@ func TestFusedSearchRequiresBothStores(t *testing.T) {
 	}
 	if _, err := FusedSearch(ctx, "s", "q", 0, false, New(gst.DB, GlobalProjectID), nil); err == nil {
 		t.Error("FusedSearch with a nil project store should fail")
+	}
+}
+
+// --- Threat-matrix RED tests (change 2026-10-24-global-llm-wiki, Change A,
+// --- TICKET-08). One test per blueprint threat-matrix row: isolation,
+// --- overflow, fused, injection shape, batch atomicity, trail FK, migration.
+
+// TestThreatScopeIsolation (threat matrix: "Scope isolation"): scope=global
+// writes land ONLY in the global store, and scope=project search returns ONLY
+// project-store hits — the two stores must not leak into each other.
+func TestThreatScopeIsolation(t *testing.T) {
+	pst, gst, _ := openTwoStores(t)
+	data, trail, err := Route(ScopeGlobal, gst.DB, pst.DB)
+	if err != nil {
+		t.Fatalf("Route global: %v", err)
+	}
+
+	const sid = "sess-threat-isolation"
+	seedTestSession(t, pst, sid)
+
+	if _, err := data.AddWith(ctx, sid, "isolation global note about widgets", "memory", trail); err != nil {
+		t.Fatalf("AddWith global: %v", err)
+	}
+	// A second store instance over the project DB (same role as the CLI's
+	// scope=project path) seeds the project fact.
+	proj := New(pst.DB, "factstest")
+	if _, err := proj.Add(ctx, sid, "isolation project note about gadgets", ""); err != nil {
+		t.Fatalf("Add project: %v", err)
+	}
+
+	var globalFacts, projectFacts int
+	if err := gst.DB.QueryRow(`SELECT COUNT(*) FROM facts`).Scan(&globalFacts); err != nil {
+		t.Fatalf("count global facts: %v", err)
+	}
+	if err := pst.DB.QueryRow(`SELECT COUNT(*) FROM facts`).Scan(&projectFacts); err != nil {
+		t.Fatalf("count project facts: %v", err)
+	}
+	if globalFacts != 1 {
+		t.Errorf("global store holds %d facts, want 1 (the global note only)", globalFacts)
+	}
+	if projectFacts != 1 {
+		t.Errorf("project store holds %d facts, want 1 (the project note only)", projectFacts)
+	}
+
+	// A project-scoped search must not return the global hit.
+	got, err := proj.SearchWith(ctx, sid, "isolation", 10, false, nil)
+	if err != nil {
+		t.Fatalf("SearchWith project: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("project search returned %d hits, want 1 (global hit leaked?)", len(got))
+	}
+	if !strings.Contains(got[0].Content, "gadgets") {
+		t.Errorf("project search returned the global fact %q", got[0].Content)
+	}
+	// Symmetrically, a global-scoped search must not return the project hit.
+	// sessionID is "" (no trail): the session lives in the PROJECT store, so a
+	// global-store trail would FK-fail — the CLI's C3 trail store handles this
+	// in production; the read path is trail-independent.
+	gotG, err := data.SearchWith(ctx, "", "isolation", 10, false, nil)
+	if err != nil {
+		t.Fatalf("SearchWith global: %v", err)
+	}
+	if len(gotG) != 1 {
+		t.Fatalf("global search returned %d hits, want 1 (project hit leaked?)", len(gotG))
+	}
+	if !strings.Contains(gotG[0].Content, "widgets") {
+		t.Errorf("global search returned the project fact %q", gotG[0].Content)
+	}
+}
+
+// TestThreatFusedSearchLabeled (threat matrix: "Fused search correctness"):
+// scope=all returns hits from BOTH stores, and every hit carries its scope +
+// category label (the agent must be able to tell the disjoint stores apart
+// from the result alone).
+func TestThreatFusedSearchLabeled(t *testing.T) {
+	pst, gst, _ := openTwoStores(t)
+	glob := New(gst.DB, GlobalProjectID)
+	proj := New(pst.DB, "factstest")
+
+	seedFusedFact(t, gst.DB, "fused global widget note", "memory")
+	seedFusedFact(t, gst.DB, "fused global widget preference", "user")
+	seedFusedFact(t, pst.DB, "fused project widget config", "memory")
+
+	const sid = "sess-threat-fused"
+	seedTestSession(t, pst, sid)
+
+	hits, err := FusedSearch(ctx, sid, "widget", 0, false, glob, proj)
+	if err != nil {
+		t.Fatalf("FusedSearch: %v", err)
+	}
+	if len(hits) != 3 {
+		t.Fatalf("FusedSearch returned %d hits, want 3 (both stores)", len(hits))
+	}
+	globalSeen, projectSeen := 0, 0
+	for _, h := range hits {
+		switch h.Scope {
+		case ScopeGlobal:
+			globalSeen++
+		case ScopeProject:
+			projectSeen++
+		default:
+			t.Errorf("hit %q has scope %q, want global|project", h.Content, h.Scope)
+		}
+		if h.Category == "" {
+			t.Errorf("hit %q has no category label", h.Content)
+		}
+	}
+	if globalSeen != 2 {
+		t.Errorf("global hits = %d, want 2", globalSeen)
+	}
+	if projectSeen != 1 {
+		t.Errorf("project hits = %d, want 1", projectSeen)
+	}
+}
+
+// TestThreatFTSInjectionShape (threat matrix: "injection shape"): fact content
+// and query terms carrying FTS special characters (", *, (, )) must not break
+// the FTS5 MATCH — buildFactFTSQuery quotes each term so the syntax stays
+// safe, and the stored content round-trips through search.
+func TestThreatFTSInjectionShape(t *testing.T) {
+	pst, gst, _ := openTwoStores(t)
+	data, trail, err := Route(ScopeGlobal, gst.DB, pst.DB)
+	if err != nil {
+		t.Fatalf("Route global: %v", err)
+	}
+
+	const sid = "sess-threat-injection"
+	seedTestSession(t, pst, sid)
+
+	const content = `user said: "use (the) star * wildcard"`
+	if _, err := data.AddWith(ctx, sid, content, "memory", trail); err != nil {
+		t.Fatalf("AddWith with FTS special chars: %v", err)
+	}
+
+	// The query carries the same special characters: every term is quoted by
+	// buildFactFTSQuery, so the MATCH expression stays syntactically valid.
+	// sessionID is "" (no trail) for the same C3 reason as the isolation test.
+	got, err := data.SearchWith(ctx, "", `"use (the) star * wildcard"`, 10, false, nil)
+	if err != nil {
+		t.Fatalf("SearchWith with FTS special chars: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("search returned %d hits, want 1", len(got))
+	}
+	if got[0].Content != content {
+		t.Errorf("content = %q, want %q", got[0].Content, content)
+	}
+}
+
+// TestThreatBatchAtomicity (threat matrix: "Batch atomicity" — all or
+// nothing): a batch whose FINAL result overflows the char budget must apply
+// NO ops, not even the free (remove) op that ran before the overflowing add.
+func TestThreatBatchAtomicity(t *testing.T) {
+	data, gst := openBatchFixture(t, padTo(2000), "remove me to free space")
+	// Final result: 2000 - 23 + 300 = 2277 > 2200 → overflow. The remove op
+	// is valid on its own (a unique substring match), which makes the
+	// atomicity assertion meaningful: a per-op apply would have removed the
+	// fact before the add overflowed.
+	_, err := data.Batch(ctx, CategoryMemory, []Operation{
+		{Action: OpRemove, OldText: "remove me to free space"},
+		{Action: OpAdd, Content: strings.Repeat("a", 300)},
+	})
+	var ovf *OverflowError
+	if !errors.As(err, &ovf) {
+		t.Fatalf("error = %T (%q), want *OverflowError", err, err)
+	}
+	var live int
+	if err := gst.QueryRow(`SELECT COUNT(*) FROM facts WHERE deleted_at IS NULL`).Scan(&live); err != nil {
+		t.Fatalf("count live facts: %v", err)
+	}
+	if live != 2 {
+		t.Fatalf("live facts after an overflowing batch = %d, want 2 (no ops applied — all or nothing)", live)
+	}
+}
+
+// TestThreatMigration072Category (threat matrix: "Migration 072"): opening an
+// existing store runs the category migration — the column exists, is NOT NULL
+// with default 'memory', and a pre-072-style row (seeded without the column)
+// reads back as 'memory'.
+func TestThreatMigration072Category(t *testing.T) {
+	st := openTestStore(t)
+	// Simulate a pre-072 row: content only (the column's default must fill it).
+	if _, err := st.DB.Exec(`
+		INSERT INTO facts (content, created_at, updated_at)
+		VALUES ('pre-existing fact row', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatalf("seed pre-072 row: %v", err)
+	}
+	var category string
+	if err := st.DB.QueryRow(`SELECT category FROM facts LIMIT 1`).Scan(&category); err != nil {
+		t.Fatalf("read category: %v", err)
+	}
+	if category != "memory" {
+		t.Errorf("pre-existing fact category = %q, want the default 'memory'", category)
+	}
+	// The column must NOT accept NULL (NOT NULL DEFAULT 'memory' contract).
+	if _, err := st.DB.Exec(`UPDATE facts SET category = NULL`); err == nil {
+		t.Errorf("category column accepted NULL, want NOT NULL")
+	}
+}
+
+// TestThreatMigration073OutcomeAndPending (threat matrix: "Migration 073"):
+// the migration adds outcome (NOT NULL DEFAULT 'success') + feedback (nullable)
+// to skill_usage and creates the pending_facts table — a pre-073-style skill
+// row reads back as 'success'.
+func TestThreatMigration073OutcomeAndPending(t *testing.T) {
+	st := openTestStore(t)
+	// The skill_usage row FKs skills(id) (011): seed the referenced skill row
+	// first.
+	var skillID int64
+	if err := st.DB.QueryRow(
+		`INSERT INTO skills (name, language, description, code_path, created_at, updated_at)
+		 VALUES ('migration-skill', 'bash', 'test skill', '/tmp/migration-skill.sh', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z') RETURNING id`,
+	).Scan(&skillID); err != nil {
+		t.Fatalf("seed skill row: %v", err)
+	}
+	// Simulate a pre-073 usage row: outcome/feedback omitted (the default
+	// must fill outcome).
+	if _, err := st.DB.Exec(`
+		INSERT INTO skill_usage (skill_id, session_id, timestamp)
+		VALUES (?, NULL, '2026-01-01T00:00:00Z')`, skillID); err != nil {
+		t.Fatalf("seed pre-073 skill_usage row: %v", err)
+	}
+	var outcome, feedback sql.NullString
+	if err := st.DB.QueryRow(`SELECT outcome, feedback FROM skill_usage LIMIT 1`).Scan(&outcome, &feedback); err != nil {
+		t.Fatalf("read outcome: %v", err)
+	}
+	if !outcome.Valid || outcome.String != "success" {
+		t.Errorf("pre-existing skill_usage outcome = %v, want 'success' (the 011 schema's implied value)", outcome)
+	}
+	if feedback.Valid {
+		t.Errorf("pre-existing skill_usage feedback = %q, want NULL", feedback.String)
+	}
+	// pending_facts exists with its lifecycle columns.
+	for _, col := range []string{"content", "target", "scope", "created_at", "status"} {
+		var n int
+		if err := st.DB.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('pending_facts') WHERE name = ?`, col,
+		).Scan(&n); err != nil {
+			t.Fatalf("pragma_table_info(pending_facts): %v", err)
+		}
+		if n == 0 {
+			t.Errorf("pending_facts missing column %s", col)
+		}
 	}
 }
 

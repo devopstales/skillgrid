@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/devopstales/skillgrid/mnemonic/internal/facts"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
@@ -295,6 +297,346 @@ func TestMemoryGlobalPrefetchFailsOpen(t *testing.T) {
 	}
 	if stderr.String() != "" {
 		t.Fatalf("fail-open prefetch must print nothing to stderr, got: %s", stderr.String())
+	}
+}
+
+// --- CLI surface for global memory (change 2026-10-24-global-llm-wiki,
+// --- Change A, TICKET-08).
+
+// openMemoryGlobalStore opens the __global__ pseudo-project store in dataDir
+// (the CLI tests assert rows in it directly).
+func openMemoryGlobalStore(t *testing.T, dataDir string) *store.Store {
+	t.Helper()
+	gst, err := store.Open(dataDir, "__global__")
+	if err != nil {
+		t.Fatalf("open global store: %v", err)
+	}
+	t.Cleanup(func() { gst.Close() })
+	return gst
+}
+
+// cliDistiller builds the pending-queue accessor over the two stores the CLI
+// `memory global pending|approve|reject` subcommands manage (the same
+// Distiller the MCP pending tools use; zero config — the queue read/approve/
+// reject paths are config-independent).
+func cliDistiller(dataDir, project string) (*facts.Distiller, func()) {
+	svc, _ := openMemService(dataDir, project)
+	gh, gclean, err := svc.OpenGlobal()
+	if err != nil {
+		return nil, func() {}
+	}
+	ph, pclean, err := svc.Open(project)
+	if err != nil {
+		gclean()
+		return nil, func() {}
+	}
+	d := facts.NewDistiller(
+		facts.New(gh.Store().DB, service.GlobalProjectID),
+		facts.New(ph.Store().DB, project),
+	)
+	return d, func() { pclean(); gclean() }
+}
+
+// runMemoryCLIGlobal runs `go run . memory global <args...>` against the data
+// dir and returns the combined output; it fails the test on a non-zero exit.
+func runMemoryCLIGlobal(t *testing.T, dataDir, project string, args ...string) string {
+	t.Helper()
+	full := append([]string{"run", ".", "memory", "global"}, args...)
+	full = append(full, "--project", project, "--dir", dataDir)
+	cmd := exec.Command("go", full...)
+	cmd.Dir = mustWD(t)
+	cmd.Env = append(cmd.Environ(), "SKILLGRID_MEMORY_SESSION_ID=s-memcli")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("memory global %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+// TestMemoryFactAddScopeGlobalTarget (BDD: "happy path — CLI adds a global
+// fact with scope and target", G1): `memory fact add --scope global
+// --target memory` writes the fact to __global__.sqlite with
+// category='memory' and prints the new fact id.
+func TestMemoryFactAddScopeGlobalTarget(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-scope-global"
+	st := seedMemoryCLIStore(t, dataDir, project)
+	defer st.Close()
+
+	out := runMemoryCLI(t, dataDir, project, "fact", "add", "test fact", "--scope", "global", "--target", "memory")
+	if !strings.Contains(out, "added fact") {
+		t.Fatalf("memory fact add --scope global did not confirm the new fact id: %s", out)
+	}
+
+	gst := openMemoryGlobalStore(t, dataDir)
+	var content, category string
+	if err := gst.DB.QueryRow(
+		`SELECT content, category FROM facts WHERE content = 'test fact'`,
+	).Scan(&content, &category); err != nil {
+		t.Fatalf("fact missing from the global store: %v", err)
+	}
+	if category != "memory" {
+		t.Errorf("global fact category = %q, want 'memory'", category)
+	}
+	// The fact did NOT land in the project store.
+	var projFacts int
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM facts WHERE content = 'test fact'`).Scan(&projFacts); err != nil {
+		t.Fatalf("count project facts: %v", err)
+	}
+	if projFacts != 0 {
+		t.Errorf("project store holds %d rows for the global fact, want 0", projFacts)
+	}
+}
+
+// TestMemoryFactAddTargetUser (triangulation of the target plumbing):
+// --target user stamps category='user' in the global store.
+func TestMemoryFactAddTargetUser(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-scope-user"
+	st := seedMemoryCLIStore(t, dataDir, project)
+	defer st.Close()
+
+	out := runMemoryCLI(t, dataDir, project, "fact", "add", "user profile note", "--scope", "global", "--target", "user")
+	if !strings.Contains(out, "added fact") {
+		t.Fatalf("memory fact add --scope global --target user did not confirm: %s", out)
+	}
+	gst := openMemoryGlobalStore(t, dataDir)
+	var category string
+	if err := gst.DB.QueryRow(
+		`SELECT category FROM facts WHERE content = 'user profile note'`,
+	).Scan(&category); err != nil {
+		t.Fatalf("fact missing from the global store: %v", err)
+	}
+	if category != "user" {
+		t.Errorf("global fact category = %q, want 'user'", category)
+	}
+}
+
+// TestMemoryFactAddProjectScopeDefault (BDD: "happy path — project fact add
+// writes to project store (unchanged)"): without --scope the CLI keeps the
+// pre-change behavior — the fact lands in the project store only.
+func TestMemoryFactAddProjectScopeDefault(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-scope-default"
+	st := seedMemoryCLIStore(t, dataDir, project)
+	defer st.Close()
+
+	out := runMemoryCLI(t, dataDir, project, "fact", "add", "project default note")
+	if !strings.Contains(out, "added fact") {
+		t.Fatalf("memory fact add (default scope) did not confirm: %s", out)
+	}
+	var projFacts int
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM facts WHERE content = 'project default note'`).Scan(&projFacts); err != nil {
+		t.Fatalf("count project facts: %v", err)
+	}
+	if projFacts != 1 {
+		t.Errorf("project store holds %d rows, want 1 (the default-scope fact)", projFacts)
+	}
+	var globalFacts int
+	if err := openMemoryGlobalStore(t, dataDir).DB.QueryRow(
+		`SELECT COUNT(*) FROM facts WHERE content = 'project default note'`).Scan(&globalFacts); err != nil {
+		t.Fatalf("count global facts: %v", err)
+	}
+	if globalFacts != 0 {
+		t.Errorf("global store holds %d rows, want 0 (project-scoped add)", globalFacts)
+	}
+}
+
+// TestMemoryGlobalPendingList (BDD: "happy path — CLI lists and approves
+// pending facts", G2): staged pending rows are listed with their content and
+// target, in both stores (the queue spans global + project).
+func TestMemoryGlobalPendingList(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-pending-list"
+	st := seedMemoryCLIStore(t, dataDir, project)
+	defer st.Close()
+	gst := openMemoryGlobalStore(t, dataDir)
+
+	now := "2026-10-24T00:00:00Z"
+	if _, err := gst.DB.Exec(`
+		INSERT INTO pending_facts (content, target, scope, created_at, status)
+		VALUES ('pending global note', 'memory', 'global', ?, 'pending')`, now); err != nil {
+		t.Fatalf("seed global pending: %v", err)
+	}
+	if _, err := st.DB.Exec(`
+		INSERT INTO pending_facts (content, target, scope, created_at, status)
+		VALUES ('pending project note', 'user', 'project', ?, 'pending')`, now); err != nil {
+		t.Fatalf("seed project pending: %v", err)
+	}
+
+	out := runMemoryCLI(t, dataDir, project, "global", "pending")
+	for _, want := range []string{"pending global note", "pending project note", "memory", "user"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("memory global pending missing %q: %s", want, out)
+		}
+	}
+}
+
+// TestMemoryGlobalApproveAll (BDD: "happy path — CLI lists and approves
+// pending facts", G3): `approve all` applies every staged row into the facts
+// table of its own store and empties the queue.
+func TestMemoryGlobalApproveAll(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-pending-approve"
+	st := seedMemoryCLIStore(t, dataDir, project)
+	defer st.Close()
+	gst := openMemoryGlobalStore(t, dataDir)
+
+	now := "2026-10-24T00:00:00Z"
+	if _, err := gst.DB.Exec(`
+		INSERT INTO pending_facts (content, target, scope, created_at, status)
+		VALUES ('approved global note', 'memory', 'global', ?, 'pending')`, now); err != nil {
+		t.Fatalf("seed global pending: %v", err)
+	}
+	if _, err := st.DB.Exec(`
+		INSERT INTO pending_facts (content, target, scope, created_at, status)
+		VALUES ('approved project note', 'user', 'project', ?, 'pending')`, now); err != nil {
+		t.Fatalf("seed project pending: %v", err)
+	}
+
+	out := runMemoryCLI(t, dataDir, project, "global", "approve", "all")
+	if !strings.Contains(out, "2") {
+		t.Fatalf("memory global approve all did not report 2 approved: %s", out)
+	}
+
+	var globalFacts, projectFacts, globalPending, projectPending int
+	if err := gst.DB.QueryRow(`SELECT COUNT(*) FROM facts WHERE content = 'approved global note'`).Scan(&globalFacts); err != nil {
+		t.Fatalf("count global facts: %v", err)
+	}
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM facts WHERE content = 'approved project note'`).Scan(&projectFacts); err != nil {
+		t.Fatalf("count project facts: %v", err)
+	}
+	if err := gst.DB.QueryRow(`SELECT COUNT(*) FROM pending_facts`).Scan(&globalPending); err != nil {
+		t.Fatalf("count global pending: %v", err)
+	}
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM pending_facts`).Scan(&projectPending); err != nil {
+		t.Fatalf("count project pending: %v", err)
+	}
+	if globalFacts != 1 || projectFacts != 1 {
+		t.Errorf("approved facts = global %d project %d, want 1/1", globalFacts, projectFacts)
+	}
+	if globalPending != 0 || projectPending != 0 {
+		t.Errorf("pending rows after approve all = global %d project %d, want 0/0", globalPending, projectPending)
+	}
+}
+
+// TestMemoryGlobalRejectAll (BDD: "failure — rejected pending fact is
+// discarded", CLI layer): `reject all` discards every staged row without
+// writing any fact row.
+func TestMemoryGlobalRejectAll(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-pending-reject"
+	st := seedMemoryCLIStore(t, dataDir, project)
+	defer st.Close()
+	gst := openMemoryGlobalStore(t, dataDir)
+
+	now := "2026-10-24T00:00:00Z"
+	if _, err := gst.DB.Exec(`
+		INSERT INTO pending_facts (content, target, scope, created_at, status)
+		VALUES ('rejected global note', 'memory', 'global', ?, 'pending')`, now); err != nil {
+		t.Fatalf("seed global pending: %v", err)
+	}
+	if _, err := st.DB.Exec(`
+		INSERT INTO pending_facts (content, target, scope, created_at, status)
+		VALUES ('rejected project note', 'user', 'project', ?, 'pending')`, now); err != nil {
+		t.Fatalf("seed project pending: %v", err)
+	}
+
+	out := runMemoryCLI(t, dataDir, project, "global", "reject", "all")
+	if !strings.Contains(out, "2") {
+		t.Fatalf("memory global reject all did not report 2 rejected: %s", out)
+	}
+	var globalFacts, projectFacts, globalPending, projectPending int
+	if err := gst.DB.QueryRow(`SELECT COUNT(*) FROM facts`).Scan(&globalFacts); err != nil {
+		t.Fatalf("count global facts: %v", err)
+	}
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM facts`).Scan(&projectFacts); err != nil {
+		t.Fatalf("count project facts: %v", err)
+	}
+	if err := gst.DB.QueryRow(`SELECT COUNT(*) FROM pending_facts`).Scan(&globalPending); err != nil {
+		t.Fatalf("count global pending: %v", err)
+	}
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM pending_facts`).Scan(&projectPending); err != nil {
+		t.Fatalf("count project pending: %v", err)
+	}
+	if globalFacts != 0 || projectFacts != 0 {
+		t.Errorf("rejected rows wrote facts = global %d project %d, want 0/0", globalFacts, projectFacts)
+	}
+	if globalPending != 0 || projectPending != 0 {
+		t.Errorf("pending rows after reject all = global %d project %d, want 0/0", globalPending, projectPending)
+	}
+}
+
+// TestMemoryGlobalPrefetchSnapshot (BDD: "edge — CLI prefetch prints the
+// frozen snapshot", G4): the snapshot block carries both labeled section
+// headers and the § separator between entries.
+func TestMemoryGlobalPrefetchSnapshot(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-prefetch-snap"
+	st := seedMemoryCLIStore(t, dataDir, project)
+	defer st.Close()
+	gst := openMemoryGlobalStore(t, dataDir)
+
+	if _, err := gst.DB.Exec(`
+		INSERT INTO facts (content, category, created_at, updated_at)
+		VALUES ('first global memory entry', 'memory', '2026-10-24T00:00:00Z', '2026-10-24T00:00:00Z')`); err != nil {
+		t.Fatalf("seed global fact: %v", err)
+	}
+	if _, err := gst.DB.Exec(`
+		INSERT INTO facts (content, category, created_at, updated_at)
+		VALUES ('second global memory entry', 'memory', '2026-10-24T00:00:01Z', '2026-10-24T00:00:01Z')`); err != nil {
+		t.Fatalf("seed global fact: %v", err)
+	}
+	if _, err := gst.DB.Exec(`
+		INSERT INTO facts (content, category, created_at, updated_at)
+		VALUES ('one user profile entry', 'user', '2026-10-24T00:00:02Z', '2026-10-24T00:00:02Z')`); err != nil {
+		t.Fatalf("seed user fact: %v", err)
+	}
+
+	out := runMemoryCLI(t, dataDir, project, "global", "prefetch")
+	for _, want := range []string{"GLOBAL MEMORY", "USER PROFILE", "first global memory entry", "one user profile entry", "§"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("memory global prefetch output missing %q: %s", want, out)
+		}
+	}
+}
+
+// TestMemoryFactInvalidScope (BDD: "failure — CLI with invalid scope returns
+// usage error", G5): an unrecognized --scope is a usage error (exit 2) that
+// lists the valid values, before any store is opened.
+func TestMemoryFactInvalidScope(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-scope-invalid"
+
+	out, err := runMemoryCLIExpectError(t, dataDir, project, "fact", "add", "scope fact", "--scope", "invalid")
+	if err == nil {
+		t.Fatalf("memory fact add --scope invalid should fail:\n%s", out)
+	}
+	for _, want := range []string{"project", "global"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("invalid scope error must list the valid values, missing %q: %s", want, out)
+		}
+	}
+	// The store was never opened.
+	if _, err := os.Stat(dataDir + "/" + project + ".sqlite"); err == nil {
+		t.Fatalf("an invalid scope must not open the store (project db exists)")
+	}
+}
+
+// TestMemoryFactInvalidTarget (triangulation of G5): an unrecognized
+// --target is the same usage-error shape (exit 2, valid values listed).
+func TestMemoryFactInvalidTarget(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-target-invalid"
+
+	out, err := runMemoryCLIExpectError(t, dataDir, project, "fact", "add", "target fact", "--scope", "global", "--target", "bogus")
+	if err == nil {
+		t.Fatalf("memory fact add --target bogus should fail:\n%s", out)
+	}
+	for _, want := range []string{"memory", "user"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("invalid target error must list the valid values, missing %q: %s", want, out)
+		}
 	}
 }
 
