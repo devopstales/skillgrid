@@ -599,6 +599,26 @@ func TestMemoryFactInvalidScope(t *testing.T) {
 	}
 }
 
+// TestMemoryFactScopeAllOnAddIsUsageError (triangulation of G5): --scope all
+// on a write op is a usage error (exit 2, before the store opens) — Route
+// rejects writes to scope=all (fused search is read-only).
+func TestMemoryFactScopeAllOnAddIsUsageError(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-scope-all-add"
+
+	out, err := runMemoryCLIExpectError(t, dataDir, project, "fact", "add", "scope all fact", "--scope", "all")
+	if err == nil {
+		t.Fatalf("memory fact add --scope all should fail:\n%s", out)
+	}
+	if !strings.Contains(out, "read-only") {
+		t.Fatalf("scope-all add error should say the scope is read-only: %s", out)
+	}
+	// The store was never opened.
+	if _, err := os.Stat(dataDir + "/" + project + ".sqlite"); err == nil {
+		t.Fatalf("a scope-all add must not open the store (project db exists)")
+	}
+}
+
 // TestMemoryFactInvalidTarget (triangulation of G5): an unrecognized
 // --target is the same usage-error shape (exit 2, valid values listed).
 func TestMemoryFactInvalidTarget(t *testing.T) {
