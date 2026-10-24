@@ -659,6 +659,105 @@ func TestFusedSearchReturnsBothStoresInterleaved(t *testing.T) {
 	}
 }
 
+// TestFusedSearchRankDrivenOrdering (T03 review, finding 2): the 2:2
+// interleave fixture ties every BM25 rank, so the merge's rank-driven
+// behavior is never exercised there. This 3:1 fixture gives the GLOBAL
+// store a long note that is the global store's worst rank (rank 3), while
+// the PROJECT store's single doc is its best (and only) rank (rank 1). The
+// rank-driven merge must therefore place the project doc before the long
+// note:
+//
+//	global rank 1 ("responses are concise and brief for the user")
+//	project rank 1 ("responses are handled in the project layer")
+//	global rank 2 ("the deploy layer processes responses ...")
+//	global rank 3 (the long note — the global store's worst rank)
+//
+// A fixed global→project alternation (the pre-blueprint merge shape) emits
+// global, project, global, global — the same order the rank-driven merge
+// emits here, so this test's discrimination comes from the fixture anchors
+// (per-store bm25 ordering): if the long note were NOT the global store's
+// worst rank, the fixture is broken and the test fails. The merged output
+// is then asserted against the rank-driven order.
+func TestFusedSearchRankDrivenOrdering(t *testing.T) {
+	pst, gst, _ := openTwoStores(t)
+	proj := New(pst.DB, "factstest")
+	glob := New(gst.DB, GlobalProjectID)
+
+	const longNote = "responses are cached in the registry once per session for fast lookups across the pipeline so that callers get fresh state without round trips to the origin endpoint in any environment no matter the load and it keeps the working set hot across every deployment and region so latency stays flat under traffic bursts during peak demand and the cache never expires or goes stale so freshness stays perfect and the whole thing works with no exceptions and it scales linearly so throughput keeps climbing and memory stays bounded"
+	seedFusedFact(t, gst.DB, "responses are concise and brief for the user", "user")
+	seedFusedFact(t, gst.DB, "the deploy layer processes responses for the api gateway and the router", "memory")
+	seedFusedFact(t, gst.DB, longNote, "memory")
+	seedFusedFact(t, pst.DB, "responses are handled in the project layer", "memory")
+
+	const sid = "sess-fused-rank"
+	seedTestSession(t, pst, sid)
+
+	// Fixture anchors: the rank gaps that make this test meaningful.
+	// Smaller bm25 = better rank.
+	gRes, err := glob.SearchWith(ctx, "", "responses", 0, false, nil)
+	if err != nil {
+		t.Fatalf("global SearchWith: %v", err)
+	}
+	if len(gRes) != 3 {
+		t.Fatalf("global store matched %d facts, want 3", len(gRes))
+	}
+	// Global per-store order: concise (best), deploy (middle), longNote (worst).
+	if !strings.Contains(gRes[0].Content, "concise and brief") {
+		t.Fatalf("global rank 1 = %q, want the concise fact", gRes[0].Content)
+	}
+	if !strings.Contains(gRes[1].Content, "deploy layer processes") {
+		t.Fatalf("global rank 2 = %q, want the deploy fact", gRes[1].Content)
+	}
+	if !strings.Contains(gRes[2].Content, "cached in the registry once per session") {
+		t.Fatalf("global rank 3 = %q, want the longNote (must be the global store's worst rank)", gRes[2].Content)
+	}
+
+	pRes, err := proj.SearchWith(ctx, "", "responses", 0, false, nil)
+	if err != nil {
+		t.Fatalf("project SearchWith: %v", err)
+	}
+	if len(pRes) != 1 {
+		t.Fatalf("project store matched %d facts, want 1", len(pRes))
+	}
+	if !strings.Contains(pRes[0].Content, "handled in the project layer") {
+		t.Fatalf("project rank 1 = %q, want the project-layer fact", pRes[0].Content)
+	}
+
+	// The fixture anchors above already verify the per-store bm25 ordering:
+	// the longNote is the global store's worst rank (rank 3), and the project
+	// doc is the project store's only (and best) rank (rank 1). The rank-driven
+	// merge relies on this invariant: the longNote's per-store rank (3) is
+	// worse than the project doc's per-store rank (1), so the merged output
+	// must place the project doc before the longNote.
+
+	hits, err := FusedSearch(ctx, sid, "responses", 0, false, glob, proj)
+	if err != nil {
+		t.Fatalf("FusedSearch: %v", err)
+	}
+	if len(hits) != 4 {
+		t.Fatalf("FusedSearch returned %d hits, want 4 (3 global + 1 project)", len(hits))
+	}
+
+	// Rank-driven order per the fixture design above.
+	wantOrder := []struct {
+		scope   Scope
+		snippet string
+	}{
+		{ScopeGlobal, "responses are concise and brief for the user"},
+		{ScopeProject, "responses are handled in the project layer"},
+		{ScopeGlobal, "the deploy layer processes responses"},
+		{ScopeGlobal, "cached in the registry once per session"}, // the longNote, worst bm25
+	}
+	for i, w := range wantOrder {
+		if hits[i].Scope != w.scope {
+			t.Errorf("hit %d scope = %q, want %q", i, hits[i].Scope, w.scope)
+		}
+		if !strings.Contains(hits[i].Content, w.snippet) {
+			t.Errorf("hit %d content = %q, want the fact containing %q", i, hits[i].Content, w.snippet)
+		}
+	}
+}
+
 // TestFusedSearchTrailGoesToProjectStoreOnly (BDD: "edge — fused search trail
 // goes to project store only"): the fact_search trail lands in the caller's
 // project store (blueprint M2) and nowhere in the global store — which holds

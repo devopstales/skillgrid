@@ -276,7 +276,7 @@ func (s *Store) searchRanked(ctx context.Context, sessionID, query, ftsQuery str
 		FROM facts f
 		INNER JOIN facts_fts ON facts_fts.rowid = f.id
 		WHERE facts_fts MATCH ?`+deletedClause+`
-		ORDER BY bm25(facts_fts)
+		ORDER BY bm25(facts_fts), f.id
 		LIMIT ?`, ftsQuery, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search facts: %w", err)
