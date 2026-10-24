@@ -165,10 +165,11 @@ func TestDistillRoutesFactsByScope(t *testing.T) {
 // TestDistillCoalescingLatestWins (BDD: "edge — distill coalescing (latest
 // snapshot wins)", G3): two distill triggers fire for the same session. The
 // first blocks INSIDE its LLM call; the second must coalesce into it —
-// exactly ONE LLM call in total. The single call carries the LATEST
-// snapshot (the distiller re-reads the latest conversation at LLM time, so
-// the call that executes sees the second trigger's conversation, not the
-// first trigger's), and the written fact is the later one's.
+// exactly ONE LLM call in total, and the coalesced trigger writes nothing
+// of its own. This test asserts the CALL COUNT and the coalesced trigger's
+// zero-write result; "latest snapshot wins" itself is the ponytail ceiling's
+// documented boundary (see the ponytail note in Distill) and is not
+// verified here — the stub returns a fixed response, ignoring the prompt.
 func TestDistillCoalescingLatestWins(t *testing.T) {
 	var calls atomic.Int32
 	d, gdb, _ := distillFixture(t, nil, false)
@@ -184,10 +185,10 @@ func TestDistillCoalescingLatestWins(t *testing.T) {
 			close(started)
 			<-release
 		}
-		// The single call carries the LATEST snapshot: by the LLM contract
-		// the response is the latest snapshot's facts (the prompt carries
-		// the latest conversation available to the call). The stub returns
-		// the latest snapshot's facts for whichever conversation it sees.
+		// The stub returns a fixed response regardless of the prompt it
+		// sees — it does not echo the conversation, so the "latest
+		// snapshot" property is not observable from the response; only
+		// the call count is.
 		return `{"facts": [{"scope": "global", "target": "memory", "content": "latest snapshot fact"}]}`, nil
 	}
 	done := make(chan struct{})
@@ -208,7 +209,7 @@ func TestDistillCoalescingLatestWins(t *testing.T) {
 	if res.GlobalWritten != 0 {
 		t.Fatalf("second trigger's own writes = %d, want 0 (it coalesced into the first trigger)", res.GlobalWritten)
 	}
-	close(release) // release the blocked call: it now carries the LATEST snapshot
+	close(release) // release the blocked call
 	<-done
 
 	if got := calls.Load(); got != 1 {
@@ -332,10 +333,22 @@ func TestWriteApprovalStagesPassiveWrites(t *testing.T) {
 // TestPendingQueueSurvivesRestart (BDD: "edge — pending queue survives
 // server restart", G5): a staged row is still there after the store is
 // closed and reopened (a new service instance over the same data dir) —
-// pending_facts is a table, not a memory map.
+// pending_facts is a table, not a memory map. The row is staged BEFORE the
+// close (the pre-restart distill's stage) and read through the REOPENED
+// handle, so the test proves durability across restart, not merely
+// visibility in a fresh handle.
 func TestPendingQueueSurvivesRestart(t *testing.T) {
 	pst, gst, dataDir := openTwoStores(t)
 	seedTestSession(t, pst, "sess-distill")
+
+	// Seed a pending row directly (simulating the pre-restart distill's
+	// stage) while the original stores are still open.
+	if _, err := gst.DB.Exec(`
+		INSERT INTO pending_facts (content, target, scope, created_at, status)
+		VALUES (?, 'memory', 'global', ?, 'pending')`,
+		"survives the restart", "2026-10-24T00:00:00Z"); err != nil {
+		t.Fatalf("seed pending row: %v", err)
+	}
 	gst.Close()
 	pst.Close()
 
@@ -351,14 +364,8 @@ func TestPendingQueueSurvivesRestart(t *testing.T) {
 	}
 	defer gst2.Close()
 
-	// Seed a pending row directly (simulating the pre-restart distill's
-	// stage) and verify the REOPENED store — fresh in-memory state — sees it.
-	if _, err := gst2.DB.Exec(`
-		INSERT INTO pending_facts (content, target, scope, created_at, status)
-		VALUES (?, 'memory', 'global', ?, 'pending')`,
-		"survives the restart", "2026-10-24T00:00:00Z"); err != nil {
-		t.Fatalf("seed pending row: %v", err)
-	}
+	// The REOPENED store — a fresh handle over the same data dir — must
+	// see the row that was staged before the restart.
 	if got := pendingCount(t, gst2.DB, "survives the restart"); got != 1 {
 		t.Fatalf("pending row after reopen = %d, want 1 (durable across restart)", got)
 	}

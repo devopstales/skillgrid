@@ -418,6 +418,12 @@ func (d *Distiller) ApprovePending(ctx context.Context, pendingID int64) (int64,
 // applyPending applies one staged fact to its store (insert into facts +
 // delete the pending row in one transaction — a crash cannot leave a
 // staged row that was also applied, or an applied row whose stage survives).
+//
+// Invariant: the row's scope matches its store by construction — a staged
+// row is always inserted into the store that matches its scope column
+// (stagePending routes on scope). No cross-store check is needed here
+// because no production path writes a row with scope ≠ its store; the
+// scope parameter is carried for the caller's record, not for routing.
 func (d *Distiller) applyPending(ctx context.Context, store *Store, pendingID int64, content, target, scope string) (int64, error) {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
