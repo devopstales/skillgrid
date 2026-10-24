@@ -42,10 +42,11 @@ import (
 	"time"
 )
 
-// DistillLLM is the distill's LLM seam (ADR-0023). The MCP layer attaches
-// the shared client (service.AskLLMSeam().Complete); tests inject a stub.
-// Nil (the default) means no LLM is attached: Distill fails open with a
-// recorded no-LLM condition.
+// DistillLLM is the distill's LLM seam (ADR-0023). It mirrors
+// skills.Store.LLM: a func field the MCP layer wires from
+// service.AskLLMSeam().Complete; tests inject a stub. Nil (the default)
+// means no LLM is attached: Distill fails open with a recorded no-LLM
+// condition.
 type DistillLLM func(ctx context.Context, system, user string) (string, error)
 
 // distillSystemPrompt is the scope-classifying extraction prompt (ONE pass:
@@ -94,11 +95,12 @@ type Distiller struct {
 }
 
 // distillSession is the per-session coalescing state: one in-flight LLM call
-// per session (the mutex guard), and the latest conversation snapshot (the
-// in-flight call re-reads it at LLM time — latest wins).
+// per session (the mutex guard), and the latest conversation snapshot (a
+// coalesced trigger records it; the next pass runs on it — see the ponytail
+// note in Distill for the mid-flight boundary).
 type distillSession struct {
 	inFlight bool
-	latest   string // the latest conversation snapshot (coalescing: latest wins)
+	latest   string // the latest conversation snapshot (coalescing)
 }
 
 // NewDistiller builds a Distiller over the two store roles. global is the
@@ -168,13 +170,17 @@ func (d *Distiller) Distill(ctx context.Context, sessionID, trailSessionID, conv
 	sess.latest = conversation
 	d.mu.Unlock()
 
-	// The pass runs on the LATEST snapshot: a coalesced trigger updates
-	// sess.latest while this call is mid-flight, so the conversation the
-	// LLM sees must be resolved at WRITE time (after the LLM call returns,
-	// when every coalesced trigger has been processed) — latest snapshot
-	// wins. The LLM's response is the latest snapshot's facts by contract
-	// (the prompt carries the latest conversation; the LLM sees the newest
-	// state it was given).
+	// ponytail: the LLM call carries the snapshot this trigger captured at
+	// entry. A trigger that coalesces WHILE the call is in flight records a
+	// newer snapshot, which this response no longer reflects — "latest
+	// snapshot wins" then degrades to "first trigger's snapshot wins"
+	// (still one LLM call, still the newest snapshot the call itself saw).
+	// A trigger that coalesces BEFORE the call is issued is reflected: the
+	// next pass runs on the latest snapshot. Upgrading to true latest-wins
+	// for a mid-flight coalesce needs a per-session LLM call queue (the
+	// in-flight call defers to the newest pending snapshot and re-issues) —
+	// deferred because the session-close trigger fires once per session, so
+	// a mid-flight coalesce is a rare race, not the common path.
 	res := DistillResult{}
 	defer d.finishSession(sessionID)
 
@@ -187,11 +193,8 @@ func (d *Distiller) Distill(ctx context.Context, sessionID, trailSessionID, conv
 	}
 
 	// One LLM call per session (the coalescing contract): the call carries
-	// the snapshot this trigger held at LLM time. If a later trigger
-	// coalesced in while the call was in flight, its newer snapshot is
-	// what sess.latest holds at write time — the LLM's response is the
-	// latest snapshot's facts by contract (the prompt carries the latest
-	// conversation available to the call).
+	// the snapshot this trigger captured at entry (see the ponytail note
+	// above for the mid-flight coalesce boundary).
 	out, err := d.LLM(ctx, distillSystemPrompt, conversation)
 	if err != nil {
 		// LLM down (unreachable / timeout / HTTP error): fail-open. The
@@ -210,8 +213,7 @@ func (d *Distiller) Distill(ctx context.Context, sessionID, trailSessionID, conv
 		return res, nil
 	}
 
-	// The LLM call executed against the LATEST snapshot (re-read at LLM
-	// time), so its response is the latest snapshot's facts — write them.
+	// The response is this pass's snapshot's facts — write them.
 	for _, f := range extracted {
 		switch f.Scope {
 		case string(ScopeProject), "":
@@ -299,9 +301,10 @@ type distillFact struct {
 }
 
 // parseDistillResponse parses the LLM's JSON response into the extracted
-// facts. Blank content and unknown targets are dropped (the LLM is not a
-// validator; the write path is). A blank or unparseable response is an error
-// (fail-open at the caller).
+// facts. Blank content is dropped (no empty fact); an unknown target is
+// normalized to the default (the LLM is not a validator; the write path
+// re-validates). A blank or unparseable response is an error (fail-open at
+// the caller).
 func parseDistillResponse(out string) ([]distillFact, error) {
 	out = strings.TrimSpace(out)
 	// Strip a markdown fence if the LLM wrapped its JSON in one (a cheap
