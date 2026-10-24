@@ -181,16 +181,16 @@ func runMemory(version string, args []string) {
 	}
 
 	svc, projID := openMemService(dir, project)
-	// Store handles by scope: the project store is always opened (the trail
-	// store for C3, and the data store for scope=project); the global store
-	// is opened additionally for scope=global (its data store) and scope=all
-	// (fused search reads both).
-	h, cleanup, err := svc.Open(projID)
+	// The trail store is opened first (C3): every fact op trails a
+	// session_events row into the caller's project store, even a scope=global
+	// op whose data lands in __global__. A trail failure must not leave a
+	// data-store handle dangling behind it.
+	ph, pclean, err := svc.Open(projID)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
-	defer cleanup()
+	defer pclean()
 	var gh *service.ProjectHandle
 	var gclean func()
 	if scope == facts.ScopeGlobal || scope == facts.ScopeAll {
@@ -202,7 +202,7 @@ func runMemory(version string, args []string) {
 		defer gclean()
 	}
 
-	projStore := facts.New(h.Store().DB, projID)
+	projStore := facts.New(ph.Store().DB, projID)
 	var globStore *facts.Store
 	if scope == facts.ScopeGlobal || scope == facts.ScopeAll {
 		globStore = facts.New(gh.Store().DB, service.GlobalProjectID)
@@ -241,7 +241,7 @@ func runMemory(version string, args []string) {
 			break
 		}
 		if mode == "hybrid" {
-			skillSt := skills.New(h.Store().DB, h.Root(), projID)
+			skillSt := skills.New(ph.Store().DB, ph.Root(), projID)
 			res, err := hybrid.SearchMemory(ctx, st, skillSt, query, limit, hybrid.MemoryOptions{
 				Embedder:       embedder.Default(),
 				IncludeDeleted: includeDel,

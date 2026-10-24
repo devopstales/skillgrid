@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/devopstales/skillgrid/mnemonic/internal/facts"
-	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
 
@@ -313,28 +311,6 @@ func openMemoryGlobalStore(t *testing.T, dataDir string) *store.Store {
 	}
 	t.Cleanup(func() { gst.Close() })
 	return gst
-}
-
-// cliDistiller builds the pending-queue accessor over the two stores the CLI
-// `memory global pending|approve|reject` subcommands manage (the same
-// Distiller the MCP pending tools use; zero config — the queue read/approve/
-// reject paths are config-independent).
-func cliDistiller(dataDir, project string) (*facts.Distiller, func()) {
-	svc, _ := openMemService(dataDir, project)
-	gh, gclean, err := svc.OpenGlobal()
-	if err != nil {
-		return nil, func() {}
-	}
-	ph, pclean, err := svc.Open(project)
-	if err != nil {
-		gclean()
-		return nil, func() {}
-	}
-	d := facts.NewDistiller(
-		facts.New(gh.Store().DB, service.GlobalProjectID),
-		facts.New(ph.Store().DB, project),
-	)
-	return d, func() { pclean(); gclean() }
 }
 
 // runMemoryCLIGlobal runs `go run . memory global <args...>` against the data
