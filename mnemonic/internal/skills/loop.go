@@ -282,9 +282,10 @@ func (s *Store) Evaluate(ctx context.Context, name, amendedAt string) (EvaluateR
 	if s == nil || s.db == nil {
 		return EvaluateResult{}, fmt.Errorf("skills store not initialized")
 	}
+	var id int64
 	var codePath string
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT code_path FROM skills WHERE name = ?`, name).Scan(&codePath); err != nil {
+		`SELECT id, code_path FROM skills WHERE name = ?`, name).Scan(&id, &codePath); err != nil {
 		if err == sql.ErrNoRows {
 			return EvaluateResult{}, fmt.Errorf("skill not found: %q", name)
 		}
@@ -295,7 +296,7 @@ func (s *Store) Evaluate(ctx context.Context, name, amendedAt string) (EvaluateR
 		return EvaluateResult{}, fmt.Errorf("no pending amendment for %q: %s missing", name, amendedPath)
 	}
 
-	res, err := s.evaluateRates(ctx, codePath, amendedAt)
+	res, err := s.evaluateRates(ctx, id, amendedAt)
 	if err != nil {
 		return EvaluateResult{}, err
 	}
@@ -343,13 +344,11 @@ func (s *Store) Evaluate(ctx context.Context, name, amendedAt string) (EvaluateR
 }
 
 // evaluateRates computes the before/after success rates around amendedAt and
-// maps them to a verdict. Pure read: no FS or git side effect.
-func (s *Store) evaluateRates(ctx context.Context, codePath, amendedAt string) (EvaluateResult, error) {
-	var id int64
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT id FROM skills WHERE code_path = ?`, codePath).Scan(&id); err != nil {
-		return EvaluateResult{}, fmt.Errorf("evaluate skill id: %w", err)
-	}
+// maps them to a verdict. Pure read: no FS or git side effect. The skill id
+// is passed in from Evaluate (which resolves it from name) — no re-resolution
+// by code_path, which would be a second DB round-trip and would silently
+// assume code_path is unique.
+func (s *Store) evaluateRates(ctx context.Context, id int64, amendedAt string) (EvaluateResult, error) {
 	rates := func(after bool) (rate, runs int) {
 		op := " < "
 		if after {
