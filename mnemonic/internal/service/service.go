@@ -583,7 +583,9 @@ func (s *Service) openProjectFromCWD() (*ProjectHandle, func(), error) {
 	return s.openProjectForDirectory(cwd)
 }
 
-// ListProjects returns the project IDs with a store in dataDir, sorted.
+// ListProjects returns the project IDs with a store in dataDir, sorted. The
+// __global__ pseudo-project store (global operational memory) is excluded:
+// it is cross-project infrastructure, not a selectable project.
 func (s *Service) ListProjects() ([]string, error) {
 	entries, err := os.ReadDir(s.dataDir)
 	if err != nil {
@@ -598,6 +600,9 @@ func (s *Service) ListProjects() ([]string, error) {
 			continue
 		}
 		id := strings.TrimSuffix(e.Name(), ".sqlite")
+		if id == GlobalProjectID {
+			continue
+		}
 		if strings.TrimSpace(id) != "" {
 			ids = append(ids, id)
 		}
@@ -2170,7 +2175,8 @@ func (s *Service) OpenAt(projectID, directory string) (*ProjectHandle, func(), e
 // or corrupt store is skipped with a zero count, and an empty data dir is a
 // clean no-op, so the method never fails a sweep over an uncreated store
 // (014 step 04, backing `mem expire`). It returns the per-project retirement
-// counts keyed by project id.
+// counts keyed by project id. The __global__ pseudo-project is skipped: the
+// global fact store is curated explicitly (decay/forget), not TTL-expired.
 func (s *Service) RunTTLExpiry(ctx context.Context) (map[string]int, error) {
 	if s == nil {
 		return map[string]int{}, fmt.Errorf("service not initialized")
@@ -2185,6 +2191,12 @@ func (s *Service) RunTTLExpiry(ctx context.Context) (map[string]int, error) {
 	}
 	counts := make(map[string]int, len(projects))
 	for _, pid := range projects {
+		// The __global__ pseudo-project is absent from ListProjects, but if a
+		// caller ever sweeps an explicitly-named id, skip it too: global rows
+		// are curated (decay/forget), never TTL-expired.
+		if pid == GlobalProjectID {
+			continue
+		}
 		h, cleanup, oerr := s.openProject(pid, ".")
 		if oerr != nil {
 			// Best-effort: skip a store that cannot be opened (missing/corrupt).
