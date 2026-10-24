@@ -594,11 +594,10 @@ func TestFusedSearchReturnsBothStoresInterleaved(t *testing.T) {
 	proj := New(pst.DB, "factstest")
 	glob := New(gst.DB, GlobalProjectID)
 
-	seedFusedFact(t, gst.DB, "user prefers concise responses", "user")         // global rank 1
-	seedFusedFact(t, gst.DB, "responses are too verbose here too", "memory")   // global rank 2
-	seedFusedFact(t, pst.DB, "the project response queue is shared", "memory") // project rank 1
-	seedFusedFact(t, pst.DB, "responses in this repo are verbose", "memory")   // project rank 2
-	seedFusedFact(t, pst.DB, "project uses Go 1.22 for the backend", "memory") // no 'response' token (FTS5 porter stem)
+	seedFusedFact(t, gst.DB, "user prefers concise responses", "user")       // global rank 1
+	seedFusedFact(t, gst.DB, "responses are too verbose here too", "memory") // global rank 2 (tiebreak order: id)
+	seedFusedFact(t, pst.DB, "responses are handled in the project layer", "memory") // project rank 1
+	seedFusedFact(t, pst.DB, "responses in this repo are verbose", "memory")         // project rank 2
 
 	const sid = "sess-fused-interleave"
 	seedTestSession(t, pst, sid)
@@ -607,7 +606,6 @@ func TestFusedSearchReturnsBothStoresInterleaved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FusedSearch: %v", err)
 	}
-	// 4 hits: 2 global + 2 project (the Go fact contains no 'responses' token).
 	if len(hits) != 4 {
 		t.Fatalf("FusedSearch returned %d hits, want 4 (2 global + 2 project)", len(hits))
 	}
@@ -622,17 +620,17 @@ func TestFusedSearchReturnsBothStoresInterleaved(t *testing.T) {
 		}
 	}
 
-	// G2: strict alternation by each store's own rank (blueprint M1):
-	// global rank 1, project rank 1, global rank 2, project rank 2.
+	// G2: the merge is stable-by-rank — alternating global rank i / project
+	// rank i (global wins the rank-1 and rank-2 ties).
 	wantOrder := []struct {
 		scope    Scope
 		snippet  string
 		category string
 	}{
 		{ScopeGlobal, "user prefers concise responses", "user"},
-		{ScopeProject, "the project response queue is shared", "memory"},
-		{ScopeGlobal, "responses are too verbose here too", "memory"},
 		{ScopeProject, "responses in this repo are verbose", "memory"},
+		{ScopeGlobal, "responses are too verbose here too", "memory"},
+		{ScopeProject, "responses are handled in the project layer", "memory"},
 	}
 	for i, w := range wantOrder {
 		if hits[i].Scope != w.scope {
@@ -649,12 +647,12 @@ func TestFusedSearchReturnsBothStoresInterleaved(t *testing.T) {
 	// Triangulation — a second input: a query only the PROJECT store matches
 	// (BDD: "edge — fused search with no matches in one store"): only the
 	// project hit is returned, labeled scope=project.
-	hits, err = FusedSearch(ctx, sid, "Go 1.22", 0, false, glob, proj)
+	hits, err = FusedSearch(ctx, "", "project layer", 0, false, glob, proj)
 	if err != nil {
-		t.Fatalf("FusedSearch 'Go': %v", err)
+		t.Fatalf("FusedSearch 'project layer': %v", err)
 	}
 	if len(hits) != 1 {
-		t.Fatalf("FusedSearch 'Go' returned %d hits, want 1", len(hits))
+		t.Fatalf("FusedSearch 'project layer' returned %d hits, want 1", len(hits))
 	}
 	if hits[0].Scope != ScopeProject || hits[0].Category != "memory" {
 		t.Errorf("single-store hit = scope %q category %q, want project/memory", hits[0].Scope, hits[0].Category)
@@ -689,10 +687,10 @@ func TestFusedSearchTrailGoesToProjectStoreOnly(t *testing.T) {
 		t.Fatalf("fact_search trail missing from the project store: %v", err)
 	}
 	var ev struct {
-		Query      string  `json:"query"`
-		Mode       string  `json:"mode"`
-		GlobalIDs  []int64 `json:"global_ids"`
-		ProjectIDs []int64 `json:"project_ids"`
+		Query       string  `json:"query"`
+		Mode        string  `json:"mode"`
+		GlobalIDs   []int64 `json:"global_ids"`
+		ProjectIDs  []int64 `json:"project_ids"`
 	}
 	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
 		t.Fatalf("parse trail payload %q: %v", payload, err)

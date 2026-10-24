@@ -14,6 +14,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/devopstales/skillgrid/mnemonic/internal/store"
 )
@@ -93,6 +94,113 @@ func TestFactAddOperationsBatchMCP(t *testing.T) {
 	if total != 2150 {
 		t.Errorf("final char usage = %d, want 2150", total)
 	}
+}
+
+// TestFactAddOperationsTrailMCP (review finding, T04): a successful batch
+// writes a session_events trail row (action_type=fact_add) to the caller's
+// PROJECT store — the same audit-trail role as a single-fact AddWith — with
+// a payload summarizing the batch ({"batch": true, "ops": N}). A failed
+// batch (overflow) writes no trail: nothing was applied, nothing to audit.
+func TestFactAddOperationsTrailMCP(t *testing.T) {
+	t.Run("success writes fact_add trail to project store", func(t *testing.T) {
+		dataDir, project, st := openFactMCPStore(t)
+		sid := "sess-mcp-batch-trail"
+		seedFactMCPSession(t, st, project, dataDir, sid)
+
+		res, err := handleFactAdd(context.Background(), callReq("fact_add", map[string]any{
+			"project":    project,
+			"session_id": sid,
+			"scope":      "global",
+			"target":     "memory",
+			"operations": []any{
+				map[string]any{"action": "add", "content": "first batch entry"},
+				map[string]any{"action": "add", "content": "second batch entry"},
+			},
+		}))
+		if err != nil {
+			t.Fatalf("handleFactAdd: %v", err)
+		}
+		if res.IsError {
+			t.Fatalf("batch fact_add error: %s", callResultText(t, res))
+		}
+
+		var n int
+		if err := st.DB.QueryRow(`
+			SELECT COUNT(*) FROM session_events
+			WHERE session_id = ? AND action_type = 'fact_add'`, sid).
+			Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Fatalf("fact_add trail rows for session = %d, want 1", n)
+		}
+		var projectCol, payload string
+		if err := st.DB.QueryRow(`
+			SELECT project, payload FROM session_events
+			WHERE session_id = ? AND action_type = 'fact_add'`, sid).
+			Scan(&projectCol, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if projectCol != project {
+			t.Errorf("trail row project = %q, want %q", projectCol, project)
+		}
+		var p map[string]any
+		if err := json.Unmarshal([]byte(payload), &p); err != nil {
+			t.Fatalf("parse trail payload %q: %v", payload, err)
+		}
+		if p["batch"] != true {
+			t.Errorf("trail payload batch = %v, want true", p["batch"])
+		}
+		if p["ops"] != float64(2) {
+			t.Errorf("trail payload ops = %v, want 2", p["ops"])
+		}
+	})
+
+	t.Run("failed batch writes no trail", func(t *testing.T) {
+		dataDir, project, st := openFactMCPStore(t)
+		sid := "sess-mcp-batch-trail-overflow"
+		seedFactMCPSession(t, st, project, dataDir, sid)
+
+		// Seed the global store to the full 2200 budget. The seed goes
+		// straight through the facts API (not the fact_add handler) so it
+		// trails NO rows — the assertion below is an absolute count.
+		gst, err := openGlobalStoreMCP(t, dataDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now().UTC().Format(time.RFC3339)
+		if _, err := gst.DB.Exec(
+			`INSERT INTO facts (content, category, created_at, updated_at)
+			 VALUES (?, 'memory', ?, ?)`,
+			padMCP(2200, "fill"), now, now); err != nil {
+			t.Fatal(err)
+		}
+		res, err := handleFactAdd(context.Background(), callReq("fact_add", map[string]any{
+			"project":    project,
+			"session_id": sid,
+			"scope":      "global",
+			"target":     "memory",
+			"operations": []any{
+				map[string]any{"action": "add", "content": "overflow entry"},
+			},
+		}))
+		if err != nil {
+			t.Fatalf("handleFactAdd: %v", err)
+		}
+		if !res.IsError {
+			t.Fatalf("overflow batch must be an error result: %s", callResultText(t, res))
+		}
+		var n int
+		if err := st.DB.QueryRow(`
+			SELECT COUNT(*) FROM session_events
+			WHERE session_id = ? AND action_type = 'fact_add'`, sid).
+			Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Fatalf("fact_add trail rows after overflow = %d, want 0 (no new trail)", n)
+		}
+	})
 }
 
 // TestFactAddOperationsOverflowMCP (BDD: "edge — overflow returns structured

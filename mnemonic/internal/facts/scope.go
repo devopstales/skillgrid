@@ -325,10 +325,10 @@ type FusedHit struct {
 // FusedSearch is the scope=all read path: it searches both the global and the
 // project store and STABLE-MERGES the results by each store's own BM25 rank —
 // not RRF, no score normalization (blueprint M1). The stores are disjoint
-// (a fact lives in exactly one store), so "interleave by rank" is well
-// defined: global rank 1, project rank 1, global rank 2, project rank 2, ...
-// (mergeFusedHits), which is a strict alternation with the global store
-// leading each pair — deterministic, no tuning constant.
+// (a fact lives in exactly one store), so "take the best-ranked hit from
+// either store, then the next, ..." is well defined: the merge walks both
+// rank-ordered lists and emits the hit whose own rank is lowest, ties broken
+// in favor of the global store (deterministic order).
 //
 // Each hit is labeled with its store's scope and the fact's stored category.
 // The session_events trail (action_type="fact_search", payload mode "fused",
@@ -383,29 +383,34 @@ func FusedSearch(ctx context.Context, sessionID, query string, limit int, includ
 }
 
 // mergeFusedHits stable-merges two rank-ordered hit lists (list order IS the
-// store's bm25 rank) by strict ALTERNATION: global rank 1, project rank 1,
-// global rank 2, project rank 2, ... (blueprint M1: "interleave results by
-// their respective BM25 rank"). The global store leads each pair — it is the
-// cross-project one, and a fixed lead keeps results deterministic. When one
-// side runs out of hits the rest of the other side appends in rank order.
+// store's bm25 rank). Ties on the same rank go to the global list first —
+// the global store is the cross-project one, and a deterministic tie-break
+// keeps results reproducible.
 func mergeFusedHits(g, p []Fact, limit int) []FusedHit {
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
-	label := func(f Fact, scope Scope) FusedHit {
-		category := f.Category
-		if category == "" {
-			category = CategoryMemory
-		}
-		return FusedHit{Fact: f, Scope: scope, Category: category}
-	}
 	out := make([]FusedHit, 0, limit)
-	for i := 0; len(out) < limit && (i < len(g) || i < len(p)); i++ {
-		if i < len(g) {
-			out = append(out, label(g[i], ScopeGlobal))
-		}
-		if i < len(p) {
-			out = append(out, label(p[i], ScopeProject))
+	for gi, pi := 0, 0; len(out) < limit && (gi < len(g) || pi < len(p)); {
+		gTake := gi < len(g) && (pi >= len(p) || gi <= pi)
+		if gTake {
+			var category string
+			if g[gi].Category == "" {
+				category = CategoryMemory
+			} else {
+				category = g[gi].Category
+			}
+			out = append(out, FusedHit{Fact: g[gi], Scope: ScopeGlobal, Category: category})
+			gi++
+		} else {
+			var category string
+			if p[pi].Category == "" {
+				category = CategoryMemory
+			} else {
+				category = p[pi].Category
+			}
+			out = append(out, FusedHit{Fact: p[pi], Scope: ScopeProject, Category: category})
+			pi++
 		}
 	}
 	return out
@@ -560,6 +565,13 @@ func (s *Store) DecayAll(ctx context.Context, sessionID string, threshold float6
 		return 0, 0, err
 	}
 	return decayed, purged, nil
+}
+
+// InsertEvent appends one session_events trail row to this store. Exported
+// seam for the MCP batch path (handleFactBatch), whose trail store it must
+// write through without reaching into the facts package's unexported SQL.
+func (s *Store) InsertEvent(ctx context.Context, sessionID, actionType string, payload map[string]any) error {
+	return s.insertEvent(ctx, sessionID, actionType, payload)
 }
 
 // insertEvent appends one session_events trail row with the next sequence

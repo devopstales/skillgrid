@@ -137,6 +137,20 @@ func handleFactBatch(ctx context.Context, data, trail *facts.Store, sessionID, p
 	if err != nil {
 		return toolError(err)
 	}
+	// Trail row for the audit trail (T04 review finding): every write op
+	// records a session_events entry in the caller's project store — for
+	// scope=global the trail is cross-store, so a failed insert would leave
+	// the applied batch un-audited and is a clean error (mirrors the
+	// AddWith cross-store contract). action_type stays "fact_add" (a batch
+	// is a unit of fact_add operations); the payload summarizes the unit.
+	// A FAILED batch (err above) writes nothing — no ops applied, nothing
+	// to audit.
+	if err := trail.InsertEvent(ctx, sessionID, "fact_add", map[string]any{
+		"batch": true,
+		"ops":   len(ops),
+	}); err != nil {
+		return toolError(err)
+	}
 	return JSONResult(map[string]any{
 		"success":            res.Success,
 		"no_duplicate_added": res.NoDuplicateAdded,
