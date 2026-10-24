@@ -236,11 +236,13 @@ func runMemoryGlobal(args []string) {
 		os.Exit(2)
 	}
 
+	// Fail-open (G7): the consumer (plugin, system-prompt injection) never
+	// sees an error from this seam — a dead global store is reported as the
+	// empty string: exit 0, stdout and stderr silent.
 	svc, _ := openMemService(dir, "")
 	gh, cleanup, err := svc.OpenGlobal()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		os.Exit(0)
 	}
 	defer cleanup()
 
@@ -248,8 +250,7 @@ func runMemoryGlobal(args []string) {
 	snap := facts.NewSnapshot(st)
 	out, err := snap.Request(hCtx(), sessionID)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		os.Exit(0)
 	}
 	if asJSON {
 		printJSON(map[string]any{

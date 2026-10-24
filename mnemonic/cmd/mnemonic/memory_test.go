@@ -269,3 +269,55 @@ func TestMemoryFactAddRequiresSession(t *testing.T) {
 		t.Fatalf("a missing session must not open the store (project db exists)")
 	}
 }
+
+// TestMemoryGlobalPrefetchFailsOpen is the G7 gate (TICKET-05 review fix):
+// `memory global prefetch` is a fail-open seam — when the global store cannot
+// be opened, the consumer (plugin / system-prompt injection) must never see an
+// error: exit 0, nothing on stdout, nothing on stderr (empty string).
+func TestMemoryGlobalPrefetchFailsOpen(t *testing.T) {
+	// A file where the store wants a directory: OpenGlobal fails.
+	dataDir := t.TempDir()
+	if err := os.WriteFile(dataDir+"/blocker", []byte("not a dir"), 0o600); err != nil {
+		t.Fatalf("seed blocker: %v", err)
+	}
+	cmd := exec.Command("go", "run", ".", "memory", "global", "prefetch",
+		"--dir", dataDir+"/blocker", "--session-id", "s-failopen")
+	cmd.Dir = mustWD(t)
+	var out, stderr strings.Builder
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("memory global prefetch must fail open with exit 0 (fail-open contract): %v\nstdout: %s\nstderr: %s",
+			err, out.String(), stderr.String())
+	}
+	if out.String() != "" {
+		t.Fatalf("fail-open prefetch must print nothing to stdout, got: %s", out.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("fail-open prefetch must print nothing to stderr, got: %s", stderr.String())
+	}
+}
+
+// TestMemoryGlobalPrefetchFailsOpenJSON is the triangulation of the fail-open
+// gate with a different input: the same dead-store failure with --json must
+// also be silent and exit 0 — the JSON consumer gets the empty string too.
+func TestMemoryGlobalPrefetchFailsOpenJSON(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := os.WriteFile(dataDir+"/blocker", []byte("not a dir"), 0o600); err != nil {
+		t.Fatalf("seed blocker: %v", err)
+	}
+	cmd := exec.Command("go", "run", ".", "memory", "global", "prefetch",
+		"--dir", dataDir+"/blocker", "--session-id", "s-failopen-json", "--json")
+	cmd.Dir = mustWD(t)
+	var out, stderr strings.Builder
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("memory global prefetch --json must fail open with exit 0: %v\nstdout: %s\nstderr: %s",
+			err, out.String(), stderr.String())
+	}
+	if out.String() != "" || stderr.String() != "" {
+		t.Fatalf("fail-open prefetch --json must be silent, got stdout=%q stderr=%q",
+			out.String(), stderr.String())
+	}
+}
