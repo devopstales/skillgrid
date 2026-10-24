@@ -86,7 +86,7 @@ func handleMnemonicCommit(ctx context.Context, req mcplib.CallToolRequest) (*mcp
 	factStore := facts.New(h.Store().DB, projectID)
 	extracted := 0
 	for _, b := range bullets {
-		if _, err := factStore.Add(ctx, sessionID, b); err != nil {
+		if _, err := factStore.Add(ctx, sessionID, b, ""); err != nil {
 			warnings = append(warnings, "fact extract failed: "+err.Error())
 			continue
 		}

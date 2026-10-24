@@ -80,7 +80,7 @@ func TestMnemonicCommitExtractsFacts(t *testing.T) {
 		t.Fatalf("facts_extracted = %v, want 2 (one per lesson bullet)", out["facts_extracted"])
 	}
 	// The extracted facts must be retrievable through the fact search path.
-	got, err := facts.New(st.DB, project).Search(context.Background(), sid, "bcrypt password hashing", 5)
+	got, err := facts.New(st.DB, project).Search(context.Background(), sid, "bcrypt password hashing", 5, nil)
 	if err != nil {
 		t.Fatalf("fact search: %v", err)
 	}

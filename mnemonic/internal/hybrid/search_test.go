@@ -31,11 +31,11 @@ func seedFactsAndSkills(t *testing.T, st *store.Store) {
 	t.Helper()
 	ctx := context.Background()
 	fs := facts.New(st.DB, "testproj")
-	_, err := fs.Add(ctx, "sess-1", "the database connection pool max size is 50")
+	_, err := fs.Add(ctx, "sess-1", "the database connection pool max size is 50", "")
 	if err != nil {
 		t.Fatalf("fact add: %v", err)
 	}
-	_, err = fs.Add(ctx, "sess-1", "use bcrypt for password hashing, never md5")
+	_, err = fs.Add(ctx, "sess-1", "use bcrypt for password hashing, never md5", "")
 	if err != nil {
 		t.Fatalf("fact add: %v", err)
 	}

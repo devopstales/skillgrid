@@ -130,7 +130,7 @@ func runMemory(version string, args []string) {
 	ctx := hCtx()
 	switch cmd {
 	case "add":
-		id, err := st.Add(ctx, sessionID, content)
+		id, err := st.Add(ctx, sessionID, content, "")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
@@ -158,7 +158,7 @@ func runMemory(version string, args []string) {
 			})
 			break
 		}
-		out, err := st.SearchWith(ctx, sessionID, query, limit, includeDel)
+		out, err := st.SearchWith(ctx, sessionID, query, limit, includeDel, nil)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
@@ -168,7 +168,7 @@ func runMemory(version string, args []string) {
 		})
 	case "forget":
 		id, _ := strconv.ParseInt(factIDStr, 10, 64)
-		if err := st.Forget(ctx, sessionID, id); err != nil {
+		if err := st.Forget(ctx, sessionID, id, nil); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
@@ -179,7 +179,7 @@ func runMemory(version string, args []string) {
 		})
 	case "decay":
 		id, _ := strconv.ParseInt(factIDStr, 10, 64)
-		newScore, err := st.Decay(ctx, sessionID, id)
+		newScore, err := st.Decay(ctx, sessionID, id, nil)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)

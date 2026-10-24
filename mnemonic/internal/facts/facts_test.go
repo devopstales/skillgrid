@@ -50,7 +50,7 @@ func TestAddCreatesFactRowAndEvent(t *testing.T) {
 	}
 
 	s := New(db, "factstest")
-	id, err := s.Add(context.Background(), sid, "GDE pattern: cache the registry once per session")
+	id, err := s.Add(context.Background(), sid, "GDE pattern: cache the registry once per session", "")
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestAddCreatesFactRowAndEvent(t *testing.T) {
 func TestAddEmptyContentFails(t *testing.T) {
 	st := openTestStore(t)
 	s := New(st.DB, "factstest")
-	if _, err := s.Add(context.Background(), "sess-empty", ""); err == nil {
+	if _, err := s.Add(context.Background(), "sess-empty", "", ""); err == nil {
 		t.Fatal("Add with blank content should fail")
 	}
 	var n int
@@ -125,8 +125,8 @@ func TestAddEmptyContentFails(t *testing.T) {
 func TestAddMissingSessionFails(t *testing.T) {
 	st := openTestStore(t)
 	s := New(st.DB, "factstest")
-	if _, err := s.Add(context.Background(), "no-such-session", "fact body"); err == nil {
-		t.Fatal("Add with unknown session should fail (FK)")
+	if _, err := s.Add(context.Background(), "no-such-session", "fact body", ""); err == nil {
+		t.Fatal("Add with unknown session should fail")
 	}
 	var factsN, eventsN int
 	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM facts`).Scan(&factsN); err != nil {
@@ -150,11 +150,11 @@ func TestSearchReturnsMatchingFacts(t *testing.T) {
 	seedTestSession(t, st, sid)
 	s := New(st.DB, "factstest")
 
-	a, err := s.Add(context.Background(), sid, "cache the registry once per session")
+	a, err := s.Add(context.Background(), sid, "cache the registry once per session", "")
 	if err != nil {
 		t.Fatalf("Add a: %v", err)
 	}
-	b, err := s.Add(context.Background(), sid, "unrelated cooking recipe for ramen")
+	b, err := s.Add(context.Background(), sid, "unrelated cooking recipe for ramen", "")
 	if err != nil {
 		t.Fatalf("Add b: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestSearchReturnsMatchingFacts(t *testing.T) {
 		t.Fatalf("Add returned duplicate id %d", a)
 	}
 
-	got, err := s.Search(context.Background(), sid, "registry", 10)
+	got, err := s.Search(context.Background(), sid, "registry", 10, nil)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -206,20 +206,20 @@ func TestSearchExcludesSoftDeleted(t *testing.T) {
 	seedTestSession(t, st, sid)
 	s := New(st.DB, "factstest")
 
-	kept, err := s.Add(context.Background(), sid, "remembered zebra fact about stripes")
+	kept, err := s.Add(context.Background(), sid, "remembered zebra fact about stripes", "")
 	if err != nil {
 		t.Fatalf("Add kept: %v", err)
 	}
-	gone, err := s.Add(context.Background(), sid, "forgotten zebra fact about hooves")
+	gone, err := s.Add(context.Background(), sid, "forgotten zebra fact about hooves", "")
 	if err != nil {
 		t.Fatalf("Add gone: %v", err)
 	}
 
-	if err := s.Forget(context.Background(), sid, gone); err != nil {
+	if err := s.Forget(context.Background(), sid, gone, nil); err != nil {
 		t.Fatalf("Forget: %v", err)
 	}
 
-	got, err := s.Search(context.Background(), sid, "zebra", 10)
+	got, err := s.Search(context.Background(), sid, "zebra", 10, nil)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestSearchExcludesSoftDeleted(t *testing.T) {
 	}
 
 	// includeDeleted=true is the explicit opt-in escape hatch.
-	all, err := s.SearchWith(context.Background(), sid, "zebra", 10, true)
+	all, err := s.SearchWith(context.Background(), sid, "zebra", 10, true, nil)
 	if err != nil {
 		t.Fatalf("SearchWith includeDeleted: %v", err)
 	}
@@ -246,10 +246,10 @@ func TestSearchBlankQueryReturnsNoMatches(t *testing.T) {
 	sid := "sess-fact-blankq"
 	seedTestSession(t, st, sid)
 	s := New(st.DB, "factstest")
-	if _, err := s.Add(context.Background(), sid, "some searchable content here"); err != nil {
+	if _, err := s.Add(context.Background(), sid, "some searchable content here", ""); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	got, err := s.Search(context.Background(), sid, "   ", 10)
+	got, err := s.Search(context.Background(), sid, "   ", 10, nil)
 	if err != nil {
 		t.Fatalf("Search blank: %v", err)
 	}
@@ -266,12 +266,12 @@ func TestForgetSoftDeletes(t *testing.T) {
 	sid := "sess-fact-forget"
 	seedTestSession(t, st, sid)
 	s := New(st.DB, "factstest")
-	id, err := s.Add(context.Background(), sid, "fact to be forgotten")
+	id, err := s.Add(context.Background(), sid, "fact to be forgotten", "")
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
-	if err := s.Forget(context.Background(), sid, id); err != nil {
+	if err := s.Forget(context.Background(), sid, id, nil); err != nil {
 		t.Fatalf("Forget: %v", err)
 	}
 
@@ -291,7 +291,7 @@ func TestForgetSoftDeletes(t *testing.T) {
 	}
 
 	// Second Forget is a no-op (already gone), not an error.
-	if err := s.Forget(context.Background(), sid, id); err != nil {
+	if err := s.Forget(context.Background(), sid, id, nil); err != nil {
 		t.Fatalf("second Forget should be a no-op: %v", err)
 	}
 
@@ -321,7 +321,7 @@ func TestForgetUnknownFactFails(t *testing.T) {
 	sid := "sess-fact-forget404"
 	seedTestSession(t, st, sid)
 	s := New(st.DB, "factstest")
-	if err := s.Forget(context.Background(), sid, 99999); err == nil {
+	if err := s.Forget(context.Background(), sid, 99999, nil); err == nil {
 		t.Fatal("Forget of unknown fact should fail")
 	}
 	var eventsN int
@@ -347,7 +347,7 @@ func TestDecayLowersImportanceAndLogsEvent(t *testing.T) {
 	seedTestSession(t, st, sid)
 	s := New(st.DB, "factstest")
 
-	id, err := s.Add(context.Background(), sid, "fact that will decay")
+	id, err := s.Add(context.Background(), sid, "fact that will decay", "")
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestDecayLowersImportanceAndLogsEvent(t *testing.T) {
 		t.Fatalf("backdate fact: %v", err)
 	}
 
-	newScore, err := s.Decay(context.Background(), sid, id)
+	newScore, err := s.Decay(context.Background(), sid, id, nil)
 	if err != nil {
 		t.Fatalf("Decay: %v", err)
 	}
@@ -422,7 +422,7 @@ func TestDecayUnknownFactFails(t *testing.T) {
 	sid := "sess-fact-decay404"
 	seedTestSession(t, st, sid)
 	s := New(st.DB, "factstest")
-	if _, err := s.Decay(context.Background(), sid, 99999); err == nil {
+	if _, err := s.Decay(context.Background(), sid, 99999, nil); err == nil {
 		t.Fatal("Decay of unknown fact should fail")
 	}
 }
@@ -439,15 +439,15 @@ func TestDecayAllDecaysAllAndPurgesBelowThreshold(t *testing.T) {
 	s := New(st.DB, "factstest")
 
 	ctx := context.Background()
-	kept, err := s.Add(ctx, sid, "fresh fact that survives the decay purge")
+	kept, err := s.Add(ctx, sid, "fresh fact that survives the decay purge", "")
 	if err != nil {
 		t.Fatalf("Add kept: %v", err)
 	}
-	purged, err := s.Add(ctx, sid, "old fact that decays below the threshold")
+	purged, err := s.Add(ctx, sid, "old fact that decays below the threshold", "")
 	if err != nil {
 		t.Fatalf("Add purged: %v", err)
 	}
-	purgedOld, err := s.Add(ctx, sid, "old fact already below the threshold")
+	purgedOld, err := s.Add(ctx, sid, "old fact already below the threshold", "")
 	if err != nil {
 		t.Fatalf("Add purgedOld: %v", err)
 	}
@@ -464,7 +464,7 @@ func TestDecayAllDecaysAllAndPurgesBelowThreshold(t *testing.T) {
 	}
 	// The kept fact is fresh (age ≈ 0 → factor ≈ 1.0) and stays above 0.5.
 
-	decayed, purgedN, err := s.DecayAll(ctx, sid, 0.5)
+	decayed, purgedN, err := s.DecayAll(ctx, sid, 0.5, nil)
 	if err != nil {
 		t.Fatalf("DecayAll: %v", err)
 	}
@@ -509,7 +509,7 @@ func TestDecayAllDecaysAllAndPurgesBelowThreshold(t *testing.T) {
 	}
 
 	// Default search no longer returns the purged facts.
-	got, err := s.Search(ctx, sid, "fact", 10)
+	got, err := s.Search(ctx, sid, "fact", 10, nil)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -548,7 +548,7 @@ func TestDecayAllEmptyStoreIsNoOp(t *testing.T) {
 	sid := "sess-fact-decay-all-empty"
 	seedTestSession(t, st, sid)
 	s := New(st.DB, "factstest")
-	decayed, purged, err := s.DecayAll(context.Background(), sid, 0.5)
+	decayed, purged, err := s.DecayAll(context.Background(), sid, 0.5, nil)
 	if err != nil {
 		t.Fatalf("DecayAll empty: %v", err)
 	}
@@ -576,17 +576,17 @@ func TestSessionEventSequenceIsMonotonic(t *testing.T) {
 	seedTestSession(t, st, sid)
 	s := New(st.DB, "factstest")
 
-	id, err := s.Add(context.Background(), sid, "sequence check content")
+	id, err := s.Add(context.Background(), sid, "sequence check content", "")
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := s.Search(context.Background(), sid, "sequence", 10); err != nil {
+	if _, err := s.Search(context.Background(), sid, "sequence", 10, nil); err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if _, err := s.Decay(context.Background(), sid, id); err != nil {
+	if _, err := s.Decay(context.Background(), sid, id, nil); err != nil {
 		t.Fatalf("Decay: %v", err)
 	}
-	if err := s.Forget(context.Background(), sid, id); err != nil {
+	if err := s.Forget(context.Background(), sid, id, nil); err != nil {
 		t.Fatalf("Forget: %v", err)
 	}
 

@@ -74,7 +74,7 @@ func SearchMemory(ctx context.Context, factStore *facts.Store, skillStore *skill
 	res := &MemoryResult{Query: query, Legs: []string{"fts"}}
 
 	// --- Facts scope -------------------------------------------------------
-	ftsFacts, err := factStore.SearchWith(ctx, opts.ReadingSession, query, limit, opts.IncludeDeleted)
+	ftsFacts, err := factStore.SearchWith(ctx, opts.ReadingSession, query, limit, opts.IncludeDeleted, nil)
 	if err != nil {
 		return nil, fmt.Errorf("hybrid: facts BM25: %w", err)
 	}

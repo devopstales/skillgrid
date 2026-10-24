@@ -54,7 +54,7 @@ func (s *Server) handleFactAdd(w http.ResponseWriter, r *http.Request) {
 			sid = factsSessionID(r)
 		}
 		store := facts.New(h.Store().DB, projectID)
-		id, err := store.Add(r.Context(), sid, body.Content)
+		id, err := store.Add(r.Context(), sid, body.Content, "")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "add fact: "+err.Error())
 			return
@@ -77,7 +77,7 @@ func (s *Server) handleFactSearch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		store := facts.New(h.Store().DB, projectID)
-		fac, err := store.SearchWith(r.Context(), factsSessionID(r), body.Query, body.Limit, body.IncludeDeleted)
+		fac, err := store.SearchWith(r.Context(), factsSessionID(r), body.Query, body.Limit, body.IncludeDeleted, nil)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "search facts: "+err.Error())
 			return
@@ -98,7 +98,7 @@ func (s *Server) handleFactForget(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		store := facts.New(h.Store().DB, projectID)
-		if err := store.Forget(r.Context(), factsSessionID(r), factID); err != nil {
+		if err := store.Forget(r.Context(), factsSessionID(r), factID, nil); err != nil {
 			if isUnknownFactError(err, factID) {
 				writeError(w, http.StatusNotFound, "fact not found: "+strconv.FormatInt(factID, 10))
 				return
@@ -119,7 +119,7 @@ func (s *Server) handleFactDecay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		store := facts.New(h.Store().DB, projectID)
-		score, err := store.Decay(r.Context(), factsSessionID(r), factID)
+		score, err := store.Decay(r.Context(), factsSessionID(r), factID, nil)
 		if err != nil {
 			if isUnknownFactError(err, factID) {
 				writeError(w, http.StatusNotFound, "fact not found: "+strconv.FormatInt(factID, 10))
@@ -144,7 +144,7 @@ func (s *Server) handleFactDecayAll(w http.ResponseWriter, r *http.Request) {
 			threshold = *body.Threshold
 		}
 		store := facts.New(h.Store().DB, projectID)
-		decayed, purged, err := store.DecayAll(r.Context(), factsSessionID(r), threshold)
+		decayed, purged, err := store.DecayAll(r.Context(), factsSessionID(r), threshold, nil)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "decay all: "+err.Error())
 			return
