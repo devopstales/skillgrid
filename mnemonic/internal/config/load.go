@@ -88,6 +88,24 @@ type Extraction struct {
 	LLM bool
 }
 
+// GlobalMemory is the mnemonic.global_memory section (change
+// 2026-10-24-global-llm-wiki, TICKET-04): the bounded global fact store's
+// per-category char budgets (the Hermes MEMORY.md / USER.md limits). The
+// batch ops ticket (TICKET-04) enforces MemoryCharLimit on category 'memory'
+// facts and UserCharLimit on category 'user' facts in the __global__ store;
+// project-store facts are unbounded. A non-positive YAML value keeps the
+// production default (the loader never lets a bad key disable the budget).
+type GlobalMemory struct {
+	MemoryCharLimit int
+	UserCharLimit   int
+}
+
+// DefaultGlobalMemory is the production default for mnemonic.global_memory:
+// the Hermes budgets (memory 2200 / user 1375 chars).
+func DefaultGlobalMemory() GlobalMemory {
+	return GlobalMemory{MemoryCharLimit: 2200, UserCharLimit: 1375}
+}
+
 // Checkpoint is the mnemonic.checkpoint section (ADR-0022): host-agent
 // memory checkpoint gating (min events, cooldown, observation cap).
 type Checkpoint struct {
@@ -344,6 +362,10 @@ type Indexing struct {
 	// TICKET-07): the Context Harness switch + context-length knobs. OPT-IN —
 	// Enabled defaults to false; the other fields carry production defaults.
 	CLM CLM
+	// GlobalMemory is the mnemonic.global_memory section (change
+	// 2026-10-24-global-llm-wiki, TICKET-04): the bounded global fact
+	// store's per-category char budgets (memory 2200 / user 1375).
+	GlobalMemory GlobalMemory
 }
 
 type indexingFile struct {
@@ -419,6 +441,10 @@ type mnemonicSection struct {
 	// from an explicit true. Guard is a pointer so an absent key keeps the
 	// default true while an explicit false opts out of the fail-open guard.
 	CLM clmSection `yaml:"clm"`
+	// GlobalMemory is the mnemonic.global_memory section (TICKET-04). Both
+	// keys are plain ints: a missing key keeps the production default (the
+	// merge applies the value only when it is positive).
+	GlobalMemory globalMemorySection `yaml:"global_memory"`
 }
 
 type retrievalBudgetSection struct {
@@ -449,6 +475,14 @@ type injectSection struct {
 	Summaries    *int `yaml:"summaries"`
 	Observations *int `yaml:"observations"`
 	MaxTokens    *int `yaml:"max_tokens"`
+}
+
+// globalMemorySection is the mnemonic.global_memory section (TICKET-04): the
+// bounded global fact store's per-category char budgets. Absent or
+// non-positive keys keep the production defaults (2200 / 1375).
+type globalMemorySection struct {
+	MemoryCharLimit int `yaml:"memory_char_limit"`
+	UserCharLimit   int `yaml:"user_char_limit"`
 }
 
 // clmSection is the mnemonic.claude section (Context Harness CLM, ADR-0027,
@@ -645,6 +679,7 @@ func DefaultIndexing() Indexing {
 		Checkpoint:   DefaultCheckpoint(),
 		Inject:       DefaultInject(),
 		CLM:          DefaultCLM(),
+		GlobalMemory: DefaultGlobalMemory(),
 	}
 }
 
@@ -816,6 +851,24 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
 	// request path). Env overrides (SKILLGRID_CTX_CLM / _BUDGET / _RESERVE)
 	// win over the merged YAML value when present and parseable.
 	out.CLM = mergeCLM(defaults.CLM, section.CLM)
+	// GlobalMemory (change 2026-10-24-global-llm-wiki, TICKET-04): the
+	// bounded global fact store's per-category char budgets. A non-positive
+	// or absent key keeps the default so a bad key never disables the budget.
+	out.GlobalMemory = mergeGlobalMemory(defaults.GlobalMemory, section.GlobalMemory)
+	return out
+}
+
+// mergeGlobalMemory maps the mnemonic.global_memory YAML section onto the
+// GlobalMemory budgets. Non-positive values keep the base (production
+// defaults 2200/1375), so an absent or malformed section keeps the budget.
+func mergeGlobalMemory(base GlobalMemory, section globalMemorySection) GlobalMemory {
+	out := base
+	if section.MemoryCharLimit > 0 {
+		out.MemoryCharLimit = section.MemoryCharLimit
+	}
+	if section.UserCharLimit > 0 {
+		out.UserCharLimit = section.UserCharLimit
+	}
 	return out
 }
 

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -25,8 +26,11 @@ func registerFactTools(s *server.MCPServer) {
 // operation to the project or __global__ store; target maps to the facts
 // category (memory/user) on the write ops.
 // factScopeParam is the scope param option shared by every fact_* tool.
+// 'all' is the fused-search read path (TICKET-03): it searches both stores
+// and returns hits interleaved by each store's rank, each labeled with its
+// scope and category.
 func factScopeParam() mcplib.ToolOption {
-	return mcplib.WithString("scope", mcplib.Description("Store scope: 'project' (default) or 'global' (the cross-project fact store). 'all' is read-only (fused search, coming in a later change)."))
+	return mcplib.WithString("scope", mcplib.Description("Store scope: 'project' (default) or 'global' (the cross-project fact store). 'all' searches BOTH stores (fused search) and returns hits interleaved by each store's rank, each labeled with scope + category. Read-only."))
 }
 
 // factTargetParam is the target param option shared by the write ops.
@@ -36,12 +40,13 @@ func factTargetParam() mcplib.ToolOption {
 
 func factAddTool() mcplib.Tool {
 	return mcplib.NewTool("fact_add",
-		mcplib.WithDescription("Add a durable fact to Fact Memory and record a session_events trail (action_type=fact_add). With scope=global the fact lands in the cross-project __global__ store and the trail in the caller's project store. Returns the new fact id."),
-		mcplib.WithString("content", mcplib.Required(), mcplib.Description("Fact text (required)")),
+		mcplib.WithDescription("Add a durable fact to Fact Memory and record a session_events trail (action_type=fact_add). With scope=global the fact lands in the cross-project __global__ store and the trail in the caller's project store. Returns the new fact id. Alternatively, pass an `operations` array (add/patch/remove) to apply a batch as a unit — the global store's char budget (memory 2200 / user 1375) is checked on the batch's FINAL result only, overflow returns a structured error with current_entries + usage, and exact duplicates are rejected as no-duplicate-added."),
+		mcplib.WithString("content", mcplib.Description("Fact text (required unless `operations` is given)")),
 		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Session id to attribute the trail event to (must exist in the project store; for scope=global the trail lands there, so the session must exist there)")),
 		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
 		factScopeParam(),
 		factTargetParam(),
+		mcplib.WithArray("operations", mcplib.Description("Batch operations array (add/patch/remove applied as a unit; content is not required when given). Each op: {\"action\": \"add\"|\"patch\"|\"remove\", \"content\": \"new text\" (add/patch), \"old_text\": \"substring to match\" (patch/remove). The char budget is checked on the FINAL result only; overflow rolls back the whole batch and returns current_entries + usage.")),
 	)
 }
 
@@ -51,10 +56,6 @@ func handleFactAdd(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 		return toolError(err)
 	}
 	projectID, err := projectIDFor(svc, req.GetString("project", ""))
-	if err != nil {
-		return toolError(err)
-	}
-	content, err := req.RequireString("content")
 	if err != nil {
 		return toolError(err)
 	}
@@ -77,6 +78,20 @@ func handleFactAdd(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 	}
 	defer cleanup()
 
+	// Batch path: an `operations` array is applied as a unit (the char
+	// budget is checked on the FINAL result only; overflow rolls back the
+	// whole batch and returns the structured current_entries + usage error).
+	// content is not required in this path.
+	if ops, err := getFactOperations(req); err != nil {
+		return toolError(err)
+	} else if len(ops) > 0 {
+		return handleFactBatch(ctx, data, trail, sessionID, projectID, scope, target, ops)
+	}
+
+	content, err := req.RequireString("content")
+	if err != nil {
+		return toolError(err)
+	}
 	id, err := data.AddWith(ctx, sessionID, content, target, trail)
 	if err != nil {
 		return toolError(err)
@@ -90,9 +105,53 @@ func handleFactAdd(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 	})
 }
 
+// getFactOperations returns the `operations` argument as []facts.Operation
+// (nil when absent). The mcp-go CallToolRequest has no typed array accessor,
+// so the argument is pulled from GetArguments and re-marshaled through JSON
+// (the same round-trip the library uses for its own accessors). A PRESENT but
+// malformed array is a clean error (the batch boundary validates input); an
+// absent argument stays nil (the single-fact content path).
+func getFactOperations(req mcplib.CallToolRequest) ([]facts.Operation, error) {
+	raw, ok := req.GetArguments()["operations"]
+	if !ok {
+		return nil, nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("operations argument: %w", err)
+	}
+	var ops []facts.Operation
+	if err := json.Unmarshal(b, &ops); err != nil {
+		return nil, fmt.Errorf("operations argument must be an array of {action, content, old_text} objects: %w", err)
+	}
+	return ops, nil
+}
+
+// handleFactBatch applies the fact_add `operations` array as a unit through
+// facts.Batch and returns the structured BatchResult (success + usage +
+// current_entries). A failed batch (overflow / ambiguous / no-match /
+// validation) returns a tool error carrying the structured payload (the
+// agent reads current_entries / closest_entries to decide the retry).
+func handleFactBatch(ctx context.Context, data, trail *facts.Store, sessionID, projectID string, scope facts.Scope, target string, ops []facts.Operation) (*mcplib.CallToolResult, error) {
+	res, err := data.Batch(ctx, target, ops)
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{
+		"success":            res.Success,
+		"no_duplicate_added": res.NoDuplicateAdded,
+		"usage":              res.Usage,
+		"current_entries":    res.CurrentEntries,
+		"session_id":         sessionID,
+		"project":            projectID,
+		"scope":              string(scope),
+		"event":              "fact_add_batch",
+	})
+}
+
 func factSearchTool() mcplib.Tool {
 	return mcplib.NewTool("fact_search",
-		mcplib.WithDescription("Lexical FTS search over Fact Memory (soft-deleted facts excluded). With scope=global the search reads the cross-project __global__ store and trails to the caller's project store. Returns matching facts ranked by bm25 and records a session_events trail (action_type=fact_search) with the matched fact ids."),
+		mcplib.WithDescription("Lexical FTS search over Fact Memory (soft-deleted facts excluded). With scope=global the search reads the cross-project __global__ store and trails to the caller's project store. With scope=all the search covers BOTH stores (fused search): hits are interleaved by each store's own bm25 rank and every hit is labeled with its scope (global/project) and category. Returns matching facts and records a session_events trail (action_type=fact_search, mode=fused) with the matched fact ids."),
 		mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search terms (any-term recall)")),
 		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Session id to attribute the trail event to (must exist in the project store)")),
 		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
@@ -124,6 +183,25 @@ func handleFactSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
 	scope, err := factScopeFor(req.GetString("scope", ""))
 	if err != nil {
 		return toolError(err)
+	}
+
+	if scope == facts.ScopeAll {
+		// Fused search (TICKET-03): both stores, hits interleaved by each
+		// store's rank, each labeled scope + category; the trail lands in
+		// the project store only.
+		global, project, cleanup, err := openFusedStores(svc, projectID)
+		if err != nil {
+			return toolError(err)
+		}
+		defer cleanup()
+		f, err := facts.FusedSearch(ctx, sessionID, query, limit, includeDeleted, global, project)
+		if err != nil {
+			return toolError(err)
+		}
+		return JSONResult(map[string]any{
+			"facts": f,
+			"count": len(f),
+		})
 	}
 
 	data, trail, cleanup, err := openFactStores(svc, projectID, scope)
@@ -306,7 +384,7 @@ func factScopeFor(raw string) (facts.Scope, error) {
 // scope=project: both roles are the caller's project store (unchanged
 // behavior). scope=global: data is the __global__ store, trail is the
 // caller's project store (C3). scope=all errors for write ops (fused search
-// lands in a later change).
+// has its own path: openFusedStores).
 func openFactStores(svc *service.Service, projectID string, scope facts.Scope) (data, trail *facts.Store, cleanup func(), err error) {
 	switch scope {
 	case facts.ScopeProject, "":
@@ -334,4 +412,22 @@ func openFactStores(svc *service.Service, projectID string, scope facts.Scope) (
 	default:
 		return nil, nil, nil, fmt.Errorf("unknown scope %q (want project, global, or all)", scope)
 	}
+}
+
+// openFusedStores opens BOTH stores for the scope=all read path (TICKET-03):
+// the __global__ store plus the caller's project store, plus a cleanup that
+// releases both handles.
+func openFusedStores(svc *service.Service, projectID string) (global, project *facts.Store, cleanup func(), err error) {
+	gh, gclean, err := svc.OpenGlobal()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	ph, pclean, err := svc.Open(projectID)
+	if err != nil {
+		gclean()
+		return nil, nil, nil, err
+	}
+	return facts.New(gh.Store().DB, service.GlobalProjectID),
+		facts.New(ph.Store().DB, projectID),
+		func() { pclean(); gclean() }, nil
 }

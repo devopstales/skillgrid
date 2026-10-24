@@ -34,3 +34,12 @@ exclude:
 # Web cache TTL overrides (days). Defaults: context7 30, exa 7, deepwiki 14,
 # fetch 7, manual 0 (never expires). Empty section = built-in defaults.
 web_ttl_days: {}
+
+# Global fact store char budgets (the bounded __global__ store, change
+# 2026-10-24-global-llm-wiki TICKET-04). memory: agent operational notes
+# (Hermes MEMORY.md budget); user: user profile (Hermes USER.md budget).
+# The batch ops layer enforces these on the FINAL result of each batch;
+# project-store facts are unbounded.
+global_memory:
+  memory_char_limit: 2200
+  user_char_limit: 1375
