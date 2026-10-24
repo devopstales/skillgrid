@@ -1,0 +1,472 @@
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+index f2ee9d1..3b8c925 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem.go
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -77,6 +77,8 @@ func runMem(version string, args []string) {
+ 		runMemContext(svc, projID, limit, items, chars, timeout)
+ 	case "timeline":
+ 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
++	case "expire":
++		runMemExpire(svc, dataDir)
+ 	case "help", "-h", "--help":
+ 		printMemUsage()
+ 	default:
+@@ -87,19 +89,21 @@ func runMem(version string, args []string) {
+ }
+ 
+ func printMemUsage() {
+-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline> [args]
++	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|expire> [args]
+ 
+   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
+   governance <id>                 governed-asset view (mem_governance)
+   share <id> --target-visibility team|restricted|agent [--grants a,b]
+-                                  widen visibility (mem_share)
++                                   widen visibility (mem_share)
+   search <query> [--mode trigram|prefix|phrase|all] [--limit N] [--reader-owner X]
+-                 [--item N] [--char N] [--timeout 3s]
+-                                   budgeted FTS search (mem_search; default mode = phrase OR)
++                  [--item N] [--char N] [--timeout 3s]
++                                    budgeted FTS search (mem_search; default mode = phrase OR)
+   context [--limit N] [--item N] [--char N] [--timeout 3s]
+-                                  recent session summaries (mem_context)
++                                   recent session summaries (mem_context)
+   timeline <id> [--window 1h] [--limit N] [--item N] [--char N] [--timeout 3s]
+-                                  chronological context (mem_timeline)
++                                   chronological context (mem_timeline)
++  expire                          retire expired observations across all projects
++                                   (TTL sweep; best-effort, exit 0 on missing stores)
+ 
+ Flags:
+   --project ID    project bucket (defaults to CWD-resolved)
+@@ -378,6 +382,28 @@ func runMemTimeline(svc *service.Service, projID string, pos []string, window st
+ 	printJSON(out)
+ }
+ 
++// runMemExpire is the CLI for the TTL sweep (014 step 04, `mem expire`): it
++// retires expired observations across every project under the data dir and
++// prints the per-project retirement counts. It is best-effort — RunTTLExpiry
++// skips missing/corrupt stores — and always exits 0 on a successful sweep, so
++// a scheduled cron job never fails over an uncreated store. It ignores
++// --project (it is a cross-project sweep).
++func runMemExpire(svc *service.Service, dataDir string) {
++	_ = dataDir // the service already owns the data dir it was opened with
++	counts, err := svc.RunTTLExpiry(hCtx())
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	out := map[string]any{"retired": counts}
++	total := 0
++	for _, n := range counts {
++		total += n
++	}
++	out["total"] = total
++	printJSON(out)
++}
++
+ func looksLikeSession(s string) bool {
+ 	// A session id is a UUID (36 chars with dashes) or a bare token with no
+ 	// spaces; a topic_key typically contains '/'.
+diff --git a/skillgrid-cli/cmd/skillgrid/mem_expire_test.go b/skillgrid-cli/cmd/skillgrid/mem_expire_test.go
+new file mode 100644
+index 0000000..81ede39
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/mem_expire_test.go
+@@ -0,0 +1,105 @@
++package main
++
++import (
++	"context"
++	"os/exec"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// seedTTLProjects plants two project stores in dataDir: one with an expired
++// observation, one with a live (future) observation, so `mem expire` has
++// something to retire in exactly the first project. Stores are opened/closed
++// around the writes so the memory.Service (which aliases the store DB) is never
++// used after Close.
++func seedTTLProjects(t *testing.T, dataDir string) {
++	t.Helper()
++	ctx := context.Background()
++
++	plant := func(project, sessionID, title, content string, offset time.Duration) {
++		t.Helper()
++		st, err := store.Open(dataDir, project)
++		if err != nil {
++			t.Fatalf("open %s: %v", project, err)
++		}
++		// observations.session_id REFERENCES sessions(id): create the session row first.
++		if _, err := st.DB.Exec(`
++			INSERT INTO sessions (id, project, directory, started_at, status, title, summary)
++			VALUES (?, ?, '/tmp', '2026-01-01T00:00:00Z', 'ended', 'ttl seed', '## Goal\nttl seed')`,
++			sessionID, project); err != nil {
++			t.Fatalf("insert session %s: %v", project, err)
++		}
++		mem := memory.New(st, project)
++		id, err := mem.Save(ctx, memory.SaveInput{
++			SessionID: sessionID, Type: "decision", Title: title, Content: content,
++		})
++		if err != nil {
++			t.Fatalf("save %s: %v", project, err)
++		}
++		if err := mem.SetExpiresAt(ctx, id, time.Now().UTC().Add(offset).Format(time.RFC3339)); err != nil {
++			t.Fatalf("set expires %s: %v", project, err)
++		}
++		st.Close()
++	}
++
++	plant("memcli-expire-exp", "sess-exp", "expire probe expired", "this row is past its ttl", -1*time.Hour)
++	plant("memcli-expire-live", "sess-live", "expire probe live", "this row is not expired", 1*time.Hour)
++}
++
++// TestMemExpireCLI is 04.3 [AFK] — `skillgrid mem expire` routes through
++// RunTTLExpiry on every project, prints a per-project retirement count, and
++// exits 0 even when the data dir is empty (no stores to sweep).
++func TestMemExpireCLI(t *testing.T) {
++	dataDir := t.TempDir()
++	seedTTLProjects(t, dataDir)
++
++	// mem expire sweeps all projects and reports per-project counts.
++	out := runMemCLI(t, dataDir, "expire", "--dir", dataDir)
++	if !strings.Contains(out, "memcli-expire-exp") || !strings.Contains(out, "memcli-expire-live") {
++		t.Fatalf("mem expire must report every project: %s", out)
++	}
++	// The expired project retires 1; the live project retires 0 (pretty-printed
++	// JSON: `"project": N`).
++	if !strings.Contains(out, `"memcli-expire-exp": 1`) || !strings.Contains(out, `"memcli-expire-live": 0`) {
++		t.Fatalf("mem expire must report per-project counts (1 and 0): %s", out)
++	}
++
++	// Idempotent second run: nothing left to retire, still exit 0.
++	out = runMemCLI(t, dataDir, "expire", "--dir", dataDir)
++	if !strings.Contains(out, "memcli-expire-exp") {
++		t.Fatalf("second mem expire must still list projects: %s", out)
++	}
++
++	// Missing/empty store: a fresh empty data dir still exits 0 (graceful).
++	emptyDir := t.TempDir()
++	cmd := exec.Command("go", "run", ".", "mem", "expire", "--dir", emptyDir)
++	cmd.Dir = mustWD(t)
++	cmd.Env = append(cmd.Environ(), "SKILLGRID_MNEMONIC_DATA_DIR="+emptyDir)
++	if out, err := cmd.CombinedOutput(); err != nil {
++		t.Fatalf("mem expire on empty data dir should exit 0, got err=%v out=%s", err, out)
++	}
++}
++
++// TestRunTTLExpiryDirect exercises the service seam behind the CLI: it retires
++// expired rows across all projects and skips missing/corrupt stores without
++// surfacing an error (best-effort).
++func TestRunTTLExpiryDirect(t *testing.T) {
++	dataDir := t.TempDir()
++	seedTTLProjects(t, dataDir)
++	svc := service.New(dataDir)
++	counts, err := svc.RunTTLExpiry(context.Background())
++	if err != nil {
++		t.Fatalf("RunTTLExpiry: %v", err)
++	}
++	if counts["memcli-expire-exp"] != 1 {
++		t.Fatalf("expected 1 retired in expired project, got %d", counts["memcli-expire-exp"])
++	}
++	if counts["memcli-expire-live"] != 0 {
++		t.Fatalf("expected 0 retired in live project, got %d", counts["memcli-expire-live"])
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/service.go b/skillgrid-cli/internal/mnemonic/memory/service.go
+index 684dae6..d9c2336 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/service.go
++++ b/skillgrid-cli/internal/mnemonic/memory/service.go
+@@ -22,6 +22,10 @@ import (
+ const (
+ 	defaultSearchLimit  = 20
+ 	defaultContextLimit = 5
++	// defaultMemoryTTL is the soft expiry stamped on every observation when the
++	// caller does not supply one (014 step 04). The service layer can override
++	// it from the mnemonic.ttl config key via SetTTL.
++	defaultMemoryTTL = 7 * 24 * time.Hour
+ )
+ 
+ // Service provides save and search over project-scoped observations.
+@@ -47,6 +51,10 @@ type Service struct {
+ 	// in unit tests still enforces the default caps. The service layer tunes it
+ 	// from config (mnemonic.retrieval_budget) via SetBudget.
+ 	budget *Budget
++	// ttl is the default soft expiry (014 step 04) stamped on saves that omit
++	// expires_at. Zero means "use defaultMemoryTTL". The service layer sets it
++	// from the mnemonic.ttl config key via SetTTL.
++	ttl time.Duration
+ }
+ 
+ // SetDistillHookProvider attaches the owning handle (which carries the opt-in
+@@ -76,6 +84,24 @@ func (s *Service) SetBudget(cfg BudgetConfig) {
+ 	}
+ }
+ 
++// SetTTL overrides the default soft expiry (014 step 04) stamped on saves that
++// omit expires_at. The service layer calls it from the mnemonic.ttl config key;
++// a non-positive value falls back to defaultMemoryTTL.
++func (s *Service) SetTTL(d time.Duration) {
++	if s != nil && d > 0 {
++		s.ttl = d
++	}
++}
++
++// effectiveTTL returns the active default soft expiry, falling back to
++// defaultMemoryTTL when no positive override was set.
++func (s *Service) effectiveTTL() time.Duration {
++	if s != nil && s.ttl > 0 {
++		return s.ttl
++	}
++	return defaultMemoryTTL
++}
++
+ // SaveInput holds fields for a new or updated observation.
+ type SaveInput struct {
+ 	Title     string
+@@ -101,6 +127,11 @@ type SaveInput struct {
+ 	// an owner (private-by-default governance, change 013 step 01). Empty
+ 	// falls back to the session identity so the asset is never unowned.
+ 	Owner string
++	// ExpiresAt is an optional RFC3339 expiry. When non-empty it is preserved
++	// unchanged; when empty, Save() auto-stamps it to now + the configured TTL
++	// (mnemonic.ttl, default 7 days) so every observation carries a soft
++	// expiry (014 step 04).
++	ExpiresAt string
+ }
+ 
+ // PassiveInput is a raw block of text (assistant reply, Task output, etc.)
+@@ -299,14 +330,24 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
+ 	if in.CapturePrompt {
+ 		promptID = s.latestPromptForSession(ctx, in.SessionID)
+ 	}
++	// TTL default (014 step 04): when the caller supplies no explicit expires_at,
++	// stamp one to now + the configured default (mnemonic.ttl, 7d). An explicit
++	// value is preserved unchanged (validated so we never persist an
++	// unparseable TTL that breaks the soft-exclude filters).
++	expiresAt := strings.TrimSpace(in.ExpiresAt)
++	if expiresAt == "" {
++		expiresAt = time.Now().UTC().Add(s.effectiveTTL()).Format(time.RFC3339)
++	} else if _, err := time.Parse(time.RFC3339, expiresAt); err != nil {
++		return 0, fmt.Errorf("invalid expires_at: %w", err)
++	}
+ 	res, err := s.store.DB.ExecContext(ctx, `
+ 		INSERT INTO observations (
+ 			session_id, type, title, content, project, scope, topic_key,
+ 			normalized_hash, revision_count, created_at, updated_at, source, prompt_id, tool_name,
+-			owner, visibility, status, retrieval_usage
+-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0)`,
++			owner, visibility, status, retrieval_usage, expires_at
++		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?)`,
+ 		in.SessionID, in.Type, in.Title, in.Content, s.projectID, in.Scope, nullString(in.TopicKey),
+-		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner,
++		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt),
+ 	)
+ 	if err != nil {
+ 		return 0, fmt.Errorf("insert observation: %w", err)
+diff --git a/skillgrid-cli/internal/mnemonic/memory/ttl_defaults_test.go b/skillgrid-cli/internal/mnemonic/memory/ttl_defaults_test.go
+new file mode 100644
+index 0000000..fd4646d
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/ttl_defaults_test.go
+@@ -0,0 +1,136 @@
++package memory
++
++import (
++	"context"
++	"testing"
++	"time"
++)
++
++// TestSaveAutoSetsExpiresAt verifies that Save() stamps an observation with a
++// default expiry (~7 days out) when the caller does not supply one, and that an
++// explicitly provided expires_at is preserved unchanged (014 step 04, task 04.1).
++func TestSaveAutoSetsExpiresAt(t *testing.T) {
++	_, svc := newTestStore(t, "ttlautosave")
++	sid := newSession(t, svc)
++	ctx := context.Background()
++
++	// No explicit expires_at: Save() must auto-stamp ~now + 7d.
++	id, err := svc.Save(ctx, SaveInput{
++		Title: "auto ttl", Type: "decision", Content: "no explicit expiry",
++		SessionID: sid, Scope: "project",
++	})
++	if err != nil {
++		t.Fatalf("save (no expires): %v", err)
++	}
++	obs, err := svc.Get(ctx, id)
++	if err != nil {
++		t.Fatalf("get: %v", err)
++	}
++	if obs.ExpiresAt == "" {
++		t.Fatal("auto expires_at was not set; expected ~now+7d")
++	}
++	got, err := time.Parse(time.RFC3339, obs.ExpiresAt)
++	if err != nil {
++		t.Fatalf("expires_at %q not RFC3339: %v", obs.ExpiresAt, err)
++	}
++	want := time.Now().UTC().Add(7 * 24 * time.Hour)
++	if d := got.Sub(want); d > time.Hour || d < -time.Hour {
++		t.Fatalf("auto expires_at %s is not ~7d out (want ~%s, off by %v)", got, want, d)
++	}
++
++	// Explicit expires_at must be preserved unchanged.
++	explicit := "2030-01-02T03:04:05Z"
++	id2, err := svc.Save(ctx, SaveInput{
++		Title: "explicit ttl", Type: "decision", Content: "explicit expiry",
++		SessionID: sid, Scope: "project", ExpiresAt: explicit,
++	})
++	if err != nil {
++		t.Fatalf("save (explicit expires): %v", err)
++	}
++	obs2, err := svc.Get(ctx, id2)
++	if err != nil {
++		t.Fatalf("get explicit: %v", err)
++	}
++	if obs2.ExpiresAt != explicit {
++		t.Fatalf("explicit expires_at not preserved: got %q want %q", obs2.ExpiresAt, explicit)
++	}
++}
++
++// TestTTLRetireOnlyExpired verifies that TTLRetire soft-deletes ONLY
++// observations past their expires_at: an expired row is retired, a row
++// expiring in the future is untouched, and a row with no expires_at is
++// untouched. It also verifies that search excludes the retired row (014 step
++// 04, task 04.2).
++func TestTTLRetireOnlyExpired(t *testing.T) {
++	_, svc := newTestStore(t, "ttlretire")
++	sid := newSession(t, svc)
++	ctx := context.Background()
++
++	expiredID, err := svc.Save(ctx, SaveInput{
++		Title: "ttl expired", Type: "decision", Content: "already expired",
++		SessionID: sid, Scope: "project",
++	})
++	if err != nil {
++		t.Fatalf("save expired: %v", err)
++	}
++	if err := svc.SetExpiresAt(ctx, expiredID, time.Now().Add(-1*time.Hour).UTC().Format(time.RFC3339)); err != nil {
++		t.Fatalf("set expired expiry: %v", err)
++	}
++	futureID, err := svc.Save(ctx, SaveInput{
++		Title: "ttl future", Type: "decision", Content: "expires in an hour",
++		SessionID: sid, Scope: "project",
++	})
++	if err != nil {
++		t.Fatalf("save future: %v", err)
++	}
++	if err := svc.SetExpiresAt(ctx, futureID, time.Now().Add(1*time.Hour).UTC().Format(time.RFC3339)); err != nil {
++		t.Fatalf("set future expiry: %v", err)
++	}
++	noExpID, err := svc.Save(ctx, SaveInput{
++		Title: "ttl noexpiry", Type: "decision", Content: "no expiry set",
++		SessionID: sid, Scope: "project",
++	})
++	if err != nil {
++		t.Fatalf("save noexpiry: %v", err)
++	}
++	// Clear the auto-stamped default so this row genuinely has no expires_at.
++	if err := svc.SetExpiresAt(ctx, noExpID, ""); err != nil {
++		t.Fatalf("clear noexpiry expiry: %v", err)
++	}
++
++	retired, err := svc.TTLRetire(ctx)
++	if err != nil {
++		t.Fatalf("ttl retire: %v", err)
++	}
++	if retired != 1 {
++		t.Fatalf("TTLRetire retired %d, want exactly 1", retired)
++	}
++
++	// Search must exclude the retired row but still return the live ones.
++	hits, err := svc.Search(ctx, "ttl", "any", 10)
++	if err != nil {
++		t.Fatalf("search: %v", err)
++	}
++	seen := map[int64]bool{}
++	for _, h := range hits {
++		seen[h.ID] = true
++	}
++	if seen[expiredID] {
++		t.Fatal("search returned a retired observation")
++	}
++	if !seen[futureID] || !seen[noExpID] {
++		t.Fatalf("search did not return live observations: future=%v noexpiry=%v", seen[futureID], seen[noExpID])
++	}
++
++	// A soft-deleted row is invisible to the read path (Get filters
++	// deleted_at IS NULL), confirming the expiry actually soft-deleted it.
++	if _, err := svc.Get(ctx, expiredID); err == nil {
++		t.Fatal("retired observation is still readable via Get; expected not-found")
++	}
++	if _, err := svc.Get(ctx, futureID); err != nil {
++		t.Fatalf("future observation unreadable after retire: %v", err)
++	}
++	if _, err := svc.Get(ctx, noExpID); err != nil {
++		t.Fatalf("no-expiry observation unreadable after retire: %v", err)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index bba2e29..8a6dc17 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -301,6 +301,10 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
+ 		Chars:     rb.Chars,
+ 		TimeoutNs: rb.TimeoutNs,
+ 	})
++	// TTL default (014 step 04): route the mnemonic.ttl config key to the
++	// memory service so saves that omit expires_at are stamped with the
++	// operator-configured expiry (DefaultMemoryTTL fallback when unset).
++	mem.SetTTL(cfg.TTL)
+ 	h := &ProjectHandle{
+ 		store:          st,
+ 		projectID:      projectID,
+@@ -1753,6 +1757,42 @@ func (s *Service) Open(projectID string) (*ProjectHandle, func(), error) {
+ 	return s.openProject(projectID, ".")
+ }
+ 
++// RunTTLExpiry sweeps every project store under the data dir, soft-deleting
++// (retiring) each observation past its expires_at. It is best-effort: a missing
++// or corrupt store is skipped with a zero count, and an empty data dir is a
++// clean no-op, so the method never fails a sweep over an uncreated store
++// (014 step 04, backing `mem expire`). It returns the per-project retirement
++// counts keyed by project id.
++func (s *Service) RunTTLExpiry(ctx context.Context) (map[string]int, error) {
++	if s == nil {
++		return map[string]int{}, fmt.Errorf("service not initialized")
++	}
++	projects, err := s.ListProjects()
++	if err != nil {
++		// A data dir that does not exist yet is an empty sweep, not an error.
++		if os.IsNotExist(err) {
++			return map[string]int{}, nil
++		}
++		return nil, err
++	}
++	counts := make(map[string]int, len(projects))
++	for _, pid := range projects {
++		h, cleanup, oerr := s.openProject(pid, ".")
++		if oerr != nil {
++			// Best-effort: skip a store that cannot be opened (missing/corrupt).
++			counts[pid] = 0
++			continue
++		}
++		n, rerr := h.Memory().TTLRetire(ctx)
++		if rerr != nil {
++			n = 0
++		}
++		counts[pid] = n
++		cleanup()
++	}
++	return counts, nil
++}
++
+ // OpenForCWD opens project-scoped services from the current working directory.
+ func (s *Service) OpenForCWD() (*ProjectHandle, func(), error) {
+ 	return s.openProjectFromCWD()

@@ -1,0 +1,222 @@
+=== commits ===
+b5239413 feat(cli): add skillgrid init command skeleton
+=== stat ===
+ skillgrid-cli/cmd/skillgrid/init_cmd.go      | 121 +++++++++++++++++++++++++++
+ skillgrid-cli/cmd/skillgrid/init_cmd_test.go |  59 +++++++++++++
+ skillgrid-cli/cmd/skillgrid/main.go          |   4 +
+ 3 files changed, 184 insertions(+)
+=== diff ===
+diff --git a/skillgrid-cli/cmd/skillgrid/init_cmd.go b/skillgrid-cli/cmd/skillgrid/init_cmd.go
+new file mode 100644
+index 00000000..30f3e404
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/init_cmd.go
+@@ -0,0 +1,121 @@
++package main
++
++import (
++	"context"
++	"flag"
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++const projectBootFile = "AGENTS.md"
++
++type initResult struct {
++	BootFile string
++	Preamble string // "written" | "kept" | "forced"
++	Sentinel string // "upserted"
++	Indexed  int
++	Ingested int
++	Skipped  []string
++	Errors   []string
++}
++
++func newInitFlagSet(out *flag.FlagSet) (force *bool, docs *stringSliceFlag) {
++	out.SetOutput(os.Stderr)
++	force = out.Bool("force", false, "rebuild generated preamble")
++	docs = new(stringSliceFlag)
++	out.Var(docs, "docs", "extra path (repeatable)")
++	out.Usage = func() {
++		fmt.Fprintln(out.Output(), "usage: skillgrid init [--force] [--docs path]...")
++		out.PrintDefaults()
++	}
++	return force, docs
++}
++
++func runProjectInit(args []string) {
++	for _, a := range args {
++		if a == "-h" || a == "--help" {
++			fs := flag.NewFlagSet("init", flag.ContinueOnError)
++			newInitFlagSet(fs)
++			fs.Usage()
++			return
++		}
++	}
++
++	fs := flag.NewFlagSet("init", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	force, docs := newInitFlagSet(fs)
++	if err := fs.Parse(args); err != nil {
++		os.Exit(2)
++	}
++
++	dir := "."
++	if rest := fs.Args(); len(rest) > 0 {
++		dir = rest[0]
++	}
++
++	dataDir := envOr("SKILLGRID_MNEMONIC_DATA_DIR", "")
++	svc, err := newMnemonicService(dataDir)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++
++	res, err := projectInit(context.Background(), svc, dir, *force, []string(*docs))
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	printInitResult(os.Stdout, res)
++}
++
++func printInitResult(w *os.File, res initResult) {
++	fmt.Fprintf(w, "boot_file: %s\n", res.BootFile)
++	fmt.Fprintf(w, "preamble: %s\n", res.Preamble)
++	fmt.Fprintf(w, "sentinel: %s\n", res.Sentinel)
++	fmt.Fprintf(w, "indexed: %d\n", res.Indexed)
++	fmt.Fprintf(w, "ingested: %d\n", res.Ingested)
++	if len(res.Skipped) == 0 {
++		fmt.Fprintln(w, "skipped:")
++	} else {
++		fmt.Fprintf(w, "skipped: %s\n", strings.Join(res.Skipped, ", "))
++	}
++	if len(res.Errors) == 0 {
++		fmt.Fprintln(w, "errors:")
++	} else {
++		fmt.Fprintf(w, "errors: %s\n", strings.Join(res.Errors, "; "))
++	}
++}
++
++func projectInit(ctx context.Context, svc *service.Service, dir string, force bool, extraDocs []string) (initResult, error) {
++	_ = ctx
++	_ = svc
++	_ = force
++	_ = extraDocs
++
++	info, err := os.Stat(dir)
++	if err != nil {
++		return initResult{}, err
++	}
++	if !info.IsDir() {
++		return initResult{}, fmt.Errorf("%s is not a directory", dir)
++	}
++
++	bootPath := filepath.Join(dir, projectBootFile)
++	if _, err := os.Stat(bootPath); os.IsNotExist(err) {
++		if err := os.WriteFile(bootPath, nil, 0o644); err != nil {
++			return initResult{}, err
++		}
++	} else if err != nil {
++		return initResult{}, err
++	}
++
++	return initResult{
++		BootFile: bootPath,
++		Preamble: "written",
++		Sentinel: "upserted",
++	}, nil
++}
+diff --git a/skillgrid-cli/cmd/skillgrid/init_cmd_test.go b/skillgrid-cli/cmd/skillgrid/init_cmd_test.go
+new file mode 100644
+index 00000000..0fc9b66b
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/init_cmd_test.go
+@@ -0,0 +1,59 @@
++package main
++
++import (
++	"bytes"
++	"context"
++	"flag"
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++func TestInitHelpListsFlags(t *testing.T) {
++	var buf bytes.Buffer
++	fs := flag.NewFlagSet("init", flag.ContinueOnError)
++	fs.SetOutput(&buf)
++	_ = fs.Bool("force", false, "rebuild generated preamble")
++	_ = fs.String("docs", "", "extra path (repeatable)")
++	fs.Usage = func() {
++		fmt.Fprintln(fs.Output(), "usage: skillgrid init [--force] [--docs path]...")
++		fs.PrintDefaults()
++	}
++	fs.Usage()
++	out := buf.String()
++	if !strings.Contains(out, "--force") || !strings.Contains(out, "--docs") {
++		t.Fatalf("usage = %q", out)
++	}
++}
++
++func TestInitWritesBootFileAndReportsCounts(t *testing.T) {
++	dir := t.TempDir()
++	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if res.BootFile == "" {
++		t.Fatal("expected boot file path")
++	}
++	if _, statErr := os.Stat(res.BootFile); statErr != nil {
++		t.Fatal(statErr)
++	}
++}
++
++func TestInitBootFileWriteFailureIsFatal(t *testing.T) {
++	dir := filepath.Join(t.TempDir(), "notdir")
++	if err := os.WriteFile(dir, []byte("x"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	_, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
++	if err == nil {
++		t.Fatal("expected error")
++	}
++}
+diff --git a/skillgrid-cli/cmd/skillgrid/main.go b/skillgrid-cli/cmd/skillgrid/main.go
+index a546bb37..0c9d0d89 100644
+--- a/skillgrid-cli/cmd/skillgrid/main.go
++++ b/skillgrid-cli/cmd/skillgrid/main.go
+@@ -49,6 +49,7 @@ func main() {
+ 		fmt.Fprintln(w, `  sync-repo     Sync git repo contents without full install`)
+ 		fmt.Fprintln(w, `  mcp           Run the Mnemonic MCP stdio server`)
+ 		fmt.Fprintln(w, `  serve         Run the Mnemonic HTTP API (default :7438)`)
++		fmt.Fprintln(w, `  init          Project boot file, code index, and doc ingest`)
+ 		fmt.Fprintln(w, `  index         Incremental code indexing`)
+ 		fmt.Fprintln(w, `  prime         Session-start context (last task, diff, impact)`)
+ 		fmt.Fprintln(w, `  compact       Session-close one-liner`)
+@@ -146,6 +147,9 @@ func main() {
+ 	case "serve":
+ 		runServe(version, rest[1:])
+ 		return
++	case "init":
++		runProjectInit(rest[1:])
++		return
+ 	case "index":
+ 		runIndex(version, rest[1:])
+ 		return

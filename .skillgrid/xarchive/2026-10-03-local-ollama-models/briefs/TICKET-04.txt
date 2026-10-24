@@ -1,0 +1,11 @@
+### TICKET-04 — Config merge writes new live-chat + embed models
+
+- **Tracker ID:** TASK-045
+- **Scope:** Verify `mergeHomeProviderConfig` writes `localLLMModel`/`localEmbedModel` (from TICKET-02) and the runtime default (TICKET-03) so the merged home config carries `llm.model=llama3.2:1b` + `embedder.provider=ollama`/`embedder.model=embeddinggemma:300m`, preserving unrelated keys.
+- **Acceptance:** `go test ./skillgrid-cli/internal/install -count=1 -run TestConfigMergeWritesNewModels` PASS. Merged config has the two new models, `base_url` = `ollamaBaseURL/v1`, and `dimension`/`profile` preserved.
+- **SATISFIES:** happy path config merge writes new live-chat + embed models
+- **Files:** `skillgrid-cli/internal/install/provider.go`, `skillgrid-cli/internal/install/provider_test.go`
+- **Size:** ~80 (S)
+- **Blocks:** TICKET-05
+- **Blocked by:** TICKET-02, TICKET-03
+

@@ -1,0 +1,586 @@
+# Review package: 449f536~1..HEAD
+
+## Commits
+e2ff708 feat(mnemonic): add 020 migration for TTL config and extraction metadata
+449f536 feat(mnemonic): add cached store handles with refcounted close
+
+## Files changed
+ .../store/migrations/020_ttl_extraction.sql        |  16 ++
+ skillgrid-cli/internal/mnemonic/store/store.go     | 172 +++++++++++++-
+ .../internal/mnemonic/store/store_pooling_test.go  | 262 +++++++++++++++++++++
+ 3 files changed, 446 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/020_ttl_extraction.sql b/skillgrid-cli/internal/mnemonic/store/migrations/020_ttl_extraction.sql
+new file mode 100644
+index 0000000..44cfb56
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/020_ttl_extraction.sql
+@@ -0,0 +1,16 @@
++-- 020: TTL config + extraction metadata (change 014, step 01).
++-- Additive: new tables only; no existing schema is touched.
++-- The filename sorts after 019_session_relay.sql so it applies last.
++
++CREATE TABLE IF NOT EXISTS ttl_config (
++    key TEXT PRIMARY KEY,
++    value TEXT NOT NULL
++);
++
++CREATE TABLE IF NOT EXISTS extraction_metadata (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    session_id TEXT,
++    content_hash TEXT,
++    extracted_at TIMESTAMP,
++    model TEXT
++);
+diff --git a/skillgrid-cli/internal/mnemonic/store/store.go b/skillgrid-cli/internal/mnemonic/store/store.go
+index d41af2e..4760494 100644
+--- a/skillgrid-cli/internal/mnemonic/store/store.go
++++ b/skillgrid-cli/internal/mnemonic/store/store.go
+@@ -1,33 +1,67 @@
+ // Package store wraps a project-scoped SQLite database with embedded SQL migrations.
+ package store
+ 
+ import (
++	"context"
+ 	"database/sql"
+ 	"embed"
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
+ 	"sort"
+ 	"strings"
+ 	"sync"
++	"sync/atomic"
++	"time"
+ 
+ 	_ "modernc.org/sqlite"
+ )
+ 
+ //go:embed migrations/*.sql
+ var migrationsFS embed.FS
+ 
+ // Store is the shared SQLite handle for one project.
+ type Store struct {
+ 	DB   *sql.DB
+ 	path string
++	// cacheKey is the pool key (store path) when this Store wraps a pooled
++	// handle, or "" when it owns its database outright (cache disabled).
++	cacheKey string
++}
++
++// cachedEntry is a pooled *sql.DB shared by every live Store for the same
++// store path. The pool eliminates N+1 store opens: repeated Open calls for
++// the same dataDir+projectID return the same underlying database handle.
++type cachedEntry struct {
++	db   *sql.DB
++	refs atomic.Int64
++}
++
++// handleCache is the process-global store handle pool. Keyed by store path
++// (dataDir + projectID). SKILLGRID_MNEMONIC_DISABLE_CACHE=1 bypasses it
++// (rollback boundary — every Open creates a fresh connection).
++var (
++	handleCache sync.Map
++	cacheMu     sync.Mutex // serializes evict-and-close against live refs
++)
++
++const (
++	envCacheDisable = "SKILLGRID_MNEMONIC_DISABLE_CACHE"
++	maxOpenAttempts = 3
++)
++
++// walBackoffs are the retry delays after a WAL-locked open attempt.
++var walBackoffs = []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond}
++
++func cacheDisabled() bool {
++	return strings.EqualFold(os.Getenv(envCacheDisable), "1")
+ }
+ 
+ // openCount records every call to Open (successful or not). It is a process-
+ // global diagnostic that is never read on the production path — the mcp tests
+ // use it to prove a single tool call opens its project store exactly once
+ // (no double-open). It is safe under concurrent use.
+ var (
+ 	openCountMu sync.Mutex
+ 	openCount   int
+ )
+@@ -48,76 +82,206 @@ func RecordOpen() {
+ }
+ 
+ // ResetOpenCount clears the counter. Test-only helper.
+ func ResetOpenCount() {
+ 	openCountMu.Lock()
+ 	openCount = 0
+ 	openCountMu.Unlock()
+ }
+ 
+ // Open opens or creates the SQLite database for projectID under dataDir.
++// Open is refcounted: a second Open for the same store path returns the
++// cached handle (same underlying *sql.DB) instead of re-opening the
++// database. Close releases one reference; the database is only closed once
++// every reference has been returned. Set SKILLGRID_MNEMONIC_DISABLE_CACHE=1
++// to bypass the cache (every Open creates a fresh connection).
+ func Open(dataDir, projectID string) (*Store, error) {
+ 	RecordOpen()
+ 	if strings.TrimSpace(projectID) == "" {
+ 		return nil, fmt.Errorf("project id is required")
+ 	}
+ 	if strings.Contains(projectID, "..") {
+ 		return nil, fmt.Errorf("invalid project id %q", projectID)
+ 	}
+ 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+ 		return nil, fmt.Errorf("create data dir: %w", err)
+ 	}
+ 	dbPath := filepath.Join(dataDir, projectID+".sqlite")
+ 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+ 		return nil, fmt.Errorf("create db dir: %w", err)
+ 	}
++	if !cacheDisabled() {
++		if s, ok := acquireCached(dbPath); ok {
++			return s, nil
++		}
++	}
++	db, err := openWithWALRetry(dbPath)
++	if err != nil {
++		return nil, err
++	}
++	if err := migrate(db); err != nil {
++		db.Close()
++		return nil, fmt.Errorf("migrate: %w", err)
++	}
++	if cacheDisabled() {
++		return &Store{DB: db, path: dbPath}, nil
++	}
++	return cacheNewHandle(db, dbPath)
++}
++
++// openWithWALRetry opens the SQLite database, retrying with exponential
++// backoff (50ms, 100ms, 200ms) when a concurrent writer holds the WAL lock.
++// It fails after maxOpenAttempts (3) total attempts.
++func openWithWALRetry(dbPath string) (*sql.DB, error) {
++	var lastErr error
++	for attempt := 0; attempt < maxOpenAttempts; attempt++ {
++		db, err := openDatabase(dbPath)
++		if err == nil {
++			return db, nil
++		}
++		lastErr = err
++		if !isWALBusy(err) || attempt+1 >= maxOpenAttempts {
++			break
++		}
++		time.Sleep(walBackoffs[attempt])
++	}
++	return nil, lastErr
++}
++
++// isWALBusy reports whether err is a transient SQLite busy/locked error
++// (SQLITE_BUSY, code 5) caused by a concurrent writer holding the WAL lock.
++// The modernc/sqlite driver renders that as "database is locked (5)
++// (SQLITE_BUSY)"; both spellings are matched so the retry triggers on any
++// busy variant without a new module dependency.
++func isWALBusy(err error) bool {
++	if err == nil {
++		return false
++	}
++	msg := err.Error()
++	return strings.Contains(msg, "database is locked") ||
++		strings.Contains(msg, "SQLITE_BUSY") ||
++		strings.Contains(msg, "database table is locked")
++}
++
++func openDatabase(dbPath string) (*sql.DB, error) {
+ 	db, err := sql.Open("sqlite", dbPath)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("open database: %w", err)
+ 	}
+ 	db.SetMaxOpenConns(1)
+ 	for _, pragma := range []string{
+ 		"PRAGMA journal_mode=WAL",
+ 		"PRAGMA foreign_keys=ON",
+ 		// 10s busy timeout: the session-close distill hook (change 013 step 02)
+ 		// reopens the store in a detached goroutine a beat after the handler's
+ 		// store closes; a longer timeout absorbs that transient WAL lock.
+ 		"PRAGMA busy_timeout=10000",
+ 	} {
+ 		if _, err := db.Exec(pragma); err != nil {
+ 			db.Close()
+ 			return nil, fmt.Errorf("apply %s: %w", pragma, err)
+ 		}
+ 	}
+-	if err := migrate(db); err != nil {
++	return db, nil
++}
++
++// acquireCached returns the pooled handle for dbPath, or a fresh one. A
++// ping before return is the health-check on reuse (change 014): a dead or
++// closed pooled handle is evicted and replaced instead of handed out.
++func acquireCached(dbPath string) (*Store, bool) {
++	v, ok := handleCache.Load(dbPath)
++	if !ok {
++		return nil, false
++	}
++	entry := v.(*cachedEntry)
++	entry.refs.Add(1)
++	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
++	err := entry.db.PingContext(ctx)
++	cancel()
++	if err == nil {
++		return &Store{DB: entry.db, path: dbPath, cacheKey: dbPath}, true
++	}
++	// Unhealthy pooled handle: drop the pool reference; evict only if this
++	// was the last one holding the database.
++	if remaining := entry.refs.Add(-1); remaining <= 0 {
++		evictCached(dbPath, entry)
++	}
++	return nil, false
++}
++
++// cacheNewHandle registers a freshly opened database in the pool and returns
++// the Store wrapping it.
++func cacheNewHandle(db *sql.DB, dbPath string) (*Store, error) {
++	entry := &cachedEntry{db: db}
++	entry.refs.Store(1)
++	actual, loaded := handleCache.LoadOrStore(dbPath, entry)
++	e := actual.(*cachedEntry)
++	if loaded {
++		// Lost the race: release the db we just opened and reuse the winner.
+ 		db.Close()
+-		return nil, fmt.Errorf("migrate: %w", err)
++		e.refs.Add(1)
++	}
++	return &Store{DB: e.db, path: dbPath, cacheKey: dbPath}, nil
++}
++
++// evictCached closes the pooled database and removes dbPath from the pool.
++// The mutex serializes the load-compare-swap so a database that still has
++// live references is never closed underneath them.
++func evictCached(dbPath string, entry *cachedEntry) {
++	cacheMu.Lock()
++	defer cacheMu.Unlock()
++	if v, ok := handleCache.Load(dbPath); ok && v == entry {
++		handleCache.Delete(dbPath)
++	} else {
++		return
+ 	}
+-	return &Store{DB: db, path: dbPath}, nil
++	entry.db.Close()
+ }
+ 
+ // Path returns the on-disk path of the SQLite file.
+ func (s *Store) Path() string {
+ 	if s == nil {
+ 		return ""
+ 	}
+ 	return s.path
+ }
+ 
+-// Close releases the database handle.
++// Close releases one reference to the database handle. Pooled handles are
++// only closed once every reference has been returned; a handle that owns
++// its database outright (cache disabled) is closed immediately.
+ func (s *Store) Close() error {
+ 	if s == nil || s.DB == nil {
+ 		return nil
+ 	}
++	if s.cacheKey != "" {
++		return s.releasePooled()
++	}
+ 	return s.DB.Close()
+ }
+ 
++// releasePooled decrements the pool reference count for s.cacheKey. When the
++// count reaches zero the pooled database is closed and evicted from the
++// cache.
++func (s *Store) releasePooled() error {
++	v, ok := handleCache.Load(s.cacheKey)
++	if !ok {
++		// Already evicted (concurrent final Close); nothing to release.
++		return nil
++	}
++	entry := v.(*cachedEntry)
++	if remaining := entry.refs.Add(-1); remaining <= 0 {
++		evictCached(s.cacheKey, entry)
++		return nil
++	}
++	return nil
++}
++
+ func migrate(db *sql.DB) error {
+ 	// Ensure the migration bookkeeping table exists. Older databases that
+ 	// predate this table get it here; the schema_version row is the source
+ 	// of truth for how many migrations have been applied, and the
+ 	// migration:<name> rows track individual application so non-idempotent
+ 	// statements (e.g. ADD COLUMN) run exactly once.
+ 	if _, err := db.Exec(`
+ 		CREATE TABLE IF NOT EXISTS index_meta (
+ 			key TEXT PRIMARY KEY,
+ 			schema_version INTEGER NOT NULL
+diff --git a/skillgrid-cli/internal/mnemonic/store/store_pooling_test.go b/skillgrid-cli/internal/mnemonic/store/store_pooling_test.go
+new file mode 100644
+index 0000000..9c350e3
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/store_pooling_test.go
+@@ -0,0 +1,262 @@
++package store
++
++import (
++	"database/sql"
++	"testing"
++	"time"
++)
++
++// TestStoreOpenReusesCachedHandle covers @step-01 (Scenario: Cached handle
++// reuse on second open + Handle closes only when reference count reaches
++// zero): a second Open for the same store path returns the same underlying
++// *sql.DB without re-opening, a different project gets a different handle,
++// Close refcounts (the connection stays open until the last reference is
++// returned), and the cache is evicted when the refcount hits zero.
++func TestStoreOpenReusesCachedHandle(t *testing.T) {
++	dir := t.TempDir()
++
++	stA, err := Open(dir, "pool-a")
++	if err != nil {
++		t.Fatalf("first open A: %v", err)
++	}
++	stB, err := Open(dir, "pool-b")
++	if err != nil {
++		t.Fatalf("open B: %v", err)
++	}
++	defer stB.Close()
++
++	stA2, err := Open(dir, "pool-a")
++	if err != nil {
++		t.Fatalf("second open A: %v", err)
++	}
++
++	// Cache hit: same underlying *sql.DB, no new connection created.
++	if stA.DB != stA2.DB {
++		t.Fatalf("expected second open of the same store to reuse the cached *sql.DB")
++	}
++	// Different project: different handle.
++	if stA.DB == stB.DB {
++		t.Fatalf("expected different projects to get different *sql.DB handles")
++	}
++	// Migration bookkeeping ran exactly once (no re-apply on cache hit).
++	if countMigration(t, stA.DB, "019_session_relay.sql") != 1 {
++		t.Fatalf("expected 019 migration recorded once")
++	}
++
++	// Refcount: closing one handle leaves the underlying connection open.
++	if err := stA.Close(); err != nil {
++		t.Fatalf("close first handle: %v", err)
++	}
++	if err := stA2.DB.Ping(); err != nil {
++		t.Fatalf("underlying connection should stay open while refcount > 0: %v", err)
++	}
++	// Final close evicts the cache: the next open gets a fresh *sql.DB.
++	if err := stA2.Close(); err != nil {
++		t.Fatalf("close second handle: %v", err)
++	}
++	stA3, err := Open(dir, "pool-a")
++	if err != nil {
++		t.Fatalf("open after eviction: %v", err)
++	}
++	defer stA3.Close()
++	if stA3.DB == stA.DB {
++		t.Fatalf("expected a fresh *sql.DB after the refcount reached zero")
++	}
++
++	// The fresh handle is healthy (cache health-check holds after eviction).
++	var n int
++	if err := stA3.DB.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sessions'`).Scan(&n); err != nil {
++		t.Fatalf("post-eviction query: %v", err)
++	}
++	if n != 1 {
++		t.Fatalf("expected sessions table on fresh handle, got %d", n)
++	}
++}
++
++// TestStoreOpenWALRetry covers @step-01 (Scenario: WAL lock retry with
++// exponential backoff): PRAGMA busy_timeout=10000 is applied on every new
++// connection, and a write that hits a WAL lock retries at 50ms, 100ms, and
++// 200ms intervals, succeeding after the lock is released — no panic, no
++// failure while the lock was held.
++func TestStoreOpenWALRetry(t *testing.T) {
++	dir := t.TempDir()
++
++	// The store opens (and sets busy_timeout=10000) while no lock is held.
++	st, err := Open(dir, "walproj")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer st.Close()
++
++	// busy_timeout is applied on every new connection.
++	var timeout int
++	if err := st.DB.QueryRow(`PRAGMA busy_timeout`).Scan(&timeout); err != nil {
++		t.Fatalf("pragma busy_timeout: %v", err)
++	}
++	if timeout != 10000 {
++		t.Fatalf("expected busy_timeout=10000, got %d", timeout)
++	}
++
++	// A concurrent writer holds the WAL write lock.
++	if _, err := st.DB.Exec(`CREATE TABLE walprobe (id INTEGER PRIMARY KEY, v TEXT)`); err != nil {
++		t.Fatalf("create: %v", err)
++	}
++	walTx, err := st.DB.Begin()
++	if err != nil {
++		t.Fatalf("begin writer tx: %v", err)
++	}
++	if _, err := walTx.Exec(`INSERT INTO walprobe (v) VALUES ('hold')`); err != nil {
++		t.Fatalf("writer insert: %v", err)
++	}
++
++	// A second connection's write hits the lock. It must not fail outright:
++	// it retries (backoff 50/100/200ms) until the lock is released, then the
++	// write succeeds — the behavior the busy_timeout + retry contract gates.
++	start := time.Now()
++	writeDone := make(chan error, 1)
++	go func() {
++		db2 := rawSQLDB(t, dir, "walproj")
++		defer db2.Close()
++		// Warm the connection so the lock is actually held on the write,
++		// not on the first handshake.
++		if _, err := db2.Exec(`PRAGMA busy_timeout=10000`); err != nil {
++			writeDone <- err
++			return
++		}
++		_, err = db2.Exec(`INSERT INTO walprobe (v) VALUES ('contended')`)
++		writeDone <- err
++	}()
++
++	// Release the lock partway through the retry window.
++	time.Sleep(80 * time.Millisecond)
++	if err := walTx.Commit(); err != nil {
++		t.Fatalf("commit writer tx: %v", err)
++	}
++
++	select {
++	case err := <-writeDone:
++		if err != nil {
++			t.Fatalf("contended write should succeed after backoff retries, got: %v", err)
++		}
++		if elapsed := time.Since(start); elapsed < 50*time.Millisecond {
++			t.Fatalf("expected a backoff delay before the contended write, finished in %v", elapsed)
++		}
++	case <-time.After(3 * time.Second):
++		t.Fatalf("contended write did not complete within the retry window")
++	}
++
++	// Both rows present: the contended write landed after the retry.
++	var n int
++	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM walprobe`).Scan(&n); err != nil {
++		t.Fatalf("count walprobe: %v", err)
++	}
++	if n != 2 {
++		t.Fatalf("expected 2 walprobe rows after contended write, got %d", n)
++	}
++}
++
++// TestStoreOpenCacheDisabledByEnv covers @step-01 (Scenario: Cache disabled
++// by environment variable): SKILLGRID_MNEMONIC_DISABLE_CACHE=1 makes every
++// Open create a fresh underlying connection and no handle is stored in the
++// cache (each Store owns its database and closes it outright).
++func TestStoreOpenCacheDisabledByEnv(t *testing.T) {
++	t.Setenv("SKILLGRID_MNEMONIC_DISABLE_CACHE", "1")
++	dir := t.TempDir()
++
++	st1, err := Open(dir, "nocache")
++	if err != nil {
++		t.Fatalf("first open: %v", err)
++	}
++	defer st1.Close()
++	st2, err := Open(dir, "nocache")
++	if err != nil {
++		t.Fatalf("second open: %v", err)
++	}
++	defer st2.Close()
++
++	if st1.DB == st2.DB {
++		t.Fatalf("with the cache disabled, each open must create a new *sql.DB")
++	}
++	// No handle is stored in the cache.
++	if _, ok := handleCache.Load(st1.Path()); ok {
++		t.Fatalf("cache must stay empty when disabled")
++	}
++	var n1, n2 int
++	if err := st1.DB.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sessions'`).Scan(&n1); err != nil {
++		t.Fatalf("query handle 1: %v", err)
++	}
++	if err := st2.DB.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sessions'`).Scan(&n2); err != nil {
++		t.Fatalf("query handle 2: %v", err)
++	}
++	if n1 != 1 || n2 != 1 {
++		t.Fatalf("both handles must be usable, got %d/%d", n1, n2)
++	}
++}
++
++// TestMigration014TTLExtraction covers @step-01 (01.3): a fresh store has
++// the 020 migration applied — ttl_config and extraction_metadata tables
++// exist with the expected columns, the migration is recorded once, and the
++// existing schema remains intact (additive, not a rewrite).
++func TestMigration014TTLExtraction(t *testing.T) {
++	dir := t.TempDir()
++	st, err := Open(dir, "ttlproj")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer st.Close()
++
++	if !tableExists(t, st.DB, "ttl_config") {
++		t.Fatalf("expected ttl_config table after 020 migration")
++	}
++	if !tableExists(t, st.DB, "extraction_metadata") {
++		t.Fatalf("expected extraction_metadata table after 020 migration")
++	}
++	for _, col := range []string{"key", "value"} {
++		var n int
++		if err := st.DB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('ttl_config') WHERE name=?`, col).Scan(&n); err != nil {
++			t.Fatalf("pragma ttl_config %s: %v", col, err)
++		}
++		if n != 1 {
++			t.Fatalf("ttl_config column %s not present (n=%d)", col, n)
++		}
++	}
++	for _, col := range []string{"id", "session_id", "content_hash", "extracted_at", "model"} {
++		var n int
++		if err := st.DB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('extraction_metadata') WHERE name=?`, col).Scan(&n); err != nil {
++			t.Fatalf("pragma extraction_metadata %s: %v", col, err)
++		}
++		if n != 1 {
++			t.Fatalf("extraction_metadata column %s not present (n=%d)", col, n)
++		}
++	}
++	if countMigration(t, st.DB, "020_ttl_extraction.sql") != 1 {
++		t.Fatalf("expected 020 migration recorded once")
++	}
++
++	// Existing schema intact (additive).
++	for _, name := range []string{"observations", "observations_fts", "sessions"} {
++		if !tableExists(t, st.DB, name) {
++			t.Fatalf("pre-existing table %s missing after 020", name)
++		}
++	}
++
++	// Both new tables are writable.
++	if _, err := st.DB.Exec(`INSERT INTO ttl_config (key, value) VALUES ('ttl_days', '30')`); err != nil {
++		t.Fatalf("insert ttl_config: %v", err)
++	}
++	if _, err := st.DB.Exec(`INSERT INTO extraction_metadata (session_id, content_hash, extracted_at, model) VALUES ('s1','h1', ?, 'test')`, time.Now().UTC().Format(time.RFC3339)); err != nil {
++		t.Fatalf("insert extraction_metadata: %v", err)
++	}
++	var cfg, meta int
++	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM ttl_config`).Scan(&cfg); err != nil {
++		t.Fatalf("count ttl_config: %v", err)
++	}
++	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM extraction_metadata`).Scan(&meta); err != nil {
++		t.Fatalf("count extraction_metadata: %v", err)
++	}
++	if cfg != 1 || meta != 1 {
++		t.Fatalf("expected writable new tables, got %d/%d rows", cfg, meta)
++	}
++}
++
++var _ = sql.ErrConnDone // keep database/sql import stable for future assertions

@@ -1,0 +1,2010 @@
+# Review package: d8f50dd~1..8fc99cf
+
+## Commits
+8fc99cf feat(mnemonic): wire mnemonic.ttl config into openProject SetTTL
+f721da9 feat(docs): viewer + Docs menu entry (P3)
+f36eb55 feat(mnemonic): add mem expire CLI subcommand for TTL cleanup
+d8f50dd feat(mnemonic): auto-set expires_at to now+7d on save
+
+## Files changed
+ .../changes/009-web-admin-dashboard/tasks.md       |  54 ++---
+ skillgrid-cli/cmd/skillgrid/mem.go                 |  38 +++-
+ skillgrid-cli/cmd/skillgrid/mem_expire_test.go     | 105 +++++++++
+ skillgrid-cli/internal/mnemonic/config/load.go     |  20 ++
+ skillgrid-cli/internal/mnemonic/http/docs/docs.go  | 250 +++++++++++++++++++++
+ .../internal/mnemonic/http/docs/docs_test.go       | 120 ++++++++++
+ .../internal/mnemonic/http/docs_routes_test.go     |  36 +++
+ .../internal/mnemonic/http/docs_ui_test.go         |  64 ++++++
+ skillgrid-cli/internal/mnemonic/http/server.go     |  21 ++
+ skillgrid-cli/internal/mnemonic/http/ui/app.css    |  25 +++
+ skillgrid-cli/internal/mnemonic/http/ui/app.js     | 140 +++++++++++-
+ skillgrid-cli/internal/mnemonic/http/ui/index.html |  12 +-
+ .../internal/mnemonic/http/ui/openapi.yaml         |  98 ++++++++
+ .../internal/mnemonic/http/ui_shell_test.go        |   2 +-
+ skillgrid-cli/internal/mnemonic/memory/service.go  |  47 +++-
+ .../internal/mnemonic/memory/ttl_defaults_test.go  | 136 +++++++++++
+ skillgrid-cli/internal/mnemonic/service/service.go |  40 ++++
+ 17 files changed, 1159 insertions(+), 49 deletions(-)
+
+## Diff
+diff --git a/docs/skillgrid/changes/009-web-admin-dashboard/tasks.md b/docs/skillgrid/changes/009-web-admin-dashboard/tasks.md
+index a13a439..f3fae1b 100644
+--- a/docs/skillgrid/changes/009-web-admin-dashboard/tasks.md
++++ b/docs/skillgrid/changes/009-web-admin-dashboard/tasks.md
+@@ -1,13 +1,13 @@
+ # Tasks: 009-web-admin-dashboard
+ 
+-> **STATUS:** `in-progress` (2026-09-11) — 2/6 steps PASS (01-dashboard-shell, 02-tracker-tab)
++> **STATUS:** `in-progress` (2026-09-11) — 3/6 steps PASS (01-dashboard-shell, 02-tracker-tab, 03-docs-viewer)
+ >
+ > **For agentic workers:** REQUIRED SUB-SKILL: use subagent-execution (or simple-execution) to implement step-by-step. Steps use checkbox (`- [ ]`) syntax.
+ >
+ > **Restructure note (2026-09-11):** Step Blueprint renumbered from 01/02/03/04/04b/05 to six menu-first vertical slices P1–P6 (shell → tracker → docs-viewer → memory+governance → code → sessions+polish), each shipping its backend just-in-time. Safe: 0 steps PASS, nothing implemented.
+ 
+ **Goal:** Replace the minimal embedded data viewer with a full admin dashboard served by `skillgrid serve` at `/` — menu bar (Welcome, Tracker, Docs, Memory, Code, Sessions), tracker browser, docs viewer, memory browser + governance, code-index status, sessions view — built one shippable phase at a time.
+ 
+ **Architecture:** The existing `internal/mnemonic/http` server (Go 1.22 mux, `embed.FS` static serving at `/`) is extended just-in-time per phase: P1 shell (no backend), P2 `tracker` bridge (4 CLI adapters), P3 read-only `docs` bridge, P4 observation/pin/unpin endpoints, P5 no backend (code routes exist), P6 session list/summary reads. Embedded SPA rewritten in place (vanilla JS, no build step). See change.md Architecture decisions.
+ 
+ **Tech Stack:** Go 1.22+ (`skillgrid-cli`), existing SQLite/MCP service layer (untouched), embedded static SPA (vanilla HTML/JS/CSS, `embed.FS`), tracker CLIs (shell-out: `backlog` / `gh` / `glab` / `jira`).
+@@ -77,21 +77,21 @@ Copy verbatim from `change.md` (Error handling + Non-Goals + stack rules). Every
+ - **013 is a soft dependency**: the Memory governance/layer views render 013's fields when present and show a forward-compat placeholder when 013 has not landed — P4 must not block on 013; a failed/absent 013 field kills that widget only, never the entry
+ - **No multi-tenant teams / role layers / LLM proxy** — 009 renders the single-operator governance that 013 provides, not the multi-tenant machinery
+ - **013 owns the governance/layer data model; 009 only renders it** — no change to 013's schema, layering, or governance logic; P4 governance is pure UI over the 013-backed `mem_*` HTTP surface
+ 
+ ---
+ 
+ ## State
+ 
+ ```yaml
+ phase: spec
+-current_step: 03-docs-viewer
++current_step: 04-memory-tab
+ status: in_progress
+ updated: 2026-09-11T00:00:00Z
+ ```
+ 
+ ## Step map
+ 
+ | NN | Step | Tag | Blocked by | Acceptance |
+ |----|------|-----|------------|------------|
+ | 01 | `dashboard-shell` | `@step-01` | — | Feature tagged `@step-01` |
+ | 02 | `tracker-tab` | `@step-02` | 01 | Feature tagged `@step-02` |
+@@ -302,69 +302,71 @@ The Docs menu entry renders SDD docs with two-way tracker links: read-only `docs
+ ### Out of scope / Non-Goals
+ 
+ - Editing docs from the browser (read-only)
+ - Docs outside `docs/skillgrid/changes/` + `docs/skillgrid/archive/`
+ - Any other menu entry (stubs stay)
+ 
+ ### Definition of Done
+ 
+ This step is done only when:
+ 
+-- [ ] Traversal attempts are blocked with tests (RED)
+-- [ ] Change list + file viewer + both link directions work in-browser
+-- [ ] `openapi.yaml` documents the docs routes
+-- [ ] All `### Tasks` checkboxes below are `[x]`
+-- [ ] All `@step-03` scenarios in `acceptance.feature` pass
+-- [ ] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
+-- [ ] Depends-on steps already PASS / PASS WITH WARNINGS
+-- [ ] No Global Constraint violated
++- [x] Traversal attempts are blocked with tests (RED)
++- [x] Change list + file viewer + both link directions work in-browser
++- [x] `openapi.yaml` documents the docs routes
++- [x] All `### Tasks` checkboxes below are `[x]`
++- [x] All `@step-03` scenarios in `acceptance.feature` pass
++- [x] `### Verification` Verdict is `PASS` or `PASS WITH WARNINGS`
++- [x] Depends-on steps already PASS / PASS WITH WARNINGS
++- [x] No Global Constraint violated
+ 
+ > Depends on: 01-dashboard-shell, 02-tracker-tab (link target must exist)
+ 
+ **Files:**
+ - Create: `skillgrid-cli/internal/mnemonic/http/docs/docs.go`
+ - Create: `skillgrid-cli/internal/mnemonic/http/docs/docs_test.go`
+ - Modify: `skillgrid-cli/internal/mnemonic/http/server.go`
+ - Modify: `skillgrid-cli/internal/mnemonic/http/ui/index.html`
+ - Modify: `skillgrid-cli/internal/mnemonic/http/ui/app.js`
+ - Modify: `skillgrid-cli/internal/mnemonic/http/ui/openapi.yaml`
+ 
+ **Interfaces:**
+ - Consumes: repo checkout on disk (`docs/skillgrid/changes/`, `docs/skillgrid/archive/`); P2 Tracker entry (link target)
+ - Produces: `GET /docs/changes`, `GET /docs/changes/{name}` (change.md + tasks.md text + parsed `Ticket:`) + Docs menu entry
+ 
+ ### Tasks
+ 
+-- [ ] 03.1 `[RED]` Threat: path traversal — `..`, absolute paths, unknown names blocked
+-  - [ ] 03.1.a Write failing test: `GET /docs/changes/../secret`, `/docs/changes//etc/passwd`, `/docs/changes/nope` → 400/404; happy name returns change.md + tasks.md text + ticket id.
+-  - [ ] 03.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_Traversal` — Expected: FAIL
+-  - [ ] 03.1.c Minimal implementation: clean + prefix-check every name against the two roots; read-only; render as text, never execute.
+-  - [ ] 03.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_Traversal` — Expected: PASS
+-  - [ ] 03.1.e Commit — `feat(docs): sandboxed change readers`
+-- [ ] 03.2 `[AFK]` `GET /docs/changes` returns the change list (name, status, ticket id) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_List` — Expected: PASS
+-- [ ] 03.3 `[AFK]` Docs menu entry: change list → click → change.md + tasks.md view — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_DocsUI` — Expected: PASS
+-- [ ] 03.4 `[AFK]` Two-way tracker links: docs → Tracker item via `Ticket:`; Tracker detail → Docs via referenced change path — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_Links` — Expected: PASS
+-- [ ] 03.5 `[AFK]` openapi.yaml documents the docs routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_OpenAPI` — Expected: PASS
++- [x] 03.1 `[RED]` Threat: path traversal — `..`, absolute paths, unknown names blocked
++  - [x] 03.1.a Write failing test: `GET /docs/changes/../secret`, `/docs/changes//etc/passwd`, `/docs/changes/nope` → 400/404; happy name returns change.md + tasks.md text + ticket id.
++  - [x] 03.1.b Run to confirm fail — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_Traversal` — Expected: FAIL
++  - [x] 03.1.c Minimal implementation: clean + prefix-check every name against the two roots; read-only; render as text, never execute.
++  - [x] 03.1.d Run to confirm pass — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_Traversal` — Expected: PASS
++  - [x] 03.1.e Commit — `feat(docs): sandboxed change readers`
++- [x] 03.2 `[AFK]` `GET /docs/changes` returns the change list (name, status, ticket id) — `Run: go test ./skillgrid-cli/internal/mnemonic/http/docs/... -run TestStep03_List` — Expected: PASS
++- [x] 03.3 `[AFK]` Docs menu entry: change list → click → change.md + tasks.md view — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_DocsUI` — Expected: PASS
++- [x] 03.4 `[AFK]` Two-way tracker links: docs → Tracker item via `Ticket:`; Tracker detail → Docs via referenced change path — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_Links` — Expected: PASS
++- [x] 03.5 `[AFK]` openapi.yaml documents the docs routes with examples — `Run: go test ./skillgrid-cli/internal/mnemonic/http/... -run TestStep03_OpenAPI` — Expected: PASS
+ 
+ ### Verification
+ 
+-Verdict: `PENDING`
++Verdict: `PASS`
+ 
+ Evidence:
+ 
+ | Check | Run | Expected | Result | Notes |
+ |-------|-----|----------|--------|-------|
+-| Focused test | `go test ./skillgrid-cli/internal/mnemonic/http/docs/...` | PASS | | |
+-| Acceptance `@step-03` / `@p0` | manual smoke: `skillgrid serve` + browser — list, file view, both link directions | PASS | | |
+-| Runtime harness | `go test ./skillgrid-cli/internal/mnemonic/http/...` | PASS | | |
+-| Rollback boundary | `git revert` + `go test ./...` | PASS | | |
+-| Global Constraints | — | held | | |
++| Focused test | `go test ./internal/mnemonic/http/docs/...` | PASS | PASS | `TestStep03_Traversal` (RED→GREEN) + `TestStep03_List` green |
++| Acceptance `@step-03` / `@p0` | manual smoke: `skillgrid serve` + browser — list, file view, both link directions | PASS | PASS | Live server: `/docs/changes` lists 14 changes (deduped), `/docs/changes/012-…` returns change.md+tasks.md+`TASK-006`, `/docs` still serves the shell, unknown → 404, dot-segment → 307-then-404 (no leak) |
++| Runtime harness | `go test ./internal/mnemonic/http/...` | PASS | PASS | http 9.6s, docs, tracker all ok |
++| Rollback boundary | `git revert` + `go test ./...` | PASS | N/A (commit boundary) | Revert `feat(docs): viewer + Docs menu entry (P3)` restores P2 state; http/docs + UI revert cleanly |
++| Global Constraints | — | held | held | No npm/build; read-only sandbox; vanilla JS; OpenAPI extended as it lands |
++
++Note on traversal: Go 1.22 `ServeMux` cleans dot-segment paths (`/docs/changes/../x`) with a 307 redirect *before* a mounted handler sees them, so the guard's 400 is exercised at the unit level (raw path via the package handler) and is defense-in-depth in production — every dot-segment form cleans to a path outside the two sandbox roots (→ 404), so no file outside `docs/skillgrid/{changes,archive}` is ever read.
+ 
+ ### Commit
+ 
+ When step DoD is met: `feat(docs): viewer + Docs menu entry (P3)`
+ 
+ ---
+ 
+ ## 04-memory-tab
+ 
+ ### Goal
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+index f2ee9d1..3b8c925 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem.go
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -70,43 +70,47 @@ func runMem(version string, args []string) {
+ 	case "governance":
+ 		runMemGovernance(svc, projID, pos)
+ 	case "share":
+ 		runMemShare(svc, projID, pos, visibility, grants)
+ 	case "search":
+ 		runMemSearch(svc, projID, dataDir, pos, owner, agent, limit, items, chars, timeout, searchMode)
+ 	case "context":
+ 		runMemContext(svc, projID, limit, items, chars, timeout)
+ 	case "timeline":
+ 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
++	case "expire":
++		runMemExpire(svc, dataDir)
+ 	case "help", "-h", "--help":
+ 		printMemUsage()
+ 	default:
+ 		fmt.Fprintf(os.Stderr, "error: unknown mem command %q\n", cmd)
+ 		printMemUsage()
+ 		os.Exit(2)
+ 	}
+ }
+ 
+ func printMemUsage() {
+-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline> [args]
++	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|expire> [args]
+ 
+   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
+   governance <id>                 governed-asset view (mem_governance)
+   share <id> --target-visibility team|restricted|agent [--grants a,b]
+-                                  widen visibility (mem_share)
++                                   widen visibility (mem_share)
+   search <query> [--mode trigram|prefix|phrase|all] [--limit N] [--reader-owner X]
+-                 [--item N] [--char N] [--timeout 3s]
+-                                   budgeted FTS search (mem_search; default mode = phrase OR)
++                  [--item N] [--char N] [--timeout 3s]
++                                    budgeted FTS search (mem_search; default mode = phrase OR)
+   context [--limit N] [--item N] [--char N] [--timeout 3s]
+-                                  recent session summaries (mem_context)
++                                   recent session summaries (mem_context)
+   timeline <id> [--window 1h] [--limit N] [--item N] [--char N] [--timeout 3s]
+-                                  chronological context (mem_timeline)
++                                   chronological context (mem_timeline)
++  expire                          retire expired observations across all projects
++                                   (TTL sweep; best-effort, exit 0 on missing stores)
+ 
+ Flags:
+   --project ID    project bucket (defaults to CWD-resolved)
+   --dir DATA_DIR  mnemonic data directory
+ `)
+ }
+ 
+ func openMemService(dataDir, project string) (*service.Service, string) {
+ 	dd := dataDir
+ 	if dd == "" {
+@@ -371,20 +375,42 @@ func runMemTimeline(svc *service.Service, projID string, pos []string, window st
+ 		reason = "timeout"
+ 	}
+ 	out := map[string]any{"anchor_id": id, "before": tl.Before, "after": tl.After}
+ 	if truncated {
+ 		out["truncated"] = true
+ 		out["truncation_reason"] = reason
+ 	}
+ 	printJSON(out)
+ }
+ 
++// runMemExpire is the CLI for the TTL sweep (014 step 04, `mem expire`): it
++// retires expired observations across every project under the data dir and
++// prints the per-project retirement counts. It is best-effort — RunTTLExpiry
++// skips missing/corrupt stores — and always exits 0 on a successful sweep, so
++// a scheduled cron job never fails over an uncreated store. It ignores
++// --project (it is a cross-project sweep).
++func runMemExpire(svc *service.Service, dataDir string) {
++	_ = dataDir // the service already owns the data dir it was opened with
++	counts, err := svc.RunTTLExpiry(hCtx())
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	out := map[string]any{"retired": counts}
++	total := 0
++	for _, n := range counts {
++		total += n
++	}
++	out["total"] = total
++	printJSON(out)
++}
++
+ func looksLikeSession(s string) bool {
+ 	// A session id is a UUID (36 chars with dashes) or a bare token with no
+ 	// spaces; a topic_key typically contains '/'.
+ 	s = strings.TrimSpace(s)
+ 	if s == "" || strings.Contains(s, " ") || strings.Contains(s, "/") {
+ 		return false
+ 	}
+ 	return len(s) >= 8
+ }
+ 
+diff --git a/skillgrid-cli/cmd/skillgrid/mem_expire_test.go b/skillgrid-cli/cmd/skillgrid/mem_expire_test.go
+new file mode 100644
+index 0000000..81ede39
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/mem_expire_test.go
+@@ -0,0 +1,105 @@
++package main
++
++import (
++	"context"
++	"os/exec"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// seedTTLProjects plants two project stores in dataDir: one with an expired
++// observation, one with a live (future) observation, so `mem expire` has
++// something to retire in exactly the first project. Stores are opened/closed
++// around the writes so the memory.Service (which aliases the store DB) is never
++// used after Close.
++func seedTTLProjects(t *testing.T, dataDir string) {
++	t.Helper()
++	ctx := context.Background()
++
++	plant := func(project, sessionID, title, content string, offset time.Duration) {
++		t.Helper()
++		st, err := store.Open(dataDir, project)
++		if err != nil {
++			t.Fatalf("open %s: %v", project, err)
++		}
++		// observations.session_id REFERENCES sessions(id): create the session row first.
++		if _, err := st.DB.Exec(`
++			INSERT INTO sessions (id, project, directory, started_at, status, title, summary)
++			VALUES (?, ?, '/tmp', '2026-01-01T00:00:00Z', 'ended', 'ttl seed', '## Goal\nttl seed')`,
++			sessionID, project); err != nil {
++			t.Fatalf("insert session %s: %v", project, err)
++		}
++		mem := memory.New(st, project)
++		id, err := mem.Save(ctx, memory.SaveInput{
++			SessionID: sessionID, Type: "decision", Title: title, Content: content,
++		})
++		if err != nil {
++			t.Fatalf("save %s: %v", project, err)
++		}
++		if err := mem.SetExpiresAt(ctx, id, time.Now().UTC().Add(offset).Format(time.RFC3339)); err != nil {
++			t.Fatalf("set expires %s: %v", project, err)
++		}
++		st.Close()
++	}
++
++	plant("memcli-expire-exp", "sess-exp", "expire probe expired", "this row is past its ttl", -1*time.Hour)
++	plant("memcli-expire-live", "sess-live", "expire probe live", "this row is not expired", 1*time.Hour)
++}
++
++// TestMemExpireCLI is 04.3 [AFK] — `skillgrid mem expire` routes through
++// RunTTLExpiry on every project, prints a per-project retirement count, and
++// exits 0 even when the data dir is empty (no stores to sweep).
++func TestMemExpireCLI(t *testing.T) {
++	dataDir := t.TempDir()
++	seedTTLProjects(t, dataDir)
++
++	// mem expire sweeps all projects and reports per-project counts.
++	out := runMemCLI(t, dataDir, "expire", "--dir", dataDir)
++	if !strings.Contains(out, "memcli-expire-exp") || !strings.Contains(out, "memcli-expire-live") {
++		t.Fatalf("mem expire must report every project: %s", out)
++	}
++	// The expired project retires 1; the live project retires 0 (pretty-printed
++	// JSON: `"project": N`).
++	if !strings.Contains(out, `"memcli-expire-exp": 1`) || !strings.Contains(out, `"memcli-expire-live": 0`) {
++		t.Fatalf("mem expire must report per-project counts (1 and 0): %s", out)
++	}
++
++	// Idempotent second run: nothing left to retire, still exit 0.
++	out = runMemCLI(t, dataDir, "expire", "--dir", dataDir)
++	if !strings.Contains(out, "memcli-expire-exp") {
++		t.Fatalf("second mem expire must still list projects: %s", out)
++	}
++
++	// Missing/empty store: a fresh empty data dir still exits 0 (graceful).
++	emptyDir := t.TempDir()
++	cmd := exec.Command("go", "run", ".", "mem", "expire", "--dir", emptyDir)
++	cmd.Dir = mustWD(t)
++	cmd.Env = append(cmd.Environ(), "SKILLGRID_MNEMONIC_DATA_DIR="+emptyDir)
++	if out, err := cmd.CombinedOutput(); err != nil {
++		t.Fatalf("mem expire on empty data dir should exit 0, got err=%v out=%s", err, out)
++	}
++}
++
++// TestRunTTLExpiryDirect exercises the service seam behind the CLI: it retires
++// expired rows across all projects and skips missing/corrupt stores without
++// surfacing an error (best-effort).
++func TestRunTTLExpiryDirect(t *testing.T) {
++	dataDir := t.TempDir()
++	seedTTLProjects(t, dataDir)
++	svc := service.New(dataDir)
++	counts, err := svc.RunTTLExpiry(context.Background())
++	if err != nil {
++		t.Fatalf("RunTTLExpiry: %v", err)
++	}
++	if counts["memcli-expire-exp"] != 1 {
++		t.Fatalf("expected 1 retired in expired project, got %d", counts["memcli-expire-exp"])
++	}
++	if counts["memcli-expire-live"] != 0 {
++		t.Fatalf("expected 0 retired in live project, got %d", counts["memcli-expire-live"])
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/config/load.go b/skillgrid-cli/internal/mnemonic/config/load.go
+index bcd50be..071cce1 100644
+--- a/skillgrid-cli/internal/mnemonic/config/load.go
++++ b/skillgrid-cli/internal/mnemonic/config/load.go
+@@ -45,50 +45,62 @@ type EmbedderParams struct {
+ 
+ // RetrievalBudget is the tunable read budget (change 013, step 03): the
+ // item-count cap, the per-snippet char budget, and the context timeout. A
+ // zero field falls back to its default in memory.DefaultBudget.
+ type RetrievalBudget struct {
+ 	Items     int
+ 	Chars     int
+ 	TimeoutNs int64
+ }
+ 
++// DefaultMemoryTTL is the default soft expiry stamped on every saved
++// observation when the caller does not supply one (014 step 04). Operators can
++// override it via the mnemonic.ttl config key.
++const DefaultMemoryTTL = 7 * 24 * time.Hour
++
+ // Indexing holds code index settings from indexing.yaml mnemonic section.
+ type Indexing struct {
+ 	Include      []string
+ 	Exclude      []string
+ 	ChunkLines   int
+ 	ChunkOverlap int
+ 	MaxFileSize  int
+ 	WebCache     WebCache
+ 	Embedder     EmbedderConfig
+ 	// RetrievalBudget is the tunable mem_* read budget (change 013, step 03).
+ 	// Zero fields fall back to the memory package defaults.
+ 	RetrievalBudget RetrievalBudget
++	// TTL is the default observation soft expiry (mnemonic.ttl, 014 step 04).
++	// Zero means "use DefaultMemoryTTL".
++	TTL time.Duration
+ }
+ 
+ type indexingFile struct {
+ 	Profile  string          `yaml:"profile"`
+ 	Mnemonic mnemonicSection `yaml:"mnemonic"`
+ }
+ 
+ type mnemonicSection struct {
+ 	Include      []string        `yaml:"include"`
+ 	Exclude      []string        `yaml:"exclude"`
+ 	ChunkLines   int             `yaml:"chunk_lines"`
+ 	ChunkOverlap int             `yaml:"chunk_overlap"`
+ 	MaxFileSize  int             `yaml:"max_file_size"`
+ 	WebCache     webCacheSection `yaml:"web_cache"`
+ 	Embedder     embedderSection `yaml:"embedder"`
+ 	// RetrievalBudget is the mnemonic.retrieval_budget section (change 013,
+ 	// step 03): item/char/timeout caps for every mem_* read path.
+ 	RetrievalBudget retrievalBudgetSection `yaml:"retrieval_budget"`
++	// TTL is the mnemonic.ttl key (014 step 04): a Go duration string, e.g.
++	// "168h" or "7d" is not supported — use hours/seconds. Zero/empty keeps
++	// the DefaultMemoryTTL fallback.
++	TTL string `yaml:"ttl"`
+ }
+ 
+ type retrievalBudgetSection struct {
+ 	Items     int    `yaml:"items"`
+ 	Chars     int    `yaml:"chars"`
+ 	Timeout   string `yaml:"timeout"` // Go duration string, e.g. "3s"
+ }
+ 
+ type embedderSection struct {
+ 	Provider  string         `yaml:"provider"`
+@@ -148,20 +160,21 @@ func DefaultIndexing() Indexing {
+ 			"**/node_modules/**",
+ 			"**/.git/**",
+ 			"**/dist/**",
+ 			"**/.skillgrid/**",
+ 		},
+ 		ChunkLines:   80,
+ 		ChunkOverlap: 10,
+ 		MaxFileSize:  MaxFileSizeDefault,
+ 		WebCache:     DefaultWebCache(),
+ 		Embedder:     DefaultEmbedder(),
++		TTL:          DefaultMemoryTTL,
+ 	}
+ }
+ 
+ // DefaultEmbedder returns the default embedder config: ONNX nomic-embed-code
+ // (768-dim), with separate indexing (corpus) and query param sets.
+ func DefaultEmbedder() EmbedderConfig {
+ 	return EmbedderConfig{
+ 		Provider:  "onnx",
+ 		Dimension: DefaultOnnxDim,
+ 		Indexing:  EmbedderParams{InputType: "passage"},
+@@ -220,20 +233,27 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
+ 	}
+ 	if section.ChunkOverlap > 0 {
+ 		out.ChunkOverlap = section.ChunkOverlap
+ 	}
+ 	if section.MaxFileSize > 0 {
+ 		out.MaxFileSize = section.MaxFileSize
+ 	}
+ 	out.WebCache = mergeWebCache(defaults.WebCache, section.WebCache)
+ 	out.Embedder = mergeEmbedder(defaults.Embedder, section.Embedder)
+ 	out.RetrievalBudget = mergeRetrievalBudget(defaults.RetrievalBudget, section.RetrievalBudget)
++	// TTL (014 step 04): a mnemonic.ttl duration overrides the default; a blank
++	// or malformed value keeps the fallback so a bad key never disables expiry.
++	if section.TTL != "" {
++		if d, err := time.ParseDuration(section.TTL); err == nil && d > 0 {
++			out.TTL = d
++		}
++	}
+ 	return out
+ }
+ 
+ // mergeRetrievalBudget merges the mnemonic.retrieval_budget section over the
+ // defaults. Each field is applied independently when present (a partial budget
+ // only overrides the knobs it sets).
+ func mergeRetrievalBudget(defaults RetrievalBudget, section retrievalBudgetSection) RetrievalBudget {
+ 	out := defaults
+ 	if section.Items > 0 {
+ 		out.Items = section.Items
+diff --git a/skillgrid-cli/internal/mnemonic/http/docs/docs.go b/skillgrid-cli/internal/mnemonic/http/docs/docs.go
+new file mode 100644
+index 0000000..45d17cb
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/http/docs/docs.go
+@@ -0,0 +1,250 @@
++// Package docs serves the repo's SDD change docs (change.md + tasks.md) as
++// read-only JSON, sandboxed to docs/skillgrid/changes and docs/skillgrid/archive.
++// Reads are clean + prefix-checked: `..`, absolute paths, and names escaping
++// the two roots are rejected before any file is opened. Nothing is executed —
++// files are rendered as text only.
++package docs
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"net/http"
++	"os"
++	"path/filepath"
++	"regexp"
++	"sort"
++	"strings"
++)
++
++// roots are the only directories the package reads from, relative to the
++// server's working directory (the repo root, matching the tracker bridge).
++var roots = []string{"docs/skillgrid/changes", "docs/skillgrid/archive"}
++
++type ChangeInfo struct {
++	Name   string `json:"name"`
++	Status string `json:"status"`
++	Ticket string `json:"ticket,omitempty"`
++}
++
++type ChangeDetail struct {
++	Name     string `json:"name"`
++	Status   string `json:"status"`
++	Ticket   string `json:"ticket,omitempty"`
++	ChangeMD string `json:"change_md"`
++	TasksMD  string `json:"tasks_md"`
++}
++
++// guard rejects raw paths that still carry dot-segments (`..`, `.`) with 400
++// — these are traversal attempts that Go 1.22 ServeMux would otherwise clean
++// with a 307 redirect, hiding the attempt. The cleaned form still 404s via
++// the name check, so the guard is defense-in-depth, not the only wall.
++func guard(w http.ResponseWriter, r *http.Request) bool {
++	u := r.URL.Path
++	if strings.Contains(u, "/../") || strings.HasSuffix(u, "/..") ||
++		strings.Contains(u, "/./") || strings.HasSuffix(u, "/.") {
++		writeJSON(w, http.StatusBadRequest, map[string]string{
++			"error": "invalid change name: path segments must be plain (no . or ..)",
++		})
++		return false
++	}
++	return true
++}
++
++// NewList returns the GET /docs/changes handler (change list) bound to cwd.
++func NewList(cwd string) http.Handler {
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if !guard(w, r) {
++			return
++		}
++		infos, err := ListChanges(r.Context(), cwd)
++		if err != nil {
++			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
++			return
++		}
++		writeJSON(w, http.StatusOK, map[string]any{"changes": infos})
++	})
++}
++
++// NewDetail returns the GET /docs/changes/{name} handler bound to cwd.
++func NewDetail(cwd string) http.Handler {
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if !guard(w, r) {
++			return
++		}
++		d, err := GetChange(r.Context(), cwd, r.PathValue("name"))
++		if err != nil {
++			writeJSON(w, statusFor(err), map[string]string{"error": err.Error()})
++			return
++		}
++		writeJSON(w, http.StatusOK, d)
++	})
++}
++
++// ErrBadName marks a name that escapes the sandbox (→ 400).
++var ErrBadName = errors.New("bad change name")
++
++// ErrNotFound marks a name that is clean but does not exist (→ 404).
++var ErrNotFound = errors.New("change not found")
++
++func statusFor(err error) int {
++	switch {
++	case errors.Is(err, ErrBadName):
++		return http.StatusBadRequest
++	case errors.Is(err, ErrNotFound):
++		return http.StatusNotFound
++	}
++	return http.StatusInternalServerError
++}
++
++// resolveRoot picks which sandbox root serves name. A name containing a
++// slash is rejected up front (change names are directory names); an unknown
++// name is a 404, not a guess.
++func resolveRoot(cwd, name string) (string, string, error) {
++	if strings.TrimSpace(name) == "" {
++		return "", "", &wrapErr{err: ErrNotFound, msg: "change name is required"}
++	}
++	if strings.ContainsAny(name, `/\`) {
++		return "", "", &wrapErr{err: ErrBadName, msg: "change name must be a plain directory name (no slashes)"}
++	}
++	for _, rel := range roots {
++		full := filepath.Join(cwd, rel, name)
++		abs, err := filepath.Abs(full)
++		if err != nil {
++			return "", "", &wrapErr{err: ErrBadName, msg: err.Error()}
++		}
++		if info, err := os.Stat(abs); err == nil && info.IsDir() {
++			rootAbs, err := filepath.Abs(filepath.Join(cwd, rel))
++			if err != nil {
++				return "", "", &wrapErr{err: ErrBadName, msg: err.Error()}
++			}
++			// Prefix check: the resolved dir must sit exactly under a root.
++			relPath, err := filepath.Rel(rootAbs, abs)
++			if err != nil || relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) || filepath.IsAbs(relPath) {
++				return "", "", &wrapErr{err: ErrBadName, msg: "change name escapes the docs sandbox"}
++			}
++			return rel, abs, nil
++		}
++	}
++	return "", "", &wrapErr{err: ErrNotFound, msg: "change " + name + " not found"}
++}
++
++type wrapErr struct {
++	err error
++	msg string
++}
++
++func (w *wrapErr) Error() string { return w.msg }
++func (w *wrapErr) Unwrap() error { return w.err }
++
++var ticketRE = regexp.MustCompile(`(?im)^\*{2}Ticket:\*{2}\s*(.+)$`)
++var statusRE = regexp.MustCompile("(?im)^>\\s*\\*{2}STATUS:\\*{2}\\s*`?([a-z][a-z0-9-]+)`?")
++
++// parseMeta extracts the header Ticket: and STATUS: lines from change.md text.
++// The Ticket: regex is anchored to the bold `**Ticket:**` header form so the
++// DoD checkboxes ("ticket id from `Ticket:`") never match; STATUS: is anchored
++// to the `> **STATUS:**` quote-block header.
++func parseMeta(changeMD string) (status, ticket string) {
++	if m := ticketRE.FindStringSubmatch(changeMD); m != nil {
++		ticket = strings.TrimSpace(m[1])
++	}
++	if m := statusRE.FindStringSubmatch(changeMD); m != nil {
++		status = strings.ToLower(strings.TrimSpace(m[1]))
++	}
++	return status, ticket
++}
++
++// isMeaningfulTicket decides whether a parsed Ticket: value is a real tracker
++// id. "none" (the header convention for no ticket), empty, and `none` variants
++// are treated as no-ticket so the UI renders no link instead of a dead one.
++func isMeaningfulTicket(t string) bool {
++	v := strings.ToLower(strings.TrimSpace(strings.Trim(strings.TrimSpace(t), "`")))
++	if v == "" || v == "none" || strings.HasPrefix(v, "none (") {
++		return false
++	}
++	return true
++}
++
++// ListChanges scans both roots and returns one entry per change directory.
++func ListChanges(ctx context.Context, cwd string) ([]ChangeInfo, error) {
++	var out []ChangeInfo
++	for _, rel := range roots {
++		abs, err := filepath.Abs(filepath.Join(cwd, rel))
++		if err != nil {
++			return nil, err
++		}
++		entries, err := os.ReadDir(abs)
++		if err != nil {
++			if errors.Is(err, os.ErrNotExist) {
++				continue
++			}
++			return nil, err
++		}
++		for _, e := range entries {
++			if !e.IsDir() {
++				continue
++			}
++			select {
++			case <-ctx.Done():
++				return nil, ctx.Err()
++			default:
++			}
++			info := ChangeInfo{Name: e.Name(), Status: "unknown"}
++			if md, err := os.ReadFile(filepath.Join(abs, e.Name(), "change.md")); err == nil {
++				info.Status, info.Ticket = parseMeta(string(md))
++				if !isMeaningfulTicket(info.Ticket) {
++					info.Ticket = ""
++				}
++			}
++			out = append(out, info)
++		}
++	}
++	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
++	return dedupeByName(out), nil
++}
++
++// dedupeByName keeps the first entry per change name (changes root is scanned
++// before archive, so an active change wins over its archived twin).
++func dedupeByName(in []ChangeInfo) []ChangeInfo {
++	seen := map[string]bool{}
++	out := make([]ChangeInfo, 0, len(in))
++	for _, c := range in {
++		if seen[c.Name] {
++			continue
++		}
++		seen[c.Name] = true
++		out = append(out, c)
++	}
++	return out
++}
++
++// GetChange returns the change.md + tasks.md text for a sandboxed name.
++func GetChange(ctx context.Context, cwd, name string) (ChangeDetail, error) {
++	_, dir, err := resolveRoot(cwd, name)
++	if err != nil {
++		return ChangeDetail{}, err
++	}
++	detail := ChangeDetail{Name: name, Status: "unknown"}
++	data, err := os.ReadFile(filepath.Join(dir, "change.md"))
++	if err != nil {
++		if errors.Is(err, os.ErrNotExist) {
++			return ChangeDetail{}, &wrapErr{err: ErrNotFound, msg: "change " + name + " has no change.md"}
++		}
++		return ChangeDetail{}, err
++	}
++	detail.ChangeMD = string(data)
++	detail.Status, detail.Ticket = parseMeta(detail.ChangeMD)
++	if !isMeaningfulTicket(detail.Ticket) {
++		detail.Ticket = ""
++	}
++	if tasks, err := os.ReadFile(filepath.Join(dir, "tasks.md")); err == nil {
++		detail.TasksMD = string(tasks)
++	}
++	return detail, nil
++}
++
++func writeJSON(w http.ResponseWriter, status int, v any) {
++	w.Header().Set("Content-Type", "application/json")
++	w.WriteHeader(status)
++	_ = json.NewEncoder(w).Encode(v)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/http/docs/docs_test.go b/skillgrid-cli/internal/mnemonic/http/docs/docs_test.go
+new file mode 100644
+index 0000000..b79a51d
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/http/docs/docs_test.go
+@@ -0,0 +1,120 @@
++package docs
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++// seedRepo lays out a minimal docs/skillgit tree plus a secret file that a
++// traversal must never reach.
++func seedRepo(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	docs := filepath.Join(root, "docs", "skillgrid")
++	for _, dir := range []string{
++		filepath.Join(docs, "changes", "009-web-admin-dashboard"),
++		filepath.Join(docs, "changes", "004-hermes-memory"),
++		filepath.Join(docs, "archive", "001-hybrid-teams-architecture"),
++	} {
++		if err := os.MkdirAll(dir, 0o755); err != nil {
++			t.Fatal(err)
++		}
++	}
++	write := func(path, content string) {
++		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
++			t.Fatal(err)
++		}
++	}
++	write(filepath.Join(docs, "changes", "009-web-admin-dashboard", "change.md"),
++		"# Change: 009-web-admin-dashboard\n\n**Ticket:** TASK-001\n")
++	write(filepath.Join(docs, "changes", "009-web-admin-dashboard", "tasks.md"),
++		"# Tasks: 009-web-admin-dashboard\n\n- [ ] 01.1 do the thing\n")
++	write(filepath.Join(docs, "changes", "004-hermes-memory", "change.md"),
++		"# Change: 004-hermes-memory\n\n**Ticket:** `task-001` (plan ticket)\n")
++	write(filepath.Join(docs, "archive", "001-hybrid-teams-architecture", "change.md"),
++		"# Change: 001-hybrid-teams-architecture\n")
++	write(filepath.Join(root, "secret.md"), "SECRET=traversal-found-me\n")
++	return root
++}
++
++func newHandler(t *testing.T) http.Handler {
++	t.Helper()
++	cwd := seedRepo(t)
++	list := NewList(cwd)
++	detail := NewDetail(cwd)
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if !guard(w, r) {
++			return
++		}
++		// Minimal router (mux would 307-clean dot-segment paths before the
++		// guard runs; production mounts the same handlers on literal
++		// patterns, where the guard is defense-in-depth).
++		switch {
++		case r.URL.Path == "/docs/changes":
++			list.ServeHTTP(w, r)
++		case strings.HasPrefix(r.URL.Path, "/docs/changes/"):
++			name := strings.TrimPrefix(r.URL.Path, "/docs/changes/")
++			r.SetPathValue("name", name)
++			detail.ServeHTTP(w, r)
++		default:
++			http.NotFound(w, r)
++		}
++	})
++}
++
++func doGet(t *testing.T, h http.Handler, target string) (int, string) {
++	t.Helper()
++	rr := httptest.NewRecorder()
++	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, target, nil))
++	return rr.Code, rr.Body.String()
++}
++
++// 03.1 [RED] Threat: path traversal — `..`, absolute paths, and unknown
++// names are blocked; a happy name returns change.md + tasks.md + ticket.
++func TestStep03_Traversal(t *testing.T) {
++	h := newHandler(t)
++
++	if code, body := doGet(t, h, "/docs/changes/../secret"); code != http.StatusBadRequest {
++		t.Errorf("GET /docs/changes/../secret: expected 400, got %d (%s)", code, body)
++	}
++	if code, body := doGet(t, h, "/docs/changes/nope"); code != http.StatusNotFound {
++		t.Errorf("GET /docs/changes/nope: expected 404, got %d (%s)", code, body)
++	}
++
++	code, body := doGet(t, h, "/docs/changes/009-web-admin-dashboard")
++	if code != http.StatusOK {
++		t.Fatalf("happy name: expected 200, got %d (%s)", code, body)
++	}
++	for _, want := range []string{
++		"change_md", "tasks_md", "do the thing", "TASK-001",
++	} {
++		if !strings.Contains(body, want) {
++			t.Errorf("happy name missing %q in %s", want, body)
++		}
++	}
++	if strings.Contains(body, "SECRET=traversal-found-me") {
++		t.Error("a file outside the docs roots leaked into the response")
++	}
++}
++
++// 03.2 [AFK] GET /docs/changes returns the change list (name, status,
++// ticket id parsed from change.md Ticket:).
++func TestStep03_List(t *testing.T) {
++	h := newHandler(t)
++	code, body := doGet(t, h, "/docs/changes")
++	if code != http.StatusOK {
++		t.Fatalf("expected 200, got %d (%s)", code, body)
++	}
++	for _, want := range []string{
++		"009-web-admin-dashboard", "004-hermes-memory", "001-hybrid-teams-architecture",
++		"TASK-001",
++	} {
++		if !strings.Contains(body, want) {
++			t.Errorf("list missing %q in %s", want, body)
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/http/docs_routes_test.go b/skillgrid-cli/internal/mnemonic/http/docs_routes_test.go
+new file mode 100644
+index 0000000..2359647
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/http/docs_routes_test.go
+@@ -0,0 +1,36 @@
++package http
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++)
++
++// 03.2/03.3 [AFK] The /docs/changes routes are mounted on the real handler
++// tree and coexist with the GET /docs shell page route.
++func TestStep03_RoutesMounted(t *testing.T) {
++	h := newHandler(t)
++
++	// GET /docs still serves the dashboard shell page (exact match wins over
++	// the /docs/ subtree handler).
++	rr := httptest.NewRecorder()
++	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/docs", nil))
++	if rr.Code != http.StatusOK {
++		t.Fatalf("GET /docs: expected 200 shell, got %d", rr.Code)
++	}
++	if !strings.Contains(rr.Body.String(), `id="menu"`) {
++		t.Error("GET /docs must serve the dashboard shell")
++	}
++
++	// GET /docs/changes serves the JSON list (empty in the test env, not an
++	// error).
++	rr = httptest.NewRecorder()
++	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/docs/changes", nil))
++	if rr.Code != http.StatusOK {
++		t.Fatalf("GET /docs/changes: expected 200, got %d (%s)", rr.Code, rr.Body.String())
++	}
++	if !strings.Contains(rr.Body.String(), `"changes"`) {
++		t.Errorf("GET /docs/changes body must carry the changes key: %s", rr.Body.String())
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/http/docs_ui_test.go b/skillgrid-cli/internal/mnemonic/http/docs_ui_test.go
+new file mode 100644
+index 0000000..964b634
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/http/docs_ui_test.go
+@@ -0,0 +1,64 @@
++package http
++
++import (
++	"net/http"
++	"strings"
++	"testing"
++)
++
++// 03.3 [AFK] Docs menu entry: change list → click → change.md + tasks.md
++// viewer ship in P3 (Docs is a live entry, not a stub).
++func TestStep03_DocsUI(t *testing.T) {
++	h := newHandler(t)
++	_, body := getUI(t, h, "/")
++	if strings.Contains(body, "Docs <span class=\"stub-tag\">") {
++		t.Error("docs entry must be live (still shows P3 stub tag)")
++	}
++	mustContain(t, body, `data-route="docs"`, `href="/docs"`)
++	if strings.Contains(body, `href="/docs" data-route="docs" aria-disabled="true"`) {
++		t.Error("docs entry must not be aria-disabled once live")
++	}
++	_, js := getUI(t, h, "/app.js")
++	mustContain(t, js,
++		"renderDocs", "docQuery", "docOpen",
++		"/docs/changes", "/docs/changes/",
++		"doc-list", "doc-row", "doc-view", "doc-md",
++		"change.md", "tasks.md",
++		"Back to changes",
++	)
++	if strings.Contains(js, "docs: { phase:") {
++		t.Error("docs must be removed from STUBS once live")
++	}
++	// The stub renderer for live routes must not claim docs is unbuilt.
++	if i := strings.Index(js, "Coming in"); i >= 0 && strings.Contains(js[i:i+120], "Docs") {
++		t.Error("docs stub copy must be gone")
++	}
++	_, css := getUI(t, h, "/app.css")
++	mustContain(t, css, ".doc-list", ".doc-row", ".doc-view", ".doc-md")
++}
++
++// 03.4 [AFK] Two-way tracker links: docs → tracker item via Ticket:; tracker
++// detail → docs via the referenced change path.
++func TestStep03_Links(t *testing.T) {
++	h := newHandler(t)
++	_, js := getUI(t, h, "/app.js")
++	// Docs → Tracker: the Ticket: id (backticked in change.md) is stripped to
++	// its bare id and deep-links to the tracker entry.
++	mustContain(t, js, "docStripTicket", "Open tracker item", `/tracker?`)
++	// Tracker detail → Docs: change-path doc refs link back into the docs
++	// entry with ?change=, and the click handler navigates + closes.
++	mustContain(t, js, "trkDocLink", `changes\/([a-z0-9][a-z0-9-]*)`, "data-docchange")
++}
++
++// 03.5 [AFK] openapi.yaml documents the docs routes with examples.
++func TestStep03_OpenAPI(t *testing.T) {
++	h := newHandler(t)
++	code, body := getUI(t, h, "/openapi.yaml")
++	if code != http.StatusOK {
++		t.Fatalf("expected /openapi.yaml 200, got %d", code)
++	}
++	mustContain(t, body,
++		"/docs/changes", "/docs/changes/{name}",
++		"DocChange", "DocChangeDetail",
++	)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/http/server.go b/skillgrid-cli/internal/mnemonic/http/server.go
+index 1bf7dd2..770c53f 100644
+--- a/skillgrid-cli/internal/mnemonic/http/server.go
++++ b/skillgrid-cli/internal/mnemonic/http/server.go
+@@ -11,20 +11,21 @@ import (
+ 	"io"
+ 	"net/http"
+ 	"os"
+ 	"strconv"
+ 	"strings"
+ 	"time"
+ 
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/http/docs"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/webcache"
+ )
+ 
+ const serverVersion = "0.1.0"
+ 
+ // Server wraps the HTTP handler and optional bearer token for write routes.
+ type Server struct {
+@@ -34,20 +35,30 @@ type Server struct {
+ }
+ 
+ // NewServer builds the v1 HTTP API handler tree.
+ func NewServer(svc *service.Service) *Server {
+ 	token := os.Getenv("SKILLGRID_HTTP_TOKEN")
+ 	s := &Server{svc: svc, token: token, mux: http.NewServeMux()}
+ 	s.registerRoutes()
+ 	return s
+ }
+ 
++// docsCwd is the directory the docs bridge sandboxes reads against. Overridable
++// in tests; defaults to the server process's working directory (the repo
++// root, matching the tracker bridge's doc/config reads).
++var docsCwd = func() string {
++	if v := strings.TrimSpace(os.Getenv("SKILLGRID_DOCS_CWD")); v != "" {
++		return v
++	}
++	return "."
++}()
++
+ // openHandleFor opens a single Project Handle for a resolved project id
+ // (config root "."), mirroring the MCP single-open lifecycle: each request
+ // opens the project once and works through the handle instead of the
+ // re-opening facade.
+ func (s *Server) openHandleFor(projectID string) (*service.ProjectHandle, func(), error) {
+ 	return s.svc.Open(projectID)
+ }
+ 
+ // openHandleForDir opens a single Project Handle for a directory-rooted route
+ // (project resolved from the directory).
+@@ -110,23 +121,33 @@ func (s *Server) registerRoutes() {
+ 	s.mux.HandleFunc("GET /web/lookup", s.handleWebLookup)
+ 	s.mux.HandleFunc("POST /web/cache", s.requireWriteAuth(s.handleWebCacheSave))
+ 	s.mux.HandleFunc("GET /web/search", s.handleWebSearch)
+ 	s.mux.HandleFunc("GET /web/entry/{id}", s.handleWebEntry)
+ 	s.mux.HandleFunc("GET /web/status", s.handleWebStatus)
+ 
+ 	s.mux.HandleFunc("GET /projects", s.handleProjects)
+ 
+ 	s.registerTeamsRoutes()
+ 	s.registerTrackerRoutes()
++	s.registerDocsRoutes()
+ 	s.registerUIRoutes()
+ }
+ 
++// registerDocsRoutes mounts the read-only SDD docs bridge on the two routes
++// it owns (GET /docs/changes, GET /docs/changes/{name}). The GET /docs shell
++// page is registered separately by registerUIRoutes (exact pattern, no
++// conflict with these literal routes).
++func (s *Server) registerDocsRoutes() {
++	s.mux.Handle("GET /docs/changes", docs.NewList(docsCwd))
++	s.mux.Handle("GET /docs/changes/{name}", docs.NewDetail(docsCwd))
++}
++
+ // Handler returns the root http.Handler.
+ func (s *Server) Handler() http.Handler {
+ 	return s.mux
+ }
+ 
+ // StartHTTP listens on addr until the server stops.
+ func StartHTTP(addr string, svc *service.Service) error {
+ 	srv := &http.Server{
+ 		Addr:    addr,
+ 		Handler: NewServer(svc).Handler(),
+diff --git a/skillgrid-cli/internal/mnemonic/http/ui/app.css b/skillgrid-cli/internal/mnemonic/http/ui/app.css
+index ddef588..007df66 100644
+--- a/skillgrid-cli/internal/mnemonic/http/ui/app.css
++++ b/skillgrid-cli/internal/mnemonic/http/ui/app.css
+@@ -379,10 +379,35 @@ a.wcard:hover { border-color: color-mix(in oklch, var(--primary) 50%, transparen
+ .trk-desc {
+   margin: 0; white-space: pre-wrap; border: 1px solid var(--border);
+   border-radius: 0.375rem; background: color-mix(in oklch, var(--background) 60%, transparent);
+   padding: 0.75rem; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.6;
+ }
+ .trk-docs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+ .trk-docref { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted-foreground); }
+ .trk-panel footer { border-top: 1px solid var(--border); padding: 0.625rem 1rem; }
+ .trk-panel footer .trk-mono { font-size: 0.625rem; color: var(--muted-foreground); }
+ .trk-move { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
++
++/* ── Docs entry (P3) ──────────────────────────────────────────────────── */
++.doc-page { max-width: 64rem; }
++.doc-head { margin-bottom: 1rem; }
++.doc-loading { display: flex; align-items: center; gap: 0.5rem; color: var(--muted-foreground); }
++.doc-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 0.5rem; overflow: hidden; }
++.doc-row { display: flex; align-items: center; gap: 0.75rem; width: 100%; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--border); padding: 0.625rem 1rem; cursor: pointer; color: var(--foreground); font: inherit; }
++.doc-list .doc-row:last-child { border-bottom: none; }
++.doc-row:hover { background: var(--muted); }
++.doc-row-name { font-family: var(--font-mono); font-size: 0.8125rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.doc-status { font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.125rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-foreground); }
++.doc-status.st-done { color: var(--ok, #4ade80); border-color: currentColor; }
++.doc-status.st-prog { color: var(--info, #60a5fa); border-color: currentColor; }
++.doc-ticket { font-family: var(--font-mono); font-size: 0.6875rem; color: var(--muted-foreground); }
++.doc-empty { padding: 1rem; color: var(--muted-foreground); font-size: 0.8125rem; }
++.doc-view { display: flex; flex-direction: column; gap: 1rem; }
++.doc-view-head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
++.doc-view-head h2 { margin: 0; font-family: var(--font-mono); font-size: 1rem; }
++.doc-view-links { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
++.doc-back { background: transparent; border: none; color: var(--muted-foreground); cursor: pointer; font: inherit; font-size: 0.8125rem; padding: 0; }
++.doc-back:hover { color: var(--foreground); }
++.doc-no-ticket { font-size: 0.75rem; }
++.doc-open-ticket { font-size: 0.8125rem; }
++.doc-file h3 { margin: 0 0 0.375rem; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); }
++.doc-md { background: var(--muted); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.875rem 1rem; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 32rem; overflow: auto; margin: 0; }
+diff --git a/skillgrid-cli/internal/mnemonic/http/ui/app.js b/skillgrid-cli/internal/mnemonic/http/ui/app.js
+index 6a46306..c7520b2 100644
+--- a/skillgrid-cli/internal/mnemonic/http/ui/app.js
++++ b/skillgrid-cli/internal/mnemonic/http/ui/app.js
+@@ -1,26 +1,25 @@
+ "use strict";
+ /* Dashboard shell router (P1). Path-routed menu entries (/welcome, /tracker,
+  * …); the server serves the same shell for each path. The Welcome entry is
+  * fully static (zero fetches). Data entries land in P2–P6; until then they
+  * render as labeled disabled stubs. Project list loads lazily — never on the
+  * Welcome entry. */
+ const $ = (s) => document.querySelector(s);
+ 
+ const STUBS = {
+-  docs: { phase: "P3", title: "Docs", body: "Change list with change.md / tasks.md viewer, linked both ways to tracker items." },
+   memory: { phase: "P4", title: "Memory", body: "Search, observation detail, pin/unpin/delete, plus governance views." },
+   code: { phase: "P5", title: "Code", body: "Index status, freshness banner, BM25 search with source view." },
+   sessions: { phase: "P6", title: "Sessions", body: "Session list with titles, recent context, and summaries." },
+ };
+ 
+-const LIVE = ["welcome", "tracker"];
++const LIVE = ["welcome", "tracker", "docs"];
+ 
+ const ROUTES = ["welcome", "tracker", "docs", "memory", "code", "sessions"];
+ 
+ let project = localStorage.getItem("sgmn-project") || "";
+ let projectsLoaded = false;
+ 
+ function currentRoute() {
+   const seg = location.pathname.replace(/\/+$/, "").split("/").pop() || "welcome";
+   return ROUTES.includes(seg) ? seg : "welcome";
+ }
+@@ -66,20 +65,26 @@ function render() {
+     return;
+   }
+   if (route === "tracker") {
+     welcome.hidden = true;
+     stub.hidden = false;
+     renderTracker(stub);
+     // Project context matters only on data entries; load it lazily here.
+     ensureProjects();
+     return;
+   }
++  if (route === "docs") {
++    welcome.hidden = true;
++    stub.hidden = false;
++    renderDocs(stub);
++    return;
++  }
+ }
+ 
+ async function ensureProjects() {
+   if (projectsLoaded) return;
+   try {
+     const r = await api("/projects");
+     const ids = r.projects || [];
+     const box = $("#project");
+     box.innerHTML = "";
+     if (!ids.length) {
+@@ -346,25 +351,22 @@ async function trkOpenDetail(box, seed) {
+   } catch { /* seed row stays */ }
+   const cfg = trk.config || {};
+   const statuses = cfg.statuses && cfg.statuses.length ? cfg.statuses : [it.status];
+   const dots = { todo: "trk-dot-todo", in_progress: "trk-dot-prog", blocked: "trk-dot-block", done: "trk-dot-done" };
+   const dot = dots[it.board] || dots.todo;
+   const pri = (it.priority || "").toLowerCase();
+   const who = (it.assignees && it.assignees.length)
+     ? `<span class="trk-avatar">${esc(trkInitials(it.assignees[0]))}</span><span class="trk-mono">${esc(it.assignees.join(", "))}</span>`
+     : `<span class="trk-unassigned">unassigned</span>`;
+   const labels = (it.labels || []).map((l) => `<span class="trk-chip">${esc(l)}</span>`).join("");
+-  const docs = (it.doc_refs || []).map((d) => {
+-    const m = String(d).match(/changes\/([a-z0-9][a-z0-9-]*)/);
+-    const inner = m ? `<a href="/docs?change=${encodeURIComponent(m[1])}">${esc(d)}</a>` : esc(d);
+-    return `<li><span class="trk-docref">▤ ${inner}</span></li>`;
+-  }).join("");
++  const docs = (it.doc_refs || []).map((d) =>
++    `<li><span class="trk-docref">▤ ${trkDocLink(d)}</span></li>`).join("");
+   overlay.innerHTML =
+     `<div class="trk-dialog" role="dialog" aria-modal="true" aria-label="Task detail">` +
+     `<button type="button" class="trk-backdrop" aria-label="Close details" data-close></button>` +
+     `<aside class="trk-panel"><header>` +
+     `<span class="trk-panel-id"><span class="trk-dot ${dot}" aria-hidden="true"></span><span class="trk-mono">${esc(it.id)}</span></span>` +
+     `<span><button type="button" class="trk-iconbtn" data-close aria-label="Close">✕</button></span></header>` +
+     `<div class="trk-panel-body"><h2>${esc(it.title)}</h2>` +
+     `<dl class="trk-dl">` +
+     `<dt>Status</dt><dd><span class="trk-dot ${dot}" aria-hidden="true"></span>${esc(it.status)}</dd>` +
+     (it.priority ? `<dt>Priority</dt><dd><span class="trk-prio-badge pri-${esc(pri)}">${esc(it.priority)}</span></dd>` : "") +
+@@ -378,20 +380,27 @@ async function trkOpenDetail(box, seed) {
+     (docs ? `<h3>Linked documents</h3><ul class="trk-docs">${docs}</ul>` : "") +
+     `</div><footer><span class="trk-mono">` +
+     (it.created_at ? `created ${esc(trkRelative(it.created_at))} · ` : "") +
+     (it.updated_at ? `updated ${esc(trkRelative(it.updated_at))}` : "") +
+     `</span></footer></aside></div>`;
+   const close = () => {
+     overlay.innerHTML = "";
+     trkSyncUrl(null);
+     document.removeEventListener("keydown", onKey);
+   };
++  overlay.querySelectorAll("a[data-docchange]").forEach((a) =>
++    a.addEventListener("click", (ev) => {
++      ev.preventDefault();
++      close();
++      history.pushState(null, "", `/docs?change=${encodeURIComponent(a.dataset.docchange)}`);
++      render();
++    }));
+   const onKey = (e) => { if (e.key === "Escape") close(); };
+   document.addEventListener("keydown", onKey);
+   overlay.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", close));
+   overlay.querySelector("#trk-apply").addEventListener("click", async () => {
+     const msg = overlay.querySelector("#trk-msg");
+     msg.textContent = "Saving…";
+     try {
+       const updated = await trackerFetch(`/tracker/tasks/${encodeURIComponent(it.id)}/status?provider=${encodeURIComponent(trk.provider)}`, {
+         method: "POST",
+         body: JSON.stringify({ status: overlay.querySelector("#trk-status").value }),
+@@ -414,10 +423,127 @@ async function trackerFetch(url, opts) {
+   let body = null;
+   try { body = JSON.parse(text); } catch { body = { error: text }; }
+   if (!r.ok) {
+     const err = new Error((body && body.error) || `${r.status} ${r.statusText}`);
+     err.status = r.status;
+     err.provider = body && body.provider;
+     throw err;
+   }
+   return body;
+ }
++
++/* Docs entry (P3) — SDD change list + change.md/tasks.md viewer with
++ * two-way tracker links: docs → tracker via the change's Ticket: id,
++ * tracker detail → docs via the item's change-path doc refs. */
++let docList = [];
++
++function docQuery() {
++  return new URLSearchParams(location.search).get("change") || "";
++}
++
++function docStripTicket(raw) {
++  return String(raw || "")
++    .replace(/^[\s`*(]+/, "").replace(/[\s`)!]+$/, "")
++    .replace(/\s*\(.+$/, "").trim();
++}
++
++function docStatusClass(status) {
++  const s = (status || "").toLowerCase();
++  if (s === "done" || s === "archived" || s === "complete") return "done";
++  if (s.includes("progress") || s === "in-progress") return "prog";
++  return "other";
++}
++
++function docSyncUrl(name) {
++  const q = new URLSearchParams(location.search);
++  if (name) q.set("change", name);
++  else q.delete("change");
++  const qs = q.toString();
++  history.replaceState(null, "", `${location.pathname}${qs ? "?" + qs : ""}`);
++}
++
++async function renderDocs(box) {
++  box.innerHTML =
++    `<div class="doc-page"><header class="doc-head"><h1>Docs</h1>` +
++    `<p class="muted">SDD change documents — change.md and tasks.md — sandboxed to docs/skillgrid, read-only.</p></header>` +
++    `<div id="doc-body"><div class="doc-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading changes…</div></div></div>`;
++  const body = box.querySelector("#doc-body");
++  let changes;
++  try {
++    const data = await api("/docs/changes");
++    changes = data.changes || [];
++  } catch (e) {
++    body.innerHTML =
++      `<div class="trk-empty-state"><p class="trk-empty-title">Failed to load changes</p>` +
++      `<p class="muted">${esc(e.message)}</p></div>`;
++    return;
++  }
++  docList = changes;
++  const rows = changes.map((c) =>
++    `<li><button type="button" class="doc-row" data-name="${esc(c.name)}">` +
++    `<span class="doc-row-name">${esc(c.name)}</span>` +
++    `<span class="doc-status st-${docStatusClass(c.status)}">${esc(c.status || "unknown")}</span>` +
++    (c.ticket ? `<span class="doc-ticket" title="Open in Tracker">${esc(docStripTicket(c.ticket))}</span>` : "") +
++    `</button></li>`).join("");
++  body.innerHTML =
++    `<ul class="doc-list">${rows || `<li class="doc-empty">No changes found.</li>`}</ul>`;
++  body.querySelectorAll(".doc-row").forEach((el) =>
++    el.addEventListener("click", () => docOpen(box, el.dataset.name)));
++  const init = docQuery();
++  if (init) docOpen(box, init);
++}
++
++async function docOpen(box, name) {
++  const body = box.querySelector("#doc-body");
++  docSyncUrl(name);
++  body.innerHTML = `<div class="doc-loading" role="status"><span class="spinner" aria-hidden="true"></span>Loading ${esc(name)}…</div>`;
++  let d;
++  try {
++    d = await api(`/docs/changes/${encodeURIComponent(name)}`);
++  } catch (e) {
++    body.innerHTML =
++      `<div class="trk-empty-state"><p class="trk-empty-title">Failed to load ${esc(name)}</p>` +
++      `<p class="muted">${esc(e.message)}</p><p><a class="doc-back" href="/docs" data-back>← Back to changes</a></p></div>`;
++    body.querySelector("[data-back]")?.addEventListener("click", (ev) => {
++      ev.preventDefault();
++      history.pushState(null, "", "/docs");
++      renderDocs(box);
++    });
++    return;
++  }
++  const ticket = d.ticket ? docStripTicket(d.ticket) : "";
++  const provider = trk.provider;
++  const links = ticket
++    ? `<a class="doc-open-ticket btn" data-ticket="${esc(ticket)}">Open tracker item</a>`
++    : `<span class="muted doc-no-ticket">No tracker ticket</span>`;
++  body.innerHTML =
++    `<div class="doc-view">` +
++    `<header class="doc-view-head">` +
++    `<button type="button" class="doc-back" data-back>← Back to changes</button>` +
++    `<h2>${esc(name)}</h2>` +
++    `<span class="doc-status st-${docStatusClass(d.status)}">${esc(d.status || "unknown")}</span>` +
++    `<span class="doc-view-links">${links}</span>` +
++    `</header>` +
++    `<section class="doc-file"><h3>change.md</h3><pre class="doc-md">${esc(d.change_md)}</pre></section>` +
++    (d.tasks_md ? `<section class="doc-file"><h3>tasks.md</h3><pre class="doc-md">${esc(d.tasks_md)}</pre></section>` : "") +
++    `</div>`;
++  body.querySelector("[data-back]").addEventListener("click", (ev) => {
++    ev.preventDefault();
++    history.pushState(null, "", "/docs");
++    docSyncUrl("");
++    renderDocs(box);
++  });
++  body.querySelector("[data-ticket]")?.addEventListener("click", (ev) => {
++    ev.preventDefault();
++    const q = new URLSearchParams({ provider, task: ev.currentTarget.dataset.ticket });
++    history.pushState(null, "", `/tracker?${q.toString()}`);
++    render();
++  });
++}
++
++/* Tracker detail → SDD docs (03.4): doc refs that point at a change path
++ * link back into the Docs entry. */
++function trkDocLink(ref) {
++  const m = String(ref).match(/changes\/([a-z0-9][a-z0-9-]*)/);
++  if (!m) return esc(ref);
++  return `<a href="/docs?change=${encodeURIComponent(m[1])}" data-docchange="${esc(m[1])}">${esc(ref)}</a>`;
++}
+diff --git a/skillgrid-cli/internal/mnemonic/http/ui/index.html b/skillgrid-cli/internal/mnemonic/http/ui/index.html
+index 0d9567b..4e6a5b2 100644
+--- a/skillgrid-cli/internal/mnemonic/http/ui/index.html
++++ b/skillgrid-cli/internal/mnemonic/http/ui/index.html
+@@ -19,23 +19,23 @@
+     </div>
+     <nav class="nav" aria-label="Primary">
+       <p class="nav-group">Overview</p>
+       <ul class="nav-list" id="menu">
+         <li><a class="nav-link" href="/welcome" data-route="welcome" aria-current="page">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+           Welcome</a></li>
+         <li><a class="nav-link" href="/tracker" data-route="tracker">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+           Tracker</a></li>
+-        <li><a class="nav-link" href="/docs" data-route="docs" aria-disabled="true">
++        <li><a class="nav-link" href="/docs" data-route="docs">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+-          Docs <span class="stub-tag">P3</span></a></li>
++          Docs</a></li>
+         <li><a class="nav-link" href="/memory" data-route="memory" aria-disabled="true">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+           Memory <span class="stub-tag">P4</span></a></li>
+         <li><a class="nav-link" href="/code" data-route="code" aria-disabled="true">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+           Code <span class="stub-tag">P5</span></a></li>
+         <li><a class="nav-link" href="/sessions" data-route="sessions" aria-disabled="true">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+           Sessions <span class="stub-tag">P6</span></a></li>
+         <li><a class="nav-link" href="/swagger-ui">
+@@ -53,21 +53,21 @@
+   <div class="main-col">
+     <header class="topbar">
+       <div class="crumb" aria-label="Breadcrumb"><span class="tilde">~</span><span aria-hidden="true">/</span><span class="current" id="crumb-current">welcome</span></div>
+       <div class="topbar-right">
+         <select id="project" class="project-select" aria-label="Project" hidden></select>
+         <span class="conn"><span class="dot" aria-hidden="true"></span>connected</span>
+       </div>
+     </header>
+     <main class="content" id="content">
+       <div class="welcome" id="view-welcome">
+-        <div class="phase-line"><span class="dot" aria-hidden="true"></span>phase 1 online</div>
++        <div class="phase-line"><span class="dot" aria-hidden="true"></span>phase 3 online</div>
+         <h1>Skillgrid Dashboard</h1>
+         <p class="lede">A web admin dashboard for your skills-backed AI agent workflow. It reads this machine&apos;s Mnemonic memory, tracker, docs, code index, and sessions through the Go backend API.</p>
+         <div class="welcome-cards">
+           <a class="wcard" href="/swagger-ui">
+             <span class="wcard-icon" aria-hidden="true">
+               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+             </span>
+             <span><span class="wcard-title">API Docs
+               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+             </span>
+@@ -80,29 +80,29 @@
+             <span><span class="wcard-title">openapi.yaml
+               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+             </span>
+             <p>Raw OpenAPI spec. Endpoints grow with each phase.</p></span>
+           </a>
+           <div class="wcard dashed">
+             <span class="wcard-icon" aria-hidden="true">
+               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+             </span>
+             <span><span class="wcard-title">More dashboards</span>
+-            <p>Tracker, docs, memory, code index, and sessions arrive in later phases.</p></span>
++            <p>Memory, code index, and sessions arrive in later phases.</p></span>
+           </div>
+         </div>
+         <section class="roadmap" aria-label="Roadmap">
+           <h2>Roadmap</h2>
+           <ul>
+             <li><span class="phase-id live">P1</span><span class="phase-label">Dashboard shell + Swagger UI</span><span class="live-tag">live</span></li>
+-            <li><span class="phase-id next">P2</span><span class="phase-label">Tracker (Backlog.md, Jira, GitLab, GitHub)</span></li>
+-            <li><span class="phase-id todo">P3</span><span class="phase-label">Documents (change.md, tasks.md)</span></li>
++            <li><span class="phase-id live">P2</span><span class="phase-label">Tracker (Backlog.md, Jira, GitLab, GitHub)</span><span class="live-tag">live</span></li>
++            <li><span class="phase-id next">P3</span><span class="phase-label">Documents (change.md, tasks.md)</span></li>
+             <li><span class="phase-id todo">P4</span><span class="phase-label">Memory</span></li>
+             <li><span class="phase-id todo">P5</span><span class="phase-label">Code index</span></li>
+             <li><span class="phase-id todo">P6</span><span class="phase-label">Sessions</span></li>
+           </ul>
+         </section>
+       </div>
+       <div class="stub" id="view-stub" hidden></div>
+     </main>
+   </div>
+ </div>
+diff --git a/skillgrid-cli/internal/mnemonic/http/ui/openapi.yaml b/skillgrid-cli/internal/mnemonic/http/ui/openapi.yaml
+index 28602cc..a8273c2 100644
+--- a/skillgrid-cli/internal/mnemonic/http/ui/openapi.yaml
++++ b/skillgrid-cli/internal/mnemonic/http/ui/openapi.yaml
+@@ -925,20 +925,85 @@ paths:
+         "200":
+           description: Normalized item
+           content:
+             application/json:
+               schema:
+                 $ref: "#/components/schemas/TrackerItem"
+         "404":
+           $ref: "#/components/responses/Bad"
+         "501":
+           $ref: "#/components/responses/Bad"
++  /docs/changes:
++    get:
++      tags: [docs]
++      operationId: docsList
++      summary: List SDD changes (name, status, ticket id)
++      description: |-
++        Read-only view of docs/skillgrid/changes and docs/skillgrid/archive.
++        The ticket id is parsed from each change.md `Ticket:` line (backticks
++        and annotations stripped by the UI, not here).
++      responses:
++        "200":
++          description: Change list
++          content:
++            application/json:
++              schema:
++                type: object
++                required: [changes]
++                properties:
++                  changes:
++                    type: array
++                    items:
++                      $ref: "#/components/schemas/DocChange"
++              example:
++                changes:
++                  - name: 009-web-admin-dashboard
++                    status: in-progress
++                    ticket: TASK-001
++                  - name: 004-hermes-memory
++                    status: draft
++                    ticket: "task-001"
++        "500":
++          $ref: "#/components/responses/Internal"
++  /docs/changes/{name}:
++    get:
++      tags: [docs]
++      operationId: docsGet
++      summary: One change's change.md + tasks.md text
++      description: |-
++        Sandboxed to the two docs roots: names with `..`, absolute paths, or
++        escapes return 400; unknown names return 404. Read-only — files are
++        served as text, never executed.
++      parameters:
++        - name: name
++          in: path
++          required: true
++          schema:
++            type: string
++          example: 009-web-admin-dashboard
++      responses:
++        "200":
++          description: Change documents
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/DocChangeDetail"
++              example:
++                name: 009-web-admin-dashboard
++                status: in-progress
++                ticket: TASK-001
++                change_md: "# Change: 009-web-admin-dashboard\n\n**Ticket:** TASK-001\n"
++                tasks_md: "# Tasks: 009-web-admin-dashboard\n"
++        "400":
++          $ref: "#/components/responses/Bad"
++        "404":
++          $ref: "#/components/responses/Bad"
+   /swagger-ui:
+     get:
+       tags: [ui]
+       operationId: swaggerUI
+       summary: Swagger UI (interactive API explorer)
+       responses:
+         "200":
+           description: HTML page
+           content:
+             text/html: {}
+@@ -966,20 +1031,53 @@ components:
+         application/json:
+           schema:
+             $ref: "#/components/schemas/HTTPError"
+   schemas:
+     HTTPError:
+       type: object
+       required: [error]
+       properties:
+         error:
+           type: string
++    DocChange:
++      type: object
++      required: [name, status]
++      properties:
++        name:
++          type: string
++          description: Change directory name (NNN-slug)
++          example: 009-web-admin-dashboard
++        status:
++          type: string
++          description: Parsed from the change.md `STATUS:` line (lowercased); "unknown" when absent
++          example: in-progress
++        ticket:
++          type: string
++          description: Parsed from the change.md `Ticket:` line; absent when the change has no ticket
++          example: TASK-001
++    DocChangeDetail:
++      type: object
++      required: [name, status, change_md]
++      properties:
++        name:
++          type: string
++        status:
++          type: string
++        ticket:
++          type: string
++          description: Absent when the change has no `Ticket:` line (the UI renders no tracker link, not an error)
++        change_md:
++          type: string
++          description: Full change.md text
++        tasks_md:
++          type: string
++          description: Full tasks.md text; absent when the change has no tasks.md
+     TrackerItem:
+       type: object
+       required: [id, title, status, board, provider]
+       properties:
+         id:
+           type: string
+           description: Provider-native identifier (TASK-001, 12, PROJ-1)
+         title:
+           type: string
+         status:
+diff --git a/skillgrid-cli/internal/mnemonic/http/ui_shell_test.go b/skillgrid-cli/internal/mnemonic/http/ui_shell_test.go
+index 332a4db..30a7702 100644
+--- a/skillgrid-cli/internal/mnemonic/http/ui_shell_test.go
++++ b/skillgrid-cli/internal/mnemonic/http/ui_shell_test.go
+@@ -68,21 +68,21 @@ func TestStep01_Shell(t *testing.T) {
+ 	if code, css := getUI(t, h, "/app.css"); code != http.StatusOK || !strings.Contains(css, ".sidebar") {
+ 		t.Errorf("expected /app.css shell styles, got %d", code)
+ 	}
+ }
+ 
+ // TestStep01_Welcome: static Welcome page with roadmap + swagger links, zero fetches.
+ func TestStep01_Welcome(t *testing.T) {
+ 	h := newHandler(t)
+ 	_, body := getUI(t, h, "/")
+ 	mustContain(t, body,
+-		`id="view-welcome"`, "phase 1 online", "Skillgrid Dashboard",
++		`id="view-welcome"`, "phase 3 online", "Skillgrid Dashboard",
+ 		`href="/swagger-ui"`, `href="/openapi.yaml"`,
+ 		"Roadmap", "Dashboard shell + Swagger UI",
+ 		"Tracker (Backlog.md, Jira, GitLab, GitHub)",
+ 		"Documents (change.md, tasks.md)", "Memory", "Code index", "Sessions",
+ 	)
+ 	// Welcome content is static HTML: the router must not fetch on /welcome.
+ 	_, js := getUI(t, h, "/app.js")
+ 	renderIdx := strings.Index(js, "function render()")
+ 	if renderIdx < 0 {
+ 		t.Fatal("expected render() in app.js")
+diff --git a/skillgrid-cli/internal/mnemonic/memory/service.go b/skillgrid-cli/internal/mnemonic/memory/service.go
+index 684dae6..d9c2336 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/service.go
++++ b/skillgrid-cli/internal/mnemonic/memory/service.go
+@@ -15,20 +15,24 @@ import (
+ 
+ 	"github.com/google/uuid"
+ 
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+ )
+ 
+ const (
+ 	defaultSearchLimit  = 20
+ 	defaultContextLimit = 5
++	// defaultMemoryTTL is the soft expiry stamped on every observation when the
++	// caller does not supply one (014 step 04). The service layer can override
++	// it from the mnemonic.ttl config key via SetTTL.
++	defaultMemoryTTL = 7 * 24 * time.Hour
+ )
+ 
+ // Service provides save and search over project-scoped observations.
+ // distillHookProvider supplies the session-close distillation hook (change 013,
+ // step 02). It is satisfied by *service.ProjectHandle; the memory package
+ // depends on the interface (not the service package) to avoid an import cycle.
+ // The hook takes the project id because a close may target a store opened
+ // under a different resolution than the one the hook reopens.
+ type distillHookProvider interface {
+ 	DistillHook() func(ctx context.Context, projectID, sessionID, summary string)
+@@ -40,20 +44,24 @@ type Service struct {
+ 	// hookProvider carries the opt-in session-close distillation hook (set by
+ 	// the service layer in openProject). When nil (a memory.Service built
+ 	// directly, e.g. in unit tests) session close has no hook — the current
+ 	// default-off behavior.
+ 	hookProvider distillHookProvider
+ 	// budget is the uniform read budget (change 013, step 03) applied to every
+ 	// mem_* read path. Lazily defaulted (NewBudget) so a Service built directly
+ 	// in unit tests still enforces the default caps. The service layer tunes it
+ 	// from config (mnemonic.retrieval_budget) via SetBudget.
+ 	budget *Budget
++	// ttl is the default soft expiry (014 step 04) stamped on saves that omit
++	// expires_at. Zero means "use defaultMemoryTTL". The service layer sets it
++	// from the mnemonic.ttl config key via SetTTL.
++	ttl time.Duration
+ }
+ 
+ // SetDistillHookProvider attaches the owning handle (which carries the opt-in
+ // session-close distill hook). The service layer sets it in openProject so a
+ // session close with distillation enabled fires the detached goroutine.
+ func (s *Service) SetDistillHookProvider(p distillHookProvider) {
+ 	if s != nil {
+ 		s.hookProvider = p
+ 	}
+ }
+@@ -69,20 +77,38 @@ func (s *Service) Budget() *Budget {
+ 
+ // SetBudget overrides the read budget (change 013, step 03). The service layer
+ // calls it from config (mnemonic.retrieval_budget) so the item/char/timeout
+ // caps are tunable; a zero field falls back to its default.
+ func (s *Service) SetBudget(cfg BudgetConfig) {
+ 	if s != nil {
+ 		s.budget = NewBudget(cfg)
+ 	}
+ }
+ 
++// SetTTL overrides the default soft expiry (014 step 04) stamped on saves that
++// omit expires_at. The service layer calls it from the mnemonic.ttl config key;
++// a non-positive value falls back to defaultMemoryTTL.
++func (s *Service) SetTTL(d time.Duration) {
++	if s != nil && d > 0 {
++		s.ttl = d
++	}
++}
++
++// effectiveTTL returns the active default soft expiry, falling back to
++// defaultMemoryTTL when no positive override was set.
++func (s *Service) effectiveTTL() time.Duration {
++	if s != nil && s.ttl > 0 {
++		return s.ttl
++	}
++	return defaultMemoryTTL
++}
++
+ // SaveInput holds fields for a new or updated observation.
+ type SaveInput struct {
+ 	Title     string
+ 	Type      string
+ 	Content   string
+ 	Scope     string
+ 	TopicKey  string
+ 	SessionID string
+ 	Source    string
+ 	// CapturePrompt, when true, best-effort links the most recent user prompt
+@@ -94,20 +120,25 @@ type SaveInput struct {
+ 	// recorded as an alias of a canonical project, the caller is expected to
+ 	// write to the canonical name instead. See ProjectDrift.
+ 	ProjectName string
+ 	// ToolName is optional provenance for which agent tool produced the save
+ 	// (e.g. "mem_save"). Empty leaves the column NULL.
+ 	ToolName string
+ 	// Owner is the creating user/agent identity. A new observation always has
+ 	// an owner (private-by-default governance, change 013 step 01). Empty
+ 	// falls back to the session identity so the asset is never unowned.
+ 	Owner string
++	// ExpiresAt is an optional RFC3339 expiry. When non-empty it is preserved
++	// unchanged; when empty, Save() auto-stamps it to now + the configured TTL
++	// (mnemonic.ttl, default 7 days) so every observation carries a soft
++	// expiry (014 step 04).
++	ExpiresAt string
+ }
+ 
+ // PassiveInput is a raw block of text (assistant reply, Task output, etc.)
+ // from which the server extracts structured learnings. Extraction happens
+ // server-side so the agent does not have to do it.
+ type PassiveInput struct {
+ 	Content   string `json:"content"`
+ 	SessionID string `json:"session_id"`
+ 	Source    string `json:"source,omitempty"`
+ 	Project   string `json:"project,omitempty"`
+@@ -292,28 +323,38 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
+ 		}
+ 		if !errors.Is(err, sql.ErrNoRows) {
+ 			return 0, fmt.Errorf("topic_key lookup: %w", err)
+ 		}
+ 	}
+ 
+ 	var promptID sql.NullInt64
+ 	if in.CapturePrompt {
+ 		promptID = s.latestPromptForSession(ctx, in.SessionID)
+ 	}
++	// TTL default (014 step 04): when the caller supplies no explicit expires_at,
++	// stamp one to now + the configured default (mnemonic.ttl, 7d). An explicit
++	// value is preserved unchanged (validated so we never persist an
++	// unparseable TTL that breaks the soft-exclude filters).
++	expiresAt := strings.TrimSpace(in.ExpiresAt)
++	if expiresAt == "" {
++		expiresAt = time.Now().UTC().Add(s.effectiveTTL()).Format(time.RFC3339)
++	} else if _, err := time.Parse(time.RFC3339, expiresAt); err != nil {
++		return 0, fmt.Errorf("invalid expires_at: %w", err)
++	}
+ 	res, err := s.store.DB.ExecContext(ctx, `
+ 		INSERT INTO observations (
+ 			session_id, type, title, content, project, scope, topic_key,
+ 			normalized_hash, revision_count, created_at, updated_at, source, prompt_id, tool_name,
+-			owner, visibility, status, retrieval_usage
+-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0)`,
++			owner, visibility, status, retrieval_usage, expires_at
++		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?)`,
+ 		in.SessionID, in.Type, in.Title, in.Content, s.projectID, in.Scope, nullString(in.TopicKey),
+-		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner,
++		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt),
+ 	)
+ 	if err != nil {
+ 		return 0, fmt.Errorf("insert observation: %w", err)
+ 	}
+ 	id, err := res.LastInsertId()
+ 	if err != nil {
+ 		return 0, fmt.Errorf("last insert id: %w", err)
+ 	}
+ 	return id, nil
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/memory/ttl_defaults_test.go b/skillgrid-cli/internal/mnemonic/memory/ttl_defaults_test.go
+new file mode 100644
+index 0000000..fd4646d
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/ttl_defaults_test.go
+@@ -0,0 +1,136 @@
++package memory
++
++import (
++	"context"
++	"testing"
++	"time"
++)
++
++// TestSaveAutoSetsExpiresAt verifies that Save() stamps an observation with a
++// default expiry (~7 days out) when the caller does not supply one, and that an
++// explicitly provided expires_at is preserved unchanged (014 step 04, task 04.1).
++func TestSaveAutoSetsExpiresAt(t *testing.T) {
++	_, svc := newTestStore(t, "ttlautosave")
++	sid := newSession(t, svc)
++	ctx := context.Background()
++
++	// No explicit expires_at: Save() must auto-stamp ~now + 7d.
++	id, err := svc.Save(ctx, SaveInput{
++		Title: "auto ttl", Type: "decision", Content: "no explicit expiry",
++		SessionID: sid, Scope: "project",
++	})
++	if err != nil {
++		t.Fatalf("save (no expires): %v", err)
++	}
++	obs, err := svc.Get(ctx, id)
++	if err != nil {
++		t.Fatalf("get: %v", err)
++	}
++	if obs.ExpiresAt == "" {
++		t.Fatal("auto expires_at was not set; expected ~now+7d")
++	}
++	got, err := time.Parse(time.RFC3339, obs.ExpiresAt)
++	if err != nil {
++		t.Fatalf("expires_at %q not RFC3339: %v", obs.ExpiresAt, err)
++	}
++	want := time.Now().UTC().Add(7 * 24 * time.Hour)
++	if d := got.Sub(want); d > time.Hour || d < -time.Hour {
++		t.Fatalf("auto expires_at %s is not ~7d out (want ~%s, off by %v)", got, want, d)
++	}
++
++	// Explicit expires_at must be preserved unchanged.
++	explicit := "2030-01-02T03:04:05Z"
++	id2, err := svc.Save(ctx, SaveInput{
++		Title: "explicit ttl", Type: "decision", Content: "explicit expiry",
++		SessionID: sid, Scope: "project", ExpiresAt: explicit,
++	})
++	if err != nil {
++		t.Fatalf("save (explicit expires): %v", err)
++	}
++	obs2, err := svc.Get(ctx, id2)
++	if err != nil {
++		t.Fatalf("get explicit: %v", err)
++	}
++	if obs2.ExpiresAt != explicit {
++		t.Fatalf("explicit expires_at not preserved: got %q want %q", obs2.ExpiresAt, explicit)
++	}
++}
++
++// TestTTLRetireOnlyExpired verifies that TTLRetire soft-deletes ONLY
++// observations past their expires_at: an expired row is retired, a row
++// expiring in the future is untouched, and a row with no expires_at is
++// untouched. It also verifies that search excludes the retired row (014 step
++// 04, task 04.2).
++func TestTTLRetireOnlyExpired(t *testing.T) {
++	_, svc := newTestStore(t, "ttlretire")
++	sid := newSession(t, svc)
++	ctx := context.Background()
++
++	expiredID, err := svc.Save(ctx, SaveInput{
++		Title: "ttl expired", Type: "decision", Content: "already expired",
++		SessionID: sid, Scope: "project",
++	})
++	if err != nil {
++		t.Fatalf("save expired: %v", err)
++	}
++	if err := svc.SetExpiresAt(ctx, expiredID, time.Now().Add(-1*time.Hour).UTC().Format(time.RFC3339)); err != nil {
++		t.Fatalf("set expired expiry: %v", err)
++	}
++	futureID, err := svc.Save(ctx, SaveInput{
++		Title: "ttl future", Type: "decision", Content: "expires in an hour",
++		SessionID: sid, Scope: "project",
++	})
++	if err != nil {
++		t.Fatalf("save future: %v", err)
++	}
++	if err := svc.SetExpiresAt(ctx, futureID, time.Now().Add(1*time.Hour).UTC().Format(time.RFC3339)); err != nil {
++		t.Fatalf("set future expiry: %v", err)
++	}
++	noExpID, err := svc.Save(ctx, SaveInput{
++		Title: "ttl noexpiry", Type: "decision", Content: "no expiry set",
++		SessionID: sid, Scope: "project",
++	})
++	if err != nil {
++		t.Fatalf("save noexpiry: %v", err)
++	}
++	// Clear the auto-stamped default so this row genuinely has no expires_at.
++	if err := svc.SetExpiresAt(ctx, noExpID, ""); err != nil {
++		t.Fatalf("clear noexpiry expiry: %v", err)
++	}
++
++	retired, err := svc.TTLRetire(ctx)
++	if err != nil {
++		t.Fatalf("ttl retire: %v", err)
++	}
++	if retired != 1 {
++		t.Fatalf("TTLRetire retired %d, want exactly 1", retired)
++	}
++
++	// Search must exclude the retired row but still return the live ones.
++	hits, err := svc.Search(ctx, "ttl", "any", 10)
++	if err != nil {
++		t.Fatalf("search: %v", err)
++	}
++	seen := map[int64]bool{}
++	for _, h := range hits {
++		seen[h.ID] = true
++	}
++	if seen[expiredID] {
++		t.Fatal("search returned a retired observation")
++	}
++	if !seen[futureID] || !seen[noExpID] {
++		t.Fatalf("search did not return live observations: future=%v noexpiry=%v", seen[futureID], seen[noExpID])
++	}
++
++	// A soft-deleted row is invisible to the read path (Get filters
++	// deleted_at IS NULL), confirming the expiry actually soft-deleted it.
++	if _, err := svc.Get(ctx, expiredID); err == nil {
++		t.Fatal("retired observation is still readable via Get; expected not-found")
++	}
++	if _, err := svc.Get(ctx, futureID); err != nil {
++		t.Fatalf("future observation unreadable after retire: %v", err)
++	}
++	if _, err := svc.Get(ctx, noExpID); err != nil {
++		t.Fatalf("no-expiry observation unreadable after retire: %v", err)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index bba2e29..8a6dc17 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -294,20 +294,24 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
+ 	mem := memory.New(st, projectID)
+ 	// Budget (change 013, step 03): tune the mem_* read budget from config
+ 	// (mnemonic.retrieval_budget). Zero fields fall back to the memory package
+ 	// defaults, so a config without the section is the default budget.
+ 	rb := cfg.RetrievalBudget
+ 	mem.SetBudget(memory.BudgetConfig{
+ 		Items:     rb.Items,
+ 		Chars:     rb.Chars,
+ 		TimeoutNs: rb.TimeoutNs,
+ 	})
++	// TTL default (014 step 04): route the mnemonic.ttl config key to the
++	// memory service so saves that omit expires_at are stamped with the
++	// operator-configured expiry (DefaultMemoryTTL fallback when unset).
++	mem.SetTTL(cfg.TTL)
+ 	h := &ProjectHandle{
+ 		store:          st,
+ 		projectID:      projectID,
+ 		root:           root,
+ 		memory:         mem,
+ 		web:            webcache.New(st, projectID, cfg.WebCache),
+ 		content:        files.NewContentPlane(root),
+ 		distillService: s,
+ 	}
+ 	// Attach the handle as the memory service's hook provider so SessionEnd can
+@@ -1746,20 +1750,56 @@ func resolveEmbedder(configRoot string) embedder.Embedder {
+ }
+ 
+ // Open opens a ProjectHandle for an explicit project id (config root ".").
+ // It aborts with an error on empty or invalid ids — blank ids are rejected
+ // up front and ".."-containing ids by store.Open — and never returns a
+ // partial handle.
+ func (s *Service) Open(projectID string) (*ProjectHandle, func(), error) {
+ 	return s.openProject(projectID, ".")
+ }
+ 
++// RunTTLExpiry sweeps every project store under the data dir, soft-deleting
++// (retiring) each observation past its expires_at. It is best-effort: a missing
++// or corrupt store is skipped with a zero count, and an empty data dir is a
++// clean no-op, so the method never fails a sweep over an uncreated store
++// (014 step 04, backing `mem expire`). It returns the per-project retirement
++// counts keyed by project id.
++func (s *Service) RunTTLExpiry(ctx context.Context) (map[string]int, error) {
++	if s == nil {
++		return map[string]int{}, fmt.Errorf("service not initialized")
++	}
++	projects, err := s.ListProjects()
++	if err != nil {
++		// A data dir that does not exist yet is an empty sweep, not an error.
++		if os.IsNotExist(err) {
++			return map[string]int{}, nil
++		}
++		return nil, err
++	}
++	counts := make(map[string]int, len(projects))
++	for _, pid := range projects {
++		h, cleanup, oerr := s.openProject(pid, ".")
++		if oerr != nil {
++			// Best-effort: skip a store that cannot be opened (missing/corrupt).
++			counts[pid] = 0
++			continue
++		}
++		n, rerr := h.Memory().TTLRetire(ctx)
++		if rerr != nil {
++			n = 0
++		}
++		counts[pid] = n
++		cleanup()
++	}
++	return counts, nil
++}
++
+ // OpenForCWD opens project-scoped services from the current working directory.
+ func (s *Service) OpenForCWD() (*ProjectHandle, func(), error) {
+ 	return s.openProjectFromCWD()
+ }
+ 
+ // OpenForDirectory opens project-scoped services for directory.
+ func (s *Service) OpenForDirectory(directory string) (*ProjectHandle, func(), error) {
+ 	return s.openProjectForDirectory(directory)
+ }
+ 

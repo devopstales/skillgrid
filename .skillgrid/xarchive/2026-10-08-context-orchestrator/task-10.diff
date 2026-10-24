@@ -1,0 +1,632 @@
+commit 845d8f7a102da058318e4d60519a3354afe4360d
+Author: Balazs PALDI <balazs.paldi@shiwaforce.com>
+Date:   Mon Oct 12 21:15:46 2026 +0200
+
+    feat(ctx): add /metrics Prometheus text and /api/session-summaries with loopback-only guard (T10)
+    
+    Add two read-only ctx observability routes and a loopback restriction on
+    all four:
+    
+    - GET /metrics: hand-emitted Prometheus text (stdlib only, no
+      prometheus/client_golang) exposing ctx_requests_total,
+      ctx_tokens_saved_total, ctx_cache_hits_total,
+      ctx_cache_invalidations_total, ctx_sessions_total. Same source of truth
+      as /stats (observability.Snapshot over ctx_proxy_sessions), so the two
+      cannot disagree. Fail-open: a missing table degrades to 200 with
+      zero-valued counters (ADR-0016).
+    - GET /api/session-summaries: offset pagination (limit + cursor) over
+      ctx_session_summaries via Store.ListSessionSummaries, stable ORDER BY
+      created_at, session_id. Response is {items, next}; fail-open to an
+      empty items list.
+    - requireLoopback: a non-loopback RemoteAddr (host not 127.0.0.0/8, ::1,
+      or the in-process empty addr) gets 403 + a 'loopback only' body before
+      the store is opened, on /stats, /stats-history, /metrics, and
+      /api/session-summaries. No data leak.
+    
+    T09 tests now use a loopback-address doLoopback helper (httptest.NewRequest
+    defaults RemoteAddr to 192.0.2.1, a TEST-NET address). Single-open
+    invariant and the full internal/http suite stay green.
+    
+    [skillgrid-context]
+    change: 2026-10-08-context-orchestrator
+    ticket: TASK-098
+    wave: 6
+    pr: PR4
+
+diff --git a/mnemonic/internal/http/ctx.go b/mnemonic/internal/http/ctx.go
+index 5d86e233..7b64c8c5 100644
+--- a/mnemonic/internal/http/ctx.go
++++ b/mnemonic/internal/http/ctx.go
+@@ -2,7 +2,12 @@ package http
+ 
+ import (
+ 	"context"
++	"encoding/json"
++	"fmt"
++	"net"
+ 	"net/http"
++	"net/netip"
++	"strconv"
+ 	"strings"
+ 
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
+@@ -43,12 +48,44 @@ func ctxObservabilityConfig(ctx context.Context, root string) *config.CtxConfig
+ 	return cfg
+ }
+ 
++// requireLoopback rejects any non-loopback origin to a ctx observability
++// route with 403 and a "loopback only" body that carries no data (plan §17,
++// TICKET-10). The ctx_* tables hold per-session token/cache counters and
++// summary JSON that are meant for the local agent and operator, not for
++// arbitrary network peers on the same host. Loopback covers the IPv4
++// 127.0.0.0/8 range, IPv6 ::1, and an absent RemoteAddr (the httptest and
++// in-process caller convention). It runs before withProjectHandle so the
++// 403 short-circuits the store open.
++func requireLoopback(w http.ResponseWriter, r *http.Request) bool {
++	addr := r.RemoteAddr
++	if addr == "" {
++		return true
++	}
++	// RemoteAddr is "<host>:<port>"; the port suffix is not part of the IP.
++	host := addr
++	if h, _, err := net.SplitHostPort(addr); err == nil {
++		host = h
++	}
++	// A bare IP literal that is loopback passes; a name or non-loopback IP
++	// (proxy-injected peer, forwarded host) is rejected — names are never
++	// loopback by definition here.
++	ip, err := netip.ParseAddr(host)
++	if err != nil {
++		return false
++	}
++	return ip.IsLoopback()
++}
++
+ // handleCTXStats serves GET /stats: the live session-metric snapshot from
+ // ctx_proxy_sessions (plan §17.2/§17.5). The Stats struct carries a Mode
+ // field (the latest session's mode) as the seam for the T11 run-mode header;
+ // it is populated here but not wired into any header (out of scope). A nil or
+ // table-missing store yields a zero-valued Stats, always 200.
+ func (s *Server) handleCTXStats(w http.ResponseWriter, r *http.Request) {
++	if !requireLoopback(w, r) {
++		writeJSON(w, http.StatusForbidden, map[string]string{"error": "ctx observability routes are loopback only"})
++		return
++	}
+ 	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
+ 		cs := ctxstore.New(h.Store())
+ 		st, err := observability.Snapshot(cs)
+@@ -67,6 +104,10 @@ func (s *Server) handleCTXStats(w http.ResponseWriter, r *http.Request) {
+ // an empty per-granularity list (the JSON shape stays stable: every requested
+ // granularity appears, possibly empty), always 200.
+ func (s *Server) handleCTXStatsHistory(w http.ResponseWriter, r *http.Request) {
++	if !requireLoopback(w, r) {
++		writeJSON(w, http.StatusForbidden, map[string]string{"error": "ctx observability routes are loopback only"})
++		return
++	}
+ 	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
+ 		cs := ctxstore.New(h.Store())
+ 		cfg := ctxObservabilityConfig(r.Context(), h.Root())
+@@ -85,3 +126,156 @@ func (s *Server) handleCTXStatsHistory(w http.ResponseWriter, r *http.Request) {
+ 		writeJSON(w, http.StatusOK, hist)
+ 	})
+ }
++
++// handleCTXMetrics serves GET /metrics: the Prometheus text exposition of the
++// four ctx observability counters (plan §17, TICKET-10). It is hand-emitted
++// (stdlib only — no prometheus/client_golang dependency, ADR-0008 gate) and
++// fail-open: a missing ctx_* table degrades to 200 with zero-valued counters,
++// never a 500 (ADR-0016). The counters are the same source of truth as
++// /stats (ctx_proxy_sessions via observability.Snapshot), so the two routes
++// cannot disagree on the live totals.
++func (s *Server) handleCTXMetrics(w http.ResponseWriter, r *http.Request) {
++	if !requireLoopback(w, r) {
++		writeJSON(w, http.StatusForbidden, map[string]string{"error": "ctx observability routes are loopback only"})
++		return
++	}
++	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
++		cs := ctxstore.New(h.Store())
++		st, err := observability.Snapshot(cs)
++		if err != nil || st == nil {
++			st = &observability.Stats{}
++		}
++		var b strings.Builder
++		writeCounter(&b, "ctx_requests_total", "Total proxied LLM requests observed by the context orchestrator.", st.Requests)
++		writeCounter(&b, "ctx_tokens_saved_total", "Total tokens the context orchestrator saved (before minus after).", st.TokensSaved)
++		writeCounter(&b, "ctx_cache_hits_total", "Total context cache hits.", st.CacheHits)
++		writeCounter(&b, "ctx_cache_invalidations_total", "Total context cache invalidations.", st.CacheInvalidations)
++		writeCounter(&b, "ctx_sessions_total", "Total proxy sessions tracked by the context orchestrator.", int64(st.Sessions))
++		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
++		w.WriteHeader(http.StatusOK)
++		_, _ = w.Write([]byte(b.String()))
++	})
++}
++
++// writeCounter emits one Prometheus counter block (HELP, TYPE, value) with an
++// integer value. Counter values are non-negative by construction (the Snapshot
++// aggregates SUMs of non-negative columns).
++func writeCounter(b *strings.Builder, name, help string, value int64) {
++	if value < 0 {
++		value = 0
++	}
++	fmt.Fprintf(b, "# HELP %s %s\n", name, help)
++	fmt.Fprintf(b, "# TYPE %s counter\n", name)
++	fmt.Fprintf(b, "%s %d\n", name, value)
++}
++
++// sessionSummaryItem is the wire shape of one ctx_session_summaries row for
++// GET /api/session-summaries (plan §17, TICKET-10). Field names are
++// snake_case to match the rest of the ctx observability JSON.
++type sessionSummaryItem struct {
++	SessionID          string `json:"session_id"`
++	Agent              string `json:"agent"`
++	DurationMS         int64  `json:"duration_ms"`
++	Turns              int64  `json:"turns"`
++	TokensSaved        int64  `json:"tokens_saved"`
++	JudgmentKeeps      int64  `json:"judgment_keeps"`
++	JudgmentTruncs     int64  `json:"judgment_truncs"`
++	PrefilterPins      int64  `json:"prefilter_pins"`
++	PrefilterDeads     int64  `json:"prefilter_deads"`
++	CacheInvalidations int64  `json:"cache_invalidations"`
++	ShapingApplied     *bool  `json:"shaping_applied"`
++	EffortRouted       int64  `json:"effort_routed"`
++	TrafficMemories    int64  `json:"traffic_memories"`
++	SummaryJSON        any    `json:"summary_json"`
++	CreatedAt          int64  `json:"created_at"`
++}
++
++// sessionSummaryPage is the paginated response: the items for this page plus
++// an opaque next cursor (the row offset of the following page, "" when the
++// page is the last).
++type sessionSummaryPage struct {
++	Items []sessionSummaryItem `json:"items"`
++	Next  string               `json:"next"`
++}
++
++// handleCTXSessionSummaries serves GET /api/session-summaries: a paginated,
++// read-only view over ctx_session_summaries (plan §17, TICKET-10). Offset
++// pagination is driven by the cursor (a row offset) and the limit query
++// params; the stable ORDER BY created_at, session_id of
++// Store.ListSessionSummaries keeps pages deterministic. Fail-open: a missing
++// table yields 200 with an empty items list, never a 500 (ADR-0016).
++func (s *Server) handleCTXSessionSummaries(w http.ResponseWriter, r *http.Request) {
++	if !requireLoopback(w, r) {
++		writeJSON(w, http.StatusForbidden, map[string]string{"error": "ctx observability routes are loopback only"})
++		return
++	}
++	q := r.URL.Query()
++	limit := 50
++	if v := q.Get("limit"); v != "" {
++		if n, err := strconv.Atoi(v); err == nil && n > 0 {
++			limit = n
++		}
++	}
++	cursor := 0
++	if v := q.Get("cursor"); v != "" {
++		if n, err := strconv.Atoi(v); err == nil && n > 0 {
++			cursor = n
++		}
++	}
++	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
++		cs := ctxstore.New(h.Store())
++		all, err := cs.ListSessionSummaries()
++		if err != nil {
++			// Fail-open: keep the stable page shape (empty items).
++			all = nil
++		}
++		items := make([]sessionSummaryItem, 0, limit)
++		start := cursor
++		end := start + limit
++		if start > len(all) {
++			start = len(all)
++		}
++		if end > len(all) {
++			end = len(all)
++		}
++		for _, row := range all[start:end] {
++			items = append(items, summaryItemFromRow(row))
++		}
++		next := ""
++		if end < len(all) {
++			next = strconv.Itoa(end)
++		}
++		writeJSON(w, http.StatusOK, sessionSummaryPage{Items: items, Next: next})
++	})
++}
++
++// summaryItemFromRow maps one ctx_session_summaries row to its wire item,
++// parsing summary_json into a generic value (fail-open to the raw string when
++// it is not valid JSON — the column is written by the summarizer, not by the
++// reader, so the reader never assumes a shape).
++func summaryItemFromRow(p *ctxstore.SessionSummary) sessionSummaryItem {
++	it := sessionSummaryItem{
++		SessionID:          p.SessionID,
++		Agent:              p.Agent,
++		DurationMS:         p.DurationMS,
++		Turns:              p.Turns,
++		TokensSaved:        p.TokensSaved,
++		JudgmentKeeps:      p.JudgmentKeeps,
++		JudgmentTruncs:     p.JudgmentTruncs,
++		PrefilterPins:      p.PrefilterPins,
++		PrefilterDeads:     p.PrefilterDeads,
++		CacheInvalidations: p.CacheInvalidations,
++		ShapingApplied:     p.ShapingApplied,
++		EffortRouted:       p.EffortRouted,
++		TrafficMemories:    p.TrafficMemories,
++		CreatedAt:          p.CreatedAt,
++	}
++	var v any
++	if p.SummaryJSON != "" {
++		if err := json.Unmarshal([]byte(p.SummaryJSON), &v); err != nil {
++			v = p.SummaryJSON
++		}
++	}
++	it.SummaryJSON = v
++	return it
++}
+diff --git a/mnemonic/internal/http/ctx_t10_test.go b/mnemonic/internal/http/ctx_t10_test.go
+new file mode 100644
+index 00000000..2e18ffee
+--- /dev/null
++++ b/mnemonic/internal/http/ctx_t10_test.go
+@@ -0,0 +1,247 @@
++package http
++
++import (
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/mnemonic/internal/store"
++)
++
++// TestCTXMetrics_FailOpenDefault verifies GET /metrics answers 200 with valid
++// Prometheus text and zero-valued counters when no proxy sessions exist.
++func TestCTXMetrics_FailOpenDefault(t *testing.T) {
++	s, dataDir := newToolCallsServer(t)
++	defer closeStore(t, dataDir)
++
++	req := httptest.NewRequest(http.MethodGet, "/metrics?project="+proj, nil)
++	req.RemoteAddr = "127.0.0.1:54321"
++	rr := httptest.NewRecorder()
++	s.Handler().ServeHTTP(rr, req)
++
++	if rr.Code != http.StatusOK {
++		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	body := rr.Body.String()
++	for _, line := range []string{
++		"# HELP ctx_requests_total",
++		"# TYPE ctx_requests_total counter",
++		"ctx_requests_total 0",
++		"# HELP ctx_tokens_saved_total",
++		"# TYPE ctx_tokens_saved_total counter",
++		"ctx_tokens_saved_total 0",
++	} {
++		if !strings.Contains(body, line) {
++			t.Errorf("metrics body missing %q\nbody:\n%s", line, body)
++		}
++	}
++}
++
++// TestCTXMetrics_WithSeededSessions verifies GET /metrics emits non-zero
++// counters matching the seeded ctx_proxy_sessions rows.
++func TestCTXMetrics_WithSeededSessions(t *testing.T) {
++	s, dataDir := newToolCallsServer(t)
++	defer closeStore(t, dataDir)
++
++	seedCtxProxySessions(t, dataDir)
++
++	req := httptest.NewRequest(http.MethodGet, "/metrics?project="+proj, nil)
++	req.RemoteAddr = "127.0.0.1:54321"
++	rr := httptest.NewRecorder()
++	s.Handler().ServeHTTP(rr, req)
++
++	if rr.Code != http.StatusOK {
++		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	body := rr.Body.String()
++	// Seed: sess-ctx-1 (requests=5, saved=3000, hits=3, inv=1) +
++	// sess-ctx-2 (requests=3, saved=4000, hits=0, inv=2) → totals
++	// requests=8, saved=7000, hits=3, inv=3, sessions=2.
++	for _, line := range []string{
++		"ctx_requests_total 8",
++		"ctx_tokens_saved_total 7000",
++		"ctx_cache_hits_total 3",
++		"ctx_cache_invalidations_total 3",
++		"ctx_sessions_total 2",
++	} {
++		if !strings.Contains(body, line) {
++			t.Errorf("metrics body missing %q\nbody:\n%s", line, body)
++		}
++	}
++}
++
++// TestCTXSessionSummaries_FailOpenDefault verifies GET /api/session-summaries
++// answers 200 with an empty items list when no summaries are stored.
++func TestCTXSessionSummaries_FailOpenDefault(t *testing.T) {
++	s, dataDir := newToolCallsServer(t)
++	defer closeStore(t, dataDir)
++
++	req := httptest.NewRequest(http.MethodGet, "/api/session-summaries?project="+proj, nil)
++	req.RemoteAddr = "127.0.0.1:54321"
++	rr := httptest.NewRecorder()
++	s.Handler().ServeHTTP(rr, req)
++
++	if rr.Code != http.StatusOK {
++		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	var out map[string]any
++	if err := decodeBody(rr, &out); err != nil {
++		t.Fatalf("decode body: %v", err)
++	}
++	items, _ := out["items"].([]any)
++	if len(items) != 0 {
++		t.Errorf("expected empty items, got %d", len(items))
++	}
++	if out["next"] != "" {
++		t.Errorf("expected empty next cursor, got %q", out["next"])
++	}
++}
++
++// TestCTXSessionSummaries_Pagination verifies the offset pagination caps
++// items at the limit, emits a next cursor, and the next page returns the
++// remainder.
++func TestCTXSessionSummaries_Pagination(t *testing.T) {
++	s, dataDir := newToolCallsServer(t)
++	defer closeStore(t, dataDir)
++
++	seedSessionSummaries(t, dataDir, 5)
++
++	// Page 1: limit 3 → 3 items + non-empty next.
++	rr, out := doGetCtx(t, s, "/api/session-summaries?project="+proj+"&limit=3", "127.0.0.1:1")
++	if rr.Code != http.StatusOK {
++		t.Fatalf("page1 expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	items, _ := out["items"].([]any)
++	if len(items) != 3 {
++		t.Fatalf("page1 expected 3 items, got %d", len(items))
++	}
++	next, _ := out["next"].(string)
++	if next == "" {
++		t.Fatalf("page1 expected non-empty next cursor, got %q", out["next"])
++	}
++
++	// Page 2: continue with cursor → the remaining 2.
++	rr2, out2 := doGetCtx(t, s, "/api/session-summaries?project="+proj+"&limit=3&cursor="+next, "127.0.0.1:2")
++	if rr2.Code != http.StatusOK {
++		t.Fatalf("page2 expected 200, got %d: %s", rr2.Code, rr2.Body.String())
++	}
++	items2, _ := out2["items"].([]any)
++	if len(items2) != 2 {
++		t.Fatalf("page2 expected 2 items, got %d", len(items2))
++	}
++	if out2["next"] != "" {
++		t.Errorf("page2 expected empty next cursor, got %q", out2["next"])
++	}
++}
++
++// TestCTXLoopbackOnly verifies all four ctx routes reject a non-loopback
++// origin with 403 + a loopback-only JSON body (no data leak).
++func TestCTXLoopbackOnly(t *testing.T) {
++	s, dataDir := newToolCallsServer(t)
++	defer closeStore(t, dataDir)
++
++	seedCtxProxySessions(t, dataDir)
++
++	for _, path := range []string{"/stats", "/stats-history", "/metrics", "/api/session-summaries"} {
++		req := httptest.NewRequest(http.MethodGet, path+"?project="+proj, nil)
++		req.RemoteAddr = "192.168.1.10:12345"
++		rr := httptest.NewRecorder()
++		s.Handler().ServeHTTP(rr, req)
++
++		if rr.Code != http.StatusForbidden {
++			t.Errorf("%s: expected 403 for non-loopback, got %d: %s", path, rr.Code, rr.Body.String())
++		}
++		body := rr.Body.String()
++		if !strings.Contains(body, "loopback only") {
++			t.Errorf("%s: 403 body should mention loopback only, got %q", path, body)
++		}
++	}
++}
++
++// TestCTXLoopbackOnly_AllFour200OnLoopback seeds data, then asserts each of
++// the four routes answers 200 for a loopback origin.
++func TestCTXLoopbackOnly_AllFour200OnLoopback(t *testing.T) {
++	s, dataDir := newToolCallsServer(t)
++	defer closeStore(t, dataDir)
++
++	seedCtxProxySessions(t, dataDir)
++	seedSessionSummaries(t, dataDir, 2)
++
++	for _, path := range []string{"/stats", "/stats-history", "/metrics", "/api/session-summaries"} {
++		req := httptest.NewRequest(http.MethodGet, path+"?project="+proj, nil)
++		req.RemoteAddr = "127.0.0.1:9999"
++		rr := httptest.NewRecorder()
++		s.Handler().ServeHTTP(rr, req)
++		if rr.Code != http.StatusOK {
++			t.Errorf("%s: expected 200 for loopback, got %d: %s", path, rr.Code, rr.Body.String())
++		}
++	}
++}
++
++// seedCtxProxySessions writes two proxy sessions for the metrics assertions.
++func seedCtxProxySessions(t *testing.T, dataDir string) {
++	t.Helper()
++	st, err := store.Open(dataDir, proj)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	defer st.Close()
++	_, err = st.DB.Exec(`
++		INSERT OR REPLACE INTO ctx_proxy_sessions
++			(session_id, agent, mode, started_at, ended_at, requests,
++			 tokens_before, tokens_after, cache_hits, cache_invalidations)
++		VALUES
++			('sess-ctx-1', 'opencode', 'cache', 1700000000, 1700000100, 5, 10000, 7000, 3, 1),
++			('sess-ctx-2', 'claude', 'token', 1700000200, 1700000300, 3, 9000, 5000, 0, 2)`)
++	if err != nil {
++		t.Fatalf("seed proxy sessions: %v", err)
++	}
++}
++
++// seedSessionSummaries writes n session-summary rows with distinct created_at.
++func seedSessionSummaries(t *testing.T, dataDir string, n int) {
++	t.Helper()
++	st, err := store.Open(dataDir, proj)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	defer st.Close()
++	for i := 0; i < n; i++ {
++		_, err = st.DB.Exec(`
++			INSERT OR REPLACE INTO ctx_session_summaries
++				(session_id, agent, duration_ms, turns, tokens_saved,
++				 judgment_keeps, judgment_truncs, prefilter_pins, prefilter_deads,
++				 cache_invalidations, shaping_applied, effort_routed,
++				 traffic_memories, summary_json, created_at)
++			VALUES (?, 'agent', 1000, 2, 500, 1, 0, 0, 0, 0, 1, 0, 0, '{}', ?)`,
++			fmt.Sprintf("sum-%d", i), 1700000000+int64(i))
++		if err != nil {
++			t.Fatalf("seed session summary %d: %v", i, err)
++		}
++	}
++}
++
++// doGetCtx issues a GET with a forced RemoteAddr and decodes the JSON body.
++func doGetCtx(t *testing.T, s *Server, target, remoteAddr string) (*httptest.ResponseRecorder, map[string]any) {
++	t.Helper()
++	req := httptest.NewRequest(http.MethodGet, target, nil)
++	req.RemoteAddr = remoteAddr
++	rr := httptest.NewRecorder()
++	s.Handler().ServeHTTP(rr, req)
++	var out map[string]any
++	if err := decodeBody(rr, &out); err != nil {
++		t.Fatalf("decode body: %v (body: %s)", err, rr.Body.String())
++	}
++	return rr, out
++}
++
++// decodeBody decodes a JSON body into dst, tolerating an empty body.
++func decodeBody(rr *httptest.ResponseRecorder, dst any) error {
++	if rr.Body.Len() == 0 {
++		return nil
++	}
++	return json.Unmarshal(rr.Body.Bytes(), dst)
++}
+diff --git a/mnemonic/internal/http/ctx_test.go b/mnemonic/internal/http/ctx_test.go
+index 9f590ddd..5198d3f3 100644
+--- a/mnemonic/internal/http/ctx_test.go
++++ b/mnemonic/internal/http/ctx_test.go
+@@ -1,12 +1,45 @@
+ package http
+ 
+ import (
++	"bytes"
++	"encoding/json"
+ 	"net/http"
++	"net/http/httptest"
+ 	"testing"
+ 
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/store"
+ )
+ 
++// doLoopback is a loopback-address variant of do (server_test.go): the ctx
++// observability routes are loopback-only (TICKET-10), and do's
++// httptest.NewRequest defaults RemoteAddr to 192.0.2.1 (a TEST-NET address,
++// not loopback). These tests exercise the route from the local operator
++// perspective, so they force a loopback origin.
++func doLoopback(t *testing.T, h http.Handler, method, target string, body any) (*httptest.ResponseRecorder, map[string]any) {
++	t.Helper()
++	var reader *bytes.Reader
++	if body != nil {
++		b, err := json.Marshal(body)
++		if err != nil {
++			t.Fatalf("marshal body: %v", err)
++		}
++		reader = bytes.NewReader(b)
++	} else {
++		reader = bytes.NewReader(nil)
++	}
++	req := httptest.NewRequest(method, target, reader)
++	req.RemoteAddr = "127.0.0.1:54321"
++	if body != nil {
++		req.Header.Set("Content-Type", "application/json")
++	}
++	rr := httptest.NewRecorder()
++	h.ServeHTTP(rr, req)
++	var out map[string]any
++	dec := json.NewDecoder(bytes.NewReader(rr.Body.Bytes()))
++	_ = dec.Decode(&out)
++	return rr, out
++}
++
+ // TestCTXStats_FailOpenDefault verifies GET /stats responds 200 with
+ // zero-valued JSON when no proxy sessions exist (the common case before any
+ // proxy traffic has been recorded).
+@@ -18,7 +51,7 @@ func TestCTXStats_FailOpenDefault(t *testing.T) {
+ 		}
+ 	}()
+ 
+-	rr, out := do(t, s.Handler(), http.MethodGet, "/stats?project="+proj, nil)
++	rr, out := doLoopback(t, s.Handler(), http.MethodGet, "/stats?project="+proj, nil)
+ 	if rr.Code != http.StatusOK {
+ 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+ 	}
+@@ -65,7 +98,7 @@ func TestCTXStats_WithSeededSessions(t *testing.T) {
+ 	}
+ 	st.Close()
+ 
+-	rr, out := do(t, s.Handler(), http.MethodGet, "/stats?project="+proj, nil)
++	rr, out := doLoopback(t, s.Handler(), http.MethodGet, "/stats?project="+proj, nil)
+ 	if rr.Code != http.StatusOK {
+ 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+ 	}
+@@ -96,7 +129,7 @@ func TestCTXStatsHistory_FailOpenDefault(t *testing.T) {
+ 		}
+ 	}()
+ 
+-	rr, out := do(t, s.Handler(), http.MethodGet, "/stats-history?project="+proj, nil)
++	rr, out := doLoopback(t, s.Handler(), http.MethodGet, "/stats-history?project="+proj, nil)
+ 	if rr.Code != http.StatusOK {
+ 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+ 	}
+@@ -137,7 +170,7 @@ func TestCTXStatsHistory_WithSeededBuckets(t *testing.T) {
+ 	}
+ 	st.Close()
+ 
+-	rr, out := do(t, s.Handler(), http.MethodGet, "/stats-history?project="+proj, nil)
++	rr, out := doLoopback(t, s.Handler(), http.MethodGet, "/stats-history?project="+proj, nil)
+ 	if rr.Code != http.StatusOK {
+ 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+ 	}
+diff --git a/mnemonic/internal/http/server.go b/mnemonic/internal/http/server.go
+index 8581e15d..93bc6baa 100644
+--- a/mnemonic/internal/http/server.go
++++ b/mnemonic/internal/http/server.go
+@@ -189,14 +189,18 @@ func (s *Server) registerRoutes() {
+ }
+ 
+ // registerCtxRoutes mounts the Context Orchestrator observability read routes
+-// (plan §17, TICKET-09): GET /stats (live session metrics) and GET
+-// /stats-history (durable savings history). Both are read-only and fail-open
+-// (ADR-0016). They live on the mnemonic serve mux, NOT the proxy loopback mux
+-// (ctx/proxy's /stats + /v1/compress are a separate handler tree), so there is
+-// no route collision.
++// (plan §17, TICKET-09/10): GET /stats (live session metrics), GET
++// /stats-history (durable savings history), GET /metrics (Prometheus text),
++// and GET /api/session-summaries (paginated session summaries). All are
++// read-only, fail-open (ADR-0016), and loopback-only (a non-loopback origin
++// gets 403 before the store is opened). They live on the mnemonic serve mux,
++// NOT the proxy loopback mux (ctx/proxy's /stats + /v1/compress are a
++// separate handler tree), so there is no route collision.
+ func (s *Server) registerCtxRoutes() {
+ 	s.mux.HandleFunc("GET /stats", s.handleCTXStats)
+ 	s.mux.HandleFunc("GET /stats-history", s.handleCTXStatsHistory)
++	s.mux.HandleFunc("GET /metrics", s.handleCTXMetrics)
++	s.mux.HandleFunc("GET /api/session-summaries", s.handleCTXSessionSummaries)
+ }
+ 
+ // registerGraphRoutes mounts the Phase 4 mnemonic vector-graph routes. The API

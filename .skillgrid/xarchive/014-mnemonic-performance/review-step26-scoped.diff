@@ -1,0 +1,798 @@
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+index fc4fb48b..6d536a28 100644
+--- a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
++++ b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+@@ -503,6 +503,15 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
+ 	if err != nil {
+ 		return stats, fmt.Errorf("open pass db: %w", err)
+ 	}
++	// Re-register the pool with passDB BEFORE swapping idx.store.DB: the close
++	// above left the pool entry pointing at the now-closed old *sql.DB, so any
++	// other live handle for this store (which cached the old DB at Open) would
++	// fail with "database is closed". RebindPassDB atomically swaps the pool's
++	// DB pointer to passDB (keeping the old entry's live refs) and is a no-op
++	// when the store owns its DB outright (cache disabled).
++	if err := idx.store.RebindPassDB(passDB); err != nil {
++		return stats, fmt.Errorf("rebind pass db: %w", err)
++	}
+ 	idx.store.DB = passDB
+ 	// Knowledge-graph passes (03.8): run the community + process + knowledge
+ 	// passes at index time so code_processes / code_communities / code_docs /
+diff --git a/skillgrid-cli/internal/mnemonic/http/search_match_mode_test.go b/skillgrid-cli/internal/mnemonic/http/search_match_mode_test.go
+new file mode 100644
+index 00000000..37f8104c
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/http/search_match_mode_test.go
+@@ -0,0 +1,72 @@
++package http
++
++import (
++	"net/http"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// TestSearchMatchModeTrigram is 26.2 [RED] — the GET /search endpoint accepts
++// the `match_mode` query parameter (a 014 step-02 additive parameter) and
++// routes it to the scoped search. The endpoint must: (1) accept a trigram
++// match_mode without error and return the observations shape (the param is
++// wired through SearchWithScope, not rejected); (2) return the seeded row for a
++// phrase match_mode (default any); (3) return 400 when no project is supplied
++// (the existing contract, unchanged). This pins the new parameter at the HTTP
++// boundary the web dashboard + API consumers hit, not just the service seam.
++func TestSearchMatchModeTrigram(t *testing.T) {
++	dataDir := t.TempDir()
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
++	svc := service.New(dataDir)
++	seedHTTPStore(t, dataDir, "search-trigram-proj")
++	h := NewServer(svc).Handler()
++
++	// (1) trigram match_mode is accepted (200) and returns the observations
++	// shape. The seeded content is porter-tokenized, so a trigram query for an
++	// absent term yields 0 hits — the contract is that the param is accepted,
++	// not that it matches.
++	rr, out := do(t, h, http.MethodGet, "/search?project=search-trigram-proj&query=zzqqxy&match_mode=trigram", nil)
++	if rr.Code != http.StatusOK {
++		t.Fatalf("trigram search expected 200, got %d (body %s)", rr.Code, rr.Body.String())
++	}
++	if _, ok := out["observations"]; !ok {
++		t.Fatalf("trigram search response missing 'observations' key: %v", out)
++	}
++
++	// (2) The default (any/phrase) match_mode returns the seeded row — proves
++	// the endpoint is wired and the seed is reachable.
++	rr2, out2 := do(t, h, http.MethodGet, "/search?project=search-trigram-proj&query=obs-body", nil)
++	if rr2.Code != http.StatusOK {
++		t.Fatalf("phrase search expected 200, got %d (body %s)", rr2.Code, rr2.Body.String())
++	}
++	obs, _ := out2["observations"].([]any)
++	if len(obs) == 0 {
++		t.Fatalf("phrase search returned 0 hits for the seeded term; want the seeded row")
++	}
++
++	// (3) No project → 400 (the existing contract, unchanged by the new param).
++	rr3, _ := do(t, h, http.MethodGet, "/search?query=obs-body&match_mode=trigram", nil)
++	if rr3.Code != http.StatusBadRequest {
++		t.Fatalf("search without project expected 400, got %d", rr3.Code)
++	}
++}
++
++// seedHTTPStore opens the store for the given project and inserts a session +
++// observation so the /search endpoint has a row to match.
++func seedHTTPStore(t *testing.T, dataDir, project string) {
++	t.Helper()
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("seed store: %v", err)
++	}
++	defer st.Close()
++	now := "2026-01-01T00:00:00Z"
++	if _, err := st.DB.Exec(`INSERT INTO sessions (id, project, directory, started_at, summary, status) VALUES ('s1', ?, '/tmp', ?, '## Goal\nseed', 'ended')`, project, now); err != nil {
++		t.Fatalf("seed session: %v", err)
++	}
++	if _, err := st.DB.Exec(`INSERT INTO observations (session_id, type, title, content, project, scope, normalized_hash, revision_count, created_at, updated_at) VALUES ('s1','decision','search-trig-title','obs-body', ?, 'project','h','0',?,?)`, project, now, now); err != nil {
++		t.Fatalf("seed observation: %v", err)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_federated_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_federated_test.go
+new file mode 100644
+index 00000000..18a7a29b
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_federated_test.go
+@@ -0,0 +1,135 @@
++package mcp
++
++import (
++	"context"
++	"encoding/json"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// TestMemSearchAllProjectsFederated is 26.2 [RED] — the mem_search handler's
++// `all_projects=true` path (the federated cross-store query) works end-to-end at
++// the MCP tool boundary. The federated path (SearchObservationsAll over every
++// store under the service dataDir) is distinguished from the single-bucket
++// path by the response contract: the all_projects response carries
++// "project":"all" + "all_projects":true, while the scoped response carries the
++// bucket's project id and no all_projects flag. This guards the 014 step-03
++// federated query seam behind the MCP tool that agents actually call.
++func TestMemSearchAllProjectsFederated(t *testing.T) {
++	dataDir := t.TempDir()
++	t.Setenv("MNEMONIC_PROJECT", "fed-a")
++	svc := service.New(dataDir)
++	SetService(svc)
++	t.Cleanup(func() { SetService(nil) })
++	ctx := context.Background()
++
++	// Seed two observations in the bucket via the real session_start + save
++	// handlers.
++	sessA := mcpSessionID(t, ctx)
++	mcpSave(t, ctx, map[string]any{
++		"title": "federated probe a", "type": "decision",
++		"content": "federated shared marker alpha", "session_id": sessA,
++	})
++	sessB := mcpSessionID(t, ctx)
++	mcpSave(t, ctx, map[string]any{
++		"title": "federated probe b", "type": "decision",
++		"content": "federated shared marker beta", "session_id": sessB,
++	})
++
++	// Federated search (all_projects=true) spans every store and returns both
++	// rows, with the federated response contract.
++	res, err := handleMemSearch(ctx, newCallTool("mem_search", map[string]any{
++		"query": "federated shared marker", "all_projects": true,
++	}))
++	if err != nil {
++		t.Fatalf("all_projects search dispatch: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("all_projects search errored: %s", callResultText(t, res))
++	}
++	var out struct {
++		Project      string `json:"project"`
++		AllProjects  bool   `json:"all_projects"`
++		Count        int    `json:"count"`
++		Observations []struct {
++			Title string `json:"title"`
++		} `json:"observations"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, res)), &out); err != nil {
++		t.Fatalf("unmarshal all_projects result: %v (text %s)", err, callResultText(t, res))
++	}
++	if out.Project != "all" || !out.AllProjects {
++		t.Fatalf("federated response contract wrong: project=%q all_projects=%v", out.Project, out.AllProjects)
++	}
++	if out.Count != 2 || len(out.Observations) != 2 {
++		t.Fatalf("federated search returned %d hits (count=%d), want both rows (2)", len(out.Observations), out.Count)
++	}
++	joined := ""
++	for _, o := range out.Observations {
++		joined += o.Title + "\n"
++	}
++	if !strings.Contains(joined, "federated probe a") || !strings.Contains(joined, "federated probe b") {
++		t.Fatalf("federated search did not return both seeded rows: got %q", joined)
++	}
++
++	// Scoped floor: a single-bucket search (all_projects=false, the default)
++	// must NOT carry the federated contract — the response carries the bucket's
++	// project id, not "all". (The scoped read path applies the per-owner
++	// visibility gate, so its hit count is reader-dependent; the contract —
++	// not the count — is what the federated seam asserts here.)
++	resScoped, err := handleMemSearch(ctx, newCallTool("mem_search", map[string]any{
++		"query": "federated shared marker",
++	}))
++	if err != nil {
++		t.Fatalf("scoped search dispatch: %v", err)
++	}
++	if resScoped.IsError {
++		t.Fatalf("scoped search errored: %s", callResultText(t, resScoped))
++	}
++	var scoped struct {
++		Project     string `json:"project"`
++		AllProjects bool   `json:"all_projects"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, resScoped)), &scoped); err != nil {
++		t.Fatalf("unmarshal scoped result: %v (text %s)", err, callResultText(t, resScoped))
++	}
++	if scoped.AllProjects {
++		t.Fatalf("scoped search must not carry the federated contract (all_projects=true)")
++	}
++	if scoped.Project != "fed-a" {
++		t.Fatalf("scoped search project=%q, want the bucket id fed-a", scoped.Project)
++	}
++}
++
++// mcpSessionID starts a session through the real handler and returns its id.
++func mcpSessionID(t *testing.T, ctx context.Context) string {
++	t.Helper()
++	res, err := handleMemSessionStart(ctx, newCallTool("mem_session_start", map[string]any{}))
++	if err != nil {
++		t.Fatalf("mem_session_start dispatch: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("mem_session_start errored: %s", callResultText(t, res))
++	}
++	var out struct {
++		SessionID string `json:"session_id"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, res)), &out); err != nil {
++		t.Fatalf("unmarshal session start: %v (text %s)", err, callResultText(t, res))
++	}
++	return out.SessionID
++}
++
++// mcpSave drives the real save handler and fails the test on error.
++func mcpSave(t *testing.T, ctx context.Context, args map[string]any) {
++	t.Helper()
++	res, err := handleMemSave(ctx, newCallTool("mem_save", args))
++	if err != nil {
++		t.Fatalf("mem_save dispatch: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("mem_save errored: %s", callResultText(t, res))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memfs/memfs_scale_test.go b/skillgrid-cli/internal/mnemonic/memfs/memfs_scale_test.go
+new file mode 100644
+index 00000000..fd4d5d92
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memfs/memfs_scale_test.go
+@@ -0,0 +1,89 @@
++package memfs
++
++import (
++	"context"
++	"strings"
++	"testing"
++)
++
++// TestMemURIResolutionWith10kObservations is 26.1 [RED] — `mem://` URI
++// resolution and scope listing stay correct and fast under scale (10k+
++// observations). The URI parser (ResolveURI) is allocation-free and must
++// resolve identically regardless of store size; the scope List query must
++// honor its LIMIT 200 cap (returning at most 200 rows, newest first) rather
++// than materializing the whole 10k+ set. This pins the scale behavior: a
++// regression that drops the LIMIT, or that makes resolution depend on a full
++// table scan, would blow past the cap or change results as the store grows.
++func TestMemURIResolutionWith10kObservations(t *testing.T) {
++	fx := newMemFSTestFixture(t, "memfs-scale-test")
++	ctx := context.Background()
++
++	const total = 10_000
++	const inScope = 5_000
++
++	// 5000 observations under project/A/preferences (varied titles so dedup on
++	// (title+content+type) does not collapse them), 5000 under project/A/entities.
++	for i := 0; i < inScope; i++ {
++		fx.saveObs(t, "pref-obs-"+itoa(i), "project/A/preferences/pref-"+itoa(i), "preferences", "preference body "+itoa(i))
++	}
++	for i := 0; i < total-inScope; i++ {
++		fx.saveObs(t, "ent-obs-"+itoa(i), "project/A/entities/ent-"+itoa(i), "entities", "entity body "+itoa(i))
++	}
++
++	// URI resolution is allocation-free and store-size independent: it must
++	// resolve to the same ScopeFilter as the small-scale test, under 10k rows.
++	f, err := ResolveURI("mem://project/A/preferences")
++	if err != nil {
++		t.Fatalf("ResolveURI at 10k scale: %v", err)
++	}
++	if f.Kind != "project" || f.ID != "A" || f.MemoryType != "preferences" {
++		t.Fatalf("ResolveURI at 10k scale: got %+v", f)
++	}
++	if f.Prefix() != "project/A/preferences" {
++		t.Fatalf("ResolveURI prefix at 10k scale: got %q", f.Prefix())
++	}
++
++	// Scope listing must honor its LIMIT 200 cap (not return all 5000) and
++	// return only in-scope (preferences) observations.
++	res, err := fx.fs.List(ctx, "project/A/preferences")
++	if err != nil {
++		t.Fatalf("ls project/A/preferences at 10k scale: %v", err)
++	}
++	if len(res) > 200 {
++		t.Fatalf("ls returned %d rows, want at most 200 (LIMIT cap) at 10k scale", len(res))
++	}
++	if len(res) == 0 {
++		t.Fatalf("ls returned 0 rows at 10k scale; expected the newest <=200 preferences")
++	}
++	for _, o := range res {
++		if !strings.Contains(o.TopicKey, "preferences") {
++			t.Fatalf("ls at 10k scale returned an out-of-scope observation: title=%q topic_key=%q", o.Title, o.TopicKey)
++		}
++	}
++
++	// The broader scope (project/A/) must also be capped at 200 and mix only
++	// in-A rows (no user/B rows exist here, but the cap is the assertion).
++	resAll, err := fx.fs.List(ctx, "project/A/")
++	if err != nil {
++		t.Fatalf("ls project/A/ at 10k scale: %v", err)
++	}
++	if len(resAll) > 200 {
++		t.Fatalf("ls project/A/ returned %d rows, want at most 200 (LIMIT cap)", len(resAll))
++	}
++}
++
++// itoa is a tiny int→string helper so the test does not import strconv for a
++// formatting detail.
++func itoa(i int) string {
++	if i == 0 {
++		return "0"
++	}
++	var b [20]byte
++	pos := len(b)
++	for i > 0 {
++		pos--
++		b[pos] = byte('0' + i%10)
++		i /= 10
++	}
++	return string(b[pos:])
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/fts_trigram_empty_test.go b/skillgrid-cli/internal/mnemonic/memory/fts_trigram_empty_test.go
+new file mode 100644
+index 00000000..b41dd380
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/fts_trigram_empty_test.go
+@@ -0,0 +1,62 @@
++package memory
++
++import (
++	"context"
++	"testing"
++)
++
++// TestFTSTrigramEmptyResultsFallback is 26.1 [RED] — a trigram-mode FTS search
++// whose trigram groups match NO stored observation returns an empty result set
++// (`len == 0`), not an error. The trigram query builder turns the term into
++// OR-joined double-quoted trigram groups (see
++// TestBuildFTSQueryTrigramMode); when none of those groups match any row,
++// FTS5's MATCH yields zero rows and the read path must surface that as the
++// graceful empty floor the agent relies on. A regression that treats an empty
++// FTS match as an error (e.g. a missing-row scan failure) or that
++// short-circuits before the query would break the "search returns nothing, not
++// a failure" contract.
++func TestFTSTrigramEmptyResultsFallback(t *testing.T) {
++	_, svc := newTestStore(t, "fts-trigram-empty")
++	sid := newSession(t, svc)
++	ctx := context.Background()
++
++	// Seed an observation that contains a real word (for the healthy-path
++	// sanity check below).
++	if _, err := svc.Save(ctx, SaveInput{
++		Title: "trigram seed", Type: "decision", Content: "we always run gofmt before commit",
++		SessionID: sid, Scope: "project",
++	}); err != nil {
++		t.Fatalf("save: %v", err)
++	}
++
++	// The default (phrase) mode still finds the seeded row — this proves the
++	// store is seeded and the read path is healthy, so a trigram query that
++	// returns 0 rows below is a genuine "no FTS match", not a cold store.
++	positive, err := svc.Search(ctx, "commit", "", 10)
++	if err != nil {
++		t.Fatalf("positive phrase search: %v", err)
++	}
++	if len(positive) == 0 {
++		t.Fatalf("expected the seeded row for a phrase query, got 0")
++	}
++
++	// A term absent from every observation: FTS matches nothing → empty, not an
++	// error.
++	empty, err := svc.Search(ctx, "zzqqxy", "trigram", 10)
++	if err != nil {
++		t.Fatalf("empty trigram search must return nil error, got: %v", err)
++	}
++	if len(empty) != 0 {
++		t.Fatalf("expected 0 hits for a non-matching trigram term, got %d: %+v", len(empty), empty)
++	}
++
++	// The owner-scoped seam (the mem_search production path) must honor the same
++	// empty floor.
++	emptyOwner, err := svc.SearchOwnerScoped(ctx, "owner-a", "agent", "zzqqxy", "trigram", "project", 10)
++	if err != nil {
++		t.Fatalf("empty owner-scoped trigram search must return nil error, got: %v", err)
++	}
++	if len(emptyOwner) != 0 {
++		t.Fatalf("owner-scoped: expected 0 hits for a non-matching trigram term, got %d", len(emptyOwner))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/temporal_edges_boundary_test.go b/skillgrid-cli/internal/mnemonic/memory/temporal_edges_boundary_test.go
+new file mode 100644
+index 00000000..b0abd301
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/temporal_edges_boundary_test.go
+@@ -0,0 +1,144 @@
++package memory
++
++import (
++	"context"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// seedImporterEdgeWithWindow plants one importing file + its package symbol and
++// an imports edge to hubSymID with EXPLICIT temporal bounds (valid_from /
++// valid_to, UNIX seconds). The default seedImporterFile seeds valid_from = 0
++// and valid_to = NULL (a perpetually-active edge); this helper drives the
++// boundary cases that test — expired, not-yet-active, and exactly-active — so
++// the temporal current-state filter is exercised at the edges, not just the
++// "always active" middle.
++func seedImporterEdgeWithWindow(t *testing.T, db *store.Store, path string, hubSymID int64, validFrom, validTo *int64) {
++	t.Helper()
++	now := time.Now().Unix()
++	if validFrom == nil {
++		z := now
++		validFrom = &z
++	}
++	var fileID, symID int64
++	if err := db.DB.QueryRow(`
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
++		VALUES (?, 1, 100, ?, '2026-01-01T00:00:00Z')
++		RETURNING id`, path, "h-"+path).Scan(&fileID); err != nil {
++		t.Fatalf("insert file %s: %v", path, err)
++	}
++	uid := "uid-tmp-" + path
++	if err := db.DB.QueryRow(`
++		INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid)
++		VALUES (?, ?, 'package', 1, 1, ?, ?)
++		RETURNING id`, fileID, path, "ch-tmp-"+path, uid).Scan(&symID); err != nil {
++		t.Fatalf("insert symbol %s: %v", path, err)
++	}
++	var to any
++	if validTo == nil {
++		to = nil
++	} else {
++		to = *validTo
++	}
++	if _, err := db.DB.Exec(`
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from, valid_to)
++		VALUES ('imports', ?, ?, ?, ?, ?, 'EXTRACTED', 1, ?, ?)`,
++		symID, fileID, hubSymID, path, path, *validFrom, to); err != nil {
++		t.Fatalf("insert imports edge %s: %v", path, err)
++	}
++}
++
++// TestTemporalEdgesBoundary is 26.1 [RED] — the hub importer count applies the
++// step-10 current-state temporal window `valid_from <= now AND (valid_to IS
++// NULL OR valid_to > now)`. The default hub tests seed valid_from = 0 /
++// valid_to = NULL (the "always active" middle); this one drives the BOUNDARIES:
++// an edge whose valid_to is in the past (expired) and one whose valid_from is
++// in the future (not yet active) must both be EXCLUDED from the importer
++// count, while active edges (valid_to = NULL or valid_to in the future,
++// valid_from in the past) are included. The hub is flagged only by the active
++// importers, so the count reflects the window exactly.
++func TestTemporalEdgesBoundary(t *testing.T) {
++	st := openHubStore(t, "temporal-edge-bnd")
++	svc := New(st, "temporal-edge-bnd")
++	ctx := context.Background()
++
++	now := time.Now().Unix()
++	past := now - 3600  // 1h ago
++	future := now + 3600 // 1h out
++
++	hubSym := seedHubFile(t, st, "hub.go")
++
++	// Three ACTIVE importers (valid_from = past, valid_to = NULL) → count 3,
++	// just above the MinHubImporters=3 threshold.
++	for _, name := range []string{"active1.go", "active2.go", "active3.go"} {
++		seedImporterEdgeWithWindow(t, st, name, hubSym, &past, nil)
++	}
++
++	// One EXPIRED importer (valid_to in the past) → must be excluded.
++	seedImporterEdgeWithWindow(t, st, "expired.go", hubSym, &past, &past)
++
++	// One NOT-YET-ACTIVE importer (valid_from in the future) → must be excluded.
++	seedImporterEdgeWithWindow(t, st, "future.go", hubSym, &future, nil)
++
++	hubs, err := svc.IdentifyHubFiles(ctx)
++	if err != nil {
++		t.Fatalf("IdentifyHubFiles: %v", err)
++	}
++	if len(hubs) != 1 {
++		t.Fatalf("expected exactly 1 hub, got %d: %+v", len(hubs), hubs)
++	}
++	if hubs[0].FilePath != "hub.go" {
++		t.Fatalf("hub = %q, want hub.go", hubs[0].FilePath)
++	}
++	// Only the 3 active importers count; expired + future are filtered out.
++	if hubs[0].ImporterCount != 3 {
++		t.Fatalf("importer count = %d, want 3 (expired + not-yet-active edges excluded by the temporal window)", hubs[0].ImporterCount)
++	}
++}
++
++// TestTemporalEdgeExactActiveBoundary is 26.1 [RED] — the window boundary
++// itself: an edge whose valid_to == now is ACTIVE (the predicate is
++// `valid_to > now`, so valid_to == now is strictly > now? No: now > now is
++// false — valid_to == now is EXPIRED at the second granularity). This pins the
++// inclusive/exclusive pairing at the exact second: valid_to in the past or
++// equal to now is expired; valid_to one second into the future is active.
++func TestTemporalEdgeExactActiveBoundary(t *testing.T) {
++	st := openHubStore(t, "temporal-edge-exact")
++	svc := New(st, "temporal-edge-exact")
++	ctx := context.Background()
++
++	now := time.Now().Unix()
++	past := now - 3600
++	nowPlus1 := now + 1
++
++	hubSym := seedHubFile(t, st, "hub.go")
++
++	// 4 importers so that either the future one being included or the expired
++	// one being excluded changes the count by exactly one, making the boundary
++	// observable.
++	// active (valid_from past, valid_to NULL)        → included
++	// expired (valid_to == now)                       → excluded (now > now is false)
++	// future (valid_from past, valid_to = now + 1)     → included (now+1 > now)
++	// notactive (valid_from = now + 1)                 → excluded (now+1 <= now is false)
++	seedImporterEdgeWithWindow(t, st, "a1.go", hubSym, &past, nil)
++	seedImporterEdgeWithWindow(t, st, "a2.go", hubSym, &past, nil)
++	seedImporterEdgeWithWindow(t, st, "a3.go", hubSym, &past, nil)
++	seedImporterEdgeWithWindow(t, st, "exactnow.go", hubSym, &past, &now)         // valid_to == now → expired
++	seedImporterEdgeWithWindow(t, st, "future1s.go", hubSym, &past, &nowPlus1)    // valid_to = now+1 → active
++	seedImporterEdgeWithWindow(t, st, "notactive1s.go", hubSym, &nowPlus1, nil)   // valid_from = now+1 → not active
++
++	hubs, err := svc.IdentifyHubFiles(ctx)
++	if err != nil {
++		t.Fatalf("IdentifyHubFiles: %v", err)
++	}
++	if len(hubs) != 1 {
++		t.Fatalf("expected exactly 1 hub, got %d: %+v", len(hubs), hubs)
++	}
++	// Included: a1, a2, a3, future1s = 4. Excluded: exactnow (valid_to==now),
++	// notactive1s (valid_from in the future) = 2.
++	if hubs[0].ImporterCount != 4 {
++		t.Fatalf("importer count = %d, want 4 (valid_to==now is expired; valid_from in the future is not active; the +1s windows are active)", hubs[0].ImporterCount)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/ttl_boundary_test.go b/skillgrid-cli/internal/mnemonic/memory/ttl_boundary_test.go
+new file mode 100644
+index 00000000..0fcf9b26
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/ttl_boundary_test.go
+@@ -0,0 +1,84 @@
++package memory
++
++import (
++	"context"
++	"testing"
++	"time"
++)
++
++// TestTTLBoundaryExactSecond is 26.1 [RED] — the TTL boundary semantics at the
++// exact second where expires_at == now. The retire predicate is
++// `strftime('%s', expires_at) <= strftime('%s', 'now')` (a row expiring on the
++// current second IS retired — inclusive boundary), while the search exclusion
++// is `strftime('%s', expires_at) > strftime('%s', 'now')` (the same row is
++// hidden — a row on the boundary second is NOT search-visible). The two must
++// agree: the exact-boundary row is retired AND hidden from search, while a row
++// one second into the future is neither. This pins the `<=` vs `>` pairing so
++// a future edit that loosens one operator without the other fails loudly.
++func TestTTLBoundaryExactSecond(t *testing.T) {
++	_, svc := newTestStore(t, "ttlboundary")
++	sid := newSession(t, svc)
++	ctx := context.Background()
++
++	// Exact-boundary row: expires_at == now (truncated to the second, matching
++	// the strftime('%s') granularity both predicates compare at).
++	boundary := time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
++	// One second into the future: still live at the second-granularity compare.
++	future := time.Now().UTC().Add(time.Second).Truncate(time.Second).Format(time.RFC3339)
++
++	boundaryID, err := svc.Save(ctx, SaveInput{
++		Title: "ttl boundary", Type: "decision", Content: "expires on the current second",
++		SessionID: sid, Scope: "project",
++	})
++	if err != nil {
++		t.Fatalf("save boundary: %v", err)
++	}
++	if err := svc.SetExpiresAt(ctx, boundaryID, boundary); err != nil {
++		t.Fatalf("set boundary expiry: %v", err)
++	}
++	futureID, err := svc.Save(ctx, SaveInput{
++		Title: "ttl future second", Type: "decision", Content: "expires one second out",
++		SessionID: sid, Scope: "project",
++	})
++	if err != nil {
++		t.Fatalf("save future: %v", err)
++	}
++	if err := svc.SetExpiresAt(ctx, futureID, future); err != nil {
++		t.Fatalf("set future expiry: %v", err)
++	}
++
++	// Search must hide the exact-boundary row (predicate `> now` excludes it)
++	// but return the one-second-future row.
++	hits, err := svc.Search(ctx, "ttl", "any", 10)
++	if err != nil {
++		t.Fatalf("search: %v", err)
++	}
++	seen := map[int64]bool{}
++	for _, h := range hits {
++		seen[h.ID] = true
++	}
++	if seen[boundaryID] {
++		t.Fatalf("search returned the exact-boundary row (expires_at == now); predicate `> now` must hide it")
++	}
++	if !seen[futureID] {
++		t.Fatalf("search did not return the one-second-future row; predicate `> now` must keep it")
++	}
++
++	// TTLRetire (predicate `<= now`) must retire the exact-boundary row and
++	// leave the future row live.
++	retired, err := svc.TTLRetire(ctx)
++	if err != nil {
++		t.Fatalf("ttl retire: %v", err)
++	}
++	if retired != 1 {
++		t.Fatalf("TTLRetire retired %d, want exactly 1 (only the boundary row)", retired)
++	}
++
++	// The boundary row is now soft-deleted (unreadable); the future row is not.
++	if _, err := svc.Get(ctx, boundaryID); err == nil {
++		t.Fatal("exact-boundary row still readable after TTLRetire; `<= now` must have retired it")
++	}
++	if _, err := svc.Get(ctx, futureID); err != nil {
++		t.Fatalf("one-second-future row unreadable after TTLRetire: %v", err)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/parallel_search_many_test.go b/skillgrid-cli/internal/mnemonic/service/parallel_search_many_test.go
+new file mode 100644
+index 00000000..6a90c275
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/service/parallel_search_many_test.go
+@@ -0,0 +1,86 @@
++package service
++
++import (
++	"context"
++	"runtime"
++	"strconv"
++	"testing"
++	"time"
++)
++
++// TestSearchObservationsAllParallelManyStores is 26.1 [RED] — the cross-store
++// parallel search scales to 50+ stores: the existing parallel test (step 03)
++// covers 10 stores; this one pins the contract at 60. With the step-01 store
++// pool, all 60 handles stay open (refcounted close), so the run measures the
++// semaphore-wave scheduling + per-store query, not cold opens. The assertions
++// mirror the 10-store test: parallel is faster than sequential, stays within
++// its wave ceiling, and the merged + deduped result content equals the
++// sequential path exactly (one unique hit per store).
++func TestSearchObservationsAllParallelManyStores(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	const stores = 60
++	const query = "many-store latency marker"
++	for i := 0; i < stores; i++ {
++		pid := "many-proj-" + strconv.Itoa(i)
++		seedProjectObs(t, svc, pid, query+" "+pid, "**What** x **Why** x **Where** x **Learned** — "+pid)
++	}
++
++	lat := 15 * time.Millisecond
++	searchStoreLatency.Store(int64(lat))
++	t.Cleanup(func() { searchStoreLatency.Store(0) })
++	waves := (stores + runtime.NumCPU() - 1) / runtime.NumCPU()
++	// 60 stores at 15ms: sequential ~= 900ms; parallel ~= waves*lat. The
++	// ceiling absorbs -race scheduling inflation + slow CI runners.
++	parallelCeil := time.Duration(3*waves)*lat + 600 * time.Millisecond
++
++	ctx := context.Background()
++
++	// Warm-up: prime every pooled store handle once so the timed runs measure
++	// scheduling, not the one-time modernc connection/migration cost.
++	setParallelSearchForTest(t, true)
++	if _, err := svc.SearchObservationsAll(ctx, query, "any", "", stores+10); err != nil {
++		t.Fatalf("warm-up: %v", err)
++	}
++
++	setParallelSearchForTest(t, false)
++	start := time.Now()
++	seqHits, seqErr := svc.SearchObservationsAll(ctx, query, "any", "", stores+10)
++	seqElapsed := time.Since(start)
++	if seqErr != nil {
++		t.Fatalf("sequential search: %v", seqErr)
++	}
++
++	setParallelSearchForTest(t, true)
++	start = time.Now()
++	parHits, parErr := svc.SearchObservationsAll(ctx, query, "any", "", stores+10)
++	parElapsed := time.Since(start)
++	if parErr != nil {
++		t.Fatalf("parallel search: %v", parErr)
++	}
++
++	if len(seqHits) == 0 {
++		t.Fatalf("no hits seeded, expected %d stores to match", stores)
++	}
++	if parElapsed >= seqElapsed/2 {
++		t.Fatalf("parallel search (60 stores) not faster than sequential: parallel=%v sequential=%v", parElapsed, seqElapsed)
++	}
++	if parElapsed > parallelCeil {
++		t.Fatalf("parallel search (60 stores) too slow: %v (ceiling %v, waves=%d NumCPU=%d latency=%v)", parElapsed, parallelCeil, waves, runtime.NumCPU(), lat)
++	}
++
++	if len(parHits) != len(seqHits) {
++		t.Fatalf("parallel hit count=%d, sequential=%d", len(parHits), len(seqHits))
++	}
++	seen := map[string]bool{}
++	for _, h := range parHits {
++		key := strconv.FormatInt(h.ID, 10) + "/" + h.Project + "/" + h.Title
++		if seen[key] {
++			t.Fatalf("duplicate observation in parallel results: %s", key)
++		}
++		seen[key] = true
++	}
++	if len(seen) != stores {
++		t.Fatalf("expected %d unique merged hits across 60 stores, got %d", stores, len(seen))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/store/store.go b/skillgrid-cli/internal/mnemonic/store/store.go
+index 25f695b1..66c733ac 100644
+--- a/skillgrid-cli/internal/mnemonic/store/store.go
++++ b/skillgrid-cli/internal/mnemonic/store/store.go
+@@ -276,6 +276,13 @@ func (s *Store) releasePooled() error {
+ 		return nil
+ 	}
+ 	entry := v.(*cachedEntry)
++	if entry.db != s.DB {
++		// The pool entry was rebound to a new *sql.DB (RebindPassDB) after this
++		// Store captured the old one. This Store is the owner whose pass run
++		// caused the rebind, and its close already closed the old DB inside
++		// RebindPassDB — decrementing here would leak the passDB entry's refs.
++		return nil
++	}
+ 	if remaining := entry.refs.Add(-1); remaining <= 0 {
+ 		evictCached(s.cacheKey, entry)
+ 		return nil
+@@ -283,6 +290,45 @@ func (s *Store) releasePooled() error {
+ 	return nil
+ }
+ 
++// RebindPassDB re-registers the store's pooled handle with a freshly opened
++// *sql.DB, swapping it in atomically and closing the previous pooled DB.
++//
++// The codeindex passes (community/process/knowledge) must run on a fresh
++// single-connection *sql.DB: the store's pool is MaxOpenConns=1, so a second
++// connection deadlocks once the committed 005 tx holds the write lock.
++// Indexer.Run opens that fresh passDB after the commit, but if it leaves the
++// pool entry pointing at the (now closed) old *sql.DB, every other live
++// handle for the same store — which cached the OLD *sql.DB at Open time —
++// keeps using the closed pool handle and fails with "sql: database is closed".
++// RebindPassDB fixes that: it atomically swaps the pool's DB pointer to passDB
++// (inheriting the old entry's live reference count, so no references are lost
++// or leaked) and closes the old DB only if it is distinct from passDB. It is a
++// no-op for a Store that owns its database outright (cacheKey == "").
++func (s *Store) RebindPassDB(passDB *sql.DB) error {
++	if s == nil || s.DB == nil || s.cacheKey == "" || passDB == nil {
++		return nil
++	}
++	old := s.DB
++	if old == passDB {
++		return nil
++	}
++	cacheMu.Lock()
++	defer cacheMu.Unlock()
++	if v, ok := handleCache.Load(s.cacheKey); ok {
++		entry := v.(*cachedEntry)
++		if entry.db == old {
++			// Still the registered entry: swap in passDB, keep the live ref
++			// count, and close the old DB after the swap (deferred so the
++			// lock is released first — entry.db.Close is pool-independent).
++			entry.db = passDB
++			if entry.refs.Load() <= 0 {
++				handleCache.Delete(s.cacheKey)
++			}
++		}
++	}
++	return old.Close()
++}
++
+ // Migrate applies every embedded migration to db (idempotent, tracked in
+ // index_meta). Exported for test fixtures that need the real schema on a
+ // raw *sql.DB with a multi-connection pool (see graph package tests).

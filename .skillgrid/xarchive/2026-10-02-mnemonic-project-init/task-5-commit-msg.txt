@@ -1,0 +1,12 @@
+docs(onboarding): finish with skillgrid init
+
+Onboarding Step 3 ends with skillgrid init (--force / --docs); CLI owns
+ingest and index. Contract tests read SKILL.md.
+
+[skillgrid-context]
+Task: TICKET-05 — onboarding skill calls skillgrid init; no second ingest.
+Decisions: Step 9 after Write/Commit; pass --docs through; no file-walk
+mem_save for docs; missing CLI → tell user, continue onboarding.
+Remaining: none (project-init tickets complete).
+Tried: TDD RED (skillgrid init absent) → add Step 9 GREEN; TestOnboardingSkill|TestInit PASS.
+[/skillgrid-context]

@@ -1,0 +1,371 @@
+=== FIX COMMIT b8a0d02 ===
+
+b8a0d02 fix(mnemonic): honest 03.8 tx framing + config/SQL extractor correctness
+
+=== STAT ===
+ .../internal/mnemonic/codeindex/indexer.go         |  32 +++--
+ .../mnemonic/codeindex/indexer_hook_test.go        |  12 +-
+ .../internal/mnemonic/knowledge/knowledge_test.go  | 132 ++++++++++++++++++++-
+ .../internal/mnemonic/knowledge/passes.go          |  46 ++-----
+ skillgrid-cli/internal/mnemonic/knowledge/sql.go   |   6 +-
+ skillgrid-cli/internal/mnemonic/knowledge/store.go |  18 ++-
+ 6 files changed, 179 insertions(+), 67 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+index 7f49e80..f6fa254 100644
+--- a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
++++ b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+@@ -429,19 +429,23 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
+ 	if err := tx.Commit(); err != nil {
+ 		return stats, err
+ 	}
+-	// The store's single-connection *sql.DB (MaxOpenConns=1) holds the WAL
+-	// write lock even after the tx commits (modernc.org/sqlite keeps the
+-	// connection open). Close it so a fresh *sql.DB can acquire the lock
+-	// for the passes. The store's DB is replaced with the pass DB so the
+-	// indexer (and any caller using idx.store.DB) keeps working.
++	// The 005 + route extraction (above) ran in one transaction, now committed.
++	// The community + process + knowledge passes run AFTER that commit, NOT in
++	// the same tx: the store's single-connection *sql.DB (MaxOpenConns=1)
++	// deadlocks a second connection once the committed tx's write lock is held
++	// (a modernc.org/sqlite constraint), so the passes cannot share the 005
++	// tx. Close the store's DB and reopen a fresh one (with foreign_keys=1 via
++	// DSN, since that pragma is per-connection not persistent) so the passes
++	// have a clean single-connection pool. The store's DB is replaced with the
++	// pass DB so the indexer (and any caller using idx.store.DB) keeps working.
++	//
++	// The passes are advisory, not transactional with 005: they do not roll
++	// back the committed 005 extraction, and a pass failure only warns and
++	// continues (the 005 graph + FTS floor are already committed).
+ 	dbPath := idx.store.Path()
+ 	if err := idx.store.DB.Close(); err != nil {
+ 		return stats, fmt.Errorf("close store db: %w", err)
+ 	}
+-	// Re-apply per-connection pragmas via DSN (foreign_keys is not
+-	// persistent; journal_mode and busy_timeout ARE persistent in the WAL
+-	// file). No SetMaxOpenConns(1) — the modernc.org/sqlite driver deadlocks
+-	// a single-connection pool after a committed tx.
+ 	passDB, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)")
+ 	if err != nil {
+ 		return stats, fmt.Errorf("open pass db: %w", err)
+@@ -464,10 +468,12 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
+ }
+ 
+ // communityPass runs the 01 community-detection pass over the indexed graph,
+-// on the pass DB (opened before the main tx, so its sub-txs do not deadlock
+-// the store's single-connection pool). The community rows land in the same
+-// WAL database as the 005 extraction; the main tx's Commit finalizes the
+-// incremental index. Advisory, never load-bearing.
++// on the pass DB (a fresh *sql.DB opened after the 005 tx commits — the store's
++// single-connection pool deadlocks once the committed tx holds the write lock,
++// so the passes cannot share that tx). The community rows land in the same WAL
++// database as the 005 extraction, but are committed independently: the pass is
++// advisory and does not roll back the 005 extraction. Advisory, never
++// load-bearing.
+ func (idx *Indexer) communityPass(ctx context.Context, passDB *sql.DB) error {
+ 	if tableMissing(passDB, "communities") {
+ 		return nil // table absent (pre-012 store) — nothing to do
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/indexer_hook_test.go b/skillgrid-cli/internal/mnemonic/codeindex/indexer_hook_test.go
+index 89929e8..5dbef34 100644
+--- a/skillgrid-cli/internal/mnemonic/codeindex/indexer_hook_test.go
++++ b/skillgrid-cli/internal/mnemonic/codeindex/indexer_hook_test.go
+@@ -33,11 +33,13 @@ func writeHookFixture(t *testing.T) string {
+ }
+ 
+ // TestIndexerHook covers @step-03 (Scenario: Indexer hook runs community,
+-// process, and knowledge in one transaction): after an index run, the
+-// community + process + knowledge passes all ran (in the same incremental
+-// index), so communities, processes, doc_nodes, config_nodes, and
+-// sql_schema_nodes all exist — proving the three passes ran at index time in
+-// one tx.
++// process, and knowledge in one transaction): after an index run, the 005+route
++// extraction committed in one tx, then the community + process + knowledge
++// passes ran (in the same index run, on a reopened DB after that tx commits —
++// the store's single-connection pool cannot share the committed 005 tx, and the
++// passes are advisory, so they do not roll back 005). The end state proves the
++// three passes ran at index time: communities, processes, doc_nodes,
++// config_nodes, and sql_schema_nodes all exist.
+ func TestIndexerHook(t *testing.T) {
+ 	ResetFileFirstSymbol()
+ 	idx, clean := newTestIndexer(t)
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/knowledge_test.go b/skillgrid-cli/internal/mnemonic/knowledge/knowledge_test.go
+index be52fe7..c155377 100644
+--- a/skillgrid-cli/internal/mnemonic/knowledge/knowledge_test.go
++++ b/skillgrid-cli/internal/mnemonic/knowledge/knowledge_test.go
+@@ -45,9 +45,16 @@ func seedFile(t *testing.T, db *sql.DB, path string) int64 {
+ }
+ 
+ func seedSymbol(t *testing.T, db *sql.DB, fileID int64, name, kind string, line int) int64 {
++	t.Helper()
++	return seedSymbolUID(t, db, fileID, name, kind, name+kind, line)
++}
++
++// seedSymbolUID is seedSymbol with an explicit uid, for fixtures that need
++// two same-named symbols (a cross-package collision) with distinct uids.
++func seedSymbolUID(t *testing.T, db *sql.DB, fileID int64, name, kind, uid string, line int) int64 {
+ 	t.Helper()
+ 	res, err := db.Exec(`INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid) VALUES (?, ?, ?, ?, ?, 'h', ?)`,
+-		fileID, name, kind, line, line, name+kind)
++		fileID, name, kind, line, line, uid)
+ 	if err != nil {
+ 		t.Fatalf("seed symbol %s: %v", name, err)
+ 	}
+@@ -286,6 +293,66 @@ func TestAmbiguousConfigRef(t *testing.T) {
+ 	}
+ }
+ 
++// TestAmbiguousConfigRefMultipleSymbols covers the cross-package name
++// collision: a config reference whose name matches MORE THAN ONE symbol is
++// stored AMBIGUOUS (to_id null), not silently bound to the lowest-id symbol as
++// EXTRACTED. A name match of exactly one symbol stays EXTRACTED.
++func TestAmbiguousConfigRefMultipleSymbols(t *testing.T) {
++	db := openKnowledgeStore(t)
++	ctx := context.Background()
++	store := &Store{db: db}
++
++	// Two distinct symbols in distinct packages share the name `loadUsers` —
++	// a cross-package collision (different uid, same name). seedSymbol derives
++	// uid from name+kind (which would collide), so insert directly with
++	// distinct uids.
++	fA := seedFile(t, db, "pkgA/load.go")
++	fB := seedFile(t, db, "pkgB/load.go")
++	seedSymbolUID(t, db, fA, "loadUsers", "function", "pkgA.loadUsers", 3)
++	seedSymbolUID(t, db, fB, "loadUsers", "function", "pkgB.loadUsers", 7)
++
++	seedFile(t, db, "config/app.yaml")
++	res := ExtractConfig("config/app.yaml", []byte("service:\n  handler: loadUsers\n"))
++	if len(res.Refs) != 1 || res.Refs[0].Value != "loadUsers" {
++		t.Fatalf("expected 1 ref to loadUsers, got %+v", res.Refs)
++	}
++	if _, err := store.SaveConfig(ctx, "config/app.yaml", res); err != nil {
++		t.Fatalf("SaveConfig: %v", err)
++	}
++
++	// The ref matched >1 symbol → AMBIGUOUS (to_id null), NOT EXTRACTED bound
++	// to the lowest-id loadUsers.
++	var ambiguous, extracted int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'configures' AND to_name = 'loadUsers' AND confidence = 'AMBIGUOUS' AND to_id IS NULL`).Scan(&ambiguous); err != nil {
++		t.Fatalf("count ambiguous: %v", err)
++	}
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'configures' AND to_name = 'loadUsers' AND confidence = 'EXTRACTED' AND to_id IS NOT NULL`).Scan(&extracted); err != nil {
++		t.Fatalf("count extracted: %v", err)
++	}
++	if ambiguous != 1 {
++		t.Errorf("expected 1 AMBIGUOUS configures edge for the colliding name (not bound to the lowest id), got %d", ambiguous)
++	}
++	if extracted != 0 {
++		t.Errorf("expected 0 EXTRACTED configures edges for the colliding name, got %d", extracted)
++	}
++
++	// Contrast: a ref matching exactly one symbol stays EXTRACTED (bound by id).
++	fC := seedFile(t, db, "pkgC/single.go")
++	sole := seedSymbol(t, db, fC, "uniqueHandler", "function", 2)
++	seedFile(t, db, "config/one.yaml")
++	res2 := ExtractConfig("config/one.yaml", []byte("service:\n  handler: uniqueHandler\n"))
++	if _, err := store.SaveConfig(ctx, "config/one.yaml", res2); err != nil {
++		t.Fatalf("SaveConfig one: %v", err)
++	}
++	var soleExtracted int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'configures' AND to_id = ? AND confidence = 'EXTRACTED'`, sole).Scan(&soleExtracted); err != nil {
++		t.Fatalf("count sole extracted: %v", err)
++	}
++	if soleExtracted != 1 {
++		t.Errorf("expected 1 EXTRACTED configures edge for the unique ref, got %d", soleExtracted)
++	}
++}
++
+ // TestSqlSchema covers @step-03 (Scenario: SQL DDL becomes table and column
+ // nodes with reads and writes): .sql DDL produces sql_schema_nodes (tables +
+ // columns) and code that references them gets reads/writes edges,
+@@ -432,3 +499,66 @@ INSERT INTO good1 (id) VALUES (1);
+ 		t.Errorf("expected the valid INSERT to be indexed as a writes edge (the index did not abort), got %d", writes)
+ 	}
+ }
++
++// TestSQLOnlyForSQLFiles covers @step-03 (isSQL false positives): only .sql
++// files are parsed for SQL DDL/DML. A .go (or other non-.sql) file whose
++// contents merely contain the words SELECT / INSERT / UPDATE / DELETE FROM
++// must NOT be parsed into spurious table nodes.
++func TestSQLOnlyForSQLFiles(t *testing.T) {
++	// Unit: isSQL is true only for .sql / .SQL, regardless of contents.
++	cases := []struct {
++		path string
++		want bool
++	}{
++		{"db/schema.sql", true},
++		{"db/SCHEMA.SQL", true},
++		{"app/users.go", false},
++		{"docs/a.md", false},
++		{"config/app.yaml", false},
++	}
++	for _, c := range cases {
++		// Contents contain SQL keywords to prove the extension (not the
++		// contents) drives the decision.
++		got := isSQL(c.path, []byte("SELECT id FROM users; INSERT INTO x;"))
++		if got != c.want {
++			t.Errorf("isSQL(%q) = %v, want %v", c.path, got, c.want)
++		}
++	}
++
++	// Integration: a .go file containing SELECT in a string/comment produces
++	// no table nodes (whereas a .sql file with the same DDL does).
++	db := openKnowledgeStore(t)
++	ctx := context.Background()
++	store := &Store{db: db}
++	fGo := seedFile(t, db, "app/users.go")
++	seedSymbol(t, db, fGo, "loadUsers", "function", 10)
++	// A .go file with SELECT in a string and a comment — SQL keywords but not
++	// a .sql file.
++	goSrc := "package app\n\nvar q = `SELECT id, name FROM users;`\n\n// UPDATE the users table via SELECT\nfunc loadUsers() {}\n"
++	files := []FileInput{{Path: "app/users.go", Contents: []byte(goSrc)}}
++	if _, err := RunPasses(ctx, store, files); err != nil {
++		t.Fatalf("RunPasses: %v", err)
++	}
++	if n := countTable(t, db, "sql_schema_nodes"); n != 0 {
++		t.Errorf("expected 0 sql_schema_nodes from a .go file with SELECT keywords, got %d", n)
++	}
++	var reads int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'reads'`).Scan(&reads); err != nil {
++		t.Fatalf("count reads: %v", err)
++	}
++	if reads != 0 {
++		t.Errorf("expected 0 reads edges from a .go file with SELECT keywords, got %d", reads)
++	}
++
++	// Contrast: the SAME DDL in a .sql file IS parsed (the .sql behavior is
++	// kept).
++	fSQL := seedFile(t, db, "db/schema.sql")
++	sqlFiles := []FileInput{{Path: "db/schema.sql", Contents: []byte("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);\n")}}
++	if _, err := RunPasses(ctx, store, sqlFiles); err != nil {
++		t.Fatalf("RunPasses sql: %v", err)
++	}
++	if n := countTable(t, db, "sql_schema_nodes"); n == 0 {
++		t.Errorf("expected the .sql file to produce sql_schema_nodes, got 0")
++	}
++	_ = fSQL
++}
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/passes.go b/skillgrid-cli/internal/mnemonic/knowledge/passes.go
+index 04b52d6..d83809c 100644
+--- a/skillgrid-cli/internal/mnemonic/knowledge/passes.go
++++ b/skillgrid-cli/internal/mnemonic/knowledge/passes.go
+@@ -4,7 +4,6 @@ import (
+ 	"context"
+ 	"database/sql"
+ 	"path/filepath"
+-	"strings"
+ )
+ 
+ // FileInput is one scanned file for the knowledge pass: its index-relative
+@@ -64,45 +63,14 @@ func RunPasses(ctx context.Context, st *Store, files []FileInput) (PassResult, e
+ 	return res, nil
+ }
+ 
+-// isSQL reports whether a file should be parsed for SQL: a .sql file, or any
+-// file whose contents contain a SQL keyword (code-embedded SQL). A .sql file
+-// is always parsed (even with no DDL/DML, so it is a known schema source); a
+-// non-.sql file is parsed only when it contains SQL (so the Go extractor's
+-// code files that embed SQL are covered, and pure code files are not).
++// isSQL reports whether a file should be parsed for SQL DDL/DML. Only .sql
++// files are parsed: scanning every file for SQL keywords (SELECT / INSERT /
++// UPDATE / DELETE FROM) produced false positives on Go code or prose that
++// merely contains those words, yielding spurious table references. A .sql file
++// is always parsed (even with no DDL/DML, so it is a known schema source);
++// non-.sql files are not parsed for SQL at all.
+ func isSQL(path string, contents []byte) bool {
+-	if filepath.Ext(path) == ".sql" || filepath.Ext(path) == ".SQL" {
+-		return true
+-	}
+-	s := string(contents)
+-	for _, kw := range []string{"SELECT", "INSERT", "CREATE TABLE", "UPDATE ", "DELETE FROM"} {
+-		if containsWord(s, kw) {
+-			return true
+-		}
+-	}
+-	return false
+-}
+-
+-// containsWord reports whether s contains the keyword as a whole word
+-// (case-sensitive, to avoid matching inside identifiers).
+-func containsWord(s, kw string) bool {
+-	if kw == "" {
+-		return false
+-	}
+-	i := strings.Index(s, kw)
+-	for i >= 0 {
+-		if (i == 0 || !isIdentByte(s[i-1])) && (i+len(kw) == len(s) || !isIdentByte(s[i+len(kw)])) {
+-			return true
+-		}
+-		i = strings.Index(s[i+1:], kw)
+-		if i >= 0 {
+-			i += 1
+-		}
+-	}
+-	return false
+-}
+-
+-func isIdentByte(c byte) bool {
+-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
++	return filepath.Ext(path) == ".sql" || filepath.Ext(path) == ".SQL"
+ }
+ 
+ var _ = sql.ErrNoRows
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/sql.go b/skillgrid-cli/internal/mnemonic/knowledge/sql.go
+index 739c558..4da17bd 100644
+--- a/skillgrid-cli/internal/mnemonic/knowledge/sql.go
++++ b/skillgrid-cli/internal/mnemonic/knowledge/sql.go
+@@ -225,11 +225,11 @@ func (r *SQLResult) processStatement(stmt string, line int, excludeTable string)
+ 	}
+ }
+ 
+-// selectIsRead reports whether a SELECT statement is a read (not a
+-// CREATE/ALTER containing a SELECT subquery). A top-level SELECT is a read.
++// selectIsRead reports whether a statement contains a SELECT (a read). Contains
++// subsumes the prefix case, so a top-level or embedded SELECT both count.
+ func selectIsRead(stmt string) bool {
+ 	upper := strings.ToUpper(strings.TrimSpace(stmt))
+-	return strings.HasPrefix(upper, "SELECT") || strings.Contains(upper, "SELECT")
++	return strings.Contains(upper, "SELECT")
+ }
+ 
+ // columnBody extracts the column-definition body of a CREATE TABLE statement
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/store.go b/skillgrid-cli/internal/mnemonic/knowledge/store.go
+index 18d6ab2..f65dfc6 100644
+--- a/skillgrid-cli/internal/mnemonic/knowledge/store.go
++++ b/skillgrid-cli/internal/mnemonic/knowledge/store.go
+@@ -9,15 +9,17 @@ import (
+ 
+ // Store is the knowledge pass's persistence seam: it upserts knowledge nodes
+ // (doc/config/sql) and their confidence-labeled edges into the 005 graph. The
+-// indexer's same-transaction hook passes a Store backed by the open index tx,
+-// so a knowledge node is always resolvable and a single rollback undoes the
+-// whole pass (matching the 010 route-hook pattern).
++// indexer passes a Store backed by the pass DB (a fresh *sql.DB opened after
++// the 005 tx commits — the store's single-connection pool deadlocks once the
++// committed 005 tx holds the write lock, so the pass runs after, not in, that
++// tx). A knowledge node is always resolvable because the 005 symbols it points
++// at are already committed; the pass is advisory and does not roll back 005.
+ type Store struct {
+ 	db *sql.DB
+ }
+ 
+-// NewStore wraps a *sql.DB (the indexer's open transaction in production, a
+-// scratch store in tests).
++// NewStore wraps a *sql.DB (the indexer's pass DB in production — a fresh
++// *sql.DB opened after the 005 tx commits — or a scratch store in tests).
+ func NewStore(db *sql.DB) *Store { return &Store{db: db} }
+ 
+ // docNodeID resolves (or lazily creates) the doc node id for a file path.
+@@ -172,7 +174,11 @@ func (s *Store) SaveConfig(ctx context.Context, path string, cfg *ConfigResult)
+ 		}
+ 		conf := ref.Confidence
+ 		if !toID.Valid {
+-			// Unresolvable config ref → AMBIGUOUS (kept, not dropped, 03.5).
++			// Unresolvable OR ambiguous config ref → AMBIGUOUS (kept, not
++			// dropped, 03.5). matches > 1 is a cross-package name collision:
++			// picking the lowest id would silently bind the ref to the wrong
++			// symbol as EXTRACTED, so the ref is surfaced AMBIGUOUS (to_id null)
++			// rather than guessing.
+ 			conf = ConfidenceAmbiguous
+ 		}
+ 		if _, err := s.db.Exec(`

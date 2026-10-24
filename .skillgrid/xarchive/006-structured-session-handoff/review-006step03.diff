@@ -1,0 +1,793 @@
+=== 006 STEP 03 CODE COMMIT 3cad7e7 ===
+
+3cad7e7 feat(mnemonic): session status and thin knowledge compact
+
+=== STAT ===
+ skillgrid-cli/internal/mnemonic/mcp/server_test.go | 137 +++++++++++++++
+ .../mnemonic/mcp/tools_code_affected_test.go       |   4 +-
+ .../mnemonic/mcp/tools_code_knowledge_test.go      |   4 +-
+ .../mnemonic/mcp/tools_memory_governance_test.go   |   6 +-
+ .../mnemonic/mcp/tools_memory_layer_args_test.go   |   6 +-
+ .../mnemonic/mcp/tools_memory_layer_test.go        |   6 +-
+ .../mnemonic/mcp/tools_memory_retrieval_test.go    |   4 +-
+ .../internal/mnemonic/mcp/tools_session_handoff.go |   3 +
+ .../mnemonic/mcp/tools_session_handoff_test.go     |   6 +-
+ .../internal/mnemonic/mcp/tools_session_status.go  |  89 ++++++++++
+ skillgrid-cli/internal/mnemonic/relay/compact.go   | 109 ++++++++++++
+ skillgrid-cli/internal/mnemonic/relay/relay.go     |   3 +
+ skillgrid-cli/internal/mnemonic/relay/status.go    |  60 +++++++
+ .../internal/mnemonic/relay/status_compact_test.go | 185 +++++++++++++++++++++
+ 14 files changed, 604 insertions(+), 18 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server_test.go b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+index 2866878..4b56722 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+@@ -2,10 +2,15 @@ package mcp
+ 
+ import (
+ 	"context"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
+ 	"testing"
+ 
+ 	mcplib "github.com/mark3labs/mcp-go/mcp"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/relay"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ )
+ 
+@@ -60,6 +65,8 @@ func TestAllToolsRegistered(t *testing.T) {
+ 		"mem_layers",
+ 		// Session relay handoff/resume (006 step 02).
+ 		"session_handoff", "session_resume",
++		// Session status + thin knowledge compact (006 step 03).
++		"session_status", "knowledge_compact",
+ 	}
+ 	if len(tools) != len(want) {
+ 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)
+@@ -97,3 +104,133 @@ func TestSuggestTopicKeyDispatch(t *testing.T) {
+ 		t.Errorf("expected success, got error: %v", res.Content)
+ 	}
+ }
++
++// TestSessionStatus asserts (006 step 03) the session_status tool is registered
++// and, on a fresh store with no handoffs yet, reports zero counts (warn +
++// continue — not a crash). It runs under the step-02 fixture so the pinned
++// project maps to a fresh store and the cleave dir lives under the temp root.
++func TestSessionStatus(t *testing.T) {
++	sessionHandoffFixture(t)
++
++	res, err := handleSessionStatus(context.Background(), newCallTool("session_status", nil))
++	if err != nil {
++		t.Fatalf("dispatch session_status: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("expected success, got error: %s", callResultText(t, res))
++	}
++	if !strings.Contains(callResultText(t, res), `"handoff_count":0`) {
++		t.Errorf("expected handoff_count 0 on an empty store, got: %s", callResultText(t, res))
++	}
++}
++
++// TestKnowledgeCompact asserts (006 step 03) the knowledge_compact tool is
++// registered and a THIN compact succeeds with NO Fact Memory: a session that
++// has handoff inputs (the .cleave/ bundle) but no Fact Memory still gets a
++// KNOWLEDGE.md written, with no error. The handoff bundle is seeded via the
++// session_handoff MCP call (which writes the cleave files + a handoff row) and
++// no Fact Memory observation is ever created — only the relay bundle is input.
++func TestKnowledgeCompact(t *testing.T) {
++	dir, _ := sessionHandoffFixture(t)
++
++	// Seed handoff inputs on disk (the .cleave/ bundle) via the MCP tool, with
++	// NO Fact Memory written. The relay handoff writes the bundle + a
++	// session_handoffs row, which is the "handoff input" the thin compact reads.
++	hoRes, err := handleSessionHandoff(context.Background(), newCallTool("session_handoff", map[string]any{
++		"progress":    "did the thing",
++		"knowledge":   "fail closed first",
++		"next_prompt": "resume later",
++		"handoff_id":  "ho-compact",
++		"context_summary": "compact me",
++	}))
++	if err != nil {
++		t.Fatalf("seed session_handoff: %v", err)
++	}
++	if hoRes.IsError {
++		t.Fatalf("seed handoff errored: %s", callResultText(t, hoRes))
++	}
++
++	res, err := handleKnowledgeCompact(context.Background(), newCallTool("knowledge_compact", nil))
++	if err != nil {
++		t.Fatalf("dispatch knowledge_compact: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("expected compact to succeed (no Fact Memory), got error: %s", callResultText(t, res))
++	}
++	if !strings.Contains(callResultText(t, res), `"knowledge_path"`) {
++		t.Errorf("expected a knowledge_path in the result, got: %s", callResultText(t, res))
++	}
++	// The thin refresh wrote a KNOWLEDGE.md (no error, even with no Fact Memory).
++	cleaveRoot, err := filepath.EvalSymlinks(dir)
++	if err != nil {
++		t.Fatalf("evalsymlinks dir: %v", err)
++	}
++	kp := filepath.Join(relay.BundleDir(cleaveRoot), relay.FileKnowledge)
++	if _, err := os.Stat(kp); err != nil {
++		t.Errorf("expected a refreshed KNOWLEDGE.md at %s: %v", kp, err)
++	}
++}
++
++// TestMemSave asserts (006 step 03) the new session_status / knowledge_compact
++// tools are additive: mem_save still works after they are registered. A mem_save
++// round-trip (seed a real session, then save) returns a saved id.
++func TestMemSave(t *testing.T) {
++	sessionHandoffFixture(t)
++
++	startRes, err := handleMemSessionStart(context.Background(), newCallTool("mem_session_start", nil))
++	if err != nil {
++		t.Fatalf("handleMemSessionStart dispatch: %v", err)
++	}
++	if startRes.IsError {
++		t.Fatalf("mem_session_start errored: %s", callResultText(t, startRes))
++	}
++	var startOut struct {
++		SessionID string `json:"session_id"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, startRes)), &startOut); err != nil {
++		t.Fatalf("unmarshal session start: %v (text %s)", err, callResultText(t, startRes))
++	}
++
++	res, err := handleMemSave(context.Background(), newCallTool("mem_save", map[string]any{
++		"title":      "Step 03 mem_save still works",
++		"type":       "decision",
++		"content":    "session_status and knowledge_compact are additive",
++		"session_id": startOut.SessionID,
++	}))
++	if err != nil {
++		t.Fatalf("dispatch mem_save: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("expected mem_save to succeed, got error: %s", callResultText(t, res))
++	}
++	if !strings.Contains(callResultText(t, res), `"id"`) {
++		t.Errorf("mem_save should return an id, got: %s", callResultText(t, res))
++	}
++}
++
++// callReq builds an MCP call request with the given name + arguments (nil args
++// → empty).
++func callReq(name string, args map[string]any) mcplib.CallToolRequest {
++	req := mcplib.CallToolRequest{}
++	req.Params.Name = name
++	if args == nil {
++		args = map[string]any{}
++	}
++	req.Params.Arguments = args
++	return req
++}
++
++// resultText extracts the raw JSON text from a tool result's content.
++func resultText(res *mcplib.CallToolResult) string {
++	if res == nil {
++		return ""
++	}
++	for _, c := range res.Content {
++		if tc, ok := c.(mcplib.TextContent); ok {
++			return tc.Text
++		}
++	}
++	return ""
++}
++
++
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+index 87ca567..2eb9d36 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+@@ -76,8 +76,8 @@ func TestAffectedTools(t *testing.T) {
+ 
+ 	// The tool surface grows additively: 71 baseline + 2 affected/rename +
+ 	// 1 code_pdg_query + 1 code_taint + 2 governance + 1 mem_layers + 2 session = 80.
+-	if len(tools) != 80 {
+-		t.Errorf("expected 80 tools (71 baseline + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers + 2 session), got %d", len(tools))
++	if len(tools) != 82 {
++		t.Errorf("expected 82 tools (71 baseline + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers + 2 session + 2 status/compact), got %d", len(tools))
+ 	}
+ 
+ 	// code_affected runs the traversal (changed -> affected test files).
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+index 0cfaf14..9269238 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+@@ -122,8 +122,8 @@ func TestKnowledgeTools(t *testing.T) {
+ 	// The tool surface grows additively: 67 baseline + 4 knowledge + 2
+ 	// affected/rename + 1 code_pdg_query + 1 code_taint + 2 governance +
+ 	// 1 mem_layers + 2 session = 80 (all keep their names + required params).
+-	if len(tools) != 80 {
+-		t.Errorf("expected 80 tools (67 baseline + 4 knowledge + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers + 2 session), got %d", len(tools))
++	if len(tools) != 82 {
++		t.Errorf("expected 82 tools (67 baseline + 4 knowledge + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers + 2 session + 2 status/compact), got %d", len(tools))
+ 	}
+ 
+ 	// code_docs returns the indexed docs (a query, not an error).
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go
+index 515f70b..20bde8a 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go
+@@ -36,9 +36,9 @@ func TestMemGovernanceTools(t *testing.T) {
+ 		}
+ 	}
+ 
+-	// Tool surface grows additively: 75 baseline + 2 governance + 1 layers + 2 session = 80.
+-	if len(tools) != 80 {
+-		t.Errorf("expected 80 tools (75 baseline + 2 governance + 1 mem_layers + 2 session), got %d", len(tools))
++	// Tool surface grows additively: 75 baseline + 2 governance + 1 layers + 2 session + 2 status/compact = 82.
++	if len(tools) != 82 {
++		t.Errorf("expected 82 tools (75 baseline + 2 governance + 1 mem_layers + 2 session + 2 status/compact), got %d", len(tools))
+ 	}
+ 
+ 	// Existing 005 mem_* tools keep their names + required params unchanged.
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_args_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_args_test.go
+index 2252fc1..351b1ee 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_args_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_args_test.go
+@@ -51,9 +51,9 @@ func TestMemLayersRegisteredAndStable(t *testing.T) {
+ 	if _, ok := tools["mem_layers"]; !ok {
+ 		t.Fatal("mem_layers is not registered")
+ 	}
+-	// The additive surface count: 78 (77 after step 01 + 1 mem_layers).
+-	if len(tools) != 80 {
+-		t.Errorf("expected 80 tools, got %d", len(tools))
++	// The additive surface count: 82 (78 step-02 baseline + 2 status/compact).
++	if len(tools) != 82 {
++		t.Errorf("expected 82 tools, got %d", len(tools))
+ 	}
+ 	for name, wantRequired := range expectedMemToolSurface {
+ 		st, ok := tools[name]
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_test.go
+index 14a4e79..f6f59e4 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_test.go
+@@ -33,9 +33,9 @@ func TestLayerTools(t *testing.T) {
+ 		t.Errorf("expected tool %q to be registered", "mem_layers")
+ 	}
+ 
+-	// Tool surface grows additively: 77 (75 baseline + 2 governance) + 1 layers + 2 session = 80.
+-	if len(tools) != 80 {
+-		t.Errorf("expected 80 tools (77 + 1 mem_layers + 2 session), got %d", len(tools))
++	// Tool surface grows additively: 77 (75 baseline + 2 governance) + 1 layers + 2 session + 2 status/compact = 82.
++	if len(tools) != 82 {
++		t.Errorf("expected 82 tools (77 + 1 mem_layers + 2 session + 2 status/compact), got %d", len(tools))
+ 	}
+ 
+ 	// Existing 005 mem_* tools keep their names + required params unchanged.
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_retrieval_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_retrieval_test.go
+index e64aa49..2010879 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_retrieval_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_retrieval_test.go
+@@ -74,8 +74,8 @@ func TestBudgetedRetrievalMCP(t *testing.T) {
+ 	// 005 mem_* tools keep their names + required params unchanged (budgeted
+ 	// behavior is additive).
+ 	tools := NewServer().ListTools()
+-	if len(tools) != 80 {
+-		t.Fatalf("expected 80 tools, got %d", len(tools))
++	if len(tools) != 82 {
++		t.Fatalf("expected 82 tools (78 step-02 baseline + 2 status/compact), got %d", len(tools))
+ 	}
+ 	for name, wantRequired := range expectedMemToolSurface {
+ 		st, ok := tools[name]
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff.go b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff.go
+index 96e9b4b..1f9c0f2 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff.go
+@@ -20,6 +20,9 @@ func registerSessionTools(s *server.MCPServer) {
+ 	}{
+ 		{sessionHandoffTool(), handleSessionHandoff},
+ 		{sessionResumeTool(), handleSessionResume},
++		// Step 03: session status + thin knowledge compact (additive).
++		{sessionStatusTool(), handleSessionStatus},
++		{knowledgeCompactTool(), handleKnowledgeCompact},
+ 	}
+ 	for _, entry := range tools {
+ 		s.AddTool(entry.tool, entry.handler)
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff_test.go
+index cc0845a..1d0e843 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff_test.go
+@@ -40,9 +40,9 @@ func TestSessionHandoffTools(t *testing.T) {
+ 		}
+ 	}
+ 
+-	// Tool surface grows additively: 78 baseline + 2 session tools = 80.
+-	if len(tools) != 80 {
+-		t.Errorf("expected 80 tools (78 baseline + 2 session), got %d", len(tools))
++	// Tool surface grows additively: 78 baseline + 2 session + 2 status/compact = 82.
++	if len(tools) != 82 {
++		t.Errorf("expected 82 tools (78 baseline + 2 session + 2 status/compact), got %d", len(tools))
+ 	}
+ 
+ 	// Existing 005 mem_* tools keep their names + required params unchanged.
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_session_status.go b/skillgrid-cli/internal/mnemonic/mcp/tools_session_status.go
+new file mode 100644
+index 0000000..e172caa
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_session_status.go
+@@ -0,0 +1,89 @@
++package mcp
++
++import (
++	"context"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/relay"
++)
++
++// sessionStatusTool is the session_status MCP tool (change 006, step 03). It
++// reports the handoff count for the current project plus the last known
++// cost/context ONLY when the caller supplies them (optional
++// context_usage_percent? / cost_usd?). It never invents cost or context it does
++// not have. A project with no handoffs yet reports zero counts (warn +
++// continue, not a crash).
++func sessionStatusTool() mcplib.Tool {
++	return mcplib.NewTool("session_status",
++		mcplib.WithDescription("Report the session relay status for the current project: the handoff count from session_handoffs plus the last known cost/context when supplied. context_usage_percent and cost_usd are OPTIONAL caller-supplied stats — when omitted the relay does not invent them (they are absent from the result). With no handoffs yet the count is 0 (warn + continue, not an error)."),
++		mcplib.WithNumber("context_usage_percent", mcplib.Description("Optional: the caller-supplied context usage percent (0-100). Omit to leave it out of the result.")),
++		mcplib.WithNumber("cost_usd", mcplib.Description("Optional: the caller-supplied last known cost in USD. Omit to leave it out of the result.")),
++	)
++}
++
++func handleSessionStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++
++	var stats *relay.Stats
++	ctxPct := req.GetFloat("context_usage_percent", -1)
++	costUSD := req.GetFloat("cost_usd", -1)
++	if ctxPct >= 0 || costUSD >= 0 {
++		stats = &relay.Stats{}
++		if ctxPct >= 0 {
++			v := ctxPct
++			stats.ContextUsagePercent = &v
++		}
++		if costUSD >= 0 {
++			v := costUSD
++			stats.CostUSD = &v
++		}
++	}
++
++	st, err := relay.Status(ctx, h.Store().DB, h.ProjectID(), stats)
++	if err != nil {
++		return toolError(err)
++	}
++
++	out := map[string]any{
++		"handoff_count": st.HandoffCount,
++	}
++	if st.ContextUsagePercent != nil {
++		out["context_usage_percent"] = *st.ContextUsagePercent
++	}
++	if st.CostUSD != nil {
++		out["cost_usd"] = *st.CostUSD
++	}
++	return JSONResult(out)
++}
++
++// knowledgeCompactTool is the thin knowledge_compact MCP tool (change 006,
++// step 03). It refreshes .cleave/KNOWLEDGE.md from the handoff inputs / session
++// notes ONLY — it has no Fact Memory dependency, so it succeeds on a session
++// with handoff inputs but no Fact Memory. Empty/missing knowledge inputs
++// yield a minimal KNOWLEDGE.md (warn + continue, not an error).
++func knowledgeCompactTool() mcplib.Tool {
++	return mcplib.NewTool("knowledge_compact",
++		mcplib.WithDescription("Thin-refresh .cleave/KNOWLEDGE.md from the handoff inputs / session notes ONLY (no Fact Memory dependency). Succeeds with no Fact Memory. With empty/missing knowledge inputs it writes an empty or minimal KNOWLEDGE.md (warn + continue, not an error). Returns the knowledge_path of the refreshed file."),
++	)
++}
++
++func handleKnowledgeCompact(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++
++	res, err := relay.CompactKnowledge(ctx, h.Store().DB, h.ProjectID(), h.Root())
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(map[string]any{
++		"knowledge_path": res.KnowledgePath,
++	})
++}
+diff --git a/skillgrid-cli/internal/mnemonic/relay/compact.go b/skillgrid-cli/internal/mnemonic/relay/compact.go
+new file mode 100644
+index 0000000..68ba718
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/relay/compact.go
+@@ -0,0 +1,109 @@
++package relay
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++	"time"
++)
++
++// CompactResult is the result of a thin knowledge compact (change 006, step
++// 03).
++type CompactResult struct {
++	// KnowledgePath is the absolute path of the refreshed KNOWLEDGE.md.
++	KnowledgePath string
++	// Empty is true when the compact ran with empty/missing knowledge inputs
++	// (warn + continue): a minimal KNOWLEDGE.md was written, not an error.
++	Empty bool
++}
++
++// CompactKnowledge performs a THIN refresh of projectRoot/.skillgrid/.cleave/
++// KNOWLEDGE.md from the handoff inputs / session notes ONLY. It has NO Fact
++// Memory dependency: the relay does not read the Fact Memory store, so a compact
++// succeeds on a session with handoff inputs but no Fact Memory.
++//
++// The knowledge body is sourced, in priority order, from:
++//  1. the existing .cleave/KNOWLEDGE.md (the bundle's knowledge section), or
++//  2. the session handoffs' context_summary notes (joined), or
++//  3. a minimal placeholder (empty/missing inputs → warn + continue).
++//
++// The compact never errors on empty/missing knowledge inputs: it writes an
++// empty or minimal KNOWLEDGE.md and reports CompactResult.Empty=true. It
++// returns the absolute path of the refreshed file.
++func CompactKnowledge(ctx context.Context, db Store, projectID, projectRoot string) (CompactResult, error) {
++	_ = ctx
++	if strings.TrimSpace(projectRoot) == "" {
++		return CompactResult{}, fmt.Errorf("relay: project root is required")
++	}
++
++	body, empty := gatherKnowledge(db, projectID, projectRoot)
++
++	dir := BundleDir(projectRoot)
++	if err := os.MkdirAll(dir, 0o755); err != nil {
++		return CompactResult{}, fmt.Errorf("relay: create cleave dir: %w", err)
++	}
++	p := filepath.Join(dir, FileKnowledge)
++	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
++		return CompactResult{}, fmt.Errorf("relay: write %s: %w", FileKnowledge, err)
++	}
++	return CompactResult{KnowledgePath: p, Empty: empty}, nil
++}
++
++// gatherKnowledge assembles the KNOWLEDGE.md body from the handoff inputs /
++// session notes only (no Fact Memory). It returns the body and whether the
++// inputs were empty/missing (warn + continue → minimal file).
++func gatherKnowledge(db Store, projectID, projectRoot string) (string, bool) {
++	// 1. The existing .cleave/KNOWLEDGE.md (the bundle's knowledge section).
++	if b, err := os.ReadFile(filepath.Join(BundleDir(projectRoot), FileKnowledge)); err == nil {
++		if s := strings.TrimSpace(string(b)); s != "" {
++			return string(b), false
++		}
++	}
++
++	// 2. The session handoffs' context_summary notes (session notes), joined.
++	if db != nil && strings.TrimSpace(projectID) != "" {
++		if notes := contextNotes(db, projectID); len(notes) > 0 {
++			return strings.Join(notes, "\n"), false
++		}
++	}
++
++	// 3. Empty/missing inputs → a minimal file (warn + continue, not an error).
++	return minimalKnowledge(), true
++}
++
++// contextNotes reads the non-empty context_summary notes of the project's
++// session handoffs, newest first.
++func contextNotes(db Store, projectID string) []string {
++	rows, err := db.QueryContext(context.Background(), `
++		SELECT context_summary FROM session_handoffs
++		WHERE project = ? AND context_summary IS NOT NULL
++		ORDER BY created_at DESC, id DESC`, projectID)
++	if err != nil {
++		return nil
++	}
++	defer rows.Close()
++	var notes []string
++	for rows.Next() {
++		var s sql.NullString
++		if err := rows.Scan(&s); err != nil {
++			continue
++		}
++		if s.Valid {
++			if v := strings.TrimSpace(s.String); v != "" {
++				notes = append(notes, v)
++			}
++		}
++	}
++	return notes
++}
++
++// minimalKnowledge is the KNOWLEDGE.md body written when the compact has no
++// knowledge inputs (empty/missing). It is deliberately minimal: a title plus a
++// note that no knowledge was available to fold in.
++func minimalKnowledge() string {
++	return fmt.Sprintf("# KNOWLEDGE\n\n_No knowledge recorded yet (thin compact, no Fact Memory)._\n\n_compacted at %s (UTC) — handoff inputs / session notes only._\n",
++		time.Now().UTC().Format(time.RFC3339))
++}
+diff --git a/skillgrid-cli/internal/mnemonic/relay/relay.go b/skillgrid-cli/internal/mnemonic/relay/relay.go
+index 2ab7696..e074a6b 100644
+--- a/skillgrid-cli/internal/mnemonic/relay/relay.go
++++ b/skillgrid-cli/internal/mnemonic/relay/relay.go
+@@ -15,6 +15,9 @@ import (
+ type Store interface {
+ 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+ 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
++	// QueryContext is used by the thin compact (step 03) to fold the session
++	// handoffs' context_summary notes into KNOWLEDGE.md. *sql.DB satisfies it.
++	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+ }
+ 
+ // Handoff writes the cleave bundle under projectRoot/.skillgrid/.cleave/ and
+diff --git a/skillgrid-cli/internal/mnemonic/relay/status.go b/skillgrid-cli/internal/mnemonic/relay/status.go
+new file mode 100644
+index 0000000..c6f0646
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/relay/status.go
+@@ -0,0 +1,60 @@
++package relay
++
++import (
++	"context"
++	"fmt"
++	"strings"
++)
++
++// Snapshot is the aggregated session status for a project (change 006, step 03).
++// It is the backing type for the session_status MCP tool.
++//
++// HandoffCount is the number of session_handoffs rows for the project (0 when
++// the store is empty — a fresh project reports zero counts, not a crash).
++// ContextUsagePercent and CostUSD are the LAST KNOWN cost/context for the
++// session, and are ONLY populated when the caller supplies them (the optional
++// context_usage_percent? / cost_usd? fields). The relay never invents cost or
++// context it does not have: when the caller omits them the pointers are nil.
++type Snapshot struct {
++	HandoffCount int
++	// ContextUsagePercent is the caller-supplied context usage percent (0–100).
++	// Nil when the caller did not supply it.
++	ContextUsagePercent *float64
++	// CostUSD is the caller-supplied last known cost in USD. Nil when the
++	// caller did not supply it.
++	CostUSD *float64
++}
++
++// Stats carries the optional caller-supplied cost/context for Status. Both
++// fields are pointers so a nil value means "the caller did not supply this"
++// (the relay must not invent cost or context it does not have).
++type Stats struct {
++	ContextUsagePercent *float64
++	CostUSD             *float64
++}
++
++// Status aggregates the session handoff count (from session_handoffs) plus the
++// last known cost/context when the caller supplies it via stats. It never
++// invents cost or context: when stats is nil (or has nil fields) the output
++// omits those fields. A project with no handoffs yet yields HandoffCount 0 and
++// no error (warn + continue, not a crash).
++func Status(ctx context.Context, db Store, projectID string, stats *Stats) (Snapshot, error) {
++	if db == nil {
++		return Snapshot{}, fmt.Errorf("relay: store is required")
++	}
++	if strings.TrimSpace(projectID) == "" {
++		return Snapshot{}, fmt.Errorf("relay: project id is required")
++	}
++
++	n, err := HandoffCount(ctx, db, projectID)
++	if err != nil {
++		return Snapshot{}, fmt.Errorf("relay: count handoffs: %w", err)
++	}
++
++	out := Snapshot{HandoffCount: n}
++	if stats != nil {
++		out.ContextUsagePercent = stats.ContextUsagePercent
++		out.CostUSD = stats.CostUSD
++	}
++	return out, nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/relay/status_compact_test.go b/skillgrid-cli/internal/mnemonic/relay/status_compact_test.go
+new file mode 100644
+index 0000000..971bd5e
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/relay/status_compact_test.go
+@@ -0,0 +1,185 @@
++package relay
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++// TestStatus covers the happy path (Scenario: Status and compact without facts):
++// a Status on a store that already has a handoff reports the true handoff count
++// and surfaces the caller-supplied cost/context (and omits them when the caller
++// does not supply them). No Fact Memory is involved.
++func TestStatus(t *testing.T) {
++	st, root := openStore(t, "relayproj")
++	ctx := context.Background()
++	seedSession(t, st, "s1")
++
++	if _, _, err := Handoff(ctx, st.DB, "relayproj", "ho-status", root, Bundle{
++		Progress:      "p",
++		NextPrompt:    "np",
++		SourceSession: "s1",
++	}); err != nil {
++		t.Fatalf("handoff: %v", err)
++	}
++
++	// Caller supplies cost/context → they surface in the snapshot.
++	pct, cost := 42.0, 1.5
++	snap, err := Status(ctx, st.DB, "relayproj", &Stats{
++		ContextUsagePercent: &pct,
++		CostUSD:             &cost,
++	})
++	if err != nil {
++		t.Fatalf("status: %v", err)
++	}
++	if snap.HandoffCount != 1 {
++		t.Errorf("HandoffCount = %d, want 1", snap.HandoffCount)
++	}
++	if snap.ContextUsagePercent == nil || *snap.ContextUsagePercent != 42.0 {
++		t.Errorf("ContextUsagePercent = %v, want 42.0 (caller-supplied)", snap.ContextUsagePercent)
++	}
++	if snap.CostUSD == nil || *snap.CostUSD != 1.5 {
++		t.Errorf("CostUSD = %v, want 1.5 (caller-supplied)", snap.CostUSD)
++	}
++
++	// Caller supplies nothing → the relay must NOT invent cost/context.
++	snap2, err := Status(ctx, st.DB, "relayproj", nil)
++	if err != nil {
++		t.Fatalf("status (nil stats): %v", err)
++	}
++	if snap2.HandoffCount != 1 {
++		t.Errorf("HandoffCount = %d, want 1", snap2.HandoffCount)
++	}
++	if snap2.ContextUsagePercent != nil {
++		t.Errorf("ContextUsagePercent must be nil when the caller does not supply it, got %v", *snap2.ContextUsagePercent)
++	}
++	if snap2.CostUSD != nil {
++		t.Errorf("CostUSD must be nil when the caller does not supply it, got %v", *snap2.CostUSD)
++	}
++}
++
++// TestStatusEmpty covers the edge (Scenario: No handoffs yet): a Status on an
++// empty store reports HandoffCount 0 with no error (warn + continue, not a
++// crash).
++func TestStatusEmpty(t *testing.T) {
++	st, _ := openStore(t, "relayproj")
++	snap, err := Status(context.Background(), st.DB, "relayproj", nil)
++	if err != nil {
++		t.Fatalf("status on empty store must not error, got: %v", err)
++	}
++	if snap.HandoffCount != 0 {
++		t.Errorf("HandoffCount = %d, want 0 (no handoffs yet)", snap.HandoffCount)
++	}
++}
++
++// TestCompact covers the happy path (Scenario: Status and compact without
++// facts): a THIN compact refreshes .cleave/KNOWLEDGE.md from handoff inputs
++// with NO Fact Memory and returns the path. The knowledge body is preserved
++// (the existing bundle KNOWLEDGE.md is non-empty).
++func TestCompact(t *testing.T) {
++	st, root := openStore(t, "relayproj")
++	ctx := context.Background()
++	seedSession(t, st, "s1")
++
++	if _, _, err := Handoff(ctx, st.DB, "relayproj", "ho-compact", root, Bundle{
++		Progress:      "p",
++		Knowledge:     "fail closed first",
++		NextPrompt:    "np",
++		SourceSession: "s1",
++	}); err != nil {
++		t.Fatalf("handoff: %v", err)
++	}
++
++	res, err := CompactKnowledge(ctx, st.DB, "relayproj", root)
++	if err != nil {
++		t.Fatalf("compact: %v", err)
++	}
++	if res.KnowledgePath == "" {
++		t.Fatalf("compact must return the knowledge path")
++	}
++	if _, err := os.Stat(res.KnowledgePath); err != nil {
++		t.Fatalf("expected KNOWLEDGE.md at %s: %v", res.KnowledgePath, err)
++	}
++	body, err := os.ReadFile(res.KnowledgePath)
++	if err != nil {
++		t.Fatalf("read KNOWLEDGE.md: %v", err)
++	}
++	// The existing bundle knowledge (the handoff input) is preserved.
++	if !strings.Contains(string(body), "fail closed first") {
++		t.Errorf("KNOWLEDGE.md should preserve the handoff knowledge, got %q", string(body))
++	}
++	if res.Empty {
++		t.Errorf("Empty must be false when a non-empty knowledge input exists")
++	}
++}
++
++// TestCompactEmpty covers the edge (Scenario: No handoffs yet / empty
++// knowledge inputs): a compact with no handoff inputs writes an empty or
++// minimal KNOWLEDGE.md (warn + continue, not an error) and reports Empty=true.
++func TestCompactEmpty(t *testing.T) {
++	st, root := openStore(t, "relayproj")
++	// No handoff rows, no .cleave/ bundle → empty/missing knowledge inputs.
++
++	res, err := CompactKnowledge(context.Background(), st.DB, "relayproj", root)
++	if err != nil {
++		t.Fatalf("compact with empty inputs must not error, got: %v", err)
++	}
++	if res.KnowledgePath == "" {
++		t.Fatalf("compact must return the knowledge path even when empty")
++	}
++	if _, err := os.Stat(res.KnowledgePath); err != nil {
++		t.Fatalf("expected a KNOWLEDGE.md (empty or minimal) at %s: %v", res.KnowledgePath, err)
++	}
++	if !res.Empty {
++		t.Errorf("Empty must be true when there are no knowledge inputs")
++	}
++	body, err := os.ReadFile(res.KnowledgePath)
++	if err != nil {
++		t.Fatalf("read KNOWLEDGE.md: %v", err)
++	}
++	if strings.TrimSpace(string(body)) == "" {
++		t.Errorf("KNOWLEDGE.md should be minimal (a title/note), not a zero-byte file; got empty")
++	}
++	// The file lives under the cleave dir.
++	if !strings.Contains(res.KnowledgePath, filepath.Join(".skillgrid", ".cleave")) {
++		t.Errorf("KNOWLEDGE.md path %s should be under .skillgrid/.cleave", res.KnowledgePath)
++	}
++}
++
++// TestCompactFromContextNotes covers the handoff-inputs-without-KNOWLEDGE path:
++// when the .cleave/KNOWLEDGE.md is absent/empty but a session handoff row has a
++// context_summary, the compact folds that session note into KNOWLEDGE.md (still
++// no Fact Memory).
++func TestCompactFromContextNotes(t *testing.T) {
++	st, root := openStore(t, "relayproj")
++	ctx := context.Background()
++	seedSession(t, st, "s1")
++
++	// A handoff whose KNOWLEDGE.md is empty but that carries a context_summary.
++	if _, _, err := Handoff(ctx, st.DB, "relayproj", "ho-notes", root, Bundle{
++		Progress:       "p",
++		Knowledge:      "", // empty knowledge → the compact must fall back to the note
++		NextPrompt:     "np",
++		SourceSession:  "s1",
++		ContextSummary: "folded session note",
++	}); err != nil {
++		t.Fatalf("handoff: %v", err)
++	}
++
++	res, err := CompactKnowledge(ctx, st.DB, "relayproj", root)
++	if err != nil {
++		t.Fatalf("compact: %v", err)
++	}
++	body, err := os.ReadFile(res.KnowledgePath)
++	if err != nil {
++		t.Fatalf("read KNOWLEDGE.md: %v", err)
++	}
++	if !strings.Contains(string(body), "folded session note") {
++		t.Errorf("KNOWLEDGE.md should fold the context_summary note, got %q", string(body))
++	}
++	if res.Empty {
++		t.Errorf("Empty must be false when a context_summary note is present")
++	}
++}

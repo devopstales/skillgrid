@@ -1,0 +1,113 @@
+# Review package: 32dc818..HEAD
+
+## Commits
+e3b67d1 test(mnemonic): seed webcache snapshot to prove handle web reachability
+
+## Files changed
+ .../internal/mnemonic/service/handle_test.go       | 32 ++++++++++++++++++----
+ skillgrid-cli/internal/mnemonic/service/service.go |  5 ++--
+ 2 files changed, 29 insertions(+), 8 deletions(-)
+
+## Diff
+diff --git a/skillgrid-cli/internal/mnemonic/service/handle_test.go b/skillgrid-cli/internal/mnemonic/service/handle_test.go
+index 2872b65..1740236 100644
+--- a/skillgrid-cli/internal/mnemonic/service/handle_test.go
++++ b/skillgrid-cli/internal/mnemonic/service/handle_test.go
+@@ -65,22 +65,21 @@ func TestProjectHandleExposesMemoryAndWeb(t *testing.T) {
+ 	if got := h.ProjectID(); got != pid {
+ 		t.Fatalf("ProjectID()=%q want %q", got, pid)
+ 	}
+ 	if h.Memory() == nil {
+ 		t.Fatal("Memory() returned nil")
+ 	}
+ 	var mem *memory.Service = h.Memory()
+ 	if mem == nil {
+ 		t.Fatal("handle memory service is nil")
+ 	}
+-	var web *webcache.Service = h.Web()
+-	if web == nil {
++	if h.Web() == nil {
+ 		t.Fatal("Web() returned nil")
+ 	}
+ 	if h.Store() == nil {
+ 		t.Fatal("Store() returned nil")
+ 	}
+ 
+ 	// Reach memory end-to-end through the handle.
+ 	sessionID, err := h.Memory().SessionStart(context.Background(), ".", "handle seam session")
+ 	if err != nil {
+ 		t.Fatalf("SessionStart via handle: %v", err)
+@@ -96,18 +95,39 @@ func TestProjectHandleExposesMemoryAndWeb(t *testing.T) {
+ 		t.Fatalf("Save via handle: %v", err)
+ 	}
+ 	got, err := h.Memory().Get(context.Background(), id)
+ 	if err != nil {
+ 		t.Fatalf("Get via handle: %v", err)
+ 	}
+ 	if got.Title != "handle seam save" {
+ 		t.Fatalf("title=%q", got.Title)
+ 	}
+ 
+-	// Web through the handle: a lookup on the same store must not error.
+-	if _, err := h.Web().Lookup(context.Background(), webcache.LookupInput{
++	// Web through the handle: seed a snapshot via Web().Save, then prove the
++	// lookup reaches the same store and actually finds it (hit + id), not just
++	// a nil-error miss.
++	const exaQuery = "handle seam"
++	webID, err := h.Web().Save(context.Background(), webcache.SaveWebInput{
++		Source:  "exa",
++		Query:   exaQuery,
++		Content: "seeded snapshot for handle seam web reachability",
++	})
++	if err != nil {
++		t.Fatalf("Save via handle: %v", err)
++	}
++	if webID == 0 {
++		t.Fatal("Save via handle returned id 0")
++	}
++	lookup, err := h.Web().Lookup(context.Background(), webcache.LookupInput{
+ 		Source: "exa",
+-		Query:  "handle seam",
+-	}); err != nil {
++		Query:  exaQuery,
++	})
++	if err != nil {
+ 		t.Fatalf("Lookup via handle: %v", err)
+ 	}
++	if lookup.Status != "hit" {
++		t.Fatalf("Lookup status=%q want hit (seeded snapshot not found)", lookup.Status)
++	}
++	if lookup.ID != webID {
++		t.Fatalf("Lookup id=%d want %d (seeded snapshot)", lookup.ID, webID)
++	}
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index 74e50b6..31a2957 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -1759,22 +1759,23 @@ func (s *Service) MemoryStatus(ctx context.Context, projectID string) (memory.St
+ func (s *Service) WebCacheStatus(ctx context.Context, projectID string) (webcache.Status, error) {
+ 	h, cleanup, err := s.openProject(projectID, ".")
+ 	if err != nil {
+ 		return webcache.Status{}, err
+ 	}
+ 	defer cleanup()
+ 	return h.web.CacheStatus(ctx)
+ }
+ 
+ // Open opens a ProjectHandle for an explicit project id (config root ".").
+-// It aborts with an error on empty or invalid ids — store.Open rejects blank
+-// and ".."-containing ids — and never returns a partial handle.
++// It aborts with an error on empty or invalid ids — blank ids are rejected
++// up front and ".."-containing ids by store.Open — and never returns a
++// partial handle.
+ func (s *Service) Open(projectID string) (*ProjectHandle, func(), error) {
+ 	return s.openProject(projectID, ".")
+ }
+ 
+ // OpenForCWD opens project-scoped services from the current working directory.
+ func (s *Service) OpenForCWD() (*ProjectHandle, func(), error) {
+ 	return s.openProjectFromCWD()
+ }
+ 
+ // OpenForDirectory opens project-scoped services for directory.

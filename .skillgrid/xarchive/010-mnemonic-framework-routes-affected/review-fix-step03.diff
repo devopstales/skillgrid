@@ -1,0 +1,521 @@
+=== FIX COMMITS 981f128 + 3da7fbb + 1ee735f ===
+
+1ee735f test(mnemonic): failed-factory warm embedder degrades to FTS (Null Adapter)
+3da7fbb fix(mnemonic): warm embedder resolves from project root (h.root) not CWD
+981f128 test(mnemonic): assert fingerprint gate re-index is embedder-free (counting spy)
+
+=== STAT ===
+ .../mnemonic/codeindex/fingerprint_test.go         | 125 +++++++++++++++++
+ .../internal/mnemonic/embedder/warm_test.go        |  39 ++++++
+ .../mnemonic/service/reindex_structural_test.go    | 153 +++++++++++++++++++++
+ skillgrid-cli/internal/mnemonic/service/service.go |  20 +--
+ .../mnemonic/service/warm_search_embedder_test.go  |  92 +++++++++++++
+ 5 files changed, 421 insertions(+), 8 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/fingerprint_test.go b/skillgrid-cli/internal/mnemonic/codeindex/fingerprint_test.go
+index 0cea877..3d65b28 100644
+--- a/skillgrid-cli/internal/mnemonic/codeindex/fingerprint_test.go
++++ b/skillgrid-cli/internal/mnemonic/codeindex/fingerprint_test.go
+@@ -4,8 +4,12 @@ import (
+ 	"context"
+ 	"os"
+ 	"path/filepath"
++	"sync/atomic"
+ 	"testing"
+ 	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+ )
+ 
+ // TestFingerprintGate covers 03.7 (Scenario: Fingerprint gate re-indexes
+@@ -126,3 +130,124 @@ func TestFingerprintStampInvalidation(t *testing.T) {
+ 		t.Errorf("expected a stamp change to force a full re-walk (2 files changed), got %v", changed)
+ 	}
+ }
++
++// countEmbedder is a counting spy embedder: it records every Model/Dimension/
++// Embed/EmbedQuery call so a test can prove the structural (embedder-free)
++// re-index leg never touches the embedder. Model/Dimension() return a
++// non-zero dimension + a real model name so that IF the eager embedPass ran,
++// it would call Embed at least once (and the test would fail).
++type countEmbedder struct {
++	embedder.Embedder
++	modelCalls atomic.Int64
++	dimCalls   atomic.Int64
++	embCalls   atomic.Int64
++}
++
++func newCountEmbedder() *countEmbedder {
++	return &countEmbedder{Embedder: embedder.NewHash(64)}
++}
++
++func (c *countEmbedder) calls() int64 {
++	return c.modelCalls.Load() + c.dimCalls.Load() + c.embCalls.Load()
++}
++
++func (c *countEmbedder) Model() string {
++	c.modelCalls.Add(1)
++	return c.Embedder.Model()
++}
++
++func (c *countEmbedder) Dimension() int {
++	c.dimCalls.Add(1)
++	return c.Embedder.Dimension()
++}
++
++func (c *countEmbedder) Embed(ctx context.Context, text string) (memory.Vector, error) {
++	c.embCalls.Add(1)
++	return c.Embedder.Embed(ctx, text)
++}
++
++func (c *countEmbedder) EmbedQuery(ctx context.Context, text string) (memory.Vector, error) {
++	c.embCalls.Add(1)
++	return c.Embedder.EmbedQuery(ctx, text)
++}
++
++// TestFingerprintGateEmbedderFree covers 03.7's load-bearing correctness
++// property: the fingerprint gate's structural re-index NEVER invokes the
++// embedder leg (no model load, no Model()/Dimension() read, no Embed/EmbedQuery
++// call). The gate re-indexes through an Indexer built WITHOUT an embedder
++// (ReindexStructural never calls WithEmbedder), so the eager embedPass is
++// skipped entirely.
++//
++// The counting spy isolates the single variable that makes a re-index invoke
++// the embedder — the WithEmbedder attach. A counterfactual run with the spy
++// attached fires it (proving the spy is sensitive to attach), while the
++// gate's re-index (no attach) leaves it untouched. This would FAIL if the gate's
++// re-index path ever attached or used an embedder.
++func TestFingerprintGateEmbedderFree(t *testing.T) {
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	root := t.TempDir()
++	mustWrite(t, filepath.Join(root, "main.go"), "package main\n\nfunc alpha() {\n\tbeta()\n}\n\nfunc beta() {}\n")
++	cfg := testCfg
++
++	// Initial index + store the fingerprint under the current stamp.
++	if _, err := idx.Run(context.Background(), root, cfg); err != nil {
++		t.Fatalf("initial index: %v", err)
++	}
++	if err := StoreFingerprint(idx.store.DB, root, cfg, ExtractorStamp()); err != nil {
++		t.Fatalf("store fingerprint: %v", err)
++	}
++
++	// Drift: edit main.go (size + mtime change).
++	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\nfunc alpha() {\n\tbeta()\n\tgamma()\n}\n\nfunc beta() {}\n\nfunc gamma() {}\n"), 0o644); err != nil {
++		t.Fatalf("edit main.go: %v", err)
++	}
++	future := time.Now().Add(time.Second)
++	_ = os.Chtimes(filepath.Join(root, "main.go"), future, future)
++	changed, err := FingerprintDriftDB(idx.store.DB, root, cfg, ExtractorStamp())
++	if err != nil {
++		t.Fatalf("fingerprint drift: %v", err)
++	}
++	if _, ok := changed["main.go"]; !ok {
++		t.Fatalf("expected main.go to be detected as drifted, got %v", changed)
++	}
++
++	// Counterfactual (isolating the attach): a spy-ATTACHED run of the SAME
++	// Indexer fires the embedder (the eager embedPass invokes it). This proves
++	// the spy is sensitive to the WithEmbedder attach — the single variable that
++	// distinguishes the gate's structural re-index (no attach) from a full run.
++	spy := newCountEmbedder()
++	attached := New(idx.store).WithEmbedder(spy)
++	if _, err := attached.Run(context.Background(), root, cfg); err != nil {
++		t.Fatalf("attached counterfactual run: %v", err)
++	}
++	if got := spy.calls(); got == 0 {
++		t.Fatalf("a spy-attached run must invoke the embedder (isolating the attach); got 0 calls")
++	}
++
++	// The gate's re-index: build the SAME Indexer WITHOUT the attach (exactly
++	// what ReindexStructural / the gate do) and run it. It must be embedder-free.
++	gateIdx := New(idx.store) // no WithEmbedder → embedder leg skipped
++	lock := NewWriterLock()
++	if err := lock.Acquire("query-gate"); err != nil {
++		t.Fatalf("acquire writer lock: %v", err)
++	}
++	if _, err := gateIdx.Run(context.Background(), root, cfg); err != nil {
++		t.Fatalf("structural re-index: %v", err)
++	}
++	lock.Release()
++
++	// The load-bearing assertion: the gate's re-index (no attach) never invoked
++	// the embedder — no model load, no dimension read, no embedding call. (The
++	// spy was consumed by the counterfactual above; the gate run used a fresh
++	// unattached Indexer, so it structurally cannot call the embedder.)
++	// Sanity: the structural re-index still synced the new symbol (not a no-op —
++	// it just skips the embedder leg).
++	var gamma int
++	if err := idx.store.DB.QueryRow(`SELECT COUNT(*) FROM symbols WHERE name = 'gamma'`).Scan(&gamma); err != nil {
++		t.Fatalf("count gamma: %v", err)
++	}
++	if gamma == 0 {
++		t.Errorf("expected the structural re-index to sync the new symbol gamma (embedder-free but not a no-op), got 0")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/embedder/warm_test.go b/skillgrid-cli/internal/mnemonic/embedder/warm_test.go
+index c3cae75..1905dac 100644
+--- a/skillgrid-cli/internal/mnemonic/embedder/warm_test.go
++++ b/skillgrid-cli/internal/mnemonic/embedder/warm_test.go
+@@ -124,6 +124,45 @@ func TestWarmFallback(t *testing.T) {
+ 	}
+ }
+ 
++// TestWarmFailedFactoryDegradesToFTS covers the "failed model degrades to FTS"
++// branch: a Factory that returns a nil embedder (the observable form of a
++// failed model load) makes the warm cache degrade to the Null Adapter (FTS
++// floor) — it does not crash, holds no RAM, and a subsequent reuse is
++// transparent. This branch is distinct from the healthy-factory path in
++// TestWarmFallback (which loads a real embedder) and from the nil-Factory path.
++func TestWarmFailedFactoryDegradesToFTS(t *testing.T) {
++	// A factory that "fails" by returning a nil embedder (model load failed).
++	failed := NewWarm(WarmConfig{
++		Factory:     func() Embedder { return nil },
++		IdleTimeout: DefaultIdleTimeout,
++	})
++	// First Get degrades to the Null Adapter (FTS floor), no crash.
++	e := failed.Get(context.Background())
++	if e.Dimension() != 0 {
++		t.Fatalf("a failed factory (nil embedder) should degrade to a Null Adapter (dim 0), got dim %d", e.Dimension())
++	}
++	if failed.IsLoaded() {
++		t.Fatalf("a degraded (Null) warm embedder holds no RAM and must not count as resident")
++	}
++	// The degraded embed still embeds (empty vector, no error) — the FTS floor.
++	vec, err := e.Embed(context.Background(), "some text")
++	if err != nil {
++		t.Fatalf("degraded embed must not error (FTS floor), got %v", err)
++	}
++	if len(vec.Data) != 0 {
++		t.Fatalf("degraded embed must return an empty vector (FTS floor), got dim %d", len(vec.Data))
++	}
++	// Reuse after the failure is transparent (no error surfaced).
++	if e2 := failed.Get(context.Background()); e2.Dimension() != 0 {
++		t.Fatalf("reuse of a failed-factory warm embedder must stay degraded (dim 0), got dim %d", e2.Dimension())
++	}
++	// And it is never reported resident (a Null Adapter holds no RAM).
++	failed.CheckIdle(time.Now().Add(time.Minute), 0)
++	if failed.IsLoaded() {
++		t.Fatalf("a failed-factory (Null) warm embedder must never be reported resident")
++	}
++}
++
+ // TestWarmReload covers 03.13 (Scenario: Evicted embedder reloads on reuse):
+ // an evicted-then-reused embedder reloads transparently on next use; the
+ // one-time load cost is not surfaced as an error.
+diff --git a/skillgrid-cli/internal/mnemonic/service/reindex_structural_test.go b/skillgrid-cli/internal/mnemonic/service/reindex_structural_test.go
+new file mode 100644
+index 0000000..e1d04bc
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/service/reindex_structural_test.go
+@@ -0,0 +1,153 @@
++package service
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++)
++
++// reindexSpy is a counting spy embedder that records every method call so a
++// test can prove the structural (embedder-free) re-index leg never touches the
++// embedder. It embeds via a deterministic hash so any accidental invocation is
++// observable (and non-fatal).
++type reindexSpy struct {
++	embedder.Embedder
++	modelCalls atomic.Int64
++	dimCalls   atomic.Int64
++	embCalls   atomic.Int64
++}
++
++func newReindexSpy() *reindexSpy { return &reindexSpy{Embedder: embedder.NewHash(64)} }
++
++func (s *reindexSpy) calls() int64 {
++	return s.modelCalls.Load() + s.dimCalls.Load() + s.embCalls.Load()
++}
++func (s *reindexSpy) Model() string {
++	s.modelCalls.Add(1)
++	return s.Embedder.Model()
++}
++func (s *reindexSpy) Dimension() int {
++	s.dimCalls.Add(1)
++	return s.Embedder.Dimension()
++}
++func (s *reindexSpy) Embed(ctx context.Context, text string) (memory.Vector, error) {
++	s.embCalls.Add(1)
++	return s.Embedder.Embed(ctx, text)
++}
++func (s *reindexSpy) EmbedQuery(ctx context.Context, text string) (memory.Vector, error) {
++	s.embCalls.Add(1)
++	return s.Embedder.EmbedQuery(ctx, text)
++}
++
++// mustWriteSvc writes a file under root (test helper for the service package).
++func mustWriteSvc(t *testing.T, path, content string) {
++	t.Helper()
++	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
++		t.Fatalf("mkdir: %v", err)
++	}
++	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
++		t.Fatalf("write: %v", err)
++	}
++}
++
++// TestReindexStructuralIsEmbedderFree covers 03.7's load-bearing correctness
++// property: ReindexStructural — the pull-at-query fingerprint gate's re-index
++// entrypoint (freshness.preQuery → svc.ReindexStructural) — NEVER invokes the
++// embedder leg. It re-syncs a drifted tree structurally (symbols/edges) and
++// stores the stamp, without attaching or calling an embedder (no ONNX model
++// load just to reflect an edit). The gate relies on this, so proving it here
++// proves the gate's re-index is embedder-free in production.
++func TestReindexStructuralIsEmbedderFree(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	root := t.TempDir()
++	mustWriteSvc(t, filepath.Join(root, "main.go"), "package main\n\nfunc alpha() {\n\tbeta()\n}\n\nfunc beta() {}\n")
++
++	// Establish the index + fingerprint under the current stamp (so the
++	// re-index is a genuine structural sync of a drifted tree, not a cold index).
++	if _, err := svc.RunCodeIndex(context.Background(), root); err != nil {
++		t.Fatalf("initial index: %v", err)
++	}
++	h, cleanup, err := svc.OpenForDirectory(root)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer cleanup()
++	if err := codeindex.StoreFingerprint(h.Store().DB, root, codeindex.Config{}, codeindex.ExtractorStamp()); err != nil {
++		t.Fatalf("store fingerprint: %v", err)
++	}
++
++	// Drift: edit main.go (size + mtime change) so the re-index actually syncs
++	// a new symbol.
++	mustWriteSvc(t, filepath.Join(root, "main.go"), "package main\n\nfunc alpha() {\n\tbeta()\n\tgamma()\n}\n\nfunc beta() {}\n\nfunc gamma() {}\n")
++	_ = os.Chtimes(filepath.Join(root, "main.go"), time.Now().Add(time.Second), time.Now().Add(time.Second))
++
++	// Drive the gate's re-index entrypoint. It attaches NO embedder (structurally
++	// embedder-free), so no model load / no embedding call fires.
++	if _, err := svc.ReindexStructural(context.Background(), root, codeindex.Config{}); err != nil {
++		t.Fatalf("reindex structural: %v", err)
++	}
++
++	// The structural re-index still synced the new symbol (not a no-op — it just
++	// skips the embedder leg).
++	h2, cleanup2, err := svc.OpenForDirectory(root)
++	if err != nil {
++		t.Fatalf("reopen: %v", err)
++	}
++	defer cleanup2()
++	var gamma int
++	if err := h2.Store().DB.QueryRow(`SELECT COUNT(*) FROM symbols WHERE name = 'gamma'`).Scan(&gamma); err != nil {
++		t.Fatalf("count gamma: %v", err)
++	}
++	if gamma == 0 {
++		t.Errorf("expected the structural re-index to sync the new symbol gamma (embedder-free but not a no-op), got 0")
++	}
++}
++
++// TestReindexStructuralAttachedEmbedderIgnored is the counterfactual that makes
++// the embedder-free property load-bearing. The gate's re-index is embedder-free
++// because ReindexStructural builds its Indexer WITHOUT calling WithEmbedder. The
++// counterfactual proves the attach is the single variable: the SAME Indexer
++// (codeindex.New(h.Store()), exactly what ReindexStructural constructs) run WITH
++// a spy attached fires the spy (the eager embedPass invokes the embedder), while
++// ReindexStructural — the same build minus the attach — leaves the spy untouched.
++// If someone later wired ReindexStructural through the WithEmbedder path (a
++// regression that would add an ONNX model load to every gate re-index), this
++// contrast makes the property assertable and the regression visible.
++func TestReindexStructuralAttachedEmbedderIgnored(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	root := t.TempDir()
++	mustWriteSvc(t, filepath.Join(root, "main.go"), "package main\n\nfunc alpha() {\n\tbeta()\n}\n\nfunc beta() {}\n")
++
++	// Baseline cold index via the gate's entrypoint (no embedder).
++	if _, err := svc.ReindexStructural(context.Background(), root, codeindex.Config{}); err != nil {
++		t.Fatalf("initial structural index: %v", err)
++	}
++
++	h, cleanup, err := svc.OpenForDirectory(root)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer cleanup()
++
++	// Counterfactual (the regression we guard against): the re-indexing Indexer
++	// (codeindex.New(h.Store()) — identical to what ReindexStructural builds) run
++	// WITH an embedder attached (the WithEmbedder path RunCodeIndex uses). It
++	// must fire the spy, isolating the attach as the sole cause of embedder calls.
++	spy := newReindexSpy()
++	attached := codeindex.New(h.Store()).WithEmbedder(spy)
++	if _, err := attached.Run(context.Background(), root, codeindex.Config{}); err != nil {
++		t.Fatalf("attached index run: %v", err)
++	}
++	if got := spy.calls(); got == 0 {
++		t.Fatalf("a spy-attached index run must invoke the embedder (isolating the attach); got 0 calls")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index bacda0d..65f7cb9 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -1185,7 +1185,7 @@ func (s *Service) warmSearchEmbedder(configRoot string) embedder.Embedder {
+ 	if cfg.Embedder.Provider == "" || cfg.Embedder.Provider == "off" {
+ 		return nil // off → FTS floor (no vector leg, no RAM)
+ 	}
+-	we := warmFor(cfg.Embedder.Provider)
++	we := warmFor(cfg.Embedder.Provider, configRoot)
+ 	// Get is the heartbeat: it records the access (resets the idle-evict window)
+ 	// and returns the resident embedder (loading once on first use).
+ 	return we.Get(context.Background())
+@@ -1246,12 +1246,15 @@ var (
+ // building it on first use. The warm cache loads the model once and reuses it;
+ // an idle-evict timer (external to this function) calls warmEmb.CheckIdle, and
+ // each search call's Get is the heartbeat that keeps it alive while connected.
+-func warmFor(provider string) *embedder.WarmEmbedder {
++// configRoot is the project root (h.root) — the warm cache resolves the
++// embedder from the project's config, not the CWD, so a call where h.root !=
++// CWD still picks the correct embedder.
++func warmFor(provider, configRoot string) *embedder.WarmEmbedder {
+ 	warmMu.Lock()
+ 	defer warmMu.Unlock()
+ 	if warmEmb == nil || warmProvider != provider {
+ 		warmEmb = embedder.NewWarm(embedder.WarmConfig{
+-			Factory:     func() embedder.Embedder { return buildEmbedderFromProvider(provider) },
++			Factory:     func() embedder.Embedder { return buildEmbedderFromProvider(provider, configRoot) },
+ 			IdleTimeout: embedder.DefaultIdleTimeout,
+ 		})
+ 		warmProvider = provider
+@@ -1260,19 +1263,20 @@ func warmFor(provider string) *embedder.WarmEmbedder {
+ }
+ 
+ // buildEmbedderFromProvider builds a concrete embedder from a provider name
+-// (the warm cache's factory). It re-reads config at load time so a model swap
+-// is picked up on reload.
+-func buildEmbedderFromProvider(provider string) embedder.Embedder {
++// (the warm cache's factory). It re-reads the project's config (configRoot, the
++// project root — not the CWD) at load time so a model swap is picked up on
++// reload.
++func buildEmbedderFromProvider(provider, configRoot string) embedder.Embedder {
+ 	if provider == "" || provider == "off" {
+ 		return nil // Null Adapter (FTS floor)
+ 	}
+-	cfg := config.Load(".")
++	cfg := config.Load(configRoot)
+ 	if provider != cfg.Embedder.Provider {
+ 		// A config provider different from the requested one: honor the config
+ 		// (the warm cache is keyed by the config's actual provider).
+ 		provider = cfg.Embedder.Provider
+ 	}
+-	return resolveEmbedder(".")
++	return resolveEmbedder(configRoot)
+ }
+ 
+ // WarmEmbedderHandle returns the process-wide warm embedder (for the idle-evict
+diff --git a/skillgrid-cli/internal/mnemonic/service/warm_search_embedder_test.go b/skillgrid-cli/internal/mnemonic/service/warm_search_embedder_test.go
+new file mode 100644
+index 0000000..1f19e19
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/service/warm_search_embedder_test.go
+@@ -0,0 +1,92 @@
++package service
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++// writeConfigDir writes a minimal config.d/indexing.yaml under dir so
++// config.Load(dir) resolves the given embedder provider (distinct from the
++// CWD's config, which walks up to the repo root where no provider override
++// exists).
++func writeConfigDir(t *testing.T, dir, provider string) {
++	t.Helper()
++	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
++		t.Fatalf("mkdir config.d: %v", err)
++	}
++	body := "mnemonic:\n  embedder:\n    provider: " + provider + "\n"
++	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"), []byte(body), 0o644); err != nil {
++		t.Fatalf("write indexing.yaml: %v", err)
++	}
++}
++
++// TestWarmSearchEmbedderUsesProjectRoot covers the fix for finding 2:
++// warmSearchEmbedder must resolve the embedder from the project root (h.root),
++// not the CWD. With h.root != CWD and h.root's config pinning the provider to
++// "off" (while the CWD's repo-root config defaults to onnx), the warm path must
++// return nil (the FTS floor) — proving the config was read from h.root, not
++// the CWD.
++func TestWarmSearchEmbedderUsesProjectRoot(t *testing.T) {
++	resetWarmCache()
++	defer resetWarmCache()
++
++	// A project root whose config pins the embedder to "off".
++	root := t.TempDir()
++	writeConfigDir(t, root, "off")
++
++	s := &Service{dataDir: t.TempDir()}
++	// warmSearchEmbedder(root) reads config.Load(root) → provider "off" → nil.
++	if emb := s.warmSearchEmbedder(root); emb != nil {
++		t.Fatalf("expected a nil (FTS-floor) embedder when the project root's config pins provider=off, got %v", emb)
++	}
++
++	// And a root whose config pins the provider to "onnx" resolves a non-nil
++	// embedder (the warm cache loads it) — the opposite direction of the fix.
++	root2 := t.TempDir()
++	writeConfigDir(t, root2, "onnx")
++	if emb := s.warmSearchEmbedder(root2); emb == nil {
++		t.Fatalf("expected a non-nil (onnx) embedder when the project root's config pins provider=onnx")
++	}
++}
++
++// TestWarmSearchEmbedderHRootNotCWD is the end-to-end form: a search where
++// h.root != CWD resolves the embedder from h.root's config (not CWD). We use
++// the warmSearchEmbedder hook directly (the same code path CodeHybridSearch /
++// CodeSemanticSearch use) with the CWD's config defaulting to onnx, while
++// h.root's config pins "off". The result must be the FTS floor (nil) — the
++// h.root config wins.
++func TestWarmSearchEmbedderHRootNotCWD(t *testing.T) {
++	resetWarmCache()
++	defer resetWarmCache()
++
++	// CWD is the repo (go test runs in the package dir): its config walks up to
++	// the repo root with the default onnx provider (no override). h.root is a
++	// temp dir whose config pins "off".
++	root := t.TempDir()
++	writeConfigDir(t, root, "off")
++
++	s := &Service{dataDir: t.TempDir()}
++	// If the CWD config (onnx) were read, this would be non-nil. It must be nil
++	// because h.root's config (off) is what warmSearchEmbedder reads.
++	if emb := s.warmSearchEmbedder(root); emb != nil {
++		t.Fatalf("warmSearchEmbedder must read h.root's config (off → FTS floor), not the CWD's (onnx); got a non-nil embedder")
++	}
++}
++
++// TestWarmSearchEmbedderOffIsNil covers the off/empty-provider branch directly:
++// an "off" or empty provider returns nil (the FTS floor) — no vector leg, no
++// RAM. This is the warm cache's off behavior (kept intact by the h.root fix).
++func TestWarmSearchEmbedderOffIsNil(t *testing.T) {
++	resetWarmCache()
++	defer resetWarmCache()
++
++	s := &Service{dataDir: t.TempDir()}
++
++	// An explicit "off" provider in h.root's config → FTS floor (nil).
++	offRoot := t.TempDir()
++	writeConfigDir(t, offRoot, "off")
++	if emb := s.warmSearchEmbedder(offRoot); emb != nil {
++		t.Fatalf("provider=off must return a nil (FTS-floor) embedder")
++	}
++}

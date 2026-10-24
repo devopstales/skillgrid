@@ -1,0 +1,358 @@
+# Review package: 51bcfa4..HEAD
+
+## Commits
+32dc818 feat(mnemonic): export Project Handle as single-project seam
+99b97ad feat(mnemonic): abort Project Handle open on bad project id
+
+## Files changed
+ .../internal/mnemonic/service/handle_test.go       | 113 +++++++++++++++++++++
+ skillgrid-cli/internal/mnemonic/service/service.go |  38 ++++---
+ skillgrid-cli/internal/mnemonic/service/teams.go   |   8 +-
+ 3 files changed, 143 insertions(+), 16 deletions(-)
+
+## Diff
+diff --git a/skillgrid-cli/internal/mnemonic/service/handle_test.go b/skillgrid-cli/internal/mnemonic/service/handle_test.go
+new file mode 100644
+index 0000000..2872b65
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/service/handle_test.go
+@@ -0,0 +1,113 @@
++package service
++
++import (
++	"context"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/webcache"
++)
++
++// TestOpenEmptyProjectIDAborts guards the handle seam: an empty project id
++// must abort open with an error and never yield a partial handle.
++func TestOpenEmptyProjectIDAborts(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++
++	for _, id := range []string{"", "   "} {
++		h, cleanup, err := svc.Open(id)
++		if err == nil {
++			t.Fatalf("Open(%q): expected abort, got nil error", id)
++		}
++		if h != nil {
++			t.Fatalf("Open(%q): expected nil handle on abort, got non-nil", id)
++		}
++		if cleanup != nil {
++			cleanup()
++		}
++	}
++}
++
++// TestOpenInvalidProjectIDAborts covers ids store.Open rejects ("..").
++func TestOpenInvalidProjectIDAborts(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++
++	h, cleanup, err := svc.Open("a/../b")
++	if err == nil {
++		t.Fatal("Open(a/../b): expected abort, got nil error")
++	}
++	if h != nil {
++		t.Fatal("Open(a/../b): expected nil handle on abort, got non-nil")
++	}
++	if cleanup != nil {
++		cleanup()
++	}
++}
++
++// TestProjectHandleExposesMemoryAndWeb is the single-project seam contract:
++// one open returns an exported *ProjectHandle reaching memory and webcache
++// without the wide facade surface.
++func TestProjectHandleExposesMemoryAndWeb(t *testing.T) {
++	dataDir := t.TempDir()
++	svc := New(dataDir)
++	const pid = "handle-seam"
++
++	h, cleanup, err := svc.Open(pid)
++	if err != nil {
++		t.Fatalf("Open(%q): %v", pid, err)
++	}
++	defer cleanup()
++	if h == nil {
++		t.Fatal("Open returned nil handle")
++	}
++
++	if got := h.ProjectID(); got != pid {
++		t.Fatalf("ProjectID()=%q want %q", got, pid)
++	}
++	if h.Memory() == nil {
++		t.Fatal("Memory() returned nil")
++	}
++	var mem *memory.Service = h.Memory()
++	if mem == nil {
++		t.Fatal("handle memory service is nil")
++	}
++	var web *webcache.Service = h.Web()
++	if web == nil {
++		t.Fatal("Web() returned nil")
++	}
++	if h.Store() == nil {
++		t.Fatal("Store() returned nil")
++	}
++
++	// Reach memory end-to-end through the handle.
++	sessionID, err := h.Memory().SessionStart(context.Background(), ".", "handle seam session")
++	if err != nil {
++		t.Fatalf("SessionStart via handle: %v", err)
++	}
++	id, err := h.Memory().Save(context.Background(), memory.SaveInput{
++		Title:     "handle seam save",
++		Type:      "pattern",
++		Content:   "opened once, reached memory and web",
++		Scope:     "project",
++		SessionID: sessionID,
++	})
++	if err != nil {
++		t.Fatalf("Save via handle: %v", err)
++	}
++	got, err := h.Memory().Get(context.Background(), id)
++	if err != nil {
++		t.Fatalf("Get via handle: %v", err)
++	}
++	if got.Title != "handle seam save" {
++		t.Fatalf("title=%q", got.Title)
++	}
++
++	// Web through the handle: a lookup on the same store must not error.
++	if _, err := h.Web().Lookup(context.Background(), webcache.LookupInput{
++		Source: "exa",
++		Query:  "handle seam",
++	}); err != nil {
++		t.Fatalf("Lookup via handle: %v", err)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index ae5b9b0..74e50b6 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -41,54 +41,61 @@ func DefaultDataDir() (string, error) {
+ 	if v := os.Getenv("SKILLGRID_MNEMONIC_DATA_DIR"); v != "" {
+ 		return v, nil
+ 	}
+ 	home, err := os.UserHomeDir()
+ 	if err != nil {
+ 		return "", err
+ 	}
+ 	return filepath.Join(home, ".skillgrid", "mnemonic"), nil
+ }
+ 
+-type projectHandle struct {
++// ProjectHandle is the deep single-project seam: one opened project with
++// direct access to its memory, webcache, and store. Callers outside the
++// service package (MCP, HTTP) open a handle once and work through it instead
++// of the wide open-delegate-close facade.
++type ProjectHandle struct {
+ 	store     *store.Store
+ 	projectID string
+ 	root      string // workspace directory for ContentPlane (.skillgrid/files)
+ 	memory    *memory.Service
+ 	web       *webcache.Service
+ 	content   *files.ContentPlane
+ }
+ 
+-func (s *Service) openProject(projectID, configRoot string) (*projectHandle, func(), error) {
++func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, func(), error) {
+ 	if s == nil {
+ 		return nil, nil, fmt.Errorf("service not initialized")
+ 	}
++	if strings.TrimSpace(projectID) == "" {
++		return nil, nil, fmt.Errorf("project id is required")
++	}
+ 	st, err := store.Open(s.dataDir, projectID)
+ 	if err != nil {
+ 		return nil, nil, err
+ 	}
+ 	root := configRoot
+ 	if abs, absErr := filepath.Abs(configRoot); absErr == nil {
+ 		root = abs
+ 	}
+ 	cfg := config.Load(root)
+-	h := &projectHandle{
++	h := &ProjectHandle{
+ 		store:     st,
+ 		projectID: projectID,
+ 		root:      root,
+ 		memory:    memory.New(st, projectID),
+ 		web:       webcache.New(st, projectID, cfg.WebCache),
+ 		content:   files.NewContentPlane(root),
+ 	}
+ 	return h, func() { st.Close() }, nil
+ }
+ 
+-func (s *Service) openProjectForDirectory(directory string) (*projectHandle, func(), error) {
++func (s *Service) openProjectForDirectory(directory string) (*ProjectHandle, func(), error) {
+ 	absDir, err := filepath.Abs(directory)
+ 	if err != nil {
+ 		return nil, nil, fmt.Errorf("resolve directory: %w", err)
+ 	}
+ 	res, resErr := project.ResolveDetailed(absDir)
+ 	if resErr != nil {
+ 		// Hard abort for writes: never open/create under an ambiguous
+ 		// directory-hash fallback (or other resolve failures such as binding
+ 		// write errors). Recover via MNEMONIC_PROJECT or explicit project=.
+ 		return nil, nil, fmt.Errorf("resolve project: %w", resErr)
+@@ -97,21 +104,21 @@ func (s *Service) openProjectForDirectory(directory string) (*projectHandle, fun
+ 	// into the canonical identity bucket so prior memories are reachable and
+ 	// future alias-named writes route here. Idempotent and read-mostly.
+ 	if res.SeedID != "" && res.SeedID != res.ID && res.Source == project.SourceIdentity {
+ 		if _, _, err := s.MergeProjects(context.Background(), res.SeedID, res.ID); err == nil {
+ 			// recorded
+ 		}
+ 	}
+ 	return s.openProject(res.ID, absDir)
+ }
+ 
+-func (s *Service) openProjectFromCWD() (*projectHandle, func(), error) {
++func (s *Service) openProjectFromCWD() (*ProjectHandle, func(), error) {
+ 	cwd, err := os.Getwd()
+ 	if err != nil {
+ 		return nil, nil, err
+ 	}
+ 	return s.openProjectForDirectory(cwd)
+ }
+ 
+ // ListProjects returns the project IDs with a store in dataDir, sorted.
+ func (s *Service) ListProjects() ([]string, error) {
+ 	entries, err := os.ReadDir(s.dataDir)
+@@ -1028,21 +1035,21 @@ func (s *Service) MemoryDoctor(ctx context.Context, projectID string) (MemoryDoc
+ 
+ 	if info, err := os.Stat(h.store.Path()); err == nil {
+ 		out.DiskSizeBytes = info.Size()
+ 	}
+ 	out.FTSDrift = int(ftsObs) - out.Observations
+ 	out.FTSIntegrityOK = out.FTSDrift >= 0
+ 	return out, nil
+ }
+ 
+ // rowCount helper (keeps MemoryDoctor readable).
+-func (h *projectHandle) rowCount(ctx context.Context, table string, out *int) {
++func (h *ProjectHandle) rowCount(ctx context.Context, table string, out *int) {
+ 	_ = h.store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(out)
+ }
+ 
+ // SymbolHitDTO is a public identifier-FTS hit.
+ type SymbolHitDTO = search.SymbolHit
+ 
+ // SymbolSearch runs identifier-aware FTS over indexed symbols.
+ func (s *Service) SymbolSearch(ctx context.Context, projectID, query string, limit int) ([]search.SymbolHit, error) {
+ 	h, cleanup, err := s.openProject(projectID, ".")
+ 	if err != nil {
+@@ -1751,41 +1758,48 @@ func (s *Service) MemoryStatus(ctx context.Context, projectID string) (memory.St
+ // WebCacheStatus returns web cache health stats.
+ func (s *Service) WebCacheStatus(ctx context.Context, projectID string) (webcache.Status, error) {
+ 	h, cleanup, err := s.openProject(projectID, ".")
+ 	if err != nil {
+ 		return webcache.Status{}, err
+ 	}
+ 	defer cleanup()
+ 	return h.web.CacheStatus(ctx)
+ }
+ 
++// Open opens a ProjectHandle for an explicit project id (config root ".").
++// It aborts with an error on empty or invalid ids — store.Open rejects blank
++// and ".."-containing ids — and never returns a partial handle.
++func (s *Service) Open(projectID string) (*ProjectHandle, func(), error) {
++	return s.openProject(projectID, ".")
++}
++
+ // OpenForCWD opens project-scoped services from the current working directory.
+-func (s *Service) OpenForCWD() (*projectHandle, func(), error) {
++func (s *Service) OpenForCWD() (*ProjectHandle, func(), error) {
+ 	return s.openProjectFromCWD()
+ }
+ 
+ // OpenForDirectory opens project-scoped services for directory.
+-func (s *Service) OpenForDirectory(directory string) (*projectHandle, func(), error) {
++func (s *Service) OpenForDirectory(directory string) (*ProjectHandle, func(), error) {
+ 	return s.openProjectForDirectory(directory)
+ }
+ 
+ // ProjectID returns the project ID for an open handle.
+-func (h *projectHandle) ProjectID() string { return h.projectID }
++func (h *ProjectHandle) ProjectID() string { return h.projectID }
+ 
+ // Memory returns the memory service for an open handle.
+-func (h *projectHandle) Memory() *memory.Service { return h.memory }
++func (h *ProjectHandle) Memory() *memory.Service { return h.memory }
+ 
+ // Web returns the webcache service for an open handle.
+-func (h *projectHandle) Web() *webcache.Service { return h.web }
++func (h *ProjectHandle) Web() *webcache.Service { return h.web }
+ 
+ // Store returns the underlying store for an open handle.
+-func (h *projectHandle) Store() *store.Store { return h.store }
++func (h *ProjectHandle) Store() *store.Store { return h.store }
+ 
+ func readIndexedCode(db *sql.DB, path string, startLine, endLine int) (map[string]any, error) {
+ 	var fileID int64
+ 	err := db.QueryRow(`SELECT id FROM files WHERE path = ?`, path).Scan(&fileID)
+ 	if err == sql.ErrNoRows {
+ 		return nil, fmt.Errorf("file not indexed: %s", path)
+ 	}
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/skillgrid-cli/internal/mnemonic/service/teams.go b/skillgrid-cli/internal/mnemonic/service/teams.go
+index 2ec34a3..ac7c7af 100644
+--- a/skillgrid-cli/internal/mnemonic/service/teams.go
++++ b/skillgrid-cli/internal/mnemonic/service/teams.go
+@@ -288,46 +288,46 @@ func (s *Service) MarkDone(ctx context.Context, directory, taskID string) error
+ 	if err != nil {
+ 		return err
+ 	}
+ 	n, _ := res.RowsAffected()
+ 	if n == 0 {
+ 		return ErrUnknownTask
+ 	}
+ 	return nil
+ }
+ 
+-func (s *Service) openTeamsHandle(directory string) (*projectHandle, func(), error) {
++func (s *Service) openTeamsHandle(directory string) (*ProjectHandle, func(), error) {
+ 	dir := strings.TrimSpace(directory)
+ 	if dir == "" {
+ 		return s.openProjectFromCWD()
+ 	}
+ 	return s.openProjectForDirectory(dir)
+ }
+ 
+-func (h *projectHandle) ensureTeam(id, name string) error {
++func (h *ProjectHandle) ensureTeam(id, name string) error {
+ 	_, err := h.store.DB.Exec(`
+ 		INSERT INTO teams (id, name) VALUES (?, ?)
+ 		ON CONFLICT(id) DO NOTHING`, id, name)
+ 	return err
+ }
+ 
+-func (h *projectHandle) ensureMember(teamID, memberID, role string) error {
++func (h *ProjectHandle) ensureMember(teamID, memberID, role string) error {
+ 	if err := h.ensureTeam(teamID, defaultTeamName); err != nil {
+ 		return err
+ 	}
+ 	_, err := h.store.DB.Exec(`
+ 		INSERT INTO team_members (id, team_id, role, status) VALUES (?, ?, ?, 'idle')
+ 		ON CONFLICT(id) DO NOTHING`, memberID, teamID, role)
+ 	return err
+ }
+ 
+-func (h *projectHandle) loadTask(taskID string) (*TaskView, error) {
++func (h *ProjectHandle) loadTask(taskID string) (*TaskView, error) {
+ 	if strings.TrimSpace(taskID) == "" {
+ 		return nil, ErrUnknownTask
+ 	}
+ 	var view TaskView
+ 	err := h.store.DB.QueryRow(`
+ 		SELECT id, team_id, title, status, brief_path, COALESCE(output_path, ''), priority, COALESCE(assigned_to, '')
+ 		FROM tasks WHERE id = ?`, taskID).Scan(
+ 		&view.ID, &view.TeamID, &view.Title, &view.Status, &view.BriefPath, &view.OutputPath, &view.Priority, &view.AssignedTo,
+ 	)
+ 	if errors.Is(err, sql.ErrNoRows) {

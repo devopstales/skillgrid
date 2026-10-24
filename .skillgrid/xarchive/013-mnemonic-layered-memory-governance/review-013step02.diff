@@ -1,0 +1,1783 @@
+=== 013 STEP 02 CODE COMMITS 547c5d0..a4c6202 ===
+
+a4c6202 feat(memory/layer): add DistillResult.Err for best-effort hook surfacing
+7dc3441 test(mcp): bad-layer-args-rejected + 005 mem_* stability (mem_layers additive)
+2829fce feat(service): opt-in async session-close distill hook + mem_layers seam + atom-correctable
+5ede761 test(memory/layer): cache-hash, no-op, and L0→L1→L2→L3 chain inspection
+66f9b6c feat(memory/layer): register mem_layers + keep 005 tools stable (77→78)
+547c5d0 feat(store): 018 layered distill schema (observation_layers + personas + llm cache)
+
+=== STAT ===
+ skillgrid-cli/internal/mnemonic/mcp/server.go      |   2 +
+ skillgrid-cli/internal/mnemonic/mcp/server_test.go |   2 +
+ .../mnemonic/mcp/tools_code_affected_test.go       |   6 +-
+ .../mnemonic/mcp/tools_code_knowledge_test.go      |   8 +-
+ .../mnemonic/mcp/tools_memory_governance_test.go   |   6 +-
+ .../internal/mnemonic/mcp/tools_memory_layer.go    |  62 ++++
+ .../mnemonic/mcp/tools_memory_layer_args_test.go   |  78 +++++
+ .../mnemonic/mcp/tools_memory_layer_test.go        |  82 ++++++
+ .../internal/mnemonic/memory/capture_export.go     |  30 ++
+ .../internal/mnemonic/memory/layer/cache.go        |  45 +++
+ .../internal/mnemonic/memory/layer/distill.go      | 323 +++++++++++++++++++++
+ .../internal/mnemonic/memory/layer/distill_test.go | 191 ++++++++++++
+ .../internal/mnemonic/memory/layer/layers.go       | 151 ++++++++++
+ .../internal/mnemonic/memory/layer/layers_test.go  | 191 ++++++++++++
+ skillgrid-cli/internal/mnemonic/memory/service.go  |  21 ++
+ .../internal/mnemonic/service/distill_test.go      | 249 ++++++++++++++++
+ skillgrid-cli/internal/mnemonic/service/service.go |  73 +++++
+ .../store/migrations/018_layered_distill.sql       |  69 +++++
+ 18 files changed, 1579 insertions(+), 10 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server.go b/skillgrid-cli/internal/mnemonic/mcp/server.go
+index 96585f6..db54897 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server.go
+@@ -60,6 +60,7 @@ func Start() error {
+ 	registerPdgTools(s)
+ 	registerTaintTools(s)
+ 	registerMemoryGovernanceTools(s)
++	registerMemoryLayerTools(s)
+ 	return server.ServeStdio(s)
+ }
+ 
+@@ -89,5 +90,6 @@ func NewServer() *Server {
+ 	registerPdgTools(s)
+ 	registerTaintTools(s)
+ 	registerMemoryGovernanceTools(s)
++	registerMemoryLayerTools(s)
+ 	return s
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server_test.go b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+index a7629f5..2103248 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+@@ -56,6 +56,8 @@ func TestAllToolsRegistered(t *testing.T) {
+ 		"code_taint",
+ 		// Asset-governance tools (013 step 01).
+ 		"mem_share", "mem_governance",
++		// Layered-distill inspector (013 step 02).
++		"mem_layers",
+ 	}
+ 	if len(tools) != len(want) {
+ 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+index c4701ef..6e786e3 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+@@ -75,9 +75,9 @@ func TestAffectedTools(t *testing.T) {
+ 	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
+ 
+ 	// The tool surface grows additively: 71 baseline + 2 affected/rename +
+-	// 1 code_pdg_query + 1 code_taint + 2 governance (mem_share/mem_governance) = 77.
+-	if len(tools) != 77 {
+-		t.Errorf("expected 77 tools (71 baseline + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance), got %d", len(tools))
++	// 1 code_pdg_query + 1 code_taint + 2 governance + 1 mem_layers = 78.
++	if len(tools) != 78 {
++		t.Errorf("expected 78 tools (71 baseline + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers), got %d", len(tools))
+ 	}
+ 
+ 	// code_affected runs the traversal (changed -> affected test files).
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+index d51e7d8..5a57e69 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+@@ -120,10 +120,10 @@ func TestKnowledgeTools(t *testing.T) {
+ 	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
+ 
+ 	// The tool surface grows additively: 67 baseline + 4 knowledge + 2
+-	// affected/rename + 1 code_pdg_query = 74 (all keep their names + required
+-	// params).
+-	if len(tools) != 77 {
+-		t.Errorf("expected 77 tools (67 baseline + 4 knowledge + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance), got %d", len(tools))
++	// affected/rename + 1 code_pdg_query + 1 code_taint + 2 governance +
++	// 1 mem_layers = 78 (all keep their names + required params).
++	if len(tools) != 78 {
++		t.Errorf("expected 78 tools (67 baseline + 4 knowledge + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers), got %d", len(tools))
+ 	}
+ 
+ 	// code_docs returns the indexed docs (a query, not an error).
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go
+index e42f6ff..d7b2b8c 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go
+@@ -36,9 +36,9 @@ func TestMemGovernanceTools(t *testing.T) {
+ 		}
+ 	}
+ 
+-	// Tool surface grows additively: 75 baseline + 2 governance = 77.
+-	if len(tools) != 77 {
+-		t.Errorf("expected 77 tools (75 baseline + 2 governance), got %d", len(tools))
++	// Tool surface grows additively: 75 baseline + 2 governance + 1 layers = 78.
++	if len(tools) != 78 {
++		t.Errorf("expected 78 tools (75 baseline + 2 governance + 1 mem_layers), got %d", len(tools))
+ 	}
+ 
+ 	// Existing 005 mem_* tools keep their names + required params unchanged.
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer.go
+new file mode 100644
+index 0000000..c5a0b48
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer.go
+@@ -0,0 +1,62 @@
++package mcp
++
++import (
++	"context"
++	"errors"
++	"strings"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++	"github.com/mark3labs/mcp-go/server"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory/layer"
++)
++
++// registerMemoryLayerTools registers the additive mem_layers tool (change 013,
++// step 02). It is additive on the 005 + step-01 mem_* surface: no existing tool
++// is renamed or re-parameterised; the surface grows 77→78.
++func registerMemoryLayerTools(s *server.MCPServer) {
++	s.AddTool(memLayersTool(), handleMemLayers)
++}
++
++// memLayersTool is the layer inspector: it returns the L0→L1→L2→L3 chain for a
++// session or topic, with each layer's provenance link to its L0 source. The
++// target is a session_id (a session UUID) or a topic_key; a missing/invalid
++// argument is rejected clearly.
++func memLayersTool() mcplib.Tool {
++	return mcplib.NewTool("mem_layers",
++		mcplib.WithDescription("Inspect the layered memory for a session or topic: returns the L0→L1→L2→L3 chain (atoms, scenario, persona delta) with each layer's provenance link to its resolvable L0 source. Pass either session_id (a session UUID) or topic_key. A missing or invalid argument is rejected with a clear error."),
++		mcplib.WithString("session_id", mcplib.Description("Session UUID to inspect (preferred)")),
++		mcplib.WithString("topic_key", mcplib.Description("Topic to inspect (alternative to session_id)")),
++	)
++}
++
++// handleMemLayers implements mem_layers. It requires exactly one of session_id
++// / topic_key (bad or missing args are rejected clearly); it then runs the
++// layer read path and returns the chain. A target that resolves to nothing
++// returns an empty chain (the L0 is surfaced, no layers), not a fabricated one.
++func handleMemLayers(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++
++	sessionID := strings.TrimSpace(req.GetString("session_id", ""))
++	topicKey := strings.TrimSpace(req.GetString("topic_key", ""))
++	if sessionID == "" && topicKey == "" {
++		return toolError(errors.New("mem_layers requires session_id or topic_key"))
++	}
++
++	// session_id takes precedence when present; otherwise inspect by topic.
++	var chain layer.Chain
++	var lerr error
++	if sessionID != "" {
++		chain, lerr = layer.Inspect(ctx, h.Memory(), sessionID)
++	} else {
++		chain, lerr = layer.InspectByTopic(ctx, h.Memory(), topicKey)
++	}
++	if lerr != nil {
++		return toolError(lerr)
++	}
++	return JSONResult(chain)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_args_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_args_test.go
+new file mode 100644
+index 0000000..2eac503
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_args_test.go
+@@ -0,0 +1,78 @@
++package mcp
++
++import (
++	"context"
++	"sort"
++	"strings"
++	"testing"
++)
++
++// TestBadLayerArgs covers 02.10 (Scenario: bad-layer-args-rejected). mem_layers
++// with a missing or invalid argument is rejected with a clear validation error
++// and no layers are invented. This is the edge-case companion to TestLayerTools
++// (the registration + 005-stability threat test).
++func TestBadLayerArgs(t *testing.T) {
++	memLayerFixture(t)
++
++	cases := []struct {
++		name string
++		args map[string]any
++	}{
++		{"no-arg", map[string]any{}},
++		{"unknown-arg", map[string]any{"wrong_arg": "value"}},
++		{"empty-both", map[string]any{"session_id": "  ", "topic_key": "  "}},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			res, err := handleMemLayers(context.Background(), newCallTool("mem_layers", tc.args))
++			if err != nil {
++				t.Fatalf("handleMemLayers dispatch (%s): %v", tc.name, err)
++			}
++			if !res.IsError {
++				t.Errorf("%s: expected a validation error, got: %s", tc.name, callResultText(t, res))
++			}
++			// The error must be clear (named) — not an opaque dispatch failure.
++			if got := callResultText(t, res); !strings.Contains(got, "mem_layers") && !strings.Contains(got, "session_id") && !strings.Contains(got, "topic_key") {
++				t.Errorf("%s: error should name the missing/invalid arg, got: %s", tc.name, got)
++			}
++		})
++	}
++}
++
++// TestMemLayersRegisteredAndStable is the @step-02 acceptance assertion that the
++// layered surface is live (mem_layers registered) while every 005 mem_* tool
++// keeps its name + required params unchanged. It is the 005-stable half of
++// 02.10, kept separate from the RED threat test (TestLayerTools) so the
++// additive-contract check is explicit and re-runnable.
++func TestMemLayersRegisteredAndStable(t *testing.T) {
++	memLayerFixture(t)
++	tools := NewServer().ListTools()
++
++	if _, ok := tools["mem_layers"]; !ok {
++		t.Fatal("mem_layers is not registered")
++	}
++	// The additive surface count: 78 (77 after step 01 + 1 mem_layers).
++	if len(tools) != 78 {
++		t.Errorf("expected 78 tools, got %d", len(tools))
++	}
++	for name, wantRequired := range expectedMemToolSurface {
++		st, ok := tools[name]
++		if !ok {
++			t.Errorf("005 mem tool %q no longer registered", name)
++			continue
++		}
++		got := append([]string(nil), st.Tool.InputSchema.Required...)
++		want := append([]string(nil), wantRequired...)
++		sort.Strings(got)
++		sort.Strings(want)
++		if len(got) != len(want) {
++			t.Errorf("%q: required params changed: got %v want %v", name, got, want)
++			continue
++		}
++		for i := range want {
++			if got[i] != want[i] {
++				t.Errorf("%q: required param %d changed: got %q want %q", name, i, got[i], want[i])
++			}
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_test.go
+new file mode 100644
+index 0000000..a1640f1
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_test.go
+@@ -0,0 +1,82 @@
++package mcp
++
++import (
++	"context"
++	"sort"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// memLayerFixture pins the project to a stable bucket so handlers that open the
++// CWD project resolve to one store (mirrors memGovernanceFixture).
++func memLayerFixture(t *testing.T) {
++	t.Helper()
++	dataDir := t.TempDir()
++	t.Setenv("MNEMONIC_PROJECT", "laymcp-probe")
++	svc := service.New(dataDir)
++	SetService(svc)
++	t.Cleanup(func() { SetService(nil) })
++}
++
++// TestLayerTools covers 02.2 (Scenarios: mem-layers-registered-005-stable,
++// bad-layer-args-rejected). mem_layers is registered, the tool surface grows
++// additively 77→78, every 005 mem_* tool keeps its name + required params
++// unchanged, and bad layer args are rejected with a clear error.
++func TestLayerTools(t *testing.T) {
++	memLayerFixture(t)
++
++	tools := NewServer().ListTools()
++
++	// The new layers tool is registered.
++	if _, ok := tools["mem_layers"]; !ok {
++		t.Errorf("expected tool %q to be registered", "mem_layers")
++	}
++
++	// Tool surface grows additively: 77 (75 baseline + 2 governance) + 1 layers = 78.
++	if len(tools) != 78 {
++		t.Errorf("expected 78 tools (77 + 1 mem_layers), got %d", len(tools))
++	}
++
++	// Existing 005 mem_* tools keep their names + required params unchanged.
++	for name, wantRequired := range expectedMemToolSurface {
++		st, ok := tools[name]
++		if !ok {
++			t.Errorf("005 mem tool %q is no longer registered", name)
++			continue
++		}
++		got := append([]string(nil), st.Tool.InputSchema.Required...)
++		want := append([]string(nil), wantRequired...)
++		sort.Strings(got)
++		sort.Strings(want)
++		if len(got) != len(want) {
++			t.Errorf("%q: required params changed: got %v, want %v", name, got, want)
++			continue
++		}
++		for i := range want {
++			if got[i] != want[i] {
++				t.Errorf("%q: required param %d changed: got %q, want %q", name, i, got[i], want[i])
++			}
++		}
++	}
++
++	// Bad layer args rejected clearly:
++	//  - mem_layers with no argument → validation error (no layers invented).
++	res, err := handleMemLayers(context.Background(), newCallTool("mem_layers", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleMemLayers dispatch: %v", err)
++	}
++	if !res.IsError {
++		t.Errorf("mem_layers without an argument should be a validation error, got: %s", callResultText(t, res))
++	}
++	//  - mem_layers with an unknown argument → validation error.
++	res, err = handleMemLayers(context.Background(), newCallTool("mem_layers", map[string]any{
++		"wrong_arg": "value",
++	}))
++	if err != nil {
++		t.Fatalf("handleMemLayers dispatch (bad arg): %v", err)
++	}
++	if !res.IsError {
++		t.Errorf("mem_layers with an unknown argument should be a validation error, got: %s", callResultText(t, res))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/capture_export.go b/skillgrid-cli/internal/mnemonic/memory/capture_export.go
+new file mode 100644
+index 0000000..9e353e5
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/capture_export.go
+@@ -0,0 +1,30 @@
++package memory
++
++// ExtractLearnings is the exported form of the 005 passive-capture extractor
++// (extractLearnings). It is the deterministic, LLM-free floor that the layered
++// distillation (change 013, step 02) reuses to produce L1 atoms offline: the
++// same Key-Learnings / Lesson / Discovery heuristics mem_capture_passive uses,
++// so the no-LLM floor is byte-for-byte the proven 005 behaviour.
++func ExtractLearnings(text string) []PassiveItem {
++	return extractLearnings(text)
++}
++
++// ShapePassiveItem is the exported form of shapePassiveItem: it classifies an
++// extracted learning by keyword and returns a stable title. The layer package
++// uses it to name L1 atoms without re-implementing 005's type heuristics.
++func ShapePassiveItem(item PassiveItem) (title, typ string) {
++	return shapePassiveItem(item)
++}
++
++// ShapePassiveContent is the exported form of shapePassiveContent: it builds a
++// What/Why/Where/Learned-shaped body from an extracted item, inventing nothing
++// beyond what is present in the source text.
++func ShapePassiveContent(item PassiveItem, title, typ string) string {
++	return shapePassiveContent(item, title, typ)
++}
++
++// IsValidType is the exported type validator used by the layer package to
++// confirm a distilled atom's type is a real observation type before saving.
++func IsValidTypeExported(typ string) bool {
++	return IsValidType(typ)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/layer/cache.go b/skillgrid-cli/internal/mnemonic/memory/layer/cache.go
+new file mode 100644
+index 0000000..85c7c57
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/layer/cache.go
+@@ -0,0 +1,45 @@
++package layer
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++)
++
++// The LLM distillation pass is cached by the L0 source content-hash. Re-running
++// the pass on an unchanged source is a cache hit (no re-distillation, no second
++// LLM call); a changed source misses and re-distills. This mirrors the
++// process.content-hash label cache: the result is a pure function of the source
++// content (modulo the LLM), keyed by that content's hash.
++
++// loadLLMCache returns the cached L2 scenario + L3 persona delta for the given
++// source content-hash. ok is false on a miss (no cache row) so the caller runs
++// (and re-caches) the LLM pass.
++func loadLLMCache(ctx context.Context, svc *memory.Service, sourceHash string) (scenario, delta string, ok bool) {
++	row := svc.DB().QueryRowContext(ctx, `
++		SELECT scenario, delta FROM distill_llm_cache
++		WHERE project = ? AND source_hash = ?`, svc.ProjectID(), sourceHash)
++	var s, d sql.NullString
++	if err := row.Scan(&s, &d); err != nil {
++		return "", "", false
++	}
++	return s.String, d.String, true
++}
++
++// saveLLMCache caches the L2 scenario + L3 persona delta for the source
++// content-hash. Idempotent: a re-cache on the same hash overwrites in place.
++func saveLLMCache(ctx context.Context, svc *memory.Service, sourceHash, scenario, delta string) {
++	now := time.Now().UTC().Format(time.RFC3339)
++	_, _ = svc.DB().ExecContext(ctx, `
++		INSERT INTO distill_llm_cache (project, source_hash, scenario, delta, created_at)
++		VALUES (?, ?, ?, ?, ?)
++		ON CONFLICT(project, source_hash) DO UPDATE SET
++			scenario = excluded.scenario,
++			delta = excluded.delta`,
++		svc.ProjectID(), sourceHash, scenario, delta, now)
++}
++
++var _ = fmt.Sprintf
+diff --git a/skillgrid-cli/internal/mnemonic/memory/layer/distill.go b/skillgrid-cli/internal/mnemonic/memory/layer/distill.go
+new file mode 100644
+index 0000000..919fcf3
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/layer/distill.go
+@@ -0,0 +1,323 @@
++// Package layer implements the session-close distillation of change 013,
++// step 02: a session's raw record (L0) is refined upward into L1 atoms, an L2
++// scenario block, and an L3 persona delta. The ladder is PROVENANCE-LINKED —
++// every derived record links to a resolvable L0 source (a live session row and
++// a non-empty source topic); a record whose source cannot be resolved is never
++// created (no orphan layers), and a session with no new L1-able content is a
++// no-op (no empty atoms/scenarios/persona-delta fabricated).
++//
++// The pass is LLM-optional with a deterministic no-LLM floor: the floor reuses
++// 005's CapturePassive heuristics (Key Learnings / Lesson / Discovery) so the
++// ladder works offline; an optional LLM pass refines L2/L3 and is cached by
++// content-hash so an unchanged L0 source is never re-distilled.
++package layer
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"hash/fnv"
++	"strings"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++)
++
++// LLM is the optional distiller for the L2 scenario and L3 persona delta. A
++// nil LLM (or one that errors) leaves those layers to the deterministic floor
++// — they are still provenance-linked, never fabricated. This mirrors the
++// process.LLM seam (no CGo LLM client in this package).
++type LLM interface {
++	// Summarise produces an L2 scenario block + L3 persona delta from a session
++	// summary. A blank return for either field means "use the floor".
++	Summarise(ctx context.Context, summary string) (scenario string, personaDelta string, err error)
++}
++
++// DistillOptions tunes the pass.
++type DistillOptions struct {
++	LLM LLM
++}
++
++// DistillResult reports what the pass produced.
++type DistillResult struct {
++	// Created is true when at least one derived layer record was written.
++	Created bool
++	// L1Count is the number of L1 atoms linked this pass (new + idempotent).
++	L1Count int
++	// ScenarioCount is the number of L2 scenario records linked this pass.
++	ScenarioCount int
++	// PersonaDeltaCount is the number of L3 persona-delta records linked.
++	PersonaDeltaCount int
++	// SourceHash is the content hash of the L0 source this pass ran on.
++	SourceHash string
++	// LLMUsed is true when the optional LLM pass ran (false on the no-LLM floor).
++	LLMUsed bool
++	// Err captures a best-effort distill error (set by the session-close hook
++	// so a failure is surfaced but never breaks the caller). Empty on success.
++	Err error `json:"-"`
++}
++
++// Distill refines the L0 record of sessionID into L1 atoms + an L2 scenario +
++// an L3 persona delta, each linked to its L0 source. It is the deterministic,
++// best-effort core: a missing session (unresolvable source) is a no-op that
++// returns a zero result, not an error; a session with no L1-able content is a
++// no-op. The session-close hook runs this asynchronously and swallows errors.
++func Distill(ctx context.Context, svc *memory.Service, sessionID string, opts DistillOptions) (DistillResult, error) {
++	res := DistillResult{}
++	if svc == nil {
++		return res, fmt.Errorf("memory service is nil")
++	}
++	sessionID = strings.TrimSpace(sessionID)
++	if sessionID == "" {
++		return res, fmt.Errorf("session_id is required")
++	}
++	// Load the L0 session record. A missing row means the source is
++	// unresolvable → nothing is created (a layer is never orphaned).
++	var summary sql.NullString
++	var startedAt string
++	err := svc.DB().QueryRowContext(ctx, `
++		SELECT summary, started_at FROM sessions WHERE id = ? AND project = ?`,
++		sessionID, svc.ProjectID()).Scan(&summary, &startedAt)
++	if err != nil {
++		if err == sql.ErrNoRows {
++			return res, nil // no-op: unresolvable source
++		}
++		return res, fmt.Errorf("load session: %w", err)
++	}
++	sourceText := summary.String
++	res.SourceHash = fnvHex("session:" + sessionID + "|" + sourceText)
++
++	// L1 atoms — the deterministic no-LLM floor (005 CapturePassive heuristics).
++	items := memory.ExtractLearnings(sourceText)
++	newAtoms := 0
++	for _, item := range items {
++		title, typ := memory.ShapePassiveItem(item)
++		title = truncateTitle(title, 120)
++		if title == "" || !memory.IsValidTypeExported(typ) {
++			continue
++		}
++		content := memory.ShapePassiveContent(item, title, typ)
++		id, err := svc.Save(ctx, memory.SaveInput{
++			Title:     title,
++			Type:      typ,
++			Content:   content,
++			Scope:     "project",
++			SessionID: sessionID,
++			TopicKey:  "layer/L1/" + slugify(title),
++			Source:    "distill",
++		})
++		if err != nil {
++			return res, fmt.Errorf("save L1 atom: %w", err)
++		}
++		if err := linkAtom(ctx, svc, sessionID, sourceText, id); err != nil {
++			return res, err
++		}
++		res.L1Count++
++		newAtoms++
++	}
++	if newAtoms == 0 {
++		// No new L1-able content → no-op: no scenario or persona-delta fabricated.
++		return res, nil
++	}
++	res.Created = true
++
++	// L2 scenario + L3 persona delta. The LLM refines these when available and
++	// is cached by content-hash; the floor (no LLM) derives them from the
++	// source text so the ladder is complete offline.
++	scenario, delta := floorLayers(sourceText, items)
++	if opts.LLM != nil {
++		// Reuse the cached LLM output when the L0 source is unchanged; otherwise
++		// call the LLM and cache by content-hash.
++		if cachedS, cachedD, ok := loadLLMCache(ctx, svc, res.SourceHash); ok {
++			scenario, delta = cachedS, cachedD
++		} else if llmS, llmD, lerr := opts.LLM.Summarise(ctx, sourceText); lerr == nil {
++			if s := strings.TrimSpace(llmS); s != "" {
++				scenario = s
++			}
++			if d := strings.TrimSpace(llmD); d != "" {
++				delta = d
++			}
++			res.LLMUsed = true
++			saveLLMCache(ctx, svc, res.SourceHash, scenario, delta)
++		}
++	}
++
++	pS, err := upsertPersona(ctx, svc, "scenario", "Scenario: "+sessionID[:min(8, len(sessionID))], scenario)
++	if err != nil {
++		return res, fmt.Errorf("link scenario: %w", err)
++	}
++	if err := linkPersona(ctx, svc, "L2", sessionID, sourceText, pS); err != nil {
++		return res, err
++	}
++	res.ScenarioCount++
++
++	pD, err := upsertPersona(ctx, svc, "persona_delta", "Persona delta: "+sessionID[:min(8, len(sessionID))], delta)
++	if err != nil {
++		return res, fmt.Errorf("link persona delta: %w", err)
++	}
++	if err := linkPersona(ctx, svc, "L3", sessionID, sourceText, pD); err != nil {
++		return res, err
++	}
++	res.PersonaDeltaCount++
++	return res, nil
++}
++
++// floorLayers derives the deterministic L2 scenario + L3 persona delta from the
++// source text + extracted atoms. Nothing is invented beyond what is present.
++func floorLayers(sourceText string, items []memory.PassiveItem) (scenario, delta string) {
++	var b strings.Builder
++	b.WriteString("**What**: session working context distilled from the L0 record.\n")
++	if g := goalLine(sourceText); g != "" {
++		fmt.Fprintf(&b, "**Goal**: %s\n", g)
++	}
++	if len(items) > 0 {
++		fmt.Fprintf(&b, "**Key facts**: %d atom(s) extracted.\n", len(items))
++	}
++	scenario = b.String()
++
++	var d strings.Builder
++	d.WriteString("**What**: persona profile increment.\n")
++	if len(items) > 0 {
++		d.WriteString("**Signals**: ")
++		for i, it := range items {
++			if i > 0 {
++				d.WriteString("; ")
++			}
++			t, _ := memory.ShapePassiveItem(it)
++			d.WriteString(truncateTitle(t, 60))
++		}
++		d.WriteString("\n")
++	}
++	delta = d.String()
++	return scenario, delta
++}
++
++// linkAtom links an L1 atom observation to its resolvable L0 source. It is
++// idempotent: an identical (project, L1, target, session, content-hash) link is
++// a no-op, so re-distilling an unchanged source does not duplicate rows.
++func linkAtom(ctx context.Context, svc *memory.Service, sessionID, sourceText string, atomID int64) error {
++	now := time.Now().UTC().Format(time.RFC3339)
++	ch := fnvHex("L1|atom|" + itoa(atomID) + "|" + sourceText)
++	_, err := svc.DB().ExecContext(ctx, `
++		INSERT OR IGNORE INTO observation_layers
++			(project, layer, target_kind, target_id, source_session, source_topic, content_hash, created_at)
++		VALUES (?, 'L1', 'observation', ?, ?, ?, ?, ?)`,
++		svc.ProjectID(), atomID, sessionID, truncateTopic(sourceText), ch, now)
++	if err != nil {
++		return fmt.Errorf("link L1: %w", err)
++	}
++	return nil
++}
++
++// linkPersona links an L2/L3 persona record to its resolvable L0 source.
++func linkPersona(ctx context.Context, svc *memory.Service, layer, sessionID, sourceText string, personaID int64) error {
++	now := time.Now().UTC().Format(time.RFC3339)
++	ch := fnvHex(layer + "|persona|" + itoa(personaID) + "|" + sourceText)
++	_, err := svc.DB().ExecContext(ctx, `
++		INSERT OR IGNORE INTO observation_layers
++			(project, layer, target_kind, target_id, source_session, source_topic, content_hash, created_at)
++		VALUES (?, ?, 'persona', ?, ?, ?, ?, ?)`,
++		svc.ProjectID(), layer, personaID, sessionID, truncateTopic(sourceText), ch, now)
++	if err != nil {
++		return fmt.Errorf("link %s: %w", layer, err)
++	}
++	return nil
++}
++
++// upsertPersona returns the id of a personas row for (kind, title, content),
++// inserting when absent. Re-distilling an unchanged content reuses the same row
++// (the ladder is idempotent).
++func upsertPersona(ctx context.Context, svc *memory.Service, kind, title, content string) (int64, error) {
++	now := time.Now().UTC().Format(time.RFC3339)
++	ch := fnvHex(kind + "|" + content)
++	var id int64
++	err := svc.DB().QueryRowContext(ctx, `
++		SELECT id FROM personas WHERE project = ? AND kind = ? AND content_hash = ?`,
++		svc.ProjectID(), kind, ch).Scan(&id)
++	if err == nil {
++		return id, nil
++	}
++	if err != sql.ErrNoRows {
++		return 0, fmt.Errorf("lookup persona: %w", err)
++	}
++	res, err := svc.DB().ExecContext(ctx, `
++		INSERT INTO personas (project, kind, title, content, content_hash, created_at)
++		VALUES (?, ?, ?, ?, ?, ?)`,
++		svc.ProjectID(), kind, title, content, ch, now)
++	if err != nil {
++		return 0, fmt.Errorf("insert persona: %w", err)
++	}
++	return res.LastInsertId()
++}
++
++// truncateTopic returns a short, stable representation of the L0 source used as
++// the provenance topic. It must be non-empty for a real session summary so the
++// link is a resolvable L0, not an orphan.
++func truncateTopic(sourceText string) string {
++	t := collapse(sourceText)
++	if len(t) > 200 {
++		t = t[:200]
++	}
++	return t
++}
++
++func collapse(s string) string {
++	return strings.Join(strings.Fields(s), " ")
++}
++
++func truncateTitle(s string, n int) string {
++	s = collapse(s)
++	if len(s) <= n {
++		return s
++	}
++	return strings.TrimRight(s[:n], " ,;") + "…"
++}
++
++func slugify(s string) string {
++	seg := strings.ToLower(strings.TrimSpace(s))
++	seg = strings.ReplaceAll(seg, " ", "-")
++	if len(seg) > 60 {
++		seg = seg[:60]
++	}
++	if seg == "" {
++		seg = "untitled"
++	}
++	return seg
++}
++
++func itoa(n int64) string { return fmt.Sprintf("%d", n) }
++
++func min(a, b int) int {
++	if a < b {
++		return a
++	}
++	return b
++}
++
++// goalLine extracts the first non-header line after a "## Goal" heading from the
++// session summary — the session's stated purpose. Empty when absent.
++func goalLine(summary string) string {
++	lines := strings.Split(summary, "\n")
++	for i, l := range lines {
++		if strings.EqualFold(strings.TrimSpace(l), "## Goal") {
++			for _, next := range lines[i+1:] {
++				t := strings.TrimSpace(next)
++				if t == "" {
++					continue
++				}
++				if strings.HasPrefix(t, "#") {
++					break
++				}
++				return t
++			}
++		}
++	}
++	return ""
++}
++
++// fnvHex returns the hex digest of a single FNV-1a hash of s (pure Go, CGo-free).
++func fnvHex(s string) string {
++	h := fnv.New64a()
++	_, _ = h.Write([]byte(s))
++	return fmt.Sprintf("%x", h.Sum64())
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/layer/distill_test.go b/skillgrid-cli/internal/mnemonic/memory/layer/distill_test.go
+new file mode 100644
+index 0000000..63ec3ec
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/layer/distill_test.go
+@@ -0,0 +1,191 @@
++package layer
++
++import (
++	"context"
++	"database/sql"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++type sqlNullString = sql.NullString
++
++type fixture struct {
++	st       *store.Store
++	svc      *memory.Service
++	projectID string
++	sessionID string
++}
++
++func newDistillFixture(t *testing.T, project, sessionID, summary string) *fixture {
++	t.Helper()
++	dataDir := t.TempDir()
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	t.Cleanup(func() { st.Close() })
++	svc := memory.New(st, project)
++	now := time.Now().UTC().Format(time.RFC3339)
++	if _, err := st.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES (?, ?, '/tmp', ?, 'active')`, sessionID, project, now); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	if summary != "" {
++		if _, err := st.DB.Exec(`
++			UPDATE sessions SET summary = ? WHERE id = ? AND project = ?`,
++			summary, sessionID, project); err != nil {
++			t.Fatalf("set summary: %v", err)
++		}
++	}
++	return &fixture{st: st, svc: svc, projectID: project, sessionID: sessionID}
++}
++
++// countRows returns the number of rows in table for project.
++func countRows(t *testing.T, st *store.Store, project, table, where string) int {
++	t.Helper()
++	q := `SELECT COUNT(*) FROM ` + table + ` WHERE project = ?`
++	args := []any{project}
++	if where != "" {
++		q += " AND " + where
++	}
++	var n int
++	if err := st.DB.QueryRow(q, args...).Scan(&n); err != nil {
++		t.Fatalf("count %s: %v", table, err)
++	}
++	return n
++}
++
++const distillableSummary = `## Goal
++Tune the auth token rotation.
++
++## Key Learnings:
++
++1. JWT refresh tokens need atomic rotation to avoid races
++2. bcrypt cost=12 is the right balance for our server
++3. FTS5 queries must be sanitized before MATCH
++`
++
++// TestDistillProvenance is 02.1 (Scenario: distilled-layer-carries-resolvable-l0-provenance).
++// Every distilled L1/L2/L3 record must carry a link to a RESOLVABLE L0 source
++// (a live session row + a non-empty source topic). After a distill of a real
++// session, the layers table must be non-empty and every row's source_session
++// must resolve to a sessions row.
++func TestDistillProvenance(t *testing.T) {
++	fx := newDistillFixture(t, "prov", "sess-prov", distillableSummary)
++	ctx := context.Background()
++
++	res, err := Distill(ctx, fx.svc, fx.sessionID, DistillOptions{})
++	if err != nil {
++		t.Fatalf("distill: %v", err)
++	}
++	if res.L1Count == 0 {
++		t.Fatalf("expected L1 atoms from distillable content, got %d (scenario=%d)", res.L1Count, res.ScenarioCount)
++	}
++	if res.ScenarioCount == 0 {
++		t.Errorf("expected an L2 scenario, got 0")
++	}
++	if res.PersonaDeltaCount == 0 {
++		t.Errorf("expected an L3 persona delta, got 0")
++	}
++
++	// Every L1 row must link to a resolvable L0 source.
++	rows, err := fx.st.DB.Query(`
++		SELECT source_session FROM observation_layers
++		WHERE project = ? AND layer = 'L1'`, fx.projectID)
++	if err != nil {
++		t.Fatalf("query layers: %v", err)
++	}
++	defer rows.Close()
++	var sessions []string
++	for rows.Next() {
++		var ss string
++		if err := rows.Scan(&ss); err != nil {
++			t.Fatalf("scan layer: %v", err)
++		}
++		sessions = append(sessions, ss)
++	}
++	if len(sessions) == 0 {
++		t.Fatal("no L1 layer rows written")
++	}
++	// Each source_session must resolve to a live sessions row AND the link's
++	// source topic must be non-empty (a resolvable L0, not an orphan).
++	for _, ss := range sessions {
++		var n int
++		if err := fx.st.DB.QueryRow(
++			`SELECT COUNT(*) FROM sessions WHERE id = ? AND project = ?`, ss, fx.projectID,
++		).Scan(&n); err != nil || n == 0 {
++			t.Fatalf("L1 layer links to unresolvable session %q (orphan layer)", ss)
++		}
++		var topic sqlNullString
++		if err := fx.st.DB.QueryRow(
++			`SELECT source_topic FROM observation_layers
++			 WHERE project = ? AND layer = 'L1' AND source_session = ? LIMIT 1`,
++			fx.projectID, ss,
++		).Scan(&topic); err != nil {
++			t.Fatalf("read source_topic: %v", err)
++		}
++		if !topic.Valid || topic.String == "" {
++			t.Fatalf("L1 layer for %q has an empty source topic (not a resolvable L0)", ss)
++		}
++	}
++}
++
++// TestDistillUnresolvableSourceNotCreated is 02.1 (Scenario:
++// layer-with-unresolvable-source-not-created). Distilling a session id that has
++// no sessions row must create NO layer rows — a layer is never orphaned from
++// its provenance.
++func TestDistillUnresolvableSourceNotCreated(t *testing.T) {
++	fx := newDistillFixture(t, "unres", "sess-unres", "")
++	ctx := context.Background()
++
++	before := countRows(t, fx.st, fx.projectID, "observation_layers", "")
++	res, err := Distill(ctx, fx.svc, "ghost-session-not-a-row", DistillOptions{})
++	if err != nil {
++		t.Fatalf("distill (unresolvable) should not error: %v", err)
++	}
++	// The source cannot be resolved, so nothing is created and the result is a
++	// no-op.
++	if res.Created {
++		t.Fatalf("expected no-op for unresolvable source, got created=%v (L1=%d)", res.Created, res.L1Count)
++	}
++	after := countRows(t, fx.st, fx.projectID, "observation_layers", "")
++	if after != before {
++		t.Fatalf("orphan layers created: before=%d after=%d", before, after)
++	}
++}
++
++// TestDistillNoLLMFloor is 02.1 (Scenario: no-llm-floor-produces-provenance-ladder-offline).
++// With NO LLM available, the deterministic floor still produces a
++// provenance-linked L0→L1→L2→L3 ladder offline.
++func TestDistillNoLLMFloor(t *testing.T) {
++	fx := newDistillFixture(t, "floor", "sess-floor", distillableSummary)
++	ctx := context.Background()
++
++	res, err := Distill(ctx, fx.svc, fx.sessionID, DistillOptions{})
++	if err != nil {
++		t.Fatalf("offline distill: %v", err)
++	}
++	if res.L1Count == 0 || res.ScenarioCount == 0 || res.PersonaDeltaCount == 0 {
++		t.Fatalf("no-LLM floor must produce L1+L2+L3, got L1=%d L2=%d L3=%d",
++			res.L1Count, res.ScenarioCount, res.PersonaDeltaCount)
++	}
++	if res.LLMUsed {
++		t.Errorf("offline floor must not use the LLM (llmUsed=%v)", res.LLMUsed)
++	}
++	// The produced ladder is provenance-linked: Inspect must return the chain
++	// with a resolvable L0.
++	chain, err := Inspect(ctx, fx.svc, fx.sessionID)
++	if err != nil {
++		t.Fatalf("inspect: %v", err)
++	}
++	if chain.L0Session == "" {
++		t.Fatalf("inspect returned empty L0 session")
++	}
++	if len(chain.Atoms) == 0 {
++		t.Fatalf("inspect returned no L1 atoms")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/layer/layers.go b/skillgrid-cli/internal/mnemonic/memory/layer/layers.go
+new file mode 100644
+index 0000000..7c76040
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/layer/layers.go
+@@ -0,0 +1,151 @@
++package layer
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"strings"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++)
++
++// Layer is one link in the L0→L1→L2→L3 chain as surfaced by Inspect. It carries
++// the layer's provenance link to its L0 source (SourceSession + SourceTopic),
++// so a reader can verify every distilled record traces back to a resolvable
++// session record.
++type Layer struct {
++	Layer       string `json:"layer"`
++	TargetKind  string `json:"target_kind"`
++	TargetID    int64  `json:"target_id"`
++	Title       string `json:"title,omitempty"`
++	Content     string `json:"content,omitempty"`
++	SourceSession string `json:"source_session"`
++	SourceTopic string `json:"source_topic,omitempty"`
++}
++
++// Chain is the result of Inspect: the full L0→L1→L2→L3 ladder for a session,
++// with each layer's provenance link. L0Session is the raw session id; L0Title is
++// the session's title (when set) so the L0 is human-readable.
++type Chain struct {
++	L0Session string   `json:"l0_session"`
++	L0Title   string   `json:"l0_title,omitempty"`
++	L0Summary string   `json:"l0_summary,omitempty"`
++	Atoms     []Layer  `json:"atoms,omitempty"` // L1
++	Scenarios []Layer  `json:"scenarios,omitempty"` // L2
++	Persona   []Layer  `json:"persona,omitempty"` // L3
++}
++
++// Inspect returns the L0→L1→L2→L3 chain for a session, with each layer's
++// provenance link. It is the read path behind mem_layers. A session with no
++// distilled layers returns a chain with only the L0 populated (not an error).
++func Inspect(ctx context.Context, svc *memory.Service, sessionID string) (Chain, error) {
++	var c Chain
++	if svc == nil {
++		return c, fmt.Errorf("memory service is nil")
++	}
++	sessionID = strings.TrimSpace(sessionID)
++	if sessionID == "" {
++		return c, fmt.Errorf("session_id is required")
++	}
++	var title, summary sql.NullString
++	err := svc.DB().QueryRowContext(ctx, `
++		SELECT title, summary FROM sessions WHERE id = ? AND project = ?`,
++		sessionID, svc.ProjectID()).Scan(&title, &summary)
++	if err != nil {
++		if err == sql.ErrNoRows {
++			return c, fmt.Errorf("session %s not found", sessionID)
++		}
++		return c, fmt.Errorf("load session: %w", err)
++	}
++	c.L0Session = sessionID
++	if title.Valid {
++		c.L0Title = title.String
++	}
++	if summary.Valid {
++		c.L0Summary = summary.String
++	}
++
++	var links []Layer
++	rows, err := svc.DB().QueryContext(ctx, `
++		SELECT layer, target_kind, target_id, source_session, source_topic
++		FROM observation_layers
++		WHERE project = ? AND source_session = ?
++		ORDER BY layer, target_id`,
++		svc.ProjectID(), sessionID)
++	if err != nil {
++		return c, fmt.Errorf("query layers: %w", err)
++	}
++	for rows.Next() {
++		var l Layer
++		var topic sql.NullString
++		if err := rows.Scan(&l.Layer, &l.TargetKind, &l.TargetID, &l.SourceSession, &topic); err != nil {
++			rows.Close()
++			return c, fmt.Errorf("scan layer: %w", err)
++		}
++		if topic.Valid {
++			l.SourceTopic = topic.String
++		}
++		links = append(links, l)
++	}
++	if err := rows.Err(); err != nil {
++		rows.Close()
++		return c, fmt.Errorf("iterate layers: %w", err)
++	}
++	rows.Close()
++
++	// Enrich each link with its target's title/content. Done after the result
++	// set is fully drained so the open query does not block the same-conn reads.
++	for i := range links {
++		l := &links[i]
++		if l.TargetKind == "observation" {
++			var oTitle, oContent string
++			if err := svc.DB().QueryRowContext(ctx, `
++				SELECT title, content FROM observations
++				WHERE id = ? AND project = ? AND deleted_at IS NULL`,
++				l.TargetID, svc.ProjectID()).Scan(&oTitle, &oContent); err == nil {
++				l.Title = oTitle
++				l.Content = oContent
++			}
++		} else {
++			var pTitle, pContent string
++			if err := svc.DB().QueryRowContext(ctx, `
++				SELECT title, content FROM personas WHERE id = ? AND project = ?`,
++				l.TargetID, svc.ProjectID()).Scan(&pTitle, &pContent); err == nil {
++				l.Title = pTitle
++				l.Content = pContent
++			}
++		}
++		switch l.Layer {
++		case "L1":
++			c.Atoms = append(c.Atoms, *l)
++		case "L2":
++			c.Scenarios = append(c.Scenarios, *l)
++		case "L3":
++			c.Persona = append(c.Persona, *l)
++		}
++	}
++	return c, nil
++}
++
++// InspectByTopic returns the chain for a topic: it finds the session(s) whose
++// distilled L0 source-topic matches the given topic and returns the first such
++// chain. It is the alternative mem_layers entry (by topic_key instead of
++// session_id).
++func InspectByTopic(ctx context.Context, svc *memory.Service, topic string) (Chain, error) {
++	topic = strings.TrimSpace(topic)
++	if topic == "" {
++		return Chain{}, fmt.Errorf("topic is required")
++	}
++	var sessionID string
++	err := svc.DB().QueryRowContext(ctx, `
++		SELECT source_session FROM observation_layers
++		WHERE project = ? AND source_topic LIKE ?
++		ORDER BY id LIMIT 1`, svc.ProjectID(), "%"+topic+"%").Scan(&sessionID)
++	if err != nil {
++		if err == sql.ErrNoRows {
++			return Chain{}, fmt.Errorf("no layers for topic %q", topic)
++		}
++		return Chain{}, fmt.Errorf("find session by topic: %w", err)
++	}
++	return Inspect(ctx, svc, sessionID)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/layer/layers_test.go b/skillgrid-cli/internal/mnemonic/memory/layer/layers_test.go
+new file mode 100644
+index 0000000..2940744
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/layer/layers_test.go
+@@ -0,0 +1,191 @@
++package layer
++
++import (
++	"context"
++	"fmt"
++	"testing"
++)
++
++// countingLLM is a stub LLM that counts its Summarise calls and returns a
++// marker string so a cache hit (no second call) is observable.
++type countingLLM struct {
++	calls int
++	scen  string
++	delt  string
++}
++
++func (c *countingLLM) Summarise(ctx context.Context, summary string) (string, string, error) {
++	c.calls++
++	return c.scen, c.delt, nil
++}
++
++// TestDistillCacheHash is 02.5 (Scenario: distill-llm-cached-by-content-hash).
++// Re-running the pass on an unchanged L0 source is a cache hit: the LLM is
++// called ONCE, and the cached L2/L3 are reused. A changed L0 source misses and
++// re-distills (a second LLM call).
++func TestDistillCacheHash(t *testing.T) {
++	fx := newDistillFixture(t, "cache", "sess-cache", distillableSummary)
++	ctx := context.Background()
++
++	llm := &countingLLM{scen: "scenario-A", delt: "delta-A"}
++	res1, err := Distill(ctx, fx.svc, fx.sessionID, DistillOptions{LLM: llm})
++	if err != nil {
++		t.Fatalf("first distill: %v", err)
++	}
++	if llm.calls != 1 {
++		t.Fatalf("first run must call the LLM once, got %d", llm.calls)
++	}
++	if !res1.LLMUsed {
++		t.Errorf("first run must use the LLM")
++	}
++
++	// Re-run on the UNCHANGED source: a cache hit, no second LLM call.
++	res2, err := Distill(ctx, fx.svc, fx.sessionID, DistillOptions{LLM: llm})
++	if err != nil {
++		t.Fatalf("second distill: %v", err)
++	}
++	if llm.calls != 1 {
++		t.Fatalf("unchanged source must be a cache hit (LLM called %d times, want 1)", llm.calls)
++	}
++	if res2.LLMUsed {
++		t.Errorf("unchanged re-run must reuse the cache, not re-distill (llmUsed=%v)", res2.LLMUsed)
++	}
++	// The cached scenario is surfaced via Inspect.
++	chain, err := Inspect(ctx, fx.svc, fx.sessionID)
++	if err != nil {
++		t.Fatalf("inspect: %v", err)
++	}
++	if len(chain.Scenarios) == 0 {
++		t.Fatal("no scenario in chain")
++	}
++	if chain.Scenarios[0].Content != "scenario-A" {
++		t.Errorf("cached scenario not reused: got %q", chain.Scenarios[0].Content)
++	}
++
++	// Change the L0 source: a cache miss, a second LLM call.
++	changed := "## Key Learnings:\n\n1. a totally different learning about caching\n2. another distinct learning here\n"
++	if _, err := fx.st.DB.Exec(`
++		UPDATE sessions SET summary = ? WHERE id = ? AND project = ?`,
++		changed, fx.sessionID, fx.projectID); err != nil {
++		t.Fatalf("change summary: %v", err)
++	}
++	res3, err := Distill(ctx, fx.svc, fx.sessionID, DistillOptions{LLM: llm})
++	if err != nil {
++		t.Fatalf("third distill: %v", err)
++	}
++	if llm.calls != 2 {
++		t.Fatalf("changed source must re-distill (LLM called %d times, want 2)", llm.calls)
++	}
++	if !res3.LLMUsed {
++		t.Errorf("changed source must re-distill (llmUsed=false)")
++	}
++}
++
++// TestDistillNoOp is 02.7 (Scenario: session-with-no-l1-content-is-noop). A
++// session with no distillable content is a no-op: no empty atoms, scenarios, or
++// persona delta are fabricated.
++func TestDistillNoOp(t *testing.T) {
++	fx := newDistillFixture(t, "noop", "sess-noop", "A short session with nothing extractable here.")
++	ctx := context.Background()
++
++	beforeL1 := countRows(t, fx.st, fx.projectID, "observation_layers", `layer = 'L1'`)
++	beforeP := countRows(t, fx.st, fx.projectID, "personas", "")
++
++	res, err := Distill(ctx, fx.svc, fx.sessionID, DistillOptions{})
++	if err != nil {
++		t.Fatalf("distill: %v", err)
++	}
++	if res.Created {
++		t.Fatalf("no L1-able content must be a no-op, got created=%v", res.Created)
++	}
++	if res.L1Count != 0 || res.ScenarioCount != 0 || res.PersonaDeltaCount != 0 {
++		t.Errorf("no-op fabricated layers: L1=%d L2=%d L3=%d",
++			res.L1Count, res.ScenarioCount, res.PersonaDeltaCount)
++	}
++	if afterL1 := countRows(t, fx.st, fx.projectID, "observation_layers", `layer = 'L1'`); afterL1 != beforeL1 {
++		t.Fatalf("L1 rows grew: before=%d after=%d", beforeL1, afterL1)
++	}
++	if afterP := countRows(t, fx.st, fx.projectID, "personas", ""); afterP != beforeP {
++		t.Fatalf("persona rows grew: before=%d after=%d", beforeP, afterP)
++	}
++}
++
++// TestInspectChain is 02.1 (Scenario: mem-layers-inspects-l0-to-l3-chain).
++// Inspect returns the L0→L1→L2→L3 chain with each layer's provenance link to
++// its L0 source.
++func TestInspectChain(t *testing.T) {
++	fx := newDistillFixture(t, "chain", "sess-chain", distillableSummary)
++	ctx := context.Background()
++
++	if _, err := Distill(ctx, fx.svc, fx.sessionID, DistillOptions{}); err != nil {
++		t.Fatalf("distill: %v", err)
++	}
++
++	chain, err := Inspect(ctx, fx.svc, fx.sessionID)
++	if err != nil {
++		t.Fatalf("inspect: %v", err)
++	}
++	if chain.L0Session != fx.sessionID {
++		t.Fatalf("L0 session = %q, want %q", chain.L0Session, fx.sessionID)
++	}
++	if len(chain.Atoms) == 0 {
++		t.Fatal("chain has no L1 atoms")
++	}
++	if len(chain.Scenarios) == 0 {
++		t.Fatal("chain has no L2 scenario")
++	}
++	if len(chain.Persona) == 0 {
++		t.Fatal("chain has no L3 persona delta")
++	}
++	// Every layer carries a resolvable provenance link (source_session matches
++	// the L0 and a non-empty source topic).
++	for _, l := range append(append(chain.Atoms, chain.Scenarios...), chain.Persona...) {
++		if l.SourceSession != fx.sessionID {
++			t.Errorf("%s layer source_session = %q, want %q", l.Layer, l.SourceSession, fx.sessionID)
++		}
++		if l.SourceTopic == "" {
++			t.Errorf("%s layer has an empty source topic (orphan)", l.Layer)
++		}
++	}
++}
++
++// TestInspectByTopic is 02.9 (mem_layers <topic_key>): the chain can also be
++// reached by a topic that appears in the distilled L0 source.
++func TestInspectByTopic(t *testing.T) {
++	fx := newDistillFixture(t, "btopic", "sess-btopic", distillableSummary)
++	ctx := context.Background()
++	if _, err := Distill(ctx, fx.svc, fx.sessionID, DistillOptions{}); err != nil {
++		t.Fatalf("distill: %v", err)
++	}
++	// "rot" appears in the distilled source topic ("atomic rotation to avoid races").
++	chain, err := InspectByTopic(ctx, fx.svc, "rot")
++	if err != nil {
++		t.Fatalf("inspect by topic: %v", err)
++	}
++	if chain.L0Session != fx.sessionID {
++		t.Fatalf("by-topic L0 session = %q, want %q", chain.L0Session, fx.sessionID)
++	}
++	if len(chain.Atoms) == 0 {
++		t.Fatal("by-topic chain has no L1 atoms")
++	}
++}
++
++// TestInspectNoLayers returns a chain with only the L0 for a session that has
++// never been distilled — no layers are invented.
++func TestInspectNoLayers(t *testing.T) {
++	fx := newDistillFixture(t, "nolayers", "sess-nolayers", "a summary that was never distilled")
++	ctx := context.Background()
++	chain, err := Inspect(ctx, fx.svc, fx.sessionID)
++	if err != nil {
++		t.Fatalf("inspect: %v", err)
++	}
++	if chain.L0Session != fx.sessionID {
++		t.Fatalf("L0 session = %q, want %q", chain.L0Session, fx.sessionID)
++	}
++	if len(chain.Atoms)+len(chain.Scenarios)+len(chain.Persona) != 0 {
++		t.Errorf("never-distilled session must have no layers, got atoms=%d scen=%d persona=%d",
++			len(chain.Atoms), len(chain.Scenarios), len(chain.Persona))
++	}
++}
++
++var _ = fmt.Sprintf
+diff --git a/skillgrid-cli/internal/mnemonic/memory/service.go b/skillgrid-cli/internal/mnemonic/memory/service.go
+index 1348d90..7b7dcc9 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/service.go
++++ b/skillgrid-cli/internal/mnemonic/memory/service.go
+@@ -128,6 +128,27 @@ func New(st *store.Store, projectID string) *Service {
+ 	return &Service{store: st, projectID: projectID}
+ }
+ 
++// DB returns the underlying *sql.DB. It is exposed so an additive layer that
++// composes on the same store (the layered distillation, change 013 step 02) can
++// read sessions and write the provenance link tables without reaching into the
++// unexported store field.
++func (s *Service) DB() *sql.DB {
++	if s == nil || s.store == nil {
++		return nil
++	}
++	return s.store.DB
++}
++
++// ProjectID returns the store bucket this service is bound to. It is exposed so
++// an additive layer composing on the same store (change 013 step 02) can scope
++// its queries to the project without reaching into the unexported field.
++func (s *Service) ProjectID() string {
++	if s == nil {
++		return ""
++	}
++	return s.projectID
++}
++
+ // Save stores an observation, deduplicating by hash within 24h or upserting by topic_key.
+ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
+ 	if s == nil || s.store == nil || s.store.DB == nil {
+diff --git a/skillgrid-cli/internal/mnemonic/service/distill_test.go b/skillgrid-cli/internal/mnemonic/service/distill_test.go
+new file mode 100644
+index 0000000..0c24226
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/service/distill_test.go
+@@ -0,0 +1,249 @@
++package service_test
++
++import (
++	"context"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++const distillable = `## Goal
++Tune token rotation.
++
++## Key Learnings:
++
++1. JWT refresh tokens need atomic rotation to avoid races
++2. bcrypt cost=12 is the right balance for our server
++`
++
++// openDistillStore opens a project store, registers a session with a summary,
++// and closes the raw handle so the facade can reopen it.
++func openDistillStore(t *testing.T, project, sessionID, summary string) string {
++	t.Helper()
++	dataDir := t.TempDir()
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatal(err)
++	}
++	now := "2026-01-01T00:00:00Z"
++	if _, err := st.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES (?, ?, '/tmp', ?, 'active')`, sessionID, project, now); err != nil {
++		t.Fatal(err)
++	}
++	if summary != "" {
++		if _, err := st.DB.Exec(`UPDATE sessions SET summary = ? WHERE id = ? AND project = ?`,
++			summary, sessionID, project); err != nil {
++			t.Fatal(err)
++		}
++	}
++	st.Close()
++	return dataDir
++}
++
++// TestDistillHook covers 02.4 (Scenario: session-close-distill-l0-to-l1-l2-l3).
++// With distillation enabled, SessionEnd runs the pass and the L0 record is
++// refined into L1 atoms + L2 scenario + L3 persona delta, each linked to its
++// L0 source. It is async (the hook signals completion) and best-effort.
++func TestDistillHook(t *testing.T) {
++	project := "hook"
++	sessionID := "sess-hook"
++	dataDir := openDistillStore(t, project, sessionID, distillable)
++	svc := service.New(dataDir)
++	if err := svc.EnableDistill(); err != nil {
++		t.Fatalf("enable distill: %v", err)
++	}
++
++	// wg signals the hook ran (the async seam); the method returns the result
++	// so the hook's effect is observable here.
++	var wg sync.WaitGroup
++	out, err := svc.DistillSession(context.Background(), project, sessionID, &wg)
++	if err != nil {
++		t.Fatalf("distill session: %v", err)
++	}
++	done := make(chan struct{})
++	go func() { wg.Wait(); close(done) }()
++	select {
++	case <-done:
++	case <-time.After(3 * time.Second):
++		t.Fatal("distill hook did not signal completion")
++	}
++	if out.Err != nil {
++		t.Fatalf("distill best-effort error: %v", out.Err)
++	}
++	if !out.Created {
++		t.Fatalf("expected distill to create layers, got %+v", out)
++	}
++	if out.L1Count == 0 || out.ScenarioCount == 0 || out.PersonaDeltaCount == 0 {
++		t.Fatalf("incomplete ladder: L1=%d L2=%d L3=%d", out.L1Count, out.ScenarioCount, out.PersonaDeltaCount)
++	}
++}
++
++// TestDistillHookDisabled covers 02.4: with distillation NOT enabled (the
++// default), SessionEnd is a no-op for the distill pass — no layers are created.
++func TestDistillHookDisabled(t *testing.T) {
++	project := "hookoff"
++	sessionID := "sess-hookoff"
++	dataDir := openDistillStore(t, project, sessionID, distillable)
++	svc := service.New(dataDir)
++
++	var wg sync.WaitGroup
++	out, err := svc.DistillSession(context.Background(), project, sessionID, &wg)
++	if err != nil {
++		t.Fatalf("distill session (disabled): %v", err)
++	}
++	if out.Created {
++		t.Fatalf("distillation is opt-in; disabled must be a no-op, got %+v", out)
++	}
++	if out.L1Count != 0 || out.ScenarioCount != 0 || out.PersonaDeltaCount != 0 {
++		t.Fatalf("disabled pass fabricated layers: L1=%d L2=%d L3=%d",
++			out.L1Count, out.ScenarioCount, out.PersonaDeltaCount)
++	}
++}
++
++// TestDistillHookBestEffort covers 02.4 (opt-in + async + best-effort): a
++// distill that fails on a session that no longer exists is captured in the
++// result (best-effort) and NEVER breaks the session close — the hook returns
++// nil and the session row is still endable.
++func TestDistillHookBestEffort(t *testing.T) {
++	project := "hookbest"
++	sessionID := "sess-hookbest"
++	dataDir := openDistillStore(t, project, sessionID, distillable)
++	svc := service.New(dataDir)
++	if err := svc.EnableDistill(); err != nil {
++		t.Fatal(err)
++	}
++
++	// Distill a session id that is not a resolvable source: the pass is a
++	// no-op (unresolvable), and even a best-effort error would not break close.
++	var wg sync.WaitGroup
++	out, err := svc.DistillSession(context.Background(), project, "ghost-not-a-session", &wg)
++	if err != nil {
++		t.Fatalf("distill hook must not break session close: %v", err)
++	}
++	if out.Created {
++		t.Fatalf("unresolvable source must be a no-op, got %+v", out)
++	}
++	// The session close itself still succeeds (the hook is best-effort).
++	h, cleanup, err := svc.Open(project)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer cleanup()
++	if err := h.Memory().SessionEnd(context.Background(), sessionID, "done"); err != nil {
++		t.Fatalf("session close broken by distill hook: %v", err)
++	}
++}
++
++// TestAtomCorrectable covers 02.8 (Scenario:
++// l1-atom-correctable-with-traceable-provenance). Correcting an L1 atom appends
++// a version (step 01) rather than deleting the atom, and the provenance link
++// still traces the atom back to its L0 source.
++func TestAtomCorrectable(t *testing.T) {
++	project := "atom"
++	sessionID := "sess-atom"
++	dataDir := openDistillStore(t, project, sessionID, distillable)
++	svc := service.New(dataDir)
++	if err := svc.EnableDistill(); err != nil {
++		t.Fatal(err)
++	}
++
++	var wg sync.WaitGroup
++	out, err := svc.DistillSession(context.Background(), project, sessionID, &wg)
++	if err != nil {
++		t.Fatalf("distill: %v", err)
++	}
++	if out.L1Count == 0 {
++		t.Fatalf("no L1 atom to correct (out=%+v)", out)
++	}
++
++	// Find the L1 atom's observation id + its provenance link.
++	h, cleanup, err := svc.Open(project)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer cleanup()
++	var atomID int64
++	if err := h.Store().DB.QueryRow(`
++		SELECT target_id FROM observation_layers
++		WHERE project = ? AND layer = 'L1' AND target_kind = 'observation'
++		ORDER BY id LIMIT 1`, project).Scan(&atomID); err != nil {
++		t.Fatalf("find atom: %v", err)
++	}
++	if atomID == 0 {
++		t.Fatal("no L1 atom id")
++	}
++
++	// Correct the atom (append a version).
++	beforeRev := 0
++	if err := h.Store().DB.QueryRow(`SELECT COALESCE(revision_count,0) FROM observations WHERE id = ?`,
++		atomID).Scan(&beforeRev); err != nil {
++		t.Fatalf("read rev: %v", err)
++	}
++	if err := h.Memory().Update(context.Background(), atomID, memory.UpdateInput{Content: "corrected atom content"}); err != nil {
++		t.Fatalf("correct atom: %v", err)
++	}
++	var afterRev int
++	if err := h.Store().DB.QueryRow(`SELECT COALESCE(revision_count,0) FROM observations WHERE id = ?`,
++		atomID).Scan(&afterRev); err != nil {
++		t.Fatalf("read after rev: %v", err)
++	}
++	if afterRev <= beforeRev {
++		t.Fatalf("correction must append a version: before=%d after=%d", beforeRev, afterRev)
++	}
++
++	// The atom still exists (not deleted) and the provenance link still traces
++	// it back to its L0 source.
++	var exists int
++	if err := h.Store().DB.QueryRow(`SELECT COUNT(*) FROM observations WHERE id = ? AND deleted_at IS NULL`,
++		atomID).Scan(&exists); err != nil || exists != 1 {
++		t.Fatalf("atom must survive correction (exists=%d err=%v)", exists, err)
++	}
++	var linkSession string
++	if err := h.Store().DB.QueryRow(`
++		SELECT source_session FROM observation_layers
++		WHERE project = ? AND layer = 'L1' AND target_id = ?`, project, atomID).Scan(&linkSession); err != nil {
++		t.Fatalf("provenance link must survive correction: %v", err)
++	}
++	if linkSession != sessionID {
++		t.Fatalf("provenance link = %q, want L0 %q", linkSession, sessionID)
++	}
++}
++
++// TestMemLayers covers 02.9 (Scenario: mem-layers-inspects-l0-to-l3-chain) at
++// the service seam: the Layers method returns the chain with each layer's
++// provenance link.
++func TestMemLayers(t *testing.T) {
++	project := "memlayers"
++	sessionID := "sess-memlayers"
++	dataDir := openDistillStore(t, project, sessionID, distillable)
++	svc := service.New(dataDir)
++	if err := svc.EnableDistill(); err != nil {
++		t.Fatal(err)
++	}
++	var wg sync.WaitGroup
++	if _, err := svc.DistillSession(context.Background(), project, sessionID, &wg); err != nil {
++		t.Fatalf("distill: %v", err)
++	}
++
++	chain, err := svc.Layers(context.Background(), project, sessionID)
++	if err != nil {
++		t.Fatalf("layers: %v", err)
++	}
++	if chain.L0Session != sessionID {
++		t.Fatalf("L0 session = %q, want %q", chain.L0Session, sessionID)
++	}
++	if len(chain.Atoms) == 0 || len(chain.Scenarios) == 0 || len(chain.Persona) == 0 {
++		t.Fatalf("incomplete chain: atoms=%d scen=%d persona=%d",
++			len(chain.Atoms), len(chain.Scenarios), len(chain.Persona))
++	}
++	for _, l := range append(append(chain.Atoms, chain.Scenarios...), chain.Persona...) {
++		if l.SourceSession != sessionID || l.SourceTopic == "" {
++			t.Errorf("%s layer provenance broken: session=%q topic=%q", l.Layer, l.SourceSession, l.SourceTopic)
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index 2330f58..2e68100 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -22,6 +22,7 @@ import (
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/graph"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/hybrid"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory/layer"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/process"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/project"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
+@@ -32,6 +33,13 @@ import (
+ // Service is the shared facade over memory, codeindex, webcache, and search.
+ type Service struct {
+ 	dataDir string
++	// distillEnabled is the opt-in switch for the session-close distillation
++	// pass (change 013, step 02). It is false by default so session close is
++	// unchanged unless the operator opts in; the hook is async + best-effort
++	// (a distill failure never breaks session close).
++	distillEnabled bool
++	// distillLLM is the optional LLM for the distill pass (nil = no-LLM floor).
++	distillLLM layer.LLM
+ }
+ 
+ // New creates a service using dataDir for per-project SQLite stores.
+@@ -39,6 +47,71 @@ func New(dataDir string) *Service {
+ 	return &Service{dataDir: dataDir}
+ }
+ 
++// EnableDistill turns on the opt-in session-close distillation pass. It is a no
++// operation on the rest of the facade: it only arms the async best-effort hook
++// that runs at session end.
++func (s *Service) EnableDistill() error {
++	if s == nil {
++		return errors.New("service not initialized")
++	}
++	s.distillEnabled = true
++	return nil
++}
++
++// DistillSession runs the session-close distillation for sessionID (L0 → L1
++// atoms → L2 scenario → L3 persona delta, provenance-linked). It is the
++// best-effort seam: when distillation is not enabled the pass is a no-op, and a
++// distill error is captured in DistillResult.Err (not returned) so it never
++// breaks session close.
++//
++// The method itself is synchronous and returns the populated result (so the
++// hook's effect is observable and testable); the session-close hook is async
++// because the handler (02.4) runs this in a detached goroutine that discards
++// the result, which is what "async, never breaks close" means in production.
++// The wg parameter (nil for fire-and-forget) is signaled when the pass has
++// run, so a caller can await completion in tests.
++func (s *Service) DistillSession(ctx context.Context, projectID, sessionID string, wg *sync.WaitGroup) (layer.DistillResult, error) {
++	res := layer.DistillResult{}
++	if s == nil {
++		return res, errors.New("service not initialized")
++	}
++	if !s.distillEnabled {
++		// Opt-in: when distillation is not enabled the pass is a no-op.
++		if wg != nil {
++			wg.Add(1)
++			wg.Done()
++		}
++		return res, nil
++	}
++	if wg != nil {
++		wg.Add(1)
++	}
++	h, cleanup, err := s.openProject(projectID, ".")
++	if wg != nil {
++		wg.Done()
++	}
++	if err != nil {
++		res.Err = err
++		return res, nil
++	}
++	defer cleanup()
++	// Best-effort: the distill error is captured, not propagated, so it never
++	// breaks the caller (session close).
++	res, _ = layer.Distill(ctx, h.Memory(), sessionID, layer.DistillOptions{LLM: s.distillLLM})
++	return res, nil
++}
++
++// Layers returns the L0→L1→L2→L3 chain for a session, with each layer's
++// provenance link — the service seam behind mem_layers.
++func (s *Service) Layers(ctx context.Context, projectID, sessionID string) (layer.Chain, error) {
++	h, cleanup, err := s.openProject(projectID, ".")
++	if err != nil {
++		return layer.Chain{}, err
++	}
++	defer cleanup()
++	return layer.Inspect(ctx, h.Memory(), sessionID)
++}
++
+ // DefaultDataDir returns the mnemonic data directory from env or ~/.skillgrid/mnemonic.
+ func DefaultDataDir() (string, error) {
+ 	if v := os.Getenv("SKILLGRID_MNEMONIC_DATA_DIR"); v != "" {
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/018_layered_distill.sql b/skillgrid-cli/internal/mnemonic/store/migrations/018_layered_distill.sql
+new file mode 100644
+index 0000000..1582020
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/018_layered_distill.sql
+@@ -0,0 +1,69 @@
++-- 018: layered distillation (change 013, step 02).
++--
++-- Additive on top of 017_layered_memory_governance.sql (step 01) and 005's
++-- observation/session store. Every statement is CREATE TABLE IF NOT EXISTS so
++-- an existing database upgrades without a rewrite; no 005 / 017 table is
++-- dropped or rebuilt.
++--
++-- The layering is PROVENANCE-LINKED: a distilled record (L1 atom, L2 scenario,
++-- L3 persona delta) is never created unless its L0 source (session and/or
++-- topic) resolves to a live row. A distilled record whose source cannot be
++-- resolved is simply not written — a layer is never orphaned from its
++-- provenance.
++--
++--   observation_layers — the L0→L1→L2→L3 link table. Each row links a derived
++--   layer record to its resolvable L0 source. The L0 source is a session_id
++--   (the raw session record) and/or a topic (the session summary). An L1 atom
++--   is an existing observation (observation_id, its session is the L0); an
++--   L2/L3 record lives in personas (persona_id). The same derived record may
++--   be re-linked to a changed L0 source on re-distill (dedup by
++--   project+layer+target+source+content_hash).
++--
++--   personas — the L2 scenario + L3 persona-delta records. A scenario is a
++--   working-context block distilled from a session; a persona delta is a
++--   long-term profile increment. Both carry their content hash so a re-distill
++--   on an unchanged L0 source is a cache hit (no re-distillation).
++
++CREATE TABLE IF NOT EXISTS observation_layers (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    project TEXT NOT NULL,
++    layer TEXT NOT NULL,
++    target_kind TEXT NOT NULL,
++    target_id INTEGER,
++    source_session TEXT NOT NULL,
++    source_topic TEXT,
++    content_hash TEXT NOT NULL,
++    created_at TEXT NOT NULL,
++    UNIQUE (project, layer, target_kind, target_id, source_session, content_hash)
++);
++
++CREATE TABLE IF NOT EXISTS personas (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    project TEXT NOT NULL,
++    kind TEXT NOT NULL,
++    title TEXT NOT NULL,
++    content TEXT NOT NULL,
++    content_hash TEXT NOT NULL,
++    created_at TEXT NOT NULL
++);
++
++-- distill_llm_cache — the content-hash cache for the optional LLM pass. A row
++-- per (project, source_hash) holds the L2 scenario + L3 persona delta the LLM
++-- produced for that L0 source. Re-running the pass on an unchanged source is a
++-- cache hit (no re-distillation, no second LLM call); a changed source misses.
++CREATE TABLE IF NOT EXISTS distill_llm_cache (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    project TEXT NOT NULL,
++    source_hash TEXT NOT NULL,
++    scenario TEXT NOT NULL,
++    delta TEXT NOT NULL,
++    created_at TEXT NOT NULL,
++    UNIQUE (project, source_hash)
++);
++
++CREATE INDEX IF NOT EXISTS idx_layers_session
++    ON observation_layers (project, source_session, layer);
++CREATE INDEX IF NOT EXISTS idx_layers_target
++    ON observation_layers (project, layer, target_kind, target_id);
++CREATE INDEX IF NOT EXISTS idx_personas_kind
++    ON personas (project, kind);

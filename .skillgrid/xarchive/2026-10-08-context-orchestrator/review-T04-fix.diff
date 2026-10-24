@@ -1,0 +1,823 @@
+# Review package: fb2364d0..e9956886
+
+## Commits
+e9956886 fix(ctx): streaming passthrough, field preservation, loopback warning, OpenAI-compat test
+
+## Files changed
+ mnemonic/cmd/mnemonic/ctx.go              |   1 +
+ mnemonic/cmd/mnemonic/ctx_proxy.go        |   7 ++
+ mnemonic/internal/ctx/proxy/proxy.go      |  83 ++++++++++-----------
+ mnemonic/internal/ctx/proxy/proxy_test.go | 115 +++++++++++++++++++++++++++++-
+ mnemonic/internal/ctx/proxy/retry.go      | 100 ++++++++++++++++----------
+ mnemonic/internal/ctx/proxy/retry_test.go |  32 +++++++--
+ mnemonic/internal/ctx/proxy/savings.go    |  54 +++++++++-----
+ 7 files changed, 285 insertions(+), 107 deletions(-)
+
+## Diff
+diff --git a/mnemonic/cmd/mnemonic/ctx.go b/mnemonic/cmd/mnemonic/ctx.go
+index 828ede5f..f41d46bb 100644
+--- a/mnemonic/cmd/mnemonic/ctx.go
++++ b/mnemonic/cmd/mnemonic/ctx.go
+@@ -53,20 +53,21 @@ func runCtx(args []string) {
+ func ctxUsage() {
+ 	w := os.Stderr
+ 	fmt.Fprintln(w, "usage: mnemonic ctx <subcommand> [flags]")
+ 	fmt.Fprintln(w)
+ 	fmt.Fprintln(w, "Subcommands:")
+ 	fmt.Fprintln(w, "  search <query>   Two-leg RRF fusion over sandbox tool outputs + indexed files (labels each source; -limit caps results)")
+ 	fmt.Fprintln(w, "  prime            Session-start context (reuses the loop prime renderer; --dir, --session)")
+ 	fmt.Fprintln(w, "  stats            Row counts for the sandbox (tool_outputs) and index (indexed_files)")
+ 	fmt.Fprintln(w, "  purge            Clear the session sandbox (tool_outputs, and context_revisions when present); prints rows removed (-project, -session)")
+ 	fmt.Fprintln(w, "  index <path>     Index a file (or a directory of files) into the context-harness FTS index; re-indexing is idempotent (-project)")
++	fmt.Fprintln(w, "  proxy            Start the loopback LLM proxy: forwards Anthropic/OpenAI requests with a mode-selected context transform, X-CTX-Savings headers, provider retry, and per-turn telemetry (-bind, -port, -mode, -dir)")
+ }
+ 
+ // ctxSearchFlags parses search flags: -limit caps the fused results.
+ type ctxSearchFlags struct {
+ 	limit int
+ }
+ 
+ func parseCtxSearchFlags(args []string, pos *[]string) ctxSearchFlags {
+ 	// Go's flag package stops at the first non-flag token, so a flag that
+ 	// follows a positional (e.g. "ctx search limitcap -limit 2") would be
+diff --git a/mnemonic/cmd/mnemonic/ctx_proxy.go b/mnemonic/cmd/mnemonic/ctx_proxy.go
+index 2438f68e..2ffe3a00 100644
+--- a/mnemonic/cmd/mnemonic/ctx_proxy.go
++++ b/mnemonic/cmd/mnemonic/ctx_proxy.go
+@@ -87,20 +87,27 @@ func runCtxProxy(args []string) {
+ 
+ 	// Build the ctx store accessor (nil if no shared store).
+ 	var cs *ctxstore.Store
+ 	if h != nil {
+ 		cs = ctxstore.New(h.Store())
+ 	}
+ 
+ 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+ 	log.Info("starting ctx proxy", "bind", b, "port", p, "mode", string(effectiveMode))
+ 
++	// Warn (do not fail) when the proxy is bound to a non-loopback address.
++	// The CTX proxy carries upstream credentials and is designed for
++	// 127.0.0.1; a wider bind may expose it to the network.
++	if b != "127.0.0.1" && b != "localhost" && b != "::1" && b != "" {
++		log.Warn("ctx proxy bound to a non-loopback address", "bind", b)
++	}
++
+ 	// Build the proxy handler.
+ 	proxy := ctxproxy.New(cfg, cs, log, effectiveMode)
+ 
+ 	// Set up signal handling for graceful shutdown.
+ 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+ 	defer stop()
+ 
+ 	// Create the listener.
+ 	addr := fmt.Sprintf("%s:%d", b, p)
+ 	ln, err := net.Listen("tcp", addr)
+diff --git a/mnemonic/internal/ctx/proxy/proxy.go b/mnemonic/internal/ctx/proxy/proxy.go
+index ead2d2d8..5b9ab15f 100644
+--- a/mnemonic/internal/ctx/proxy/proxy.go
++++ b/mnemonic/internal/ctx/proxy/proxy.go
+@@ -78,90 +78,81 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+ 	// client sent. This is the deterministic "before" for the savings delta.
+ 	tokensBefore := EstimateTokens(body)
+ 
+ 	// Parse + transform. A transform fault fails open to passthrough
+ 	// (ADR-0016): forward the ORIGINAL body verbatim, report the fallback
+ 	// mode, never 500 the client because compression failed.
+ 	forwardBody := body
+ 	effectiveMode := mode
+ 	cacheHit := false
+ 	if mode != ModePassthrough {
+-		msgs, perr := parseMessages(body)
+-		if perr != nil {
+-			// Unparseable: fail open to passthrough with the original body.
++		if b, hit, terr := applyTransform(mode, body); terr == nil {
++			if b != nil {
++				forwardBody = b
++				cacheHit = hit
++			}
++		} else {
+ 			forwardBody = body
+ 			effectiveMode = ModePassthrough
+-		} else {
+-			tmsgs, terr := transform(mode, msgs)
+-			if terr != nil {
+-				// Compression fault: degrade to passthrough.
+-				forwardBody = body
+-				effectiveMode = ModePassthrough
+-			} else {
+-				if b, e := encodeMessages(tmsgs); e == nil {
+-					forwardBody = b
+-					cacheHit = mode == ModeCache && headSplit(msgs) > 0
+-				} else {
+-					forwardBody = body
+-					effectiveMode = ModePassthrough
+-				}
+-			}
+ 		}
+ 	}
+ 	tokensAfter := EstimateTokens(forwardBody)
+ 
+ 	sv := savings{
+ 		Before:   tokensBefore,
+ 		After:    tokensAfter,
+ 		Mode:     effectiveMode,
+ 		CacheHit: cacheHit,
+ 	}
+ 	if p.cfg.Proxy.SavingsHeaders {
+ 		sv.writeHeaders(w)
+ 	}
+ 
+ 	// Forward to the upstream with the correct API key, retrying on a non-2xx
+-	// or transport error.
+-	res := p.forward(r, forwardBody)
++	// or transport error. The response body is streamed directly into w.
++	p.forward(w, r, forwardBody)
+ 
+ 	// Emit telemetry (fail-open: a missing ctx table is a no-op write).
+ 	p.recordTelemetry(r, upstream.Name, string(effectiveMode), sv)
+-
+-	// Write the upstream response verbatim.
+-	w.Header().Set("Content-Type", res.contentType)
+-	w.WriteHeader(res.status)
+-	_, _ = w.Write(res.body)
+ }
+ 
+ // forward builds and issues the upstream request (with the configured API key
+-// injected, the client's Authorization/x-api-key replaced) and returns the
+-// upstream status/body verbatim after the retry budget.
+-func (p *Proxy) forward(r *http.Request, body []byte) forwardResult {
++// injected, the client's Authorization/x-api-key replaced), and streams the
++// upstream response straight into w after the retry budget. The upstream
++// status/content-type is returned for the caller to inspect, and the response
++// body has already been copied to w by the time this returns.
++func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, body []byte) (int, string) {
+ 	u := p.upstream
+ 	ctx := r.Context()
+ 
+ 	baseURL := u.BaseURL
+ 	path := r.URL.Path
+ 	if baseURL == "" {
+ 		// No upstream configured: fail open — return a 502 with a clear body
+ 		// (the client still completes, no panic).
+-		return forwardResult{status: http.StatusBadGateway, contentType: "text/plain", body: []byte("proxy: no upstream configured for " + u.Name)}
++		w.Header().Set("Content-Type", "text/plain")
++		w.WriteHeader(http.StatusBadGateway)
++		_, _ = w.Write([]byte("proxy: no upstream configured for " + u.Name))
++		return http.StatusBadGateway, "text/plain"
+ 	}
+ 
+ 	fullURL := baseURL
+ 	if !strings.HasSuffix(fullURL, "/") {
+ 		fullURL += "/"
+ 	}
+ 	fullURL += strings.TrimLeft(path, "/")
+ 	pu, err := url.Parse(fullURL)
+ 	if err != nil {
+-		return forwardResult{status: http.StatusBadGateway, contentType: "text/plain", body: []byte("proxy: bad upstream URL: " + err.Error())}
++		w.Header().Set("Content-Type", "text/plain")
++		w.WriteHeader(http.StatusBadGateway)
++		_, _ = w.Write([]byte("proxy: bad upstream URL: " + err.Error()))
++		return http.StatusBadGateway, "text/plain"
+ 	}
+ 
+ 	do := func() (*http.Response, error) {
+ 		out, err := http.NewRequestWithContext(ctx, r.Method, pu.String(), bytes.NewReader(body))
+ 		if err != nil {
+ 			return nil, err
+ 		}
+ 		// Copy the client's headers, then inject/replace the auth header.
+ 		for k, vs := range r.Header {
+ 			if strings.EqualFold(k, "Authorization") || strings.EqualFold(k, "x-api-key") || strings.EqualFold(k, "Content-Length") {
+@@ -174,38 +165,38 @@ func (p *Proxy) forward(r *http.Request, body []byte) forwardResult {
+ 		out.Header.Set("Content-Type", "application/json")
+ 		// Replace the client's auth with the configured upstream key.
+ 		if u.AuthHeader != "" && u.AuthValue != "" {
+ 			out.Header.Set(u.AuthHeader, u.AuthValue)
+ 		}
+ 		return u.client.Do(out)
+ 	}
+ 
+ 	res := callWithRetry(ctx, do, p.cfg.Proxy.ProviderRetries, p.cfg.Proxy.ProviderRetryBackoffMs, p.sleep)
+ 	if res.Err != nil {
+-		return forwardResult{
+-			status:      http.StatusBadGateway,
+-			contentType: "text/plain",
+-			body:        []byte("proxy: provider unreachable: " + res.Err.Error()),
+-		}
++		w.Header().Set("Content-Type", "text/plain")
++		w.WriteHeader(http.StatusBadGateway)
++		_, _ = w.Write([]byte("proxy: provider unreachable: " + res.Err.Error()))
++		return http.StatusBadGateway, "text/plain"
+ 	}
+-	return forwardResult{
+-		status:      res.Status,
+-		contentType: "application/json",
+-		body:        res.Body,
++	// Stream the upstream body into w, preserving the upstream's
++	// Content-Type (JSON, SSE, ...) so streamed responses pass through as-is.
++	ct := res.ContentType
++	if ct == "" {
++		ct = "application/json"
+ 	}
+-}
+-
+-// forwardResult is the verbatim upstream outcome.
+-type forwardResult struct {
+-	status      int
+-	contentType string
+-	body        []byte
++	w.Header().Set("Content-Type", ct)
++	w.WriteHeader(res.Status)
++	if res.Body != nil {
++		_, _ = io.Copy(w, res.Body)
++		_ = res.Body.Close()
++	}
++	return res.Status, ct
+ }
+ 
+ // baseUpstream captures the resolved upstream endpoint + auth for the provider
+ // call.
+ type baseUpstream struct {
+ 	Name       string // "anthropic" | "openai"
+ 	BaseURL    string
+ 	AuthHeader string
+ 	AuthValue  string
+ 	client     *http.Client
+diff --git a/mnemonic/internal/ctx/proxy/proxy_test.go b/mnemonic/internal/ctx/proxy/proxy_test.go
+index 5864e77e..667a49f2 100644
+--- a/mnemonic/internal/ctx/proxy/proxy_test.go
++++ b/mnemonic/internal/ctx/proxy/proxy_test.go
+@@ -1,13 +1,14 @@
+ package proxy
+ 
+ import (
++	"encoding/json"
+ 	"errors"
+ 	"io"
+ 	"log/slog"
+ 	"net/http"
+ 	"net/http/httptest"
+ 	"strings"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
+@@ -63,27 +64,36 @@ func newSharedStore(t *testing.T, project string) *ctxstore.Store {
+ 	if err != nil {
+ 		t.Fatalf("store.Open: %v", err)
+ 	}
+ 	t.Cleanup(func() { shared.Close() })
+ 	return ctxstore.New(shared)
+ }
+ 
+ // newUpstreamServer builds a generic upstream that returns the given status
+ // and body, recording every request it sees.
+ func newUpstreamServer(t *testing.T, status int, body string, seen *[]string) *httptest.Server {
++	t.Helper()
++	return newUpstreamServerWithContentType(t, status, body, "application/json", seen)
++}
++
++// newUpstreamServerWithContentType is newUpstreamServer with an explicit
++// response Content-Type (for streaming-passthrough tests).
++func newUpstreamServerWithContentType(t *testing.T, status int, body, contentType string, seen *[]string) *httptest.Server {
+ 	t.Helper()
+ 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		b, _ := io.ReadAll(r.Body)
+ 		if seen != nil {
+ 			*seen = append(*seen, string(b))
+ 		}
+-		w.Header().Set("Content-Type", "application/json")
++		if contentType != "" {
++			w.Header().Set("Content-Type", contentType)
++		}
+ 		w.WriteHeader(status)
+ 		_, _ = w.Write([]byte(body))
+ 	}))
+ }
+ 
+ // TestServeHTTPPassthroughDeltaZero proves the passthrough mode: the client's
+ // exact body is forwarded verbatim, the response is passed through, and the
+ // savings header reports delta 0 (before == after).
+ func TestServeHTTPPassthroughDeltaZero(t *testing.T) {
+ 	clientBody := []byte(`{"messages":[{"role":"user","content":"the quick brown"}]}`)
+@@ -215,20 +225,57 @@ func TestServeHTTPProviderRetryVerbatim(t *testing.T) {
+ 		t.Fatalf("upstream attempts = %d, want 3 (1 + 2 retries)", len(seen))
+ 	}
+ 	if w.Code != http.StatusTooManyRequests {
+ 		t.Fatalf("client status = %d, want 429 (verbatim provider status)", w.Code)
+ 	}
+ 	if got := w.Body.String(); got != `{"error":"rate limited"}` {
+ 		t.Errorf("client body = %q, want verbatim provider body", got)
+ 	}
+ }
+ 
++// TestServeHTTPOpenAICompatEndToEnd is the OpenAI-compatibility end-to-end
++// check (AC 2b): the proxy must forward an OpenAI-shape request to the
++// configured upstream and pass the response (and savings headers) through to
++// the client unchanged.
++func TestServeHTTPOpenAICompatEndToEnd(t *testing.T) {
++	clientBody := []byte(`{"model":"gpt-4","messages":[{"role":"user","content":"hi there"}],"temperature":0.2}`)
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"id":"chatcmpl-1","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"hello"}}]}`, &seen)
++	defer up.Close()
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(clientBody)))
++	req.Header.Set("Content-Type", "application/json")
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	// Passthrough forwards the exact OpenAI request body verbatim.
++	if len(seen) != 1 || seen[0] != string(clientBody) {
++		t.Fatalf("forwarded body = %q, want verbatim OpenAI body %q", seen, clientBody)
++	}
++	// The upstream response passes through to the client unchanged.
++	if got := w.Body.String(); got != `{"id":"chatcmpl-1","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"hello"}}]}` {
++		t.Errorf("client body = %q, want verbatim upstream response", got)
++	}
++	// Savings headers are still written on the OpenAI-compat path.
++	if got := w.Header().Get(HeaderMode); got != "passthrough" {
++		t.Errorf("X-CTX-Mode = %q, want passthrough", got)
++	}
++	if got := w.Header().Get(HeaderSavings); got != "0" {
++		t.Errorf("X-CTX-Savings = %q, want 0 (passthrough)", got)
++	}
++}
++
+ // TestServeHTTPTransportError502 proves that when the provider is unreachable
+ // (a transport-level error with no upstream status), the proxy renders a 502
+ // after exhausting retries — the client still completes, no panic, no 500.
+ func TestServeHTTPTransportError502(t *testing.T) {
+ 	// A client whose transport always errors (connection refused) — no upstream
+ 	// status is ever produced.
+ 	client := &http.Client{Transport: errorTransport{errTestDial}}
+ 	cfg := testConfig("passthrough", 1, 0)
+ 	p := NewWithSleep(cfg, nil, testLogger(), ModePassthrough, func(time.Duration) {}, client)
+ 	p.upstream = baseUpstream{Name: "anthropic", BaseURL: "http://127.0.0.1:1", AuthHeader: "x-api-key", AuthValue: "k", client: client}
+@@ -342,20 +389,86 @@ func TestServeHTTPSessionIDDerived(t *testing.T) {
+ 		t.Fatalf("ListProxySessions: %v", err)
+ 	}
+ 	if len(sessions) != 1 {
+ 		t.Fatalf("session rows = %d, want 1", len(sessions))
+ 	}
+ 	if !strings.HasPrefix(sessions[0].SessionID, "sess-") {
+ 		t.Errorf("derived session id = %q, want a sess- prefixed id", sessions[0].SessionID)
+ 	}
+ }
+ 
++// TestServeHTTPStreamResponsePassthrough proves the streaming passthrough
++// behavior: the proxy streams the upstream response body into the client
++// (no full buffering) and preserves the upstream's Content-Type, so large
++// streamed responses do not require the whole body in memory.
++func TestServeHTTPStreamResponsePassthrough(t *testing.T) {
++	big := strings.Repeat("x", 256*1024) // 256 KiB
++	var seen []string
++	up := newUpstreamServerWithContentType(t, http.StatusOK, big, "text/event-stream", &seen)
++	defer up.Close()
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"messages":[]}`))
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	if got := w.Header().Get("Content-Type"); got != "text/event-stream" {
++		t.Errorf("Content-Type = %q, want the upstream's text/event-stream", got)
++	}
++	if w.Body.String() != big {
++		t.Fatalf("streamed body length = %d, want %d", len(w.Body.String()), len(big))
++	}
++}
++
++// TestTransformPreservesNonMessageFields proves the in-place transform keeps
++// the request's non-message fields (model, max_tokens, temperature, ...) on
++// the wire — only the messages array is compressed, so the upstream still
++// receives the full request shape (review fix for the lossy re-encode).
++func TestTransformPreservesNonMessageFields(t *testing.T) {
++	body := []byte(`{"model":"claude-3-5-sonnet","max_tokens":1024,"temperature":0.7,"messages":[{"role":"user","content":"the quick brown"},{"role":"assistant","content":"fox jumps over"},{"role":"user","content":"the lazy dog"}]}`)
++	out, cacheHit, err := applyTransform(ModeToken, body)
++	if err != nil {
++		t.Fatalf("applyTransform: %v", err)
++	}
++	if out == nil {
++		t.Fatalf("applyTransform returned nil body")
++	}
++	if cacheHit {
++		t.Errorf("cacheHit = true, want false (token mode)")
++	}
++	var doc map[string]any
++	if err := json.Unmarshal(out, &doc); err != nil {
++		t.Fatalf("forwarded body is not valid JSON: %v", err)
++	}
++	if doc["model"] != "claude-3-5-sonnet" {
++		t.Errorf("model = %v, want preserved claude-3-5-sonnet", doc["model"])
++	}
++	if doc["max_tokens"] != float64(1024) {
++		t.Errorf("max_tokens = %v, want preserved 1024", doc["max_tokens"])
++	}
++	if doc["temperature"] != 0.7 {
++		t.Errorf("temperature = %v, want preserved 0.7", doc["temperature"])
++	}
++	// The messages array is the one field that was compressed.
++	msgBytes, err := json.Marshal(doc["messages"])
++	if err != nil {
++		t.Fatalf("marshal messages: %v", err)
++	}
++	if !strings.Contains(string(msgBytes), "[ctx-summarized") {
++		t.Errorf("messages not summarized: %s", msgBytes)
++	}
++}
++
+ // errorTransport is a round-tripper that always returns a fixed error,
+ // simulating an unreachable provider.
+ type errorTransport struct{ err error }
+ 
+ func (e errorTransport) RoundTrip(*http.Request) (*http.Response, error) {
+ 	return nil, e.err
+ }
+ 
+ // itoa is a tiny int→string helper so the tests read without importing
+ // strconv at the call site.
+diff --git a/mnemonic/internal/ctx/proxy/retry.go b/mnemonic/internal/ctx/proxy/retry.go
+index 1571daa4..32b4519e 100644
+--- a/mnemonic/internal/ctx/proxy/retry.go
++++ b/mnemonic/internal/ctx/proxy/retry.go
+@@ -1,41 +1,80 @@
+ package proxy
+ 
+ import (
++	"bytes"
+ 	"context"
+ 	"errors"
++	"io"
+ 	"net/http"
+ 	"time"
+ )
+ 
+ // Sleep is the injectable delay used between provider retries. Production
+ // uses time.Sleep; tests use a no-op (or recording) function so backoff is
+ // exercised deterministically without real waiting.
+ type Sleep func(time.Duration)
+ 
+ // realSleep is the production Sleep.
+ func realSleep(d time.Duration) { time.Sleep(d) }
+ 
+ // retryResult carries the provider's outcome. On final failure, Status is the
+-// upstream status code and Body is the upstream body verbatim; on an
+-// unrecoverable transport error (no upstream status at all) Body may be the
+-// rendered error and Status is 0.
++// upstream status code, ContentType is the upstream's response Content-Type,
++// and Body is the upstream body verbatim; on an unrecoverable transport error
++// (no upstream status at all) Body may be the rendered error and Status is 0.
+ type retryResult struct {
+ 	Status int
+-	Body   []byte
++	Body   io.ReadCloser
++	// ContentType is the upstream response's Content-Type, captured on the
++	// attempt the body is kept (2xx success or the final non-2xx attempt).
++	ContentType string
+ 	// Attempts is how many times the provider call was actually issued.
+ 	Attempts int
+ 	// Err is non-nil only for a transport-level failure with no usable
+ 	// upstream status (the caller renders a 502).
+ 	Err error
+ }
+ 
++// noUpstreamStatus is the sentinel used by the retry loop for transport-level
++// failures: it is never returned to the client, only checked internally to
++// decide between a 502 and verbatim passthrough.
++var noUpstreamStatus = errors.New("proxy: no upstream status")
++
++// readAll consumes and closes resp.Body, returning its bytes. A read error is
++// swallowed: the bytes read so far are still usable for the verbatim passthrough.
++func readAll(resp *http.Response) []byte {
++	if resp == nil || resp.Body == nil {
++		return nil
++	}
++	defer resp.Body.Close()
++	var buf []byte
++	tmp := make([]byte, 32*1024)
++	for {
++		n, err := resp.Body.Read(tmp)
++		buf = append(buf, tmp[:n]...)
++		if err != nil {
++			return buf
++		}
++	}
++}
++
++// readAllCloser drains the body into memory (so the connection is returned to
++// the pool) and returns the bytes wrapped in a ReadCloser, for the final
++// non-2xx attempt where the client still receives the upstream body verbatim.
++func readAllCloser(resp *http.Response) io.ReadCloser {
++	if resp == nil || resp.Body == nil {
++		return io.NopCloser(nil)
++	}
++	buf := readAll(resp)
++	return io.NopCloser(bytes.NewReader(buf))
++}
++
+ // callWithRetry issues do, retrying on a non-2xx upstream response with
+ // exponential backoff. The first backoff is baseMs; each subsequent backoff is
+ // doubled. It issues at most 1 + maxRetries attempts. After the final retry it
+ // returns the provider's last status/body verbatim (no 500 — ADR-0016).
+ //
+ // A transport-level error (do returns a non-nil err with no response, e.g. a
+ // connection refused or a client-side timeout) is also retried; if the final
+ // attempt still yields no status, retryResult.Err is set so the caller renders
+ // a 502 (the provider is unreachable — there is no verbatim body to pass).
+ func callWithRetry(ctx context.Context, do func() (*http.Response, error), maxRetries int, baseMs int, sleep Sleep) retryResult {
+@@ -43,41 +82,49 @@ func callWithRetry(ctx context.Context, do func() (*http.Response, error), maxRe
+ 		maxRetries = 0
+ 	}
+ 	attempt := 0
+ 	var last retryResult
+ 	for {
+ 		resp, err := do()
+ 		attempt++
+ 
+ 		if err != nil {
+ 			// Transport-level failure: no upstream status.
+-			last = retryResult{Attempts: attempt, Err: err}
++			last = retryResult{Attempts: attempt, Err: errors.Join(noUpstreamStatus, err)}
+ 			if attempt > maxRetries {
+ 				return last
+ 			}
+ 			sleep(backoffMs(attempt, baseMs))
+ 			continue
+ 		}
+ 
+-		// Read the body fully so we can replay it verbatim on the final
+-		// attempt (and so the connection is returned to the pool).
+-		body := readAll(resp)
+-		code := resp.StatusCode
+-
+-		// A 2xx success is returned immediately.
+-		if code >= 200 && code < 300 {
+-			return retryResult{Status: code, Body: body, Attempts: attempt}
++		// A 2xx success is returned immediately with the body still open so
++		// the caller can stream it to the client, preserving the upstream's
++		// Content-Type.
++		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
++			return retryResult{
++				Status:      resp.StatusCode,
++				Body:        resp.Body,
++				ContentType: resp.Header.Get("Content-Type"),
++				Attempts:    attempt,
++			}
+ 		}
+ 
+-		// Non-2xx: remember the last status/body (verbatim for passthrough)
+-		// and retry until we exhaust the budget.
+-		last = retryResult{Status: code, Body: body, Attempts: attempt}
++		// Non-2xx: drain the body (returning the connection to the pool) and
++		// remember it for the final attempt — the client still receives the
++		// upstream's last status/body verbatim, not a 500 (ADR-0016).
++		last = retryResult{
++			Status:      resp.StatusCode,
++			Body:        readAllCloser(resp),
++			ContentType: resp.Header.Get("Content-Type"),
++			Attempts:    attempt,
++		}
+ 		if attempt > maxRetries {
+ 			return last
+ 		}
+ 		sleep(backoffMs(attempt, baseMs))
+ 	}
+ }
+ 
+ // backoffMs returns the backoff to apply after the given (1-based) attempt has
+ // failed: baseMs * 2^(attempt-1). This yields the sequence base, 2*base,
+ // 4*base, ... starting from the first failure.
+@@ -87,31 +134,10 @@ func backoffMs(attempt, baseMs int) time.Duration {
+ 	}
+ 	if attempt < 1 {
+ 		attempt = 1
+ 	}
+ 	ms := baseMs
+ 	for i := 1; i < attempt; i++ {
+ 		ms *= 2
+ 	}
+ 	return time.Duration(ms) * time.Millisecond
+ }
+-
+-// errNoUpstream marks a provider failure with no upstream status to pass.
+-var errNoUpstream = errors.New("proxy: no upstream status (provider unreachable)")
+-
+-// readAll consumes and closes resp.Body, returning its bytes. A read error is
+-// swallowed: the bytes read so far are still usable for the verbatim passthrough.
+-func readAll(resp *http.Response) []byte {
+-	if resp == nil || resp.Body == nil {
+-		return nil
+-	}
+-	defer resp.Body.Close()
+-	var buf []byte
+-	tmp := make([]byte, 32*1024)
+-	for {
+-		n, err := resp.Body.Read(tmp)
+-		buf = append(buf, tmp[:n]...)
+-		if err != nil {
+-			return buf
+-		}
+-	}
+-}
+diff --git a/mnemonic/internal/ctx/proxy/retry_test.go b/mnemonic/internal/ctx/proxy/retry_test.go
+index bb284c89..6c74009a 100644
+--- a/mnemonic/internal/ctx/proxy/retry_test.go
++++ b/mnemonic/internal/ctx/proxy/retry_test.go
+@@ -1,14 +1,16 @@
+ package proxy
+ 
+ import (
+ 	"context"
++	"errors"
++	"io"
+ 	"net/http"
+ 	"net/http/httptest"
+ 	"testing"
+ 	"time"
+ )
+ 
+ // newStatusServer builds an upstream that always returns the given status.
+ func newStatusServer(t *testing.T, status int, body string) *httptest.Server {
+ 	t.Helper()
+ 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+@@ -30,22 +32,22 @@ func TestCallWithRetrySuccessFirstTry(t *testing.T) {
+ 	defer up.Close()
+ 	attempts := 0
+ 	res := callWithRetry(context.Background(), func() (*http.Response, error) {
+ 		attempts++
+ 		req, _ := http.NewRequest(http.MethodPost, up.URL+"/v1/messages", nil)
+ 		return http.DefaultClient.Do(req)
+ 	}, 3, 200, realSleep)
+ 	if res.Status != http.StatusOK {
+ 		t.Fatalf("status = %d, want 200", res.Status)
+ 	}
+-	if string(res.Body) != `{"ok":true}` {
+-		t.Fatalf("body = %q, want verbatim", res.Body)
++	if got := string(mustReadBody(t, res.Body)); got != `{"ok":true}` {
++		t.Fatalf("body = %q, want verbatim", got)
+ 	}
+ 	if attempts != 1 {
+ 		t.Errorf("attempts = %d, want 1", attempts)
+ 	}
+ 	if res.Attempts != 1 {
+ 		t.Errorf("res.Attempts = %d, want 1", res.Attempts)
+ 	}
+ }
+ 
+ // TestCallWithRetryExhaustsBudget proves that a persistent non-2xx is retried
+@@ -88,22 +90,22 @@ func TestCallWithRetryVerbatimBody(t *testing.T) {
+ 	up := newStatusServer(t, http.StatusBadGateway, `{"error":"provider blew up"}`)
+ 	defer up.Close()
+ 	ns := &noSleep{}
+ 	res := callWithRetry(context.Background(), func() (*http.Response, error) {
+ 		req, _ := http.NewRequest(http.MethodPost, up.URL, nil)
+ 		return http.DefaultClient.Do(req)
+ 	}, 2, 50, ns.sleep)
+ 	if res.Status != http.StatusBadGateway {
+ 		t.Fatalf("status = %d, want 502", res.Status)
+ 	}
+-	if string(res.Body) != `{"error":"provider blew up"}` {
+-		t.Fatalf("body = %q, want verbatim", res.Body)
++	if got := string(mustReadBody(t, res.Body)); got != `{"error":"provider blew up"}` {
++		t.Fatalf("body = %q, want verbatim", got)
+ 	}
+ 	// 1 + 2 retries = 3 attempts, 2 backoffs.
+ 	if res.Attempts != 3 {
+ 		t.Errorf("attempts = %d, want 3", res.Attempts)
+ 	}
+ 	if len(ns.calls) != 2 {
+ 		t.Errorf("backoff calls = %d, want 2", len(ns.calls))
+ 	}
+ }
+ 
+@@ -113,28 +115,46 @@ func TestCallWithRetryVerbatimBody(t *testing.T) {
+ func TestCallWithRetryTransportError(t *testing.T) {
+ 	errs := 0
+ 	ns := &noSleep{}
+ 	res := callWithRetry(context.Background(), func() (*http.Response, error) {
+ 		errs++
+ 		return nil, errTestDial
+ 	}, 2, 10, ns.sleep)
+ 	if res.Err == nil {
+ 		t.Fatalf("expected res.Err set on transport failure")
+ 	}
+-	if res.Err != errTestDial {
+-		t.Errorf("res.Err = %v, want %v", res.Err, errTestDial)
++	if !errors.Is(res.Err, errTestDial) {
++		t.Errorf("res.Err = %v, want wrapped %v", res.Err, errTestDial)
++	}
++	if !errors.Is(res.Err, noUpstreamStatus) {
++		t.Errorf("res.Err = %v, want wrapped %v", res.Err, noUpstreamStatus)
+ 	}
+ 	if errs != 3 {
+ 		t.Errorf("attempts = %d, want 3", errs)
+ 	}
+ }
+ 
++// mustReadBody consumes a retryResult body and returns its bytes (or an empty
++// slice for a nil body), closing the reader.
++func mustReadBody(t *testing.T, rc io.ReadCloser) []byte {
++	t.Helper()
++	if rc == nil {
++		return nil
++	}
++	defer rc.Close()
++	b, err := io.ReadAll(rc)
++	if err != nil {
++		t.Fatalf("reading body: %v", err)
++	}
++	return b
++}
++
+ // TestBackoffMsSequence proves the exponential sequence base, 2*base, 4*base.
+ func TestBackoffMsSequence(t *testing.T) {
+ 	if got := backoffMs(1, 200); got != 200*time.Millisecond {
+ 		t.Errorf("backoff(1,200) = %v, want 200ms", got)
+ 	}
+ 	if got := backoffMs(2, 200); got != 400*time.Millisecond {
+ 		t.Errorf("backoff(2,200) = %v, want 400ms", got)
+ 	}
+ 	if got := backoffMs(3, 200); got != 800*time.Millisecond {
+ 		t.Errorf("backoff(3,200) = %v, want 800ms", got)
+diff --git a/mnemonic/internal/ctx/proxy/savings.go b/mnemonic/internal/ctx/proxy/savings.go
+index 3c53c35e..d1e1afe6 100644
+--- a/mnemonic/internal/ctx/proxy/savings.go
++++ b/mnemonic/internal/ctx/proxy/savings.go
+@@ -120,31 +120,51 @@ func transform(mode Mode, msgs []message) ([]message, error) {
+ }
+ 
+ // summarize is the deterministic reducer: it replaces a message's content with
+ // a fixed-width placeholder that preserves the role and a small constant
+ // marker. It is intentionally lossy and stable so the before/after token delta
+ // is exactly computable from the wire bytes.
+ func summarize(m message) string {
+ 	return "[ctx-summarized " + m.Role + "]"
+ }
+ 
+-// parseMessages decodes the upstream request body into the normalized
+-// messages shape. It tolerates a missing/empty messages array.
+-func parseMessages(body []byte) ([]message, error) {
+-	if len(body) == 0 {
+-		return nil, nil
++// applyTransform decodes the request body as a JSON object, transforms only
++// the messages array in-place, and re-encodes the full object. This preserves
++// all non-message fields (model, max_tokens, stream, etc.) instead of the
++// lossy re-encoding of a bare {messages:[...]} shape. A parse or transform
++// fault is returned as a non-nil error so the caller can fail open to
++// passthrough (ADR-0016).
++func applyTransform(mode Mode, body []byte) ([]byte, bool, error) {
++	var doc map[string]json.RawMessage
++	if err := json.Unmarshal(body, &doc); err != nil {
++		return nil, false, err
+ 	}
+-	var m messages
+-	if err := json.Unmarshal(body, &m); err != nil {
+-		return nil, err
++	rawMsgs, ok := doc["messages"]
++	// A missing or empty messages array means there is nothing to compress.
++	if !ok || len(rawMsgs) == 0 {
++		return nil, false, nil
++	}
++	var msgs []message
++	if err := json.Unmarshal(rawMsgs, &msgs); err != nil {
++		return nil, false, err
++	}
++
++	cacheHit := false
++	if mode == ModeCache {
++		cacheHit = headSplit(msgs) > 0
+ 	}
+-	return m.Messages, nil
+-}
+ 
+-// encodeMessages encodes a normalized messages slice to the wire JSON shape
+-// {model?, messages:[{role,content}]} — the common core both Anthropic and
+-// OpenAI request bodies share. The proxy re-encodes the (possibly compressed)
+-// messages into this shape for forwarding; the upstream tolerates the
+-// normalized message content.
+-func encodeMessages(msgs []message) ([]byte, error) {
+-	return json.Marshal(messages{Messages: msgs})
++	tmsgs, err := transform(mode, msgs)
++	if err != nil {
++		return nil, false, err
++	}
++	newRaw, err := json.Marshal(tmsgs)
++	if err != nil {
++		return nil, false, err
++	}
++	doc["messages"] = newRaw
++	out, err := json.Marshal(doc)
++	if err != nil {
++		return nil, false, err
++	}
++	return out, cacheHit, nil
+ }

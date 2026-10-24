@@ -1,0 +1,690 @@
+diff --git a/mnemonic/internal/ctx/proxy/compress.go b/mnemonic/internal/ctx/proxy/compress.go
+new file mode 100644
+index 00000000..faa2c624
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/compress.go
+@@ -0,0 +1,118 @@
++package proxy
++
++import (
++	"encoding/json"
++	"io"
++	"net"
++	"net/http"
++)
++
++// compressPath and statsPath are the two T06 routes that short-circuit before
++// the forward path (proxy.go ServeHTTP). /v1/compress is loopback-only and
++// performs the compression transform with NO upstream call; /stats reports live
++// metrics plus the current mode.
++const (
++	compressPath = "/v1/compress"
++	statsPath    = "/stats"
++)
++
++// serveCompress handles POST /v1/compress: it compresses the message list in
++// the request body using the SAME transform pipeline as the forward path
++// (applyTransform, savings.go) but returns the compressed list directly — it
++// never dials the upstream and never emits savings headers (there is no
++// before/after against an upstream response).
++//
++// Loopback-only: a non-loopback origin gets 404 Not Found (not 403), so the
++// route is invisible to a scanner — it cannot distinguish /v1/compress from a
++// missing path (plan 11.18/R67). The 404 is method-agnostic: any method from a
++// non-loopback origin returns 404.
++//
++// ADR-0016 fail-open: a transform fault (e.g. messages is a JSON object, not an
++// array) degrades to the untransformed input with 200 — the caller still
++// completes, never a 500.
++func (p *Proxy) serveCompress(w http.ResponseWriter, r *http.Request) {
++	// Loopback origin check FIRST: a non-loopback client never sees the route
++	// (404, not 403), regardless of method.
++	if !isLoopbackRequest(r) {
++		http.NotFound(w, r)
++		return
++	}
++
++	body, err := io.ReadAll(r.Body)
++	if err != nil {
++		// A read fault is a client problem, not a transform fault: 400.
++		http.Error(w, "compress: reading request body: "+err.Error(), http.StatusBadRequest)
++		return
++	}
++	_ = r.Body.Close()
++
++	// Run the same transform the forward path uses. A nil/empty result (no
++	// messages, or passthrough) or a transform fault both fail open to the
++	// original body (ADR-0016) — the caller still completes.
++	mode := p.GetMode()
++	out := body
++	if mode != ModePassthrough {
++		if b, _, terr := applyTransform(mode, body); terr == nil && b != nil {
++			out = b
++		}
++	}
++
++	w.Header().Set("Content-Type", "application/json")
++	w.WriteHeader(http.StatusOK)
++	_, _ = w.Write(out)
++}
++
++// isLoopbackRequest reports whether the request's origin is a loopback address.
++// It mirrors the T05 hardened isLoopbackBind check: parse the host from
++// RemoteAddr (or the X-Forwarded-For first hop, absent a reverse proxy in the
++// loopback-only design) and ask net.IP.IsLoopback(). A missing/unparseable
++// host is treated as non-loopback (fail closed for a loopback-only route).
++func isLoopbackRequest(r *http.Request) bool {
++	host, _, err := net.SplitHostPort(r.RemoteAddr)
++	if err != nil {
++		// RemoteAddr without a port (e.g. just an IP): try parsing as-is.
++		host = r.RemoteAddr
++	}
++	ip := net.ParseIP(host)
++	return ip != nil && ip.IsLoopback()
++}
++
++// serveStats handles GET /stats: it returns live session metrics as JSON and
++// MUST include the current mode ("mode": "<mode>"). The key T06 requirement is
++// that the current mode is exposed; live counters are reused from the store
++// rollup when available (nil store → zeros, ADR-0016 fail-open). It is served
++// on the same loopback listener as the proxy.
++func (p *Proxy) serveStats(w http.ResponseWriter, r *http.Request) {
++	type stats struct {
++		Mode               string `json:"mode"`
++		Requests           int64  `json:"requests"`
++		TokensBefore       int64  `json:"tokens_before"`
++		TokensAfter        int64  `json:"tokens_after"`
++		CacheHits          int64  `json:"cache_hits"`
++		CacheInvalidations int64  `json:"cache_invalidations"`
++		Sessions           int    `json:"sessions"`
++	}
++
++	var s stats
++	s.Mode = p.GetMode().String()
++
++	// Live counters: sum across all proxied sessions (fail-open: nil store or
++	// a missing table yields zeros, never a 500).
++	if p.store != nil {
++		sessions, err := p.store.ListProxySessions()
++		if err == nil {
++			s.Sessions = len(sessions)
++			for _, sess := range sessions {
++				s.Requests += sess.Requests
++				s.TokensBefore += sess.TokensBefore
++				s.TokensAfter += sess.TokensAfter
++				s.CacheHits += sess.CacheHits
++				s.CacheInvalidations += sess.CacheInvalidations
++			}
++		}
++	}
++
++	w.Header().Set("Content-Type", "application/json")
++	w.WriteHeader(http.StatusOK)
++	_ = json.NewEncoder(w).Encode(s)
++}
+diff --git a/mnemonic/internal/ctx/proxy/compress_test.go b/mnemonic/internal/ctx/proxy/compress_test.go
+new file mode 100644
+index 00000000..4d923484
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/compress_test.go
+@@ -0,0 +1,233 @@
++package proxy
++
++import (
++	"encoding/json"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++)
++
++// compressBody is the shared test fixture: a 3-message conversation whose
++// token count drops measurably under token/cache transforms.
++const compressBody = `{"model":"claude-3-5-sonnet","max_tokens":1024,"messages":[{"role":"user","content":"the quick brown fox"},{"role":"assistant","content":"jumps over the lazy dog"},{"role":"user","content":"tell me a joke please"}]}`
++
++// [compress-endpoint-loopback] Loopback /v1/compress: a loopback POST
++// /v1/compress with a message-list body returns a compressed message list
++// (valid JSON, messages transformed per the current mode) and NO upstream
++// call is made (the upstream httptest server saw 0 requests).
++func TestCompressLoopbackNoUpstream(t *testing.T) {
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++	cfg := testConfig("token", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModeToken, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/compress", strings.NewReader(compressBody))
++	req.Header.Set("Content-Type", "application/json")
++	req.RemoteAddr = "127.0.0.1:9999"
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	// No upstream call: the compress endpoint is a local transform, not a
++	// forwarded request.
++	if len(seen) != 0 {
++		t.Fatalf("upstream requests = %d, want 0 (compress must not dial upstream)", len(seen))
++	}
++	// The response is a valid JSON object with a transformed messages array.
++	var doc map[string]json.RawMessage
++	if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
++		t.Fatalf("response is not valid JSON: %v", err)
++	}
++	msgBytes, ok := doc["messages"]
++	if !ok {
++		t.Fatalf("response has no messages field: %s", w.Body.String())
++	}
++	// Token mode summarizes every non-empty message.
++	if !strings.Contains(string(msgBytes), "[ctx-summarized") {
++		t.Errorf("messages not summarized in token mode: %s", msgBytes)
++	}
++	// Non-message fields are preserved (reuses applyTransform's in-place shape).
++	if doc["model"] == nil {
++		t.Errorf("model field not preserved in compress response")
++	}
++	// No savings headers: compress has no before/after vs. an upstream response.
++	if got := w.Header().Get(HeaderSavings); got != "" {
++		t.Errorf("X-CTX-Savings = %q, want empty (no upstream on compress)", got)
++	}
++}
++
++// [compress-endpoint-loopback] Cache mode: /v1/compress transforms only the
++// mutable tail (messages after the frozen head) and leaves the stable prefix
++// intact — the same headSplit boundary the forward path uses.
++func TestCompressLoopbackCacheMode(t *testing.T) {
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++	cfg := testConfig("cache", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModeCache, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/compress", strings.NewReader(compressBody))
++	req.Header.Set("Content-Type", "application/json")
++	req.RemoteAddr = "127.0.0.1:9999"
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	if len(seen) != 0 {
++		t.Fatalf("upstream requests = %d, want 0", len(seen))
++	}
++	var doc map[string]json.RawMessage
++	if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
++		t.Fatalf("response is not valid JSON: %v", err)
++	}
++	// The frozen head (up to and including the last user message — here all 3
++	// messages, since the last message is a user message) stays intact.
++	msgBytes, _ := doc["messages"]
++	if !strings.Contains(string(msgBytes), "the quick brown fox") {
++		t.Errorf("cache mode must leave the frozen head intact: %s", msgBytes)
++	}
++}
++
++// [compress-endpoint-loopback] Non-loopback /v1/compress: a POST from a
++// non-loopback origin returns 404 — the route is invisible, deliberately 404
++// (not 403) so a scanner cannot distinguish it from a missing path.
++func TestCompressNonLoopback404Not403(t *testing.T) {
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++	cfg := testConfig("token", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModeToken, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/compress", strings.NewReader(compressBody))
++	req.Header.Set("Content-Type", "application/json")
++	req.RemoteAddr = "10.0.0.5:44321" // non-loopback origin
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusNotFound {
++		t.Fatalf("status = %d, want 404 for non-loopback origin", w.Code)
++	}
++	if w.Code == http.StatusForbidden {
++		t.Fatalf("status = 403; must be 404 so the route is invisible to scanners")
++	}
++	// The non-loopback request must not reach the transform or the upstream.
++	if len(seen) != 0 {
++		t.Fatalf("upstream requests = %d, want 0", len(seen))
++	}
++}
++
++// [compress-endpoint-loopback] Non-loopback 404 is method-agnostic: a GET
++// (not just POST) from a non-loopback origin also returns 404.
++func TestCompressNonLoopbackAnyMethod404(t *testing.T) {
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++	cfg := testConfig("token", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModeToken, up)
++
++	req := httptest.NewRequest(http.MethodGet, "/v1/compress", nil)
++	req.RemoteAddr = "192.168.1.10:5555"
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusNotFound {
++		t.Fatalf("GET from non-loopback: status = %d, want 404", w.Code)
++	}
++}
++
++// [compress-endpoint-loopback] ADR-0016 fail-open: a /v1/compress body that
++// fails the transform (JSON object where an array is expected) degrades to
++// the untransformed input with 200 — no 500, no upstream call.
++func TestCompressFailOpenReturnsInput(t *testing.T) {
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++	cfg := testConfig("token", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModeToken, up)
++
++	// messages is a JSON object, not an array: the transform faults.
++	badBody := `{"messages":{"role":"user"}}`
++	req := httptest.NewRequest(http.MethodPost, "/v1/compress", strings.NewReader(badBody))
++	req.Header.Set("Content-Type", "application/json")
++	req.RemoteAddr = "127.0.0.1:9999"
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200 (fail-open must not 500)", w.Code)
++	}
++	if len(seen) != 0 {
++		t.Fatalf("upstream requests = %d, want 0", len(seen))
++	}
++	// The untransformed input list is returned so the caller still completes.
++	if !strings.Contains(w.Body.String(), `"role":"user"`) {
++		t.Errorf("fail-open response should echo the input: %s", w.Body.String())
++	}
++}
++
++// [compress-endpoint-loopback] Nil store: /v1/compress works with a nil ctx
++// store (no telemetry, no 500).
++func TestCompressNilStoreNoop(t *testing.T) {
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, nil)
++	defer up.Close()
++	cfg := testConfig("token", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModeToken, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/compress", strings.NewReader(compressBody))
++	req.Header.Set("Content-Type", "application/json")
++	req.RemoteAddr = "127.0.0.1:9999"
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200 (nil store must not 500)", w.Code)
++	}
++	// Drain the body so the test does not leak a goroutine holding it.
++	if _, err := io.ReadAll(w.Body); err != nil {
++		t.Fatalf("reading response: %v", err)
++	}
++}
++
++// [mode-switch-emitted] GET /stats: after a runtime mode switch, /stats
++// reports the current mode as JSON. The key T06 requirement is that the
++// current mode is exposed.
++func TestStatsReportsCurrentMode(t *testing.T) {
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++	cs := newSharedStore(t, "ctxstats")
++	cfg := testConfig("cache", 0, 0)
++	p := newTestProxy(t, cfg, cs, ModeCache, up)
++
++	// Switch cache -> token at runtime.
++	old, err := p.SetMode(ModeToken, "test switch")
++	if err != nil {
++		t.Fatalf("SetMode: %v", err)
++	}
++	if old != ModeCache {
++		t.Fatalf("SetMode returned old = %q, want cache", old)
++	}
++
++	req := httptest.NewRequest(http.MethodGet, "/stats", nil)
++	req.RemoteAddr = "127.0.0.1:9999"
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	var stats map[string]any
++	if err := json.Unmarshal(w.Body.Bytes(), &stats); err != nil {
++		t.Fatalf("stats response is not valid JSON: %v", err)
++	}
++	if stats["mode"] != "token" {
++		t.Errorf("stats mode = %v, want token (current mode after switch)", stats["mode"])
++	}
++}
+diff --git a/mnemonic/internal/ctx/proxy/mode.go b/mnemonic/internal/ctx/proxy/mode.go
+new file mode 100644
+index 00000000..6bdcb632
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/mode.go
+@@ -0,0 +1,79 @@
++package proxy
++
++import (
++	"fmt"
++	"time"
++
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++)
++
++// GetMode returns the current compression mode. It is safe for concurrent use:
++// the mode is read on the hot forward path (ServeHTTP) and written by SetMode,
++// so the read takes an RLock and the write takes a full Lock. The lock is held
++// only for the field read/write — never across I/O.
++func (p *Proxy) GetMode() Mode {
++	p.mu.RLock()
++	defer p.mu.RUnlock()
++	return p.mode
++}
++
++// SetMode flips the active compression mode at runtime. It validates new with
++// valid() (an invalid mode is an error and leaves the current mode untouched),
++// no-ops when new equals the current mode (no history row, no event), and
++// otherwise updates the field under the write lock, writes a
++// ctx_proxy_mode_history row (nil store → no-op, ADR-0016), and fires the
++// SetModeEventSink (nil sink → no-op). The write lock is not held while writing
++// the history row or firing the sink, so neither can block the forward path.
++func (p *Proxy) SetMode(new Mode, reason string) (old Mode, err error) {
++	if !new.valid() {
++		return p.GetMode(), fmt.Errorf("proxy: invalid mode %q", new)
++	}
++
++	p.mu.RLock()
++	current := p.mode
++	p.mu.RUnlock()
++	old = current
++
++	if new == current {
++		// Same mode: no-op. Return the current mode as old, no history row,
++		// no event.
++		return current, nil
++	}
++
++	p.mu.Lock()
++	p.mode = new
++	p.lastChangeID = ""
++	p.mu.Unlock()
++
++	// History row + event fire outside the write lock (no I/O / sink under
++	// the lock).
++	changeID := fmt.Sprintf("mode-%d", time.Now().UnixNano())
++	if p.store != nil {
++		_ = p.store.PutModeChange(&store.ModeChange{
++			ChangeID:  changeID,
++			SessionID: "", // a runtime switch is not tied to a proxied session in T06
++			OldMode:   old.String(),
++			NewMode:   new.String(),
++			Reason:    reason,
++			ChangedAt: time.Now().UnixNano(),
++		})
++	}
++	p.mu.Lock()
++	p.lastChangeID = changeID
++	p.mu.Unlock()
++
++	if p.SetModeEventSink != nil {
++		p.SetModeEventSink(old, new, reason)
++	}
++	return old, nil
++}
++
++// lastModeChangeID returns the ChangeID most recently recorded by SetMode (""
++// if SetMode has not written a history row — e.g. a same-mode no-op). It is a
++// test hook: the store exposes GetModeChange by ChangeID but no list, so the
++// test recovers the id here and reads the row back.
++func (p *Proxy) lastModeChangeID() string {
++	p.mu.RLock()
++	defer p.mu.RUnlock()
++	return p.lastChangeID
++}
+diff --git a/mnemonic/internal/ctx/proxy/mode_test.go b/mnemonic/internal/ctx/proxy/mode_test.go
+new file mode 100644
+index 00000000..d6a4898d
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/mode_test.go
+@@ -0,0 +1,166 @@
++package proxy
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"testing"
++)
++
++// [mode-switch-emitted] SetMode cache->token: fires the SetModeEventSink with
++// (old, new, reason) and flips GetMode to the new value.
++func TestSetModeEmitsEventAndFlipsMode(t *testing.T) {
++	cfg := testConfig("cache", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModeCache, newUpstreamServer(t, http.StatusOK, `{}`, nil))
++
++	var gotOld, gotNew Mode
++	var gotReason string
++	var calls int
++	p.SetModeEventSink = func(old, new Mode, reason string) {
++		gotOld, gotNew, gotReason = old, new, reason
++		calls++
++	}
++
++	old, err := p.SetMode(ModeToken, "runtime flip")
++	if err != nil {
++		t.Fatalf("SetMode: %v", err)
++	}
++	if old != ModeCache {
++		t.Fatalf("SetMode returned old = %q, want cache", old)
++	}
++	if m := p.GetMode(); m != ModeToken {
++		t.Fatalf("GetMode() = %q, want token after switch", m)
++	}
++	if calls != 1 {
++		t.Fatalf("event sink fired %d times, want 1", calls)
++	}
++	if gotOld != ModeCache || gotNew != ModeToken || gotReason != "runtime flip" {
++		t.Fatalf("sink = (%q, %q, %q), want (cache, token, runtime flip)", gotOld, gotNew, gotReason)
++	}
++}
++
++// [mode-switch-emitted] SetMode with a real store writes a
++// ctx_proxy_mode_history row (old_mode=cache, new_mode=token) that is
++// retrievable via store.GetModeChange using the ChangeID SetMode mints.
++func TestSetModeWritesHistoryRow(t *testing.T) {
++	cs := newSharedStore(t, "ctxmodehistory")
++	cfg := testConfig("cache", 0, 0)
++	p := newTestProxy(t, cfg, cs, ModeCache, newUpstreamServer(t, http.StatusOK, `{}`, nil))
++
++	if _, err := p.SetMode(ModeToken, "record history"); err != nil {
++		t.Fatalf("SetMode: %v", err)
++	}
++
++	changeID := p.lastModeChangeID()
++	if changeID == "" {
++		t.Fatalf("SetMode did not record a ChangeID")
++	}
++	row, err := cs.GetModeChange(changeID)
++	if err != nil {
++		t.Fatalf("GetModeChange: %v", err)
++	}
++	if row == nil {
++		t.Fatalf("history row not found for %q", changeID)
++	}
++	if row.OldMode != "cache" || row.NewMode != "token" {
++		t.Errorf("history row = (%q -> %q), want (cache -> token)", row.OldMode, row.NewMode)
++	}
++	if row.Reason != "record history" {
++		t.Errorf("history reason = %q, want record history", row.Reason)
++	}
++	if row.ChangedAt == 0 {
++		t.Errorf("history ChangedAt = 0, want a non-zero timestamp")
++	}
++}
++
++// [mode-switch-emitted] SetMode to the same mode is a no-op: no history row,
++// no event emission, current mode unchanged.
++func TestSetModeSameModeNoop(t *testing.T) {
++	cs := newSharedStore(t, "ctxmodesame")
++	cfg := testConfig("token", 0, 0)
++	p := newTestProxy(t, cfg, cs, ModeToken, newUpstreamServer(t, http.StatusOK, `{}`, nil))
++
++	var sinkCalls int
++	p.SetModeEventSink = func(old, new Mode, reason string) { sinkCalls++ }
++
++	old, err := p.SetMode(ModeToken, "same mode")
++	if err != nil {
++		t.Fatalf("SetMode: %v", err)
++	}
++	if old != ModeToken {
++		t.Fatalf("SetMode returned old = %q, want token", old)
++	}
++	if m := p.GetMode(); m != ModeToken {
++		t.Fatalf("GetMode() = %q, want token (unchanged)", m)
++	}
++	if sinkCalls != 0 {
++		t.Fatalf("event sink fired %d times, want 0 for same-mode no-op", sinkCalls)
++	}
++	if id := p.lastModeChangeID(); id != "" {
++		t.Fatalf("lastModeChangeID = %q, want empty (no-op must not record)", id)
++	}
++}
++
++// [mode-switch-emitted] SetMode with an invalid (unknown) mode returns an
++// error and leaves the current mode untouched — no history row, no event.
++func TestSetModeInvalidModeErrors(t *testing.T) {
++	cfg := testConfig("cache", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModeCache, newUpstreamServer(t, http.StatusOK, `{}`, nil))
++
++	var sinkCalls int
++	p.SetModeEventSink = func(old, new Mode, reason string) { sinkCalls++ }
++
++	_, err := p.SetMode(Mode("bogus"), "bad mode")
++	if err == nil {
++		t.Fatalf("SetMode(bogus) = nil error, want an error for an invalid mode")
++	}
++	if m := p.GetMode(); m != ModeCache {
++		t.Fatalf("GetMode() = %q, want cache (unchanged after invalid switch)", m)
++	}
++	if sinkCalls != 0 {
++		t.Fatalf("event sink fired %d times, want 0 for invalid mode", sinkCalls)
++	}
++}
++
++// [mode-switch-emitted] Nil store: SetMode still flips the mode and emits the
++// event; the history write is a no-op (no 500 / panic).
++func TestSetModeNilStoreNoop(t *testing.T) {
++	cfg := testConfig("cache", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModeCache, newUpstreamServer(t, http.StatusOK, `{}`, nil))
++
++	var gotOld, gotNew Mode
++	p.SetModeEventSink = func(old, new Mode, reason string) { gotOld, gotNew = old, new }
++
++	old, err := p.SetMode(ModeToken, "nil store switch")
++	if err != nil {
++		t.Fatalf("SetMode with nil store: %v", err)
++	}
++	if old != ModeCache {
++		t.Fatalf("SetMode returned old = %q, want cache", old)
++	}
++	if m := p.GetMode(); m != ModeToken {
++		t.Fatalf("GetMode() = %q, want token (nil store must still switch)", m)
++	}
++	if gotOld != ModeCache || gotNew != ModeToken {
++		t.Fatalf("sink = (%q, %q), want (cache, token)", gotOld, gotNew)
++	}
++}
++
++// [mode-switch-emitted] Restart-to-mode: a FRESH proxy whose mode is resolved
++// from the CTX_PROXY_MODE env var (token) while the config says cache starts
++// in token mode — the env var wins on a clean construction (AC 4).
++func TestRestartToModeFromEnv(t *testing.T) {
++	t.Setenv("CTX_PROXY_MODE", "token")
++	cfg := testConfig("cache", 0, 0) // config says cache, but the env must win
++	// Build the proxy exactly as a fresh `ctx proxy serve` would: the mode is
++	// resolved from the real environment, not hard-coded.
++	p := New(cfg, nil, testLogger(), ResolveMode("", "cache", os.Getenv))
++
++	if m := p.GetMode(); m != ModeToken {
++		t.Fatalf("GetMode() = %q, want token (CTX_PROXY_MODE must win over config)", m)
++	}
++}
++
++// httptest is referenced so the import is used when the upstream server is
++// constructed in tests above.
++var _ = httptest.NewServer
+diff --git a/mnemonic/internal/ctx/proxy/proxy.go b/mnemonic/internal/ctx/proxy/proxy.go
+index cbebe0be..36e729bb 100644
+--- a/mnemonic/internal/ctx/proxy/proxy.go
++++ b/mnemonic/internal/ctx/proxy/proxy.go
+@@ -11,6 +11,7 @@ import (
+ 	"net/url"
+ 	"os"
+ 	"strings"
++	"sync"
+ 	"time"
+ 
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
+@@ -18,15 +19,22 @@ import (
+ )
+ 
+ // Proxy is the loopback LLM proxy. It owns the resolved config, a fail-open
+-// ctx store accessor for telemetry, a logger, and the effective mode (a plain
+-// field — switchable by T06).
++// ctx store accessor for telemetry, a logger, and the effective mode. The mode
++// is guarded by mu: it is read on the hot forward path (RLock) and written by
++// SetMode (Lock), so a runtime switch (T06) is safe against concurrent
++// forwarding. The lock is held only for the field read/write, never across I/O.
+ type Proxy struct {
+ 	cfg      *config.CtxConfig
+ 	store    *store.Store
+ 	log      *slog.Logger
+-	mode     Mode
+ 	sleep    Sleep
+ 	upstream baseUpstream
++
++	// mu guards mode and lastChangeID.
++	mu               sync.RWMutex
++	mode             Mode
++	lastChangeID     string
++	SetModeEventSink func(old, new Mode, reason string)
+ }
+ 
+ // New builds a Proxy from resolved config, the shared ctx store accessor (may
+@@ -60,6 +68,19 @@ func (p *Proxy) Handler() http.Handler {
+ }
+ 
+ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
++	// T06 routes short-circuit BEFORE the forward path: /v1/compress is a
++	// loopback-only local transform (no upstream), and /stats reports live
++	// metrics + the current mode. Both are served on the same loopback
++	// listener, so they share the proxy's trust boundary.
++	if r.URL.Path == compressPath {
++		p.serveCompress(w, r)
++		return
++	}
++	if r.URL.Path == statsPath {
++		p.serveStats(w, r)
++		return
++	}
++
+ 	// WebSocket upgrade requests bypass the savings transform entirely: WS
+ 	// frames are not JSON chat requests, so they pass through verbatim.
+ 	// The proxy hijacks the connection and pipes both directions (T05).
+@@ -79,8 +100,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+ 
+ 	// Determine the effective mode for this request. T04: the startup-resolved
+ 	// p.mode is authoritative (T06 adds per-request override). The mode used
+-	// for the transform is what the savings header reports.
+-	mode := p.mode
++	// for the transform is what the savings header reports. It is read under
++	// the RWMutex so a concurrent SetMode (runtime switch) is safe.
++	mode := p.GetMode()
+ 
+ 	// Token count BEFORE the transform: count on the exact wire bytes the
+ 	// client sent. This is the deterministic "before" for the savings delta.

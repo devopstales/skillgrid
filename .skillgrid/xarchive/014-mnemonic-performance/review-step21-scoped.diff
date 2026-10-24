@@ -1,0 +1,847 @@
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+index 1f80324..cbee991 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem.go
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -68,6 +68,12 @@ func runMem(version string, args []string) {
+ 	var searchMode string
+ 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
+ 	fs.BoolVar(&trajectory, "trajectory", false, "search: also run the directory retrieval and print its drill-down trajectory (014 step 19)")
++	var (
++		handoffJSON bool
++		handoffDir  string
++	)
++	fs.BoolVar(&handoffJSON, "json", false, "handoff: print the full handoff JSON to stdout")
++	fs.StringVar(&handoffDir, "handoff-dir", "", "handoff: directory to write handoff.latest.json (default: the project's mnemonic data dir)")
+ 	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
+ 		os.Exit(2)
+ 	}
+@@ -106,6 +112,8 @@ func runMem(version string, args []string) {
+ 		runMemDistill(svc, projID, pos)
+ 	case "snapshot":
+ 		runMemSnapshot(svc, projID, pos)
++	case "handoff":
++		runMemHandoff(svc, projID, dataDir, handoffJSON, handoffDir)
+ 	case "help", "-h", "--help":
+ 		printMemUsage()
+ 	default:
+@@ -161,11 +169,18 @@ func printMemUsage() {
+     snapshot restore <id>            roll the project back to the captured
+                                      state of snapshot <id> (atomic)
+     snapshot list                    list the project's snapshots,
+-                                     newest-first (id, state_hash, created_at)
++                                      newest-first (id, state_hash, created_at)
++    handoff [--json] [--handoff-dir DIR]
++                                      generate the prefix+delta handoff artifact
++                                      (stable prefix + dynamic delta); prints a
++                                      summary and writes handoff.latest.json
++                                      (default: the data dir; --json = full JSON)
+ 
+ Flags:
+   --project ID    project bucket (defaults to CWD-resolved)
+   --dir DATA_DIR  mnemonic data directory
++  --json          handoff: print the full handoff JSON
++  --handoff-dir D handoff: directory to write handoff.latest.json
+ `)
+ }
+ 
+@@ -869,6 +884,63 @@ func runMemSnapshot(svc *service.Service, projID string, pos []string) {
+ 	}
+ }
+ 
++// runMemHandoff is the CLI for `mem handoff` (014 step 21): it generates the
++// prefix+delta handoff artifact for the project and writes it to
++// handoff.latest.json under the data dir (or --handoff-dir). By default it
++// prints a human-readable summary; --json prints the full handoff JSON. The
++// repo root is the CWD (the project the agent is working in).
++func runMemHandoff(svc *service.Service, projID, dataDir string, asJSON bool, handoffDir string) {
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	cwd, err := os.Getwd()
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	outDir := handoffDir
++	if outDir == "" {
++		if dataDir != "" {
++			outDir = dataDir
++		} else if d, derr := service.DefaultDataDir(); derr == nil {
++			outDir = d
++		} else {
++			outDir = "."
++		}
++	}
++	artifact, err := h.Memory().GenerateHandoff(hCtx(), cwd)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	if asJSON {
++		printJSON(artifact)
++		return
++	}
++	if err := h.Memory().SaveHandoff(hCtx(), cwd, outDir); err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	printJSON(map[string]any{
++		"project":      projID,
++		"path":         memory.HandoffPath(outDir),
++		"generated_at": artifact.GeneratedAt,
++		"prefix":       map[string]any{
++			"file_count": artifact.Prefix.FileCount,
++			"hub_files":  len(artifact.Prefix.HubFiles),
++		},
++		"delta": map[string]any{
++			"changed_files": len(artifact.Delta.ChangedFiles),
++			"risk_files":    artifact.Delta.RiskFiles,
++			"recent_events": len(artifact.Delta.RecentEvents),
++			"working_set":   artifact.Delta.WorkingSet.Summary,
++		},
++	})
++}
++
+ func looksLikeSession(s string) bool {
+ 	// A session id is a UUID (36 chars with dashes) or a bare token with no
+ 	// spaces; a topic_key typically contains '/'.
+diff --git a/skillgrid-cli/cmd/skillgrid/mem_handoff_test.go b/skillgrid-cli/cmd/skillgrid/mem_handoff_test.go
+new file mode 100644
+index 0000000..be6b87a
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/mem_handoff_test.go
+@@ -0,0 +1,45 @@
++package main
++
++import (
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++// TestMemHandoffCLI is 014 step 21.4 [AFK]: `mem handoff` generates the
++// prefix+delta handoff artifact, writes handoff.latest.json, and prints a
++// summary; `mem handoff --json` prints the full JSON.
++func TestMemHandoffCLI(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "memcli-handoff"
++	seedMemCLIPeriod(t, dataDir, project)
++
++	// Seed a hub file on disk in the CWD so the prefix has a hub summary and
++	// the codeindex files table has a row to count.
++	wd := mustWD(t)
++	hubPath := filepath.Join(wd, "AGENTS.md")
++	if err := os.WriteFile(hubPath, []byte("agent config v1\n"), 0o644); err != nil {
++		t.Fatalf("write hub: %v", err)
++	}
++	t.Cleanup(func() { os.Remove(hubPath) })
++
++	// Default: prints a human-readable summary and writes the artifact.
++	out := runMemCLI(t, dataDir, "handoff", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "handoff.latest.json") {
++		t.Fatalf("mem handoff missing the artifact path: %s", out)
++	}
++	if !strings.Contains(out, project) {
++		t.Fatalf("mem handoff missing the project id: %s", out)
++	}
++	artifact := filepath.Join(dataDir, "handoff.latest.json")
++	if _, err := os.Stat(artifact); err != nil {
++		t.Fatalf("handoff.latest.json not written: %v", err)
++	}
++
++	// --json: prints the full handoff JSON (prefix + delta sections).
++	out = runMemCLI(t, dataDir, "handoff", "--json", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, `"prefix"`) || !strings.Contains(out, `"delta"`) {
++		t.Fatalf("mem handoff --json missing prefix/delta: %s", out)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/handoff.go b/skillgrid-cli/internal/mnemonic/memory/handoff.go
+new file mode 100644
+index 0000000..aebf4df
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/handoff.go
+@@ -0,0 +1,346 @@
++package memory
++
++import (
++	"context"
++	"database/sql"
++	"encoding/json"
++	"fmt"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++	"time"
++)
++
++// The handoff artifact (014 step 21) is a compact, agent-to-agent context block
++// with two halves:
++//
++//   - a STABLE prefix (hub file summaries + repo file count) that only changes
++//     when a hub file (or the file population) changes; and
++//   - a DYNAMIC delta (changed file stubs, risk files, recent session events,
++//     working set) computed fresh at generation time (not cached).
++//
++// Detection strategy. The memory package cannot depend on the service layer
++// (import cycle), and a fresh CLI process cannot rely on in-process state. We
++// therefore persist a handoff cursor into the store's kv_meta table on every
++// generation. The delta includes codeindex files whose mtime_ns is newer than
++// the stored cursor (i.e. changed since the last handoff) PLUS every hub file
++// (so a hub change is always visible even if its mtime predates the cursor).
++// This is deterministic, cross-process, and testable without a git dependency.
++
++// handoffKey is the handoff_meta key holding the last-handoff cursor (RFC3339).
++const handoffKey = "handoff:cursor"
++
++// hubFilePatterns is the fixed list of "hub" files: small, stable, high-signal
++// project metadata (agent config + manifest + entry points). A hub file is any
++// codeindex file whose basename or path suffix matches one of these.
++var hubFilePatterns = []string{
++	"AGENTS.md",
++	"CLAUDE.md",
++	"go.mod",
++	"package.json",
++	"main.go",
++	"cmd/main.go",
++	"internal/main.go",
++}
++
++const (
++	// hubSummaryLines is the number of leading lines captured per hub file.
++	hubSummaryLines = 20
++	// stubLines is the number of leading lines captured per changed file stub.
++	stubLines = 50
++	// recentEventsLimit caps the "recent session events" in the delta.
++	recentEventsLimit = 10
++)
++
++// Handoff is the agent-to-agent context artifact. Prefix is stable; Delta is
++// computed at generation time.
++type Handoff struct {
++	Prefix      HandoffPrefix `json:"prefix"`
++	Delta       HandoffDelta  `json:"delta"`
++	GeneratedAt time.Time     `json:"generated_at"`
++	ProjectID   string        `json:"project_id"`
++}
++
++// HandoffPrefix is the stable half of the handoff. It changes only when a hub
++// file changes or the repo file count changes.
++type HandoffPrefix struct {
++	HubFiles  []HandoffHubFile `json:"hub_files"`
++	FileCount int              `json:"file_count"`
++}
++
++// HandoffHubFile is a compact summary of one hub file.
++type HandoffHubFile struct {
++	Path    string `json:"path"`
++	Summary string `json:"summary"`
++}
++
++// HandoffDelta is the dynamic half of the handoff, computed at generation time.
++type HandoffDelta struct {
++	ChangedFiles []ChangedFileStub `json:"changed_files"`
++	RiskFiles    []string          `json:"risk_files"`
++	RecentEvents []RecentEvent     `json:"recent_events"`
++	WorkingSet   WorkingSetSummary `json:"working_set"`
++}
++
++// ChangedFileStub is a changed file with its leading-line stub.
++type ChangedFileStub struct {
++	Path string `json:"path"`
++	Stub string `json:"stub"`
++}
++
++// RecentEvent is a recent session event (from the session_log observations).
++type RecentEvent struct {
++	ID        int64  `json:"id"`
++	Title     string `json:"title"`
++	CreatedAt string `json:"created_at"`
++}
++
++// WorkingSetSummary is a brief summary of the current working state.
++type WorkingSetSummary struct {
++	ChangedCount int    `json:"changed_count"`
++	RiskCount    int    `json:"risk_count"`
++	Summary      string `json:"summary"`
++}
++
++// GenerateHandoff builds the handoff artifact for the project: a stable prefix
++// (hub file summaries + repo file count, derived from the codeindex files table
++// and on-disk reads) and a dynamic delta (changed file stubs since the last
++// handoff, risk files, recent session events, working set). It records a new
++// handoff cursor so the next generation's delta reflects only subsequent
++// changes.
++func (s *Service) GenerateHandoff(ctx context.Context, repoDir string) (*Handoff, error) {
++	if s == nil || s.store == nil || s.store.DB == nil {
++		return nil, fmt.Errorf("memory service not initialized")
++	}
++	cursor, err := s.readHandoffCursor(ctx)
++	if err != nil {
++		return nil, fmt.Errorf("read handoff cursor: %w", err)
++	}
++
++	files, err := s.codeindexFiles(ctx)
++	if err != nil {
++		return nil, fmt.Errorf("list codeindex files: %w", err)
++	}
++
++	// Build the stable prefix: hub summaries + file count.
++	prefix := HandoffPrefix{FileCount: len(files)}
++	seen := map[string]bool{}
++	for _, f := range files {
++		if !isHubFile(f.path) || seen[f.path] {
++			continue
++		}
++		seen[f.path] = true
++		summary := readHeadSummary(filepath.Join(repoDir, f.path), hubSummaryLines)
++		prefix.HubFiles = append(prefix.HubFiles, HandoffHubFile{Path: f.path, Summary: summary})
++	}
++	sort.Slice(prefix.HubFiles, func(i, j int) bool { return prefix.HubFiles[i].Path < prefix.HubFiles[j].Path })
++
++	// Build the dynamic delta: changed files since the cursor (+ all hub files
++	// so a hub change is always visible), risk files, recent events, working set.
++	changed := map[string]bool{}
++	if !cursor.IsZero() {
++		for _, f := range files {
++			if isHubFile(f.path) || fileModifiedSince(filepath.Join(repoDir, f.path), cursor) {
++				changed[f.path] = true
++			}
++		}
++	}
++
++	changedPaths := make([]string, 0, len(changed))
++	for p := range changed {
++		changedPaths = append(changedPaths, p)
++	}
++	sort.Strings(changedPaths)
++
++	var stubs []ChangedFileStub
++	var riskFiles []string
++	for _, p := range changedPaths {
++		stubs = append(stubs, ChangedFileStub{
++			Path: p,
++			Stub: readHeadSummary(filepath.Join(repoDir, p), stubLines),
++		})
++		if isHubFile(p) {
++			riskFiles = append(riskFiles, p)
++		}
++	}
++
++	events, err := s.recentSessionEvents(ctx)
++	if err != nil {
++		return nil, fmt.Errorf("recent session events: %w", err)
++	}
++
++	delta := HandoffDelta{
++		ChangedFiles: stubs,
++		RiskFiles:    riskFiles,
++		RecentEvents: events,
++		WorkingSet: WorkingSetSummary{
++			ChangedCount: len(stubs),
++			RiskCount:    len(riskFiles),
++			Summary:      fmt.Sprintf("%d changed file(s), %d risk (hub) file(s), %d recent session event(s)", len(stubs), len(riskFiles), len(events)),
++		},
++	}
++
++	h := &Handoff{
++		Prefix:      prefix,
++		Delta:       delta,
++		GeneratedAt: time.Now().UTC(),
++		ProjectID:   s.projectID,
++	}
++
++	// Record the new cursor so the NEXT generation reflects only subsequent
++	// changes. This runs after the artifact is built (the current delta was
++	// computed against the prior cursor).
++	if err := s.writeHandoffCursor(ctx, h.GeneratedAt); err != nil {
++		return nil, fmt.Errorf("write handoff cursor: %w", err)
++	}
++	return h, nil
++}
++
++// SaveHandoff generates the handoff and writes it to outDir/handoff.latest.json
++// (overwriting any prior artifact). It creates outDir if needed.
++func (s *Service) SaveHandoff(ctx context.Context, repoDir, outDir string) error {
++	h, err := s.GenerateHandoff(ctx, repoDir)
++	if err != nil {
++		return err
++	}
++	if err := os.MkdirAll(outDir, 0o755); err != nil {
++		return fmt.Errorf("create handoff dir: %w", err)
++	}
++	raw, err := json.MarshalIndent(h, "", "  ")
++	if err != nil {
++		return fmt.Errorf("marshal handoff: %w", err)
++	}
++	p := filepath.Join(outDir, "handoff.latest.json")
++	if err := os.WriteFile(p, raw, 0o644); err != nil {
++		return fmt.Errorf("write handoff: %w", err)
++	}
++	return nil
++}
++
++// HandoffPath returns the default handoff artifact path under outDir.
++func HandoffPath(outDir string) string {
++	return filepath.Join(outDir, "handoff.latest.json")
++}
++
++type handoffFile struct {
++	path string
++}
++
++// codeindexFiles lists the indexed repo files (path + mtime_ns), excluding the
++// session pseudo-files (path "session:<id>") that carry no on-disk content.
++func (s *Service) codeindexFiles(ctx context.Context) ([]handoffFile, error) {
++	rows, err := s.store.DB.QueryContext(ctx,
++		`SELECT path FROM files WHERE path NOT LIKE 'session:%' ORDER BY path`)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var out []handoffFile
++	for rows.Next() {
++		var f handoffFile
++		if err := rows.Scan(&f.path); err != nil {
++			return nil, err
++		}
++		out = append(out, f)
++	}
++	return out, rows.Err()
++}
++
++// isHubFile reports whether a codeindex path is a hub file (matches the fixed
++// hubFilePatterns list by basename or path suffix).
++func isHubFile(path string) bool {
++	rel := filepath.ToSlash(path)
++	for _, pat := range hubFilePatterns {
++		if rel == pat || strings.HasSuffix(rel, "/"+pat) {
++			return true
++		}
++	}
++	return false
++}
++
++// readHeadSummary returns the first n lines of the file at abs, joined with
++// newlines. A missing/unreadable file yields "" (best-effort; the handoff must
++// never fail on an individual file read).
++func readHeadSummary(abs string, n int) string {
++	raw, err := os.ReadFile(abs)
++	if err != nil {
++		return ""
++	}
++	lines := strings.Split(string(raw), "\n")
++	if len(lines) > n {
++		lines = lines[:n]
++	}
++	return strings.Join(lines, "\n")
++}
++
++// recentSessionEvents returns the last recentEventsLimit session_log
++// observations for the project (newest first) — the "recent events".
++func (s *Service) recentSessionEvents(ctx context.Context) ([]RecentEvent, error) {
++	rows, err := s.store.DB.QueryContext(ctx, `
++		SELECT id, title, created_at
++		FROM observations
++		WHERE project = ? AND type = 'session_log' AND deleted_at IS NULL
++		ORDER BY created_at DESC, id DESC
++		LIMIT ?`,
++		s.projectID, recentEventsLimit)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var out []RecentEvent
++	for rows.Next() {
++		var e RecentEvent
++		if err := rows.Scan(&e.ID, &e.Title, &e.CreatedAt); err != nil {
++			return nil, err
++		}
++		out = append(out, e)
++	}
++	return out, rows.Err()
++}
++
++// readHandoffCursor returns the last-handoff cursor, or a zero time when no
++// handoff has been generated yet.
++func (s *Service) readHandoffCursor(ctx context.Context) (time.Time, error) {
++	var ts string
++	err := s.store.DB.QueryRowContext(ctx,
++		`SELECT value FROM handoff_meta WHERE key = ?`, handoffKey).Scan(&ts)
++	if err == sql.ErrNoRows {
++		return time.Time{}, nil
++	}
++	if err != nil {
++		return time.Time{}, err
++	}
++	if ts == "" {
++		return time.Time{}, nil
++	}
++	t, err := time.Parse(time.RFC3339Nano, ts)
++	if err != nil {
++		return time.Time{}, nil
++	}
++	return t, nil
++}
++
++// writeHandoffCursor persists the handoff cursor (RFC3339) so the next
++// generation's delta reflects only subsequent changes.
++func (s *Service) writeHandoffCursor(ctx context.Context, ts time.Time) error {
++	_, err := s.store.DB.ExecContext(ctx,
++		`INSERT INTO handoff_meta (key, value) VALUES (?, ?)
++		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
++		handoffKey, ts.UTC().Format(time.RFC3339Nano))
++	return err
++}
++
++// fileModifiedSince reports whether the on-disk file at abs was modified after
++// cursor. A missing/unstat-able file is treated as not modified (best-effort;
++// the handoff must never fail on a single file). This is the changed-file
++// detection: it uses the real filesystem mtime (not the codeindex table, which
++// only advances when the codeindex indexer runs), so a handoff generated after
++// an agent edits files reflects those edits without a re-index.
++func fileModifiedSince(abs string, cursor time.Time) bool {
++	info, err := os.Stat(abs)
++	if err != nil {
++		return false
++	}
++	return info.ModTime().After(cursor)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/handoff_test.go b/skillgrid-cli/internal/mnemonic/memory/handoff_test.go
+new file mode 100644
+index 0000000..74d1dcc
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/handoff_test.go
+@@ -0,0 +1,306 @@
++package memory
++
++import (
++	"context"
++	"database/sql"
++	"encoding/json"
++	"fmt"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++// The handoff artifact (014 step 21) is a compact, agent-to-agent context block
++// with two halves:
++//
++//   - a STABLE prefix (hub file summaries + repo file count) that only changes
++//     when a hub file (or the file population) changes; and
++//   - a DYNAMIC delta (changed file stubs, risk files, recent session events,
++//     working set) computed fresh at generation time.
++//
++// Detection strategy (documented in the brief): the memory package cannot
++// depend on the service layer (import cycle), and a fresh CLI process cannot
++// rely on in-process state. We therefore persist a handoff cursor into the
++// store's kv_meta table on every generation. The delta includes codeindex
++// files whose mtime_ns is newer than the stored cursor (i.e. changed since the
++// last handoff) plus every hub file (so hub changes are always visible). This
++// is deterministic, cross-process, and testable.
++
++func writeRepoFile(t *testing.T, dir, rel, content string) {
++	t.Helper()
++	p := filepath.Join(dir, rel)
++	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
++		t.Fatalf("mkdir for %s: %v", rel, err)
++	}
++	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
++		t.Fatalf("write %s: %v", rel, err)
++	}
++}
++
++func TestHandoffPrefixStable(t *testing.T) {
++	fx := newFixture(t, "handoff-prefix")
++	ctx := context.Background()
++	db := fx.st.DB
++
++	repo := t.TempDir()
++	hubRel := "AGENTS.md"
++	nonHubRel := "src/util.go"
++	writeRepoFile(t, repo, hubRel, "project agent config v1\n")
++	writeRepoFile(t, repo, nonHubRel, "package util\n")
++
++	seedHandoffFile(t, db, hubRel, 1000)
++	seedHandoffFile(t, db, nonHubRel, 1000)
++
++	gen := func() *Handoff {
++		t.Helper()
++		h, err := fx.svc.GenerateHandoff(ctx, repo)
++		if err != nil {
++			t.Fatalf("generate handoff: %v", err)
++		}
++		return h
++	}
++
++	h1 := gen()
++	if len(h1.Prefix.HubFiles) == 0 {
++		t.Fatalf("prefix must contain hub file summaries, got none")
++	}
++	hubSummary := findHubSummary(h1.Prefix.HubFiles, hubRel)
++	if hubSummary == nil {
++		t.Fatalf("prefix hub summaries missing %s: %+v", hubRel, h1.Prefix.HubFiles)
++	}
++	if h1.Prefix.FileCount != 2 {
++		t.Fatalf("prefix file count = %d, want 2", h1.Prefix.FileCount)
++	}
++
++	// Modify a NON-hub file. The prefix must be unchanged (stable).
++	time.Sleep(50 * time.Millisecond)
++	writeRepoFile(t, repo, nonHubRel, "package util\n\nfunc New() {}\n")
++	h2 := gen()
++	p1 := h1.Prefix
++	p2 := h2.Prefix
++	if p1.FileCount != p2.FileCount {
++		t.Fatalf("non-hub change altered file count: %d -> %d", p1.FileCount, p2.FileCount)
++	}
++	if len(p1.HubFiles) != len(p2.HubFiles) {
++		t.Fatalf("non-hub change altered hub summary count: %d -> %d", len(p1.HubFiles), len(p2.HubFiles))
++	}
++	for i := range p1.HubFiles {
++		if p1.HubFiles[i].Path != p2.HubFiles[i].Path || p1.HubFiles[i].Summary != p2.HubFiles[i].Summary {
++			t.Fatalf("non-hub change altered a hub summary: %+v -> %+v", p1.HubFiles[i], p2.HubFiles[i])
++		}
++	}
++
++	// Modify a HUB file. The prefix must now reflect the change.
++	time.Sleep(50 * time.Millisecond)
++	writeRepoFile(t, repo, hubRel, "project agent config v2 (updated)\n")
++	h3 := gen()
++	hubSummary3 := findHubSummary(h3.Prefix.HubFiles, hubRel)
++	if hubSummary3 == nil {
++		t.Fatalf("after hub change, prefix lost %s: %+v", hubRel, h3.Prefix.HubFiles)
++	}
++	if hubSummary3.Summary == hubSummary.Summary {
++		t.Fatalf("hub change did not alter the hub summary (still %q)", hubSummary.Summary)
++	}
++}
++
++func TestHandoffDeltaDynamic(t *testing.T) {
++	fx := newFixture(t, "handoff-delta")
++	ctx := context.Background()
++	db := fx.st.DB
++
++	repo := t.TempDir()
++	hubRel := "go.mod"
++	regular1 := "src/a.go"
++	regular2 := "src/b.go"
++	unchanged := "src/c.go"
++	for _, rel := range []string{hubRel, regular1, regular2, unchanged} {
++		writeRepoFile(t, repo, rel, "initial "+rel+"\n")
++	}
++	for _, rel := range []string{hubRel, regular1, regular2, unchanged} {
++		seedHandoffFile(t, db, rel, 1000)
++	}
++
++	// Seed 12 session events so the "last 10" cap is exercised.
++	if err := seedSessionEvents(t, fx, 12); err != nil {
++		t.Fatalf("seed session events: %v", err)
++	}
++
++	h1, err := fx.svc.GenerateHandoff(ctx, repo)
++	if err != nil {
++		t.Fatalf("first handoff: %v", err)
++	}
++	// The first handoff has no cursor, so its delta is empty (nothing changed
++	// since "never"). The cursor is now recorded.
++	if len(h1.Delta.ChangedFiles) != 0 {
++		t.Fatalf("first handoff should have an empty delta, got %d files", len(h1.Delta.ChangedFiles))
++	}
++
++	time.Sleep(50 * time.Millisecond)
++	// Modify 3 files: 1 hub + 2 regular. Leave `unchanged` untouched.
++	writeRepoFile(t, repo, hubRel, "module updated\n")
++	writeRepoFile(t, repo, regular1, "package a\n\nfunc A() {}\n")
++	writeRepoFile(t, repo, regular2, "package b\n\nfunc B() {}\n")
++
++	h2, err := fx.svc.GenerateHandoff(ctx, repo)
++	if err != nil {
++		t.Fatalf("second handoff: %v", err)
++	}
++
++	paths := map[string]bool{}
++	for _, cf := range h2.Delta.ChangedFiles {
++		paths[cf.Path] = true
++		if cf.Stub == "" {
++			t.Fatalf("changed file %s has an empty stub", cf.Path)
++		}
++	}
++	for _, want := range []string{hubRel, regular1, regular2} {
++		if !paths[want] {
++			t.Fatalf("delta missing changed file %s (got %v)", want, paths)
++		}
++	}
++	if paths[unchanged] {
++		t.Fatalf("delta wrongly includes unchanged file %s", unchanged)
++	}
++
++	// The hub file must be flagged as a risk file.
++	foundRisk := false
++	for _, rf := range h2.Delta.RiskFiles {
++		if rf == hubRel {
++			foundRisk = true
++		}
++	}
++	if !foundRisk {
++		t.Fatalf("hub file %s not flagged as a risk file: %v", hubRel, h2.Delta.RiskFiles)
++	}
++
++	// Recent events: last 10 of the 12 seeded.
++	if len(h2.Delta.RecentEvents) != 10 {
++		t.Fatalf("recent events = %d, want 10", len(h2.Delta.RecentEvents))
++	}
++	if h2.Delta.WorkingSet.Summary == "" {
++		t.Fatalf("working set summary is empty")
++	}
++
++	// The delta is fresh: regenerating WITHOUT further changes drops the
++	// regular changed files (the cursor advanced past the last generation). The
++	// hub file is intentionally always present (hub changes must stay visible),
++	// so the only remaining entry is the hub file.
++	h3, err := fx.svc.GenerateHandoff(ctx, repo)
++	if err != nil {
++		t.Fatalf("third handoff: %v", err)
++	}
++	for _, cf := range h3.Delta.ChangedFiles {
++		if cf.Path != hubRel {
++			t.Fatalf("delta after no further changes should only keep the hub file, got %s", cf.Path)
++		}
++	}
++}
++
++func TestHandoffSavedToFile(t *testing.T) {
++	fx := newFixture(t, "handoff-file")
++	ctx := context.Background()
++
++	repo := t.TempDir()
++	writeRepoFile(t, repo, "AGENTS.md", "hub v1\n")
++	seedHandoffFile(t, fx.st.DB, "AGENTS.md", 1000)
++
++	outDir := t.TempDir()
++	if err := fx.svc.SaveHandoff(ctx, repo, outDir); err != nil {
++		t.Fatalf("save handoff: %v", err)
++	}
++
++	p := filepath.Join(outDir, "handoff.latest.json")
++	raw, err := os.ReadFile(p)
++	if err != nil {
++		t.Fatalf("read handoff file: %v", err)
++	}
++	var parsed map[string]json.RawMessage
++	if err := json.Unmarshal(raw, &parsed); err != nil {
++		t.Fatalf("handoff JSON invalid: %v", err)
++	}
++	if _, ok := parsed["prefix"]; !ok {
++		t.Fatalf("handoff JSON missing prefix section")
++	}
++	if _, ok := parsed["delta"]; !ok {
++		t.Fatalf("handoff JSON missing delta section")
++	}
++	if parsed["generated_at"] == nil {
++		t.Fatalf("handoff JSON missing generated_at: keys=%v", mapKeys(parsed))
++	}
++
++	// A second generation overwrites (not appends). The file must still parse
++	// as a single JSON object after the second write.
++	time.Sleep(50 * time.Millisecond)
++	if err := fx.svc.SaveHandoff(ctx, repo, outDir); err != nil {
++		t.Fatalf("save handoff (2nd): %v", err)
++	}
++	raw2, err := os.ReadFile(p)
++	if err != nil {
++		t.Fatalf("read handoff file (2nd): %v", err)
++	}
++	if err := json.Unmarshal(raw2, &parsed); err != nil {
++		t.Fatalf("second handoff JSON invalid (appended?): %v", err)
++	}
++	if len(raw2) == len(raw) && string(raw2) == string(raw) {
++		// generated_at is at second precision, so a same-second rewrite can be
++		// byte-identical; the parse check above already proves overwrite (a
++		// second appended object would not parse as a single map).
++		t.Logf("note: same-second rewrite, byte-identical is expected")
++	}
++}
++
++func mapKeys(m map[string]json.RawMessage) []string {
++	out := make([]string, 0, len(m))
++	for k := range m {
++		out = append(out, k)
++	}
++	return out
++}
++
++// findHubSummary returns the hub summary entry for rel, or nil.
++func findHubSummary(hubs []HandoffHubFile, rel string) *HandoffHubFile {
++	for i := range hubs {
++		if hubs[i].Path == rel {
++			return &hubs[i]
++		}
++	}
++	return nil
++}
++
++// seedHandoffFile inserts a codeindex files row for the test repo.
++func seedHandoffFile(t *testing.T, db *sql.DB, path string, mtimeNs int64) {
++	t.Helper()
++	if _, err := db.Exec(
++		`INSERT OR REPLACE INTO files (path, mtime_ns, size, content_hash, indexed_at)
++		 VALUES (?, ?, 1, ?, '2026-01-01T00:00:00Z')`,
++		path, mtimeNs, "h-"+path,
++	); err != nil {
++		t.Fatalf("seed handoff file %s: %v", path, err)
++	}
++}
++
++// seedSessionEvents inserts n session_log observations (the "recent events"),
++// each with a distinct created_at so the "last 10" recency ordering is testable.
++func seedSessionEvents(t *testing.T, fx *fixture, n int) error {
++	t.Helper()
++	db := fx.st.DB
++	for i := 0; i < n; i++ {
++		ts := time.Now().UTC().Add(time.Duration(i) * time.Second).Format(time.RFC3339)
++		title := "event " + itoa(i)
++		content := "recent session event " + itoa(i)
++		hash := "nh-evt-" + itoa(i)
++		if _, err := db.Exec(
++			`INSERT INTO observations (
++				session_id, type, title, content, project, scope,
++				normalized_hash, revision_count, created_at, updated_at
++			) VALUES (?, 'session_log', ?, ?, ?, '', ?, 0, ?, ?)`,
++			fx.sessID, title, content, fx.svc.ProjectID(), hash, ts, ts,
++		); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++func itoa(i int) string { return fmt.Sprintf("%d", i) }
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/031_handoff.sql b/skillgrid-cli/internal/mnemonic/store/migrations/031_handoff.sql
+new file mode 100644
+index 0000000..b2bbedb
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/031_handoff.sql
+@@ -0,0 +1,16 @@
++-- 031: handoff cursor (change 014, step 21).
++--
++-- The handoff artifact (prefix + delta) is generated on demand. The delta
++-- ("changed since the last handoff") needs a persistent, cross-process cursor
++-- because the memory package cannot depend on the service layer and a fresh CLI
++-- process cannot rely on in-process state. This tiny key/value table stores the
++-- last-handoff timestamp (RFC3339) under a fixed key. Purely additive: a new
++-- table, no changes to any existing schema.
++--
++--   key   — fixed key (handoff:cursor); one row per project store
++--   value — RFC3339 UTC timestamp of the most recent handoff generation
++
++CREATE TABLE IF NOT EXISTS handoff_meta (
++    key TEXT PRIMARY KEY,
++    value TEXT NOT NULL
++);

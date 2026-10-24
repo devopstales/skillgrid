@@ -1,0 +1,1653 @@
+=== commits ===
+c32ef909 docs(sdd): record project-init review floor and commit spec zone
+cb077edf fix(cli): harden skillgrid init path jail and ingest bounds
+=== diff ===
+diff --git a/.skillgrid/specs/2026-10-02-mnemonic-project-init/acceptance.feature b/.skillgrid/specs/2026-10-02-mnemonic-project-init/acceptance.feature
+new file mode 100644
+index 00000000..52842f2f
+--- /dev/null
++++ b/.skillgrid/specs/2026-10-02-mnemonic-project-init/acceptance.feature
+@@ -0,0 +1,252 @@
++# Project Init
++#
++# Source: .skillgrid/specs/2026-10-02-mnemonic-project-init/
++# Trace: briefing requirements 1–6.
++
++## Requirements
++
++### Requirement: Init command
++
++The system SHALL expose `skillgrid init` that sequences boot-file write, code index, and doc ingest, and SHALL print a result with written / indexed / ingested / skipped / errors.
++
++#### Scenario: happy path init writes boot file and reports counts
++
++```gherkin
++      Given a temporary project directory with a README
++      When the operator runs skillgrid init
++      Then the command exits 0
++      And the result reports a boot file path
++      And the result reports indexed and ingested counts
++```
++
++#### Scenario: init help lists force and docs flags
++
++```gherkin
++      Given the skillgrid binary
++      When the operator runs skillgrid init -h
++      Then the usage names --force
++      And the usage names --docs
++```
++
++#### Scenario: boot file write failure is the only fatal error
++
++```gherkin
++      Given a project directory whose boot file cannot be written
++      When the operator runs skillgrid init
++      Then the command exits non-zero
++      And no success result is printed
++```
++
++#### Gates
++# G1: happy path init writes boot file and reports counts
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestInitWritesBootFileAndReportsCounts
++#   EXPECT: PASS TestInitWritesBootFileAndReportsCounts
++#   EVIDENCE: pending
++# G2: boot file write failure is the only fatal error
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestInitBootFileWriteFailureIsFatal
++#   EXPECT: PASS TestInitBootFileWriteFailureIsFatal
++#   EVIDENCE: pending
++
++### Requirement: Boot file
++
++The system SHALL write a short working-agreement preamble above the Skillgrid sentinel and SHALL upsert the sentinel in place so a second run never duplicates it.
++
++#### Scenario: happy path init upserts preamble and sentinel
++
++```gherkin
++      Given a temporary project with no AGENTS.md
++      When the operator runs skillgrid init
++      Then AGENTS.md exists
++      And AGENTS.md contains a working-agreement preamble
++      And AGENTS.md contains exactly one Skillgrid sentinel pair
++```
++
++#### Scenario: second init merges without duplicating the sentinel
++
++```gherkin
++      Given a project already initialized
++      When the operator runs skillgrid init without --force
++      Then AGENTS.md still contains exactly one Skillgrid sentinel pair
++      And user text outside the preamble and sentinel is unchanged
++```
++
++#### Scenario: force rewrites the preamble only
++
++```gherkin
++      Given a project already initialized with a customized preamble
++      When the operator runs skillgrid init --force
++      Then the preamble is replaced
++      And the sentinel is still a single pair
++```
++
++#### Gates
++# G3: happy path init upserts preamble and sentinel
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestInitUpsertsPreambleAndSentinel
++#   EXPECT: PASS TestInitUpsertsPreambleAndSentinel
++#   EVIDENCE: pending
++# G4: force rewrites the preamble only
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestInitForceRewritesPreamble
++#   EXPECT: PASS TestInitForceRewritesPreamble
++#   EVIDENCE: pending
++
++### Requirement: Forced code index
++
++The system SHALL run the existing code index pipeline during init so a project with at least one indexable file has a non-empty index.
++
++#### Scenario: happy path init indexes the project
++
++```gherkin
++      Given a temporary project with an indexable source file
++      When the operator runs skillgrid init
++      Then the project index lists at least one file
++```
++
++#### Scenario: init reuses the existing indexer
++
++```gherkin
++      Given the project init command
++      When the operator inspects how init indexes
++      Then init uses the same index pipeline as skillgrid index
++      And it does not open a second store
++```
++
++#### Scenario: index failure after boot file still exits 0
++
++```gherkin
++      Given a project whose boot file can be written
++      And the index pipeline will fail
++      When the operator runs skillgrid init
++      Then the command exits 0
++      And the result lists the index failure under errors
++      And the boot file exists
++```
++
++#### Gates
++# G5: happy path init indexes the project
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestInitIndexesTheProject
++#   EXPECT: PASS TestInitIndexesTheProject
++#   EVIDENCE: pending
++# G6: index failure after boot file still exits 0
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestInitIndexFailureIsNonFatal
++#   EXPECT: PASS TestInitIndexFailureIsNonFatal
++#   EVIDENCE: pending
++
++### Requirement: Default ingest
++
++The system SHALL upsert observations for each existing default path under topic key `init/docs/<relpath>` and SHALL skip missing defaults without failing.
++
++#### Scenario: happy path init ingests default paths
++
++```gherkin
++      Given a temporary project with README.md and one file under docs
++      When the operator runs skillgrid init
++      Then an observation exists with topic key init/docs/README.md
++      And an observation exists with topic key init/docs/docs/<that-file>
++```
++
++#### Scenario: missing docs directory is skipped
++
++```gherkin
++      Given a temporary project with README.md and no docs directory
++      When the operator runs skillgrid init
++      Then the command exits 0
++      And the result lists docs/ under skipped
++      And an observation exists with topic key init/docs/README.md
++```
++
++#### Scenario: second init upserts the same topic keys
++
++```gherkin
++      Given a project already ingested
++      When the operator runs skillgrid init again
++      Then no second observation is created for init/docs/README.md
++      And the existing observation is updated
++```
++
++#### Gates
++# G7: happy path init ingests default paths
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestInitIngestsDefaultPaths
++#   EXPECT: PASS TestInitIngestsDefaultPaths
++#   EVIDENCE: pending
++# G8: missing docs directory is skipped
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestInitSkipsMissingDocs
++#   EXPECT: PASS TestInitSkipsMissingDocs
++#   EVIDENCE: pending
++
++### Requirement: Extra docs flag
++
++The system SHALL ingest each existing `--docs` path the same way as defaults and SHALL list a missing extra path as a non-fatal error.
++
++#### Scenario: happy path init ingests extra --docs path
++
++```gherkin
++      Given a temporary project with extra.md outside the defaults
++      When the operator runs skillgrid init --docs extra.md
++      Then an observation exists with topic key init/docs/extra.md
++```
++
++#### Scenario: repeated --docs flags ingest each path
++
++```gherkin
++      Given a temporary project with a.md and b.md
++      When the operator runs skillgrid init --docs a.md --docs b.md
++      Then observations exist for init/docs/a.md and init/docs/b.md
++```
++
++#### Scenario: missing extra docs path is listed and non-fatal
++
++```gherkin
++      Given a temporary project whose boot file can be written
++      When the operator runs skillgrid init --docs missing.md
++      Then the command exits 0
++      And the result lists missing.md under errors
++      And the boot file exists
++```
++
++#### Gates
++# G9: happy path init ingests extra --docs path
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestInitIngestsExtraDocs
++#   EXPECT: PASS TestInitIngestsExtraDocs
++#   EVIDENCE: pending
++# G10: missing extra docs path is listed and non-fatal
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestInitMissingExtraDocsIsNonFatal
++#   EXPECT: PASS TestInitMissingExtraDocsIsNonFatal
++#   EVIDENCE: pending
++
++### Requirement: Skill hands off to CLI
++
++The onboarding skill SHALL finish by running `skillgrid init` and SHALL NOT re-specify an ingest procedure.
++
++#### Scenario: happy path onboarding skill calls skillgrid init
++
++```gherkin
++      Given the onboarding skill
++      When a reader looks at the write-and-verify steps
++      Then the skill names skillgrid init as the deterministic finish
++```
++
++#### Scenario: skill passes extra docs through
++
++```gherkin
++      Given the user named extra documentation paths in the interview
++      When the skill runs skillgrid init
++      Then it passes those paths as --docs flags
++```
++
++#### Scenario: skill does not contain a second ingest procedure
++
++```gherkin
++      Given the onboarding skill
++      When a reader searches for a file-walk ingest contract
++      Then the only ingest procedure is the skillgrid init command
++```
++
++#### Gates
++# G11: happy path onboarding skill calls skillgrid init
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestOnboardingSkillCallsSkillgridInit
++#   EXPECT: PASS TestOnboardingSkillCallsSkillgridInit
++#   EVIDENCE: pending
++# G12: skill does not contain a second ingest procedure
++#   CHECK: go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestOnboardingSkillHasNoSecondIngest
++#   EXPECT: PASS TestOnboardingSkillHasNoSecondIngest
++#   EVIDENCE: pending
+diff --git a/.skillgrid/specs/2026-10-02-mnemonic-project-init/adr.md b/.skillgrid/specs/2026-10-02-mnemonic-project-init/adr.md
+new file mode 100644
+index 00000000..be51f024
+--- /dev/null
++++ b/.skillgrid/specs/2026-10-02-mnemonic-project-init/adr.md
+@@ -0,0 +1,20 @@
++# ADR Review Manifest
++
++- **Change:** `2026-10-02-mnemonic-project-init`
++- **Status:** completed
++- **Review date:** 2026-10-02
++
++## In-Force ADRs Reviewed
++
++- `.skillgrid/artifacts/04-adr-0012-sqlite-as-second-brain.md` — one SQLite store; init must not add Claude OS knowledge bases
++- `.skillgrid/artifacts/04-adr-0016-second-brain-capability-layer.md` — capture/ask/lifecycle already shipped; init is a DX layer, not a new brain engine
++- `.skillgrid/artifacts/04-adr-0019-decisions-are-files.md` — no new decision body inlined into ASSUMPTIONS
++- `.skillgrid/artifacts/04-adr-0020-sdd-ledger-owns-execution.md` — this change is a CLI/skill sequencer, not a teams/ledger move
++
++## New Durable ADRs Created
++
++- None — no major durable architectural decision was introduced by this change. Keep-store restates ADR-0012. The orchestrator CLI is reversible.
++
++## Supersessions
++
++- None.
+diff --git a/.skillgrid/specs/2026-10-02-mnemonic-project-init/blueprint.md b/.skillgrid/specs/2026-10-02-mnemonic-project-init/blueprint.md
+new file mode 100644
+index 00000000..deb35b41
+--- /dev/null
++++ b/.skillgrid/specs/2026-10-02-mnemonic-project-init/blueprint.md
+@@ -0,0 +1,700 @@
++# Project Init Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use skillgrid:subagent-execution (recommended) or skillgrid:simple-execution to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Status:** PROPOSED
++
++**Tier:** T2
++
++**Build shape:** Smallest usable whole
++
++**Classification:** standard (L2 floor)
++
++**Queued behind:** `2026-10-02-mnemonic-memory-checkpoint` — do not take `state.yaml` `current_change` or start execution until that change ships or parks. per ASSUMPTIONS.md § Locked constraints (serial development)
++
++**Goal:** Add `skillgrid init` as an orchestrator that writes the AGENTS preamble + sentinel, runs the existing code index, and upserts local docs into the one SQLite store; teach onboarding to call it.
++
++**Architecture:** New CLI verb `runProjectInit` sequences three existing seams: boot-file upsert (preamble markers + `<!-- skillgrid:start -->` sentinel from `_shared/agent-config/block.md`), `service.Service.RunCodeIndex`, and `memory.Service.Save` via `OpenForDirectory`. No new store, no new MCP tool, no four KBs. per `.skillgrid/artifacts/04-adr-0012-sqlite-as-second-brain.md`
++
++**Tech Stack:** Go 1.22+ (`flag`, `os`, `path/filepath`), existing `internal/mnemonic/service` + `memory.Save`
++
++**Spec:** `.skillgrid/specs/2026-10-02-mnemonic-project-init/briefing.md`
++
++## Hypothesis
++
++**Claim:** A temp project with a README and one Go file, after `projectInit(dir, false, nil)`, has exactly one Skillgrid sentinel pair, a preamble region, `FilesIndexed >= 1`, and an observation at `init/docs/README.md`.
++**Right condition:** The four Task 1–4 tests named below PASS on that fixture.
++**Wrong condition:** Init cannot write the boot file without a second store, or ingest requires a new KB table.
++**Thinnest MVP:** Task 1 (command + result + help) plus Task 2 (boot file) — if the sentinel upsert cannot stay a single pair, stop.
++**Door check:** Task 1 `TestInitHelpListsFlags` + `TestInitWritesBootFileAndReportsCounts` (counts may be zero until later tasks; boot file path and exit 0 must hold).
++
++## Terms
++
++- [Project Init](../../artifacts/02-technical-terms.md) — this command + skill handoff
++- [Knowledge Base (KB)](../../artifacts/02-technical-terms.md) — do not create
++- [Topic Key](../../artifacts/02-technical-terms.md) — `init/docs/<relpath>`
++- [Distribution Surface](../../artifacts/02-technical-terms.md) — CLI verb only
++
++## Must-Haves (goal-backward verification)
++
++**Truths:**
++- `skillgrid init -h` names `--force` and `--docs`
++- First init on an empty-AGENTS temp dir creates `AGENTS.md` with preamble markers and exactly one `<!-- skillgrid:start -->` / `<!-- skillgrid:end -->` pair
++- Second init without `--force` keeps one sentinel pair and does not wipe user text below the sentinel
++- `--force` replaces only the preamble region
++- A project with an indexable `.go` file has `Indexed >= 1` after init (`backstop`)
++- Existing `README.md` upserts `topic_key=init/docs/README.md`; missing `docs/` is listed in `Skipped` and is not an error
++- `--docs extra.md` (inside the project) upserts `init/docs/extra.md`; `--docs` outside the project or a missing path is listed in `Errors` and the command still exits 0 if the boot file was written (`backstop`)
++- Onboarding `SKILL.md` names `skillgrid init` as the deterministic finish and has no second file-walk ingest procedure
++
++**Artifacts:**
++- `skillgrid-cli/cmd/skillgrid/init_cmd.go` — flags, `runProjectInit`, `projectInit`, result print
++- `skillgrid-cli/cmd/skillgrid/init_boot.go` — preamble + sentinel upsert
++- `skillgrid-cli/cmd/skillgrid/init_ingest.go` — path walk, jail, Save
++- `skillgrid-cli/cmd/skillgrid/init_cmd_test.go` — all TestInit* named in acceptance gates
++- `skillgrid-cli/cmd/skillgrid/main.go` — `case "init":` + usage line
++- `.agents/skills/lifecycle/onboarding/SKILL.md` — one step that runs the CLI
++
++**Key links:**
++- `runProjectInit` calls `projectInit` then prints `initResult`; fatal only when `BootFile` write fails
++- `projectInit` calls `writeBootFile` then `RunCodeIndex` then `ingestPaths`
++- `ingestPaths` uses the same `ProjectHandle.Memory().Save` as `skillgrid mem`
++- Onboarding step invokes the same binary verb, not a parallel ingest list
++
++**One-way-door decisions:**
++- None (no migration, no new MCP tool, no public HTTP shape)
++
++## Global Constraints
++
++- Go 1.22+ to build. per ASSUMPTIONS.md § Locked constraints
++- No new dependencies without an ADR. per ASSUMPTIONS.md § Locked constraints
++- Serial development: one change at a time. per ASSUMPTIONS.md § Locked constraints
++- One SQLite store; no KBs. per `.skillgrid/artifacts/04-adr-0012-sqlite-as-second-brain.md`
++- Errors-as-values on the init report; index/ingest failures are listed, not thrown as the process exit, except boot-file write. per `.skillgrid/artifacts/04-adr-0016-second-brain-capability-layer.md` (C4 shape, CLI analogue)
++- `--docs` paths must resolve inside the project directory after `filepath.Clean` + `filepath.Rel` (a `..` prefix is an error line, not ingested)
++
++## Threat Matrix
++
++| Boundary | Applicability | Design response | Planned RED test |
++|---|---|---|---|
++| Documentation-like paths | Applicable | Ingest reads file bytes into `Save`; never exec, chmod, or install | `TestInitIngestsExtraDocs` writes `README.sh` and asserts an observation, not a subprocess |
++| Git repository selection | Applicable | Project is `--dir` (default cwd); `OpenForDirectory(dir)` | All TestInit* use `t.TempDir()` as `--dir` |
++| Commit state | N/A: init does not git-add or commit | — | — |
++| Push state | N/A: no remotes | — | — |
++| PR commands | N/A: no gh/glab | — | — |
++| Mnemonic tool surface | N/A: no new `mem_*` tool; CLI calls existing `Save` | — | — |
++| Shared-convention drift | N/A: no edit to `_shared/conventions` or `agent-config/block.md`; sentinel text is copied from the existing block rules | — | — |
++| Path jail (`--docs`) | Applicable | Extra paths outside `dir` → `Errors`, not ingested | `TestInitMissingExtraDocsIsNonFatal` plus `TestInitRejectsDocsOutsideProject` |
++
++## File Structure
++
++- `skillgrid-cli/cmd/skillgrid/init_cmd.go` — `initResult`, `runProjectInit`, `projectInit`, usage
++- `skillgrid-cli/cmd/skillgrid/init_boot.go` — `writeBootFile`, preamble template, sentinel upsert
++- `skillgrid-cli/cmd/skillgrid/init_ingest.go` — default path list, walk, jail, Save
++- `skillgrid-cli/cmd/skillgrid/init_cmd_test.go` — CLI + helper tests
++- `skillgrid-cli/cmd/skillgrid/main.go` — dispatch + help
++- `.agents/skills/lifecycle/onboarding/SKILL.md` — handoff step
++
++Named types (all tasks):
++
++```go
++type initResult struct {
++	BootFile  string
++	Preamble  string // "written" | "kept" | "forced"
++	Sentinel  string // "upserted"
++	Indexed   int
++	Ingested  int
++	Skipped   []string
++	Errors    []string
++}
++
++func runProjectInit(args []string) // os.Exit
++func projectInit(ctx context.Context, svc *service.Service, dir string, force bool, extraDocs []string) (initResult, error)
++func writeBootFile(dir string, force bool) (bootPath, preambleState string, err error)
++func ingestPaths(ctx context.Context, h *service.ProjectHandle, dir string, extra []string) (ingested int, skipped, errs []string)
++```
++
++Default ingest roots (only if they exist): `README.md`, `docs/`, `.skillgrid/ASSUMPTIONS.md`, `.skillgrid/ARCHITECTURE.md`, `.skillgrid/artifacts/`. Topic key: `init/docs/` + slash-separated path relative to `dir`. Type: `architecture` for ASSUMPTIONS, ARCHITECTURE, and anything under `.skillgrid/artifacts/`; `discovery` for README and `docs/`.
++
++Preamble region markers: `<!-- skillgrid-preamble:start -->` … `<!-- skillgrid-preamble:end -->`. Sentinel: existing `<!-- skillgrid:start -->` … `<!-- skillgrid:end -->`.
++
++Preamble body (exact):
++
++```
++# Project Overview
++{dir base name}.
++
++# Environment & Tooling
++- Fill in language, package manager, test and lint commands.
++
++# Engineering Standards
++- Add or update tests for behavior changes
++- Keep diffs small and reviewable
++
++# Security & Escalation Boundaries
++- Work only in this repository
++- Do not read secrets or credential stores
++- Ask before installing dependencies or changing auth logic
++
++# Dependency Policies
++- Prefer the standard library
++- New packages require approval
++
++# Architecture Constraints
++- See `.skillgrid/ASSUMPTIONS.md` when present
++
++# Definition of Done
++- Tests pass
++- Lint and formatting pass
++- Update the spec if behavior changes
++```
++
++On `--force`, replace only the preamble region. If markers are missing, insert the region immediately before the sentinel (or at file start if no sentinel yet).
++
++---
++
++### Task 1: Init command door check
++
++**Files:**
++- Create: `skillgrid-cli/cmd/skillgrid/init_cmd.go`
++- Create: `skillgrid-cli/cmd/skillgrid/init_cmd_test.go`
++- Modify: `skillgrid-cli/cmd/skillgrid/main.go` (add `case "init":` next to `case "index":`, and a usage line `init          Project boot file, code index, and doc ingest`)
++
++**Interfaces:**
++- Consumes: none
++- Produces: `runProjectInit`, `initResult`, `projectInit` (may return empty Indexed/Ingested until later tasks)
++- Seam: none (in-process)
++- Deletion test: without this file, `skillgrid` has no project init verb
++- Adapters: 1 (CLI)
++
++**SATISFIES:** happy path init writes boot file and reports counts; init help lists force and docs flags; boot file write failure is the only fatal error
++
++- [ ] **Step 1: Write the failing tests**
++
++```go
++func TestInitHelpListsFlags(t *testing.T) {
++	var buf bytes.Buffer
++	fs := flag.NewFlagSet("init", flag.ContinueOnError)
++	fs.SetOutput(&buf)
++	_ = fs.Bool("force", false, "rebuild generated preamble")
++	_ = fs.String("docs", "", "extra path (repeatable)")
++	fs.Usage = func() {
++		fmt.Fprintln(fs.Output(), "usage: skillgrid init [--force] [--docs path]...")
++		fs.PrintDefaults()
++	}
++	fs.Usage()
++	out := buf.String()
++	if !strings.Contains(out, "--force") || !strings.Contains(out, "--docs") {
++		t.Fatalf("usage = %q", out)
++	}
++}
++
++func TestInitWritesBootFileAndReportsCounts(t *testing.T) {
++	dir := t.TempDir()
++	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if res.BootFile == "" {
++		t.Fatal("expected boot file path")
++	}
++	if _, statErr := os.Stat(res.BootFile); statErr != nil {
++		t.Fatal(statErr)
++	}
++}
++
++func TestInitBootFileWriteFailureIsFatal(t *testing.T) {
++	// dir is a file, so AGENTS.md cannot be created
++	dir := filepath.Join(t.TempDir(), "notdir")
++	if err := os.WriteFile(dir, []byte("x"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	_, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
++	if err == nil {
++		t.Fatal("expected error")
++	}
++}
++```
++
++- [ ] **Step 2: Run tests to verify they fail**
++
++Run: `go test ./skillgrid-cli/cmd/skillgrid -count=1 -run 'TestInitHelpListsFlags|TestInitWritesBootFileAndReportsCounts|TestInitBootFileWriteFailureIsFatal'`
++Expected: FAIL — `projectInit` undefined
++
++- [ ] **Step 3: Write minimal implementation**
++
++`init_cmd.go`: parse `--force`, repeatable `--docs` via `fs.Var` on a `stringList` (or loop leftover args). `projectInit` for this task only: if `os.Stat(dir)` is not a directory, return error; else write an empty `AGENTS.md` if missing and set `BootFile`, `Preamble: "written"`, `Sentinel: "upserted"`. `runProjectInit` prints those fields and `indexed`/`ingested`/`skipped`/`errors` (zeros/empty). `main.go` dispatch: `case "init": runProjectInit(rest[1:]); return`.
++
++- [ ] **Step 4: Run tests to verify they pass**
++
++Run: `go test ./skillgrid-cli/cmd/skillgrid -count=1 -run 'TestInitHelpListsFlags|TestInitWritesBootFileAndReportsCounts|TestInitBootFileWriteFailureIsFatal'`
++Expected: PASS
++
++- [ ] **Step 5: Commit** (when this change is current)
++
++```
++feat(cli): add skillgrid init command skeleton
++```
++
++---
++
++### Task 2: Boot file preamble and sentinel
++
++**Files:**
++- Create: `skillgrid-cli/cmd/skillgrid/init_boot.go`
++- Modify: `skillgrid-cli/cmd/skillgrid/init_cmd.go` (`projectInit` calls `writeBootFile`)
++- Modify: `skillgrid-cli/cmd/skillgrid/init_cmd_test.go`
++
++**Interfaces:**
++- Consumes: `projectInit` from Task 1
++- Produces: `writeBootFile(dir string, force bool) (bootPath, preambleState string, err error)`
++- Seam: none (in-process)
++- Deletion test: AGENTS write would scatter into `projectInit`
++- Adapters: 1
++
++**SATISFIES:** happy path init upserts preamble and sentinel; second init merges without duplicating the sentinel; force rewrites the preamble only
++
++- [ ] **Step 1: Write the failing tests**
++
++```go
++func TestInitUpsertsPreambleAndSentinel(t *testing.T) {
++	dir := t.TempDir()
++	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	body, err := os.ReadFile(res.BootFile)
++	if err != nil {
++		t.Fatal(err)
++	}
++	s := string(body)
++	if !strings.Contains(s, "<!-- skillgrid-preamble:start -->") || !strings.Contains(s, "# Definition of Done") {
++		t.Fatalf("missing preamble: %s", s)
++	}
++	if strings.Count(s, "<!-- skillgrid:start -->") != 1 || strings.Count(s, "<!-- skillgrid:end -->") != 1 {
++		t.Fatalf("sentinel count: %s", s)
++	}
++}
++
++func TestInitForceRewritesPreamble(t *testing.T) {
++	dir := t.TempDir()
++	res, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	body, _ := os.ReadFile(res.BootFile)
++	custom := strings.Replace(string(body), "# Project Overview", "# Project Overview\nUSER KEEP", 1)
++	if err := os.WriteFile(res.BootFile, []byte(custom+"\n\nUSER BELOW\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	res2, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	keep, _ := os.ReadFile(res2.BootFile)
++	if !strings.Contains(string(keep), "USER KEEP") || !strings.Contains(string(keep), "USER BELOW") {
++		t.Fatalf("merge dropped user text: %s", keep)
++	}
++	if strings.Count(string(keep), "<!-- skillgrid:start -->") != 1 {
++		t.Fatal("duplicated sentinel")
++	}
++	res3, err := projectInit(context.Background(), service.New(t.TempDir()), dir, true, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	forced, _ := os.ReadFile(res3.BootFile)
++	if strings.Contains(string(forced), "USER KEEP") {
++		t.Fatal("force left old preamble")
++	}
++	if !strings.Contains(string(forced), "USER BELOW") {
++		t.Fatal("force wiped text outside regions")
++	}
++}
++```
++
++- [ ] **Step 2: Run tests to verify they fail**
++
++Run: `go test ./skillgrid-cli/cmd/skillgrid -count=1 -run 'TestInitUpsertsPreambleAndSentinel|TestInitForceRewritesPreamble'`
++Expected: FAIL — missing preamble markers or duplicated/empty sentinel
++
++- [ ] **Step 3: Write `writeBootFile`**
++
++Target file: `AGENTS.md` if it exists or if `CLAUDE.md` does not exist; else `CLAUDE.md`. If both exist, write AGENTS and ensure CLAUDE.md has the one-line pointer `See AGENTS.md — the Skillgrid block there is the source of truth.` when that line is absent.
++
++Sentinel body is the canonical block from `.agents/skills/_shared/agent-config/block.md` with `{project}` = `filepath.Base(dir)`, `{tracker_line}` = `None — work local-only from tasks.md.`, `{memory_line}` = the Enabled mnemonic line from that file, `{rules_block}` = `No locked constraints yet — see `.skillgrid/ASSUMPTIONS.md`.` (if ASSUMPTIONS locked section is absent). Replace `<!-- skillgrid:start -->`…`<!-- skillgrid:end -->` in place; if missing, append.
++
++Preamble: if markers exist and `force` is false, leave the region (`preambleState="kept"`). If missing, insert before sentinel (`written`). If `force`, replace the region (`forced`).
++
++- [ ] **Step 4: Run tests to verify they pass**
++
++Run: `go test ./skillgrid-cli/cmd/skillgrid -count=1 -run 'TestInitUpsertsPreambleAndSentinel|TestInitForceRewritesPreamble'`
++Expected: PASS
++
++- [ ] **Step 5: Commit**
++
++```
++feat(cli): upsert AGENTS preamble and Skillgrid sentinel
++```
++
++---
++
++### Task 3: Forced code index
++
++**Files:**
++- Modify: `skillgrid-cli/cmd/skillgrid/init_cmd.go`
++- Modify: `skillgrid-cli/cmd/skillgrid/init_cmd_test.go`
++
++**Interfaces:**
++- Consumes: `projectInit`, `service.Service.RunCodeIndex`, `ResolveProject`
++- Produces: `initResult.Indexed` = `stats.FilesIndexed`; index errors appended to `Errors`
++- Seam: `service.Service` (prod + test `service.New(temp)`)
++- Deletion test: callers would shell `skillgrid index`
++- Adapters: 2 (real service + temp data dir)
++
++**SATISFIES:** happy path init indexes the project; init reuses the existing indexer; index failure after boot file still exits 0
++
++- [ ] **Step 1: Write the failing tests**
++
++```go
++func TestInitIndexesTheProject(t *testing.T) {
++	data := t.TempDir()
++	svc := service.New(data)
++	dir := t.TempDir()
++	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\nfunc F() {}\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	res, err := projectInit(context.Background(), svc, dir, false, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if res.Indexed < 1 {
++		t.Fatalf("Indexed = %d", res.Indexed)
++	}
++}
++
++func TestInitIndexFailureIsNonFatal(t *testing.T) {
++	data := t.TempDir()
++	svc := service.New(data)
++	dir := t.TempDir()
++	missing := filepath.Join(dir, "no-such-child")
++	// Index a path that is not a directory after boot file is written beside dir.
++	// projectInit indexes `dir`; to force index error, pass a svc that already
++	// closed — simpler: index a file path via a helper hook. Instead, chmod
++	// the only source file to be unreadable after writeBootFile by calling
++	// projectInit on a dir whose contents cannot be opened: create dir, write
++	// AGENTS via first successful call, then chmod 000 the dir's only .go and
++	// re-run. If the OS still indexes, skip. Preferred: if RunCodeIndex on an
++	// empty unreadable path fails, record Errors.
++	res, err := projectInit(context.Background(), svc, dir, false, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if res.BootFile == "" {
++		t.Fatal("boot file required even when index is empty")
++	}
++}
++```
++
++Pin the failure test as: `projectInit` catches `RunCodeIndex` error, sets `Errors` containing `"index failed"`, returns `err == nil`. Drive it by injecting a tiny optional `indexFn` only if needed; prefer calling `RunCodeIndex` on `dir` and, for the failure test, stub by exporting:
++
++```go
++var runIndex = func(ctx context.Context, svc *service.Service, dir string) (int, error) {
++	if _, err := svc.ResolveProject(dir); err != nil {
++		return 0, err
++	}
++	st, err := svc.RunCodeIndex(ctx, dir)
++	return st.FilesIndexed, err
++}
++```
++
++In `TestInitIndexFailureIsNonFatal`, set `runIndex = func(...) (int, error) { return 0, errors.New("boom") }` and defer restore. Assert `err == nil`, `len(res.Errors) >= 1`, boot file exists.
++
++- [ ] **Step 2: Run tests to verify they fail**
++
++Run: `go test ./skillgrid-cli/cmd/skillgrid -count=1 -run 'TestInitIndexesTheProject|TestInitIndexFailureIsNonFatal'`
++Expected: FAIL — Indexed == 0 or Errors empty
++
++- [ ] **Step 3: Call `runIndex` after `writeBootFile`**
++
++Do not open a second `service.New` inside `projectInit`; use the `svc` argument. Tests pin `cliService` only when going through `runProjectInit`.
++
++- [ ] **Step 4: Run tests to verify they pass**
++
++Run: `go test ./skillgrid-cli/cmd/skillgrid -count=1 -run 'TestInitIndexesTheProject|TestInitIndexFailureIsNonFatal'`
++Expected: PASS
++
++- [ ] **Step 5: Commit**
++
++```
++feat(cli): run existing code index from skillgrid init
++```
++
++---
++
++### Task 4: Default and extra ingest
++
++**Files:**
++- Create: `skillgrid-cli/cmd/skillgrid/init_ingest.go`
++- Modify: `skillgrid-cli/cmd/skillgrid/init_cmd.go`
++- Modify: `skillgrid-cli/cmd/skillgrid/init_cmd_test.go`
++
++**Interfaces:**
++- Consumes: `OpenForDirectory`, `ProjectHandle.Memory().Save`, `SessionStart`
++- Produces: `ingestPaths`; `initResult.Ingested` / `Skipped` / extra `Errors`
++- Seam: `memory.Service.Save`
++- Deletion test: docs would not land in the store
++- Adapters: 2 (real memory service + temp store)
++
++**SATISFIES:** happy path init ingests default paths; missing docs directory is skipped; second init upserts the same topic keys; happy path init ingests extra --docs path; missing extra docs path is listed and non-fatal
++
++- [ ] **Step 1: Write the failing tests**
++
++```go
++func countTopic(t *testing.T, mem *memory.Service, key string) int {
++	t.Helper()
++	hits, err := mem.Search(context.Background(), "init", "", 50)
++	if err != nil {
++		t.Fatal(err)
++	}
++	n := 0
++	for _, h := range hits {
++		if h.TopicKey == key {
++			n++
++		}
++	}
++	return n
++}
++
++func TestInitIngestsDefaultPaths(t *testing.T) {
++	data := t.TempDir()
++	svc := service.New(data)
++	dir := t.TempDir()
++	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# App"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Mkdir(filepath.Join(dir, "docs"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(dir, "docs", "guide.md"), []byte("g"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := projectInit(context.Background(), svc, dir, false, nil); err != nil {
++		t.Fatal(err)
++	}
++	h, closeH, err := svc.OpenForDirectory(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer closeH()
++	if countTopic(t, h.Memory(), "init/docs/README.md") != 1 {
++		t.Fatal("README observation")
++	}
++	if countTopic(t, h.Memory(), "init/docs/docs/guide.md") != 1 {
++		t.Fatal("docs observation")
++	}
++}
++
++func TestInitSkipsMissingDocs(t *testing.T) {
++	svc := service.New(t.TempDir())
++	dir := t.TempDir()
++	_ = os.WriteFile(filepath.Join(dir, "README.md"), []byte("r"), 0o644)
++	res, err := projectInit(context.Background(), svc, dir, false, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	found := false
++	for _, s := range res.Skipped {
++		if s == "docs/" || s == "docs" {
++			found = true
++		}
++	}
++	if !found {
++		t.Fatalf("skipped = %v", res.Skipped)
++	}
++}
++
++func TestInitIngestsExtraDocs(t *testing.T) {
++	svc := service.New(t.TempDir())
++	dir := t.TempDir()
++	if err := os.WriteFile(filepath.Join(dir, "README.sh"), []byte("echo hi"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := projectInit(context.Background(), svc, dir, false, []string{filepath.Join(dir, "README.sh")}); err != nil {
++		t.Fatal(err)
++	}
++	h, closeH, err := svc.OpenForDirectory(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer closeH()
++	if countTopic(t, h.Memory(), "init/docs/README.sh") != 1 {
++		t.Fatal("extra docs")
++	}
++}
++
++func TestInitMissingExtraDocsIsNonFatal(t *testing.T) {
++	svc := service.New(t.TempDir())
++	dir := t.TempDir()
++	res, err := projectInit(context.Background(), svc, dir, false, []string{filepath.Join(dir, "missing.md")})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if res.BootFile == "" || len(res.Errors) == 0 {
++		t.Fatalf("res = %+v", res)
++	}
++}
++
++func TestInitRejectsDocsOutsideProject(t *testing.T) {
++	svc := service.New(t.TempDir())
++	dir := t.TempDir()
++	outside := filepath.Join(t.TempDir(), "x.md")
++	_ = os.WriteFile(outside, []byte("no"), 0o644)
++	res, err := projectInit(context.Background(), svc, dir, false, []string{outside})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(res.Errors) == 0 {
++		t.Fatal("expected jail error")
++	}
++}
++```
++
++Also add a second-init upsert case in `TestInitIngestsDefaultPaths` (run `projectInit` twice, still `countTopic == 1`).
++
++- [ ] **Step 2: Run tests to verify they fail**
++
++Run: `go test ./skillgrid-cli/cmd/skillgrid -count=1 -run 'TestInitIngests|TestInitSkips|TestInitMissing|TestInitRejects'`
++Expected: FAIL — Ingested 0 / missing observations
++
++- [ ] **Step 3: Implement `ingestPaths`**
++
++Open `h, close, err := svc.OpenForDirectory(dir)`. `sid, err := h.Memory().SessionStart(ctx, dir, "skillgrid-init")`. For each existing default file (walk `docs/` and `.skillgrid/artifacts/` for regular files only; skip dirs and the missing root), `Save` with `CapturePrompt: false`, `SessionID: sid`, `Title` = base name, `Content` = file bytes as string, `TopicKey` as specified, `ToolName: "skillgrid-init"`. Re-run upserts via the same topic key. `--docs` entries: `Rel` to `dir`; if `strings.HasPrefix(rel, "..")`, append error and skip. Missing extra path: append error. Missing default root: append to `Skipped`. Save errors append to `Errors` and do not abort the walk.
++
++- [ ] **Step 4: Run tests to verify they pass**
++
++Run: `go test ./skillgrid-cli/cmd/skillgrid -count=1 -run 'TestInit'`
++Expected: PASS (all init tests)
++
++- [ ] **Step 5: Commit**
++
++```
++feat(cli): ingest project docs into mnemonic from skillgrid init
++```
++
++---
++
++### Task 5: Onboarding skill hands off to CLI
++
++**Files:**
++- Modify: `.agents/skills/lifecycle/onboarding/SKILL.md` (after Step 3 Write / before Step 4 Verify)
++- Modify: `skillgrid-cli/cmd/skillgrid/init_cmd_test.go`
++
++**Interfaces:**
++- Consumes: `skillgrid init` from Tasks 1–4
++- Produces: skill contract only
++- Seam: none
++- Deletion test: agents would invent ingest
++- Adapters: 1
++
++**SATISFIES:** happy path onboarding skill calls skillgrid init; skill passes extra docs through; skill does not contain a second ingest procedure
++
++- [ ] **Step 1: Write the failing tests**
++
++```go
++func TestOnboardingSkillCallsSkillgridInit(t *testing.T) {
++	body, err := os.ReadFile(onboardingSkillPath(t))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !bytes.Contains(body, []byte("skillgrid init")) {
++		t.Fatal("onboarding must name skillgrid init")
++	}
++}
++
++func TestOnboardingSkillHasNoSecondIngest(t *testing.T) {
++	body, err := os.ReadFile(onboardingSkillPath(t))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if bytes.Contains(body, []byte("walk docs/ and mem_save each file")) {
++		t.Fatal("skill must not re-specify ingest")
++	}
++}
++
++func onboardingSkillPath(t *testing.T) string {
++	t.Helper()
++	// repo root: this file is skillgrid-cli/cmd/skillgrid
++	p := filepath.Join("..", "..", "..", ".agents", "skills", "lifecycle", "onboarding", "SKILL.md")
++	if _, err := os.Stat(p); err != nil {
++		t.Fatal(err)
++	}
++	return p
++}
++```
++
++- [ ] **Step 2: Run tests to verify they fail**
++
++Run: `go test ./skillgrid-cli/cmd/skillgrid -count=1 -run 'TestOnboardingSkill'`
++Expected: FAIL — `skillgrid init` absent
++
++- [ ] **Step 3: Add one step to the skill**
++
++After the Write steps, add:
++
++```
++**9. Project init (deterministic finish):**
++- Run `skillgrid init` from the project root (add `--force` only if the user asked to rebuild the preamble).
++- If the user named extra documentation paths, pass each as `--docs <path>`.
++- Do not walk files or call `mem_save` for docs here — the CLI owns ingest and the code index.
++- If `skillgrid` is not on PATH, tell the user to install the CLI and re-run `skillgrid init`; continue the rest of onboarding.
++```
++
++Do not add a file-walk ingest procedure.
++
++- [ ] **Step 4: Run tests to verify they pass**
++
++Run: `go test ./skillgrid-cli/cmd/skillgrid -count=1 -run 'TestOnboardingSkill|TestInit'`
++Expected: PASS
++
++- [ ] **Step 5: Commit**
++
++```
++docs(onboarding): finish with skillgrid init
++```
++
++## Self-review
++
++| Spec requirement | Task |
++|---|---|
++| 1 Init command | Task 1 |
++| 2 Boot file | Task 2 |
++| 3 Forced code index | Task 3 |
++| 4 Default ingest | Task 4 |
++| 5 Extra `--docs` | Task 4 |
++| 6 Skill handoff | Task 5 |
++
++Must-haves map 1:1. No one-way doors. No placeholders. Types: `initResult`, `projectInit`, `writeBootFile`, `ingestPaths`, `runIndex` stay consistent.
++
++## Owed-decision gate
++
++Values and sources: flag names (spec), preamble headings (this blueprint), topic key prefix `init/docs/` (spec), observation types (spec), path jail (threat matrix), sentinel text (existing `block.md`), index via `RunCodeIndex` (existing API), Save via `memory.Save` (existing API). No owed decision.
++
++## Plan review (inline)
++
++1. **Failure modes:** Unreadable `--docs` file → `Errors`. Index boom → `runIndex` stub + `Errors`. Boot file on a non-dir → fatal. Concurrent init not in scope (local CLI). Empty project → skipped defaults, still writes AGENTS.
++2. **Scope:** No Kanban, no KBs, no MCP tool. Matches briefing out-of-scope.
++3. **Feasibility:** All APIs exist (`RunCodeIndex`, `OpenForDirectory`, `Save`, `SessionStart`).
++4. **Ordering:** Command → boot → index → ingest → skill. Skill last so the verb exists.
++5. **Tests:** Gates G1–G12 named in `acceptance.feature` match these `Test*` names.
++6. **ADR:** Keep-store honored; no new table.
++
++**Verdict:** READY FOR EXECUTION — after `2026-10-02-mnemonic-memory-checkpoint` ships or parks.
++
++## Execution handoff
++
++5 tasks → slicing is due when this change becomes current. Do not slice or execute while memory-checkpoint owns the pipeline.
++
++When it is current: **1. Subagent-Driven (recommended)** or **2. Inline Execution**. Say which then.
+diff --git a/.skillgrid/specs/2026-10-02-mnemonic-project-init/briefing.md b/.skillgrid/specs/2026-10-02-mnemonic-project-init/briefing.md
+new file mode 100644
+index 00000000..8e7cd561
+--- /dev/null
++++ b/.skillgrid/specs/2026-10-02-mnemonic-project-init/briefing.md
+@@ -0,0 +1,130 @@
++# Briefing — Project Init (Claude OS parity, slice 1)
++
++> **STATUS:** `accepted` (2026-10-02)
++
++**Topic:** 2026-10-02-mnemonic-project-init
++**Date:** 2026-10-02
++**Classification:** standard (T2)
++**Build shape:** Smallest usable whole
++**Queued behind:** `2026-10-02-mnemonic-memory-checkpoint` (serial: do not take `current_change` until that change ships or parks)
++**Next in Claude OS parity program:** `2026-10-02-mnemonic-llm-provider` (P2 shared LLM; after this init change)
++**Findings:** `08-second-brain-roadmap.md`, `09-claude-os-deep-dive.md` (S5 installer / S6 lean boot file), `docs/NOTES.md` Init section
++
++## Problem / Intent
++
++Claude OS’s remaining “magic” is `/claude-os-init`: after two minutes the project has a boot file, an index, and docs in memory. Skillgrid already has the onboarding *skill* (config + lean AGENTS sentinel) and `skillgrid index`, but there is no deterministic `skillgrid init` that finishes the job. A new repo still needs the agent to invent the last mile.
++
++## Purpose & Success Criteria
++
++- **Purpose:** An agent or a human can run project init and get a lean boot file, a forced code index, and local docs in the existing store — then work without re-explaining the project.
++- **Success criteria:** See Requirements. A temp repo after `skillgrid init` has the preamble + sentinel, a populated index, and upserted observations for every default path that exists; a second run does not duplicate the sentinel; `--docs` adds extra files.
++- **Out of scope:** Four Claude OS knowledge bases; shared LLM provider (roadmap J — separate spec `2026-10-02-mnemonic-llm-provider`); human browse (roadmap G); session-end extraction (H); cross-project pattern synthesis (I); Kanban/services dashboard; a skills marketplace; a slash-command zoo; replacing `skillgrid:onboarding`’s interview.
++
++## Context
++
++Fits existing patterns: **yes-with-notes**.
++
++`skillgrid index` already opens the project handle and indexes a directory. `skillgrid:onboarding` already writes `.skillgrid/config.yaml`, upserts the `<!-- skillgrid:start -->` block (`_shared/agent-config/block.md`), and `mem_save`s `skillgrid-init/{project}`. Init is a **sequencer** over those seams, plus a preamble writer and a file-walk ingest. Notes: (1) do not invent a second store; (2) do not move the interview into Go; (3) AGENTS preamble lives *above* the sentinel so the every-prompt block stays lean.
++
++Locked: Go 1.22+, no new dependencies without an ADR, serial development, spec-zone before code-zone, repo is source of truth. ADR-0012 (one SQLite store) is the knowledge-model constraint.
++
++## Approaches Considered
++
++- **Chosen: A — Orchestrator CLI.** `skillgrid init` sequences AGENTS write, existing index, and observation ingest. The onboarding skill interviews, then runs the CLI.
++- **Rejected: B — Skill-only.** No deterministic floor; ingest and AGENTS shape depend on the model.
++- **Rejected: C — Replace onboarding.** Extra churn; the interview and config merge already work.
++
++## Requirements
++
++1. **Init command:** `skillgrid init` is a first-class command that sequences boot-file write, code index, and doc ingest.
++   - **Current:** `main.go` has `index`, `install`, `policy init` — no project `init`.
++   - **Target:** `skillgrid init [--force] [--docs path]...` exists, prints a result (written / indexed / ingested / skipped / errors), exit 0 on partial success if boot file was written, non-zero only if the boot file could not be written.
++   - **Acceptance:** `go test` for the command on a temp repo: usage, flags, exit codes.
++   - **Acceptance scenario:** `happy path init writes boot file and reports counts` → `acceptance.feature`
++
++2. **Boot file:** Init writes a short working-agreement preamble above the existing Skillgrid sentinel; the sentinel is upserted, never duplicated.
++   - **Current:** Onboarding skill upserts the sentinel; NOTES.md wants a longer working agreement; nothing writes that preamble from the CLI.
++   - **Target:** File is `AGENTS.md` if it exists or neither AGENTS/CLAUDE exist; else `CLAUDE.md`. Preamble is above `<!-- skillgrid:start -->`. Sentinel replace-in-place. `--force` rewrites the preamble; merge leaves user text outside both regions.
++   - **Acceptance:** First run creates both regions; second run without `--force` keeps a single sentinel; `--force` refreshes the preamble only.
++   - **Acceptance scenario:** `happy path init upserts preamble and sentinel` → `acceptance.feature`
++
++3. **Forced code index:** Init always runs the existing index pipeline for the project directory.
++   - **Current:** `skillgrid index` is a separate command; onboarding does not run it.
++   - **Target:** Init calls the same indexer the `index` command uses (no second pipeline). A repo with at least one indexable file ends with a non-empty file list in the store.
++   - **Acceptance:** After init on a Go (or other indexed) temp repo, `skillgrid index status` (or the store query the tests already use) shows files > 0.
++   - **Acceptance scenario:** `happy path init indexes the project` → `acceptance.feature`
++
++4. **Default ingest:** Existing default paths become observations with stable topic keys; missing defaults are skipped.
++   - **Current:** Onboarding saves a few architecture/config observations; it does not walk `docs/` or artifacts.
++   - **Target:** For each existing path among `README.md`, `docs/` (regular files under it), `.skillgrid/ASSUMPTIONS.md`, `.skillgrid/ARCHITECTURE.md`, `.skillgrid/artifacts/` (regular files), upsert `mem_save` with `topic_key` `init/docs/<relpath>`, type `architecture` for ASSUMPTIONS/ARCHITECTURE/artifacts, type `discovery` for README/docs. Same key on re-run updates, does not duplicate.
++   - **Acceptance:** Temp repo with README + one docs file yields two observations at those keys; a repo without `docs/` still exits 0 and reports skipped.
++   - **Acceptance scenario:** `happy path init ingests default paths` → `acceptance.feature`
++
++5. **Extra docs flag:** Repeatable `--docs <path>` ingests additional files or directories the same way.
++   - **Current:** No flag.
++   - **Target:** Each extra path that exists is ingested; a missing extra path is reported as an error line but does not fail the command if the boot file was written.
++   - **Acceptance:** `--docs extra.md` creates `init/docs/extra.md`; missing `--docs` path appears in the report and does not duplicate or crash.
++   - **Acceptance scenario:** `happy path init ingests extra --docs path` → `acceptance.feature`
++
++6. **Skill hands off to CLI:** After the existing onboarding interview, the skill runs `skillgrid init` (with `--force` only when the user asked to rebuild).
++   - **Current:** Onboarding writes config/AGENTS/mnemonic saves and stops.
++   - **Target:** Skill body adds one step: run `skillgrid init` (pass through `--docs` if the user named extra paths). It does not re-implement ingest in prose.
++   - **Acceptance:** The onboarding SKILL.md names `skillgrid init` as the deterministic finish; no second ingest procedure in the skill.
++   - **Acceptance scenario:** `happy path onboarding skill calls skillgrid init` → `acceptance.feature`
++
++## Implementation Decisions
++
++- **Modules to build/modify:** new `init` command next to `index`/`policy`; thin helpers for preamble upsert and file-walk ingest; onboarding SKILL.md one-step addition; `main.go` usage line.
++- **Interfaces:** `skillgrid init [--force] [--docs path]...` (cwd = project). Result shape: `{ boot_file, preamble: written|kept|forced, sentinel: upserted, indexed: N, ingested: N, skipped: [paths], errors: [messages] }`. Human text on stdout; `--json` not required this slice.
++- **Data flow:** cwd → open existing project handle → write boot file → run index pipeline → walk paths → `mem_save` upserts → print report.
++- **Error handling:** Boot-file write failure is fatal (non-zero). Index or ingest failures append to `errors` and the command still exits 0 if the boot file landed. Missing default paths are `skipped`, not errors. Missing `--docs` paths are errors (listed) but non-fatal.
++- **Dependencies:** Reuse index pipeline and memory save. No new modules, no new libraries, no four-KB schema.
++
++## Testing Decisions
++
++- **What makes a good test:** Temp directory with a fake git/project handle (same fixtures as other CLI tests). Assert files on disk, observation topic keys, index file count, exit code, and that a second run does not duplicate the sentinel.
++- **Modules to test:** `init` command (primary). Skill change is a string/contract assertion on SKILL.md.
++- **Prior art:** `policy_cmd_test.go`, `index_status_test.go`, doctor temp-db tests.
++- **Edge cases:** no README; empty docs; CLAUDE.md-only repo; second run; `--force`; missing `--docs` path; index failure after boot file written.
++
++## Impact on Global Docs
++
++- `.skillgrid/artifacts/00-prd.md`: None this draft (add the init command to the CLI surface when the change executes).
++- `.skillgrid/ASSUMPTIONS.md`: None this draft (no new ADR; keep-store restates ADR-0012).
++- `.skillgrid/ARCHITECTURE.md`: None this draft (init is another CLI verb on the existing Distribution Surface).
++
++## Clarity Report
++
++| Dimension           | Score | Min  | Status | Notes |
++|---------------------|-------|------|--------|-------|
++| Goal Clarity        | 0.86  | 0.75 | pass   | Slice 1 is project init, cli+skill, one store |
++| Boundary Clarity    | 0.84  | 0.70 | pass   | G/H/I and dashboard are later serial changes |
++| Constraint Clarity  | 0.80  | 0.65 | pass   | ADR-0012, no new deps, merge + lean preamble |
++| Acceptance Criteria | 0.78  | 0.70 | pass   | Temp-repo CLI checks above |
++| **Clarity**         | 0.17  | ≤0.20| pass   | Residual unclarity |
++
++**Interview log:**
++
++| Round | Question summary | Decision locked |
++|-------|------------------|-----------------|
++| 1 | Which Claude OS surface? When? | All remaining surfaces as a serial program; start after webui-rewrite |
++| 2 | First slice? What is a KB? Store model? Trigger? | init-first; KB = Claude OS named pile, not ours; keep-store; cli+skill |
++| 3 | AGENTS shape, re-run, ingest paths | lean-plus-preamble; merge; defaults-plus-flag |
++| 4 | Approach | A — orchestrator CLI |
++
++## Open Questions & Assumptions
++
++- **Assumption:** Preamble content is the NOTES working-agreement headings (overview, env, standards, security, deps, architecture, DoD), filled from detected stack where cheap, placeholders left for the skill interview to complete — not a 351-line dump.
++- **Assumption:** Init does not write `.skillgrid/config.yaml`; the skill still does that before calling the CLI. A bare `skillgrid init` on a repo with no config still writes AGENTS, indexes, and ingests.
++- **Question:** None that block the spec. Blueprint can pick the exact preamble template file path.
++
++## Decisions (ADR)
++
++- `.skillgrid/artifacts/04-adr-0012-sqlite-as-second-brain.md` — one store; init does not add KBs.
++- No new ADR. Orchestrator CLI vs skill-only is reversible and unsurprising.
++
++## Terms
++
++- [Knowledge Base (KB)](.skillgrid/artifacts/02-technical-terms.md) — Claude OS pile; not a Skillgrid object (added this interview).
++- [Project Init](.skillgrid/artifacts/02-technical-terms.md) — `skillgrid init` + onboarding skill (added this interview).
++- [Second Brain](.skillgrid/artifacts/02-technical-terms.md), [Distribution Surface](.skillgrid/artifacts/02-technical-terms.md), [Topic Key](.skillgrid/artifacts/02-technical-terms.md) — relied on, unchanged.
+diff --git a/.skillgrid/specs/2026-10-02-mnemonic-project-init/review.md b/.skillgrid/specs/2026-10-02-mnemonic-project-init/review.md
+index 7fc4fa0f..f68d614c 100644
+--- a/.skillgrid/specs/2026-10-02-mnemonic-project-init/review.md
++++ b/.skillgrid/specs/2026-10-02-mnemonic-project-init/review.md
+@@ -2,9 +2,10 @@
+ 
+ > Change: `.skillgrid/specs/2026-10-02-mnemonic-project-init/`
+ > Generated: 2026-10-03T07:50:00Z (parallel-code-review)
+-> Diff range: `f739d371..17652346`
++> Re-rendered: 2026-10-03T07:58:00Z after fix `0948f457`
++> Diff range (original): `f739d371..17652346`
++> Fix commit: `0948f457`
+ > Rigor tier: T2 (escalated to fan-out: 1115 lines ≥ 50)
+-> Independence: Grade A all axes (fresh subagents)
+ >
+ > Specialists: Standards, Spec, Edge, Verification-gap, Security, Performance, Red-team (last).
+ > Accessibility skipped (no UI).
+@@ -17,53 +18,66 @@
+ 
+ ## Independence
+ 
+-| Axis | Grade |
+-|------|-------|
+-| Standards | A |
+-| Spec | A |
+-| Edge | A |
+-| Verification-gap | A |
+-| Security | A |
+-| Performance | A |
+-| Red-team | A |
++| Axis | Grade | Rationale |
++|------|-------|-----------|
++| Standards | B | fresh subagent, same-family retry after model-limit |
++| Spec | B | fresh subagent, same-family retry after model-limit |
++| Edge | B | fresh subagent (`composer-2.5-fast`) |
++| Verification-gap | B | fresh subagent, same-family retry after model-limit |
++| Security | B | fresh subagent, same-family retry after model-limit |
++| Performance | B | fresh subagent (`composer-2.5-fast`) |
++| Red-team | B | fresh subagent after merged findings |
++
++First dispatch of Standards/Spec/Verification/Security failed (`Other Models` limit). Retried on the session model. Grade B, not C — no implementer verdict leaked.
+ 
+ ## Per-specialist counts
+ 
+ | Specialist | Count | Worst |
+ |------------|-------|-------|
+-| Standards | 5 Important + 3 Minor | agent-config SSOT / mutable `initRunIndex` / swallowed walkErr |
+-| Spec | scenarios PASS; notes on help-test proxy | help test doesn't call production |
+-| Edge | symlink jail, Rel `.`, `..foo` false reject, symlink dirs | symlink jail bypass |
+-| Verification-gap | help/production disconnect; onboarding source-text | broken-verification on help |
+-| Security | 5 (3 High symlink) | symlink → host read/write |
+-| Performance | 4 | unbounded WalkDir / N+1 Save / double open / warm Scan |
+-| Red-team | 7 | cwd Abs, flag order, Project `.`, boot-before-resolve |
++| Standards | 8 Important + 5 Minor (capped) | mutable `initRunIndex`; swallowed extra walk; inlined sentinel |
++| Spec | 18 SATISFIES product paths PASS; process gaps | spec-zone files untracked; two MISSING_RED tests |
++| Edge | 11 | extra `--docs` project-root walk; broken marker upsert |
++| Verification-gap | 8 broken-verification | help and `--docs` tests unbound from production flags |
++| Security | 2 | boot symlink overwrite; lexical `--docs` jail |
++| Performance | 7 | unbounded WalkDir; N+1 Save; no size cap |
++| Red-team | 5 | 7-day TTL on ingest; session-private owner; `MNEMONIC_PROJECT` split |
+ 
+ ## Deduped entries (coordinator verdicts)
+ 
+ | ID | Verdict | Source | Location | Finding | Route |
+ |----|---------|--------|----------|---------|-------|
+-| D1 | high | Security+Edge | `init_ingest.go` jail / Stat | Symlink escapes lexical `--docs`/default jail into host files | **fix now** |
+-| D2 | high | Security | `init_boot.go` WriteFile | Symlink boot target overwrites host file | **fix now** |
+-| D3 | medium | Security+Perf | `saveIngestFile` ReadFile | No size bound / binary docs blob | **fix now** (size+skip binary) |
+-| D4 | medium | Verif+Standards | `TestInitHelpListsFlags` | Help test doesn't call `newInitFlagSet` | **fix now** |
+-| D5 | medium | Standards | `ingestExtra` WalkDir | `walkErr` swallowed | **fix now** |
+-| D6 | medium | Red | `ingestExtra` Abs | `--docs` Abs uses cwd not target dir | **fix now** |
+-| D7 | medium | Edge+Red | Rel `"."` | `--docs` project root walks entire tree | **fix now** |
+-| D8 | medium | Standards | `initRunIndex` var | Package mutable func for test stub | **defer** (test seam; inject later) |
+-| D9 | medium | Standards | `renderSentinel` / template | Hardcoded tracker/memory; duplicated `block.md` | **defer** (needs config fill; follow-up) |
++| D1 | high | Security+Edge | `init_ingest.go` jail | Symlink escapes lexical `--docs` jail | **fixed** in `0948f457` (EvalSymlinks + Lstat + tests) |
++| D2 | high | Security | `init_boot.go` WriteFile | Symlink boot target overwrites host file | **fixed** in `0948f457` (Lstat refuse + test) |
++| D3 | medium | Security+Perf | `saveIngestFile` | No size bound / binary blob | **fixed** in `0948f457` (512KiB + NUL probe) |
++| D4 | medium | Verif+Standards | `TestInitHelpListsFlags` | Help test didn't call `newInitFlagSet` | **fixed** in `0948f457` |
++| D5 | medium | Standards+Edge | `ingestExtra` WalkDir | `walkErr` / last saveErr swallowed | **fixed** in `0948f457` |
++| D6 | medium | Red | `ingestExtra` Abs | `--docs` Abs used cwd not target dir | **fixed** in `0948f457` |
++| D7 | medium | Edge+Red | Rel `"."` | `--docs` project root walks entire tree | **fixed** in `0948f457` |
++| D16 | low | Edge | `..foo` false jail | `HasPrefix("..")` vs `"../"` | **fixed** via `outsideJail` in `0948f457` |
++| D8 | medium | Standards | `initRunIndex` var | Package mutable func for test stub | **defer** |
++| D9 | medium | Standards | `sentinelTemplate` | Inlined copy of `agent-config/block.md` | **defer** |
+ | D10 | medium | Perf | double Open + N+1 Save | Store open twice; per-file Save | **defer** |
+ | D11 | medium | Red | warm `indexed:0` | Success signal misleading | **defer** |
+-| D12 | medium | Red | boot before resolve | Boot written then open fails | **defer** (matches briefing: boot fatal only) |
+-| D13 | low | Red | flags after dir dropped | `flag.Parse` argv order | **defer** (document / follow-up) |
+-| D14 | low | Red | onboarding commit then init | Dirty tree after Step 8 | **defer** (skill order) |
+-| D15 | maybe-false | Standards | CLAUDE-only → write CLAUDE | Contradicts Gotchas but matches blueprint Task 2 | **noise** (blueprint wins) |
+-| D16 | low | Edge | `..foo` false jail | HasPrefix `../` vs `..` | **fix now** (cheap) |
++| D12 | medium | Red | boot before resolve | Boot written then open fails | **noise** (briefing: boot is the only fatal) |
++| D13 | low | Red | flags after dir dropped | `flag.Parse` argv order | **defer** |
++| D14 | low | Red | onboarding commit then init | Dirty tree after Step 8 | **defer** |
++| D15 | maybe-false | Standards | CLAUDE-only writes CLAUDE.md | Matches blueprint Task 2 | **noise** |
++| D17 | high | Red-team | `saveIngestFile` SaveInput | No `ExpiresAt` → default 7-day TTL | **defer** (store default; follow-up durable ingest) |
++| D18 | medium | Red-team | `saveIngestFile` Owner | Owner = session UUID, visibility private | **defer** (governance default; search from later sessions) |
++| D19 | medium | Red-team | hash-floor before topic_key | Identical content noops second topic_key | **defer** (AUDN floor; rare for distinct docs) |
++| D20 | medium | Red-team | `OpenForDirectory` | `MNEMONIC_PROJECT` can split boot vs store | **defer** (existing resolve contract) |
++| D21 | medium | Spec | spec dir | `acceptance.feature` / briefing / blueprint / tasks / adr still untracked | **fix now** (commit spec zone) |
++| D22 | medium | Verif | several Then clauses | Weak assertions (counts, README skip, jail not-ingested) | **defer** (help + symlink + root covered in `0948f457`) |
+ 
+ ## Floor
+ 
+-**not met** until D1–D7 + D16 fixed (symlink Highs block ship). Re-render after fix wave.
++- **Standards:** met-with-fixes (D8/D9 deferred)
++- **Spec:** met-with-fixes (product scenarios hold; spec-zone commit pending as D21)
++- **Security:** secure-with-fixes (D1/D2 closed in `0948f457`)
++- **Floor (decides):** met-with-fixes
++- **Worst remaining:** D17 ingest TTL (deferred — not introduced as a new store default here)
++- **Unfixed Important in-scope:** D21 only (commit the change's spec files)
+ 
+ ## Verdict
+ 
+-**BACK-TO-APPLY** — fix now: symlink Lstat/EvalSymlinks jail + boot refuse-symlink; size/type guard; production help test; walkErr; Abs relative to dir; reject Rel `.`; fix `..` prefix check.
++**met-with-fixes** after `0948f457`. Symlink Highs, size/binary bound, help production path, walk errors, cwd-relative `--docs`, and project-root walk are closed (`TestInit*` 29.8s ok). Next: commit D21 spec artifacts, then `skillgrid:ship`.
+diff --git a/.skillgrid/specs/2026-10-02-mnemonic-project-init/tasks.md b/.skillgrid/specs/2026-10-02-mnemonic-project-init/tasks.md
+new file mode 100644
+index 00000000..4bed299c
+--- /dev/null
++++ b/.skillgrid/specs/2026-10-02-mnemonic-project-init/tasks.md
+@@ -0,0 +1,126 @@
++# Tasks — Project Init
++
++> **STATUS:** `sliced` (2026-10-02)
++
++> Sliced from `.skillgrid/specs/2026-10-02-mnemonic-project-init/blueprint.md`.
++> Vertical tracer-bullet tickets, dependency-ordered, sized for one fresh agent context window.
++
++**Execution choice (locked):** Subagent-Driven — `skillgrid:subagent-execution` when this change is current.
++**Queued behind:** `2026-10-02-mnemonic-memory-checkpoint`. Do not dispatch implementers or take `state.yaml` `current_change` until that change ships or parks. per ASSUMPTIONS.md § Locked constraints (serial development)
++
++## Epic Summary
++
++`skillgrid init` writes a lean AGENTS preamble + Skillgrid sentinel, runs the existing code index, and upserts local docs into the one SQLite store. The onboarding skill finishes by calling that CLI. No KBs. per `.skillgrid/artifacts/04-adr-0012-sqlite-as-second-brain.md`
++
++## Delivery Strategy
++
++| Field | Value |
++|-------|-------|
++| Estimated changed lines | 450–650 |
++| 400-line budget risk | Medium |
++| Chained PRs recommended | No |
++| Suggested split | single PR on release/2 |
++| Delivery strategy | auto-chain |
++| Chain strategy | pending |
++
++Decision needed before apply: No
++Chained PRs recommended: No
++Chain strategy: pending
++400-line budget risk: Medium
++
++### Suggested Work Units
++
++| Unit | Goal | Likely PR | Focused test command | Runtime harness | Rollback boundary |
++|------|------|-----------|----------------------|-----------------|-------------------|
++| 1 | `skillgrid init` + onboarding handoff | single PR | `go test ./skillgrid-cli/cmd/skillgrid -count=1 -run TestInit\|TestOnboardingSkill` | N/A — CLI + store, no HTTP | revert the five feat commits / this PR |
++
++## Tickets
++
++### TICKET-01 — Init command writes a boot file
++
++- **Scope:** Dispatch `skillgrid init`, parse `--force` / `--docs`, write a boot file path on success, fatal only when the boot file cannot be written.
++- **Acceptance:** `TestInitHelpListsFlags`, `TestInitWritesBootFileAndReportsCounts`, `TestInitBootFileWriteFailureIsFatal` PASS. `skillgrid init -h` names both flags. Non-directory target returns error.
++- **SATISFIES:** happy path init writes boot file and reports counts; init help lists force and docs flags; boot file write failure is the only fatal error
++- **Files:** `skillgrid-cli/cmd/skillgrid/init_cmd.go`, `init_cmd_test.go`, `main.go`
++- **Size:** ~180 (S)
++- **Blocks:** TICKET-02, TICKET-03, TICKET-04
++- **Blocked by:** none
++- **Reversibility:** reversible
++- **Fails-when:** `go test ... -run TestInitHelpListsFlags|TestInitWritesBootFileAndReportsCounts|TestInitBootFileWriteFailureIsFatal` is non-zero
++
++### TICKET-02 — Preamble and sentinel upsert
++
++- **Scope:** `writeBootFile` inserts/keeps/forces the preamble region and upserts exactly one Skillgrid sentinel pair.
++- **Acceptance:** `TestInitUpsertsPreambleAndSentinel` and `TestInitForceRewritesPreamble` PASS. Second run does not duplicate the sentinel; `--force` replaces preamble only.
++- **SATISFIES:** happy path init upserts preamble and sentinel; second init merges without duplicating the sentinel; force rewrites the preamble only
++- **Files:** `init_boot.go`, `init_cmd.go`, `init_cmd_test.go`
++- **Size:** ~220 (S)
++- **Blocks:** none
++- **Blocked by:** TICKET-01
++- **Reversibility:** reversible
++- **Fails-when:** `go test ... -run TestInitUpsertsPreambleAndSentinel|TestInitForceRewritesPreamble` is non-zero
++
++### TICKET-03 — Forced code index
++
++- **Scope:** After the boot file, `projectInit` calls `ResolveProject` + `RunCodeIndex` on the same `svc`; index errors go in `Errors`, exit still 0.
++- **Acceptance:** `TestInitIndexesTheProject` (`Indexed >= 1` on a `.go` fixture) and `TestInitIndexFailureIsNonFatal` PASS.
++- **SATISFIES:** happy path init indexes the project; init reuses the existing indexer; index failure after boot file still exits 0
++- **Files:** `init_cmd.go`, `init_cmd_test.go`
++- **Size:** ~80 (S)
++- **Blocks:** none
++- **Blocked by:** TICKET-01
++- **Reversibility:** reversible
++- **Fails-when:** `go test ... -run TestInitIndexesTheProject|TestInitIndexFailureIsNonFatal` is non-zero
++
++### TICKET-04 — Default and extra ingest
++
++- **Scope:** Walk default paths + jailed `--docs` into `memory.Save` with `init/docs/<relpath>`; skip missing defaults; list bad extras in `Errors`.
++- **Acceptance:** `TestInitIngestsDefaultPaths`, `TestInitSkipsMissingDocs`, `TestInitIngestsExtraDocs`, `TestInitMissingExtraDocsIsNonFatal`, `TestInitRejectsDocsOutsideProject` PASS. Second init does not duplicate topic keys.
++- **SATISFIES:** happy path init ingests default paths; missing docs directory is skipped; second init upserts the same topic keys; happy path init ingests extra --docs path; missing extra docs path is listed and non-fatal
++- **Files:** `init_ingest.go`, `init_cmd.go`, `init_cmd_test.go`
++- **Size:** ~200 (S)
++- **Blocks:** none
++- **Blocked by:** TICKET-01
++- **Reversibility:** reversible
++- **Fails-when:** `go test ... -run 'TestInitIngests|TestInitSkips|TestInitMissing|TestInitRejects'` is non-zero
++
++### TICKET-05 — Onboarding skill calls skillgrid init
++
++- **Scope:** Onboarding skill runs `skillgrid init` (optional `--force` / `--docs`); no second ingest procedure.
++- **Acceptance:** `TestOnboardingSkillCallsSkillgridInit` and `TestOnboardingSkillHasNoSecondIngest` PASS.
++- **SATISFIES:** happy path onboarding skill calls skillgrid init; skill passes extra docs through; skill does not contain a second ingest procedure
++- **Files:** `.agents/skills/lifecycle/onboarding/SKILL.md`, `init_cmd_test.go`
++- **Size:** ~40 (S)
++- **Blocks:** none
++- **Blocked by:** TICKET-01
++- **Reversibility:** reversible
++- **Fails-when:** `go test ... -run TestOnboardingSkill` is non-zero
++
++## Dependency Graph
++
++```mermaid
++graph LR
++    T01[TICKET-01] --> T02[TICKET-02]
++    T01 --> T03[TICKET-03]
++    T01 --> T04[TICKET-04]
++    T01 --> T05[TICKET-05]
++```
++
++TICKET-02/03/04 all edit `init_cmd.go`. Run them **serially after T01** (02 then 03 then 04) even though the graph only requires T01. TICKET-05 can follow T01 but should wait until T04 so the skill documents a complete CLI.
++
++## Execution Order
++
++- **Wave 1:** TICKET-01
++- **Wave 2:** TICKET-02 (after T01)
++- **Wave 3:** TICKET-03 (after T02 — shared `init_cmd.go`)
++- **Wave 4:** TICKET-04 (after T03 — shared `init_cmd.go`)
++- **Wave 5:** TICKET-05 (after T04 — skill describes the finished command)
++
++> **Acceptance-first (BDD is always on):** each ticket writes its `SATISFIES` tests RED before implementation.
++
++## Slicing Notes
++
++- Blueprint tasks 1–5 map 1:1 to TICKET-01–05.
++- Not parallelizable: shared `projectInit` / `init_cmd.go`. Subagent-execution is sequential waves, one implementer at a time.
++- Ticketing (Backlog.md) deferred until this change is current so tickets do not mix with memory-checkpoint.
++- Fast-track: standard (threat-matrix rows Applicable) — full `tasks.md`.
+diff --git a/.skillgrid/state.yaml b/.skillgrid/state.yaml
+index 78ce6520..7f1d996c 100644
+--- a/.skillgrid/state.yaml
++++ b/.skillgrid/state.yaml
+@@ -1,6 +1,6 @@
+ schema: skillgrid/state/v1
+ pipeline:
+-  current_phase: "qa"
++  current_phase: "review"
+   current_change: "2026-10-02-mnemonic-project-init"
+   status: in_progress
+ progress:
+diff --git a/skillgrid-cli/cmd/skillgrid/init_boot.go b/skillgrid-cli/cmd/skillgrid/init_boot.go
+index a5d341de..d2f98378 100644
+--- a/skillgrid-cli/cmd/skillgrid/init_boot.go
++++ b/skillgrid-cli/cmd/skillgrid/init_boot.go
+@@ -74,6 +74,14 @@ func writeBootFile(dir string, force bool) (bootPath, preambleState string, err
+ 		return "", "", err
+ 	}
+ 
++	if fi, lstatErr := os.Lstat(bootPath); lstatErr == nil {
++		if fi.Mode()&os.ModeSymlink != 0 {
++			return "", "", fmt.Errorf("%s: refusing to write through symlink", bootPath)
++		}
++	} else if !os.IsNotExist(lstatErr) {
++		return "", "", lstatErr
++	}
++
+ 	existing := ""
+ 	if data, readErr := os.ReadFile(bootPath); readErr == nil {
+ 		existing = string(data)
+diff --git a/skillgrid-cli/cmd/skillgrid/init_cmd_test.go b/skillgrid-cli/cmd/skillgrid/init_cmd_test.go
+index 9af4f421..2c7c1d51 100644
+--- a/skillgrid-cli/cmd/skillgrid/init_cmd_test.go
++++ b/skillgrid-cli/cmd/skillgrid/init_cmd_test.go
+@@ -5,7 +5,6 @@ import (
+ 	"context"
+ 	"errors"
+ 	"flag"
+-	"fmt"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+@@ -168,16 +167,73 @@ func TestInitRejectsDocsOutsideProject(t *testing.T) {
+ 	}
+ }
+ 
++func TestInitRejectsDocsSymlinkEscape(t *testing.T) {
++	svc := service.New(t.TempDir())
++	dir := t.TempDir()
++	outside := filepath.Join(t.TempDir(), "secret.md")
++	if err := os.WriteFile(outside, []byte("SECRET_HOST_CONTENT"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	link := filepath.Join(dir, "leak.md")
++	if err := os.Symlink(outside, link); err != nil {
++		t.Fatal(err)
++	}
++	res, err := projectInit(context.Background(), svc, dir, false, []string{link})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(res.Errors) == 0 {
++		t.Fatal("expected symlink jail error")
++	}
++	h, closeH, err := svc.OpenForDirectory(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer closeH()
++	if countTopic(t, h.Memory(), "init/docs/leak.md") != 0 {
++		t.Fatal("symlink escape ingested host file")
++	}
++}
++
++func TestInitRejectsSymlinkBootFile(t *testing.T) {
++	dir := t.TempDir()
++	outside := filepath.Join(t.TempDir(), "host-agents.md")
++	if err := os.WriteFile(outside, []byte("HOST"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, filepath.Join(dir, "AGENTS.md")); err != nil {
++		t.Fatal(err)
++	}
++	_, err := projectInit(context.Background(), service.New(t.TempDir()), dir, false, nil)
++	if err == nil {
++		t.Fatal("expected symlink boot error")
++	}
++	body, readErr := os.ReadFile(outside)
++	if readErr != nil {
++		t.Fatal(readErr)
++	}
++	if string(body) != "HOST" {
++		t.Fatalf("host file overwritten: %q", body)
++	}
++}
++
++func TestInitRejectsDocsProjectRoot(t *testing.T) {
++	svc := service.New(t.TempDir())
++	dir := t.TempDir()
++	res, err := projectInit(context.Background(), svc, dir, false, []string{dir})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(res.Errors) == 0 {
++		t.Fatal("expected reject of project-root --docs")
++	}
++}
++
+ func TestInitHelpListsFlags(t *testing.T) {
+ 	var buf bytes.Buffer
+ 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
++	newInitFlagSet(fs)
+ 	fs.SetOutput(&buf)
+-	_ = fs.Bool("force", false, "rebuild generated preamble")
+-	_ = fs.String("docs", "", "extra path (repeatable)")
+-	fs.Usage = func() {
+-		fmt.Fprintln(fs.Output(), "usage: skillgrid init [--force] [--docs path]...")
+-		fs.PrintDefaults()
+-	}
+ 	fs.Usage()
+ 	out := buf.String()
+ 	if !strings.Contains(out, "--force") || !strings.Contains(out, "--docs") {
+diff --git a/skillgrid-cli/cmd/skillgrid/init_ingest.go b/skillgrid-cli/cmd/skillgrid/init_ingest.go
+index c00755c4..e00eed32 100644
+--- a/skillgrid-cli/cmd/skillgrid/init_ingest.go
++++ b/skillgrid-cli/cmd/skillgrid/init_ingest.go
+@@ -1,6 +1,7 @@
+ package main
+ 
+ import (
++	"bytes"
+ 	"context"
+ 	"fmt"
+ 	"io/fs"
+@@ -22,6 +23,8 @@ var defaultIngestRoots = []string{
+ 	".skillgrid/artifacts",
+ }
+ 
++const maxIngestBytes = 512 * 1024
++
+ // ingestPaths upserts default project docs and jailed --docs paths into the
+ // project memory store via memory.Save. Topic keys are init/docs/<relpath>.
+ func ingestPaths(ctx context.Context, h *service.ProjectHandle, dir string, extra []string) (ingested int, skipped, errs []string) {
+@@ -42,7 +45,7 @@ func ingestPaths(ctx context.Context, h *service.ProjectHandle, dir string, extr
+ 
+ 	for _, root := range defaultIngestRoots {
+ 		full := filepath.Join(absDir, filepath.FromSlash(root))
+-		info, statErr := os.Stat(full)
++		info, statErr := os.Lstat(full)
+ 		if statErr != nil {
+ 			if os.IsNotExist(statErr) {
+ 				skipped = append(skipped, skipLabel(root))
+@@ -110,18 +113,39 @@ func skipLabel(root string) string {
+ 	return root
+ }
+ 
++func outsideJail(rel string) bool {
++	relSlash := filepath.ToSlash(rel)
++	return relSlash == "." || relSlash == ".." || strings.HasPrefix(relSlash, "../")
++}
++
+ func ingestExtra(ctx context.Context, mem *memory.Service, sid, absDir, raw string) (ingested int, errMsg string) {
+-	absPath, err := filepath.Abs(raw)
++	candidate := raw
++	if !filepath.IsAbs(raw) {
++		candidate = filepath.Join(absDir, raw)
++	}
++	absPath, err := filepath.Abs(candidate)
+ 	if err != nil {
+ 		return 0, fmt.Sprintf("docs %s: %v", raw, err)
+ 	}
+-	rel, err := filepath.Rel(absDir, absPath)
+-	if err != nil || strings.HasPrefix(filepath.ToSlash(rel), "..") {
+-		// Jail: extra path must resolve inside the project directory.
++
++	realDir, err := filepath.EvalSymlinks(absDir)
++	if err != nil {
++		return 0, fmt.Sprintf("docs %s: %v", raw, err)
++	}
++	realPath, err := filepath.EvalSymlinks(absPath)
++	if err != nil {
++		if os.IsNotExist(err) {
++			return 0, fmt.Sprintf("docs missing: %s", raw)
++		}
++		return 0, fmt.Sprintf("docs %s: %v", raw, err)
++	}
++
++	rel, err := filepath.Rel(realDir, realPath)
++	if err != nil || outsideJail(rel) {
+ 		return 0, fmt.Sprintf("docs outside project: %s", raw)
+ 	}
+ 
+-	info, err := os.Stat(absPath)
++	info, err := os.Lstat(realPath)
+ 	if err != nil {
+ 		if os.IsNotExist(err) {
+ 			return 0, fmt.Sprintf("docs missing: %s", raw)
+@@ -130,24 +154,41 @@ func ingestExtra(ctx context.Context, mem *memory.Service, sid, absDir, raw stri
+ 	}
+ 	if info.IsDir() {
+ 		var n int
+-		_ = filepath.WalkDir(absPath, func(path string, d fs.DirEntry, walkErr error) error {
+-			if walkErr != nil || d.IsDir() || !d.Type().IsRegular() {
++		walkErr := filepath.WalkDir(realPath, func(path string, d fs.DirEntry, walkErr error) error {
++			if walkErr != nil {
++				if errMsg != "" {
++					errMsg += "; "
++				}
++				errMsg += fmt.Sprintf("%s: %v", path, walkErr)
+ 				return nil
+ 			}
+-			saved, saveErr := saveIngestFile(ctx, mem, sid, absDir, path)
++			if d.IsDir() || !d.Type().IsRegular() {
++				return nil
++			}
++			// Topic Rel must use realDir: EvalSymlinks may rewrite /var → /private/var.
++			saved, saveErr := saveIngestFile(ctx, mem, sid, realDir, path)
+ 			if saveErr != nil {
+-				errMsg = saveErr.Error()
++				if errMsg != "" {
++					errMsg += "; "
++				}
++				errMsg += saveErr.Error()
+ 				return nil
+ 			}
+ 			n += saved
+ 			return nil
+ 		})
++		if walkErr != nil {
++			if errMsg != "" {
++				errMsg += "; "
++			}
++			errMsg += fmt.Sprintf("%s: %v", raw, walkErr)
++		}
+ 		return n, errMsg
+ 	}
+ 	if !info.Mode().IsRegular() {
+ 		return 0, fmt.Sprintf("docs not a regular file: %s", raw)
+ 	}
+-	n, saveErr := saveIngestFile(ctx, mem, sid, absDir, absPath)
++	n, saveErr := saveIngestFile(ctx, mem, sid, realDir, realPath)
+ 	if saveErr != nil {
+ 		return 0, saveErr.Error()
+ 	}
+@@ -160,10 +201,29 @@ func saveIngestFile(ctx context.Context, mem *memory.Service, sid, absDir, absPa
+ 		return 0, fmt.Errorf("%s: %w", absPath, err)
+ 	}
+ 	relSlash := filepath.ToSlash(rel)
++
++	info, err := os.Lstat(absPath)
++	if err != nil {
++		return 0, fmt.Errorf("%s: %w", relSlash, err)
++	}
++	if !info.Mode().IsRegular() {
++		return 0, fmt.Errorf("%s: not a regular file", relSlash)
++	}
++	if info.Size() > maxIngestBytes {
++		return 0, fmt.Errorf("%s: exceeds 512KiB limit (%d bytes)", relSlash, info.Size())
++	}
++
+ 	body, err := os.ReadFile(absPath)
+ 	if err != nil {
+ 		return 0, fmt.Errorf("%s: %w", relSlash, err)
+ 	}
++	probe := body
++	if len(probe) > 512 {
++		probe = probe[:512]
++	}
++	if bytes.IndexByte(probe, 0) >= 0 {
++		return 0, fmt.Errorf("%s: binary content", relSlash)
++	}
+ 	content := string(body)
+ 	if strings.TrimSpace(content) == "" {
+ 		return 0, fmt.Errorf("%s: empty content", relSlash)

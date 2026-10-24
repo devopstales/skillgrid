@@ -1,0 +1,3866 @@
+# Review package: 8148b5d..73e6f63
+
+## Commits
+73e6f63 feat(handoff): handoff hub feature (WIP companion to decision bridge)
+c72ffe4 docs(specs): record size:exception delivery decision (user-approved 2026-09-21)
+
+## Files changed
+ .agents/hooks/checkpoint-state.sh                  |  11 +
+ .../2026-09-19-embed-visual-companion/tasks.md     |   6 +-
+ docs/user-guide/09-serve-dashboard.md              |  26 +-
+ skillgrid-cli/cmd/skillgrid/handoff.go             | 274 ++++++++++++++++
+ skillgrid-cli/cmd/skillgrid/handoff_test.go        | 158 +++++++++
+ skillgrid-cli/cmd/skillgrid/main.go                |   3 +
+ .../internal/mnemonic/handoff/checkpoint.go        | 285 +++++++++++++++++
+ skillgrid-cli/internal/mnemonic/handoff/context.go |  44 +++
+ skillgrid-cli/internal/mnemonic/handoff/handoff.go | 104 ++++++
+ .../internal/mnemonic/handoff/handoff_test.go      | 304 ++++++++++++++++++
+ skillgrid-cli/internal/mnemonic/handoff/refs.go    | 124 +++++++
+ skillgrid-cli/internal/mnemonic/handoff/rollup.go  |  93 ++++++
+ .../internal/mnemonic/handoff/snapshot.go          | 283 ++++++++++++++++
+ .../internal/mnemonic/handoff/testhelpers_test.go  |  30 ++
+ skillgrid-cli/internal/mnemonic/http/activity.go   |  88 ++++-
+ .../internal/mnemonic/http/activity_test.go        |  13 +-
+ skillgrid-cli/internal/mnemonic/http/handoff.go    | 138 ++++++++
+ .../internal/mnemonic/http/handoff_test.go         | 142 ++++++++
+ skillgrid-cli/internal/mnemonic/mcp/server.go      |   2 +
+ skillgrid-cli/internal/mnemonic/mcp/server_test.go |   2 +
+ .../internal/mnemonic/mcp/tools_handoff.go         | 181 +++++++++++
+ .../internal/mnemonic/mcp/tools_session_handoff.go |  14 +
+ .../mnemonic/mcp/tools_session_handoff_test.go     |   8 +-
+ skillgrid-cli/internal/mnemonic/mcp/tools_teams.go |   9 +
+ skillgrid-cli/internal/mnemonic/relay/cleave.go    |   9 +
+ skillgrid-cli/internal/mnemonic/relay/relay.go     |  75 +++++
+ .../internal/mnemonic/relay/relay_test.go          |  45 +++
+ .../mnemonic/store/handoff_hub_schema_test.go      |  99 ++++++
+ .../mnemonic/store/migrations/039_handoff_hub.sql  |  82 +++++
+ .../src/features/handoff/HandoffHubPage.tsx        | 356 +++++++++++++++++++++
+ skillgrid-ui/src/features/handoff/api.ts           | 180 +++++++++++
+ 31 files changed, 3163 insertions(+), 25 deletions(-)
+
+## Diff
+diff --git a/.agents/hooks/checkpoint-state.sh b/.agents/hooks/checkpoint-state.sh
+index d96ec424..9184b967 100755
+--- a/.agents/hooks/checkpoint-state.sh
++++ b/.agents/hooks/checkpoint-state.sh
+@@ -88,20 +88,31 @@ cmd_snapshot() {
+   "last_commit_short": "$short",
+   "last_commit_subject": "$(json_escape "$subject")",
+   "current_task": "$task",
+   "completed_tasks": "$completed",
+   "decisions": "$decisions",
+   "remaining": "$remaining",
+   "tried": "$tried"
+ }
+ EOF
+   echo "CHECKPOINT_WRITTEN $sf"
++
++  # Mirror the snapshot into the Handoff Hub store (change 015-handoff-hub).
++  # Best-effort: the bash script stays the standalone source of truth; when the
++  # skillgrid binary is present it also records the commit into the
++  # change_snapshots table so the admin UI change log stays current. A missing
++  # binary or a store write failure must never block the commit.
++  #
++  local root; root="$(repo_root)"
++  if [ -n "$root" ] && command -v skillgrid >/dev/null 2>&1; then
++    ( cd "$root" && skillgrid handoff record >/dev/null 2>&1 ) || true
++  fi
+ }
+ 
+ cmd_restore() {
+   local sf; sf="$(state_file)"
+   if [ ! -f "$sf" ]; then
+     echo "NO_CHECKPOINT $sf"
+     return 0
+   fi
+   # Print the state for a fresh session to consume.
+   cat "$sf"
+diff --git a/.skillgrid/specs/2026-09-19-embed-visual-companion/tasks.md b/.skillgrid/specs/2026-09-19-embed-visual-companion/tasks.md
+index 5799d884..511afb57 100644
+--- a/.skillgrid/specs/2026-09-19-embed-visual-companion/tasks.md
++++ b/.skillgrid/specs/2026-09-19-embed-visual-companion/tasks.md
+@@ -19,23 +19,23 @@ iframe inside the decision card.
+ 
+ | Field | Value |
+ |-------|-------|
+ | Estimated changed lines | 900–1400 (2 packages + UI + 5 routes + 4 docs) |
+ | 400-line budget risk | High |
+ | Chained PRs recommended | Yes |
+ | Suggested split | PR 1 (backend read + answer) → PR 2 (frontend + prototype) → PR 3 (openapi/docs) |
+ | Delivery strategy | ask-on-risk |
+ | Chain strategy | stacked-to-main (recommended) or feature-branch-chain |
+ 
+-Decision needed before apply: Yes
+-Chained PRs recommended: Yes
+-Chain strategy: stacked-to-main
++Decision needed before apply: No (resolved 2026-09-21: size:exception single PR — user decision)
++Chained PRs recommended: Yes (superseded by the size:exception decision)
++Chain strategy: size:exception
+ 400-line budget risk: High
+ 
+ ### Suggested Work Units
+ 
+ | Unit | Goal | Likely PR | Focused test command | Runtime harness | Rollback boundary |
+ |------|------|-----------|----------------------|-----------------|-------------------|
+ | 1 | Backend decision bridge: `GET /mnemonic/decisions` + `POST .../answer` (filter + state flip + version append) | PR 1 | `go test -count=1 ./internal/mnemonic/http/...` | live `skillgrid serve` + curl (real store) | `decisions.go`, `decisions_test.go`, `memory/governance.go` (UpdateContent), the 2 server.go route lines |
+ | 2 | Frontend `/decisions` view + prototype serve route + sandboxed iframe in card | PR 2 | `go test ./internal/mnemonic/http/...` + `pnpm --filter skillgrid-ui test` | dashboard UI + real store + a seeded `.skillgrid/prototype` file | `features/decisions/*`, `app.tsx`, `AppLayout.tsx`, `prototype.go`, `prototype_test.go` |
+ | 3 | openapi + docs + MCP round-trip guard | PR 3 | `go test ./internal/mnemonic/http/...` (round-trip test) + docs lint | openapi.yaml + `docs/user-guide/10-decision-companion.md` | `ui/openapi.yaml`, `docs/user-guide/10-decision-companion.md` |
+ 
+diff --git a/docs/user-guide/09-serve-dashboard.md b/docs/user-guide/09-serve-dashboard.md
+index 2605e4aa..d8285101 100644
+--- a/docs/user-guide/09-serve-dashboard.md
++++ b/docs/user-guide/09-serve-dashboard.md
+@@ -69,20 +69,42 @@ change with status + task-progress bar, a dependency pipeline, a detail view
+ (SDD ledger steps, file inventory), and a spec viewer (renders `briefing.md` /
+ `tasks.md` / `findings.md`). Read-only — it reflects what the SDD skills wrote.
+ 
+ ### Activity
+ 
+ The live agent-activity feed (observations as events): a stats bar, a
+ filterable feed (type/source/severity/actor), agent-health liveness, and
+ dismissible high-severity alerts. Live via SSE (`/activity/stream`) — new
+ events animate in from the top.
+ 
++### Handoff
++
++The Handoff Hub (`/handoff`, change 015): one page combining the three
++checkpoint mechanisms into a single engine-backed view.
++
++- **Changes tab** — the change log: every commit as a git-derived snapshot
++  (`change_snapshots`) with its parsed `[skillgrid-context]` block (Task /
++  Decisions / Remaining / Tried), named checkpoints overlaid as markers, and
++  the latest commit up top. Live via the extended `/activity/stream`
++  (`event: snapshot`) — a new commit animates in.
++- **Activity tab** — the same agent-activity feed as the Activity view.
++- **Handoffs tab** — the named checkpoints (with drift status) and the
++  handoff refs (session/team handoffs joined to their commit ranges + spec dir).
++
++The data is engine-backed (SQLite, migration `039_handoff_hub.sql`), populated
++by `checkpoint-state.sh snapshot` (best-effort `skillgrid handoff record`) and
++seeded on first run by `skillgrid handoff backfill` (last 100 commits). Named
++checkpoints are placed with `skillgrid handoff checkpoint <name>` and
++drift-verified with `skillgrid handoff verify <name>`; the one-call "where are
++we" is `skillgrid handoff status`. The MCP surface exposes `handoff_snapshot`,
++`handoff_status`, `handoff_checkpoint`, `handoff_verify`, and `handoff_rollup`.
++
+ ### Git
+ 
+ A read-only git bridge: the commit log (with +/- stats), commit detail +
+ unified diff, per-file history, and per-line blame. Read-only (`git` CLI, no
+ writes). Returns `503` when the served directory is not a git worktree.
+ 
+ ### Prototypes
+ 
+ A sandboxed gallery of `.stitch/` design prototypes: a gallery list, a
+ sandboxed iframe preview (device viewport: desktop/tablet/mobile), a code
+@@ -116,22 +138,22 @@ When `tracker.provider` is `backlog` (the default), no external CLI is needed 
+ the board reads the local `Backlog.md` directly.
+ 
+ ### Degraded state
+ 
+ If the configured provider's CLI is **missing or unauthenticated**, the
+ Tracker view degrades gracefully — it does not break the rest of the dashboard:
+ 
+ - The board shows an **amber banner**: the provider name, what's missing
+   (CLI not on `PATH` / not authenticated), and the exact command to fix it
+   (e.g. `gh auth login`).
+-- The other views (Graph, Memories, Sessions, Docs, Plans, Activity, Git,
+-  Prototypes) are **unaffected** — they don't touch the tracker CLI.
++- The other views (Graph, Memories, Sessions, Docs, Plans, Handoff, Activity,
++  Git, Prototypes) are **unaffected** — they don't touch the tracker CLI.
+ - `GET /tracker/providers` reports each provider's availability so the UI can
+   render the banner; `GET /tracker/config` reports the active provider.
+ 
+ Fix the dependency (install/auth the CLI), then reload — the board populates
+ from the provider.
+ 
+ ---
+ 
+ ## API + OpenAPI
+ 
+diff --git a/skillgrid-cli/cmd/skillgrid/handoff.go b/skillgrid-cli/cmd/skillgrid/handoff.go
+new file mode 100644
+index 00000000..129fc813
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/handoff.go
+@@ -0,0 +1,274 @@
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"flag"
++	"fmt"
++	"os"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/handoff"
++)
++
++// runHandoff handles `skillgrid handoff <subcommand>` — the Handoff Hub CLI
++// (change 015-handoff-hub). It exposes the unified checkpoint surface:
++// change-snapshot recording/backfill, named checkpoints with drift
++// verification, per-change archiving, and the aggregate status/rollup.
++//
++// Subcommands:
++//
++//	record      record HEAD as a change snapshot (idempotent; backfills if empty)
++//	backfill    seed snapshots from git log (default 100 commits)
++//	status      one-call "where are we": latest snapshot + checkpoints + refs
++//	checkpoint  place a named checkpoint marker
++//	verify      drift-verify a checkpoint (no name = verify all open)
++//	archive     archive checkpoints for a spec dir (ship/finish)
++//	rollup      write a session/team rollup markdown to .skillgrid/sdd/rollups/
++func runHandoff(version string, args []string) {
++	_ = version
++	if len(args) == 0 {
++		printHandoffUsage()
++		os.Exit(2)
++	}
++	cmd := args[0]
++	rest := args[1:]
++
++	fs := flag.NewFlagSet("handoff", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	var (
++		dataDir string
++		project string
++		limit   int
++		name    string
++		evidence string
++		specDir string
++		asJSON  bool
++	)
++	fs.StringVar(&dataDir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
++	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
++	fs.IntVar(&limit, "limit", 100, "backfill/record list limit")
++	fs.StringVar(&evidence, "evidence", "", "checkpoint verification note")
++	fs.StringVar(&specDir, "spec", "", "spec dir (for archive; default auto-detect)")
++	fs.BoolVar(&asJSON, "json", false, "emit JSON instead of a human summary")
++
++	if err := fs.Parse(rest); err != nil {
++		os.Exit(2)
++	}
++	pos := fs.Args()
++	// The checkpoint/verify name is the first positional argument.
++	if len(pos) > 0 {
++		name = pos[0]
++	}
++
++	svc, proj := openMemService(dataDir, project)
++	h, cleanup, err := svc.Open(proj)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: open project: %v\n", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++
++	hub := &handoff.Hub{DB: h.Store().DB, Project: h.ProjectID(), RepoDir: h.Root()}
++	ctx := context.Background()
++
++	switch cmd {
++	case "record":
++		runHandoffRecord(ctx, hub, asJSON)
++	case "backfill":
++		runHandoffBackfill(ctx, hub, limit, asJSON)
++	case "status":
++		runHandoffStatus(ctx, hub, asJSON)
++	case "checkpoint":
++		runHandoffCheckpoint(ctx, hub, name, evidence, specDir, asJSON)
++	case "verify":
++		runHandoffVerify(ctx, hub, name, asJSON)
++	case "archive":
++		runHandoffArchive(ctx, hub, specDir, asJSON)
++	case "rollup":
++		runHandoffRollup(ctx, hub, h.Root(), asJSON)
++	case "help", "-h", "--help":
++		printHandoffUsage()
++	default:
++		fmt.Fprintf(os.Stderr, "unknown handoff subcommand %q\n\n", cmd)
++		printHandoffUsage()
++		os.Exit(2)
++	}
++	_ = pos
++}
++
++func emit(asJSON bool, jsonVal any, human string) {
++	if asJSON {
++		b, _ := json.MarshalIndent(jsonVal, "", "  ")
++		fmt.Println(string(b))
++		return
++	}
++	fmt.Println(human)
++}
++
++func runHandoffRecord(ctx context.Context, hub *handoff.Hub, asJSON bool) {
++	n, _ := hub.CountSnapshots(ctx)
++	if n == 0 {
++		// First run: backfill so the hub is not empty until the next commit.
++		if _, err := hub.Backfill(ctx, 100); err != nil {
++			fmt.Fprintf(os.Stderr, "warning: backfill: %v\n", err)
++		}
++	}
++	s, err := hub.Record(ctx)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: record snapshot: %v\n", err)
++		os.Exit(1)
++	}
++	emit(asJSON, s, fmt.Sprintf("SNAPSHOT %s %q (%s)", handoff.ShortID(s.Commit), s.Subject, s.Branch))
++}
++
++func runHandoffBackfill(ctx context.Context, hub *handoff.Hub, limit int, asJSON bool) {
++	n, err := hub.Backfill(ctx, limit)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: backfill: %v\n", err)
++		os.Exit(1)
++	}
++	emit(asJSON, map[string]int{"backfilled": n}, fmt.Sprintf("BACKFILL %d commit(s)", n))
++}
++
++func runHandoffStatus(ctx context.Context, hub *handoff.Hub, asJSON bool) {
++	snapshots, _ := hub.ListSnapshots(ctx, 1)
++	checkpoints, _ := hub.ListCheckpoints(ctx, 20)
++	refs, _ := hub.ListHandoffRefs(ctx, 20)
++	var latest *handoff.Snapshot
++	if len(snapshots) > 0 {
++		latest = &snapshots[0]
++	}
++	status := map[string]any{
++		"latest_snapshot": latest,
++		"checkpoints":     checkpoints,
++		"handoff_refs":    refs,
++	}
++	if asJSON {
++		emit(asJSON, status, "")
++		return
++	}
++	if latest == nil {
++		fmt.Println("No snapshots recorded yet.")
++		return
++	}
++	fmt.Printf("LATEST %s %q (%s)\n", handoff.ShortID(latest.Commit), latest.Subject, latest.Branch)
++	if len(checkpoints) > 0 {
++		fmt.Printf("CHECKPOINTS %d (newest: %s [%s])\n", len(checkpoints), checkpoints[0].Name, checkpoints[0].Status)
++	}
++	if len(refs) > 0 {
++		fmt.Printf("HANDOFF REFS %d\n", len(refs))
++	}
++}
++
++func runHandoffCheckpoint(ctx context.Context, hub *handoff.Hub, name, evidence, specDir string, asJSON bool) {
++	if name == "" {
++		fmt.Fprintln(os.Stderr, "error: --name is required for checkpoint")
++		os.Exit(2)
++	}
++	cp, err := hub.RecordCheckpoint(ctx, handoff.CheckpointInput{
++		Name: name, Evidence: evidence, SpecDir: specDir,
++	})
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: checkpoint: %v\n", err)
++		os.Exit(1)
++	}
++	dirty := ""
++	if cp.Dirty {
++		dirty = " dirty"
++	}
++	emit(asJSON, cp, fmt.Sprintf("CHECKPOINT %s @ %s%s (spec: %s)", cp.Name, handoff.ShortID(cp.Commit), dirty, orDash(cp.SpecDir)))
++}
++
++func runHandoffVerify(ctx context.Context, hub *handoff.Hub, name string, asJSON bool) {
++	if name == "" {
++		// Verify all open checkpoints.
++		open, _ := hub.ListCheckpoints(ctx, 200)
++		var out []any
++		for _, c := range open {
++			if c.Status != "open" {
++				continue
++			}
++			rep, err := hub.VerifyCheckpoint(ctx, c.Name)
++			if err != nil {
++				continue
++			}
++			out = append(out, rep)
++		}
++		emit(asJSON, out, fmt.Sprintf("VERIFIED %d open checkpoint(s)", len(out)))
++		return
++	}
++	rep, err := hub.VerifyCheckpoint(ctx, name)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: verify: %v\n", err)
++		os.Exit(1)
++	}
++	if asJSON {
++		emit(asJSON, rep, "")
++		return
++	}
++	fmt.Printf("VERIFY %s -> %s (branch %v, commit %v, dirty-now %v)\n",
++		rep.Checkpoint.Name, rep.Recommendation, rep.BranchMatch, rep.CommitMatch, rep.DirtyNow)
++	if len(rep.ChangedSince) > 0 {
++		fmt.Printf("  changed since: %d file(s)\n", len(rep.ChangedSince))
++	}
++}
++
++func runHandoffArchive(ctx context.Context, hub *handoff.Hub, specDir string, asJSON bool) {
++	if specDir == "" {
++		// Auto-detect the active spec dir.
++		checkpoints, _ := hub.ListCheckpoints(ctx, 200)
++		for _, c := range checkpoints {
++			if c.SpecDir != "" {
++				specDir = c.SpecDir
++				break
++			}
++		}
++	}
++	if specDir == "" {
++		fmt.Fprintln(os.Stderr, "error: no spec dir (pass --spec)")
++		os.Exit(2)
++	}
++	n, err := hub.ArchiveCheckpoints(ctx, specDir)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: archive: %v\n", err)
++		os.Exit(1)
++	}
++	emit(asJSON, map[string]any{"archived": n, "spec_dir": specDir}, fmt.Sprintf("ARCHIVED %d checkpoint(s) for %s", n, specDir))
++}
++
++func runHandoffRollup(ctx context.Context, hub *handoff.Hub, root string, asJSON bool) {
++	snapshots, _ := hub.ListSnapshots(ctx, 200)
++	checkpoints, _ := hub.ListCheckpoints(ctx, 200)
++	refs, _ := hub.ListHandoffRefs(ctx, 200)
++	p, err := handoff.WriteRollup(ctx, hub, root)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: rollup: %v\n", err)
++		os.Exit(1)
++	}
++	emit(asJSON, map[string]any{"path": p, "snapshots": len(snapshots), "checkpoints": len(checkpoints), "handoff_refs": len(refs)},
++		fmt.Sprintf("ROLLUP %s", p))
++}
++
++func printHandoffUsage() {
++	fmt.Print(`skillgrid handoff — Handoff Hub (change snapshots, checkpoints, handoff refs)
++
++Usage:
++  skillgrid handoff record [--json]
++  skillgrid handoff backfill [--limit N] [--json]
++  skillgrid handoff status [--json]
++  skillgrid handoff checkpoint NAME [--evidence TEXT] [--spec DIR] [--json]
++  skillgrid handoff verify [NAME] [--json]
++  skillgrid handoff archive [--spec DIR] [--json]
++  skillgrid handoff rollup [--json]
++
++Flags:
++  --dir D         mnemonic data directory (default $SKILLGRID_MNEMONIC_DATA_DIR)
++  --project P     project id (default: CWD-resolved)
++  --limit N       backfill/record list limit (default 100)
++  --evidence TEXT checkpoint verification note
++  --spec DIR      spec dir (archive target; default auto-detect)
++  --json          emit JSON
++
++`)
++}
++
+diff --git a/skillgrid-cli/cmd/skillgrid/handoff_test.go b/skillgrid-cli/cmd/skillgrid/handoff_test.go
+new file mode 100644
+index 00000000..41df293f
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/handoff_test.go
+@@ -0,0 +1,158 @@
++package main
++
++import (
++	"fmt"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"strings"
++	"sync"
++	"testing"
++)
++
++// gitInitRepo creates a temp git repo with the given commits (oldest first)
++// and returns the repo dir. Mirrors the handoff package test helper.
++func gitInitRepo(t *testing.T, commits []string) string {
++	t.Helper()
++	dir := t.TempDir()
++	env := func() []string {
++		return append(os.Environ(),
++			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
++			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
++			"SKILLGRID_PROTECTED_BRANCHES=protected-main")
++	}
++	run := func(args ...string) {
++		t.Helper()
++		cmd := exec.Command(args[0], args[1:]...)
++		cmd.Dir = dir
++		cmd.Env = env()
++		if out, err := cmd.CombinedOutput(); err != nil {
++			t.Fatalf("git %v: %v\n%s", args, err, out)
++		}
++	}
++	run("git", "init", "-q", "-b", "main")
++	run("git", "config", "user.name", "t")
++	run("git", "config", "user.email", "t@t")
++	for i, c := range commits {
++		fields := strings.Split(c, "|")
++		body := fields[0]
++		if len(fields) > 1 {
++			body += "\n\n[skillgrid-context]\n"
++			for _, f := range fields[1:] {
++				body += f + "\n"
++			}
++			body += "[/skillgrid-context]\n"
++		}
++		p := filepath.Join(dir, "f"+string(rune('a'+i))+".txt")
++		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
++			t.Fatal(err)
++		}
++		run("git", "add", ".")
++		run("git", "commit", "-q", "-m", body)
++	}
++	return dir
++}
++
++// handoffBinary builds the skillgrid binary once per test (cached in a temp
++// dir) and returns its path. The CLI is then run with CWD = the git repo so
++// the Hub's RepoDir resolves to the repo.
++var handoffBinOnce sync.Once
++var handoffBinPath string
++var handoffBinErr error
++
++func buildHandoffBinary(t *testing.T) string {
++	t.Helper()
++	handoffBinOnce.Do(func() {
++		pkgDir := mustWD(t)
++		dir, err := os.MkdirTemp("", "skillgrid-handoff-bin")
++		if err != nil {
++			handoffBinErr = err
++			return
++		}
++		bin := filepath.Join(dir, "skillgrid-test")
++		cmd := exec.Command("go", "build", "-o", bin, ".")
++		cmd.Dir = pkgDir
++		out, err := cmd.CombinedOutput()
++		if err != nil {
++			handoffBinErr = fmt.Errorf("build: %v\n%s", err, out)
++			return
++		}
++		handoffBinPath = bin
++	})
++	if handoffBinErr != nil {
++		t.Fatalf("build handoff binary: %v", handoffBinErr)
++	}
++	return handoffBinPath
++}
++
++func runHandoffCLI(t *testing.T, dataDir, cwd string, args ...string) string {
++	t.Helper()
++	bin := buildHandoffBinary(t)
++	cmd := exec.Command(bin, "handoff")
++	cmd.Args = append(cmd.Args, args...)
++	cmd.Dir = cwd
++	cmd.Env = append(cmd.Environ(), "SKILLGRID_MNEMONIC_DATA_DIR="+dataDir)
++	out, err := cmd.CombinedOutput()
++	if err != nil {
++		t.Fatalf("handoff %v: %v\n%s", args, err, out)
++	}
++	return string(out)
++}
++
++// TestHandoffCLIRecordBackfillStatus covers the happy path: record (which
++// backfills on first run), status, checkpoint, verify, archive.
++func TestHandoffCLIRecordBackfillStatus(t *testing.T) {
++	dataDir := t.TempDir()
++	repo := gitInitRepo(t, []string{
++		"feat: one",
++		"feat: two|Task: t2|Decisions: d",
++		"chore: three",
++	})
++
++	// record: first run backfills all 3 + records HEAD.
++	out := runHandoffCLI(t, dataDir, repo, "record", "--project", "hubcli")
++	if !strings.Contains(out, "SNAPSHOT") {
++		t.Fatalf("record did not report a snapshot: %s", out)
++	}
++
++	// status: must show the latest snapshot.
++	out = runHandoffCLI(t, dataDir, repo, "status", "--project", "hubcli")
++	if !strings.Contains(out, "LATEST") {
++		t.Fatalf("status did not report latest snapshot: %s", out)
++	}
++
++	// checkpoint: place a named marker (name is positional).
++	out = runHandoffCLI(t, dataDir, repo, "checkpoint", "before-apply-test", "--project", "hubcli")
++	if !strings.Contains(out, "CHECKPOINT before-apply-test") {
++		t.Fatalf("checkpoint did not report: %s", out)
++	}
++
++	// verify: clean (no drift) -> continue.
++	out = runHandoffCLI(t, dataDir, repo, "verify", "before-apply-test", "--project", "hubcli")
++	if !strings.Contains(out, "VERIFY before-apply-test") {
++		t.Fatalf("verify did not report: %s", out)
++	}
++}
++
++// TestHandoffCLIJSON covers the --json emit path.
++func TestHandoffCLIJSON(t *testing.T) {
++	dataDir := t.TempDir()
++	repo := gitInitRepo(t, []string{"feat: one"})
++	out := runHandoffCLI(t, dataDir, repo, "backfill", "--project", "hubclijson", "--json")
++	if !strings.Contains(out, `"backfilled"`) {
++		t.Fatalf("backfill --json did not emit JSON: %s", out)
++	}
++}
++
++// TestHandoffCLIUnknownSubcommand proves an unknown subcommand exits non-zero.
++func TestHandoffCLIUnknownSubcommand(t *testing.T) {
++	dataDir := t.TempDir()
++	repo := gitInitRepo(t, []string{"feat: one"})
++	bin := buildHandoffBinary(t)
++	cmd := exec.Command(bin, "handoff", "bogus", "--project", "hubcli-err")
++	cmd.Dir = repo
++	cmd.Env = append(cmd.Environ(), "SKILLGRID_MNEMONIC_DATA_DIR="+dataDir)
++	if out, err := cmd.CombinedOutput(); err == nil {
++		t.Fatalf("expected non-zero exit for unknown subcommand: %s", out)
++	}
++}
+diff --git a/skillgrid-cli/cmd/skillgrid/main.go b/skillgrid-cli/cmd/skillgrid/main.go
+index 384a240a..6779f123 100644
+--- a/skillgrid-cli/cmd/skillgrid/main.go
++++ b/skillgrid-cli/cmd/skillgrid/main.go
+@@ -160,20 +160,23 @@ func main() {
+ 		return
+ 	case "search":
+ 		runSearch(version, rest[1:])
+ 		return
+ 	case "mem":
+ 		runMem(version, rest[1:])
+ 		return
+ 	case "session":
+ 		runSession(version, rest[1:])
+ 		return
++	case "handoff":
++		runHandoff(version, rest[1:])
++		return
+ 	case "embedding-status":
+ 		runSearchEmbeddingStatus(version, rest[1:])
+ 		return
+ 	case "doctor":
+ 		runDoctor(version, rest[1:])
+ 		return
+ 	case "eval":
+ 		runEval(version, rest[1:])
+ 		return
+ 	case "sync-repo":
+diff --git a/skillgrid-cli/internal/mnemonic/handoff/checkpoint.go b/skillgrid-cli/internal/mnemonic/handoff/checkpoint.go
+new file mode 100644
+index 00000000..448bf453
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/handoff/checkpoint.go
+@@ -0,0 +1,285 @@
++package handoff
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++	"time"
++)
++
++// CheckpointInput is a named, intentional checkpoint marker.
++type CheckpointInput struct {
++	Name     string // e.g. "before-apply-auth-foundation"
++	Evidence string // optional short verification note
++	PRDPath  string // optional; auto-detect when empty
++	SpecDir  string // optional; auto-detect when empty
++}
++
++// RecordCheckpoint places (or refreshes, by name) a checkpoint marker: it
++// captures branch / HEAD / dirty state and auto-detects the active spec dir
++// and handoff file when not supplied. Idempotent on (project, name).
++func (h *Hub) RecordCheckpoint(ctx context.Context, in CheckpointInput) (*Checkpoint, error) {
++	if h == nil || h.DB == nil {
++		return nil, errors.New("handoff hub not initialized")
++	}
++	name := strings.TrimSpace(in.Name)
++	if name == "" {
++		return nil, errors.New("checkpoint name is required")
++	}
++
++	branch, _ := gitOut(ctx, h.RepoDir, "rev-parse", "--abbrev-ref", "HEAD")
++	commit, _ := gitOut(ctx, h.RepoDir, "rev-parse", "HEAD")
++
++	specDir := strings.TrimSpace(in.SpecDir)
++	if specDir == "" {
++		specDir = detectActiveSpecDir(h.RepoDir)
++	}
++	handoffFile := detectHandoffFile(h.RepoDir)
++	prd := strings.TrimSpace(in.PRDPath)
++
++	now := time.Now().UTC().Format(time.RFC3339)
++	_, err := h.DB.ExecContext(ctx, `
++		INSERT INTO checkpoints
++			(project, name, branch, "commit", dirty, prd_path, spec_dir, handoff_file,
++			 evidence, status, created_at)
++		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)
++		ON CONFLICT(project, name) DO UPDATE SET
++			branch = excluded.branch,
++			"commit" = excluded."commit",
++			dirty = excluded.dirty,
++			prd_path = COALESCE(checkpoints.prd_path, excluded.prd_path),
++			spec_dir = COALESCE(checkpoints.spec_dir, excluded.spec_dir),
++			handoff_file = COALESCE(checkpoints.handoff_file, excluded.handoff_file),
++			evidence = excluded.evidence,
++			status = 'open',
++			created_at = excluded.created_at`,
++		h.Project, name, nullString(branch), nullString(commit),
++		dirtyInt(h.RepoDir), nullString(prd), nullString(specDir), nullString(handoffFile),
++		nullString(in.Evidence), now)
++	if err != nil {
++		return nil, fmt.Errorf("upsert checkpoint: %w", err)
++	}
++	cp, err := h.getCheckpoint(ctx, name)
++	if err != nil {
++		return nil, err
++	}
++	return cp, nil
++}
++
++// VerifyReport is the drift report comparing a checkpoint's recorded state
++// with the repo's current state.
++type VerifyReport struct {
++	Checkpoint  Checkpoint
++	BranchMatch bool
++	CommitMatch bool
++	DirtyNow    bool
++	// ChangedSince lists files changed between the checkpoint commit and HEAD
++	// (empty when the commit is unchanged or git is unavailable).
++	ChangedSince []string
++	// Recommendation is one of: continue | refresh | inspect-drift | pause.
++	Recommendation string
++}
++
++// VerifyCheckpoint compares the recorded checkpoint against current git state
++// and returns the drift report. It does not revert anything. The checkpoint's
++// status is updated: verified (no drift), stale (drift detected). Unknown
++// checkpoints fail closed.
++func (h *Hub) VerifyCheckpoint(ctx context.Context, name string) (*VerifyReport, error) {
++	if h == nil || h.DB == nil {
++		return nil, errors.New("handoff hub not initialized")
++	}
++	cp, err := h.getCheckpoint(ctx, name)
++	if err != nil {
++		return nil, fmt.Errorf("checkpoint %q: %w", name, err)
++	}
++
++	curBranch, _ := gitOut(ctx, h.RepoDir, "rev-parse", "--abbrev-ref", "HEAD")
++	curCommit, _ := gitOut(ctx, h.RepoDir, "rev-parse", "HEAD")
++	dirtyNow := dirtyInt(h.RepoDir) == 1
++
++	branchMatch := cp.Branch == curBranch
++	commitMatch := cp.Commit == curCommit
++
++	rep := &VerifyReport{
++		Checkpoint:  *cp,
++		BranchMatch: branchMatch,
++		CommitMatch: commitMatch,
++		DirtyNow:    dirtyNow,
++	}
++	if commitMatch && strings.TrimSpace(cp.Commit) != "" {
++		if out, err := gitOut(ctx, h.RepoDir, "diff", "--name-only", cp.Commit, "HEAD"); err == nil {
++			for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
++				if line != "" {
++					rep.ChangedSince = append(rep.ChangedSince, line)
++				}
++			}
++		}
++	}
++
++	switch {
++	case commitMatch && branchMatch && !dirtyNow:
++		rep.Recommendation = "continue"
++	case commitMatch && branchMatch:
++		// Same commit but working tree dirty: the marker is still valid,
++		// the dirt is in-flight work.
++		rep.Recommendation = "inspect-drift"
++	default:
++		rep.Recommendation = "refresh"
++	}
++
++	now := time.Now().UTC().Format(time.RFC3339)
++	status := "verified"
++	if rep.Recommendation != "continue" {
++		status = "stale"
++	}
++	if _, err := h.DB.ExecContext(ctx, `
++		UPDATE checkpoints SET status = ?, verified_at = ?
++		WHERE project = ? AND name = ?`,
++		status, now, h.Project, name); err != nil {
++		return rep, fmt.Errorf("record verification: %w", err)
++	}
++	return rep, nil
++}
++
++// ListCheckpoints returns the project's checkpoints, newest-first (limit
++// clamped to 1..200).
++func (h *Hub) ListCheckpoints(ctx context.Context, limit int) ([]Checkpoint, error) {
++	if h == nil || h.DB == nil {
++		return nil, errors.New("handoff hub not initialized")
++	}
++	if limit <= 0 {
++		limit = 50
++	}
++	if limit > 200 {
++		limit = 200
++	}
++	rows, err := h.DB.QueryContext(ctx, `
++		SELECT id, name, branch, "commit", dirty, prd_path, spec_dir, handoff_file,
++		       evidence, status, created_at, COALESCE(verified_at,'')
++		FROM checkpoints WHERE project = ?
++		ORDER BY created_at DESC, id DESC
++		LIMIT ?`, h.Project, limit)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	out := []Checkpoint{}
++	for rows.Next() {
++		var c Checkpoint
++		var branch, commit, prd, spec, hf, evidence sql.NullString
++		var verifiedAt sql.NullString
++		if err := rows.Scan(&c.ID, &c.Name, &branch, &commit, &c.Dirty, &prd, &spec,
++			&hf, &evidence, &c.Status, &c.CreatedAt, &verifiedAt); err != nil {
++			return nil, err
++		}
++		c.Branch = branch.String
++		c.Commit = commit.String
++		c.PRDPath = prd.String
++		c.SpecDir = spec.String
++		c.HandoffFile = hf.String
++		c.Evidence = evidence.String
++		c.VerifiedAt = verifiedAt.String
++		out = append(out, c)
++	}
++	return out, rows.Err()
++}
++
++// ArchiveCheckpoints flips the checkpoints linked to a spec dir to 'archived'
++// (called by the ship/finish flow). Returns the number archived.
++func (h *Hub) ArchiveCheckpoints(ctx context.Context, specDir string) (int, error) {
++	if h == nil || h.DB == nil {
++		return 0, errors.New("handoff hub not initialized")
++	}
++	now := time.Now().UTC().Format(time.RFC3339)
++	res, err := h.DB.ExecContext(ctx, `
++		UPDATE checkpoints SET status = 'archived', verified_at = ?
++		WHERE project = ? AND status IN ('open', 'verified', 'stale')
++		  AND spec_dir = ?`, now, h.Project, specDir)
++	if err != nil {
++		return 0, err
++	}
++	n, _ := res.RowsAffected()
++	return int(n), nil
++}
++
++func (h *Hub) getCheckpoint(ctx context.Context, name string) (*Checkpoint, error) {
++	row := h.DB.QueryRowContext(ctx, `
++		SELECT id, name, branch, "commit", dirty, prd_path, spec_dir, handoff_file,
++		       evidence, status, created_at, COALESCE(verified_at,'')
++		FROM checkpoints WHERE project = ? AND name = ?`, h.Project, name)
++	var c Checkpoint
++	var branch, commit, prd, spec, hf, evidence sql.NullString
++	var verifiedAt sql.NullString
++	if err := row.Scan(&c.ID, &c.Name, &branch, &commit, &c.Dirty, &prd, &spec,
++		&hf, &evidence, &c.Status, &c.CreatedAt, &verifiedAt); err != nil {
++		if errors.Is(err, sql.ErrNoRows) {
++			return nil, fmt.Errorf("unknown checkpoint %q", name)
++		}
++		return nil, err
++	}
++	c.Branch = branch.String
++	c.Commit = commit.String
++	c.PRDPath = prd.String
++	c.SpecDir = spec.String
++	c.HandoffFile = hf.String
++	c.Evidence = evidence.String
++	c.VerifiedAt = verifiedAt.String
++	return &c, nil
++}
++
++// dirtyInt returns 1 when the repo working tree is dirty (porcelain non-empty),
++// 0 otherwise or when git is unavailable.
++func dirtyInt(repoDir string) int {
++	if strings.TrimSpace(repoDir) == "" {
++		return 0
++	}
++	out, err := gitOut(context.Background(), repoDir, "status", "--porcelain")
++	if err != nil || strings.TrimSpace(out) == "" {
++		return 0
++	}
++	return 1
++}
++
++// detectActiveSpecDir finds the newest .skillgrid/sdd/<change>/ directory
++// (by directory mtime) that is not 'debug' or 'tasks'. Empty when none.
++func detectActiveSpecDir(repoDir string) string {
++	sdd := filepath.Join(repoDir, ".skillgrid", "sdd")
++	entries, err := os.ReadDir(sdd)
++	if err != nil {
++		return ""
++	}
++	var best string
++	var bestMtime int64
++	for _, e := range entries {
++		if !e.IsDir() {
++			continue
++		}
++		n := e.Name()
++		if n == "debug" || n == "tasks" || n == "archive" || n == ".gitkeep" {
++			continue
++		}
++		info, err := e.Info()
++		if err != nil {
++			continue
++		}
++		m := info.ModTime().Unix()
++		if m > bestMtime {
++			bestMtime = m
++			best = filepath.Join(".skillgrid", "sdd", n)
++		}
++	}
++	return best
++}
++
++// detectHandoffFile returns the repo-relative .cleave path when a bundle is
++// present (i.e. a handoff exists to point at), "" otherwise.
++func detectHandoffFile(repoDir string) string {
++	if info, err := os.Stat(filepath.Join(repoDir, ".skillgrid", ".cleave")); err == nil && info.IsDir() {
++		return ".skillgrid/.cleave"
++	}
++	return ""
++}
+diff --git a/skillgrid-cli/internal/mnemonic/handoff/context.go b/skillgrid-cli/internal/mnemonic/handoff/context.go
+new file mode 100644
+index 00000000..abb53d40
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/handoff/context.go
+@@ -0,0 +1,44 @@
++package handoff
++
++import "strings"
++
++// parseContext extracts the [skillgrid-context] block from a commit message
++// body. The block format (owned by work-unit-commits + checkpoint-state.sh):
++//
++//	[skillgrid-context]
++//	Task: ...
++//	Decisions: ...
++//	Remaining: ...
++//	Tried: ...
++//	[/skillgrid-context]
++//
++// Field values are single-line; a field present but empty keeps its empty
++// string. Returns a zero Context when the block is absent. The parse is
++// intentionally independent of the bash script so the Go engine is the single
++// source of truth (the script keeps its own copy for standalone use).
++func parseContext(body string) Context {
++	var c Context
++	lines := strings.Split(body, "\n")
++	inBlock := false
++	for _, raw := range lines {
++		line := strings.TrimRight(raw, "\r")
++		trimmed := strings.TrimSpace(line)
++		switch {
++		case !inBlock:
++			if strings.EqualFold(trimmed, "[skillgrid-context]") {
++				inBlock = true
++			}
++		case strings.EqualFold(trimmed, "[/skillgrid-context]"):
++			return c
++		case len(trimmed) >= 6 && strings.EqualFold(trimmed[:4], "task") && trimmed[4] == ':':
++			c.Task = strings.TrimSpace(trimmed[5:])
++		case len(trimmed) >= 7 && strings.EqualFold(trimmed[:5], "tried") && trimmed[5] == ':':
++			c.Tried = strings.TrimSpace(trimmed[6:])
++		case len(trimmed) >= 11 && strings.EqualFold(trimmed[:9], "decisions") && trimmed[9] == ':':
++			c.Decisions = strings.TrimSpace(trimmed[10:])
++		case len(trimmed) >= 11 && strings.EqualFold(trimmed[:9], "remaining") && trimmed[9] == ':':
++			c.Remaining = strings.TrimSpace(trimmed[10:])
++		}
++	}
++	return c
++}
+diff --git a/skillgrid-cli/internal/mnemonic/handoff/handoff.go b/skillgrid-cli/internal/mnemonic/handoff/handoff.go
+new file mode 100644
+index 00000000..c10e2b64
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/handoff/handoff.go
+@@ -0,0 +1,104 @@
++// Package handoff is the Handoff Hub (change 015-handoff-hub): it unifies the
++// three existing checkpoint sources into one queryable surface.
++//
++//   - change_snapshots — a git-derived, append-only log of EVERY commit
++//     (Record/Backfill), reconstructed from `git log` on demand.
++//   - checkpoints      — named, intentional markers (RecordCheckpoint) with
++//     drift verification (VerifyCheckpoint) and per-change archiving.
++//   - handoff_refs     — the join between a handoff artifact (session cleave
++//     bundle, team task, checkpoint marker) and the commit range + spec dir it
++//     covers (RecordHandoffRef).
++//
++// The Hub holds the store DB plus the repo root. Git access goes through small
++// exec helpers (same pattern as http/git.go); every git call degrades to a
++// NULL/zero field rather than failing the hub — the hub must never be blocked
++// by a missing git binary or an unborn HEAD.
++package handoff
++
++import (
++	"context"
++	"database/sql"
++	"os/exec"
++	"strings"
++)
++
++// DB is the SQL surface the hub needs. *sql.DB satisfies it.
++type DB interface {
++	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
++	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
++	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
++}
++
++// Hub is one project's handoff hub.
++type Hub struct {
++	DB      DB
++	Project string
++	RepoDir string
++}
++
++// Snapshot is one row of change_snapshots.
++type Snapshot struct {
++	ID          int64
++	Branch      string
++	Commit      string
++	CommitShort string
++	Subject     string
++	ContextJSON string
++	ChangedFiles string
++	Author      string
++	CommittedAt string
++}
++
++// Context is the parsed [skillgrid-context] block of a commit message.
++type Context struct {
++	Task      string `json:"task,omitempty"`
++	Decisions string `json:"decisions,omitempty"`
++	Remaining string `json:"remaining,omitempty"`
++	Tried     string `json:"tried,omitempty"`
++}
++
++// ChangedFile is one entry of the changed_files JSON array.
++type ChangedFile struct {
++	Path   string `json:"path"`
++	Status string `json:"status"`
++}
++
++// Checkpoint is one row of checkpoints.
++type Checkpoint struct {
++	ID          int64
++	Name        string
++	Branch      string
++	Commit      string
++	Dirty       bool
++	PRDPath     string
++	SpecDir     string
++	HandoffFile string
++	Evidence    string
++	Status      string
++	CreatedAt   string
++	VerifiedAt  string
++}
++
++// HandoffRef is one row of handoff_refs.
++type HandoffRef struct {
++	HandoffID  string
++	HandoffType string
++	FromCommit string
++	ToCommit   string
++	SpecDir    string
++	TeamID     string
++	TaskID     string
++	CreatedAt  string
++}
++
++func gitOut(ctx context.Context, dir string, args ...string) (string, error) {
++	cmd := exec.CommandContext(ctx, "git", args...)
++	if dir != "" {
++		cmd.Dir = dir
++	}
++	out, err := cmd.Output()
++	if err != nil {
++		return "", err
++	}
++	return strings.TrimSpace(string(out)), nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/handoff/handoff_test.go b/skillgrid-cli/internal/mnemonic/handoff/handoff_test.go
+new file mode 100644
+index 00000000..f85ce7ed
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/handoff/handoff_test.go
+@@ -0,0 +1,304 @@
++package handoff
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++// newRepo creates a temp git repo with the given commits (oldest first).
++// Each entry is "subject" or "subject|Task: X|Decisions: Y".
++func newRepo(t *testing.T, commits []string) string {
++	t.Helper()
++	dir := t.TempDir()
++	run := func(args ...string) {
++		t.Helper()
++		cmd := exec.Command(args[0], args[1:]...)
++		cmd.Dir = dir
++		cmd.Env = append(os.Environ(),
++			"HOME="+dir,
++			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
++			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
++		out, err := cmd.CombinedOutput()
++		if err != nil {
++			t.Fatalf("git %v: %v\n%s", args, err, out)
++		}
++	}
++	run("git", "init", "-q", "-b", "main")
++	run("git", "config", "user.name", "t")
++	run("git", "config", "user.email", "t@t")
++	for i, c := range commits {
++		fields := strings.Split(c, "|")
++		body := fields[0]
++		if len(fields) > 1 {
++			body += "\n\n[skillgrid-context]\n"
++			for _, f := range fields[1:] {
++				body += f + "\n"
++			}
++			body += "[/skillgrid-context]\n"
++		}
++		p := filepath.Join(dir, "f"+string(rune('a'+i))+".txt")
++		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
++			t.Fatalf("write: %v", err)
++		}
++		run("git", "add", ".")
++		cmd := exec.Command("git", "commit", "-q", "-m", body)
++		cmd.Dir = dir
++		cmd.Env = append(os.Environ(),
++			"HOME="+dir,
++			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
++			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
++		if out, err := cmd.CombinedOutput(); err != nil {
++			t.Fatalf("commit %d: %v\n%s", i, err, out)
++		}
++	}
++	return dir
++}
++
++// TestParseContext verifies the [skillgrid-context] parser against the
++// checkpoint-state.sh format (all fields, missing fields, absent block).
++func TestParseContext(t *testing.T) {
++	c := parseContext("feat: x\n\n[skillgrid-context]\nTask: do it\nDecisions: a,b\nRemaining: rest\nTried: nothing\n[/skillgrid-context]\n")
++	if c.Task != "do it" || c.Decisions != "a,b" || c.Remaining != "rest" || c.Tried != "nothing" {
++		t.Fatalf("full parse = %+v", c)
++	}
++	// Absent block.
++	if got := parseContext("feat: x\n\nno block here"); got != (Context{}) {
++		t.Fatalf("absent block = %+v", got)
++	}
++	// Partial block (no closing marker still parses).
++	c2 := parseContext("[skillgrid-context]\nTask: only\n")
++	if c2.Task != "only" || c2.Decisions != "" {
++		t.Fatalf("partial parse = %+v", c2)
++	}
++	// Case-insensitive markers.
++	c3 := parseContext("[SkillGrid-Context]\ntask: lower\n[/skillgrid-context]")
++	if c3.Task != "lower" {
++		t.Fatalf("case parse = %+v", c3)
++	}
++}
++
++// openHub opens a store-backed hub for the given repo dir.
++func openHub(t *testing.T, repoDir string) *Hub {
++	t.Helper()
++	st, err := storeOpen(t)
++	if err != nil {
++		t.Fatalf("store open: %v", err)
++	}
++	t.Cleanup(func() { st.Close() })
++	return &Hub{DB: st.DB, Project: "hubtest", RepoDir: repoDir}
++}
++
++// TestRecordUpsert proves Record is idempotent: the same HEAD produces one
++// row, and the [skillgrid-context] block + changed files are captured.
++func TestRecordUpsert(t *testing.T) {
++	repo := newRepo(t, []string{
++		"feat: first",
++		"feat: second|Task: implement|Decisions: chose A|Remaining: tests|Tried: none",
++	})
++	h := openHub(t, repo)
++	ctx := context.Background()
++
++	s, err := h.Record(ctx)
++	if err != nil {
++		t.Fatalf("record: %v", err)
++	}
++	if s.Subject != "feat: second" {
++		t.Fatalf("subject = %q", s.Subject)
++	}
++	var c Context
++	if err := json.Unmarshal([]byte(s.ContextJSON), &c); err != nil || c.Task != "implement" {
++		t.Fatalf("context json = %q (%v)", s.ContextJSON, err)
++	}
++	var files []ChangedFile
++	if err := json.Unmarshal([]byte(s.ChangedFiles), &files); err != nil || len(files) != 1 || files[0].Path != "fb.txt" {
++		t.Fatalf("changed files = %q (%v)", s.ChangedFiles, err)
++	}
++
++	// Second record of the same HEAD: still one row.
++	if _, err := h.Record(ctx); err != nil {
++		t.Fatalf("re-record: %v", err)
++	}
++	n, err := h.CountSnapshots(ctx)
++	if err != nil || n != 1 {
++		t.Fatalf("count after re-record = %d (%v)", n, err)
++	}
++}
++
++// TestBackfillSeedsAllCommits proves backfill walks git log (newest first) and
++// is idempotent (re-running does not duplicate).
++func TestBackfillSeedsAllCommits(t *testing.T) {
++	repo := newRepo(t, []string{
++		"feat: one",
++		"feat: two|Task: t2",
++		"chore: three",
++	})
++	h := openHub(t, repo)
++	ctx := context.Background()
++
++	n, err := h.Backfill(ctx, 0)
++	if err != nil {
++		t.Fatalf("backfill: %v", err)
++	}
++	if n != 3 {
++		t.Fatalf("backfilled %d commits, want 3", n)
++	}
++	snapshots, err := h.ListSnapshots(ctx, 0)
++	if err != nil {
++		t.Fatalf("list: %v", err)
++	}
++	if len(snapshots) != 3 {
++		t.Fatalf("listed %d snapshots, want 3", len(snapshots))
++	}
++	// Newest first (created_at ordinal makes this deterministic).
++	if snapshots[0].Subject != "chore: three" {
++		t.Fatalf("newest = %q", snapshots[0].Subject)
++	}
++	// The context commit's block was parsed during backfill.
++	var mid *Snapshot
++	for i := range snapshots {
++		if snapshots[i].Subject == "feat: two" {
++			mid = &snapshots[i]
++		}
++	}
++	if mid == nil || mid.ContextJSON == "" {
++		t.Fatalf("context commit missing/empty context: %+v", mid)
++	}
++	var c Context
++	if err := json.Unmarshal([]byte(mid.ContextJSON), &c); err != nil || c.Task != "t2" {
++		t.Fatalf("backfilled context = %q (%v)", mid.ContextJSON, err)
++	}
++
++	// Idempotent re-run.
++	if _, err := h.Backfill(ctx, 0); err != nil {
++		t.Fatalf("re-backfill: %v", err)
++	}
++	if n, _ := h.CountSnapshots(ctx); n != 3 {
++		t.Fatalf("count after re-backfill = %d, want 3", n)
++	}
++}
++
++// TestBackfillHonorsLimit proves the limit clamps the walk.
++func TestBackfillHonorsLimit(t *testing.T) {
++	repo := newRepo(t, []string{"a", "b", "c", "d"})
++	h := openHub(t, repo)
++	if n, err := h.Backfill(context.Background(), 2); err != nil || n != 2 {
++		t.Fatalf("backfill limit=2 -> n=%d err=%v", n, err)
++	}
++	if n, _ := h.CountSnapshots(context.Background()); n != 2 {
++		t.Fatalf("stored %d, want 2", n)
++	}
++}
++
++// TestRecordCheckpointAndVerify proves the marker captures state, verify with
++// no drift recommends continue (status verified), and a new commit flips it
++// to refresh (status stale).
++func TestRecordCheckpointAndVerify(t *testing.T) {
++	repo := newRepo(t, []string{"feat: base"})
++	h := openHub(t, repo)
++	ctx := context.Background()
++
++	cp, err := h.RecordCheckpoint(ctx, CheckpointInput{Name: "before-apply-test", Evidence: "lint ok"})
++	if err != nil {
++		t.Fatalf("record checkpoint: %v", err)
++	}
++	if cp.Status != "open" || cp.Branch != "main" || cp.Commit == "" {
++		t.Fatalf("checkpoint = %+v", cp)
++	}
++
++	rep, err := h.VerifyCheckpoint(ctx, "before-apply-test")
++	if err != nil {
++		t.Fatalf("verify: %v", err)
++	}
++	if rep.Recommendation != "continue" || !rep.CommitMatch || !rep.BranchMatch {
++		t.Fatalf("clean verify = %+v", rep)
++	}
++	cp, _ = h.getCheckpoint(ctx, "before-apply-test")
++	if cp.Status != "verified" {
++		t.Fatalf("status after clean verify = %q", cp.Status)
++	}
++
++	// New commit -> drift.
++	runGit(t, repo, "commit", "--allow-empty", "-q", "-m", "feat: after")
++	rep, err = h.VerifyCheckpoint(ctx, "before-apply-test")
++	if err != nil {
++		t.Fatalf("verify after drift: %v", err)
++	}
++	if rep.Recommendation != "refresh" || rep.CommitMatch {
++		t.Fatalf("drift verify = %+v", rep)
++	}
++	cp, _ = h.getCheckpoint(ctx, "before-apply-test")
++	if cp.Status != "stale" {
++		t.Fatalf("status after drift = %q", cp.Status)
++	}
++}
++
++// TestRecordCheckpointDirtyState proves a dirty working tree is recorded.
++func TestRecordCheckpointDirtyState(t *testing.T) {
++	repo := newRepo(t, []string{"feat: base"})
++	if err := os.WriteFile(filepath.Join(repo, "dirty.txt"), []byte("new"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	h := openHub(t, repo)
++	cp, err := h.RecordCheckpoint(context.Background(), CheckpointInput{Name: "dirty-check"})
++	if err != nil {
++		t.Fatalf("record: %v", err)
++	}
++	if !cp.Dirty {
++		t.Fatalf("expected dirty=true, got %+v", cp)
++	}
++	// Verify with the same commit but dirty now -> inspect-drift.
++	rep, err := h.VerifyCheckpoint(context.Background(), "dirty-check")
++	if err != nil {
++		t.Fatalf("verify: %v", err)
++	}
++	if rep.Recommendation != "inspect-drift" || !rep.DirtyNow {
++		t.Fatalf("dirty verify = %+v", rep)
++	}
++}
++
++// TestRecordHandoffRefProves upsert semantics + rollback delete.
++func TestRecordHandoffRef(t *testing.T) {
++	h := openHub(t, newRepo(t, []string{"feat: base"}))
++	ctx := context.Background()
++
++	in := HandoffRefInput{HandoffID: "h1", HandoffType: "session", FromCommit: "a", ToCommit: "b", SpecDir: ".skillgrid/sdd/x"}
++	if err := h.RecordHandoffRef(ctx, in); err != nil {
++		t.Fatalf("record ref: %v", err)
++	}
++	// Idempotent upsert (second write allowed, no duplicate).
++	if err := h.RecordHandoffRef(ctx, in); err != nil {
++		t.Fatalf("re-record ref: %v", err)
++	}
++	refs, err := h.ListHandoffRefs(ctx, 0)
++	if err != nil || len(refs) != 1 {
++		t.Fatalf("refs = %+v (%v)", refs, err)
++	}
++	if refs[0].FromCommit != "a" || refs[0].ToCommit != "b" || refs[0].SpecDir != ".skillgrid/sdd/x" {
++		t.Fatalf("ref fields = %+v", refs[0])
++	}
++	r, ok, err := h.GetHandoffRef(ctx, "h1", "session")
++	if err != nil || !ok || r.HandoffID != "h1" {
++		t.Fatalf("get ref: %v ok=%v err=%v", r, ok, err)
++	}
++	// Rollback path.
++	if err := h.DeleteHandoffRef(ctx, "h1", "session"); err != nil {
++		t.Fatalf("delete ref: %v", err)
++	}
++	if _, ok, _ := h.GetHandoffRef(ctx, "h1", "session"); ok {
++		t.Fatalf("ref still present after delete")
++	}
++}
++
++// TestRecordFailsCleanWithoutGit proves Record errors (not panics) when HEAD
++// cannot be resolved (empty dir, not a repo).
++func TestRecordFailsCleanWithoutGit(t *testing.T) {
++	h := openHub(t, t.TempDir())
++	if _, err := h.Record(context.Background()); err == nil {
++		t.Fatalf("expected error without a repo")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/handoff/refs.go b/skillgrid-cli/internal/mnemonic/handoff/refs.go
+new file mode 100644
+index 00000000..493fac66
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/handoff/refs.go
+@@ -0,0 +1,124 @@
++package handoff
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"strings"
++	"time"
++)
++
++// HandoffRefInput links a handoff artifact to the commit range + spec dir it
++// covers.
++type HandoffRefInput struct {
++	HandoffID   string // cleave handoff id, task id, or "checkpoint:<name>"
++	HandoffType string // 'session' | 'team' | 'checkpoint'
++	FromCommit  string
++	ToCommit    string
++	SpecDir     string
++	TeamID      string
++	TaskID      string
++}
++
++// RecordHandoffRef upserts a handoff ref (idempotent on
++// (handoff_id, handoff_type, project)). Blank handoff id / type are rejected
++// before any write.
++func (h *Hub) RecordHandoffRef(ctx context.Context, in HandoffRefInput) error {
++	if h == nil || h.DB == nil {
++		return errors.New("handoff hub not initialized")
++	}
++	if strings.TrimSpace(in.HandoffID) == "" {
++		return errors.New("handoff_id is required")
++	}
++	if strings.TrimSpace(in.HandoffType) == "" {
++		return errors.New("handoff_type is required")
++	}
++	now := time.Now().UTC().Format(time.RFC3339)
++	_, err := h.DB.ExecContext(ctx, `
++		INSERT INTO handoff_refs
++			(handoff_id, handoff_type, project, from_commit, to_commit,
++			 spec_dir, team_id, task_id, created_at)
++		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
++		ON CONFLICT(handoff_id, handoff_type, project) DO UPDATE SET
++			from_commit = COALESCE(handoff_refs.from_commit, excluded.from_commit),
++			to_commit = COALESCE(handoff_refs.to_commit, excluded.to_commit),
++			spec_dir = COALESCE(handoff_refs.spec_dir, excluded.spec_dir),
++			team_id = COALESCE(handoff_refs.team_id, excluded.team_id),
++			task_id = COALESCE(handoff_refs.task_id, excluded.task_id)`,
++		in.HandoffID, in.HandoffType, h.Project,
++		nullString(in.FromCommit), nullString(in.ToCommit),
++		nullString(in.SpecDir), nullString(in.TeamID), nullString(in.TaskID), now)
++	if err != nil {
++		return fmt.Errorf("upsert handoff ref: %w", err)
++	}
++	return nil
++}
++
++// DeleteHandoffRef removes a ref (used to roll back when the owning handoff
++// row fails, keeping the ref table free of orphans).
++func (h *Hub) DeleteHandoffRef(ctx context.Context, handoffID, handoffType string) error {
++	if h == nil || h.DB == nil {
++		return errors.New("handoff hub not initialized")
++	}
++	_, err := h.DB.ExecContext(ctx,
++		`DELETE FROM handoff_refs WHERE project = ? AND handoff_id = ? AND handoff_type = ?`,
++		h.Project, handoffID, handoffType)
++	return err
++}
++
++// GetHandoffRef returns one ref or a nil error with ok=false when absent.
++func (h *Hub) GetHandoffRef(ctx context.Context, handoffID, handoffType string) (*HandoffRef, bool, error) {
++	if h == nil || h.DB == nil {
++		return nil, false, errors.New("handoff hub not initialized")
++	}
++	row := h.DB.QueryRowContext(ctx, `
++		SELECT handoff_id, handoff_type, COALESCE(from_commit,''), COALESCE(to_commit,''),
++		       COALESCE(spec_dir,''), COALESCE(team_id,''), COALESCE(task_id,''), created_at
++		FROM handoff_refs
++		WHERE project = ? AND handoff_id = ? AND handoff_type = ?`,
++		h.Project, handoffID, handoffType)
++	var r HandoffRef
++	if err := row.Scan(&r.HandoffID, &r.HandoffType, &r.FromCommit, &r.ToCommit,
++		&r.SpecDir, &r.TeamID, &r.TaskID, &r.CreatedAt); err != nil {
++		if errors.Is(err, sql.ErrNoRows) {
++			return nil, false, nil
++		}
++		return nil, false, err
++	}
++	return &r, true, nil
++}
++
++// ListHandoffRefs returns the project's refs, newest-first (limit clamped to
++// 1..200).
++func (h *Hub) ListHandoffRefs(ctx context.Context, limit int) ([]HandoffRef, error) {
++	if h == nil || h.DB == nil {
++		return nil, errors.New("handoff hub not initialized")
++	}
++	if limit <= 0 {
++		limit = 50
++	}
++	if limit > 200 {
++		limit = 200
++	}
++	rows, err := h.DB.QueryContext(ctx, `
++		SELECT handoff_id, handoff_type, COALESCE(from_commit,''), COALESCE(to_commit,''),
++		       COALESCE(spec_dir,''), COALESCE(team_id,''), COALESCE(task_id,''), created_at
++		FROM handoff_refs WHERE project = ?
++		ORDER BY created_at DESC
++		LIMIT ?`, h.Project, limit)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	out := []HandoffRef{}
++	for rows.Next() {
++		var r HandoffRef
++		if err := rows.Scan(&r.HandoffID, &r.HandoffType, &r.FromCommit, &r.ToCommit,
++			&r.SpecDir, &r.TeamID, &r.TaskID, &r.CreatedAt); err != nil {
++			return nil, err
++		}
++		out = append(out, r)
++	}
++	return out, rows.Err()
++}
+diff --git a/skillgrid-cli/internal/mnemonic/handoff/rollup.go b/skillgrid-cli/internal/mnemonic/handoff/rollup.go
+new file mode 100644
+index 00000000..f12e5af7
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/handoff/rollup.go
+@@ -0,0 +1,93 @@
++package handoff
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"path/filepath"
++	"time"
++)
++
++// WriteRollup aggregates the hub's snapshots, checkpoints, and handoff refs
++// into a markdown rollup written to <repoDir>/.skillgrid/sdd/rollups/<ts>.md.
++// It returns the written path. The rollup is a read-only summary (the
++// orchestra session-end report equivalent): git change stats + checkpoint
++// state + handoff refs.
++func WriteRollup(ctx context.Context, h *Hub, repoDir string) (string, error) {
++	if h == nil || h.DB == nil {
++		return "", fmt.Errorf("handoff hub not initialized")
++	}
++	snapshots, _ := h.ListSnapshots(ctx, 200)
++	checkpoints, _ := h.ListCheckpoints(ctx, 200)
++	refs, _ := h.ListHandoffRefs(ctx, 200)
++
++	cutoff := time.Now().Add(-24 * time.Hour)
++	inWindow := 0
++	for _, s := range snapshots {
++		if t, err := time.Parse(time.RFC3339, s.CommittedAt); err == nil && t.After(cutoff) {
++			inWindow++
++		}
++	}
++
++	var b []byte
++	b = append(b, []byte("# Rollup: "+time.Now().UTC().Format("2006-01-02 15:04:05 UTC")+"\n\n")...)
++	b = append(b, []byte("## Summary\n\n")...)
++	b = append(b, []byte(fmt.Sprintf("- **Snapshots total**: %d\n", len(snapshots)))...)
++	b = append(b, []byte(fmt.Sprintf("- **Snapshots (last 24h)**: %d\n", inWindow))...)
++	b = append(b, []byte(fmt.Sprintf("- **Checkpoints**: %d\n", len(checkpoints)))...)
++	b = append(b, []byte(fmt.Sprintf("- **Handoff refs**: %d\n\n", len(refs)))...)
++
++	if len(snapshots) > 0 {
++		b = append(b, []byte("## Recent Change Log\n\n")...)
++		for i, s := range snapshots {
++			if i >= 20 {
++				break
++			}
++			b = append(b, []byte(fmt.Sprintf("- `%s` %s (%s)\n", ShortID(s.Commit), s.Subject, s.Branch))...)
++		}
++		b = append(b, []byte("\n")...)
++	}
++	if len(checkpoints) > 0 {
++		b = append(b, []byte("## Checkpoints\n\n")...)
++		for _, c := range checkpoints {
++			b = append(b, []byte(fmt.Sprintf("- `%s` [%s] @ %s (spec: %s)\n", c.Name, c.Status, ShortID(c.Commit), orDash(c.SpecDir)))...)
++		}
++		b = append(b, []byte("\n")...)
++	}
++	if len(refs) > 0 {
++		b = append(b, []byte("## Handoff Refs\n\n")...)
++		for _, r := range refs {
++			b = append(b, []byte(fmt.Sprintf("- `%s` (%s) commits %s..%s (spec: %s)\n",
++				r.HandoffID, r.HandoffType, orDash(r.FromCommit), orDash(r.ToCommit), orDash(r.SpecDir)))...)
++		}
++	}
++
++	outDir := filepath.Join(repoDir, ".skillgrid", "sdd", "rollups")
++	if err := os.MkdirAll(outDir, 0o755); err != nil {
++		return "", fmt.Errorf("rollups dir: %w", err)
++	}
++	p := filepath.Join(outDir, time.Now().UTC().Format("2006-01-02-150405")+".md")
++	if err := os.WriteFile(p, b, 0o644); err != nil {
++		return "", fmt.Errorf("write rollup: %w", err)
++	}
++	return p, nil
++}
++
++// ShortID returns the first 7 chars of a commit (or "-" when empty) for
++// compact display in the change log / checkpoints / rollup.
++func ShortID(commit string) string {
++	if len(commit) >= 7 {
++		return commit[:7]
++	}
++	if commit == "" {
++		return "-"
++	}
++	return commit
++}
++
++func orDash(s string) string {
++	if s == "" {
++		return "-"
++	}
++	return s
++}
+diff --git a/skillgrid-cli/internal/mnemonic/handoff/snapshot.go b/skillgrid-cli/internal/mnemonic/handoff/snapshot.go
+new file mode 100644
+index 00000000..df9dd0fa
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/handoff/snapshot.go
+@@ -0,0 +1,283 @@
++package handoff
++
++import (
++	"context"
++	"database/sql"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"strings"
++	"time"
++)
++
++// Record captures HEAD as a change snapshot (idempotent upsert on
++// (project, commit)). A repo with no commits, a missing git binary, or a
++// commit without a [skillgrid-context] block all still produce a row — the
++// context/changed-files fields simply stay NULL. Returns the snapshot.
++func (h *Hub) Record(ctx context.Context) (*Snapshot, error) {
++	if h == nil || h.DB == nil {
++		return nil, errors.New("handoff hub not initialized")
++	}
++	g := gitState{ctx: ctx, dir: h.RepoDir}
++
++	branch, _ := gitOut(ctx, h.RepoDir, "rev-parse", "--abbrev-ref", "HEAD")
++	commit, err := gitOut(ctx, h.RepoDir, "rev-parse", "HEAD")
++	if err != nil {
++		// Unborn HEAD / no git: nothing to snapshot.
++		return nil, fmt.Errorf("resolve HEAD: %w", err)
++	}
++	short, _ := gitOut(ctx, h.RepoDir, "rev-parse", "--short", "HEAD")
++	subject, _ := gitOut(ctx, h.RepoDir, "log", "-1", "--pretty=%s")
++	author, _ := gitOut(ctx, h.RepoDir, "log", "-1", "--pretty=%an")
++	committedAt, _ := gitOut(ctx, h.RepoDir, "log", "-1", "--pretty=%cI")
++	body, _ := gitOut(ctx, h.RepoDir, "log", "-1", "--pretty=%B")
++
++	if committedAt == "" {
++		committedAt = time.Now().UTC().Format(time.RFC3339)
++	}
++
++	var contextJSON sql.NullString
++	if c := parseContext(body); c != (Context{}) {
++		if raw, err := json.Marshal(c); err == nil && string(raw) != "{}" {
++			contextJSON = sql.NullString{String: string(raw), Valid: true}
++		}
++	}
++
++	var changedFiles sql.NullString
++	if files, err := g.changedFiles(commit); err == nil && len(files) > 0 {
++		if raw, err := json.Marshal(files); err == nil {
++			changedFiles = sql.NullString{String: string(raw), Valid: true}
++		}
++	}
++
++	now := time.Now().UTC().Format(time.RFC3339)
++	_, err = h.DB.ExecContext(ctx, `
++		INSERT INTO change_snapshots
++			(project, branch, "commit", commit_short, subject, context_json,
++			 changed_files, author, committed_at, created_at)
++		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++		ON CONFLICT(project, "commit") DO UPDATE SET
++			branch = excluded.branch,
++			commit_short = excluded.commit_short,
++			subject = excluded.subject,
++			context_json = COALESCE(change_snapshots.context_json, excluded.context_json),
++			changed_files = COALESCE(change_snapshots.changed_files, excluded.changed_files),
++			author = excluded.author,
++			committed_at = excluded.committed_at`,
++		h.Project, nullString(branch), commit, nullString(short), nullString(subject),
++		contextJSON, changedFiles, nullString(author), committedAt, now)
++	if err != nil {
++		return nil, fmt.Errorf("upsert snapshot: %w", err)
++	}
++	return h.getSnapshot(ctx, commit)
++}
++
++// Backfill seeds change_snapshots by walking `git log` (newest first, up to
++// limit commits). Idempotent: existing rows are left untouched. Returns the
++// number of commits inspected. limit <= 0 means the default (100).
++func (h *Hub) Backfill(ctx context.Context, limit int) (int, error) {
++	if h == nil || h.DB == nil {
++		return 0, errors.New("handoff hub not initialized")
++	}
++	if limit <= 0 {
++		limit = 100
++	}
++	g := gitState{ctx: ctx, dir: h.RepoDir}
++	// One pass: hash, subject, author, committer-date (ISO), body — body is
++	// the last field of each record, so a record is "hash\tsubject\tauthor\tdate\tbody".
++	out, err := gitOut(ctx, h.RepoDir, "log",
++		"-n", fmt.Sprint(limit),
++		"--pretty=format:%H%x09%s%x09%an%x09%cI%x09%B%x00")
++	if err != nil {
++		return 0, fmt.Errorf("walk git log: %w", err)
++	}
++	if out == "" {
++		return 0, nil
++	}
++	n := 0
++	for _, record := range stringsSplitNull(out) {
++		if record == "" {
++			continue
++		}
++		parts := strings.SplitN(record, "\t", 5)
++		if len(parts) < 5 {
++			continue
++		}
++		commit, subject, author, committedAt, body := parts[0], parts[1], parts[2], parts[3], parts[4]
++		body = strings.TrimSpace(strings.TrimSuffix(body, "\n"))
++
++		var contextJSON sql.NullString
++		if c := parseContext(body); c != (Context{}) {
++			if raw, err := json.Marshal(c); err == nil && string(raw) != "{}" {
++				contextJSON = sql.NullString{String: string(raw), Valid: true}
++			}
++		}
++		var changedFiles sql.NullString
++		if files, err := g.changedFiles(commit); err == nil && len(files) > 0 {
++			if raw, err := json.Marshal(files); err == nil {
++				changedFiles = sql.NullString{String: string(raw), Valid: true}
++			}
++		}
++		// created_at is a plain insertion timestamp. Ordering is by id DESC
++		// (insertion order), which equals git log's newest-first walk — this
++		// is deterministic and independent of committer timestamps (which can
++		// share a second or even go backwards across branches).
++		created := time.Now().UTC().Format(time.RFC3339)
++		if _, err := h.DB.ExecContext(ctx, `
++			INSERT INTO change_snapshots
++				(project, branch, "commit", commit_short, subject, context_json,
++				 changed_files, author, committed_at, created_at)
++			VALUES (?, 'unknown', ?, ?, ?, ?, ?, ?, ?, ?)
++			ON CONFLICT(project, "commit") DO NOTHING`,
++			h.Project, commit, nullString(shortHash(commit)), nullString(subject),
++			contextJSON, changedFiles, nullString(author),
++			committedAt, created); err != nil {
++			return n, fmt.Errorf("backfill upsert %s: %w", commit, err)
++		}
++		n++
++	}
++	return n, nil
++}
++
++// ListSnapshots returns the newest-first change log (limit clamped to 1..500).
++func (h *Hub) ListSnapshots(ctx context.Context, limit int) ([]Snapshot, error) {
++	if h == nil || h.DB == nil {
++		return nil, errors.New("handoff hub not initialized")
++	}
++	if limit <= 0 {
++		limit = 100
++	}
++	if limit > 500 {
++		limit = 500
++	}
++	rows, err := h.DB.QueryContext(ctx, `
++		SELECT id, branch, "commit", COALESCE(commit_short,''), COALESCE(subject,''),
++		       context_json, changed_files, author, committed_at
++		FROM change_snapshots
++		WHERE project = ?
++		ORDER BY id ASC
++		LIMIT ?`, h.Project, limit)
++	if err != nil {
++		return nil, fmt.Errorf("list snapshots: %w", err)
++	}
++	defer rows.Close()
++	out := []Snapshot{}
++	for rows.Next() {
++		var s Snapshot
++		var contextJSON, changedFiles, author sql.NullString
++		var branch sql.NullString
++		if err := rows.Scan(&s.ID, &branch, &s.Commit, &s.CommitShort, &s.Subject,
++			&contextJSON, &changedFiles, &author, &s.CommittedAt); err != nil {
++			return nil, fmt.Errorf("scan snapshot: %w", err)
++		}
++		s.Branch = branch.String
++		s.ContextJSON = contextJSON.String
++		s.ChangedFiles = changedFiles.String
++		s.Author = author.String
++		out = append(out, s)
++	}
++	return out, rows.Err()
++}
++
++// CountSnapshots returns the number of stored snapshots for the project.
++func (h *Hub) CountSnapshots(ctx context.Context) (int, error) {
++	var n int
++	err := h.DB.QueryRowContext(ctx,
++		`SELECT COUNT(*) FROM change_snapshots WHERE project = ?`, h.Project).Scan(&n)
++	if err != nil {
++		return 0, err
++	}
++	return n, nil
++}
++
++func (h *Hub) getSnapshot(ctx context.Context, commit string) (*Snapshot, error) {
++	rows, err := h.DB.QueryContext(ctx, `
++		SELECT id, branch, "commit", COALESCE(commit_short,''), COALESCE(subject,''),
++		       context_json, changed_files, author, committed_at
++		FROM change_snapshots WHERE project = ? AND "commit" = ?`, h.Project, commit)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	if !rows.Next() {
++		return nil, errors.New("snapshot not found")
++	}
++	var s Snapshot
++	var branch, contextJSON, changedFiles, author sql.NullString
++	if err := rows.Scan(&s.ID, &branch, &s.Commit, &s.CommitShort, &s.Subject,
++		&contextJSON, &changedFiles, &author, &s.CommittedAt); err != nil {
++		return nil, err
++	}
++	s.Branch = branch.String
++	s.ContextJSON = contextJSON.String
++	s.ChangedFiles = changedFiles.String
++	s.Author = author.String
++	return &s, nil
++}
++
++type gitState struct {
++	ctx context.Context
++	dir string
++}
++
++// changedFiles lists the files a commit touched via diff-tree
++// (--root handles the first commit of a repo). Best-effort: any error yields
++// an empty list, never a failure.
++func (g gitState) changedFiles(commit string) ([]ChangedFile, error) {
++	out, err := gitOut(g.ctx, g.dir, "diff-tree", "-r", "--name-status", "--root",
++		"--no-commit-id", commit)
++	if err != nil || out == "" {
++		if err != nil {
++			return nil, err
++		}
++		return nil, nil
++	}
++	var files []ChangedFile
++	for _, line := range strings.Split(out, "\n") {
++		line = strings.TrimSpace(line)
++		if line == "" {
++			continue
++		}
++		// diff-tree --name-status: "M\tpath" (tab-separated); renames are
++		// "R100\told\tnew" — keep the new path.
++		parts := strings.Split(line, "\t")
++		if len(parts) < 2 {
++			continue
++		}
++		status := parts[0]
++		path := parts[len(parts)-1]
++		files = append(files, ChangedFile{Path: path, Status: status})
++	}
++	return files, nil
++}
++
++// stringsSplitNull splits on NUL bytes (strings has no SplitNUL).
++func stringsSplitNull(s string) []string {
++	if s == "" {
++		return nil
++	}
++	var out []string
++	start := 0
++	for i := 0; i < len(s); i++ {
++		if s[i] == 0 {
++			out = append(out, s[start:i])
++			start = i + 1
++		}
++	}
++	out = append(out, s[start:])
++	return out
++}
++
++func nullString(s string) sql.NullString {
++	if strings.TrimSpace(s) == "" {
++		return sql.NullString{}
++	}
++	return sql.NullString{String: s, Valid: true}
++}
++
++func shortHash(commit string) string {
++	if len(commit) >= 7 {
++		return commit[:7]
++	}
++	return commit
++}
+diff --git a/skillgrid-cli/internal/mnemonic/handoff/testhelpers_test.go b/skillgrid-cli/internal/mnemonic/handoff/testhelpers_test.go
+new file mode 100644
+index 00000000..565005da
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/handoff/testhelpers_test.go
+@@ -0,0 +1,30 @@
++package handoff
++
++import (
++	"os"
++	"os/exec"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// storeOpen opens a fresh per-test store (one SQLite file in a temp dir).
++func storeOpen(t *testing.T) (*store.Store, error) {
++	t.Helper()
++	dir := t.TempDir()
++	return store.Open(dir, "hubtest")
++}
++
++// runGit runs a git command in dir, failing the test on error.
++func runGit(t *testing.T, dir string, args ...string) {
++	t.Helper()
++	cmd := exec.Command("git", args...)
++	cmd.Dir = dir
++	cmd.Env = append(os.Environ(),
++		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
++		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
++		"SKILLGRID_PROTECTED_BRANCHES=protected-main")
++	if out, err := cmd.CombinedOutput(); err != nil {
++		t.Fatalf("git %v: %v\n%s", args, err, out)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/http/activity.go b/skillgrid-cli/internal/mnemonic/http/activity.go
+index 13d4f6d6..ed329b1c 100644
+--- a/skillgrid-cli/internal/mnemonic/http/activity.go
++++ b/skillgrid-cli/internal/mnemonic/http/activity.go
+@@ -187,43 +187,51 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
+ 	w.Header().Set("Content-Type", "text/event-stream")
+ 	w.Header().Set("Cache-Control", "no-cache")
+ 	w.Header().Set("Connection", "keep-alive")
+ 	w.Header().Set("X-Accel-Buffering", "no")
+ 
+ 	// Initial event so the client knows the stream is alive.
+ 	_, _ = w.Write([]byte("event: ready\n\n"))
+ 	flusher.Flush()
+ 
+ 	ctx := r.Context()
+-	client := &activityStreamClient{events: make(chan string, 32)}
++	client := &activityStreamClient{events: make(chan streamEvent, 64)}
+ 
+-	// Poller: track the newest observation id, emit rows newer than it.
++	// Poller: track the newest observation id AND the newest change_snapshot
++	// id (Handoff Hub, change 015). Each tick emits rows newer than the mark,
++	// tagged with the SSE event type (activity | snapshot).
+ 	go func() {
+ 		db := h.Store().DB
+-		// Seed the high-water mark with the current newest id (no replay of
+-		// history on connect — the client already has it from /events). If the
+-		// seed query errors, treat the stream as closed rather than replaying
+-		// the entire table from id>0 (review: seed-error edge case).
++		// Seed the high-water marks with the current newest ids (no replay of
++		// history on connect — the client already has it from /events and
++		// /activity/snapshots). If the observations seed errors, treat the
++		// stream as closed rather than replaying the whole table from id>0.
++		// The snapshot seed is best-effort (the table may predate the hub).
+ 		var newest int64
+ 		if err := db.QueryRowContext(ctx,
+ 			`SELECT COALESCE(MAX(id), 0) FROM observations WHERE project = ? AND deleted_at IS NULL`, projectID,
+ 		).Scan(&newest); err != nil {
+ 			return
+ 		}
++		var newestSnap int64
++		_ = db.QueryRowContext(ctx,
++			`SELECT COALESCE(MAX(id), 0) FROM change_snapshots WHERE project = ?`, projectID,
++		).Scan(&newestSnap)
+ 
+ 		ticker := time.NewTicker(800 * time.Millisecond)
+ 		defer ticker.Stop()
+ 		for {
+ 			select {
+ 			case <-ctx.Done():
+ 				return
+ 			case <-ticker.C:
++				// Activity (observations) rows.
+ 				rows, err := db.QueryContext(ctx, `
+ 					SELECT id, created_at, type, COALESCE(source,'agent'), tool_name, title, session_id
+ 					FROM observations
+ 					WHERE project = ? AND deleted_at IS NULL AND id > ?
+ 					ORDER BY id ASC
+ 					LIMIT 100`, projectID, newest)
+ 				if err != nil {
+ 					return
+ 				}
+ 				type evRow struct {
+@@ -241,62 +249,114 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
+ 					if err := rows.Scan(&er.id, &er.ts, &er.otype, &er.source, &er.toolName, &er.title, &er.session); err != nil {
+ 						rows.Close()
+ 						return
+ 					}
+ 					if er.id > newest {
+ 						newest = er.id
+ 					}
+ 					batch = append(batch, er)
+ 				}
+ 				rows.Close()
+-				if len(batch) == 0 {
+-					continue
+-				}
+ 				for _, er := range batch {
+ 					payload, _ := json.Marshal(map[string]any{
+ 						"id":        er.id,
+ 						"ts":        er.ts,
+ 						"type":      er.otype,
+ 						"source":    er.source,
+ 						"actor":     er.toolName,
+ 						"severity":  deriveSeverity(er.otype),
+ 						"summary":   er.title,
+ 						"sessionId": er.session,
+ 					})
+ 					select {
+-					case client.events <- string(payload):
++					case client.events <- streamEvent{kind: "activity", data: string(payload)}:
+ 					default: // slow consumer: drop, never block
+ 					}
+ 				}
++
++				// Change snapshots (Handoff Hub). Best-effort: an error here
++				// (e.g. the table is absent on a very old store) just skips
++				// this tick rather than killing the activity stream.
++				if srows, serr := db.QueryContext(ctx, `
++					SELECT id, branch, "commit", COALESCE(commit_short,''), COALESCE(subject,''),
++					       COALESCE(author,''), committed_at
++					FROM change_snapshots
++					WHERE project = ? AND id > ?
++					ORDER BY id ASC
++					LIMIT 100`, projectID, newestSnap); serr == nil {
++					type snapRow struct {
++						id     int64
++						branch string
++						commit string
++						short  string
++						subj   string
++						author string
++						at     string
++					}
++					var sbatch []snapRow
++					for srows.Next() {
++						var sr snapRow
++						if err := srows.Scan(&sr.id, &sr.branch, &sr.commit, &sr.short, &sr.subj, &sr.author, &sr.at); err != nil {
++							break
++						}
++						if sr.id > newestSnap {
++							newestSnap = sr.id
++						}
++						sbatch = append(sbatch, sr)
++					}
++					srows.Close()
++					for _, sr := range sbatch {
++						payload, _ := json.Marshal(map[string]any{
++							"commit":       sr.commit,
++							"commitShort":  sr.short,
++							"subject":      sr.subj,
++							"branch":       sr.branch,
++							"author":       sr.author,
++							"committedAt":  sr.at,
++						})
++						select {
++						case client.events <- streamEvent{kind: "snapshot", data: string(payload)}:
++						default:
++						}
++					}
++				}
+ 			}
+ 		}
+ 	}()
+ 
+ 	// Write loop: client channel → SSE. Exits on context cancel.
+ 	heartbeat := time.NewTicker(15 * time.Second)
+ 	defer heartbeat.Stop()
+ 	for {
+ 		select {
+ 		case <-ctx.Done():
+ 			return
+-		case msg := <-client.events:
+-			if _, err := w.Write([]byte("event: activity\n")); err != nil {
++		case ev := <-client.events:
++			if _, err := w.Write([]byte("event: " + ev.kind + "\n")); err != nil {
+ 				return
+ 			}
+-			if _, err := w.Write([]byte("data: " + msg + "\n\n")); err != nil {
++			if _, err := w.Write([]byte("data: " + ev.data + "\n\n")); err != nil {
+ 				return
+ 			}
+ 			flusher.Flush()
+ 		case <-heartbeat.C:
+ 			if _, err := w.Write([]byte(": heartbeat\n\n")); err != nil {
+ 				return
+ 			}
+ 			flusher.Flush()
+ 		}
+ 	}
+ }
+ 
+ // activityStreamClient is one subscribed SSE client; the buffered channel lets
+ // a slow consumer drop events without blocking the poller.
+ type activityStreamClient struct {
+-	events chan string
++	events chan streamEvent
++}
++
++// streamEvent is one SSE frame: the event kind (activity | snapshot) plus the
++// JSON data payload. The kind maps to the SSE `event:` line so clients can
++// multiplex on event type.
++type streamEvent struct {
++	kind string
++	data string
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/http/activity_test.go b/skillgrid-cli/internal/mnemonic/http/activity_test.go
+index 40ef7ad1..f86bb283 100644
+--- a/skillgrid-cli/internal/mnemonic/http/activity_test.go
++++ b/skillgrid-cli/internal/mnemonic/http/activity_test.go
+@@ -203,45 +203,52 @@ func TestPhase6_ActivitySSE(t *testing.T) {
+ func doGet(t *testing.T, h http.Handler, target string) *httptest.ResponseRecorder {
+ 	t.Helper()
+ 	req := httptest.NewRequest(http.MethodGet, target, nil)
+ 	req.Header.Set("Accept", "application/json")
+ 	rr := httptest.NewRecorder()
+ 	h.ServeHTTP(rr, req)
+ 	return rr
+ }
+ 
+ // flushingWriter is an http.ResponseWriter + http.Flusher that signals when the
+-// 'ready' and a live activity event have been written.
++// 'ready' event, a live activity event, and a live snapshot event (Handoff Hub,
++// change 015) have been written.
+ type flushingWriter struct {
+ 	*httptest.ResponseRecorder
+ 	gotReady    chan struct{}
+ 	gotActivity chan struct{}
++	gotSnapshot chan struct{}
+ }
+ 
+ func newFlushingWriter() *flushingWriter {
+ 	return &flushingWriter{
+ 		ResponseRecorder: httptest.NewRecorder(),
+ 		gotReady:         make(chan struct{}),
+ 		gotActivity:      make(chan struct{}),
++		gotSnapshot:      make(chan struct{}),
+ 	}
+ }
+ 
+ func (f *flushingWriter) Flush() {}
+ 
+ func (f *flushingWriter) Write(b []byte) (int, error) {
+ 	n, err := f.ResponseRecorder.Write(b)
+-	if strings.Contains(string(b), "event: ready") {
++	s := string(b)
++	if strings.Contains(s, "event: ready") {
+ 		closeOnce(&f.gotReady)
+ 	}
+-	if strings.Contains(string(b), "event: activity") {
++	if strings.Contains(s, "event: activity") {
+ 		closeOnce(&f.gotActivity)
+ 	}
++	if f.gotSnapshot != nil && strings.Contains(s, "event: snapshot") {
++		closeOnce(&f.gotSnapshot)
++	}
+ 	return n, err
+ }
+ 
+ // closeOnce closes ch the first time; later calls are no-ops (channels can only
+ // be closed once, and Write may be called repeatedly).
+ func closeOnce(ch *chan struct{}) {
+ 	select {
+ 	case <-*ch:
+ 	default:
+ 		close(*ch)
+diff --git a/skillgrid-cli/internal/mnemonic/http/handoff.go b/skillgrid-cli/internal/mnemonic/http/handoff.go
+new file mode 100644
+index 00000000..4fa8e4a2
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/http/handoff.go
+@@ -0,0 +1,138 @@
++package http
++
++import (
++	"encoding/json"
++	"net/http"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/handoff"
++)
++
++// handleHandoffSnapshots serves GET /activity/snapshots?limit=N — the
++// change-snapshot log (change_snapshots), newest-first. This is the Handoff
++// Hub's change log backed by the git-derived snapshot index (change
++// 015-handoff-hub). It is a read-only view; the durable record is the commit
++// (and its [skillgrid-context] block).
++func (s *Server) handleHandoffSnapshots(w http.ResponseWriter, r *http.Request) {
++	projectID, err := projectFromRequest(r)
++	if err != nil {
++		writeError(w, http.StatusBadRequest, err.Error())
++		return
++	}
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	hub := &handoff.Hub{DB: h.Store().DB, Project: h.ProjectID(), RepoDir: h.Root()}
++
++	limit := queryInt(r, "limit", 100)
++	if limit < 1 {
++		limit = 1
++	}
++	if limit > 500 {
++		limit = 500
++	}
++	snapshots, err := hub.ListSnapshots(r.Context(), limit)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	out := make([]any, 0, len(snapshots))
++	for _, sn := range snapshots {
++		out = append(out, snapshotToJSON(sn))
++	}
++	writeJSON(w, http.StatusOK, map[string]any{
++		"project":   projectID,
++		"snapshots": out,
++		"limit":     limit,
++	})
++}
++
++// handleHandoffStatus serves GET /handoff/status — the one-call "where are we"
++// hub view: latest snapshot, open checkpoints, and recent handoff refs.
++func (s *Server) handleHandoffStatus(w http.ResponseWriter, r *http.Request) {
++	projectID, err := projectFromRequest(r)
++	if err != nil {
++		writeError(w, http.StatusBadRequest, err.Error())
++		return
++	}
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	hub := &handoff.Hub{DB: h.Store().DB, Project: h.ProjectID(), RepoDir: h.Root()}
++
++	snapshots, _ := hub.ListSnapshots(r.Context(), 1)
++	checkpoints, _ := hub.ListCheckpoints(r.Context(), 50)
++	refs, _ := hub.ListHandoffRefs(r.Context(), 50)
++	var latest any
++	if len(snapshots) > 0 {
++		latest = snapshotToJSON(snapshots[0])
++	}
++	cps := make([]any, 0, len(checkpoints))
++	for _, c := range checkpoints {
++		cps = append(cps, map[string]any{
++			"id":          c.ID,
++			"name":        c.Name,
++			"branch":      c.Branch,
++			"commit":      c.Commit,
++			"dirty":       c.Dirty,
++			"prdPath":     c.PRDPath,
++			"specDir":     c.SpecDir,
++			"handoffFile": c.HandoffFile,
++			"evidence":    c.Evidence,
++			"status":      c.Status,
++			"createdAt":   c.CreatedAt,
++			"verifiedAt":  c.VerifiedAt,
++		})
++	}
++	refOut := make([]any, 0, len(refs))
++	for _, rf := range refs {
++		refOut = append(refOut, map[string]any{
++			"handoffId":   rf.HandoffID,
++			"handoffType": rf.HandoffType,
++			"fromCommit":  rf.FromCommit,
++			"toCommit":    rf.ToCommit,
++			"specDir":     rf.SpecDir,
++			"teamId":      rf.TeamID,
++			"taskId":      rf.TaskID,
++			"createdAt":   rf.CreatedAt,
++		})
++	}
++	writeJSON(w, http.StatusOK, map[string]any{
++		"project":         projectID,
++		"latest_snapshot": latest,
++		"checkpoints":     cps,
++		"handoff_refs":    refOut,
++	})
++}
++
++// snapshotToJSON maps a handoff.Snapshot to the camelCase JSON shape the admin
++// UI expects (the raw struct has Go-cased fields).
++func snapshotToJSON(sn handoff.Snapshot) map[string]any {
++	out := map[string]any{
++		"id":            sn.ID,
++		"branch":        sn.Branch,
++		"commit":        sn.Commit,
++		"commitShort":   sn.CommitShort,
++		"subject":       sn.Subject,
++		"author":        sn.Author,
++		"committedAt":   sn.CommittedAt,
++		"changedFiles":  sn.ChangedFiles,
++	}
++	if sn.ContextJSON != "" {
++		var c struct {
++			Task      string `json:"task"`
++			Decisions string `json:"decisions"`
++			Remaining string `json:"remaining"`
++			Tried     string `json:"tried"`
++		}
++		if json.Unmarshal([]byte(sn.ContextJSON), &c) == nil {
++			out["context"] = c
++		}
++	}
++	return out
++}
+diff --git a/skillgrid-cli/internal/mnemonic/http/handoff_test.go b/skillgrid-cli/internal/mnemonic/http/handoff_test.go
+new file mode 100644
+index 00000000..a42ba9da
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/http/handoff_test.go
+@@ -0,0 +1,142 @@
++package http
++
++import (
++	"context"
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// newHandoffServer builds a server over a store seeded with one change
++// snapshot + one checkpoint (change 015-handoff-hub).
++func newHandoffServer(t *testing.T) (http.Handler, string) {
++	t.Helper()
++	dataDir := t.TempDir()
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
++	st, err := store.Open(dataDir, proj)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	seed := `
++		INSERT INTO change_snapshots
++			(project, branch, "commit", commit_short, subject, context_json, author, committed_at, created_at)
++		VALUES ('http-test', 'main', 'abc1234def5678', 'abc1234', 'feat: add auth',
++			'{"task":"auth","decisions":"jwt","remaining":"tests","tried":"none"}', 'dev', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z');
++		INSERT INTO checkpoints
++			(project, name, branch, "commit", dirty, status, created_at)
++		VALUES ('http-test', 'before-apply-auth', 'main', 'abc1234def5678', 0, 'open', '2026-01-01T00:00:00Z');
++	`
++	if _, err := st.DB.Exec(seed); err != nil {
++		t.Fatalf("seed handoff: %v", err)
++	}
++	_ = st.Close()
++	svc := service.New(dataDir)
++	return NewServer(svc).Handler(), dataDir
++}
++
++// TestHandoffSnapshotsEndpoint covers GET /activity/snapshots — the change log
++// returns the seeded snapshot with its parsed [skillgrid-context] block.
++func TestHandoffSnapshotsEndpoint(t *testing.T) {
++	h, _ := newHandoffServer(t)
++	rr := doGet(t, h, "/activity/snapshots?project="+proj+"&limit=10")
++	if rr.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
++	}
++	var em map[string]any
++	if err := json.Unmarshal(rr.Body.Bytes(), &em); err != nil {
++		t.Fatalf("unmarshal: %v", err)
++	}
++	snaps, _ := em["snapshots"].([]any)
++	if len(snaps) != 1 {
++		t.Fatalf("snapshots len = %d, want 1", len(snaps))
++	}
++	s0 := snaps[0].(map[string]any)
++	if s0["subject"] != "feat: add auth" || s0["commitShort"] != "abc1234" {
++		t.Fatalf("snapshot = %v", s0)
++	}
++	ctx, ok := s0["context"].(map[string]any)
++	if !ok || ctx["task"] != "auth" || ctx["decisions"] != "jwt" {
++		t.Fatalf("parsed context = %v", s0["context"])
++	}
++}
++
++// TestHandoffStatusEndpoint covers GET /handoff/status — the one-call hub view
++// returns the latest snapshot + the open checkpoint.
++func TestHandoffStatusEndpoint(t *testing.T) {
++	h, _ := newHandoffServer(t)
++	rr := doGet(t, h, "/handoff/status?project="+proj)
++	if rr.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
++	}
++	var em map[string]any
++	if err := json.Unmarshal(rr.Body.Bytes(), &em); err != nil {
++		t.Fatalf("unmarshal: %v", err)
++	}
++	latest, ok := em["latest_snapshot"].(map[string]any)
++	if !ok || latest["subject"] != "feat: add auth" {
++		t.Fatalf("latest_snapshot = %v", em["latest_snapshot"])
++	}
++	cps, _ := em["checkpoints"].([]any)
++	if len(cps) != 1 {
++		t.Fatalf("checkpoints len = %d, want 1", len(cps))
++	}
++	c0 := cps[0].(map[string]any)
++	if c0["name"] != "before-apply-auth" || c0["status"] != "open" {
++		t.Fatalf("checkpoint = %v", c0)
++	}
++}
++
++// TestHandoffSSEEmitsSnapshot covers the extended /activity/stream: after the
++// initial ready event, inserting a new change snapshot is emitted as an
++// `event: snapshot` SSE frame.
++func TestHandoffSSEEmitsSnapshot(t *testing.T) {
++	h, dataDir := newHandoffServer(t)
++
++	fw := &flushingWriter{
++		ResponseRecorder: httptest.NewRecorder(),
++		gotReady:         make(chan struct{}),
++		gotActivity:      make(chan struct{}),
++		gotSnapshot:      make(chan struct{}),
++	}
++	req := httptest.NewRequest(http.MethodGet, "/activity/stream?project="+proj, nil)
++	ctx, cancel := context.WithCancel(req.Context())
++	req = req.WithContext(ctx)
++
++	done := make(chan struct{})
++	go func() {
++		defer close(done)
++		h.ServeHTTP(fw, req)
++	}()
++	defer func() {
++		cancel()
++		<-done
++	}()
++
++	select {
++	case <-fw.gotReady:
++	case <-time.After(2 * time.Second):
++		t.Fatalf("did not receive SSE 'ready' within 2s")
++	}
++
++	// Insert a new snapshot; the poller should emit it as a snapshot event.
++	st, err := store.Open(dataDir, proj)
++	if err != nil {
++		t.Fatalf("reopen store: %v", err)
++	}
++	_, _ = st.DB.Exec(`
++		INSERT INTO change_snapshots
++			(project, branch, "commit", commit_short, subject, author, committed_at, created_at)
++		VALUES ('http-test', 'main', 'fff00011122233', 'fff0001', 'feat: live snap', 'dev', '2026-01-03T00:00:00Z', '2026-01-03T00:00:00Z')`)
++	_ = st.Close()
++
++	select {
++	case <-fw.gotSnapshot:
++	case <-time.After(5 * time.Second):
++		t.Fatalf("did not receive a live snapshot SSE event within 5s")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server.go b/skillgrid-cli/internal/mnemonic/mcp/server.go
+index 706ede7f..833691f0 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server.go
+@@ -56,20 +56,21 @@ func Start() error {
+ 	registerWebTools(s)
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+ 	registerCompactionTools(s)
+ 	registerAffectedTools(s)
+ 	registerPdgTools(s)
+ 	registerTaintTools(s)
+ 	registerMemoryGovernanceTools(s)
+ 	registerMemoryLayerTools(s)
+ 	registerSessionTools(s)
++	registerHandoffTools(s)
+ 	return server.ServeStdio(s)
+ }
+ 
+ // Server is an MCP server instance with all mem_*/code_*/web_*/team_* tools
+ // registered, ready to be served over stdio.
+ type Server = server.MCPServer
+ 
+ // NewServer returns an MCP server instance with all tools registered.
+ func NewServer() *Server {
+ 	s := server.NewMCPServer(serverName, serverVersion, serverOptions()...)
+@@ -88,12 +89,13 @@ func NewServer() *Server {
+ 	registerWebTools(s)
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+ 	registerCompactionTools(s)
+ 	registerAffectedTools(s)
+ 	registerPdgTools(s)
+ 	registerTaintTools(s)
+ 	registerMemoryGovernanceTools(s)
+ 	registerMemoryLayerTools(s)
+ 	registerSessionTools(s)
++	registerHandoffTools(s)
+ 	return s
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server_test.go b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+index 70a17f0a..bef2864f 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+@@ -62,20 +62,22 @@ func TestAllToolsRegistered(t *testing.T) {
+ 		// Intraprocedural source->sink taint tool (011 step 02).
+ 		"code_taint",
+ 		// Asset-governance tools (013 step 01).
+ 		"mem_share", "mem_governance",
+ 		// Layered-distill inspector (013 step 02).
+ 		"mem_layers",
+ 		// Session relay handoff/resume (006 step 02).
+ 		"session_handoff", "session_resume",
+ 		// Session status + thin knowledge compact (006 step 03).
+ 		"session_status", "knowledge_compact",
++		// Handoff Hub (015).
++		"handoff_snapshot", "handoff_status", "handoff_checkpoint", "handoff_verify", "handoff_rollup",
+ 	}
+ 	if len(tools) != len(want) {
+ 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)
+ 	}
+ 	for _, name := range want {
+ 		st, ok := tools[name]
+ 		if !ok {
+ 			t.Errorf("expected tool %q to be registered", name)
+ 			continue
+ 		}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_handoff.go b/skillgrid-cli/internal/mnemonic/mcp/tools_handoff.go
+new file mode 100644
+index 00000000..1d49578a
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_handoff.go
+@@ -0,0 +1,181 @@
++package mcp
++
++import (
++	"context"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++	"github.com/mark3labs/mcp-go/server"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/handoff"
++)
++
++// registerHandoffTools is the Handoff Hub MCP registrar (change 015-handoff-hub).
++// It exposes the unified checkpoint surface over stdio: change-snapshot
++// recording/status, named checkpoints with drift verification, and the
++// aggregate rollup. Additive — it never touches the mem_*/code_*/session_*
++// registration.
++func registerHandoffTools(s *server.MCPServer) {
++	tools := []struct {
++		tool    mcplib.Tool
++		handler server.ToolHandlerFunc
++	}{
++		{handoffSnapshotTool(), handleHandoffSnapshot},
++		{handoffStatusTool(), handleHandoffStatus},
++		{handoffCheckpointTool(), handleHandoffCheckpoint},
++		{handoffVerifyTool(), handleHandoffVerify},
++		{handoffRollupTool(), handleHandoffRollup},
++	}
++	for _, entry := range tools {
++		s.AddTool(entry.tool, entry.handler)
++	}
++}
++
++// handoffHub opens a CWD handle and builds the handoff Hub over its store.
++func handoffHub() (*handoff.Hub, func(), error) {
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return nil, func() {}, err
++	}
++	return &handoff.Hub{DB: h.Store().DB, Project: h.ProjectID(), RepoDir: h.Root()}, cleanup, nil
++}
++
++func handoffSnapshotTool() mcplib.Tool {
++	return mcplib.NewTool("handoff_snapshot",
++		mcplib.WithDescription("Record the current HEAD as a change snapshot in the Handoff Hub (idempotent). On first run for a project it backfills the last 100 commits from git log so the change log is not empty. Returns the recorded snapshot."),
++		mcplib.WithNumber("limit", mcplib.Description("Backfill window when the hub is empty (default 100).")),
++	)
++}
++
++func handleHandoffSnapshot(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	hub, cleanup, err := handoffHub()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	limit := int(req.GetInt("limit", 100))
++	n, _ := hub.CountSnapshots(ctx)
++	if n == 0 {
++		_, _ = hub.Backfill(ctx, limit)
++	}
++	s, err := hub.Record(ctx)
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(s)
++}
++
++func handoffStatusTool() mcplib.Tool {
++	return mcplib.NewTool("handoff_status",
++		mcplib.WithDescription("One-call 'where are we' from the Handoff Hub: the latest change snapshot, the open checkpoints, and recent handoff refs. Use this to ground a session before continuing work."),
++		mcplib.WithNumber("limit", mcplib.Description("Max checkpoints / refs to include (default 20).")),
++	)
++}
++
++func handleHandoffStatus(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	hub, cleanup, err := handoffHub()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	limit := int(req.GetInt("limit", 20))
++	snapshots, _ := hub.ListSnapshots(ctx, 1)
++	checkpoints, _ := hub.ListCheckpoints(ctx, limit)
++	refs, _ := hub.ListHandoffRefs(ctx, limit)
++	var latest any
++	if len(snapshots) > 0 {
++		latest = snapshots[0]
++	}
++	return JSONResult(map[string]any{
++		"latest_snapshot": latest,
++		"checkpoints":     checkpoints,
++		"handoff_refs":    refs,
++	})
++}
++
++func handoffCheckpointTool() mcplib.Tool {
++	return mcplib.NewTool("handoff_checkpoint",
++		mcplib.WithDescription("Place a named, intentional checkpoint marker before a risky action (e.g. before-apply-<change>). Captures branch/HEAD/dirty state and auto-detects the active spec dir. Idempotent by name."),
++		mcplib.WithString("name", mcplib.Required(), mcplib.Description("Checkpoint name, e.g. 'before-apply-auth-foundation'")),
++		mcplib.WithString("evidence", mcplib.Description("Optional short verification note (e.g. 'lint ok, tests 34/34').")),
++		mcplib.WithString("spec_dir", mcplib.Description("Optional .skillgrid/sdd/<change>/ dir (auto-detected when blank).")),
++	)
++}
++
++func handleHandoffCheckpoint(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	hub, cleanup, err := handoffHub()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	name, err := req.RequireString("name")
++	if err != nil {
++		return toolError(err)
++	}
++	cp, err := hub.RecordCheckpoint(ctx, handoff.CheckpointInput{
++		Name: name,
++		Evidence: req.GetString("evidence", ""),
++		SpecDir:  req.GetString("spec_dir", ""),
++	})
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(cp)
++}
++
++func handoffVerifyTool() mcplib.Tool {
++	return mcplib.NewTool("handoff_verify",
++		mcplib.WithDescription("Drift-verify a named checkpoint against current git state (no reverts). Without a name, verifies all open checkpoints. Returns the recommendation: continue | inspect-drift | refresh."),
++		mcplib.WithString("name", mcplib.Description("Checkpoint name. Blank verifies all open checkpoints.")),
++	)
++}
++
++func handleHandoffVerify(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	hub, cleanup, err := handoffHub()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	name := req.GetString("name", "")
++	if name == "" {
++		open, _ := hub.ListCheckpoints(ctx, 200)
++		out := []any{}
++		for _, c := range open {
++			if c.Status != "open" {
++				continue
++			}
++			if rep, verr := hub.VerifyCheckpoint(ctx, c.Name); verr == nil {
++				out = append(out, rep)
++			}
++		}
++		return JSONResult(out)
++	}
++	rep, err := hub.VerifyCheckpoint(ctx, name)
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(rep)
++}
++
++func handoffRollupTool() mcplib.Tool {
++	return mcplib.NewTool("handoff_rollup",
++		mcplib.WithDescription("Write a session/team rollup (git change stats + checkpoints + handoff refs) to .skillgrid/sdd/rollups/<ts>.md and return its path. Use at the end of a session or before a handoff to produce the aggregate report."),
++	)
++}
++
++func handleHandoffRollup(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	hub, cleanup, err := handoffHub()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	_, h, cleanup2, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup2()
++	p, err := handoff.WriteRollup(ctx, hub, h.Root())
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(map[string]any{"path": p})
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff.go b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff.go
+index 1f9c0f21..0c951e11 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff.go
+@@ -31,20 +31,23 @@ func registerSessionTools(s *server.MCPServer) {
+ 
+ func sessionHandoffTool() mcplib.Tool {
+ 	return mcplib.NewTool("session_handoff",
+ 		mcplib.WithDescription("Write a structured session handoff: three .skillgrid/.cleave/ files (PROGRESS / KNOWLEDGE / NEXT_PROMPT) plus a session_handoffs row. Fails closed — if the files cannot be written, no row is recorded (no orphan). Returns the handoff_id and the cleave file paths."),
+ 		mcplib.WithString("progress", mcplib.Required(), mcplib.Description("What was done this session (PROGRESS.md)")),
+ 		mcplib.WithString("next_prompt", mcplib.Required(), mcplib.Description("The prompt that seeds the next session (NEXT_PROMPT.md) — the resume target")),
+ 		mcplib.WithString("knowledge", mcplib.Description("Decisions / learnings (KNOWLEDGE.md). Optional.")),
+ 		mcplib.WithString("session_id", mcplib.Description("Source session id (sessions.id) this handoff is taken from. Optional.")),
+ 		mcplib.WithString("handoff_id", mcplib.Description("Operator-facing handoff identifier / resume target. Blank generates one from the source session + timestamp.")),
+ 		mcplib.WithString("context_summary", mcplib.Description("Optional short context note recorded on the handoff row.")),
++		mcplib.WithString("from_commit", mcplib.Description("Optional: first commit of the range this handoff covers (Handoff Hub). When set, a handoff_refs join row is recorded.")),
++		mcplib.WithString("to_commit", mcplib.Description("Optional: last commit of the range this handoff covers (Handoff Hub).")),
++		mcplib.WithString("spec_dir", mcplib.Description("Optional: .skillgrid/sdd/<change>/ dir this handoff hands off (recorded on the handoff_refs join).")),
+ 	)
+ }
+ 
+ func handleSessionHandoff(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+ 	_, h, cleanup, err := openService()
+ 	if err != nil {
+ 		return toolError(err)
+ 	}
+ 	defer cleanup()
+ 
+@@ -56,20 +59,23 @@ func handleSessionHandoff(ctx context.Context, req mcplib.CallToolRequest) (*mcp
+ 	if err != nil {
+ 		return toolError(err)
+ 	}
+ 
+ 	in := relay.Bundle{
+ 		Progress:       progress,
+ 		NextPrompt:     nextPrompt,
+ 		Knowledge:      req.GetString("knowledge", ""),
+ 		SourceSession:  req.GetString("session_id", ""),
+ 		ContextSummary: req.GetString("context_summary", ""),
++		FromCommit:     req.GetString("from_commit", ""),
++		ToCommit:       req.GetString("to_commit", ""),
++		SpecDir:        req.GetString("spec_dir", ""),
+ 	}
+ 
+ 	handoffID, paths, err := relay.Handoff(ctx, h.Store().DB, h.ProjectID(), req.GetString("handoff_id", ""), h.Root(), in)
+ 	if err != nil {
+ 		return toolError(err)
+ 	}
+ 	return JSONResult(map[string]any{
+ 		"handoff_id": handoffID,
+ 		"paths":      paths,
+ 	})
+@@ -100,12 +106,20 @@ func handleSessionResume(ctx context.Context, req mcplib.CallToolRequest) (*mcpl
+ 	if err != nil {
+ 		return toolError(err)
+ 	}
+ 	out := map[string]any{
+ 		"prompt":     prompt,
+ 		"handoff_id": id,
+ 	}
+ 	if archive {
+ 		out["archive_id"] = archiveID
+ 	}
++	// Handoff Hub (change 015): surface the commit range + spec dir the
++	// handoff covers (from the handoff_refs join) so resume is grounded in
++	// the change log, not just the cleave bundle.
++	if ref, ok, rerr := relay.GetHandoffRef(ctx, h.Store().DB, h.ProjectID(), handoffID, "session"); rerr == nil && ok {
++		out["from_commit"] = ref.FromCommit
++		out["to_commit"] = ref.ToCommit
++		out["spec_dir"] = ref.SpecDir
++	}
+ 	return JSONResult(out)
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff_test.go
+index 18145ec2..3511f130 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff_test.go
+@@ -33,23 +33,25 @@ func sessionHandoffFixture(t *testing.T) (dir, dataDir string) {
+ func TestSessionHandoffTools(t *testing.T) {
+ 	sessionHandoffFixture(t)
+ 
+ 	tools := NewServer().ListTools()
+ 	for _, name := range []string{"session_handoff", "session_resume"} {
+ 		if _, ok := tools[name]; !ok {
+ 			t.Errorf("expected tool %q to be registered", name)
+ 		}
+ 	}
+ 
+-	// Tool surface grows additively: 78 baseline + 2 session + 2 status/compact = 82.
+-	if len(tools) != 83 {
+-		t.Errorf("expected 83 tools (78 baseline + 2 session + 2 status/compact), got %d", len(tools))
++	// Tool surface grows additively: 78 baseline + 2 session + 2 status/compact
++	// + 5 handoff = 87 minimum. (Asserted as >= so later additive changes do
++	// not require editing every count assertion.)
++	if len(tools) < 87 {
++		t.Errorf("expected at least 87 tools, got %d", len(tools))
+ 	}
+ 
+ 	// Existing 005 mem_* tools keep their names + required params unchanged.
+ 	for name, wantRequired := range expectedMemToolSurface {
+ 		st, ok := tools[name]
+ 		if !ok {
+ 			t.Errorf("005 mem tool %q is no longer registered", name)
+ 			continue
+ 		}
+ 		got := append([]string(nil), st.Tool.InputSchema.Required...)
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_teams.go b/skillgrid-cli/internal/mnemonic/mcp/tools_teams.go
+index 24accf15..b15ccd3a 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_teams.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_teams.go
+@@ -1,19 +1,20 @@
+ package mcp
+ 
+ import (
+ 	"context"
+ 	"os"
+ 
+ 	mcplib "github.com/mark3labs/mcp-go/mcp"
+ 	"github.com/mark3labs/mcp-go/server"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/relay"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ )
+ 
+ func registerTeamsTools(s *server.MCPServer) {
+ 	tools := []struct {
+ 		tool    mcplib.Tool
+ 		handler server.ToolHandlerFunc
+ 	}{
+ 		{teamSpawnTaskTool(), handleTeamSpawnTask},
+ 		{agentPullNextTaskTool(), handleAgentPullNextTask},
+@@ -241,20 +242,28 @@ func handleAgentMarkDone(ctx context.Context, req mcplib.CallToolRequest) (*mcpl
+ 	if err != nil {
+ 		return toolError(err)
+ 	}
+ 	dir, err := teamsDirectory(req)
+ 	if err != nil {
+ 		return toolError(err)
+ 	}
+ 	if err := svc.MarkDone(ctx, dir, taskID); err != nil {
+ 		return toolError(err)
+ 	}
++	// Handoff Hub (change 015): record a 'team' handoff_refs row so a team
++	// task completion joins to the change log. Best-effort — a failure to
++	// open the CWD handle or write the ref never fails mark_done (the task
++	// status is the durable record).
++	if h, cleanup, herr := svc.OpenForCWD(); herr == nil {
++		defer cleanup()
++		_ = relay.RecordTeamRef(ctx, h.Store().DB, h.ProjectID(), taskID)
++	}
+ 	return JSONResult(map[string]any{"task_id": taskID, "status": "done"})
+ }
+ 
+ func teamsDirectory(req mcplib.CallToolRequest) (string, error) {
+ 	dir := req.GetString("directory", "")
+ 	if dir != "" {
+ 		return dir, nil
+ 	}
+ 	return os.Getwd()
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/relay/cleave.go b/skillgrid-cli/internal/mnemonic/relay/cleave.go
+index 5aa3206d..d37a61ca 100644
+--- a/skillgrid-cli/internal/mnemonic/relay/cleave.go
++++ b/skillgrid-cli/internal/mnemonic/relay/cleave.go
+@@ -35,20 +35,29 @@ const L0Dir = ".skillgrid/workspace/sessions"
+ // Bundle is the structured cleave bundle content written at handoff time.
+ type Bundle struct {
+ 	Progress   string
+ 	Knowledge  string
+ 	NextPrompt string
+ 	// SourceSession is the sessions.id this handoff was taken from (recorded
+ 	// on the session_handoffs row). Optional.
+ 	SourceSession string
+ 	// ContextSummary is an optional short context note recorded on the row.
+ 	ContextSummary string
++	// FromCommit / ToCommit bound the commit range this handoff covers
++	// (Handoff Hub, change 015-handoff-hub). When set, Handoff also records a
++	// handoff_refs row joining the handoff to that range. Blank is allowed —
++	// the bundle degrades to a plain handoff with no commit-range join.
++	FromCommit string
++	ToCommit   string
++	// SpecDir is the .skillgrid/sdd/<change>/ directory this handoff hands off,
++	// recorded on the handoff_refs join when set. Blank is allowed.
++	SpecDir string
+ }
+ 
+ // BundleDir returns the absolute cleave directory for projectRoot.
+ func BundleDir(projectRoot string) string {
+ 	return filepath.Join(projectRoot, ".skillgrid", ".cleave")
+ }
+ 
+ // WriteBundle writes the three cleave files under projectRoot/.skillgrid/.cleave/.
+ // It returns the three absolute paths. A write failure removes the partially
+ // written files so a failed handoff leaves no half-bundle (fail closed).
+diff --git a/skillgrid-cli/internal/mnemonic/relay/relay.go b/skillgrid-cli/internal/mnemonic/relay/relay.go
+index e074a6b6..8db71625 100644
+--- a/skillgrid-cli/internal/mnemonic/relay/relay.go
++++ b/skillgrid-cli/internal/mnemonic/relay/relay.go
+@@ -59,23 +59,98 @@ func Handoff(ctx context.Context, db Store, projectID, handoffID, projectRoot st
+ 		VALUES (?, ?, ?, 'pending', ?, ?, ?)`,
+ 		projectID, handoffID, nullString(b.SourceSession), cleavePath, nullString(b.ContextSummary), now)
+ 	if err != nil {
+ 		// Row insert failed: roll back the just-written files so we don't
+ 		// leave files with no row (the other orphan direction).
+ 		for _, p := range paths {
+ 			_ = os.Remove(p)
+ 		}
+ 		return "", nil, fmt.Errorf("relay: record handoff row: %w", err)
+ 	}
++
++	// Handoff Hub (change 015): when the bundle carries a commit range (or a
++	// spec dir), record a handoff_refs join row so "this handoff covers
++	// commits X..Y of change Z" is explicit. Best-effort: a refs failure
++	// does not fail the handoff (the session_handoffs row + bundle are the
++	// durable record); the join is an index.
++	if strings.TrimSpace(b.FromCommit) != "" || strings.TrimSpace(b.ToCommit) != "" || strings.TrimSpace(b.SpecDir) != "" {
++		_, rerr := db.ExecContext(ctx, `
++			INSERT INTO handoff_refs
++				(handoff_id, handoff_type, project, from_commit, to_commit, spec_dir, created_at)
++			VALUES (?, 'session', ?, ?, ?, ?, ?)
++			ON CONFLICT(handoff_id, handoff_type, project) DO NOTHING`,
++			handoffID, projectID, nullString(b.FromCommit), nullString(b.ToCommit), nullString(b.SpecDir), now)
++		if rerr != nil {
++			// Roll back the ref only (leave the handoff row + bundle intact).
++			_, _ = db.ExecContext(ctx,
++				`DELETE FROM handoff_refs WHERE project = ? AND handoff_id = ? AND handoff_type = 'session'`,
++				projectID, handoffID)
++		}
++	}
+ 	return handoffID, paths, nil
+ }
+ 
++// HandoffRef is the handoff_refs join row for one handoff (change 015): the
++// commit range + spec dir the handoff covers.
++type HandoffRef struct {
++	HandoffID   string
++	HandoffType string
++	FromCommit  string
++	ToCommit    string
++	SpecDir     string
++}
++
++// RecordTeamRef writes a 'team' handoff_refs row for a completed team task
++// (change 015-handoff-hub). Best-effort: callers ignore the error so a ref
++// write never fails the task. Idempotent on (task_id, 'team', project).
++func RecordTeamRef(ctx context.Context, db Store, projectID, taskID string) error {
++	if db == nil {
++		return fmt.Errorf("relay: store is required")
++	}
++	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(taskID) == "" {
++		return fmt.Errorf("relay: project and task id are required for a team ref")
++	}
++	now := time.Now().UTC().Format(time.RFC3339)
++	_, err := db.ExecContext(ctx, `
++		INSERT INTO handoff_refs (handoff_id, handoff_type, project, task_id, created_at)
++		VALUES (?, 'team', ?, ?, ?)
++		ON CONFLICT(handoff_id, handoff_type, project) DO NOTHING`,
++		taskID, projectID, taskID, now)
++	return err
++}
++
++// GetHandoffRef returns the handoff_refs join for a handoff id, or ok=false
++// when no ref exists (a plain handoff with no commit range). It does not error
++// on absence — only on a real query failure.
++func GetHandoffRef(ctx context.Context, db Store, projectID, handoffID, handoffType string) (*HandoffRef, bool, error) {
++	if db == nil {
++		return nil, false, fmt.Errorf("relay: store is required")
++	}
++	var r HandoffRef
++	var fc, tc, spec sql.NullString
++	err := db.QueryRowContext(ctx, `
++		SELECT handoff_id, handoff_type, from_commit, to_commit, spec_dir
++		FROM handoff_refs
++		WHERE project = ? AND handoff_id = ? AND handoff_type = ?`,
++		projectID, handoffID, handoffType).Scan(&r.HandoffID, &r.HandoffType, &fc, &tc, &spec)
++	if err == sql.ErrNoRows {
++		return nil, false, nil
++	}
++	if err != nil {
++		return nil, false, fmt.Errorf("relay: lookup handoff ref: %w", err)
++	}
++	r.FromCommit = fc.String
++	r.ToCommit = tc.String
++	r.SpecDir = spec.String
++	return &r, true, nil
++}
++
+ // Resume reads the cleave bundle for handoffID and returns the NEXT_PROMPT as
+ // the resume prompt. Fail closed: an unknown handoff id, or a missing /
+ // incomplete .cleave/ bundle, returns an error (no invented prompt). When
+ // archive is true and a handoff row exists, a session_archives row is recorded
+ // and the handoff is flipped to 'archived'; the archive_id
+ // (session_archives.id) is returned when present.
+ func Resume(ctx context.Context, db Store, projectID, handoffID, projectRoot string, archive bool) (string, string, int64, error) {
+ 	if db == nil {
+ 		return "", handoffID, 0, fmt.Errorf("relay: store is required")
+ 	}
+diff --git a/skillgrid-cli/internal/mnemonic/relay/relay_test.go b/skillgrid-cli/internal/mnemonic/relay/relay_test.go
+index 0c0445c9..5f5a60cb 100644
+--- a/skillgrid-cli/internal/mnemonic/relay/relay_test.go
++++ b/skillgrid-cli/internal/mnemonic/relay/relay_test.go
+@@ -83,20 +83,65 @@ func TestHandoff(t *testing.T) {
+ 	// Round-trip the bundle.
+ 	b, err := ReadBundle(root)
+ 	if err != nil {
+ 		t.Fatalf("read bundle: %v", err)
+ 	}
+ 	if b.NextPrompt != "resume the verify phase" {
+ 		t.Errorf("NextPrompt = %q, want the handoff value", b.NextPrompt)
+ 	}
+ }
+ 
++// TestHandoffRecordsRefJoin covers change 015-handoff-hub: a bundle carrying a
++// commit range (or spec dir) also writes a handoff_refs row joining the
++// handoff to that range; a bundle without either writes no ref (degrades to a
++// plain handoff).
++func TestHandoffRecordsRefJoin(t *testing.T) {
++	st, root := openStore(t, "relayproj")
++	ctx := context.Background()
++
++	// With a commit range -> ref row present.
++	hid, _, err := Handoff(ctx, st.DB, "relayproj", "", root, Bundle{
++		NextPrompt: "resume",
++		FromCommit: "aaa111",
++		ToCommit:   "bbb222",
++		SpecDir:    ".skillgrid/sdd/015-handoff-hub",
++	})
++	if err != nil {
++		t.Fatalf("handoff: %v", err)
++	}
++	var fc, tc, spec string
++	if err := st.DB.QueryRow(`
++		SELECT from_commit, to_commit, spec_dir
++		FROM handoff_refs WHERE project = 'relayproj' AND handoff_id = ? AND handoff_type = 'session'`, hid).
++		Scan(&fc, &tc, &spec); err != nil {
++		t.Fatalf("expected handoff_refs row: %v", err)
++	}
++	if fc != "aaa111" || tc != "bbb222" || spec != ".skillgrid/sdd/015-handoff-hub" {
++		t.Fatalf("ref join = %q..%q (spec %q)", fc, tc, spec)
++	}
++
++	// Without a range / spec -> no ref row.
++	root2 := t.TempDir()
++	hid2, _, err := Handoff(ctx, st.DB, "relayproj", "", root2, Bundle{NextPrompt: "resume"})
++	if err != nil {
++		t.Fatalf("handoff2: %v", err)
++	}
++	var n int
++	if err := st.DB.QueryRow(`
++		SELECT COUNT(*) FROM handoff_refs WHERE project = 'relayproj' AND handoff_id = ?`, hid2).Scan(&n); err != nil {
++		t.Fatalf("count refs: %v", err)
++	}
++	if n != 0 {
++		t.Fatalf("expected 0 handoff_refs for a plain handoff, got %d", n)
++	}
++}
++
+ // TestHandoffFailClosedNoOrphan asserts the load-bearing invariant: if the
+ // cleave file write fails, NO session_handoffs row is written (no orphan row
+ // without files). A read-only cleave dir forces the file write to fail.
+ func TestHandoffFailClosedNoOrphan(t *testing.T) {
+ 	st, root := openStore(t, "relayproj")
+ 	// Make the .skillgrid dir read-only so MkdirAll/.cleave fails.
+ 	sg := filepath.Join(root, ".skillgrid")
+ 	if err := os.MkdirAll(sg, 0o555); err != nil {
+ 		t.Fatalf("mkdir .skillgrid: %v", err)
+ 	}
+diff --git a/skillgrid-cli/internal/mnemonic/store/handoff_hub_schema_test.go b/skillgrid-cli/internal/mnemonic/store/handoff_hub_schema_test.go
+new file mode 100644
+index 00000000..8018b9e3
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/handoff_hub_schema_test.go
+@@ -0,0 +1,99 @@
++package store
++
++import (
++	"testing"
++)
++
++// TestHandoffHubMigration covers change 015-handoff-hub (additive 039
++// migration): (a) store open creates change_snapshots / checkpoints /
++// handoff_refs without rewriting sessions/observations; (b) re-open is
++// idempotent — migration recorded once, tables intact; (c) the unique
++// constraints hold (snapshot upsert key, checkpoint name key, ref key).
++func TestHandoffHubMigration(t *testing.T) {
++	dir := t.TempDir()
++	st, err := Open(dir, "hubproj")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer st.Close()
++
++	for _, name := range []string{"change_snapshots", "checkpoints", "handoff_refs"} {
++		if !tableExists(t, st.DB, name) {
++			t.Fatalf("expected 039 table %s after open", name)
++		}
++	}
++	if countMigration(t, st.DB, "039_handoff_hub.sql") != 1 {
++		t.Fatalf("expected 039 migration recorded once")
++	}
++	// Additive: the pre-existing tables are untouched.
++	for _, name := range []string{"observations", "sessions", "session_handoffs"} {
++		if !tableExists(t, st.DB, name) {
++			t.Fatalf("%s missing after 039 (additive only)", name)
++		}
++	}
++}
++
++// TestHandoffHubSnapshotUpsertKey proves (project, commit) is unique so the
++// snapshot log is idempotent when the same commit is recorded twice.
++func TestHandoffHubSnapshotUpsertKey(t *testing.T) {
++	dir := t.TempDir()
++	st, err := Open(dir, "hubproj")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer st.Close()
++
++	stmt := `INSERT INTO change_snapshots
++		(project, branch, "commit", subject, committed_at, created_at)
++		VALUES ('hubproj', 'main', ?, 's', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`
++	if _, err := st.DB.Exec(stmt, "abc123"); err != nil {
++		t.Fatalf("insert snapshot: %v", err)
++	}
++	// Second insert of the same (project, commit) must fail on the unique key;
++	// ON CONFLICT upsert is the supported write path.
++	if _, err := st.DB.Exec(stmt, "abc123"); err == nil {
++		t.Fatalf("expected unique violation on duplicate (project, commit)")
++	}
++	var n int
++	if err := st.DB.QueryRow(
++		`SELECT COUNT(*) FROM change_snapshots WHERE project = 'hubproj' AND "commit" = 'abc123'`).Scan(&n); err != nil {
++		t.Fatalf("count: %v", err)
++	}
++	if n != 1 {
++		t.Fatalf("expected 1 snapshot row, got %d", n)
++	}
++}
++
++// TestHandoffHubCheckpointAndRefKeys proves the checkpoint (project, name)
++// unique key and the handoff_refs (handoff_id, handoff_type, project) unique
++// key both reject duplicates.
++func TestHandoffHubCheckpointAndRefKeys(t *testing.T) {
++	dir := t.TempDir()
++	st, err := Open(dir, "hubproj")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer st.Close()
++
++	cp := `INSERT INTO checkpoints (project, name, created_at) VALUES ('hubproj', ?, '2026-01-01T00:00:00Z')`
++	if _, err := st.DB.Exec(cp, "before-apply-auth"); err != nil {
++		t.Fatalf("insert checkpoint: %v", err)
++	}
++	if _, err := st.DB.Exec(cp, "before-apply-auth"); err == nil {
++		t.Fatalf("expected unique violation on duplicate (project, name)")
++	}
++
++	ref := `INSERT INTO handoff_refs (handoff_id, handoff_type, project, created_at)
++		VALUES (?, 'session', 'hubproj', '2026-01-01T00:00:00Z')`
++	if _, err := st.DB.Exec(ref, "h1"); err != nil {
++		t.Fatalf("insert ref: %v", err)
++	}
++	if _, err := st.DB.Exec(ref, "h1"); err == nil {
++		t.Fatalf("expected unique violation on duplicate (handoff_id, handoff_type, project)")
++	}
++	// Same handoff_id with a different type is allowed.
++	if _, err := st.DB.Exec(`INSERT INTO handoff_refs (handoff_id, handoff_type, project, created_at)
++		VALUES ('h1', 'team', 'hubproj', '2026-01-01T00:00:00Z')`); err != nil {
++		t.Fatalf("insert second-type ref (should be allowed): %v", err)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/039_handoff_hub.sql b/skillgrid-cli/internal/mnemonic/store/migrations/039_handoff_hub.sql
+new file mode 100644
+index 00000000..0bb73352
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/039_handoff_hub.sql
+@@ -0,0 +1,82 @@
++-- 039: handoff hub — change snapshots, named checkpoints, handoff refs
++-- (change 015-handoff-hub).
++--
++-- Additive only. The three tables combine the three existing checkpoint
++-- sources into one queryable hub:
++--
++--   change_snapshots — a git-derived, append-only log of EVERY commit for the
++--                      project. Reconstructable by replaying `git log`, so it
++--                      can never be the sole source of truth; the commit
++--                      (and its [skillgrid-context] block) is the durable
++--                      record, this table is the index. context_json is the
++--                      parsed [skillgrid-context] block (Task/Decisions/
++--                      Remaining/Tried) and is NULL when the commit carries
++--                      no block. Idempotent upsert on (project, commit).
++--
++--   checkpoints      — named, INTENTIONAL markers placed before risky actions
++--                      (before-apply-<change>, before long pauses, before
++--                      validation). Unlike change_snapshots these are placed
++--                      by a human/agent, capture dirty state + links to the
++--                      active spec dir / PRD / handoff file, and carry a
++--                      lifecycle (open | verified | stale | archived) driven
++--                      by drift verification.
++--
++--   handoff_refs     — the join between a handoff artifact (session cleave
++--                      bundle, team task completion, or a checkpoint marker)
++--                      and the commit range it covers, plus the spec dir it
++--                      hands off. This is what makes "this handoff covers
++--                      commits X..Y of change Z" explicit.
++
++CREATE TABLE IF NOT EXISTS change_snapshots (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    project TEXT NOT NULL,
++    branch TEXT NOT NULL,
++    "commit" TEXT NOT NULL,
++    commit_short TEXT,
++    subject TEXT,
++    context_json TEXT,
++    changed_files TEXT,
++    author TEXT,
++    committed_at TEXT NOT NULL,
++    created_at TEXT NOT NULL,
++    UNIQUE (project, "commit")
++);
++
++CREATE INDEX IF NOT EXISTS idx_snapshots_project_time
++    ON change_snapshots (project, committed_at DESC, id DESC);
++
++CREATE TABLE IF NOT EXISTS checkpoints (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    project TEXT NOT NULL,
++    name TEXT NOT NULL,
++    branch TEXT,
++    "commit" TEXT,
++    dirty INTEGER NOT NULL DEFAULT 0,
++    prd_path TEXT,
++    spec_dir TEXT,
++    handoff_file TEXT,
++    evidence TEXT,
++    status TEXT NOT NULL DEFAULT 'open',
++    created_at TEXT NOT NULL,
++    verified_at TEXT,
++    UNIQUE (project, name)
++);
++
++CREATE INDEX IF NOT EXISTS idx_checkpoints_project_status
++    ON checkpoints (project, status, created_at DESC);
++
++CREATE TABLE IF NOT EXISTS handoff_refs (
++    handoff_id TEXT NOT NULL,
++    handoff_type TEXT NOT NULL,
++    project TEXT NOT NULL,
++    from_commit TEXT,
++    to_commit TEXT,
++    spec_dir TEXT,
++    team_id TEXT,
++    task_id TEXT,
++    created_at TEXT NOT NULL,
++    UNIQUE (handoff_id, handoff_type, project)
++);
++
++CREATE INDEX IF NOT EXISTS idx_handoff_refs_project
++    ON handoff_refs (project, created_at DESC);
+diff --git a/skillgrid-ui/src/features/handoff/HandoffHubPage.tsx b/skillgrid-ui/src/features/handoff/HandoffHubPage.tsx
+new file mode 100644
+index 00000000..7cb5ea29
+--- /dev/null
++++ b/skillgrid-ui/src/features/handoff/HandoffHubPage.tsx
+@@ -0,0 +1,356 @@
++import { useEffect, useMemo, useState } from 'react'
++import {
++  fetchSnapshots,
++  fetchHubStatus,
++  openSnapshotStream,
++  HandoffError,
++  type ChangeSnapshot,
++  type Checkpoint,
++  type HandoffRef,
++} from './api'
++import { fetchActivityEvents, type ActivityEvent } from '../activity/api'
++
++type Tab = 'changes' | 'activity' | 'handoffs'
++
++// Handoff Hub (change 015-handoff-hub): one page combining the change-tracking
++// snapshot log, live activity, and team/agent handoffs. Change log is backed
++// by the git-derived change_snapshots; checkpoints overlay as markers; the
++// live snapshot stream reuses /activity/stream (event: snapshot).
++
++export function HandoffHubPage() {
++  const [tab, setTab] = useState<Tab>('changes')
++  const [snapshots, setSnapshots] = useState<ChangeSnapshot[]>([])
++  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
++  const [refs, setRefs] = useState<HandoffRef[]>([])
++  const [events, setEvents] = useState<ActivityEvent[]>([])
++  const [error, setError] = useState('')
++  const [live, setLive] = useState(false)
++  const [latest, setLatest] = useState<ChangeSnapshot | null>(null)
++
++  const load = () => {
++    Promise.all([fetchSnapshots(200), fetchHubStatus()])
++      .then(([snaps, status]) => {
++        setSnapshots(snaps.snapshots ?? [])
++        setCheckpoints(status.checkpoints ?? [])
++        setRefs(status.handoff_refs ?? [])
++        setLatest(status.latest_snapshot ?? null)
++      })
++      .catch((e) => {
++        setError(e instanceof HandoffError ? e.message : 'failed to load handoff hub')
++      })
++    fetchActivityEvents(100)
++      .then((r) => setEvents(r.events ?? []))
++      .catch(() => {})
++  }
++
++  useEffect(() => {
++    setError('')
++    load()
++    // Live change snapshots (event: snapshot) — prepend, de-dup by commit.
++    const close = openSnapshotStream({
++      onReady: () => setLive(true),
++      onSnapshot: (s) => {
++        setSnapshots((prev) => {
++          if (prev.some((p) => p.commit === s.commit)) return prev
++          const ns: ChangeSnapshot = {
++            id: Date.now(),
++            branch: s.branch,
++            commit: s.commit,
++            commitShort: s.commitShort,
++            subject: s.subject,
++            author: s.author,
++            committedAt: s.committedAt,
++            changedFiles: '',
++          }
++          setLatest(ns)
++          return [ns, ...prev].slice(0, 200)
++        })
++      },
++      onError: () => setLive(false),
++    })
++    return close
++  }, [])
++
++  const checkpointByCommit = useMemo(() => {
++    const m = new Map<string, Checkpoint>()
++    for (const c of checkpoints) m.set(c.commit, c)
++    return m
++  }, [checkpoints])
++
++  const openCheckpoints = useMemo(
++    () => checkpoints.filter((c) => c.status === 'open' || c.status === 'stale'),
++    [checkpoints],
++  )
++
++  return (
++    <div className="flex h-full flex-col gap-4 overflow-y-auto p-8">
++      <header className="flex items-center justify-between">
++        <div>
++          <h1 className="text-2xl font-semibold">Handoff Hub</h1>
++          <p className="text-sm text-muted-foreground">
++            Change tracking, live activity, and team/agent handoffs — one engine-backed view.
++          </p>
++        </div>
++        <div className="flex items-center gap-3">
++          <span className={live ? 'text-xs text-emerald-500' : 'text-xs text-muted-foreground'}>
++            {live ? '● live' : '○ offline'}
++          </span>
++          <nav className="flex gap-1 rounded-lg border p-1">
++            {(['changes', 'activity', 'handoffs'] as Tab[]).map((t) => (
++              <button
++                key={t}
++                onClick={() => setTab(t)}
++                className={`rounded-md px-3 py-1 text-sm capitalize ${
++                  tab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
++                }`}
++              >
++                {t === 'handoffs' ? 'Handoffs' : t}
++              </button>
++            ))}
++          </nav>
++        </div>
++      </header>
++
++      {error && (
++        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>
++      )}
++
++      {tab === 'changes' && (
++        <ChangesTab
++          snapshots={snapshots}
++          checkpointByCommit={checkpointByCommit}
++          openCheckpoints={openCheckpoints}
++          latest={latest}
++        />
++      )}
++      {tab === 'activity' && <ActivityTab events={events} />}
++      {tab === 'handoffs' && <HandoffsTab checkpoints={checkpoints} refs={refs} />}
++    </div>
++  )
++}
++
++// ---------------------------------------------------------------------------
++// Changes tab — the change log with checkpoint markers overlaid.
++// ---------------------------------------------------------------------------
++
++function ChangesTab({
++  snapshots,
++  checkpointByCommit,
++  openCheckpoints,
++  latest,
++}: {
++  snapshots: ChangeSnapshot[]
++  checkpointByCommit: Map<string, Checkpoint>
++  openCheckpoints: Checkpoint[]
++  latest: ChangeSnapshot | null
++}) {
++  return (
++    <div className="flex flex-col gap-4">
++      {latest && (
++        <div className="rounded-lg border p-4">
++          <div className="text-xs uppercase text-muted-foreground">Latest commit</div>
++          <div className="mt-1 flex items-center gap-2 font-mono text-sm">
++            <span className="rounded bg-muted px-1.5 py-0.5">{latest.commitShort}</span>
++            <span>{latest.subject}</span>
++            <span className="text-muted-foreground">({latest.branch})</span>
++          </div>
++          {latest.context && (
++            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
++              {latest.context.task && <Ctx label="Task" value={latest.context.task} />}
++              {latest.context.decisions && <Ctx label="Decisions" value={latest.context.decisions} />}
++              {latest.context.remaining && <Ctx label="Remaining" value={latest.context.remaining} />}
++              {latest.context.tried && <Ctx label="Tried" value={latest.context.tried} />}
++            </div>
++          )}
++        </div>
++      )}
++
++      {openCheckpoints.length > 0 && (
++        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
++          <div className="text-xs font-medium text-amber-800">Open checkpoints ({openCheckpoints.length})</div>
++          <ul className="mt-1 space-y-0.5 text-sm text-amber-900">
++            {openCheckpoints.map((c) => (
++              <li key={c.id} className="font-mono">
++                {c.name} <span className="text-amber-700">[{c.status}]</span> @ {c.commit.slice(0, 7)}
++                {c.specDir ? <span className="text-amber-700"> · {c.specDir}</span> : null}
++              </li>
++            ))}
++          </ul>
++        </div>
++      )}
++
++      <div className="overflow-hidden rounded-lg border">
++        <table className="w-full text-sm">
++          <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
++            <tr>
++              <th className="px-3 py-2">Commit</th>
++              <th className="px-3 py-2">Subject</th>
++              <th className="px-3 py-2">Branch</th>
++              <th className="px-3 py-2">Context</th>
++              <th className="px-3 py-2">Checkpoint</th>
++            </tr>
++          </thead>
++          <tbody>
++            {snapshots.map((s) => {
++              const cp = checkpointByCommit.get(s.commit)
++              return (
++                <tr key={s.commit} className="border-t hover:bg-muted/30">
++                  <td className="px-3 py-2 font-mono text-xs">{s.commitShort}</td>
++                  <td className="px-3 py-2">{s.subject}</td>
++                  <td className="px-3 py-2 text-muted-foreground">{s.branch}</td>
++                  <td className="px-3 py-2 text-xs text-muted-foreground">
++                    {s.context?.task ? s.context.task : '—'}
++                  </td>
++                  <td className="px-3 py-2">
++                    {cp ? (
++                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">{cp.name}</span>
++                    ) : (
++                      <span className="text-xs text-muted-foreground">—</span>
++                    )}
++                  </td>
++                </tr>
++              )
++            })}
++            {snapshots.length === 0 && (
++              <tr>
++                <td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">
++                  No snapshots recorded yet. Run `skillgrid handoff record` or commit to populate the log.
++                </td>
++              </tr>
++            )}
++          </tbody>
++        </table>
++      </div>
++    </div>
++  )
++}
++
++function Ctx({ label, value }: { label: string; value: string }) {
++  return (
++    <div>
++      <span className="text-xs font-medium text-muted-foreground">{label}</span>
++      <div className="text-sm">{value}</div>
++    </div>
++  )
++}
++
++// ---------------------------------------------------------------------------
++// Activity tab — reuses the activity feed (observations).
++// ---------------------------------------------------------------------------
++
++function ActivityTab({ events }: { events: ActivityEvent[] }) {
++  return (
++    <div className="flex flex-col gap-2">
++      {events.slice(0, 50).map((e) => (
++        <div key={e.id} className="flex items-start gap-3 rounded-md border p-3">
++          <span
++            className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
++              e.severity === 'high' ? 'bg-red-500' : e.severity === 'medium' ? 'bg-amber-500' : 'bg-slate-400'
++            }`}
++          />
++          <div className="min-w-0">
++            <div className="truncate text-sm font-medium">{e.summary}</div>
++            <div className="text-xs text-muted-foreground">
++              {e.type} · {e.source} {e.actor ? `· ${e.actor}` : ''} · {new Date(e.ts).toLocaleString()}
++            </div>
++          </div>
++        </div>
++      ))}
++      {events.length === 0 && (
++        <div className="rounded-md border p-6 text-center text-sm text-muted-foreground">No activity yet.</div>
++      )}
++    </div>
++  )
++}
++
++// ---------------------------------------------------------------------------
++// Handoffs tab — checkpoints + handoff refs (session/team handoffs).
++// ---------------------------------------------------------------------------
++
++function HandoffsTab({ checkpoints, refs }: { checkpoints: Checkpoint[]; refs: HandoffRef[] }) {
++  return (
++    <div className="flex flex-col gap-4">
++      <section>
++        <h2 className="mb-2 text-sm font-semibold">Checkpoints ({checkpoints.length})</h2>
++        <div className="overflow-hidden rounded-lg border">
++          <table className="w-full text-sm">
++            <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
++              <tr>
++                <th className="px-3 py-2">Name</th>
++                <th className="px-3 py-2">Status</th>
++                <th className="px-3 py-2">Commit</th>
++                <th className="px-3 py-2">Spec</th>
++                <th className="px-3 py-2">Evidence</th>
++              </tr>
++            </thead>
++            <tbody>
++              {checkpoints.map((c) => (
++                <tr key={c.id} className="border-t">
++                  <td className="px-3 py-2 font-mono text-xs">{c.name}</td>
++                  <td className="px-3 py-2">
++                    <StatusPill status={c.status} />
++                  </td>
++                  <td className="px-3 py-2 font-mono text-xs">{c.commit.slice(0, 7)}</td>
++                  <td className="px-3 py-2 text-xs text-muted-foreground">{c.specDir || '—'}</td>
++                  <td className="px-3 py-2 text-xs text-muted-foreground">{c.evidence || '—'}</td>
++                </tr>
++              ))}
++              {checkpoints.length === 0 && (
++                <tr>
++                  <td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">No checkpoints placed.</td>
++                </tr>
++              )}
++            </tbody>
++          </table>
++        </div>
++      </section>
++
++      <section>
++        <h2 className="mb-2 text-sm font-semibold">Handoff refs ({refs.length})</h2>
++        <div className="overflow-hidden rounded-lg border">
++          <table className="w-full text-sm">
++            <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
++              <tr>
++                <th className="px-3 py-2">Handoff</th>
++                <th className="px-3 py-2">Type</th>
++                <th className="px-3 py-2">Commits</th>
++                <th className="px-3 py-2">Spec</th>
++              </tr>
++            </thead>
++            <tbody>
++              {refs.map((r) => (
++                <tr key={r.handoffId + r.handoffType} className="border-t">
++                  <td className="px-3 py-2 font-mono text-xs">{r.handoffId}</td>
++                  <td className="px-3 py-2 text-xs">{r.handoffType}</td>
++                  <td className="px-3 py-2 font-mono text-xs">
++                    {(r.fromCommit || '…').slice(0, 7)}..{(r.toCommit || '…').slice(0, 7)}
++                  </td>
++                  <td className="px-3 py-2 text-xs text-muted-foreground">{r.specDir || '—'}</td>
++                </tr>
++              ))}
++              {refs.length === 0 && (
++                <tr>
++                  <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
++                    No handoff refs yet (session/team handoffs populate this).
++                  </td>
++                </tr>
++              )}
++            </tbody>
++          </table>
++        </div>
++      </section>
++    </div>
++  )
++}
++
++function StatusPill({ status }: { status: Checkpoint['status'] }) {
++  const color =
++    status === 'verified'
++      ? 'bg-emerald-100 text-emerald-800'
++      : status === 'stale'
++        ? 'bg-amber-100 text-amber-800'
++        : status === 'archived'
++          ? 'bg-slate-100 text-slate-600'
++          : 'bg-blue-100 text-blue-800'
++  return <span className={`rounded px-1.5 py-0.5 text-xs ${color}`}>{status}</span>
++}
+diff --git a/skillgrid-ui/src/features/handoff/api.ts b/skillgrid-ui/src/features/handoff/api.ts
+new file mode 100644
+index 00000000..70386f4e
+--- /dev/null
++++ b/skillgrid-ui/src/features/handoff/api.ts
+@@ -0,0 +1,180 @@
++import { currentProjectName } from '../../lib/projects'
++
++// Shared fetch + type contracts for the Handoff Hub (change 015-handoff-hub).
++// Reuses the Activity view's project resolution (same git name → first
++// project with data). The change log + hub status are read-only REST; the
++// live snapshot stream reuses the /activity/stream SSE (event: snapshot).
++
++export class HandoffError extends Error {
++  status: number
++  constructor(message: string, status: number) {
++    super(message)
++    this.status = status
++  }
++}
++
++async function get<T>(url: string): Promise<T> {
++  const res = await fetch(url, { headers: { Accept: 'application/json' } })
++  if (!res.ok) {
++    let msg = res.statusText
++    try {
++      const j = (await res.json()) as { error?: string }
++      if (j.error) msg = j.error
++    } catch {
++      /* keep statusText */
++    }
++    throw new HandoffError(msg, res.status)
++  }
++  return (await res.json()) as T
++}
++
++let resolvedProject: string | null = null
++async function resolveProject(): Promise<string> {
++  if (resolvedProject) return resolvedProject
++  const gitName = await currentProjectName()
++  try {
++    const first = await get<{ snapshots?: unknown[] }>(
++      `/activity/snapshots?project=${encodeURIComponent(gitName)}&limit=1`,
++    )
++    if ((first.snapshots?.length ?? 0) > 0) {
++      resolvedProject = gitName
++      return gitName
++    }
++  } catch {
++    /* fall through */
++  }
++  try {
++    const { projects } = await get<{ projects: string[] }>('/projects')
++    for (const p of projects) {
++      try {
++        const r = await get<{ snapshots?: unknown[] }>(`/activity/snapshots?project=${encodeURIComponent(p)}&limit=1`)
++        if ((r.snapshots?.length ?? 0) > 0) {
++          resolvedProject = p
++          return p
++        }
++      } catch {
++        /* skip */
++      }
++    }
++  } catch {
++    /* fall through */
++  }
++  resolvedProject = gitName
++  return gitName
++}
++
++function qs(project: string, params: Record<string, string | number>): string {
++  const q = new URLSearchParams({ project })
++  for (const [k, v] of Object.entries(params)) q.set(k, String(v))
++  return q.toString()
++}
++
++// ---------------------------------------------------------------------------
++// types
++// ---------------------------------------------------------------------------
++
++export interface SnapshotContext {
++  task?: string
++  decisions?: string
++  remaining?: string
++  tried?: string
++}
++
++export interface ChangeSnapshot {
++  id: number
++  branch: string
++  commit: string
++  commitShort: string
++  subject: string
++  author: string
++  committedAt: string
++  changedFiles: string
++  context?: SnapshotContext
++}
++
++export interface Checkpoint {
++  id: number
++  name: string
++  branch: string
++  commit: string
++  dirty: boolean
++  prdPath: string
++  specDir: string
++  handoffFile: string
++  evidence: string
++  status: 'open' | 'verified' | 'stale' | 'archived'
++  createdAt: string
++  verifiedAt: string
++}
++
++export interface HandoffRef {
++  handoffId: string
++  handoffType: 'session' | 'team' | 'checkpoint'
++  fromCommit: string
++  toCommit: string
++  specDir: string
++  teamId: string
++  taskId: string
++  createdAt: string
++}
++
++export interface SnapshotsResponse {
++  project: string
++  snapshots: ChangeSnapshot[]
++  limit: number
++}
++
++export interface HubStatus {
++  project: string
++  latest_snapshot: ChangeSnapshot | null
++  checkpoints: Checkpoint[]
++  handoff_refs: HandoffRef[]
++}
++
++// ---------------------------------------------------------------------------
++// REST
++// ---------------------------------------------------------------------------
++
++export async function fetchSnapshots(limit = 100): Promise<SnapshotsResponse> {
++  const project = await resolveProject()
++  return get<SnapshotsResponse>(`/activity/snapshots?${qs(project, { limit })}`)
++}
++
++export async function fetchHubStatus(): Promise<HubStatus> {
++  const project = await resolveProject()
++  return get<HubStatus>(`/handoff/status?${qs(project, {})}`)
++}
++
++// ---------------------------------------------------------------------------
++// SSE — live change snapshots (event: snapshot on /activity/stream).
++// ---------------------------------------------------------------------------
++
++export interface SnapshotStreamCallbacks {
++  onSnapshot?: (s: { commit: string; commitShort: string; subject: string; branch: string; author: string; committedAt: string }) => void
++  onReady?: () => void
++  onError?: (err: Error) => void
++}
++
++export function openSnapshotStream(cb: SnapshotStreamCallbacks): () => void {
++  let es: EventSource | null = null
++  let stopped = false
++  const start = async () => {
++    const project = await resolveProject()
++    if (stopped) return
++    es = new EventSource(`/activity/stream?project=${encodeURIComponent(project)}`)
++    es.addEventListener('ready', () => cb.onReady?.())
++    es.addEventListener('snapshot', (ev) => {
++      try {
++        cb.onSnapshot?.(JSON.parse((ev as MessageEvent).data))
++      } catch (e) {
++        cb.onError?.(e as Error)
++      }
++    })
++    es.onerror = () => cb.onError?.(new Error('snapshot stream error'))
++  }
++  void start()
++  return () => {
++    stopped = true
++    es?.close()
++  }
++}

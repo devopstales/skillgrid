@@ -1,0 +1,665 @@
+diff --git a/skillgrid-cli/internal/mnemonic/config/load.go b/skillgrid-cli/internal/mnemonic/config/load.go
+index 071cce1..c38e628 100644
+--- a/skillgrid-cli/internal/mnemonic/config/load.go
++++ b/skillgrid-cli/internal/mnemonic/config/load.go
+@@ -57,6 +57,13 @@ type RetrievalBudget struct {
+ // override it via the mnemonic.ttl config key.
+ const DefaultMemoryTTL = 7 * 24 * time.Hour
+ 
++// Extraction is the mnemonic.extraction section (014 step 05). The LLM
++// passive-extraction pass is OPT-IN: LLM defaults to false so passive capture
++// stays on the deterministic regex floor unless an operator enables it.
++type Extraction struct {
++	LLM bool
++}
++
+ // Indexing holds code index settings from indexing.yaml mnemonic section.
+ type Indexing struct {
+ 	Include      []string
+@@ -72,6 +79,9 @@ type Indexing struct {
+ 	// TTL is the default observation soft expiry (mnemonic.ttl, 014 step 04).
+ 	// Zero means "use DefaultMemoryTTL".
+ 	TTL time.Duration
++	// Extraction is the mnemonic.extraction section (014 step 05): LLM passive
++	// extraction is opt-in (LLM defaults to false → regex floor).
++	Extraction Extraction
+ }
+ 
+ type indexingFile struct {
+@@ -94,6 +104,9 @@ type mnemonicSection struct {
+ 	// "168h" or "7d" is not supported — use hours/seconds. Zero/empty keeps
+ 	// the DefaultMemoryTTL fallback.
+ 	TTL string `yaml:"ttl"`
++	// Extraction is the mnemonic.extraction section (014 step 05): the LLM
++	// passive-extraction opt-in switch.
++	Extraction extractionSection `yaml:"extraction"`
+ }
+ 
+ type retrievalBudgetSection struct {
+@@ -102,6 +115,13 @@ type retrievalBudgetSection struct {
+ 	Timeout   string `yaml:"timeout"` // Go duration string, e.g. "3s"
+ }
+ 
++// extractionSection is the mnemonic.extraction section (014 step 05). LLM
++// defaults to false: passive capture stays on the deterministic regex floor
++// unless an operator opts into the LLM pass.
++type extractionSection struct {
++	LLM bool `yaml:"llm"`
++}
++
+ type embedderSection struct {
+ 	Provider  string         `yaml:"provider"`
+ 	Dimension int            `yaml:"dimension"`
+@@ -247,6 +267,9 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
+ 			out.TTL = d
+ 		}
+ 	}
++	// Extraction (014 step 05): the LLM opt-in switch. The section has no
++	// non-zero default, so the YAML value applies as-is (absent → false).
++	out.Extraction = Extraction{LLM: section.Extraction.LLM}
+ 	return out
+ }
+ 
+diff --git a/skillgrid-cli/internal/mnemonic/config/load_test.go b/skillgrid-cli/internal/mnemonic/config/load_test.go
+new file mode 100644
+index 0000000..0c6207d
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/config/load_test.go
+@@ -0,0 +1,39 @@
++package config
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++// TestExtractionLLMConfigDefaultOff is 05.3: the mnemonic.extraction.llm key
++// defaults to false (the regex floor) and opts in only when explicitly true.
++func TestExtractionLLMConfigDefaultOff(t *testing.T) {
++	dir := t.TempDir()
++
++	// No config file at all → defaults: LLM extraction off.
++	if got := Load(dir); got.Extraction.LLM {
++		t.Fatalf("default: extraction.llm must be false, got true")
++	}
++
++	// A config without the extraction section → still off.
++	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
++		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if got := Load(dir); got.Extraction.LLM {
++		t.Fatalf("absent section: extraction.llm must be false, got true")
++	}
++
++	// Explicit opt-in.
++	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
++		[]byte("mnemonic:\n  extraction:\n    llm: true\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if got := Load(dir); !got.Extraction.LLM {
++		t.Fatalf("extraction.llm: true must opt in, got false")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/extraction.go b/skillgrid-cli/internal/mnemonic/memory/extraction.go
+new file mode 100644
+index 0000000..d83e046
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/extraction.go
+@@ -0,0 +1,144 @@
++package memory
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"fmt"
++	"io"
++	"os"
++	"strings"
++)
++
++// logWriter is the sink for passive-extraction warnings (the LLM-failure
++// fallback notice). stdout keeps it visible without pulling a logging
++// dependency into this package; tests do not assert on it.
++func logWriter() io.Writer { return os.Stderr }
++
++// ExtractionLLM is the pluggable LLM seam for passive extraction (014,
++// step 05). It mirrors the process.LLM / layer.LLM seam pattern: a small
++// interface a backend implements, with NO CGo LLM client in this package. The
++// method takes the raw session text and returns the LLM's structured response
++// (a JSON document of learnings, see extractionPrompt). A nil seam (or one
++// that errors) leaves extraction to the deterministic regex floor — the
++// fallback is always available.
++type ExtractionLLM interface {
++	Extract(ctx context.Context, text string) (string, error)
++}
++
++// extractionPrompt is the instruction sent with the session text. It asks for
++// nuanced learnings the regex floor misses (free-form text, multi-clause
++// sentences, implied decisions/gotchas) — never invented content — and for a
++// strict JSON response so the parse is deterministic.
++const extractionPrompt = `You are extracting structured learnings from a block of session text.
++Return ONLY a JSON object: {"learnings": [{"text": "<one learning>", "type": "<decision|bugfix|architecture|pattern|config|preference|discovery|learning|lesson>"}]}.
++One entry per learning. If a learning is written in a structured section, quote its item VERBATIM. For a nuanced learning in free-form prose, consolidate the relevant sentences into a single complete sentence. Do not invent content that is not present in the text.
++Text:
++`
++
++// llmExtraction is the LLM's structured response: a list of learnings, each a
++// short text plus an optional type hint (validated and defaulted downstream).
++type llmExtraction struct {
++	Learnings []llmLearning `json:"learnings"`
++}
++
++type llmLearning struct {
++	Text string `json:"text"`
++	Type string `json:"type,omitempty"`
++}
++
++// ExtractWithLLM calls the LLM seam on the raw text and parses the structured
++// JSON response into PassiveItem values (014, step 05.1). The caller decides
++// the fallback: a nil seam, a seam error, or a malformed response is returned
++// as an error so CapturePassive can fall back to the regex floor. Items are
++// trimmed and dropped when blank; an empty parse is an error too (the LLM
++// found nothing → let the regex floor decide).
++func ExtractWithLLM(ctx context.Context, text string, llm ExtractionLLM) ([]PassiveItem, error) {
++	if llm == nil {
++		return nil, fmt.Errorf("no extraction LLM configured")
++	}
++	resp, err := llm.Extract(ctx, extractionPrompt+text)
++	if err != nil {
++		return nil, fmt.Errorf("extraction LLM: %w", err)
++	}
++	var out llmExtraction
++	if err := json.Unmarshal([]byte(resp), &out); err != nil {
++		return nil, fmt.Errorf("parse extraction LLM response: %w", err)
++	}
++	items := make([]PassiveItem, 0, len(out.Learnings))
++	for _, l := range out.Learnings {
++		body := strings.TrimSpace(l.Text)
++		if body == "" {
++			continue
++		}
++		// No Heading: an LLM item identical in text to a regex item must shape
++		// (and content-hash) identically so dedupePassiveItems merges it.
++		items = append(items, PassiveItem{Text: body})
++	}
++	if len(items) == 0 {
++		return nil, fmt.Errorf("extraction LLM returned no learnings")
++	}
++	return items, nil
++}
++
++// passiveItemHash is the content hash of an item's normalized text — the
++// dedup key for combining LLM and regex extraction outputs (014, step 05.3).
++// It normalizes the text (case, punctuation, whitespace) and caps the length
++// so a near-duplicate item the LLM and the regex both produce (identical or
++// only lightly reworded) hashes to the same key, while a genuinely new
++// learning hashes differently.
++func passiveItemHash(item PassiveItem, title, typ string) string {
++	norm := extractDedupKey(item.Text)
++	sum := sha256.Sum256([]byte(norm))
++	return hex.EncodeToString(sum[:])
++}
++
++// extractDedupKey normalizes item text into a stable dedup fingerprint:
++// lowercased, punctuation stripped, whitespace collapsed, length-capped so a
++// trailing fragment difference does not split one learning into two keys.
++func extractDedupKey(text string) string {
++	var b strings.Builder
++	prevSpace := true
++	for _, r := range strings.ToLower(text) {
++		switch {
++		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
++			b.WriteRune(r)
++			prevSpace = false
++		case r == ' ' || r == '\t' || r == '\n':
++			if !prevSpace && b.Len() > 0 {
++				b.WriteRune(' ')
++				prevSpace = true
++			}
++		default:
++			// punctuation → boundary
++			prevSpace = true
++		}
++	}
++	key := strings.TrimRight(b.String(), " ")
++	if len(key) > 90 {
++		key = key[:90]
++	}
++	return key
++}
++
++// dedupePassiveItems merges LLM and regex extraction outputs into one
++// de-duplicated set (014, step 05.3). Items are keyed by their content hash
++// (passiveItemHash) so an item both passes produce is stored once. The LLM's
++// order is preserved first, then any regex-only items.
++func dedupePassiveItems(primary, secondary []PassiveItem) []PassiveItem {
++	seen := make(map[string]bool, len(primary)+len(secondary))
++	out := make([]PassiveItem, 0, len(primary)+len(secondary))
++	for _, group := range [][]PassiveItem{primary, secondary} {
++		for _, item := range group {
++			title, typ := shapePassiveItem(item)
++			k := passiveItemHash(item, title, typ)
++			if seen[k] {
++				continue
++			}
++			seen[k] = true
++			out = append(out, item)
++		}
++	}
++	return out
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/extraction_test.go b/skillgrid-cli/internal/mnemonic/memory/extraction_test.go
+new file mode 100644
+index 0000000..8fbd6ea
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/extraction_test.go
+@@ -0,0 +1,332 @@
++package memory
++
++import (
++	"context"
++	"errors"
++	"strings"
++	"testing"
++)
++
++// mockLLM is a test double for the ExtractionLLM seam: it records the text it
++// was called with and returns a canned response (or error).
++type mockLLM struct {
++	resp   string
++	err    error
++	lastIn string
++}
++
++func (m *mockLLM) Extract(ctx context.Context, text string) (string, error) {
++	m.lastIn = text
++	if m.err != nil {
++		return "", m.err
++	}
++	return m.resp, nil
++}
++
++const llmJSONOK = `{
++  "learnings": [
++    {"text": "bcrypt cost=12 is the right balance for our server"},
++    {"text": "FTS5 queries must be sanitized before MATCH"}
++  ]
++}`
++
++const keyLearningsText = `Some narrative output.
++
++## Key Learnings:
++
++1. bcrypt cost=12 is the right balance for our server
++2. JWT refresh tokens need atomic rotation to avoid races
++3. FTS5 queries must be sanitized before MATCH`
++
++// TestExtractWithLLM is 05.1: ExtractWithLLM calls the LLM seam with the input
++// text and parses the structured JSON learnings into PassiveItem values that
++// shape through the same shapePassiveItem/shapePassiveContent pipeline as the
++// regex path.
++func TestExtractWithLLM(t *testing.T) {
++	llm := &mockLLM{resp: llmJSONOK}
++	items, err := ExtractWithLLM(context.Background(), keyLearningsText, llm)
++	if err != nil {
++		t.Fatalf("extract: %v", err)
++	}
++	if len(items) != 2 {
++		t.Fatalf("expected 2 items, got %d", len(items))
++	}
++	if !strings.Contains(llm.lastIn, keyLearningsText) {
++		t.Fatalf("LLM not called with the input text: got %q", llm.lastIn)
++	}
++	// Items must shape into the standard passive format (valid type + non-blank
++	// title), i.e. the same shapePassiveItem contract the regex path uses.
++	for i, item := range items {
++		title, typ := shapePassiveItem(item)
++		if title == "" || !IsValidType(typ) {
++			t.Fatalf("item %d: bad shape title=%q typ=%q", i, title, typ)
++		}
++		if shapePassiveContent(item, title, typ) == "" {
++			t.Fatalf("item %d: empty content", i)
++		}
++	}
++}
++
++// TestExtractWithLLMFailure is 05.1: when the LLM seam errors, ExtractWithLLM
++// returns the error (the caller decides to fall back).
++func TestExtractWithLLMFailure(t *testing.T) {
++	llm := &mockLLM{err: errors.New("llm down")}
++	items, err := ExtractWithLLM(context.Background(), "text", llm)
++	if err == nil {
++		t.Fatalf("expected error, got items=%d", len(items))
++	}
++	if len(items) != 0 {
++		t.Fatalf("expected no items on error, got %d", len(items))
++	}
++}
++
++// captureTitles returns the (title|type) keys of live observations for the
++// fixture project, for comparing a capture against the regex-only result.
++func captureTitles(t *testing.T, fx *fixture) map[string]bool {
++	t.Helper()
++	rows, err := fx.st.DB.Query(
++		`SELECT title, type FROM observations WHERE project = ? AND deleted_at IS NULL`,
++		fx.svc.projectID,
++	)
++	if err != nil {
++		t.Fatalf("query observations: %v", err)
++	}
++	defer rows.Close()
++	seen := map[string]bool{}
++	for rows.Next() {
++		var title, typ string
++		if err := rows.Scan(&title, &typ); err != nil {
++			t.Fatalf("scan observation: %v", err)
++		}
++		seen[title+"|"+typ] = true
++	}
++	return seen
++}
++
++// TestCapturePassiveLLMFailureFallsBackToRegex is 05.2: when the LLM seam
++// errors, CapturePassive falls back to the regex floor and produces exactly
++// the same observations as the regex-only path, with no error propagated.
++func TestCapturePassiveLLMFailureFallsBackToRegex(t *testing.T) {
++	ctx := context.Background()
++
++	// Regex-only baseline (no LLM enabled): the current default behavior.
++	base := newFixture(t, "capture-llm-fail-base")
++	baseRes, err := base.svc.CapturePassive(ctx, PassiveInput{
++		Content:   keyLearningsText,
++		SessionID: session1,
++	})
++	if err != nil {
++		t.Fatalf("baseline capture: %v", err)
++	}
++	if baseRes.Saved == 0 {
++		t.Fatalf("baseline: expected saved learnings, got %d (skipped %d)", baseRes.Saved, baseRes.Skipped)
++	}
++	baseSet := captureTitles(t, base)
++
++	// LLM enabled but failing: the regex floor must take over.
++	fx := newFixture(t, "capture-llm-fail")
++	llm := &mockLLM{err: errors.New("llm down")}
++	fx.svc.SetExtractionLLM(llm)
++	fx.svc.EnableExtractionLLM(true)
++	res, err := fx.svc.CapturePassive(ctx, PassiveInput{
++		Content:   keyLearningsText,
++		SessionID: session1,
++	})
++	if err != nil {
++		t.Fatalf("capture with failing LLM must not propagate an error: %v", err)
++	}
++	if llm.lastIn == "" {
++		t.Fatal("expected the LLM to have been tried")
++	}
++	if res.Saved == 0 {
++		t.Fatalf("fallback: expected saved learnings, got %d (skipped %d)", res.Saved, res.Skipped)
++	}
++	// The fallback result must be byte-for-byte the regex-only result.
++	got := captureTitles(t, fx)
++	if len(got) != len(baseSet) {
++		t.Fatalf("fallback produced %d observations, regex-only produced %d", len(got), len(baseSet))
++	}
++	for k := range baseSet {
++		if !got[k] {
++			t.Fatalf("fallback missing regex-only observation %q", k)
++		}
++	}
++}
++
++// nuanceText has a "## Key Learnings" section (regex-extractable) PLUS a
++// free-form paragraph with a nuanced learning that the regex floor cannot
++// see. The nuance avoids the "learned"/"lesson"/"discovery" keywords, and the
++// whole text is kept free of line-initial "lesson:"/"discovery:" style
++// labels, so extractLearnings' inline-label fallback stays silent and the
++// regex floor sees exactly the two sectioned items.
++const nuanceText = `We finished the auth work and it went fine.
++
++## Key Learnings:
++
++1. bcrypt cost=12 is the right balance for our server
++2. JWT refresh tokens need atomic rotation to avoid races
++
++The refresh-token endpoint silently drops the rotation lock under load, so
++the token pair can desync when two requests race. We will gate it with the
++advisory lock in the next pass.`
++
++// llmJSONNuance is the mock LLM's superset: both regex-extractable items plus
++// the nuanced one only the LLM sees (worded like the free-form sentence).
++const llmJSONNuance = `{
++  "learnings": [
++    {"text": "bcrypt cost=12 is the right balance for our server"},
++    {"text": "JWT refresh tokens need atomic rotation to avoid races"},
++    {"text": "the refresh-token endpoint silently drops the rotation lock under load, so the token pair can desync when two requests race"}
++  ]
++}`
++
++// TestExtractionQualityLLMVsRegex is 05.3: the LLM pass (mocked to return the
++// regex items PLUS a nuanced one the regex misses) yields a combined result
++// that (a) is a superset of the regex-only result and (b) has no duplicates —
++// dedup by content hash. A deterministic stand-in for "identical quality or
++// better than regex-only".
++func TestExtractionQualityLLMVsRegex(t *testing.T) {
++	ctx := context.Background()
++
++	// Test premise: the regex floor extracts the section items AND the
++	// free-form sentences as raw lines (5 items), but it cannot consolidate
++	// the multi-clause nuance into one learning — the LLM's consolidated
++	// "rotation lock" learning is a distinct item the regex floor never
++	// produces.
++	regexItems := extractLearnings(nuanceText)
++	if len(regexItems) != 5 {
++		t.Fatalf("premise: regex should extract 5 items (2 sectioned + 3 free-form lines), got %d", len(regexItems))
++	}
++	for _, it := range regexItems {
++		if strings.Contains(it.Text, "so the token pair can desync when two requests race") {
++			t.Fatalf("premise: regex must not produce the consolidated nuance, got %q", it.Text)
++		}
++	}
++
++	// LLM pass: mocked to return the superset (regex items + the nuance).
++	llm := &mockLLM{resp: llmJSONNuance}
++	llmItems, err := ExtractWithLLM(ctx, nuanceText, llm)
++	if err != nil {
++		t.Fatalf("llm extract: %v", err)
++	}
++
++	// Combined, deduplicated set.
++	combined := dedupePassiveItems(llmItems, regexItems)
++
++	// Every regex item must be represented in the combined set (superset).
++	regexKeys := map[string]bool{}
++	for _, it := range regexItems {
++		title, typ := shapePassiveItem(it)
++		regexKeys[title+"|"+typ] = true
++	}
++	// Superset: every regex key must be present in the combined set.
++	combinedKeys := map[string]bool{}
++	// Dedup: no two combined items share a content hash.
++	seenHash := map[string]int{}
++	for _, it := range combined {
++		title, typ := shapePassiveItem(it)
++		combinedKeys[title+"|"+typ] = true
++		seenHash[passiveItemHash(it, title, typ)]++
++	}
++	covered := 0
++	for k := range regexKeys {
++		if combinedKeys[k] {
++			covered++
++		}
++	}
++	if covered != len(regexKeys) {
++		t.Fatalf("combined set covers %d/%d regex items", covered, len(regexKeys))
++	}
++	for h, n := range seenHash {
++		if n > 1 {
++			t.Fatalf("duplicate item in combined set (hash %s appears %d times)", h, n)
++		}
++	}
++	// The nuanced item (absent from the regex floor) must be present.
++	nuanceFound := false
++	for _, it := range combined {
++		if strings.Contains(it.Text, "rotation lock") {
++			nuanceFound = true
++		}
++	}
++	if !nuanceFound {
++		t.Fatal("combined set missing the nuanced learning the regex floor cannot see")
++	}
++	// 5 regex items (2 shared verbatim with the LLM, 3 regex-only) + 1
++	// LLM-only consolidated nuance, de-duplicated.
++	if len(combined) != 6 {
++		t.Fatalf("expected 6 de-duplicated items (5 regex + 1 nuance), got %d", len(combined))
++	}
++}
++
++// TestCapturePassiveLLMOptInCombinedDedup is 05.3: end-to-end, with the LLM
++// enabled, CapturePassive stores the LLM's de-duplicated set (its superset
++// already contains every regex item) — no duplicate rows — while the default
++// (LLM disabled) path on the same text stays regex-only.
++func TestCapturePassiveLLMOptInCombinedDedup(t *testing.T) {
++	ctx := context.Background()
++
++	// Default (LLM disabled) on the same text: the unchanged regex-only path.
++	base := newFixture(t, "capture-llm-off")
++	if _, err := base.svc.CapturePassive(ctx, PassiveInput{
++		Content:   nuanceText,
++		SessionID: session1,
++	}); err != nil {
++		t.Fatalf("baseline capture: %v", err)
++	}
++	// The unchanged regex-only path stores all 5 raw items (it does not
++	// consolidate the nuance).
++	if baseKeys := captureTitles(t, base); len(baseKeys) != 5 {
++		t.Fatalf("regex-only baseline should store the 5 raw items, got %d: %v", len(baseKeys), baseKeys)
++	}
++
++	llm := &mockLLM{resp: llmJSONNuance}
++	fx := newFixture(t, "capture-llm-optin")
++	fx.svc.SetExtractionLLM(llm)
++	fx.svc.EnableExtractionLLM(true)
++	if _, err := fx.svc.CapturePassive(ctx, PassiveInput{
++		Content:   nuanceText,
++		SessionID: session1,
++	}); err != nil {
++		t.Fatalf("capture: %v", err)
++	}
++	got := captureTitles(t, fx)
++
++	// The opt-in store must hold the LLM's de-duplicated set: both sectioned
++	// items (which the mock also returns) PLUS the nuanced one the regex
++	// floor misses — with no duplicate rows.
++	nuanceFound := false
++	for k := range got {
++		if strings.Contains(k, "rotation lock") {
++			nuanceFound = true
++		}
++	}
++	if !nuanceFound {
++		t.Fatal("opt-in LLM capture missing the nuanced learning")
++	}
++	for _, want := range []string{
++		"bcrypt cost=12 is the right balance for our server",
++		"JWT refresh tokens need atomic rotation to avoid races",
++	} {
++		found := false
++		for k := range got {
++			if strings.HasPrefix(k, want) {
++				found = true
++			}
++		}
++		if !found {
++			t.Fatalf("opt-in store missing sectioned item %q", want)
++		}
++	}
++	if len(got) != 3 {
++		t.Fatalf("expected exactly 3 de-duplicated observations (the LLM set), got %d: %v", len(got), got)
++	}
++	// Row count must equal the distinct key count (no duplicate rows).
++	n, ok := fx.obsCount(t)
++	if !ok {
++		t.Fatal("obs count")
++	}
++	if n != len(got) {
++		t.Fatalf("duplicate rows: %d rows but %d distinct keys", n, len(got))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/service.go b/skillgrid-cli/internal/mnemonic/memory/service.go
+index d9c2336..a4cf271 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/service.go
++++ b/skillgrid-cli/internal/mnemonic/memory/service.go
+@@ -55,6 +55,16 @@ type Service struct {
+ 	// expires_at. Zero means "use defaultMemoryTTL". The service layer sets it
+ 	// from the mnemonic.ttl config key via SetTTL.
+ 	ttl time.Duration
++	// extractionLLM is the optional LLM seam for passive extraction (014,
++	// step 05). Nil = the LLM is not configured, so CapturePassive goes
++	// straight to the regex floor (the default-off behavior). Set via
++	// SetExtractionLLM.
++	extractionLLM ExtractionLLM
++	// extractionLLMEnabled is the opt-in switch for the LLM extraction pass
++	// (config mnemonic.extraction.llm). Even when a seam is attached, the LLM
++	// is only tried when this is true; otherwise CapturePassive stays on the
++	// deterministic regex floor.
++	extractionLLMEnabled bool
+ }
+ 
+ // SetDistillHookProvider attaches the owning handle (which carries the opt-in
+@@ -93,6 +103,26 @@ func (s *Service) SetTTL(d time.Duration) {
+ 	}
+ }
+ 
++// SetExtractionLLM attaches the optional LLM seam for passive extraction
++// (014, step 05). It does not enable the pass by itself — EnableExtractionLLM
++// is the opt-in switch (config mnemonic.extraction.llm), so a seam present but
++// unenabled keeps CapturePassive on the deterministic regex floor.
++func (s *Service) SetExtractionLLM(llm ExtractionLLM) {
++	if s != nil {
++		s.extractionLLM = llm
++	}
++}
++
++// EnableExtractionLLM toggles the opt-in LLM extraction pass. When true (and a
++// seam is attached) CapturePassive tries the LLM first and falls back to the
++// regex floor on any LLM error; when false (the default) CapturePassive
++// behaves exactly as before — regex-only.
++func (s *Service) EnableExtractionLLM(on bool) {
++	if s != nil {
++		s.extractionLLMEnabled = on
++	}
++}
++
+ // effectiveTTL returns the active default soft expiry, falling back to
+ // defaultMemoryTTL when no positive override was set.
+ func (s *Service) effectiveTTL() time.Duration {
+@@ -1078,7 +1108,21 @@ func (s *Service) CapturePassive(ctx context.Context, in PassiveInput) (CaptureP
+ 		return CapturePassiveResult{Exhausted: true}, nil
+ 	}
+ 
++	// Extraction (014, step 05): the LLM pass is OPT-IN. When enabled and a
++	// seam is attached, try it first; on any LLM error (or a parse with no
++	// learnings) fall back to the deterministic regex floor so the caller
++	// never sees an LLM failure. When disabled (the default) this is exactly
++	// the pre-05 regex-only behavior.
+ 	rawItems := extractLearnings(text)
++	if s.extractionLLMEnabled && s.extractionLLM != nil {
++		if llmItems, lerr := ExtractWithLLM(ctx, text, s.extractionLLM); lerr == nil {
++			rawItems = llmItems
++		} else {
++			// Best-effort warning: the regex floor still runs below, so no
++			// error is propagated to the caller.
++			fmt.Fprintf(logWriter(), "mnemonic: passive extraction LLM failed, falling back to regex: %v\n", lerr)
++		}
++	}
+ 	if len(rawItems) == 0 {
+ 		return CapturePassiveResult{Exhausted: true}, nil
+ 	}

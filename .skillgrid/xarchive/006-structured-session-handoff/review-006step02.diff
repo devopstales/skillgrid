@@ -1,0 +1,1133 @@
+=== 006 STEP 02 CODE COMMITS 29feb6e..174eeb4 ===
+
+174eeb4 chore(sdd): gitignore .skillgrid/.cleave/ by default
+b72ecb8 feat(mnemonic): register session_handoff and session_resume (78→80 surface)
+29feb6e feat(mnemonic): add relay cleave bundle and handoff/resume (fail closed)
+
+=== STAT ===
+ .gitignore                                         |   4 +
+ skillgrid-cli/internal/mnemonic/mcp/server.go      |   2 +
+ skillgrid-cli/internal/mnemonic/mcp/server_test.go |   2 +
+ .../mnemonic/mcp/tools_code_affected_test.go       |   6 +-
+ .../mnemonic/mcp/tools_code_knowledge_test.go      |   6 +-
+ .../mnemonic/mcp/tools_memory_governance_test.go   |   6 +-
+ .../mnemonic/mcp/tools_memory_layer_args_test.go   |   4 +-
+ .../mnemonic/mcp/tools_memory_layer_test.go        |   6 +-
+ .../mnemonic/mcp/tools_memory_retrieval_test.go    |   4 +-
+ .../internal/mnemonic/mcp/tools_session_handoff.go | 108 ++++++++
+ .../mnemonic/mcp/tools_session_handoff_test.go     | 236 ++++++++++++++++++
+ skillgrid-cli/internal/mnemonic/relay/cleave.go    | 144 +++++++++++
+ skillgrid-cli/internal/mnemonic/relay/relay.go     | 158 ++++++++++++
+ .../internal/mnemonic/relay/relay_test.go          | 273 +++++++++++++++++++++
+ skillgrid-cli/internal/mnemonic/service/service.go |   6 +
+ 15 files changed, 949 insertions(+), 16 deletions(-)
+
+=== DIFF ===
+diff --git a/.gitignore b/.gitignore
+index b8e5870..74f1751 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -21,3 +21,7 @@ skillgrid-cli/out/
+ .skillgrid/
+ .gitworktree/
+ .skillgrid
++
++# Session Relay cleave bundle (006 step 02): PROGRESS/KNOWLEDGE/NEXT_PROMPT
++# scratch written at handoff time — gitignored by default (like 003 L0).
++.skillgrid/.cleave/
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server.go b/skillgrid-cli/internal/mnemonic/mcp/server.go
+index db54897..1850751 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server.go
+@@ -61,6 +61,7 @@ func Start() error {
+ 	registerTaintTools(s)
+ 	registerMemoryGovernanceTools(s)
+ 	registerMemoryLayerTools(s)
++	registerSessionTools(s)
+ 	return server.ServeStdio(s)
+ }
+ 
+@@ -91,5 +92,6 @@ func NewServer() *Server {
+ 	registerTaintTools(s)
+ 	registerMemoryGovernanceTools(s)
+ 	registerMemoryLayerTools(s)
++	registerSessionTools(s)
+ 	return s
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server_test.go b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+index 2103248..2866878 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+@@ -58,6 +58,8 @@ func TestAllToolsRegistered(t *testing.T) {
+ 		"mem_share", "mem_governance",
+ 		// Layered-distill inspector (013 step 02).
+ 		"mem_layers",
++		// Session relay handoff/resume (006 step 02).
++		"session_handoff", "session_resume",
+ 	}
+ 	if len(tools) != len(want) {
+ 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+index 6e786e3..87ca567 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_affected_test.go
+@@ -75,9 +75,9 @@ func TestAffectedTools(t *testing.T) {
+ 	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
+ 
+ 	// The tool surface grows additively: 71 baseline + 2 affected/rename +
+-	// 1 code_pdg_query + 1 code_taint + 2 governance + 1 mem_layers = 78.
+-	if len(tools) != 78 {
+-		t.Errorf("expected 78 tools (71 baseline + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers), got %d", len(tools))
++	// 1 code_pdg_query + 1 code_taint + 2 governance + 1 mem_layers + 2 session = 80.
++	if len(tools) != 80 {
++		t.Errorf("expected 80 tools (71 baseline + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers + 2 session), got %d", len(tools))
+ 	}
+ 
+ 	// code_affected runs the traversal (changed -> affected test files).
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+index 5a57e69..0cfaf14 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+@@ -121,9 +121,9 @@ func TestKnowledgeTools(t *testing.T) {
+ 
+ 	// The tool surface grows additively: 67 baseline + 4 knowledge + 2
+ 	// affected/rename + 1 code_pdg_query + 1 code_taint + 2 governance +
+-	// 1 mem_layers = 78 (all keep their names + required params).
+-	if len(tools) != 78 {
+-		t.Errorf("expected 78 tools (67 baseline + 4 knowledge + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers), got %d", len(tools))
++	// 1 mem_layers + 2 session = 80 (all keep their names + required params).
++	if len(tools) != 80 {
++		t.Errorf("expected 80 tools (67 baseline + 4 knowledge + 2 affected/rename + 1 pdg_query + 1 taint + 2 governance + 1 mem_layers + 2 session), got %d", len(tools))
+ 	}
+ 
+ 	// code_docs returns the indexed docs (a query, not an error).
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go
+index d7b2b8c..515f70b 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_governance_test.go
+@@ -36,9 +36,9 @@ func TestMemGovernanceTools(t *testing.T) {
+ 		}
+ 	}
+ 
+-	// Tool surface grows additively: 75 baseline + 2 governance + 1 layers = 78.
+-	if len(tools) != 78 {
+-		t.Errorf("expected 78 tools (75 baseline + 2 governance + 1 mem_layers), got %d", len(tools))
++	// Tool surface grows additively: 75 baseline + 2 governance + 1 layers + 2 session = 80.
++	if len(tools) != 80 {
++		t.Errorf("expected 80 tools (75 baseline + 2 governance + 1 mem_layers + 2 session), got %d", len(tools))
+ 	}
+ 
+ 	// Existing 005 mem_* tools keep their names + required params unchanged.
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_args_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_args_test.go
+index 2eac503..2252fc1 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_args_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_args_test.go
+@@ -52,8 +52,8 @@ func TestMemLayersRegisteredAndStable(t *testing.T) {
+ 		t.Fatal("mem_layers is not registered")
+ 	}
+ 	// The additive surface count: 78 (77 after step 01 + 1 mem_layers).
+-	if len(tools) != 78 {
+-		t.Errorf("expected 78 tools, got %d", len(tools))
++	if len(tools) != 80 {
++		t.Errorf("expected 80 tools, got %d", len(tools))
+ 	}
+ 	for name, wantRequired := range expectedMemToolSurface {
+ 		st, ok := tools[name]
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_test.go
+index a1640f1..14a4e79 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_layer_test.go
+@@ -33,9 +33,9 @@ func TestLayerTools(t *testing.T) {
+ 		t.Errorf("expected tool %q to be registered", "mem_layers")
+ 	}
+ 
+-	// Tool surface grows additively: 77 (75 baseline + 2 governance) + 1 layers = 78.
+-	if len(tools) != 78 {
+-		t.Errorf("expected 78 tools (77 + 1 mem_layers), got %d", len(tools))
++	// Tool surface grows additively: 77 (75 baseline + 2 governance) + 1 layers + 2 session = 80.
++	if len(tools) != 80 {
++		t.Errorf("expected 80 tools (77 + 1 mem_layers + 2 session), got %d", len(tools))
+ 	}
+ 
+ 	// Existing 005 mem_* tools keep their names + required params unchanged.
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_retrieval_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_retrieval_test.go
+index e502f32..e64aa49 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_retrieval_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_retrieval_test.go
+@@ -74,8 +74,8 @@ func TestBudgetedRetrievalMCP(t *testing.T) {
+ 	// 005 mem_* tools keep their names + required params unchanged (budgeted
+ 	// behavior is additive).
+ 	tools := NewServer().ListTools()
+-	if len(tools) != 78 {
+-		t.Fatalf("expected 78 tools, got %d", len(tools))
++	if len(tools) != 80 {
++		t.Fatalf("expected 80 tools, got %d", len(tools))
+ 	}
+ 	for name, wantRequired := range expectedMemToolSurface {
+ 		st, ok := tools[name]
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff.go b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff.go
+new file mode 100644
+index 0000000..96e9b4b
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff.go
+@@ -0,0 +1,108 @@
++package mcp
++
++import (
++	"context"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++	"github.com/mark3labs/mcp-go/server"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/relay"
++)
++
++// registerSessionTools is the session-relay MCP registrar (change 006, step
++// 02). It is the step-03 "registrar hook": later session_* tools (status,
++// compact) can extend this list without re-editing server.go's registration
++// chain. It is additive — it never touches the mem_* / code_* registration.
++func registerSessionTools(s *server.MCPServer) {
++	tools := []struct {
++		tool    mcplib.Tool
++		handler server.ToolHandlerFunc
++	}{
++		{sessionHandoffTool(), handleSessionHandoff},
++		{sessionResumeTool(), handleSessionResume},
++	}
++	for _, entry := range tools {
++		s.AddTool(entry.tool, entry.handler)
++	}
++}
++
++func sessionHandoffTool() mcplib.Tool {
++	return mcplib.NewTool("session_handoff",
++		mcplib.WithDescription("Write a structured session handoff: three .skillgrid/.cleave/ files (PROGRESS / KNOWLEDGE / NEXT_PROMPT) plus a session_handoffs row. Fails closed — if the files cannot be written, no row is recorded (no orphan). Returns the handoff_id and the cleave file paths."),
++		mcplib.WithString("progress", mcplib.Required(), mcplib.Description("What was done this session (PROGRESS.md)")),
++		mcplib.WithString("next_prompt", mcplib.Required(), mcplib.Description("The prompt that seeds the next session (NEXT_PROMPT.md) — the resume target")),
++		mcplib.WithString("knowledge", mcplib.Description("Decisions / learnings (KNOWLEDGE.md). Optional.")),
++		mcplib.WithString("session_id", mcplib.Description("Source session id (sessions.id) this handoff is taken from. Optional.")),
++		mcplib.WithString("handoff_id", mcplib.Description("Operator-facing handoff identifier / resume target. Blank generates one from the source session + timestamp.")),
++		mcplib.WithString("context_summary", mcplib.Description("Optional short context note recorded on the handoff row.")),
++	)
++}
++
++func handleSessionHandoff(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++
++	progress, err := req.RequireString("progress")
++	if err != nil {
++		return toolError(err)
++	}
++	nextPrompt, err := req.RequireString("next_prompt")
++	if err != nil {
++		return toolError(err)
++	}
++
++	in := relay.Bundle{
++		Progress:       progress,
++		NextPrompt:     nextPrompt,
++		Knowledge:      req.GetString("knowledge", ""),
++		SourceSession:  req.GetString("session_id", ""),
++		ContextSummary: req.GetString("context_summary", ""),
++	}
++
++	handoffID, paths, err := relay.Handoff(ctx, h.Store().DB, h.ProjectID(), req.GetString("handoff_id", ""), h.Root(), in)
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(map[string]any{
++		"handoff_id": handoffID,
++		"paths":      paths,
++	})
++}
++
++func sessionResumeTool() mcplib.Tool {
++	return mcplib.NewTool("session_resume",
++		mcplib.WithDescription("Resume a prior session by handoff_id: reads the .skillgrid/.cleave/ bundle and returns the stored NEXT_PROMPT as the resume prompt. Fails closed on an unknown handoff id or a missing/incomplete .cleave/ bundle (no invented prompt). Pass archive=true to also record a session_archives row and mark the handoff archived; the archive_id is returned when present."),
++		mcplib.WithString("handoff_id", mcplib.Required(), mcplib.Description("The handoff id returned by session_handoff")),
++		mcplib.WithBoolean("archive", mcplib.Description("Also archive this handoff (record a session_archives row + flip status to archived). Default false.")),
++	)
++}
++
++func handleSessionResume(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++
++	handoffID, err := req.RequireString("handoff_id")
++	if err != nil {
++		return toolError(err)
++	}
++	archive := req.GetBool("archive", false)
++
++	prompt, id, archiveID, err := relay.Resume(ctx, h.Store().DB, h.ProjectID(), handoffID, h.Root(), archive)
++	if err != nil {
++		return toolError(err)
++	}
++	out := map[string]any{
++		"prompt":     prompt,
++		"handoff_id": id,
++	}
++	if archive {
++		out["archive_id"] = archiveID
++	}
++	return JSONResult(out)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff_test.go
+new file mode 100644
+index 0000000..cc0845a
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_session_handoff_test.go
+@@ -0,0 +1,236 @@
++package mcp
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/relay"
++)
++
++// sessionHandoffFixture pins the project to a stable bucket, points the CWD at
++// a temp dir, and injects a service rooted at a temp data dir. It chdirs into
++// dir so handlers that open the CWD project resolve to that store, and so the
++// cleave bundle lands under dir/.skillgrid/.cleave/. Returns the CWD dir
++// first (the cleave root's parent).
++func sessionHandoffFixture(t *testing.T) (dir, dataDir string) {
++	t.Helper()
++	dataDir = t.TempDir()
++	dir = t.TempDir()
++	pinProjectCwd(t, dataDir, dir, "handoffmcp-probe")
++	return dir, dataDir
++}
++
++// TestSessionHandoffTools covers @step-02 RED "Mnemonic tool surface"
++// (Scenario: Fail closed and mem tools remain): session_handoff and
++// session_resume are registered with distinct session_* names, the tool
++// surface grows additively 78 -> 80, and every 005 mem_* tool keeps its name
++// + required params unchanged.
++func TestSessionHandoffTools(t *testing.T) {
++	sessionHandoffFixture(t)
++
++	tools := NewServer().ListTools()
++	for _, name := range []string{"session_handoff", "session_resume"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("expected tool %q to be registered", name)
++		}
++	}
++
++	// Tool surface grows additively: 78 baseline + 2 session tools = 80.
++	if len(tools) != 80 {
++		t.Errorf("expected 80 tools (78 baseline + 2 session), got %d", len(tools))
++	}
++
++	// Existing 005 mem_* tools keep their names + required params unchanged.
++	for name, wantRequired := range expectedMemToolSurface {
++		st, ok := tools[name]
++		if !ok {
++			t.Errorf("005 mem tool %q is no longer registered", name)
++			continue
++		}
++		got := append([]string(nil), st.Tool.InputSchema.Required...)
++		want := append([]string(nil), wantRequired...)
++		sort.Strings(got)
++		sort.Strings(want)
++		if len(got) != len(want) {
++			t.Errorf("%q: required params changed: got %v, want %v", name, got, want)
++			continue
++		}
++		for i := range want {
++			if got[i] != want[i] {
++				t.Errorf("%q: required param %d changed: got %q, want %q", name, i, got[i], want[i])
++			}
++		}
++	}
++
++	// Bad session args rejected clearly:
++	//  - session_handoff with no progress -> validation error.
++	res, err := handleSessionHandoff(context.Background(), newCallTool("session_handoff", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleSessionHandoff dispatch: %v", err)
++	}
++	if !res.IsError {
++		t.Errorf("session_handoff without progress should be a validation error, got: %s", callResultText(t, res))
++	}
++	//  - session_resume with no handoff_id -> validation error.
++	res, err = handleSessionResume(context.Background(), newCallTool("session_resume", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleSessionResume dispatch: %v", err)
++	}
++	if !res.IsError {
++		t.Errorf("session_resume without handoff_id should be a validation error, got: %s", callResultText(t, res))
++	}
++}
++
++// TestSessionToolsDispatch is the end-to-end happy path at the MCP boundary
++// (Scenario: Handoff writes cleave bundle and row): a real session_handoff MCP
++// call writes the three .cleave/ files and a session_handoffs row, and a
++// follow-up session_resume MCP call returns the stored NEXT_PROMPT. It also
++// drives mem_session_start + mem_save through the handlers so the RED test
++// proves the mem tools still dispatch alongside the new session tools.
++func TestSessionToolsDispatch(t *testing.T) {
++	dir, dataDir := sessionHandoffFixture(t)
++
++	// Seed a real session (mem_session_start dispatch) so the handoff has a
++	// valid source_session to link against.
++	startRes, err := handleMemSessionStart(context.Background(), newCallTool("mem_session_start", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleMemSessionStart dispatch: %v", err)
++	}
++	if startRes.IsError {
++		t.Fatalf("mem_session_start errored: %s", callResultText(t, startRes))
++	}
++	var startOut struct {
++		SessionID string `json:"session_id"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, startRes)), &startOut); err != nil {
++		t.Fatalf("unmarshal session start: %v (text %s)", err, callResultText(t, startRes))
++	}
++
++	// The mem tool still works (Scenario: Fail closed and mem tools remain).
++	saveRes, err := handleMemSave(context.Background(), newCallTool("mem_save", map[string]any{
++		"title":      "handoff probe",
++		"type":       "learning",
++		"content":    "mem_save still dispatches next to the session tools",
++		"session_id": startOut.SessionID,
++	}))
++	if err != nil {
++		t.Fatalf("handleMemSave: %v", err)
++	}
++	if saveRes.IsError {
++		t.Fatalf("mem_save errored: %s", callResultText(t, saveRes))
++	}
++
++	// session_handoff writes the cleave bundle + row.
++	relHandoff := relay.Bundle{
++		Progress:   "implemented the relay module",
++		Knowledge:  "fail closed: write files before the row",
++		NextPrompt: "Resume: run the verify phase for change 006",
++	}
++	hoRes, err := handleSessionHandoff(context.Background(), newCallTool("session_handoff", map[string]any{
++		"progress":    relHandoff.Progress,
++		"knowledge":   relHandoff.Knowledge,
++		"next_prompt": relHandoff.NextPrompt,
++		"session_id":  startOut.SessionID,
++	}))
++	if err != nil {
++		t.Fatalf("handleSessionHandoff: %v", err)
++	}
++	if hoRes.IsError {
++		t.Fatalf("session_handoff errored: %s", callResultText(t, hoRes))
++	}
++	var hoOut struct {
++		HandoffID string   `json:"handoff_id"`
++		Paths     []string `json:"paths"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, hoRes)), &hoOut); err != nil {
++		t.Fatalf("unmarshal handoff: %v (text %s)", err, callResultText(t, hoRes))
++	}
++	if hoOut.HandoffID == "" {
++		t.Errorf("session_handoff must return a handoff_id, got %s", callResultText(t, hoRes))
++	}
++	if len(hoOut.Paths) != 3 {
++		t.Errorf("session_handoff must return 3 cleave paths, got %v", hoOut.Paths)
++	}
++
++	// The three .cleave/ files exist on disk under dir/.skillgrid/.cleave/.
++	// dir is t.TempDir() (a non-resolved /var path on macOS) while the handle
++	// root is the resolved /private/var path, so resolve symlinks before stat.
++	cleaveRoot, err := filepath.EvalSymlinks(dir)
++	if err != nil {
++		t.Fatalf("evalsymlinks dir: %v", err)
++	}
++	cleaveDir := filepath.Join(cleaveRoot, ".skillgrid", ".cleave")
++	for _, name := range []string{"PROGRESS.md", "KNOWLEDGE.md", "NEXT_PROMPT.md"} {
++		if _, err := os.Stat(filepath.Join(cleaveDir, name)); err != nil {
++			t.Errorf("expected cleave file %s on disk: %v", name, err)
++		}
++	}
++
++	// session_resume returns the stored NEXT_PROMPT.
++	resRes, err := handleSessionResume(context.Background(), newCallTool("session_resume", map[string]any{
++		"handoff_id": hoOut.HandoffID,
++	}))
++	if err != nil {
++		t.Fatalf("handleSessionResume: %v", err)
++	}
++	if resRes.IsError {
++		t.Fatalf("session_resume errored: %s", callResultText(t, resRes))
++	}
++	var resOut struct {
++		Prompt    string `json:"prompt"`
++		HandoffID string `json:"handoff_id"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, resRes)), &resOut); err != nil {
++		t.Fatalf("unmarshal resume: %v (text %s)", err, callResultText(t, resRes))
++	}
++	if resOut.Prompt != relHandoff.NextPrompt {
++		t.Errorf("session_resume prompt = %q, want the stored NEXT_PROMPT %q", resOut.Prompt, relHandoff.NextPrompt)
++	}
++	if resOut.HandoffID != hoOut.HandoffID {
++		t.Errorf("session_resume handoff_id = %q, want %q", resOut.HandoffID, hoOut.HandoffID)
++	}
++	_ = dataDir
++}
++
++// TestMemSaveDispatch covers the @step-02 RED threat row directly: with the
++// session tools registered, mem_save still dispatches to its handler and
++// returns a saved id (the mem_* surface is additive, never dropped).
++func TestMemSaveDispatch(t *testing.T) {
++	_, dir := sessionHandoffFixture(t)
++
++	startRes, err := handleMemSessionStart(context.Background(), newCallTool("mem_session_start", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleMemSessionStart dispatch: %v", err)
++	}
++	if startRes.IsError {
++		t.Fatalf("mem_session_start errored: %s", callResultText(t, startRes))
++	}
++	var startOut struct {
++		SessionID string `json:"session_id"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, startRes)), &startOut); err != nil {
++		t.Fatalf("unmarshal session start: %v (text %s)", err, callResultText(t, startRes))
++	}
++
++	res, err := handleMemSave(context.Background(), newCallTool("mem_save", map[string]any{
++		"title":      "mem save dispatch probe",
++		"type":       "decision",
++		"content":    "mem_save must keep working once session tools land",
++		"session_id": startOut.SessionID,
++	}))
++	if err != nil {
++		t.Fatalf("handleMemSave dispatch: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("mem_save errored: %s", callResultText(t, res))
++	}
++	if !strings.Contains(callResultText(t, res), `"id"`) {
++		t.Errorf("mem_save should return an id, got: %s", callResultText(t, res))
++	}
++	_ = dir
++}
+diff --git a/skillgrid-cli/internal/mnemonic/relay/cleave.go b/skillgrid-cli/internal/mnemonic/relay/cleave.go
+new file mode 100644
+index 0000000..5aa3206
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/relay/cleave.go
+@@ -0,0 +1,144 @@
++// Package relay owns the Session Relay: the SQL writes for
++// session_handoffs / session_archives and the .skillgrid/.cleave/ filesystem
++// bundle (PROGRESS / KNOWLEDGE / NEXT_PROMPT). MCP and CLI are thin callers of
++// the same Handoff / Resume interfaces (change 006, step 02).
++package relay
++
++import (
++	"fmt"
++	"os"
++	"path/filepath"
++	"strings"
++)
++
++// cleaveDir is the repo-relative cleave bundle directory under .skillgrid/.
++// It is gitignored by default (like the 003 L0 scratch).
++const cleaveDir = ".skillgrid/.cleave"
++
++// The three cleave bundle files. PROGRESS (what was done), KNOWLEDGE
++// (decisions / learnings), and NEXT_PROMPT (the prompt that seeds the next
++// session). NEXT_PROMPT is the resume target: session_resume returns its
++// content verbatim (never invented).
++const (
++	FileProgress   = "PROGRESS.md"
++	FileKnowledge  = "KNOWLEDGE.md"
++	FileNextPrompt = "NEXT_PROMPT.md"
++)
++
++// L0Dir is the soft-optional 003 tiered-storage session workspace under
++// .skillgrid/workspace/sessions/{id}/. It is SOFT: a handoff works without it
++// (the bundle degrades gracefully) and never errors on its absence. When
++// present, the cleave files are mirrored into it so the L0 tree stays
++// coherent.
++const L0Dir = ".skillgrid/workspace/sessions"
++
++// Bundle is the structured cleave bundle content written at handoff time.
++type Bundle struct {
++	Progress   string
++	Knowledge  string
++	NextPrompt string
++	// SourceSession is the sessions.id this handoff was taken from (recorded
++	// on the session_handoffs row). Optional.
++	SourceSession string
++	// ContextSummary is an optional short context note recorded on the row.
++	ContextSummary string
++}
++
++// BundleDir returns the absolute cleave directory for projectRoot.
++func BundleDir(projectRoot string) string {
++	return filepath.Join(projectRoot, ".skillgrid", ".cleave")
++}
++
++// WriteBundle writes the three cleave files under projectRoot/.skillgrid/.cleave/.
++// It returns the three absolute paths. A write failure removes the partially
++// written files so a failed handoff leaves no half-bundle (fail closed).
++// Soft-optional L0: if projectRoot/.skillgrid/workspace/sessions/{sessionID}/
++// exists, the bundle is mirrored there too (best-effort; an L0 mirror failure
++// does not fail the handoff).
++func WriteBundle(projectRoot string, sessionID string, h Bundle) ([]string, error) {
++	dir := BundleDir(projectRoot)
++	if err := os.MkdirAll(dir, 0o755); err != nil {
++		return nil, fmt.Errorf("relay: create cleave dir: %w", err)
++	}
++
++	files := []struct {
++		name string
++		body string
++	}{
++		{FileProgress, h.Progress},
++		{FileKnowledge, h.Knowledge},
++		{FileNextPrompt, h.NextPrompt},
++	}
++	paths := make([]string, 0, len(files))
++	for _, f := range files {
++		p := filepath.Join(dir, f.name)
++		if err := os.WriteFile(p, []byte(f.body), 0o644); err != nil {
++			// Fail closed: roll back every file written so far so the failed
++			// handoff leaves no orphan cleave files behind.
++			for _, done := range paths {
++				_ = os.Remove(done)
++			}
++			return nil, fmt.Errorf("relay: write %s: %w", f.name, err)
++		}
++		paths = append(paths, p)
++	}
++
++	// Soft-optional L0 mirror: fold the bundle into the 003 session workspace
++	// when it is present. Absent L0 is a no-op (degrade, don't error).
++	mirrorL0(projectRoot, sessionID, files)
++	return paths, nil
++}
++
++// mirrorL0 copies the cleave bundle into .skillgrid/workspace/sessions/{id}/
++// when that directory exists. Best-effort: any error is swallowed because L0
++// is soft-optional — the handoff succeeds even if the mirror fails.
++func mirrorL0(projectRoot, sessionID string, files []struct {
++	name string
++	body string
++}) {
++	id := strings.TrimSpace(sessionID)
++	if id == "" || strings.ContainsAny(id, "/\\") || strings.Contains(id, "..") {
++		return
++	}
++	l0Dir := filepath.Join(projectRoot, L0Dir, id)
++	st, err := os.Stat(l0Dir)
++	if err != nil || !st.IsDir() {
++		return // no L0 tree — degrade gracefully
++	}
++	if err := os.MkdirAll(l0Dir, 0o755); err != nil {
++		return
++	}
++	for _, f := range files {
++		_ = os.WriteFile(filepath.Join(l0Dir, f.name), []byte(f.body), 0o644)
++	}
++}
++
++// ReadBundle reads the three cleave files for projectRoot. A missing
++// .cleave/ directory or any missing file returns an error (fail closed) —
++// session_resume must not invent prompt content from an absent bundle.
++func ReadBundle(projectRoot string) (h Bundle, err error) {
++	dir := BundleDir(projectRoot)
++	read := func(name string) (string, error) {
++		b, err := os.ReadFile(filepath.Join(dir, name))
++		if err != nil {
++			if os.IsNotExist(err) {
++				return "", fmt.Errorf("relay: missing cleave file %s (no .cleave/ bundle)", name)
++			}
++			return "", fmt.Errorf("relay: read %s: %w", name, err)
++		}
++		return string(b), nil
++	}
++	h.Progress, err = read(FileProgress)
++	if err != nil {
++		return Bundle{}, err
++	}
++	h.Knowledge, err = read(FileKnowledge)
++	if err != nil {
++		return Bundle{}, err
++	}
++	h.NextPrompt, err = read(FileNextPrompt)
++	if err != nil {
++		return Bundle{}, err
++	}
++	return h, nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/relay/relay.go b/skillgrid-cli/internal/mnemonic/relay/relay.go
+new file mode 100644
+index 0000000..8ef5382
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/relay/relay.go
+@@ -0,0 +1,158 @@
++package relay
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"os"
++	"strings"
++	"time"
++)
++
++// Store is the database handle the relay reads/writes. *sql.DB satisfies it.
++// The relay only ever touches the two additive 019 tables (session_handoffs /
++// session_archives) — it never rewrites sessions or observations.
++type Store interface {
++	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
++	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
++}
++
++// Handoff writes the cleave bundle under projectRoot/.skillgrid/.cleave/ and
++// then records the session_handoffs row. Fail closed: the row is only written
++// AFTER the three cleave files are successfully on disk, so a file-write
++// failure leaves no orphan row (and WriteBundle removes any half-bundle). It
++// returns the handoff_id and the three cleave file paths.
++//
++// handoffID is the operator-facing identifier (also the resume target). Blank
++// generates one from the source session + timestamp.
++func Handoff(ctx context.Context, db Store, projectID, handoffID, projectRoot string, b Bundle) (string, []string, error) {
++	if db == nil {
++		return "", nil, fmt.Errorf("relay: store is required")
++	}
++	if strings.TrimSpace(projectID) == "" {
++		return "", nil, fmt.Errorf("relay: project id is required")
++	}
++	if strings.TrimSpace(projectRoot) == "" {
++		return "", nil, fmt.Errorf("relay: project root is required")
++	}
++	if handoffID == "" {
++		handoffID = generateHandoffID(b.SourceSession)
++	}
++	if strings.TrimSpace(b.NextPrompt) == "" {
++		return "", nil, fmt.Errorf("relay: next_prompt is required (resume must not invent a prompt)")
++	}
++
++	paths, err := WriteBundle(projectRoot, b.SourceSession, b)
++	if err != nil {
++		// File write failed before any row was written → no orphan row.
++		return "", nil, err
++	}
++
++	cleavePath := ".skillgrid/.cleave"
++	now := time.Now().UTC().Format(time.RFC3339)
++	_, err = db.ExecContext(ctx, `
++		INSERT INTO session_handoffs
++			(project, handoff_id, source_session, status, cleave_path, context_summary, created_at)
++		VALUES (?, ?, ?, 'pending', ?, ?, ?)`,
++		projectID, handoffID, nullString(b.SourceSession), cleavePath, nullString(b.ContextSummary), now)
++	if err != nil {
++		// Row insert failed: roll back the just-written files so we don't
++		// leave files with no row (the other orphan direction).
++		for _, p := range paths {
++			_ = os.Remove(p)
++		}
++		return "", nil, fmt.Errorf("relay: record handoff row: %w", err)
++	}
++	return handoffID, paths, nil
++}
++
++// Resume reads the cleave bundle for handoffID and returns the NEXT_PROMPT as
++// the resume prompt. Fail closed: an unknown handoff id, or a missing /
++// incomplete .cleave/ bundle, returns an error (no invented prompt). When
++// archive is true and a handoff row exists, a session_archives row is recorded
++// and the handoff is flipped to 'archived'; the archive_id
++// (session_archives.id) is returned when present.
++func Resume(ctx context.Context, db Store, projectID, handoffID, projectRoot string, archive bool) (string, string, int64, error) {
++	if db == nil {
++		return "", handoffID, 0, fmt.Errorf("relay: store is required")
++	}
++	if strings.TrimSpace(projectID) == "" {
++		return "", handoffID, 0, fmt.Errorf("relay: project id is required")
++	}
++	if strings.TrimSpace(handoffID) == "" {
++		return "", handoffID, 0, fmt.Errorf("relay: handoff_id is required")
++	}
++
++	// Confirm the id is known (fail closed on unknown id) and learn the
++	// cleave path. source_session is nullable, so scan into NullString.
++	var cleavePath string
++	var sourceSession sql.NullString
++	err := db.QueryRowContext(ctx, `
++		SELECT cleave_path, source_session
++		FROM session_handoffs
++		WHERE project = ? AND handoff_id = ?`,
++		projectID, handoffID).Scan(&cleavePath, &sourceSession)
++	if err == sql.ErrNoRows {
++		return "", handoffID, 0, fmt.Errorf("relay: unknown handoff id %q for project %q", handoffID, projectID)
++	}
++	if err != nil {
++		return "", handoffID, 0, fmt.Errorf("relay: lookup handoff: %w", err)
++	}
++
++	bundle, rerr := ReadBundle(projectRoot)
++	if rerr != nil {
++		return "", handoffID, 0, rerr
++	}
++	if strings.TrimSpace(bundle.NextPrompt) == "" {
++		return "", handoffID, 0, fmt.Errorf("relay: NEXT_PROMPT is empty for handoff %q (no prompt to resume)", handoffID)
++	}
++	prompt := bundle.NextPrompt
++
++	if archive {
++		now := time.Now().UTC().Format(time.RFC3339)
++		var sessionArg any
++		if sourceSession.Valid {
++			sessionArg = sourceSession.String
++		}
++		res, aerr := db.ExecContext(ctx, `
++			INSERT INTO session_archives (project, session_id, handoff_id, path, created_at)
++			VALUES (?, ?, ?, ?, ?)`,
++			projectID, sessionArg, handoffID, cleavePath, now)
++		if aerr != nil {
++			// The prompt is already valid; surface the archive error but keep
++			// the prompt (archiving is the optional part).
++			return prompt, handoffID, 0, fmt.Errorf("relay: record archive: %w", aerr)
++		}
++		id64, _ := res.LastInsertId()
++		_, _ = db.ExecContext(ctx, `
++			UPDATE session_handoffs SET status = 'archived', archived_at = ?
++			WHERE project = ? AND handoff_id = ?`, now, projectID, handoffID)
++		return prompt, handoffID, id64, nil
++	}
++	return prompt, handoffID, 0, nil
++}
++
++// HandoffCount returns the number of session_handoffs rows for projectID (0
++// when none). Used by session_status (step 03).
++func HandoffCount(ctx context.Context, db Store, projectID string) (int, error) {
++	var n int
++	err := db.QueryRowContext(ctx, `
++		SELECT COUNT(*) FROM session_handoffs WHERE project = ?`, projectID).Scan(&n)
++	return n, err
++}
++
++func nullString(s string) any {
++	s = strings.TrimSpace(s)
++	if s == "" {
++		return nil
++	}
++	return s
++}
++
++func generateHandoffID(sourceSession string) string {
++	base := sourceSession
++	if base == "" {
++		base = "handoff"
++	}
++	return fmt.Sprintf("%s-%d", base, time.Now().UnixMilli())
++}
+diff --git a/skillgrid-cli/internal/mnemonic/relay/relay_test.go b/skillgrid-cli/internal/mnemonic/relay/relay_test.go
+new file mode 100644
+index 0000000..ae40d27
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/relay/relay_test.go
+@@ -0,0 +1,273 @@
++package relay
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// openStore opens a fresh project store (applies all migrations incl. 019) in
++// a temp data dir and returns its *sql.DB plus a temp project root for the
++// cleave bundle.
++func openStore(t *testing.T, projectID string) (*store.Store, string) {
++	t.Helper()
++	dataDir := t.TempDir()
++	st, err := store.Open(dataDir, projectID)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	t.Cleanup(func() { st.Close() })
++	root := t.TempDir()
++	return st, root
++}
++
++// seedSession inserts a minimal sessions row so a handoff's source_session
++// satisfies the FK (session_handoffs.source_session REFERENCES sessions(id)
++// ON DELETE SET NULL).
++func seedSession(t *testing.T, st *store.Store, id string) {
++	t.Helper()
++	if _, err := st.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES (?, 'relayproj', '/tmp', '2026-01-01T00:00:00Z', 'active')`, id); err != nil {
++		t.Fatalf("seed session: %v", err)
++	}
++}
++
++func handoffRowCount(t *testing.T, st *store.Store, projectID string) int {
++	t.Helper()
++	var n int
++	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM session_handoffs WHERE project = ?`, projectID).Scan(&n); err != nil {
++		t.Fatalf("count handoffs: %v", err)
++	}
++	return n
++}
++
++// TestHandoff covers the happy path (Scenario: Handoff writes cleave bundle and
++// row): a successful handoff writes the three .cleave/ files AND a
++// session_handoffs row, and ReadBundle round-trips the content.
++func TestHandoff(t *testing.T) {
++	st, root := openStore(t, "relayproj")
++	ctx := context.Background()
++	seedSession(t, st, "s1")
++
++	hid, paths, err := Handoff(ctx, st.DB, "relayproj", "", root, Bundle{
++		Progress:      "implemented relay",
++		Knowledge:     "fail closed first",
++		NextPrompt:    "resume the verify phase",
++		SourceSession: "s1",
++	})
++	if err != nil {
++		t.Fatalf("handoff: %v", err)
++	}
++	if hid == "" {
++		t.Fatalf("handoff must return a non-empty handoff_id")
++	}
++	if len(paths) != 3 {
++		t.Fatalf("handoff must return 3 paths, got %d", len(paths))
++	}
++	for _, p := range paths {
++		if _, err := os.Stat(p); err != nil {
++			t.Errorf("expected cleave file on disk: %v", err)
++		}
++	}
++	// The row is written (fail-closed: files present → row present).
++	if n := handoffRowCount(t, st, "relayproj"); n != 1 {
++		t.Fatalf("expected 1 session_handoffs row, got %d", n)
++	}
++	// Round-trip the bundle.
++	b, err := ReadBundle(root)
++	if err != nil {
++		t.Fatalf("read bundle: %v", err)
++	}
++	if b.NextPrompt != "resume the verify phase" {
++		t.Errorf("NextPrompt = %q, want the handoff value", b.NextPrompt)
++	}
++}
++
++// TestHandoffFailClosedNoOrphan asserts the load-bearing invariant: if the
++// cleave file write fails, NO session_handoffs row is written (no orphan row
++// without files). A read-only cleave dir forces the file write to fail.
++func TestHandoffFailClosedNoOrphan(t *testing.T) {
++	st, root := openStore(t, "relayproj")
++	// Make the .skillgrid dir read-only so MkdirAll/.cleave fails.
++	sg := filepath.Join(root, ".skillgrid")
++	if err := os.MkdirAll(sg, 0o555); err != nil {
++		t.Fatalf("mkdir .skillgrid: %v", err)
++	}
++	t.Cleanup(func() { _ = os.Chmod(sg, 0o755) })
++
++	_, _, err := Handoff(context.Background(), st.DB, "relayproj", "", root, Bundle{
++		Progress:   "p",
++		NextPrompt: "np",
++	})
++	if err == nil {
++		t.Fatalf("expected handoff to fail on read-only cleave dir")
++	}
++	// Fail closed: no orphan row.
++	if n := handoffRowCount(t, st, "relayproj"); n != 0 {
++		t.Fatalf("expected 0 session_handoffs rows (fail closed), got %d", n)
++	}
++}
++
++// TestHandoffRequiresNextPrompt asserts a handoff with no NEXT_PROMPT fails
++// before any file or row is written (resume must not invent a prompt).
++func TestHandoffRequiresNextPrompt(t *testing.T) {
++	st, root := openStore(t, "relayproj")
++	_, _, err := Handoff(context.Background(), st.DB, "relayproj", "", root, Bundle{
++		Progress: "only progress, no prompt",
++	})
++	if err == nil {
++		t.Fatalf("expected handoff to fail with empty next_prompt")
++	}
++	if n := handoffRowCount(t, st, "relayproj"); n != 0 {
++		t.Fatalf("expected 0 rows when next_prompt is empty, got %d", n)
++	}
++}
++
++// TestResume covers the happy path (Scenario: Handoff writes cleave bundle and
++// row → resume returns the NEXT_PROMPT): a resume for a known handoff returns
++// the stored NEXT_PROMPT. With archive=true it records a session_archives row
++// and flips the handoff to archived.
++func TestResume(t *testing.T) {
++	st, root := openStore(t, "relayproj")
++	ctx := context.Background()
++	seedSession(t, st, "s1")
++
++	hid, _, err := Handoff(ctx, st.DB, "relayproj", "ho-1", root, Bundle{
++		Progress:      "p",
++		NextPrompt:    "the resume prompt text",
++		SourceSession: "s1",
++	})
++	if err != nil {
++		t.Fatalf("handoff: %v", err)
++	}
++
++	prompt, id, archiveID, err := Resume(ctx, st.DB, "relayproj", hid, root, true)
++	if err != nil {
++		t.Fatalf("resume: %v", err)
++	}
++	if prompt != "the resume prompt text" {
++		t.Errorf("prompt = %q, want the stored NEXT_PROMPT", prompt)
++	}
++	if id != "ho-1" {
++		t.Errorf("resume handoff_id = %q, want ho-1", id)
++	}
++	if archiveID <= 0 {
++		t.Errorf("archive=true must return an archive_id, got %d", archiveID)
++	}
++	// Archive row recorded.
++	var arc int
++	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM session_archives WHERE handoff_id = ?`, hid).Scan(&arc); err != nil {
++		t.Fatalf("count archive: %v", err)
++	}
++	if arc != 1 {
++		t.Errorf("expected 1 session_archives row, got %d", arc)
++	}
++	// Handoff flipped to archived.
++	var status string
++	if err := st.DB.QueryRow(`SELECT status FROM session_handoffs WHERE handoff_id = ?`, hid).Scan(&status); err != nil {
++		t.Fatalf("read status: %v", err)
++	}
++	if status != "archived" {
++		t.Errorf("handoff status = %q, want archived", status)
++	}
++}
++
++// TestResumeMissing covers the edge (Scenario: Missing cleave or unknown
++// handoff id): a known handoff id whose .cleave/ bundle has been removed
++// errors clearly and does NOT invent a prompt.
++func TestResumeMissing(t *testing.T) {
++	st, root := openStore(t, "relayproj")
++	ctx := context.Background()
++	seedSession(t, st, "s-missing")
++
++	hid, _, err := Handoff(ctx, st.DB, "relayproj", "ho-missing", root, Bundle{
++		Progress:      "p",
++		NextPrompt:    "will be deleted",
++		SourceSession: "s-missing",
++	})
++	if err != nil {
++		t.Fatalf("handoff: %v", err)
++	}
++	// Delete the cleave bundle so resume must fail closed.
++	if err := os.RemoveAll(filepath.Join(root, ".skillgrid", ".cleave")); err != nil {
++		t.Fatalf("remove cleave: %v", err)
++	}
++
++	prompt, _, _, err := Resume(ctx, st.DB, "relayproj", hid, root, false)
++	if err == nil {
++		t.Fatalf("expected resume to fail on missing .cleave/ bundle")
++	}
++	if prompt != "" {
++		t.Errorf("resume must not invent a prompt, got %q", prompt)
++	}
++	if !strings.Contains(err.Error(), "cleave") {
++		t.Errorf("error should mention the missing cleave bundle, got: %v", err)
++	}
++}
++
++// TestResumeUnknown covers the edge (Scenario: Missing cleave or unknown
++// handoff id): a resume for a handoff id that was never recorded errors
++// clearly (fail closed).
++func TestResumeUnknown(t *testing.T) {
++	st, root := openStore(t, "relayproj")
++	_, _, _, err := Resume(context.Background(), st.DB, "relayproj", "never-existed", root, false)
++	if err == nil {
++		t.Fatalf("expected resume to fail on unknown handoff id")
++	}
++	if !strings.Contains(err.Error(), "unknown handoff id") {
++		t.Errorf("error should say unknown handoff id, got: %v", err)
++	}
++}
++
++// TestReadBundleMissing asserts ReadBundle fails closed on an absent bundle
++// (the unit-level mirror of the Resume missing-cleave edge).
++func TestReadBundleMissing(t *testing.T) {
++	root := t.TempDir()
++	_, err := ReadBundle(root)
++	if err == nil {
++		t.Fatalf("expected ReadBundle to fail on absent .cleave/ dir")
++	}
++}
++
++// TestSoftOptionalL0 asserts the soft-optional 003 L0 path: a handoff works
++// with no L0 tree present (degrades gracefully, no error), and mirrors the
++// bundle into .skillgrid/workspace/sessions/{id}/ when that tree exists.
++func TestSoftOptionalL0(t *testing.T) {
++	// No L0 tree: handoff still succeeds.
++	st, root := openStore(t, "relayproj")
++	if _, err := st.DB.Exec(`INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES ('sess-l0', 'relayproj', '/tmp', '2026-01-01T00:00:00Z', 'active')`); err != nil {
++		t.Fatalf("seed: %v", err)
++	}
++	if _, _, err := Handoff(context.Background(), st.DB, "relayproj", "l0-none", root, Bundle{
++		Progress: "p", NextPrompt: "np", SourceSession: "sess-l0",
++	}); err != nil {
++		t.Fatalf("handoff without L0 tree must succeed: %v", err)
++	}
++
++	// L0 tree present: handoff mirrors the bundle into it.
++	st2, root2 := openStore(t, "relayproj2")
++	if _, err := st2.DB.Exec(`INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES ('sess-l0', 'relayproj2', '/tmp', '2026-01-01T00:00:00Z', 'active')`); err != nil {
++		t.Fatalf("seed: %v", err)
++	}
++	l0Dir := filepath.Join(root2, L0Dir, "sess-l0")
++	if err := os.MkdirAll(l0Dir, 0o755); err != nil {
++		t.Fatalf("mkdir L0: %v", err)
++	}
++	if _, _, err := Handoff(context.Background(), st2.DB, "relayproj2", "l0-mirror", root2, Bundle{
++		Progress: "p2", NextPrompt: "np2", SourceSession: "sess-l0",
++	}); err != nil {
++		t.Fatalf("handoff with L0 tree: %v", err)
++	}
++	for _, name := range []string{FileProgress, FileKnowledge, FileNextPrompt} {
++		if _, err := os.Stat(filepath.Join(l0Dir, name)); err != nil {
++			t.Errorf("expected L0 mirror of %s: %v", name, err)
++		}
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index 513e8bb..5553a51 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -1620,6 +1620,12 @@ func (h *ProjectHandle) Web() *webcache.Service { return h.web }
+ // Store returns the underlying store for an open handle.
+ func (h *ProjectHandle) Store() *store.Store { return h.store }
+ 
++// Root returns the workspace directory this handle was opened for (the
++// project root that owns the .skillgrid/ scratch tree, including the relay
++// cleave bundle under .skillgrid/.cleave/). Used by the Session Relay to know
++// where on disk the cleave files live.
++func (h *ProjectHandle) Root() string { return h.root }
++
+ // CommunityResult is the code_communities answer (LLM-free labeled
+ // subsystems + a stable content-hash cache key).
+ type CommunityResult = community.Result

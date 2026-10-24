@@ -1,0 +1,1167 @@
+diff --git a/skillgrid-cli/internal/mnemonic/config/load.go b/skillgrid-cli/internal/mnemonic/config/load.go
+index cc1e505..817842e 100644
+--- a/skillgrid-cli/internal/mnemonic/config/load.go
++++ b/skillgrid-cli/internal/mnemonic/config/load.go
+@@ -91,6 +91,28 @@ type Promotion struct {
+ 	MinSections int
+ }
+ 
++// Importance is the mnemonic.importance section (014 step 13): the AKL
++// importance scoring + recency decay. DecayRate is the per-day exponential
++// decay (default 0.05/day — a 30-day-old observation with 100 retrievals
++// scores ≈22.3); the TierThresholds are the maturity-tier age cutoffs in
++// days (default 7/30/14). Zero fields fall back to the memory package
++// defaults in SetImportance, so a malformed or absent section keeps the
++// production behavior.
++type Importance struct {
++	DecayRate      float64
++	TierThresholds TierThresholdsConfig
++}
++
++// TierThresholdsConfig is the mnemonic.importance.tier_thresholds section
++// (014 step 13.4): the maturity-tier age cutoffs, in days. Zero fields fall
++// back to the memory package defaults (MatureAgeDays 7, ArchivalAgeDays 30,
++// UnusedArchivalDays 14).
++type TierThresholdsConfig struct {
++	MatureAgeDays    int
++	ArchivalAgeDays  int
++	UnusedArchivalDays int
++}
++
+ // Indexing holds code index settings from indexing.yaml mnemonic section.
+ type Indexing struct {
+ 	Include      []string
+@@ -115,6 +137,9 @@ type Indexing struct {
+ 	// Promotion is the mnemonic.promotion section (014 step 09): the
+ 	// session-close graph promotion quality threshold.
+ 	Promotion Promotion
++	// Importance is the mnemonic.importance section (014 step 13): the AKL
++	// importance scoring decay rate + maturity-tier thresholds.
++	Importance Importance
+ }
+ 
+ type indexingFile struct {
+@@ -146,6 +171,9 @@ type mnemonicSection struct {
+ 	// Promotion is the mnemonic.promotion section (014 step 09): the
+ 	// session-close graph promotion quality threshold.
+ 	Promotion promotionSection `yaml:"promotion"`
++	// Importance is the mnemonic.importance section (014 step 13): the AKL
++	// importance scoring decay rate + maturity-tier thresholds.
++	Importance importanceSection `yaml:"importance"`
+ }
+ 
+ type retrievalBudgetSection struct {
+@@ -329,6 +357,29 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
+ 	// Promotion (014 step 09): the session-close graph promotion threshold.
+ 	// Zero fields fall back to the memory package defaults in SetPromotion.
+ 	out.Promotion = mergePromotion(section.Promotion)
++	// Importance (014 step 13): the AKL importance scoring decay rate + tier
++	// thresholds. Zero/malformed fields fall back to the memory package
++	// defaults in SetImportance, so a malformed section never changes the
++	// production scoring.
++	out.Importance = mergeImportance(section.Importance)
++	return out
++}
++
++// mergeImportance maps the mnemonic.importance YAML section (014 step 13) to
++// the Importance struct. The decay rate is a float string; absent or
++// malformed values are left zero so SetImportance applies the 0.05/day
++// default. Negative values are rejected the same way (the default applies).
++func mergeImportance(section importanceSection) Importance {
++	out := Importance{
++		TierThresholds: TierThresholdsConfig{
++			MatureAgeDays:    section.TierThresholds.MatureAgeDays,
++			ArchivalAgeDays:  section.TierThresholds.ArchivalAgeDays,
++			UnusedArchivalDays: section.TierThresholds.UnusedArchivalDays,
++		},
++	}
++	if f, err := strconv.ParseFloat(section.DecayRate, 64); err == nil && f > 0 {
++		out.DecayRate = f
++	}
+ 	return out
+ }
+ 
+@@ -359,6 +410,23 @@ type promotionSection struct {
+ 	MinSections int `yaml:"min_sections"`
+ }
+ 
++// importanceSection is the mnemonic.importance section (014 step 13). The
++// decay rate is parsed as a float (absent/malformed → 0, so SetImportance
++// applies the 0.05/day default); the tier thresholds are day counts (absent
++// → 0, so SetImportance applies the 7/30/14-day defaults).
++type importanceSection struct {
++	DecayRate      string                 `yaml:"decay"`
++	TierThresholds tierThresholdsSection  `yaml:"tier_thresholds"`
++}
++
++// tierThresholdsSection is the mnemonic.importance.tier_thresholds section
++// (014 step 13.4): maturity-tier age cutoffs, in days.
++type tierThresholdsSection struct {
++	MatureAgeDays    int `yaml:"mature_age_days"`
++	ArchivalAgeDays  int `yaml:"archival_age_days"`
++	UnusedArchivalDays int `yaml:"unused_archival_days"`
++}
++
+ // mergePromotion maps the mnemonic.promotion YAML section to the Promotion
+ // struct. Zero fields are left zero so SetPromotion applies its defaults.
+ func mergePromotion(section promotionSection) Promotion {
+diff --git a/skillgrid-cli/internal/mnemonic/config/load_test.go b/skillgrid-cli/internal/mnemonic/config/load_test.go
+index bb88497..085b549 100644
+--- a/skillgrid-cli/internal/mnemonic/config/load_test.go
++++ b/skillgrid-cli/internal/mnemonic/config/load_test.go
+@@ -81,3 +81,54 @@ func TestImprovementConfigDefaultOff(t *testing.T) {
+ 		t.Fatalf("improve.cooldown: got %v, want 30s", got.Improvement.Cooldown)
+ 	}
+ }
++
++// TestImportanceConfigurableDecay covers 014 step 13.4 (config side): the
++// mnemonic.importance.decay key defaults to 0.05/day, parses from the YAML
++// section, falls back to the default on a malformed value, and the
++// mnemonic.importance.tier_thresholds key tunes the tier cutoffs.
++func TestImportanceConfigurableDecay(t *testing.T) {
++	dir := t.TempDir()
++
++	// No config file at all → default decay 0.05/day + 7/30/14-day
++	// thresholds (the documented production defaults).
++	got := Load(dir)
++	if got.Importance.DecayRate != 0 {
++		t.Fatalf("default: importance.decay must be unset (0 → memory default), got %v", got.Importance.DecayRate)
++	}
++
++	if err := os.MkdirAll(filepath.Join(dir, "config.d"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	// Absent section → still the default.
++	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
++		[]byte("mnemonic:\n  ttl: 72h\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if got := Load(dir); got.Importance.DecayRate != 0 {
++		t.Fatalf("absent section: importance.decay must be unset, got %v", got.Importance.DecayRate)
++	}
++
++	// Explicit decay + thresholds.
++	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
++		[]byte("mnemonic:\n  importance:\n    decay: \"0.2\"\n    tier_thresholds:\n      mature_age_days: 3\n      archival_age_days: 21\n      unused_archival_days: 10\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	got = Load(dir)
++	if got.Importance.DecayRate != 0.2 {
++		t.Fatalf("importance.decay: got %v, want 0.2", got.Importance.DecayRate)
++	}
++	if got.Importance.TierThresholds.MatureAgeDays != 3 ||
++		got.Importance.TierThresholds.ArchivalAgeDays != 21 ||
++		got.Importance.TierThresholds.UnusedArchivalDays != 10 {
++		t.Fatalf("importance.tier_thresholds: got %+v, want 3/21/10", got.Importance.TierThresholds)
++	}
++
++	// Malformed decay → falls back to the default (unset → memory 0.05).
++	if err := os.WriteFile(filepath.Join(dir, "config.d", "indexing.yaml"),
++		[]byte("mnemonic:\n  importance:\n    decay: \"not-a-number\"\n"), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if got := Load(dir); got.Importance.DecayRate != 0 {
++		t.Fatalf("malformed importance.decay must fall back to the default, got %v", got.Importance.DecayRate)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/importance.go b/skillgrid-cli/internal/mnemonic/memory/importance.go
+new file mode 100644
+index 0000000..1df34d7
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/importance.go
+@@ -0,0 +1,417 @@
++package memory
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"math"
++	"sort"
++	"time"
++)
++
++// AKL importance scoring + recency decay (014, step 13).
++//
++// The score is a continuous, retrieval-weighted value that decays
++// exponentially with the observation's age:
++//
++//	importance_score = retrieval_count * exp(-decay_rate * age_days)
++//	recency_decay    = exp(-decay_rate * age_days)
++//
++// The decay rate (per day) is configurable via the mnemonic.importance.decay
++// config key; the default is 0.05/day, so a 30-day-old observation with 100
++// retrievals scores 100 * exp(-1.5) ≈ 22.3. A higher decay rate erodes old
++// observations faster; a lower one retains importance longer.
++//
++// The score and its tier are stored as columns (migration 025) so they can
++// be indexed/queried. They are populated on save and on an explicit
++// RecomputeImportance pass; the query-time boost (step 13.3) reads the stored
++// values at search time, where the age is bounded by the search result set.
++
++// Maturity tiers, in ascending rank. Transitions are MONOTONIC: an
++// observation never drops from a higher tier to a lower one.
++const (
++	TierFresh    = "fresh"
++	TierMature   = "mature"
++	TierArchival = "archival"
++)
++
++// maturityRank orders the tiers for the monotonic max.
++var maturityRank = map[string]int{
++	TierFresh:    0,
++	TierMature:   1,
++	TierArchival: 2,
++}
++
++// TierThresholds are the maturity-tier age thresholds in days (13.4). They
++// are configurable via the mnemonic.importance.tier_thresholds config key.
++type TierThresholds struct {
++	// MatureAgeDays: age >= this AND retrievalCount > 0 → mature.
++	MatureAgeDays int
++	// ArchivalAgeDays: age >= this → archival (regardless of usage).
++	ArchivalAgeDays int
++	// UnusedArchivalDays: age > this AND retrievalCount == 0 → archival.
++	UnusedArchivalDays int
++}
++
++// ImportanceConfig tunes AKL importance scoring (014, step 13). The service
++// layer calls SetImportance from the mnemonic.importance config section; zero
++// fields fall back to the defaults below, so a config without the section
++// (or a malformed value in it) keeps the production behavior.
++type ImportanceConfig struct {
++	// DecayRate is the per-day exponential decay (default defaultImportanceDecay).
++	DecayRate float64
++	// Thresholds are the maturity-tier age cutoffs (default defaultTierThresholds).
++	Thresholds TierThresholds
++	// Now is the clock seam for tests (default time.Now).
++	Now func() time.Time
++}
++
++// defaultImportanceDecay is the per-day decay rate (mnemonic.importance.decay).
++const defaultImportanceDecay = 0.05
++
++// defaultTierThresholds are the brief's tier cutoffs, in days.
++var defaultTierThresholds = TierThresholds{
++	MatureAgeDays:    7,
++	ArchivalAgeDays:  30,
++	UnusedArchivalDays: 14,
++}
++
++// defaultImportanceConfig returns the production defaults: the 0.05/day decay
++// and the 7/30/14-day tier thresholds.
++func defaultImportanceConfig() ImportanceConfig {
++	return ImportanceConfig{
++		DecayRate:  defaultImportanceDecay,
++		Thresholds: defaultTierThresholds,
++		Now:        time.Now,
++	}
++}
++
++// ageDays returns the whole-day component of age (negative ages clamp to 0).
++func ageDays(age time.Duration) float64 {
++	d := age.Hours() / 24
++	if d < 0 {
++		return 0
++	}
++	return d
++}
++
++// ComputeImportanceScore is the AKL importance score (014 step 13.1):
++//
++//	retrieval_count * exp(-decay_rate * age_days)
++//
++// It increases with retrieval_count and decays exponentially with age. A zero
++// or negative age is undiminished (age_days = 0 → exp(0) = 1); a negative
++// decayRate (malformed config) is treated as 0.
++func ComputeImportanceScore(retrievalCount int, age time.Duration, decayRate float64) float64 {
++	if retrievalCount <= 0 {
++		return 0
++	}
++	if decayRate < 0 {
++		decayRate = 0
++	}
++	return float64(retrievalCount) * recencyFactor(age, decayRate)
++}
++
++// recencyFactor is the exponential recency decay: exp(-decay_rate * age_days).
++// It is the factor multiplying retrieval_count in ComputeImportanceScore and
++// is also stored as the recency_decay column for provenance.
++func recencyFactor(age time.Duration, decayRate float64) float64 {
++	if decayRate < 0 {
++		decayRate = 0
++	}
++	return math.Exp(-decayRate * ageDays(age))
++}
++
++// ComputeMaturityTier classifies an observation into a maturity tier using
++// the default thresholds (014 step 13.2):
++//
++//	archival: age >= ArchivalAgeDays OR (retrievalCount == 0 AND age > UnusedArchivalDays)
++//	mature:   age >= MatureAgeDays AND retrievalCount > 0
++//	fresh:    everything else
++func ComputeMaturityTier(age time.Duration, retrievalCount int) string {
++	return ComputeMaturityTierWithThresholds(age, retrievalCount, defaultTierThresholds)
++}
++
++// ComputeMaturityTierWithThresholds is ComputeMaturityTier with explicit,
++// configurable thresholds (014 step 13.4).
++func ComputeMaturityTierWithThresholds(age time.Duration, retrievalCount int, th TierThresholds) string {
++	days := ageDays(age)
++	if days >= float64(th.ArchivalAgeDays) {
++		return TierArchival
++	}
++	if retrievalCount == 0 && days > float64(th.UnusedArchivalDays) {
++		return TierArchival
++	}
++	if days >= float64(th.MatureAgeDays) && retrievalCount > 0 {
++		return TierMature
++	}
++	return TierFresh
++}
++
++// NextMaturityTier applies the monotonic rule (014 step 13.2): the effective
++// tier is max(previousTier, computedTier) in the fresh < mature < archival
++// ordering. Once an observation is mature it never goes back to fresh; once
++// archival it never goes back to mature. An empty/unknown previous tier
++// behaves like fresh (the lowest rank).
++func NextMaturityTier(previous, computed string) string {
++	prev := maturityRank[previous]
++	comp := maturityRank[computed]
++	if prev <= 0 {
++		prev = maturityRank[TierFresh]
++	}
++	if comp <= 0 {
++		comp = maturityRank[TierFresh]
++	}
++	switch {
++	case comp >= prev:
++		return computed
++	default:
++		return previous
++	}
++}
++
++// SetImportance configures AKL importance scoring (014, step 13.4). The
++// service layer calls it from the mnemonic.importance config section; zero
++// fields fall back to the production defaults, so a zero-value call keeps
++// exactly the default scoring.
++func (s *Service) SetImportance(cfg ImportanceConfig) {
++	if s == nil {
++		return
++	}
++	def := defaultImportanceConfig()
++	if cfg.DecayRate <= 0 {
++		cfg.DecayRate = def.DecayRate
++	}
++	if cfg.Thresholds.MatureAgeDays <= 0 {
++		cfg.Thresholds.MatureAgeDays = def.Thresholds.MatureAgeDays
++	}
++	if cfg.Thresholds.ArchivalAgeDays <= 0 {
++		cfg.Thresholds.ArchivalAgeDays = def.Thresholds.ArchivalAgeDays
++	}
++	if cfg.Thresholds.UnusedArchivalDays <= 0 {
++		cfg.Thresholds.UnusedArchivalDays = def.Thresholds.UnusedArchivalDays
++	}
++	if cfg.Now == nil {
++		cfg.Now = def.Now
++	}
++	s.importanceCfg = cfg
++}
++
++// ImportanceConfig returns the active importance configuration (defaults when
++// SetImportance was never called — a Service built directly in unit tests).
++func (s *Service) ImportanceConfig() ImportanceConfig {
++	if s == nil {
++		return ImportanceConfig{}
++	}
++	if s.importanceCfg.DecayRate <= 0 {
++		return defaultImportanceConfig()
++	}
++	return s.importanceCfg
++}
++
++// effectiveImportance returns the active importance configuration, filling in
++// any unset field with its default.
++func (s *Service) effectiveImportance() ImportanceConfig {
++	if s == nil {
++		return defaultImportanceConfig()
++	}
++	cfg := s.importanceCfg
++	def := defaultImportanceConfig()
++	if cfg.DecayRate <= 0 {
++		cfg.DecayRate = def.DecayRate
++	}
++	if cfg.Thresholds.MatureAgeDays <= 0 {
++		cfg.Thresholds.MatureAgeDays = def.Thresholds.MatureAgeDays
++	}
++	if cfg.Thresholds.ArchivalAgeDays <= 0 {
++		cfg.Thresholds.ArchivalAgeDays = def.Thresholds.ArchivalAgeDays
++	}
++	if cfg.Thresholds.UnusedArchivalDays <= 0 {
++		cfg.Thresholds.UnusedArchivalDays = def.Thresholds.UnusedArchivalDays
++	}
++	if cfg.Now == nil {
++		cfg.Now = def.Now
++	}
++	return cfg
++}
++
++// stampImportance computes and persists the importance columns for one
++// observation (014 step 13.1). It is called from Save() and from
++// RecomputeImportance(). The maturity tier is MONOTONIC: the stored tier is
++// max(previous, computed), so a re-evaluation never downgrades.
++func (s *Service) stampImportance(ctx context.Context, id int64, retrievalUsage int, createdAt string) {
++	if s == nil || s.store == nil || s.store.DB == nil {
++		return
++	}
++	cfg := s.effectiveImportance()
++	created, err := parseObsTimestamp(createdAt)
++	if err != nil || created.IsZero() {
++		created = cfg.Now()
++	}
++	age := cfg.Now().Sub(created)
++	score := ComputeImportanceScore(retrievalUsage, age, cfg.DecayRate)
++	decay := recencyFactor(age, cfg.DecayRate)
++	tier := ComputeMaturityTierWithThresholds(age, retrievalUsage, cfg.Thresholds)
++
++	var prevTier sql.NullString
++	if err := s.store.DB.QueryRowContext(ctx,
++		`SELECT maturity_tier FROM observations WHERE id = ?`, id,
++	).Scan(&prevTier); err != nil && !errors_IsNoRows(err) {
++		return // best-effort: a tier lookup failure never blocks the save
++	}
++	stored := TierFresh
++	if prevTier.Valid && prevTier.String != "" {
++		stored = prevTier.String
++	}
++	stored = NextMaturityTier(stored, tier)
++
++	if _, err := s.store.DB.ExecContext(ctx, `
++		UPDATE observations SET importance_score = ?, recency_decay = ?, maturity_tier = ?
++		WHERE id = ?`,
++		score, decay, stored, id,
++	); err != nil {
++		// Best-effort: the importance columns are advisory (ranking +
++		// prune support) and a write failure must never fail the save.
++	}
++}
++
++// RecomputeImportance re-evaluates the importance columns for every live
++// observation in this project (014 step 13.1, the periodic-recompute path).
++// The per-save stamping keeps fresh rows current; this pass catches rows
++// whose age crossed a tier threshold without a save. It is idempotent and
++// monotonic (tiers only move up).
++func (s *Service) RecomputeImportance(ctx context.Context) error {
++	if s == nil || s.store == nil || s.store.DB == nil {
++		return fmt.Errorf("memory service not initialized")
++	}
++	rows, err := s.store.DB.QueryContext(ctx, `
++		SELECT id, created_at, COALESCE(retrieval_usage, 0)
++		FROM observations
++		WHERE project = ? AND deleted_at IS NULL`,
++		s.projectID,
++	)
++	if err != nil {
++		return fmt.Errorf("recompute importance: %w", err)
++	}
++	defer rows.Close()
++	type row struct {
++		id    int64
++		at    string
++		usage int
++	}
++	var pending []row
++	for rows.Next() {
++		var r row
++		if err := rows.Scan(&r.id, &r.at, &r.usage); err != nil {
++			return fmt.Errorf("recompute importance scan: %w", err)
++		}
++		pending = append(pending, r)
++	}
++	if err := rows.Err(); err != nil {
++		return fmt.Errorf("recompute importance iterate: %w", err)
++	}
++	for _, r := range pending {
++		s.stampImportance(ctx, r.id, r.usage, r.at)
++	}
++	return nil
++}
++
++// observedImportance returns the importance score used by the query-time
++// re-rank (014 step 13.3): the stored importance_score when it is populated,
++// otherwise a compute-on-the-fly fallback from retrieval_usage + created_at
++// (pre-025 rows or a stamp failure).
++func (s *Service) observedImportance(o Observation, now time.Time) float64 {
++	if o.ImportanceScore.Valid && o.ImportanceScore.Float64 > 0 {
++		return o.ImportanceScore.Float64
++	}
++	age := time.Duration(0)
++	if created, err := parseObsTimestamp(o.CreatedAt); err == nil && !created.IsZero() {
++		age = now.Sub(created)
++	}
++	return ComputeImportanceScore(o.RetrievalUsage, age, s.effectiveImportance().DecayRate)
++}
++
++// improve re-ranks an already-SQL-ranked search result set by retrieval
++// usage (014 step 08, self-improvement feedback loop). Step 13.3 replaced it
++// in SearchOwnerScoped with importanceRerank (importance_score instead of
++// binary retrieval_usage); it is kept for direct callers and the step-08
++// tests. It is the in-memory re-rank the brief requires: the SQL ORDER BY
++// (pinned, bm25) is untouched, and when improve is disabled (the default) it
++// returns the input unchanged, so default search is byte-identical to
++// pre-improve.
++//
++// A nil/empty input is returned as-is. The cooldown (per service) prevents
++// excessive re-weighting on consecutive searches: within the cooldown window
++// the input is returned unchanged.
++
++// importanceRerank applies the AKL importance boost to an already-SQL-ranked
++// search result set (014 step 13.3). It is the in-memory re-rank the brief
++// requires: the SQL ORDER BY (pinned, bm25) is untouched, and when the
++// improve() opt-in is disabled it returns the input unchanged, so default
++// search is byte-identical to pre-step-13.
++//
++// The boost is multiplicative on the base relevance score. Base relevance is
++// the position-based rank of the SQL result set (0 for the top hit, +1 per
++// position) plus 1, so every document has a positive base:
++//
++//	base     = 1 + position
++//	factor   = importance_score / max_importance   (normalized to (0, 1])
++//	score    = base * factor
++//
++// max_importance is the maximum score in the result set (when no score is
++// positive the boost is a no-op — nothing to normalize). A stable partition
++// by score descending keeps the SQL rank as the tie-breaker, so equal-importance
++// documents preserve their SQL order. The re-rank reuses the improve()
++// cooldown anchor (same opt-in surface: mnemonic.improve.enabled).
++func (s *Service) importanceRerank(_ context.Context, results []Observation) []Observation {
++	if s == nil || len(results) == 0 || !s.improveCfg.Enabled {
++		return results
++	}
++	now := s.improveCfg.Now()
++	if !s.improveLast.IsZero() && now.Sub(s.improveLast) < s.improveCfg.Cooldown {
++		return results
++	}
++	s.improveLast = now
++	scores := make([]float64, len(results))
++	maxScore := 0.0
++	for i, o := range results {
++		sc := s.observedImportance(o, now)
++		if sc > maxScore {
++			maxScore = sc
++		}
++		scores[i] = sc
++	}
++	if maxScore <= 0 {
++		return results
++	}
++	weighted := make([]float64, len(results))
++	for i, sc := range scores {
++		weighted[i] = (1 + float64(i)) * (sc / maxScore)
++	}
++	idx := make([]int, len(weighted))
++	for i := range idx {
++		idx[i] = i
++	}
++	sort.SliceStable(idx, func(a, b int) bool { return weighted[idx[a]] > weighted[idx[b]] })
++	out := make([]Observation, len(weighted))
++	for i, j := range idx {
++		out[i] = results[j]
++	}
++	return out
++}
++
++// errors_IsNoRows wraps errors.Is for the single stampImportance call site.
++func errors_IsNoRows(err error) bool {
++	return errors.Is(err, sql.ErrNoRows)
++}
++
++// setImportanceColumns assigns the importance columns of an Observation from
++// the three trailing values returned by a 26-column observation SELECT.
++func (o *Observation) setImportanceColumns(score, decay sql.NullFloat64, tier sql.NullString) {
++	o.ImportanceScore = score
++	o.RecencyDecay = decay
++	if tier.Valid {
++		o.MaturityTier = tier.String
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/importance_test.go b/skillgrid-cli/internal/mnemonic/memory/importance_test.go
+new file mode 100644
+index 0000000..103ae0d
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/importance_test.go
+@@ -0,0 +1,377 @@
++package memory
++
++import (
++	"context"
++	"math"
++	"slices"
++	"testing"
++	"time"
++)
++
++// TestImportanceScoreComputation covers 13.1: the AKL importance score is
++// retrieval_count * exp(-decay_rate * age_days) — it increases with
++// retrieval_count, decays exponentially with age, and honors the formula
++// exactly (the 30-day / 100-retrieval / 0.05-decay case is the documented
++// 22.3 anchor).
++func TestImportanceScoreComputation(t *testing.T) {
++	const decay = 0.05
++
++	// Formula anchor: 100 retrievals, 30 days old, decay 0.05 → ≈22.3.
++	got := ComputeImportanceScore(100, 30*24*time.Hour, decay)
++	want := 100 * math.Exp(-decay*30)
++	if math.Abs(got-want) > 1e-9 {
++		t.Fatalf("formula: 100 retrievals @ 30d with decay 0.05 = %v, want %v", got, want)
++	}
++	if got < 22 || got > 23 {
++		t.Fatalf("sanity: 100 retrievals @ 30d should be ≈22.3, got %v", got)
++	}
++
++	// Increases with retrieval_count at fixed age (0/5/50/100).
++	counts := []int{0, 5, 50, 100}
++	age := 7 * 24 * time.Hour
++	scores := make([]float64, len(counts))
++	for i, c := range counts {
++		scores[i] = ComputeImportanceScore(c, age, decay)
++	}
++	if scores[0] != 0 {
++		t.Fatalf("0 retrievals must score exactly 0, got %v", scores[0])
++	}
++	for i := 1; i < len(counts); i++ {
++		if !(scores[i] > scores[i-1]) {
++			t.Fatalf("importance must increase with retrieval_count: %v", scores)
++		}
++	}
++
++	// Exponential decay with age at fixed retrieval_count (1d/7d/30d).
++	ages := []time.Duration{24 * time.Hour, 7 * 24 * time.Hour, 30 * 24 * time.Hour}
++	aged := make([]float64, len(ages))
++	for i, a := range ages {
++		aged[i] = ComputeImportanceScore(50, a, decay)
++	}
++	for i := 1; i < len(aged); i++ {
++		if !(aged[i] < aged[i-1]) {
++			t.Fatalf("older observations must score lower: %v", aged)
++		}
++	}
++	// The decay is exponential: the 1d→7d and 7d→30d ratios differ
++	// (a linear decay would make both ratios equal).
++	if math.Abs(aged[0]/aged[1]-aged[1]/aged[2]) < 1e-6 {
++		t.Fatalf("decay must be exponential, not linear: %v", aged)
++	}
++
++	// A zero age is undiminished (age_days = 0 → exp(0) = 1).
++	if got := ComputeImportanceScore(42, 0, decay); math.Abs(got-42) > 1e-9 {
++		t.Fatalf("zero age must be undiminished: got %v, want 42", got)
++	}
++	// A negative age (clock skew) must not amplify the score past the
++	// undiminished value.
++	if got := ComputeImportanceScore(42, -time.Hour, decay); got > 42 {
++		t.Fatalf("negative age must not amplify: got %v", got)
++	}
++}
++
++// TestMaturityTierTransitions covers 13.2: the maturity tier moves
++// fresh → mature → archival as age + retrieval accumulate, and transitions
++// are MONOTONIC — an observation can never be downgraded from a higher tier.
++func TestMaturityTierTransitions(t *testing.T) {
++	// Pure function transitions (thresholds per the brief):
++	//   fresh:    age < 7d
++	//   mature:   age >= 7d AND retrievalCount > 0
++	//   archival: age >= 30d OR (retrievalCount == 0 AND age > 14d)
++	cases := []struct {
++		age    time.Duration
++		usage  int
++		want   string
++	}{
++		{0, 0, "fresh"},
++		{0, 10, "fresh"}, // age < 7d → fresh regardless of usage
++		{6 * 24 * time.Hour, 10, "fresh"},
++		{7 * 24 * time.Hour, 10, "mature"},
++		{7 * 24 * time.Hour, 1, "mature"},
++		{20 * 24 * time.Hour, 3, "mature"},
++		{15 * 24 * time.Hour, 0, "archival"}, // unused > 14d → archival
++		{14 * 24 * time.Hour, 0, "fresh"},    // 14d unused is NOT yet archival
++		{30 * 24 * time.Hour, 0, "archival"},
++		{30 * 24 * time.Hour, 100, "archival"}, // age >= 30d dominates
++		{45 * 24 * time.Hour, 5, "archival"},
++	}
++	for _, c := range cases {
++		if got := ComputeMaturityTier(c.age, c.usage); got != c.want {
++			t.Errorf("ComputeMaturityTier(age=%v, usage=%d) = %q, want %q", c.age, c.usage, got, c.want)
++		}
++	}
++
++	// Monotonic: once higher, never lower (stored = max(previous, computed)).
++	if got := ComputeMaturityTier(20*24*time.Hour, 1); got != "mature" {
++		t.Fatalf("setup: 20d + 1 usage must be mature, got %q", got)
++	}
++	if got := NextMaturityTier("mature", ComputeMaturityTier(2*24*time.Hour, 100)); got != "mature" {
++		t.Fatalf("monotonic: a mature observation re-evaluated at 2d/100 must stay mature, got %q", got)
++	}
++	if got := NextMaturityTier("archival", ComputeMaturityTier(1*24*time.Hour, 10)); got != "archival" {
++		t.Fatalf("monotonic: an archival observation must never downgrade, got %q", got)
++	}
++	if got := NextMaturityTier("fresh", ComputeMaturityTier(8*24*time.Hour, 3)); got != "mature" {
++		t.Fatalf("monotonic: fresh can upgrade, got %q", got)
++	}
++
++	// Persistence: Save() stamps the tier, and a later re-evaluation only
++	// moves it UP.
++	fx := newOwnerFixture(t, "tier-obs")
++	ctx := context.Background()
++	id, err := fx.svc.Save(ctx, SaveInput{
++		SessionID: fx.sessionID,
++		Type:      "decision",
++		Title:     "tier transition asset",
++		Content:   "body for the tier test",
++		Owner:     fx.ownerA,
++	})
++	if err != nil {
++		t.Fatalf("save: %v", err)
++	}
++	obs, err := fx.svc.Get(ctx, id)
++	if err != nil {
++		t.Fatalf("get: %v", err)
++	}
++	if obs.MaturityTier != "fresh" {
++		t.Fatalf("a freshly saved observation must be tier fresh, got %q", obs.MaturityTier)
++	}
++	if !obs.ImportanceScore.Valid {
++		t.Fatalf("importance_score must be populated on save")
++	}
++	if obs.ImportanceScore.Float64 != 0 {
++		t.Fatalf("a 0-usage observation must score 0, got %v", obs.ImportanceScore.Float64)
++	}
++	if obs.RecencyDecay.Float64 == 0 {
++		t.Fatalf("recency_decay must be populated on save (exp(0)=1), got NULL")
++	}
++
++	// Age it to 7d with 10 retrievals → recompute moves it to mature.
++	now := time.Now().UTC()
++	mustExec(t, fx, `UPDATE observations SET retrieval_usage = 10,
++		created_at = ? WHERE id = ?`,
++		now.Add(-7*24*time.Hour).Format(time.RFC3339), id)
++	fx.svc.RecomputeImportance(ctx)
++	obs, err = fx.svc.Get(ctx, id)
++	if err != nil {
++		t.Fatalf("get after aging: %v", err)
++	}
++	if obs.MaturityTier != "mature" {
++		t.Fatalf("7d + 10 retrievals must be mature, got %q", obs.MaturityTier)
++	}
++
++	// Age it to 30d → archival (and usage dropped to 0 — a recompute must
++	// still never downgrade, it can only upgrade).
++	mustExec(t, fx, `UPDATE observations SET retrieval_usage = 0,
++		created_at = ? WHERE id = ?`,
++		now.Add(-30*24*time.Hour).Format(time.RFC3339), id)
++	fx.svc.RecomputeImportance(ctx)
++	obs, err = fx.svc.Get(ctx, id)
++	if err != nil {
++		t.Fatalf("get after 30d: %v", err)
++	}
++	if obs.MaturityTier != "archival" {
++		t.Fatalf("30d must be archival, got %q", obs.MaturityTier)
++	}
++
++	// 30d + 0 usage with no stored tier (NULL) → a recompute alone takes it
++	// straight to archival.
++	id2, err := fx.svc.Save(ctx, SaveInput{
++		SessionID: fx.sessionID,
++		Type:      "decision",
++		Title:     "tier archival direct",
++		Content:   "body for the archival-direct test",
++		Owner:     fx.ownerA,
++	})
++	if err != nil {
++		t.Fatalf("save2: %v", err)
++	}
++	mustExec(t, fx, `UPDATE observations SET maturity_tier = NULL,
++		created_at = ? WHERE id = ?`,
++		now.Add(-30*24*time.Hour).Format(time.RFC3339), id2)
++	fx.svc.RecomputeImportance(ctx)
++	obs2, err := fx.svc.Get(ctx, id2)
++	if err != nil {
++		t.Fatalf("get2: %v", err)
++	}
++	if obs2.MaturityTier != "archival" {
++		t.Fatalf("NULL tier + 30d must recompute to archival, got %q", obs2.MaturityTier)
++	}
++
++	// Ordering sanity used by the monotonic max: fresh < mature < archival.
++	if !(maturityRank["fresh"] < maturityRank["mature"]) || !(maturityRank["mature"] < maturityRank["archival"]) {
++		t.Fatalf("tier ordering must be fresh < mature < archival, got %v", maturityRank)
++	}
++}
++
++// mustExec is a tiny Exec helper for the tier persistence checks.
++func mustExec(t *testing.T, fx *ownerFixture, query string, args ...any) {
++	t.Helper()
++	if _, err := fx.st.DB.Exec(query, args...); err != nil {
++		t.Fatalf("exec %q: %v", query, err)
++	}
++}
++
++// TestImportanceScoreQueryRanking covers 13.3: with the improve() opt-in
++// enabled, mem_search (SearchOwnerScoped) re-ranks by importance_score — a
++// multiplicative boost on the base relevance — so the high-importance
++// observation ranks first. With improve() disabled the raw SQL order is
++// byte-identical (no boost).
++func TestImportanceScoreQueryRanking(t *testing.T) {
++	fx := newImproveFixture(t, "imp-rank")
++	ctx := context.Background()
++
++	// Three observations sharing the "improvranks" token. The LOW one repeats
++	// the token so it leads the raw SQL bm25 ranking — the importance boost
++	// must flip the order.
++	//
++	//   impalpha: usage 50, 2d  → score 50*exp(-0.1) ≈ 45.2 (high)
++	//   impbeta:  usage 10, 2d  → score 10*exp(-0.1) ≈ 9.05 (medium)
++	//   improvgamma: usage 1, 2d → score 1*exp(-0.1)  ≈ 0.905 (low)
++	high := seedImproveObs(t, fx, "improvranks alpha asset", "improvranks filler body one", fx.ownerA, 50, 2*24*time.Hour)
++	mid := seedImproveObs(t, fx, "improvranks beta asset", "improvranks filler body two", fx.ownerA, 10, 2*24*time.Hour)
++	low := seedImproveObs(t, fx, "improvranks gamma asset", "improvranks improvranks improvranks filler body three", fx.ownerA, 1, 2*24*time.Hour)
++
++	// The stored columns must match the formula (the re-rank reads them).
++	want := map[int64]float64{
++		high: 50 * math.Exp(-0.05*2),
++		mid:  10 * math.Exp(-0.05*2),
++		low:  1 * math.Exp(-0.05*2),
++	}
++	for _, id := range []int64{high, mid, low} {
++		obs, err := fx.svc.Get(ctx, id)
++		if err != nil {
++			t.Fatalf("get %d: %v", id, err)
++		}
++		if !obs.ImportanceScore.Valid || math.Abs(obs.ImportanceScore.Float64-want[id]) > 1e-4 {
++			t.Fatalf("obs %d: stored importance = %+v, want %v (populated on save)", id, obs.ImportanceScore, want[id])
++		}
++		if obs.MaturityTier != "fresh" {
++			t.Fatalf("obs %d: 2d must be tier fresh, got %q", id, obs.MaturityTier)
++		}
++	}
++
++	// Raw SQL order (improve off): the low doc leads (3 token matches).
++	fx.svc.SetImprove(ImproveConfig{Enabled: false})
++	raw, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent", "improvranks", "any", "", 10)
++	if err != nil {
++		t.Fatalf("search (raw): %v", err)
++	}
++	rawCfg := fx.svc.ImproveConfig()
++	fx.svc.SetImprove(ImproveConfig{
++		Enabled: true, Cooldown: time.Nanosecond, Now: func() time.Time { return time.Now().UTC() },
++	})
++	if len(raw) != 3 {
++		t.Fatalf("expected 3 hits, got %d", len(raw))
++	}
++	if ids(raw)[0] != low {
++		t.Fatalf("setup: raw SQL order must be led by the low-importance doc, got %v", ids(raw))
++	}
++
++	// Enabled: the importance re-rank must put high first, and the order must
++	// follow the stored scores (45.2 > 9.05 > 0.905).
++	hits, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent", "improvranks", "any", "", 10)
++	if err != nil {
++		t.Fatalf("search (boosted): %v", err)
++	}
++	if len(hits) != 3 {
++		t.Fatalf("expected 3 hits, got %d", len(hits))
++	}
++	got := ids(hits)
++	wantOrder := []int64{high, mid, low}
++	if !slices.Equal(got, wantOrder) {
++		t.Fatalf("importance boost must re-rank high→mid→low: raw %v, got %v, want %v", ids(raw), got, wantOrder)
++	}
++	if got[0] == ids(raw)[0] {
++		t.Fatalf("boosted order must differ from the raw SQL order (low doc must not lead)")
++	}
++
++	// Disabled again → the raw SQL order is restored verbatim (byte-identical
++	// default search, no boost).
++	fx.svc.SetImprove(ImproveConfig{Enabled: false})
++	plain, err := fx.svc.SearchOwnerScoped(ctx, fx.ownerA, "agent", "improvranks", "any", "", 10)
++	if err != nil {
++		t.Fatalf("search (disabled): %v", err)
++	}
++	if !slices.Equal(ids(plain), ids(raw)) {
++		t.Fatalf("disabled improve() must keep the raw SQL order: raw %v, got %v", ids(raw), ids(plain))
++	}
++	_ = rawCfg
++}
++
++// TestImportanceConfigurableDecay covers 13.4: the decay rate is
++// configurable (a higher decay erodes old observations' importance faster,
++// a lower decay retains it longer), the default is the documented 0.05/day,
++// and tier thresholds follow the same pattern.
++func TestImportanceConfigurableDecay(t *testing.T) {
++	age := 30 * 24 * time.Hour
++	count := 100
++
++	// Default decay rate is 0.05 per day (the documented 22.3 anchor).
++	def := defaultImportanceConfig()
++	if def.DecayRate != 0.05 {
++		t.Fatalf("default decay rate must be 0.05/day, got %v", def.DecayRate)
++	}
++	if got := ComputeImportanceScore(count, age, def.DecayRate); got < 22 || got > 23 {
++		t.Fatalf("default decay: 100 retrievals @ 30d should be ≈22.3, got %v", got)
++	}
++
++	// High decay (0.2/day): older observations lose importance faster.
++	highDecay := ComputeImportanceScore(count, age, 0.2)
++	if !(highDecay < ComputeImportanceScore(count, age, 0.05)) {
++		t.Fatalf("high decay must erode old scores faster: high=%v default=%v",
++			highDecay, ComputeImportanceScore(count, age, 0.05))
++	}
++
++	// Low decay (0.01/day): older observations retain importance longer.
++	lowDecay := ComputeImportanceScore(count, age, 0.01)
++	if !(lowDecay > ComputeImportanceScore(count, age, 0.05)) {
++		t.Fatalf("low decay must retain old scores longer: low=%v default=%v",
++			lowDecay, ComputeImportanceScore(count, age, 0.05))
++	}
++
++	// The ranking flips as the decay tightens: at 0.2/day the 10-day-old doc
++	// is worth more than the 30-day-old one even though it was retrieved 10x
++	// less often.
++	recent := ComputeImportanceScore(10, 10*24*time.Hour, 0.2)
++	old := ComputeImportanceScore(100, 30*24*time.Hour, 0.2)
++	if !(recent > old) {
++		t.Fatalf("under high decay the recent doc must outrank the old one: recent=%v old=%v", recent, old)
++	}
++
++	// Tier thresholds follow the same pattern: the defaults are the brief's
++	// values and the pure computation honors a custom set.
++	if def.Thresholds.MatureAgeDays != 7 || def.Thresholds.ArchivalAgeDays != 30 || def.Thresholds.UnusedArchivalDays != 14 {
++		t.Fatalf("default tier thresholds must be 7/30/14 days, got %+v", def.Thresholds)
++	}
++	custom := TierThresholds{MatureAgeDays: 7, ArchivalAgeDays: 30, UnusedArchivalDays: 14}
++	if got := ComputeMaturityTierWithThresholds(3*24*time.Hour, 50, custom); got != "fresh" {
++		t.Fatalf("custom thresholds: 3d must stay fresh, got %q", got)
++	}
++	if got := ComputeMaturityTierWithThresholds(8*24*time.Hour, 5, custom); got != "mature" {
++		t.Fatalf("custom thresholds: 8d + usage must be mature, got %q", got)
++	}
++	if got := ComputeMaturityTierWithThresholds(15*24*time.Hour, 0, custom); got != "archival" {
++		t.Fatalf("custom thresholds: 15d unused must be archival, got %q", got)
++	}
++
++	// SetImportance wiring: an explicit config is honored, and a zero-value
++	// call reverts to the defaults (the malformed/absent-config fallback).
++	fx := newOwnerFixture(t, "imp-cfg")
++	fx.svc.SetImportance(ImportanceConfig{})
++	if got := fx.svc.ImportanceConfig(); got.DecayRate != 0.05 {
++		t.Fatalf("SetImportance(zero) must apply the 0.05/day default, got %v", got.DecayRate)
++	}
++	fx.svc.SetImportance(ImportanceConfig{DecayRate: 0.2,
++		Thresholds: TierThresholds{MatureAgeDays: 3, ArchivalAgeDays: 21, UnusedArchivalDays: 10}})
++	got := fx.svc.ImportanceConfig()
++	if got.DecayRate != 0.2 || got.Thresholds.MatureAgeDays != 3 ||
++		got.Thresholds.ArchivalAgeDays != 21 || got.Thresholds.UnusedArchivalDays != 10 {
++		t.Fatalf("SetImportance must honor the explicit config, got %+v", got)
++	}
++	// A negative decay (malformed) falls back to the default.
++	fx.svc.SetImportance(ImportanceConfig{DecayRate: -1})
++	if got := fx.svc.ImportanceConfig(); got.DecayRate != 0.05 {
++		t.Fatalf("negative decay must fall back to the 0.05/day default, got %v", got.DecayRate)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/service.go b/skillgrid-cli/internal/mnemonic/memory/service.go
+index 9a4481c..2c29640 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/service.go
++++ b/skillgrid-cli/internal/mnemonic/memory/service.go
+@@ -78,6 +78,13 @@ type Service struct {
+ 	// defaults; MinLength is tunable from the mnemonic.promotion config
+ 	// (MinSections is fixed at the default). Set via SetPromotion.
+ 	promotionCfg PromotionConfig
++	// importanceCfg tunes AKL importance scoring + recency decay (014,
++	// step 13): the per-day decay rate and the maturity-tier thresholds,
++	// configurable via the mnemonic.importance config section. The zero
++	// value means "use defaults" (SetImportance/effectiveImportance fill
++	// in the 0.05/day decay and 7/30/14-day thresholds). Set via
++	// SetImportance from the mnemonic.importance config key.
++	importanceCfg ImportanceConfig
+ }
+ 
+ // SetDistillHookProvider attaches the owning handle (which carries the opt-in
+@@ -255,6 +262,13 @@ type Observation struct {
+ 	LastSeenAt     string `json:"last_seen_at,omitempty"`
+ 	ExpiresAt      string `json:"expires_at,omitempty"`
+ 	ToolName       string `json:"tool_name,omitempty"`
++	// ImportanceScore, RecencyDecay, MaturityTier are the AKL importance
++	// columns (014 step 13). Additive + omitempty: pre-025 rows (or a row
++	// whose stamping failed) leave them unset, so the JSON contract is
++	// unchanged for existing consumers.
++	ImportanceScore sql.NullFloat64 `json:"importance_score,omitempty"`
++	RecencyDecay    sql.NullFloat64 `json:"recency_decay,omitempty"`
++	MaturityTier    string          `json:"maturity_tier,omitempty"`
+ }
+ 
+ // Status holds aggregate memory statistics.
+@@ -411,8 +425,9 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
+ 		INSERT INTO observations (
+ 			session_id, type, title, content, project, scope, topic_key,
+ 			normalized_hash, revision_count, created_at, updated_at, source, prompt_id, tool_name,
+-			owner, visibility, status, retrieval_usage, expires_at
+-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?)`,
++			owner, visibility, status, retrieval_usage, expires_at,
++			importance_score, recency_decay, maturity_tier
++		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?, 0, 1, 'fresh')`,
+ 		in.SessionID, in.Type, in.Title, in.Content, s.projectID, in.Scope, nullString(in.TopicKey),
+ 		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt),
+ 	)
+@@ -423,6 +438,10 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
+ 	if err != nil {
+ 		return 0, fmt.Errorf("last insert id: %w", err)
+ 	}
++	// AKL importance (014 step 13): stamp the importance_score /
++	// recency_decay / maturity_tier columns on save (a 0-usage, age-0 row
++	// scores 0 * exp(0) = 0, tier fresh). Best-effort internally.
++	s.stampImportance(ctx, id, 0, now)
+ 	// Triple-store linkage (014 step 07): best-effort bind the observation to
+ 	// the codeindex symbol of its source file (observations.graph_ref). A
+ 	// missing file or symbol leaves graph_ref NULL — the linkage is advisory
+@@ -523,12 +542,13 @@ func (s *Service) SearchWithScope(ctx context.Context, query, matchMode, scope s
+ 		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
+ 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
+ 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
+-		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0)
++		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
++		       o.importance_score, o.recency_decay, o.maturity_tier
+ 		FROM observations o
+ 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
+ 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
+-		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
+-		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
++ 		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
++ 		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
+ 		LIMIT ?`,
+ 		args...,
+ 	)
+@@ -581,7 +601,8 @@ func (s *Service) SearchOwnerScoped(ctx context.Context, readerOwner, readerAgen
+ 		SELECT o.id, o.session_id, o.type, o.title, o.content, o.project, o.scope,
+ 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
+ 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
+-		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0)
++		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
++		       o.importance_score, o.recency_decay, o.maturity_tier
+ 		FROM observations o
+ 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
+ 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
+@@ -602,10 +623,13 @@ func (s *Service) SearchOwnerScoped(ctx context.Context, readerOwner, readerAgen
+ 	for _, o := range out {
+ 		s.BumpRetrievalUsage(ctx, o.ID)
+ 	}
+-	// Self-improvement feedback loop (014 step 08): opt-in in-memory
+-	// re-rank by retrieval usage before the results go out. A no-op
+-	// (byte-identical order) when the mnemonic.improve config is off.
+-	return s.improve(ctx, out), nil
++	// AKL importance scoring (014 step 13.3): opt-in in-memory re-rank by
++	// importance_score — a multiplicative boost on the base relevance
++	// (normalized to 0..1 against the result-set max). It replaces the
++	// step-08 binary retrieval-usage boost/decay re-rank; the improve()
++	// opt-in gate (mnemonic.improve.enabled) is shared, so with the config
++	// off the raw SQL order is returned byte-identical.
++	return s.importanceRerank(ctx, out), nil
+ }
+ 
+ // Recent returns stored observations, newest first, without FTS.
+@@ -645,12 +669,14 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
+ 	var obs Observation
+ 	var topicKey sql.NullString
+ 	var promptID sql.NullInt64
+-	var lastSeen, expires, toolName, owner sql.NullString
++	var lastSeen, expires, toolName, owner, tier sql.NullString
+ 	var pinned, dups, usage int
++	var score, decay sql.NullFloat64
+ 	err := row.Scan(
+ 		&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
+ 		&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
+ 		&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
++		&score, &decay, &tier,
+ 	)
+ 	if err != nil {
+ 		if errors.Is(err, sql.ErrNoRows) {
+@@ -658,6 +684,7 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
+ 		}
+ 		return Observation{}, fmt.Errorf("get observation: %w", err)
+ 	}
++	obs.setImportanceColumns(score, decay, tier)
+ 	if topicKey.Valid {
+ 		obs.TopicKey = topicKey.String
+ 	}
+@@ -680,6 +707,9 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
+ 	if owner.Valid {
+ 		obs.Owner = owner.String
+ 	}
++	if tier.Valid {
++		obs.MaturityTier = tier.String
++	}
+ 	return obs, nil
+ }
+ 
+@@ -1710,7 +1740,8 @@ const obsSelectCols = `
+ 	id, session_id, type, title, content, project, scope,
+ 	topic_key, source, normalized_hash, revision_count, prompt_id, created_at, updated_at,
+ 	COALESCE(pinned, 0), COALESCE(duplicate_count, 0), last_seen_at, expires_at, tool_name,
+-	owner, COALESCE(visibility, 'private'), COALESCE(status, 'active'), COALESCE(retrieval_usage, 0)`
++	owner, COALESCE(visibility, 'private'), COALESCE(status, 'active'), COALESCE(retrieval_usage, 0),
++	importance_score, recency_decay, maturity_tier`
+ 
+ func scanObservations(rows *sql.Rows) ([]Observation, error) {
+ 	var out []Observation
+@@ -1718,15 +1749,18 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
+ 		var obs Observation
+ 		var topicKey sql.NullString
+ 		var promptID sql.NullInt64
+-		var lastSeen, expires, toolName, owner sql.NullString
++		var lastSeen, expires, toolName, owner, tier sql.NullString
+ 		var pinned, dups, usage int
++		var score, decay sql.NullFloat64
+ 		if err := rows.Scan(
+ 			&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
+ 			&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
+ 			&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
++			&score, &decay, &tier,
+ 		); err != nil {
+ 			return nil, fmt.Errorf("scan observation: %w", err)
+ 		}
++		obs.setImportanceColumns(score, decay, tier)
+ 		if topicKey.Valid {
+ 			obs.TopicKey = topicKey.String
+ 		}
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/025_importance.sql b/skillgrid-cli/internal/mnemonic/store/migrations/025_importance.sql
+new file mode 100644
+index 0000000..f262b99
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/025_importance.sql
+@@ -0,0 +1,25 @@
++-- 025: AKL importance scoring columns (change 014, step 13).
++--
++-- Additive: three new nullable columns on observations; no existing schema
++-- is touched. The values are populated on save (memory.Service.Save) and on
++-- an explicit recompute (memory.Service.RecomputeImportance):
++--
++--   importance_score — retrieval_usage * exp(-decay_rate * age_days), the
++--                      continuous AKL importance value (014 step 13.1).
++--                      NULL until first stamped (pre-025 rows).
++--   recency_decay    — exp(-decay_rate * age_days), the recency factor
++--                      alone, stored for provenance.
++--   maturity_tier    — 'fresh' | 'mature' | 'archival' (014 step 13.2).
++--                      Transitions are monotonic (never downgraded); the
++--                      stored value is max(previous, computed).
++
++ALTER TABLE observations ADD COLUMN importance_score REAL;
++ALTER TABLE observations ADD COLUMN recency_decay REAL;
++ALTER TABLE observations ADD COLUMN maturity_tier TEXT;
++
++-- Ranking/prune support: importance-desc lookups within a project (the
++-- query-time boost reads stored values in-memory, but the column is indexed
++-- so prune/dream phases can pre-filter without a full scan).
++CREATE INDEX IF NOT EXISTS idx_obs_importance
++    ON observations (project, importance_score DESC)
++    WHERE deleted_at IS NULL AND importance_score IS NOT NULL;

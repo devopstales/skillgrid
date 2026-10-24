@@ -1,0 +1,518 @@
+diff --git a/mnemonic/cmd/mnemonic/ctx_proxy.go b/mnemonic/cmd/mnemonic/ctx_proxy.go
+index 9199f8e1..dc846848 100644
+--- a/mnemonic/cmd/mnemonic/ctx_proxy.go
++++ b/mnemonic/cmd/mnemonic/ctx_proxy.go
+@@ -133,6 +133,23 @@ func runCtxProxy(args []string) {
+ 	stopRollup := observability.StartRollup(cs, time.Hour, rollupStop)
+ 	defer stopRollup()
+ 
++	// T11: a final session-summary rollup at shutdown, run while the shared
++	// handle is still open (deferred here so it runs BEFORE the deferred
++	// stopRollup joins the rollup goroutine and BEFORE the deferred cleanup
++	// closes the handle — defers run LIFO). It is gated on the operator's
++	// session-summary config and fail-open (ADR-0016): a nil store or a
++	// missing table is a no-op. The periodic loop also re-derives summaries
++	// each tick; this final pass ensures a summary row exists for a session
++	// that closed between the last tick and shutdown.
++	if cfg.Observability.SessionSummary {
++		defer func() {
++			if cs == nil {
++				return
++			}
++			_, _ = observability.SummarizeSessions(cs, time.Now().Unix())
++		}()
++	}
++
+ 	// Create the listener.
+ 	addr := fmt.Sprintf("%s:%d", b, p)
+ 	ln, err := net.Listen("tcp", addr)
+diff --git a/mnemonic/internal/ctx/observability/observability.go b/mnemonic/internal/ctx/observability/observability.go
+index 7345c426..5556a08b 100644
+--- a/mnemonic/internal/ctx/observability/observability.go
++++ b/mnemonic/internal/ctx/observability/observability.go
+@@ -311,11 +311,19 @@ func Recompute(s *ctxstore.Store) int {
+ 	return written
+ }
+ 
+-// StartRollup launches a background goroutine that calls Recompute every tick
+-// until stop is closed. It returns a stop function that closes stop and waits
+-// for the goroutine to exit (no leak). The first Recompute runs immediately so
+-// a fresh process backfills the history before the first tick. A non-positive
+-// tick falls back to a 5-minute default.
++// StartRollup launches a background goroutine that re-derives the
++// ctx_stats_history buckets (Recompute) and the per-session
++// ctx_session_summaries rows (SummarizeSessions) every tick until stop is
++// closed. It returns a stop function that closes stop and waits for the
++// goroutine to exit (no leak). The first pass (Recompute + SummarizeSessions)
++// runs immediately so a fresh process backfills both the history and the
++// session summaries before the first tick. A non-positive tick falls back to
++// a 5-minute default.
++//
++// The session-summary rollup rides this same loop (no separate goroutine): it
++// is gated on the caller's config (cfg.Observability.SessionSummary), which is
++// enforced at the call sites, and is fail-open (ADR-0016) so it never disturbs
++// the stats rollup it runs alongside.
+ func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (stopFn func()) {
+ 	if s == nil {
+ 		return func() {}
+@@ -330,8 +338,9 @@ func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (sto
+ 	go func() {
+ 		defer wg.Done()
+ 		defer close(done)
+-		// Immediate first pass.
++		// Immediate first pass: stats history + per-session summaries.
+ 		_ = Recompute(s)
++		summarizePass(s)
+ 		t := time.NewTicker(tick)
+ 		defer t.Stop()
+ 		for {
+@@ -340,6 +349,7 @@ func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (sto
+ 				return
+ 			case <-t.C:
+ 				_ = Recompute(s)
++				summarizePass(s)
+ 			}
+ 		}
+ 	}()
+@@ -349,6 +359,16 @@ func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (sto
+ 	}
+ }
+ 
++// summarizePass runs one session-summary rollup, discarding the row count and
++// error. The rollup is fail-open (ADR-0016) — SummarizeSessions only returns an
++// error on a fault the operator should not be blocked on by a stats tick — so
++// the error is intentionally dropped; a failed pass simply yields no new rows.
++func summarizePass(s *ctxstore.Store) {
++	if _, err := SummarizeSessions(s, time.Now().Unix()); err != nil {
++		_ = err
++	}
++}
++
+ // Snapshot returns the live session-metric snapshot (plan §17.2/§17.5) from
+ // ctx_proxy_sessions. Every counter is zero-valued on a missing table
+ // (ADR-0016). Mode is the latest session's mode (by EndedAt, then StartedAt),
+diff --git a/mnemonic/internal/ctx/observability/observability_test.go b/mnemonic/internal/ctx/observability/observability_test.go
+index 1dfee60a..d7d13f29 100644
+--- a/mnemonic/internal/ctx/observability/observability_test.go
++++ b/mnemonic/internal/ctx/observability/observability_test.go
+@@ -1,6 +1,7 @@
+ package observability
+ 
+ import (
++	"encoding/json"
+ 	"testing"
+ 	"time"
+ 
+@@ -305,6 +306,181 @@ func TestStatsHistory_SurvivesReopen(t *testing.T) {
+ 	}
+ }
+ 
++// TestSummarizeSessions_WritesPerSession verifies SummarizeSessions derives
++// one ctx_session_summaries row per distinct ctx_proxy_sessions row with the
++// correct field mapping: duration_ms (ended-started), turns (requests),
++// tokens_saved (before-after, clamped), cache_invalidations carried over, and
++// the deterministic summary_json. Judgment/prefilter/shaping/traffic columns
++// are left at zero/NULL (T12/T14 populate them later).
++func TestSummarizeSessions_WritesPerSession(t *testing.T) {
++	_, c := freshStore(t)
++	// sess-1: a positive saving. sess-2: a negative saving (after > before)
++	// that must clamp to 0, and a negative duration (ended < started) that
++	// must clamp to 0 as well.
++	if err := c.PutProxySession(&ctxstore.ProxySession{
++		SessionID: "sess-1", Agent: "opencode", Mode: "cache",
++		StartedAt: 1_700_000_000, EndedAt: 1_700_000_120,
++		Requests: 5, TokensBefore: 10000, TokensAfter: 7000,
++		CacheHits: 3, CacheInvalidations: 1,
++	}); err != nil {
++		t.Fatalf("PutProxySession sess-1: %v", err)
++	}
++	if err := c.PutProxySession(&ctxstore.ProxySession{
++		SessionID: "sess-2", Agent: "claude", Mode: "token",
++		StartedAt: 1_700_000_500, EndedAt: 1_700_000_400, // negative duration
++		Requests: 3, TokensBefore: 9000, TokensAfter: 12000, // negative saving
++	}); err != nil {
++		t.Fatalf("PutProxySession sess-2: %v", err)
++	}
++
++	written, err := SummarizeSessions(c, 1_800_000_000)
++	if err != nil {
++		t.Fatalf("SummarizeSessions: %v", err)
++	}
++	if written != 2 {
++		t.Fatalf("SummarizeSessions: expected 2 rows written, got %d", written)
++	}
++
++	rows, err := c.ListSessionSummaries()
++	if err != nil {
++		t.Fatalf("ListSessionSummaries: %v", err)
++	}
++	if len(rows) != 2 {
++		t.Fatalf("expected 2 summary rows, got %d", len(rows))
++	}
++	byID := make(map[string]*ctxstore.SessionSummary, len(rows))
++	for _, r := range rows {
++		byID[r.SessionID] = r
++	}
++
++	s1, ok := byID["sess-1"]
++	if !ok {
++		t.Fatalf("missing summary row for sess-1")
++	}
++	if s1.DurationMS != 120 {
++		t.Errorf("sess-1 duration_ms = %d, want 120 (1_700_000_120-1_700_000_000)", s1.DurationMS)
++	}
++	if s1.Turns != 5 {
++		t.Errorf("sess-1 turns = %d, want 5 (requests)", s1.Turns)
++	}
++	if s1.TokensSaved != 3000 {
++		t.Errorf("sess-1 tokens_saved = %d, want 3000 (10000-7000)", s1.TokensSaved)
++	}
++	if s1.CacheInvalidations != 1 {
++		t.Errorf("sess-1 cache_invalidations = %d, want 1", s1.CacheInvalidations)
++	}
++	if s1.Agent != "opencode" {
++		t.Errorf("sess-1 agent = %q, want opencode", s1.Agent)
++	}
++	if s1.JudgmentKeeps != 0 || s1.JudgmentTruncs != 0 || s1.PrefilterPins != 0 || s1.PrefilterDeads != 0 {
++		t.Errorf("sess-1 judgment/prefilter columns must be 0 here, got %+v", s1)
++	}
++	if s1.ShapingApplied != nil || s1.EffortRouted != 0 || s1.TrafficMemories != 0 {
++		t.Errorf("sess-1 shaping/effort/traffic columns must be zero/nil, got shaping=%v effort=%d traffic=%d", s1.ShapingApplied, s1.EffortRouted, s1.TrafficMemories)
++	}
++	if s1.CreatedAt != 1_800_000_000 {
++		t.Errorf("sess-1 created_at = %d, want the passed now", s1.CreatedAt)
++	}
++	// summary_json must be the deterministic digest.
++	var js struct {
++		Mode         string `json:"mode"`
++		Requests     int64  `json:"requests"`
++		TokensBefore int64  `json:"tokens_before"`
++		TokensAfter  int64  `json:"tokens_after"`
++		TokensSaved  int64  `json:"tokens_saved"`
++	}
++	if err := json.Unmarshal([]byte(s1.SummaryJSON), &js); err != nil {
++		t.Fatalf("sess-1 summary_json not valid JSON: %v (%q)", err, s1.SummaryJSON)
++	}
++	if js.Mode != "cache" || js.Requests != 5 || js.TokensBefore != 10000 || js.TokensAfter != 7000 || js.TokensSaved != 3000 {
++		t.Errorf("sess-1 summary_json = %+v, want mode=cache requests=5 before=10000 after=7000 saved=3000", js)
++	}
++
++	s2, ok := byID["sess-2"]
++	if !ok {
++		t.Fatalf("missing summary row for sess-2")
++	}
++	if s2.DurationMS != 0 {
++		t.Errorf("sess-2 duration_ms = %d, want 0 (negative clamped)", s2.DurationMS)
++	}
++	if s2.TokensSaved != 0 {
++		t.Errorf("sess-2 tokens_saved = %d, want 0 (negative clamped)", s2.TokensSaved)
++	}
++	if s2.Turns != 3 {
++		t.Errorf("sess-2 turns = %d, want 3 (requests)", s2.Turns)
++	}
++}
++
++// TestSummarizeSessions_Idempotent verifies re-running the rollup over the
++// same sessions does not append duplicate rows: PutSessionSummary is INSERT OR
++// REPLACE on the session_id PK, so the row count is stable across rolls.
++func TestSummarizeSessions_Idempotent(t *testing.T) {
++	_, c := freshStore(t)
++	for _, sess := range []string{"sess-1", "sess-2", "sess-3"} {
++		if err := c.PutProxySession(&ctxstore.ProxySession{
++			SessionID: sess, Agent: "opencode", Mode: "token",
++			StartedAt: 1_700_000_000, EndedAt: 1_700_000_100,
++			Requests: 2, TokensBefore: 1000, TokensAfter: 400,
++		}); err != nil {
++			t.Fatalf("PutProxySession %s: %v", sess, err)
++		}
++	}
++	if n, err := SummarizeSessions(c, 1_800_000_000); err != nil || n != 3 {
++		t.Fatalf("first roll: got (%d, %v), want (3, nil)", n, err)
++	}
++	// Re-roll the same sessions; the PK upsert must keep the count at 3.
++	if n, err := SummarizeSessions(c, 1_800_000_000); err != nil || n != 3 {
++		t.Fatalf("second roll: got (%d, %v), want (3, nil)", n, err)
++	}
++	rows, err := c.ListSessionSummaries()
++	if err != nil {
++		t.Fatalf("ListSessionSummaries: %v", err)
++	}
++	if len(rows) != 3 {
++		t.Fatalf("expected 3 summary rows after two rolls (idempotent), got %d", len(rows))
++	}
++	// No duplicate session_ids.
++	seen := make(map[string]int, len(rows))
++	for _, r := range rows {
++		seen[r.SessionID]++
++	}
++	for id, n := range seen {
++		if n != 1 {
++			t.Errorf("duplicate summary row for %s: %d rows", id, n)
++		}
++	}
++}
++
++// TestSummarizeSessions_FailOpen verifies the writer degrades to (0, nil) —
++// never an error — when the store is nil or the ctx_* tables are missing
++// (ADR-0016).
++func TestSummarizeSessions_FailOpen(t *testing.T) {
++	// nil store.
++	if n, err := SummarizeSessions(nil, 1_800_000_000); err != nil || n != 0 {
++		t.Errorf("nil store: got (%d, %v), want (0, nil)", n, err)
++	}
++
++	// Missing tables: open a store, drop the six ctx_* tables, wrap in the
++	// accessor, and confirm a roll is a no-op (0, nil).
++	st, err := store.Open(t.TempDir(), "obs-sum-nomigrate")
++	if err != nil {
++		t.Fatalf("store.Open: %v", err)
++	}
++	t.Cleanup(func() { st.Close() })
++	for _, table := range []string{
++		"ctx_proxy_sessions", "ctx_proxy_savings", "ctx_proxy_mode_history",
++		"ctx_session_summaries", "ctx_stats_history", "ctx_traffic_memories",
++	} {
++		if _, err := st.DB.Exec(`DROP TABLE IF EXISTS ` + table); err != nil {
++			t.Fatalf("drop %s: %v", table, err)
++		}
++	}
++	c := ctxstore.New(st)
++	if n, err := SummarizeSessions(c, 1_800_000_000); err != nil || n != 0 {
++		t.Errorf("missing tables: got (%d, %v), want (0, nil)", n, err)
++	}
++}
++
+ // TestFailOpen_MissingTables verifies every reader and the writer degrade to
+ // empty/zero (never an error) on a store whose ctx_* tables are missing.
+ func TestFailOpen_MissingTables(t *testing.T) {
+diff --git a/mnemonic/internal/ctx/observability/session_summary.go b/mnemonic/internal/ctx/observability/session_summary.go
+new file mode 100644
+index 00000000..8fa9de7f
+--- /dev/null
++++ b/mnemonic/internal/ctx/observability/session_summary.go
+@@ -0,0 +1,96 @@
++// Package observability: session-summary rollup (T11). This file derives one
++// wide ctx_session_summaries row per distinct session from ctx_proxy_sessions
++// (the authoritative per-session source accumulated by the proxy's
++// recordTelemetry) and writes them through the shared ctx accessor. The
++// /api/session-summaries reader (T10) is unchanged; this is the writer.
++package observability
++
++import (
++	"encoding/json"
++
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++)
++
++// sessionSummaryJSON is the deterministic shape of the summary_json column:
++// the mode and the raw counters straight from the proxy session row, plus the
++// clamped savings delta. It is a small, stable, machine-readable digest of the
++// session — the reader parses it fail-open and never assumes a shape beyond
++// this.
++type sessionSummaryJSON struct {
++	Mode         string `json:"mode"`
++	Requests     int64  `json:"requests"`
++	TokensBefore int64  `json:"tokens_before"`
++	TokensAfter  int64  `json:"tokens_after"`
++	TokensSaved  int64  `json:"tokens_saved"`
++}
++
++// SummarizeSessions derives one ctx_session_summaries row per distinct session
++// from ctx_proxy_sessions and writes them. Returns the number of rows written.
++//
++// Fail-open (ADR-0016): a nil store or a missing ctx_proxy_sessions /
++// ctx_session_summaries table returns (0, nil) — never an error. The rollup is
++// idempotent: PutSessionSummary is INSERT OR REPLACE on the session_id PK, so
++// re-rolling the same session updates the row in place and never appends a
++// duplicate. The judgment/prefilter/shaping/traffic columns are left at their
++// zero/NULL values here — T12/T14 populate them later (do not fabricate).
++func SummarizeSessions(st *ctxstore.Store, now int64) (int, error) {
++	if st == nil {
++		return 0, nil
++	}
++	sessions, err := st.ListProxySessions()
++	if err != nil {
++		// Missing table (or other fault): fail open to (0, nil).
++		return 0, nil
++	}
++	written := 0
++	for _, sess := range sessions {
++		if sess == nil || sess.SessionID == "" {
++			continue
++		}
++		saved := sess.TokensBefore - sess.TokensAfter
++		if saved < 0 {
++			saved = 0
++		}
++		duration := sess.EndedAt - sess.StartedAt
++		if duration < 0 {
++			duration = 0
++		}
++		payload := sessionSummaryJSON{
++			Mode:         sess.Mode,
++			Requests:     sess.Requests,
++			TokensBefore: sess.TokensBefore,
++			TokensAfter:  sess.TokensAfter,
++			TokensSaved:  saved,
++		}
++		blob, jerr := json.Marshal(payload)
++		if jerr != nil {
++			// Deterministic marshalling of a fixed struct cannot fail; if it
++			// ever does, fall back to an empty object rather than erroring.
++			blob = []byte("{}")
++		}
++		row := &ctxstore.SessionSummary{
++			SessionID:          sess.SessionID,
++			Agent:              sess.Agent,
++			DurationMS:         duration,
++			Turns:              sess.Requests,
++			TokensSaved:        saved,
++			JudgmentKeeps:      0,
++			JudgmentTruncs:     0,
++			PrefilterPins:      0,
++			PrefilterDeads:     0,
++			CacheInvalidations: sess.CacheInvalidations,
++			ShapingApplied:     nil,
++			EffortRouted:       0,
++			TrafficMemories:    0,
++			SummaryJSON:        string(blob),
++			CreatedAt:          now,
++		}
++		if perr := st.PutSessionSummary(row); perr != nil {
++			// Fail-open: a write fault (e.g. missing table) drops this row
++			// rather than erroring the rollup.
++			continue
++		}
++		written++
++	}
++	return written, nil
++}
+diff --git a/mnemonic/internal/http/ctx_t11_test.go b/mnemonic/internal/http/ctx_t11_test.go
+new file mode 100644
+index 00000000..68d24581
+--- /dev/null
++++ b/mnemonic/internal/http/ctx_t11_test.go
+@@ -0,0 +1,123 @@
++package http
++
++import (
++	"net/http"
++	"testing"
++
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/observability"
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++	"github.com/devopstales/skillgrid/mnemonic/internal/store"
++)
++
++// TestCTXSessionSummaries_ReadThroughT11Writer verifies the end-to-end write
++// then read path for the T11 session-summary rollup: seed two proxy sessions,
++// run observability.SummarizeSessions to derive the summary rows, then read
++// them back over loopback through the existing T10 reader
++// (GET /api/session-summaries). This proves the writer feeds the reader — the
++// reader itself is unchanged (T10).
++func TestCTXSessionSummaries_ReadThroughT11Writer(t *testing.T) {
++	s, dataDir := newToolCallsServer(t)
++	defer closeStore(t, dataDir)
++
++	// Seed two proxy sessions, then derive the summary rows in-process (the
++	// same call the proxy's rollup loop and shutdown final-rollup make).
++	st, err := store.Open(dataDir, proj)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	// Seed through the raw DB, then roll. The accessor wraps this store's DB.
++	if _, err := st.DB.Exec(`
++		INSERT OR REPLACE INTO ctx_proxy_sessions
++			(session_id, agent, mode, started_at, ended_at, requests,
++			 tokens_before, tokens_after, cache_hits, cache_invalidations)
++		VALUES
++			('sess-t11-1', 'opencode', 'cache', 1700000000, 1700000120, 5, 10000, 7000, 3, 1),
++			('sess-t11-2', 'claude', 'token', 1700000200, 1700000300, 3, 9000, 12000, 0, 2)`); err != nil {
++		t.Fatalf("seed proxy sessions: %v", err)
++	}
++	cs := ctxstore.New(st)
++	written, err := observability.SummarizeSessions(cs, 1800000000)
++	if err != nil {
++		t.Fatalf("SummarizeSessions: %v", err)
++	}
++	if written != 2 {
++		t.Fatalf("SummarizeSessions: expected 2 rows written, got %d", written)
++	}
++	st.Close()
++
++	// Read back over loopback through the T10 reader.
++	rr, out := doGetCtx(t, s, "/api/session-summaries?project="+proj, "127.0.0.1:7777")
++	if rr.Code != http.StatusOK {
++		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	items, _ := out["items"].([]any)
++	if len(items) != 2 {
++		t.Fatalf("expected 2 summary items, got %d", len(items))
++	}
++
++	// Index by session_id.
++	byID := make(map[string]map[string]any, len(items))
++	for _, it := range items {
++		m, _ := it.(map[string]any)
++		if sid, _ := m["session_id"].(string); sid != "" {
++			byID[sid] = m
++		}
++	}
++	s1, ok := byID["sess-t11-1"]
++	if !ok {
++		t.Fatalf("missing summary item for sess-t11-1: %+v", items)
++	}
++	if got := int64(asInt(s1["duration_ms"])); got != 120 {
++		t.Errorf("sess-t11-1 duration_ms = %d, want 120", got)
++	}
++	if got := int64(asInt(s1["turns"])); got != 5 {
++		t.Errorf("sess-t11-1 turns = %d, want 5", got)
++	}
++	if got := int64(asInt(s1["tokens_saved"])); got != 3000 {
++		t.Errorf("sess-t11-1 tokens_saved = %d, want 3000 (10000-7000)", got)
++	}
++	if got := int64(asInt(s1["cache_invalidations"])); got != 1 {
++		t.Errorf("sess-t11-1 cache_invalidations = %d, want 1", got)
++	}
++	if got := s1["agent"].(string); got != "opencode" {
++		t.Errorf("sess-t11-1 agent = %q, want opencode", got)
++	}
++	// summary_json is parsed to a map by the reader (valid JSON).
++	if sj, ok := s1["summary_json"].(map[string]any); !ok {
++		t.Errorf("sess-t11-1 summary_json not an object: %T %v", s1["summary_json"], s1["summary_json"])
++	} else {
++		if got := int64(asInt(sj["tokens_saved"])); got != 3000 {
++			t.Errorf("sess-t11-1 summary_json.tokens_saved = %d, want 3000", got)
++		}
++		if got := sj["mode"].(string); got != "cache" {
++			t.Errorf("sess-t11-1 summary_json.mode = %q, want cache", got)
++		}
++	}
++
++	s2, ok := byID["sess-t11-2"]
++	if !ok {
++		t.Fatalf("missing summary item for sess-t11-2: %+v", items)
++	}
++	// sess-t11-2 has after > before: tokens_saved clamps to 0.
++	if got := int64(asInt(s2["tokens_saved"])); got != 0 {
++		t.Errorf("sess-t11-2 tokens_saved = %d, want 0 (negative clamped)", got)
++	}
++	if got := int64(asInt(s2["turns"])); got != 3 {
++		t.Errorf("sess-t11-2 turns = %d, want 3", got)
++	}
++}
++
++// asInt converts a decoded JSON number (float64) to int, tolerating an absent
++// value (returns 0).
++func asInt(v any) int64 {
++	switch n := v.(type) {
++	case float64:
++		return int64(n)
++	case int64:
++		return n
++	case int:
++		return int64(n)
++	default:
++		return 0
++	}
++}

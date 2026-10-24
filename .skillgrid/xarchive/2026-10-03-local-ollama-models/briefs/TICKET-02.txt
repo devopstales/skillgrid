@@ -1,0 +1,11 @@
+### TICKET-02 — Six-model catalog + role smoke + floor-gated pull
+
+- **Tracker ID:** TASK-043
+- **Scope:** Add `modelRole`/`modelEntry`/`localModels` (six tags, `glm:vision-tools` excluded), `heavyModels`, the `ollamaVersion` HTTP seam, `smokeProbe` (non-fatal), and rewrite `pullMissingModels` to iterate the catalog and skip heavy models below the floor with a version-named warning. Update `localLLMModel`→`llama3.2:1b`, `localEmbedModel`→`embeddinggemma:300m`.
+- **Acceptance:** `go test ./skillgrid-cli/internal/install -count=1 -run 'TestCatalogPullList|TestSmokeProbeNonFatal|TestFloorGatesHeavyModels|TestAtFloorPullsAll'` PASS. Below floor: tev1/clef-flash not pulled, warning emitted, install succeeds. At/above floor: all six pulled. `glm:vision-tools` never appears.
+- **SATISFIES:** happy path catalog pull list; happy path version floor gates heavy models; happy path version at or above floor pulls all
+- **Files:** `skillgrid-cli/internal/install/provider.go`, `skillgrid-cli/internal/install/provider_test.go`
+- **Size:** ~320 (M)
+- **Blocks:** TICKET-04, TICKET-05
+- **Blocked by:** TICKET-01
+

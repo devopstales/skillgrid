@@ -1,0 +1,1385 @@
+# Review package: 90df9e2..HEAD
+
+## Commits
+153c4ce feat(mnemonic): HTTP single-project routes use Project Handle
+
+## Files changed
+ skillgrid-cli/internal/mnemonic/http/server.go     | 492 +++++++++++++++++++--
+ .../internal/mnemonic/http/single_open_test.go     | 208 +++++++++
+ 2 files changed, 667 insertions(+), 33 deletions(-)
+
+## Diff
+diff --git a/skillgrid-cli/internal/mnemonic/http/server.go b/skillgrid-cli/internal/mnemonic/http/server.go
+index 01f0faf..564db3a 100644
+--- a/skillgrid-cli/internal/mnemonic/http/server.go
++++ b/skillgrid-cli/internal/mnemonic/http/server.go
+@@ -1,26 +1,32 @@
+ // Package http exposes the Mnemonic REST API with optional bearer token auth.
+ package http
+ 
+ import (
+ 	"bytes"
++	"context"
++	"database/sql"
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"io"
+ 	"net/http"
+ 	"os"
+ 	"strconv"
+ 	"strings"
+ 	"time"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/search"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/webcache"
+ )
+ 
+ const serverVersion = "0.1.0"
+ 
+ // Server wraps the HTTP handler and optional bearer token for write routes.
+ type Server struct {
+ 	svc   *service.Service
+ 	token string
+@@ -28,20 +34,46 @@ type Server struct {
+ }
+ 
+ // NewServer builds the v1 HTTP API handler tree.
+ func NewServer(svc *service.Service) *Server {
+ 	token := os.Getenv("SKILLGRID_HTTP_TOKEN")
+ 	s := &Server{svc: svc, token: token, mux: http.NewServeMux()}
+ 	s.registerRoutes()
+ 	return s
+ }
+ 
++// openHandleFor opens a single Project Handle for a resolved project id
++// (config root "."), mirroring the MCP single-open lifecycle: each request
++// opens the project once and works through the handle instead of the
++// re-opening facade.
++func (s *Server) openHandleFor(projectID string) (*service.ProjectHandle, func(), error) {
++	return s.svc.Open(projectID)
++}
++
++// openHandleForDir opens a single Project Handle for a directory-rooted route
++// (project resolved from the directory).
++func (s *Server) openHandleForDir(directory string) (*service.ProjectHandle, func(), error) {
++	return s.svc.OpenForDirectory(directory)
++}
++
++// scopeForSave reproduces the scope normalization service.SaveObservation
++// applied before memory.Save ("" → "project", "personal" → "user").
++func scopeForSave(scope string) string {
++	if scope == "" {
++		return "project"
++	}
++	if scope == "personal" {
++		return "user"
++	}
++	return scope
++}
++
+ func (s *Server) registerRoutes() {
+ 	s.mux.HandleFunc("GET /health", s.handleHealth)
+ 
+ 	s.mux.HandleFunc("POST /sessions", s.requireWriteAuth(s.handleSessionCreate))
+ 	s.mux.HandleFunc("POST /sessions/{id}/end", s.requireWriteAuth(s.handleSessionEnd))
+ 	s.mux.HandleFunc("POST /sessions/{id}/title", s.requireWriteAuth(s.handleSessionSetTitle))
+ 	s.mux.HandleFunc("GET /sessions/{id}", s.handleSessionGet)
+ 
+ 	s.mux.HandleFunc("GET /context", s.handleContext)
+ 	s.mux.HandleFunc("GET /context/compaction", s.handleContextCompaction)
+@@ -192,115 +224,151 @@ func (s *Server) handleSessionEnd(w http.ResponseWriter, r *http.Request) {
+ 	id = strings.TrimSuffix(id, "/end")
+ 	projectID := r.URL.Query().Get("project")
+ 	summary := ""
+ 	if r.Body != nil {
+ 		var body struct {
+ 			Summary string `json:"summary"`
+ 		}
+ 		_ = json.NewDecoder(r.Body).Decode(&body)
+ 		summary = body.Summary
+ 	}
+-	if err := s.svc.SessionEnd(r.Context(), projectID, id, summary); err != nil {
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	if err := h.Memory().SessionEnd(r.Context(), id, summary); err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"session_id": id, "status": "ended"})
+ }
+ 
+ func (s *Server) handleSessionSetTitle(w http.ResponseWriter, r *http.Request) {
+ 	id := r.PathValue("id")
+ 	projectID := r.URL.Query().Get("project")
+ 	var body struct {
+ 		Title string `json:"title"`
+ 	}
+ 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+ 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+ 		return
+ 	}
+ 	if strings.TrimSpace(body.Title) == "" {
+ 		writeError(w, http.StatusBadRequest, "title is required")
+ 		return
+ 	}
+-	if err := s.svc.SessionSetTitle(r.Context(), projectID, id, body.Title); err != nil {
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	if err := h.Memory().SessionSetTitle(r.Context(), id, body.Title); err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"session_id": id, "title": body.Title})
+ }
+ 
+ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	limit := queryInt(r, "limit", 5)
+-	sessions, err := s.svc.RecentContext(r.Context(), projectID, limit)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	sessions, err := h.Memory().RecentContext(r.Context(), limit)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+ }
+ 
+ // handleContextCompaction returns a compact, session-scoped context block for
+ // the compaction prompt: the current session's title/summary plus the newest
+ // few observations. The plugin injects this so nothing is lost in summarisation.
+ func (s *Server) handleContextCompaction(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	sessionID := r.URL.Query().Get("session_id")
+ 	limit := queryInt(r, "limit", 5)
+-	ctxOut, err := s.svc.ContextForCompaction(r.Context(), projectID, sessionID, limit)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	ctxOut, err := h.Memory().CompactionContext(r.Context(), sessionID, limit)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"context": ctxOut})
+ }
+ 
+ // handleSessionGet returns a single session including started_at, which the
+ // plugin uses for save-nudge age checks.
+ func (s *Server) handleSessionGet(w http.ResponseWriter, r *http.Request) {
+ 	id := r.PathValue("id")
+ 	if id == "" {
+ 		writeError(w, http.StatusBadRequest, "id is required")
+ 		return
+ 	}
+ 	// Look up across projects: resolve the project from the query, else list.
+ 	projectID := r.URL.Query().Get("project")
+ 	st := map[string]any{"id": id}
+ 	if projectID != "" {
+-		started, err := s.svc.SessionStartedAt(r.Context(), projectID, id)
++		h, cleanup, err := s.openHandleFor(projectID)
++		if err != nil {
++			writeError(w, http.StatusNotFound, err.Error())
++			return
++		}
++		defer cleanup()
++		started, err := h.Memory().SessionStartedAt(r.Context(), id)
+ 		if err != nil {
+ 			writeError(w, http.StatusNotFound, err.Error())
+ 			return
+ 		}
+ 		if !started.IsZero() {
+ 			st["started_at"] = started.UTC().Format(time.RFC3339)
+ 		}
+ 	}
+ 	writeJSON(w, http.StatusOK, st)
+ }
+ 
+ // handleMemoryLastSaveAt returns the newest observation timestamp so the
+ // plugin can compute how long since the last save (for the debounced nudge).
+ func (s *Server) handleMemoryLastSaveAt(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+-	ts, err := s.svc.LastObservationAt(r.Context(), projectID)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	ts, err := h.Memory().LastObservationAt(r.Context())
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	out := map[string]any{"last_save_at": ""}
+ 	if !ts.IsZero() {
+ 		out["last_save_at"] = ts.UTC().Format(time.RFC3339)
+ 	}
+ 	writeJSON(w, http.StatusOK, out)
+ }
+@@ -314,21 +382,27 @@ func (s *Server) handlePromptCreate(w http.ResponseWriter, r *http.Request) {
+ 	}
+ 	var in service.PromptInput
+ 	if err := decodeJSON(r, &in); err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	if strings.TrimSpace(projectID) == "" {
+ 		writeError(w, http.StatusBadRequest, "project is required")
+ 		return
+ 	}
+-	id, err := s.svc.SavePrompt(r.Context(), projectID, in)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	id, err := h.Memory().SavePrompt(r.Context(), in)
+ 	if err != nil {
+ 		if errors.Is(err, memory.ErrPromptTooSmall) {
+ 			writeJSON(w, http.StatusAccepted, map[string]any{"captured": false, "reason": "too-small"})
+ 			return
+ 		}
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "captured": true})
+ }
+@@ -342,21 +416,27 @@ func (s *Server) handleObservationPassive(w http.ResponseWriter, r *http.Request
+ 	}
+ 	var in service.PassiveInput
+ 	if err := decodeJSON(r, &in); err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	if strings.TrimSpace(projectID) == "" {
+ 		writeError(w, http.StatusBadRequest, "project is required")
+ 		return
+ 	}
+-	res, err := s.svc.CapturePassive(r.Context(), projectID, in)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	res, err := h.Memory().CapturePassive(r.Context(), in)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, res)
+ }
+ 
+ // handleProjectsMigrate rolls data from oldProject into newProject.
+ func (s *Server) handleProjectsMigrate(w http.ResponseWriter, r *http.Request) {
+ 	var body struct {
+@@ -426,21 +506,27 @@ func (s *Server) handleMemoryTimeline(w http.ResponseWriter, r *http.Request) {
+ 		writeError(w, http.StatusBadRequest, "id query param is required")
+ 		return
+ 	}
+ 	id, err := strconv.ParseInt(idStr, 10, 64)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, "id must be an integer")
+ 		return
+ 	}
+ 	window := parseWindow(r.URL.Query().Get("window"), 1*time.Hour)
+ 	limit := queryInt(r, "limit", 5)
+-	tl, err := s.svc.ObservationTimeline(r.Context(), projectID, id, window, limit)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusNotFound, err.Error())
++		return
++	}
++	defer cleanup()
++	tl, err := h.Memory().Timeline(r.Context(), id, window, limit)
+ 	if err != nil {
+ 		writeError(w, http.StatusNotFound, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"anchor_id": id, "before": tl.Before, "after": tl.After})
+ }
+ 
+ func (s *Server) handleObservationUpdate(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+@@ -450,73 +536,97 @@ func (s *Server) handleObservationUpdate(w http.ResponseWriter, r *http.Request)
+ 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, "id must be an integer")
+ 		return
+ 	}
+ 	var in memory.UpdateInput
+ 	if err := decodeJSON(r, &in); err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+-	if err := s.svc.UpdateObservation(r.Context(), projectID, id, in); err != nil {
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusNotFound, err.Error())
++		return
++	}
++	defer cleanup()
++	if err := h.Memory().Update(r.Context(), id, in); err != nil {
+ 		writeError(w, http.StatusNotFound, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "updated": true})
+ }
+ 
+ func (s *Server) handleObservationDelete(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, "id must be an integer")
+ 		return
+ 	}
+ 	hard := r.URL.Query().Get("hard") == "true"
+-	if err := s.svc.DeleteObservation(r.Context(), projectID, id, hard); err != nil {
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusNotFound, err.Error())
++		return
++	}
++	defer cleanup()
++	if err := h.Memory().Delete(r.Context(), id, hard); err != nil {
+ 		writeError(w, http.StatusNotFound, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true, "hard": hard})
+ }
+ 
+ func (s *Server) handleMemoryReviews(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	limit := queryInt(r, "limit", 20)
+-	due, err := s.svc.ListReviews(r.Context(), projectID, limit)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	due, err := h.Memory().ListReviews(r.Context(), limit)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"due": due, "count": len(due)})
+ }
+ 
+ func (s *Server) handleMemoryReviewMark(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, "id must be an integer")
+ 		return
+ 	}
+-	ta, err := s.svc.MarkReviewReviewed(r.Context(), projectID, id)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusNotFound, err.Error())
++		return
++	}
++	defer cleanup()
++	ta, err := h.Memory().MarkReviewed(r.Context(), id)
+ 	if err != nil {
+ 		writeError(w, http.StatusNotFound, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "marked_reviewed": true, "review_after": ta})
+ }
+ 
+ // RelationBody is the shared body for mem_judge (verdict) / mem_compare
+ // (relation). Accepts either key, since the two MCP tools name the same
+ // field differently.
+@@ -545,21 +655,27 @@ func (s *Server) handleRelationCreate(w http.ResponseWriter, r *http.Request) {
+ 	var body relationBody
+ 	if err := decodeJSON(r, &body); err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	rel := body.effectiveRelation()
+ 	if rel == "" {
+ 		writeError(w, http.StatusBadRequest, "verdict or relation is required")
+ 		return
+ 	}
+-	out, err := s.svc.RecordRelation(r.Context(), projectID, body.SrcID, body.DstID, rel, body.Reason, body.Confidence)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusUnprocessableEntity, err.Error())
++		return
++	}
++	defer cleanup()
++	out, err := h.Memory().RecordRelation(r.Context(), body.SrcID, body.DstID, rel, body.Reason, body.Confidence)
+ 	if err != nil {
+ 		writeError(w, http.StatusUnprocessableEntity, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusCreated, out)
+ }
+ 
+ func (s *Server) handleRelationRemove(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+@@ -575,40 +691,52 @@ func (s *Server) handleRelationRemove(w http.ResponseWriter, r *http.Request) {
+ 	dstID, err := strconv.ParseInt(q.Get("dst_id"), 10, 64)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, "dst_id is required")
+ 		return
+ 	}
+ 	rel := q.Get("relation")
+ 	if rel == "" {
+ 		writeError(w, http.StatusBadRequest, "relation is required")
+ 		return
+ 	}
+-	removed, err := s.svc.RemoveRelation(r.Context(), projectID, srcID, dstID, rel)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	removed, err := h.Memory().RemoveRelation(r.Context(), srcID, dstID, rel)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "src_id": srcID, "dst_id": dstID})
+ }
+ 
+ func (s *Server) handleRelationsOf(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, "id must be an integer")
+ 		return
+ 	}
+-	rels, err := s.svc.RelationsOf(r.Context(), projectID, id)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusNotFound, err.Error())
++		return
++	}
++	defer cleanup()
++	rels, err := h.Memory().RelationsOf(r.Context(), id)
+ 	if err != nil {
+ 		writeError(w, http.StatusNotFound, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "relations": rels, "count": len(rels)})
+ }
+ 
+ // handleRelationsBetween lists live links between two observations (the
+ // mem_compare list mode over HTTP).
+ func (s *Server) handleRelationsBetween(w http.ResponseWriter, r *http.Request) {
+@@ -621,21 +749,27 @@ func (s *Server) handleRelationsBetween(w http.ResponseWriter, r *http.Request)
+ 	srcID, err := strconv.ParseInt(q.Get("src_id"), 10, 64)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, "src_id is required")
+ 		return
+ 	}
+ 	dstID, err := strconv.ParseInt(q.Get("dst_id"), 10, 64)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, "dst_id is required")
+ 		return
+ 	}
+-	rels, err := s.svc.RelationsBetween(r.Context(), projectID, srcID, dstID)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusNotFound, err.Error())
++		return
++	}
++	defer cleanup()
++	rels, err := h.Memory().RelationsBetween(r.Context(), srcID, dstID)
+ 	if err != nil {
+ 		writeError(w, http.StatusNotFound, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"src_id": srcID, "dst_id": dstID, "relations": rels, "count": len(rels)})
+ }
+ 
+ func (s *Server) handleMemoryCurrentProject(w http.ResponseWriter, r *http.Request) {
+ 	cwd, err := os.Getwd()
+ 	if err != nil {
+@@ -649,21 +783,27 @@ func (s *Server) handleMemoryCurrentProject(w http.ResponseWriter, r *http.Reque
+ 	}
+ 	writeJSON(w, http.StatusOK, info)
+ }
+ 
+ func (s *Server) handleMemoryDoctor(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+-	out, err := s.svc.MemoryDoctor(r.Context(), projectID)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	out, err := httpMemoryDoctor(r.Context(), h, projectID)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, out)
+ }
+ 
+ func parseWindow(v string, def time.Duration) time.Duration {
+ 	if v == "" {
+ 		return def
+@@ -674,73 +814,122 @@ func parseWindow(v string, def time.Duration) time.Duration {
+ 	}
+ 	return d
+ }
+ 
+ func (s *Server) handleMemoryStatus(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+-	st, err := s.svc.MemoryStatus(r.Context(), projectID)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	st, err := h.Memory().Status(r.Context())
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, st)
+ }
+ 
+ func (s *Server) handleObservationCreate(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	var in service.SaveObservationInput
+ 	if err := decodeJSON(r, &in); err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+-	id, err := s.svc.SaveObservation(r.Context(), projectID, in)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	id, err := h.Memory().Save(r.Context(), memory.SaveInput{
++		Title:         in.Title,
++		Type:          in.Type,
++		Content:       in.Content,
++		Scope:         scopeForSave(in.Scope),
++		TopicKey:      in.TopicKey,
++		SessionID:     in.SessionID,
++		CapturePrompt: in.CapturePrompt,
++		ProjectName:   in.ProjectName,
++		ToolName:      in.ToolName,
++	})
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+ }
+ 
+ func (s *Server) handleObservationsRecent(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	limit := queryInt(r, "limit", 5)
+-	sessions, err := s.svc.RecentContext(r.Context(), projectID, limit)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	sessions, err := h.Memory().RecentContext(r.Context(), limit)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+ }
+ 
+ func (s *Server) handleCodeIndex(w http.ResponseWriter, r *http.Request) {
+ 	dir := r.URL.Query().Get("dir")
+ 	if dir == "" {
+ 		var err error
+ 		dir, err = os.Getwd()
+ 		if err != nil {
+ 			writeError(w, http.StatusInternalServerError, err.Error())
+ 			return
+ 		}
+ 	}
+-	stats, err := s.svc.RunCodeIndex(r.Context(), dir)
++	h, cleanup, err := s.openHandleForDir(dir)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	// Same indexing behavior as service.RunCodeIndex: config for the index run
++	// comes from the directory itself (matches the facade), the store from the
++	// handle, and the embedder from the handle's config root.
++	cfg := config.Load(dir)
++	idxCfg := codeindex.Config{
++		Include:      cfg.Include,
++		Exclude:      cfg.Exclude,
++		ChunkLines:   cfg.ChunkLines,
++		ChunkOverlap: cfg.ChunkOverlap,
++		MaxFileSize:  cfg.MaxFileSize,
++	}
++	idx := codeindex.New(h.Store())
++	if emb := httpResolveEmbedder(dir); emb != nil {
++		idx = idx.WithEmbedder(emb)
++	}
++	stats, err := idx.Run(r.Context(), dir, idxCfg)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{
+ 		"files_indexed": stats.FilesIndexed,
+ 		"files_skipped": stats.FilesSkipped,
+ 		"files_deleted": stats.FilesDeleted,
+ 		"chunks_added":  stats.ChunksAdded,
+ 	})
+@@ -758,105 +947,157 @@ func (s *Server) handleCodeRead(w http.ResponseWriter, r *http.Request) {
+ 		writeError(w, http.StatusBadRequest, "path is required")
+ 		return
+ 	}
+ 	startLine, endLine := 0, 0
+ 	if v := q.Get("start_line"); v != "" {
+ 		startLine, _ = strconv.Atoi(v)
+ 	}
+ 	if v := q.Get("end_line"); v != "" {
+ 		endLine, _ = strconv.Atoi(v)
+ 	}
+-	result, err := s.svc.ReadIndexedCode(r.Context(), projectID, path, startLine, endLine)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusNotFound, err.Error())
++		return
++	}
++	defer cleanup()
++	result, err := readIndexedCode(h.Store().DB, path, startLine, endLine)
+ 	if err != nil {
+ 		writeError(w, http.StatusNotFound, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, result)
+ }
+ 
+ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	query := r.URL.Query().Get("query")
+ 	matchMode := r.URL.Query().Get("match_mode")
+ 	if matchMode == "" {
+ 		matchMode = "any"
+ 	}
+ 	limit := queryInt(r, "limit", 20)
+-	hits, err := s.svc.SearchObservations(r.Context(), projectID, query, matchMode, limit)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	// SearchObservations delegates to the scoped variant with scope "" (any).
++	hits, err := h.Memory().SearchWithScope(r.Context(), query, matchMode, "", limit)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"observations": hits})
+ }
+ 
+ func (s *Server) handleCodeStatus(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+-	status, stale, err := s.svc.CodeStatus(r.Context(), projectID)
++	h, cleanup, err := s.openHandleFor(projectID)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
++	defer cleanup()
++	status, err := codeindex.GetStatus(h.Store())
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	stale := status.FileCount == 0 || status.LastIndexed == ""
+ 	writeJSON(w, http.StatusOK, map[string]any{
+ 		"file_count":   status.FileCount,
+ 		"chunk_count":  status.ChunkCount,
+ 		"last_indexed": status.LastIndexed,
+ 		"stale":        stale,
+ 	})
+ }
+ 
+ func (s *Server) handleCodeFiles(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+-	paths, err := s.svc.CodeFiles(r.Context(), projectID)
++	h, cleanup, err := s.openHandleFor(projectID)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
++	defer cleanup()
++	rows, err := h.Store().DB.QueryContext(r.Context(), `SELECT path FROM files ORDER BY path`)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, "list files: "+err.Error())
++		return
++	}
++	defer rows.Close()
++	var paths []string
++	for rows.Next() {
++		var p string
++		if err := rows.Scan(&p); err != nil {
++			writeError(w, http.StatusInternalServerError, err.Error())
++			return
++		}
++		paths = append(paths, p)
++	}
++	if err := rows.Err(); err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"files": paths})
+ }
+ 
+ func (s *Server) handleCodeSearch(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	query := r.URL.Query().Get("query")
+ 	limit := queryInt(r, "limit", 20)
+-	hits, err := s.svc.CodeSearch(r.Context(), projectID, query, limit)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	hits, err := search.CodeSearch(h.Store().DB, query, limit)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"hits": hits})
+ }
+ 
+ func (s *Server) handleWebLookup(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	q := r.URL.Query()
+-	result, err := s.svc.WebLookup(r.Context(), projectID, webcache.LookupInput{
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	result, err := h.Web().Lookup(r.Context(), webcache.LookupInput{
+ 		Source:      q.Get("source"),
+ 		URL:         q.Get("url"),
+ 		Query:       q.Get("query"),
+ 		LibraryID:   q.Get("library_id"),
+ 		VersionTag:  q.Get("version_tag"),
+ 		RepoName:    q.Get("repo_name"),
+ 		Question:    q.Get("question"),
+ 		SortParams:  q.Get("sort_params"),
+ 		Title:       q.Get("title"),
+ 		ContentHash: q.Get("content_hash"),
+@@ -872,39 +1113,51 @@ func (s *Server) handleWebCacheSave(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	var in webcache.SaveWebInput
+ 	if err := decodeJSON(r, &in); err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+-	id, err := s.svc.WebSave(r.Context(), projectID, in)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	id, err := h.Web().Save(r.Context(), in)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
+ }
+ 
+ func (s *Server) handleWebSearch(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	query := r.URL.Query().Get("query")
+ 	source := r.URL.Query().Get("source")
+ 	freshOnly := r.URL.Query().Get("fresh_only") != "false"
+ 	limit := queryInt(r, "limit", 20)
+-	hits, err := s.svc.WebSearch(r.Context(), projectID, query, source, freshOnly, limit)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	hits, err := h.Web().Search(r.Context(), query, source, freshOnly, limit)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"entries": hits})
+ }
+ 
+ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
+ 	ids, err := s.svc.ListProjects()
+ 	if err != nil {
+@@ -914,54 +1167,72 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
+ 	writeJSON(w, http.StatusOK, map[string]any{"projects": ids})
+ }
+ 
+ func (s *Server) handleObservationsList(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	limit := queryInt(r, "limit", 50)
+-	obs, err := s.svc.ObservationsRecent(r.Context(), projectID, limit)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	obs, err := h.Memory().Recent(r.Context(), limit)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{"observations": obs})
+ }
+ 
+ func (s *Server) handleWebEntry(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, "id must be an integer")
+ 		return
+ 	}
+-	entry, err := s.svc.WebGet(r.Context(), projectID, id)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusNotFound, err.Error())
++		return
++	}
++	defer cleanup()
++	entry, err := h.Web().Get(r.Context(), id)
+ 	if err != nil {
+ 		writeError(w, http.StatusNotFound, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, entry)
+ }
+ 
+ func (s *Server) handleWebStatus(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+-	st, err := s.svc.WebCacheStatus(r.Context(), projectID)
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++	st, err := h.Web().CacheStatus(r.Context())
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, st)
+ }
+ 
+ func projectFromRequest(r *http.Request) (string, error) {
+ 	if p := strings.TrimSpace(r.URL.Query().Get("project")); p != "" {
+ 		return p, nil
+@@ -1005,10 +1276,165 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
+ }
+ 
+ func writeError(w http.ResponseWriter, status int, msg string) {
+ 	writeJSON(w, status, map[string]string{"error": msg})
+ }
+ 
+ func decodeJSON(r *http.Request, dst any) error {
+ 	defer r.Body.Close()
+ 	return json.NewDecoder(r.Body).Decode(dst)
+ }
++
++// httpMemoryDoctor reproduces service.MemoryDoctor's read-only diagnostics
++// (schema version, WAL state, table + FTS row counts and drift, by-type,
++// disk size) directly on the handle's store, so the doctor route opens the
++// project store exactly once.
++func httpMemoryDoctor(ctx context.Context, h *service.ProjectHandle, projectID string) (service.MemoryDoctor, error) {
++	out := service.MemoryDoctor{}
++	db := h.Store().DB
++	if err := db.QueryRowContext(ctx, `SELECT schema_version FROM index_meta WHERE key='schema_version'`).Scan(&out.SchemaVersion); err != nil {
++		if !errors.Is(err, sql.ErrNoRows) {
++			return out, fmt.Errorf("schema_version: %w", err)
++		}
++	}
++	if err := db.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&out.WALMode); err != nil {
++		return out, fmt.Errorf("journal_mode: %w", err)
++	}
++	byType := map[string]int{}
++	httpRowCount(ctx, db, "observations", &out.Observations)
++	httpRowCount(ctx, db, "files", &out.Files)
++	httpRowCount(ctx, db, "chunks", &out.Chunks)
++	httpRowCount(ctx, db, "web_cache", &out.WebCache)
++	httpRowCount(ctx, db, "prompts", &out.Prompts)
++
++	ftsObs, ftsChunks, ftsWeb := int64(0), int64(0), int64(0)
++	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM observations_fts`).Scan(&ftsObs)
++	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM chunks_fts`).Scan(&ftsChunks)
++	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM web_cache_fts`).Scan(&ftsWeb)
++	out.ObservationsFTS = int(ftsObs)
++	out.ChunksFTS = int(ftsChunks)
++	out.WebCacheFTS = int(ftsWeb)
++
++	rows, err := db.QueryContext(ctx, `
++		SELECT type, COUNT(*) FROM observations
++		WHERE project = ? AND deleted_at IS NULL GROUP BY type`, projectID)
++	if err == nil {
++		for rows.Next() {
++			var t string
++			var c int
++			if rows.Scan(&t, &c) == nil {
++				byType[t] = c
++			}
++		}
++		rows.Close()
++	}
++	out.ByType = byType
++
++	if info, err := os.Stat(h.Store().Path()); err == nil {
++		out.DiskSizeBytes = info.Size()
++	}
++	out.FTSDrift = int(ftsObs) - out.Observations
++	out.FTSIntegrityOK = out.FTSDrift >= 0
++	return out, nil
++}
++
++func httpRowCount(ctx context.Context, db *sql.DB, table string, out *int) {
++	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(out)
++}
++
++// httpResolveEmbedder builds the process embedder from config for configRoot,
++// mirroring service.resolveEmbedder (external/onnx/off). A nil return means
++// the embedder is off — indexing degrades to the FTS floor.
++func httpResolveEmbedder(configRoot string) embedder.Embedder {
++	cfg := config.Load(configRoot)
++	switch cfg.Embedder.Provider {
++	case "external":
++		return embedder.NewExternal(embedder.ExternalConfig{
++			BaseURL:   cfg.Embedder.BaseURL,
++			Model:     cfg.Embedder.Model,
++			APIKey:    cfg.Embedder.APIKey,
++			Dimension: cfg.Embedder.Dimension,
++			Indexing:  httpToAsym(cfg.Embedder.Indexing),
++			Query:     httpToAsym(cfg.Embedder.Query),
++		})
++	case "off", "":
++		return nil
++	default: // "onnx" is the default
++		return embedder.NewOnnx(embedder.OnnxConfig{
++			Model:     cfg.Embedder.Model,
++			Dimension: cfg.Embedder.Dimension,
++			Indexing:  httpToAsym(cfg.Embedder.Indexing),
++			Query:     httpToAsym(cfg.Embedder.Query),
++		})
++	}
++}
++
++func httpToAsym(p config.EmbedderParams) embedder.AsymParams {
++	return embedder.AsymParams{
++		Instructions: p.Instructions,
++		InputType:    p.InputType,
++		MaxTokens:    p.MaxTokens,
++	}
++}
++
++// readIndexedCode returns indexed source for path and optional line range
++// (byte-compatible copy of the service-layer helper, run on the handle's DB).
++func readIndexedCode(db *sql.DB, path string, startLine, endLine int) (map[string]any, error) {
++	var fileID int64
++	err := db.QueryRow(`SELECT id FROM files WHERE path = ?`, path).Scan(&fileID)
++	if err == sql.ErrNoRows {
++		return nil, fmt.Errorf("file not indexed: %s", path)
++	}
++	if err != nil {
++		return nil, err
++	}
++	var rows *sql.Rows
++	if startLine > 0 {
++		if endLine <= 0 {
++			endLine = startLine
++		}
++		rows, err = db.Query(`
++			SELECT start_line, end_line, text FROM chunks
++			WHERE file_id = ? AND start_line <= ? AND end_line >= ?
++			ORDER BY start_line`,
++			fileID, endLine, startLine,
++		)
++	} else {
++		rows, err = db.Query(`
++			SELECT start_line, end_line, text FROM chunks
++			WHERE file_id = ?
++			ORDER BY start_line`, fileID)
++	}
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var parts []string
++	firstLine := 0
++	lastLine := 0
++	for rows.Next() {
++		var chunkStart, chunkEnd int
++		var text string
++		if err := rows.Scan(&chunkStart, &chunkEnd, &text); err != nil {
++			return nil, err
++		}
++		if firstLine == 0 || chunkStart < firstLine {
++			firstLine = chunkStart
++		}
++		if chunkEnd > lastLine {
++			lastLine = chunkEnd
++		}
++		parts = append(parts, text)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	if len(parts) == 0 {
++		return nil, fmt.Errorf("no indexed chunks for %s", path)
++	}
++	return map[string]any{
++		"path":       path,
++		"start_line": firstLine,
++		"end_line":   lastLine,
++		"text":       strings.Join(parts, "\n"),
++	}, nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/http/single_open_test.go b/skillgrid-cli/internal/mnemonic/http/single_open_test.go
+new file mode 100644
+index 0000000..65ce12f
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/http/single_open_test.go
+@@ -0,0 +1,208 @@
++package http
++
++import (
++	"net/http"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// These tests pin the single-open contract for the HTTP API: every
++// single-project route opens its project store exactly once per request —
++// the route opens a *service.ProjectHandle via s.svc.Open / OpenForDirectory
++// and performs the domain op through it (h.Memory()/h.Web()/h.Store()),
++// matching the MCP lifecycle from step 02.
++//
++// store.OpenCount() counts every store.Open call in the process, so a route
++// that legitimately opens one store must report 1, and a double-open (route
++// open + facade re-open) would report 2.
++
++// TestObservationRoutesOpenStoreOnce proves the observation create/recent
++// path opens its project store exactly once per request (Scenario:
++// "Observation routes open store once"). A double-open (route open #1 +
++// facade openProject #2) would make the count 2.
++func TestObservationRoutesOpenStoreOnce(t *testing.T) {
++	dataDir := t.TempDir()
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
++	seedStore(t, dataDir)
++	svc := service.New(dataDir)
++	h := NewServer(svc).Handler()
++
++	// Write path: POST /observations.
++	store.ResetOpenCount()
++	rr, out := do(t, h, http.MethodPost, "/observations?project="+proj, map[string]any{
++		"session_id": "s1",
++		"type":       "decision",
++		"title":      "single open probe",
++		"content":    "created over http, single-open probe",
++		"scope":      "project",
++	})
++	if rr.Code != http.StatusCreated {
++		t.Fatalf("POST /observations: expected 201, got %d: %s", rr.Code, rr.Body.String())
++	}
++	if id, ok := out["id"].(float64); !ok || id <= 0 {
++		t.Fatalf("expected positive id, got %v", out["id"])
++	}
++	if got := store.OpenCount(); got != 1 {
++		t.Errorf("POST /observations opened the store %d times, want exactly 1 (double-open)", got)
++	}
++
++	// Read path: GET /observations/recent.
++	store.ResetOpenCount()
++	rr, out = do(t, h, http.MethodGet, "/observations/recent?project="+proj, nil)
++	if rr.Code != http.StatusOK {
++		t.Fatalf("GET /observations/recent: expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	if _, ok := out["sessions"].([]any); !ok {
++		t.Fatalf("expected sessions array, got %v", out["sessions"])
++	}
++	if got := store.OpenCount(); got != 1 {
++		t.Errorf("GET /observations/recent opened the store %d times, want exactly 1 (double-open)", got)
++	}
++}
++
++// TestObservationListRouteOpenStoreOnce is a second single-open probe on the
++// GET /observations route (memory.Recent through the handle).
++func TestObservationListRouteOpenStoreOnce(t *testing.T) {
++	dataDir := t.TempDir()
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
++	seedStore(t, dataDir)
++	svc := service.New(dataDir)
++	h := NewServer(svc).Handler()
++
++	store.ResetOpenCount()
++	rr, out := do(t, h, http.MethodGet, "/observations?project="+proj, nil)
++	if rr.Code != http.StatusOK {
++		t.Fatalf("GET /observations: expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	obs, ok := out["observations"].([]any)
++	if !ok || len(obs) != 1 {
++		t.Fatalf("expected one observation, got %v", out["observations"])
++	}
++	if got := store.OpenCount(); got != 1 {
++		t.Errorf("GET /observations opened the store %d times, want exactly 1 (double-open)", got)
++	}
++}
++
++// singleOpenRoutes is the matrix of rewired single-project routes (Scenario:
++// "Single-project HTTP uses handle"). Each must open the project store exactly
++// once and return its unchanged JSON shape.
++func TestSingleProjectRoutesUseHandle(t *testing.T) {
++	dataDir := t.TempDir()
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
++	seedStore(t, dataDir)
++	seedSecond(t, dataDir)
++	svc := service.New(dataDir)
++	h := NewServer(svc).Handler()
++
++	cases := []struct {
++		method string
++		target string
++		body   any
++		key    string
++	}{
++		{http.MethodGet, "/observations/recent?project=" + proj, nil, "sessions"},
++		{http.MethodGet, "/observations?project=" + proj, nil, "observations"},
++		{http.MethodGet, "/context?project=" + proj, nil, "sessions"},
++		{http.MethodGet, "/memory/status?project=" + proj, nil, "observation_count"},
++		{http.MethodGet, "/memory/last-save-at?project=" + proj, nil, "last_save_at"},
++		{http.MethodGet, "/memory/doctor?project=" + proj, nil, "schema_version"},
++		{http.MethodGet, "/memory/timeline?project=" + proj + "&id=1&window=1h", nil, "anchor_id"},
++		{http.MethodGet, "/memory/reviews?project=" + proj, nil, "due"},
++		{http.MethodGet, "/search?project=" + proj + "&query=obs", nil, "observations"},
++		{http.MethodGet, "/relations/1?project=" + proj, nil, "relations"},
++		{http.MethodGet, "/relations?project=" + proj + "&src_id=1&dst_id=2", nil, "relations"},
++		{http.MethodGet, "/code/status?project=" + proj, nil, "file_count"},
++		{http.MethodGet, "/code/files?project=" + proj, nil, "files"},
++		{http.MethodGet, "/code/search?project=" + proj + "&query=x", nil, "hits"},
++		{http.MethodGet, "/web/lookup?project=" + proj + "&source=context7&library_id=/o&p&query=q", nil, "status"},
++		{http.MethodGet, "/web/search?project=" + proj + "&query=x", nil, "entries"},
++		{http.MethodGet, "/web/status?project=" + proj, nil, "total_entries"},
++		{http.MethodGet, "/sessions/s1?project=" + proj, nil, "id"},
++		{http.MethodPatch, "/memory/observations/1?project=" + proj, map[string]any{"content": "updated via single-open probe"}, "updated"},
++		{http.MethodPost, "/memory/reviews/1?project=" + proj, nil, "marked_reviewed"},
++	}
++	for _, c := range cases {
++		t.Run(c.method+" "+c.target, func(t *testing.T) {
++			store.ResetOpenCount()
++			rr, out := do(t, h, c.method, c.target, c.body)
++			if rr.Code != http.StatusOK && rr.Code != http.StatusCreated {
++				t.Fatalf("expected 200/201, got %d: %s", rr.Code, rr.Body.String())
++			}
++			if _, ok := out[c.key]; !ok {
++				t.Errorf("expected %q key in response, got %v", c.key, out)
++			}
++			if got := store.OpenCount(); got != 1 {
++				t.Errorf("opened the store %d times, want exactly 1 (double-open)", got)
++			}
++		})
++	}
++}
++
++// TestSessionEndOpenStoreOnce proves the session-end route (the
++// projectID-scoped variant of the directory-rooted session lifecycle) opens
++// the project store exactly once.
++func TestSessionEndOpenStoreOnce(t *testing.T) {
++	dataDir := t.TempDir()
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
++	seedStore(t, dataDir)
++	svc := service.New(dataDir)
++	h := NewServer(svc).Handler()
++
++	store.ResetOpenCount()
++	rr, _ := do(t, h, http.MethodPost, "/sessions/s1/end?project="+proj, map[string]any{"summary": "ended"})
++	if rr.Code != http.StatusOK {
++		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	if got := store.OpenCount(); got != 1 {
++		t.Errorf("POST /sessions/{id}/end opened the store %d times, want exactly 1 (double-open)", got)
++	}
++}
++
++// TestMigrateMergeStayOnRoot proves the cross-store migrate/merge routes keep
++// working through the root Service (Scenario: "Migrate and merge stay on root")
++// and that a single-project route still opens exactly once afterward.
++func TestMigrateMergeStayOnRoot(t *testing.T) {
++	dataDir := t.TempDir()
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
++	seedStore(t, dataDir)
++	svc := service.New(dataDir)
++	h := NewServer(svc).Handler()
++
++	// Merge a legacy project into the seeded one (alias recorded even with 0
++	// rows moved) — the root cross-store path must run.
++	rr, out := do(t, h, http.MethodPost, "/projects/merge", map[string]any{
++		"source": "proj-legacy", "canonical": proj,
++	})
++	if rr.Code != http.StatusOK {
++		t.Fatalf("POST /projects/merge: expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	if out["merged"] != true || out["alias_recorded"] != true {
++		t.Fatalf("expected merged+alias_recorded true, got %v", out)
++	}
++
++	// Migrate is a no-op for a missing source store (root path, 0 moved).
++	rr, out = do(t, h, http.MethodPost, "/projects/migrate", map[string]any{
++		"old_project": "proj-legacy", "new_project": proj,
++	})
++	if rr.Code != http.StatusOK {
++		t.Fatalf("POST /projects/migrate: expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	if out["rows_moved"] != float64(0) {
++		t.Fatalf("expected 0 rows moved, got %v", out["rows_moved"])
++	}
++
++	// Single-project route after the cross-store ops: still opens once.
++	store.ResetOpenCount()
++	rr, out = do(t, h, http.MethodGet, "/observations?project="+proj, nil)
++	if rr.Code != http.StatusOK {
++		t.Fatalf("GET /observations: expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	if _, ok := out["observations"].([]any); !ok {
++		t.Fatalf("expected observations array, got %v", out["observations"])
++	}
++	if got := store.OpenCount(); got != 1 {
++		t.Errorf("GET /observations after migrate/merge opened the store %d times, want exactly 1", got)
++	}
++}

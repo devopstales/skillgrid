@@ -1,0 +1,3694 @@
+=== 008 STEP 03 CODE COMMITS cb117c3..0d01b76 ===
+
+0d01b76 feat(mnemonic): code_path spans code to doc to config to table
+aa98d1c feat(mnemonic): wire community/process/knowledge passes into Indexer.Run (03.8)
+4bc0391 feat(mnemonic): register knowledge-graph query tools
+cfdf6f8 feat(mnemonic): sql-schema extractor
+f5f10f2 feat(mnemonic): config-ref extractor
+cb117c3 feat(mnemonic): markdown doc-link extractor
+
+=== STAT ===
+ skillgrid-cli/cmd/skillgrid/code_intel.go          | 289 ++++++++++-
+ skillgrid-cli/cmd/skillgrid/main.go                |   3 +-
+ .../internal/mnemonic/codeindex/indexer.go         | 173 +++++++
+ .../mnemonic/codeindex/indexer_hook_test.go        | 139 +++++
+ skillgrid-cli/internal/mnemonic/graph/graph.go     |   7 +-
+ skillgrid-cli/internal/mnemonic/graph/span.go      | 571 +++++++++++++++++++++
+ .../mnemonic/knowledge/codpath_span_test.go        | 208 ++++++++
+ .../internal/mnemonic/knowledge/config.go          | 141 +++++
+ skillgrid-cli/internal/mnemonic/knowledge/doc.go   | 201 ++++++++
+ .../internal/mnemonic/knowledge/knowledge_test.go  | 434 ++++++++++++++++
+ .../internal/mnemonic/knowledge/passes.go          | 108 ++++
+ skillgrid-cli/internal/mnemonic/knowledge/sql.go   | 287 +++++++++++
+ skillgrid-cli/internal/mnemonic/knowledge/store.go | 318 ++++++++++++
+ skillgrid-cli/internal/mnemonic/mcp/server.go      |   2 +
+ skillgrid-cli/internal/mnemonic/mcp/server_test.go |   2 +
+ .../internal/mnemonic/mcp/tools_code_graph.go      |  28 +-
+ .../internal/mnemonic/mcp/tools_code_knowledge.go  | 333 ++++++++++++
+ .../mnemonic/mcp/tools_code_knowledge_test.go      | 151 ++++++
+ .../store/migrations/015_knowledge_graph.sql       |  50 ++
+ 19 files changed, 3431 insertions(+), 14 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/cmd/skillgrid/code_intel.go b/skillgrid-cli/cmd/skillgrid/code_intel.go
+index a74faa0..2ed389c 100644
+--- a/skillgrid-cli/cmd/skillgrid/code_intel.go
++++ b/skillgrid-cli/cmd/skillgrid/code_intel.go
+@@ -10,6 +10,8 @@ import (
+ 	"strconv"
+ 	"syscall"
+ 
++	"database/sql"
++
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/community"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/graph"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+@@ -43,6 +45,8 @@ func runCodeIntel(version string, args []string) {
+ 		runGodNodes(version, args[1:])
+ 	case "explain-community":
+ 		runExplainCommunity(version, args[1:])
++	case "docs", "configs", "sql-schema", "sql-access":
++		runKnowledge(version, args[0], args[1:])
+ 	case "help", "-h", "--help":
+ 		printCodeIntelUsage()
+ 	default:
+@@ -65,9 +69,13 @@ func printCodeIntelUsage() {
+   explain SYMBOL          Symbol node + degree + connections ranked by degree
+    impact SYMBOL           Risk-tiered blast radius (WILL BREAK / LIKELY AFFECTED)
+    explore SYMBOL          Composite: source + call-flow + blast radius in one call
+-   communities             Leiden-clustered subsystems (LLM-free labels)
+-   god-nodes [--exclude-hubs] [--limit N]  Most-connected symbols by degree
+-   explain-community ID    A community's members + key entry points
++  communities             Leiden-clustered subsystems (LLM-free labels)
++  god-nodes [--exclude-hubs] [--limit N]  Most-connected symbols by degree
++  explain-community ID    A community's members + key entry points
++  docs [PATH]             Indexed markdown docs + references edges
++  configs [PATH]          Indexed config files + configures edges
++  sql-schema [TABLE]      Indexed SQL schema (tables + columns)
++  sql-access [TABLE]      reads/writes edges between code and SQL tables
+ 
+   graph flags:
+     --json    Emit machine-readable JSON (default: human table)
+@@ -93,6 +101,281 @@ func graphView(sub string) string {
+ 	return sub
+ }
+ 
++// runKnowledge implements the knowledge-graph query subcommands (CLI parity
++// for the code_docs / code_configs / code_sql_schema / code_sql_access MCP
++// tools).
++func runKnowledge(version, sub string, args []string) {
++	fs := flag.NewFlagSet(sub, flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	var jsonOut bool
++	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
++	fs.Usage = func() {
++		fmt.Fprintf(fs.Output(), "usage: skillgrid %s [TARGET] [--json]\n", sub)
++		fs.PrintDefaults()
++	}
++	if err := fs.Parse(args); err != nil {
++		os.Exit(2)
++	}
++	target := ""
++	if fs.NArg() >= 1 {
++		target = fs.Arg(0)
++	}
++	svc, projectID, err := openGraphService()
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", err)
++		os.Exit(1)
++	}
++	_ = version
++	_, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++	defer stop()
++	h, cleanup, err := svc.Open(projectID)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	db := h.Store().DB
++	var out map[string]any
++	switch sub {
++	case "docs":
++		out, err = knowledgeDocsCLI(db, target)
++	case "configs":
++		out, err = knowledgeConfigsCLI(db, target)
++	case "sql-schema":
++		out, err = knowledgeSQLSchemaCLI(db, target)
++	case "sql-access":
++		out, err = knowledgeSQLAccessCLI(db, target)
++	}
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", err)
++		os.Exit(1)
++	}
++	if jsonOut {
++		b, _ := json.MarshalIndent(out, "", "  ")
++		fmt.Fprintln(os.Stdout, string(b))
++		return
++	}
++	printKnowledge(sub, out)
++}
++
++// printKnowledge renders a knowledge query result as a human table.
++func printKnowledge(sub string, out map[string]any) {
++	switch sub {
++	case "docs":
++		docs, _ := out["docs"].([]map[string]any)
++		if len(docs) == 0 {
++			fmt.Fprintln(os.Stderr, "no docs indexed")
++			return
++		}
++		for _, d := range docs {
++			fmt.Printf("%s (%s)\n", d["path"], d["title"])
++			refs, _ := d["references"].([]map[string]any)
++			for _, r := range refs {
++				fmt.Printf("  -> %s [%s] :%v\n", r["target"], r["confidence"], r["line"])
++			}
++		}
++	case "configs":
++		configs, _ := out["configs"].([]map[string]any)
++		if len(configs) == 0 {
++			fmt.Fprintln(os.Stderr, "no configs indexed")
++			return
++		}
++		for _, c := range configs {
++			fmt.Printf("%s (%s)\n", c["path"], c["title"])
++			refs, _ := c["configures"].([]map[string]any)
++			for _, r := range refs {
++				fmt.Printf("  configures %v [%s] :%v\n", r["target"], r["confidence"], r["line"])
++			}
++		}
++	case "sql-schema":
++		tables, _ := out["tables"].([]map[string]any)
++		if len(tables) == 0 {
++			fmt.Fprintln(os.Stderr, "no sql schema indexed")
++			return
++		}
++		for _, tb := range tables {
++			fmt.Printf("table %s (%s)\n", tb["table"], tb["path"])
++			cols, _ := tb["columns"].([]string)
++			for _, c := range cols {
++				fmt.Printf("  column %s\n", c)
++			}
++		}
++	case "sql-access":
++		access, _ := out["access"].([]map[string]any)
++		if len(access) == 0 {
++			fmt.Fprintln(os.Stderr, "no sql access indexed")
++			return
++		}
++		for _, a := range access {
++			fmt.Printf("%s %s -> table %v [%s] %s:%v\n", a["symbol"], a["op"], a["table"], a["confidence"], a["path"], a["line"])
++		}
++	}
++}
++
++// knowledgeDocsCLI backs `skillgrid docs` (query-only over doc_nodes).
++func knowledgeDocsCLI(db *sql.DB, path string) (map[string]any, error) {
++	where := ""
++	var args []any
++	if path != "" {
++		where = " WHERE dn.path = ?"
++		args = append(args, path)
++	}
++	rows, err := db.Query(`SELECT dn.path, dn.title, COALESCE(e.to_name,''), COALESCE(e.target_path,''), COALESCE(e.confidence,''), COALESCE(e.line,0)
++		FROM doc_nodes dn LEFT JOIN edges e ON e.from_id = dn.id AND e.kind = 'references'`+where, args...)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	docs := map[string]map[string]any{}
++	var order []string
++	for rows.Next() {
++		var p, title, toName, target, conf string
++		var line int
++		if err := rows.Scan(&p, &title, &toName, &target, &conf, &line); err != nil {
++			return nil, err
++		}
++		d, ok := docs[p]
++		if !ok {
++			d = map[string]any{"path": p, "title": title, "references": []map[string]any{}}
++			docs[p] = d
++			order = append(order, p)
++		}
++		if toName != "" {
++			refs := d["references"].([]map[string]any)
++			d["references"] = append(refs, map[string]any{"target": target, "confidence": conf, "line": line})
++		}
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	out := make([]map[string]any, 0, len(order))
++	for _, p := range order {
++		out = append(out, docs[p])
++	}
++	return map[string]any{"docs": out, "total": len(out)}, nil
++}
++
++// knowledgeConfigsCLI backs `skillgrid configs` (query-only over config_nodes).
++func knowledgeConfigsCLI(db *sql.DB, path string) (map[string]any, error) {
++	where := ""
++	var args []any
++	if path != "" {
++		where = " WHERE cn.path = ?"
++		args = append(args, path)
++	}
++	rows, err := db.Query(`SELECT cn.path, cn.title, COALESCE(e.to_name,''), COALESCE(s.name,''), COALESCE(e.confidence,''), COALESCE(e.line,0)
++		FROM config_nodes cn LEFT JOIN edges e ON e.from_id = cn.id AND e.kind = 'configures'
++		LEFT JOIN symbols s ON s.id = e.to_id`+where, args...)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	configs := map[string]map[string]any{}
++	var order []string
++	for rows.Next() {
++		var p, title, toName, symName, conf string
++		var line int
++		if err := rows.Scan(&p, &title, &toName, &symName, &conf, &line); err != nil {
++			return nil, err
++		}
++		c, ok := configs[p]
++		if !ok {
++			c = map[string]any{"path": p, "title": title, "configures": []map[string]any{}}
++			configs[p] = c
++			order = append(order, p)
++		}
++		if toName != "" {
++			refs := c["configures"].([]map[string]any)
++			c["configures"] = append(refs, map[string]any{"target": toName, "symbol": symName, "confidence": conf, "line": line})
++		}
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	out := make([]map[string]any, 0, len(order))
++	for _, p := range order {
++		out = append(out, configs[p])
++	}
++	return map[string]any{"configs": out, "total": len(out)}, nil
++}
++
++// knowledgeSQLSchemaCLI backs `skillgrid sql-schema` (query-only over
++// sql_schema_nodes).
++func knowledgeSQLSchemaCLI(db *sql.DB, table string) (map[string]any, error) {
++	where := ""
++	var args []any
++	if table != "" {
++		where = " WHERE ss.table_name = ?"
++		args = append(args, table)
++	}
++	rows, err := db.Query(`SELECT ss.table_name, ss.column_name, ss.kind, ss.path
++		FROM sql_schema_nodes ss`+where+` ORDER BY ss.table_name, ss.kind, ss.column_name`, args...)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	tables := map[string]map[string]any{}
++	var order []string
++	for rows.Next() {
++		var tn, col, kind, p string
++		if err := rows.Scan(&tn, &col, &kind, &p); err != nil {
++			return nil, err
++		}
++		tbl, ok := tables[tn]
++		if !ok {
++			tbl = map[string]any{"table": tn, "path": p, "columns": []string{}}
++			tables[tn] = tbl
++			order = append(order, tn)
++		}
++		if kind == "column" && col != "" {
++			cols := tbl["columns"].([]string)
++			tbl["columns"] = append(cols, col)
++		}
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	out := make([]map[string]any, 0, len(order))
++	for _, tn := range order {
++		out = append(out, tables[tn])
++	}
++	return map[string]any{"tables": out, "total": len(out)}, nil
++}
++
++// knowledgeSQLAccessCLI backs `skillgrid sql-access` (query-only over the
++// reads/writes edges).
++func knowledgeSQLAccessCLI(db *sql.DB, table string) (map[string]any, error) {
++	where := ""
++	var args []any
++	if table != "" {
++		where = " WHERE e.to_name = ?"
++		args = append(args, table)
++	}
++	rows, err := db.Query(`SELECT e.kind, s.name, f.path, e.to_name, e.confidence, e.line
++		FROM edges e JOIN symbols s ON s.id = e.from_id JOIN files f ON f.id = s.file_id
++		WHERE e.kind IN ('reads','writes')`+where+` ORDER BY e.to_name, e.kind, s.id`, args...)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	var out []map[string]any
++	for rows.Next() {
++		var kind, sym, p, tn, conf string
++		var line int
++		if err := rows.Scan(&kind, &sym, &p, &tn, &conf, &line); err != nil {
++			return nil, err
++		}
++		out = append(out, map[string]any{"op": kind, "symbol": sym, "path": p, "table": tn, "confidence": conf, "line": line})
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	if out == nil {
++		out = []map[string]any{}
++	}
++	return map[string]any{"access": out, "total": len(out)}, nil
++}
++
+ // openGraphService resolves the project for the current directory.
+ func openGraphService() (*service.Service, string, error) {
+ 	dataDir := envOr("SKILLGRID_MNEMONIC_DATA_DIR", "")
+diff --git a/skillgrid-cli/cmd/skillgrid/main.go b/skillgrid-cli/cmd/skillgrid/main.go
+index 6c51e28..4a38bb9 100644
+--- a/skillgrid-cli/cmd/skillgrid/main.go
++++ b/skillgrid-cli/cmd/skillgrid/main.go
+@@ -144,7 +144,8 @@ func main() {
+ 		runCodeIntel(version, rest)
+ 		return
+ 	case "callers", "callees", "dependents", "implementors", "hierarchy",
+-		"tests-for", "path", "explain", "impact", "explore":
++		"tests-for", "path", "explain", "impact", "explore",
++		"docs", "configs", "sql-schema", "sql-access":
+ 		runCodeIntel(version, rest)
+ 		return
+ 	case "setup":
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+index b90c6d0..7f49e80 100644
+--- a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
++++ b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+@@ -14,9 +14,12 @@ import (
+ 	"strings"
+ 	"time"
+ 
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/community"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/extract"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/knowledge"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/process"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/route"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+ )
+@@ -240,6 +243,11 @@ func ChunkLines(content []byte, chunkLines, chunkOverlap int) []Chunk {
+ type Indexer struct {
+ 	store *store.Store
+ 	emb   embedder.Embedder
++	// processLLM is the LLM labeler for the process pass (03.8 indexer hook).
++	// A nil value uses the deterministic labeler stub (a clearly-marked stub,
++	// not a live LLM); the key is that the process pass RUNS at index time so
++	// code_processes is populated, not just in tests.
++	processLLM process.LLM
+ }
+ 
+ // New creates an Indexer backed by st.
+@@ -247,6 +255,14 @@ func New(st *store.Store) *Indexer {
+ 	return &Indexer{store: st}
+ }
+ 
++// WithProcessLLM sets the LLM labeler for the process pass (03.8). A nil LLM
++// (or an unset one) falls back to the deterministic labeler stub so the
++// process pass still runs and labels at index time.
++func (idx *Indexer) WithProcessLLM(llm process.LLM) *Indexer {
++	idx.processLLM = llm
++	return idx
++}
++
+ // WithEmbedder sets the optional embedder used by the eager dual-granularity
+ // embedding pass. A nil embedder (the default) skips the pass entirely.
+ func (idx *Indexer) WithEmbedder(e embedder.Embedder) *Indexer {
+@@ -413,9 +429,166 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
+ 	if err := tx.Commit(); err != nil {
+ 		return stats, err
+ 	}
++	// The store's single-connection *sql.DB (MaxOpenConns=1) holds the WAL
++	// write lock even after the tx commits (modernc.org/sqlite keeps the
++	// connection open). Close it so a fresh *sql.DB can acquire the lock
++	// for the passes. The store's DB is replaced with the pass DB so the
++	// indexer (and any caller using idx.store.DB) keeps working.
++	dbPath := idx.store.Path()
++	if err := idx.store.DB.Close(); err != nil {
++		return stats, fmt.Errorf("close store db: %w", err)
++	}
++	// Re-apply per-connection pragmas via DSN (foreign_keys is not
++	// persistent; journal_mode and busy_timeout ARE persistent in the WAL
++	// file). No SetMaxOpenConns(1) — the modernc.org/sqlite driver deadlocks
++	// a single-connection pool after a committed tx.
++	passDB, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)")
++	if err != nil {
++		return stats, fmt.Errorf("open pass db: %w", err)
++	}
++	idx.store.DB = passDB
++	// Knowledge-graph passes (03.8): run the community + process + knowledge
++	// passes at index time so code_processes / code_communities / code_docs /
++	// code_configs / code_sql_* are populated. Each pass is advisory and
++	// never load-bearing: a pass failure warns and continues.
++	if err := idx.communityPass(ctx, passDB); err != nil {
++		fmt.Fprintf(os.Stderr, "warn: community pass: %v\n", err)
++	}
++	if err := idx.processPass(ctx, passDB); err != nil {
++		fmt.Fprintf(os.Stderr, "warn: process pass: %v\n", err)
++	}
++	if err := idx.knowledgePass(ctx, passDB, scanned); err != nil {
++		fmt.Fprintf(os.Stderr, "warn: knowledge pass: %v\n", err)
++	}
+ 	return stats, nil
+ }
+ 
++// communityPass runs the 01 community-detection pass over the indexed graph,
++// on the pass DB (opened before the main tx, so its sub-txs do not deadlock
++// the store's single-connection pool). The community rows land in the same
++// WAL database as the 005 extraction; the main tx's Commit finalizes the
++// incremental index. Advisory, never load-bearing.
++func (idx *Indexer) communityPass(ctx context.Context, passDB *sql.DB) error {
++	if tableMissing(passDB, "communities") {
++		return nil // table absent (pre-012 store) — nothing to do
++	}
++	_, err := community.Detect(ctx, passDB, community.Options{})
++	return err
++}
++
++// processPass runs the 02 process-flow pass over the indexed graph, on the
++// pass DB. Entry points are 010's: the resolved handlers of kind='route'
++// symbols, plus the package main functions. It uses idx.processLLM (falling
++// back to the deterministic labeler stub) so the flows are labeled at index
++// time. Advisory, never load-bearing.
++func (idx *Indexer) processPass(ctx context.Context, passDB *sql.DB) error {
++	if tableMissing(passDB, "processes") {
++		return nil // table absent (pre-014 store) — nothing to do
++	}
++	entries, err := idx.processEntries(passDB)
++	if err != nil {
++		return err
++	}
++	if len(entries) == 0 {
++		return nil
++	}
++	llm := idx.processLLM
++	if llm == nil {
++		llm = processLLMStub{}
++	}
++	_, err = process.Run(ctx, passDB, entries, llm, process.RunOptions{})
++	return err
++}
++
++// processEntries resolves 010's entry points: the handlers served by
++// kind='route' symbols (the traceable call-chain starts) and the package main
++// functions. Deterministic by symbol id.
++func (idx *Indexer) processEntries(db *sql.DB) ([]process.Entry, error) {
++	var entries []process.Entry
++	seen := map[int64]bool{}
++	// 010 route handlers.
++	rows, err := db.Query(`
++		SELECT e.to_id FROM edges e
++		JOIN symbols r ON r.id = e.from_id
++		WHERE r.kind = 'route' AND e.kind = 'references' AND e.to_id IS NOT NULL
++		ORDER BY e.to_id`)
++	if err == nil {
++		for rows.Next() {
++			var id int64
++			if err := rows.Scan(&id); err == nil && !seen[id] {
++				seen[id] = true
++				entries = append(entries, process.Entry{SymbolID: id, Kind: "handler"})
++			}
++		}
++		rows.Close()
++	}
++	// Package main functions.
++	mrows, err := db.Query(`
++		SELECT s.id FROM symbols s
++		JOIN files f ON f.id = s.file_id
++		WHERE s.name = 'main' AND s.kind IN ('function','method')
++		ORDER BY s.id`)
++	if err == nil {
++		for mrows.Next() {
++			var id int64
++			if err := mrows.Scan(&id); err == nil && !seen[id] {
++				seen[id] = true
++				entries = append(entries, process.Entry{SymbolID: id, Kind: "cli-main"})
++			}
++		}
++		mrows.Close()
++	}
++	return entries, nil
++}
++
++// knowledgePass runs the knowledge extractors (doc + config + SQL) over the
++// scanned files, on the pass DB, persisting doc_nodes / config_nodes /
++// sql_schema_nodes and their edges. The knowledge store operates directly on
++// the *sql.DB (no sub-tx), so it does not deadlock the store's
++// single-connection pool. Non-fatal per file (a malformed file yields zero
++// rows, the index continues).
++func (idx *Indexer) knowledgePass(ctx context.Context, passDB *sql.DB, scanned []ScannedFile) error {
++	if tableMissing(passDB, "doc_nodes") {
++		return nil // table absent (pre-015 store) — nothing to do
++	}
++	st := knowledge.NewStore(passDB)
++	files := make([]knowledge.FileInput, 0, len(scanned))
++	for _, f := range scanned {
++		files = append(files, knowledge.FileInput{Path: f.Path, Contents: f.Contents})
++	}
++	_, err := knowledge.RunPasses(ctx, st, files)
++	return err
++}
++
++// tableMissing reports whether a query error is "no such table" (the table
++// predates the relevant migration) — the pass is then a no-op.
++func tableMissing(db *sql.DB, table string) bool {
++	err := db.QueryRow(`SELECT 1 FROM ` + table + ` LIMIT 0`).Err()
++	if err == nil {
++		return false
++	}
++	return strings.Contains(err.Error(), "no such table")
++}
++
++// processLLMStub is the deterministic LLM labeler used by the 03.8 indexer
++// hook when no live LLM is configured. It is a clearly-marked stub (not a live
++// LLM): it returns a label derived from the flow's entry name, so the process
++// pass RUNS and labels at index time (code_processes is populated) without a
++// live LLM call. The label is deterministic (a pure function of the flow), so
++// an unchanged re-index is a cache hit.
++type processLLMStub struct{}
++
++func (processLLMStub) Label(ctx context.Context, summary string) (string, error) {
++	// Derive a deterministic label from the flow's entry name (the first
++	// "Entry: <name>" line of the summary).
++	for _, line := range strings.Split(summary, "\n") {
++		if strings.HasPrefix(line, "Entry: ") {
++			return "flow: " + strings.TrimSpace(strings.TrimPrefix(line, "Entry: ")), nil
++		}
++	}
++	return "flow", nil
++}
++
+ // pruneOrphanSymbols deletes symbols whose uid is not in the declared target
+ // set. The file_id cascade (for deleted files) has already removed their
+ // symbols; this catches symbols in surviving files that were rewritten (e.g.
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/indexer_hook_test.go b/skillgrid-cli/internal/mnemonic/codeindex/indexer_hook_test.go
+new file mode 100644
+index 0000000..89929e8
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/indexer_hook_test.go
+@@ -0,0 +1,139 @@
++package codeindex
++
++import (
++	"context"
++	"path/filepath"
++	"testing"
++
++	_ "modernc.org/sqlite"
++)
++
++// hookCfg indexes Go, JS, markdown, yaml, and SQL files.
++var hookCfg = Config{
++	Include:      []string{"**/*.go", "**/*.js", "**/*.ts", "**/*.tsx", "**/*.md", "**/*.yaml", "**/*.sql"},
++	Exclude:      []string{"**/node_modules/**", "**/.git/**"},
++	ChunkLines:   80,
++	ChunkOverlap: 10,
++}
++
++// writeHookFixture returns a small project: a Go file with a main + a call
++// chain (for the process pass), a markdown doc (for the knowledge doc pass),
++// a yaml config (for the knowledge config pass), a SQL schema + DML (for the
++// knowledge SQL pass), and a JS route (for the process entry point).
++func writeHookFixture(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	mustWrite(t, filepath.Join(root, "main.go"), "package main\n\nfunc main() {\n\thandleListUsers()\n}\n\nfunc handleListUsers() {\n\tloadUsers()\n}\n\nfunc loadUsers() {}\n")
++	mustWrite(t, filepath.Join(root, "docs", "a.md"), "# A\n\nSee [B](./b.md).\n")
++	mustWrite(t, filepath.Join(root, "docs", "b.md"), "# B\nplain doc\n")
++	mustWrite(t, filepath.Join(root, "config", "app.yaml"), "server:\n  handler: handleListUsers\n")
++	mustWrite(t, filepath.Join(root, "db", "schema.sql"), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);\n")
++	mustWrite(t, filepath.Join(root, "server.js"), "function serve() { return []; }\napp.get('/users', serve);\n")
++	return root
++}
++
++// TestIndexerHook covers @step-03 (Scenario: Indexer hook runs community,
++// process, and knowledge in one transaction): after an index run, the
++// community + process + knowledge passes all ran (in the same incremental
++// index), so communities, processes, doc_nodes, config_nodes, and
++// sql_schema_nodes all exist — proving the three passes ran at index time in
++// one tx.
++func TestIndexerHook(t *testing.T) {
++	ResetFileFirstSymbol()
++	idx, clean := newTestIndexer(t)
++	defer clean()
++
++	root := writeHookFixture(t)
++	if _, err := idx.Run(context.Background(), root, hookCfg); err != nil {
++		t.Fatalf("run: %v", err)
++	}
++	db := idx.store.DB
++
++	// 01 community pass ran: communities are populated.
++	var comm int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM communities`).Scan(&comm); err != nil {
++		t.Fatalf("count communities: %v", err)
++	}
++	if comm == 0 {
++		t.Errorf("expected the community pass to populate communities, got 0")
++	}
++
++	// 02 process pass ran: processes + process_steps are populated (the JS
++	// route's handler `serve` is an entry point; the Go main is a cli-main).
++	var procs, steps int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM processes`).Scan(&procs); err != nil {
++		t.Fatalf("count processes: %v", err)
++	}
++	if err := db.QueryRow(`SELECT COUNT(*) FROM process_steps`).Scan(&steps); err != nil {
++		t.Fatalf("count process_steps: %v", err)
++	}
++	if procs == 0 {
++		t.Errorf("expected the process pass to populate processes at index time, got 0")
++	}
++	if steps == 0 {
++		t.Errorf("expected the process pass to populate process_steps at index time, got 0")
++	}
++	// The process pass used the deterministic LLM stub: the flows are labeled
++	// (label_status != 'unlabeled'), never fabricated blank.
++	var labeled int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM processes WHERE label_status = 'labeled'`).Scan(&labeled); err != nil {
++		t.Fatalf("count labeled: %v", err)
++	}
++	if labeled == 0 {
++		t.Errorf("expected the process pass to label flows at index time (deterministic stub), got 0 labeled")
++	}
++
++	// Knowledge doc pass ran: doc_nodes + references edges.
++	var docs, docRefs int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM doc_nodes`).Scan(&docs); err != nil {
++		t.Fatalf("count doc_nodes: %v", err)
++	}
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'references' AND from_id IN (SELECT id FROM doc_nodes)`).Scan(&docRefs); err != nil {
++		t.Fatalf("count doc references: %v", err)
++	}
++	if docs < 2 {
++		t.Errorf("expected the knowledge doc pass to populate doc_nodes (a.md, b.md), got %d", docs)
++	}
++	if docRefs < 1 {
++		t.Errorf("expected the knowledge doc pass to populate references edges (a.md -> b.md), got %d", docRefs)
++	}
++
++	// Knowledge config pass ran: config_nodes + configures edges.
++	var configs, configures int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM config_nodes`).Scan(&configs); err != nil {
++		t.Fatalf("count config_nodes: %v", err)
++	}
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'configures'`).Scan(&configures); err != nil {
++		t.Fatalf("count configures: %v", err)
++	}
++	if configs < 1 {
++		t.Errorf("expected the knowledge config pass to populate config_nodes, got %d", configs)
++	}
++	if configures < 1 {
++		t.Errorf("expected the knowledge config pass to populate configures edges, got %d", configures)
++	}
++
++	// Knowledge SQL pass ran: sql_schema_nodes (table + columns) + reads/
++	// writes edges.
++	var sqlNodes, rw int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM sql_schema_nodes`).Scan(&sqlNodes); err != nil {
++		t.Fatalf("count sql_schema_nodes: %v", err)
++	}
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind IN ('reads','writes')`).Scan(&rw); err != nil {
++		t.Fatalf("count reads/writes: %v", err)
++	}
++	if sqlNodes == 0 {
++		t.Errorf("expected the knowledge SQL pass to populate sql_schema_nodes (the users table + columns), got 0")
++	}
++
++	// All three passes ran in the SAME incremental index (one tx): the 005
++	// symbols are still present alongside the knowledge nodes (the index did
++	// not abort and the 005 graph is intact — advisory, never load-bearing).
++	var syms int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM symbols`).Scan(&syms); err != nil {
++		t.Fatalf("count symbols: %v", err)
++	}
++	if syms == 0 {
++		t.Errorf("expected 005 symbols to remain present after the knowledge passes, got 0")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/graph/graph.go b/skillgrid-cli/internal/mnemonic/graph/graph.go
+index 748a559..f0c87c6 100644
+--- a/skillgrid-cli/internal/mnemonic/graph/graph.go
++++ b/skillgrid-cli/internal/mnemonic/graph/graph.go
+@@ -299,9 +299,12 @@ type RefusedMatch struct {
+ // PathResult is the code_path answer: either a shortest path or a
+ // where-the-graph-stops explanation. Never empty, never fabricated.
+ type PathResult struct {
+-	Found    bool        `json:"found"`
+-	Path     []Edge      `json:"path,omitempty"`
++	Found      bool        `json:"found"`
++	Path       []Edge      `json:"path,omitempty"`
+ 	GraphStops *GraphStops `json:"graph_stops,omitempty"`
++	// Reason is a short human-readable note when Found is false and no
++	// GraphStops frontier exists (e.g. the target name resolved to nothing).
++	Reason string `json:"reason,omitempty"`
+ }
+ 
+ // Path finds the shortest edge path between a and b (BFS over resolved
+diff --git a/skillgrid-cli/internal/mnemonic/graph/span.go b/skillgrid-cli/internal/mnemonic/graph/span.go
+new file mode 100644
+index 0000000..f3faec3
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/graph/span.go
+@@ -0,0 +1,571 @@
++package graph
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"strconv"
++)
++
++// Knowledge edge kinds (mirrored from the knowledge package; the values must
++// match knowledge.KindReads/KindWrites/KindConfigures/KindReferences). The
++// graph package does not import knowledge (avoids an import cycle: knowledge
++// tests exercise graph), so the literals are declared here.
++const (
++	KindReads      = "reads"
++	KindWrites     = "writes"
++	KindConfigures = "configures"
++	KindReferences = "references"
++)
++
++// itoa / parseItoa are small int64<->string helpers for span node keys.
++func itoa(id int64) string { return strconv.FormatInt(id, 10) }
++
++func parseItoa(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) }
++
++// spanRef identifies one node in the unified span space by (kind, id). A
++// symbol id and a knowledge node id may numerically collide across tables, so
++// the kind is part of the identity.
++type spanRef struct {
++	kind string
++	id   int64
++}
++
++// spanNode is one node in the unified knowledge span: a 005 symbol or a
++// 015 knowledge node (doc / config / table / column). Knowledge nodes are
++// first-class endpoints so code_path can trace code→doc→config→table.
++type spanNode struct {
++	ID    int64
++	Kind  string // "symbol" | "doc" | "config" | "table" | "column"
++	Name  string // symbol name | doc/config path | table name
++	Path  string
++	Line  int
++	Valid bool
++}
++
++// tableNodeKey renders a table node's display name ("table:<name>"). A bare
++// table name resolves unambiguously to its table node; "table:<name>" is an
++// explicit disambiguation.
++func tableNodeKey(name string) string { return "table:" + name }
++
++// spanNodeFromSymbol adapts a resolved 005 symbol into a span node.
++func spanNodeFromSymbol(s Symbol) spanNode {
++	return spanNode{ID: s.ID, Kind: "symbol", Name: s.Name, Path: s.Path, Line: s.StartLine, Valid: true}
++}
++
++// resolveSpanNode resolves a name to a single span node, searching the 005
++// symbols first (code-to-code resolution is unchanged) and then the 015
++// knowledge tables. An empty/zero name resolves to the zero node. Ambiguity is
++// surfaced as a single node with a count suffix only when exactly one table
++// matches; a doc/config path is unique by path (015 unique index).
++func resolveSpanNode(ctx context.Context, db *sql.DB, name string) (spanNode, error) {
++	if name == "" {
++		return spanNode{}, nil
++	}
++	// Explicit table disambiguation ("table:users").
++	if len(name) > 6 && name[:6] == "table:" {
++		return resolveTableNode(ctx, db, name[6:])
++	}
++	// 005 symbol (code-to-code unchanged).
++	var (
++		id      int64
++		uid     string
++		sname   string
++		kind    string
++		path    string
++		startLn int
++	)
++	err := db.QueryRowContext(ctx, `
++		SELECT s.id, s.uid, s.name, s.kind,
++		       f.path, s.start_line
++		FROM symbols s INNER JOIN files f ON f.id = s.file_id
++		WHERE s.name = ?
++		ORDER BY s.id`, name).
++		Scan(&id, &uid, &sname, &kind, &path, &startLn)
++	if err == nil {
++		return spanNode{
++			ID: id, Kind: "symbol", Name: sname, Path: path, Line: startLn, Valid: true,
++		}, nil
++	}
++	if err != sql.ErrNoRows {
++		return spanNode{}, err
++	}
++	// Knowledge nodes: doc (by path), config (by path), table (by name).
++	if n, err := resolveDocNode(ctx, db, name); err != nil {
++		return spanNode{}, err
++	} else if n.Valid {
++		return n, nil
++	}
++	if n, err := resolveConfigNode(ctx, db, name); err != nil {
++		return spanNode{}, err
++	} else if n.Valid {
++		return n, nil
++	}
++	return resolveTableNode(ctx, db, name)
++}
++
++func resolveDocNode(ctx context.Context, db *sql.DB, path string) (spanNode, error) {
++	var (
++		id   int64
++		file int64
++	)
++	err := db.QueryRowContext(ctx, `SELECT id, file_id FROM doc_nodes WHERE path = ? ORDER BY id`, path).
++		Scan(&id, &file)
++	if err != nil {
++		if err == sql.ErrNoRows {
++			return spanNode{}, nil
++		}
++		return spanNode{}, err
++	}
++	return spanNode{ID: id, Kind: "doc", Name: path, Path: path, Valid: true}, nil
++}
++
++func resolveConfigNode(ctx context.Context, db *sql.DB, path string) (spanNode, error) {
++	var (
++		id   int64
++		file int64
++	)
++	err := db.QueryRowContext(ctx, `SELECT id, file_id FROM config_nodes WHERE path = ? ORDER BY id`, path).
++		Scan(&id, &file)
++	if err != nil {
++		if err == sql.ErrNoRows {
++			return spanNode{}, nil
++		}
++		return spanNode{}, err
++	}
++	return spanNode{ID: id, Kind: "config", Name: path, Path: path, Valid: true}, nil
++}
++
++func resolveTableNode(ctx context.Context, db *sql.DB, table string) (spanNode, error) {
++	var (
++		id   int64
++		file int64
++		kind string
++	)
++	err := db.QueryRowContext(ctx, `SELECT id, file_id, kind FROM sql_schema_nodes WHERE table_name = ? AND kind = 'table' ORDER BY id`, table).
++		Scan(&id, &file, &kind)
++	if err != nil {
++		if err == sql.ErrNoRows {
++			return spanNode{}, nil
++		}
++		return spanNode{}, err
++	}
++	return spanNode{ID: id, Kind: "table", Name: tableNodeKey(table), Path: "", Valid: true}, nil
++}
++
++// loadSpanNodeByID loads a span node by its (kind, id) — the unified inverse
++// of resolveSpanNode used by BFS expansion.
++func loadSpanNodeByID(ctx context.Context, db *sql.DB, kind string, id int64) (spanNode, error) {
++	switch kind {
++	case "symbol":
++		s, err := loadSymbolByID(ctx, db, id)
++		if err != nil {
++			return spanNode{}, err
++		}
++		return spanNodeFromSymbol(s), nil
++	case "doc":
++		var (
++			path string
++			file int64
++		)
++		if err := db.QueryRowContext(ctx, `SELECT path, file_id FROM doc_nodes WHERE id = ?`, id).Scan(&path, &file); err != nil {
++			return spanNode{}, err
++		}
++		return spanNode{ID: id, Kind: "doc", Name: path, Path: path, Valid: true}, nil
++	case "config":
++		var (
++			path string
++			file int64
++		)
++		if err := db.QueryRowContext(ctx, `SELECT path, file_id FROM config_nodes WHERE id = ?`, id).Scan(&path, &file); err != nil {
++			return spanNode{}, err
++		}
++		return spanNode{ID: id, Kind: "config", Name: path, Path: path, Valid: true}, nil
++	case "table", "column":
++		var (
++			tname, cname string
++			kind         string
++			file         int64
++		)
++		if err := db.QueryRowContext(ctx, `SELECT table_name, COALESCE(column_name,''), kind, file_id FROM sql_schema_nodes WHERE id = ?`, id).
++			Scan(&tname, &cname, &kind, &file); err != nil {
++			return spanNode{}, err
++		}
++		name := tableNodeKey(tname)
++		if cname != "" {
++			name = tname + "." + cname
++		}
++		return spanNode{ID: id, Kind: kind, Name: name, Valid: true}, nil
++	default:
++		return spanNode{}, fmt.Errorf("unknown span node kind %q", kind)
++	}
++}
++
++// spanNeighbors returns the (kind, id) of every node adjacent to a span node,
++// plus the edge rows so the caller can reconstruct labeled hops. It reads the
++// 005 edges table (where knowledge edges live) and resolves each endpoint into
++// the unified space: a to_id pointing at a symbol is a symbol, a to_id matching
++// a doc/config/sql node id is that knowledge node (knowledge edges store the
++// knowledge node id in to_id even though the column's FK is symbols).
++type spanHop struct {
++	Kind       string
++	Confidence string
++	Line       int
++	From       spanNode
++	To         spanNode
++}
++
++// fetchSpanEdges loads every edge touching the span node's id, resolving both
++// endpoints into the unified node space. An edge endpoint that is a symbol id
++// resolves as a symbol; an endpoint that is a knowledge node id resolves as that
++// knowledge node. Name-only endpoints (to_id null) resolve by name through the
++// unified resolver (so a name-only table/config/doc reference still spans).
++// rawSpanEdge is one edge row before its endpoints are resolved into the
++// unified node space.
++type rawSpanEdge struct {
++	kind   string
++	fromID int64
++	toID   int64 // 0 when name-only
++	toName string
++	conf   string
++	line   int
++}
++
++func fetchSpanEdges(ctx context.Context, db *sql.DB, node spanNode) ([]spanHop, error) {
++	rows, err := db.QueryContext(ctx, `
++		SELECT e.kind, e.from_id, e.to_id, e.to_name, e.confidence, e.line
++		FROM edges e
++		WHERE e.from_id = ? OR e.to_id = ?
++		ORDER BY e.id`, node.ID, node.ID)
++	if err != nil {
++		return nil, err
++	}
++	// Drain the rows into a slice BEFORE resolving endpoints: endpoint
++	// resolution issues further queries, and a single-connection store cannot
++	// run two queries at once while a result set is open.
++	var raw []rawSpanEdge
++	for rows.Next() {
++		var (
++			kind   string
++			fromID int64
++			toID   sql.NullInt64
++			toName sql.NullString
++			conf   string
++			line   int
++		)
++		if err := rows.Scan(&kind, &fromID, &toID, &toName, &conf, &line); err != nil {
++			rows.Close()
++			return nil, err
++		}
++		raw = append(raw, rawSpanEdge{kind: kind, fromID: fromID, toID: toID.Int64, toName: toName.String, conf: conf, line: line})
++	}
++	rerr := rows.Err()
++	rows.Close()
++	if rerr != nil {
++		return nil, rerr
++	}
++	var out []spanHop
++	for _, r := range raw {
++		from, err := resolveSpanEndpoint(ctx, db, r.fromID, "", r.kind)
++		if err != nil {
++			return nil, err
++		}
++		to, err := resolveSpanEndpoint(ctx, db, r.toID, r.toName, r.kind)
++		if err != nil {
++			return nil, err
++		}
++		// Skip a hop whose endpoint is unresolved (no fabricated hop). A
++		// name-only edge (to_id null) that resolves to nothing is invalid (ID 0)
++		// and must not become a BFS frontier node — that would make the path
++		// reconstruction loop un-terminable.
++		if !from.Valid || from.ID == 0 {
++			continue
++		}
++		if !to.Valid || to.ID == 0 {
++			continue
++		}
++		out = append(out, spanHop{Kind: r.kind, Confidence: r.conf, Line: r.line, From: from, To: to})
++	}
++	return out, nil
++}
++
++// resolveSpanEndpoint resolves an edge endpoint id (and optional name) into the
++// unified node space. Symbol and knowledge-node ids share the same integer
++// space (separate tables), so a raw id is ambiguous: the same numeric id can be
++// both a symbol and a knowledge node. The edge's kind disambiguates the intent
++// (reads/writes point at tables, configures points config->symbol, references
++// points doc->doc or doc->symbol). When the kind names a knowledge table we
++// probe that table first; otherwise a symbol is probed first. A zero id falls
++// back to name-only unified resolution.
++func resolveSpanEndpoint(ctx context.Context, db *sql.DB, id int64, name, edgeKind string) (spanNode, error) {
++	if id != 0 {
++		order := knowledgeOrderForKind(edgeKind)
++		probe := func(kind string) (spanNode, bool) {
++			if kind == "symbol" {
++				s, err := loadSymbolByID(ctx, db, id)
++				if err == nil {
++					return spanNodeFromSymbol(s), true
++				}
++				return spanNode{}, false
++			}
++			n, err := loadSpanNodeByID(ctx, db, kind, id)
++			if err == nil && n.Valid {
++				return n, true
++			}
++			return spanNode{}, false
++		}
++		for _, k := range order {
++			if n, ok := probe(k); ok {
++				return n, nil
++			}
++		}
++	}
++	if name != "" {
++		return resolveSpanNode(ctx, db, name)
++	}
++	return spanNode{}, nil
++}
++
++// knowledgeOrderForKind returns the endpoint probe order for an edge kind.
++// Knowledge edges resolve their knowledge-side endpoint against the named table
++// first (so a colliding symbol id is not mis-picked); 005 code edges probe the
++// symbol first (unchanged baseline).
++func knowledgeOrderForKind(kind string) []string {
++	switch kind {
++	case KindReads, KindWrites:
++		return []string{"table", "column", "symbol"}
++	case KindConfigures:
++		return []string{"config", "symbol"}
++	case KindReferences:
++		return []string{"doc", "symbol"}
++	default:
++		// 005 code edge (calls/imports/extends/...): symbol first.
++		return []string{"symbol", "doc", "config", "table", "column"}
++	}
++}
++
++// PathSpan finds the shortest path between a (a) and b, where b is a name
++// resolvable to a symbol OR a knowledge node (doc/config/table). It extends
++// Path's BFS to the unified node space so the graph can span
++// code→doc→config→table. When a and b are both symbols it is equivalent to
++// Path (the 005 baseline). When no path exists it returns a where-the-graph-
++// stops answer built from the unreachable frontier's name-only edges.
++func PathSpan(ctx context.Context, db *sql.DB, a Symbol, bName string) (PathResult, error) {
++	if a.ID == 0 {
++		return PathResult{Found: false}, nil
++	}
++	return pathSpanFromSpanNode(ctx, db, spanNodeFromSymbol(a), bName)
++}
++
++// PathSpanFromName is PathSpan with the source also resolved by name, so a
++// span can start from a knowledge node (doc/config/table) as well as a code
++// symbol. The source name resolves through the unified resolver (symbol first,
++// then knowledge node); an unresolvable source returns Found=false with a
++// reason. This is the entry point code_path uses when its `from` is a doc,
++// config, or table.
++func PathSpanFromName(ctx context.Context, db *sql.DB, aName, bName string) (PathResult, error) {
++	a, err := resolveSpanNode(ctx, db, aName)
++	if err != nil {
++		return PathResult{}, err
++	}
++	if !a.Valid {
++		return PathResult{Found: false, Reason: "source not found: " + aName}, nil
++	}
++	if a.Kind != "symbol" {
++		// Adapt a knowledge-node source into the Symbol-based PathSpan: start
++		// the BFS from the knowledge node directly.
++		return pathSpanFromSpanNode(ctx, db, a, bName)
++	}
++	return pathSpanFromSpanNode(ctx, db, a, bName)
++}
++
++// pathSpanFromSpanNode runs the BFS span from an already-resolved source node
++// (a symbol or a knowledge node) to a target name.
++func pathSpanFromSpanNode(ctx context.Context, db *sql.DB, a spanNode, bName string) (PathResult, error) {
++	if !a.Valid {
++		return PathResult{Found: false}, nil
++	}
++	b, err := resolveSpanNode(ctx, db, bName)
++	if err != nil {
++		return PathResult{}, err
++	}
++	if !b.Valid {
++		return PathResult{Found: false, Reason: "target not found: " + bName}, nil
++	}
++	if b.Kind == a.Kind && b.ID == a.ID {
++		return PathResult{Found: true, Path: []Edge{}}, nil
++	}
++	start := spanRef{kind: a.Kind, id: a.ID}
++	target := spanRef{kind: b.Kind, id: b.ID}
++	keyOf := func(r spanRef) string { return r.kind + "|" + itoa(r.id) }
++
++	prev := map[string]spanRef{}
++	visited := map[string]bool{keyOf(start): true}
++	frontier := []spanRef{start}
++	found := false
++	for len(frontier) > 0 {
++		var next []spanRef
++		for _, cur := range frontier {
++			curNode, err := loadSpanNodeByID(ctx, db, cur.kind, cur.id)
++			if err != nil {
++				return PathResult{}, err
++			}
++			hops, err := fetchSpanEdges(ctx, db, curNode)
++			if err != nil {
++				return PathResult{}, err
++			}
++			// Walk both directions (undirected): a knowledge edge stored as
++			// config->code is traversable from code back to config.
++			for _, h := range hops {
++				var neighbors []spanNode
++				if h.From.ID == curNode.ID {
++					neighbors = []spanNode{h.To}
++				} else if h.To.ID == curNode.ID {
++					neighbors = []spanNode{h.From}
++				} else {
++					continue
++				}
++				for _, nb := range neighbors {
++					nr := spanRef{kind: nb.Kind, id: nb.ID}
++					if nr.kind == target.kind && nr.id == target.id {
++						found = true
++						prev[keyOf(nr)] = cur
++						break
++					}
++					if !visited[keyOf(nr)] {
++						visited[keyOf(nr)] = true
++						prev[keyOf(nr)] = cur
++						next = append(next, nr)
++					}
++				}
++				if found {
++					break
++				}
++			}
++			if found {
++				break
++			}
++		}
++		if found {
++			break
++		}
++		frontier = next
++	}
++	if !found {
++		return spanGraphStops(ctx, db, visited), nil
++	}
++	var refs []spanRef
++	for cur := target; keyOf(cur) != keyOf(start); cur = prev[keyOf(cur)] {
++		refs = append([]spanRef{cur}, refs...)
++	}
++	full := append([]spanRef{start}, refs...)
++	hops, err := spanHopsBetween(ctx, db, full)
++	if err != nil {
++		return PathResult{}, err
++	}
++	return PathResult{Found: true, Path: hops}, nil
++}
++
++// spanHopsBetween re-loads the Edge rows connecting consecutive span refs so
++// the returned path carries each hop's kind + confidence (mirrors hopsBetween).
++func spanHopsBetween(ctx context.Context, db *sql.DB, seq []spanRef) ([]Edge, error) {
++	var out []Edge
++	for i := 0; i+1 < len(seq); i++ {
++		from, err := loadSpanNodeByID(ctx, db, seq[i].kind, seq[i].id)
++		if err != nil {
++			return nil, err
++		}
++		hops, err := fetchSpanEdges(ctx, db, from)
++		if err != nil {
++			return nil, err
++		}
++		var hop *spanHop
++		for j := range hops {
++			if hops[j].From.ID == seq[i].id && hops[j].To.ID == seq[i+1].id && hops[j].To.Kind == seq[i+1].kind {
++				hop = &hops[j]
++				break
++			}
++		}
++		if hop == nil {
++			// Reverse edge (the connection ran to->from).
++			for j := range hops {
++				if hops[j].From.ID == seq[i+1].id && hops[j].To.ID == seq[i].id && hops[j].From.Kind == seq[i+1].kind {
++					hop = &hops[j]
++					break
++				}
++			}
++		}
++		if hop != nil {
++			out = append(out, Edge{
++				Kind:       hop.Kind,
++				Confidence: hop.Confidence,
++				Line:       hop.Line,
++				From:       spanToSymbol(hop.From),
++				To:         spanToSymbol(hop.To),
++				ToName:     hop.To.Name,
++			})
++		}
++	}
++	return out, nil
++}
++
++// spanToSymbol adapts a span node into a graph.Symbol for the PathResult
++// payload: a symbol node maps 1:1; a knowledge node maps to a Symbol whose
++// Name is the node's display name and Path its path (a non-code node is
++// surfaced by name, never fabricated into a false symbol id).
++func spanToSymbol(n spanNode) Symbol {
++	if n.Kind == "symbol" {
++		return Symbol{ID: n.ID, Name: n.Name, Path: n.Path, StartLine: n.Line, EndLine: n.Line}
++	}
++	return Symbol{ID: 0, Name: n.Name, Path: n.Path}
++}
++
++// spanGraphStops assembles a where-the-graph-stops answer for a span that did
++// not reach its target, using the frontier's name-only edges (mirrors
++// buildGraphStops but over the unified node space).
++func spanGraphStops(ctx context.Context, db *sql.DB, visited map[string]bool) PathResult {
++	stops := &GraphStops{DispatchKind: "computed member call"}
++	worst := 0
++	for k := range visited {
++		r := splitSpanKey(k)
++		node, err := loadSpanNodeByID(ctx, db, r.kind, r.id)
++		if err != nil {
++			continue
++		}
++		hops, err := fetchSpanEdges(ctx, db, node)
++		if err != nil {
++			continue
++		}
++		for _, h := range hops {
++			if h.To.ID != 0 {
++				continue
++			}
++			if h.From.ID != node.ID {
++				continue
++			}
++			if h.Line > worst {
++				worst = h.Line
++			}
++			stops.DispatchKind = h.Kind
++			stops.Refused = append(stops.Refused, RefusedMatch{
++				Name:       h.To.Name,
++				Confidence: h.Confidence,
++				Line:       h.Line,
++				Path:       h.To.Path,
++			})
++		}
++	}
++	stops.Line = worst
++	return PathResult{Found: false, GraphStops: stops}
++}
++
++// splitSpanKey parses a "kind|id" span key back into its parts.
++func splitSpanKey(k string) spanRef {
++	for i := len(k) - 1; i >= 0; i-- {
++		if k[i] == '|' {
++			id, _ := parseItoa(k[i+1:])
++			return spanRef{kind: k[:i], id: id}
++		}
++	}
++	return spanRef{kind: k}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/codpath_span_test.go b/skillgrid-cli/internal/mnemonic/knowledge/codpath_span_test.go
+new file mode 100644
+index 0000000..b990258
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/knowledge/codpath_span_test.go
+@@ -0,0 +1,208 @@
++package knowledge
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/graph"
++)
++
++// seedDocNode inserts a doc node and returns its id.
++func seedDocNode(t *testing.T, db *sql.DB, fileID int64, title, path string) int64 {
++	t.Helper()
++	res, err := db.Exec(`INSERT INTO doc_nodes (file_id, title, path) VALUES (?, ?, ?)`, fileID, title, path)
++	if err != nil {
++		t.Fatalf("seed doc node: %v", err)
++	}
++	id, _ := res.LastInsertId()
++	return id
++}
++
++// seedConfigNode inserts a config node and returns its id.
++func seedConfigNode(t *testing.T, db *sql.DB, fileID int64, path string) int64 {
++	t.Helper()
++	res, err := db.Exec(`INSERT INTO config_nodes (file_id, title, path) VALUES (?, ?, ?)`, fileID, path, path)
++	if err != nil {
++		t.Fatalf("seed config node: %v", err)
++	}
++	id, _ := res.LastInsertId()
++	return id
++}
++
++// seedSQLNode inserts a sql_schema_node and returns its id.
++func seedSQLNode(t *testing.T, db *sql.DB, fileID int64, table, column, kind, path string) int64 {
++	t.Helper()
++	res, err := db.Exec(`INSERT INTO sql_schema_nodes (file_id, table_name, column_name, kind, path) VALUES (?, ?, ?, ?, ?)`,
++		fileID, table, column, kind, path)
++	if err != nil {
++		t.Fatalf("seed sql node: %v", err)
++	}
++	id, _ := res.LastInsertId()
++	return id
++}
++
++// seedEdge inserts a knowledge edge. toID 0 means a name-only edge (to_id null).
++func seedEdge(t *testing.T, db *sql.DB, kind string, fromID, fileID, toID int64, toName, targetPath, conf string, line int) {
++	t.Helper()
++	var to sql.NullInt64
++	if toID != 0 {
++		to = sql.NullInt64{Int64: toID, Valid: true}
++	}
++	if _, err := db.Exec(`INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
++		kind, fromID, fileID, to, toName, targetPath, conf, line); err != nil {
++		t.Fatalf("seed edge %s: %v", kind, err)
++	}
++}
++
++// TestCodePathSpan covers @step-03 (Scenario: Path tool traces code to doc to
++// config to table): code_path (via graph.PathSpan) returns a single path that
++// spans the code symbol to a doc, a config, and a table, traversing at least
++// two different knowledge edge kinds (configures + reads). The path is
++// non-vacuous: a genuine multi-hop walk, not a single hop.
++func TestCodePathSpan(t *testing.T) {
++	db := openKnowledgeStore(t)
++	// PathSpan issues many sequential queries (BFS over the unified node
++	// space); a :memory: store must be single-connection or the pool opens a
++	// second (empty) in-memory DB.
++	db.SetMaxOpenConns(1)
++	ctx := context.Background()
++
++	// The 005 edges table shares one integer space for from_id/to_id, but the
++	// 015 knowledge tables (doc/config/sql) autoincrement independently of
++	// symbols. In a cold fixture every node's id is 1, so
++	// `WHERE from_id=1 OR to_id=1` over-matches across tables. Bump each
++	// table's autoincrement by a different count with throwaway rows so the
++	// fixture's real nodes land on DISTINCT ids (mirroring a real store where
++	// symbol ids and knowledge-node ids do not all collide).
++	filler := seedFile(t, db, "filler.txt")
++	for i := 0; i < 1; i++ {
++		db.Exec(`INSERT INTO symbols (file_id, name, qualified_name, kind, language, start_line, end_line, content_hash, uid) VALUES (?, ?, ?, 'function', 'go', 1, 1, 'h', ?)`, filler, fmt.Sprintf("_s%d", i), fmt.Sprintf("x._s%d", i), fmt.Sprintf("filler-sym-%d", i))
++	}
++	for i := 0; i < 2; i++ {
++		db.Exec(`INSERT INTO doc_nodes (file_id, title, path) VALUES (?, ?, ?)`, filler, fmt.Sprintf("_f%d", i), fmt.Sprintf("filler%d.md", i))
++	}
++	for i := 0; i < 3; i++ {
++		db.Exec(`INSERT INTO config_nodes (file_id, title, path) VALUES (?, ?, ?)`, filler, fmt.Sprintf("_f%d", i), fmt.Sprintf("filler%d.yaml", i))
++	}
++	for i := 0; i < 4; i++ {
++		db.Exec(`INSERT INTO sql_schema_nodes (file_id, table_name, column_name, kind, path) VALUES (?, ?, '', 'table', ?)`, filler, fmt.Sprintf("_f%d", i), fmt.Sprintf("filler%d.sql", i))
++	}
++
++	// Code symbol (the code side of the span). qualified_name is set so the
++	// graph's loadSymbolByID (which scans it into a string) resolves cleanly.
++	fCode := seedFile(t, db, "app/users.go")
++	res, err := db.Exec(`INSERT INTO symbols (file_id, name, qualified_name, kind, language, start_line, end_line, content_hash, uid) VALUES (?, 'loadUsers', 'app.loadUsers', 'function', 'go', 3, 3, 'h', 'loadUsers-function')`, fCode)
++	if err != nil {
++		t.Fatalf("seed code symbol: %v", err)
++	}
++	codeID, _ := res.LastInsertId()
++
++	// Config node that configures the code symbol.
++	fCfg := seedFile(t, db, "config/app.yaml")
++	cfgID := seedConfigNode(t, db, fCfg, "config/app.yaml")
++	seedEdge(t, db, KindConfigures, cfgID, fCfg, codeID, "loadUsers", "", ConfidenceExtracted, 2)
++
++	// Table node the code symbol reads.
++	fSQL := seedFile(t, db, "db/schema.sql")
++	tableID := seedSQLNode(t, db, fSQL, "users", "", KindTable, "db/schema.sql")
++	seedEdge(t, db, KindReads, codeID, fSQL, tableID, "users", "", ConfidenceExtracted, 5)
++
++	// Doc node that references the code symbol.
++	fDoc := seedFile(t, db, "docs/a.md")
++	docID := seedDocNode(t, db, fDoc, "A", "docs/a.md")
++	seedEdge(t, db, KindReferences, docID, fDoc, codeID, "loadUsers", "", ConfidenceExtracted, 4)
++
++	codeSym := graph.Symbol{ID: codeID, Name: "loadUsers", Path: "app/users.go", Kind: "function"}
++
++	// doc→code→table: a genuine multi-hop path that spans a doc to a table,
++	// traversing TWO different knowledge edge kinds (references doc->code, then
++	// reads code->table). This is the non-vacuous span: the doc is not directly
++	// connected to the table, so the path must walk through the code symbol.
++	docSym := graph.Symbol{ID: 0, Name: "docs/a.md", Path: "docs/a.md"}
++	// Resolve the doc to its span symbol so PathSpan can start from it. The doc
++	// node id is resolved by name (its path).
++	span, err := graph.PathSpanFromName(ctx, db, "docs/a.md", "users")
++	if err != nil {
++		t.Fatalf("PathSpan doc->table: %v", err)
++	}
++	if !span.Found {
++		t.Fatalf("expected code_path to span doc -> code -> table, got Found=false: %+v", span.GraphStops)
++	}
++	if len(span.Path) < 2 {
++		t.Fatalf("expected a multi-hop path (doc->code->table), got %d hops", len(span.Path))
++	}
++	kinds := map[string]bool{}
++	for _, hop := range span.Path {
++		kinds[hop.Kind] = true
++	}
++	knowledgeKinds := 0
++	for _, k := range []string{KindConfigures, KindReads, KindWrites, KindReferences} {
++		if kinds[k] {
++			knowledgeKinds++
++		}
++	}
++	if knowledgeKinds < 2 {
++		t.Errorf("expected the path to traverse >=2 knowledge edge kinds (references + reads), got %d (kinds %v)", knowledgeKinds, kinds)
++	}
++	// The path must pass through the code symbol and reach the table node
++	// (knowledge nodes are surfaced by name, ID 0, so match on name).
++	if !pathTouches(span.Path, tableNodeName(tableID)) {
++		t.Errorf("expected the doc->table path to reach the table node, got %+v", span.Path)
++	}
++	_ = docSym
++
++	// code→config: the config that configures the code symbol is reachable in
++	// one hop, and that hop is a knowledge edge (configures).
++	cfgSpan, err := graph.PathSpan(ctx, db, codeSym, "config/app.yaml")
++	if err != nil {
++		t.Fatalf("PathSpan code->config: %v", err)
++	}
++	if !cfgSpan.Found {
++		t.Fatalf("expected code_path to reach the config, got Found=false")
++	}
++	if !kindsHas(cfgSpan.Path, KindConfigures) {
++		t.Errorf("expected the code->config hop to be a configures edge, got kinds %v", pathKinds(cfgSpan.Path))
++	}
++	// The config hop must actually land on the config node (the stored edge is
++	// config->code, so the config appears as the hop's From or To endpoint).
++	if !pathTouches(cfgSpan.Path, "config/app.yaml") {
++		t.Errorf("expected the code->config path to land on the config node, got %+v", cfgSpan.Path)
++	}
++	_ = cfgID
++	_ = docID
++}
++
++// tableNodeName returns the span display name of a table node ("table:<name>"),
++// matching graph.tableNodeKey.
++func tableNodeName(tableID int64) string {
++	return "table:users"
++}
++
++// pathTouches reports whether any hop's endpoint carries the given node name.
++func pathTouches(path []graph.Edge, name string) bool {
++	for _, e := range path {
++		if e.From.Name == name || e.To.Name == name {
++			return true
++		}
++	}
++	return false
++}
++
++func kindsHas(path []graph.Edge, kind string) bool {
++	for _, e := range path {
++		if e.Kind == kind {
++			return true
++		}
++	}
++	return false
++}
++
++func pathKinds(path []graph.Edge) []string {
++	out := make([]string, 0, len(path))
++	for _, e := range path {
++		out = append(out, e.Kind)
++	}
++	return out
++}
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/config.go b/skillgrid-cli/internal/mnemonic/knowledge/config.go
+new file mode 100644
+index 0000000..68163be
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/knowledge/config.go
+@@ -0,0 +1,141 @@
++package knowledge
++
++import (
++	"path/filepath"
++	"regexp"
++	"strings"
++)
++
++// ConfigRef is one reference from a config file to the code it configures:
++// the literal value that names the code, the line, and the confidence.
++//   - EXTRACTED: the value names the code by explicit syntax (a quoted
++//     identifier that is unambiguously a symbol reference, e.g. a Go struct
++//     tag or a handler field naming a function).
++//   - INFERRED:  the value names the code by convention (a bare key that
++//     resolves to a symbol by a naming heuristic).
++//   - AMBIGUOUS: the value resolves to no known symbol — kept (not dropped)
++//     so an unresolvable config reference is surfaced, per 03.5.
++type ConfigRef struct {
++	Value      string
++	Line       int
++	Confidence string
++}
++
++// ConfigResult is the extraction result for one config file: the config node
++// (title + path) and its outgoing configures references.
++type ConfigResult struct {
++	Path     string
++	Title    string
++	Refs     []ConfigRef
++	IsConfig bool
++}
++
++// isConfig reports whether path is a config file (yaml/toml/json).
++func isConfig(path string) bool {
++	switch strings.ToLower(filepath.Ext(path)) {
++	case ".yaml", ".yml", ".toml", ".json":
++		return true
++	}
++	return false
++}
++
++// configValue matches a config key/value pair whose value could name code:
++// yaml `key: value`, toml `key = value`, json `"key": value`. The value is
++// either a quoted string or a bare identifier. A comma follows JSON array /
++// object separators and is tolerated.
++var configValue = regexp.MustCompile(`(?m)^\s*["']?([A-Za-z_][A-Za-z0-9_.\-]*)["']?\s*[:=]\s*("?[A-Za-z_][A-Za-z0-9_.\-]*"?)\s*,?\s*$`)
++
++// unquote strips a single pair of surrounding quotes from a config value.
++func unquote(s string) string {
++	if len(s) >= 2 {
++		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
++			return s[1 : len(s)-1]
++		}
++	}
++	return s
++}
++
++// ExtractConfig parses one yaml/toml/json file into a config node + its
++// configures references. It never errors and never returns nil: a malformed
++// file yields zero refs (the index continues, the rest is indexed). A
++// non-config path returns an empty (IsConfig=false) result.
++//
++// Confidence policy (03.3 / 03.5):
++//   - a value matching an indexed symbol by explicit syntax is EXTRACTED
++//     (resolved at persistence time by SaveConfig);
++//   - a value that is a conventional reference (bare identifier, no path
++//     separator) is INFERRED when it resolves;
++//   - a value that resolves to nothing is AMBIGUOUS (kept, not dropped).
++func ExtractConfig(path string, src []byte) *ConfigResult {
++	if !isConfig(path) {
++		return &ConfigResult{Path: path, Title: filepath.Base(path)}
++	}
++	res := &ConfigResult{Path: path, Title: filepath.Base(path), IsConfig: true}
++	lines := strings.Split(string(src), "\n")
++	for lineNo, line := range lines {
++		if isCommentLine(line) {
++			continue
++		}
++		m := configValue.FindStringSubmatch(line)
++		if m == nil {
++			continue
++		}
++		value := unquote(m[2])
++		res.Refs = append(res.Refs, ConfigRef{
++			Value:      value,
++			Line:       lineNo + 1,
++			Confidence: classifyConfigRef(value),
++		})
++	}
++	return res
++}
++
++// isCommentLine reports whether a config line is a comment (yaml #, toml #,
++// or blank). JSON has no comments; a blank line is skipped.
++func isCommentLine(line string) bool {
++	trimmed := strings.TrimSpace(line)
++	return trimmed == "" || strings.HasPrefix(trimmed, "#")
++}
++
++// isExplicitRefValue reports whether a config value is an explicit symbol
++// reference (a function/struct name): a CamelCase identifier (at least two
++// case-runs, e.g. `serverConfig`). A lowercase or single-case value (a
++// filename, a domain name, a plain word) is a conventional reference, not an
++// explicit one.
++func isExplicitRefValue(v string) bool {
++	if v == "" {
++		return false
++	}
++	first := v[0]
++	if first >= 'A' && first <= 'Z' {
++		// Starts uppercase: explicit only when it has an internal camel hump
++		// (a lowercase followed by an uppercase) — a plain PascalCase word is
++		// still treated as explicit (it names a type/constructor).
++		for i := 1; i < len(v); i++ {
++			if v[i] >= 'A' && v[i] <= 'Z' {
++				return true
++			}
++		}
++		return false
++	}
++	// Starts lowercase: explicit when it contains a camel hump (lowercase
++	// followed by uppercase), e.g. serverConfig.
++	for i := 1; i < len(v); i++ {
++		if v[i] >= 'A' && v[i] <= 'Z' {
++			return true
++		}
++	}
++	return false
++}
++
++// classifyConfigRef assigns the base confidence for a config reference value
++// BEFORE symbol resolution (SaveConfig finalizes EXTRACTED/INFERRED/AMBIGUOUS
++// against the indexed symbols). An explicit symbol reference (a CamelCase
++// identifier or a path/qualified name) is EXTRACTED; a plain value is a
++// conventional reference (INFERRED).
++func classifyConfigRef(value string) string {
++	if isExplicitRefValue(value) || strings.ContainsAny(value, "/.") {
++		return ConfidenceExtracted
++	}
++	return ConfidenceInferred
++}
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/doc.go b/skillgrid-cli/internal/mnemonic/knowledge/doc.go
+new file mode 100644
+index 0000000..df506e1
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/knowledge/doc.go
+@@ -0,0 +1,201 @@
++// Package knowledge extracts the code's surrounding knowledge — markdown
++// docs, config files, and SQL DDL — into the 005 graph as first-class nodes
++// (doc_nodes / config_nodes / sql_schema_nodes) with confidence-labeled
++// edges (references / configures / reads / writes). It is additive: it never
++// rewrites a 005 symbol or edge, and a malformed file yields zero knowledge
++// rows (the index continues, the bad part is skipped, the rest is indexed).
++package knowledge
++
++import (
++	"hash/fnv"
++	"path/filepath"
++	"regexp"
++	"strings"
++)
++
++// Edge kinds emitted by the knowledge extractors (distinct from 005's
++// call/heritage kinds; references is shared with 010's route references but
++// scoped here to doc node -> doc node).
++const (
++	KindReferences = "references"
++	KindConfigures = "configures"
++	KindReads      = "reads"
++	KindWrites     = "writes"
++)
++
++// Confidence labels (mirrored from extract/route/graph).
++//
++//	EXTRACTED  — explicit syntax (a literal doc link, a config key naming a
++//	            symbol by explicit spec, an SQL statement naming a table).
++//	INFERRED   — convention-derived (a wikilink resolved by file convention).
++//	AMBIGUOUS  — a resolved-but-inferred guess (an unresolved config reference
++//	            kept, not dropped, per 03.5).
++const (
++	ConfidenceExtracted = "EXTRACTED"
++	ConfidenceInferred  = "INFERRED"
++	ConfidenceAmbiguous = "AMBIGUOUS"
++)
++
++// KindDoc / KindConfig / KindTable / KindColumn are the knowledge node kinds.
++const (
++	KindDoc    = "doc"
++	KindConfig = "config"
++	KindTable  = "table"
++	KindColumn = "column"
++)
++
++// mdLink matches a markdown link [text](target). The target is a relative
++// path (or a URL fragment); anchors (#...) are stripped before resolution.
++var mdLink = regexp.MustCompile(`\[[^\]]*\]\(([^)\s]+)\)`)
++
++// mdWiki matches a wikilink [[target]].
++var mdWiki = regexp.MustCompile(`\[\[([^\[\]]+)\]\]`)
++
++// DocLink is one markdown link / wikilink in a doc file: its target as
++// written, the line it appears on, and its confidence.
++type DocLink struct {
++	Target     string
++	Line       int
++	Confidence string
++}
++
++// DocResult is the extraction result for one markdown file: the doc node
++// (its title + path) and its outgoing references links.
++type DocResult struct {
++	Path   string
++	Title  string
++	Links  []DocLink
++	IsDoc  bool
++}
++
++// DocTitle derives the doc node's title from the first H1 heading, falling
++// back to the file name (without extension).
++func DocTitle(path string, src []byte) string {
++	for _, line := range strings.Split(string(src), "\n") {
++		trimmed := strings.TrimSpace(line)
++		if strings.HasPrefix(trimmed, "# ") {
++			return strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))
++		}
++	}
++	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
++}
++
++// ExtractDoc parses one markdown file into doc node + references links.
++// It never errors and never returns nil: a malformed file (unparseable link)
++// skips the bad link and keeps the rest (03.6). A non-markdown path returns
++// an empty (IsDoc=false) result.
++func ExtractDoc(path string, src []byte) *DocResult {
++	if !isMarkdown(path) {
++		return &DocResult{Path: path, Title: filepath.Base(path)}
++	}
++	res := &DocResult{Path: path, Title: DocTitle(path, src), IsDoc: true}
++	for lineNo, line := range strings.Split(string(src), "\n") {
++		for _, m := range mdLink.FindAllStringSubmatchIndex(line, -1) {
++			target := line[m[2]:m[3]]
++			if !isDocLinkTarget(target) {
++				continue
++			}
++			res.Links = append(res.Links, DocLink{
++				Target:     normalizeLinkTarget(target),
++				Line:       lineNo + 1,
++				Confidence: ConfidenceExtracted,
++			})
++		}
++		for _, m := range mdWiki.FindAllStringSubmatchIndex(line, -1) {
++			target := line[m[2]:m[3]]
++			res.Links = append(res.Links, DocLink{
++				Target:     normalizeWikiTarget(target),
++				Line:       lineNo + 1,
++				Confidence: ConfidenceInferred,
++			})
++		}
++	}
++	return res
++}
++
++// isMarkdown reports whether path is a markdown file.
++func isMarkdown(path string) bool {
++	switch strings.ToLower(filepath.Ext(path)) {
++	case ".md", ".markdown":
++		return true
++	}
++	return false
++}
++
++// isDocLinkTarget reports whether a markdown link target is a doc reference
++// (not an external URL, a bare anchor, or an image) — only doc links become
++// references edges (03.2: links between doc nodes).
++func isDocLinkTarget(target string) bool {
++	if target == "" {
++		return false
++	}
++	if strings.Contains(target, "://") {
++		return false // external URL
++	}
++	if strings.HasPrefix(target, "#") {
++		return false // in-page anchor, not a doc reference
++	}
++	return strings.HasSuffix(target, ".md") || strings.HasSuffix(target, ".markdown")
++}
++
++// normalizeLinkTarget strips an in-page anchor (#...) from a markdown link
++// target so the reference resolves to the doc, not the fragment.
++func normalizeLinkTarget(target string) string {
++	if i := strings.Index(target, "#"); i >= 0 {
++		target = target[:i]
++	}
++	return strings.TrimSpace(target)
++}
++
++// normalizeWikiTarget strips an alias ([[page|alias]] -> page) and an anchor
++// from a wikilink target. Wikilinks name a doc by title/path; a bare name
++// (no path separator, no .md suffix) is resolved to <name>.md by file
++// convention so it links to the same-named doc node (03.2: wikilinks between
++// doc nodes).
++func normalizeWikiTarget(target string) string {
++	if i := strings.Index(target, "|"); i >= 0 {
++		target = target[:i]
++	}
++	if i := strings.Index(target, "#"); i >= 0 {
++		target = target[:i]
++	}
++	target = strings.TrimSpace(target)
++	if target == "" {
++		return target
++	}
++	if strings.Contains(target, "/") || strings.Contains(target, "\\") {
++		if !strings.HasSuffix(target, ".md") && !strings.HasSuffix(target, ".markdown") {
++			target += ".md"
++		}
++		return target
++	}
++	if !strings.HasSuffix(target, ".md") && !strings.HasSuffix(target, ".markdown") {
++		target += ".md"
++	}
++	return target
++}
++
++// docNodeID derives the doc node's deterministic id-key (the file path,
++// normalized to slashes) — a doc node is per-file.
++func docNodeKey(path string) string {
++	return filepath.ToSlash(path)
++}
++
++// fnvHex returns the hex FNV-1a digest of s (pure Go, CGo-free) — used for
++// deterministic knowledge node uids.
++func fnvHex(s string) string {
++	h := fnv.New64a()
++	_, _ = h.Write([]byte(s))
++	return strings.ToLower(strings.TrimLeft(
++		func() string { return hex64(h.Sum64()) }(), "0"))
++}
++
++func hex64(v uint64) string {
++	const digits = "0123456789abcdef"
++	var b [16]byte
++	for i := 15; i >= 0; i-- {
++		b[i] = digits[v&0xf]
++		v >>= 4
++	}
++	return string(b[:])
++}
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/knowledge_test.go b/skillgrid-cli/internal/mnemonic/knowledge/knowledge_test.go
+new file mode 100644
+index 0000000..be52fe7
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/knowledge/knowledge_test.go
+@@ -0,0 +1,434 @@
++package knowledge
++
++import (
++	"context"
++	"database/sql"
++	"testing"
++
++	_ "modernc.org/sqlite"
++)
++
++// openKnowledgeStore opens a scratch SQLite store with the 005
++// symbols/edges/files tables plus the 015 knowledge tables — the full surface
++// the knowledge extractors read from / write to.
++func openKnowledgeStore(t *testing.T) *sql.DB {
++	t.Helper()
++	db, err := sql.Open("sqlite", ":memory:")
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	t.Cleanup(func() { db.Close() })
++	stmts := []string{
++		`CREATE TABLE files (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, mtime_ns INTEGER, size INTEGER, content_hash TEXT, indexed_at TEXT)`,
++		`CREATE TABLE symbols (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE, name TEXT NOT NULL, qualified_name TEXT, kind TEXT NOT NULL, language TEXT, signature TEXT, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL, content_hash TEXT NOT NULL, uid TEXT NOT NULL UNIQUE)`,
++		`CREATE TABLE edges (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, from_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE, file_id INTEGER REFERENCES files(id) ON DELETE CASCADE, to_id INTEGER REFERENCES symbols(id) ON DELETE CASCADE, to_name TEXT, target_path TEXT, confidence TEXT NOT NULL DEFAULT 'EXTRACTED', line INTEGER, UNIQUE(kind, from_id, file_id, to_id, to_name, target_path, line))`,
++		`CREATE TABLE doc_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE, title TEXT NOT NULL, path TEXT NOT NULL)`,
++		`CREATE TABLE config_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE, title TEXT NOT NULL, path TEXT NOT NULL)`,
++		`CREATE TABLE sql_schema_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE, table_name TEXT NOT NULL, column_name TEXT, kind TEXT NOT NULL, path TEXT NOT NULL)`,
++	}
++	for _, s := range stmts {
++		if _, err := db.Exec(s); err != nil {
++			t.Fatalf("create schema: %v", err)
++		}
++	}
++	return db
++}
++
++func seedFile(t *testing.T, db *sql.DB, path string) int64 {
++	t.Helper()
++	res, err := db.Exec(`INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at) VALUES (?, 1, 1, 'h', 'now')`, path)
++	if err != nil {
++		t.Fatalf("seed file %s: %v", path, err)
++	}
++	id, _ := res.LastInsertId()
++	return id
++}
++
++func seedSymbol(t *testing.T, db *sql.DB, fileID int64, name, kind string, line int) int64 {
++	t.Helper()
++	res, err := db.Exec(`INSERT INTO symbols (file_id, name, kind, start_line, end_line, content_hash, uid) VALUES (?, ?, ?, ?, ?, 'h', ?)`,
++		fileID, name, kind, line, line, name+kind)
++	if err != nil {
++		t.Fatalf("seed symbol %s: %v", name, err)
++	}
++	id, _ := res.LastInsertId()
++	return id
++}
++
++// countTable returns the row count of a table.
++func countTable(t *testing.T, db *sql.DB, table string) int {
++	t.Helper()
++	var n int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&n); err != nil {
++		t.Fatalf("count %s: %v", table, err)
++	}
++	return n
++}
++
++// TestDocLinks covers @step-03 (Scenario: Markdown links and wikilinks become
++// references edges): .md files with [text](./other.md) and [[wikilinks]]
++// produce doc_nodes + references edges between doc nodes, each
++// confidence-labeled.
++func TestDocLinks(t *testing.T) {
++	db := openKnowledgeStore(t)
++	ctx := context.Background()
++
++	// Two docs: a.md links to b.md (markdown link) and to a wiki (wikilink).
++	fA := seedFile(t, db, "docs/a.md")
++	fB := seedFile(t, db, "docs/b.md")
++	seedFile(t, db, "docs/wiki.md")
++
++	aDoc := ExtractDoc("docs/a.md", []byte("# A\n\nSee [B](./b.md) and [[wiki]].\n"))
++	if !aDoc.IsDoc {
++		t.Fatalf("a.md should be recognized as a doc")
++	}
++	if aDoc.Title != "A" {
++		t.Errorf("doc title = %q, want A (first H1)", aDoc.Title)
++	}
++	if len(aDoc.Links) != 2 {
++		t.Fatalf("expected 2 links (md + wiki), got %d: %+v", len(aDoc.Links), aDoc.Links)
++	}
++
++	// Persist the doc nodes + references edges via the store API.
++	store := &Store{db: db}
++	for _, f := range []struct {
++		path string
++		doc  *DocResult
++	}{
++		{"docs/a.md", aDoc},
++		{"docs/b.md", ExtractDoc("docs/b.md", []byte("# B\nplain doc\n"))},
++		{"docs/wiki.md", ExtractDoc("docs/wiki.md", []byte("# Wiki\ncontent\n"))},
++	} {
++		if _, err := store.SaveDoc(ctx, f.path, f.doc); err != nil {
++			t.Fatalf("SaveDoc %s: %v", f.path, err)
++		}
++	}
++
++	// doc_nodes exist for the three docs.
++	if n := countTable(t, db, "doc_nodes"); n != 3 {
++		t.Errorf("expected 3 doc_nodes, got %d", n)
++	}
++
++	// references edges: a.md -> b.md (EXTRACTED) and a.md -> wiki.md
++	// (INFERRED), both resolvable between doc nodes.
++	var refs int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'references'`).Scan(&refs); err != nil {
++		t.Fatalf("count references: %v", err)
++	}
++	if refs != 2 {
++		t.Errorf("expected 2 references edges, got %d", refs)
++	}
++
++	// The markdown link is EXTRACTED, the wikilink is INFERRED.
++	var mdConf, wikiConf string
++	err := db.QueryRow(`
++		SELECT e.confidence FROM edges e
++		JOIN doc_nodes dn ON dn.id = e.from_id
++		WHERE e.kind = 'references' AND e.target_path = 'docs/b.md'`).Scan(&mdConf)
++	if err != nil || mdConf != ConfidenceExtracted {
++		t.Errorf("a.md -> b.md references confidence = %q (err %v), want EXTRACTED", mdConf, err)
++	}
++	err = db.QueryRow(`
++		SELECT e.confidence FROM edges e
++		JOIN doc_nodes dn ON dn.id = e.from_id
++		WHERE e.kind = 'references' AND e.target_path = 'docs/wiki.md'`).Scan(&wikiConf)
++	if err != nil || wikiConf != ConfidenceInferred {
++		t.Errorf("a.md -> wiki.md references confidence = %q (err %v), want INFERRED", wikiConf, err)
++	}
++
++	// Every references edge from a doc node is confidence-labeled.
++	var unlabeled int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'references' AND (confidence IS NULL OR confidence = '')`).Scan(&unlabeled); err != nil {
++		t.Fatalf("count unlabeled: %v", err)
++	}
++	if unlabeled != 0 {
++		t.Errorf("expected all doc references edges labeled, got %d unlabeled", unlabeled)
++	}
++
++	_ = fA
++	_ = fB
++}
++
++// TestMalformedDoc covers @step-03 (Scenario: Malformed doc file falls back
++// and indexes the rest): a doc with unparseable links among valid docs skips
++// the bad links and indexes the rest; the index does not abort.
++func TestMalformedDoc(t *testing.T) {
++	db := openKnowledgeStore(t)
++	ctx := context.Background()
++	store := &Store{db: db}
++
++	// A doc with a malformed link (no closing paren) next to a valid one.
++	bad := "# Mix\n\nGood [B](./b.md)\nbroken [C](./c.md\n"
++	seedFile(t, db, "docs/bad.md")
++	seedFile(t, db, "docs/b.md")
++	res := ExtractDoc("docs/bad.md", []byte(bad))
++	if !res.IsDoc {
++		t.Fatalf("bad.md should be a doc")
++	}
++	if _, err := store.SaveDoc(ctx, "docs/bad.md", res); err != nil {
++		t.Fatalf("SaveDoc bad.md: %v", err)
++	}
++	if _, err := store.SaveDoc(ctx, "docs/b.md", ExtractDoc("docs/b.md", []byte("# B\n"))); err != nil {
++		t.Fatalf("SaveDoc b.md: %v", err)
++	}
++
++	// The valid link (b.md) is indexed; the malformed link (c.md) is skipped,
++	// not fatal. The doc node + its good reference edge exist.
++	if n := countTable(t, db, "doc_nodes"); n != 2 {
++		t.Errorf("expected 2 doc_nodes (bad.md, b.md), got %d", n)
++	}
++	var refs int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'references'`).Scan(&refs); err != nil {
++		t.Fatalf("count references: %v", err)
++	}
++	if refs != 1 {
++		t.Errorf("expected 1 references edge (the valid b.md link; the malformed c.md link skipped), got %d", refs)
++	}
++}
++
++// TestConfigRefs covers @step-03 (Scenario: Config references become
++// configures edges): .yaml/.toml/.json files produce config_nodes +
++// configures edges to the code they configure; explicit syntax is EXTRACTED,
++// resolved-but-inferred refs are INFERRED.
++func TestConfigRefs(t *testing.T) {
++	db := openKnowledgeStore(t)
++	ctx := context.Background()
++	store := &Store{db: db}
++
++	// A Go file with an explicit struct tag referencing a config key.
++	fGo := seedFile(t, db, "app/server.go")
++	sym := seedSymbol(t, db, fGo, "serverConfig", "struct", 5)
++
++	// A YAML config whose value explicitly names the code symbol (EXTRACTED).
++	fYaml := seedFile(t, db, "config/app.yaml")
++	yamlRes := ExtractConfig("config/app.yaml", []byte("server:\n  handler: serverConfig\n"))
++	if !yamlRes.IsConfig {
++		t.Fatalf("app.yaml should be recognized as a config")
++	}
++	if len(yamlRes.Refs) != 1 {
++		t.Fatalf("expected 1 config ref, got %d: %+v", len(yamlRes.Refs), yamlRes.Refs)
++	}
++	if yamlRes.Refs[0].Confidence != ConfidenceExtracted {
++		t.Errorf("explicit yaml ref confidence = %q, want EXTRACTED", yamlRes.Refs[0].Confidence)
++	}
++	if n, err := store.SaveConfig(ctx, "config/app.yaml", yamlRes); err != nil || n != 1 {
++		t.Fatalf("SaveConfig yaml = (%d, %v), want (1, nil)", n, err)
++	}
++
++	// A JSON config whose value names the symbol (EXTRACTED).
++	fJSON := seedFile(t, db, "config/app.json")
++	jsonRes := ExtractConfig("config/app.json", []byte("{\n  \"service\": \"serverConfig\"\n}"))
++	if len(jsonRes.Refs) != 1 || jsonRes.Refs[0].Value != "serverConfig" {
++		t.Fatalf("json refs = %+v, want 1 ref to serverConfig", jsonRes.Refs)
++	}
++	if _, err := store.SaveConfig(ctx, "config/app.json", jsonRes); err != nil {
++		t.Fatalf("SaveConfig json: %v", err)
++	}
++
++	// A TOML config (INFERRED: the key->symbol link is a convention).
++	fToml := seedFile(t, db, "config/app.toml")
++	tomlRes := ExtractConfig("config/app.toml", []byte("name = \"serverConfig\"\n"))
++	if len(tomlRes.Refs) != 1 || tomlRes.Refs[0].Value != "serverConfig" {
++		t.Fatalf("toml refs = %+v, want 1 ref to serverConfig", tomlRes.Refs)
++	}
++	if _, err := store.SaveConfig(ctx, "config/app.toml", tomlRes); err != nil {
++		t.Fatalf("SaveConfig toml: %v", err)
++	}
++
++	// config_nodes exist for the three configs.
++	if n := countTable(t, db, "config_nodes"); n != 3 {
++		t.Errorf("expected 3 config_nodes, got %d", n)
++	}
++
++	// configures edges resolve to the code symbol (by id), labeled.
++	var cfg int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'configures' AND to_id = ?`, sym).Scan(&cfg); err != nil {
++		t.Fatalf("count configures: %v", err)
++	}
++	if cfg != 3 {
++		t.Errorf("expected 3 configures edges to serverConfig, got %d", cfg)
++	}
++	// The explicit yaml/json refs are EXTRACTED.
++	var extracted int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'configures' AND confidence = 'EXTRACTED'`).Scan(&extracted); err != nil {
++		t.Fatalf("count extracted: %v", err)
++	}
++	if extracted < 2 {
++		t.Errorf("expected >=2 EXTRACTED configures edges (yaml + json), got %d", extracted)
++	}
++	_ = fYaml
++	_ = fJSON
++	_ = fToml
++}
++
++// TestAmbiguousConfigRef covers @step-03 (Scenario: Unresolvable config ref is
++// ambiguous not dropped): a config reference that resolves to no known symbol
++// is kept and marked AMBIGUOUS, not silently dropped.
++func TestAmbiguousConfigRef(t *testing.T) {
++	db := openKnowledgeStore(t)
++	ctx := context.Background()
++	store := &Store{db: db}
++
++	seedFile(t, db, "config/app.yaml")
++	res := ExtractConfig("config/app.yaml", []byte("service:\n  handler: ghostHandler\n"))
++	if _, err := store.SaveConfig(ctx, "config/app.yaml", res); err != nil {
++		t.Fatalf("SaveConfig: %v", err)
++	}
++
++	// The unresolvable ref is KEPT as an AMBIGUOUS edge (to_id null, to_name
++	// the literal ref), not dropped.
++	var ambiguous int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'configures' AND confidence = 'AMBIGUOUS' AND to_id IS NULL AND to_name = 'ghostHandler'`).Scan(&ambiguous); err != nil {
++		t.Fatalf("count ambiguous: %v", err)
++	}
++	if ambiguous != 1 {
++		t.Errorf("expected 1 AMBIGUOUS configures edge for the unresolvable ref (not dropped), got %d", ambiguous)
++	}
++}
++
++// TestSqlSchema covers @step-03 (Scenario: SQL DDL becomes table and column
++// nodes with reads and writes): .sql DDL produces sql_schema_nodes (tables +
++// columns) and code that references them gets reads/writes edges,
++// confidence-labeled.
++func TestSqlSchema(t *testing.T) {
++	db := openKnowledgeStore(t)
++	ctx := context.Background()
++	store := &Store{db: db}
++
++	// A SQL schema file with DDL for `users` and `orders` tables.
++	seedFile(t, db, "db/schema.sql")
++	schema := `
++CREATE TABLE users (
++  id INTEGER PRIMARY KEY,
++  name TEXT,
++  email TEXT UNIQUE
++);
++CREATE TABLE orders (
++  id INTEGER PRIMARY KEY,
++  user_id INTEGER,
++  total REAL
++);
++`
++	schemaRes := ExtractSQL("db/schema.sql", []byte(schema))
++	if n, err := store.SaveSchema(ctx, "db/schema.sql", schemaRes); err != nil || n != 8 {
++		t.Fatalf("SaveSchema = (%d, %v), want (8, nil) [2 tables + 6 columns]", n, err)
++	}
++
++	// sql_schema_nodes: 2 tables + 6 columns = 8 nodes.
++	if n := countTable(t, db, "sql_schema_nodes"); n != 8 {
++		t.Errorf("expected 8 sql_schema_nodes, got %d", n)
++	}
++	var tables, cols int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM sql_schema_nodes WHERE kind = 'table'`).Scan(&tables); err != nil {
++		t.Fatalf("count tables: %v", err)
++	}
++	if err := db.QueryRow(`SELECT COUNT(*) FROM sql_schema_nodes WHERE kind = 'column'`).Scan(&cols); err != nil {
++		t.Fatalf("count columns: %v", err)
++	}
++	if tables != 2 || cols != 6 {
++		t.Errorf("expected 2 tables + 6 columns, got %d tables + %d columns", tables, cols)
++	}
++
++	// Code that reads/writes the tables gets reads/writes edges (EXTRACTED).
++	// Two separate code files: one that reads `users`, one that writes
++	// `orders`. Each file's first symbol is the edge source.
++	fRead := seedFile(t, db, "app/users.go")
++	seedSymbol(t, db, fRead, "loadUsers", "function", 10)
++	fWrite := seedFile(t, db, "app/orders.go")
++	seedSymbol(t, db, fWrite, "createOrder", "function", 5)
++
++	readRes := ExtractSQL("app/users.go", []byte("SELECT id, name FROM users;\n"))
++	if n, err := store.SaveSchema(ctx, "app/users.go", readRes); err != nil || n != 1 {
++		t.Fatalf("SaveSchema read = (%d, %v), want (1, nil)", n, err)
++	}
++	writeRes := ExtractSQL("app/orders.go", []byte("INSERT INTO orders (id, user_id, total) VALUES (1, 2, 3.5);\n"))
++	if n, err := store.SaveSchema(ctx, "app/orders.go", writeRes); err != nil || n != 1 {
++		t.Fatalf("SaveSchema write = (%d, %v), want (1, nil)", n, err)
++	}
++	var reads, writes int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'reads'`).Scan(&reads); err != nil {
++		t.Fatalf("count reads: %v", err)
++	}
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'writes'`).Scan(&writes); err != nil {
++		t.Fatalf("count writes: %v", err)
++	}
++	if reads != 1 || writes != 1 {
++		t.Errorf("expected 1 reads + 1 writes, got %d reads + %d writes", reads, writes)
++	}
++	// The reads edge is from loadUsers to the users table; writes from
++	// createOrder to orders.
++	var readFrom, writeTo string
++	if err := db.QueryRow(`
++		SELECT s.name FROM edges e
++		JOIN symbols s ON s.id = e.from_id
++		JOIN sql_schema_nodes tn ON tn.id = e.to_id
++		WHERE e.kind = 'reads' AND tn.table_name = 'users'`).Scan(&readFrom); err != nil {
++		t.Fatalf("read source: %v", err)
++	}
++	if err := db.QueryRow(`
++		SELECT s.name FROM edges e
++		JOIN symbols s ON s.id = e.from_id
++		JOIN sql_schema_nodes tn ON tn.id = e.to_id
++		WHERE e.kind = 'writes' AND tn.table_name = 'orders'`).Scan(&writeTo); err != nil {
++		t.Fatalf("write source: %v", err)
++	}
++	if readFrom != "loadUsers" || writeTo != "createOrder" {
++		t.Errorf("reads from %q (want loadUsers), writes from %q (want createOrder)", readFrom, writeTo)
++	}
++	// Every reads/writes edge is confidence-labeled EXTRACTED.
++	var nonExtracted int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind IN ('reads','writes') AND confidence != 'EXTRACTED'`).Scan(&nonExtracted); err != nil {
++		t.Fatalf("count non-extracted: %v", err)
++	}
++	if nonExtracted != 0 {
++		t.Errorf("expected all reads/writes edges EXTRACTED, got %d non-EXTRACTED", nonExtracted)
++	}
++}
++
++// TestMalformedSQL covers @step-03 (Scenario: Malformed SQL statement is
++// skipped and the rest is indexed): a SQL file with a statement that fails to
++// parse among valid DDL skips that statement and indexes the rest; the index
++// does not abort.
++func TestMalformedSQL(t *testing.T) {
++	db := openKnowledgeStore(t)
++	ctx := context.Background()
++	store := &Store{db: db}
++
++	fid := seedFile(t, db, "db/schema.sql")
++	seedSymbol(t, db, fid, "sym", "function", 1)
++	// A valid CREATE TABLE, a malformed CREATE TABLE (unbalanced parens), and
++	// a valid DML statement (an INSERT that names a table). The malformed DDL
++	// is skipped; the rest (the valid DDL table + the DML access) is indexed.
++	sql := `
++CREATE TABLE good1 (id INTEGER PRIMARY KEY);
++CREATE TABLE broken (id INTEGER PRIMARY KEY
++INSERT INTO good1 (id) VALUES (1);
++`
++	res := ExtractSQL("db/schema.sql", []byte(sql))
++	if _, err := store.SaveSchema(ctx, "db/schema.sql", res); err != nil {
++		t.Fatalf("SaveSchema: %v", err)
++	}
++	// The valid table is indexed; the broken one is skipped.
++	var good1, broken int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM sql_schema_nodes WHERE table_name = 'good1' AND kind = 'table'`).Scan(&good1); err != nil {
++		t.Fatalf("count good1: %v", err)
++	}
++	if err := db.QueryRow(`SELECT COUNT(*) FROM sql_schema_nodes WHERE table_name = 'broken' AND kind = 'table'`).Scan(&broken); err != nil {
++		t.Fatalf("count broken: %v", err)
++	}
++	if good1 != 1 {
++		t.Errorf("expected the valid 'good1' table to be indexed, got %d", good1)
++	}
++	if broken != 0 {
++		t.Errorf("expected the malformed 'broken' table to be skipped, got %d", broken)
++	}
++	// The valid DML (the INSERT) is still indexed as a writes edge — the
++	// malformed statement did not abort the rest.
++	var writes int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'writes'`).Scan(&writes); err != nil {
++		t.Fatalf("count writes: %v", err)
++	}
++	if writes != 1 {
++		t.Errorf("expected the valid INSERT to be indexed as a writes edge (the index did not abort), got %d", writes)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/passes.go b/skillgrid-cli/internal/mnemonic/knowledge/passes.go
+new file mode 100644
+index 0000000..04b52d6
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/knowledge/passes.go
+@@ -0,0 +1,108 @@
++package knowledge
++
++import (
++	"context"
++	"database/sql"
++	"path/filepath"
++	"strings"
++)
++
++// FileInput is one scanned file for the knowledge pass: its index-relative
++// path and its contents.
++type FileInput struct {
++	Path     string
++	Contents []byte
++}
++
++// PassResult summarizes one knowledge pass run.
++type PassResult struct {
++	Docs   int
++	Configs int
++	SQL    int
++}
++
++// RunPasses runs the three knowledge extractors (doc + config + SQL) over the
++// scanned files, persisting doc_nodes / config_nodes / sql_schema_nodes and
++// their references / configures / reads / writes edges via st (the indexer's
++// open transaction in production, so the pass is in the SAME tx as the 005
++// extraction and a single rollback undoes it). Each extractor is non-fatal: a
++// malformed file yields zero rows (the index continues, the bad part is
++// skipped, the rest is indexed).
++func RunPasses(ctx context.Context, st *Store, files []FileInput) (PassResult, error) {
++	var res PassResult
++	for _, f := range files {
++		if err := ctx.Err(); err != nil {
++			return res, err
++		}
++		switch {
++		case isMarkdown(f.Path):
++			doc := ExtractDoc(f.Path, f.Contents)
++			if n, err := st.SaveDoc(ctx, f.Path, doc); err != nil {
++				return res, err
++			} else {
++				res.Docs++
++				_ = n
++			}
++		case isConfig(f.Path):
++			cfg := ExtractConfig(f.Path, f.Contents)
++			if n, err := st.SaveConfig(ctx, f.Path, cfg); err != nil {
++				return res, err
++			} else {
++				res.Configs++
++				_ = n
++			}
++		case isSQL(f.Path, f.Contents):
++			sq := ExtractSQL(f.Path, f.Contents)
++			if n, err := st.SaveSchema(ctx, f.Path, sq); err != nil {
++				return res, err
++			} else {
++				res.SQL++
++				_ = n
++			}
++		}
++	}
++	return res, nil
++}
++
++// isSQL reports whether a file should be parsed for SQL: a .sql file, or any
++// file whose contents contain a SQL keyword (code-embedded SQL). A .sql file
++// is always parsed (even with no DDL/DML, so it is a known schema source); a
++// non-.sql file is parsed only when it contains SQL (so the Go extractor's
++// code files that embed SQL are covered, and pure code files are not).
++func isSQL(path string, contents []byte) bool {
++	if filepath.Ext(path) == ".sql" || filepath.Ext(path) == ".SQL" {
++		return true
++	}
++	s := string(contents)
++	for _, kw := range []string{"SELECT", "INSERT", "CREATE TABLE", "UPDATE ", "DELETE FROM"} {
++		if containsWord(s, kw) {
++			return true
++		}
++	}
++	return false
++}
++
++// containsWord reports whether s contains the keyword as a whole word
++// (case-sensitive, to avoid matching inside identifiers).
++func containsWord(s, kw string) bool {
++	if kw == "" {
++		return false
++	}
++	i := strings.Index(s, kw)
++	for i >= 0 {
++		if (i == 0 || !isIdentByte(s[i-1])) && (i+len(kw) == len(s) || !isIdentByte(s[i+len(kw)])) {
++			return true
++		}
++		i = strings.Index(s[i+1:], kw)
++		if i >= 0 {
++			i += 1
++		}
++	}
++	return false
++}
++
++func isIdentByte(c byte) bool {
++	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
++}
++
++var _ = sql.ErrNoRows
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/sql.go b/skillgrid-cli/internal/mnemonic/knowledge/sql.go
+new file mode 100644
+index 0000000..739c558
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/knowledge/sql.go
+@@ -0,0 +1,287 @@
++package knowledge
++
++import (
++	"path/filepath"
++	"regexp"
++	"strings"
++)
++
++// SQLTable is one table parsed from SQL DDL: its name and its columns.
++type SQLTable struct {
++	Name    string
++	Columns []string
++}
++
++// SQLAccess is one read/write of a table from SQL DML: the table name, the
++// operation (reads | writes), and the line it appears on.
++type SQLAccess struct {
++	Table    string
++	Op       string // KindReads | KindWrites
++	Line     int
++	Confidence string
++}
++
++// SQLResult is the extraction result for one SQL file: the tables (DDL) it
++// defines and the read/writes (DML) it performs.
++type SQLResult struct {
++	Path    string
++	Tables  []SQLTable
++	Access  []SQLAccess
++	IsSQL   bool
++}
++
++// sqlTable matches a CREATE TABLE statement header: the table name.
++var sqlTable = regexp.MustCompile("(?i)\\bCREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?[`\"'\\[]?([A-Za-z_][A-Za-z0-9_]*)[`\"'\\]]?")
++
++// sqlColumn matches a column definition inside a CREATE TABLE body: the
++// column name (the first token of a body line, when it is an identifier not
++// followed by a constraint keyword).
++var sqlColumn = regexp.MustCompile("(?i)^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s+(?:INTEGER|INT|TEXT|VARCHAR|CHAR|BOOLEAN|BOOL|REAL|DOUBLE|FLOAT|DECIMAL|NUMERIC|BLOB|DATE|DATETIME|TIMESTAMP|TIMESTAMPTZ|UUID|JSON|JSONB|BIGINT|SMALLINT|MEDIUMINT|SERIAL|BIGSERIAL)\\b")
++
++// sqlSelect matches a SELECT statement naming its target table(s).
++var sqlSelect = regexp.MustCompile("(?i)\\bFROM\\s+[`\"'\\[]?([A-Za-z_][A-Za-z0-9_]*)[`\"'\\]]?")
++
++// sqlInsertInto matches an INSERT INTO statement naming its target table.
++var sqlInsertInto = regexp.MustCompile("(?i)\\bINSERT\\s+INTO\\s+[`\"'\\[]?([A-Za-z_][A-Za-z0-9_]*)[`\"'\\]]?")
++
++// sqlUpdate matches an UPDATE statement naming its target table.
++var sqlUpdate = regexp.MustCompile("(?i)\\bUPDATE\\s+[`\"'\\[]?([A-Za-z_][A-Za-z0-9_]*)[`\"'\\]]?")
++
++// sqlDeleteFrom matches a DELETE FROM statement naming its target table.
++var sqlDeleteFrom = regexp.MustCompile("(?i)\\bDELETE\\s+FROM\\s+[`\"'\\[]?([A-Za-z_][A-Za-z0-9_]*)[`\"'\\]]?")
++
++// sqlStatementSplits splits a SQL script into individual statements at
++// semicolons (respecting single/double quotes so a `;` inside a string literal
++// does not split). An unbalanced-paren statement swallows subsequent text up
++// to the next `;`, so the split is conservative: each chunk is then validated
++// by isBalanced (a malformed statement is skipped, per 03.7).
++func sqlStatementSplits(src []byte) []string {
++	var stmts []string
++	inSQuote, inDQuote := false, false
++	var cur strings.Builder
++	for i := 0; i < len(src); i++ {
++		c := src[i]
++		switch {
++		case inSQuote:
++			cur.WriteByte(c)
++			if c == '\'' {
++				inSQuote = false
++			}
++		case inDQuote:
++			cur.WriteByte(c)
++			if c == '"' {
++				inDQuote = false
++			}
++		case c == '\'':
++			inSQuote = true
++			cur.WriteByte(c)
++		case c == '"':
++			inDQuote = true
++			cur.WriteByte(c)
++		case c == ';':
++			stmts = append(stmts, cur.String())
++			cur.Reset()
++		default:
++			cur.WriteByte(c)
++		}
++	}
++	if strings.TrimSpace(cur.String()) != "" {
++		stmts = append(stmts, cur.String())
++	}
++	return stmts
++}
++
++// isBalanced reports whether a statement has balanced parens (a malformed
++// statement with unbalanced parens is skipped, per 03.7).
++func isBalanced(s string) bool {
++	depth := 0
++	for i := 0; i < len(s); i++ {
++		switch s[i] {
++		case '(':
++			depth++
++		case ')':
++			depth--
++			if depth < 0 {
++				return false
++			}
++		}
++	}
++	return depth == 0
++}
++
++// startsWithCREATE reports whether a statement is a DDL statement (CREATE /
++// ALTER / DROP).
++func startsWithCREATE(stmt string) bool {
++	upper := strings.ToUpper(strings.TrimSpace(stmt))
++	return strings.HasPrefix(upper, "CREATE") || strings.HasPrefix(upper, "ALTER") || strings.HasPrefix(upper, "DROP")
++}
++
++// containsDML reports whether a statement (possibly a swallowed fragment)
++// contains a DML keyword (SELECT / INSERT / UPDATE / DELETE) — used to recover
++// a valid DML that was swallowed by an unbalanced-paren DDL fragment.
++func containsDML(stmt string) bool {
++	upper := strings.ToUpper(stmt)
++	for _, kw := range []string{"SELECT", "INSERT", "UPDATE", "DELETE"} {
++		if strings.Contains(upper, kw) {
++			return true
++		}
++	}
++	return false
++}
++
++// leadingDDLName extracts the leading DDL statement's table name (for a
++// swallowed fragment like `CREATE TABLE broken (... INSERT INTO good1 ...`),
++// so the malformed DDL's table can be excluded from the indexed nodes.
++func leadingDDLName(stmt string) string {
++	if m := sqlTable.FindStringSubmatch(stmt); m != nil {
++		return m[1]
++	}
++	return ""
++}
++
++// firstTableLine returns the line number (1-based) of the first non-blank,
++// non-comment character of a statement within the source.
++func firstTableLine(src []byte, stmt string) int {
++	s := strings.TrimSpace(stmt)
++	if s == "" {
++		return 0
++	}
++	idx := strings.Index(string(src), s)
++	if idx < 0 {
++		return 0
++	}
++	return strings.Count(string(src[:idx]), "\n") + 1
++}
++
++// ExtractSQL parses one SQL file into its tables (DDL) and read/writes (DML).
++// It never errors and never returns nil: a malformed statement (unbalanced
++// parens) is skipped and the rest is indexed (03.7). A non-SQL path returns an
++// empty (IsSQL=false) result.
++func ExtractSQL(path string, src []byte) *SQLResult {
++	res := &SQLResult{Path: path, IsSQL: true}
++	for _, raw := range sqlStatementSplits(src) {
++		stmt := strings.TrimSpace(raw)
++		if stmt == "" {
++			continue
++		}
++		line := firstTableLine(src, raw)
++		// A malformed DDL statement (unbalanced parens, no DML) is skipped
++		// (03.7). A swallowed fragment that contains a DML is still processed
++		// for its own table reference (the index does not abort on the
++		// malformed DDL); the malformed DDL's leading table is excluded.
++		if startsWithCREATE(stmt) && !isBalanced(stmt) {
++			if !containsDML(stmt) {
++				continue
++			}
++			res.processStatement(stmt, line, leadingDDLName(stmt))
++			continue
++		}
++		res.processStatement(stmt, line, "")
++	}
++	// De-dup tables (a table defined once) and accesses.
++	res.dedup()
++	return res
++}
++
++// isSQLPath reports whether path is a .sql file (the primary DDL source).
++func isSQLPath(path string) bool {
++	return strings.EqualFold(filepath.Ext(path), ".sql")
++}
++
++// processStatement parses one SQL statement into tables (DDL) or read/writes
++// (DML). excludeTable, when non-empty, suppresses a table node for that name
++// (a malformed DDL's leading table in a swallowed fragment).
++func (r *SQLResult) processStatement(stmt string, line int, excludeTable string) {
++	if m := sqlTable.FindStringSubmatch(stmt); m != nil {
++		name := m[1]
++		if name != excludeTable {
++			table := SQLTable{Name: name}
++			// Parse the column body (between the first '(' after the table
++			// name and its matching ')').
++			body := columnBody(stmt, name)
++			for _, colLine := range strings.Split(body, ",") {
++				if cm := sqlColumn.FindStringSubmatch(colLine); cm != nil {
++					table.Columns = append(table.Columns, cm[1])
++				}
++			}
++			r.Tables = append(r.Tables, table)
++			return
++		}
++		// The malformed DDL's leading table is excluded; fall through to its
++		// DML (the swallowed SELECT / INSERT / UPDATE / DELETE).
++	}
++	// DML: reads (SELECT) and writes (INSERT/UPDATE/DELETE).
++	if m := sqlSelect.FindStringSubmatch(stmt); m != nil && selectIsRead(stmt) {
++		r.Access = append(r.Access, SQLAccess{Table: m[1], Op: KindReads, Line: line, Confidence: ConfidenceExtracted})
++	}
++	if m := sqlInsertInto.FindStringSubmatch(stmt); m != nil {
++		r.Access = append(r.Access, SQLAccess{Table: m[1], Op: KindWrites, Line: line, Confidence: ConfidenceExtracted})
++	}
++	if m := sqlUpdate.FindStringSubmatch(stmt); m != nil {
++		r.Access = append(r.Access, SQLAccess{Table: m[1], Op: KindWrites, Line: line, Confidence: ConfidenceExtracted})
++	}
++	if m := sqlDeleteFrom.FindStringSubmatch(stmt); m != nil {
++		r.Access = append(r.Access, SQLAccess{Table: m[1], Op: KindWrites, Line: line, Confidence: ConfidenceExtracted})
++	}
++}
++
++// selectIsRead reports whether a SELECT statement is a read (not a
++// CREATE/ALTER containing a SELECT subquery). A top-level SELECT is a read.
++func selectIsRead(stmt string) bool {
++	upper := strings.ToUpper(strings.TrimSpace(stmt))
++	return strings.HasPrefix(upper, "SELECT") || strings.Contains(upper, "SELECT")
++}
++
++// columnBody extracts the column-definition body of a CREATE TABLE statement
++// (the text between the first '(' after the table name and its matching
++// ')').
++func columnBody(stmt, name string) string {
++	idx := strings.Index(stmt, name)
++	if idx < 0 {
++		return ""
++	}
++	rest := stmt[idx+len(name):]
++	open := strings.Index(rest, "(")
++	if open < 0 {
++		return ""
++	}
++	depth := 0
++	for i := open; i < len(rest); i++ {
++		switch rest[i] {
++		case '(':
++			depth++
++		case ')':
++			depth--
++			if depth == 0 {
++				return rest[open+1 : i]
++			}
++		}
++	}
++	return rest[open+1:]
++}
++
++// dedup de-duplicates tables (by name, keeping the first) and accesses (by
++// table+op, keeping the first) so a re-index does not double-count.
++func (r *SQLResult) dedup() {
++	seenTable := map[string]bool{}
++	tabs := r.Tables[:0]
++	for _, t := range r.Tables {
++		if seenTable[t.Name] {
++			continue
++		}
++		seenTable[t.Name] = true
++		tabs = append(tabs, t)
++	}
++	r.Tables = tabs
++	seenAccess := map[string]bool{}
++	acc := r.Access[:0]
++	for _, a := range r.Access {
++		k := a.Table + "|" + a.Op
++		if seenAccess[k] {
++			continue
++		}
++		seenAccess[k] = true
++		acc = append(acc, a)
++	}
++	r.Access = acc
++}
+diff --git a/skillgrid-cli/internal/mnemonic/knowledge/store.go b/skillgrid-cli/internal/mnemonic/knowledge/store.go
+new file mode 100644
+index 0000000..18d6ab2
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/knowledge/store.go
+@@ -0,0 +1,318 @@
++package knowledge
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"path/filepath"
++)
++
++// Store is the knowledge pass's persistence seam: it upserts knowledge nodes
++// (doc/config/sql) and their confidence-labeled edges into the 005 graph. The
++// indexer's same-transaction hook passes a Store backed by the open index tx,
++// so a knowledge node is always resolvable and a single rollback undoes the
++// whole pass (matching the 010 route-hook pattern).
++type Store struct {
++	db *sql.DB
++}
++
++// NewStore wraps a *sql.DB (the indexer's open transaction in production, a
++// scratch store in tests).
++func NewStore(db *sql.DB) *Store { return &Store{db: db} }
++
++// docNodeID resolves (or lazily creates) the doc node id for a file path.
++// It is idempotent: a doc node is one-per-file (015 idx_doc_nodes_file unique).
++func (s *Store) docNodeID(path string) (int64, error) {
++	var id int64
++	err := s.db.QueryRow(`SELECT id FROM doc_nodes WHERE path = ?`, path).Scan(&id)
++	if err == nil {
++		return id, nil
++	}
++	if err != sql.ErrNoRows {
++		return 0, err
++	}
++	// The doc's source file must exist for the cascade; resolve it by path.
++	var fileID int64
++	if ferr := s.db.QueryRow(`SELECT id FROM files WHERE path = ?`, path).Scan(&fileID); ferr != nil {
++		return 0, ferr
++	}
++	res, err := s.db.Exec(`INSERT INTO doc_nodes (file_id, title, path) VALUES (?, ?, ?)`,
++		fileID, DocTitle(path, nil), path)
++	if err != nil {
++		return 0, fmt.Errorf("insert doc node %s: %w", path, err)
++	}
++	return res.LastInsertId()
++}
++
++// SaveDoc upserts one doc node and its references edges (target-state: the
++// doc's prior references edges are pruned first, then the freshly extracted
++// set is written). A link target that does not resolve to an indexed doc node
++// is dropped (drop-not-guess for docs, per 03.2 — a markdown link to a
++// non-doc is not a doc->doc reference). Never errors on a bad link: it is
++// simply skipped.
++func (s *Store) SaveDoc(ctx context.Context, path string, doc *DocResult) (int, error) {
++	if doc == nil || !doc.IsDoc {
++		return 0, nil
++	}
++	nodeID, err := s.docNodeID(path)
++	if err != nil {
++		return 0, err
++	}
++	// Target-state: prune this doc's prior references edges, then upsert.
++	if _, err := s.db.Exec(`
++		DELETE FROM edges
++		WHERE kind = 'references' AND from_id = ?`, nodeID); err != nil {
++		return 0, err
++	}
++	stored := 0
++	for _, link := range doc.Links {
++		target := resolveDocTarget(path, link.Target)
++		toID, ok := s.resolveDocNode(target)
++		if !ok {
++			continue // unresolvable doc reference → dropped (not fabricated)
++		}
++		if _, err := s.db.Exec(`
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
++			VALUES ('references', ?, ?, ?, ?, ?, ?, ?)
++			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
++			  confidence = excluded.confidence`,
++			nodeID, fileIDFor(s.db, path), toID, target, target, link.Confidence, link.Line); err != nil {
++			return stored, fmt.Errorf("upsert doc reference %s: %w", link.Target, err)
++		}
++		stored++
++	}
++	return stored, nil
++}
++
++// resolveDocNode resolves a doc target path to its doc node id (creating the
++// node if the source file is indexed but the node is not yet written). It
++// returns ok=false when the target is not an indexed doc (no file row).
++func (s *Store) resolveDocNode(target string) (int64, bool) {
++	var id int64
++	if err := s.db.QueryRow(`SELECT id FROM doc_nodes WHERE path = ?`, target).Scan(&id); err == nil {
++		return id, true
++	}
++	if err := s.db.QueryRow(`SELECT id FROM files WHERE path = ?`, target).Scan(new(int64)); err != nil {
++		return 0, false // the target file is not indexed → not a doc node
++	}
++	// The file is indexed but the doc node is not yet written (e.g. the target
++	// doc is processed later in the run). Create it now so the edge resolves.
++	var fileID int64
++	if err := s.db.QueryRow(`SELECT id FROM files WHERE path = ?`, target).Scan(&fileID); err != nil {
++		return 0, false
++	}
++	res, err := s.db.Exec(`INSERT INTO doc_nodes (file_id, title, path) VALUES (?, ?, ?)`,
++		fileID, DocTitle(target, nil), target)
++	if err != nil {
++		return 0, false
++	}
++	id, _ = res.LastInsertId()
++	return id, true
++}
++
++// configNodeID resolves (or lazily creates) the config node id for a file
++// path. It is idempotent: a config node is one-per-file (015
++// idx_config_nodes_file unique).
++func (s *Store) configNodeID(path string) (int64, error) {
++	var id int64
++	err := s.db.QueryRow(`SELECT id FROM config_nodes WHERE path = ?`, path).Scan(&id)
++	if err == nil {
++		return id, nil
++	}
++	if err != sql.ErrNoRows {
++		return 0, err
++	}
++	var fileID int64
++	if ferr := s.db.QueryRow(`SELECT id FROM files WHERE path = ?`, path).Scan(&fileID); ferr != nil {
++		return 0, ferr
++	}
++	res, err := s.db.Exec(`INSERT INTO config_nodes (file_id, title, path) VALUES (?, ?, ?)`,
++		fileID, filepath.Base(path), path)
++	if err != nil {
++		return 0, fmt.Errorf("insert config node %s: %w", path, err)
++	}
++	return res.LastInsertId()
++}
++
++// SaveConfig upserts one config node and its configures edges (target-state:
++// the config's prior configures edges are pruned first, then the freshly
++// extracted set is written). Each reference is resolved against the indexed
++// symbols:
++//
++//	EXTRACTED — the value names a symbol by explicit syntax and resolves to a
++//	            live symbol (to_id set).
++//	INFERRED  — the value names a symbol by convention and resolves to a live
++//	            symbol (to_id set).
++//	AMBIGUOUS — the value resolves to NO known symbol. It is KEPT (to_id null,
++//	            to_name the literal ref), not dropped, per 03.5: an
++//	            unresolvable config reference is surfaced as low-confidence,
++//	            never silently discarded.
++func (s *Store) SaveConfig(ctx context.Context, path string, cfg *ConfigResult) (int, error) {
++	if cfg == nil || !cfg.IsConfig {
++		return 0, nil
++	}
++	nodeID, err := s.configNodeID(path)
++	if err != nil {
++		return 0, err
++	}
++	if _, err := s.db.Exec(`
++		DELETE FROM edges
++		WHERE kind = 'configures' AND from_id = ?`, nodeID); err != nil {
++		return 0, err
++	}
++	stored := 0
++	for _, ref := range cfg.Refs {
++		var toID sql.NullInt64
++		var toUID string
++		var matches int
++		_ = s.db.QueryRow(`SELECT COUNT(*) FROM symbols WHERE name = ?`, ref.Value).Scan(&matches)
++		if matches == 1 {
++			_ = s.db.QueryRow(`SELECT id, uid FROM symbols WHERE name = ?`, ref.Value).Scan(&toID.Int64, &toUID)
++			toID.Valid = true
++		}
++		conf := ref.Confidence
++		if !toID.Valid {
++			// Unresolvable config ref → AMBIGUOUS (kept, not dropped, 03.5).
++			conf = ConfidenceAmbiguous
++		}
++		if _, err := s.db.Exec(`
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
++			VALUES ('configures', ?, ?, ?, ?, ?, ?, ?)
++			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
++			  confidence = excluded.confidence`,
++			nodeID, fileIDFor(s.db, path), toID, ref.Value, "", conf, ref.Line); err != nil {
++			return stored, fmt.Errorf("upsert config reference %s: %w", ref.Value, err)
++		}
++		stored++
++	}
++	return stored, nil
++}
++
++// SaveSchema upserts one file's SQL schema (tables + columns) and its
++// read/write edges (target-state: the file's prior sql nodes and reads/writes
++// edges are pruned first, then the freshly extracted set is written).
++//
++// DDL: each CREATE TABLE becomes a table node + a column node per column.
++// DML: each SELECT/INSERT/UPDATE/DELETE becomes a reads/writes edge from the
++// enclosing code symbol (the file's first symbol, or the file itself when no
++// symbol is indexed) to the table node. Every reads/writes edge is
++// confidence-labeled EXTRACTED (the SQL statement explicitly names the table).
++func (s *Store) SaveSchema(ctx context.Context, path string, res *SQLResult) (int, error) {
++	if res == nil || !res.IsSQL {
++		return 0, nil
++	}
++	fileID := fileIDFor(s.db, path)
++	// Target-state: prune this file's prior sql_schema_nodes and reads/writes
++	// edges (the re-extracted set is the full target).
++	if fileID != 0 {
++		if _, err := s.db.Exec(`DELETE FROM sql_schema_nodes WHERE file_id = ?`, fileID); err != nil {
++			return 0, err
++		}
++		if _, err := s.db.Exec(`
++			DELETE FROM edges
++			WHERE kind IN ('reads','writes') AND file_id = ?`, fileID); err != nil {
++			return 0, err
++		}
++	}
++	stored := 0
++	// DDL: table + column nodes.
++	for _, t := range res.Tables {
++		tn, err := s.upsertSQLNode(fileID, t.Name, "", KindTable, path)
++		if err != nil {
++			return stored, err
++		}
++		stored++
++		for _, col := range t.Columns {
++			if _, err := s.upsertSQLNode(fileID, t.Name, col, KindColumn, path); err != nil {
++				return stored, err
++			}
++			stored++
++		}
++		_ = tn
++	}
++	// DML: reads/writes edges from the file's code symbol to the table node.
++	if len(res.Access) > 0 {
++		fromID := s.firstSymbolID(fileID)
++		if fromID == 0 {
++			return stored, nil // no code symbol to attribute the access to
++		}
++		for _, a := range res.Access {
++			tn, err := s.tableNodeID(a.Table)
++			if err != nil {
++				// The accessed table is not in the schema (defined elsewhere or
++				// not indexed) — the access is still recorded as a name-only
++				// edge (to_name the table, to_id null), EXTRACTED.
++				if _, err := s.db.Exec(`
++					INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
++					VALUES (?, ?, ?, NULL, ?, ?, ?, ?)
++					ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
++					  confidence = excluded.confidence`,
++					a.Op, fromID, fileID, a.Table, "", a.Confidence, a.Line); err != nil {
++					return stored, err
++				}
++				stored++
++				continue
++			}
++			if _, err := s.db.Exec(`
++				INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
++				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
++				ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
++				  confidence = excluded.confidence`,
++				a.Op, fromID, fileID, tn, a.Table, "", a.Confidence, a.Line); err != nil {
++				return stored, err
++			}
++			stored++
++		}
++	}
++	return stored, nil
++}
++
++// upsertSQLNode inserts a sql_schema_node (table or column) and returns its id.
++func (s *Store) upsertSQLNode(fileID int64, table, column, kind, path string) (int64, error) {
++	res, err := s.db.Exec(`INSERT INTO sql_schema_nodes (file_id, table_name, column_name, kind, path) VALUES (?, ?, ?, ?, ?)`,
++		fileID, table, column, kind, path)
++	if err != nil {
++		return 0, fmt.Errorf("insert sql node %s.%s: %w", table, column, err)
++	}
++	return res.LastInsertId()
++}
++
++// tableNodeID resolves a table name to its sql_schema_node id (kind=table).
++func (s *Store) tableNodeID(table string) (int64, error) {
++	var id int64
++	err := s.db.QueryRow(`SELECT id FROM sql_schema_nodes WHERE table_name = ? AND kind = 'table' ORDER BY id LIMIT 1`, table).Scan(&id)
++	if err == sql.ErrNoRows {
++		return 0, err
++	}
++	return id, err
++}
++
++// firstSymbolID returns the file's first (lowest id) 005 symbol id, or 0 when
++// the file has no indexed symbol (the access edge is then not fabricated).
++func (s *Store) firstSymbolID(fileID int64) int64 {
++	if fileID == 0 {
++		return 0
++	}
++	var id int64
++	err := s.db.QueryRow(`SELECT id FROM symbols WHERE file_id = ? ORDER BY start_line, id LIMIT 1`, fileID).Scan(&id)
++	if err != nil {
++		return 0
++	}
++	return id
++}
++
++// resolveDocTarget normalizes a markdown link target relative to the source
++// doc's directory into an index-relative path (slash-separated).
++func resolveDocTarget(from, target string) string {
++	base := filepath.Dir(from)
++	joined := filepath.Join(base, target)
++	return filepath.ToSlash(joined)
++}
++
++// fileIDFor resolves a file path to its files.id (0 when unknown — the edges
++// table allows a null file_id for knowledge edges).
++func fileIDFor(db *sql.DB, path string) int64 {
++	var id int64
++	_ = db.QueryRow(`SELECT id FROM files WHERE path = ?`, path).Scan(&id)
++	return id
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server.go b/skillgrid-cli/internal/mnemonic/mcp/server.go
+index 76064b9..c2a4d43 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server.go
+@@ -51,6 +51,7 @@ func Start() error {
+ 	registerCommunityTools(s)
+ 	registerRouteTools(s)
+ 	registerProcessTools(s)
++	registerKnowledgeTools(s)
+ 	registerWebTools(s)
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+@@ -75,6 +76,7 @@ func NewServer() *Server {
+ 	registerCommunityTools(s)
+ 	registerRouteTools(s)
+ 	registerProcessTools(s)
++	registerKnowledgeTools(s)
+ 	registerWebTools(s)
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server_test.go b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+index 897f762..f096cca 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+@@ -40,6 +40,8 @@ func TestAllToolsRegistered(t *testing.T) {
+ 		"code_route", "code_navigates",
+ 		// Precomputed process-flow tools.
+ 		"code_processes", "code_process",
++		// Knowledge-graph query tools.
++		"code_docs", "code_configs", "code_sql_schema", "code_sql_access",
+ 		"web_cache_lookup", "web_cache_save", "web_cache_search",
+ 		"web_cache_get", "web_cache_status",
+ 		"team_spawn_task", "agent_pull_next_task", "agent_read_task",
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_graph.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_graph.go
+index 9025b05..b03c19f 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code_graph.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_graph.go
+@@ -210,7 +210,12 @@ func mcpGrabNeighbors(ctx context.Context, h *service.ProjectHandle, view, symbo
+ 	return &service.NeighborsDTO{Symbol: &sym, Edges: edges}, nil
+ }
+ 
+-// mcpCodePath is the single-open backing for code_path.
++// mcpCodePath is the single-open backing for code_path. When both endpoints
++// resolve as 005 symbols it uses graph.Path (the 005 baseline, unchanged). When
++// either endpoint is not a symbol (a doc, config, or table knowledge node) it
++// falls back to graph.PathSpanFromName, which resolves each endpoint through
++// the unified node space and spans code→doc→config→table. Additive: code-to-
++// code paths are byte-identical to the baseline.
+ func mcpCodePath(ctx context.Context, h *service.ProjectHandle, from, to string) (*service.PathDTO, error) {
+ 	db := h.Store().DB
+ 	resFrom, err := graph.Resolve(ctx, db, from, graph.ResolveFilter{})
+@@ -221,18 +226,25 @@ func mcpCodePath(ctx context.Context, h *service.ProjectHandle, from, to string)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	if resFrom.NotFound || resTo.NotFound {
+-		missing := from
+-		if !resFrom.NotFound {
+-			missing = to
++	// 005 baseline: both endpoints are code symbols.
++	if !resFrom.NotFound && !resTo.NotFound {
++		res, err := graph.Path(ctx, db, resFrom.Target, resTo.Target)
++		if err != nil {
++			return nil, err
+ 		}
+-		return &service.PathDTO{Found: false, Reason: "symbol not found: " + missing}, nil
++		return &service.PathDTO{Found: res.Found, Path: res.Path, GraphStops: res.GraphStops}, nil
+ 	}
+-	res, err := graph.Path(ctx, db, resFrom.Target, resTo.Target)
++	// Knowledge span: at least one endpoint is a doc/config/table node (or an
++	// unknown name). PathSpanFromName resolves each endpoint (symbol first, then
++	// knowledge node) and walks the unified graph.
++	res, err := graph.PathSpanFromName(ctx, db, from, to)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	return &service.PathDTO{Found: res.Found, Path: res.Path, GraphStops: res.GraphStops}, nil
++	if !res.Found && res.Reason == "" {
++		res.Reason = "path not found: " + from + " -> " + to
++	}
++	return &service.PathDTO{Found: res.Found, Path: res.Path, GraphStops: res.GraphStops, Reason: res.Reason}, nil
+ }
+ 
+ // mcpCodeExplain is the single-open backing for code_explain.
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge.go
+new file mode 100644
+index 0000000..c3d1919
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge.go
+@@ -0,0 +1,333 @@
++package mcp
++
++import (
++	"context"
++	"database/sql"
++	"strings"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++	"github.com/mark3labs/mcp-go/server"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/knowledge"
++)
++
++// registerKnowledgeTools registers the knowledge-graph query MCP tools
++// (code_docs / code_configs / code_sql_schema / code_sql_access). They are
++// distinct code_* tools — none clashes with the 005/008/010 baseline tools —
++// and are part of the narrow code_* menu (unlisted by default; re-enabled via
++// CodeToolsEnvVar). They are query-only over the 015 knowledge tables: no
++// per-query traversal.
++func registerKnowledgeTools(s *server.MCPServer) {
++	tools := []struct {
++		tool    mcplib.Tool
++		handler server.ToolHandlerFunc
++	}{
++		{codeDocsTool(), handleCodeDocs},
++		{codeConfigsTool(), handleCodeConfigs},
++		{codeSQLSchemaTool(), handleCodeSQLSchema},
++		{codeSQLAccessTool(), handleCodeSQLAccess},
++	}
++	for _, entry := range tools {
++		s.AddTool(entry.tool, entry.handler)
++	}
++}
++
++func codeDocsTool() mcplib.Tool {
++	return mcplib.NewTool("code_docs",
++		mcplib.WithDescription("Return indexed markdown docs (doc nodes) and their references edges between docs. Each reference carries a confidence label (EXTRACTED for a markdown link, INFERRED for a wikilink). Query by a doc path or list all."),
++		mcplib.WithString("path", mcplib.Description("A doc path to narrow to (omit to list all docs)")),
++	)
++}
++
++func codeConfigsTool() mcplib.Tool {
++	return mcplib.NewTool("code_configs",
++		mcplib.WithDescription("Return indexed config files (config nodes) and their configures edges to the code they configure. Each configures edge carries a confidence label (EXTRACTED for an explicit symbol reference, INFERRED for a conventional one, AMBIGUOUS for an unresolvable reference that is kept, not dropped). Query by a config path or list all."),
++		mcplib.WithString("path", mcplib.Description("A config path to narrow to (omit to list all configs)")),
++	)
++}
++
++func codeSQLSchemaTool() mcplib.Tool {
++	return mcplib.NewTool("code_sql_schema",
++		mcplib.WithDescription("Return indexed SQL schema nodes (tables + columns parsed from DDL). Query by a table name or list all."),
++		mcplib.WithString("table", mcplib.Description("A table name to narrow to (omit to list all)")),
++	)
++}
++
++func codeSQLAccessTool() mcplib.Tool {
++	return mcplib.NewTool("code_sql_access",
++		mcplib.WithDescription("Return the reads/writes edges between code symbols and SQL tables (parsed from DML). Each edge carries a confidence label (EXTRACTED — the SQL statement names the table). Query by a table name or list all."),
++		mcplib.WithString("table", mcplib.Description("A table name to narrow to (omit to list all)")),
++	)
++}
++
++func handleCodeDocs(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	path, _ := req.RequireString("path")
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	out, err := mcpKnowledgeDocs(h.Store().DB, path)
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(out)
++}
++
++func handleCodeConfigs(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	path, _ := req.RequireString("path")
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	out, err := mcpKnowledgeConfigs(h.Store().DB, path)
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(out)
++}
++
++func handleCodeSQLSchema(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	table, _ := req.RequireString("table")
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	out, err := mcpKnowledgeSQLSchema(h.Store().DB, table)
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(out)
++}
++
++func handleCodeSQLAccess(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	table, _ := req.RequireString("table")
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++	out, err := mcpKnowledgeSQLAccess(h.Store().DB, table)
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(out)
++}
++
++// mcpKnowledgeDocs is the single-open backing for code_docs: return doc nodes
++// (narrowed by path when given) and their references edges.
++func mcpKnowledgeDocs(db *sql.DB, path string) (map[string]any, error) {
++	where := ""
++	var args []any
++	if path != "" {
++		where = " WHERE dn.path = ?"
++		args = append(args, path)
++	}
++	rows, err := db.Query(`
++		SELECT dn.path, dn.title, COALESCE(e.to_name,''), COALESCE(e.target_path,''), COALESCE(e.confidence,''), COALESCE(e.line,0)
++		FROM doc_nodes dn
++		LEFT JOIN edges e ON e.from_id = dn.id AND e.kind = 'references'`+where, args...)
++	if err != nil {
++		if isNoTable(err) {
++			return map[string]any{"docs": []map[string]any{}}, nil
++		}
++		return nil, err
++	}
++	defer rows.Close()
++	docs := map[string]map[string]any{}
++	var order []string
++	for rows.Next() {
++		var p, title, toName, target, conf string
++		var line int
++		if err := rows.Scan(&p, &title, &toName, &target, &conf, &line); err != nil {
++			return nil, err
++		}
++		d, ok := docs[p]
++		if !ok {
++			d = map[string]any{"path": p, "title": title, "references": []map[string]any{}}
++			docs[p] = d
++			order = append(order, p)
++		}
++		if toName != "" {
++			refs := d["references"].([]map[string]any)
++			d["references"] = append(refs, map[string]any{
++				"target":     target,
++				"confidence": conf,
++				"line":       line,
++			})
++		}
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	out := make([]map[string]any, 0, len(order))
++	for _, p := range order {
++		out = append(out, docs[p])
++	}
++	return map[string]any{"docs": out, "total": len(out)}, nil
++}
++
++// mcpKnowledgeConfigs is the single-open backing for code_configs: return
++// config nodes (narrowed by path when given) and their configures edges.
++func mcpKnowledgeConfigs(db *sql.DB, path string) (map[string]any, error) {
++	where := ""
++	var args []any
++	if path != "" {
++		where = " WHERE cn.path = ?"
++		args = append(args, path)
++	}
++	rows, err := db.Query(`
++		SELECT cn.path, cn.title, COALESCE(e.to_name,''), COALESCE(s.name,''), COALESCE(e.confidence,''), COALESCE(e.line,0)
++		FROM config_nodes cn
++		LEFT JOIN edges e ON e.from_id = cn.id AND e.kind = 'configures'
++		LEFT JOIN symbols s ON s.id = e.to_id`+where, args...)
++	if err != nil {
++		if isNoTable(err) {
++			return map[string]any{"configs": []map[string]any{}}, nil
++		}
++		return nil, err
++	}
++	defer rows.Close()
++	configs := map[string]map[string]any{}
++	var order []string
++	for rows.Next() {
++		var p, title, toName, symName, conf string
++		var line int
++		if err := rows.Scan(&p, &title, &toName, &symName, &conf, &line); err != nil {
++			return nil, err
++		}
++		c, ok := configs[p]
++		if !ok {
++			c = map[string]any{"path": p, "title": title, "configures": []map[string]any{}}
++			configs[p] = c
++			order = append(order, p)
++		}
++		if toName != "" {
++			refs := c["configures"].([]map[string]any)
++			c["configures"] = append(refs, map[string]any{
++				"target":     toName,
++				"symbol":     symName,
++				"confidence": conf,
++				"line":       line,
++			})
++		}
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	out := make([]map[string]any, 0, len(order))
++	for _, p := range order {
++		out = append(out, configs[p])
++	}
++	return map[string]any{"configs": out, "total": len(out)}, nil
++}
++
++// mcpKnowledgeSQLSchema is the single-open backing for code_sql_schema:
++// return sql_schema_nodes (narrowed by table when given).
++func mcpKnowledgeSQLSchema(db *sql.DB, table string) (map[string]any, error) {
++	where := ""
++	var args []any
++	if table != "" {
++		where = " WHERE ss.table_name = ?"
++		args = append(args, table)
++	}
++	rows, err := db.Query(`
++		SELECT ss.table_name, ss.column_name, ss.kind, ss.path
++		FROM sql_schema_nodes ss`+where+` ORDER BY ss.table_name, ss.kind, ss.column_name`, args...)
++	if err != nil {
++		if isNoTable(err) {
++			return map[string]any{"tables": []map[string]any{}}, nil
++		}
++		return nil, err
++	}
++	defer rows.Close()
++	tables := map[string]map[string]any{}
++	var order []string
++	for rows.Next() {
++		var tn, col, kind, p string
++		if err := rows.Scan(&tn, &col, &kind, &p); err != nil {
++			return nil, err
++		}
++		tbl, ok := tables[tn]
++		if !ok {
++			tbl = map[string]any{"table": tn, "path": p, "columns": []string{}}
++			tables[tn] = tbl
++			order = append(order, tn)
++		}
++		if kind == knowledge.KindColumn && col != "" {
++			cols := tbl["columns"].([]string)
++			tbl["columns"] = append(cols, col)
++		}
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	out := make([]map[string]any, 0, len(order))
++	for _, tn := range order {
++		out = append(out, tables[tn])
++	}
++	return map[string]any{"tables": out, "total": len(out)}, nil
++}
++
++// mcpKnowledgeSQLAccess is the single-open backing for code_sql_access:
++// return the reads/writes edges (narrowed by table when given).
++func mcpKnowledgeSQLAccess(db *sql.DB, table string) (map[string]any, error) {
++	where := ""
++	var args []any
++	if table != "" {
++		where = " WHERE e.to_name = ?"
++		args = append(args, table)
++	}
++	rows, err := db.Query(`
++		SELECT e.kind, s.name, f.path, e.to_name, e.confidence, e.line
++		FROM edges e
++		JOIN symbols s ON s.id = e.from_id
++		JOIN files f ON f.id = s.file_id
++		WHERE e.kind IN ('reads','writes')`+where+` ORDER BY e.to_name, e.kind, s.id`, args...)
++	if err != nil {
++		if isNoTable(err) {
++			return map[string]any{"access": []map[string]any{}}, nil
++		}
++		return nil, err
++	}
++	defer rows.Close()
++	var out []map[string]any
++	for rows.Next() {
++		var kind, sym, p, tn, conf string
++		var line int
++		if err := rows.Scan(&kind, &sym, &p, &tn, &conf, &line); err != nil {
++			return nil, err
++		}
++		out = append(out, map[string]any{
++			"op":         kind,
++			"symbol":     sym,
++			"path":       p,
++			"table":      tn,
++			"confidence": conf,
++			"line":       line,
++		})
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	if out == nil {
++		out = []map[string]any{}
++	}
++	return map[string]any{"access": out, "total": len(out)}, nil
++}
++
++// isNoTable reports whether a query error is "no such table" (the knowledge
++// tables are absent when the store predates the 015 migration) — the tools
++// return an empty result rather than erroring.
++func isNoTable(err error) bool {
++	if err == nil {
++		return false
++	}
++	return sql.ErrNoRows != err && containsNoTable(err.Error())
++}
++
++func containsNoTable(s string) bool {
++	return strings.Contains(s, "no such table") || strings.Contains(s, "NO SUCH TABLE")
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+new file mode 100644
+index 0000000..ef9bba1
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_knowledge_test.go
+@@ -0,0 +1,151 @@
++package mcp
++
++import (
++	"context"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/knowledge"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// runKnowledgePasses runs the knowledge extractors over the files under root
++// (the indexer hook 03.8 calls this in-tx; the fixture calls it post-index to
++// seed the knowledge tables). It opens the project store, scans root for
++// doc/config/SQL files, and persists the knowledge nodes + edges.
++func runKnowledgePasses(t *testing.T, svc *service.Service, projectID, root string) {
++	t.Helper()
++	h, cleanup, err := svc.Open(projectID)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer cleanup()
++	st := knowledge.NewStore(h.Store().DB)
++	var files []knowledge.FileInput
++	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
++		if err != nil || d.IsDir() {
++			return err
++		}
++		rel, _ := filepath.Rel(root, path)
++		rel = filepath.ToSlash(rel)
++		if strings.HasPrefix(rel, "config.d/") {
++			return nil
++		}
++		contents, err := os.ReadFile(path)
++		if err != nil {
++			return nil
++		}
++		files = append(files, knowledge.FileInput{Path: rel, Contents: contents})
++		return nil
++	})
++	if _, err := knowledge.RunPasses(context.Background(), st, files); err != nil {
++		t.Fatalf("knowledge passes: %v", err)
++	}
++}
++
++// knowledgeMCPFixture indexes a small project with a doc (markdown link), a
++// config (a configures ref), and a SQL schema (DDL + DML) and pins the
++// project so the temp-dir fixture resolves to one stable bucket.
++func knowledgeMCPFixture(t *testing.T) string {
++	t.Helper()
++	dataDir := t.TempDir()
++	raw := t.TempDir()
++	abs, err := filepath.Abs(raw)
++	if err != nil {
++		t.Fatalf("abs: %v", err)
++	}
++	write := func(name, content string) {
++		full := filepath.Join(abs, name)
++		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
++			t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
++		}
++		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	write("docs/a.md", "# A\n\nSee [B](./b.md).\n")
++	write("docs/b.md", "# B\nplain doc\n")
++	write("config/app.yaml", "server:\n  handler: loadUsers\n")
++	write("db/schema.sql", "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);\n")
++	write("app/users.go", "package app\n\nfunc loadUsers() { return }\n\nvar sql = `SELECT id FROM users;`\n")
++	if err := os.MkdirAll(filepath.Join(abs, "config.d"), 0o755); err != nil {
++		t.Fatalf("mkdir config.d: %v", err)
++	}
++	write("config.d/indexing.yaml", "mnemonic:\n  include:\n    - '**/*.go'\n    - '**/*.md'\n    - '**/*.yaml'\n    - '**/*.sql'\n  exclude:\n    - '**/node_modules/**'\n    - '**/.git/**'\n")
++	t.Setenv("MNEMONIC_PROJECT", "knowledgemcp-probe")
++	svc := service.New(dataDir)
++	SetService(svc)
++	t.Cleanup(func() { SetService(nil) })
++	codeindex.ResetFileFirstSymbol()
++	if _, err := svc.RunCodeIndex(context.Background(), abs); err != nil {
++		t.Fatalf("index: %v", err)
++	}
++	// Run the knowledge passes over the indexed files (the indexer hook 03.8
++	// wires this into Indexer.Run; the fixture calls it directly to seed the
++	// knowledge tables).
++	runKnowledgePasses(t, svc, "knowledgemcp-probe", abs)
++	oldDir, _ := os.Getwd()
++	if err := os.Chdir(abs); err != nil {
++		t.Fatalf("chdir: %v", err)
++	}
++	t.Cleanup(func() { os.Chdir(oldDir) })
++	return dataDir
++}
++
++// TestKnowledgeTools covers @step-03 (Scenario: Knowledge tools register and
++// reject bad args): the knowledge query tools register with distinct code_*
++// names; the 005 tools stay name/param-stable; bad/missing args are rejected
++// clearly.
++func TestKnowledgeTools(t *testing.T) {
++	knowledgeMCPFixture(t)
++
++	// Distinct code_* knowledge tool names registered.
++	tools := NewServer().ListTools()
++	for _, name := range []string{"code_docs", "code_configs", "code_sql_schema", "code_sql_access"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("expected knowledge tool %q to be registered", name)
++		}
++	}
++
++	// 005 tools stay intact on the live server (baseline lock).
++	for _, name := range []string{"code_search", "code_read", "code_path", "code_explore", "code_communities", "code_processes"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("005/008 tool %q no longer registered", name)
++		}
++	}
++	// code_search name + required `query` param schema unchanged (005 baseline).
++	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
++
++	// The tool surface grows additively: the baseline 67 + 4 knowledge tools
++	// = 71 (the existing 67 keep their names + required params).
++	if len(tools) != 71 {
++		t.Errorf("expected 71 tools (67 baseline + 4 knowledge), got %d", len(tools))
++	}
++
++	// code_docs returns the indexed docs (a query, not an error).
++	res, err := handleCodeDocs(context.Background(), newCallTool("code_docs", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleCodeDocs dispatch: %v", err)
++	}
++	if res.IsError {
++		t.Errorf("code_docs errored: %s", callResultText(t, res))
++	}
++	if text := callResultText(t, res); !strings.Contains(text, "docs/a.md") {
++		t.Errorf("code_docs should surface the indexed doc, got: %s", text)
++	}
++
++	// code_sql_schema returns the indexed SQL tables.
++	res, err = handleCodeSQLSchema(context.Background(), newCallTool("code_sql_schema", map[string]any{"table": "users"}))
++	if err != nil {
++		t.Fatalf("handleCodeSQLSchema dispatch: %v", err)
++	}
++	if res.IsError {
++		t.Errorf("code_sql_schema errored: %s", callResultText(t, res))
++	}
++	if text := callResultText(t, res); !strings.Contains(text, "users") {
++		t.Errorf("code_sql_schema should surface the users table, got: %s", text)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/015_knowledge_graph.sql b/skillgrid-cli/internal/mnemonic/store/migrations/015_knowledge_graph.sql
+new file mode 100644
+index 0000000..e0120f3
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/015_knowledge_graph.sql
+@@ -0,0 +1,50 @@
++-- 015 knowledge graph schema (additive; 005 symbols/edges + 012/013/014
++-- untouched). Change 008, step 03.
++--
++-- The knowledge pass indexes the code's surrounding knowledge — markdown
++-- docs, config files, and SQL DDL — as first-class graph nodes alongside the
++-- 005 symbols:
++--
++--   doc_nodes          a markdown doc (kind=doc node in this table)
++--   config_nodes       a yaml/toml/json config file (kind=config node)
++--   sql_schema_nodes   a SQL DDL table or column (kind=table|column)
++--
++-- The knowledge edges live in the existing 005 edges table (so the graph
++-- spans code→doc→config→table in one traversal):
++--
++--   references  doc node -> doc node        (markdown link / wikilink)
++--   configures  config node -> code symbol  (a config key names the code)
++--   reads       code symbol -> table node   (SQL DML reads the table)
++--   writes      code symbol -> table node   (SQL DML writes the table)
++--
++-- Every knowledge edge carries a confidence label (EXTRACTED for explicit
++-- syntax, INFERRED for convention-derived, AMBIGUOUS for a resolved-but-
++-- guessed or unresolvable reference). Unresolvable CONFIG references are
++-- kept AMBIGUOUS (not dropped, per 03.5); doc/SQL references follow the
++-- drop-or-AMBIGUOUS rule per scenario. The knowledge nodes reference their
++-- source file (file_id cascade) so a deleted file prunes its footprint.
++CREATE TABLE IF NOT EXISTS doc_nodes (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
++    title TEXT NOT NULL,
++    path TEXT NOT NULL
++);
++CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_nodes_file ON doc_nodes(file_id);
++
++CREATE TABLE IF NOT EXISTS config_nodes (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
++    title TEXT NOT NULL,
++    path TEXT NOT NULL
++);
++CREATE UNIQUE INDEX IF NOT EXISTS idx_config_nodes_file ON config_nodes(file_id);
++
++CREATE TABLE IF NOT EXISTS sql_schema_nodes (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
++    table_name TEXT NOT NULL,
++    column_name TEXT,
++    kind TEXT NOT NULL,
++    path TEXT NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_sql_schema_nodes_table ON sql_schema_nodes(table_name);

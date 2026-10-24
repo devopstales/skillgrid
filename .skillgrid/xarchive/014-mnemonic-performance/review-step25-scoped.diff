@@ -1,0 +1,1027 @@
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+index 8f98257..a08ae68 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem.go
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -11,6 +11,7 @@ import (
+ 
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/config"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memfs"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory/layer"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
+@@ -134,6 +135,8 @@ func runMem(version string, args []string) {
+ 		runMemHook(svc, projID, pos, hookQuery, hookFile)
+ 	case "handoff":
+ 		runMemHandoff(svc, projID, dataDir, handoffJSON, handoffDir)
++	case "fs":
++		runMemFS(svc, projID, pos)
+ 	case "help", "-h", "--help":
+ 		printMemUsage()
+ 	default:
+@@ -144,7 +147,7 @@ func runMem(version string, args []string) {
+ }
+ 
+ func printMemUsage() {
+-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|list|memory-type|expire|export|distill|snapshot> [args]
++	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|list|memory-type|expire|export|distill|snapshot|skills|fs> [args]
+ 
+   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
+   governance <id>                 governed-asset view (mem_governance)
+@@ -192,11 +195,15 @@ func printMemUsage() {
+                                      state of snapshot <id> (atomic)
+     snapshot list                    list the project's snapshots,
+                                       newest-first (id, state_hash, created_at)
+-    handoff [--json] [--handoff-dir DIR]
+-                                      generate the prefix+delta handoff artifact
+-                                      (stable prefix + dynamic delta); prints a
+-                                      summary and writes handoff.latest.json
+-                                      (default: the data dir; --json = full JSON)
++     handoff [--json] [--handoff-dir DIR]
++                                       generate the prefix+delta handoff artifact
++                                       (stable prefix + dynamic delta); prints a
++                                       summary and writes handoff.latest.json
++                                       (default: the data dir; --json = full JSON)
++     fs ls <scope>                    list observations in a scope
++                                       (e.g. project/A/preferences, user/B/)
++     fs tree <scope>                  hierarchical tree view of a scope
++     fs find <pattern> [scope]        glob pattern search across observations
+ 
+ Flags:
+   --project ID    project bucket (defaults to CWD-resolved)
+@@ -1232,6 +1239,86 @@ func reorderMemArgs(args []string) []string {
+ 	return append(flags, pos...)
+ }
+ 
++// runMemFS handles the `mem fs` subcommand group (014 step 25): ls, tree, find.
++func runMemFS(svc *service.Service, projID string, pos []string) {
++	sub := ""
++	if len(pos) >= 1 {
++		sub = pos[0]
++	}
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	fs := memfs.New(h.Store(), projID)
++	ctx := context.Background()
++	switch sub {
++	case "ls":
++		if len(pos) < 2 {
++			fmt.Fprintln(os.Stderr, "error: mem fs ls requires <scope>")
++			os.Exit(2)
++		}
++		scope := strings.Join(pos[1:], " ")
++		obs, lerr := fs.List(ctx, scope)
++		if lerr != nil {
++			fmt.Fprintln(os.Stderr, "error:", lerr)
++			os.Exit(1)
++		}
++		printJSON(map[string]any{
++			"project":      projID,
++			"scope":        scope,
++			"observations": obs,
++			"count":        len(obs),
++		})
++	case "tree":
++		if len(pos) < 2 {
++			fmt.Fprintln(os.Stderr, "error: mem fs tree requires <scope>")
++			os.Exit(2)
++		}
++		scope := strings.Join(pos[1:], " ")
++		tree, terr := fs.Tree(ctx, scope)
++		if terr != nil {
++			fmt.Fprintln(os.Stderr, "error:", terr)
++			os.Exit(1)
++		}
++		fmt.Print(tree)
++	case "find":
++		if len(pos) < 2 {
++			fmt.Fprintln(os.Stderr, "error: mem fs find requires <pattern> [scope]")
++			os.Exit(2)
++		}
++		pattern := pos[1]
++		scope := ""
++		if len(pos) >= 3 {
++			scope = strings.Join(pos[2:], " ")
++		}
++		obs, ferr := fs.Find(ctx, pattern, scope)
++		if ferr != nil {
++			fmt.Fprintln(os.Stderr, "error:", ferr)
++			os.Exit(1)
++		}
++		printJSON(map[string]any{
++			"project":      projID,
++			"pattern":      pattern,
++			"scope":        scope,
++			"observations": obs,
++			"count":        len(obs),
++		})
++	case "help", "-h", "--help", "":
++		fmt.Fprint(os.Stderr, `usage: skillgrid mem fs <ls|tree|find> [args]
++
++  ls <scope>               list observations in a scope
++                           (e.g. project/A/preferences, user/B/)
++  tree <scope>             hierarchical tree view of a scope
++  find <pattern> [scope]   glob pattern search (* and ? supported)
++`)
++	default:
++		fmt.Fprintf(os.Stderr, "error: unknown mem fs subcommand %q\n", sub)
++		os.Exit(2)
++	}
++}
++
+ func printJSON(v any) {
+ 	enc := newJSONEncoder(os.Stdout)
+ 	enc.SetIndent("", "  ")
+diff --git a/skillgrid-cli/cmd/skillgrid/mem_fs_test.go b/skillgrid-cli/cmd/skillgrid/mem_fs_test.go
+new file mode 100644
+index 0000000..7459df7
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/mem_fs_test.go
+@@ -0,0 +1,92 @@
++package main
++
++import (
++	"context"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// openStoreForTest opens a store for CLI tests.
++func openStoreForTest(t *testing.T, dataDir, project string) *store.Store {
++	t.Helper()
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	return st
++}
++
++// TestMemLSCoexistsWithMemList is 25.5 [AFK] — `mem fs ls` coexists with
++// `mem list` without conflict. Both query the same store but with different
++// filters (scoped vs flat).
++func TestMemLSCoexistsWithMemList(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "memfs-coexist"
++
++	// Seed observations with topic_keys in different scopes.
++	st := openStoreForTest(t, dataDir, project)
++	defer st.Close()
++	mem := memory.New(st, project)
++	ctx := context.Background()
++	if _, err := st.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES ('sess-coexist', ?, '/tmp', '2026-01-01T00:00:00Z', 'active')`, project); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	for _, o := range []struct {
++		title  string
++		topic  string
++		memory string
++	}{
++		{"pref-x", "project/A/preferences/x", "preferences"},
++		{"pref-y", "project/A/preferences/y", "preferences"},
++		{"ent-z", "project/A/entities/z", "entities"},
++	} {
++		if _, err := mem.Save(ctx, memory.SaveInput{
++			SessionID:  "sess-coexist",
++			Type:       "learning",
++			Title:      o.title,
++			Content:    o.title + " content",
++			TopicKey:   o.topic,
++			MemoryType: o.memory,
++		}); err != nil {
++			t.Fatalf("save %q: %v", o.title, err)
++		}
++	}
++
++	// mem list (flat, all observations).
++	out := runMemCLI(t, dataDir, "list", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "pref-x") || !strings.Contains(out, "ent-z") {
++		t.Fatalf("mem list should show all observations (flat), got: %s", out)
++	}
++
++	// mem fs ls project/A/preferences → only preferences (scoped).
++	out = runMemCLI(t, dataDir, "fs", "ls", "project/A/preferences", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "pref-x") || !strings.Contains(out, "pref-y") {
++		t.Fatalf("mem fs ls project/A/preferences should show preferences, got: %s", out)
++	}
++	if strings.Contains(out, "ent-z") {
++		t.Errorf("mem fs ls project/A/preferences should NOT show entities, got: %s", out)
++	}
++
++	// mem fs tree project/A/ → hierarchical view.
++	out = runMemCLI(t, dataDir, "fs", "tree", "project/A/", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "preferences") || !strings.Contains(out, "entities") {
++		t.Fatalf("mem fs tree project/A/ should show both dirs, got: %s", out)
++	}
++
++	// mem fs find "pref*" project/A/ → glob search.
++	out = runMemCLI(t, dataDir, "fs", "find", "pref*", "project/A/", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "pref-x") {
++		t.Fatalf("mem fs find pref* should match pref-x, got: %s", out)
++	}
++
++	// Verify mem list is unaffected (still flat).
++	out = runMemCLI(t, dataDir, "list", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "ent-z") {
++		t.Errorf("mem list should still show all observations after mem fs operations, got: %s", out)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memfs/find.go b/skillgrid-cli/internal/mnemonic/memfs/find.go
+new file mode 100644
+index 0000000..9cd66b2
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memfs/find.go
+@@ -0,0 +1,99 @@
++package memfs
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++	"path"
++	"strings"
++)
++
++// Find performs a filesystem-style glob pattern search across observations
++// in the given scope. The pattern is matched against the basename of the
++// topic_key (the last path segment) and against the observation title.
++//
++// Supported glob characters: * (any chars), ? (single char).
++//
++//   - Find(ctx, "auth*", "project/A/") → observations whose topic_key basename
++//     or title matches "auth*"
++//   - Find(ctx, "*.go", "") → all observations matching "*.go" across all scopes
++//
++// scope may be "" to search all observations in the project.
++func (fs *MemFS) Find(ctx context.Context, pattern string, scope string) ([]Observation, error) {
++	if fs == nil || fs.db == nil {
++		return nil, fmt.Errorf("memfs: not initialized")
++	}
++	pattern = strings.TrimSpace(pattern)
++	if pattern == "" {
++		return nil, fmt.Errorf("memfs find: empty pattern")
++	}
++
++	var (
++		rows *sql.Rows
++		err  error
++	)
++	if scope != "" {
++		f, perr := ResolveURI(scope)
++		if perr != nil {
++			return nil, perr
++		}
++		prefix := f.Prefix()
++		rows, err = fs.db.QueryContext(ctx, `
++			SELECT id, title, content, topic_key, memory_type, created_at
++			FROM observations
++			WHERE project = ? AND deleted_at IS NULL
++			  AND (topic_key = ? OR topic_key LIKE ?)
++			ORDER BY created_at DESC, id DESC
++			LIMIT 200`,
++			fs.projectID, prefix, prefix+"/%",
++		)
++	} else {
++		rows, err = fs.db.QueryContext(ctx, `
++			SELECT id, title, content, topic_key, memory_type, created_at
++			FROM observations
++			WHERE project = ? AND deleted_at IS NULL
++			ORDER BY created_at DESC, id DESC
++			LIMIT 200`,
++			fs.projectID,
++		)
++	}
++	if err != nil {
++		return nil, fmt.Errorf("memfs find: %w", err)
++	}
++	defer rows.Close()
++
++	var out []Observation
++	for rows.Next() {
++		var o Observation
++		var tk sql.NullString
++		var mt sql.NullString
++		if err := rows.Scan(&o.ID, &o.Title, &o.Content, &tk, &mt, &o.CreatedAt); err != nil {
++			return nil, fmt.Errorf("memfs find scan: %w", err)
++		}
++		o.TopicKey = tk.String
++		o.MemoryType = mt.String
++		if matchesGlob(pattern, o) {
++			out = append(out, o)
++		}
++	}
++	return out, rows.Err()
++}
++
++// matchesGlob reports whether the observation matches the glob pattern.
++// It checks the basename of topic_key and the title.
++func matchesGlob(pattern string, o Observation) bool {
++	// Check topic_key basename.
++	if o.TopicKey != "" {
++		base := path.Base(o.TopicKey)
++		if ok, _ := path.Match(pattern, base); ok {
++			return true
++		}
++	}
++	// Check title.
++	if o.Title != "" {
++		if ok, _ := path.Match(pattern, o.Title); ok {
++			return true
++		}
++	}
++	return false
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memfs/ls.go b/skillgrid-cli/internal/mnemonic/memfs/ls.go
+new file mode 100644
+index 0000000..04d66aa
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memfs/ls.go
+@@ -0,0 +1,56 @@
++package memfs
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++)
++
++// List returns the observations under the given scope path.
++//
++//   - scope "project/A/preferences" → observations whose topic_key equals
++//     "project/A/preferences" or starts with "project/A/preferences/"
++//   - scope "project/A/" → all observations whose topic_key starts with "project/A/"
++//   - scope "user/B/" → all observations whose topic_key starts with "user/B/"
++//
++// The scope path is resolved via ResolveURI to get the prefix.
++func (fs *MemFS) List(ctx context.Context, scope string) ([]Observation, error) {
++	if fs == nil || fs.db == nil {
++		return nil, fmt.Errorf("memfs: not initialized")
++	}
++	f, err := ResolveURI(scope)
++	if err != nil {
++		return nil, err
++	}
++	prefix := f.Prefix()
++	// Match exact topic_key OR children under the prefix.
++	like := prefix + "/%"
++	rows, err := fs.db.QueryContext(ctx, `
++		SELECT id, title, content, topic_key, memory_type, created_at
++		FROM observations
++		WHERE project = ? AND deleted_at IS NULL
++		  AND topic_key IS NOT NULL AND topic_key != ''
++		  AND (topic_key = ? OR topic_key LIKE ?)
++		ORDER BY created_at DESC, id DESC
++		LIMIT 200`,
++		fs.projectID, prefix, like,
++	)
++	if err != nil {
++		return nil, fmt.Errorf("memfs list: %w", err)
++	}
++	defer rows.Close()
++
++	var out []Observation
++	for rows.Next() {
++		var o Observation
++		var tk sql.NullString
++		var mt sql.NullString
++		if err := rows.Scan(&o.ID, &o.Title, &o.Content, &tk, &mt, &o.CreatedAt); err != nil {
++			return nil, fmt.Errorf("memfs list scan: %w", err)
++		}
++		o.TopicKey = tk.String
++		o.MemoryType = mt.String
++		out = append(out, o)
++	}
++	return out, rows.Err()
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memfs/memfs.go b/skillgrid-cli/internal/mnemonic/memfs/memfs.go
+new file mode 100644
+index 0000000..5dba8f1
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memfs/memfs.go
+@@ -0,0 +1,56 @@
++// Package memfs is the virtual filesystem over the mnemonic observation store
++// (change 014, step 25). It exposes `mem ls`, `mem tree`, and `mem find` as
++// scope-aware directory operations alongside the existing `mem search`.
++//
++// Scope URIs follow the shape `mem://project/{id}/` and `mem://user/{id}/`.
++// The "directories" under a scope are organized by memory_type (e.g.
++// `mem://project/A/preferences` = project A's preference-typed observations).
++//
++// Scope storage: observations are associated with a memfs scope via the
++// topic_key column using the pattern `{kind}/{id}/{memory_type}/...`.
++// This is consistent with step 19's directory retrieval and requires no
++// schema migration.
++package memfs
++
++import (
++	"database/sql"
++	"errors"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// MemFS is the virtual filesystem handle bound to one project store.
++type MemFS struct {
++	db        *sql.DB
++	projectID string
++}
++
++// New creates a MemFS over the given store for the given project.
++func New(st *store.Store, projectID string) *MemFS {
++	if st == nil || st.DB == nil {
++		return nil
++	}
++	return &MemFS{db: st.DB, projectID: projectID}
++}
++
++// DB returns the underlying *sql.DB.
++func (fs *MemFS) DB() *sql.DB {
++	if fs == nil {
++		return nil
++	}
++	return fs.db
++}
++
++// Observation is the memfs-level view of a stored observation. It mirrors
++// the fields relevant to scope-based directory listing.
++type Observation struct {
++	ID         int64  `json:"id"`
++	Title      string `json:"title"`
++	Content    string `json:"content"`
++	TopicKey   string `json:"topic_key,omitempty"`
++	MemoryType string `json:"memory_type,omitempty"`
++	CreatedAt  string `json:"created_at"`
++}
++
++// ErrEmptyScope is returned when a scope path is empty or malformed.
++var ErrEmptyScope = errors.New("memfs: empty or malformed scope path")
+diff --git a/skillgrid-cli/internal/mnemonic/memfs/memfs_test.go b/skillgrid-cli/internal/mnemonic/memfs/memfs_test.go
+new file mode 100644
+index 0000000..be2738b
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memfs/memfs_test.go
+@@ -0,0 +1,302 @@
++package memfs
++
++import (
++	"context"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// newMemFSTestFixture opens a store, creates a memory service, and returns
++// the fixture.
++type memfsFixture struct {
++	fs  *MemFS
++	mem *memory.Service
++	st  *store.Store
++}
++
++func newMemFSTestFixture(t *testing.T, project string) *memfsFixture {
++	t.Helper()
++	dataDir := t.TempDir()
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	t.Cleanup(func() { st.Close() })
++	mem := memory.New(st, project)
++	// Create a session for saving observations.
++	if _, err := st.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES ('sess-memfs', ?, '/tmp', '2026-01-01T00:00:00Z', 'active')`, project); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	return &memfsFixture{
++		fs:  New(st, project),
++		mem: mem,
++		st:  st,
++	}
++}
++
++// saveObs saves an observation with the given topic_key and memory_type.
++func (fx *memfsFixture) saveObs(t *testing.T, title, topicKey, memType, content string) {
++	t.Helper()
++	ctx := context.Background()
++	_, err := fx.mem.Save(ctx, memory.SaveInput{
++		SessionID:  "sess-memfs",
++		Type:       "learning",
++		Title:      title,
++		Content:    content,
++		TopicKey:   topicKey,
++		MemoryType: memType,
++	})
++	if err != nil {
++		t.Fatalf("save obs %q: %v", title, err)
++	}
++}
++
++// TestMemLSScopeListing is 25.1 [RED] — `mem ls` lists observations in a scope.
++// Observations in project/A/preferences, project/A/entities, user/B/profile.
++// `mem ls project/A/preferences` → only preferences;
++// `mem ls project/A/` → all under A;
++// `mem ls user/B/` → only B.
++func TestMemLSScopeListing(t *testing.T) {
++	fx := newMemFSTestFixture(t, "memfs-ls-test")
++	ctx := context.Background()
++
++	// Create observations in different scopes.
++	fx.saveObs(t, "pref-a", "project/A/preferences/lang", "preferences", "Use gofmt")
++	fx.saveObs(t, "pref-b", "project/A/preferences/lint", "preferences", "Use golangci-lint")
++	fx.saveObs(t, "ent-a", "project/A/entities/user_model", "entities", "User entity")
++	fx.saveObs(t, "ent-b", "project/A/entities/order_model", "entities", "Order entity")
++	fx.saveObs(t, "profile-b", "user/B/profile/basic", "profile", "User B profile")
++
++	// ls project/A/preferences → only preferences observations.
++	res, err := fx.fs.List(ctx, "project/A/preferences")
++	if err != nil {
++		t.Fatalf("ls project/A/preferences: %v", err)
++	}
++	if len(res) != 2 {
++		t.Fatalf("ls project/A/preferences: expected 2, got %d: %+v", len(res), res)
++	}
++	for _, o := range res {
++		if !strings.Contains(o.TopicKey, "preferences") {
++			t.Errorf("ls project/A/preferences: unexpected observation %q (topic_key=%q)", o.Title, o.TopicKey)
++		}
++	}
++
++	// ls project/A/ → all under project A (preferences + entities).
++	res, err = fx.fs.List(ctx, "project/A/")
++	if err != nil {
++		t.Fatalf("ls project/A/: %v", err)
++	}
++	if len(res) != 4 {
++		t.Fatalf("ls project/A/: expected 4, got %d: %+v", len(res), res)
++	}
++
++	// ls user/B/ → only user B's observations.
++	res, err = fx.fs.List(ctx, "user/B/")
++	if err != nil {
++		t.Fatalf("ls user/B/: %v", err)
++	}
++	if len(res) != 1 {
++		t.Fatalf("ls user/B/: expected 1, got %d: %+v", len(res), res)
++	}
++	if res[0].Title != "profile-b" {
++		t.Errorf("ls user/B/: expected profile-b, got %q", res[0].Title)
++	}
++}
++
++// TestMemTreeHierarchical is 25.2 [RED] — `mem tree` shows a hierarchical view.
++// Observations in nested scopes project/A/preferences/sub1, sub2, project/A/entities.
++// `mem tree project/A/` → shows the directory tree.
++func TestMemTreeHierarchical(t *testing.T) {
++	fx := newMemFSTestFixture(t, "memfs-tree-test")
++	ctx := context.Background()
++
++	// Create nested observations.
++	fx.saveObs(t, "sub1-obs", "project/A/preferences/sub1", "preferences", "Sub1 content")
++	fx.saveObs(t, "sub2-obs", "project/A/preferences/sub2", "preferences", "Sub2 content")
++	fx.saveObs(t, "ent-obs", "project/A/entities", "entities", "Entities content")
++
++	tree, err := fx.fs.Tree(ctx, "project/A/")
++	if err != nil {
++		t.Fatalf("tree project/A/: %v", err)
++	}
++
++	// Verify the tree shows the hierarchical structure.
++	if !strings.Contains(tree, "preferences/") {
++		t.Errorf("tree missing preferences/ directory:\n%s", tree)
++	}
++	if !strings.Contains(tree, "entities/") {
++		t.Errorf("tree missing entities/ directory:\n%s", tree)
++	}
++	if !strings.Contains(tree, "sub1") {
++		t.Errorf("tree missing sub1:\n%s", tree)
++	}
++	if !strings.Contains(tree, "sub2") {
++		t.Errorf("tree missing sub2:\n%s", tree)
++	}
++
++	// Verify indentation: preferences/ should contain sub1 and sub2 as children.
++	lines := strings.Split(strings.TrimSpace(tree), "\n")
++	// Find the preferences/ line and verify sub1/sub2 are indented under it.
++	prefIdx := -1
++	for i, l := range lines {
++		if strings.Contains(l, "preferences/") {
++			prefIdx = i
++			break
++		}
++	}
++	if prefIdx == -1 {
++		t.Fatalf("tree: preferences/ not found in output:\n%s", tree)
++	}
++	// sub1 and sub2 should appear after preferences/ with more indentation.
++	foundSub1 := false
++	foundSub2 := false
++	for i := prefIdx + 1; i < len(lines); i++ {
++		l := lines[i]
++		if strings.Contains(l, "sub1") {
++			foundSub1 = true
++		}
++		if strings.Contains(l, "sub2") {
++			foundSub2 = true
++		}
++		// Stop if we hit a sibling at the same or less indent level.
++		// entities/ is a sibling of preferences/, not a child.
++		if strings.Contains(l, "entities/") && i > prefIdx {
++			break
++		}
++	}
++	if !foundSub1 || !foundSub2 {
++		t.Errorf("tree: sub1/sub2 not found under preferences/:\n%s", tree)
++	}
++}
++
++// TestMemFindPatternMatching is 25.3 [RED] — `mem find` does glob pattern matching.
++// Observations with titles "auth.go", "auth_test.go", "payment.go", "user.go".
++// `mem find "auth*"` → "auth.go" and "auth_test.go".
++// `mem find "*.go"` → all 4.
++// `mem find "auth*test*"` → only "auth_test.go".
++func TestMemFindPatternMatching(t *testing.T) {
++	fx := newMemFSTestFixture(t, "memfs-find-test")
++	ctx := context.Background()
++
++	// Create observations with file-like titles.
++	fx.saveObs(t, "auth.go", "project/A/preferences/auth.go", "preferences", "auth.go content")
++	fx.saveObs(t, "auth_test.go", "project/A/preferences/auth_test.go", "preferences", "auth_test.go content")
++	fx.saveObs(t, "payment.go", "project/A/entities/payment.go", "entities", "payment.go content")
++	fx.saveObs(t, "user.go", "project/A/entities/user.go", "entities", "user.go content")
++
++	// find "auth*" → auth.go and auth_test.go.
++	res, err := fx.fs.Find(ctx, "auth*", "project/A/")
++	if err != nil {
++		t.Fatalf("find auth*: %v", err)
++	}
++	if len(res) != 2 {
++		t.Fatalf("find auth*: expected 2, got %d: %+v", len(res), res)
++	}
++	names := map[string]bool{}
++	for _, o := range res {
++		names[o.Title] = true
++	}
++	if !names["auth.go"] || !names["auth_test.go"] {
++		t.Errorf("find auth*: expected auth.go and auth_test.go, got %v", names)
++	}
++
++	// find "*.go" → all 4.
++	res, err = fx.fs.Find(ctx, "*.go", "project/A/")
++	if err != nil {
++		t.Fatalf("find *.go: %v", err)
++	}
++	if len(res) != 4 {
++		t.Fatalf("find *.go: expected 4, got %d: %+v", len(res), res)
++	}
++
++	// find "auth*test*" → only auth_test.go.
++	res, err = fx.fs.Find(ctx, "auth*test*", "project/A/")
++	if err != nil {
++		t.Fatalf("find auth*test*: %v", err)
++	}
++	if len(res) != 1 {
++		t.Fatalf("find auth*test*: expected 1, got %d: %+v", len(res), res)
++	}
++	if res[0].Title != "auth_test.go" {
++		t.Errorf("find auth*test*: expected auth_test.go, got %q", res[0].Title)
++	}
++}
++
++// TestMemURIResolution is 25.4 [RED] — `mem://` URI resolution maps to scope filters.
++func TestMemURIResolution(t *testing.T) {
++	// Resolve mem://project/A/preferences.
++	f, err := ResolveURI("mem://project/A/preferences")
++	if err != nil {
++		t.Fatalf("ResolveURI project/A/preferences: %v", err)
++	}
++	if f.Kind != "project" || f.ID != "A" || f.MemoryType != "preferences" {
++		t.Errorf("ResolveURI project/A/preferences: got %+v", f)
++	}
++	if f.Prefix() != "project/A/preferences" {
++		t.Errorf("ResolveURI project/A/preferences prefix: got %q", f.Prefix())
++	}
++
++	// Resolve mem://user/B/.
++	f, err = ResolveURI("mem://user/B/")
++	if err != nil {
++		t.Fatalf("ResolveURI user/B/: %v", err)
++	}
++	if f.Kind != "user" || f.ID != "B" || f.MemoryType != "" {
++		t.Errorf("ResolveURI user/B/: got %+v", f)
++	}
++	if f.Prefix() != "user/B" {
++		t.Errorf("ResolveURI user/B/ prefix: got %q", f.Prefix())
++	}
++
++	// Resolve mem://project/A/ (no memory_type).
++	f, err = ResolveURI("mem://project/A/")
++	if err != nil {
++		t.Fatalf("ResolveURI project/A/: %v", err)
++	}
++	if f.Kind != "project" || f.ID != "A" || f.MemoryType != "" {
++		t.Errorf("ResolveURI project/A/: got %+v", f)
++	}
++
++	// Invalid URI: empty.
++	_, err = ResolveURI("")
++	if err == nil {
++		t.Error("ResolveURI empty: expected error, got nil")
++	}
++
++	// Invalid URI: bad kind.
++	_, err = ResolveURI("mem://org/X/")
++	if err == nil {
++		t.Error("ResolveURI org/X/: expected error for unknown kind, got nil")
++	}
++
++	// Invalid URI: missing id.
++	_, err = ResolveURI("mem://project/")
++	if err == nil {
++		t.Error("ResolveURI project/: expected error for missing id, got nil")
++	}
++
++	// Bare path (no mem:// prefix).
++	f, err = ResolveURI("project/A/preferences")
++	if err != nil {
++		t.Fatalf("ResolveURI bare project/A/preferences: %v", err)
++	}
++	if f.Kind != "project" || f.ID != "A" || f.MemoryType != "preferences" {
++		t.Errorf("ResolveURI bare: got %+v", f)
++	}
++
++	// Resolution is fast (sub-millisecond) — just verify it completes quickly.
++	start := time.Now()
++	for i := 0; i < 10000; i++ {
++		_, _ = ResolveURI("mem://project/A/preferences")
++	}
++	elapsed := time.Since(start)
++	if elapsed > 100*time.Millisecond {
++		t.Errorf("ResolveURI 10000 iterations took %v (expected < 100ms)", elapsed)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memfs/scope.go b/skillgrid-cli/internal/mnemonic/memfs/scope.go
+new file mode 100644
+index 0000000..f7d1ef4
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memfs/scope.go
+@@ -0,0 +1,78 @@
++package memfs
++
++import (
++	"fmt"
++	"strings"
++)
++
++// ScopeFilter is the structured result of parsing a mem:// URI or a bare
++// scope path. It identifies the scope kind (project or user), the scope ID,
++// and optionally a memory_type directory under that scope.
++type ScopeFilter struct {
++	Kind       string // "project" or "user"
++	ID         string // the project or user identifier
++	MemoryType string // optional directory (memory_type) under the scope; "" = all
++}
++
++// Prefix returns the topic_key prefix this filter matches:
++//   - with MemoryType set: "project/A/preferences/" (matches children) or
++//     exactly "project/A/preferences"
++//   - without MemoryType:  "project/A/" (all children under A)
++func (f ScopeFilter) Prefix() string {
++	if f.MemoryType != "" {
++		return f.Kind + "/" + f.ID + "/" + f.MemoryType
++	}
++	return f.Kind + "/" + f.ID
++}
++
++// ResolveURI parses a mem:// URI into a ScopeFilter. Accepted forms:
++//
++//	mem://project/{id}/            → {Kind: "project", ID: id}
++//	mem://project/{id}/{memType}   → {Kind: "project", ID: id, MemoryType: memType}
++//	mem://user/{id}/               → {Kind: "user", ID: id}
++//	mem://user/{id}/{memType}      → {Kind: "user", ID: id, MemoryType: memType}
++//
++// A bare path without the mem:// prefix is also accepted (the CLI passes
++// positional args without the scheme):
++//
++//	project/A/            → {Kind: "project", ID: "A"}
++//	project/A/preferences → {Kind: "project", ID: "A", MemoryType: "preferences"}
++//	user/B/               → {Kind: "user", ID: "B"}
++//
++// Returns an error for malformed URIs.
++func ResolveURI(uri string) (ScopeFilter, error) {
++	s := strings.TrimSpace(uri)
++	if s == "" {
++		return ScopeFilter{}, ErrEmptyScope
++	}
++	// Strip the mem:// scheme if present.
++	s = strings.TrimPrefix(s, "mem://")
++	if s == "" {
++		return ScopeFilter{}, fmt.Errorf("memfs: URI %q has no scope path after scheme", uri)
++	}
++	// Normalize: strip trailing slash for segment parsing.
++	segs := splitPath(s)
++	if len(segs) < 2 {
++		return ScopeFilter{}, fmt.Errorf("memfs: scope path %q must have at least kind/{id}", uri)
++	}
++	kind := segs[0]
++	if kind != "project" && kind != "user" {
++		return ScopeFilter{}, fmt.Errorf("memfs: unknown scope kind %q (expected \"project\" or \"user\")", kind)
++	}
++	f := ScopeFilter{Kind: kind, ID: segs[1]}
++	if len(segs) >= 3 {
++		f.MemoryType = segs[2]
++	}
++	return f, nil
++}
++
++// splitPath splits a scope path into non-empty segments on "/".
++func splitPath(p string) []string {
++	var out []string
++	for _, s := range strings.Split(p, "/") {
++		if t := strings.TrimSpace(s); t != "" {
++			out = append(out, t)
++		}
++	}
++	return out
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memfs/tree.go b/skillgrid-cli/internal/mnemonic/memfs/tree.go
+new file mode 100644
+index 0000000..e6964be
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memfs/tree.go
+@@ -0,0 +1,164 @@
++package memfs
++
++import (
++	"context"
++	"fmt"
++	"sort"
++	"strings"
++)
++
++// TreeNode is one node in the hierarchical tree view.
++type TreeNode struct {
++	Name     string     `json:"name"`
++	Children []*TreeNode `json:"children,omitempty"`
++	// Leaf is true when this node represents an observation (a leaf file),
++	// false when it is a directory.
++	Leaf    bool   `json:"leaf"`
++	Title   string `json:"title,omitempty"`
++}
++
++// Tree returns a rendered hierarchical tree of the topic_key namespace
++// under the given scope. The output is indented text using ├── and └──.
++//
++// Example for scope "project/A/":
++//
++//	project/A/
++//	├── entities/
++//	│   └── user_model.go
++//	└── preferences/
++//	    ├── sub1
++//	    └── sub2
++func (fs *MemFS) Tree(ctx context.Context, scope string) (string, error) {
++	if fs == nil || fs.db == nil {
++		return "", fmt.Errorf("memfs: not initialized")
++	}
++	f, err := ResolveURI(scope)
++	if err != nil {
++		return "", err
++	}
++	prefix := f.Prefix()
++
++	rows, err := fs.db.QueryContext(ctx, `
++		SELECT topic_key, title
++		FROM observations
++		WHERE project = ? AND deleted_at IS NULL
++		  AND topic_key IS NOT NULL AND topic_key != ''
++		  AND topic_key LIKE ?
++		ORDER BY topic_key`,
++		fs.projectID, prefix+"/%",
++	)
++	if err != nil {
++		return "", fmt.Errorf("memfs tree: %w", err)
++	}
++	defer rows.Close()
++
++	// Collect all topic_keys under the prefix.
++	type keyRow struct {
++		key   string
++		title string
++	}
++	var keys []keyRow
++	for rows.Next() {
++		var k, t string
++		if err := rows.Scan(&k, &t); err != nil {
++			return "", fmt.Errorf("memfs tree scan: %w", err)
++		}
++		keys = append(keys, keyRow{key: k, title: t})
++	}
++	if err := rows.Err(); err != nil {
++		return "", err
++	}
++
++	// Build the tree.
++	root := &TreeNode{Name: prefix + "/", Children: nil, Leaf: false}
++	for _, kr := range keys {
++		// Strip the prefix to get the relative path.
++		rel := strings.TrimPrefix(kr.key, prefix+"/")
++		segs := strings.Split(rel, "/")
++		insertNode(root, segs, kr.title)
++	}
++
++	return renderTree(root, prefix+"/", ""), nil
++}
++
++// insertNode inserts a leaf (title) at the path segs under parent.
++func insertNode(parent *TreeNode, segs []string, title string) {
++	if len(segs) == 0 {
++		return
++	}
++	cur := parent
++	for i, seg := range segs {
++		last := i == len(segs)-1
++		var child *TreeNode
++		if len(cur.Children) > 0 {
++			for _, c := range cur.Children {
++				if c.Name == seg {
++					child = c
++					break
++				}
++			}
++		}
++		if child == nil {
++			child = &TreeNode{Name: seg}
++			cur.Children = append(cur.Children, child)
++		}
++		if last {
++			child.Leaf = true
++			child.Title = title
++		}
++		cur = child
++	}
++	// Sort children alphabetically for deterministic output.
++	sortChildren(cur)
++}
++
++func sortChildren(n *TreeNode) {
++	if n == nil || len(n.Children) == 0 {
++		return
++	}
++	sort.Slice(n.Children, func(i, j int) bool {
++		return n.Children[i].Name < n.Children[j].Name
++	})
++	for _, c := range n.Children {
++		sortChildren(c)
++	}
++}
++
++// renderTree renders the tree as indented text.
++func renderTree(node *TreeNode, path, indent string) string {
++	var b strings.Builder
++	children := node.Children
++	if len(children) == 0 {
++		b.WriteString(indent + leafLabel(node))
++		return b.String()
++	}
++	// The root node's name ends with "/" — its children are memory_type
++	// directories and should always render with a trailing slash.
++	isRoot := strings.HasSuffix(node.Name, "/")
++	for i, c := range children {
++		last := i == len(children)-1
++		connector := "├── "
++		childIndent := indent + "│   "
++		if last {
++			connector = "└── "
++			childIndent = indent + "    "
++		}
++		if c.Leaf && len(c.Children) == 0 && !isRoot {
++			b.WriteString(indent + connector + leafLabel(c) + "\n")
++		} else {
++			b.WriteString(indent + connector + c.Name + "/\n")
++			if len(c.Children) > 0 {
++				b.WriteString(renderTree(c, path+c.Name+"/", childIndent))
++			}
++		}
++	}
++	return b.String()
++}
++
++func leafLabel(n *TreeNode) string {
++	label := n.Name
++	if !strings.HasSuffix(label, "/") && n.Title != "" {
++		label = n.Title
++	}
++	return label
++}

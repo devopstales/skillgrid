@@ -1,0 +1,700 @@
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+index b311096..a2c253c 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem.go
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -86,8 +86,10 @@ func runMem(version string, args []string) {
+ 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
+ 	case "graph":
+ 		runMemGraph(svc, projID, limit)
+-	case "relations":
+-		runMemRelations(svc, projID, pos, minConf)
++ 	case "relations":
++ 		runMemRelations(svc, projID, pos, minConf)
++ 	case "provenance":
++ 		runMemProvenance(svc, projID, pos)
+ 	case "expire":
+ 		runMemExpire(svc, dataDir)
+ 	case "export":
+@@ -102,7 +104,7 @@ func runMem(version string, args []string) {
+ }
+ 
+ func printMemUsage() {
+-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|expire|export> [args]
++	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|relations|provenance|expire|export> [args]
+ 
+   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
+   governance <id>                 governed-asset view (mem_governance)
+@@ -118,9 +120,12 @@ func printMemUsage() {
+   graph [--limit N]                 temporal status of codeindex graph edges
+                                      (valid_from, valid_to, active/expired/pending)
+   relations <observation_id> [--min-confidence 0.5]
+-                                     typed @relation edges (outgoing + incoming)
+-                                     between observations, with relation type,
+-                                     confidence, and direction
++                                      typed @relation edges (outgoing + incoming)
++                                      between observations, with relation type,
++                                      confidence, and direction
++  provenance <observation_id>          curation chain of an observation
++                                       (session_id, curate_command, source_files,
++                                       llm_reasoning); clear message when unset
+   expire                          retire expired observations across all projects
+                                    (TTL sweep; best-effort, exit 0 on missing stores)
+   export [--file out.json] [--skip-embeddings]
+@@ -590,6 +595,55 @@ func runMemRelations(svc *service.Service, projID string, pos []string, minConf
+ 	printJSON(out)
+ }
+ 
++// runMemProvenance is the CLI for the curation chain (014 step 15,
++// `mem provenance <observation_id>`): it prints the provenance JSON stored on
++// the observation — the session, command, source files, and LLM reasoning
++// that produced it — as a readable structured chain (pretty-printed JSON with
++// the four snake_case labels). A missing observation id is a clear error; an
++// observation that never had provenance prints a clear "no provenance"
++// message (exit 0).
++func runMemProvenance(svc *service.Service, projID string, pos []string) {
++	if len(pos) < 1 {
++		fmt.Fprintln(os.Stderr, "error: mem provenance requires an observation id")
++		os.Exit(2)
++	}
++	id, err := strconv.ParseInt(pos[0], 10, 64)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error: invalid observation id")
++		os.Exit(2)
++	}
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	ctx := hCtx()
++
++	// A missing observation id (no live observation with this id in the
++	// project) is a clear error, matching the other mem subcommands.
++	if _, ok := h.Memory().ObsTitle(ctx, id); !ok {
++		fmt.Fprintf(os.Stderr, "error: observation %d not found in this project\n", id)
++		os.Exit(1)
++	}
++	p, err := h.Memory().Provenance(ctx, id)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	if p == nil {
++		printJSON(map[string]any{
++			"observation_id": id,
++			"provenance":     "no provenance recorded for this observation",
++		})
++		return
++	}
++	printJSON(map[string]any{
++		"observation_id": id,
++		"provenance":     p,
++	})
++}
++
+ func looksLikeSession(s string) bool {
+ 	// A session id is a UUID (36 chars with dashes) or a bare token with no
+ 	// spaces; a topic_key typically contains '/'.
+diff --git a/skillgrid-cli/cmd/skillgrid/mem_provenance_test.go b/skillgrid-cli/cmd/skillgrid/mem_provenance_test.go
+new file mode 100644
+index 0000000..9911c98
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/mem_provenance_test.go
+@@ -0,0 +1,94 @@
++package main
++
++import (
++	"context"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// TestMemProvenanceCLI covers 15.3: `mem provenance <observation_id>` shows
++// the full curation chain (session_id, curate_command, source_files,
++// llm_reasoning) as a readable, structured output; an observation with no
++// provenance prints a clear message; a missing observation id fails with a
++// clear error (non-zero exit).
++func TestMemProvenanceCLI(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "memcli-provenance"
++
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	if _, err := st.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status, title, summary)
++		VALUES ('sess-prov', ?, '/tmp', '2026-01-01T00:00:00Z', 'ended', 'prov session', 'prov session summary')`,
++		project); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	mem := memory.New(st, project)
++	ctx := context.Background()
++	id, err := mem.Save(ctx, memory.SaveInput{
++		SessionID: "sess-prov",
++		Type:      "decision",
++		Title:     "prov cli note",
++		Content:   "content for the provenance cli",
++		Provenance: &memory.Provenance{
++			SessionID:     "sess-prov",
++			CurateCommand: "mem_save --scope project",
++			SourceFiles:   []string{"src/cli.go", "src/cli_test.go"},
++			LLMReasoning:  "decision extracted from session summary",
++		},
++	})
++	if err != nil {
++		t.Fatalf("save with provenance: %v", err)
++	}
++	plain, err := mem.Save(ctx, memory.SaveInput{
++		SessionID: "sess-prov",
++		Type:      "decision",
++		Title:     "prov cli plain",
++		Content:   "content with no provenance",
++	})
++	if err != nil {
++		t.Fatalf("save plain: %v", err)
++	}
++	st.Close()
++
++	// `mem provenance <id>` shows all four chain elements as a readable chain.
++	out := runMemCLI(t, dataDir, "provenance", strconv.FormatInt(id, 10), "--project", project, "--dir", dataDir)
++	for _, s := range []string{
++		"sess-prov",
++		"mem_save --scope project",
++		"src/cli.go",
++		"src/cli_test.go",
++		"decision extracted from session summary",
++	} {
++		if !strings.Contains(out, s) {
++			t.Fatalf("mem provenance missing chain element %q:\n%s", s, out)
++		}
++	}
++	// The structured chain labels are present (not raw single-line JSON).
++	for _, label := range []string{"session_id", "curate_command", "source_files", "llm_reasoning"} {
++		if !strings.Contains(out, label) {
++			t.Fatalf("mem provenance missing chain label %q:\n%s", label, out)
++		}
++	}
++
++	// An observation without provenance gets a clear message (exit 0).
++	out = runMemCLI(t, dataDir, "provenance", strconv.FormatInt(plain, 10), "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "no provenance") {
++		t.Fatalf("observation without provenance should print a clear message, got:\n%s", out)
++	}
++
++	// A missing observation id fails with a clear error (non-zero exit).
++	out, err = runMemCLIExpectError(t, dataDir, "provenance", "999999", "--project", project, "--dir", dataDir)
++	if err == nil {
++		t.Fatalf("mem provenance with a missing id should fail, got: %s", out)
++	}
++	if !strings.Contains(out, "not found") {
++		t.Fatalf("missing observation id should be rejected clearly, got: %s", out)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/provenance.go b/skillgrid-cli/internal/mnemonic/memory/provenance.go
+new file mode 100644
+index 0000000..c7cf92c
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/provenance.go
+@@ -0,0 +1,81 @@
++// Provenance chain tracking (change 014, step 15): every observation can
++// carry an immutable JSON chain recording HOW it was curated — the session it
++// came from, the command that produced it, the source files it was extracted
++// from, and the LLM reasoning behind the extraction.
++package memory
++
++import (
++	"context"
++	"database/sql"
++	"encoding/json"
++	"errors"
++	"fmt"
++)
++
++// Provenance is the curation chain of an observation. It is stored as a JSON
++// object in the observations.provenance column (migration 027) and is
++// IMMUTABLE once set: only the initial save may establish it; the update path
++// preserves the stored value regardless of what a later save supplies.
++type Provenance struct {
++	SessionID     string   `json:"session_id"`
++	CurateCommand string   `json:"curate_command"`
++	SourceFiles   []string `json:"source_files"`
++	LLMReasoning  string   `json:"llm_reasoning"`
++}
++
++// MarshalJSON serializes the provenance chain to the JSON stored in the
++// provenance column.
++func (p *Provenance) MarshalJSON() ([]byte, error) {
++	type alias struct {
++		SessionID     string   `json:"session_id"`
++		CurateCommand string   `json:"curate_command"`
++		SourceFiles   []string `json:"source_files"`
++		LLMReasoning  string   `json:"llm_reasoning"`
++	}
++	a := alias{
++		SessionID:     p.SessionID,
++		CurateCommand: p.CurateCommand,
++		SourceFiles:   p.SourceFiles,
++		LLMReasoning:  p.LLMReasoning,
++	}
++	if a.SourceFiles == nil {
++		a.SourceFiles = []string{}
++	}
++	return json.Marshal(&a)
++}
++
++// parseProvenanceColumn decodes the provenance column value: NULL/empty is a
++// no-provenance (valid false); unparseable JSON is a hard error so a corrupt
++// column is never silently returned as an empty chain.
++func parseProvenanceColumn(v sql.NullString) (*Provenance, bool, error) {
++	if !v.Valid || v.String == "" {
++		return nil, false, nil
++	}
++	var p Provenance
++	if err := json.Unmarshal([]byte(v.String), &p); err != nil {
++		return nil, false, fmt.Errorf("parse provenance: %w", err)
++	}
++	return &p, true, nil
++}
++
++// Provenance returns the observation's curation chain: (nil, nil) when no
++// provenance was recorded at save time.
++func (s *Service) Provenance(ctx context.Context, id int64) (*Provenance, error) {
++	if s == nil || s.store == nil || s.store.DB == nil {
++		return nil, errors.New("memory service not initialized")
++	}
++	var raw sql.NullString
++	err := s.store.DB.QueryRowContext(ctx, `
++		SELECT provenance FROM observations
++		WHERE id = ? AND project = ? AND deleted_at IS NULL`,
++		id, s.projectID,
++	).Scan(&raw)
++	if err == sql.ErrNoRows {
++		return nil, fmt.Errorf("observation %d not found", id)
++	}
++	if err != nil {
++		return nil, fmt.Errorf("read provenance: %w", err)
++	}
++	p, _, err := parseProvenanceColumn(raw)
++	return p, err
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/provenance_immutable_test.go b/skillgrid-cli/internal/mnemonic/memory/provenance_immutable_test.go
+new file mode 100644
+index 0000000..cbb9de2
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/provenance_immutable_test.go
+@@ -0,0 +1,144 @@
++package memory
++
++import (
++	"context"
++	"encoding/json"
++	"testing"
++)
++
++// TestProvenanceImmutability covers 15.2: provenance is immutable once set
++// during curation. (1) A Save() whose TopicKey upserts an existing
++// observation that ALREADY carries provenance must preserve it — only the
++// initial save may establish the chain; a save attempting a DIFFERENT
++// provenance is a no-op on the column (a warning is logged). (2) The
++// mem_update path (Update) never touches the provenance column: after any
++// update the original provenance is byte-for-byte intact. (3) An
++// observation that never had provenance keeps provenance NULL after an
++// update — the update path cannot establish one either.
++func TestProvenanceImmutability(t *testing.T) {
++	_, svc := newTestStore(t, "provimm")
++	ctx := context.Background()
++	sid := newSession(t, svc)
++
++	original := &Provenance{
++		SessionID:     sid,
++		CurateCommand: "mem_save --scope project",
++		SourceFiles:   []string{"src/original.go"},
++		LLMReasoning:  "original extraction reasoning",
++	}
++
++	// Initial save establishes the chain. (No TopicKey: a topic-key upsert is
++	// an UPDATE of the same row — the 24h hash-dedup path INSERTs a NEW row,
++	// and a fresh row legitimately starts its own chain. Immutability
++	// applies per row, per curation, so the upsert path is the one that must
++	// preserve the stored chain.)
++	id, err := svc.Save(ctx, SaveInput{
++		SessionID:  sid,
++		Type:       "decision",
++		Title:      "prov immutable note",
++		Content:    "first content",
++		Provenance: original,
++	})
++	if err != nil {
++		t.Fatalf("initial save: %v", err)
++	}
++	orig, err := svc.Get(ctx, id)
++	if err != nil || orig.Provenance == nil {
++		t.Fatalf("initial provenance not set: obs=%+v err=%v", orig, err)
++	}
++	origJSON, err := json.Marshal(orig.Provenance)
++	if err != nil {
++		t.Fatalf("marshal original: %v", err)
++	}
++
++	// (1a) Topic-key upsert WITHOUT a provenance → preserved unchanged.
++	if _, err := svc.Save(ctx, SaveInput{
++		SessionID: sid,
++		Type:      "decision",
++		Title:     "prov immutable note",
++		Content:   "revised content, no provenance",
++		TopicKey:  "prov/immutable",
++	}); err != nil {
++		t.Fatalf("upsert without provenance: %v", err)
++	}
++	after, err := svc.Get(ctx, id)
++	if err != nil {
++		t.Fatalf("get after upsert: %v", err)
++	}
++	if after.Provenance == nil || !provenanceEqual(after.Provenance, original) {
++		t.Fatalf("upsert without provenance must preserve it: got %+v", after.Provenance)
++	}
++
++	// (1b) Topic-key upsert WITH a DIFFERENT provenance → original preserved
++	// (the attempt is a warning-level no-op, not an overwrite).
++	different := &Provenance{
++		SessionID:     "some-other-session",
++		CurateCommand: "mem_save --other",
++		SourceFiles:   []string{"src/other.go"},
++		LLMReasoning:  "different reasoning entirely",
++	}
++	if _, err := svc.Save(ctx, SaveInput{
++		SessionID:  sid,
++		Type:       "decision",
++		Title:      "prov immutable note",
++		Content:    "revised content again",
++		TopicKey:   "prov/immutable",
++		Provenance: different,
++	}); err != nil {
++		t.Fatalf("upsert with different provenance: %v", err)
++	}
++	after, err = svc.Get(ctx, id)
++	if err != nil {
++		t.Fatalf("get after different-provenance upsert: %v", err)
++	}
++	if after.Provenance == nil || !provenanceEqual(after.Provenance, original) {
++		t.Fatalf("different provenance must NOT overwrite the original: got %+v", after.Provenance)
++	}
++	gotJSON, err := json.Marshal(after.Provenance)
++	if err != nil {
++		t.Fatalf("marshal after: %v", err)
++	}
++	if string(gotJSON) != string(origJSON) {
++		t.Fatalf("original provenance not intact:\n got %s\nwant %s", gotJSON, origJSON)
++	}
++
++	// (2) Update() never touches the provenance column.
++	if err := svc.Update(ctx, id, UpdateInput{Content: "updated via mem_update"}); err != nil {
++		t.Fatalf("update: %v", err)
++	}
++	after, err = svc.Get(ctx, id)
++	if err != nil {
++		t.Fatalf("get after update: %v", err)
++	}
++	if after.Provenance == nil || !provenanceEqual(after.Provenance, original) {
++		t.Fatalf("Update() must leave provenance intact: got %+v", after.Provenance)
++	}
++
++	// (3) No provenance initially → still NULL after an update (the update
++	// path cannot establish a chain either).
++	plainID, err := svc.Save(ctx, SaveInput{
++		SessionID: sid,
++		Type:      "decision",
++		Title:     "prov none note",
++		Content:   "no chain ever",
++	})
++	if err != nil {
++		t.Fatalf("save plain: %v", err)
++	}
++	if err := svc.Update(ctx, plainID, UpdateInput{Content: "updated plain"}); err != nil {
++		t.Fatalf("update plain: %v", err)
++	}
++	plain, err := svc.Get(ctx, plainID)
++	if err != nil {
++		t.Fatalf("get plain: %v", err)
++	}
++	if plain.Provenance != nil {
++		t.Fatalf("update must not establish provenance on a chain-less obs: got %+v", plain.Provenance)
++	}
++}
++
++func provenanceEqual(a, b *Provenance) bool {
++	ab, _ := json.Marshal(a)
++	bb, _ := json.Marshal(b)
++	return string(ab) == string(bb)
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/provenance_test.go b/skillgrid-cli/internal/mnemonic/memory/provenance_test.go
+new file mode 100644
+index 0000000..ea77608
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/provenance_test.go
+@@ -0,0 +1,94 @@
++package memory
++
++import (
++	"context"
++	"database/sql"
++	"encoding/json"
++	"testing"
++)
++
++// TestProvenanceChainStorage covers 15.1: saving an observation with a full
++// provenance chain (session_id → curate_command → source_files →
++// llm_reasoning) round-trips through Get with all four fields intact, and the
++// underlying provenance column holds valid, parseable JSON. An observation
++// saved without provenance reads back with a nil Provenance.
++func TestProvenanceChainStorage(t *testing.T) {
++	_, svc := newTestStore(t, "provproj")
++	ctx := context.Background()
++	sid := newSession(t, svc)
++
++	chain := &Provenance{
++		SessionID:     sid,
++		CurateCommand: "mem_save --scope project",
++		SourceFiles:   []string{"src/a.go", "src/b.go"},
++		LLMReasoning:  "extracted from session summary: two related decisions",
++	}
++	id, err := svc.Save(ctx, SaveInput{
++		SessionID: sid,
++		Type:      "decision",
++		Title:     "prov chain note",
++		Content:   "content of the provenance note",
++		Provenance: chain,
++	})
++	if err != nil {
++		t.Fatalf("save with provenance: %v", err)
++	}
++
++	obs, err := svc.Get(ctx, id)
++	if err != nil {
++		t.Fatalf("get: %v", err)
++	}
++	if obs.Provenance == nil {
++		t.Fatalf("retrieved observation has nil Provenance: %+v", obs)
++	}
++	p := obs.Provenance
++	if p.SessionID != chain.SessionID {
++		t.Fatalf("session_id: got %q, want %q", p.SessionID, chain.SessionID)
++	}
++	if p.CurateCommand != chain.CurateCommand {
++		t.Fatalf("curate_command: got %q, want %q", p.CurateCommand, chain.CurateCommand)
++	}
++	if len(p.SourceFiles) != 2 || p.SourceFiles[0] != "src/a.go" || p.SourceFiles[1] != "src/b.go" {
++		t.Fatalf("source_files: got %v, want [src/a.go src/b.go]", p.SourceFiles)
++	}
++	if p.LLMReasoning != chain.LLMReasoning {
++		t.Fatalf("llm_reasoning: got %q, want %q", p.LLMReasoning, chain.LLMReasoning)
++	}
++
++	// The raw column must be valid JSON with all four snake_case keys.
++	var raw sql.NullString
++	if err := svc.store.DB.QueryRow(`
++		SELECT provenance FROM observations WHERE id = ?`, id).Scan(&raw); err != nil {
++		t.Fatalf("raw provenance column: %v", err)
++	}
++	if !raw.Valid || raw.String == "" {
++		t.Fatalf("provenance column is empty, want JSON")
++	}
++	var decoded map[string]any
++	if err := json.Unmarshal([]byte(raw.String), &decoded); err != nil {
++		t.Fatalf("provenance column is not valid JSON: %v\n%s", err, raw.String)
++	}
++	for _, key := range []string{"session_id", "curate_command", "source_files", "llm_reasoning"} {
++		if _, ok := decoded[key]; !ok {
++			t.Fatalf("provenance JSON missing key %q: %s", key, raw.String)
++		}
++	}
++
++	// No provenance → nil on read (rollback boundary: old saves still work).
++	plain, err := svc.Save(ctx, SaveInput{
++		SessionID: sid,
++		Type:      "decision",
++		Title:     "prov plain note",
++		Content:   "no provenance here",
++	})
++	if err != nil {
++		t.Fatalf("save without provenance: %v", err)
++	}
++	obs, err = svc.Get(ctx, plain)
++	if err != nil {
++		t.Fatalf("get plain: %v", err)
++	}
++	if obs.Provenance != nil {
++		t.Fatalf("plain observation should have nil Provenance, got %+v", obs.Provenance)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/service.go b/skillgrid-cli/internal/mnemonic/memory/service.go
+index 2c29640..d177e8f 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/service.go
++++ b/skillgrid-cli/internal/mnemonic/memory/service.go
+@@ -206,6 +206,12 @@ type SaveInput struct {
+ 	// (mnemonic.ttl, default 7 days) so every observation carries a soft
+ 	// expiry (014 step 04).
+ 	ExpiresAt string
++	// Provenance is the optional curation chain (014 step 15): the session,
++	// command, source files, and LLM reasoning that produced this
++	// observation. Nil leaves the provenance column NULL. It can only be
++	// established on the INITIAL save — the update path preserves any stored
++	// provenance (immutable once set).
++	Provenance *Provenance
+ }
+ 
+ // PassiveInput is a raw block of text (assistant reply, Task output, etc.)
+@@ -269,6 +275,9 @@ type Observation struct {
+ 	ImportanceScore sql.NullFloat64 `json:"importance_score,omitempty"`
+ 	RecencyDecay    sql.NullFloat64 `json:"recency_decay,omitempty"`
+ 	MaturityTier    string          `json:"maturity_tier,omitempty"`
++	// Provenance is the curation chain recorded at save time (014 step 15).
++	// Nil = no provenance was set (the pre-027 contract is unchanged).
++	Provenance *Provenance `json:"provenance,omitempty"`
+ }
+ 
+ // Status holds aggregate memory statistics.
+@@ -421,15 +430,27 @@ func (s *Service) Save(ctx context.Context, in SaveInput) (int64, error) {
+ 	} else if _, err := time.Parse(time.RFC3339, expiresAt); err != nil {
+ 		return 0, fmt.Errorf("invalid expires_at: %w", err)
+ 	}
++	// Provenance (014 step 15): serialize the curation chain to JSON on the
++	// initial save. Nil input leaves the column NULL (no provenance). A
++	// marshal failure is a hard error — a provenance chain that cannot be
++	// serialized is a bug, not a best-effort footnote.
++	var provenanceJSON sql.NullString
++	if in.Provenance != nil {
++		b, merr := in.Provenance.MarshalJSON()
++		if merr != nil {
++			return 0, fmt.Errorf("serialize provenance: %w", merr)
++		}
++		provenanceJSON = sql.NullString{String: string(b), Valid: true}
++	}
+ 	res, err := s.store.DB.ExecContext(ctx, `
+ 		INSERT INTO observations (
+ 			session_id, type, title, content, project, scope, topic_key,
+ 			normalized_hash, revision_count, created_at, updated_at, source, prompt_id, tool_name,
+ 			owner, visibility, status, retrieval_usage, expires_at,
+-			importance_score, recency_decay, maturity_tier
+-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?, 0, 1, 'fresh')`,
++			importance_score, recency_decay, maturity_tier, provenance
++		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'private', 'active', 0, ?, 0, 1, 'fresh', ?)`,
+ 		in.SessionID, in.Type, in.Title, in.Content, s.projectID, in.Scope, nullString(in.TopicKey),
+-		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt),
++		hash, now, now, source, nullableInt(promptID), nullString(in.ToolName), owner, nullString(expiresAt), provenanceJSON,
+ 	)
+ 	if err != nil {
+ 		return 0, fmt.Errorf("insert observation: %w", err)
+@@ -543,7 +564,7 @@ func (s *Service) SearchWithScope(ctx context.Context, query, matchMode, scope s
+ 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
+ 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
+ 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
+-		       o.importance_score, o.recency_decay, o.maturity_tier
++		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance
+ 		FROM observations o
+ 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
+ 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
+@@ -602,11 +623,10 @@ func (s *Service) SearchOwnerScoped(ctx context.Context, readerOwner, readerAgen
+ 		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id, o.created_at, o.updated_at,
+ 		       COALESCE(o.pinned, 0), COALESCE(o.duplicate_count, 0), o.last_seen_at, o.expires_at, o.tool_name,
+ 		       o.owner, COALESCE(o.visibility, 'private'), COALESCE(o.status, 'active'), COALESCE(o.retrieval_usage, 0),
+-		       o.importance_score, o.recency_decay, o.maturity_tier
++		       o.importance_score, o.recency_decay, o.maturity_tier, o.provenance
+ 		FROM observations o
+ 		INNER JOIN observations_fts ON observations_fts.rowid = o.id
+ 		WHERE observations_fts MATCH ? AND o.deleted_at IS NULL AND o.project = ?`+scopeClause+`
+-		  AND (o.expires_at IS NULL OR o.expires_at = '' OR strftime('%s', o.expires_at) > strftime('%s', 'now'))
+ 		  AND `+clause+`
+ 		ORDER BY COALESCE(o.pinned, 0) DESC, bm25(observations_fts)
+ 		LIMIT ?`,
+@@ -669,14 +689,14 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
+ 	var obs Observation
+ 	var topicKey sql.NullString
+ 	var promptID sql.NullInt64
+-	var lastSeen, expires, toolName, owner, tier sql.NullString
++	var lastSeen, expires, toolName, owner, tier, prov sql.NullString
+ 	var pinned, dups, usage int
+ 	var score, decay sql.NullFloat64
+ 	err := row.Scan(
+ 		&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
+ 		&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
+ 		&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
+-		&score, &decay, &tier,
++		&score, &decay, &tier, &prov,
+ 	)
+ 	if err != nil {
+ 		if errors.Is(err, sql.ErrNoRows) {
+@@ -685,6 +705,11 @@ func (s *Service) Get(ctx context.Context, id int64) (Observation, error) {
+ 		return Observation{}, fmt.Errorf("get observation: %w", err)
+ 	}
+ 	obs.setImportanceColumns(score, decay, tier)
++	if p, ok, perr := parseProvenanceColumn(prov); perr != nil {
++		return Observation{}, fmt.Errorf("get observation: %w", perr)
++	} else if ok {
++		obs.Provenance = p
++	}
+ 	if topicKey.Valid {
+ 		obs.TopicKey = topicKey.String
+ 	}
+@@ -1741,7 +1766,7 @@ const obsSelectCols = `
+ 	topic_key, source, normalized_hash, revision_count, prompt_id, created_at, updated_at,
+ 	COALESCE(pinned, 0), COALESCE(duplicate_count, 0), last_seen_at, expires_at, tool_name,
+ 	owner, COALESCE(visibility, 'private'), COALESCE(status, 'active'), COALESCE(retrieval_usage, 0),
+-	importance_score, recency_decay, maturity_tier`
++	importance_score, recency_decay, maturity_tier, provenance`
+ 
+ func scanObservations(rows *sql.Rows) ([]Observation, error) {
+ 	var out []Observation
+@@ -1749,18 +1774,23 @@ func scanObservations(rows *sql.Rows) ([]Observation, error) {
+ 		var obs Observation
+ 		var topicKey sql.NullString
+ 		var promptID sql.NullInt64
+-		var lastSeen, expires, toolName, owner, tier sql.NullString
++		var lastSeen, expires, toolName, owner, tier, prov sql.NullString
+ 		var pinned, dups, usage int
+ 		var score, decay sql.NullFloat64
+ 		if err := rows.Scan(
+ 			&obs.ID, &obs.SessionID, &obs.Type, &obs.Title, &obs.Content, &obs.Project, &obs.Scope,
+ 			&topicKey, &obs.Source, &obs.NormalizedHash, &obs.RevisionCount, &promptID, &obs.CreatedAt, &obs.UpdatedAt,
+ 			&pinned, &dups, &lastSeen, &expires, &toolName, &owner, &obs.Visibility, &obs.Status, &usage,
+-			&score, &decay, &tier,
++			&score, &decay, &tier, &prov,
+ 		); err != nil {
+ 			return nil, fmt.Errorf("scan observation: %w", err)
+ 		}
+ 		obs.setImportanceColumns(score, decay, tier)
++		if p, ok, perr := parseProvenanceColumn(prov); perr != nil {
++			return nil, fmt.Errorf("scan observation: %w", perr)
++		} else if ok {
++			obs.Provenance = p
++		}
+ 		if topicKey.Valid {
+ 			obs.TopicKey = topicKey.String
+ 		}
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/027_provenance.sql b/skillgrid-cli/internal/mnemonic/store/migrations/027_provenance.sql
+new file mode 100644
+index 0000000..db3e075
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/027_provenance.sql
+@@ -0,0 +1,15 @@
++-- 027: provenance chain metadata on observations (change 014, step 15).
++--
++-- Additive: one new nullable TEXT column on observations. No existing schema
++-- is touched; pre-027 rows read back with provenance NULL (no-provenance
++-- saves keep working unchanged).
++--
++--   provenance — a JSON object recording the curation chain that produced
++--                the observation:
++--                  {"session_id": "...", "curate_command": "mem_save ...",
++--                   "source_files": ["src/a.go"], "llm_reasoning": "..."}
++--                Set ONLY on the initial save; the update path preserves it
++--                (immutable once set — only the first write may establish
++--                the chain).
++
++ALTER TABLE observations ADD COLUMN provenance TEXT;

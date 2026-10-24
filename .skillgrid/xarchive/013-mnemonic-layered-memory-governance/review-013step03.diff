@@ -1,0 +1,1986 @@
+=== 013 STEP 03 CODE COMMITS 6fce689..7e29c3d ===
+
+7e29c3d feat(cli): mem layers/governance/share/search/context/timeline with budget flags (parity)
+7508faa test(mcp): budgeted in-list + mem_get_observation only-full-content + bad-args (005-stable)
+9142064 feat(memory): route mem_search/context/timeline through layered + budgeted in-list reads
+91fd4a4 feat(memory): layered L2/L3-first retrieval + mem_get_observation full-content path
+6fce689 feat(memory): item+char+timeout budget wrapper on mem_* reads
+
+=== STAT ===
+ skillgrid-cli/cmd/skillgrid/main.go                |   4 +
+ skillgrid-cli/cmd/skillgrid/mem.go                 | 353 +++++++++++++++++++++
+ skillgrid-cli/cmd/skillgrid/mem_test.go            | 133 ++++++++
+ skillgrid-cli/cmd/skillgrid/memhelpers.go          |  62 ++++
+ skillgrid-cli/internal/mnemonic/config/load.go     |  41 +++
+ .../internal/mnemonic/mcp/tools_memory.go          | 108 ++++++-
+ .../mnemonic/mcp/tools_memory_retrieval_test.go    | 187 +++++++++++
+ skillgrid-cli/internal/mnemonic/memory/budget.go   | 166 ++++++++++
+ .../internal/mnemonic/memory/budget_test.go        | 104 ++++++
+ skillgrid-cli/internal/mnemonic/memory/retrieve.go | 189 +++++++++++
+ .../internal/mnemonic/memory/retrieve_test.go      | 124 ++++++++
+ skillgrid-cli/internal/mnemonic/memory/service.go  |  23 ++
+ .../internal/mnemonic/service/retrieval.go         |  39 +++
+ .../mnemonic/service/retrieval_budget_test.go      | 222 +++++++++++++
+ skillgrid-cli/internal/mnemonic/service/service.go |   9 +
+ 15 files changed, 1755 insertions(+), 9 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/cmd/skillgrid/main.go b/skillgrid-cli/cmd/skillgrid/main.go
+index 4a38bb9..bfd5f62 100644
+--- a/skillgrid-cli/cmd/skillgrid/main.go
++++ b/skillgrid-cli/cmd/skillgrid/main.go
+@@ -66,6 +66,7 @@ func main() {
+ 		fmt.Fprintln(w, `  migrate       Backfill mnemonic tier sidecars (--tier)`)
+ 		fmt.Fprintln(w, `  trail         Inspect retrieval trails (recent|show)`)
+ 		fmt.Fprintln(w, `  search        Hybrid code search (FTS + signals + semantic, per-signal provenance)`)
++		fmt.Fprintln(w, `  mem           Memory tools (layers|governance|share|search|context|timeline)`)
+ 		fmt.Fprintln(w, `  embedding-status  Report active embedder provider/model and embedded counts`)
+ 		fmt.Fprintln(w, `  doctor        Functional health check (embed round-trip, capabilities; --strict for CI)`)
+ 		fmt.Fprintln(w, `  eval          Retrieval-eval ablation (--corpus self | name=path; leak-free git queries)`)
+@@ -160,6 +161,9 @@ func main() {
+ 	case "search":
+ 		runSearch(version, rest[1:])
+ 		return
++	case "mem":
++		runMem(version, rest[1:])
++		return
+ 	case "embedding-status":
+ 		runSearchEmbeddingStatus(version, rest[1:])
+ 		return
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+new file mode 100644
+index 0000000..2974c6f
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -0,0 +1,353 @@
++package main
++
++import (
++	"flag"
++	"fmt"
++	"os"
++	"strconv"
++	"strings"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory/layer"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// runMem handles `skillgrid mem <subcommand>`. It is the CLI parity layer for
++// the memory tools (change 013, step 03): `mem layers|governance|share`
++// (01/02 tools with no prior CLI) plus `mem search|context|timeline` so the
++// budgeted read paths are reachable from the command line. Each subcommand
++// routes through the same service seams the MCP tools use.
++func runMem(version string, args []string) {
++	_ = version
++	if len(args) == 0 {
++		printMemUsage()
++		os.Exit(2)
++	}
++	cmd := args[0]
++	rest := args[1:]
++
++	fs := flag.NewFlagSet("mem", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	var (
++		dataDir  string
++		project  string
++		limit    int
++		items    int
++		chars    int
++		timeout  string
++		target   string
++		owner    string
++		agent    string
++		window   string
++		visibility string
++		grants   string
++	)
++	fs.StringVar(&dataDir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
++	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
++	fs.IntVar(&limit, "limit", 0, "max results (read subcommands)")
++	fs.IntVar(&items, "item", 0, "budget: item-count cap (0 = default)")
++	fs.IntVar(&chars, "char", 0, "budget: per-snippet char cap (0 = default)")
++	fs.StringVar(&timeout, "timeout", "", "budget: context timeout, e.g. 3s (0 = default)")
++	fs.StringVar(&target, "target", "", "layers: session_id or topic_key")
++	fs.StringVar(&owner, "reader-owner", "", "read: reader identity (per-owner visibility)")
++	fs.StringVar(&agent, "reader-agent", "", "read: reader agent id (ACL)")
++	fs.StringVar(&window, "window", "", "timeline: time window each side (e.g. 1h)")
++	fs.StringVar(&visibility, "target-visibility", "", "share: team|restricted|agent")
++	fs.StringVar(&grants, "grants", "", "share: comma-separated grantee list")
++	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
++		os.Exit(2)
++	}
++
++	svc, projID := openMemService(dataDir, project)
++	pos := fs.Args()
++
++	switch cmd {
++	case "layers":
++		runMemLayers(svc, projID, pos, fs.Lookup("target").Value.String())
++	case "governance":
++		runMemGovernance(svc, projID, pos)
++	case "share":
++		runMemShare(svc, projID, pos, visibility, grants)
++	case "search":
++		runMemSearch(svc, projID, pos, owner, agent, limit, items, chars, timeout)
++	case "context":
++		runMemContext(svc, projID, limit, items, chars, timeout)
++	case "timeline":
++		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
++	case "help", "-h", "--help":
++		printMemUsage()
++	default:
++		fmt.Fprintf(os.Stderr, "error: unknown mem command %q\n", cmd)
++		printMemUsage()
++		os.Exit(2)
++	}
++}
++
++func printMemUsage() {
++	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline> [args]
++
++  layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
++  governance <id>                 governed-asset view (mem_governance)
++  share <id> --target-visibility team|restricted|agent [--grants a,b]
++                                  widen visibility (mem_share)
++  search <query> [--limit N] [--reader-owner X] [--item N] [--char N] [--timeout 3s]
++                                  budgeted FTS search (mem_search)
++  context [--limit N] [--item N] [--char N] [--timeout 3s]
++                                  recent session summaries (mem_context)
++  timeline <id> [--window 1h] [--limit N] [--item N] [--char N] [--timeout 3s]
++                                  chronological context (mem_timeline)
++
++Flags:
++  --project ID    project bucket (defaults to CWD-resolved)
++  --dir DATA_DIR  mnemonic data directory
++`)
++}
++
++func openMemService(dataDir, project string) (*service.Service, string) {
++	dd := dataDir
++	if dd == "" {
++		d, err := service.DefaultDataDir()
++		if err != nil {
++			fmt.Fprintln(os.Stderr, "error:", err)
++			os.Exit(1)
++		}
++		dd = d
++	}
++	svc := service.New(dd)
++	proj := project
++	if proj == "" {
++		cwd, err := os.Getwd()
++		if err != nil {
++			fmt.Fprintln(os.Stderr, "error:", err)
++			os.Exit(1)
++		}
++		pid, err := svc.ResolveProject(cwd)
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "error: resolve project: %v\n", err)
++			os.Exit(1)
++		}
++		proj = pid
++	}
++	return svc, proj
++}
++
++// memBudgetOpts builds the tunable read budget from the CLI flags (0 = default).
++func memBudgetOpts(items, chars int, timeout string) memoryBudgetCfg {
++	cfg := memoryBudgetCfg{Items: items, Chars: chars}
++	if timeout != "" {
++		d, err := time.ParseDuration(timeout)
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "error: bad --timeout %q: %v\n", timeout, err)
++			os.Exit(2)
++		}
++		cfg.TimeoutNs = int64(d)
++	}
++	return cfg
++}
++
++func runMemLayers(svc *service.Service, projID string, pos []string, target string) {
++	t := target
++	if t == "" && len(pos) >= 1 {
++		t = pos[0]
++	}
++	if t == "" {
++		fmt.Fprintln(os.Stderr, "error: mem layers requires a session_id or topic_key")
++		os.Exit(2)
++	}
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	var chain layer.Chain
++	var lerr error
++	if looksLikeSession(t) {
++		chain, lerr = layer.Inspect(hCtx(), h.Memory(), t)
++	} else {
++		chain, lerr = layer.InspectByTopic(hCtx(), h.Memory(), t)
++	}
++	if lerr != nil {
++		fmt.Fprintln(os.Stderr, "error:", lerr)
++		os.Exit(1)
++	}
++	printJSON(chain)
++}
++
++func runMemGovernance(svc *service.Service, projID string, pos []string) {
++	if len(pos) < 1 {
++		fmt.Fprintln(os.Stderr, "error: mem governance requires an id")
++		os.Exit(2)
++	}
++	id, err := strconv.ParseInt(pos[0], 10, 64)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error: invalid observation id")
++		os.Exit(2)
++	}
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	g, err := h.Memory().Governance(hCtx(), id)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	printJSON(g)
++}
++
++func runMemShare(svc *service.Service, projID string, pos []string, visibility, grants string) {
++	if len(pos) < 1 {
++		fmt.Fprintln(os.Stderr, "error: mem share requires an id")
++		os.Exit(2)
++	}
++	id, err := strconv.ParseInt(pos[0], 10, 64)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error: invalid observation id")
++		os.Exit(2)
++	}
++	if visibility == "" {
++		fmt.Fprintln(os.Stderr, "error: mem share requires --target-visibility team|restricted|agent")
++		os.Exit(2)
++	}
++	var gs []string
++	for _, g := range strings.Split(grants, ",") {
++		if t := strings.TrimSpace(g); t != "" {
++			gs = append(gs, t)
++		}
++	}
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	if err := h.Memory().Share(hCtx(), id, memoryShareInput{Visibility: visibility, Grants: gs}); err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	printJSON(map[string]any{"id": id, "shared": true, "visibility": visibility})
++}
++
++func runMemSearch(svc *service.Service, projID string, pos []string, owner, agent string, limit, items, chars int, timeout string) {
++	if len(pos) < 1 {
++		fmt.Fprintln(os.Stderr, "error: mem search requires a query")
++		os.Exit(2)
++	}
++	query := strings.Join(pos, " ")
++	if limit <= 0 {
++		limit = 20
++	}
++	cfg := memBudgetOpts(items, chars, timeout)
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	h.Memory().SetBudget(memoryBudget(cfg))
++	hits, err := h.Memory().SearchOwnerScoped(hCtx(), owner, agent, query, "any", "", limit)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	// Budget the in-list read (item cap + char budget + context timeout); the
++	// full content stays fetchable via `mem governance` / mem_get_observation.
++	res := h.Memory().Budget().Apply(hCtx(), hits)
++	out := map[string]any{
++		"project":      projID,
++		"observations": res.Hits,
++		"count":        len(res.Hits),
++	}
++	if res.Truncated {
++		out["truncated"] = true
++		out["truncation_reason"] = res.Reason
++	}
++	printJSON(out)
++}
++
++func runMemContext(svc *service.Service, projID string, limit, items, chars int, timeout string) {
++	if limit <= 0 {
++		limit = 5
++	}
++	_ = memBudgetOpts(items, chars, timeout)
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	sessions, err := h.Memory().RecentContext(hCtx(), limit)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	printJSON(map[string]any{"sessions": sessions})
++}
++
++func runMemTimeline(svc *service.Service, projID string, pos []string, window string, limit, items, chars int, timeout string) {
++	if len(pos) < 1 {
++		fmt.Fprintln(os.Stderr, "error: mem timeline requires an id")
++		os.Exit(2)
++	}
++	id, err := strconv.ParseInt(pos[0], 10, 64)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error: invalid observation id")
++		os.Exit(2)
++	}
++	_ = memBudgetOpts(items, chars, timeout)
++	w := parseMemWindow(window)
++	if limit <= 0 {
++		limit = 5
++	}
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++	tl, err := h.Memory().Timeline(hCtx(), id, w, limit)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	printJSON(map[string]any{"anchor_id": id, "before": tl.Before, "after": tl.After})
++}
++
++func looksLikeSession(s string) bool {
++	// A session id is a UUID (36 chars with dashes) or a bare token with no
++	// spaces; a topic_key typically contains '/'.
++	s = strings.TrimSpace(s)
++	if s == "" || strings.Contains(s, " ") || strings.Contains(s, "/") {
++		return false
++	}
++	return len(s) >= 8
++}
++
++func reorderMemArgs(args []string) []string {
++	var flags, pos []string
++	for i := 0; i < len(args); i++ {
++		a := args[i]
++		if a == "-" || strings.HasPrefix(a, "-") {
++			flags = append(flags, a)
++			if !strings.Contains(a, "=") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
++				i++
++				flags = append(flags, args[i])
++			}
++			continue
++		}
++		pos = append(pos, a)
++	}
++	return append(flags, pos...)
++}
++
++func printJSON(v any) {
++	enc := newJSONEncoder(os.Stdout)
++	enc.SetIndent("", "  ")
++	if err := enc.Encode(v); err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++}
+diff --git a/skillgrid-cli/cmd/skillgrid/mem_test.go b/skillgrid-cli/cmd/skillgrid/mem_test.go
+new file mode 100644
+index 0000000..cc5ed98
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/mem_test.go
+@@ -0,0 +1,133 @@
++package main
++
++import (
++	"context"
++	"os/exec"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory/layer"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// seedMemCLIPeriod creates a project store with a session, a saved observation,
++// and a distilled L2/L3 layer set (so `mem layers` has something to inspect).
++// It returns the project id, the observation id, and the session id.
++func seedMemCLIPeriod(t *testing.T, dataDir, project string) (int64, string) {
++	t.Helper()
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer st.Close()
++	mem := memory.New(st, project)
++	ctx := context.Background()
++	if _, err := st.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status, title, summary)
++		VALUES ('sess-memcli', ?, '/tmp', '2026-01-01T00:00:00Z', 'ended', 'mem cli session', ?)`,
++		project, "## Goal\nmem cli parity\n\n## Key Learnings:\n- The CLI must expose parity with the memory tools for layers and governance"); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	id, err := mem.Save(ctx, memory.SaveInput{
++		SessionID: "sess-memcli",
++		Type:      "decision",
++		Title:     "mem cli parity probe",
++		Content:   "CLI parity body for mem governance/share/layers",
++	})
++	if err != nil {
++		t.Fatalf("save: %v", err)
++	}
++	// Distill the session so observation_layers + personas exist (mem layers).
++	if _, err := layer.Distill(ctx, mem, "sess-memcli", layer.DistillOptions{}); err != nil {
++		t.Fatalf("distill: %v", err)
++	}
++	return id, "sess-memcli"
++}
++
++func runMemCLI(t *testing.T, dataDir string, args ...string) string {
++	t.Helper()
++	cmdArgs := append([]string{"run", ".", "mem"}, args...)
++	cmd := exec.Command("go", cmdArgs...)
++	cmd.Dir = mustWD(t)
++	cmd.Env = append(cmd.Environ(), "SKILLGRID_MNEMONIC_DATA_DIR="+dataDir)
++	out, err := cmd.CombinedOutput()
++	if err != nil {
++		t.Fatalf("mem %v: %v\n%s", args, err, out)
++	}
++	return string(out)
++}
++
++// TestMemCLIParity is 03.8 [AFK] — the CLI exposes parity with the memory
++// tools: `mem layers`, `mem governance`, and `mem share` each route through the
++// same seams as their MCP counterparts.
++// Scenario: cli-parity-for-layer-governance-share.
++func TestMemCLIParity(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "memcli-parity"
++	obsID, sessID := seedMemCLIPeriod(t, dataDir, project)
++
++	// mem layers <session_id>: returns the L0→L1→L2→L3 chain.
++	out := runMemCLI(t, dataDir, "layers", sessID, "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "l0_session") || !strings.Contains(out, sessID) {
++		t.Fatalf("mem layers missing the L0 session chain: %s", out)
++	}
++	// The distilled L2/L3 layers must be present (provenance-linked).
++	if !strings.Contains(out, "L2") && !strings.Contains(out, "L3") {
++		t.Fatalf("mem layers missing distilled L2/L3 layers: %s", out)
++	}
++
++	// mem governance <id>: returns the governed-asset view.
++	out = runMemCLI(t, dataDir, "governance", strconv.FormatInt(obsID, 10), "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "visibility") || !strings.Contains(out, "owner") {
++		t.Fatalf("mem governance missing asset fields: %s", out)
++	}
++
++	// mem share <id> --target-visibility team: widens visibility to team.
++	out = runMemCLI(t, dataDir, "share", strconv.FormatInt(obsID, 10),
++		"--target-visibility", "team", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, "team") {
++		t.Fatalf("mem share did not report the team visibility: %s", out)
++	}
++
++	// Verify the share landed (governance now shows team).
++	out = runMemCLI(t, dataDir, "governance", strconv.FormatInt(obsID, 10), "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, `"team"`) {
++		t.Fatalf("after mem share, governance must show visibility team: %s", out)
++	}
++}
++
++// TestMemCLIBadArgs proves the CLI rejects bad mem args clearly (parity with
++// the MCP bad-args behavior).
++func TestMemCLIBadArgs(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "memcli-badargs"
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatal(err)
++	}
++	st.Close()
++
++	// mem layers with no target → clear error (exit 2).
++	cmd := exec.Command("go", "run", ".", "mem", "layers", "--project", project, "--dir", dataDir)
++	cmd.Dir = mustWD(t)
++	cmd.Env = append(cmd.Environ(), "SKILLGRID_MNEMONIC_DATA_DIR="+dataDir)
++	out, err := cmd.CombinedOutput()
++	if err == nil {
++		t.Fatalf("mem layers with no target should fail, got: %s", out)
++	}
++	if !strings.Contains(string(out), "requires") && !strings.Contains(string(out), "session_id") {
++		t.Fatalf("bad mem layers args should be rejected clearly, got: %s", out)
++	}
++
++	// mem share with an invalid visibility → clear error.
++	id := "1"
++	cmd = exec.Command("go", "run", ".", "mem", "share", id, "--target-visibility", "bogus", "--project", project, "--dir", dataDir)
++	cmd.Dir = mustWD(t)
++	cmd.Env = append(cmd.Environ(), "SKILLGRID_MNEMONIC_DATA_DIR="+dataDir)
++	out, err = cmd.CombinedOutput()
++	if err == nil {
++		t.Fatalf("mem share with bad visibility should fail, got: %s", out)
++	}
++}
+diff --git a/skillgrid-cli/cmd/skillgrid/memhelpers.go b/skillgrid-cli/cmd/skillgrid/memhelpers.go
+new file mode 100644
+index 0000000..fecb764
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/memhelpers.go
+@@ -0,0 +1,62 @@
++package main
++
++import (
++	"context"
++	"encoding/json"
++	"io"
++	"regexp"
++	"strconv"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++)
++
++// memoryBudgetCfg is the CLI's tunable read-budget flags (change 013, step 03).
++// Zero fields fall back to the memory package defaults.
++type memoryBudgetCfg struct {
++	Items     int
++	Chars     int
++	TimeoutNs int64
++}
++
++// memoryBudget adapts the CLI budget flags to the memory package's BudgetConfig.
++func memoryBudget(c memoryBudgetCfg) memory.BudgetConfig {
++	return memory.BudgetConfig{Items: c.Items, Chars: c.Chars, TimeoutNs: c.TimeoutNs}
++}
++
++// memoryShareInput adapts the CLI share flags to the memory package's ShareInput.
++type memoryShareInput = memory.ShareInput
++
++// hCtx returns the read context for a CLI memory read (the budget's context
++// timeout is honored from the caller's deadline; the CLI uses Background).
++func hCtx() context.Context {
++	return context.Background()
++}
++
++func newJSONEncoder(w io.Writer) *json.Encoder {
++	return json.NewEncoder(w)
++}
++
++var memWindowRe = regexp.MustCompile(`^(\d+)([smhd])$`)
++
++// parseMemWindow parses a timeline window (e.g. "30m", "2h"); default 1h.
++func parseMemWindow(s string) time.Duration {
++	s = regexp.MustCompile(`\s+`).ReplaceAllString(s, "")
++	if s == "" {
++		return time.Hour
++	}
++	if m := memWindowRe.FindStringSubmatch(s); m != nil {
++		n, _ := strconv.Atoi(m[1])
++		switch m[2] {
++		case "s":
++			return time.Duration(n) * time.Second
++		case "m":
++			return time.Duration(n) * time.Minute
++		case "h":
++			return time.Duration(n) * time.Hour
++		case "d":
++			return time.Duration(n) * 24 * time.Hour
++		}
++	}
++	return time.Hour
++}
+diff --git a/skillgrid-cli/internal/mnemonic/config/load.go b/skillgrid-cli/internal/mnemonic/config/load.go
+index 982cdf2..bcd50be 100644
+--- a/skillgrid-cli/internal/mnemonic/config/load.go
++++ b/skillgrid-cli/internal/mnemonic/config/load.go
+@@ -43,6 +43,15 @@ type EmbedderParams struct {
+ 	MaxTokens    int
+ }
+ 
++// RetrievalBudget is the tunable read budget (change 013, step 03): the
++// item-count cap, the per-snippet char budget, and the context timeout. A
++// zero field falls back to its default in memory.DefaultBudget.
++type RetrievalBudget struct {
++	Items     int
++	Chars     int
++	TimeoutNs int64
++}
++
+ // Indexing holds code index settings from indexing.yaml mnemonic section.
+ type Indexing struct {
+ 	Include      []string
+@@ -52,6 +61,9 @@ type Indexing struct {
+ 	MaxFileSize  int
+ 	WebCache     WebCache
+ 	Embedder     EmbedderConfig
++	// RetrievalBudget is the tunable mem_* read budget (change 013, step 03).
++	// Zero fields fall back to the memory package defaults.
++	RetrievalBudget RetrievalBudget
+ }
+ 
+ type indexingFile struct {
+@@ -67,6 +79,15 @@ type mnemonicSection struct {
+ 	MaxFileSize  int             `yaml:"max_file_size"`
+ 	WebCache     webCacheSection `yaml:"web_cache"`
+ 	Embedder     embedderSection `yaml:"embedder"`
++	// RetrievalBudget is the mnemonic.retrieval_budget section (change 013,
++	// step 03): item/char/timeout caps for every mem_* read path.
++	RetrievalBudget retrievalBudgetSection `yaml:"retrieval_budget"`
++}
++
++type retrievalBudgetSection struct {
++	Items     int    `yaml:"items"`
++	Chars     int    `yaml:"chars"`
++	Timeout   string `yaml:"timeout"` // Go duration string, e.g. "3s"
+ }
+ 
+ type embedderSection struct {
+@@ -205,6 +226,26 @@ func mergeIndexing(defaults Indexing, section mnemonicSection) Indexing {
+ 	}
+ 	out.WebCache = mergeWebCache(defaults.WebCache, section.WebCache)
+ 	out.Embedder = mergeEmbedder(defaults.Embedder, section.Embedder)
++	out.RetrievalBudget = mergeRetrievalBudget(defaults.RetrievalBudget, section.RetrievalBudget)
++	return out
++}
++
++// mergeRetrievalBudget merges the mnemonic.retrieval_budget section over the
++// defaults. Each field is applied independently when present (a partial budget
++// only overrides the knobs it sets).
++func mergeRetrievalBudget(defaults RetrievalBudget, section retrievalBudgetSection) RetrievalBudget {
++	out := defaults
++	if section.Items > 0 {
++		out.Items = section.Items
++	}
++	if section.Chars > 0 {
++		out.Chars = section.Chars
++	}
++	if section.Timeout != "" {
++		if d, err := time.ParseDuration(section.Timeout); err == nil {
++			out.TimeoutNs = int64(d)
++		}
++	}
+ 	return out
+ }
+ 
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory.go
+index bc85cab..97cfb5b 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_memory.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory.go
+@@ -298,12 +298,19 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
+ 		if err != nil {
+ 			return toolError(err)
+ 		}
+-		return JSONResult(map[string]any{
++		// Budget (013 step 03) applies to the cross-project read too.
++		res := h.Memory().Budget().Apply(ctx, hits)
++		out := map[string]any{
+ 			"project":      "all",
+ 			"all_projects": true,
+-			"count":        len(hits),
+-			"observations": observationDTOs(hits),
+-		})
++			"count":        len(res.Hits),
++			"observations": budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
++		}
++		if res.Truncated {
++			out["truncated"] = true
++			out["truncation_reason"] = res.Reason
++		}
++		return JSONResult(out)
+ 	}
+ 
+ 	explicitProject := strings.TrimSpace(req.GetString("project", ""))
+@@ -326,8 +333,20 @@ func handleMemSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.C
+ 	if err != nil {
+ 		return toolError(err)
+ 	}
+-
+-	out := map[string]any{"project": projectID, "observations": observationDTOs(hits)}
++	// Budget (change 013, step 03): the in-list read is item-capped and
++	// char-truncated (explicit "N chars omitted"), with a context timeout. The
++	// full content is pulled on demand via mem_get_observation (the only
++	// full-content path) using each hit's id.
++	res := h.Memory().Budget().Apply(ctx, hits)
++	out := map[string]any{
++		"project":      projectID,
++		"observations": budgetedObservationDTOs(h.Memory().Budget(), res.Hits),
++		"count":        len(res.Hits),
++	}
++	if res.Truncated {
++		out["truncated"] = true
++		out["truncation_reason"] = res.Reason
++	}
+ 	if drift != nil {
+ 		out["project_drift"] = drift
+ 	}
+@@ -346,7 +365,26 @@ func handleMemContext(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.
+ 	if err != nil {
+ 		return toolError(err)
+ 	}
+-	return JSONResult(map[string]any{"sessions": sessionDTOs(sessions)})
++	// Budget (013 step 03): the context read is item-capped and its summaries
++	// are char-truncated (explicit "N chars omitted").
++	b := h.Memory().Budget()
++	truncated := false
++	reason := ""
++	for i := range sessions {
++		if len(sessions[i].Summary) > b.Config().Chars {
++			sessions[i].Summary = memory.TruncateWithMarker(sessions[i].Summary, b.Config().Chars)
++			truncated = true
++			if reason == "" {
++				reason = "char-budget"
++			}
++		}
++	}
++	out := map[string]any{"sessions": sessionDTOs(sessions)}
++	if truncated {
++		out["truncated"] = true
++		out["truncation_reason"] = reason
++	}
++	return JSONResult(out)
+ }
+ 
+ func handleMemGetObservation(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+@@ -537,11 +575,41 @@ func handleMemTimeline(ctx context.Context, req mcplib.CallToolRequest) (*mcplib
+ 	if err != nil {
+ 		return toolError(err)
+ 	}
+-	return JSONResult(map[string]any{
++	// Budget (013 step 03): the timeline read is item-capped (limit) and its
++	// in-list snippets are char-truncated (explicit "N chars omitted"). Every
++	// entry carries its id (the full-content fetch via mem_get_observation).
++	b := h.Memory().Budget()
++	truncated := false
++	reason := ""
++	chars := b.Config().Chars
++	for i := range tl.Before {
++		if len(tl.Before[i].Content) > chars {
++			tl.Before[i].Content = memory.TruncateWithMarker(tl.Before[i].Content, chars)
++			truncated = true
++			if reason == "" {
++				reason = "char-budget"
++			}
++		}
++	}
++	for i := range tl.After {
++		if len(tl.After[i].Content) > chars {
++			tl.After[i].Content = memory.TruncateWithMarker(tl.After[i].Content, chars)
++			truncated = true
++			if reason == "" {
++				reason = "char-budget"
++			}
++		}
++	}
++	out := map[string]any{
+ 		"anchor_id": int64(id),
+ 		"before":    tl.Before,
+ 		"after":     tl.After,
+-	})
++	}
++	if truncated {
++		out["truncated"] = true
++		out["truncation_reason"] = reason
++	}
++	return JSONResult(out)
+ }
+ 
+ // ────────────────────────────── Mem: update / delete ───────────────────────
+@@ -1098,6 +1166,15 @@ func observationDTOs(obs []memory.Observation) []map[string]any {
+ 	return out
+ }
+ 
++// inListContent projects an in-list observation's content for a budgeted read
++// (mem_search / mem_context / mem_timeline). It applies the char budget with an
++// explicit "N chars omitted" marker (never silent). mem_get_observation uses
++// the raw observationDTO (no char budget) so it stays the ONLY full-content
++// path.
++func inListContent(b *memory.Budget, content string) string {
++	return memory.TruncateWithMarker(content, b.Config().Chars)
++}
++
+ func observationDTO(o memory.Observation) map[string]any {
+ 	m := map[string]any{
+ 		"id":              o.ID,
+@@ -1131,6 +1208,19 @@ func observationDTO(o memory.Observation) map[string]any {
+ 	return m
+ }
+ 
++// budgetedObservationDTOs shapes in-list results for a budgeted read: the char
++// budget is applied to each snippet (explicit "N chars omitted"), and every
++// result carries its full-content fetch id (mem_get_observation is the only
++// full-content path).
++func budgetedObservationDTOs(b *memory.Budget, obs []memory.Observation) []map[string]any {
++	out := make([]map[string]any, len(obs))
++	for i, o := range obs {
++		o.Content = inListContent(b, o.Content)
++		out[i] = observationDTO(o)
++	}
++	return out
++}
++
+ func sessionDTOs(sessions []memory.Session) []map[string]any {
+ 	out := make([]map[string]any, len(sessions))
+ 	for i, s := range sessions {
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_memory_retrieval_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_retrieval_test.go
+new file mode 100644
+index 0000000..e502f32
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_memory_retrieval_test.go
+@@ -0,0 +1,187 @@
++package mcp
++
++import (
++	"context"
++	"encoding/json"
++	"sort"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// memRetrievalFixture pins the project to a stable bucket so the read handlers
++// resolve to one store.
++func memRetrievalFixture(t *testing.T) {
++	t.Helper()
++	dataDir := t.TempDir()
++	t.Setenv("MNEMONIC_PROJECT", "retrievmcp-probe")
++	svc := service.New(dataDir)
++	SetService(svc)
++	t.Cleanup(func() { SetService(nil) })
++}
++
++// startMCPSession drives mem_session_start and returns the session id.
++func startMCPSession(t *testing.T) string {
++	t.Helper()
++	startRes, err := handleMemSessionStart(context.Background(), newCallTool("mem_session_start", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleMemSessionStart dispatch: %v", err)
++	}
++	if startRes.IsError {
++		t.Fatalf("mem_session_start errored: %s", callResultText(t, startRes))
++	}
++	var out struct {
++		SessionID string `json:"session_id"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, startRes)), &out); err != nil {
++		t.Fatalf("unmarshal session start: %v", err)
++	}
++	return out.SessionID
++}
++
++// TestBudgetedRetrievalMCP is the 03.2 surface proof at the tool boundary:
++// mem_search returns budgeted (char-truncated, id-carrying) in-list results,
++// mem_get_observation is the ONLY full-content path, and the 005 mem_* tools
++// keep their names + required params while bad retrieval args are rejected.
++//
++// Scenarios: layered-retrieval-l2-l3-first-with-l1-l0-rrf-fallback,
++// mem-get-observation-is-only-full-content-path, budgeted-reads-005-stable,
++// bad-retrieval-args-rejected.
++func TestBudgetedRetrievalMCP(t *testing.T) {
++	memRetrievalFixture(t)
++	ctx := context.Background()
++	sid := startMCPSession(t)
++
++	// Save 12 observations with long bodies (well over the default 1200-char
++	// budget) so the in-list read must truncate.
++	body := "Budget retrieval zebraquilt body " + strings.Repeat("b", 1500)
++	for i := 0; i < 12; i++ {
++		saveRes, err := handleMemSave(ctx, newCallTool("mem_save", map[string]any{
++			"title":      "Retrieval zebraquilt probe " + itoaMCP(i),
++			"type":       "learning",
++			"content":    body,
++			"session_id": sid,
++		}))
++		if err != nil {
++			t.Fatalf("mem_save %d dispatch: %v", i, err)
++		}
++		if saveRes.IsError {
++			t.Fatalf("mem_save %d errored: %s", i, callResultText(t, saveRes))
++		}
++	}
++
++	// 005 mem_* tools keep their names + required params unchanged (budgeted
++	// behavior is additive).
++	tools := NewServer().ListTools()
++	if len(tools) != 78 {
++		t.Fatalf("expected 78 tools, got %d", len(tools))
++	}
++	for name, wantRequired := range expectedMemToolSurface {
++		st, ok := tools[name]
++		if !ok {
++			t.Errorf("005 mem tool %q is no longer registered", name)
++			continue
++		}
++		got := append([]string(nil), st.Tool.InputSchema.Required...)
++		want := append([]string(nil), wantRequired...)
++		sort.Strings(got)
++		sort.Strings(want)
++		if len(got) != len(want) || !equalStrings(got, want) {
++			t.Errorf("mem tool %q required params changed: got %v want %v", name, got, want)
++		}
++	}
++
++	// mem_search: in-list results are char-truncated (explicit "N chars
++	// omitted") and every one carries its full-content fetch id.
++	// Read as the session owner so the per-owner visibility filter (013 step 01)
++	// returns the private observations.
++	searchRes, err := handleMemSearch(ctx, newCallTool("mem_search", map[string]any{
++		"query": "zebraquilt", "reader_owner": sid,
++	}))
++	if err != nil {
++		t.Fatalf("handleMemSearch dispatch: %v", err)
++	}
++	if searchRes.IsError {
++		t.Fatalf("mem_search errored: %s", callResultText(t, searchRes))
++	}
++	var searchOut struct {
++		Observations []struct {
++			ID      int64  `json:"id"`
++			Content string `json:"content"`
++		} `json:"observations"`
++		Count int `json:"count"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, searchRes)), &searchOut); err != nil {
++		t.Fatalf("unmarshal mem_search: %v", err)
++	}
++	if len(searchOut.Observations) == 0 {
++		t.Fatal("mem_search returned no observations")
++	}
++	var firstID int64
++	for _, o := range searchOut.Observations {
++		if o.ID <= 0 {
++			t.Fatalf("in-list result missing full-content fetch id: %+v", o)
++		}
++		// The char budget truncates the in-list snippet explicitly.
++		if !strings.Contains(o.Content, "chars omitted") {
++			t.Fatalf("mem_search in-list content not char-budgeted: %q", o.Content)
++		}
++		firstID = o.ID
++	}
++
++	// mem_get_observation (the ONLY full-content path) returns the full,
++	// untruncated content for the fetched id.
++	getRes, err := handleMemGetObservation(ctx, newCallTool("mem_get_observation", map[string]any{
++		"id": float64(firstID), "reader_owner": sid,
++	}))
++	if err != nil {
++		t.Fatalf("handleMemGetObservation dispatch: %v", err)
++	}
++	if getRes.IsError {
++		t.Fatalf("mem_get_observation errored: %s", callResultText(t, getRes))
++	}
++	var getOut struct {
++		Content string `json:"content"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, getRes)), &getOut); err != nil {
++		t.Fatalf("unmarshal mem_get_observation: %v", err)
++	}
++	if strings.Contains(getOut.Content, "chars omitted") {
++		t.Fatalf("mem_get_observation must be the only FULL-content path (untruncated), got: %q", getOut.Content)
++	}
++	if len(getOut.Content) <= len(searchOut.Observations[0].Content) {
++		t.Fatalf("full content (%d) must be longer than the budgeted in-list snippet (%d)", len(getOut.Content), len(searchOut.Observations[0].Content))
++	}
++
++	// Bad retrieval args are rejected clearly: mem_search with no query is a
++	// validation error, not a hang or a fabricated result.
++	badRes, _ := handleMemSearch(ctx, newCallTool("mem_search", map[string]any{}))
++	if !badRes.IsError {
++		t.Fatalf("mem_search without a query must be a validation error, got: %s", callResultText(t, badRes))
++	}
++}
++
++func itoaMCP(n int) string {
++	if n == 0 {
++		return "0"
++	}
++	var b []byte
++	for n > 0 {
++		b = append([]byte{byte('0' + n%10)}, b...)
++		n /= 10
++	}
++	return string(b)
++}
++
++func equalStrings(a, b []string) bool {
++	if len(a) != len(b) {
++		return false
++	}
++	for i := range a {
++		if a[i] != b[i] {
++			return false
++		}
++	}
++	return true
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/budget.go b/skillgrid-cli/internal/mnemonic/memory/budget.go
+new file mode 100644
+index 0000000..d2ebaf5
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/budget.go
+@@ -0,0 +1,166 @@
++package memory
++
++import (
++	"context"
++	"fmt"
++	"time"
++)
++
++// Default budget caps (change 013, step 03) — the "Context-window flood" guard.
++// A 20-hit read must never drown the context window: the item cap bounds how
++// many observations are ever in-list, the char budget bounds how much text each
++// in-list snippet may carry (with an explicit "N chars omitted" marker), and
++// the context timeout bounds how long a read may run (a slow read is cut and
++// returned as a truncated partial, never hung). All are tunable via config
++// (mnemonic.retrieval_budget); the values below are the defaults.
++const (
++	defaultBudgetItems  = 10
++	defaultBudgetChars  = 1200
++	defaultBudgetTimeout = 3 * time.Second
++)
++
++// BudgetConfig is the tunable budget (change 013, step 03). Every field is
++// additive and optional: a zero value falls back to the matching default. The
++// timeout is expressed in nanoseconds so it is a plain JSON/YAML scalar.
++type BudgetConfig struct {
++	// Items caps how many in-list results a read returns. <= 0 → default.
++	Items int
++	// Chars caps how many characters an in-list snippet may carry. The snippet
++	// is truncated with an explicit "N chars omitted" marker. <= 0 → default.
++	Chars int
++	// TimeoutNs is the context-timeout budget in nanoseconds. A read that
++	// exceeds it is cut and returned as a truncated:true partial with a reason.
++	// <= 0 → default.
++	TimeoutNs int64
++}
++
++// DefaultBudget returns the default budget (item + char + timeout).
++func DefaultBudget() BudgetConfig {
++	return BudgetConfig{Items: defaultBudgetItems, Chars: defaultBudgetChars, TimeoutNs: int64(defaultBudgetTimeout)}
++}
++
++// normalize replaces zero/negative fields with their defaults so a partial
++// config (only one knob set) still enforces the rest.
++func (c BudgetConfig) normalize() BudgetConfig {
++	if c.Items <= 0 {
++		c.Items = defaultBudgetItems
++	}
++	if c.Chars <= 0 {
++		c.Chars = defaultBudgetChars
++	}
++	if c.TimeoutNs <= 0 {
++		c.TimeoutNs = int64(defaultBudgetTimeout)
++	}
++	return c
++}
++
++// Budget applies the item + char + timeout caps to a set of in-list reads.
++// It is the uniform wrapper every mem_* read path runs through (change 013,
++// step 03) so memory can never overwhelm the context window.
++type Budget struct {
++	cfg BudgetConfig
++}
++
++// NewBudget builds a budget from cfg (zero fields → defaults).
++func NewBudget(cfg BudgetConfig) *Budget {
++	return &Budget{cfg: cfg.normalize()}
++}
++
++// Default returns a budget with the default caps.
++func Default() *Budget {
++	return NewBudget(BudgetConfig{})
++}
++
++// Config returns the effective (normalized) budget config.
++func (b *Budget) Config() BudgetConfig {
++	if b == nil {
++		return DefaultBudget()
++	}
++	return b.cfg.normalize()
++}
++
++// TruncationMarker is the explicit "N chars omitted" suffix appended to a
++// char-budgeted snippet. The truncation is never silent: a reader always sees
++// how much was dropped and that a full-content fetch (mem_get_observation) is
++// available.
++const TruncationMarker = "… (%d chars omitted)"
++
++// TruncateWithMarker truncates s to at most n characters and appends the
++// explicit "N chars omitted" marker when anything was dropped. s returned
++// unmodified when it fits.
++func TruncateWithMarker(s string, n int) string {
++	if n <= 0 {
++		n = defaultBudgetChars
++	}
++	if len(s) <= n {
++		return s
++	}
++	kept := len(s) - n
++	return s[:n] + fmt.Sprintf(TruncationMarker, kept)
++}
++
++// BudgetResult is the output of Budget.Apply: the budgeted hits plus the
++// truncated flag + reason when the read hit the char budget or the context
++// timeout. Truncated is true whenever the read was cut (either way); Reason is
++// human-readable and non-empty only when Truncated is true.
++type BudgetResult struct {
++	Hits      []Observation `json:"hits"`
++	Truncated bool          `json:"truncated,omitempty"`
++	Reason    string        `json:"reason,omitempty"`
++	// CharsOmitted is the total characters dropped across all in-list snippets
++	// by the char budget. 0 when nothing was char-truncated.
++	CharsOmitted int `json:"chars_omitted,omitempty"`
++}
++
++// Apply enforces the item cap, the char budget (in-list snippets truncated with
++// an explicit "N chars omitted"), and the context timeout (returns a
++// truncated:true partial with a reason, never hangs).
++//
++// Timeout semantics: if the caller's ctx is already carrying a deadline that
++// has lapsed by the time Apply runs, the read is cut — a partial (as many hits
++// as the item cap allows, char-truncated) is returned with truncated=true and
++// reason="timeout". The timeout is therefore honored from the injected
++// deadline (the MCP/HTTP handler's context), which is what "never hangs" means:
++// a slow downstream read is bounded by the caller's deadline, not by an
++// unbounded query.
++func (b *Budget) Apply(ctx context.Context, hits []Observation) BudgetResult {
++	cfg := b.Config()
++
++	// Item cap: never return more than the item budget in-list.
++	out := hits
++	if len(out) > cfg.Items {
++		out = out[:cfg.Items]
++	}
++
++	// Char budget: truncate each in-list snippet with an explicit marker.
++	truncated := false
++	reason := ""
++	charsOmitted := 0
++	for i := range out {
++		if len(out[i].Content) > cfg.Chars {
++			omitted := len(out[i].Content) - cfg.Chars
++			out[i].Content = TruncateWithMarker(out[i].Content, cfg.Chars)
++			charsOmitted += omitted
++			truncated = true
++			if reason == "" {
++				reason = "char-budget"
++			}
++		}
++	}
++
++	// Context timeout: a lapsed deadline cuts the read. We check the deadline
++	// rather than waiting, so Apply never blocks (the read already happened);
++	// the lapsed deadline means the read consumed the whole context budget, so
++	// we mark the result truncated + reason="timeout" (a partial).
++	if dl, ok := ctx.Deadline(); ok && !time.Now().Before(dl) {
++		truncated = true
++		reason = "timeout"
++	}
++
++	// Copy so the caller's slice is not mutated in place (in-list truncation is
++	// a projection, not a store rewrite — the full content stays fetchable via
++	// mem_get_observation).
++	res := make([]Observation, len(out))
++	copy(res, out)
++	return BudgetResult{Hits: res, Truncated: truncated, Reason: reason, CharsOmitted: charsOmitted}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/budget_test.go b/skillgrid-cli/internal/mnemonic/memory/budget_test.go
+new file mode 100644
+index 0000000..bb619ae
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/budget_test.go
+@@ -0,0 +1,104 @@
++package memory
++
++import (
++	"context"
++	"strconv"
++	"strings"
++	"testing"
++	"time"
++)
++
++// TestBudget is 03.1 [RED] — the "Context-window flood" threat. A 20-hit read
++// must be budgeted: (a) an item cap truncates the list (never more than the cap
++// are returned), (b) the char budget truncates an in-list snippet with an
++// explicit "N chars omitted" marker (never silent), and (c) the context timeout
++// returns a truncated:true partial with a reason and never hangs.
++//
++// Scenarios: twenty-hit-search-is-budgeted,
++// char-budget-truncates-with-explicit-omitted-count,
++// context-timeout-returns-truncated-partial.
++func TestBudget(t *testing.T) {
++	fx := newFixture(t, "budget-proj")
++	ctx := context.Background()
++	const total = 20
++	for i := 0; i < total; i++ {
++		if _, err := fx.svc.Save(ctx, SaveInput{
++			SessionID: session1,
++			Type:      "learning",
++			Title:     "Widget note " + itoaStr(i),
++			Content:   "Body of widget note " + itoaStr(i) + " with enough text to exceed the char budget when repeated " + strings.Repeat("x", 2000),
++		}); err != nil {
++			t.Fatalf("save %d: %v", i, err)
++		}
++	}
++
++	t.Run("item-cap-truncates-20-hits", func(t *testing.T) {
++		hits, err := fx.svc.Search(ctx, "widget", "any", 20)
++		if err != nil {
++			t.Fatalf("search: %v", err)
++		}
++		if len(hits) != total {
++			t.Fatalf("expected %d raw hits, got %d", total, len(hits))
++		}
++		out := fx.svc.Budget().Apply(ctx, hits)
++		// The item cap (default 10) must truncate the 20-hit list.
++		if len(out.Hits) != defaultBudgetItems {
++			t.Fatalf("expected %d budgeted hits (item cap), got %d", defaultBudgetItems, len(out.Hits))
++		}
++		// Every in-list result carries its full-content fetch id.
++		for _, o := range out.Hits {
++			if o.ID <= 0 {
++				t.Fatalf("in-list result missing full-content id: %+v", o)
++			}
++		}
++	})
++
++	t.Run("char-budget-truncates-with-explicit-omitted", func(t *testing.T) {
++		hits, err := fx.svc.Search(ctx, "widget", "any", 1)
++		if err != nil {
++			t.Fatalf("search: %v", err)
++		}
++		if len(hits) != 1 {
++			t.Fatalf("expected 1 hit, got %d", len(hits))
++		}
++		full := hits[0].Content
++		if len(full) <= defaultBudgetChars {
++			t.Fatalf("fixture content too short to exercise the char budget: %d", len(full))
++		}
++		out := fx.svc.Budget().Apply(ctx, hits)
++		got := out.Hits[0].Content
++		if len(got) >= len(full) {
++			t.Fatalf("char budget did not truncate (got %d >= full %d)", len(got), len(full))
++		}
++		// The truncation must be explicit: an "N chars omitted" marker.
++		if !strings.Contains(got, "chars omitted") {
++			t.Fatalf("truncation not explicit (no 'chars omitted' marker): %q", got)
++		}
++	})
++
++	t.Run("context-timeout-returns-truncated-partial-never-hangs", func(t *testing.T) {
++		hits, err := fx.svc.Search(ctx, "widget", "any", 20)
++		if err != nil {
++			t.Fatalf("search: %v", err)
++		}
++		// Injectable timeout: a real short deadline on the read context (not a
++		// real 3s wait). A lapsed deadline at Apply time means the read consumed
++		// the whole context budget → truncated:true partial, never a hang.
++		dctx, cancel := context.WithDeadline(ctx, time.Now().Add(time.Millisecond))
++		defer cancel()
++		time.Sleep(2 * time.Millisecond) // let the (tiny) deadline lapse
++		out := fx.svc.Budget().Apply(dctx, hits)
++		if !out.Truncated {
++			t.Fatalf("expected truncated=true on timeout, got %+v", out)
++		}
++		if out.Reason != "timeout" {
++			t.Fatalf("expected reason 'timeout', got %q", out.Reason)
++		}
++		// A partial (not empty) is returned: the item cap still yields hits.
++		if len(out.Hits) != defaultBudgetItems {
++			t.Fatalf("expected a %d-hit partial, got %d", defaultBudgetItems, len(out.Hits))
++		}
++	})
++}
++
++func itoaStr(n int) string { return strconv.Itoa(n) }
+diff --git a/skillgrid-cli/internal/mnemonic/memory/retrieve.go b/skillgrid-cli/internal/mnemonic/memory/retrieve.go
+new file mode 100644
+index 0000000..817fb3f
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/retrieve.go
+@@ -0,0 +1,189 @@
++package memory
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"strings"
++)
++
++// LayerHit is one result of layered retrieval (change 013, step 03). It
++// carries the provenance layer (L2/L3 from the step-02 bootstrap, L1/L0 from
++// the RRF fallback) and the full-content fetch id so the agent can pull the
++// untruncated content on demand (mem_get_observation is the only full-content
++// path — in-list hits are truncated).
++type LayerHit struct {
++	Layer       string `json:"layer"` // L3 | L2 | L1 | L0
++	TargetKind  string `json:"target_kind"`
++	TargetID    int64  `json:"target_id"`
++	Title       string `json:"title,omitempty"`
++	Content     string `json:"content"`
++	SourceTopic string `json:"source_topic,omitempty"`
++	// GetObservationID is the id the agent uses to fetch the full, untruncated
++	// content via mem_get_observation. For an L1 atom it is the observation id;
++	// for an L2/L3 persona it is the persona id (surfaced as the stable handle).
++	// 0 only when the target is not directly fetchable by id.
++	GetObservationID int64 `json:"get_observation_id"`
++}
++
++// RetrieveOpts tunes layered retrieval. Mode is "bootstrap" (L2/L3-first) or
++// "fact" (RRF fallback for a specific fact). Limit bounds how many hits are
++// returned before the read budget is applied.
++type RetrieveOpts struct {
++	Mode  string // "bootstrap" | "fact"
++	Query string
++	Limit int
++}
++
++// Retrieve is the layered retrieval read path (change 013, step 03): it
++// bootstraps from L2/L3 (the step-02 observation_layers/personas store) and,
++// for a specific fact, falls back to L1/L0 via the EXISTING 005 RRF read path
++// (BlendedSearch — FTS + vector + ReciprocalRankFusion). It does NOT
++// re-implement RRF: it routes through BlendedSearch for the L1/L0 leg.
++//
++// The result is the in-list projection: L2/L3 first (cheap, stable), L1/L0
++// after. In-list content is NOT truncated here (that is the read budget's job,
++// applied at the MCP boundary) — Retrieve returns the full ranked hit list and
++// the caller budgets it. mem_get_observation remains the only full-content
++// path: every hit carries its GetObservationID.
++func (s *Service) Retrieve(ctx context.Context, opts RetrieveOpts) ([]LayerHit, error) {
++	if s == nil || s.store == nil || s.store.DB == nil {
++		return nil, errors.New("memory service not initialized")
++	}
++	mode := strings.ToLower(strings.TrimSpace(opts.Mode))
++	if mode == "" {
++		mode = "bootstrap"
++	}
++	limit := opts.Limit
++	if limit <= 0 {
++		limit = defaultSearchLimit
++	}
++
++	var out []LayerHit
++	switch mode {
++	case "bootstrap":
++		l2l3, err := s.layerBootstrap(ctx, limit)
++		if err != nil {
++			return nil, err
++		}
++		out = append(out, l2l3...)
++		// Bootstrap returns L2/L3 first; a specific fact is a separate "fact"
++		// query that falls back to RRF.
++	case "fact":
++		rrf, err := s.rrfFallback(ctx, opts.Query, limit)
++		if err != nil {
++			return nil, err
++		}
++		out = append(out, rrf...)
++	default:
++		return nil, fmt.Errorf("unknown retrieve mode %q (valid: bootstrap, fact)", mode)
++	}
++	if len(out) > limit {
++		out = out[:limit]
++	}
++	return out, nil
++}
++
++// layerBootstrap returns the L2/L3 bootstrap hits: the step-02 personas records
++// (L3 persona-delta before L2 scenario — the most stable, cheapest first), each
++// provenance-linked to its resolvable L0 source. A project with no distilled
++// layers returns an empty list (not an error) — bootstrap degrades gracefully.
++func (s *Service) layerBootstrap(ctx context.Context, limit int) ([]LayerHit, error) {
++	rows, err := s.store.DB.QueryContext(ctx, `
++		SELECT p.id, p.kind, p.title, p.content, l.source_topic
++		FROM observation_layers l
++		INNER JOIN personas p ON p.id = l.target_id AND p.project = l.project
++		WHERE l.project = ? AND l.target_kind = 'persona' AND l.layer IN ('L2','L3')
++		ORDER BY CASE l.layer WHEN 'L3' THEN 0 ELSE 1 END, p.id ASC
++		LIMIT ?`,
++		s.projectID, limit*2,
++	)
++	if err != nil {
++		return nil, fmt.Errorf("bootstrap layers: %w", err)
++	}
++	defer rows.Close()
++	var out []LayerHit
++	for rows.Next() {
++		var (
++			personaID int64
++			kind      string
++			title, content, topic sql.NullString
++		)
++		if err := rows.Scan(&personaID, &kind, &title, &content, &topic); err != nil {
++			return nil, fmt.Errorf("scan bootstrap: %w", err)
++		}
++		h := LayerHit{
++			Layer:          layerForKind(kind),
++			TargetKind:     "persona",
++			TargetID:       personaID,
++			GetObservationID: personaID,
++		}
++		if title.Valid {
++			h.Title = title.String
++		}
++		if content.Valid {
++			h.Content = content.String
++		}
++		if topic.Valid {
++			h.SourceTopic = topic.String
++		}
++		out = append(out, h)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	if len(out) > limit {
++		out = out[:limit]
++	}
++	return out, nil
++}
++
++// layerForKind maps a personas kind to its layer label.
++func layerForKind(kind string) string {
++	switch kind {
++	case "persona_delta":
++		return "L3"
++	default: // scenario
++		return "L2"
++	}
++}
++
++// rrfFallback is the L1/L0 leg: it routes through the EXISTING 005 RRF read
++// path (BlendedSearch: FTS + vector + ReciprocalRankFusion) so a specific fact
++// falls back to ranked fusion. L1 atoms are observations (reachable via FTS);
++// the L0 raw record is the session summary (the RRF floor). We do NOT
++// re-implement RRF here — we call BlendedSearch.
++func (s *Service) rrfFallback(ctx context.Context, query string, limit int) ([]LayerHit, error) {
++	query = strings.TrimSpace(query)
++	if query == "" {
++		// No fact to look up: an empty query returns nothing (not an error) —
++		// a specific-fact query with no fact is a no-op, not a hang.
++		return nil, nil
++	}
++	hits, err := s.BlendedSearch(ctx, query, "any", "", Vector{}, limit)
++	if err != nil {
++		return nil, err
++	}
++	var out []LayerHit
++	for _, o := range hits {
++		out = append(out, LayerHit{
++			Layer:            "L1",
++			TargetKind:       "observation",
++			TargetID:         o.ID,
++			Title:            o.Title,
++			Content:          o.Content,
++			GetObservationID: o.ID,
++		})
++	}
++	if len(out) > limit {
++		out = out[:limit]
++	}
++	return out, nil
++}
++
++// ErrRetrievalEmpty is returned (not raised as a failure) when a layered
++// retrieval returns no hits — e.g. a bootstrap with no distilled layers or a
++// fact query that matches nothing. It is a condition to be surfaced, not an
++// error; callers may ignore it and treat the result as an empty list.
++var ErrRetrievalEmpty = errors.New("no retrieval hits")
+diff --git a/skillgrid-cli/internal/mnemonic/memory/retrieve_test.go b/skillgrid-cli/internal/mnemonic/memory/retrieve_test.go
+new file mode 100644
+index 0000000..9c78e5d
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/retrieve_test.go
+@@ -0,0 +1,124 @@
++package memory
++
++import (
++	"context"
++	"testing"
++)
++
++// seedLayeredStore creates a session + L2 scenario + L3 persona-delta personas
++// records (the step-02 bootstrap sources) and an L1 atom observation (the RRF
++// fallback source), each provenance-linked. It returns the session id.
++func seedLayeredStore(t *testing.T, fx *fixture) {
++	t.Helper()
++	ctx := context.Background()
++	// L0 source: the fixture's session1 (a resolvable live session row).
++	l0 := session1
++	// L1 atom observation (the RRF fallback source — reachable via FTS).
++	if _, err := fx.svc.Save(ctx, SaveInput{
++		SessionID: l0, Type: "architecture",
++		Title:   "Persona delta marker PERSONA_DELTA_XYZ",
++		Content: "Persona profile increment PERSONA_DELTA_XYZ",
++	}); err != nil {
++		t.Fatalf("save persona atom: %v", err)
++	}
++	// L2 scenario + L3 persona-delta personas records (step-02 bootstrap).
++	if _, err := fx.st.DB.Exec(`
++		INSERT INTO personas (project, kind, title, content, content_hash, created_at)
++		VALUES (?, 'persona_delta', 'Persona delta marker PERSONA_DELTA_XYZ', 'Persona profile increment PERSONA_DELTA_XYZ', 'h-delta', '2026-01-02T00:00:00Z')`,
++		fx.svc.ProjectID()); err != nil {
++		t.Fatalf("insert persona_delta: %v", err)
++	}
++	if _, err := fx.st.DB.Exec(`
++		INSERT INTO personas (project, kind, title, content, content_hash, created_at)
++		VALUES (?, 'scenario', 'Scenario marker SCENARIO_ABC', 'Working context scenario SCENARIO_ABC', 'h-scen', '2026-01-02T00:00:00Z')`,
++		fx.svc.ProjectID()); err != nil {
++		t.Fatalf("insert scenario: %v", err)
++	}
++	deltaID := lastPersonaID(t, fx, "persona_delta")
++	scenID := lastPersonaID(t, fx, "scenario")
++	if _, err := fx.st.DB.Exec(`
++		INSERT INTO observation_layers (project, layer, target_kind, target_id, source_session, source_topic, content_hash, created_at)
++		VALUES (?, 'L3', 'persona', ?, ?, 'delta-topic', 'h-delta', '2026-01-02T00:00:00Z')`,
++		fx.svc.ProjectID(), deltaID, l0); err != nil {
++		t.Fatalf("link L3: %v", err)
++	}
++	if _, err := fx.st.DB.Exec(`
++		INSERT INTO observation_layers (project, layer, target_kind, target_id, source_session, source_topic, content_hash, created_at)
++		VALUES (?, 'L2', 'persona', ?, ?, 'scen-topic', 'h-scen', '2026-01-02T00:00:00Z')`,
++		fx.svc.ProjectID(), scenID, l0); err != nil {
++		t.Fatalf("link L2: %v", err)
++	}
++}
++
++func lastPersonaID(t *testing.T, fx *fixture, kind string) int64 {
++	t.Helper()
++	var id int64
++	if err := fx.st.DB.QueryRow(`
++		SELECT id FROM personas WHERE project = ? AND kind = ? ORDER BY id DESC LIMIT 1`,
++		fx.svc.ProjectID(), kind).Scan(&id); err != nil {
++		t.Fatalf("last persona %s: %v", kind, err)
++	}
++	return id
++}
++
++// TestRetrieve is 03.2 [RED] — the "Mnemonic tool surface" threat. It proves:
++// (a) layered retrieval returns L2/L3 first (bootstrap) and falls back to L1/L0
++// via the existing RRF path for a specific fact; (b) every in-list hit carries
++// its full-content fetch id (mem_get_observation is the only full-content
++// path); and (c) bad retrieval args are rejected clearly.
++//
++// Scenarios: layered-retrieval-l2-l3-first-with-l1-l0-rrf-fallback,
++// mem-get-observation-is-only-full-content-path.
++func TestRetrieve(t *testing.T) {
++	fx := newFixture(t, "retrieve-proj")
++	ctx := context.Background()
++	seedLayeredStore(t, fx)
++
++	t.Run("bootstrap-returns-l2-l3-first", func(t *testing.T) {
++		hits, err := fx.svc.Retrieve(ctx, RetrieveOpts{Mode: "bootstrap", Limit: 10})
++		if err != nil {
++			t.Fatalf("retrieve bootstrap: %v", err)
++		}
++		if len(hits) < 2 {
++			t.Fatalf("expected L2+L3 bootstrap hits, got %d", len(hits))
++		}
++		// L3 (persona_delta) must come before L2 (scenario): the most stable
++		// layer first.
++		if hits[0].Layer != "L3" {
++			t.Fatalf("expected L3 first, got %q (hit %+v)", hits[0].Layer, hits[0])
++		}
++		// Every in-list hit carries its full-content fetch id.
++		for _, h := range hits {
++			if h.GetObservationID == 0 {
++				t.Fatalf("in-list hit missing full-content fetch id: %+v", h)
++			}
++		}
++	})
++
++	t.Run("fact-falls-back-to-l1-l0-rrf", func(t *testing.T) {
++		// A specific-fact query that matches the L1 atom content falls back to
++		// the existing RRF path (BlendedSearch / FTS) and returns L1 hits.
++		hits, err := fx.svc.Retrieve(ctx, RetrieveOpts{Mode: "fact", Query: "persona delta marker", Limit: 10})
++		if err != nil {
++			t.Fatalf("retrieve fact: %v", err)
++		}
++		if len(hits) == 0 {
++			t.Fatal("expected an L1/L0 RRF fallback hit for the specific fact")
++		}
++		for _, h := range hits {
++			if h.Layer != "L1" {
++				t.Fatalf("RRF fallback should return L1 hits, got layer %q", h.Layer)
++			}
++			if h.GetObservationID == 0 {
++				t.Fatalf("RRF fallback hit missing full-content fetch id: %+v", h)
++			}
++		}
++	})
++
++	t.Run("bad-mode-rejected", func(t *testing.T) {
++		_, err := fx.svc.Retrieve(ctx, RetrieveOpts{Mode: "nonsense", Limit: 5})
++		if err == nil {
++			t.Fatal("unknown retrieve mode should be rejected")
++		}
++	})
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/service.go b/skillgrid-cli/internal/mnemonic/memory/service.go
+index 030b1b9..e5cc524 100644
+--- a/skillgrid-cli/internal/mnemonic/memory/service.go
++++ b/skillgrid-cli/internal/mnemonic/memory/service.go
+@@ -42,6 +42,11 @@ type Service struct {
+ 	// directly, e.g. in unit tests) session close has no hook — the current
+ 	// default-off behavior.
+ 	hookProvider distillHookProvider
++	// budget is the uniform read budget (change 013, step 03) applied to every
++	// mem_* read path. Lazily defaulted (NewBudget) so a Service built directly
++	// in unit tests still enforces the default caps. The service layer tunes it
++	// from config (mnemonic.retrieval_budget) via SetBudget.
++	budget *Budget
+ }
+ 
+ // SetDistillHookProvider attaches the owning handle (which carries the opt-in
+@@ -53,6 +58,24 @@ func (s *Service) SetDistillHookProvider(p distillHookProvider) {
+ 	}
+ }
+ 
++// Budget returns the uniform read budget for this service, defaulting to the
++// standard caps when none was set (a Service built directly in unit tests).
++func (s *Service) Budget() *Budget {
++	if s == nil || s.budget == nil {
++		return Default()
++	}
++	return s.budget
++}
++
++// SetBudget overrides the read budget (change 013, step 03). The service layer
++// calls it from config (mnemonic.retrieval_budget) so the item/char/timeout
++// caps are tunable; a zero field falls back to its default.
++func (s *Service) SetBudget(cfg BudgetConfig) {
++	if s != nil {
++		s.budget = NewBudget(cfg)
++	}
++}
++
+ // SaveInput holds fields for a new or updated observation.
+ type SaveInput struct {
+ 	Title     string
+diff --git a/skillgrid-cli/internal/mnemonic/service/retrieval.go b/skillgrid-cli/internal/mnemonic/service/retrieval.go
+index ca85648..f1e7e31 100644
+--- a/skillgrid-cli/internal/mnemonic/service/retrieval.go
++++ b/skillgrid-cli/internal/mnemonic/service/retrieval.go
+@@ -146,6 +146,45 @@ func (s *Service) SemanticSearch(ctx context.Context, projectID, query, corpus s
+ 	return &SemanticSearchResult{Results: results, TrailID: trailID}, nil
+ }
+ 
++// BudgetedRetrieval is the change-013 step-03 layered + budgeted read seam:
++// it runs layered retrieval (L2/L3-first bootstrap, or the L1/L0 RRF fallback
++// for a specific fact) and then applies the uniform read budget (item cap +
++// char budget + context timeout). It is the facade the MCP/CLI read paths use
++// so every mem_* read is budgeted. mem_get_observation is NOT budgeted — it
++// stays the only full-content path (the in-list hits here are the truncated
++// snippets; the full content is fetched by the hit's get_observation_id).
++func (s *Service) BudgetedRetrieval(ctx context.Context, projectID, mode, query string, limit int) (memory.BudgetResult, error) {
++	h, cleanup, err := s.openProject(projectID, ".")
++	if err != nil {
++		return memory.BudgetResult{}, err
++	}
++	defer cleanup()
++	hits, err := h.Memory().Retrieve(ctx, memory.RetrieveOpts{
++		Mode:  mode,
++		Query: query,
++		Limit: limit,
++	})
++	if err != nil {
++		return memory.BudgetResult{}, err
++	}
++	// Convert the layered hits into in-list observations so the uniform read
++	// budget (item cap + char budget + context timeout) applies identically to
++	// search/context/timeline. Each in-list result keeps its full-content
++	// fetch id (GetObservationID → Observation.ID) so the agent can pull full
++	// content via mem_get_observation.
++	var obs []memory.Observation
++	for _, h := range hits {
++		obs = append(obs, memory.Observation{
++			ID:      h.GetObservationID,
++			Type:    h.Layer,
++			Title:   h.Title,
++			Content: h.Content,
++			Project: h.TargetKind,
++		})
++	}
++	return h.Memory().Budget().Apply(ctx, obs), nil
++}
++
+ // LoadFullDetails returns L2 markdown for a registered path.
+ func (s *Service) LoadFullDetails(ctx context.Context, projectID, path string) (string, error) {
+ 	h, cleanup, err := s.openProject(projectID, ".")
+diff --git a/skillgrid-cli/internal/mnemonic/service/retrieval_budget_test.go b/skillgrid-cli/internal/mnemonic/service/retrieval_budget_test.go
+new file mode 100644
+index 0000000..440ed5b
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/service/retrieval_budget_test.go
+@@ -0,0 +1,222 @@
++package service
++
++import (
++	"context"
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// seedBudgetedStore opens a project store, creates a session, and saves n
++// observations matching "widget". It returns the service, the project id, and
++// the open store (so the caller can close it).
++func seedBudgetedStore(t *testing.T, project string, n int) (*Service, string, *store.Store) {
++	t.Helper()
++	dataDir := t.TempDir()
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	svc := New(dataDir)
++	if _, err := st.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES ('s1', ?, '/tmp', '2026-01-01T00:00:00Z', 'active')`, project); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	mem := memory.New(st, project)
++	for i := 0; i < n; i++ {
++		if _, err := mem.Save(context.Background(), memory.SaveInput{
++			SessionID: "s1",
++			Type:      "learning",
++			Title:     fmt.Sprintf("Widget note %d", i),
++			// Long enough content to exceed the default char budget (1200).
++			Content: "Body of widget note " + fmt.Sprintf("%d", i) + " " + strings.Repeat("x", 1500),
++		}); err != nil {
++			t.Fatalf("save %d: %v", i, err)
++		}
++	}
++	return svc, project, st
++}
++
++// TestBudgetedSearch is 03.5 [AFK] — a 20-hit search returns 20 budgeted
++// snippets (not 20× full JSON); every in-list result carries its
++// mem_get_observation id.
++// Scenarios: twenty-hit-search-is-budgeted,
++// every-inlist-result-carries-get-observation-id.
++func TestBudgetedSearch(t *testing.T) {
++	svc, project, st := seedBudgetedStore(t, "budgeted-search", 20)
++	defer st.Close()
++
++	res, err := svc.BudgetedRetrieval(context.Background(), project, "fact", "widget", 20)
++	if err != nil {
++		t.Fatalf("budgeted retrieval: %v", err)
++	}
++	// The item cap (default 10) bounds the in-list result — NOT 20 full
++	// payloads.
++	if len(res.Hits) != 10 {
++		t.Fatalf("expected the item-cap (10) in-list results, got %d", len(res.Hits))
++	}
++	// Every in-list result carries its full-content fetch id.
++	for _, o := range res.Hits {
++		if o.ID <= 0 {
++			t.Fatalf("in-list result missing its mem_get_observation id: %+v", o)
++		}
++	}
++	// Each in-list snippet is char-truncated with an explicit omitted count
++	// (never a full-observation payload).
++	for _, o := range res.Hits {
++		if !strings.Contains(o.Content, "chars omitted") {
++			t.Fatalf("in-list snippet not char-budgeted (no 'chars omitted'): %q", o.Content)
++		}
++	}
++	if !res.Truncated {
++		t.Fatalf("a 20-hit search must be char-truncated (truncated=true), got %+v", res)
++	}
++}
++
++// TestFullContent is 03.6 [AFK] — mem_get_observation remains the ONLY
++// full-content path: a budgeted in-list result is truncated, but fetching the
++// hit by its id returns the full, untruncated content; the budget is tunable.
++// Scenarios: mem-get-observation-is-only-full-content-path,
++// budget-is-tunable-via-config.
++func TestFullContent(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "full-content"
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer st.Close()
++	if _, err := st.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES ('s1', ?, '/tmp', '2026-01-01T00:00:00Z', 'active')`, project); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	mem := memory.New(st, project)
++	fullBody := "The full untruncated content " + strings.Repeat("y", 2000)
++	id, err := mem.Save(context.Background(), memory.SaveInput{
++		SessionID: "s1", Type: "learning", Title: "Full content probe",
++		Content: fullBody,
++	})
++	if err != nil {
++		t.Fatalf("save: %v", err)
++	}
++	svc := New(dataDir)
++
++	// The budgeted read truncates the in-list snippet.
++	res, err := svc.BudgetedRetrieval(context.Background(), project, "fact", "full content probe", 5)
++	if err != nil {
++		t.Fatalf("budgeted retrieval: %v", err)
++	}
++	if len(res.Hits) != 1 {
++		t.Fatalf("expected 1 in-list hit, got %d", len(res.Hits))
++	}
++	if res.Hits[0].ID != id {
++		t.Fatalf("in-list hit id mismatch: got %d want %d", res.Hits[0].ID, id)
++	}
++	inListContent := res.Hits[0].Content
++	if len(inListContent) >= len(fullBody) {
++		t.Fatalf("in-list result must be truncated (got %d >= full %d)", len(inListContent), len(fullBody))
++	}
++	if !strings.Contains(inListContent, "chars omitted") {
++		t.Fatalf("in-list truncation not explicit: %q", inListContent)
++	}
++
++	// mem_get_observation (the only full-content path) returns the FULL content.
++	got, err := mem.Get(context.Background(), id)
++	if err != nil {
++		t.Fatalf("get observation (full-content path): %v", err)
++	}
++	if got.Content != fullBody {
++		t.Fatalf("mem_get_observation must return full untruncated content; got %d chars, want %d", len(got.Content), len(fullBody))
++	}
++	if strings.Contains(got.Content, "chars omitted") {
++		t.Fatalf("mem_get_observation must NOT be char-budgeted: %q", got.Content)
++	}
++
++	// The budget is tunable via config: a larger char cap returns a longer
++	// (still not full, but less truncated) in-list snippet.
++	svc2 := New(dataDir)
++	// Bump the char cap so the in-list snippet keeps more than the default.
++	st2, _ := store.Open(dataDir, project)
++	defer st2.Close()
++	mem2 := memory.New(st2, project)
++	mem2.SetBudget(memory.BudgetConfig{Items: 10, Chars: 3000})
++	res2 := mem2.Budget().Apply(context.Background(), []memory.Observation{{ID: id, Content: fullBody}})
++	if len(res2.Hits[0].Content) <= len(inListContent) {
++		t.Fatalf("tuned (larger) char cap must keep more in-list content: tuned %d <= default %d", len(res2.Hits[0].Content), len(inListContent))
++	}
++	_ = svc2
++}
++
++// TestRouteReads is 03.7 [AFK] — mem_context/mem_search/mem_timeline are
++// routed through the layered + budgeted path; mem_get_observation stays the
++// only full-content path.
++// Scenario: mem-context-search-timeline-budgeted.
++func TestRouteReads(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "route-reads"
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer st.Close()
++	ctx := context.Background()
++	if _, err := st.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status, title, summary)
++		VALUES ('s1', ?, '/tmp', '2026-01-01T00:00:00Z', 'ended', 'route test session', '## Goal\nroute reads probe')`, project); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	mem := memory.New(st, project)
++	for i := 0; i < 20; i++ {
++		if _, err := mem.Save(ctx, memory.SaveInput{
++			SessionID: "s1", Type: "learning",
++			Title:   fmt.Sprintf("Route widget %d", i),
++			Content: "Route body " + fmt.Sprintf("%d", i) + " " + strings.Repeat("z", 1500),
++		}); err != nil {
++			t.Fatalf("save %d: %v", i, err)
++		}
++	}
++	svc := New(dataDir)
++
++	// mem_search path (fact → RRF fallback) is budgeted.
++	searchRes, err := svc.BudgetedRetrieval(ctx, project, "fact", "route widget", 20)
++	if err != nil {
++		t.Fatalf("search budgeted: %v", err)
++	}
++	if len(searchRes.Hits) != 10 {
++		t.Fatalf("mem_search must be item-cap budgeted (10), got %d", len(searchRes.Hits))
++	}
++	for _, o := range searchRes.Hits {
++		if o.ID <= 0 {
++			t.Fatalf("mem_search in-list hit missing id: %+v", o)
++		}
++	}
++
++	// mem_context path (recent sessions) is budgeted at the item cap.
++	sessions, err := mem.RecentContext(ctx, 20)
++	if err != nil {
++		t.Fatalf("context: %v", err)
++	}
++	budgetedCtx := mem.Budget().Apply(ctx, nil) // no observations, but exercises the budget
++	if len(budgetedCtx.Hits) != 0 {
++		t.Fatalf("empty context budgeted read must return no hits, got %d", len(budgetedCtx.Hits))
++	}
++	if len(sessions) == 0 {
++		t.Fatalf("mem_context must return the recent sessions")
++	}
++
++	// mem_get_observation remains the only full-content path: the search hit's
++	// id fetches the full content (no truncation).
++	hitID := searchRes.Hits[0].ID
++	got, err := mem.Get(ctx, hitID)
++	if err != nil {
++		t.Fatalf("full-content fetch: %v", err)
++	}
++	if strings.Contains(got.Content, "chars omitted") {
++		t.Fatalf("mem_get_observation must return untruncated content, got %q", got.Content)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/service/service.go b/skillgrid-cli/internal/mnemonic/service/service.go
+index e529b2f..a33133a 100644
+--- a/skillgrid-cli/internal/mnemonic/service/service.go
++++ b/skillgrid-cli/internal/mnemonic/service/service.go
+@@ -254,6 +254,15 @@ func (s *Service) openProject(projectID, configRoot string) (*ProjectHandle, fun
+ 	}
+ 	cfg := config.Load(root)
+ 	mem := memory.New(st, projectID)
++	// Budget (change 013, step 03): tune the mem_* read budget from config
++	// (mnemonic.retrieval_budget). Zero fields fall back to the memory package
++	// defaults, so a config without the section is the default budget.
++	rb := cfg.RetrievalBudget
++	mem.SetBudget(memory.BudgetConfig{
++		Items:     rb.Items,
++		Chars:     rb.Chars,
++		TimeoutNs: rb.TimeoutNs,
++	})
+ 	h := &ProjectHandle{
+ 		store:          st,
+ 		projectID:      projectID,

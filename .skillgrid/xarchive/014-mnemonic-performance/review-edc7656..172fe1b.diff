@@ -1,0 +1,294 @@
+# Review package: 172fe1b~1..HEAD
+
+## Commits
+172fe1b feat(mnemonic): add --mode flag to mem search for trigram and prefix
+
+## Files changed
+ skillgrid-cli/cmd/skillgrid/mem.go                 | 21 ++++++--
+ skillgrid-cli/cmd/skillgrid/mem_test.go            | 57 ++++++++++++++++++++++
+ .../internal/mnemonic/service/retrieval.go         | 37 +++++++++++---
+ 3 files changed, 103 insertions(+), 12 deletions(-)
+
+## Diff
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+index a73790e..f2ee9d1 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem.go
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -48,58 +48,61 @@ func runMem(version string, args []string) {
+ 	fs.IntVar(&limit, "limit", 0, "max results (read subcommands)")
+ 	fs.IntVar(&items, "item", 0, "budget: item-count cap (0 = default)")
+ 	fs.IntVar(&chars, "char", 0, "budget: per-snippet char cap (0 = default)")
+ 	fs.StringVar(&timeout, "timeout", "", "budget: context timeout, e.g. 3s (0 = default)")
+ 	fs.StringVar(&target, "target", "", "layers: session_id or topic_key")
+ 	fs.StringVar(&owner, "reader-owner", "", "read: reader identity (per-owner visibility)")
+ 	fs.StringVar(&agent, "reader-agent", "", "read: reader agent id (ACL)")
+ 	fs.StringVar(&window, "window", "", "timeline: time window each side (e.g. 1h)")
+ 	fs.StringVar(&visibility, "target-visibility", "", "share: team|restricted|agent")
+ 	fs.StringVar(&grants, "grants", "", "share: comma-separated grantee list")
++	var searchMode string
++	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
+ 	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
+ 		os.Exit(2)
+ 	}
+ 
+ 	svc, projID := openMemService(dataDir, project)
+ 	pos := fs.Args()
+ 
+ 	switch cmd {
+ 	case "layers":
+ 		runMemLayers(svc, projID, pos, fs.Lookup("target").Value.String())
+ 	case "governance":
+ 		runMemGovernance(svc, projID, pos)
+ 	case "share":
+ 		runMemShare(svc, projID, pos, visibility, grants)
+ 	case "search":
+-		runMemSearch(svc, projID, dataDir, pos, owner, agent, limit, items, chars, timeout)
++		runMemSearch(svc, projID, dataDir, pos, owner, agent, limit, items, chars, timeout, searchMode)
+ 	case "context":
+ 		runMemContext(svc, projID, limit, items, chars, timeout)
+ 	case "timeline":
+ 		runMemTimeline(svc, projID, pos, window, limit, items, chars, timeout)
+ 	case "help", "-h", "--help":
+ 		printMemUsage()
+ 	default:
+ 		fmt.Fprintf(os.Stderr, "error: unknown mem command %q\n", cmd)
+ 		printMemUsage()
+ 		os.Exit(2)
+ 	}
+ }
+ 
+ func printMemUsage() {
+ 	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline> [args]
+ 
+   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
+   governance <id>                 governed-asset view (mem_governance)
+   share <id> --target-visibility team|restricted|agent [--grants a,b]
+                                   widen visibility (mem_share)
+-  search <query> [--limit N] [--reader-owner X] [--item N] [--char N] [--timeout 3s]
+-                                  budgeted FTS search (mem_search)
++  search <query> [--mode trigram|prefix|phrase|all] [--limit N] [--reader-owner X]
++                 [--item N] [--char N] [--timeout 3s]
++                                   budgeted FTS search (mem_search; default mode = phrase OR)
+   context [--limit N] [--item N] [--char N] [--timeout 3s]
+                                   recent session summaries (mem_context)
+   timeline <id> [--window 1h] [--limit N] [--item N] [--char N] [--timeout 3s]
+                                   chronological context (mem_timeline)
+ 
+ Flags:
+   --project ID    project bucket (defaults to CWD-resolved)
+   --dir DATA_DIR  mnemonic data directory
+ `)
+ }
+@@ -225,42 +228,50 @@ func runMemShare(svc *service.Service, projID string, pos []string, visibility,
+ 		os.Exit(1)
+ 	}
+ 	defer cleanup()
+ 	if err := h.Memory().Share(hCtx(), id, memoryShareInput{Visibility: visibility, Grants: gs}); err != nil {
+ 		fmt.Fprintln(os.Stderr, "error:", err)
+ 		os.Exit(1)
+ 	}
+ 	printJSON(map[string]any{"id": id, "shared": true, "visibility": visibility})
+ }
+ 
+-func runMemSearch(svc *service.Service, projID, dataDir string, pos []string, owner, agent string, limit, items, chars int, timeout string) {
++func runMemSearch(svc *service.Service, projID, dataDir string, pos []string, owner, agent string, limit, items, chars int, timeout string, searchMode string) {
+ 	if len(pos) < 1 {
+ 		fmt.Fprintln(os.Stderr, "error: mem search requires a query")
+ 		os.Exit(2)
+ 	}
++	// --mode (014 step 02): FTS match mode for the fact leg. "phrase" is the
++	// alias for the default; trigram/prefix reshape the FTS query. Invalid
++	// values are rejected here, before any store is opened.
++	ftsMode := memory.NormalizeMatchMode(searchMode)
++	if err := memory.ValidateMatchMode(ftsMode); err != nil {
++		fmt.Fprintf(os.Stderr, "error: %v\n", err)
++		os.Exit(2)
++	}
+ 	query := strings.Join(pos, " ")
+ 	if limit <= 0 {
+ 		limit = 20
+ 	}
+ 	// The CLI `mem search` is the REAL production entry point for the layered
+ 	// read path (change 013, step 03): a specific fact routes through
+ 	// BudgetedRetrievalAsRoot (L2/L3-first + L1/L0 RRF-fallback), owner-gated
+ 	// by --reader-owner so the step-01 per-owner visibility gate holds, and
+ 	// uniformly budgeted (item cap + char budget + context timeout). The
+ 	// --item/--char/--timeout flags become a per-project budget override that
+ 	// takes precedence over config; the full content stays fetchable via
+ 	// mem_get_observation (the only full-content path) using each hit's id.
+ 	svc.SetBudgetOverride(projID, memoryBudget(memBudgetOpts(items, chars, timeout)))
+ 	if owner == "" {
+ 		owner = agent
+ 	}
+-	res, err := svc.BudgetedRetrievalAsRoot(hCtx(), projID, dataDir, owner, "fact", query, limit)
++	res, err := svc.BudgetedRetrievalAsRootFTS(hCtx(), projID, dataDir, owner, "fact", query, ftsMode, limit)
+ 	if err != nil {
+ 		fmt.Fprintln(os.Stderr, "error:", err)
+ 		os.Exit(1)
+ 	}
+ 	out := map[string]any{
+ 		"project":      projID,
+ 		"observations": res.Hits,
+ 		"count":        len(res.Hits),
+ 	}
+ 	if res.Truncated {
+diff --git a/skillgrid-cli/cmd/skillgrid/mem_test.go b/skillgrid-cli/cmd/skillgrid/mem_test.go
+index ca38f74..0187dec 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem_test.go
++++ b/skillgrid-cli/cmd/skillgrid/mem_test.go
+@@ -91,20 +91,77 @@ func TestMemCLIParity(t *testing.T) {
+ 		t.Fatalf("mem share did not report the team visibility: %s", out)
+ 	}
+ 
+ 	// Verify the share landed (governance now shows team).
+ 	out = runMemCLI(t, dataDir, "governance", strconv.FormatInt(obsID, 10), "--project", project, "--dir", dataDir)
+ 	if !strings.Contains(out, `"team"`) {
+ 		t.Fatalf("after mem share, governance must show visibility team: %s", out)
+ 	}
+ }
+ 
++// runMemCLIExpectError runs the mem CLI and returns (output, non-nil error);
++// it does NOT t.Fatal on a non-zero exit (for negative-arg assertions).
++func runMemCLIExpectError(t *testing.T, dataDir string, args ...string) (string, error) {
++	t.Helper()
++	cmdArgs := append([]string{"run", ".", "mem"}, args...)
++	cmd := exec.Command("go", cmdArgs...)
++	cmd.Dir = mustWD(t)
++	cmd.Env = append(cmd.Environ(), "SKILLGRID_MNEMONIC_DATA_DIR="+dataDir)
++	out, err := cmd.CombinedOutput()
++	return string(out), err
++}
++
++// TestMemSearchModeFlag is 02.3 [AFK] — the CLI `mem search --mode` accepts
++// trigram/prefix/phrase/all, routes trigram/prefix through the FTS match-mode
++// read path (BudgetedRetrievalAsRootFTS), and rejects invalid modes with a
++// clear error (exit 2, no store access).
++func TestMemSearchModeFlag(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "memcli-mode-flag"
++	seedMemCLIPeriod(t, dataDir, project)
++
++	// --mode trigram: the FTS fact leg runs in trigram mode (no error,
++	// budgeted result shape).
++	out := runMemCLI(t, dataDir, "search", "mem", "--mode", "trigram", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, `"observations"`) {
++		t.Fatalf("mem search --mode trigram should return the budgeted search shape, got: %s", out)
++	}
++
++	// --mode prefix: same read path, prefix FTS expansion.
++	out = runMemCLI(t, dataDir, "search", "mem", "--mode", "prefix", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, `"observations"`) {
++		t.Fatalf("mem search --mode prefix should return the budgeted search shape, got: %s", out)
++	}
++
++	// --mode phrase: the default (phrase OR) alias.
++	out = runMemCLI(t, dataDir, "search", "mem", "--mode", "phrase", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, `"observations"`) {
++		t.Fatalf("mem search --mode phrase should return the budgeted search shape, got: %s", out)
++	}
++
++	// --mode all: AND-joined phrases.
++	out = runMemCLI(t, dataDir, "search", "mem", "--mode", "all", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, `"observations"`) {
++		t.Fatalf("mem search --mode all should return the budgeted search shape, got: %s", out)
++	}
++
++	// Invalid mode: rejected clearly with a non-zero exit, before any store
++	// access (the flag parsing layer validates, so the error is ours).
++	out, err := runMemCLIExpectError(t, dataDir, "search", "mem", "--mode", "bogus", "--project", project, "--dir", dataDir)
++	if err == nil {
++		t.Fatalf("mem search --mode bogus should fail, got: %s", out)
++	}
++	if !strings.Contains(out, "invalid match mode") {
++		t.Fatalf("invalid --mode should be rejected clearly, got: %s", out)
++	}
++}
++
+ // TestMemCLIBudgetedContext is the finding-03.3 proof: the CLI `mem context`
+ // honors its --char budget flag (previously ignored). A session with a long
+ // summary is char-truncated with an explicit "N chars omitted" marker when a
+ // small --char cap is passed.
+ func TestMemCLIBudgetedContext(t *testing.T) {
+ 	dataDir := t.TempDir()
+ 	project := "memcli-budgeted-ctx"
+ 	st, err := store.Open(dataDir, project)
+ 	if err != nil {
+ 		t.Fatalf("open: %v", err)
+diff --git a/skillgrid-cli/internal/mnemonic/service/retrieval.go b/skillgrid-cli/internal/mnemonic/service/retrieval.go
+index 3b4a72f..e0c4aa1 100644
+--- a/skillgrid-cli/internal/mnemonic/service/retrieval.go
++++ b/skillgrid-cli/internal/mnemonic/service/retrieval.go
+@@ -184,43 +184,66 @@ func (s *Service) BudgetedRetrievalAs(ctx context.Context, projectID, readerOwne
+ // its config — or its flags — are honored). This is the production entry point
+ // the CLI `mem search` routes through.
+ func (s *Service) BudgetedRetrievalAsRoot(ctx context.Context, projectID, configRoot, readerOwner, mode, query string, limit int) (memory.BudgetResult, error) {
+ 	root := configRoot
+ 	if root == "" {
+ 		root = "."
+ 	}
+ 	if abs, absErr := filepath.Abs(root); absErr == nil {
+ 		root = abs
+ 	}
++	// Route through the layered read path with the per-owner gate held (step
++	// 01). For a specific fact the L1/L0 RRF leg is owner-scoped
++	// (SearchOwnerScoped); bootstrap (L2/L3) is project-scoped and unaffected
++	// by the gate. The bound context enforces the budget's context timeout on
++	// the query (a slow read is cut, never hung).
++	return s.budgetedRetrievalHits(ctx, root, projectID, readerOwner, mode, query, "", limit)
++}
++
++// BudgetedRetrievalAsRootFTS is BudgetedRetrievalAsRoot with an FTS match
++// mode for the L1/L0 fact leg (change 014, step 02): "trigram" / "prefix"
++// reshape the FTS query (buildFTSQuery); an empty matchMode is the existing
++// behavior. The CLI `mem search --mode` routes through this variant; the
++// MCP path keeps BudgetedRetrievalAsRoot so the tool contract is unchanged.
++func (s *Service) BudgetedRetrievalAsRootFTS(ctx context.Context, projectID, configRoot, readerOwner, mode, query, matchMode string, limit int) (memory.BudgetResult, error) {
++	root := configRoot
++	if root == "" {
++		root = "."
++	}
++	if abs, absErr := filepath.Abs(root); absErr == nil {
++		root = abs
++	}
++	return s.budgetedRetrievalHits(ctx, root, projectID, readerOwner, mode, query, matchMode, limit)
++}
++
++// budgetedRetrievalHits runs the layered read path with the per-owner gate
++// (step 01) and the budget tuned from config + per-project override, and
++// returns the budgeted result. It is the shared body of
++// BudgetedRetrievalAsRoot (matchMode "") and BudgetedRetrievalAsRootFTS.
++func (s *Service) budgetedRetrievalHits(ctx context.Context, root, projectID, readerOwner, mode, query, matchMode string, limit int) (memory.BudgetResult, error) {
+ 	st, err := store.Open(s.dataDir, projectID)
+ 	if err != nil {
+ 		return memory.BudgetResult{}, err
+ 	}
+ 	defer st.Close()
+ 	mem := memory.New(st, projectID)
+ 	// Budget (change 013, step 03): tune the read budget from config
+ 	// (mnemonic.retrieval_budget). Zero fields fall back to the memory package
+ 	// defaults, so a config without the section is the default budget.
+ 	cfg := config.Load(root)
+ 	rb := cfg.RetrievalBudget
+ 	mem.SetBudget(memory.BudgetConfig{Items: rb.Items, Chars: rb.Chars, TimeoutNs: rb.TimeoutNs})
+ 	// A per-project override (CLI flags) takes precedence over the config.
+ 	if p, ok := s.budgetOverrideFor(projectID); ok {
+ 		mem.SetBudget(p)
+ 	}
+-
+-	// Route through the layered read path with the per-owner gate held (step
+-	// 01). For a specific fact the L1/L0 RRF leg is owner-scoped
+-	// (SearchOwnerScoped); bootstrap (L2/L3) is project-scoped and unaffected
+-	// by the gate. The bound context enforces the budget's context timeout on
+-	// the query (a slow read is cut, never hung).
+-	hits, err := mem.SearchOwnerScopedRetrieve(mem.Budget().Bound(ctx), readerOwner, mode, query, limit)
++	hits, err := mem.SearchOwnerScopedRetrieveFTS(mem.Budget().Bound(ctx), readerOwner, mode, query, matchMode, limit)
+ 	if err != nil {
+ 		return memory.BudgetResult{}, err
+ 	}
+ 	// Convert the layered hits into in-list observations so the uniform read
+ 	// budget (item cap + char budget + context timeout) applies identically to
+ 	// search/context/timeline. Each in-list result keeps its full-content
+ 	// fetch id (GetObservationID → Observation.ID) so the agent can pull full
+ 	// content via mem_get_observation.
+ 	var obs []memory.Observation
+ 	for _, h := range hits {

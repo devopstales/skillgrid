@@ -1,0 +1,1690 @@
+# Review package: f597fdf..fb2364d0
+
+## Commits
+fb2364d0 feat(ctx): proxy core — token/cache/passthrough modes, savings headers, fail-open, retry
+
+## Files changed
+ mnemonic/cmd/mnemonic/ctx.go                |   2 +
+ mnemonic/cmd/mnemonic/ctx_proxy.go          | 132 ++++++++++
+ mnemonic/internal/ctx/proxy/modes.go        | 122 +++++++++
+ mnemonic/internal/ctx/proxy/modes_test.go   |  94 +++++++
+ mnemonic/internal/ctx/proxy/proxy.go        | 297 ++++++++++++++++++++++
+ mnemonic/internal/ctx/proxy/proxy_test.go   | 379 ++++++++++++++++++++++++++++
+ mnemonic/internal/ctx/proxy/retry.go        | 117 +++++++++
+ mnemonic/internal/ctx/proxy/retry_test.go   | 146 +++++++++++
+ mnemonic/internal/ctx/proxy/savings.go      | 150 +++++++++++
+ mnemonic/internal/ctx/proxy/savings_test.go | 153 +++++++++++
+ 10 files changed, 1592 insertions(+)
+
+## Diff
+diff --git a/mnemonic/cmd/mnemonic/ctx.go b/mnemonic/cmd/mnemonic/ctx.go
+index 9fb11c8a..828ede5f 100644
+--- a/mnemonic/cmd/mnemonic/ctx.go
++++ b/mnemonic/cmd/mnemonic/ctx.go
+@@ -32,20 +32,22 @@ func runCtx(args []string) {
+ 	case "search":
+ 		runCtxSearch(rest)
+ 	case "prime":
+ 		runCtxPrime(rest)
+ 	case "stats":
+ 		runCtxStats(rest)
+ 	case "purge":
+ 		runCtxPurge(rest)
+ 	case "index":
+ 		runCtxIndex(rest)
++	case "proxy":
++		runCtxProxy(rest)
+ 	case "help", "-h", "--help":
+ 		ctxUsage()
+ 	default:
+ 		fmt.Fprintf(os.Stderr, "error: unknown ctx subcommand %q\n", sub)
+ 		ctxUsage()
+ 		os.Exit(2)
+ 	}
+ }
+ 
+ func ctxUsage() {
+diff --git a/mnemonic/cmd/mnemonic/ctx_proxy.go b/mnemonic/cmd/mnemonic/ctx_proxy.go
+new file mode 100644
+index 00000000..2438f68e
+--- /dev/null
++++ b/mnemonic/cmd/mnemonic/ctx_proxy.go
+@@ -0,0 +1,132 @@
++package main
++
++import (
++	"context"
++	"flag"
++	"fmt"
++	"log/slog"
++	"net"
++	"net/http"
++	"os"
++	"os/signal"
++	"syscall"
++	"time"
++
++	ctxconfig "github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++	ctxproxy "github.com/devopstales/skillgrid/mnemonic/internal/ctx/proxy"
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++	"github.com/devopstales/skillgrid/mnemonic/internal/loop"
++)
++
++// runCtxProxy is the `ctx proxy` subcommand: it starts the loopback LLM proxy
++// (T04). Flags: -bind (default from config, 127.0.0.1), -port (default from
++// config, 8787), -mode (token|cache|passthrough; default from config), -dir
++// (repository directory for store resolution).
++//
++// The proxy binds to the loopback address, resolves the upstream from env
++// (ANTHROPIC_BASE_URL / OPENAI_BASE_URL), applies the mode-selected transform,
++// writes accurate X-CTX-Savings headers, retries provider errors with
++// exponential backoff, and records per-turn telemetry to the shared store.
++// SIGINT/SIGTERM trigger a graceful shutdown (drain in-flight requests, close
++// the listener, close the store).
++func runCtxProxy(args []string) {
++	fs := flag.NewFlagSet("ctx proxy", flag.ContinueOnError)
++	fs.SetOutput(os.Stderr)
++	bind := fs.String("bind", "", "bind address (default from ctx config, 127.0.0.1)")
++	port := fs.Int("port", 0, "port (default from ctx config, 8787)")
++	mode := fs.String("mode", "", "compression mode: token, cache, or passthrough (default from ctx config)")
++	dir := fs.String("dir", ".", "repository directory (for store resolution)")
++	if err := fs.Parse(args); err != nil {
++		os.Exit(2)
++	}
++
++	// Load the ctx config (config.d precedence: defaults -> machine -> repo).
++	cfg, err := ctxconfig.Load(context.Background(), *dir)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: loading ctx config: %v\n", err)
++		os.Exit(1)
++	}
++
++	// Resolve bind/port from flags or config.
++	b := *bind
++	if b == "" {
++		b = cfg.Proxy.Bind
++	}
++	p := *port
++	if p == 0 {
++		p = cfg.Proxy.Port
++	}
++
++	// Resolve the effective mode: CLI flag > CTX_PROXY_MODE env > config.
++	effectiveMode := ctxproxy.ResolveMode(*mode, cfg.Proxy.Mode, os.Getenv)
++
++	// Open the shared store for telemetry (ADR-0033: one shared handle).
++	dataDir := envOr("SKILLGRID_MNEMONIC_DATA_DIR", "")
++	svc, err := newMnemonicService(dataDir)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: opening mnemonic service: %v\n", err)
++		os.Exit(1)
++	}
++	h, cleanup, err := svc.OpenForDirectory(*dir)
++	if err != nil {
++		// Fall back to MNEMONIC_PROJECT / active project, matching openLoop.
++		var pid string
++		if id := os.Getenv("MNEMONIC_PROJECT"); id != "" {
++			pid = id
++		}
++		if pid == "" {
++			pid = loop.ReadActiveProject()
++		}
++		if pid != "" {
++			h, cleanup, err = svc.OpenAt(pid, *dir)
++		}
++	}
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "warning: no store available; telemetry will be a no-op: %v\n", err)
++	}
++
++	// Build the ctx store accessor (nil if no shared store).
++	var cs *ctxstore.Store
++	if h != nil {
++		cs = ctxstore.New(h.Store())
++	}
++
++	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
++	log.Info("starting ctx proxy", "bind", b, "port", p, "mode", string(effectiveMode))
++
++	// Build the proxy handler.
++	proxy := ctxproxy.New(cfg, cs, log, effectiveMode)
++
++	// Set up signal handling for graceful shutdown.
++	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
++	defer stop()
++
++	// Create the listener.
++	addr := fmt.Sprintf("%s:%d", b, p)
++	ln, err := net.Listen("tcp", addr)
++	if err != nil {
++		fmt.Fprintf(os.Stderr, "error: listening on %s: %v\n", addr, err)
++		os.Exit(1)
++	}
++	log.Info("listening", "addr", ln.Addr().String())
++
++	// Serve HTTP with graceful shutdown.
++	srv := &http.Server{Handler: proxy.Handler()}
++	go func() {
++		<-ctx.Done()
++		log.Info("shutdown signal received")
++		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
++		defer cancel()
++		_ = srv.Shutdown(shutdownCtx)
++	}()
++
++	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
++		fmt.Fprintf(os.Stderr, "error: serving: %v\n", err)
++		os.Exit(1)
++	}
++
++	log.Info("proxy stopped")
++	if h != nil {
++		cleanup()
++	}
++}
+diff --git a/mnemonic/internal/ctx/proxy/modes.go b/mnemonic/internal/ctx/proxy/modes.go
+new file mode 100644
+index 00000000..eb0dfd3e
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/modes.go
+@@ -0,0 +1,122 @@
++// Package proxy is the loopback LLM proxy core for the Context Orchestrator
++// (CTX v1.11, T04). It is a net/http + httputil.ReverseProxy bound to
++// 127.0.0.1:8787 that forwards Anthropic- and OpenAI-compatible requests,
++// applies a mode-selected context transform, computes an accurate
++// X-CTX-Savings header, and fails open to passthrough on any compression
++// fault. Provider errors are retried with exponential backoff and then
++// returned verbatim.
++//
++// The transform (savings.go) and retry (retry.go) are pure and isolated so
++// that T05 (streaming pass-through) and T06 (/v1/compress + runtime mode
++// switch) can plug in without touching the transport. Mode is a plain field
++// on *Proxy, switchable by a later ticket.
++package proxy
++
++import (
++	"strings"
++)
++
++// Mode is the compression strategy selected for a proxied request. T04
++// defines the type + startup flag + env read; T06 owns the runtime switch.
++type Mode string
++
++// The three compression modes (plan 16.2).
++const (
++	ModeToken       Mode = "token"
++	ModeCache       Mode = "cache"
++	ModePassthrough Mode = "passthrough"
++)
++
++// envModeVar is checked AFTER config resolution (per the Proxy config comment):
++// a non-empty valid value overrides cfg.Proxy.Mode.
++const envModeVar = "CTX_PROXY_MODE"
++
++// valid reports whether m is one of the three modes.
++func (m Mode) valid() bool {
++	switch m {
++	case ModeToken, ModeCache, ModePassthrough:
++		return true
++	}
++	return false
++}
++
++// String returns the wire representation of the mode.
++func (m Mode) String() string { return string(m) }
++
++// parseMode parses and validates a raw mode string (case-insensitive).
++func parseMode(s string) (Mode, bool) {
++	m := Mode(strings.ToLower(strings.TrimSpace(s)))
++	if !m.valid() {
++		return "", false
++	}
++	return m, true
++}
++
++// resolveMode resolves the effective mode from, in priority order: an explicit
++// override (the CLI --mode flag, validated upstream), the CTX_PROXY_MODE env
++// var, then the config value. An empty/invalid override falls through to the
++// next layer. A non-empty env value wins over config when valid.
++func resolveMode(override, cfgMode, envValue string) Mode {
++	if m, ok := parseMode(override); ok {
++		return m
++	}
++	if envValue != "" {
++		if m, ok := parseMode(envValue); ok {
++			return m
++		}
++	}
++	if m, ok := parseMode(cfgMode); ok {
++		return m
++	}
++	return ModeCache
++}
++
++// resolveModeFromEnv reads the CTX_PROXY_MODE env var via env and resolves the
++// effective mode.
++func resolveModeFromEnv(override, cfgMode string, env func(string) string) Mode {
++	return resolveMode(override, cfgMode, env(envModeVar))
++}
++
++// ResolveMode is the exported mode-resolution entry point for the CLI: it
++// resolves the effective mode from, in priority order, an explicit override
++// (the CLI --mode flag), the CTX_PROXY_MODE env var, then the config value.
++// An empty/invalid override falls through to the next layer.
++func ResolveMode(override, cfgMode string, env func(string) string) Mode {
++	return resolveModeFromEnv(override, cfgMode, env)
++}
++
++// messages is a normalized, transport-agnostic view of the request's
++// conversation: a role plus a string content blob. The proxy parses the
++// upstream JSON body into this shape, applies the transform, and re-encodes it
++// back to the upstream's wire format. Keeping the transform on this shape (not
++// on raw JSON) makes it pure and provider-agnostic.
++type messages struct {
++	Messages []message `json:"messages"`
++}
++
++type message struct {
++	Role    string `json:"role"`
++	Content string `json:"content"`
++}
++
++// headSplit returns the number of leading messages that form the "frozen head"
++// for cache mode. The frozen head is the stable prefix: every message up to and
++// including the last user message. Everything after that head is the mutable
++// tail (assistant replies, tool results) that cache mode compresses.
++//
++// A simple stable-prefix detector (T04): the head boundary is the last user
++// message index. If there is no user message, the head is empty (the whole
++// conversation is mutable). T06/T11 refine the detector; this boundary is the
++// seam they replace.
++func headSplit(msgs []message) int {
++	last := -1
++	for i, m := range msgs {
++		if strings.EqualFold(m.Role, "user") {
++			last = i
++		}
++	}
++	if last < 0 {
++		return 0
++	}
++	return last + 1
++}
+diff --git a/mnemonic/internal/ctx/proxy/modes_test.go b/mnemonic/internal/ctx/proxy/modes_test.go
+new file mode 100644
+index 00000000..438c3a9d
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/modes_test.go
+@@ -0,0 +1,94 @@
++package proxy
++
++import "testing"
++
++func TestParseModeValid(t *testing.T) {
++	for _, s := range []string{"token", "cache", "passthrough", "TOKEN", " Cache "} {
++		m, ok := parseMode(s)
++		if !ok {
++			t.Errorf("parseMode(%q): expected valid, got ok=false", s)
++			continue
++		}
++		switch s {
++		case "token", "TOKEN":
++			if m != ModeToken {
++				t.Errorf("parseMode(%q) = %q, want token", s, m)
++			}
++		case "cache", " Cache ":
++			if m != ModeCache {
++				t.Errorf("parseMode(%q) = %q, want cache", s, m)
++			}
++		case "passthrough":
++			if m != ModePassthrough {
++				t.Errorf("parseMode(%q) = %q, want passthrough", s, m)
++			}
++		}
++	}
++}
++
++func TestParseModeInvalid(t *testing.T) {
++	for _, s := range []string{"", "bogus", "fast", "token-cache"} {
++		if _, ok := parseMode(s); ok {
++			t.Errorf("parseMode(%q): expected invalid, got valid", s)
++		}
++	}
++}
++
++func TestResolveModePriority(t *testing.T) {
++	// Override wins.
++	if m := resolveMode("token", "cache", "passthrough"); m != ModeToken {
++		t.Errorf("override should win: got %q", m)
++	}
++	// Env wins over config when override is empty/invalid.
++	if m := resolveMode("", "cache", "token"); m != ModeToken {
++		t.Errorf("env should win over config: got %q", m)
++	}
++	// Config wins when override and env are empty/invalid.
++	if m := resolveMode("", "cache", ""); m != ModeCache {
++		t.Errorf("config should win: got %q", m)
++	}
++	// Invalid env falls through to config.
++	if m := resolveMode("", "passthrough", "bogus"); m != ModePassthrough {
++		t.Errorf("invalid env should fall to config: got %q", m)
++	}
++	// All empty/invalid defaults to cache.
++	if m := resolveMode("", "", ""); m != ModeCache {
++		t.Errorf("all-empty should default to cache: got %q", m)
++	}
++}
++
++func TestResolveModeFromEnv(t *testing.T) {
++	envs := map[string]string{"CTX_PROXY_MODE": "token"}
++	env := func(k string) string { return envs[k] }
++	if m := resolveModeFromEnv("", "cache", env); m != ModeToken {
++		t.Errorf("env override should win: got %q", m)
++	}
++	if m := resolveModeFromEnv("passthrough", "cache", env); m != ModePassthrough {
++		t.Errorf("flag override should beat env: got %q", m)
++	}
++}
++
++func TestHeadSplit(t *testing.T) {
++	msgs := []message{
++		{Role: "user", Content: "a"},
++		{Role: "assistant", Content: "b"},
++		{Role: "user", Content: "c"},
++		{Role: "assistant", Content: "d"},
++	}
++	// Frozen head ends at the last user message (index 2) → head = 3.
++	if got := headSplit(msgs); got != 3 {
++		t.Errorf("headSplit = %d, want 3", got)
++	}
++	// No user message → head 0 (all mutable).
++	if got := headSplit([]message{{Role: "assistant", Content: "x"}}); got != 0 {
++		t.Errorf("headSplit(no user) = %d, want 0", got)
++	}
++	// Single user message → head 1.
++	if got := headSplit([]message{{Role: "user", Content: "only"}}); got != 1 {
++		t.Errorf("headSplit(single user) = %d, want 1", got)
++	}
++	// Case-insensitive role.
++	if got := headSplit([]message{{Role: "User", Content: "u"}}); got != 1 {
++		t.Errorf("headSplit(User) = %d, want 1", got)
++	}
++}
+diff --git a/mnemonic/internal/ctx/proxy/proxy.go b/mnemonic/internal/ctx/proxy/proxy.go
+new file mode 100644
+index 00000000..ead2d2d8
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/proxy.go
+@@ -0,0 +1,297 @@
++package proxy
++
++import (
++	"bytes"
++	"crypto/md5" // #nosec G401 — used only to derive a stable session id, not a security boundary
++	"encoding/hex"
++	"fmt"
++	"io"
++	"log/slog"
++	"net/http"
++	"net/url"
++	"os"
++	"strings"
++	"time"
++
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++)
++
++// Proxy is the loopback LLM proxy. It owns the resolved config, a fail-open
++// ctx store accessor for telemetry, a logger, and the effective mode (a plain
++// field — switchable by T06).
++type Proxy struct {
++	cfg      *config.CtxConfig
++	store    *store.Store
++	log      *slog.Logger
++	mode     Mode
++	sleep    Sleep
++	upstream baseUpstream
++}
++
++// New builds a Proxy from resolved config, the shared ctx store accessor (may
++// be nil — telemetry then no-ops, ADR-0016), and a logger. mode is the
++// effective mode already resolved (CLI --mode > CTX_PROXY_MODE > config). The
++// provider call uses the real clock/sleeper; use NewWithSleep for tests.
++func New(cfg *config.CtxConfig, cs *store.Store, log *slog.Logger, mode Mode) *Proxy {
++	return &Proxy{
++		cfg:      cfg,
++		store:    cs,
++		log:      log,
++		mode:     mode,
++		sleep:    realSleep,
++		upstream: detectUpstream(http.DefaultClient, os.Getenv),
++	}
++}
++
++// NewWithSleep builds a Proxy with an injectable Sleep (test seam) and,
++// optionally, a custom http.Client for the provider call.
++func NewWithSleep(cfg *config.CtxConfig, cs *store.Store, log *slog.Logger, mode Mode, sleep Sleep, client *http.Client) *Proxy {
++	p := New(cfg, cs, log, mode)
++	p.sleep = sleep
++	p.upstream.client = client
++	return p
++}
++
++// Handler returns the http.Handler for the proxy. It is safe to serve on any
++// listener (loopback in production; an httptest server in tests).
++func (p *Proxy) Handler() http.Handler {
++	return p
++}
++
++func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
++	body, err := io.ReadAll(r.Body)
++	if err != nil {
++		http.Error(w, "proxy: reading request body: "+err.Error(), http.StatusBadRequest)
++		return
++	}
++	_ = r.Body.Close()
++
++	upstream := p.upstream
++
++	// Determine the effective mode for this request. T04: the startup-resolved
++	// p.mode is authoritative (T06 adds per-request override). The mode used
++	// for the transform is what the savings header reports.
++	mode := p.mode
++
++	// Token count BEFORE the transform: count on the exact wire bytes the
++	// client sent. This is the deterministic "before" for the savings delta.
++	tokensBefore := EstimateTokens(body)
++
++	// Parse + transform. A transform fault fails open to passthrough
++	// (ADR-0016): forward the ORIGINAL body verbatim, report the fallback
++	// mode, never 500 the client because compression failed.
++	forwardBody := body
++	effectiveMode := mode
++	cacheHit := false
++	if mode != ModePassthrough {
++		msgs, perr := parseMessages(body)
++		if perr != nil {
++			// Unparseable: fail open to passthrough with the original body.
++			forwardBody = body
++			effectiveMode = ModePassthrough
++		} else {
++			tmsgs, terr := transform(mode, msgs)
++			if terr != nil {
++				// Compression fault: degrade to passthrough.
++				forwardBody = body
++				effectiveMode = ModePassthrough
++			} else {
++				if b, e := encodeMessages(tmsgs); e == nil {
++					forwardBody = b
++					cacheHit = mode == ModeCache && headSplit(msgs) > 0
++				} else {
++					forwardBody = body
++					effectiveMode = ModePassthrough
++				}
++			}
++		}
++	}
++	tokensAfter := EstimateTokens(forwardBody)
++
++	sv := savings{
++		Before:   tokensBefore,
++		After:    tokensAfter,
++		Mode:     effectiveMode,
++		CacheHit: cacheHit,
++	}
++	if p.cfg.Proxy.SavingsHeaders {
++		sv.writeHeaders(w)
++	}
++
++	// Forward to the upstream with the correct API key, retrying on a non-2xx
++	// or transport error.
++	res := p.forward(r, forwardBody)
++
++	// Emit telemetry (fail-open: a missing ctx table is a no-op write).
++	p.recordTelemetry(r, upstream.Name, string(effectiveMode), sv)
++
++	// Write the upstream response verbatim.
++	w.Header().Set("Content-Type", res.contentType)
++	w.WriteHeader(res.status)
++	_, _ = w.Write(res.body)
++}
++
++// forward builds and issues the upstream request (with the configured API key
++// injected, the client's Authorization/x-api-key replaced) and returns the
++// upstream status/body verbatim after the retry budget.
++func (p *Proxy) forward(r *http.Request, body []byte) forwardResult {
++	u := p.upstream
++	ctx := r.Context()
++
++	baseURL := u.BaseURL
++	path := r.URL.Path
++	if baseURL == "" {
++		// No upstream configured: fail open — return a 502 with a clear body
++		// (the client still completes, no panic).
++		return forwardResult{status: http.StatusBadGateway, contentType: "text/plain", body: []byte("proxy: no upstream configured for " + u.Name)}
++	}
++
++	fullURL := baseURL
++	if !strings.HasSuffix(fullURL, "/") {
++		fullURL += "/"
++	}
++	fullURL += strings.TrimLeft(path, "/")
++	pu, err := url.Parse(fullURL)
++	if err != nil {
++		return forwardResult{status: http.StatusBadGateway, contentType: "text/plain", body: []byte("proxy: bad upstream URL: " + err.Error())}
++	}
++
++	do := func() (*http.Response, error) {
++		out, err := http.NewRequestWithContext(ctx, r.Method, pu.String(), bytes.NewReader(body))
++		if err != nil {
++			return nil, err
++		}
++		// Copy the client's headers, then inject/replace the auth header.
++		for k, vs := range r.Header {
++			if strings.EqualFold(k, "Authorization") || strings.EqualFold(k, "x-api-key") || strings.EqualFold(k, "Content-Length") {
++				continue
++			}
++			for _, v := range vs {
++				out.Header.Add(k, v)
++			}
++		}
++		out.Header.Set("Content-Type", "application/json")
++		// Replace the client's auth with the configured upstream key.
++		if u.AuthHeader != "" && u.AuthValue != "" {
++			out.Header.Set(u.AuthHeader, u.AuthValue)
++		}
++		return u.client.Do(out)
++	}
++
++	res := callWithRetry(ctx, do, p.cfg.Proxy.ProviderRetries, p.cfg.Proxy.ProviderRetryBackoffMs, p.sleep)
++	if res.Err != nil {
++		return forwardResult{
++			status:      http.StatusBadGateway,
++			contentType: "text/plain",
++			body:        []byte("proxy: provider unreachable: " + res.Err.Error()),
++		}
++	}
++	return forwardResult{
++		status:      res.Status,
++		contentType: "application/json",
++		body:        res.Body,
++	}
++}
++
++// forwardResult is the verbatim upstream outcome.
++type forwardResult struct {
++	status      int
++	contentType string
++	body        []byte
++}
++
++// baseUpstream captures the resolved upstream endpoint + auth for the provider
++// call.
++type baseUpstream struct {
++	Name       string // "anthropic" | "openai"
++	BaseURL    string
++	AuthHeader string
++	AuthValue  string
++	client     *http.Client
++}
++
++// detectUpstream picks the upstream from config/env. It is a function of the
++// http client and an env lookup so tests can inject deterministic values.
++func detectUpstream(client *http.Client, env func(string) string) baseUpstream {
++	if b := env("ANTHROPIC_BASE_URL"); b != "" {
++		return baseUpstream{Name: "anthropic", BaseURL: b, AuthHeader: "x-api-key", AuthValue: env("ANTHROPIC_API_KEY"), client: client}
++	}
++	if b := env("OPENAI_BASE_URL"); b != "" {
++		return baseUpstream{Name: "openai", BaseURL: b, AuthHeader: "Authorization", AuthValue: "Bearer " + env("OPENAI_API_KEY"), client: client}
++	}
++	// Default upstream: anthropic (the loopback proxy's primary target).
++	return baseUpstream{Name: "anthropic", BaseURL: "https://api.anthropic.com", AuthHeader: "x-api-key", AuthValue: env("ANTHROPIC_API_KEY"), client: client}
++}
++
++// recordTelemetry writes the per-turn savings row + session counters to the
++// ctx store. A nil store or a missing table is a no-op (ADR-0016 fail-open).
++func (p *Proxy) recordTelemetry(r *http.Request, upstream, mode string, sv savings) {
++	if p.store == nil {
++		return
++	}
++	now := time.Now().UnixNano()
++	sessionID := sessionID(r)
++	turn := int64(1) // per-turn; T06/T11 refine the turn counter
++
++	_ = p.store.PutProxySaving(&store.ProxySaving{
++		SavingID:     fmt.Sprintf("save-%d-%s", now, sessionID),
++		SessionID:    sessionID,
++		Turn:         turn,
++		Upstream:     upstream,
++		Mode:         mode,
++		TokensBefore: int64(sv.Before),
++		TokensAfter:  int64(sv.After),
++		SavingsRatio: sv.savingsRatio(),
++		CreatedAt:    now,
++	})
++
++	// Session counters: upsert with the new turn's contribution.
++	if prev, err := p.store.GetProxySession(sessionID); err == nil && prev != nil {
++		_ = p.store.PutProxySession(&store.ProxySession{
++			SessionID:          prev.SessionID,
++			Agent:              prev.Agent,
++			Mode:               mode,
++			StartedAt:          prev.StartedAt,
++			EndedAt:            now,
++			Requests:           prev.Requests + 1,
++			TokensBefore:       prev.TokensBefore + int64(sv.Before),
++			TokensAfter:        prev.TokensAfter + int64(sv.After),
++			CacheHits:          prev.CacheHits + boolToInt(sv.CacheHit),
++			CacheInvalidations: prev.CacheInvalidations,
++		})
++	} else {
++		_ = p.store.PutProxySession(&store.ProxySession{
++			SessionID:    sessionID,
++			Agent:        "proxy",
++			Mode:         mode,
++			StartedAt:    now,
++			EndedAt:      now,
++			Requests:     1,
++			TokensBefore: int64(sv.Before),
++			TokensAfter:  int64(sv.After),
++			CacheHits:    boolToInt(sv.CacheHit),
++		})
++	}
++}
++
++// sessionID returns the request's stable session id: the X-CTX-Session header
++// if present, else a stable id derived from the client address (RemoteAddr).
++func sessionID(r *http.Request) string {
++	if id := strings.TrimSpace(r.Header.Get(SessionHeader)); id != "" {
++		return id
++	}
++	src := r.RemoteAddr
++	if src == "" {
++		src = "local"
++	}
++	sum := md5.Sum([]byte(src)) // #nosec G401
++	return "sess-" + hex.EncodeToString(sum[:8])
++}
++
++func boolToInt(b bool) int64 {
++	if b {
++		return 1
++	}
++	return 0
++}
+diff --git a/mnemonic/internal/ctx/proxy/proxy_test.go b/mnemonic/internal/ctx/proxy/proxy_test.go
+new file mode 100644
+index 00000000..5864e77e
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/proxy_test.go
+@@ -0,0 +1,379 @@
++package proxy
++
++import (
++	"errors"
++	"io"
++	"log/slog"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++	"github.com/devopstales/skillgrid/mnemonic/internal/store"
++)
++
++// errTestDial is a transport-level error used by tests to simulate an
++// unreachable provider.
++var errTestDial = errors.New("test: dial tcp connection refused")
++
++// testConfig returns a CtxConfig tuned for proxy integration tests: savings
++// headers on, minimal retries, the default cache mode, and the bind/port the
++// AC expects. ProviderRetries is low so the retry-budget tests stay fast; the
++// backoff is 0 so no real sleeping occurs even on the real-sleeper path.
++func testConfig(mode string, retries, backoffMs int) *config.CtxConfig {
++	cfg := config.DefaultCtxConfig()
++	cfg.Proxy.Mode = mode
++	cfg.Proxy.SavingsHeaders = true
++	cfg.Proxy.ProviderRetries = retries
++	cfg.Proxy.ProviderRetryBackoffMs = backoffMs
++	return &cfg
++}
++
++// testLogger returns a logger that discards output (test noise suppression).
++func testLogger() *slog.Logger {
++	return slog.New(slog.NewTextHandler(io.Discard, nil))
++}
++
++// newTestProxy builds a Proxy wired to a test upstream (an httptest server),
++// an optional ctx store accessor (nil for no-telemetry tests), and the noSleep
++// seam. The returned upstream is closed via t.Cleanup.
++func newTestProxy(t *testing.T, cfg *config.CtxConfig, cs *ctxstore.Store, mode Mode, upstream *httptest.Server) *Proxy {
++	t.Helper()
++	ns := &noSleep{}
++	p := NewWithSleep(cfg, cs, testLogger(), mode, ns.sleep, upstream.Client())
++	// Override the detected upstream with the test server.
++	p.upstream = baseUpstream{
++		Name:       "test",
++		BaseURL:    upstream.URL,
++		AuthHeader: "x-api-key",
++		AuthValue:  "test-key",
++		client:     upstream.Client(),
++	}
++	return p
++}
++
++// newSharedStore opens a real shared project store (migrations applied) for
++// telemetry tests, wrapping it in a ctx store accessor.
++func newSharedStore(t *testing.T, project string) *ctxstore.Store {
++	t.Helper()
++	shared, err := store.Open(t.TempDir(), project)
++	if err != nil {
++		t.Fatalf("store.Open: %v", err)
++	}
++	t.Cleanup(func() { shared.Close() })
++	return ctxstore.New(shared)
++}
++
++// newUpstreamServer builds a generic upstream that returns the given status
++// and body, recording every request it sees.
++func newUpstreamServer(t *testing.T, status int, body string, seen *[]string) *httptest.Server {
++	t.Helper()
++	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		b, _ := io.ReadAll(r.Body)
++		if seen != nil {
++			*seen = append(*seen, string(b))
++		}
++		w.Header().Set("Content-Type", "application/json")
++		w.WriteHeader(status)
++		_, _ = w.Write([]byte(body))
++	}))
++}
++
++// TestServeHTTPPassthroughDeltaZero proves the passthrough mode: the client's
++// exact body is forwarded verbatim, the response is passed through, and the
++// savings header reports delta 0 (before == after).
++func TestServeHTTPPassthroughDeltaZero(t *testing.T) {
++	clientBody := []byte(`{"messages":[{"role":"user","content":"the quick brown"}]}`)
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(clientBody)))
++	req.Header.Set("Content-Type", "application/json")
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	// Passthrough forwards the ORIGINAL bytes (not the re-encoded shape).
++	if len(seen) != 1 || seen[0] != string(clientBody) {
++		t.Fatalf("forwarded body = %q, want verbatim client body %q", seen, clientBody)
++	}
++	if got := w.Header().Get(HeaderSavings); got != "0" {
++		t.Errorf("X-CTX-Savings = %q, want 0 (passthrough delta)", got)
++	}
++	if got := w.Header().Get(HeaderMode); got != "passthrough" {
++		t.Errorf("X-CTX-Mode = %q, want passthrough", got)
++	}
++	if got := w.Header().Get(HeaderOriginal); got != w.Header().Get(HeaderCompressed) {
++		t.Errorf("original %q != compressed %q (passthrough must be equal)", w.Header().Get(HeaderOriginal), w.Header().Get(HeaderCompressed))
++	}
++}
++
++// TestServeHTTPTokenExactSavings is the AC fixture: the 3-message body the AC
++// names. Token mode must compress every message, the savings header must equal
++// tokens_before - tokens_after exactly, and the forwarded body must be the
++// compressed shape (smaller than the original).
++func TestServeHTTPTokenExactSavings(t *testing.T) {
++	clientBody := []byte(`{"messages":[{"role":"user","content":"the quick brown"},{"role":"assistant","content":"fox jumps over"},{"role":"user","content":"the lazy dog"}]}`)
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++	cfg := testConfig("token", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModeToken, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(clientBody)))
++	req.Header.Set("Content-Type", "application/json")
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	before := EstimateTokens(clientBody)
++	after := EstimateTokens([]byte(seen[0]))
++	if after >= before {
++		t.Fatalf("token mode must compress the wire: before=%d after=%d", before, after)
++	}
++	wantDelta := before - after
++	if got := w.Header().Get(HeaderSavings); got != itoa(wantDelta) {
++		t.Errorf("X-CTX-Savings = %q, want %d (before-after)", got, wantDelta)
++	}
++	if got := w.Header().Get(HeaderOriginal); got != itoa(before) {
++		t.Errorf("X-CTX-Original-Tokens = %q, want %d", got, before)
++	}
++	if got := w.Header().Get(HeaderCompressed); got != itoa(after) {
++		t.Errorf("X-CTX-Compressed-Tokens = %q, want %d", got, after)
++	}
++	if got := w.Header().Get(HeaderMode); got != "token" {
++		t.Errorf("X-CTX-Mode = %q, want token", got)
++	}
++	// The compressed body must carry the deterministic summary marker.
++	if !strings.Contains(seen[0], "[ctx-summarized") {
++		t.Errorf("forwarded body not summarized: %q", seen[0])
++	}
++}
++
++// TestServeHTTPFailOpenOnTransformFault proves ADR-0016 fail-open at the
++// transport: a request body that parses as JSON but whose messages array
++// cannot be encoded (a transform fault) degrades to passthrough — the
++// ORIGINAL body is forwarded, the mode header reports passthrough, the delta
++// is 0, and the client still gets the upstream's 200.
++func TestServeHTTPFailOpenOnTransformFault(t *testing.T) {
++	// A body with a top-level "messages" that is a JSON object (not an array):
++	// parseMessages unmarshals into messages.Messages []message and fails, so
++	// the proxy fails open to passthrough with the original bytes.
++	clientBody := []byte(`{"messages":{"role":"user"}}`)
++	var seen []string
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, &seen)
++	defer up.Close()
++	cfg := testConfig("token", 0, 0)
++	p := newTestProxy(t, cfg, nil, ModeToken, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(clientBody)))
++	req.Header.Set("Content-Type", "application/json")
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200 (fail-open must not 500)", w.Code)
++	}
++	if len(seen) != 1 || seen[0] != string(clientBody) {
++		t.Fatalf("fail-open must forward the original body, got %q", seen)
++	}
++	if got := w.Header().Get(HeaderMode); got != "passthrough" {
++		t.Errorf("X-CTX-Mode = %q, want passthrough (degraded)", got)
++	}
++	if got := w.Header().Get(HeaderSavings); got != "0" {
++		t.Errorf("X-CTX-Savings = %q, want 0 (degraded to passthrough)", got)
++	}
++}
++
++// TestServeHTTPProviderRetryVerbatim proves the provider-retry path: a
++// persistent non-2xx is retried up to the budget (1 + maxRetries attempts) and
++// then returned to the client verbatim (the provider's last status + body),
++// not a 500.
++func TestServeHTTPProviderRetryVerbatim(t *testing.T) {
++	var seen []string
++	up := newUpstreamServer(t, http.StatusTooManyRequests, `{"error":"rate limited"}`, &seen)
++	defer up.Close()
++	cfg := testConfig("passthrough", 2, 0) // 2 retries, no backoff
++	p := newTestProxy(t, cfg, nil, ModePassthrough, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"messages":[]}`))
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	// 1 initial + 2 retries = 3 attempts hit the upstream.
++	if len(seen) != 3 {
++		t.Fatalf("upstream attempts = %d, want 3 (1 + 2 retries)", len(seen))
++	}
++	if w.Code != http.StatusTooManyRequests {
++		t.Fatalf("client status = %d, want 429 (verbatim provider status)", w.Code)
++	}
++	if got := w.Body.String(); got != `{"error":"rate limited"}` {
++		t.Errorf("client body = %q, want verbatim provider body", got)
++	}
++}
++
++// TestServeHTTPTransportError502 proves that when the provider is unreachable
++// (a transport-level error with no upstream status), the proxy renders a 502
++// after exhausting retries — the client still completes, no panic, no 500.
++func TestServeHTTPTransportError502(t *testing.T) {
++	// A client whose transport always errors (connection refused) — no upstream
++	// status is ever produced.
++	client := &http.Client{Transport: errorTransport{errTestDial}}
++	cfg := testConfig("passthrough", 1, 0)
++	p := NewWithSleep(cfg, nil, testLogger(), ModePassthrough, func(time.Duration) {}, client)
++	p.upstream = baseUpstream{Name: "anthropic", BaseURL: "http://127.0.0.1:1", AuthHeader: "x-api-key", AuthValue: "k", client: client}
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"messages":[]}`))
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusBadGateway {
++		t.Fatalf("client status = %d, want 502 (provider unreachable)", w.Code)
++	}
++	if !strings.Contains(w.Body.String(), "provider unreachable") {
++		t.Errorf("502 body = %q, want a 'provider unreachable' message", w.Body.String())
++	}
++}
++
++// TestServeHTTPWritesTelemetry proves the proxy records a per-turn savings row
++// and a session row on a real shared store: after one proxied request, the
++// ctx_proxy_savings and ctx_proxy_sessions tables each carry a row reflecting
++// the request.
++func TestServeHTTPWritesTelemetry(t *testing.T) {
++	cs := newSharedStore(t, "ctxtelemetry")
++	clientBody := []byte(`{"messages":[{"role":"user","content":"hello world test"}]}`)
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, nil)
++	defer up.Close()
++	cfg := testConfig("token", 0, 0)
++	p := newTestProxy(t, cfg, cs, ModeToken, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(clientBody)))
++	req.Header.Set(SessionHeader, "sess-telemetry")
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	// A per-turn savings row was written for the session.
++	savings, err := cs.ListProxySavings("sess-telemetry")
++	if err != nil {
++		t.Fatalf("ListProxySavings: %v", err)
++	}
++	if len(savings) != 1 {
++		t.Fatalf("savings rows = %d, want 1", len(savings))
++	}
++	if savings[0].Mode != "token" {
++		t.Errorf("savings mode = %q, want token", savings[0].Mode)
++	}
++	if savings[0].TokensAfter >= savings[0].TokensBefore {
++		t.Errorf("token mode must compress: before=%d after=%d", savings[0].TokensBefore, savings[0].TokensAfter)
++	}
++	// A session row was written with the aggregated counters.
++	sess, err := cs.GetProxySession("sess-telemetry")
++	if err != nil {
++		t.Fatalf("GetProxySession: %v", err)
++	}
++	if sess == nil {
++		t.Fatalf("session row not written for %q", "sess-telemetry")
++	}
++	if sess.Requests != 1 {
++		t.Errorf("session requests = %d, want 1", sess.Requests)
++	}
++	if sess.TokensBefore != savings[0].TokensBefore || sess.TokensAfter != savings[0].TokensAfter {
++		t.Errorf("session counters (%d/%d) != savings row (%d/%d)", sess.TokensBefore, sess.TokensAfter, savings[0].TokensBefore, savings[0].TokensAfter)
++	}
++}
++
++// TestServeHTTPTelemetryNilStoreNoop proves ADR-0016 fail-open at telemetry:
++// with a nil ctx store accessor the proxy still serves and returns the correct
++// savings headers — the telemetry write is a no-op, never a 500.
++func TestServeHTTPTelemetryNilStoreNoop(t *testing.T) {
++	clientBody := []byte(`{"messages":[{"role":"user","content":"the quick brown"}]}`)
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, nil)
++	defer up.Close()
++	cfg := testConfig("token", 0, 0)
++	// nil ctx store accessor → telemetry no-ops.
++	p := newTestProxy(t, cfg, nil, ModeToken, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(clientBody)))
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200 (nil store must not 500)", w.Code)
++	}
++	if got := w.Header().Get(HeaderSavings); got == "" {
++		t.Errorf("X-CTX-Savings missing with nil store; headers must still be written")
++	}
++}
++
++// TestServeHTTPSessionIDDerivedProves the proxy derives a stable session id
++// from the client address when the X-CTX-Session header is absent, so the
++// telemetry row is still keyed (deterministic per RemoteAddr).
++func TestServeHTTPSessionIDDerived(t *testing.T) {
++	cs := newSharedStore(t, "ctxderived")
++	up := newUpstreamServer(t, http.StatusOK, `{"type":"message"}`, nil)
++	defer up.Close()
++	cfg := testConfig("passthrough", 0, 0)
++	p := newTestProxy(t, cfg, cs, ModePassthrough, up)
++
++	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"messages":[]}`))
++	req.RemoteAddr = "127.0.0.1:9999"
++	// No X-CTX-Session header: the proxy derives one from RemoteAddr.
++	w := httptest.NewRecorder()
++	p.ServeHTTP(w, req)
++
++	if w.Code != http.StatusOK {
++		t.Fatalf("status = %d, want 200", w.Code)
++	}
++	sessions, err := cs.ListProxySessions()
++	if err != nil {
++		t.Fatalf("ListProxySessions: %v", err)
++	}
++	if len(sessions) != 1 {
++		t.Fatalf("session rows = %d, want 1", len(sessions))
++	}
++	if !strings.HasPrefix(sessions[0].SessionID, "sess-") {
++		t.Errorf("derived session id = %q, want a sess- prefixed id", sessions[0].SessionID)
++	}
++}
++
++// errorTransport is a round-tripper that always returns a fixed error,
++// simulating an unreachable provider.
++type errorTransport struct{ err error }
++
++func (e errorTransport) RoundTrip(*http.Request) (*http.Response, error) {
++	return nil, e.err
++}
++
++// itoa is a tiny int→string helper so the tests read without importing
++// strconv at the call site.
++func itoa(n int) string {
++	if n == 0 {
++		return "0"
++	}
++	neg := n < 0
++	if neg {
++		n = -n
++	}
++	var b []byte
++	for n > 0 {
++		b = append([]byte{byte('0' + n%10)}, b...)
++		n /= 10
++	}
++	if neg {
++		return "-" + string(b)
++	}
++	return string(b)
++}
+diff --git a/mnemonic/internal/ctx/proxy/retry.go b/mnemonic/internal/ctx/proxy/retry.go
+new file mode 100644
+index 00000000..1571daa4
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/retry.go
+@@ -0,0 +1,117 @@
++package proxy
++
++import (
++	"context"
++	"errors"
++	"net/http"
++	"time"
++)
++
++// Sleep is the injectable delay used between provider retries. Production
++// uses time.Sleep; tests use a no-op (or recording) function so backoff is
++// exercised deterministically without real waiting.
++type Sleep func(time.Duration)
++
++// realSleep is the production Sleep.
++func realSleep(d time.Duration) { time.Sleep(d) }
++
++// retryResult carries the provider's outcome. On final failure, Status is the
++// upstream status code and Body is the upstream body verbatim; on an
++// unrecoverable transport error (no upstream status at all) Body may be the
++// rendered error and Status is 0.
++type retryResult struct {
++	Status int
++	Body   []byte
++	// Attempts is how many times the provider call was actually issued.
++	Attempts int
++	// Err is non-nil only for a transport-level failure with no usable
++	// upstream status (the caller renders a 502).
++	Err error
++}
++
++// callWithRetry issues do, retrying on a non-2xx upstream response with
++// exponential backoff. The first backoff is baseMs; each subsequent backoff is
++// doubled. It issues at most 1 + maxRetries attempts. After the final retry it
++// returns the provider's last status/body verbatim (no 500 — ADR-0016).
++//
++// A transport-level error (do returns a non-nil err with no response, e.g. a
++// connection refused or a client-side timeout) is also retried; if the final
++// attempt still yields no status, retryResult.Err is set so the caller renders
++// a 502 (the provider is unreachable — there is no verbatim body to pass).
++func callWithRetry(ctx context.Context, do func() (*http.Response, error), maxRetries int, baseMs int, sleep Sleep) retryResult {
++	if maxRetries < 0 {
++		maxRetries = 0
++	}
++	attempt := 0
++	var last retryResult
++	for {
++		resp, err := do()
++		attempt++
++
++		if err != nil {
++			// Transport-level failure: no upstream status.
++			last = retryResult{Attempts: attempt, Err: err}
++			if attempt > maxRetries {
++				return last
++			}
++			sleep(backoffMs(attempt, baseMs))
++			continue
++		}
++
++		// Read the body fully so we can replay it verbatim on the final
++		// attempt (and so the connection is returned to the pool).
++		body := readAll(resp)
++		code := resp.StatusCode
++
++		// A 2xx success is returned immediately.
++		if code >= 200 && code < 300 {
++			return retryResult{Status: code, Body: body, Attempts: attempt}
++		}
++
++		// Non-2xx: remember the last status/body (verbatim for passthrough)
++		// and retry until we exhaust the budget.
++		last = retryResult{Status: code, Body: body, Attempts: attempt}
++		if attempt > maxRetries {
++			return last
++		}
++		sleep(backoffMs(attempt, baseMs))
++	}
++}
++
++// backoffMs returns the backoff to apply after the given (1-based) attempt has
++// failed: baseMs * 2^(attempt-1). This yields the sequence base, 2*base,
++// 4*base, ... starting from the first failure.
++func backoffMs(attempt, baseMs int) time.Duration {
++	if baseMs < 0 {
++		baseMs = 0
++	}
++	if attempt < 1 {
++		attempt = 1
++	}
++	ms := baseMs
++	for i := 1; i < attempt; i++ {
++		ms *= 2
++	}
++	return time.Duration(ms) * time.Millisecond
++}
++
++// errNoUpstream marks a provider failure with no upstream status to pass.
++var errNoUpstream = errors.New("proxy: no upstream status (provider unreachable)")
++
++// readAll consumes and closes resp.Body, returning its bytes. A read error is
++// swallowed: the bytes read so far are still usable for the verbatim passthrough.
++func readAll(resp *http.Response) []byte {
++	if resp == nil || resp.Body == nil {
++		return nil
++	}
++	defer resp.Body.Close()
++	var buf []byte
++	tmp := make([]byte, 32*1024)
++	for {
++		n, err := resp.Body.Read(tmp)
++		buf = append(buf, tmp[:n]...)
++		if err != nil {
++			return buf
++		}
++	}
++}
+diff --git a/mnemonic/internal/ctx/proxy/retry_test.go b/mnemonic/internal/ctx/proxy/retry_test.go
+new file mode 100644
+index 00000000..bb284c89
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/retry_test.go
+@@ -0,0 +1,146 @@
++package proxy
++
++import (
++	"context"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++	"time"
++)
++
++// newStatusServer builds an upstream that always returns the given status.
++func newStatusServer(t *testing.T, status int, body string) *httptest.Server {
++	t.Helper()
++	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.WriteHeader(status)
++		_, _ = w.Write([]byte(body))
++	}))
++}
++
++// noSleep records backoff durations so tests can assert the exponential
++// sequence without waiting.
++type noSleep struct{ calls []time.Duration }
++
++func (n *noSleep) sleep(d time.Duration) { n.calls = append(n.calls, d) }
++
++// TestCallWithRetrySuccessFirstTry proves a 2xx on the first attempt returns
++// immediately with the body verbatim and no retries.
++func TestCallWithRetrySuccessFirstTry(t *testing.T) {
++	up := newStatusServer(t, http.StatusOK, `{"ok":true}`)
++	defer up.Close()
++	attempts := 0
++	res := callWithRetry(context.Background(), func() (*http.Response, error) {
++		attempts++
++		req, _ := http.NewRequest(http.MethodPost, up.URL+"/v1/messages", nil)
++		return http.DefaultClient.Do(req)
++	}, 3, 200, realSleep)
++	if res.Status != http.StatusOK {
++		t.Fatalf("status = %d, want 200", res.Status)
++	}
++	if string(res.Body) != `{"ok":true}` {
++		t.Fatalf("body = %q, want verbatim", res.Body)
++	}
++	if attempts != 1 {
++		t.Errorf("attempts = %d, want 1", attempts)
++	}
++	if res.Attempts != 1 {
++		t.Errorf("res.Attempts = %d, want 1", res.Attempts)
++	}
++}
++
++// TestCallWithRetryExhaustsBudget proves that a persistent non-2xx is retried
++// up to maxRetries (1 + maxRetries total attempts), backs off exponentially
++// (base, 2*base), then returns the provider's last status/body verbatim.
++func TestCallWithRetryExhaustsBudget(t *testing.T) {
++	attempts := 0
++	base := 100
++	ns := &noSleep{}
++	res := callWithRetry(context.Background(), func() (*http.Response, error) {
++		attempts++
++		return &http.Response{StatusCode: http.StatusTooManyRequests, Body: http.NoBody}, nil
++	}, 3, base, ns.sleep)
++
++	// 1 initial + 3 retries = 4 attempts.
++	if attempts != 4 {
++		t.Fatalf("attempts = %d, want 4 (1 initial + 3 retries)", attempts)
++	}
++	if res.Attempts != 4 {
++		t.Errorf("res.Attempts = %d, want 4", res.Attempts)
++	}
++	if res.Status != http.StatusTooManyRequests {
++		t.Errorf("final status = %d, want 429 (verbatim)", res.Status)
++	}
++	// Backoff: base, 2*base, 4*base (after attempts 1, 2, 3).
++	want := []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond}
++	if len(ns.calls) != len(want) {
++		t.Fatalf("backoff calls = %d, want %d", len(ns.calls), len(want))
++	}
++	for i, w := range want {
++		if ns.calls[i] != w {
++			t.Errorf("backoff[%d] = %v, want %v", i, ns.calls[i], w)
++		}
++	}
++}
++
++// TestCallWithRetryVerbatimBody proves the final retry returns the provider's
++// body verbatim (AC d: upstream error passes through after retries).
++func TestCallWithRetryVerbatimBody(t *testing.T) {
++	up := newStatusServer(t, http.StatusBadGateway, `{"error":"provider blew up"}`)
++	defer up.Close()
++	ns := &noSleep{}
++	res := callWithRetry(context.Background(), func() (*http.Response, error) {
++		req, _ := http.NewRequest(http.MethodPost, up.URL, nil)
++		return http.DefaultClient.Do(req)
++	}, 2, 50, ns.sleep)
++	if res.Status != http.StatusBadGateway {
++		t.Fatalf("status = %d, want 502", res.Status)
++	}
++	if string(res.Body) != `{"error":"provider blew up"}` {
++		t.Fatalf("body = %q, want verbatim", res.Body)
++	}
++	// 1 + 2 retries = 3 attempts, 2 backoffs.
++	if res.Attempts != 3 {
++		t.Errorf("attempts = %d, want 3", res.Attempts)
++	}
++	if len(ns.calls) != 2 {
++		t.Errorf("backoff calls = %d, want 2", len(ns.calls))
++	}
++}
++
++// TestCallWithRetryTransportError proves a transport-level error (no upstream
++// status) is retried and, on final failure, yields res.Err so the caller can
++// render a 502.
++func TestCallWithRetryTransportError(t *testing.T) {
++	errs := 0
++	ns := &noSleep{}
++	res := callWithRetry(context.Background(), func() (*http.Response, error) {
++		errs++
++		return nil, errTestDial
++	}, 2, 10, ns.sleep)
++	if res.Err == nil {
++		t.Fatalf("expected res.Err set on transport failure")
++	}
++	if res.Err != errTestDial {
++		t.Errorf("res.Err = %v, want %v", res.Err, errTestDial)
++	}
++	if errs != 3 {
++		t.Errorf("attempts = %d, want 3", errs)
++	}
++}
++
++// TestBackoffMsSequence proves the exponential sequence base, 2*base, 4*base.
++func TestBackoffMsSequence(t *testing.T) {
++	if got := backoffMs(1, 200); got != 200*time.Millisecond {
++		t.Errorf("backoff(1,200) = %v, want 200ms", got)
++	}
++	if got := backoffMs(2, 200); got != 400*time.Millisecond {
++		t.Errorf("backoff(2,200) = %v, want 400ms", got)
++	}
++	if got := backoffMs(3, 200); got != 800*time.Millisecond {
++		t.Errorf("backoff(3,200) = %v, want 800ms", got)
++	}
++	// base 0 → no backoff.
++	if got := backoffMs(2, 0); got != 0 {
++		t.Errorf("backoff(2,0) = %v, want 0", got)
++	}
++}
+diff --git a/mnemonic/internal/ctx/proxy/savings.go b/mnemonic/internal/ctx/proxy/savings.go
+new file mode 100644
+index 00000000..3c53c35e
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/savings.go
+@@ -0,0 +1,150 @@
++package proxy
++
++import (
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"strings"
++)
++
++// The five savings headers added to every proxied response (plan 16.5).
++const (
++	HeaderSavings    = "X-CTX-Savings"
++	HeaderOriginal   = "X-CTX-Original-Tokens"
++	HeaderCompressed = "X-CTX-Compressed-Tokens"
++	HeaderMode       = "X-CTX-Mode"
++	HeaderCacheHit   = "X-CTX-Cache-Hit"
++)
++
++// SessionHeader is the header that carries a stable session id. If absent, the
++// proxy derives one from the client.
++const SessionHeader = "X-CTX-Session"
++
++// EstimateTokens is the deterministic token estimator used for the proxy's own
++// savings math. It is deliberately simple and STABLE so the AC fixture's
++// before/after delta is exact: a token is one whitespace-delimited word,
++// counted on the JSON-encoded message blob (the exact bytes the proxy forwards
++// on the wire). This is the delta that drives X-CTX-Savings. The upstream's
++// own usage block (input_tokens/output_tokens, prompt_tokens/completion_tokens)
++// is passed through to the client unchanged and is NOT used here.
++func EstimateTokens(b []byte) int {
++	s := string(b)
++	return len(strings.Fields(s))
++}
++
++// savings is the per-request savings computation, fully determined by the
++// before/after token counts and the effective mode.
++type savings struct {
++	Before   int
++	After    int
++	Mode     Mode
++	CacheHit bool
++}
++
++// delta is the compression delta: tokens_before - tokens_after (>= 0 after a
++// successful transform, 0 on passthrough / fail-open).
++func (s savings) delta() int { return s.Before - s.After }
++
++// savingsRatio is the fraction of tokens removed (0..1); guarded against
++// division by zero.
++func (s savings) savingsRatio() float64 {
++	if s.Before == 0 {
++		return 0
++	}
++	return float64(s.Before-s.After) / float64(s.Before)
++}
++
++// writeHeaders writes the five savings headers onto w. When cacheHit is set
++// and the mode is cache, X-CTX-Cache-Hit is "true"; every other case is
++// "false" (passthrough and token never report a cache hit).
++func (s savings) writeHeaders(w http.ResponseWriter) {
++	h := w.Header()
++	h.Set(HeaderSavings, fmt.Sprint(s.delta()))
++	h.Set(HeaderOriginal, fmt.Sprint(s.Before))
++	h.Set(HeaderCompressed, fmt.Sprint(s.After))
++	h.Set(HeaderMode, s.Mode.String())
++	hit := "false"
++	if s.Mode == ModeCache && s.CacheHit {
++		hit = "true"
++	}
++	h.Set(HeaderCacheHit, hit)
++}
++
++// transform is the pure compression function shared by every mode. It takes
++// the normalized messages and returns the compressed messages (a new slice;
++// the input is not mutated). The mode selects how much is transformed:
++//
++//   - passthrough: the messages are returned unchanged (delta 0).
++//   - token: every message's content is reduced to a deterministic summary.
++//   - cache: only the mutable tail (messages after the frozen head) is
++//     reduced; the stable prefix is left intact.
++//
++// A transform fault is reported as a non-nil error; the caller fails open to
++// passthrough (ADR-0016).
++//
++// The reducer is a deterministic placeholder so the delta is measurable and
++// non-zero on the AC fixture. A later ticket swaps in real compression behind
++// this same signature without touching the transport.
++func transform(mode Mode, msgs []message) ([]message, error) {
++	switch mode {
++	case ModePassthrough:
++		out := make([]message, len(msgs))
++		copy(out, msgs)
++		return out, nil
++	case ModeToken:
++		out := make([]message, len(msgs))
++		for i, m := range msgs {
++			if len(m.Content) == 0 {
++				out[i] = m
++				continue
++			}
++			out[i] = message{Role: m.Role, Content: summarize(m)}
++		}
++		return out, nil
++	case ModeCache:
++		head := headSplit(msgs)
++		out := make([]message, len(msgs))
++		for i, m := range msgs {
++			if i < head {
++				out[i] = m // frozen stable prefix
++			} else if len(m.Content) == 0 {
++				out[i] = m
++			} else {
++				out[i] = message{Role: m.Role, Content: summarize(m)}
++			}
++		}
++		return out, nil
++	default:
++		return nil, fmt.Errorf("proxy: unknown mode %q", mode)
++	}
++}
++
++// summarize is the deterministic reducer: it replaces a message's content with
++// a fixed-width placeholder that preserves the role and a small constant
++// marker. It is intentionally lossy and stable so the before/after token delta
++// is exactly computable from the wire bytes.
++func summarize(m message) string {
++	return "[ctx-summarized " + m.Role + "]"
++}
++
++// parseMessages decodes the upstream request body into the normalized
++// messages shape. It tolerates a missing/empty messages array.
++func parseMessages(body []byte) ([]message, error) {
++	if len(body) == 0 {
++		return nil, nil
++	}
++	var m messages
++	if err := json.Unmarshal(body, &m); err != nil {
++		return nil, err
++	}
++	return m.Messages, nil
++}
++
++// encodeMessages encodes a normalized messages slice to the wire JSON shape
++// {model?, messages:[{role,content}]} — the common core both Anthropic and
++// OpenAI request bodies share. The proxy re-encodes the (possibly compressed)
++// messages into this shape for forwarding; the upstream tolerates the
++// normalized message content.
++func encodeMessages(msgs []message) ([]byte, error) {
++	return json.Marshal(messages{Messages: msgs})
++}
+diff --git a/mnemonic/internal/ctx/proxy/savings_test.go b/mnemonic/internal/ctx/proxy/savings_test.go
+new file mode 100644
+index 00000000..ffebc3af
+--- /dev/null
++++ b/mnemonic/internal/ctx/proxy/savings_test.go
+@@ -0,0 +1,153 @@
++package proxy
++
++import (
++	"encoding/json"
++	"net/http/httptest"
++	"reflect"
++	"strings"
++	"testing"
++)
++
++// TestEstimateTokensStable is the deterministic token-estimate contract: the
++// fixture's before/after delta must be exact. This is the invariant that makes
++// X-CTX-Savings accurate on the AC fixture.
++func TestEstimateTokensStable(t *testing.T) {
++	// The AC fixture: count whitespace-delimited tokens on the wire bytes.
++	// The JSON structure produces 7 fields (the {, "messages" etc. merge
++	// around the 9 content words).
++	body := []byte(`{"messages":[{"role":"user","content":"the quick brown"},{"role":"assistant","content":"fox jumps over"},{"role":"user","content":"the lazy dog"}]}`)
++	if got := EstimateTokens(body); got != 7 {
++		t.Fatalf("EstimateTokens(fixture) = %d, want 7", got)
++	}
++	// Whitespace-only tokens collapse: repeated whitespace is one boundary.
++	if got := EstimateTokens([]byte(`{"a":"   "}`)); got != 2 {
++		t.Errorf("EstimateTokens(whitespace) = %d, want 2 (the {\"a\": and })", got)
++	}
++}
++
++// TestTransformPassthrough proves passthrough leaves the messages unchanged
++// (delta 0).
++func TestTransformPassthrough(t *testing.T) {
++	in := []message{{Role: "user", Content: "the quick brown"}}
++	out, err := transform(ModePassthrough, in)
++	if err != nil {
++		t.Fatalf("transform(passthrough): %v", err)
++	}
++	if !reflect.DeepEqual(out, in) {
++		t.Errorf("passthrough should be unchanged: got %v", out)
++	}
++}
++
++// TestTransformTokenMaximizesCompression proves token mode reduces every
++// non-empty message, producing a smaller after-byte count (non-zero delta).
++func TestTransformTokenMaximizesCompression(t *testing.T) {
++	in := []message{
++		{Role: "user", Content: "the quick brown"},
++		{Role: "assistant", Content: "fox jumps over"},
++	}
++	out, err := transform(ModeToken, in)
++	if err != nil {
++		t.Fatalf("transform(token): %v", err)
++	}
++	before := EstimateTokens(mustEncode(t, in))
++	after := EstimateTokens(mustEncode(t, out))
++	if after >= before {
++		t.Errorf("token mode must compress: before=%d after=%d", before, after)
++	}
++	// Each reduced message carries the deterministic summary marker.
++	for i, m := range out {
++		if !strings.Contains(m.Content, "[ctx-summarized") {
++			t.Errorf("token mode message %d not summarized: %q", i, m.Content)
++		}
++	}
++}
++
++// TestTransformCacheCompressesOnlyTail proves cache mode freezes the stable
++// prefix (everything up to and including the last user message) and compresses
++// only the mutable tail.
++func TestTransformCacheCompressesOnlyTail(t *testing.T) {
++	in := []message{
++		{Role: "user", Content: "frozen one"},        // head
++		{Role: "assistant", Content: "frozen two"},   // head
++		{Role: "user", Content: "frozen three"},      // head (last user)
++		{Role: "assistant", Content: "mutable tail"}, // tail
++	}
++	out, err := transform(ModeCache, in)
++	if err != nil {
++		t.Fatalf("transform(cache): %v", err)
++	}
++	// Head (first 3) unchanged.
++	for i := 0; i < 3; i++ {
++		if out[i] != in[i] {
++			t.Errorf("cache head %d changed: %v -> %v", i, in[i], out[i])
++		}
++	}
++	// Tail (index 3) summarized.
++	if !strings.Contains(out[3].Content, "[ctx-summarized") {
++		t.Errorf("cache tail not summarized: %q", out[3].Content)
++	}
++}
++
++func TestTransformUnknownMode(t *testing.T) {
++	if _, err := transform(Mode("bogus"), []message{{Role: "user", Content: "x"}}); err == nil {
++		t.Errorf("transform(bogus) should error")
++	}
++}
++
++// TestSavingsWriteHeadersAccurate proves the five savings headers are written
++// with the exact before/after/mode/cache-hit values (plan 16.5).
++func TestSavingsWriteHeadersAccurate(t *testing.T) {
++	cases := []struct {
++		name      string
++		sv        savings
++		wantSave  string
++		wantOrig  string
++		wantComp  string
++		wantMode  string
++		wantCache string
++	}{
++		{"delta", savings{Before: 10, After: 4, Mode: ModeToken, CacheHit: false}, "6", "10", "4", "token", "false"},
++		{"passthrough-zero", savings{Before: 7, After: 7, Mode: ModePassthrough}, "0", "7", "7", "passthrough", "false"},
++		{"cache-hit", savings{Before: 9, After: 5, Mode: ModeCache, CacheHit: true}, "4", "9", "5", "cache", "true"},
++		{"cache-miss", savings{Before: 9, After: 5, Mode: ModeCache, CacheHit: false}, "4", "9", "5", "cache", "false"},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			w := httptest.NewRecorder()
++			tc.sv.writeHeaders(w)
++			if got := w.Header().Get(HeaderSavings); got != tc.wantSave {
++				t.Errorf("X-CTX-Savings = %q, want %q", got, tc.wantSave)
++			}
++			if got := w.Header().Get(HeaderOriginal); got != tc.wantOrig {
++				t.Errorf("X-CTX-Original-Tokens = %q, want %q", got, tc.wantOrig)
++			}
++			if got := w.Header().Get(HeaderCompressed); got != tc.wantComp {
++				t.Errorf("X-CTX-Compressed-Tokens = %q, want %q", got, tc.wantComp)
++			}
++			if got := w.Header().Get(HeaderMode); got != tc.wantMode {
++				t.Errorf("X-CTX-Mode = %q, want %q", got, tc.wantMode)
++			}
++			if got := w.Header().Get(HeaderCacheHit); got != tc.wantCache {
++				t.Errorf("X-CTX-Cache-Hit = %q, want %q", got, tc.wantCache)
++			}
++		})
++	}
++}
++
++func TestSavingsRatio(t *testing.T) {
++	if got := (savings{Before: 10, After: 4}).savingsRatio(); got != 0.6 {
++		t.Errorf("savingsRatio = %v, want 0.6", got)
++	}
++	if got := (savings{Before: 0, After: 0}).savingsRatio(); got != 0 {
++		t.Errorf("savingsRatio(0,0) = %v, want 0 (no div by zero)", got)
++	}
++}
++
++func mustEncode(t *testing.T, msgs []message) []byte {
++	t.Helper()
++	b, err := json.Marshal(messages{Messages: msgs})
++	if err != nil {
++		t.Fatalf("encode: %v", err)
++	}
++	return b
++}

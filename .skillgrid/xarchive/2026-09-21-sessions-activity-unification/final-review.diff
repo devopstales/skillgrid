@@ -1,0 +1,2603 @@
+# Branch diff: 17caa72..HEAD
+## Commits
+19a657e feat(ui): unify Sessions as the single activity home; drop Activity + Handoff pages
+3d0a818 feat(http): rename /activity/snapshots to /handoff/snapshots; add /sessions/{id}/activity
+
+## Diffstat
+ docs/user-guide/09-serve-dashboard.md              |  64 ++--
+ skillgrid-cli/internal/mnemonic/http/activity.go   |  67 +++-
+ skillgrid-cli/internal/mnemonic/http/handoff.go    |   5 +-
+ .../internal/mnemonic/http/handoff_test.go         |  18 +-
+ skillgrid-cli/internal/mnemonic/http/server.go     |   8 +-
+ .../mnemonic/http/sessions_activity_test.go        |  94 ++++++
+ skillgrid-ui/src/app.tsx                           |  14 -
+ skillgrid-ui/src/components/layout/AppLayout.tsx   |   2 -
+ skillgrid-ui/src/features/activity/api.ts          | 148 ---------
+ .../src/features/handoff/HandoffHubPage.tsx        | 356 ---------------------
+ skillgrid-ui/src/features/handoff/api.ts           | 180 -----------
+ .../src/features/mnemonic/SessionsPage.test.tsx    | 142 ++++++++
+ .../src/features/mnemonic/SessionsPage.tsx         | 263 ++++++++++-----
+ .../ActivityPage.tsx => sessions/ActivityPane.tsx} |  63 ++--
+ .../{activity => sessions}/AgentHealth.tsx         |   0
+ .../{activity => sessions}/AlertBanner.tsx         |   0
+ skillgrid-ui/src/features/sessions/AuditTab.tsx    |  75 +++++
+ skillgrid-ui/src/features/sessions/ChangesPane.tsx | 111 +++++++
+ .../features/{activity => sessions}/EventCard.tsx  |   0
+ .../features/{activity => sessions}/Filters.tsx    |   0
+ .../src/features/sessions/HandoffsPane.tsx         |  99 ++++++
+ .../features/{activity => sessions}/StatsBar.tsx   |   0
+ skillgrid-ui/src/features/sessions/api.ts          | 301 +++++++++++++++++
+ 23 files changed, 1160 insertions(+), 850 deletions(-)
+
+## Full diff (-M, U10)
+diff --git a/docs/user-guide/09-serve-dashboard.md b/docs/user-guide/09-serve-dashboard.md
+index d828510..a576c01 100644
+--- a/docs/user-guide/09-serve-dashboard.md
++++ b/docs/user-guide/09-serve-dashboard.md
+@@ -47,63 +47,65 @@ degraded state when a provider CLI is missing.
+ ### Mnemonic
+ 
+ - **Graph** — the code-graph view (Sigma.js webgl): nodes are code symbols,
+   edges are references. Progressive ForceAtlas2 layout (with a Stop button),
+   zoom/fit controls, a file-tree explorer (left) that filters/dims by file or
+   owning agent, search (name/path/semantic hybrid), and a node panel
+   (callers/callees, source, impact, tests-for).
+ - **Files** — the indexed-file tree with content read.
+ - **Memories** — the observation list; supports pin, share, and status actions
+   (the only writes).
+-- **Sessions** — the session list with summaries.
++- **Sessions** — the single "what happened" home. The session list (left)
++  plus a detail pane (right) with four tabs: **Activity** (default — the live
++  feed, scoped to the selected session via `GET /sessions/{id}/activity`, or
++  project-wide when nothing is selected; stats bar, filters, agent-health,
++  high-severity alerts), **Changes** (the Handoff Hub change log: git-derived
++  snapshots + checkpoint markers), **Handoffs** (named checkpoints + handoff
++  refs), and **Audit** (the hash-chained memory change log, a secondary
++  verification tab). Selecting a session also shows its stored summary in the
++  header. This consolidates the former separate Activity and Handoff pages.
+ - **Search** — cross-store search (memory + code + web cache).
+ 
+ ### Docs
+ 
+ Browse and render the repo's documentation (the shared core document tree).
+ Mermaid diagrams and KaTeX formulas render inline.
+ 
+ ### Plans
+ 
+ The SDD/plans ledger (`.skillgrid/specs/` + `.skillgrid/sdd/`): one card per
+ change with status + task-progress bar, a dependency pipeline, a detail view
+ (SDD ledger steps, file inventory), and a spec viewer (renders `briefing.md` /
+ `tasks.md` / `findings.md`). Read-only — it reflects what the SDD skills wrote.
+ 
+-### Activity
+-
+-The live agent-activity feed (observations as events): a stats bar, a
+-filterable feed (type/source/severity/actor), agent-health liveness, and
+-dismissible high-severity alerts. Live via SSE (`/activity/stream`) — new
+-events animate in from the top.
+-
+-### Handoff
+-
+-The Handoff Hub (`/handoff`, change 015): one page combining the three
+-checkpoint mechanisms into a single engine-backed view.
+-
+-- **Changes tab** — the change log: every commit as a git-derived snapshot
+-  (`change_snapshots`) with its parsed `[skillgrid-context]` block (Task /
+-  Decisions / Remaining / Tried), named checkpoints overlaid as markers, and
+-  the latest commit up top. Live via the extended `/activity/stream`
+-  (`event: snapshot`) — a new commit animates in.
+-- **Activity tab** — the same agent-activity feed as the Activity view.
+-- **Handoffs tab** — the named checkpoints (with drift status) and the
+-  handoff refs (session/team handoffs joined to their commit ranges + spec dir).
+-
+-The data is engine-backed (SQLite, migration `039_handoff_hub.sql`), populated
+-by `checkpoint-state.sh snapshot` (best-effort `skillgrid handoff record`) and
+-seeded on first run by `skillgrid handoff backfill` (last 100 commits). Named
+-checkpoints are placed with `skillgrid handoff checkpoint <name>` and
+-drift-verified with `skillgrid handoff verify <name>`; the one-call "where are
+-we" is `skillgrid handoff status`. The MCP surface exposes `handoff_snapshot`,
+-`handoff_status`, `handoff_checkpoint`, `handoff_verify`, and `handoff_rollup`.
++### Activity / Handoff (now part of Sessions)
++
++The former standalone **Activity** (`/activity`) and **Handoff** (`/handoff`)
++pages are consolidated into the **Sessions** page (the single "what happened"
++home). The live activity feed (observations as events — stats bar, filterable
++feed by type/source/severity/actor, agent-health liveness, dismissible
++high-severity alerts, live via SSE `/activity/stream`) is the Sessions
++**Activity** tab, scoped to the selected session. The Handoff Hub's change log
++(git-derived snapshots with parsed `[skillgrid-context]` blocks + checkpoint
++markers) and handoffs (named checkpoints + handoff refs) are the Sessions
++**Changes** and **Handoffs** tabs. Their duplicate "activity" tab was removed.
++
++The change-log data is engine-backed (SQLite, migration
++`039_handoff_hub.sql`), populated by `checkpoint-state.sh snapshot`
++(best-effort `skillgrid handoff record`) and seeded on first run by
++`skillgrid handoff backfill` (last 100 commits). Named checkpoints are placed
++with `skillgrid handoff checkpoint <name>` and drift-verified with
++`skillgrid handoff verify <name>`; the one-call "where are we" is
++`skillgrid handoff status`. The change-snapshot REST route moved to
++`GET /handoff/snapshots` (renamed from `/activity/snapshots`); the MCP surface
++exposes `handoff_snapshot`, `handoff_status`, `handoff_checkpoint`,
++`handoff_verify`, and `handoff_rollup`.
+ 
+ ### Git
+ 
+ A read-only git bridge: the commit log (with +/- stats), commit detail +
+ unified diff, per-file history, and per-line blame. Read-only (`git` CLI, no
+ writes). Returns `503` when the served directory is not a git worktree.
+ 
+ ### Prototypes
+ 
+ A sandboxed gallery of `.stitch/` design prototypes: a gallery list, a
+@@ -138,22 +140,22 @@ When `tracker.provider` is `backlog` (the default), no external CLI is needed 
+ the board reads the local `Backlog.md` directly.
+ 
+ ### Degraded state
+ 
+ If the configured provider's CLI is **missing or unauthenticated**, the
+ Tracker view degrades gracefully — it does not break the rest of the dashboard:
+ 
+ - The board shows an **amber banner**: the provider name, what's missing
+   (CLI not on `PATH` / not authenticated), and the exact command to fix it
+   (e.g. `gh auth login`).
+-- The other views (Graph, Memories, Sessions, Docs, Plans, Handoff, Activity,
+-  Git, Prototypes) are **unaffected** — they don't touch the tracker CLI.
++- The other views (Graph, Memories, Sessions, Docs, Plans, Git, Prototypes) are
++  **unaffected** — they don't touch the tracker CLI.
+ - `GET /tracker/providers` reports each provider's availability so the UI can
+   render the banner; `GET /tracker/config` reports the active provider.
+ 
+ Fix the dependency (install/auth the CLI), then reload — the board populates
+ from the provider.
+ 
+ ---
+ 
+ ## API + OpenAPI
+ 
+diff --git a/skillgrid-cli/internal/mnemonic/http/activity.go b/skillgrid-cli/internal/mnemonic/http/activity.go
+index ed329b1..5091ddd 100644
+--- a/skillgrid-cli/internal/mnemonic/http/activity.go
++++ b/skillgrid-cli/internal/mnemonic/http/activity.go
+@@ -93,20 +93,85 @@ func (s *Server) handleMnemonicActivityEvents(w http.ResponseWriter, r *http.Req
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+ 	}
+ 	writeJSON(w, http.StatusOK, map[string]any{
+ 		"project": projectID,
+ 		"events":  events,
+ 		"limit":   limit,
+ 	})
+ }
+ 
++// handleSessionActivity serves GET /sessions/{id}/activity?limit=N — the
++// activity feed scoped to one session. It reuses the exact events shape as
++// /activity/events but adds a session filter, so the Sessions UI can render a
++// session's own feed without a client-side filter of the global window
++// (sessions-activity-unification). An id with no observations returns 200 with
++// an empty events array (matching the unknown-project convention above), not 404.
++func (s *Server) handleSessionActivity(w http.ResponseWriter, r *http.Request) {
++	sessionID := r.PathValue("id")
++	projectID, err := projectFromRequest(r)
++	if err != nil {
++		writeError(w, http.StatusBadRequest, err.Error())
++		return
++	}
++	h, cleanup, err := s.openHandleFor(projectID)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer cleanup()
++
++	limit := queryInt(r, "limit", 100)
++	if limit < 1 {
++		limit = 1
++	}
++	if limit > 500 {
++		limit = 500
++	}
++
++	rows, err := h.Store().DB.QueryContext(r.Context(), `
++		SELECT o.id, o.created_at, o.type, COALESCE(o.source,'agent'), o.tool_name,
++		       o.title, o.topic_key, o.session_id
++		FROM observations o
++		WHERE o.project = ? AND o.deleted_at IS NULL AND o.session_id = ?
++		ORDER BY o.created_at DESC, o.id DESC
++		LIMIT ?`, projectID, sessionID, limit)
++	if err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	defer rows.Close()
++
++	events := []activityEvent{}
++	for rows.Next() {
++		var e activityEvent
++		var otype string
++		if err := rows.Scan(&e.ID, &e.TS, &otype, &e.Source, &e.Actor, &e.Summary, &e.TopicKey, &e.SessionID); err != nil {
++			writeError(w, http.StatusInternalServerError, err.Error())
++			return
++		}
++		e.Type = otype
++		e.Severity = deriveSeverity(otype)
++		e.Related = []int64{}
++		events = append(events, e)
++	}
++	if err := rows.Err(); err != nil {
++		writeError(w, http.StatusInternalServerError, err.Error())
++		return
++	}
++	writeJSON(w, http.StatusOK, map[string]any{
++		"project": projectID,
++		"events":  events,
++		"limit":   limit,
++	})
++}
++
+ // handleMnemonicActivityStats serves GET /activity/stats — counters for the
+ // stats bar: total events, per-type breakdown, and active session count.
+ func (s *Server) handleMnemonicActivityStats(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	h, cleanup, err := s.openHandleFor(projectID)
+ 	if err != nil {
+@@ -196,21 +261,21 @@ func (s *Server) handleMnemonicActivityStream(w http.ResponseWriter, r *http.Req
+ 	ctx := r.Context()
+ 	client := &activityStreamClient{events: make(chan streamEvent, 64)}
+ 
+ 	// Poller: track the newest observation id AND the newest change_snapshot
+ 	// id (Handoff Hub, change 015). Each tick emits rows newer than the mark,
+ 	// tagged with the SSE event type (activity | snapshot).
+ 	go func() {
+ 		db := h.Store().DB
+ 		// Seed the high-water marks with the current newest ids (no replay of
+ 		// history on connect — the client already has it from /events and
+-		// /activity/snapshots). If the observations seed errors, treat the
++		// /handoff/snapshots). If the observations seed errors, treat the
+ 		// stream as closed rather than replaying the whole table from id>0.
+ 		// The snapshot seed is best-effort (the table may predate the hub).
+ 		var newest int64
+ 		if err := db.QueryRowContext(ctx,
+ 			`SELECT COALESCE(MAX(id), 0) FROM observations WHERE project = ? AND deleted_at IS NULL`, projectID,
+ 		).Scan(&newest); err != nil {
+ 			return
+ 		}
+ 		var newestSnap int64
+ 		_ = db.QueryRowContext(ctx,
+diff --git a/skillgrid-cli/internal/mnemonic/http/handoff.go b/skillgrid-cli/internal/mnemonic/http/handoff.go
+index 4fa8e4a..e3db610 100644
+--- a/skillgrid-cli/internal/mnemonic/http/handoff.go
++++ b/skillgrid-cli/internal/mnemonic/http/handoff.go
+@@ -1,24 +1,25 @@
+ package http
+ 
+ import (
+ 	"encoding/json"
+ 	"net/http"
+ 
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/handoff"
+ )
+ 
+-// handleHandoffSnapshots serves GET /activity/snapshots?limit=N — the
++// handleHandoffSnapshots serves GET /handoff/snapshots?limit=N — the
+ // change-snapshot log (change_snapshots), newest-first. This is the Handoff
+ // Hub's change log backed by the git-derived snapshot index (change
+ // 015-handoff-hub). It is a read-only view; the durable record is the commit
+-// (and its [skillgrid-context] block).
++// (and its [skillgrid-context] block). The route was renamed from
++// /activity/snapshots in sessions-activity-unification.
+ func (s *Server) handleHandoffSnapshots(w http.ResponseWriter, r *http.Request) {
+ 	projectID, err := projectFromRequest(r)
+ 	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
+ 	h, cleanup, err := s.openHandleFor(projectID)
+ 	if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+ 		return
+diff --git a/skillgrid-cli/internal/mnemonic/http/handoff_test.go b/skillgrid-cli/internal/mnemonic/http/handoff_test.go
+index a42ba9d..d09046b 100644
+--- a/skillgrid-cli/internal/mnemonic/http/handoff_test.go
++++ b/skillgrid-cli/internal/mnemonic/http/handoff_test.go
+@@ -32,44 +32,56 @@ func newHandoffServer(t *testing.T) (http.Handler, string) {
+ 		VALUES ('http-test', 'before-apply-auth', 'main', 'abc1234def5678', 0, 'open', '2026-01-01T00:00:00Z');
+ 	`
+ 	if _, err := st.DB.Exec(seed); err != nil {
+ 		t.Fatalf("seed handoff: %v", err)
+ 	}
+ 	_ = st.Close()
+ 	svc := service.New(dataDir)
+ 	return NewServer(svc).Handler(), dataDir
+ }
+ 
+-// TestHandoffSnapshotsEndpoint covers GET /activity/snapshots — the change log
+-// returns the seeded snapshot with its parsed [skillgrid-context] block.
++// TestHandoffSnapshotsEndpoint covers GET /handoff/snapshots — the change log
++// returns the seeded snapshot with its parsed [skillgrid-context] block. The
++// route was renamed from /activity/snapshots (sessions-activity-unification).
+ func TestHandoffSnapshotsEndpoint(t *testing.T) {
+ 	h, _ := newHandoffServer(t)
+-	rr := doGet(t, h, "/activity/snapshots?project="+proj+"&limit=10")
++	rr := doGet(t, h, "/handoff/snapshots?project="+proj+"&limit=10")
+ 	if rr.Code != http.StatusOK {
+ 		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+ 	}
+ 	var em map[string]any
+ 	if err := json.Unmarshal(rr.Body.Bytes(), &em); err != nil {
+ 		t.Fatalf("unmarshal: %v", err)
+ 	}
+ 	snaps, _ := em["snapshots"].([]any)
+ 	if len(snaps) != 1 {
+ 		t.Fatalf("snapshots len = %d, want 1", len(snaps))
+ 	}
+ 	s0 := snaps[0].(map[string]any)
+ 	if s0["subject"] != "feat: add auth" || s0["commitShort"] != "abc1234" {
+ 		t.Fatalf("snapshot = %v", s0)
+ 	}
+ 	ctx, ok := s0["context"].(map[string]any)
+ 	if !ok || ctx["task"] != "auth" || ctx["decisions"] != "jwt" {
+ 		t.Fatalf("parsed context = %v", s0["context"])
+ 	}
++	// The old path is gone (hard rename, no alias): it must no longer resolve to
++	// the snapshot handler. The SPA fallback (embed.go) serves the shell HTML
++	// for any unmatched GET, so "gone" means it returns HTML, not the JSON
++	// snapshot payload — assert the body no longer parses as JSON.
++	old := doGet(t, h, "/activity/snapshots?project="+proj+"&limit=10")
++	if old.Body.Len() > 0 {
++		var probe map[string]any
++		if err := json.Unmarshal(old.Body.Bytes(), &probe); err == nil {
++			t.Fatalf("old /activity/snapshots still returns JSON after rename: %v", probe)
++		}
++	}
+ }
+ 
+ // TestHandoffStatusEndpoint covers GET /handoff/status — the one-call hub view
+ // returns the latest snapshot + the open checkpoint.
+ func TestHandoffStatusEndpoint(t *testing.T) {
+ 	h, _ := newHandoffServer(t)
+ 	rr := doGet(t, h, "/handoff/status?project="+proj)
+ 	if rr.Code != http.StatusOK {
+ 		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+ 	}
+diff --git a/skillgrid-cli/internal/mnemonic/http/server.go b/skillgrid-cli/internal/mnemonic/http/server.go
+index 9e06c83..de12931 100644
+--- a/skillgrid-cli/internal/mnemonic/http/server.go
++++ b/skillgrid-cli/internal/mnemonic/http/server.go
+@@ -83,20 +83,23 @@ func scopeForSave(scope string) string {
+ func (s *Server) registerRoutes() {
+ 	s.mux.HandleFunc("GET /health", s.handleHealth)
+ 
+ 	s.mux.HandleFunc("POST /sessions", s.requireWriteAuth(s.handleSessionCreate))
+ 	s.mux.HandleFunc("POST /sessions/{id}/end", s.requireWriteAuth(s.handleSessionEnd))
+ 	s.mux.HandleFunc("POST /sessions/{id}/title", s.requireWriteAuth(s.handleSessionSetTitle))
+ 	s.mux.HandleFunc("GET /sessions/{id}", s.handleSessionGet)
+ 	// P6 Sessions entry: open list read + per-session summary read.
+ 	s.mux.HandleFunc("GET /sessions", s.handleSessionList)
+ 	s.mux.HandleFunc("GET /sessions/{id}/summary", s.handleSessionSummary)
++	// sessions-activity-unification: server-side session-scoped activity feed.
++	// Same response shape as /activity/events, filtered by the {id} session.
++	s.mux.HandleFunc("GET /sessions/{id}/activity", s.handleSessionActivity)
+ 
+ 	s.mux.HandleFunc("GET /context", s.handleContext)
+ 	s.mux.HandleFunc("GET /context/compaction", s.handleContextCompaction)
+ 	s.mux.HandleFunc("GET /memory/status", s.handleMemoryStatus)
+ 	s.mux.HandleFunc("GET /memory/last-save-at", s.handleMemoryLastSaveAt)
+ 	s.mux.HandleFunc("POST /observations", s.requireWriteAuth(s.handleObservationCreate))
+ 	s.mux.HandleFunc("POST /observations/passive", s.requireWriteAuth(s.handleObservationPassive))
+ 	s.mux.HandleFunc("GET /observations/recent", s.handleObservationsRecent)
+ 	s.mux.HandleFunc("GET /observations", s.handleObservationsList)
+ 	// P4 Memory entry: open read of a single observation (full content, same
+@@ -175,21 +178,24 @@ func (s *Server) registerGraphRoutes() {
+ 	s.mux.HandleFunc("GET /mnemonic/search", s.handleMnemonicListOrShell(s.handleMnemonicSearch))
+ 
+ 	// Phase 6 activity routes (agent event feed + live SSE stream + stats).
+ 	// /activity is the SPA route, so the list endpoints share it via
+ 	// shellOrJSON (browser → shell, API client Accept: application/json → JSON).
+ 	s.mux.HandleFunc("GET /activity", s.shellOrJSON(s.handleMnemonicActivityEvents))
+ 	s.mux.HandleFunc("GET /activity/events", s.handleMnemonicActivityEvents)
+ 	s.mux.HandleFunc("GET /activity/stats", s.handleMnemonicActivityStats)
+ 	s.mux.HandleFunc("GET /activity/stream", s.handleMnemonicActivityStream)
+ 	// Handoff Hub (change 015): change-snapshot log + one-call hub status.
+-	s.mux.HandleFunc("GET /activity/snapshots", s.handleHandoffSnapshots)
++	// The snapshot route lives under /handoff (renamed from /activity/snapshots
++	// in sessions-activity-unification — handoff data belongs in the handoff
++	// namespace, not the activity feed).
++	s.mux.HandleFunc("GET /handoff/snapshots", s.handleHandoffSnapshots)
+ 	s.mux.HandleFunc("GET /handoff/status", s.handleHandoffStatus)
+ 
+ 	// Phase 6 plans/specs routes (SDD aggregation from .skillgrid/*).
+ 	s.mux.HandleFunc("GET /plans", s.shellOrJSON(s.handlePlans))
+ 	s.mux.HandleFunc("GET /plans/{id}", s.handlePlanDetail)
+ 	s.mux.HandleFunc("GET /specs", s.handleSpecs)
+ 	s.mux.HandleFunc("GET /specs/{path...}", s.handleSpecContent)
+ 
+ 	// Phase 6 git routes (read-only commit log / diff / file-history / blame).
+ 	s.mux.HandleFunc("GET /git", s.shellOrJSON(s.handleGitCommits))
+diff --git a/skillgrid-cli/internal/mnemonic/http/sessions_activity_test.go b/skillgrid-cli/internal/mnemonic/http/sessions_activity_test.go
+new file mode 100644
+index 0000000..607a80a
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/http/sessions_activity_test.go
+@@ -0,0 +1,94 @@
++package http
++
++import (
++	"encoding/json"
++	"net/http"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// seedSessionsActivityStore seeds two sessions with distinct observations so
++// the session-scoped activity endpoint has rows to filter.
++func seedSessionsActivityStore(t *testing.T, dataDir string) {
++	t.Helper()
++	st, err := store.Open(dataDir, proj)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	defer st.Close()
++	seed := `
++		INSERT INTO sessions (id, project, directory, started_at, ended_at, summary, status, title)
++		VALUES ('sa-sess-A', 'http-test', '.', '2026-09-10T09:00:00Z', NULL, '## Goal A', 'active', 'Session A'),
++		       ('sa-sess-B', 'http-test', '.', '2026-09-10T10:00:00Z', NULL, '## Goal B', 'active', 'Session B');
++
++		INSERT INTO observations (session_id, type, title, content, project, scope, source, created_at, updated_at, normalized_hash)
++		VALUES ('sa-sess-A', 'decision', 'A-chose-sqlite', 'a', 'http-test', 'project', 'agent', '2026-09-10T09:05:00Z', '2026-09-10T09:05:00Z', 'sa-h1'),
++		       ('sa-sess-A', 'bugfix', 'A-fixed-login', 'a', 'http-test', 'project', 'agent', '2026-09-10T09:15:00Z', '2026-09-10T09:15:00Z', 'sa-h2'),
++		       ('sa-sess-B', 'discovery', 'B-found-n1', 'b', 'http-test', 'project', 'passive', '2026-09-10T10:05:00Z', '2026-09-10T10:05:00Z', 'sa-h3');
++	`
++	if _, err := st.DB.Exec(seed); err != nil {
++		t.Fatalf("seed: %v", err)
++	}
++}
++
++func newSessionsActivityServer(t *testing.T) http.Handler {
++	t.Helper()
++	dataDir := t.TempDir()
++	t.Setenv("SKILLGRID_MNEMONIC_DATA_DIR", dataDir)
++	seedSessionsActivityStore(t, dataDir)
++	return NewServer(service.New(dataDir)).Handler()
++}
++
++// TestSessionScopedActivity verifies GET /sessions/{id}/activity?limit=N returns
++// only the requested session's events (server-side scoping), in the same
++// {project, events, limit} shape as /activity/events.
++func TestSessionScopedActivity(t *testing.T) {
++	h := newSessionsActivityServer(t)
++
++	// Scoped to sa-sess-A → only that session's 2 events, newest first.
++	rr := doGet(t, h, "/sessions/sa-sess-A/activity?project="+proj+"&limit=50")
++	if rr.Code != http.StatusOK {
++		t.Fatalf("scoped: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
++	}
++	var em map[string]any
++	if err := json.Unmarshal(rr.Body.Bytes(), &em); err != nil {
++		t.Fatalf("scoped: unmarshal: %v", err)
++	}
++	evs, _ := em["events"].([]any)
++	if len(evs) != 2 {
++		t.Fatalf("scoped sa-sess-A: got %d events, want 2; body=%s", len(evs), rr.Body.String())
++	}
++	for _, raw := range evs {
++		ev := raw.(map[string]any)
++		if ev["sessionId"] != "sa-sess-A" {
++			t.Errorf("scoped event leaked sessionId=%v, want sa-sess-A", ev["sessionId"])
++		}
++	}
++	if evs[0].(map[string]any)["summary"] != "A-fixed-login" {
++		t.Errorf("scoped[0].summary = %v, want 'A-fixed-login' (newest first)", evs[0].(map[string]any)["summary"])
++	}
++
++	// Scoped to sa-sess-B → only its 1 event.
++	rr = doGet(t, h, "/sessions/sa-sess-B/activity?project="+proj+"&limit=50")
++	_ = json.Unmarshal(rr.Body.Bytes(), &em)
++	evs, _ = em["events"].([]any)
++	if len(evs) != 1 {
++		t.Fatalf("scoped sa-sess-B: got %d events, want 1", len(evs))
++	}
++	if evs[0].(map[string]any)["summary"] != "B-found-n1" {
++		t.Errorf("scoped sa-sess-B[0].summary = %v, want 'B-found-n1'", evs[0].(map[string]any)["summary"])
++	}
++
++	// A session with no observations → 200 with an empty events array (not 404,
++	// matching the /activity/events unknown-project convention).
++	rr = doGet(t, h, "/sessions/sa-empty/activity?project="+proj+"&limit=50")
++	if rr.Code != http.StatusOK {
++		t.Fatalf("empty session: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
++	}
++	_ = json.Unmarshal(rr.Body.Bytes(), &em)
++	if evs, _ = em["events"].([]any); len(evs) != 0 {
++		t.Errorf("empty session: got %d events, want 0", len(evs))
++	}
++}
+diff --git a/skillgrid-ui/src/app.tsx b/skillgrid-ui/src/app.tsx
+index 27583c1..4881834 100644
+--- a/skillgrid-ui/src/app.tsx
++++ b/skillgrid-ui/src/app.tsx
+@@ -78,32 +78,20 @@ const docsRoute = createRoute({
+   path: '/docs',
+   component: lazyPage(() => import('./features/docs/DocsPage').then((m) => ({ default: m.DocsPage }))),
+ })
+ 
+ const plansRoute = createRoute({
+   getParentRoute: () => rootRoute,
+   path: '/plans',
+   component: lazyPage(() => import('./features/plans/PlansPage').then((m) => ({ default: m.PlansPage }))),
+ })
+ 
+-const activityRoute = createRoute({
+-  getParentRoute: () => rootRoute,
+-  path: '/activity',
+-  component: lazyPage(() => import('./features/activity/ActivityPage').then((m) => ({ default: m.ActivityPage }))),
+-})
+-
+-const handoffRoute = createRoute({
+-  getParentRoute: () => rootRoute,
+-  path: '/handoff',
+-  component: lazyPage(() => import('./features/handoff/HandoffHubPage').then((m) => ({ default: m.HandoffHubPage }))),
+-})
+-
+ const decisionsRoute = createRoute({
+   getParentRoute: () => rootRoute,
+   path: '/decisions',
+   component: lazyPage(() => import('./features/decisions/DecisionsPage').then((m) => ({ default: m.DecisionsPage }))),
+ })
+ 
+ const gitRoute = createRoute({
+   getParentRoute: () => rootRoute,
+   path: '/git',
+   component: lazyPage(() => import('./features/git/GitPage').then((m) => ({ default: m.GitPage }))),
+@@ -130,22 +118,20 @@ const notFoundRoute = createRoute({
+ const routeTree = rootRoute.addChildren([
+   indexRoute,
+   trackerRoute,
+   graphRoute,
+   filesRoute,
+   memoriesRoute,
+   sessionsRoute,
+   searchRoute,
+   docsRoute,
+   plansRoute,
+-  activityRoute,
+-  handoffRoute,
+   decisionsRoute,
+   gitRoute,
+   prototypesRoute,
+   settingsRoute,
+   notFoundRoute,
+ ])
+ 
+ const router = createRouter({ routeTree })
+ 
+ export function App() {
+diff --git a/skillgrid-ui/src/components/layout/AppLayout.tsx b/skillgrid-ui/src/components/layout/AppLayout.tsx
+index a5e5392..852e542 100644
+--- a/skillgrid-ui/src/components/layout/AppLayout.tsx
++++ b/skillgrid-ui/src/components/layout/AppLayout.tsx
+@@ -7,22 +7,20 @@ const MNEMONIC_ITEMS: Array<{ to: string; label: string }> = [
+   { to: '/mnemonic/graph', label: 'Graph' },
+   { to: '/mnemonic/files', label: 'Files' },
+   { to: '/mnemonic/memories', label: 'Memories' },
+   { to: '/mnemonic/sessions', label: 'Sessions' },
+   { to: '/mnemonic/search', label: 'Search' },
+ ]
+ 
+ const STANDALONE_ITEMS: Array<{ to: string; label: string }> = [
+   { to: '/docs', label: 'Docs' },
+   { to: '/plans', label: 'Plans' },
+-  { to: '/handoff', label: 'Handoff' },
+-  { to: '/activity', label: 'Activity' },
+   { to: '/decisions', label: 'Decisions' },
+   { to: '/git', label: 'Git' },
+   { to: '/prototypes', label: 'Prototypes' },
+   { to: '/settings', label: 'Settings' },
+ ]
+ 
+ export function AppLayout() {
+   // Phase 7.4 responsive: the sidebar is a slide-over on mobile (hidden by
+   // default, opened via the hamburger) and a fixed column on lg+ screens.
+   const [navOpen, setNavOpen] = useState(false)
+diff --git a/skillgrid-ui/src/features/activity/api.ts b/skillgrid-ui/src/features/activity/api.ts
+deleted file mode 100644
+index 5c629b8..0000000
+--- a/skillgrid-ui/src/features/activity/api.ts
++++ /dev/null
+@@ -1,148 +0,0 @@
+-import { currentProjectName } from '../../lib/projects'
+-
+-// Shared fetch + type contracts for the Phase 6 Activity view. The activity
+-// feed is backed by the observations table (no events table), so the project
+-// is resolved exactly like the mnemonic views (git name → first project with
+-// data). The SSE stream reuses the same project resolution.
+-
+-export class ActivityError extends Error {
+-  status: number
+-  constructor(message: string, status: number) {
+-    super(message)
+-    this.status = status
+-  }
+-}
+-
+-async function get<T>(url: string): Promise<T> {
+-  const res = await fetch(url, { headers: { Accept: 'application/json' } })
+-  if (!res.ok) {
+-    let msg = res.statusText
+-    try {
+-      const j = (await res.json()) as { error?: string }
+-      if (j.error) msg = j.error
+-    } catch {
+-      /* keep statusText */
+-    }
+-    throw new ActivityError(msg, res.status)
+-  }
+-  return (await res.json()) as T
+-}
+-
+-let resolvedProject: string | null = null
+-async function resolveProject(): Promise<string> {
+-  if (resolvedProject) return resolvedProject
+-  const gitName = await currentProjectName()
+-  try {
+-    const first = await get<{ total?: number }>(
+-      `/activity/stats?project=${encodeURIComponent(gitName)}`,
+-    )
+-    if ((first.total ?? 0) > 0) {
+-      resolvedProject = gitName
+-      return gitName
+-    }
+-  } catch {
+-    /* fall through */
+-  }
+-  try {
+-    const { projects } = await get<{ projects: string[] }>('/projects')
+-    for (const p of projects) {
+-      try {
+-        const r = await get<{ total?: number }>(`/activity/stats?project=${encodeURIComponent(p)}`)
+-        if ((r.total ?? 0) > 0) {
+-          resolvedProject = p
+-          return p
+-        }
+-      } catch {
+-        /* skip */
+-      }
+-    }
+-  } catch {
+-    /* fall through */
+-  }
+-  resolvedProject = gitName
+-  return gitName
+-}
+-
+-function qs(project: string, params: Record<string, string | number>): string {
+-  const q = new URLSearchParams({ project })
+-  for (const [k, v] of Object.entries(params)) q.set(k, String(v))
+-  return q.toString()
+-}
+-
+-// ---------------------------------------------------------------------------
+-// types
+-// ---------------------------------------------------------------------------
+-
+-export interface ActivityEvent {
+-  id: number
+-  ts: string
+-  type: string
+-  source: string
+-  actor?: string | null
+-  severity: string
+-  summary: string
+-  topicKey?: string | null
+-  sessionId: string
+-  relatedIds: number[]
+-}
+-
+-export interface ActivityEventsResponse {
+-  project: string
+-  events: ActivityEvent[]
+-  limit: number
+-}
+-
+-export interface ActivityStats {
+-  project: string
+-  total: number
+-  byType: Record<string, number>
+-  activeSessions: number
+-}
+-
+-// ---------------------------------------------------------------------------
+-// events + stats
+-// ---------------------------------------------------------------------------
+-
+-export async function fetchActivityEvents(limit = 100): Promise<ActivityEventsResponse> {
+-  const project = await resolveProject()
+-  return get<ActivityEventsResponse>(`/activity/events?${qs(project, { limit })}`)
+-}
+-
+-export async function fetchActivityStats(): Promise<ActivityStats> {
+-  const project = await resolveProject()
+-  return get<ActivityStats>(`/activity/stats?${qs(project, {})}`)
+-}
+-
+-// ---------------------------------------------------------------------------
+-// SSE stream — live activity events. Returns a cleanup fn.
+-// ---------------------------------------------------------------------------
+-
+-export interface StreamCallbacks {
+-  onActivity?: (e: ActivityEvent) => void
+-  onReady?: () => void
+-  onError?: (err: Error) => void
+-}
+-
+-export function openActivityStream(cb: StreamCallbacks): () => void {
+-  let es: EventSource | null = null
+-  let stopped = false
+-  const start = async () => {
+-    const project = await resolveProject()
+-    if (stopped) return
+-    es = new EventSource(`/activity/stream?project=${encodeURIComponent(project)}`)
+-    es.addEventListener('ready', () => cb.onReady?.())
+-    es.addEventListener('activity', (ev) => {
+-      try {
+-        cb.onActivity?.(JSON.parse((ev as MessageEvent).data))
+-      } catch (e) {
+-        cb.onError?.(e as Error)
+-      }
+-    })
+-    es.onerror = () => cb.onError?.(new Error('activity stream error'))
+-  }
+-  void start()
+-  return () => {
+-    stopped = true
+-    es?.close()
+-  }
+-}
+diff --git a/skillgrid-ui/src/features/handoff/HandoffHubPage.tsx b/skillgrid-ui/src/features/handoff/HandoffHubPage.tsx
+deleted file mode 100644
+index 7cb5ea2..0000000
+--- a/skillgrid-ui/src/features/handoff/HandoffHubPage.tsx
++++ /dev/null
+@@ -1,356 +0,0 @@
+-import { useEffect, useMemo, useState } from 'react'
+-import {
+-  fetchSnapshots,
+-  fetchHubStatus,
+-  openSnapshotStream,
+-  HandoffError,
+-  type ChangeSnapshot,
+-  type Checkpoint,
+-  type HandoffRef,
+-} from './api'
+-import { fetchActivityEvents, type ActivityEvent } from '../activity/api'
+-
+-type Tab = 'changes' | 'activity' | 'handoffs'
+-
+-// Handoff Hub (change 015-handoff-hub): one page combining the change-tracking
+-// snapshot log, live activity, and team/agent handoffs. Change log is backed
+-// by the git-derived change_snapshots; checkpoints overlay as markers; the
+-// live snapshot stream reuses /activity/stream (event: snapshot).
+-
+-export function HandoffHubPage() {
+-  const [tab, setTab] = useState<Tab>('changes')
+-  const [snapshots, setSnapshots] = useState<ChangeSnapshot[]>([])
+-  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
+-  const [refs, setRefs] = useState<HandoffRef[]>([])
+-  const [events, setEvents] = useState<ActivityEvent[]>([])
+-  const [error, setError] = useState('')
+-  const [live, setLive] = useState(false)
+-  const [latest, setLatest] = useState<ChangeSnapshot | null>(null)
+-
+-  const load = () => {
+-    Promise.all([fetchSnapshots(200), fetchHubStatus()])
+-      .then(([snaps, status]) => {
+-        setSnapshots(snaps.snapshots ?? [])
+-        setCheckpoints(status.checkpoints ?? [])
+-        setRefs(status.handoff_refs ?? [])
+-        setLatest(status.latest_snapshot ?? null)
+-      })
+-      .catch((e) => {
+-        setError(e instanceof HandoffError ? e.message : 'failed to load handoff hub')
+-      })
+-    fetchActivityEvents(100)
+-      .then((r) => setEvents(r.events ?? []))
+-      .catch(() => {})
+-  }
+-
+-  useEffect(() => {
+-    setError('')
+-    load()
+-    // Live change snapshots (event: snapshot) — prepend, de-dup by commit.
+-    const close = openSnapshotStream({
+-      onReady: () => setLive(true),
+-      onSnapshot: (s) => {
+-        setSnapshots((prev) => {
+-          if (prev.some((p) => p.commit === s.commit)) return prev
+-          const ns: ChangeSnapshot = {
+-            id: Date.now(),
+-            branch: s.branch,
+-            commit: s.commit,
+-            commitShort: s.commitShort,
+-            subject: s.subject,
+-            author: s.author,
+-            committedAt: s.committedAt,
+-            changedFiles: '',
+-          }
+-          setLatest(ns)
+-          return [ns, ...prev].slice(0, 200)
+-        })
+-      },
+-      onError: () => setLive(false),
+-    })
+-    return close
+-  }, [])
+-
+-  const checkpointByCommit = useMemo(() => {
+-    const m = new Map<string, Checkpoint>()
+-    for (const c of checkpoints) m.set(c.commit, c)
+-    return m
+-  }, [checkpoints])
+-
+-  const openCheckpoints = useMemo(
+-    () => checkpoints.filter((c) => c.status === 'open' || c.status === 'stale'),
+-    [checkpoints],
+-  )
+-
+-  return (
+-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-8">
+-      <header className="flex items-center justify-between">
+-        <div>
+-          <h1 className="text-2xl font-semibold">Handoff Hub</h1>
+-          <p className="text-sm text-muted-foreground">
+-            Change tracking, live activity, and team/agent handoffs — one engine-backed view.
+-          </p>
+-        </div>
+-        <div className="flex items-center gap-3">
+-          <span className={live ? 'text-xs text-emerald-500' : 'text-xs text-muted-foreground'}>
+-            {live ? '● live' : '○ offline'}
+-          </span>
+-          <nav className="flex gap-1 rounded-lg border p-1">
+-            {(['changes', 'activity', 'handoffs'] as Tab[]).map((t) => (
+-              <button
+-                key={t}
+-                onClick={() => setTab(t)}
+-                className={`rounded-md px-3 py-1 text-sm capitalize ${
+-                  tab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
+-                }`}
+-              >
+-                {t === 'handoffs' ? 'Handoffs' : t}
+-              </button>
+-            ))}
+-          </nav>
+-        </div>
+-      </header>
+-
+-      {error && (
+-        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+-      )}
+-
+-      {tab === 'changes' && (
+-        <ChangesTab
+-          snapshots={snapshots}
+-          checkpointByCommit={checkpointByCommit}
+-          openCheckpoints={openCheckpoints}
+-          latest={latest}
+-        />
+-      )}
+-      {tab === 'activity' && <ActivityTab events={events} />}
+-      {tab === 'handoffs' && <HandoffsTab checkpoints={checkpoints} refs={refs} />}
+-    </div>
+-  )
+-}
+-
+-// ---------------------------------------------------------------------------
+-// Changes tab — the change log with checkpoint markers overlaid.
+-// ---------------------------------------------------------------------------
+-
+-function ChangesTab({
+-  snapshots,
+-  checkpointByCommit,
+-  openCheckpoints,
+-  latest,
+-}: {
+-  snapshots: ChangeSnapshot[]
+-  checkpointByCommit: Map<string, Checkpoint>
+-  openCheckpoints: Checkpoint[]
+-  latest: ChangeSnapshot | null
+-}) {
+-  return (
+-    <div className="flex flex-col gap-4">
+-      {latest && (
+-        <div className="rounded-lg border p-4">
+-          <div className="text-xs uppercase text-muted-foreground">Latest commit</div>
+-          <div className="mt-1 flex items-center gap-2 font-mono text-sm">
+-            <span className="rounded bg-muted px-1.5 py-0.5">{latest.commitShort}</span>
+-            <span>{latest.subject}</span>
+-            <span className="text-muted-foreground">({latest.branch})</span>
+-          </div>
+-          {latest.context && (
+-            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+-              {latest.context.task && <Ctx label="Task" value={latest.context.task} />}
+-              {latest.context.decisions && <Ctx label="Decisions" value={latest.context.decisions} />}
+-              {latest.context.remaining && <Ctx label="Remaining" value={latest.context.remaining} />}
+-              {latest.context.tried && <Ctx label="Tried" value={latest.context.tried} />}
+-            </div>
+-          )}
+-        </div>
+-      )}
+-
+-      {openCheckpoints.length > 0 && (
+-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+-          <div className="text-xs font-medium text-amber-800">Open checkpoints ({openCheckpoints.length})</div>
+-          <ul className="mt-1 space-y-0.5 text-sm text-amber-900">
+-            {openCheckpoints.map((c) => (
+-              <li key={c.id} className="font-mono">
+-                {c.name} <span className="text-amber-700">[{c.status}]</span> @ {c.commit.slice(0, 7)}
+-                {c.specDir ? <span className="text-amber-700"> · {c.specDir}</span> : null}
+-              </li>
+-            ))}
+-          </ul>
+-        </div>
+-      )}
+-
+-      <div className="overflow-hidden rounded-lg border">
+-        <table className="w-full text-sm">
+-          <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+-            <tr>
+-              <th className="px-3 py-2">Commit</th>
+-              <th className="px-3 py-2">Subject</th>
+-              <th className="px-3 py-2">Branch</th>
+-              <th className="px-3 py-2">Context</th>
+-              <th className="px-3 py-2">Checkpoint</th>
+-            </tr>
+-          </thead>
+-          <tbody>
+-            {snapshots.map((s) => {
+-              const cp = checkpointByCommit.get(s.commit)
+-              return (
+-                <tr key={s.commit} className="border-t hover:bg-muted/30">
+-                  <td className="px-3 py-2 font-mono text-xs">{s.commitShort}</td>
+-                  <td className="px-3 py-2">{s.subject}</td>
+-                  <td className="px-3 py-2 text-muted-foreground">{s.branch}</td>
+-                  <td className="px-3 py-2 text-xs text-muted-foreground">
+-                    {s.context?.task ? s.context.task : '—'}
+-                  </td>
+-                  <td className="px-3 py-2">
+-                    {cp ? (
+-                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">{cp.name}</span>
+-                    ) : (
+-                      <span className="text-xs text-muted-foreground">—</span>
+-                    )}
+-                  </td>
+-                </tr>
+-              )
+-            })}
+-            {snapshots.length === 0 && (
+-              <tr>
+-                <td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">
+-                  No snapshots recorded yet. Run `skillgrid handoff record` or commit to populate the log.
+-                </td>
+-              </tr>
+-            )}
+-          </tbody>
+-        </table>
+-      </div>
+-    </div>
+-  )
+-}
+-
+-function Ctx({ label, value }: { label: string; value: string }) {
+-  return (
+-    <div>
+-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+-      <div className="text-sm">{value}</div>
+-    </div>
+-  )
+-}
+-
+-// ---------------------------------------------------------------------------
+-// Activity tab — reuses the activity feed (observations).
+-// ---------------------------------------------------------------------------
+-
+-function ActivityTab({ events }: { events: ActivityEvent[] }) {
+-  return (
+-    <div className="flex flex-col gap-2">
+-      {events.slice(0, 50).map((e) => (
+-        <div key={e.id} className="flex items-start gap-3 rounded-md border p-3">
+-          <span
+-            className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+-              e.severity === 'high' ? 'bg-red-500' : e.severity === 'medium' ? 'bg-amber-500' : 'bg-slate-400'
+-            }`}
+-          />
+-          <div className="min-w-0">
+-            <div className="truncate text-sm font-medium">{e.summary}</div>
+-            <div className="text-xs text-muted-foreground">
+-              {e.type} · {e.source} {e.actor ? `· ${e.actor}` : ''} · {new Date(e.ts).toLocaleString()}
+-            </div>
+-          </div>
+-        </div>
+-      ))}
+-      {events.length === 0 && (
+-        <div className="rounded-md border p-6 text-center text-sm text-muted-foreground">No activity yet.</div>
+-      )}
+-    </div>
+-  )
+-}
+-
+-// ---------------------------------------------------------------------------
+-// Handoffs tab — checkpoints + handoff refs (session/team handoffs).
+-// ---------------------------------------------------------------------------
+-
+-function HandoffsTab({ checkpoints, refs }: { checkpoints: Checkpoint[]; refs: HandoffRef[] }) {
+-  return (
+-    <div className="flex flex-col gap-4">
+-      <section>
+-        <h2 className="mb-2 text-sm font-semibold">Checkpoints ({checkpoints.length})</h2>
+-        <div className="overflow-hidden rounded-lg border">
+-          <table className="w-full text-sm">
+-            <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+-              <tr>
+-                <th className="px-3 py-2">Name</th>
+-                <th className="px-3 py-2">Status</th>
+-                <th className="px-3 py-2">Commit</th>
+-                <th className="px-3 py-2">Spec</th>
+-                <th className="px-3 py-2">Evidence</th>
+-              </tr>
+-            </thead>
+-            <tbody>
+-              {checkpoints.map((c) => (
+-                <tr key={c.id} className="border-t">
+-                  <td className="px-3 py-2 font-mono text-xs">{c.name}</td>
+-                  <td className="px-3 py-2">
+-                    <StatusPill status={c.status} />
+-                  </td>
+-                  <td className="px-3 py-2 font-mono text-xs">{c.commit.slice(0, 7)}</td>
+-                  <td className="px-3 py-2 text-xs text-muted-foreground">{c.specDir || '—'}</td>
+-                  <td className="px-3 py-2 text-xs text-muted-foreground">{c.evidence || '—'}</td>
+-                </tr>
+-              ))}
+-              {checkpoints.length === 0 && (
+-                <tr>
+-                  <td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">No checkpoints placed.</td>
+-                </tr>
+-              )}
+-            </tbody>
+-          </table>
+-        </div>
+-      </section>
+-
+-      <section>
+-        <h2 className="mb-2 text-sm font-semibold">Handoff refs ({refs.length})</h2>
+-        <div className="overflow-hidden rounded-lg border">
+-          <table className="w-full text-sm">
+-            <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+-              <tr>
+-                <th className="px-3 py-2">Handoff</th>
+-                <th className="px-3 py-2">Type</th>
+-                <th className="px-3 py-2">Commits</th>
+-                <th className="px-3 py-2">Spec</th>
+-              </tr>
+-            </thead>
+-            <tbody>
+-              {refs.map((r) => (
+-                <tr key={r.handoffId + r.handoffType} className="border-t">
+-                  <td className="px-3 py-2 font-mono text-xs">{r.handoffId}</td>
+-                  <td className="px-3 py-2 text-xs">{r.handoffType}</td>
+-                  <td className="px-3 py-2 font-mono text-xs">
+-                    {(r.fromCommit || '…').slice(0, 7)}..{(r.toCommit || '…').slice(0, 7)}
+-                  </td>
+-                  <td className="px-3 py-2 text-xs text-muted-foreground">{r.specDir || '—'}</td>
+-                </tr>
+-              ))}
+-              {refs.length === 0 && (
+-                <tr>
+-                  <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
+-                    No handoff refs yet (session/team handoffs populate this).
+-                  </td>
+-                </tr>
+-              )}
+-            </tbody>
+-          </table>
+-        </div>
+-      </section>
+-    </div>
+-  )
+-}
+-
+-function StatusPill({ status }: { status: Checkpoint['status'] }) {
+-  const color =
+-    status === 'verified'
+-      ? 'bg-emerald-100 text-emerald-800'
+-      : status === 'stale'
+-        ? 'bg-amber-100 text-amber-800'
+-        : status === 'archived'
+-          ? 'bg-slate-100 text-slate-600'
+-          : 'bg-blue-100 text-blue-800'
+-  return <span className={`rounded px-1.5 py-0.5 text-xs ${color}`}>{status}</span>
+-}
+diff --git a/skillgrid-ui/src/features/handoff/api.ts b/skillgrid-ui/src/features/handoff/api.ts
+deleted file mode 100644
+index 70386f4..0000000
+--- a/skillgrid-ui/src/features/handoff/api.ts
++++ /dev/null
+@@ -1,180 +0,0 @@
+-import { currentProjectName } from '../../lib/projects'
+-
+-// Shared fetch + type contracts for the Handoff Hub (change 015-handoff-hub).
+-// Reuses the Activity view's project resolution (same git name → first
+-// project with data). The change log + hub status are read-only REST; the
+-// live snapshot stream reuses the /activity/stream SSE (event: snapshot).
+-
+-export class HandoffError extends Error {
+-  status: number
+-  constructor(message: string, status: number) {
+-    super(message)
+-    this.status = status
+-  }
+-}
+-
+-async function get<T>(url: string): Promise<T> {
+-  const res = await fetch(url, { headers: { Accept: 'application/json' } })
+-  if (!res.ok) {
+-    let msg = res.statusText
+-    try {
+-      const j = (await res.json()) as { error?: string }
+-      if (j.error) msg = j.error
+-    } catch {
+-      /* keep statusText */
+-    }
+-    throw new HandoffError(msg, res.status)
+-  }
+-  return (await res.json()) as T
+-}
+-
+-let resolvedProject: string | null = null
+-async function resolveProject(): Promise<string> {
+-  if (resolvedProject) return resolvedProject
+-  const gitName = await currentProjectName()
+-  try {
+-    const first = await get<{ snapshots?: unknown[] }>(
+-      `/activity/snapshots?project=${encodeURIComponent(gitName)}&limit=1`,
+-    )
+-    if ((first.snapshots?.length ?? 0) > 0) {
+-      resolvedProject = gitName
+-      return gitName
+-    }
+-  } catch {
+-    /* fall through */
+-  }
+-  try {
+-    const { projects } = await get<{ projects: string[] }>('/projects')
+-    for (const p of projects) {
+-      try {
+-        const r = await get<{ snapshots?: unknown[] }>(`/activity/snapshots?project=${encodeURIComponent(p)}&limit=1`)
+-        if ((r.snapshots?.length ?? 0) > 0) {
+-          resolvedProject = p
+-          return p
+-        }
+-      } catch {
+-        /* skip */
+-      }
+-    }
+-  } catch {
+-    /* fall through */
+-  }
+-  resolvedProject = gitName
+-  return gitName
+-}
+-
+-function qs(project: string, params: Record<string, string | number>): string {
+-  const q = new URLSearchParams({ project })
+-  for (const [k, v] of Object.entries(params)) q.set(k, String(v))
+-  return q.toString()
+-}
+-
+-// ---------------------------------------------------------------------------
+-// types
+-// ---------------------------------------------------------------------------
+-
+-export interface SnapshotContext {
+-  task?: string
+-  decisions?: string
+-  remaining?: string
+-  tried?: string
+-}
+-
+-export interface ChangeSnapshot {
+-  id: number
+-  branch: string
+-  commit: string
+-  commitShort: string
+-  subject: string
+-  author: string
+-  committedAt: string
+-  changedFiles: string
+-  context?: SnapshotContext
+-}
+-
+-export interface Checkpoint {
+-  id: number
+-  name: string
+-  branch: string
+-  commit: string
+-  dirty: boolean
+-  prdPath: string
+-  specDir: string
+-  handoffFile: string
+-  evidence: string
+-  status: 'open' | 'verified' | 'stale' | 'archived'
+-  createdAt: string
+-  verifiedAt: string
+-}
+-
+-export interface HandoffRef {
+-  handoffId: string
+-  handoffType: 'session' | 'team' | 'checkpoint'
+-  fromCommit: string
+-  toCommit: string
+-  specDir: string
+-  teamId: string
+-  taskId: string
+-  createdAt: string
+-}
+-
+-export interface SnapshotsResponse {
+-  project: string
+-  snapshots: ChangeSnapshot[]
+-  limit: number
+-}
+-
+-export interface HubStatus {
+-  project: string
+-  latest_snapshot: ChangeSnapshot | null
+-  checkpoints: Checkpoint[]
+-  handoff_refs: HandoffRef[]
+-}
+-
+-// ---------------------------------------------------------------------------
+-// REST
+-// ---------------------------------------------------------------------------
+-
+-export async function fetchSnapshots(limit = 100): Promise<SnapshotsResponse> {
+-  const project = await resolveProject()
+-  return get<SnapshotsResponse>(`/activity/snapshots?${qs(project, { limit })}`)
+-}
+-
+-export async function fetchHubStatus(): Promise<HubStatus> {
+-  const project = await resolveProject()
+-  return get<HubStatus>(`/handoff/status?${qs(project, {})}`)
+-}
+-
+-// ---------------------------------------------------------------------------
+-// SSE — live change snapshots (event: snapshot on /activity/stream).
+-// ---------------------------------------------------------------------------
+-
+-export interface SnapshotStreamCallbacks {
+-  onSnapshot?: (s: { commit: string; commitShort: string; subject: string; branch: string; author: string; committedAt: string }) => void
+-  onReady?: () => void
+-  onError?: (err: Error) => void
+-}
+-
+-export function openSnapshotStream(cb: SnapshotStreamCallbacks): () => void {
+-  let es: EventSource | null = null
+-  let stopped = false
+-  const start = async () => {
+-    const project = await resolveProject()
+-    if (stopped) return
+-    es = new EventSource(`/activity/stream?project=${encodeURIComponent(project)}`)
+-    es.addEventListener('ready', () => cb.onReady?.())
+-    es.addEventListener('snapshot', (ev) => {
+-      try {
+-        cb.onSnapshot?.(JSON.parse((ev as MessageEvent).data))
+-      } catch (e) {
+-        cb.onError?.(e as Error)
+-      }
+-    })
+-    es.onerror = () => cb.onError?.(new Error('snapshot stream error'))
+-  }
+-  void start()
+-  return () => {
+-    stopped = true
+-    es?.close()
+-  }
+-}
+diff --git a/skillgrid-ui/src/features/mnemonic/SessionsPage.test.tsx b/skillgrid-ui/src/features/mnemonic/SessionsPage.test.tsx
+new file mode 100644
+index 0000000..0bca3d8
+--- /dev/null
++++ b/skillgrid-ui/src/features/mnemonic/SessionsPage.test.tsx
+@@ -0,0 +1,142 @@
++import { fireEvent, render, screen } from '@testing-library/react'
++import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
++import { SessionsPage } from './SessionsPage'
++import * as api from '../sessions/api'
++
++// The tab nav buttons render their raw value and uppercase it via CSS
++// `capitalize`, so the DOM text is the lowercase value ('changes', 'handoffs',
++// 'audit', 'activity'). Address them by role + exact lowercase name.
++const tabButton = (name: string) => screen.getByRole('button', { name })
++
++// The Sessions page is the single "what happened" home. These tests pin the
++// consolidation behavior: the session list renders, the session-scoped activity
++// endpoint is used when a session is selected, the Audit tab is a distinct
++// (secondary) tab, and the Handoff Hub's change log + handoffs are folded in as
++// tabs (the former /activity and /handoff pages no longer exist).
++const session = (id: string, title: string) => ({
++  id,
++  title,
++  started_at: '2026-09-10T09:00:00Z',
++  ended_at: undefined,
++  status: 'active',
++  memory_count: 2,
++  has_summary: true,
++})
++
++beforeEach(() => {
++  vi.spyOn(api, 'fetchSessions').mockResolvedValue({
++    project: 'p',
++    sessions: [session('sess-a', 'Session A')],
++  })
++  vi.spyOn(api, 'fetchSnapshots').mockResolvedValue({
++    project: 'p',
++    snapshots: [{
++      id: 1,
++      branch: 'main',
++      commit: 'abc1234def',
++      commitShort: 'abc1234',
++      subject: 'feat: add auth',
++      author: 'dev',
++      committedAt: '2026-09-10T09:00:00Z',
++      changedFiles: '',
++    }],
++    limit: 200,
++  })
++  vi.spyOn(api, 'fetchHubStatus').mockResolvedValue({
++    project: 'p',
++    latest_snapshot: null,
++    checkpoints: [],
++    handoff_refs: [{
++      handoffId: 'hf-1',
++      handoffType: 'session',
++      fromCommit: 'aaa111',
++      toCommit: 'bbb222',
++      specDir: '.skillgrid/specs/x',
++      teamId: 'team-1',
++      taskId: 'task-1',
++      createdAt: '2026-09-10T09:00:00Z',
++    }],
++  })
++  vi.spyOn(api, 'fetchSessionActivity').mockResolvedValue({
++    project: 'p',
++    events: [{
++      id: 1,
++      ts: '2026-09-10T09:05:00Z',
++      type: 'decision',
++      source: 'agent',
++      actor: null,
++      severity: 'medium',
++      summary: 'A-chose-sqlite',
++      topicKey: null,
++      sessionId: 'sess-a',
++      relatedIds: [],
++    }],
++    limit: 200,
++  })
++  vi.spyOn(api, 'fetchActivityEvents').mockResolvedValue({ project: 'p', events: [], limit: 200 })
++  vi.spyOn(api, 'fetchActivityStats').mockResolvedValue({
++    project: 'p',
++    total: 1,
++    byType: { decision: 1 },
++    activeSessions: 1,
++  })
++  vi.spyOn(api, 'fetchSessionSummary').mockResolvedValue({
++    id: 'sess-a',
++    summary: '## Goal A\nwe chose sqlite',
++    status: 'active',
++    ended_at: '',
++  })
++  vi.spyOn(api, 'fetchAudit').mockResolvedValue({
++    project: 'p',
++    entries: [{ seq: 1, observation_id: 1, revision: 1, created_at: '2026-09-10T09:05:00Z', hash: 'deadbeefcafe', prev_hash: '0000000000' }],
++    chain_valid: true,
++  })
++  // The single SSE endpoint is stubbed to a no-op (returns a cleanup fn).
++  vi.spyOn(api, 'openActivityStream').mockReturnValue(() => {})
++})
++
++afterEach(() => {
++  vi.restoreAllMocks()
++})
++
++describe('SessionsPage (unified activity home)', () => {
++  it('renders the session list', async () => {
++    render(<SessionsPage />)
++    expect(await screen.findByText('Session A')).toBeTruthy()
++  })
++
++  it('uses the session-scoped activity endpoint when a session is selected', async () => {
++    render(<SessionsPage />)
++    const listBtn = await screen.findByRole('button', { name: /Session A/ })
++    // Selecting the session scopes the Activity tab to that session.
++    fireEvent.click(listBtn)
++    await screen.findByText('A-chose-sqlite') // proves the scoped feed rendered
++    expect(api.fetchSessionActivity).toHaveBeenCalledWith('sess-a', 200)
++  })
++
++  it('shows a distinct secondary Audit tab (not the default view)', async () => {
++    render(<SessionsPage />)
++    await screen.findByRole('button', { name: /Session A/ })
++    // Audit is a tab button, present but not active by default.
++    expect(tabButton('audit')).toBeTruthy()
++    // The audit table is not rendered until the tab is opened.
++    expect(screen.queryByText('deadbeefcafe')).toBeFalsy()
++  })
++
++  it('folds the Handoff Hub change log in as a Changes tab', async () => {
++    render(<SessionsPage />)
++    await screen.findByRole('button', { name: /Session A/ })
++    expect(tabButton('changes')).toBeTruthy()
++    // Switching to the Changes tab renders the snapshot table row.
++    fireEvent.click(tabButton('changes'))
++    expect(await screen.findByText('feat: add auth')).toBeTruthy()
++  })
++
++  it('folds the Handoff Hub handoffs in as a Handoffs tab', async () => {
++    render(<SessionsPage />)
++    await screen.findByRole('button', { name: /Session A/ })
++    expect(tabButton('handoffs')).toBeTruthy()
++    fireEvent.click(tabButton('handoffs'))
++    expect(await screen.findByText('hf-1')).toBeTruthy()
++  })
++})
+diff --git a/skillgrid-ui/src/features/mnemonic/SessionsPage.tsx b/skillgrid-ui/src/features/mnemonic/SessionsPage.tsx
+index ba5a08d..24f5100 100644
+--- a/skillgrid-ui/src/features/mnemonic/SessionsPage.tsx
++++ b/skillgrid-ui/src/features/mnemonic/SessionsPage.tsx
+@@ -1,109 +1,242 @@
+-import { useEffect, useState } from 'react'
++import { useEffect, useMemo, useState } from 'react'
+ import {
+   fetchAudit,
++  fetchHubStatus,
++  fetchSessionSummary,
+   fetchSessions,
+-  MnemonicError,
++  fetchSnapshots,
++  openActivityStream,
++  SessionsError,
+   type AuditEntry,
++  type ChangeSnapshot,
++  type Checkpoint,
++  type HandoffRef,
+   type MnemonicSession,
+-} from './api'
++  type SessionSummary,
++} from '../sessions/api'
++import { ActivityPane } from '../sessions/ActivityPane'
++import { ChangesPane } from '../sessions/ChangesPane'
++import { HandoffsPane } from '../sessions/HandoffsPane'
++import { AuditTab } from '../sessions/AuditTab'
+ 
+-// SessionsPage is the session browser: the project's sessions (with memory
+-// counts + summary presence) on the left, and the hash-chained audit trail on
+-// the right (the append-only memory change log, with a chain-validity check).
++type Tab = 'activity' | 'changes' | 'handoffs' | 'audit'
+ 
++// SessionsPage — the single "what happened" home (sessions-activity-unification).
++// Left: the project's sessions. Right: a session-scoped activity feed (global
++// when nothing is selected) as the default tab, with the Handoff Hub's change
++// log + handoffs folded in as tabs, and the hash-chained audit trail demoted to
++// a secondary tab.
+ export function SessionsPage() {
+   const [sessions, setSessions] = useState<MnemonicSession[]>([])
++  const [tab, setTab] = useState<Tab>('activity')
++  const [selectedId, setSelectedId] = useState<string | null>(null)
++
++  // Change-log + handoff data (Handoff Hub), shared across tabs.
++  const [snapshots, setSnapshots] = useState<ChangeSnapshot[]>([])
++  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
++  const [refs, setRefs] = useState<HandoffRef[]>([])
++  const [latest, setLatest] = useState<ChangeSnapshot | null>(null)
++  const [live, setLive] = useState(false)
++
++  // Audit trail (secondary tab).
+   const [entries, setEntries] = useState<AuditEntry[]>([])
+   const [chainValid, setChainValid] = useState(true)
++
++  // Selected session header.
++  const [summary, setSummary] = useState<SessionSummary | null>(null)
+   const [error, setError] = useState('')
+-  const [selectedId, setSelectedId] = useState<string | null>(null)
+ 
++  const selected = sessions.find((s) => s.id === selectedId) ?? null
++
++  // Sessions list.
++  useEffect(() => {
++    fetchSessions()
++      .then((r) => setSessions(r.sessions))
++      .catch((e) => setError(e instanceof SessionsError ? e.message : 'failed to load sessions'))
++  }, [])
++
++  // Change log + hub status + live snapshot stream (event: snapshot).
++  useEffect(() => {
++    Promise.all([fetchSnapshots(200), fetchHubStatus()])
++      .then(([snaps, status]) => {
++        setSnapshots(snaps.snapshots ?? [])
++        setCheckpoints(status.checkpoints ?? [])
++        setRefs(status.handoff_refs ?? [])
++        setLatest(status.latest_snapshot ?? null)
++      })
++      .catch(() => {})
++    const close = openActivityStream({
++      onReady: () => setLive(true),
++      onSnapshot: (s) => {
++        setSnapshots((prev) => {
++          if (prev.some((p) => p.commit === s.commit)) return prev
++          const ns: ChangeSnapshot = {
++            id: Date.now(),
++            branch: s.branch,
++            commit: s.commit,
++            commitShort: s.commitShort,
++            subject: s.subject,
++            author: s.author,
++            committedAt: s.committedAt,
++            changedFiles: '',
++          }
++          setLatest(ns)
++          return [ns, ...prev].slice(0, 200)
++        })
++      },
++      onError: () => setLive(false),
++    })
++    return close
++  }, [])
++
++  // Audit trail (lazy: only when the Audit tab is opened).
+   useEffect(() => {
+-    let cancelled = false
+-    setError('')
+-    Promise.all([fetchSessions(), fetchAudit(200)])
+-      .then(([s, a]) => {
+-        if (cancelled) return
+-        setSessions(s.sessions)
++    if (tab !== 'audit') return
++    fetchAudit(200)
++      .then((a) => {
+         setEntries(a.entries)
+         setChainValid(a.chain_valid)
+       })
+-      .catch((e) => {
+-        if (!cancelled) setError(e instanceof MnemonicError ? e.message : 'failed to load')
+-      })
+-    return () => {
+-      cancelled = true
++      .catch(() => {})
++  }, [tab])
++
++  // Selected session header (summary + status + ended_at).
++  useEffect(() => {
++    if (!selectedId) {
++      setSummary(null)
++      return
+     }
+-  }, [])
++    fetchSessionSummary(selectedId)
++      .then(setSummary)
++      .catch(() => setSummary(null))
++  }, [selectedId])
+ 
+-  const selected = sessions.find((s) => s.id === selectedId) ?? null
++  const checkpointByCommit = useMemo(() => {
++    const m = new Map<string, Checkpoint>()
++    for (const c of checkpoints) m.set(c.commit, c)
++    return m
++  }, [checkpoints])
++
++  const openCheckpoints = useMemo(
++    () => checkpoints.filter((c) => c.status === 'open' || c.status === 'stale'),
++    [checkpoints],
++  )
+ 
+   return (
+     <div className="flex h-full min-h-0 flex-col">
+       <div className="flex items-center gap-2 border-b border-edge px-4 py-2">
+         <h1 className="text-sm font-semibold text-zinc-100">Sessions</h1>
+-        <span className="text-xs text-zinc-500">{sessions.length} sessions</span>
+-        <span className="ml-auto text-xs">
+-          <ChainBadge valid={chainValid} />
++        <span className="text-xs text-zinc-500">
++          {sessions.length} sessions · one activity home
++        </span>
++        <span className="ml-auto flex items-center gap-2 text-xs">
++          <span className={live ? 'text-emerald-500' : 'text-zinc-600'}>
++            {live ? '● live' : '○ offline'}
++          </span>
++          <nav className="flex gap-1 rounded-lg border border-edge p-0.5">
++            {(['activity', 'changes', 'handoffs', 'audit'] as Tab[]).map((t) => (
++              <button
++                key={t}
++                type="button"
++                onClick={() => setTab(t)}
++                className={`rounded-md px-2.5 py-1 text-xs capitalize ${
++                  tab === t
++                    ? 'bg-accent/20 text-zinc-100'
++                    : 'text-zinc-500 hover:text-zinc-200'
++                }`}
++              >
++                {t}
++              </button>
++            ))}
++          </nav>
+         </span>
+       </div>
+ 
+       {error && (
+         <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">
+           {error}
+         </div>
+       )}
+ 
+       <div className="flex min-h-0 flex-1">
+         {/* Session list */}
+         <aside className="flex w-96 shrink-0 flex-col border-r border-edge">
+           <div className="min-h-0 flex-1 overflow-y-auto">
+             {sessions.length === 0 ? (
+               <div className="p-4 text-xs text-zinc-600">No sessions recorded.</div>
+             ) : (
+               <ul className="divide-y divide-edge">
+                 {sessions.map((s) => (
+-                  <SessionRow key={s.id} s={s} active={s.id === selectedId} onSelect={setSelectedId} />
++                  <SessionRow
++                    key={s.id}
++                    s={s}
++                    active={s.id === selectedId}
++                    onSelect={setSelectedId}
++                  />
+                 ))}
+               </ul>
+             )}
+           </div>
+         </aside>
+ 
+-        {/* Audit trail */}
+-        <main className="min-h-0 flex-1 overflow-y-auto">
+-          <div className="flex items-center gap-2 border-b border-edge px-4 py-2">
+-            <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+-              Audit trail
+-            </h2>
+-            <span className="text-xs text-zinc-600">{entries.length} entries · hash-chained</span>
+-          </div>
+-          {selected && (
+-            <div className="border-b border-edge px-4 py-2 text-xs text-zinc-500">
+-              Filtered to session <b className="text-zinc-300">{selected.title}</b> — showing all
+-              project entries (audit is project-scoped).
+-            </div>
+-          )}
+-          {entries.length === 0 ? (
+-            <div className="p-8 text-center text-sm text-zinc-500">
+-              No memory changes recorded yet.
+-            </div>
+-          ) : (
+-            <AuditTable entries={entries} />
++        {/* Detail pane: header + tab content */}
++        <main className="flex min-h-0 flex-1 flex-col">
++          {(tab === 'activity' && selected) && (
++            <SessionHeader summary={summary} session={selected} />
+           )}
++          <div className="min-h-0 flex-1">
++            {tab === 'activity' && <ActivityPane sessionId={selectedId} />}
++            {tab === 'changes' && (
++              <ChangesPane
++                snapshots={snapshots}
++                checkpointByCommit={checkpointByCommit}
++                openCheckpoints={openCheckpoints}
++                latest={latest}
++              />
++            )}
++            {tab === 'handoffs' && <HandoffsPane checkpoints={checkpoints} refs={refs} />}
++            {tab === 'audit' && <AuditTab entries={entries} chainValid={chainValid} />}
++          </div>
+         </main>
+       </div>
+     </div>
+   )
+ }
+ 
++function SessionHeader({
++  summary,
++  session,
++}: {
++  summary: SessionSummary | null
++  session: MnemonicSession
++}) {
++  const ended = summary?.ended_at || session.ended_at
++  return (
++    <div className="border-b border-edge px-6 py-3">
++      <div className="flex items-center gap-2">
++        <StatusDot status={session.status} />
++        <span className="text-sm font-medium text-zinc-200">{session.title}</span>
++        <span className="text-[11px] text-zinc-500">
++          {session.started_at.slice(0, 10)}
++          {ended ? ` → ${ended.slice(0, 10)}` : ''}
++        </span>
++      </div>
++      {summary && summary.summary && (
++        <p className="mt-2 line-clamp-3 whitespace-pre-line text-xs text-zinc-400">
++          {summary.summary}
++        </p>
++      )}
++    </div>
++  )
++}
++
+ function SessionRow({
+   s,
+   active,
+   onSelect,
+ }: {
+   s: MnemonicSession
+   active: boolean
+   onSelect: (id: string) => void
+ }) {
+   return (
+@@ -132,52 +265,10 @@ function SessionRow({
+ 
+ function StatusDot({ status }: { status: string }) {
+   const cls =
+     status === 'active'
+       ? 'bg-emerald-400'
+       : status === 'ended'
+         ? 'bg-zinc-500'
+         : 'bg-amber-400'
+   return <span className={`h-2 w-2 shrink-0 rounded-full ${cls}`} />
+ }
+-
+-function ChainBadge({ valid }: { valid: boolean }) {
+-  return valid ? (
+-    <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
+-      chain valid
+-    </span>
+-  ) : (
+-    <span className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-red-300">
+-      chain broken
+-    </span>
+-  )
+-}
+-
+-function AuditTable({ entries }: { entries: AuditEntry[] }) {
+-  return (
+-    <table className="w-full text-left text-xs">
+-      <thead className="sticky top-0 bg-background">
+-        <tr className="text-[10px] uppercase tracking-wide text-zinc-600">
+-          <th className="px-4 py-2">seq</th>
+-          <th className="px-4 py-2">obs</th>
+-          <th className="px-4 py-2">rev</th>
+-          <th className="px-4 py-2">time</th>
+-          <th className="px-4 py-2">hash</th>
+-        </tr>
+-      </thead>
+-      <tbody className="divide-y divide-edge">
+-        {entries.map((e) => (
+-          <tr key={e.seq} className="font-mono text-[11px] text-zinc-400 hover:bg-card">
+-            <td className="px-4 py-1.5 text-zinc-600">{e.seq}</td>
+-            <td className="px-4 py-1.5">{e.observation_id}</td>
+-            <td className="px-4 py-1.5">{e.revision}</td>
+-            <td className="px-4 py-1.5">{e.created_at}</td>
+-            <td className="px-4 py-1.5">
+-              <span className="text-emerald-400/80">{e.hash.slice(0, 10)}</span>
+-              <span className="text-zinc-700">…</span>
+-            </td>
+-          </tr>
+-        ))}
+-      </tbody>
+-    </table>
+-  )
+-}
+diff --git a/skillgrid-ui/src/features/activity/ActivityPage.tsx b/skillgrid-ui/src/features/sessions/ActivityPane.tsx
+similarity index 66%
+rename from skillgrid-ui/src/features/activity/ActivityPage.tsx
+rename to skillgrid-ui/src/features/sessions/ActivityPane.tsx
+index 5792c20..5849845 100644
+--- a/skillgrid-ui/src/features/activity/ActivityPage.tsx
++++ b/skillgrid-ui/src/features/sessions/ActivityPane.tsx
+@@ -1,105 +1,113 @@
+ import { useEffect, useMemo, useRef, useState } from 'react'
+ import {
+   fetchActivityEvents,
+   fetchActivityStats,
++  fetchSessionActivity,
+   openActivityStream,
+-  ActivityError,
++  SessionsError,
+   type ActivityEvent,
++  type ActivityStats,
+ } from './api'
+ import { StatsBar } from './StatsBar'
+ import { EventCard } from './EventCard'
+ import { Filters, EMPTY_FILTERS, type ActivityFilters } from './Filters'
+ import { AgentHealth } from './AgentHealth'
+ import { AlertBanner } from './AlertBanner'
+ 
+-export function ActivityPage() {
++// ActivityPane — the live activity feed, the default tab of the unified
++// Sessions view. With a `sessionId` it renders that session's own feed (server-
++// scoped via /sessions/{id}/activity); without one it renders the global feed.
++// Filters, stats, alerts and agent-health carry over from the former /activity
++// page unchanged.
++export function ActivityPane({ sessionId }: { sessionId?: string | null }) {
+   const [events, setEvents] = useState<ActivityEvent[]>([])
+   const [error, setError] = useState('')
+   const [live, setLive] = useState(false)
+   const [filters, setFilters] = useState<ActivityFilters>(EMPTY_FILTERS)
+   const [dismissed, setDismissed] = useState<Set<number>>(new Set())
+-  const [stats, setStats] = useState<Awaited<ReturnType<typeof fetchActivityStats>> | null>(null)
+-  const loadedRef = useRef(false)
+-  // Debounce the per-event stats refresh (review A10): the server can emit
+-  // multiple events per 800ms poll tick, so a refetch per event is a request
+-  // storm. Coalesce to at most one refetch per 5s.
++  const [stats, setStats] = useState<ActivityStats | null>(null)
++  // Debounce the per-event stats refresh (review A10): coalesce to one refetch
++  // per 5s so a burst of SSE events doesn't storm the stats endpoint.
+   const statsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+   const refreshStats = () => {
+     if (statsTimer.current) return
+     statsTimer.current = setTimeout(() => {
+       statsTimer.current = null
+       fetchActivityStats().then(setStats).catch(() => {})
+     }, 5000)
+   }
+ 
+-  // Initial load: events + stats.
++  // Initial load: events (scoped or global) + global stats. Re-runs when the
++  // selected session changes.
+   useEffect(() => {
+     let cancelled = false
+     setError('')
+-    Promise.all([fetchActivityEvents(100), fetchActivityStats()])
++    const load = sessionId
++      ? fetchSessionActivity(sessionId, 200)
++      : fetchActivityEvents(200)
++    Promise.all([load, fetchActivityStats()])
+       .then(([ev, st]) => {
+         if (cancelled) return
+         setEvents(ev.events ?? [])
+         setStats(st)
+-        loadedRef.current = true
+       })
+       .catch((e) => {
+-        if (!cancelled) setError(e instanceof ActivityError ? e.message : 'failed to load activity')
++        if (!cancelled) setError(e instanceof SessionsError ? e.message : 'failed to load activity')
+       })
+     return () => {
+       cancelled = true
+       if (statsTimer.current) clearTimeout(statsTimer.current)
+     }
+-  }, [])
++  }, [sessionId])
+ 
+-  // Live SSE stream: prepend new events, refresh stats (debounced), toggle live.
++  // Live SSE stream: prepend new events (scoped to the session when set),
++  // refresh stats (debounced), toggle live.
+   useEffect(() => {
+     const close = openActivityStream({
+       onReady: () => setLive(true),
+       onActivity: (e) => {
++        if (sessionId && e.sessionId !== sessionId) return
+         setEvents((prev) => {
+-          // de-dup by id (the poller seeds from the newest id, so no overlap,
+-          // but be defensive)
+           if (prev.some((p) => p.id === e.id)) return prev
+           return [e, ...prev].slice(0, 200)
+         })
+         refreshStats()
+       },
+       onError: () => setLive(false),
+     })
+     return close
+-  }, [])
++  }, [sessionId])
+ 
+   const filtered = useMemo(() => {
+     return events.filter((e) => {
+       if (filters.type && e.type !== filters.type) return false
+       if (filters.source && e.source !== filters.source) return false
+       if (filters.severity && e.severity !== filters.severity) return false
+       if (filters.actor && (e.actor ?? '') !== filters.actor) return false
+       if (dismissed.has(e.id) && e.severity === 'high') return false
+       return true
+     })
+   }, [events, filters, dismissed])
+ 
+   const visibleAlerts = useMemo(
+     () => events.filter((e) => e.severity === 'high' && !dismissed.has(e.id)),
+     [events, dismissed],
+   )
+ 
+   return (
+-    <div className="flex h-full flex-col gap-4 overflow-y-auto p-8">
+-      <div>
+-        <h1 className="text-2xl font-semibold text-zinc-100">Activity</h1>
+-        <p className="mt-1 text-sm text-zinc-500">
+-          Live agent event feed · {live ? 'streaming' : 'connected'}
+-        </p>
++    <div className="flex h-full flex-col gap-4 overflow-y-auto p-6">
++      <div className="flex items-center gap-2 text-xs text-zinc-500">
++        <span className={live ? 'text-emerald-500' : ''}>
++          {live ? '● live' : '○ connected'}
++        </span>
++        <span>{sessionId ? 'session-scoped feed' : 'project-wide feed'}</span>
+       </div>
+ 
+       <StatsBar stats={stats} />
+ 
+       <AlertBanner
+         events={visibleAlerts}
+         onDismiss={(id) => setDismissed((prev) => new Set(prev).add(id))}
+       />
+ 
+       <div className="flex flex-wrap items-center justify-between gap-3">
+@@ -109,22 +117,25 @@ export function ActivityPage() {
+ 
+       {error ? (
+         <div className="rounded-md border border-red-900/60 bg-red-950/30 p-4 text-sm text-red-300">
+           {error}
+         </div>
+       ) : filtered.length === 0 ? (
+         <div className="rounded-md border border-edge bg-card p-8 text-center text-sm text-zinc-500">
+           {events.length === 0 ? 'No activity recorded yet.' : 'No events match the current filters.'}
+         </div>
+       ) : (
+-        // density-gap tokens (7.4): the feed gap respects the density mode.
+-        // role="log" + aria-live so new events are announced to assistive tech
+-        // (review B5: the live feed was silent to screen readers).
+-        <div className="flex flex-col" style={{ gap: 'var(--density-row)' }} role="log" aria-live="polite" aria-label="Live activity feed">
++        <div
++          className="flex flex-col"
++          style={{ gap: 'var(--density-row)' }}
++          role="log"
++          aria-live="polite"
++          aria-label="Live activity feed"
++        >
+           {filtered.map((e) => (
+             <EventCard key={e.id} event={e} />
+           ))}
+         </div>
+       )}
+     </div>
+   )
+ }
+diff --git a/skillgrid-ui/src/features/activity/AgentHealth.tsx b/skillgrid-ui/src/features/sessions/AgentHealth.tsx
+similarity index 100%
+rename from skillgrid-ui/src/features/activity/AgentHealth.tsx
+rename to skillgrid-ui/src/features/sessions/AgentHealth.tsx
+diff --git a/skillgrid-ui/src/features/activity/AlertBanner.tsx b/skillgrid-ui/src/features/sessions/AlertBanner.tsx
+similarity index 100%
+rename from skillgrid-ui/src/features/activity/AlertBanner.tsx
+rename to skillgrid-ui/src/features/sessions/AlertBanner.tsx
+diff --git a/skillgrid-ui/src/features/sessions/AuditTab.tsx b/skillgrid-ui/src/features/sessions/AuditTab.tsx
+new file mode 100644
+index 0000000..4f61e51
+--- /dev/null
++++ b/skillgrid-ui/src/features/sessions/AuditTab.tsx
+@@ -0,0 +1,75 @@
++import type { AuditEntry } from './api'
++
++// AuditTab — the hash-chained memory change log (observation_versions) with a
++// chain-validity badge. Demoted from the default Sessions view to a secondary
++// tab in sessions-activity-unification (kept for verification, not day-to-day).
++export function AuditTab({
++  entries,
++  chainValid,
++}: {
++  entries: AuditEntry[]
++  chainValid: boolean
++}) {
++  return (
++    <div className="flex h-full flex-col overflow-y-auto">
++      <div className="flex items-center gap-2 border-b border-edge px-6 py-2">
++        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Audit trail</h2>
++        <span className="text-xs text-zinc-600">
++          {entries.length} entries · hash-chained · {chainValid ? 'valid' : 'broken'}
++        </span>
++        <span className="ml-auto">
++          <ChainBadge valid={chainValid} />
++        </span>
++      </div>
++      {entries.length === 0 ? (
++        <div className="p-8 text-center text-sm text-zinc-500">
++          No memory changes recorded yet.
++        </div>
++      ) : (
++        <AuditTable entries={entries} />
++      )}
++    </div>
++  )
++}
++
++function ChainBadge({ valid }: { valid: boolean }) {
++  return valid ? (
++    <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
++      chain valid
++    </span>
++  ) : (
++    <span className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-red-300">
++      chain broken
++    </span>
++  )
++}
++
++function AuditTable({ entries }: { entries: AuditEntry[] }) {
++  return (
++    <table className="w-full text-left text-xs">
++      <thead className="sticky top-0 bg-background">
++        <tr className="text-[10px] uppercase tracking-wide text-zinc-600">
++          <th className="px-4 py-2">seq</th>
++          <th className="px-4 py-2">obs</th>
++          <th className="px-4 py-2">rev</th>
++          <th className="px-4 py-2">time</th>
++          <th className="px-4 py-2">hash</th>
++        </tr>
++      </thead>
++      <tbody className="divide-y divide-edge">
++        {entries.map((e) => (
++          <tr key={e.seq} className="font-mono text-[11px] text-zinc-400 hover:bg-card">
++            <td className="px-4 py-1.5 text-zinc-600">{e.seq}</td>
++            <td className="px-4 py-1.5">{e.observation_id}</td>
++            <td className="px-4 py-1.5">{e.revision}</td>
++            <td className="px-4 py-1.5">{e.created_at}</td>
++            <td className="px-4 py-1.5">
++              <span className="text-emerald-400/80">{e.hash.slice(0, 10)}</span>
++              <span className="text-zinc-700">…</span>
++            </td>
++          </tr>
++        ))}
++      </tbody>
++    </table>
++  )
++}
+diff --git a/skillgrid-ui/src/features/sessions/ChangesPane.tsx b/skillgrid-ui/src/features/sessions/ChangesPane.tsx
+new file mode 100644
+index 0000000..ed17bbe
+--- /dev/null
++++ b/skillgrid-ui/src/features/sessions/ChangesPane.tsx
+@@ -0,0 +1,111 @@
++import type { ChangeSnapshot, Checkpoint } from './api'
++
++// ChangesPane — the change log with checkpoint markers overlaid. Moved from the
++// former Handoff Hub `changes` tab (sessions-activity-unification). Data comes
++// from fetchSnapshots + fetchHubStatus; live updates arrive via the snapshot
++// SSE (wired by the parent).
++export function ChangesPane({
++  snapshots,
++  checkpointByCommit,
++  openCheckpoints,
++  latest,
++}: {
++  snapshots: ChangeSnapshot[]
++  checkpointByCommit: Map<string, Checkpoint>
++  openCheckpoints: Checkpoint[]
++  latest: ChangeSnapshot | null
++}) {
++  return (
++    <div className="flex flex-col gap-4 overflow-y-auto p-6">
++      {latest && (
++        <div className="rounded-lg border p-4">
++          <div className="text-xs uppercase text-muted-foreground">Latest commit</div>
++          <div className="mt-1 flex items-center gap-2 font-mono text-sm">
++            <span className="rounded bg-muted px-1.5 py-0.5">{latest.commitShort}</span>
++            <span>{latest.subject}</span>
++            <span className="text-muted-foreground">({latest.branch})</span>
++          </div>
++          {latest.context && (
++            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
++              {latest.context.task && <Ctx label="Task" value={latest.context.task} />}
++              {latest.context.decisions && <Ctx label="Decisions" value={latest.context.decisions} />}
++              {latest.context.remaining && <Ctx label="Remaining" value={latest.context.remaining} />}
++              {latest.context.tried && <Ctx label="Tried" value={latest.context.tried} />}
++            </div>
++          )}
++        </div>
++      )}
++
++      {openCheckpoints.length > 0 && (
++        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
++          <div className="text-xs font-medium text-amber-800">
++            Open checkpoints ({openCheckpoints.length})
++          </div>
++          <ul className="mt-1 space-y-0.5 text-sm text-amber-900">
++            {openCheckpoints.map((c) => (
++              <li key={c.id} className="font-mono">
++                {c.name} <span className="text-amber-700">[{c.status}]</span> @ {c.commit.slice(0, 7)}
++                {c.specDir ? <span className="text-amber-700"> · {c.specDir}</span> : null}
++              </li>
++            ))}
++          </ul>
++        </div>
++      )}
++
++      <div className="overflow-hidden rounded-lg border">
++        <table className="w-full text-sm">
++          <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
++            <tr>
++              <th className="px-3 py-2">Commit</th>
++              <th className="px-3 py-2">Subject</th>
++              <th className="px-3 py-2">Branch</th>
++              <th className="px-3 py-2">Context</th>
++              <th className="px-3 py-2">Checkpoint</th>
++            </tr>
++          </thead>
++          <tbody>
++            {snapshots.map((s) => {
++              const cp = checkpointByCommit.get(s.commit)
++              return (
++                <tr key={s.commit} className="border-t hover:bg-muted/30">
++                  <td className="px-3 py-2 font-mono text-xs">{s.commitShort}</td>
++                  <td className="px-3 py-2">{s.subject}</td>
++                  <td className="px-3 py-2 text-muted-foreground">{s.branch}</td>
++                  <td className="px-3 py-2 text-xs text-muted-foreground">
++                    {s.context?.task ? s.context.task : '—'}
++                  </td>
++                  <td className="px-3 py-2">
++                    {cp ? (
++                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
++                        {cp.name}
++                      </span>
++                    ) : (
++                      <span className="text-xs text-muted-foreground">—</span>
++                    )}
++                  </td>
++                </tr>
++              )
++            })}
++            {snapshots.length === 0 && (
++              <tr>
++                <td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">
++                  No snapshots recorded yet. Run `skillgrid handoff record` or commit to populate
++                  the log.
++                </td>
++              </tr>
++            )}
++          </tbody>
++        </table>
++      </div>
++    </div>
++  )
++}
++
++function Ctx({ label, value }: { label: string; value: string }) {
++  return (
++    <div>
++      <span className="text-xs font-medium text-muted-foreground">{label}</span>
++      <div className="text-sm">{value}</div>
++    </div>
++  )
++}
+diff --git a/skillgrid-ui/src/features/activity/EventCard.tsx b/skillgrid-ui/src/features/sessions/EventCard.tsx
+similarity index 100%
+rename from skillgrid-ui/src/features/activity/EventCard.tsx
+rename to skillgrid-ui/src/features/sessions/EventCard.tsx
+diff --git a/skillgrid-ui/src/features/activity/Filters.tsx b/skillgrid-ui/src/features/sessions/Filters.tsx
+similarity index 100%
+rename from skillgrid-ui/src/features/activity/Filters.tsx
+rename to skillgrid-ui/src/features/sessions/Filters.tsx
+diff --git a/skillgrid-ui/src/features/sessions/HandoffsPane.tsx b/skillgrid-ui/src/features/sessions/HandoffsPane.tsx
+new file mode 100644
+index 0000000..8e40465
+--- /dev/null
++++ b/skillgrid-ui/src/features/sessions/HandoffsPane.tsx
+@@ -0,0 +1,99 @@
++import type { Checkpoint, HandoffRef } from './api'
++
++// HandoffsPane — checkpoints + handoff refs (session/team handoffs). Moved from
++// the former Handoff Hub `handoffs` tab (sessions-activity-unification).
++export function HandoffsPane({
++  checkpoints,
++  refs,
++}: {
++  checkpoints: Checkpoint[]
++  refs: HandoffRef[]
++}) {
++  return (
++    <div className="flex flex-col gap-4 overflow-y-auto p-6">
++      <section>
++        <h2 className="mb-2 text-sm font-semibold">Checkpoints ({checkpoints.length})</h2>
++        <div className="overflow-hidden rounded-lg border">
++          <table className="w-full text-sm">
++            <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
++              <tr>
++                <th className="px-3 py-2">Name</th>
++                <th className="px-3 py-2">Status</th>
++                <th className="px-3 py-2">Commit</th>
++                <th className="px-3 py-2">Spec</th>
++                <th className="px-3 py-2">Evidence</th>
++              </tr>
++            </thead>
++            <tbody>
++              {checkpoints.map((c) => (
++                <tr key={c.id} className="border-t">
++                  <td className="px-3 py-2 font-mono text-xs">{c.name}</td>
++                  <td className="px-3 py-2">
++                    <StatusPill status={c.status} />
++                  </td>
++                  <td className="px-3 py-2 font-mono text-xs">{c.commit.slice(0, 7)}</td>
++                  <td className="px-3 py-2 text-xs text-muted-foreground">{c.specDir || '—'}</td>
++                  <td className="px-3 py-2 text-xs text-muted-foreground">{c.evidence || '—'}</td>
++                </tr>
++              ))}
++              {checkpoints.length === 0 && (
++                <tr>
++                  <td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">
++                    No checkpoints placed.
++                  </td>
++                </tr>
++              )}
++            </tbody>
++          </table>
++        </div>
++      </section>
++
++      <section>
++        <h2 className="mb-2 text-sm font-semibold">Handoff refs ({refs.length})</h2>
++        <div className="overflow-hidden rounded-lg border">
++          <table className="w-full text-sm">
++            <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
++              <tr>
++                <th className="px-3 py-2">Handoff</th>
++                <th className="px-3 py-2">Type</th>
++                <th className="px-3 py-2">Commits</th>
++                <th className="px-3 py-2">Spec</th>
++              </tr>
++            </thead>
++            <tbody>
++              {refs.map((r) => (
++                <tr key={r.handoffId + r.handoffType} className="border-t">
++                  <td className="px-3 py-2 font-mono text-xs">{r.handoffId}</td>
++                  <td className="px-3 py-2 text-xs">{r.handoffType}</td>
++                  <td className="px-3 py-2 font-mono text-xs">
++                    {(r.fromCommit || '…').slice(0, 7)}..{(r.toCommit || '…').slice(0, 7)}
++                  </td>
++                  <td className="px-3 py-2 text-xs text-muted-foreground">{r.specDir || '—'}</td>
++                </tr>
++              ))}
++              {refs.length === 0 && (
++                <tr>
++                  <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
++                    No handoff refs yet (session/team handoffs populate this).
++                  </td>
++                </tr>
++              )}
++            </tbody>
++          </table>
++        </div>
++      </section>
++    </div>
++  )
++}
++
++function StatusPill({ status }: { status: Checkpoint['status'] }) {
++  const color =
++    status === 'verified'
++      ? 'bg-emerald-100 text-emerald-800'
++      : status === 'stale'
++        ? 'bg-amber-100 text-amber-800'
++        : status === 'archived'
++          ? 'bg-slate-100 text-slate-600'
++          : 'bg-blue-100 text-blue-800'
++  return <span className={`rounded px-1.5 py-0.5 text-xs ${color}`}>{status}</span>
++}
+diff --git a/skillgrid-ui/src/features/activity/StatsBar.tsx b/skillgrid-ui/src/features/sessions/StatsBar.tsx
+similarity index 100%
+rename from skillgrid-ui/src/features/activity/StatsBar.tsx
+rename to skillgrid-ui/src/features/sessions/StatsBar.tsx
+diff --git a/skillgrid-ui/src/features/sessions/api.ts b/skillgrid-ui/src/features/sessions/api.ts
+new file mode 100644
+index 0000000..d2873d2
+--- /dev/null
++++ b/skillgrid-ui/src/features/sessions/api.ts
+@@ -0,0 +1,301 @@
++import { currentProjectName } from '../../lib/projects'
++
++// Shared fetch + type contracts for the unified Sessions view
++// (sessions-activity-unification). This merges the three former features:
++//   - Activity (event feed + stats + SSE)  → activity/events, /activity/stats, /activity/stream
++//   - Handoff Hub (change log + hub status) → /handoff/snapshots, /handoff/status, /activity/stream (event: snapshot)
++//   - Mnemonic sessions + audit            → /mnemonic/sessions, /sessions/{id}/summary, /sessions/{id}/activity, /mnemonic/audit
++//
++// Project resolution mirrors the activity view (git name → first project with
++// data). The live SSE reuses the single /activity/stream endpoint and
++// multiplexes both `activity` and `snapshot` events.
++
++export class SessionsError extends Error {
++  status: number
++  constructor(message: string, status: number) {
++    super(message)
++    this.status = status
++  }
++}
++
++async function get<T>(url: string): Promise<T> {
++  const res = await fetch(url, { headers: { Accept: 'application/json' } })
++  if (!res.ok) {
++    let msg = res.statusText
++    try {
++      const j = (await res.json()) as { error?: string }
++      if (j.error) msg = j.error
++    } catch {
++      /* keep statusText */
++    }
++    throw new SessionsError(msg, res.status)
++  }
++  return (await res.json()) as T
++}
++
++let resolvedProject: string | null = null
++async function resolveProject(): Promise<string> {
++  if (resolvedProject) return resolvedProject
++  const gitName = await currentProjectName()
++  try {
++    const first = await get<{ total?: number }>(
++      `/activity/stats?project=${encodeURIComponent(gitName)}`,
++    )
++    if ((first.total ?? 0) > 0) {
++      resolvedProject = gitName
++      return gitName
++    }
++  } catch {
++    /* fall through */
++  }
++  try {
++    const { projects } = await get<{ projects: string[] }>('/projects')
++    for (const p of projects) {
++      try {
++        const r = await get<{ total?: number }>(`/activity/stats?project=${encodeURIComponent(p)}`)
++        if ((r.total ?? 0) > 0) {
++          resolvedProject = p
++          return p
++        }
++      } catch {
++        /* skip */
++      }
++    }
++  } catch {
++    /* fall through */
++  }
++  resolvedProject = gitName
++  return gitName
++}
++
++function qs(project: string, params: Record<string, string | number> = {}): string {
++  const q = new URLSearchParams({ project })
++  for (const [k, v] of Object.entries(params)) q.set(k, String(v))
++  return q.toString()
++}
++
++// ---------------------------------------------------------------------------
++// types
++// ---------------------------------------------------------------------------
++
++export interface ActivityEvent {
++  id: number
++  ts: string
++  type: string
++  source: string
++  actor?: string | null
++  severity: string
++  summary: string
++  topicKey?: string | null
++  sessionId: string
++  relatedIds: number[]
++}
++
++export interface ActivityEventsResponse {
++  project: string
++  events: ActivityEvent[]
++  limit: number
++}
++
++export interface ActivityStats {
++  project: string
++  total: number
++  byType: Record<string, number>
++  activeSessions: number
++}
++
++export interface SnapshotContext {
++  task?: string
++  decisions?: string
++  remaining?: string
++  tried?: string
++}
++
++export interface ChangeSnapshot {
++  id: number
++  branch: string
++  commit: string
++  commitShort: string
++  subject: string
++  author: string
++  committedAt: string
++  changedFiles: string
++  context?: SnapshotContext
++}
++
++export interface Checkpoint {
++  id: number
++  name: string
++  branch: string
++  commit: string
++  dirty: boolean
++  prdPath: string
++  specDir: string
++  handoffFile: string
++  evidence: string
++  status: 'open' | 'verified' | 'stale' | 'archived'
++  createdAt: string
++  verifiedAt: string
++}
++
++export interface HandoffRef {
++  handoffId: string
++  handoffType: 'session' | 'team' | 'checkpoint'
++  fromCommit: string
++  toCommit: string
++  specDir: string
++  teamId: string
++  taskId: string
++  createdAt: string
++}
++
++export interface SnapshotsResponse {
++  project: string
++  snapshots: ChangeSnapshot[]
++  limit: number
++}
++
++export interface HubStatus {
++  project: string
++  latest_snapshot: ChangeSnapshot | null
++  checkpoints: Checkpoint[]
++  handoff_refs: HandoffRef[]
++}
++
++export interface MnemonicSession {
++  id: string
++  title: string
++  started_at: string
++  ended_at?: string
++  status: string
++  memory_count: number
++  has_summary: boolean
++}
++
++export interface SessionSummary {
++  id: string
++  summary: string
++  status: string
++  ended_at: string
++}
++
++export interface AuditEntry {
++  seq: number
++  observation_id: number
++  revision: number
++  created_at: string
++  hash: string
++  prev_hash: string
++}
++
++// ---------------------------------------------------------------------------
++// activity feed (global) + session-scoped
++// ---------------------------------------------------------------------------
++
++export async function fetchActivityEvents(limit = 100): Promise<ActivityEventsResponse> {
++  const project = await resolveProject()
++  return get<ActivityEventsResponse>(`/activity/events?${qs(project, { limit })}`)
++}
++
++// Session-scoped feed: GET /sessions/{id}/activity (server-side filter added in
++// sessions-activity-unification). Same shape as the global feed.
++export async function fetchSessionActivity(id: string, limit = 200): Promise<ActivityEventsResponse> {
++  const project = await resolveProject()
++  return get<ActivityEventsResponse>(
++    `/sessions/${encodeURIComponent(id)}/activity?${qs(project, { limit })}`,
++  )
++}
++
++export async function fetchActivityStats(): Promise<ActivityStats> {
++  const project = await resolveProject()
++  return get<ActivityStats>(`/activity/stats?${qs(project)}`)
++}
++
++// ---------------------------------------------------------------------------
++// handoff: change-snapshot log + hub status
++// ---------------------------------------------------------------------------
++
++export async function fetchSnapshots(limit = 100): Promise<SnapshotsResponse> {
++  const project = await resolveProject()
++  return get<SnapshotsResponse>(`/handoff/snapshots?${qs(project, { limit })}`)
++}
++
++export async function fetchHubStatus(): Promise<HubStatus> {
++  const project = await resolveProject()
++  return get<HubStatus>(`/handoff/status?${qs(project)}`)
++}
++
++// ---------------------------------------------------------------------------
++// sessions + summary + audit
++// ---------------------------------------------------------------------------
++
++export async function fetchSessions(): Promise<{ project: string; sessions: MnemonicSession[] }> {
++  const project = await resolveProject()
++  return get(`/mnemonic/sessions?${qs(project)}`)
++}
++
++export async function fetchSessionSummary(id: string): Promise<SessionSummary> {
++  const project = await resolveProject()
++  return get<SessionSummary>(
++    `/sessions/${encodeURIComponent(id)}/summary?${qs(project)}`,
++  )
++}
++
++export async function fetchAudit(limit = 200): Promise<{
++  project: string
++  entries: AuditEntry[]
++  chain_valid: boolean
++}> {
++  const project = await resolveProject()
++  return get(`/mnemonic/audit?${qs(project, { limit })}`)
++}
++
++// ---------------------------------------------------------------------------
++// SSE — the single /activity/stream carries both `activity` and `snapshot`
++// events. openActivityStream returns a cleanup fn; both callbacks are optional.
++// ---------------------------------------------------------------------------
++
++export interface StreamCallbacks {
++  onActivity?: (e: ActivityEvent) => void
++  onSnapshot?: (s: {
++    commit: string
++    commitShort: string
++    subject: string
++    branch: string
++    author: string
++    committedAt: string
++  }) => void
++  onReady?: () => void
++  onError?: (err: Error) => void
++}
++
++export function openActivityStream(cb: StreamCallbacks): () => void {
++  let es: EventSource | null = null
++  let stopped = false
++  const start = async () => {
++    const project = await resolveProject()
++    if (stopped) return
++    es = new EventSource(`/activity/stream?project=${encodeURIComponent(project)}`)
++    es.addEventListener('ready', () => cb.onReady?.())
++    es.addEventListener('activity', (ev) => {
++      try {
++        cb.onActivity?.(JSON.parse((ev as MessageEvent).data))
++      } catch (e) {
++        cb.onError?.(e as Error)
++      }
++    })
++    es.addEventListener('snapshot', (ev) => {
++      try {
++        cb.onSnapshot?.(JSON.parse((ev as MessageEvent).data))
++      } catch (e) {
++        cb.onError?.(e as Error)
++      }
++    })
++    es.onerror = () => cb.onError?.(new Error('activity stream error'))
++  }
++  void start()
++  return () => {
++    stopped = true
++    es?.close()
++  }
++}

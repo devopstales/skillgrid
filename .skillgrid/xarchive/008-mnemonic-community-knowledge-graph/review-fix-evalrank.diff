@@ -1,0 +1,644 @@
+=== FIX COMMITS 06ce4ee + edd8697 ===
+
+edd8697 fix(eval): anchor revert regex, assert one-index pointer, tidy loom, fix skeletonize offset
+06ce4ee fix(eval): wire measured rerank factors as the shipped variant
+
+=== STAT ===
+ skillgrid-cli/cmd/skillgrid/code_eval.go           | 164 ++++++++++++++++++++-
+ skillgrid-cli/cmd/skillgrid/code_eval_test.go      | 105 +++++++++++++
+ skillgrid-cli/go.mod                               |   4 +-
+ skillgrid-cli/internal/mnemonic/eval/genqueries.go |   5 +-
+ .../internal/mnemonic/eval/genqueries_test.go      |   4 +
+ skillgrid-cli/internal/mnemonic/eval/harness.go    |  16 +-
+ .../internal/mnemonic/eval/harness_test.go         | 156 ++++++++++++++++++--
+ skillgrid-cli/internal/mnemonic/mcp/tools_code.go  |   9 +-
+ 8 files changed, 437 insertions(+), 26 deletions(-)
+
+=== DIFF ===
+diff --git a/skillgrid-cli/cmd/skillgrid/code_eval.go b/skillgrid-cli/cmd/skillgrid/code_eval.go
+index 211db76..90f3663 100644
+--- a/skillgrid-cli/cmd/skillgrid/code_eval.go
++++ b/skillgrid-cli/cmd/skillgrid/code_eval.go
+@@ -9,6 +9,7 @@ import (
+ 	"os/exec"
+ 	"os/signal"
+ 	"path/filepath"
++	"sort"
+ 	"strings"
+ 	"syscall"
+ 
+@@ -232,7 +233,11 @@ Examples:
+ 		Queries: querySets,
+ 		Variants: []eval.Variant{
+ 			{Name: "baseline", Rank: identityRank, Baseline: true},
+-			{Name: "shipped", Rank: identityRank},
++			// The shipped variant applies the step-01 retrieval-quality factors
++			// (a lexical projection of hybrid/rerank.go's ApplyRerankTable) so
++			// the harness measures a REAL candidate vs the 005 baseline — not a
++			// vacuous identity==baseline delta.
++			{Name: "shipped", Rank: shippedRank},
+ 		},
+ 	})
+ 	if err != nil {
+@@ -247,14 +252,163 @@ Examples:
+ 	printEvalReport(res, querySets)
+ }
+ 
+-// identityRank is the shipped ranker config for the CLI: an identity ranking
+-// over the corpus (the 005 baseline behavior). The CLI's purpose is to RUN the
+-// harness and report significance; the shipped config and its decision are
+-// produced by the eval package's significance gate.
++// identityRank is the 005 baseline behavior for the CLI: a plain lexical/path
++// ordering of the corpus (no rerank factors). This is the reference the
++// shipped variant is measured against.
+ func identityRank(q *eval.QuerySet, idx *eval.CorpusIndex) []string {
+ 	return idx.Paths()
+ }
+ 
++// shippedRank is the lexical PROJECTION of the step-01 retrieval-quality
++// factors onto the corpus's file paths. It is a faithful lexical analogue of
++// hybrid/rerank.go's ApplyRerankTable (exact-symbol, path-match,
++// documentation/generated/test penalties, source-over-prose), reordering the
++// corpus paths for the query by the same named factors the production rerank
++// table uses — but operating purely on paths, because the eval CorpusIndex only
++// carries paths (it has no sqlite store, symbol table, or graph degree).
++//
++// This is NOT a call into hybrid.Search (which is retriever-driven and needs the
++// store). The full retriever-driven ranker lives in hybrid/rank.go and is
++// exercised separately by the mcp/service tests; the eval's "shipped" row is
++// the lexical projection of its factors, not a claim that the full hybrid
++// ranker is measured here.
++//
++// The key property: shippedRank DIFFERS from identityRank on realistic queries
++// (it reorders by the named factors), so the harness measures a genuine,
++// non-trivial delta. Deterministic (no randomness).
++func shippedRank(q *eval.QuerySet, idx *eval.CorpusIndex) []string {
++	paths := idx.Paths()
++	qLower := strings.ToLower(q.Subject)
++	qTerms := strings.Fields(qLower)
++	isTestQuery := strings.Contains(qLower, "test")
++
++	type scored struct {
++		path  string
++		delta float64
++	}
++	var out []scored
++	for _, p := range paths {
++		out = append(out, scored{path: p, delta: lexicalProjectionDelta(p, qLower, qTerms, isTestQuery)})
++	}
++	// Score descending, path ascending for ties (deterministic, matches
++	// hybrid.RerankTable's bounded additive model).
++	sort.SliceStable(out, func(i, j int) bool {
++		if out[i].delta != out[j].delta {
++			return out[i].delta > out[j].delta
++		}
++		return out[i].path < out[j].path
++	})
++	res := make([]string, len(out))
++	for i, s := range out {
++		res[i] = s.path
++	}
++	return res
++}
++
++// lexicalProjectionDelta scores one corpus path for a query using the same
++// named, bounded factors as hybrid.RerankTable, projected onto the path only
++// (no symbol/degree, which the corpus index does not carry). The factor names
++// and signs mirror hybrid/rerank.go:
++//
++//	exact-symbol + (the filename stem contains the full query, or a long query
++//	term — a lexical proxy for the symbol the query names)
++//	path-match +  (a query term >=3 chars appears in the path)
++//	source-over-prose + (code, not prose/config)
++//	documentation − (a docs/config path)
++//	generated-vendor − (a vendor/generated path)
++//	test-on-non-test − (a test path for a non-test query)
++func lexicalProjectionDelta(path, qLower string, qTerms []string, isTestQuery bool) float64 {
++	delta := 0.0
++	lower := strings.ToLower(path)
++	// The filename stem (no extension) as a lexical proxy for the symbol.
++	leaf := lower
++	if i := strings.LastIndex(leaf, "/"); i >= 0 {
++		leaf = leaf[i+1:]
++	}
++	stem := leaf
++	if i := strings.LastIndex(leaf, "."); i >= 0 {
++		stem = leaf[:i]
++	}
++
++	// exact-symbol (proxy): the full query (>=3 chars) appears in the stem, or
++	// any long query term (>=4 chars) does. Bounded at 0.30 like the table.
++	exact := 0.0
++	if len(qLower) >= 3 && strings.Contains(stem, qLower) {
++		exact = 0.30
++	} else {
++		for _, t := range qTerms {
++			if len(t) >= 4 && strings.Contains(stem, t) {
++				if t != "test" {
++					exact = 0.30
++					break
++				}
++			}
++		}
++	}
++	delta += exact
++
++	// path-match: a query term >=3 chars appears in the full path (not the
++	// stem, so directory locality counts). Bounded at 0.10.
++	for _, t := range qTerms {
++		if len(t) >= 3 && strings.Contains(lower, t) {
++			delta += 0.10
++			break
++		}
++	}
++
++	// source-over-prose: code beats prose/config.
++	if isProsePath(path) {
++		delta += -0.10 // documentation
++	} else {
++		delta += 0.05 // source-over-prose
++	}
++
++	// generated/vendor.
++	if isVendorOrGeneratedPath(path) {
++		delta += -0.15
++	}
++
++	// test-on-non-test.
++	if isTestFilePath(path) && !isTestQuery {
++		delta += -0.10
++	}
++
++	return delta
++}
++
++// isProsePath / isVendorOrGeneratedPath / isTestFilePath are path-only
++// projections of the hybrid package's private classifiers, so the cmd layer
++// (which cannot call unexported hybrid helpers) applies the same signals.
++// They mirror hybrid.isProsePath / isVendorOrGenerated and the isTestPath used
++// in mcp/tools_code.go.
++func isProsePath(path string) bool {
++	lower := strings.ToLower(path)
++	for _, m := range []string{"/docs/", "/doc/", "readme", "changelog", ".md", ".rst", ".txt", ".yaml", ".yml", ".json", ".toml"} {
++		if strings.Contains(lower, m) {
++			return true
++		}
++	}
++	return false
++}
++
++func isVendorOrGeneratedPath(path string) bool {
++	lower := strings.ToLower(path)
++	if strings.Contains(lower, "vendor/") || strings.Contains(lower, "/vendor/") {
++		return true
++	}
++	for _, m := range []string{"_generated.", ".pb.", ".gen.", "generated.go", "zz_"} {
++		if strings.Contains(lower, m) {
++			return true
++		}
++	}
++	return false
++}
++
++func isTestFilePath(path string) bool {
++	lower := strings.ToLower(path)
++	return strings.Contains(lower, "_test.go") || strings.HasSuffix(lower, ".test.js") || strings.Contains(lower, "test_")
++}
++
+ // stringSliceFlag is a repeatable string flag for --corpus.
+ type stringSliceFlag []string
+ 
+diff --git a/skillgrid-cli/cmd/skillgrid/code_eval_test.go b/skillgrid-cli/cmd/skillgrid/code_eval_test.go
+index 5560af0..e1d5cf9 100644
+--- a/skillgrid-cli/cmd/skillgrid/code_eval_test.go
++++ b/skillgrid-cli/cmd/skillgrid/code_eval_test.go
+@@ -134,3 +134,108 @@ func TestSkillgridEvalRequiresCorpus(t *testing.T) {
+ 		t.Error("expected an error when no --corpus is provided")
+ 	}
+ }
++
++// TestShippedRankDiffersFromBaseline covers the review finding that the CLI
++// "shipped" variant must NOT be the identity ranking (which made the 01.12 gate
++// vacuous — every delta exactly 0). shippedRank applies the step-01
++// retrieval-quality factors (a lexical projection of hybrid's rerank table), so
++// on a realistic query it reorders the corpus DIFFERENTLY from identityRank,
++// and the harness reports a non-trivial (non-vacuously-0) delta.
++func TestShippedRankDiffersFromBaseline(t *testing.T) {
++	// A corpus where the factors reorder the corpus for the query "retry":
++	//   - client_retry.go  → exact-symbol (stem contains "retry") + path-match
++	//   - docs/notes.md    → documentation penalty
++	//   - vendor/lib/dep.go→ generated-vendor penalty
++	//   - main.go          → source-only baseline
++	// identityRank returns them in sorted order:
++	//   client_retry.go, docs/notes.md, main.go, vendor/lib/dep.go
++	// shippedRank must reorder: the docs + vendor files are demoted, so the
++	// order differs from identity.
++	corpus := map[string]string{
++		"client_retry.go":   "func Retry(n int) bool { return n > 0 }\n",
++		"docs/notes.md":     "# notes\nretry on backoff\n",
++		"vendor/lib/dep.go": "func Dep() {}\n",
++		"main.go":           "func main() {}\n",
++	}
++	idx := buildCorpusIndex(corpus)
++
++	q := &eval.QuerySet{Subject: "retry", ExpectedFiles: []string{"client_retry.go"}}
++	base := identityRank(q, idx)
++	ship := shippedRank(q, idx)
++
++	// The two orders must differ (shippedRank applies the factors).
++	if equalStrings(base, ship) {
++		t.Fatalf("shippedRank must differ from identityRank on a realistic query; both gave %v", base)
++	}
++	// The demoted files (docs, vendor) must be lower under shippedRank than
++	// under identityRank.
++	if rankOf(ship, "docs/notes.md") <= rankOf(ship, "client_retry.go") {
++		t.Errorf("documentation file should be demoted below the exact-symbol file; shipped order %v", ship)
++	}
++	if rankOf(ship, "vendor/lib/dep.go") <= rankOf(ship, "client_retry.go") {
++		t.Errorf("vendor file should be demoted below the exact-symbol file; shipped order %v", ship)
++	}
++
++	// The harness must report a NON-IDENTICAL (non-vacuously-0) ranked order:
++	// the shipped row's delta is measured against the baseline and is not
++	// trivially the identity==baseline case. Run the harness with the real
++	// shippedRank vs identityRank and confirm the shipped row differs from a
++	// vacuous identity row (recall@5 for the expected file is 1.0 under
++	// shippedRank because the exact-symbol file is ranked first, while under a
++	// pure identity rank it would be ranked by path only).
++	res, err := eval.Run(context.Background(), eval.RunConfig{
++		Corpora: map[string]map[string]string{"self": corpus},
++		Queries: map[string][]*eval.QuerySet{"self": {q}},
++		Variants: []eval.Variant{
++			{Name: "baseline", Rank: identityRank, Baseline: true},
++			{Name: "shipped", Rank: shippedRank},
++		},
++	})
++	if err != nil {
++		t.Fatalf("eval.Run: %v", err)
++	}
++	shipRow := rowByNameRes(res, "shipped")
++	if shipRow == nil {
++		t.Fatal("missing shipped row")
++	}
++	// The shipped ranker puts the expected (exact-symbol) file first → recall@5
++	// = 1.0. The baseline (identity) ranks by path: client_retry.go is first in
++	// sorted order too, so this single-query recall is 1.0 for both. The
++	// non-vacuity is proven by the ORDER difference above; here we assert the
++	// row is real (has CI/p) and that shippedRank's ranking is non-trivial.
++	if shipRow.Recall5 != 1.0 {
++		t.Errorf("shippedRank should rank the exact-symbol file first → recall@5=1.0, got %v", shipRow.Recall5)
++	}
++	if shipRow.CILower == 0 && shipRow.CIUpper == 0 && shipRow.PValue == 0 {
++		t.Errorf("shipped row must carry CI + p (a real measurement, not vacuous): %+v", shipRow)
++	}
++}
++
++func equalStrings(a, b []string) bool {
++	if len(a) != len(b) {
++		return false
++	}
++	for i := range a {
++		if a[i] != b[i] {
++			return false
++		}
++	}
++	return true
++}
++
++func rankOf(order []string, p string) int {
++	for i, x := range order {
++		if x == p {
++			return i
++		}
++	}
++	return -1
++}
++
++func buildCorpusIndex(files map[string]string) *eval.CorpusIndex {
++	return eval.NewCorpusIndex(files)
++}
++
++func rowByNameRes(res *eval.Result, name string) *eval.Row {
++	return eval.RowByName(res, name)
++}
+diff --git a/skillgrid-cli/go.mod b/skillgrid-cli/go.mod
+index 7662af2..bb97449 100644
+--- a/skillgrid-cli/go.mod
++++ b/skillgrid-cli/go.mod
+@@ -3,6 +3,8 @@ module github.com/devopstales/skillgrid/skillgrid-cli
+ go 1.26
+ 
+ require (
++	github.com/benedoc-inc/onnxer v0.7.0
++	github.com/bluuewhale/loom v0.0.0-20260402142357-ae7e94ccfead
+ 	github.com/charmbracelet/huh v1.0.0
+ 	github.com/google/uuid v1.6.0
+ 	github.com/mark3labs/mcp-go v0.58.0
+@@ -16,8 +18,6 @@ require (
+ require (
+ 	github.com/atotto/clipboard v0.1.4 // indirect
+ 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
+-	github.com/benedoc-inc/onnxer v0.7.0 // indirect
+-	github.com/bluuewhale/loom v0.0.0-20260402142357-ae7e94ccfead // indirect
+ 	github.com/catppuccin/go v0.3.0 // indirect
+ 	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7 // indirect
+ 	github.com/charmbracelet/bubbletea v1.3.6 // indirect
+diff --git a/skillgrid-cli/internal/mnemonic/eval/genqueries.go b/skillgrid-cli/internal/mnemonic/eval/genqueries.go
+index 45ea177..3304bc5 100644
+--- a/skillgrid-cli/internal/mnemonic/eval/genqueries.go
++++ b/skillgrid-cli/internal/mnemonic/eval/genqueries.go
+@@ -24,7 +24,10 @@ var CORPUS_EXCLUDES = []string{
+ 
+ var (
+ 	reMerge   = regexp.MustCompile(`(?i)^\s*merge\b`)
+-	reRevert  = regexp.MustCompile(`(?i)revert\b`)
++	// reRevert is anchored to the start: only subjects that BEGIN with a revert
++	// are noise. A position-free `revert\b` over-drops subjects like
++	// "fix: avoid reverting state" (which merely mention reverting).
++	reRevert = regexp.MustCompile(`(?i)^\s*(this\s+)?revert(s|ed)?\b`)
+ 	reRelease = regexp.MustCompile(`(?i)^\s*(release|v?\d+\.\d+(?:\.\d+)?)\b`)
+ 	reBump    = regexp.MustCompile(`(?i)\b(bump|bumped|update.*\b(?:version|go\.mod|go\.sum|deps?)\b|tidy\b)\b`)
+ 	reFormat  = regexp.MustCompile(`(?i)\b(gofmt|format(ting)?|whitespace|reformat)\b`)
+diff --git a/skillgrid-cli/internal/mnemonic/eval/genqueries_test.go b/skillgrid-cli/internal/mnemonic/eval/genqueries_test.go
+index d8d4406..75bd6ef 100644
+--- a/skillgrid-cli/internal/mnemonic/eval/genqueries_test.go
++++ b/skillgrid-cli/internal/mnemonic/eval/genqueries_test.go
+@@ -21,6 +21,10 @@ func TestQuerySetNoiseDrops(t *testing.T) {
+ 		{"Merge pull request #42 from acme/patch", false, []string{"a.go"}, "merge PR dropped"},
+ 		{"revert: 'feat: add flaky retry'", false, []string{"a.go"}, "revert dropped"},
+ 		{"revert flaky retry", false, []string{"a.go"}, "revert dropped (lowercase subject)"},
++		{"Reverted the flaky retry", false, []string{"a.go"}, "reverted (past) dropped"},
++		{"This reverts commit abc1234", false, []string{"a.go"}, "this reverts dropped"},
++		{"fix: avoid reverting state on cancel", true, []string{"internal/http/client.go"}, "subject that merely MENTIONS reverting is kept (regex is start-anchored)"},
++		{"fix: revert is not idempotent", true, []string{"internal/http/client.go"}, "mid-subject 'revert' is kept (not start-anchored)"},
+ 		{"chore: bump version to 1.2.3", false, []string{"go.mod"}, "version bump dropped"},
+ 		{"chore(deps): bump libx from 1.0 to 2.0", false, []string{"go.mod"}, "dep bump dropped"},
+ 		{"release 1.2.3", false, []string{"a.go"}, "release dropped"},
+diff --git a/skillgrid-cli/internal/mnemonic/eval/harness.go b/skillgrid-cli/internal/mnemonic/eval/harness.go
+index 89b76dc..87289d0 100644
+--- a/skillgrid-cli/internal/mnemonic/eval/harness.go
++++ b/skillgrid-cli/internal/mnemonic/eval/harness.go
+@@ -56,6 +56,13 @@ func buildIndex(files map[string]string) *CorpusIndex {
+ 	return &CorpusIndex{paths: paths}
+ }
+ 
++// NewCorpusIndex constructs a CorpusIndex from a file map (path → content).
++// Exported so callers (e.g. the CLI's ranker tests) can build an index without
++// going through Run.
++func NewCorpusIndex(files map[string]string) *CorpusIndex {
++	return buildIndex(files)
++}
++
+ // RankFunc is one ranking variant: it orders the corpus's files for a query.
+ type RankFunc func(q *QuerySet, idx *CorpusIndex) []string
+ 
+@@ -328,8 +335,8 @@ func shippedDecision(res *Result, name string) ShipDecision {
+ 	return res.Decisions[name]
+ }
+ 
+-// rowByName returns the Row for a non-baseline variant by name (nil if absent).
+-func rowByName(res *Result, name string) *Row {
++// RowByName returns the Row for a non-baseline variant by name (nil if absent).
++func RowByName(res *Result, name string) *Row {
+ 	for i := range res.Rows {
+ 		if res.Rows[i].Name == name {
+ 			return &res.Rows[i]
+@@ -338,6 +345,11 @@ func rowByName(res *Result, name string) *Row {
+ 	return nil
+ }
+ 
++// rowByName is the unexported alias used internally by the harness.
++func rowByName(res *Result, name string) *Row {
++	return RowByName(res, name)
++}
++
+ // aggregateRow pools per-query metrics into one Row (mean over queries for
+ // ratios, sum for tokens, percentiles for latency).
+ func aggregateRow(name string, pq []perQuery) *Row {
+diff --git a/skillgrid-cli/internal/mnemonic/eval/harness_test.go b/skillgrid-cli/internal/mnemonic/eval/harness_test.go
+index 8fead4c..3f64e98 100644
+--- a/skillgrid-cli/internal/mnemonic/eval/harness_test.go
++++ b/skillgrid-cli/internal/mnemonic/eval/harness_test.go
+@@ -98,6 +98,112 @@ func lastRanker(q *QuerySet, idx *CorpusIndex) []string {
+ 	return append(rest, q.ExpectedFiles...)
+ }
+ 
++// factorRanker is a lexical projection of the step-01 retrieval-quality
++// factors (mirroring cmd/skillgrid's shippedRank): it reorders the corpus by
++// path-match / documentation / generated-vendor / test signals, NOT by the
++// expected files. It is a faithful lexical analogue of hybrid's rerank table —
++// the key property for TestShippedConfigSignificance is that it DIFFERS from
++// the lastRanker baseline (so the measured delta is non-vacuous, not
++// identity==baseline). Deterministic.
++func factorRanker(q *QuerySet, idx *CorpusIndex) []string {
++	paths := idx.Paths()
++	qLower := strings.ToLower(q.Subject)
++	qTerms := strings.Fields(qLower)
++	isTestQuery := strings.Contains(qLower, "test")
++	type scored struct {
++		path  string
++		delta float64
++	}
++	var out []scored
++	for _, p := range paths {
++		out = append(out, scored{path: p, delta: testFactorDelta(p, qLower, qTerms, isTestQuery)})
++	}
++	for i := 1; i < len(out); i++ {
++		for j := i; j > 0 && (out[j].delta > out[j-1].delta || (out[j].delta == out[j-1].delta && out[j].path < out[j-1].path)); j-- {
++			out[j], out[j-1] = out[j-1], out[j]
++		}
++	}
++	res := make([]string, len(out))
++	for i, s := range out {
++		res[i] = s.path
++	}
++	return res
++}
++
++// testFactorDelta scores one path for a query using the same named, bounded
++// factors as hybrid.RerankTable, projected onto the path only (no symbol/
++// degree, which the corpus index does not carry).
++func testFactorDelta(path, qLower string, qTerms []string, isTestQuery bool) float64 {
++	delta := 0.0
++	lower := strings.ToLower(path)
++	leaf := lower
++	if i := strings.LastIndex(leaf, "/"); i >= 0 {
++		leaf = leaf[i+1:]
++	}
++	stem := leaf
++	if i := strings.LastIndex(leaf, "."); i >= 0 {
++		stem = leaf[:i]
++	}
++	// exact-symbol (proxy): the full query or a long term appears in the stem.
++	if len(qLower) >= 3 && strings.Contains(stem, qLower) {
++		delta += 0.30
++	} else {
++		for _, t := range qTerms {
++			if len(t) >= 4 && t != "test" && strings.Contains(stem, t) {
++				delta += 0.30
++				break
++			}
++		}
++	}
++	// path-match: a term >=3 chars appears in the full path.
++	for _, t := range qTerms {
++		if len(t) >= 3 && strings.Contains(lower, t) {
++			delta += 0.10
++			break
++		}
++	}
++	// source-over-prose / documentation.
++	if isTestFactorProse(lower) {
++		delta += -0.10
++	} else {
++		delta += 0.05
++	}
++	// generated/vendor.
++	if isTestFactorVendor(lower) {
++		delta += -0.15
++	}
++	// test-on-non-test.
++	if isTestFactorTest(lower) && !isTestQuery {
++		delta += -0.10
++	}
++	return delta
++}
++
++func isTestFactorProse(lower string) bool {
++	for _, m := range []string{"/docs/", "/doc/", "readme", "changelog", ".md", ".rst", ".txt", ".yaml", ".yml", ".json", ".toml"} {
++		if strings.Contains(lower, m) {
++			return true
++		}
++	}
++	return false
++}
++
++func isTestFactorVendor(lower string) bool {
++	if strings.Contains(lower, "vendor/") || strings.Contains(lower, "/vendor/") {
++		return true
++	}
++	for _, m := range []string{"_generated.", ".pb.", ".gen.", "generated.go", "zz_"} {
++		if strings.Contains(lower, m) {
++			return true
++		}
++	}
++	return false
++}
++
++func isTestFactorTest(lower string) bool {
++	return strings.Contains(lower, "_test.go") || strings.HasSuffix(lower, ".test.js") || strings.Contains(lower, "test_")
++}
++
+ // TestEvalHarnessSignificance covers @step-01 (Scenario: Evaluation harness
+ // derives a leak-free query set and reports significance): the ablation runner
+ // builds ONE shared index per corpus, runs baseline + candidate variants, and
+@@ -182,22 +288,23 @@ func TestOneIndexPerCorpus(t *testing.T) {
+ 	ctx := context.Background()
+ 	queries := evalFixtureQueries()
+ 
+-	// A variant that records the index pointer it saw; both variants must have
+-	// seen the identical pointer for the corpus.
+-	var seen map[string]*CorpusIndex
+-	seen = map[string]*CorpusIndex{}
+-	rec := func(q *QuerySet, idx *CorpusIndex) []string {
+-		return idx.Paths()
++	// Both the baseline and the candidate record the index pointer they saw.
++	// Proving they are the SAME instance (not just IndexInstances == 1) is what
++	// actually establishes "one index per corpus": the only thing that varies
++	// between variants is the ranking, never the retrieved document set.
++	seen := map[string]*CorpusIndex{}
++	record := func(name string) RankFunc {
++		return func(q *QuerySet, idx *CorpusIndex) []string {
++			seen[name] = idx
++			return idx.Paths()
++		}
+ 	}
+ 	res, err := Run(ctx, RunConfig{
+ 		Corpora: map[string]map[string]string{"self": evalFixtureCorpus()},
+ 		Queries: map[string][]*QuerySet{"self": queries},
+ 		Variants: []Variant{
+-			{Name: "baseline", Rank: lastRanker, Baseline: true},
+-			{Name: "candidate", Rank: func(q *QuerySet, idx *CorpusIndex) []string {
+-				seen["candidate"] = idx
+-				return rec(q, idx)
+-			}},
++			{Name: "baseline", Rank: record("baseline"), Baseline: true},
++			{Name: "candidate", Rank: record("candidate")},
+ 		},
+ 	})
+ 	if err != nil {
+@@ -206,9 +313,17 @@ func TestOneIndexPerCorpus(t *testing.T) {
+ 	if res.IndexInstances["self"] != 1 {
+ 		t.Errorf("corpus 'self' should be indexed exactly once, got %d", res.IndexInstances["self"])
+ 	}
++	if seen["baseline"] == nil {
++		t.Fatal("baseline variant never received an index pointer")
++	}
+ 	if seen["candidate"] == nil {
+ 		t.Fatal("candidate variant never received an index pointer")
+ 	}
++	// The crux: baseline and candidate must have received the IDENTICAL index
++	// instance (same pointer) for the corpus.
++	if seen["baseline"] != seen["candidate"] {
++		t.Errorf("baseline and candidate must share the SAME CorpusIndex instance; got %p vs %p", seen["baseline"], seen["candidate"])
++	}
+ }
+ 
+ // TestShippedConfigSignificance covers @step-01 (Scenario: Shipped ranking
+@@ -242,8 +357,12 @@ func TestShippedConfigSignificance(t *testing.T) {
+ 		Queries: map[string][]*QuerySet{"self": qA, "second": qB},
+ 		Variants: []Variant{
+ 			{Name: "baseline", Rank: lastRanker, Baseline: true},
+-			// Shipped signal: strictly better on both corpora → ships.
+-			{Name: "shipped-signal", Rank: firstRanker},
++			// Shipped signal: the real step-01 factor-based ranker (a lexical
++			// projection of hybrid's rerank table) — NOT the identity/baseline,
++			// so the measured delta is non-vacuous. On the fixture it ranks the
++			// expected internal-source files ahead of the vendor distractors →
++			// non-negative vs the lastRanker baseline → ships.
++			{Name: "shipped-signal", Rank: factorRanker},
+ 			// A candidate that is worse → must be kept-off (decision recorded).
+ 			{Name: "worse-signal", Rank: lastRanker},
+ 		},
+@@ -254,11 +373,20 @@ func TestShippedConfigSignificance(t *testing.T) {
+ 	if len(res.Corpora) != 2 {
+ 		t.Fatalf("expected 2 pooled corpora, got %d", len(res.Corpora))
+ 	}
++	// The shipped (factor-based) ranker must produce a NON-IDENTICAL order vs
++	// the baseline (proof the gate is measuring a real ranker, not identity).
++	shipRow := rowByName(res, "shipped-signal")
++	if shipRow == nil {
++		t.Fatal("missing shipped-signal row")
++	}
++	if shipRow.DeltaRecall5 == 0 && shipRow.DeltaMRR == 0 && shipRow.DeltaNDGC10 == 0 {
++		t.Errorf("shipped-signal (factor-based ranker) must not be vacuously 0 vs baseline: %+v", shipRow)
++	}
+ 	// The shipped signal is non-negative vs baseline on every corpus and
+ 	// survived significance → decision is "ship".
+ 	ship := shippedDecision(res, "shipped-signal")
+ 	if !ship.Ships {
+-		t.Errorf("strictly-better shipped signal should ship, got %+v", ship)
++		t.Errorf("factor-based shipped signal should ship (non-negative vs baseline), got %+v", ship)
+ 	}
+ 	// The worse signal is negative somewhere → kept off, with a decision + CI/p.
+ 	off := shippedDecision(res, "worse-signal")
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code.go
+index 0b4f7b3..a5e9ae6 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/tools_code.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code.go
+@@ -267,8 +267,13 @@ func codeHitDTOs(db *sql.DB, query string, hits []search.CodeHit) []map[string]a
+ 		conf := hybrid.ConfidenceFromScore(baseScore, factors).
+ 			WithActionAndFallbacks(query, []string{hit.Path})
+ 		// Skeletonize the snippet (01.11) and redact it (01.3) so the snippet
+-		// stays short and a secret never ships raw.
+-		skel := hybrid.Skeletonize(strings.Split(hit.Snippet, "\n"), query, hit.StartLine, hit.EndLine)
++		// stays short and a secret never ships raw. The snippet's own lines are
++		// local 0..N-1 (not the file's absolute hit.StartLine..hit.EndLine), so
++		// the skeletonization window must be 0-based over the snippet's lines —
++		// passing the absolute file range would clamp to the whole snippet and
++		// make the window meaningless.
++		snippetLines := strings.Split(hit.Snippet, "\n")
++		skel := hybrid.Skeletonize(snippetLines, query, 0, len(snippetLines)-1)
+ 		skelText := strings.Join(skel, "\n")
+ 		redacted := hybrid.RedactSecrets(skelText)
+ 		out[i] = map[string]any{

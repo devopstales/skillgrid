@@ -1,0 +1,2493 @@
+# Review package: c586796..972c647
+
+## Commits
+972c647 test(mnemonic): add code_route and code_navigates to the tool surface baseline
+b14a34d feat(mnemonic): same-transaction route extraction hook in Indexer.Run
+bb82f7c feat(mnemonic): register route and navigates query tools
+cddafb5 feat(mnemonic): drop-not-guess edge resolution policy
+a3af415 feat(mnemonic): navigates edges from framework routers
+d3ca0fc feat(mnemonic): framework route nodes and references edges
+
+## Files changed
+ .../internal/mnemonic/codeindex/indexer.go         | 240 +++++++-
+ .../mnemonic/codeindex/routes_index_test.go        | 215 +++++++
+ skillgrid-cli/internal/mnemonic/mcp/server.go      |   2 +
+ skillgrid-cli/internal/mnemonic/mcp/server_test.go |   2 +
+ .../internal/mnemonic/mcp/tools_code_route.go      | 210 +++++++
+ .../internal/mnemonic/mcp/tools_code_route_test.go | 187 ++++++
+ skillgrid-cli/internal/mnemonic/route/edge_test.go | 161 ++++++
+ skillgrid-cli/internal/mnemonic/route/extract.go   | 627 +++++++++++++++++++++
+ .../internal/mnemonic/route/frameworks.go          | 274 +++++++++
+ .../internal/mnemonic/route/navigates_test.go      | 169 ++++++
+ .../internal/mnemonic/route/route_test.go          | 134 +++++
+ .../store/migrations/013_framework_routes.sql      |  31 +
+ 12 files changed, 2250 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+index fb941ef..a4decee 100644
+--- a/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
++++ b/skillgrid-cli/internal/mnemonic/codeindex/indexer.go
+@@ -10,20 +10,21 @@ import (
+ 	"io/fs"
+ 	"os"
+ 	"path/filepath"
+ 	"regexp"
+ 	"strings"
+ 	"time"
+ 
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/embedder"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/extract"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/memory"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/route"
+ 	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
+ )
+ 
+ // MaxFileSize is the default first-class size skip threshold. Files larger
+ // than this are skipped (counted in stats), not an error, not a fallback.
+ const MaxFileSize = 500 * 1024
+ 
+ // maxFileSize is the current run's effective threshold (bytes).
+ var maxFileSize int64 = MaxFileSize
+ 
+@@ -333,24 +334,38 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
+ 		syms, edges, rationale, err := idx.extractFile(file)
+ 		if err != nil {
+ 			return stats, fmt.Errorf("extract %s: %w", file.Path, err)
+ 		}
+ 		if n, err := writeFileGraph(tx, fileID, syms, edges, rationale); err != nil {
+ 			return stats, err
+ 		} else {
+ 			stats.SymbolsAdded += n
+ 			stats.EdgesAdded += len(edges)
+ 		}
+-		// Record the file's target UIDs for the end-of-tx global prune.
++		// Route pass: framework routing (route nodes + references/navigates
++		// edges) is extracted AFTER the 005 symbol/edge extraction, in the
++		// SAME transaction, so a route node is always resolvable to the 005
++		// symbols it references and a single rollback undoes both. Per-file
++		// route failures are non-fatal (a malformed routing file falls back
++		// to zero route rows and the index continues).
++		routeUIDs, rerr := idx.extractRoutes(ctx, tx, fileID, file)
++		if rerr != nil {
++			fmt.Fprintf(os.Stderr, "warn: route extract %s: %v\n", file.Path, rerr)
++		}
++		// Record the file's target UIDs (005 + route nodes) for the end-of-tx
++		// global prune so the orphan prune does not delete the route nodes.
+ 		for _, s := range syms {
+ 			targetUIDs[s.UID] = struct{}{}
+ 		}
++		for _, uid := range routeUIDs {
++			targetUIDs[uid] = struct{}{}
++		}
+ 		stats.FilesIndexed++
+ 	}
+ 	// Target-state prune: a deleted file prunes its whole footprint via the
+ 	// file_id cascade; symbols whose file still exists but was rewritten are
+ 	// handled by the per-file writeFileGraph re-upsert above.
+ 	for path, prev := range existing {
+ 		if _, ok := scannedPaths[path]; ok {
+ 			continue
+ 		}
+ 		if err := pruneFileFootprint(tx, prev.ID); err != nil {
+@@ -377,24 +392,27 @@ func (idx *Indexer) Run(ctx context.Context, root string, cfg Config) (Stats, er
+ 	// stays single-path. Batched + resumable: only embeds symbols that are new
+ 	// or whose content changed. A down embedder warns and continues — the FTS
+ 	// floor still works.
+ 	if idx.emb != nil {
+ 		if err := idx.embedPass(ctx, tx); err != nil {
+ 			fmt.Fprintf(os.Stderr, "warn: embed pass: %v\n", err)
+ 		}
+ 	}
+ 	// Stale edges: an edge whose to_name no longer matches any live symbol and
+ 	// whose to_id is null is a dangling name-only edge; drop it. (Name-only
+-	// edges to live symbols are kept so step 03 can resolve them.)
++	// edges to live symbols are kept so step 03 can resolve them.) Navigates
++	// edges are excluded: their to_name is a route path (not a symbol name),
++	// so the symbol-existence check does not apply.
+ 	if _, err := tx.Exec(`
+ 		DELETE FROM edges
+ 		WHERE to_id IS NULL
++		  AND kind != 'navigates'
+ 		  AND NOT EXISTS (SELECT 1 FROM symbols s WHERE s.name = edges.to_name)
+ 	`); err != nil {
+ 		return stats, fmt.Errorf("prune dangling edges: %w", err)
+ 	}
+ 	if err := tx.Commit(); err != nil {
+ 		return stats, err
+ 	}
+ 	return stats, nil
+ }
+ 
+@@ -544,20 +562,238 @@ func (idx *Indexer) embedPass(ctx context.Context, tx *sql.Tx) error {
+ // and never abort the run.
+ func (idx *Indexer) extractFile(file ScannedFile) ([]extract.Symbol, []extract.Edge, []extract.Rationale, error) {
+ 	ex := extract.Default()
+ 	g, err := ex.ExtractFile(file.Path, file.Contents)
+ 	if err != nil {
+ 		return nil, nil, nil, err
+ 	}
+ 	return g.Symbols, g.Edges, g.Rationales, nil
+ }
+ 
++// extractRoutes runs the route extractor for one scanned file and persists
++// route nodes + references/navigates edges in the SAME transaction as the 005
++// extraction. It is non-fatal: a malformed routing file yields zero route rows
++// (the index continues). The per-file 005 symbols (just upserted above) are
++// the source of truth for handler resolution (same-file first).
++func (idx *Indexer) extractRoutes(ctx context.Context, tx *sql.Tx, fileID int64, file ScannedFile) ([]string, error) {
++	// Only attempt route extraction for file types a framework recognizes.
++	if route.ExtractFile(file.Path, nil).Framework == "" {
++		return nil, nil
++	}
++	st := &txRouteStore{tx: tx, fileID: fileID}
++	_, err := route.Run(ctx, st, fileID, file.Path, file.Contents, nil)
++	if err != nil {
++		return st.routeUIDs(), err
++	}
++	return st.routeUIDs(), nil
++}
++
++// txRouteStore implements route.Store over the indexer's open transaction. It
++// persists route nodes (kind=route symbols) and references/navigates edges in
++// the SAME tx as the 005 extraction, and applies the drop-not-guess policy in
++// ResolveHandler (same-file first, then a unique global match). fileSyms is
++// loaded lazily on first use (the 005 symbols are already upserted in the tx).
++type txRouteStore struct {
++	tx        *sql.Tx
++	fileID    int64
++	fileSyms  []route.FileSymbol
++	loaded    bool
++	uuids     []string
++}
++
++// routeUIDs returns the UIDs of route nodes stored by this store (for the
++// indexer's orphan-prune target set).
++func (s *txRouteStore) routeUIDs() []string {
++	return s.uuids
++}
++
++// loadFileSyms loads the file's 005 symbols once (name/uid/id), cached.
++func (s *txRouteStore) loadFileSyms() error {
++	if s.loaded {
++		return nil
++	}
++	s.loaded = true
++	rows, err := s.tx.Query(`SELECT name, uid, id FROM symbols WHERE file_id = ? ORDER BY start_line, id`, s.fileID)
++	if err != nil {
++		return err
++	}
++	defer rows.Close()
++	for rows.Next() {
++		var sym route.FileSymbol
++		if err := rows.Scan(&sym.Name, &sym.UID, &sym.ID); err != nil {
++			return err
++		}
++		s.fileSyms = append(s.fileSyms, sym)
++	}
++	return rows.Err()
++}
++
++func (s *txRouteStore) FirstSymbolID(fileID int64) (int64, error) {
++	var id int64
++	err := s.tx.QueryRow(`SELECT id FROM symbols WHERE file_id = ? ORDER BY start_line, id LIMIT 1`, fileID).Scan(&id)
++	if err == sql.ErrNoRows {
++		return 0, nil
++	}
++	return id, err
++}
++
++func (s *txRouteStore) StoreRouteNode(node route.RouteNode) (int64, error) {
++	// Upsert the route node into the 005 symbols table, byte-identical to the
++	// 005 symbol upsert (route nodes are kind=route symbols).
++	if _, err := s.tx.Exec(`
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		VALUES (?, ?, ?, 'route', ?, ?, ?, ?, ?, ?)
++		ON CONFLICT(uid) DO UPDATE SET
++		  file_id = excluded.file_id,
++		  name = excluded.name,
++		  qualified_name = excluded.qualified_name,
++		  kind = excluded.kind,
++		  language = excluded.language,
++		  signature = excluded.signature,
++		  start_line = excluded.start_line,
++		  end_line = excluded.end_line,
++		  content_hash = excluded.content_hash`,
++		s.fileID, node.Name, node.Name, node.Language, node.PathPattern,
++		node.Line, node.Line, node.ContentHash, node.UID,
++	); err != nil {
++		return 0, fmt.Errorf("upsert route node %s: %w", node.Name, err)
++	}
++	var id int64
++	if err := s.tx.QueryRow(`SELECT id FROM symbols WHERE uid = ?`, node.UID).Scan(&id); err != nil {
++		return 0, err
++	}
++	s.uuids = append(s.uuids, node.UID)
++	return id, nil
++}
++
++func (s *txRouteStore) StoreRouteMeta(fileID, symbolID int64, node route.RouteNode) error {
++	// Remove this route's prior meta (target-state) then insert.
++	if _, err := s.tx.Exec(`DELETE FROM route_meta WHERE symbol_id = ?`, symbolID); err != nil {
++		return err
++	}
++	_, err := s.tx.Exec(`INSERT INTO route_meta (symbol_id, file_id, framework, method, path_pattern, screen)
++		VALUES (?, ?, ?, ?, ?, ?)`,
++		symbolID, fileID, node.Framework, node.Method, node.PathPattern, "")
++	return err
++}
++
++func (s *txRouteStore) ResolveHandler(fileID int64, name string) (int64, string, bool) {
++	// 1) Same-file match: a handler defined in the same file wins.
++	if err := s.loadFileSyms(); err != nil {
++		return 0, "", false
++	}
++	for _, fs := range s.fileSyms {
++		if fs.Name == name {
++			return fs.ID, fs.UID, true
++		}
++	}
++	// 2) Unique global match (owner-qualified or bare-name). Multiple matches
++	// are ambiguous → dropped (drop-not-guess).
++	var id int64
++	var uid string
++	var matches int
++	err := s.tx.QueryRow(`SELECT COUNT(*) FROM symbols WHERE name = ?`, name).Scan(&matches)
++	if err != nil {
++		return 0, "", false
++	}
++	if matches != 1 {
++		return 0, "", false
++	}
++	if err := s.tx.QueryRow(`SELECT id, uid FROM symbols WHERE name = ? LIMIT 1`, name).Scan(&id, &uid); err != nil {
++		return 0, "", false
++	}
++	return id, uid, true
++}
++
++func (s *txRouteStore) StoreReferencesEdges(fileID int64, nodes []route.RouteNode, _ int64) (int, error) {
++	// Target-state: prune this file's prior route-originated references edges
++	// (kind=references whose from is a route node in this file), then upsert.
++	if _, err := s.tx.Exec(`
++		DELETE FROM edges
++		WHERE kind = 'references' AND file_id = ?
++		  AND from_id IN (SELECT id FROM symbols WHERE file_id = ? AND kind = 'route')`,
++		fileID, fileID); err != nil {
++		return 0, err
++	}
++	stored := 0
++	for _, n := range nodes {
++		if n.HandlerSymbol == 0 {
++			continue // dropped (drop-not-guess) — no references edge fabricated
++		}
++		var routeID int64
++		if err := s.tx.QueryRow(`SELECT id FROM symbols WHERE uid = ?`, n.UID).Scan(&routeID); err != nil {
++			return stored, err
++		}
++		conf := route.ConfidenceExtracted
++		if !n.HandlerExplicit {
++			conf = route.ConfidenceInferred
++		}
++		if _, err := s.tx.Exec(`
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
++			VALUES ('references', ?, ?, ?, ?, ?, ?, ?)
++			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
++			  confidence = excluded.confidence`,
++			routeID, fileID, n.HandlerSymbol, n.HandlerName, n.PathPattern, conf, n.Line,
++		); err != nil {
++			return stored, fmt.Errorf("upsert references edge %s: %w", n.HandlerName, err)
++		}
++		stored++
++	}
++	return stored, nil
++}
++
++func (s *txRouteStore) StoreNavigatesEdges(fileID int64, navs []route.NavigationNode) (int, error) {
++	// Target-state: prune this file's prior navigates edges, then upsert.
++	if _, err := s.tx.Exec(`
++		DELETE FROM edges
++		WHERE kind = 'navigates' AND file_id = ?
++		  AND from_id IN (SELECT id FROM symbols WHERE file_id = ?)`,
++		fileID, fileID); err != nil {
++		return 0, err
++	}
++	// The sending function is the file's first 005 symbol (top-level
++	// navigation); a file with no symbols has no resolvable source.
++	fromID, fromErr := s.FirstSymbolID(fileID)
++	if fromErr != nil {
++		fromID = 0
++	}
++	stored := 0
++	for _, n := range navs {
++		src := n.FromSymbol
++		if src == 0 {
++			src = fromID
++		}
++		if src == 0 {
++			continue // no sending function → unresolved, not fabricated
++		}
++		if _, err := s.tx.Exec(`
++			INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line)
++			VALUES ('navigates', ?, ?, NULL, ?, ?, ?, ?)
++			ON CONFLICT(kind, from_id, file_id, to_id, to_name, target_path, line) DO UPDATE SET
++			  confidence = excluded.confidence`,
++			src, fileID, n.ToName, n.ToName, n.Confidence, n.Line,
++		); err != nil {
++			return stored, fmt.Errorf("upsert navigates edge %s (from_id=%d file_id=%d): %w", n.ToName, src, fileID, err)
++		}
++		stored++
++	}
++	return stored, nil
++}
++
++func (s *txRouteStore) StoreRouteDrops(fileID int64, dropped int) error {
++	_, err := s.tx.Exec(`
++		INSERT INTO route_drops (file_id, dropped) VALUES (?, ?)
++		ON CONFLICT(file_id) DO UPDATE SET dropped = excluded.dropped`,
++		fileID, dropped)
++	return err
++}
++
+ // fileFirstSymbol caches the first (lowest id) symbol of a file for the
+ // duration of a writeFileGraph call, used as a default edge source. It is a
+ // process-global keyed by file id (not by store), so a prior test in the same
+ // process can leave stale entries that collide with a later test's ids.
+ var fileFirstSymbol = map[int64]int64{}
+ 
+ // ResetFileFirstSymbol clears the fileFirstSymbol cache. Tests that open a
+ // fresh store must call this (via TestMain or a fixture) to avoid stale id
+ // collisions with a prior test's store.
+ func ResetFileFirstSymbol() {
+diff --git a/skillgrid-cli/internal/mnemonic/codeindex/routes_index_test.go b/skillgrid-cli/internal/mnemonic/codeindex/routes_index_test.go
+new file mode 100644
+index 0000000..4941b53
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/codeindex/routes_index_test.go
+@@ -0,0 +1,215 @@
++package codeindex
++
++import (
++	"context"
++	"path/filepath"
++	"testing"
++)
++
++var routeCfg = Config{
++	Include:      []string{"**/*.go", "**/*.js", "**/*.ts", "**/*.tsx", "**/*.py", "**/*.rb", "**/*.java", "**/*.svelte"},
++	Exclude:      []string{"**/node_modules/**", "**/.git/**"},
++	ChunkLines:   80,
++	ChunkOverlap: 10,
++}
++
++// writeWebAppFixture returns a small web app: an Express route (server.js)
++// with a handler (handler.js), a Next.js navigation (page.tsx) with a literal
++// and a markup link, and a computed-destination file that must stay unresolved.
++func writeWebAppFixture(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	mustWrite(t, filepath.Join(root, "server.js"), "function listUsers() { return []; }\n\napp.get('/users', listUsers);\napp.get('/mystery', unservedHandler);\n")
++	mustWrite(t, filepath.Join(root, "page.tsx"), `import { useRouter } from 'next/router';
++
++export function Page() {
++  const router = useRouter();
++  return (
++    <>
++      <button onClick={() => router.push('/about')}>About</button>
++      <Link href="/settings">Settings</Link>
++    </>
++  );
++}
++`)
++	return root
++}
++
++// TestIndexProducesRouteNodesAndReferences covers @step-01 (Scenario:
++// Web-framework routing files produce route nodes): after indexing, the route
++// nodes exist (kind=route symbols), each is linked by a references edge to its
++// handler, every explicit edge is EXTRACTED, and a query for callers of a
++// handler surfaces the URL pattern.
++func TestIndexProducesRouteNodesAndReferences(t *testing.T) {
++	ResetFileFirstSymbol()
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	root := writeWebAppFixture(t)
++	if _, err := idx.Run(context.Background(), root, routeCfg); err != nil {
++		t.Fatalf("run: %v", err)
++	}
++	db := idx.store.DB
++
++	// Route nodes exist as kind=route symbols.
++	var routeSymbols int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM symbols WHERE kind = 'route'`).Scan(&routeSymbols); err != nil {
++		t.Fatalf("count route symbols: %v", err)
++	}
++	if routeSymbols < 2 {
++		t.Fatalf("expected >=2 route symbols (/users, /mystery), got %d", routeSymbols)
++	}
++
++	// A references edge from the /users route to its handler (EXTRACTED).
++	var usersRef int
++	if err := db.QueryRow(`
++		SELECT COUNT(*) FROM edges e
++		JOIN symbols r ON r.id = e.from_id
++		JOIN symbols h ON h.id = e.to_id
++		WHERE e.kind = 'references' AND r.kind = 'route'
++		  AND h.name = 'listUsers'
++	`).Scan(&usersRef); err != nil {
++		t.Fatalf("count references: %v", err)
++	}
++	if usersRef != 1 {
++		t.Errorf("expected 1 references edge from /users route to listUsers, got %d", usersRef)
++	}
++
++	// Every references edge from an explicit route is EXTRACTED.
++	var nonExtracted int
++	if err := db.QueryRow(`
++		SELECT COUNT(*) FROM edges WHERE kind = 'references' AND confidence != 'EXTRACTED'
++	`).Scan(&nonExtracted); err != nil {
++		t.Fatalf("count non-extracted references: %v", err)
++	}
++	if nonExtracted != 0 {
++		t.Errorf("expected all explicit references edges EXTRACTED, got %d non-EXTRACTED", nonExtracted)
++	}
++
++	// A query for callers of the handler surfaces the URL pattern: the route
++	// node's references edge points at listUsers, so reverse-lookup of
++	// listUsers surfaces the /users route.
++	var callersSurface int
++	if err := db.QueryRow(`
++		SELECT COUNT(*) FROM edges e
++		JOIN symbols h ON h.id = e.to_id
++		JOIN symbols r ON r.id = e.from_id
++		WHERE e.kind = 'references' AND h.name = 'listUsers' AND r.kind = 'route'
++	`).Scan(&callersSurface); err != nil {
++		t.Fatalf("callers surface: %v", err)
++	}
++	if callersSurface != 1 {
++		t.Errorf("expected the /users URL pattern to surface for handler listUsers, got %d", callersSurface)
++	}
++}
++
++// TestIndexRouteNinavatesEdges covers @step-01 (Scenario: Router navigations
++// produce navigates edges): after indexing, navigates edges are stored from
++// the sending function to the named screen; literal destinations are
++// EXTRACTED, markup links are INFERRED.
++func TestIndexRouteNavigatesEdges(t *testing.T) {
++	ResetFileFirstSymbol()
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	root := writeWebAppFixture(t)
++	if _, err := idx.Run(context.Background(), root, routeCfg); err != nil {
++		t.Fatalf("run: %v", err)
++	}
++	db := idx.store.DB
++
++	var navCount int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM edges WHERE kind = 'navigates'`).Scan(&navCount); err != nil {
++		t.Fatalf("count navigates: %v", err)
++	}
++	if navCount < 2 {
++		t.Fatalf("expected >=2 navigates edges (/about literal, /settings markup), got %d", navCount)
++	}
++
++	// The literal /about destination is EXTRACTED.
++	var aboutConf string
++	err := db.QueryRow(`SELECT confidence FROM edges WHERE kind = 'navigates' AND to_name = '/about' LIMIT 1`).Scan(&aboutConf)
++	if err != nil || aboutConf != "EXTRACTED" {
++		t.Errorf("navigates to /about should be EXTRACTED, got %q (err %v)", aboutConf, err)
++	}
++	// The markup <Link href> destination is INFERRED.
++	var settingsConf string
++	err = db.QueryRow(`SELECT confidence FROM edges WHERE kind = 'navigates' AND to_name = '/settings' LIMIT 1`).Scan(&settingsConf)
++	if err != nil || settingsConf != "INFERRED" {
++		t.Errorf("navigates to /settings (markup) should be INFERRED, got %q (err %v)", settingsConf, err)
++	}
++}
++
++// TestIndexUnresolvedDestinationStaysUnresolved covers @step-01 (Scenario:
++// Computed or unserved destination stays unresolved): a navigates edge to a
++// computed destination is NOT fabricated, and an unserved handler reference is
++// dropped (no references edge), while the route node still exists.
++func TestIndexUnresolvedDestinationStaysUnresolved(t *testing.T) {
++	ResetFileFirstSymbol()
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	root := writeWebAppFixture(t)
++	if _, err := idx.Run(context.Background(), root, routeCfg); err != nil {
++		t.Fatalf("run: %v", err)
++	}
++	db := idx.store.DB
++
++	// The /mystery route node exists but has NO references edge (its handler
++	// `unservedHandler` is unresolvable → dropped by drop-not-guess).
++	var mysteryRoute int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM symbols WHERE kind = 'route' AND name LIKE '%/mystery%'`).Scan(&mysteryRoute); err != nil {
++		t.Fatalf("count /mystery route: %v", err)
++	}
++	if mysteryRoute != 1 {
++		t.Errorf("expected the /mystery route node to exist, got %d", mysteryRoute)
++	}
++	var mysteryRef int
++	if err := db.QueryRow(`
++		SELECT COUNT(*) FROM edges e
++		JOIN symbols r ON r.id = e.from_id
++		WHERE e.kind = 'references' AND r.name LIKE '%/mystery%'
++	`).Scan(&mysteryRef); err != nil {
++		t.Fatalf("count /mystery references: %v", err)
++	}
++	if mysteryRef != 0 {
++		t.Errorf("expected 0 references edges for the unserved /mystery handler (drop-not-guess), got %d", mysteryRef)
++	}
++
++	// A drop warning was recorded for server.js (the /mystery ref was dropped).
++	var dropped int
++	if err := db.QueryRow(`
++		SELECT COALESCE(d.dropped,0) FROM route_drops d
++		JOIN files f ON f.id = d.file_id
++		WHERE f.path = 'server.js'
++	`).Scan(&dropped); err != nil {
++		t.Fatalf("count drops for server.js: %v", err)
++	}
++	if dropped != 1 {
++		t.Errorf("expected 1 dropped ref warning for server.js, got %d", dropped)
++	}
++}
++
++// TestIndexMalformedRouteFileFallsBack continues the index when a routing file
++// is malformed: a second, malformed file is added, the index re-runs without
++// error, and the previously-extracted route nodes survive.
++func TestIndexMalformedRouteFileFallsBack(t *testing.T) {
++	ResetFileFirstSymbol()
++	idx, clean := newTestIndexer(t)
++	defer clean()
++	root := writeWebAppFixture(t)
++	if _, err := idx.Run(context.Background(), root, routeCfg); err != nil {
++		t.Fatalf("first run: %v", err)
++	}
++	// Add a malformed python routing file (invalid syntax).
++	mustWrite(t, filepath.Join(root, "broken.py"), "urlpatterns = [\npath('/x/', views.Home.as_view(,\n")
++	if _, err := idx.Run(context.Background(), root, routeCfg); err != nil {
++		t.Fatalf("second run (with malformed file) should not error: %v", err)
++	}
++	db := idx.store.DB
++	// The Express route nodes from the first run must survive.
++	var routes int
++	if err := db.QueryRow(`SELECT COUNT(*) FROM symbols WHERE kind = 'route'`).Scan(&routes); err != nil {
++		t.Fatalf("count routes: %v", err)
++	}
++	if routes < 2 {
++		t.Errorf("expected the prior route nodes to survive a malformed-file re-index, got %d", routes)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server.go b/skillgrid-cli/internal/mnemonic/mcp/server.go
+index d418557..cdbb2dc 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server.go
+@@ -42,20 +42,21 @@ func ensurePool() *StorePool {
+ func Start() error {
+ 	s := server.NewMCPServer(serverName, serverVersion, serverOptions()...)
+ 	registerMemoryTools(s)
+ 	registerCodeTools(s)
+ 	registerOrientTools(s)
+ 	registerGrepTools(s)
+ 	registerGraphTools(s)
+ 	registerExploreTools(s)
+ 	registerHybridTools(s)
+ 	registerCommunityTools(s)
++	registerRouteTools(s)
+ 	registerWebTools(s)
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+ 	registerCompactionTools(s)
+ 	return server.ServeStdio(s)
+ }
+ 
+ // Server is an MCP server instance with all mem_*/code_*/web_*/team_* tools
+ // registered, ready to be served over stdio.
+ type Server = server.MCPServer
+@@ -64,16 +65,17 @@ type Server = server.MCPServer
+ func NewServer() *Server {
+ 	s := server.NewMCPServer(serverName, serverVersion, serverOptions()...)
+ 	registerMemoryTools(s)
+ 	registerCodeTools(s)
+ 	registerOrientTools(s)
+ 	registerGrepTools(s)
+ 	registerGraphTools(s)
+ 	registerExploreTools(s)
+ 	registerHybridTools(s)
+ 	registerCommunityTools(s)
++	registerRouteTools(s)
+ 	registerWebTools(s)
+ 	registerTeamsTools(s)
+ 	registerRetrievalTools(s)
+ 	registerCompactionTools(s)
+ 	return s
+ }
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/server_test.go b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+index b2fef0d..24b4bf8 100644
+--- a/skillgrid-cli/internal/mnemonic/mcp/server_test.go
++++ b/skillgrid-cli/internal/mnemonic/mcp/server_test.go
+@@ -29,20 +29,22 @@ func TestAllToolsRegistered(t *testing.T) {
+ 		"code_orient", "code_signature", "code_file_toc", "code_rationale",
+ 		"code_grep",
+ 		// Step 03 graph + composite tools.
+ 		"code_explore", "code_impact", "code_path", "code_explain",
+ 		"code_get_callers", "code_get_callees", "code_get_dependents",
+ 		"code_get_implementors", "code_get_hierarchy", "code_get_tests_for",
+ 		// Step 04 hybrid search tools.
+ 		"code_hybrid_search", "code_semantic_search", "code_embedding_status",
+ 		// Community detection tools.
+ 		"code_communities", "code_god_nodes", "code_explain_community",
++		// Framework route / navigation query tools.
++		"code_route", "code_navigates",
+ 		"web_cache_lookup", "web_cache_save", "web_cache_search",
+ 		"web_cache_get", "web_cache_status",
+ 		"team_spawn_task", "agent_pull_next_task", "agent_read_task",
+ 		"agent_submit_output", "agent_submit_review", "agent_mark_done",
+ 		"semantic_search", "load_full_details",
+ 		"mnemonic_commit",
+ 	}
+ 	if len(tools) != len(want) {
+ 		t.Errorf("expected %d tools, got %d (%v)", len(want), len(tools), tools)
+ 	}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_route.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_route.go
+new file mode 100644
+index 0000000..5f5a19a
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_route.go
+@@ -0,0 +1,210 @@
++package mcp
++
++import (
++	"context"
++	"database/sql"
++	"fmt"
++
++	mcplib "github.com/mark3labs/mcp-go/mcp"
++	"github.com/mark3labs/mcp-go/server"
++)
++
++// registerRouteTools registers the framework route/navigation query tools
++// (code_route / code_navigates). They are distinct code_* tools — none clashes
++// with the 005 baseline tools — and are part of the narrow code_* menu
++// (unlisted by default; re-enabled via CodeToolsEnvVar). They are query-only
++// (code_affected is step 02, not this step).
++func registerRouteTools(s *server.MCPServer) {
++	tools := []struct {
++		tool    mcplib.Tool
++		handler server.ToolHandlerFunc
++	}{
++		{codeRouteTool(), handleCodeRoute},
++		{codeNavigatesTool(), handleCodeNavigates},
++	}
++	for _, entry := range tools {
++		s.AddTool(entry.tool, entry.handler)
++	}
++}
++
++func codeRouteTool() mcplib.Tool {
++	return mcplib.NewTool("code_route",
++		mcplib.WithDescription("Query framework routes: list route nodes (URL pattern + method + framework) and their references edges to handler symbols. A handler name returns the routes that serve it (URL patterns surfaced); a path pattern returns the matching route and its handler. Every references edge carries a confidence label (EXTRACTED for explicit syntax, INFERRED for convention-bound)."),
++		mcplib.WithString("handler", mcplib.Description("Handler symbol name: return the routes that reference it (URL patterns)")),
++		mcplib.WithString("path", mcplib.Description("URL path pattern: return the matching route node and its handler")),
++		mcplib.WithNumber("limit", mcplib.Description("Maximum routes to return (default 20)")),
++	)
++}
++
++func codeNavigatesTool() mcplib.Tool {
++	return mcplib.NewTool("code_navigates",
++		mcplib.WithDescription("Query framework navigation (screen -> screen) edges. A from-screen returns the screens it navigates to; a to-screen returns the senders that navigate to it. Literal, programmatic destinations are EXTRACTED; markup-written links (<Link>, <Route>) are INFERRED. Computed/unserved destinations are not fabricated (they stay unresolved and are excluded from blast-radius math)."),
++		mcplib.WithString("from", mcplib.Description("Source screen path (e.g. /home): return screens it navigates to")),
++		mcplib.WithString("to", mcplib.Description("Destination screen path (e.g. /about): return senders that navigate to it")),
++		mcplib.WithNumber("limit", mcplib.Description("Maximum navigations to return (default 20)")),
++	)
++}
++
++func handleCodeRoute(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	handler, _ := req.RequireString("handler")
++	path, _ := req.RequireString("path")
++	limit := int(req.GetFloat("limit", 20))
++
++	if handler == "" && path == "" {
++		return toolError(fmt.Errorf("code_route: provide 'handler' or 'path' (or both)"))
++	}
++	if limit <= 0 {
++		limit = 20
++	}
++
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++
++	out, err := mcpCodeRoute(h.Store().DB, handler, path, limit)
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(out)
++}
++
++func handleCodeNavigates(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
++	from, _ := req.RequireString("from")
++	to, _ := req.RequireString("to")
++	limit := int(req.GetFloat("limit", 20))
++
++	if from == "" && to == "" {
++		return toolError(fmt.Errorf("code_navigates: provide 'from' or 'to' (or both)"))
++	}
++	if limit <= 0 {
++		limit = 20
++	}
++
++	_, h, cleanup, err := openService()
++	if err != nil {
++		return toolError(err)
++	}
++	defer cleanup()
++
++	out, err := mcpCodeNavigates(h.Store().DB, from, to, limit)
++	if err != nil {
++		return toolError(err)
++	}
++	return JSONResult(out)
++}
++
++// mcpCodeRoute is the single-open backing for code_route. It returns route
++// nodes + their references edges, filtered by handler name and/or path
++// pattern. Never empty, never fabricated.
++func mcpCodeRoute(db *sql.DB, handler, path string, limit int) (map[string]any, error) {
++	query := `
++		SELECT r.name, r.kind, r.language, f.path AS file_path,
++		       rm.method, rm.path_pattern, rm.framework,
++		       h.name AS handler_name, e.confidence
++		FROM symbols r
++		JOIN files f ON f.id = r.file_id
++		LEFT JOIN route_meta rm ON rm.symbol_id = r.id
++		LEFT JOIN edges e ON e.kind = 'references' AND e.from_id = r.id
++		LEFT JOIN symbols h ON h.id = e.to_id
++		WHERE r.kind = 'route'`
++	args := []any{}
++	if handler != "" {
++		query += ` AND h.name = ?`
++		args = append(args, handler)
++	}
++	if path != "" {
++		query += ` AND rm.path_pattern = ?`
++		args = append(args, path)
++	}
++	query += ` ORDER BY r.id LIMIT ?`
++	args = append(args, limit)
++
++	rows, err := db.Query(query, args...)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	out := map[string]any{"routes": []map[string]any{}}
++	for rows.Next() {
++		var (
++			name, kind, lang, filePath string
++			method, pattern, framework string
++			handlerName                sql.NullString
++			confidence                 sql.NullString
++		)
++		if err := rows.Scan(&name, &kind, &lang, &filePath, &method, &pattern, &framework, &handlerName, &confidence); err != nil {
++			return nil, err
++		}
++		r := map[string]any{
++			"name":       name,
++			"framework":  framework,
++			"method":     method,
++			"path":       pattern,
++			"file":       filePath,
++		}
++		if handlerName.Valid {
++			r["handler"] = handlerName.String
++		}
++		if confidence.Valid {
++			r["references_confidence"] = confidence.String
++		}
++		out["routes"] = append(out["routes"].([]map[string]any), r)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	return out, nil
++}
++
++// mcpCodeNavigates is the single-open backing for code_navigates. It returns
++// navigates edges filtered by from-screen and/or to-screen. Computed/unserved
++// destinations are not fabricated (a navigates edge is only present when the
++// destination was a literal at extraction).
++func mcpCodeNavigates(db *sql.DB, from, to string, limit int) (map[string]any, error) {
++	query := `
++		SELECT e.to_name AS screen, e.confidence, e.line,
++		       f.path AS file_path, s.name AS from_symbol
++		FROM edges e
++		JOIN files f ON f.id = e.file_id
++		JOIN symbols s ON s.id = e.from_id
++		WHERE e.kind = 'navigates'`
++	args := []any{}
++	if from != "" {
++		query += ` AND s.name = ?`
++		args = append(args, from)
++	}
++	if to != "" {
++		query += ` AND e.to_name = ?`
++		args = append(args, to)
++	}
++	query += ` ORDER BY e.id LIMIT ?`
++	args = append(args, limit)
++
++	rows, err := db.Query(query, args...)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	out := map[string]any{"navigations": []map[string]any{}}
++	for rows.Next() {
++		var screen, conf string
++		var line int
++		var filePath, fromSym string
++		if err := rows.Scan(&screen, &conf, &line, &filePath, &fromSym); err != nil {
++			return nil, err
++		}
++		out["navigations"] = append(out["navigations"].([]map[string]any), map[string]any{
++			"screen":     screen,
++			"confidence": conf,
++			"line":       line,
++			"file":       filePath,
++			"from":       fromSym,
++		})
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	return out, nil
++}
+diff --git a/skillgrid-cli/internal/mnemonic/mcp/tools_code_route_test.go b/skillgrid-cli/internal/mnemonic/mcp/tools_code_route_test.go
+new file mode 100644
+index 0000000..cc2821e
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/mcp/tools_code_route_test.go
+@@ -0,0 +1,187 @@
++package mcp
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/codeindex"
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/service"
++)
++
++// routeMCPFixture indexes a small web app (Express route + Next.js navigation)
++// and pins the project so the temp-dir fixture resolves to one stable bucket.
++func routeMCPFixture(t *testing.T) string {
++	t.Helper()
++	dataDir := t.TempDir()
++	raw := t.TempDir()
++	abs, err := filepath.Abs(raw)
++	if err != nil {
++		t.Fatalf("abs: %v", err)
++	}
++	write := func(name, content string) {
++		if err := os.WriteFile(filepath.Join(abs, name), []byte(content), 0o644); err != nil {
++			t.Fatalf("write %s: %v", name, err)
++		}
++	}
++	write("server.js", "function listUsers() { return []; }\n\napp.get('/users', listUsers);\napp.get('/mystery', unservedHandler);\n")
++	write("page.tsx", "import { useRouter } from 'next/router';\n\nexport function Page() {\n  const router = useRouter();\n  return (\n    <button onClick={() => router.push('/about')}>About</button>\n    <Link href='/settings'>Settings</Link>\n  );\n}\n")
++	// The default config include is **/*.go, **/*.ts, **/*.tsx, **/*.md — it
++	// does not scan .js. Add an indexing.yaml so the Express fixture (server.js)
++	// is indexed, matching the codeindex route fixture's include set.
++	if err := os.MkdirAll(filepath.Join(abs, "config.d"), 0o755); err != nil {
++		t.Fatalf("mkdir config.d: %v", err)
++	}
++	write("config.d/indexing.yaml", "mnemonic:\n  include:\n    - '**/*.go'\n    - '**/*.js'\n    - '**/*.ts'\n    - '**/*.tsx'\n    - '**/*.py'\n    - '**/*.rb'\n    - '**/*.java'\n    - '**/*.svelte'\n  exclude:\n    - '**/node_modules/**'\n    - '**/.git/**'\n")
++	t.Setenv("MNEMONIC_PROJECT", "routemcp-probe")
++	svc := service.New(dataDir)
++	SetService(svc)
++	t.Cleanup(func() { SetService(nil) })
++	codeindex.ResetFileFirstSymbol()
++	if _, err := svc.RunCodeIndex(context.Background(), abs); err != nil {
++		t.Fatalf("index: %v", err)
++	}
++	oldDir, _ := os.Getwd()
++	if err := os.Chdir(abs); err != nil {
++		t.Fatalf("chdir: %v", err)
++	}
++	t.Cleanup(func() { os.Chdir(oldDir) })
++	return dataDir
++}
++
++// TestRouteToolsRegistered covers @step-01 (Scenario: Route tools register and
++// code_search stays stable): the route/navigates query tools register with
++// distinct code_* names; code_search name + required `query` param schema is
++// unchanged; 005/008 tools stay intact; bad route args are rejected with a
++// clear validation error.
++func TestRouteToolsRegistered(t *testing.T) {
++	routeMCPFixture(t)
++
++	// Distinct code_* route tool names registered.
++	tools := NewServer().ListTools()
++	for _, name := range []string{"code_route", "code_navigates"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("expected route tool %q to be registered", name)
++		}
++	}
++
++	// code_search name + required `query` param schema unchanged (005 baseline).
++	assertCodeToolStable(t, codeSearchTool(), "code_search", []string{"query"})
++
++	// 005/008 tools stay intact on the live server (baseline lock).
++	for _, name := range []string{"code_search", "code_read", "code_communities", "code_impact", "code_explore"} {
++		if _, ok := tools[name]; !ok {
++			t.Errorf("005/008 tool %q no longer registered", name)
++		}
++	}
++}
++
++// TestCodeRouteQuery covers @step-01 (route query surfaces the URL pattern for
++// a handler, and a handler's callers surface the route). A handler name
++// returns the routes that serve it.
++func TestCodeRouteQuery(t *testing.T) {
++	routeMCPFixture(t)
++
++	// Query by handler: the /users route (which references listUsers) surfaces.
++	res, err := handleCodeRoute(context.Background(), newCallTool("code_route", map[string]any{"handler": "listUsers"}))
++	if err != nil {
++		t.Fatalf("handleCodeRoute: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("code_route errored: %s", callResultText(t, res))
++	}
++	var out struct {
++		Routes []struct {
++			Path          string `json:"path"`
++			Handler       string `json:"handler"`
++			Confidence    string `json:"references_confidence"`
++			Framework     string `json:"framework"`
++		} `json:"routes"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, res)), &out); err != nil {
++		t.Fatalf("code_route output not JSON: %v (text %s)", err, callResultText(t, res))
++	}
++	if len(out.Routes) == 0 {
++		t.Fatalf("expected route(s) for handler listUsers, got none")
++	}
++	foundUsers := false
++	for _, r := range out.Routes {
++		if r.Path == "/users" {
++			foundUsers = true
++			if r.Handler != "listUsers" {
++				t.Errorf("route /users handler = %q, want listUsers", r.Handler)
++			}
++			if r.Confidence != "EXTRACTED" {
++				t.Errorf("route /users references confidence = %q, want EXTRACTED", r.Confidence)
++			}
++		}
++	}
++	if !foundUsers {
++		t.Errorf("expected the /users route to surface for handler listUsers, got %+v", out.Routes)
++	}
++}
++
++// TestCodeNavigatesQuery covers @step-01 (navigates query returns screen ->
++// screen edges with confidence labels). A to-screen query returns the senders.
++func TestCodeNavigatesQuery(t *testing.T) {
++	routeMCPFixture(t)
++
++	res, err := handleCodeNavigates(context.Background(), newCallTool("code_navigates", map[string]any{"to": "/about"}))
++	if err != nil {
++		t.Fatalf("handleCodeNavigates: %v", err)
++	}
++	if res.IsError {
++		t.Fatalf("code_navigates errored: %s", callResultText(t, res))
++	}
++	var out struct {
++		Navigations []struct {
++			Screen     string `json:"screen"`
++			Confidence string `json:"confidence"`
++			From       string `json:"from"`
++		} `json:"navigations"`
++	}
++	if err := json.Unmarshal([]byte(callResultText(t, res)), &out); err != nil {
++		t.Fatalf("code_navigates output not JSON: %v (text %s)", err, callResultText(t, res))
++	}
++	if len(out.Navigations) == 0 {
++		t.Fatalf("expected navigation(s) to /about, got none")
++	}
++	for _, n := range out.Navigations {
++		if n.Confidence != "EXTRACTED" {
++			t.Errorf("navigates to /about (literal) should be EXTRACTED, got %q", n.Confidence)
++		}
++	}
++}
++
++// TestRouteToolsBadArgs covers @step-01 (bad route args rejected clearly):
++// code_route with neither handler nor path, and code_navigates with neither
++// from nor to, are rejected with a clear validation error (not an invented
++// result).
++func TestRouteToolsBadArgs(t *testing.T) {
++	routeMCPFixture(t)
++
++	res, err := handleCodeRoute(context.Background(), newCallTool("code_route", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleCodeRoute dispatch: %v", err)
++	}
++	if !res.IsError {
++		t.Errorf("code_route with no handler/path should be a validation error, got: %s", callResultText(t, res))
++	}
++	if text := callResultText(t, res); !strings.Contains(strings.ToLower(text), "handler") && !strings.Contains(strings.ToLower(text), "path") {
++		t.Errorf("bad-arg error should name the handler/path problem, got: %s", text)
++	}
++
++	res2, err := handleCodeNavigates(context.Background(), newCallTool("code_navigates", map[string]any{}))
++	if err != nil {
++		t.Fatalf("handleCodeNavigates dispatch: %v", err)
++	}
++	if !res2.IsError {
++		t.Errorf("code_navigates with no from/to should be a validation error, got: %s", callResultText(t, res2))
++	}
++	if text := callResultText(t, res2); !strings.Contains(strings.ToLower(text), "from") && !strings.Contains(strings.ToLower(text), "to") {
++		t.Errorf("bad-arg error should name the from/to problem, got: %s", text)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/route/edge_test.go b/skillgrid-cli/internal/mnemonic/route/edge_test.go
+new file mode 100644
+index 0000000..7b0c252
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/route/edge_test.go
+@@ -0,0 +1,161 @@
++package route
++
++import (
++	"strings"
++	"testing"
++)
++
++// TestUnresolvedComputedDestinations covers @step-01 (Scenario: Computed or
++// unserved destination stays unresolved): a router.push with a computed
++// (non-literal) destination, and a navigates edge to a screen no route
++// serves, are left unresolved — never fabricated into a stored edge.
++func TestUnresolvedComputedDestinations(t *testing.T) {
++	// A computed destination (a variable, not a string literal) must NOT
++	// produce a navigates edge (it is unresolved, not fabricated).
++	src := "function go() {\n  const dest = buildDest();\n  router.push(dest);\n}\n"
++	b := Build("a.tsx", []byte(src), fileSyms("go"), known())
++	for _, n := range b.Navs {
++		t.Errorf("computed destination produced a fabricated navigates edge to %q (want none)", n.ToName)
++	}
++
++	// A literal destination is stored, even though no route serves that
++	// screen — the screen key is the literal, never an invented match.
++	src2 := "function go() {\n  router.push('/nowhere');\n}\n"
++	b2 := Build("b.tsx", []byte(src2), fileSyms("go"), known())
++	if len(b2.Navs) != 1 || b2.Navs[0].ToName != "/nowhere" {
++		t.Errorf("literal destination should be stored as a navigates edge to /nowhere, got %v", navScreens(b2.Navs))
++	}
++}
++
++// TestUnresolvedWebRouteNoRouteServes covers the web side: a route whose
++// handler is a name that no route serves (unresolvable) still yields a route
++// node, but no references edge is fabricated (drop-not-guess).
++func TestUnresolvedWebRouteNoRouteServes(t *testing.T) {
++	// `unserved` is a bare identifier (a reference) but no route serves it —
++	// it is unresolvable, so the references edge is dropped, not fabricated.
++	src := "app.get('/mystery', unserved);\n"
++	b := Build("server.js", []byte(src), fileSyms("other"), dummyIndex{known: map[string]int64{}})
++	found := false
++	for _, n := range b.Nodes {
++		if n.PathPattern == "/mystery" {
++			found = true
++			if n.HandlerSymbol != 0 {
++				t.Errorf("unresolvable handler should be unresolved (HandlerSymbol=0), got %d", n.HandlerSymbol)
++			}
++		}
++	}
++	if !found {
++		t.Errorf("expected a route node for /mystery, got none")
++	}
++	if b.Dropped != 1 {
++		t.Errorf("expected the unresolvable handler ref to be dropped (warning), got %d drops", b.Dropped)
++	}
++}
++
++// TestDropNotGuess covers @step-01 (Scenario: Ambiguous references are dropped
++// not guessed): a reference with no same-file match, no explicit specifier,
++// and no unique global/owner-qualified match is dropped at extraction (no edge
++// stored) and reported as a warning (count + sample), not a silent discard.
++// AMBIGUOUS is reserved for edges that WERE resolved via a heuristic (a
++// markup-written navigates link) — such an edge is stored INFERRED/AMBIGUOUS,
++// while an unresolvable one is absent.
++func TestDropNotGuess(t *testing.T) {
++	// A route whose handler has no same-file match and no unique global match
++	// (the dummy index reports it ambiguous) → dropped, with a warning.
++	src := "app.get('/x', someAmbiguousHandler);\n"
++	idx := dummyIndex{known: map[string]int64{}} // nothing known → unresolvable
++	b := Build("server.js", []byte(src), fileSyms("other"), idx)
++	if b.Dropped != 1 {
++		t.Fatalf("expected 1 dropped reference (drop-not-guess), got %d", b.Dropped)
++	}
++	if b.DropSample != "someAmbiguousHandler" {
++		t.Errorf("drop warning sample = %q, want someAmbiguousHandler", b.DropSample)
++	}
++	// The route node is present but has no references edge (HandlerSymbol=0).
++	for _, n := range b.Nodes {
++		if n.PathPattern == "/x" {
++			if n.HandlerSymbol != 0 {
++				t.Errorf("ambiguous handler reference should be dropped (HandlerSymbol=0), got %d", n.HandlerSymbol)
++			}
++		}
++	}
++
++	// A resolvable reference (unique global match) → stored, NOT dropped.
++	src2 := "app.get('/y', knownHandler);\n"
++	b2 := Build("server2.js", []byte(src2), fileSyms("other"), known("knownHandler"))
++	if b2.Dropped != 0 {
++		t.Errorf("resolvable handler should not be dropped, got %d drops", b2.Dropped)
++	}
++	for _, n := range b2.Nodes {
++		if n.PathPattern == "/y" && n.HandlerSymbol == 0 {
++			t.Errorf("resolvable handler reference should be stored (HandlerSymbol!=0)")
++		}
++	}
++}
++
++// TestDropNotGuessWarningIsReported covers the "reported as a warning, not a
++// silent discard" half of the policy: the drop count + a sample are surfaced.
++func TestDropNotGuessWarningIsReported(t *testing.T) {
++	src := "app.get('/a', h1);\napp.get('/b', h2);\n"
++	b := Build("server.js", []byte(src), fileSyms("other"), dummyIndex{known: map[string]int64{}})
++	if b.Dropped != 2 {
++		t.Errorf("expected 2 dropped refs, got %d", b.Dropped)
++	}
++	if b.DropSample == "" {
++		t.Errorf("expected a non-empty drop sample (warning), got empty")
++	}
++	if !strings.Contains(b.DropSample, "h") {
++		t.Errorf("drop sample %q should name a dropped handler", b.DropSample)
++	}
++}
++
++// TestMalformedFileFallsBackAndContinues covers @step-01 (Scenario: Malformed
++// routing file falls back and index continues): a malformed routing file
++// yields an empty (non-nil) result, never an error, so the index continues.
++func TestMalformedFileFallsBackAndContinues(t *testing.T) {
++	// Malformed python: a broken urls.py that is not valid Python.
++	badPy := "urlpatterns = [\npath('/x/', views.Home.as_view(,\n"
++	fr := ExtractFile("urls.py", []byte(badPy))
++	if fr == nil {
++		t.Fatalf("ExtractFile must not return nil for a malformed file")
++	}
++	// The extractor degrades (no routes) but does not panic / error.
++
++	// An empty file yields an empty result, not nil.
++	empty := ExtractFile("empty.js", []byte(""))
++	if empty == nil {
++		t.Fatalf("ExtractFile must not return nil for an empty file")
++	}
++
++	// A nil-ish (all whitespace) file also degrades.
++	blank := ExtractFile("blank.ts", []byte("\n\n  \n"))
++	if blank == nil {
++		t.Fatalf("ExtractFile must not return nil for a blank file")
++	}
++
++	// Build with a malformed src still returns a non-nil Built (no route
++	// nodes, no navigates) so the indexer's per-file pass continues.
++	b := Build("weird.py", []byte("::::\n"), fileSyms("x"), known())
++	if b == nil {
++		t.Fatalf("Build must not return nil for a malformed file")
++	}
++}
++
++// TestNoRoutesFrameworkReportsNone covers @step-01 (Scenario: Framework with
++// no routes reports none): a recognized framework file with no route
++// definitions yields zero route nodes and zero references edges (it reports
++// "none", not a fabricated route).
++func TestNoRoutesFrameworkReportsNone(t *testing.T) {
++	// A Django urls.py with an empty urlpatterns list.
++	src := "from . import views\n\nurlpatterns = []\n"
++	b := Build("urls.py", []byte(src), fileSyms("views"), known())
++	if len(b.Nodes) != 0 {
++		t.Errorf("empty urlpatterns should report no routes, got %d nodes", len(b.Nodes))
++	}
++	// A Spring controller with no @*Mapping annotations.
++	src2 := "package c;\n\npublic class Empty {\n  public void nothing() {}\n}\n"
++	b2 := Build("Empty.java", []byte(src2), fileSyms("nothing"), known())
++	if len(b2.Nodes) != 0 {
++		t.Errorf("controller without mappings should report no routes, got %d nodes", len(b2.Nodes))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/route/extract.go b/skillgrid-cli/internal/mnemonic/route/extract.go
+new file mode 100644
+index 0000000..8aa3543
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/route/extract.go
+@@ -0,0 +1,627 @@
++// Package route extracts framework routing (web frameworks: route -> handler
++// references; routers: function -> screen navigates) into the 005 symbols/
++// edges graph. It is additive on top of the 005 extractors: it never rewrites
++// a 005 symbol or edge, and it applies the drop-rather-than-guess edge policy
++// — an ambiguous reference (no same-file match, no explicit specifier, no
++// unique global/owner-qualified match) is dropped at extraction, not stored as
++// AMBIGUOUS, so a false positive can never inflate blast radius.
++package route
++
++import (
++	"fmt"
++	"hash/fnv"
++	"path/filepath"
++	"regexp"
++	"sort"
++	"strings"
++)
++
++// Edge kinds emitted by the route extractor (distinct from 005's call/heritage
++// kinds).
++const (
++	KindReferences = "references"
++	KindNavigates  = "navigates"
++)
++
++// Confidence labels (mirrored from extract).
++const (
++	ConfidenceExtracted = "EXTRACTED"
++	ConfidenceInferred  = "INFERRED"
++)
++
++// Symbol kinds assigned by the route extractor.
++const (
++	KindRoute  = "route"
++	ScreenKind = "screen"
++)
++
++// Route is one URL -> handler binding for a web framework.
++type Route struct {
++	Framework   string
++	Method      string
++	PathPattern string
++	Handler     string
++	Line        int
++	// Explicit is true when the route names the handler as a direct reference
++	// (Django's as_view, FastAPI's function decorator). When false the handler
++	// was bound by a framework convention (e.g. Rails to:) and is resolved with
++	// a lower confidence.
++	Explicit bool
++}
++
++// Navigation is one screen -> screen link produced by a frontend router.
++type Navigation struct {
++	Framework string
++	Screen    string
++	Dest      string
++	// Markup is true when the link is written in markup (<Link>, <Route>)
++	// rather than a programmatic call. Markup links are convention-derived
++	// (INFERRED); programmatic literals are EXTRACTED.
++	Markup bool
++	Line   int
++}
++
++// FileRoutes is the extraction result for one file.
++type FileRoutes struct {
++	Framework string
++	Routes    []Route
++	Navigates []Navigation
++}
++
++// Extractor recognizes routing patterns in one file and returns its route
++// nodes / navigates edges. Implementations must never error: a malformed file
++// yields an empty (non-nil) FileRoutes so the index continues.
++type Extractor interface {
++	Extract(path string, src []byte) *FileRoutes
++}
++
++// ExtractFile dispatches path to the first framework handler whose file-type
++// predicate matches. An unmatched or unsupported file yields an empty result.
++// It never returns nil and never errors — a malformed file falls back to an
++// empty result (the index continues).
++func ExtractFile(path string, src []byte) *FileRoutes {
++	out := &FileRoutes{}
++	for _, h := range handlers {
++		if !h.isFile(path) {
++			continue
++		}
++		if src == nil {
++			out.Framework = h.name
++			return out
++		}
++		fr := h.extract(path, src)
++		if fr == nil {
++			out.Framework = h.name
++			return out
++		}
++		fr.Framework = h.name
++		out.Routes = fr.Routes
++		out.Navigates = fr.Navigates
++		out.Framework = h.name
++		return out
++	}
++	return out
++}
++
++// handler is one framework's file-type predicate + route/navigates extractor.
++type handler struct {
++	name    string
++	isFile  func(path string) bool
++	extract func(path string, src []byte) *FileRoutes
++}
++
++// handlers is the per-framework dispatch table, ordered so more specific file
++// types win (SvelteKit .svelte before the JS routers; Next.js before React
++// Router for .tsx/.jsx).
++var handlers = []handler{
++	{"django", isPython, extractDjango},
++	{"express", isJS, extractExpress},
++	{"gin", isGo, extractGin},
++	{"rails", isRuby, extractRails},
++	{"spring", isJava, extractSpring},
++	{"sveltekit", isSvelte, extractSvelteKit},
++	{"nextjs", isJSX, extractNextJS},
++	{"react-router", isJSX, extractReactRouter},
++	{"vue-router", isJS, extractVueRouter},
++}
++
++func isPython(path string) bool { return filepath.Ext(path) == ".py" }
++
++func isJS(path string) bool {
++	switch filepath.Ext(path) {
++	case ".js", ".mjs", ".cjs":
++		return true
++	}
++	return false
++}
++func isJSX(path string) bool { return filepath.Ext(path) == ".tsx" || filepath.Ext(path) == ".jsx" }
++func isGo(path string) bool { return filepath.Ext(path) == ".go" }
++func isRuby(path string) bool { return filepath.Ext(path) == ".rb" }
++func isJava(path string) bool { return filepath.Ext(path) == ".java" }
++func isSvelte(path string) bool { return filepath.Ext(path) == ".svelte" }
++
++// symbolUID derives a stable, path-independent identity for a route node from
++// its framework + pattern + method (content excluded, so a moved file keeps
++// its route identity).
++func symbolUID(framework, pattern, method string) string {
++	h := fnv.New64a()
++	h.Write([]byte(framework + "\x00" + pattern + "\x00" + method))
++	return fmt.Sprintf("%x", h.Sum64())
++}
++
++// screenPath derives a screen's stable route path from a named destination. A
++// literal path (/about) is used as-is; a name-only destination ("settings") is
++// normalized to a path-like screen key. This is a convention, not a claim of
++// syntax — the destination is never fabricated beyond what the source holds.
++func screenPath(dest string) string {
++	dest = strings.TrimSpace(dest)
++	if dest == "" {
++		return ""
++	}
++	if strings.HasPrefix(dest, "/") {
++		return dest
++	}
++	return "/" + dest
++}
++
++// lineOf returns the 1-based line number of byte offset off in src.
++func lineOf(src []byte, off int) int {
++	if off < 0 {
++		off = 0
++	}
++	if off > len(src) {
++		off = len(src)
++	}
++	n := 1
++	for i := 0; i < off; i++ {
++		if src[i] == '\n' {
++			n++
++		}
++	}
++	return n
++}
++
++// absPattern normalizes a relative URL pattern (Django) to an absolute one.
++// Django's urls.py patterns are conventionally relative ("home/"); the route
++// node key is the absolute form ("/home/") so a query for the URL pattern is
++// unambiguous.
++func absPattern(p string) string {
++	if p == "" {
++		return p
++	}
++	if strings.HasPrefix(p, "/") {
++		return p
++	}
++	return "/" + p
++}
++
++// stripQuotes removes a single layer of surrounding matching quotes.
++func stripQuotes(s string) string {
++	s = strings.TrimSpace(s)
++	if len(s) >= 2 {
++		if (s[0] == '\'' && s[len(s)-1] == '\'') || (s[0] == '"' && s[len(s)-1] == '"') {
++			return s[1 : len(s)-1]
++		}
++	}
++	return s
++}
++
++var idRe = regexp.MustCompile(`^[A-Za-z_]\w*$`)
++
++// --- Web framework: route -> handler references ---
++
++var djangoURLsRe = regexp.MustCompile(`(?m)^\s*(?:re\.path|path)\s*\(\s*['\"]([^'\"]*)['\"]\s*,\s*([^)]+?)\s*\)\s*,?\s*$`)
++var djangoAsViewRe = regexp.MustCompile(`([\w.]+)\.as_view\(\s*\)`)
++var djangoNameRe = regexp.MustCompile(`\bname\s*=\s*['\"]([^'\"]*)['\"]`)
++var djangoAsViewNameRe = regexp.MustCompile(`(?m)^\s*(?:re\.path|path)\s*\(\s*['\"]([^'\"]*)['\"]\s*,\s*([\w.]+)\.as_view\(\s*\)\s*(?:,[^)\n]*)?\)\s*,?\s*$`)
++
++func extractDjango(path string, src []byte) *FileRoutes {
++	fr := &FileRoutes{Framework: "django"}
++	text := string(src)
++	// Direct as_view() forms (single-line entries) — explicit references.
++	for _, m := range djangoAsViewNameRe.FindAllStringSubmatchIndex(text, -1) {
++		if m == nil || len(m) < 4 {
++			continue
++		}
++		pattern := absPattern(text[m[2]:m[3]])
++		handler := strings.TrimPrefix(text[m[4]:m[5]], "views.")
++		if handler == "" {
++			continue
++		}
++		fr.Routes = append(fr.Routes, Route{
++			Framework: "django", Method: "GET", PathPattern: pattern,
++			Handler: handler, Line: lineOf(src, m[0]), Explicit: true,
++		})
++	}
++	// Generic entries (view references / computed) for the non-as_view forms.
++	for _, m := range djangoURLsRe.FindAllStringSubmatchIndex(text, -1) {
++		if m == nil || len(m) < 4 {
++			continue
++		}
++		pattern := absPattern(text[m[2]:m[3]])
++		second := text[m[4]:m[5]]
++		if djangoAsViewRe.MatchString(second) {
++			continue // already handled by the explicit pass
++		}
++		handler := djangoHandler(second)
++		if handler == "" {
++			continue
++		}
++		fr.Routes = append(fr.Routes, Route{
++			Framework: "django", Method: "GET", PathPattern: pattern,
++			Handler: handler, Line: lineOf(src, m[0]), Explicit: true,
++		})
++	}
++	// FastAPI decorators in the same .py (no URL entries present) are also
++	// valid route sources — union them in so a FastAPI module is not silently
++	// dropped by the Django dispatch.
++	if len(fr.Routes) == 0 {
++		fr.Routes = fastAPIRoutes(src)
++	}
++	sortRoutes(fr)
++	return fr
++}
++
++// fastAPIRoutes returns the routes for a FastAPI module (@app.get decorators).
++// It is shared by the python dispatch so a .py file that is FastAPI (no
++// urlpatterns) still yields its routes.
++func fastAPIRoutes(src []byte) []Route {
++	var routes []Route
++	lines := strings.Split(string(src), "\n")
++	for i := 0; i < len(lines); i++ {
++		m := fastapiDecoratorRe.FindStringSubmatchIndex(lines[i])
++		if m == nil {
++			continue
++		}
++		method := strings.ToUpper(lines[i][m[2]:m[3]])
++		pattern := lines[i][m[4]:m[5]]
++		handler := nextFuncName(lines, i+1)
++		if handler == "" {
++			continue
++		}
++		routes = append(routes, Route{
++			Framework: "fastapi", Method: method, PathPattern: pattern,
++			Handler: handler, Line: i + 1, Explicit: true,
++		})
++	}
++	return routes
++}
++
++// djangoHandler returns the handler symbol name from a URL entry's second
++// argument: a dotted view reference or a bare identifier. A computed argument
++// (neither shape) yields "" (the reference is then dropped).
++func djangoHandler(second string) string {
++	second = djangoNameRe.ReplaceAllString(second, "")
++	second = strings.TrimSpace(second)
++	second = strings.TrimPrefix(second, "views.")
++	if idRe.MatchString(second) {
++		return second
++	}
++	return ""
++}
++
++var fastapiDecoratorRe = regexp.MustCompile(`@app\.(get|post|put|delete|patch)\(\s*['\"]([^'\"]*)['\"]`)
++var funcDefRe = regexp.MustCompile(`^(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(`)
++
++func nextFuncName(lines []string, idx int) string {
++	for i := idx; i < len(lines); i++ {
++		l := strings.TrimSpace(lines[i])
++		if l == "" {
++			continue
++		}
++		if m := funcDefRe.FindStringSubmatch(l); m != nil {
++			return m[1]
++		}
++		return ""
++	}
++	return ""
++}
++
++var expressRouteRe = regexp.MustCompile(`(?m)^\s*app\.(get|post|put|delete|patch)\s*\(\s*['\"]([^'\"]*)['\"]\s*,\s*([^)]+?)\s*\)\s*[,;]?\s*$`)
++
++func extractExpress(path string, src []byte) *FileRoutes {
++	fr := &FileRoutes{Framework: "express"}
++	for _, m := range expressRouteRe.FindAllStringSubmatchIndex(string(src), -1) {
++		if m == nil || len(m) < 6 {
++			continue
++		}
++		method := strings.ToUpper(string(src[m[2]:m[3]]))
++		pattern := string(src[m[4]:m[5]])
++		handler := routeHandler(string(src[m[6]:m[7]]))
++		if handler == "" {
++			continue
++		}
++		fr.Routes = append(fr.Routes, Route{
++			Framework: "express", Method: method, PathPattern: pattern,
++			Handler: handler, Line: lineOf(src, m[0]), Explicit: true,
++		})
++	}
++	// A .js file that is Vue Router (router.push) but not Express (no
++	// app.get) still yields its navigations — union them in so the first
++	// .js handler does not silently drop the others.
++	if len(fr.Routes) == 0 && len(fr.Navigates) == 0 {
++		fr.Navigates = vueRouterNavigates(src)
++	}
++	return fr
++}
++
++// routeHandler returns the handler function name from a route's handler
++// argument: a bare identifier, or the first named entry of a middleware array.
++// A computed argument (arrow function, etc.) yields "".
++func routeHandler(arg string) string {
++	arg = strings.TrimSpace(arg)
++	if strings.HasPrefix(arg, "[") {
++		inner := strings.TrimSuffix(strings.TrimPrefix(arg, "["), "]")
++		for _, part := range strings.Split(inner, ",") {
++			part = strings.TrimSpace(part)
++			if idRe.MatchString(part) {
++				return part
++			}
++		}
++		return ""
++	}
++	if idRe.MatchString(arg) {
++		return arg
++	}
++	return ""
++}
++
++var vuePushNameRe = regexp.MustCompile(`\brouter\.(?:push|replace)\(\s*\{[^}]*\bname\s*:\s*['\"]([^'\"]*)['\"]`)
++var vuePushPathRe = regexp.MustCompile(`\brouter\.(?:push|replace)\(\s*['\"]([^'\"]*)['\"]`)
++
++// vueRouterNavigates returns the navigations for a Vue Router module
++// (router.push({name}) / router.push('/x')).
++func vueRouterNavigates(src []byte) []Navigation {
++	var navs []Navigation
++	text := string(src)
++	for _, m := range vuePushNameRe.FindAllStringSubmatchIndex(text, -1) {
++		if m == nil || len(m) < 3 {
++			continue
++		}
++		dest := text[m[2]:m[3]]
++		navs = append(navs, Navigation{
++			Framework: "vue-router", Screen: screenPath(dest), Dest: dest,
++			Line: lineOf(src, m[0]),
++		})
++	}
++	for _, m := range vuePushPathRe.FindAllStringSubmatchIndex(text, -1) {
++		if m == nil || len(m) < 3 {
++			continue
++		}
++		dest := text[m[2]:m[3]]
++		navs = append(navs, Navigation{
++			Framework: "vue-router", Screen: screenPath(dest), Dest: dest,
++			Line: lineOf(src, m[0]),
++		})
++	}
++	return navs
++}
++
++var ginRouteRe = regexp.MustCompile(`(?m)^\s*\b[rw]\.(GET|POST|PUT|DELETE|PATCH|Any|HEAD|OPTIONS)\s*\(\s*["\x27]([^"\x27]*)["\x27]\s*,\s*([^)]+?)\s*\)\s*[,;]?\s*$`)
++
++func extractGin(path string, src []byte) *FileRoutes {
++	fr := &FileRoutes{Framework: "gin"}
++	for _, m := range ginRouteRe.FindAllStringSubmatchIndex(string(src), -1) {
++		if m == nil || len(m) < 6 {
++			continue
++		}
++		method := strings.ToUpper(string(src[m[2]:m[3]]))
++		pattern := string(src[m[4]:m[5]])
++		handler := routeHandler(string(src[m[6]:m[7]]))
++		if handler == "" {
++			continue
++		}
++		fr.Routes = append(fr.Routes, Route{
++			Framework: "gin", Method: method, PathPattern: pattern,
++			Handler: handler, Line: lineOf(src, m[0]), Explicit: true,
++		})
++	}
++	return fr
++}
++
++var railsRouteRe = regexp.MustCompile(`(?m)^\s*(get|post|put|patch|delete|resources|resource)\s+['\"]([^'\"]*)['\"]`)
++var railsToRe = regexp.MustCompile(`\bto\s*:\s*['\"]([^'\"]+)['\"]`)
++
++func extractRails(path string, src []byte) *FileRoutes {
++	fr := &FileRoutes{Framework: "rails"}
++	text := string(src)
++	for _, m := range railsRouteRe.FindAllStringSubmatchIndex(text, -1) {
++		if m == nil || len(m) < 4 {
++			continue
++		}
++		method := strings.ToUpper(text[m[2]:m[3]])
++		pattern := text[m[4]:m[5]]
++		rest := text[m[1]:]
++		explicit := false
++		handler := ""
++		if tm := railsToRe.FindStringSubmatch(rest); tm != nil {
++			handler = railsTarget(tm[1])
++			explicit = true
++		} else {
++			handler = railsConvention(method, pattern)
++		}
++		if handler == "" {
++			continue
++		}
++		fr.Routes = append(fr.Routes, Route{
++			Framework: "rails", Method: method, PathPattern: pattern,
++			Handler: handler, Line: lineOf(src, m[0]), Explicit: explicit,
++		})
++	}
++	return fr
++}
++
++// railsTarget returns a stable handler symbol name for a `to:` target:
++// "Controller#Action" becomes "Controller#Action" (the full action ref, which
++// is the natural symbol identity for the handler) and a bare "action" is kept
++// as-is.
++func railsTarget(target string) string {
++	return strings.TrimSpace(target)
++}
++
++func railsConvention(method, pattern string) string {
++	p := strings.TrimLeft(pattern, "/")
++	if p == "" {
++		return "root#index"
++	}
++	return p + "#index"
++}
++
++var springMappingRe = regexp.MustCompile(`@(Get|Post|Put|Delete|Patch|Request)Mapping`)
++var springPathRe = regexp.MustCompile(`@(?:Get|Post|Put|Delete|Patch|Request)Mapping\s*\(\s*(?:value\s*=\s*)?["\x27]([^"\x27]*)["\x27]`)
++var javaMethodRe = regexp.MustCompile(`^(?:public\s+|private\s+|protected\s+)?[\w<>\[\],\s]+\s([A-Za-z_]\w*)\s*\([^)]*\)\s*\{`)
++
++func extractSpring(path string, src []byte) *FileRoutes {
++	fr := &FileRoutes{Framework: "spring"}
++	lines := strings.Split(string(src), "\n")
++	for i := 0; i < len(lines); i++ {
++		if !springMappingRe.MatchString(lines[i]) {
++			continue
++		}
++		pm := springPathRe.FindStringSubmatch(lines[i])
++		if pm == nil {
++			continue
++		}
++		method := ""
++		if mm := springMappingRe.FindStringSubmatch(lines[i]); mm != nil {
++			method = strings.ToUpper(mm[1])
++		}
++		handler := nextJavaMethod(lines, i+1)
++		if handler == "" {
++			continue
++		}
++		fr.Routes = append(fr.Routes, Route{
++			Framework: "spring", Method: method, PathPattern: pm[1],
++			Handler: handler, Line: i + 1, Explicit: true,
++		})
++	}
++	return fr
++}
++
++func nextJavaMethod(lines []string, idx int) string {
++	for i := idx; i < len(lines); i++ {
++		l := strings.TrimSpace(lines[i])
++		if l == "" {
++			continue
++		}
++		if m := javaMethodRe.FindStringSubmatch(l); m != nil {
++			return m[1]
++		}
++		return ""
++	}
++	return ""
++}
++
++// --- Routers: function -> screen navigates ---
++
++var nextPushRe = regexp.MustCompile(`router\.push\(\s*['\"]([^'\"]*)['\"]`)
++var linkHrefRe = regexp.MustCompile(`<Link[^>]*\bhref\s*=\s*['\"]([^'\"]*)['\"]`)
++
++func extractNextJS(path string, src []byte) *FileRoutes {
++	fr := &FileRoutes{Framework: "nextjs"}
++	text := string(src)
++	for _, m := range nextPushRe.FindAllStringSubmatchIndex(text, -1) {
++		if m == nil || len(m) < 3 {
++			continue
++		}
++		dest := text[m[2]:m[3]]
++		fr.Navigates = append(fr.Navigates, Navigation{
++			Framework: "nextjs", Screen: screenPath(dest), Dest: dest,
++			Line: lineOf(src, m[0]),
++		})
++	}
++	for _, m := range linkHrefRe.FindAllStringSubmatchIndex(text, -1) {
++		if m == nil || len(m) < 3 {
++			continue
++		}
++		dest := text[m[2]:m[3]]
++		fr.Navigates = append(fr.Navigates, Navigation{
++			Framework: "nextjs", Screen: screenPath(dest), Dest: dest,
++			Markup: true, Line: lineOf(src, m[0]),
++		})
++	}
++	// A .tsx file that is React Router (useNavigate / <Route>) but not Next
++	// (no router.push / <Link>) still yields its navigations — union them in
++	// so the first .tsx/.jsx handler does not silently drop the others.
++	if len(fr.Navigates) == 0 {
++		fr.Navigates = reactRouterNavigates(src)
++	}
++	return fr
++}
++
++// reactRouterNavigates returns the navigations for a React Router module
++// (<Route path> definitions + navigate('/x') calls).
++func reactRouterNavigates(src []byte) []Navigation {
++	var navs []Navigation
++	text := string(src)
++	for _, m := range routePathRe.FindAllStringSubmatchIndex(text, -1) {
++		if m == nil || len(m) < 3 {
++			continue
++		}
++		dest := text[m[2]:m[3]]
++		navs = append(navs, Navigation{
++			Framework: "react-router", Screen: screenPath(dest), Dest: dest,
++			Markup: true, Line: lineOf(src, m[0]),
++		})
++	}
++	for _, m := range reactNavRe.FindAllStringSubmatchIndex(text, -1) {
++		if m == nil || len(m) < 3 {
++			continue
++		}
++		dest := text[m[2]:m[3]]
++		navs = append(navs, Navigation{
++			Framework: "react-router", Screen: screenPath(dest), Dest: dest,
++			Line: lineOf(src, m[0]),
++		})
++	}
++	return navs
++}
++
++var routePathRe = regexp.MustCompile(`<Route[^>]*\bpath\s*=\s*['\"]([^'\"]*)['\"]`)
++var reactNavRe = regexp.MustCompile(`\bnavigate\(\s*['\"]([^'\"]*)['\"]`)
++
++func extractReactRouter(path string, src []byte) *FileRoutes {
++	fr := &FileRoutes{Framework: "react-router"}
++	fr.Navigates = reactRouterNavigates(src)
++	return fr
++}
++
++var svelteGotoRe = regexp.MustCompile(`goto\(\s*['\"]([^'\"]*)['\"]`)
++
++func extractSvelteKit(path string, src []byte) *FileRoutes {
++	fr := &FileRoutes{Framework: "sveltekit"}
++	text := string(src)
++	for _, m := range svelteGotoRe.FindAllStringSubmatchIndex(text, -1) {
++		if m == nil || len(m) < 3 {
++			continue
++		}
++		dest := text[m[2]:m[3]]
++		fr.Navigates = append(fr.Navigates, Navigation{
++			Framework: "sveltekit", Screen: screenPath(dest), Dest: dest,
++			Line: lineOf(src, m[0]),
++		})
++	}
++	return fr
++}
++
++func extractVueRouter(path string, src []byte) *FileRoutes {
++	fr := &FileRoutes{Framework: "vue-router"}
++	fr.Navigates = vueRouterNavigates(src)
++	return fr
++}
++
++// sortRoutes makes route/navigation output deterministic for a given file.
++func sortRoutes(fr *FileRoutes) {
++	sort.SliceStable(fr.Routes, func(i, j int) bool {
++		if fr.Routes[i].Line != fr.Routes[j].Line {
++			return fr.Routes[i].Line < fr.Routes[j].Line
++		}
++		return fr.Routes[i].PathPattern < fr.Routes[j].PathPattern
++	})
++	sort.SliceStable(fr.Navigates, func(i, j int) bool {
++		if fr.Navigates[i].Line != fr.Navigates[j].Line {
++			return fr.Navigates[i].Line < fr.Navigates[j].Line
++		}
++		return fr.Navigates[i].Dest < fr.Navigates[j].Dest
++	})
++}
+diff --git a/skillgrid-cli/internal/mnemonic/route/frameworks.go b/skillgrid-cli/internal/mnemonic/route/frameworks.go
+new file mode 100644
+index 0000000..7a58e18
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/route/frameworks.go
+@@ -0,0 +1,274 @@
++package route
++
++import (
++	"context"
++	"fmt"
++	"sort"
++	"strings"
++)
++
++// RouteNode is one route node to be upserted into the 005 symbols table.
++type RouteNode struct {
++	Name          string
++	UID           string
++	PathPattern   string
++	Method        string
++	Framework     string
++	Language      string
++	Line          int
++	ContentHash   string
++	HandlerName   string
++	HandlerSymbol int64 // 0 when the handler could not be resolved
++	HandlerUID    string
++	HandlerExplicit bool
++}
++
++// NavigationNode is one navigation edge to be upserted into the 005 edges
++// table (kind = navigates).
++type NavigationNode struct {
++	FromSymbol int64
++	ToName     string // the screen (path-like)
++	Confidence string
++	Line       int
++}
++
++// Build is the per-framework node map. Given the raw extraction for a file,
++// the symbols extracted by 005 (for the same file), and the symbol index, it
++// produces the route nodes + references/navigates edges. This is the single
++// place where the drop-rather-than-guess policy is applied to references.
++func Build(path string, src []byte, fileSyms []FileSymbol, index SymbolIndex) *Built {
++	fr := ExtractFile(path, src)
++	if fr == nil {
++		fr = &FileRoutes{}
++	}
++	sortRoutes(fr)
++
++	built := &Built{
++		Framework: fr.Framework,
++		Nodes:     make([]RouteNode, 0, len(fr.Routes)),
++		Navs:      make([]NavigationNode, 0, len(fr.Navigates)),
++	}
++	built.buildRoutes(path, src, fr, fileSyms, index)
++	built.buildNavigates(path, src, fr, fileSyms, index)
++	return built
++}
++
++// Built is the output of Build: the route nodes and navigates edges to store,
++// plus the drop-not-guess warnings.
++type Built struct {
++	Framework  string
++	Nodes      []RouteNode
++	Navs       []NavigationNode
++	Dropped    int
++	DropSample string
++}
++
++// Store is the narrow persistence surface the indexer uses to persist route
++// nodes + references/navigates edges in the SAME transaction as the 005
++// symbol/edge extraction. The indexer implements it over *sql.Tx.
++type Store interface {
++	// StoreRouteNode upserts a route node into the 005 symbols table
++	// (kind=route) and returns its resolved symbol id. The 005 upsert is
++	// byte-identical to the one the indexer already performs for 005 symbols.
++	StoreRouteNode(node RouteNode) (int64, error)
++	// StoreReferencesEdges upserts the references (route -> handler) edges
++	// for a file's route nodes. It prunes the file's prior route-originated
++	// references/navigates edges first (target-state), then upserts.
++	StoreReferencesEdges(fileID int64, nodes []RouteNode, fileSymbolID int64) (int, error)
++	// StoreNavigatesEdges upserts the navigates (function -> screen) edges.
++	StoreNavigatesEdges(fileID int64, navs []NavigationNode) (int, error)
++	// StoreRouteDrops records the per-file drop-not-guess count.
++	StoreRouteDrops(fileID int64, dropped int) error
++	// StoreRouteMeta records the framework-specific route metadata.
++	StoreRouteMeta(fileID int64, symbolID int64, node RouteNode) error
++	// FirstSymbolID returns the file's first 005 symbol id (the default
++	// source for top-level navigates edges), or 0 when the file has none.
++	FirstSymbolID(fileID int64) (int64, error)
++	// ResolveHandler resolves a handler name to its symbol id + uid, applying
++	// the drop-not-guess policy: same-file first, then a unique global
++	// owner-qualified / bare-name match. Multiple matches are ambiguous →
++	// (0, "", false) so the caller drops the reference.
++	ResolveHandler(fileID int64, name string) (int64, string, bool)
++}
++
++// FileSymbol is a minimal view of one 005-extracted symbol in the file, used
++// to resolve route handlers. It is intentionally narrow so the route package
++// does not import the extract package (no cycle).
++type FileSymbol struct {
++	Name string
++	UID  string
++	ID   int64
++}
++
++// Run extracts routes/navigations for one file and persists them through st in
++// the SAME transaction the indexer already holds. It never errors on a
++// malformed file: an empty extraction is persisted as zero rows and the
++// indexer continues. It returns the number of route nodes + navigates edges
++// stored (for stats). fileSyms may be nil (the Store resolves them lazily).
++func Run(ctx context.Context, st Store, fileID int64, path string, src []byte, fileSyms []FileSymbol) (int, error) {
++	_ = ctx
++	if fileSyms == nil {
++		fileSyms = []FileSymbol{}
++	}
++	b := Build(path, src, fileSyms, resolver{st, fileID})
++	if b == nil {
++		return 0, nil
++	}
++	_ = b
++	stored := 0
++	for _, n := range b.Nodes {
++		symID, err := st.StoreRouteNode(n)
++		if err != nil {
++			return stored, fmt.Errorf("store route node %s: %w", n.Name, err)
++		}
++		if err := st.StoreRouteMeta(fileID, symID, n); err != nil {
++			return stored, fmt.Errorf("store route meta %s: %w", n.Name, err)
++		}
++		stored++
++	}
++	if n, err := st.StoreReferencesEdges(fileID, b.Nodes, 0); err != nil {
++		return stored, err
++	} else {
++		stored += n
++	}
++	if n, err := st.StoreNavigatesEdges(fileID, b.Navs); err != nil {
++		return stored, err
++	} else {
++		stored += n
++	}
++	if err := st.StoreRouteDrops(fileID, b.Dropped); err != nil {
++		return stored, err
++	}
++	return stored, nil
++}
++
++// resolver adapts a Store into the SymbolIndex that Build uses, binding the
++// per-file handler resolution to the file's own symbols first.
++type resolver struct {
++	st     Store
++	fileID int64
++}
++
++func (r resolver) ResolveHandler(name string) (int64, string, bool) {
++	return r.st.ResolveHandler(r.fileID, name)
++}
++
++// SymbolIndex resolves handler names to their symbol IDs. It is backed by the
++// 005 symbols table: same-file lookup first, then a unique global
++// owner-qualified / bare-name match. Multiple matches are ambiguous and yield
++// (0, "") so the caller can drop the reference.
++type SymbolIndex interface {
++	// ResolveHandler returns the symbol ID + UID for a handler name. The
++	// second return is false when the reference is ambiguous (multiple global
++	// matches) or unresolvable (no match) — the drop-not-guess case.
++	ResolveHandler(name string) (id int64, uid string, ok bool)
++}
++
++// buildRoutes turns each raw Route into a RouteNode + (optionally) a
++// references edge, applying the drop-not-guess policy to the handler
++// reference.
++func (b *Built) buildRoutes(path string, src []byte, fr *FileRoutes, fileSyms []FileSymbol, index SymbolIndex) {
++	for _, r := range fr.Routes {
++		name := routeNodeName(r.Framework, r.PathPattern, r.Method)
++		uid := symbolUID(r.Framework, r.PathPattern, r.Method)
++		node := RouteNode{
++			Name:          name,
++			UID:           uid,
++			PathPattern:   r.PathPattern,
++			Method:        r.Method,
++			Framework:     r.Framework,
++			Language:      strings.TrimPrefix(filepathExt(path), "."),
++			Line:          r.Line,
++			ContentHash:   uid,
++			HandlerName:   r.Handler,
++			HandlerExplicit: r.Explicit,
++		}
++		if node.Language == "" {
++			node.Language = "unknown"
++		}
++		// Resolve the handler reference. The route node is always created (it
++		// is the URL endpoint); the references edge is dropped when the
++		// handler reference is ambiguous (drop-not-guess).
++		if r.Handler != "" {
++			id, uid2, ok := index.ResolveHandler(r.Handler)
++			if !ok {
++				// Drop-not-guess: no same-file match, no unique global match.
++				b.recordDrop(r.Handler)
++			} else {
++				node.HandlerSymbol = id
++				node.HandlerUID = uid2
++			}
++		}
++		b.Nodes = append(b.Nodes, node)
++	}
++}
++
++// buildNavigates turns each raw Navigation into a navigates edge. Literal,
++// programmatic destinations are EXTRACTED; markup-written links are INFERRED.
++// A destination that is computed (not a literal) is left unresolved — it is
++// never stored with a fabricated screen, so it is dropped from Navs.
++func (b *Built) buildNavigates(path string, src []byte, fr *FileRoutes, fileSyms []FileSymbol, index SymbolIndex) {
++	// The sending function is the nearest enclosing function symbol; when the
++	// navigation is at top level (module scope) the source is the file's
++	// first symbol.
++	var fromID int64
++	if len(fileSyms) > 0 {
++		fromID = fileSyms[0].ID
++	}
++	for _, n := range fr.Navigates {
++		if n.Dest == "" {
++			// Computed / no-literal destination: unresolved, not fabricated.
++			continue
++		}
++		conf := ConfidenceExtracted
++		if n.Markup {
++			conf = ConfidenceInferred
++		}
++		b.Navs = append(b.Navs, NavigationNode{
++			FromSymbol: fromID,
++			ToName:     n.Screen,
++			Confidence: conf,
++			Line:       n.Line,
++		})
++	}
++}
++
++// recordDrop tallies a dropped reference for the warning.
++func (b *Built) recordDrop(name string) {
++	b.Dropped++
++	if b.DropSample == "" {
++		b.DropSample = name
++	}
++}
++
++// routeNodeName derives a readable route node name (method + pattern).
++func routeNodeName(framework, pattern, method string) string {
++	if method == "" {
++		return "route:" + pattern
++	}
++	return method + " " + pattern
++}
++
++// filepathExt returns the lowercased extension (without dot) of path.
++func filepathExt(path string) string {
++	idx := strings.LastIndex(path, ".")
++	if idx < 0 {
++		return ""
++	}
++	return strings.ToLower(path[idx+1:])
++}
++
++// SortedHandlers returns the sorted unique handler names referenced by a Built
++// set (for deterministic drop samples).
++func (b *Built) SortedHandlers() []string {
++	seen := map[string]bool{}
++	var out []string
++	for _, n := range b.Nodes {
++		if n.HandlerName != "" && !seen[n.HandlerName] {
++			seen[n.HandlerName] = true
++			out = append(out, n.HandlerName)
++		}
++	}
++	sort.Strings(out)
++	return out
++}
+diff --git a/skillgrid-cli/internal/mnemonic/route/navigates_test.go b/skillgrid-cli/internal/mnemonic/route/navigates_test.go
+new file mode 100644
+index 0000000..6fda739
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/route/navigates_test.go
+@@ -0,0 +1,169 @@
++package route
++
++import (
++	"testing"
++)
++
++// routerFixture returns the fixture source for a router framework.
++func routerFixture(framework string) (file, src string) {
++	switch framework {
++	case "nextjs":
++		return "page.tsx", `import { useRouter } from 'next/router';
++
++export function Page() {
++  const router = useRouter();
++  return (
++    <button onClick={() => router.push('/about')}>About</button>
++  );
++}
++
++export function Nav() {
++  return <Link href="/settings">Settings</Link>;
++}
++`
++	case "react-router":
++		return "App.tsx", `import { Routes, Route, useNavigate } from 'react-router-dom';
++
++export function App() {
++  const navigate = useNavigate();
++  return (
++    <>
++      <Routes>
++        <Route path="/home" element={<Home />} />
++      </Routes>
++      <button onClick={() => navigate('/profile')}>Profile</button>
++    </>
++  );
++}
++`
++	case "sveltekit":
++		return "page.svelte", `import { goto } from '$app/navigation';
++
++<script>
++  function home() { goto('/'); }
++</script>
++
++<button on:click={home}>Home</button>
++`
++	case "vue-router":
++		return "main.js", `import router from './router';
++
++function go() {
++  router.push({ name: 'settings' });
++}
++
++function goPath() {
++  router.push('/about');
++}
++`
++	}
++	return "", ""
++}
++
++// TestNavigatesForRouters covers @step-01 (Scenario: Router navigations
++// produce navigates edges): each router fixture yields navigates edges from
++// the sending function to the named screen; literal destinations are
++// EXTRACTED, markup-written links are INFERRED.
++func TestNavigatesForRouters(t *testing.T) {
++	cases := []struct {
++		framework string
++		// want screens that must appear, with their expected confidence.
++		want []struct {
++			screen string
++			conf   string
++		}
++	}{
++		{"nextjs", []struct {
++			screen string
++			conf   string
++		}{
++			{"/about", ConfidenceExtracted},
++			{"/settings", ConfidenceInferred},
++		}},
++		{"react-router", []struct {
++			screen string
++			conf   string
++		}{
++			{"/home", ConfidenceInferred},
++			{"/profile", ConfidenceExtracted},
++		}},
++		{"sveltekit", []struct {
++			screen string
++			conf   string
++		}{
++			{"/", ConfidenceExtracted},
++		}},
++		{"vue-router", []struct {
++			screen string
++			conf   string
++		}{
++			{"/settings", ConfidenceExtracted},
++			{"/about", ConfidenceExtracted},
++		}},
++	}
++	for _, tc := range cases {
++		t.Run(tc.framework, func(t *testing.T) {
++			file, src := routerFixture(tc.framework)
++			b := Build(file, []byte(src), fileSyms("App", "Page"), known())
++			if len(b.Navs) == 0 {
++				t.Fatalf("%s: expected navigates edges, got none (src: %s)", tc.framework, src)
++			}
++			for _, w := range tc.want {
++				found := false
++				for _, n := range b.Navs {
++					if n.ToName == w.screen {
++						found = true
++						if n.Confidence != w.conf {
++							t.Errorf("%s navigates to %s: confidence = %q, want %q", tc.framework, w.screen, n.Confidence, w.conf)
++						}
++						if n.FromSymbol == 0 {
++							t.Errorf("%s navigates to %s: missing sending function (FromSymbol=0)", tc.framework, w.screen)
++						}
++					}
++				}
++				if !found {
++					t.Errorf("%s: no navigates edge to screen %q (got: %v)", tc.framework, w.screen, navScreens(b.Navs))
++				}
++			}
++		})
++	}
++}
++
++// navScreens returns the sorted screen names of a nav set (for failure output).
++func navScreens(navs []NavigationNode) []string {
++	out := make([]string, 0, len(navs))
++	for _, n := range navs {
++		out = append(out, n.ToName)
++	}
++	return out
++}
++
++// TestNavigatesMarkupInferred covers @step-01 (markup-written links are
++// INFERRED, programmatic literals are EXTRACTED): a <Link href> produces an
++// INFERRED navigates edge while router.push('/x') produces an EXTRACTED one.
++func TestNavigatesMarkupInferred(t *testing.T) {
++	_, src := routerFixture("nextjs")
++	b := Build("page.tsx", []byte(src), fileSyms("Page", "Nav"), known())
++	conf := map[string]string{}
++	for _, n := range b.Navs {
++		conf[n.ToName] = n.Confidence
++	}
++	if conf["/about"] != ConfidenceExtracted {
++		t.Errorf("router.push('/about') should be EXTRACTED, got %q", conf["/about"])
++	}
++	if conf["/settings"] != ConfidenceInferred {
++		t.Errorf("<Link href='/settings'> should be INFERRED, got %q", conf["/settings"])
++	}
++}
++
++// TestNavigatesNoRouterProducesNone covers the no-routes case: a file with no
++// router patterns yields no navigates edges and no route nodes.
++func TestNavigatesNoRouterProducesNone(t *testing.T) {
++	b := Build("plain.js", []byte("function foo() {\n  return 1;\n}\n"), fileSyms("foo"), known())
++	if len(b.Navs) != 0 {
++		t.Errorf("expected no navigates edges for a plain file, got %d", len(b.Navs))
++	}
++	if len(b.Nodes) != 0 {
++		t.Errorf("expected no route nodes for a plain file, got %d", len(b.Nodes))
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/route/route_test.go b/skillgrid-cli/internal/mnemonic/route/route_test.go
+new file mode 100644
+index 0000000..37af8aa
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/route/route_test.go
+@@ -0,0 +1,134 @@
++package route
++
++import (
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++// dummyIndex resolves a handler to a unique global symbol when name is in the
++// set, and is ambiguous for "ambiguous" (multiple global matches).
++type dummyIndex struct {
++	known map[string]int64
++}
++
++func (d dummyIndex) ResolveHandler(name string) (int64, string, bool) {
++	if name == "ambiguous" {
++		return 0, "", false
++	}
++	if id, ok := d.known[name]; ok {
++		return id, "uid-" + name, true
++	}
++	return 0, "", false
++}
++
++func known(names ...string) dummyIndex {
++	m := map[string]int64{}
++	for i, n := range names {
++		m[n] = int64(100 + i)
++	}
++	return dummyIndex{m}
++}
++
++func fileSyms(names ...string) []FileSymbol {
++	var out []FileSymbol
++	for i, n := range names {
++		out = append(out, FileSymbol{Name: n, UID: "f-" + n, ID: int64(i + 1)})
++	}
++	return out
++}
++
++// TestRouteNodesForWebFrameworks covers @step-01 (Scenario: Web-framework
++// routing files produce route nodes): each fixture routing file yields route
++// nodes, each linked by a references edge to its handler, every edge
++// EXTRACTED (explicit syntax), and a query for a handler's URL pattern
++// surfaces the route.
++func TestRouteNodesForWebFrameworks(t *testing.T) {
++	cases := []struct {
++		file    string
++		framework string // the per-route framework expected on the node
++		pattern string
++		handler string
++	}{
++		{"urls.py", "django", "/home/", "HomeView"},
++		{"app.py", "fastapi", "/items/", "list_items"},
++		{"server.js", "express", "/users", "listUsers"},
++		{"main.go", "gin", "/health", "healthHandler"},
++		{"routes.rb", "rails", "/products", "products#index"},
++		{"UserController.java", "spring", "/users", "listUsers"},
++	}
++	for _, tc := range cases {
++		t.Run(tc.file, func(t *testing.T) {
++			src := webFrameworkFixture(tc.file, tc.framework)
++			idx := known(tc.handler)
++			b := Build(filepath.Base(tc.file), []byte(src), fileSyms(tc.handler, "other"), idx)
++			if len(b.Nodes) == 0 {
++				t.Fatalf("%s: expected route nodes, got none (src: %s)", tc.file, src)
++			}
++			found := false
++			for _, n := range b.Nodes {
++				if n.PathPattern != tc.pattern {
++					continue
++				}
++				found = true
++				if n.HandlerSymbol == 0 {
++					t.Errorf("%s route %q: handler %q not resolved (references edge dropped)", tc.framework, tc.pattern, tc.handler)
++				}
++				if n.HandlerName != tc.handler {
++					t.Errorf("%s route %q: handler = %q, want %q", tc.framework, tc.pattern, n.HandlerName, tc.handler)
++				}
++				if !n.HandlerExplicit {
++					t.Errorf("%s route %q: explicit route should be EXTRACTED (explicit handler)", tc.framework, tc.pattern)
++				}
++			}
++			if !found {
++				t.Errorf("%s: no route node with pattern %q (src: %s)", tc.framework, tc.pattern, src)
++			}
++		})
++	}
++}
++
++// webFrameworkFixture returns a minimal routing file for the framework.
++func webFrameworkFixture(file, framework string) string {
++	switch framework {
++	case "django":
++		return "from . import views\n\nurlpatterns = [\n    path('home/', views.HomeView.as_view(), name='home_view'),\n]\n"
++	case "fastapi":
++		return "@app.get('/items/')\ndef list_items():\n    return []\n"
++	case "express":
++		return "function listUsers() {}\n\napp.get('/users', listUsers);\n"
++	case "gin":
++		return "func healthHandler(c *gin.Context) {}\n\nr.GET(\"/health\", healthHandler)\n"
++	case "rails":
++		return "get '/products', to: 'products#index'\n"
++	case "spring":
++		return "@GetMapping(\"/users\")\npublic List users listUsers() {\n    return null;\n}\n"
++	}
++	return ""
++}
++
++// TestRouteNodesForDjangoExplicit covers @step-01 (explicit Django as_view
++// handler is EXTRACTED and links the URL pattern to the handler symbol).
++func TestRouteNodesForDjangoExplicit(t *testing.T) {
++	src := webFrameworkFixture("urls.py", "django")
++	b := Build("urls.py", []byte(src), fileSyms("HomeView", "other"), known("HomeView"))
++	if len(b.Nodes) != 1 {
++		t.Fatalf("expected 1 route node, got %d", len(b.Nodes))
++	}
++	n := b.Nodes[0]
++	if n.PathPattern != "/home/" {
++		t.Errorf("pattern = %q, want /home/", n.PathPattern)
++	}
++	if n.HandlerName != "HomeView" {
++		t.Errorf("handler = %q, want HomeView", n.HandlerName)
++	}
++	if n.Framework != "django" {
++		t.Errorf("framework = %q, want django", n.Framework)
++	}
++	if !strings.Contains(n.Name, "/home/") {
++		t.Errorf("route node name %q should carry the URL pattern", n.Name)
++	}
++	if !n.HandlerExplicit {
++		t.Errorf("Django as_view handler must be EXTRACTED (explicit)")
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/store/migrations/013_framework_routes.sql b/skillgrid-cli/internal/mnemonic/store/migrations/013_framework_routes.sql
+new file mode 100644
+index 0000000..9bb5319
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/store/migrations/013_framework_routes.sql
+@@ -0,0 +1,31 @@
++-- 013 framework routes schema (additive; 005 symbols/edges untouched).
++-- Change 010, step 01.
++--
++-- Route and navigation metadata lives in a small additive side table that
++-- mirrors the 005 symbols table. Route nodes are `kind='route'` rows in
++-- symbols; `references` (route -> handler) and `navigates` (function ->
++-- screen) edges are rows in the existing 005 edges table. This table only
++-- carries the framework-specific payload (framework, method, path pattern,
++-- screen, and the per-file drop-not-guess drop count) so the 005 node/edge
++-- contract stays byte-for-byte unchanged.
++CREATE TABLE IF NOT EXISTS route_meta (
++    id INTEGER PRIMARY KEY AUTOINCREMENT,
++    symbol_id INTEGER REFERENCES symbols(id) ON DELETE CASCADE,
++    file_id INTEGER REFERENCES files(id) ON DELETE CASCADE,
++    framework TEXT NOT NULL,
++    method TEXT,
++    path_pattern TEXT,
++    screen TEXT
++);
++CREATE INDEX IF NOT EXISTS idx_route_meta_symbol ON route_meta(symbol_id);
++CREATE INDEX IF NOT EXISTS idx_route_meta_file ON route_meta(file_id);
++
++-- Per-file extraction diagnostics: the count of references/navigates that were
++-- dropped at extraction by the drop-not-guess policy (ambiguous, no same-file
++-- match, no explicit specifier, no unique global/owner-qualified match). A
++-- drop is reported as a warning (count + sample), never a silent discard, and
++-- dropped refs are excluded from blast-radius math.
++CREATE TABLE IF NOT EXISTS route_drops (
++    file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
++    dropped INTEGER NOT NULL DEFAULT 0
++);

@@ -1,0 +1,12 @@
+### TICKET-03 — Runtime default embedder model
+
+- **Tracker ID:** TASK-044
+- **Scope:** Change `embedder.DefaultOllamaModel` from `nomic-embed-code` to `embeddinggemma:300m` in `ollama.go`, with a default-model test.
+- **Acceptance:** `go test ./skillgrid-cli/internal/mnemonic/embedder -count=1 -run TestDefaultOllamaModelIsEmbeddinggemma` PASS; `DefaultOllamaModel == "embeddinggemma:300m"`.
+- **SATISFIES:** happy path ollama default model
+- **Files:** `skillgrid-cli/internal/mnemonic/embedder/ollama.go`, `skillgrid-cli/internal/mnemonic/embedder/ollama_test.go`
+- **Size:** ~30 (S)
+- **Blocks:** TICKET-04
+- **Blocked by:** none
+- **Reversibility:** one-way   # forwards the runtime default for existing local installs (requirement 2, user-confirmed; the one-way-door gate)
+

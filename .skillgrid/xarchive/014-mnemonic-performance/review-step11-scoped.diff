@@ -1,0 +1,1149 @@
+diff --git a/skillgrid-cli/cmd/skillgrid/mem.go b/skillgrid-cli/cmd/skillgrid/mem.go
+index 7392c02..a20151a 100644
+--- a/skillgrid-cli/cmd/skillgrid/mem.go
++++ b/skillgrid-cli/cmd/skillgrid/mem.go
+@@ -43,6 +43,8 @@ func runMem(version string, args []string) {
+ 		window   string
+ 		visibility string
+ 		grants   string
++		exportFile string
++		skipEmb  bool
+ 	)
+ 	fs.StringVar(&dataDir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
+ 	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
+@@ -56,6 +58,8 @@ func runMem(version string, args []string) {
+ 	fs.StringVar(&window, "window", "", "timeline: time window each side (e.g. 1h)")
+ 	fs.StringVar(&visibility, "target-visibility", "", "share: team|restricted|agent")
+ 	fs.StringVar(&grants, "grants", "", "share: comma-separated grantee list")
++	fs.StringVar(&exportFile, "file", "", "export: write the bundle to this file (default: stdout)")
++	fs.BoolVar(&skipEmb, "skip-embeddings", false, "export: omit embedding data for a smaller payload")
+ 	var searchMode string
+ 	fs.StringVar(&searchMode, "mode", "", "search: FTS match mode (trigram|prefix|phrase|all; default = phrase OR)")
+ 	if err := fs.Parse(reorderMemArgs(rest)); err != nil {
+@@ -82,6 +86,8 @@ func runMem(version string, args []string) {
+ 		runMemGraph(svc, projID, limit)
+ 	case "expire":
+ 		runMemExpire(svc, dataDir)
++	case "export":
++		runMemExport(svc, projID, exportFile, skipEmb)
+ 	case "help", "-h", "--help":
+ 		printMemUsage()
+ 	default:
+@@ -92,7 +98,7 @@ func runMem(version string, args []string) {
+ }
+ 
+ func printMemUsage() {
+-	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|expire> [args]
++	fmt.Fprint(os.Stderr, `usage: skillgrid mem <layers|governance|share|search|context|timeline|graph|expire|export> [args]
+ 
+   layers <session_id|topic_key>   inspect the L0→L1→L2→L3 chain (mem_layers)
+   governance <id>                 governed-asset view (mem_governance)
+@@ -109,6 +115,9 @@ func printMemUsage() {
+                                     (valid_from, valid_to, active/expired/pending)
+   expire                          retire expired observations across all projects
+                                    (TTL sweep; best-effort, exit 0 on missing stores)
++  export [--file out.json] [--skip-embeddings]
++                                   portable COGX JSON export of observations +
++                                   graph edges + embeddings (stdout by default)
+ 
+ Flags:
+   --project ID    project bucket (defaults to CWD-resolved)
+@@ -409,6 +418,55 @@ func runMemExpire(svc *service.Service, dataDir string) {
+ 	printJSON(out)
+ }
+ 
++// runMemExport is the CLI for the portable COGX export (014 step 11,
++// `mem export`): it streams the project bundle (observations + graph edges +
++// symbol embeddings) as JSON to stdout, or to --file when set.
++// --skip-embeddings drops the embedding vectors for a smaller payload.
++// The bundle is written through a json.Encoder on the target writer, so the
++// output is streamed incrementally rather than marshaled into one large
++// []byte (the encoding step is the streaming boundary; the bundle itself is
++// still assembled row-by-row, one record per store row).
++func runMemExport(svc *service.Service, projID, file string, skipEmbeddings bool) {
++	h, cleanup, err := svc.Open(projID)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	defer cleanup()
++
++	var w *os.File
++	if file != "" {
++		w, err = os.Create(file)
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "error: create %s: %v\n", file, err)
++			os.Exit(1)
++		}
++		defer w.Close()
++	} else {
++		w = os.Stdout
++	}
++
++	bundle, err := h.Memory().ExportProject(hCtx())
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	if skipEmbeddings {
++		bundle.Embeddings = bundle.Embeddings[:0]
++		for i := range bundle.Observations {
++			bundle.Observations[i].Embeddings = nil
++		}
++	}
++	if err := memory.WriteBundle(hCtx(), bundle, w); err != nil {
++		fmt.Fprintln(os.Stderr, "error:", err)
++		os.Exit(1)
++	}
++	if file != "" {
++		fmt.Fprintf(os.Stderr, "exported %d observations, %d edges, %d embeddings to %s\n",
++			len(bundle.Observations), len(bundle.GraphEdges), len(bundle.Embeddings), file)
++	}
++}
++
+ // runMemGraph is the CLI for the temporal graph view (014 step 10, `mem graph`):
+ // it lists the project's codeindex graph edges with their temporal status
+ // (valid_from, valid_to, and a computed active/expired/pending label). It reads
+diff --git a/skillgrid-cli/cmd/skillgrid/mem_export_test.go b/skillgrid-cli/cmd/skillgrid/mem_export_test.go
+new file mode 100644
+index 0000000..97cab08
+--- /dev/null
++++ b/skillgrid-cli/cmd/skillgrid/mem_export_test.go
+@@ -0,0 +1,124 @@
++package main
++
++import (
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// seedExportProject plants a project store with one observation, one edge, and
++// one embedding so `mem export` has all three sources to report.
++func seedExportProject(t *testing.T, dataDir, project string) {
++	t.Helper()
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open %s: %v", project, err)
++	}
++	defer st.Close()
++	db := st.DB
++
++	if _, err := db.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES ('sess-exp', ?, '/tmp', '2026-01-01T00:00:00Z', 'active')`, project); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	var fileID int64
++	if err := db.QueryRow(`
++		INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
++		VALUES ('exp.go', 1, 100, 'h', '2026-01-01T00:00:00Z')
++		RETURNING id`).Scan(&fileID); err != nil {
++		t.Fatalf("insert file: %v", err)
++	}
++	var symID int64
++	if err := db.QueryRow(`
++		INSERT INTO symbols (file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++		VALUES (?, 'alpha', 'alpha', 'function', 'go', 'func alpha()', 1, 5, 'c1', 'uid-alpha-exp')
++		RETURNING id`, fileID).Scan(&symID); err != nil {
++		t.Fatalf("insert symbol: %v", err)
++	}
++	if _, err := db.Exec(`
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from, valid_to)
++		VALUES ('calls', ?, ?, ?, 'beta', 'exp.go', 'EXTRACTED', 1, ?, NULL)`,
++		symID, fileID, symID, time.Now().Unix()); err != nil {
++		t.Fatalf("insert edge: %v", err)
++	}
++	// 4-dim little-endian float32 vector (1.0, 2.0, 3.0, 4.0).
++	vec := []byte{0, 0, 0, 128, 0, 0, 0, 0, 0, 0, 0, 160, 0, 0, 0, 192}
++	if _, err := db.Exec(`
++		INSERT INTO embeddings (symbol_id, model, dim, vector, updated_at)
++		VALUES (?, 'exp-model', 4, ?, '2026-01-02T00:00:00Z')`,
++		symID, vec); err != nil {
++		t.Fatalf("insert embedding: %v", err)
++	}
++	if _, err := db.Exec(`
++		INSERT INTO observations (
++			session_id, type, title, content, project, scope, topic_key,
++			normalized_hash, revision_count, created_at, updated_at, source, tool_name,
++			owner, visibility, status, retrieval_usage, expires_at, graph_ref
++		) VALUES ('sess-exp', 'decision', 'export probe', 'exported observation body', ?,
++			'project', NULL, 'h-export', 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z',
++			'agent', NULL, 'owner-1', 'private', 'active', 0, NULL, ?)`,
++		project, symID); err != nil {
++		t.Fatalf("insert observation: %v", err)
++	}
++}
++
++// TestMemExportCLI is 11.3 [AFK]: `mem export` streams the project bundle to
++// stdout as JSON, writes to a file with --file, and omits all embedding data
++// with --skip-embeddings.
++func TestMemExportCLI(t *testing.T) {
++	dataDir := t.TempDir()
++	project := "memcli-export"
++	seedExportProject(t, dataDir, project)
++
++	// 1) stdout: JSON with all three sources.
++	out := runMemCLI(t, dataDir, "export", "--project", project, "--dir", dataDir)
++	if !strings.Contains(out, `"format"`) || !strings.Contains(out, "cogx-v1") {
++		t.Fatalf("mem export must print the COGX bundle, got: %s", out)
++	}
++	for _, want := range []string{`"observations"`, `"graph_edges"`, `"embeddings"`} {
++		if !strings.Contains(out, want) {
++			t.Fatalf("mem export missing %s: %s", want, out)
++		}
++	}
++	if !strings.Contains(out, `"exported observation body"`) {
++		t.Fatalf("mem export missing the observation content: %s", out)
++	}
++	if !strings.Contains(out, `"calls"`) {
++		t.Fatalf("mem export missing the edge kind: %s", out)
++	}
++
++	// 2) --file: the bundle lands in the file (not stdout).
++	outFile := filepath.Join(t.TempDir(), "out.json")
++	out = runMemCLI(t, dataDir, "export", "--project", project, "--dir", dataDir, "--file", outFile)
++	if strings.Contains(out, `"observations"`) {
++		t.Fatalf("mem export --file must not print the bundle to stdout, got: %s", out)
++	}
++	data, err := os.ReadFile(outFile)
++	if err != nil {
++		t.Fatalf("read export file: %v", err)
++	}
++	if !strings.Contains(string(data), `"exported observation body"`) {
++		t.Fatalf("export file missing the observation: %s", data)
++	}
++	if !strings.Contains(string(data), `"embeddings"`) {
++		t.Fatalf("export file missing embeddings: %s", data)
++	}
++
++	// 3) --skip-embeddings: no embedding data anywhere in the payload.
++	out = runMemCLI(t, dataDir, "export", "--project", project, "--dir", dataDir, "--skip-embeddings")
++	if strings.Contains(out, `"embeddings": [`) && !strings.Contains(out, `"embeddings": []`) {
++		// Allow only an empty array; any populated embedding fails this.
++		t.Fatalf("mem export --skip-embeddings must not include embedding data: %s", out)
++	}
++	if strings.Contains(out, `"vector"`) {
++		t.Fatalf("mem export --skip-embeddings must omit per-observation vectors: %s", out)
++	}
++	if !strings.Contains(out, `"exported observation body"`) {
++		t.Fatalf("mem export --skip-embeddings still exports observations: %s", out)
++	}
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/export.go b/skillgrid-cli/internal/mnemonic/memory/export.go
+new file mode 100644
+index 0000000..4e7ed4f
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/export.go
+@@ -0,0 +1,470 @@
++package memory
++
++import (
++	"context"
++	"database/sql"
++	"encoding/base64"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"time"
++)
++
++// COGX-inspired portable JSON export (change 014, step 11). The bundle is the
++// unit of portability: a self-describing JSON document of observations, graph
++// edges, and symbol embeddings, using only JSON primitives (number, string,
++// base64 string, RFC3339 string) so it imports cleanly into any other
++// per-project store on any machine.
++
++// ExportBundle is the full export of one project store.
++type ExportBundle struct {
++	// Format is the COGX-inspired schema version tag.
++	Format       string            `json:"format"`
++	Project      string            `json:"project"`
++	ExportedAt   string            `json:"exported_at"`
++	Observations []ExportRecord    `json:"observations"`
++	GraphEdges   []EdgeRecord      `json:"graph_edges"`
++	Embeddings   []EmbeddingRecord `json:"embeddings"`
++}
++
++// ExportRecord is one observation in the portable format. The embeddings map
++// is keyed by symbol id (the observation's graph_ref bridge plus, for an
++// observation that has no graph binding, none) — values are the base64-encoded
++// little-endian float32 vectors from the embeddings table.
++type ExportRecord struct {
++	ID         int64             `json:"id"`
++	Type       string            `json:"type"`
++	Content    string            `json:"content"`
++	Metadata   map[string]string `json:"metadata"`
++	Embeddings map[string]string `json:"embeddings,omitempty"`
++	GraphRef   *int64            `json:"graph_ref,omitempty"`
++}
++
++// EdgeRecord is one codeindex graph edge with its temporal window
++// (0 = active / NULL).
++type EdgeRecord struct {
++	ID          int64    `json:"id"`
++	Kind        string   `json:"kind"`
++	FromID      int64    `json:"from_id"`
++	FileID      *int64   `json:"file_id,omitempty"`
++	ToID        *int64   `json:"to_id,omitempty"`
++	ToName      string   `json:"to_name,omitempty"`
++	TargetPath  *string  `json:"target_path,omitempty"`
++	Confidence  string   `json:"confidence"`
++	Line        int      `json:"line"`
++	ValidFrom   int64    `json:"valid_from"`
++	ValidTo     *int64   `json:"valid_to,omitempty"`
++}
++
++// EmbeddingRecord is one symbol embedding from the bridge table; Vector is
++// base64-encoded little-endian float32 bytes.
++type EmbeddingRecord struct {
++	SymbolID  int64  `json:"symbol_id"`
++	Model     string `json:"model"`
++	Dim       int    `json:"dim"`
++	Vector    string `json:"vector"`
++	UpdatedAt string `json:"updated_at"`
++}
++
++// ExportProject reads every observation (with its graph_ref), every codeindex
++// graph edge, and every symbol embedding from this service's store and returns
++// them as a self-describing bundle. It is read-only: the source store is never
++// mutated. Embedding vectors are base64-encoded (the embeddings BLOB is
++// little-endian float32 per the step 07 convention).
++func (s *Service) ExportProject(ctx context.Context) (*ExportBundle, error) {
++	if s == nil || s.store == nil || s.store.DB == nil {
++		return nil, errors.New("memory service not initialized")
++	}
++	db := s.store.DB
++	bundle := &ExportBundle{
++		Format:     "cogx-v1",
++		Project:    s.projectID,
++		ExportedAt: time.Now().UTC().Format(time.RFC3339),
++	}
++
++	// Observations: every live row for this project. The embedding for each
++	// graph_ref symbol is fetched in a SEPARATE pass (below) — the store's
++	// pool is single-connection (SetMaxOpenConns(1)), so a nested per-row
++	// query while the outer rows are still open would deadlock (the same
++	// re-entrancy class graph.temporal_test documents).
++	rows, err := db.QueryContext(ctx, `
++		SELECT o.id, o.type, o.content, o.title, o.session_id, o.project, o.scope,
++		       o.topic_key, o.source, o.normalized_hash, o.revision_count, o.prompt_id,
++		       o.created_at, o.updated_at, o.pinned, o.duplicate_count, o.last_seen_at,
++		       o.expires_at, o.tool_name, o.owner, o.visibility, o.status, o.retrieval_usage,
++		       o.graph_ref
++		FROM observations o
++		WHERE o.deleted_at IS NULL AND o.project = ?
++		ORDER BY o.id`, s.projectID)
++	if err != nil {
++		return nil, fmt.Errorf("export observations: %w", err)
++	}
++	obsByRef := make(map[int64]int)
++	for rows.Next() {
++		var (
++			rec           ExportRecord
++			title         string
++			sessID        string
++			projectCol    string
++			scope         string
++			topicKey      sql.NullString
++			source, hash  sql.NullString
++			promptID      sql.NullInt64
++			revision      int
++			pinned, dups  int
++			lastSeen, expires, toolName, owner, visibility, status sql.NullString
++			createdAt, updatedAt sql.NullString
++			usage         int
++			graphRef      sql.NullInt64
++		)
++		if err := rows.Scan(
++			&rec.ID, &rec.Type, &rec.Content, &title, &sessID, &projectCol, &scope,
++			&topicKey, &source, &hash, &revision, &promptID,
++			&createdAt, &updatedAt, &pinned, &dups, &lastSeen, &expires, &toolName,
++			&owner, &visibility, &status, &usage, &graphRef,
++		); err != nil {
++			rows.Close()
++			return nil, fmt.Errorf("scan export observation: %w", err)
++		}
++		rec.Metadata = map[string]string{
++			"title":           title,
++			"session_id":      sessID,
++			"project":         projectCol,
++			"scope":           scope,
++			"created_at":      createdAt.String,
++			"updated_at":      updatedAt.String,
++			"visibility":      visibility.String,
++			"status":          status.String,
++			"revision_count":  fmt.Sprintf("%d", revision),
++			"pinned":          fmt.Sprintf("%t", pinned == 1),
++			"retrieval_usage": fmt.Sprintf("%d", usage),
++			"topic_key":       nullStringOrEmpty(topicKey),
++			"source":          nullStringOrEmpty(source),
++			"normalized_hash": nullStringOrEmpty(hash),
++			"owner":           nullStringOrEmpty(owner),
++			"tool_name":       nullStringOrEmpty(toolName),
++			"last_seen_at":    nullStringOrEmpty(lastSeen),
++			"expires_at":      nullStringOrEmpty(expires),
++		}
++		bundle.Observations = append(bundle.Observations, rec)
++		if graphRef.Valid {
++			bundle.Observations[len(bundle.Observations)-1].GraphRef = &graphRef.Int64
++			obsByRef[graphRef.Int64] = len(bundle.Observations) - 1
++		}
++	}
++	if err := rows.Err(); err != nil {
++		rows.Close()
++		return nil, fmt.Errorf("iterate export observations: %w", err)
++	}
++	rows.Close()
++
++	// Embeddings: every symbol bridge row, vector base64-encoded. Fetched in a
++	// separate pass so the single-connection pool is never re-entered, and used
++	// to both populate bundle.Embeddings and attach the per-observation
++	// embedding for each graph_ref (step 07 cross-link).
++	if len(obsByRef) > 0 {
++		embRows, err := db.QueryContext(ctx, `
++			SELECT symbol_id, model, dim, vector, updated_at
++			FROM embeddings ORDER BY symbol_id`)
++		if err != nil {
++			return nil, fmt.Errorf("export embeddings: %w", err)
++		}
++		defer embRows.Close()
++		for embRows.Next() {
++			var (
++				rec  EmbeddingRecord
++				blob []byte
++			)
++			if err := embRows.Scan(&rec.SymbolID, &rec.Model, &rec.Dim, &blob, &rec.UpdatedAt); err != nil {
++				return nil, fmt.Errorf("scan export embedding: %w", err)
++			}
++			rec.Vector = base64.StdEncoding.EncodeToString(blob)
++			bundle.Embeddings = append(bundle.Embeddings, rec)
++			// Attach to the observation bound to this symbol (best-effort; an
++			// observation with no graph_ref gets no per-record embedding).
++			if idx, ok := obsByRef[rec.SymbolID]; ok {
++				bundle.Observations[idx].Embeddings = map[string]string{
++					"vector": rec.Vector,
++				}
++			}
++		}
++		if err := embRows.Err(); err != nil {
++			return nil, fmt.Errorf("iterate export embeddings: %w", err)
++		}
++	}
++
++	// Graph edges: the full history set (temporal window included, step 10).
++	edgeRows, err := db.QueryContext(ctx, `
++		SELECT e.id, e.kind, e.from_id, e.file_id, e.to_id, e.to_name, e.target_path,
++		       e.confidence, e.line, e.valid_from, e.valid_to
++		FROM edges e ORDER BY e.id`)
++	if err != nil {
++		return nil, fmt.Errorf("export edges: %w", err)
++	}
++	defer edgeRows.Close()
++	for edgeRows.Next() {
++		var (
++			rec        EdgeRecord
++			fileID     sql.NullInt64
++			toID       sql.NullInt64
++			toName     sql.NullString
++			targetPath sql.NullString
++			confidence string
++			line       int
++			validFrom  int64
++			validTo    sql.NullInt64
++		)
++		if err := edgeRows.Scan(&rec.ID, &rec.Kind, &rec.FromID, &fileID, &toID, &toName,
++			&targetPath, &confidence, &line, &validFrom, &validTo); err != nil {
++			return nil, fmt.Errorf("scan export edge: %w", err)
++		}
++		rec.Confidence = confidence
++		rec.Line = line
++		rec.ValidFrom = validFrom
++		if fileID.Valid {
++			v := fileID.Int64
++			rec.FileID = &v
++		}
++		if toID.Valid {
++			v := toID.Int64
++			rec.ToID = &v
++		}
++		if toName.Valid {
++			rec.ToName = toName.String
++		}
++		if targetPath.Valid {
++			v := targetPath.String
++			rec.TargetPath = &v
++		}
++		if validTo.Valid {
++			v := validTo.Int64
++			rec.ValidTo = &v
++		}
++		bundle.GraphEdges = append(bundle.GraphEdges, rec)
++	}
++	if err := edgeRows.Err(); err != nil {
++		return nil, fmt.Errorf("iterate export edges: %w", err)
++	}
++	return bundle, nil
++}
++
++// WriteExport streams the project export as JSON to w. It is the CLI
++// boundary for large stores: a json.Encoder writes each top-level value
++// incrementally to the writer, so the whole bundle is never materialized as a
++// single []byte (the encoder flushes per-Encode). The bundle itself is still
++// assembled in memory (one record per store row) — the streaming boundary is
++// the encoding step.
++func (s *Service) WriteExport(ctx context.Context, w io.Writer) error {
++	bundle, err := s.ExportProject(ctx)
++	if err != nil {
++		return err
++	}
++	return WriteBundle(ctx, bundle, w)
++}
++
++// WriteBundle encodes a bundle to w through a streaming json.Encoder. The
++// encoder writes incrementally (flushing per-Encode) instead of marshaling
++// the whole structure into one []byte first — the streaming boundary for
++// large stores. ctx is accepted for API symmetry with the read paths.
++func WriteBundle(_ context.Context, bundle *ExportBundle, w io.Writer) error {
++	enc := json.NewEncoder(w)
++	enc.SetIndent("", "  ")
++	return enc.Encode(bundle)
++}
++
++// ImportProject reads a COGX-inspired export (from ExportProject/WriteExport)
++// and inserts its records into this service's store. It is designed to run
++// against a FRESH/EMPTY store on another machine.
++//
++// Upsert/skip strategy (documented choice):
++//   - Observations: INSERT with the source row's id (idempotent re-import —
++//     a re-run is a no-op when the id is already present, thanks to
++//     INSERT OR IGNORE). The session id is ensured (INSERT OR IGNORE) because
++//     observations reference sessions(id).
++//   - Edges: INSERT OR IGNORE on the composite unique constraint — re-import
++//     never duplicates an edge, and the temporal window is preserved.
++//   - Embeddings: INSERT OR REPLACE keyed on symbol_id — the latest vector
++//     wins, mirroring the codeindex upsert semantics.
++//   - Symbols: recreated with their source ids (needed so graph_ref and
++//     embeddings resolve after import); files are recreated too (edges FK).
++//     All are idempotent (INSERT OR IGNORE on the unique keys).
++func (s *Service) ImportProject(ctx context.Context, r io.Reader) error {
++	if s == nil || s.store == nil || s.store.DB == nil {
++		return errors.New("memory service not initialized")
++	}
++	db := s.store.DB
++	var bundle ExportBundle
++	if err := json.NewDecoder(r).Decode(&bundle); err != nil {
++		return fmt.Errorf("decode export: %w", err)
++	}
++	tx, err := db.BeginTx(ctx, nil)
++	if err != nil {
++		return fmt.Errorf("begin import tx: %w", err)
++	}
++	defer tx.Rollback()
++
++	// 1) Files (edges FK target) — idempotent by path.
++	seenFiles := map[int64]bool{}
++	for i := range bundle.GraphEdges {
++		e := &bundle.GraphEdges[i]
++		if e.FileID == nil || seenFiles[*e.FileID] {
++			continue
++		}
++		seenFiles[*e.FileID] = true
++		if _, err := tx.ExecContext(ctx, `
++			INSERT OR IGNORE INTO files (id, path, mtime_ns, size, content_hash, indexed_at)
++			VALUES (?, ?, 0, 0, 'imported', ?)`,
++			*e.FileID, fmt.Sprintf("imported/%d", *e.FileID),
++			time.Now().UTC().Format(time.RFC3339)); err != nil {
++			return fmt.Errorf("import file %d: %w", *e.FileID, err)
++		}
++	}
++
++	// 2) Symbols referenced by edges or embeddings, with source ids.
++	neededSymbols := map[int64]bool{}
++	for i := range bundle.GraphEdges {
++		e := &bundle.GraphEdges[i]
++		neededSymbols[e.FromID] = true
++		if e.ToID != nil {
++			neededSymbols[*e.ToID] = true
++		}
++	}
++	for i := range bundle.Embeddings {
++		neededSymbols[bundle.Embeddings[i].SymbolID] = true
++	}
++	if len(neededSymbols) > 0 {
++		firstFileID := int64(0)
++		for fid := range seenFiles {
++			firstFileID = fid
++			break
++		}
++		for symID := range neededSymbols {
++			if _, err := tx.ExecContext(ctx, `
++				INSERT OR IGNORE INTO symbols (id, file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++				VALUES (?, ?, ?, ?, 'imported', 'go', '', 1, 2, 'imported', ?)`,
++				symID, firstFileID, fmt.Sprintf("imported-symbol-%d", symID),
++				fmt.Sprintf("imported-symbol-%d", symID), fmt.Sprintf("uid-imported-%d", symID)); err != nil {
++				return fmt.Errorf("import symbol %d: %w", symID, err)
++			}
++		}
++	}
++
++	// 3) Sessions referenced by observations — idempotent by id.
++	for i := range bundle.Observations {
++		o := &bundle.Observations[i]
++		sessID, ok := o.Metadata["session_id"]
++		if !ok || sessID == "" {
++			sessID = "imported-session"
++		}
++		if _, err := tx.ExecContext(ctx, `
++			INSERT OR IGNORE INTO sessions (id, project, directory, started_at, status)
++			VALUES (?, ?, '/tmp', ?, 'active')`,
++			sessID, s.projectID, time.Now().UTC().Format(time.RFC3339)); err != nil {
++			return fmt.Errorf("import session %s: %w", sessID, err)
++		}
++	}
++
++	// 4) Observations with source ids (INSERT OR IGNORE = skip on re-import).
++	for i := range bundle.Observations {
++		o := &bundle.Observations[i]
++		m := o.Metadata
++		if m == nil {
++			m = map[string]string{}
++		}
++		sessID := m["session_id"]
++		if sessID == "" {
++			sessID = "imported-session"
++		}
++		title := m["title"]
++		if title == "" {
++			title = fmt.Sprintf("imported-%d", o.ID)
++		}
++		var graphRef any
++		if o.GraphRef != nil {
++			graphRef = *o.GraphRef
++		}
++		_, err := tx.ExecContext(ctx, `
++			INSERT OR IGNORE INTO observations (
++				id, session_id, type, title, content, project, scope, topic_key,
++				normalized_hash, revision_count, created_at, updated_at, source,
++				tool_name, owner, visibility, status, retrieval_usage, expires_at, graph_ref
++			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++			o.ID, sessID, o.Type, title, o.Content, s.projectID, m["scope"], nullString(m["topic_key"]),
++			m["normalized_hash"], atoi64orZero(m["revision_count"]), m["created_at"], m["updated_at"],
++			m["source"], nullString(m["tool_name"]), nullString(m["owner"]),
++			m["visibility"], m["status"], atoi64orZero(m["retrieval_usage"]),
++			nullString(m["expires_at"]), graphRef)
++		if err != nil {
++			return fmt.Errorf("import observation %d: %w", o.ID, err)
++		}
++	}
++
++	// 5) Edges with temporal window (INSERT OR IGNORE on the unique constraint).
++	for i := range bundle.GraphEdges {
++		e := &bundle.GraphEdges[i]
++		var fileID, toID, targetPath any
++		if e.FileID != nil {
++			fileID = *e.FileID
++		}
++		if e.ToID != nil {
++			toID = *e.ToID
++		}
++		if e.TargetPath != nil {
++			targetPath = *e.TargetPath
++		}
++		var validTo any
++		if e.ValidTo != nil {
++			validTo = *e.ValidTo
++		}
++		if _, err := tx.ExecContext(ctx, `
++			INSERT OR IGNORE INTO edges (
++				id, kind, from_id, file_id, to_id, to_name, target_path, confidence, line,
++				valid_from, valid_to
++			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++			e.ID, e.Kind, e.FromID, fileID, toID, e.ToName, targetPath, e.Confidence, e.Line,
++			e.ValidFrom, validTo); err != nil {
++			return fmt.Errorf("import edge %d: %w", e.ID, err)
++		}
++	}
++
++	// 6) Embeddings (INSERT OR REPLACE = latest vector wins).
++	for i := range bundle.Embeddings {
++		em := &bundle.Embeddings[i]
++		blob, err := base64.StdEncoding.DecodeString(em.Vector)
++		if err != nil {
++			return fmt.Errorf("decode embedding %d: %w", em.SymbolID, err)
++		}
++		if _, err := tx.ExecContext(ctx, `
++			INSERT OR REPLACE INTO embeddings (symbol_id, model, dim, vector, updated_at)
++			VALUES (?, ?, ?, ?, ?)`,
++			em.SymbolID, em.Model, em.Dim, blob, em.UpdatedAt); err != nil {
++			return fmt.Errorf("import embedding %d: %w", em.SymbolID, err)
++		}
++	}
++
++	return tx.Commit()
++}
++
++// nullStringOrEmpty renders a NullString as "" when NULL.
++func nullStringOrEmpty(v sql.NullString) string {
++	if v.Valid {
++		return v.String
++	}
++	return ""
++}
++
++// atoi64orZero parses an int from a metadata string; 0 when absent/invalid.
++func atoi64orZero(s string) int {
++	if s == "" {
++		return 0
++	}
++	var n int
++	for _, r := range s {
++		if r < '0' || r > '9' {
++			return 0
++		}
++		n = n*10 + int(r-'0')
++	}
++	return n
++}
+diff --git a/skillgrid-cli/internal/mnemonic/memory/export_test.go b/skillgrid-cli/internal/mnemonic/memory/export_test.go
+new file mode 100644
+index 0000000..5cd8ece
+--- /dev/null
++++ b/skillgrid-cli/internal/mnemonic/memory/export_test.go
+@@ -0,0 +1,431 @@
++package memory
++
++import (
++	"context"
++	"database/sql"
++	"encoding/base64"
++	"math"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/devopstales/skillgrid/skillgrid-cli/internal/mnemonic/store"
++)
++
++// seedGraphForExport plants a file, three symbols, two edges (one with a
++// temporal window), and two symbol embeddings so ExportProject has graph data
++// to include. It returns the symbol IDs in insertion order.
++func seedGraphForExport(t *testing.T, db *sql.DB) []int64 {
++	t.Helper()
++	// Explicit ids (100/200/300) so the seed is deterministic regardless of
++	// the store's existing rowids — the observations table in this store
++	// already owns rowids 1..N, so a plain INSERT would make the symbol ids
++	// depend on prior test state.
++	fileID, symA, symB, symC := int64(500), int64(100), int64(200), int64(300)
++	if _, err := db.Exec(`
++		INSERT INTO files (id, path, mtime_ns, size, content_hash, indexed_at)
++		VALUES (?, '/tmp/export.go', 1, 100, 'h-export', '2026-01-01T00:00:00Z')`, fileID); err != nil {
++		t.Fatalf("insert file: %v", err)
++	}
++	syms := []struct {
++		id   int64
++		name string
++	}{
++		{symA, "expAlpha"}, {symB, "expBeta"}, {symC, "expGamma"},
++	}
++	for i, s := range syms {
++		if _, err := db.Exec(`
++			INSERT INTO symbols (id, file_id, name, qualified_name, kind, language, signature, start_line, end_line, content_hash, uid)
++			VALUES (?, ?, ?, ?, 'function', 'go', 'func '+?+'()', ?, ?, 'ch-exp-'+?+'-'+? , ?)`,
++			s.id, fileID, s.name, s.name, s.name, i*10+1, i*10+9, "ch-exp-"+s.name, "uid-exp-"+s.name, s.name); err != nil {
++			t.Fatalf("insert symbol %s: %v", s.name, err)
++		}
++	}
++	now := time.Now().Unix()
++	if _, err := db.Exec(`
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from, valid_to)
++		VALUES ('calls', ?, ?, ?, 'expBeta', '/tmp/export.go', 'EXTRACTED', 1, ?, NULL),
++		       ('references', ?, ?, NULL, 'someLib', NULL, 'EXTRACTED', 2, ?, ?)`,
++		symA, fileID, symB, now-1000,
++		symB, fileID, now-500, now-10); err != nil {
++		t.Fatalf("insert edges: %v", err)
++	}
++	vectors := [][]byte{
++		float32VectorBytes(0.1, 0.2, 0.3, 0.4),
++		float32VectorBytes(0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2),
++	}
++	for i, symID := range []int64{symA, symC} {
++		if _, err := db.Exec(`
++			INSERT INTO embeddings (symbol_id, model, dim, vector, updated_at)
++			VALUES (?, 'export-model-v1', ?, ?, '2026-01-02T00:00:00Z')`,
++			symID, len(vectors[i])/4, vectors[i]); err != nil {
++			t.Fatalf("insert embedding %d: %v", symID, err)
++		}
++	}
++	return []int64{symA, symB, symC}
++}
++
++// openExportTestStore opens a store over a temp data dir and returns a
++// multi-connection *sql.DB over the same file. The store.Open pool is
++// single-connection (SetMaxOpenConns(1)), which deadlocks when ExportProject
++// re-enters the same pool from a nested per-observation embedding lookup (the
++// same class of issue graph.temporal_test documents). The export tests build
++// their Service on the multi-conn DB so the nested lookup can take a second
++// connection.
++func openExportTestStore(t *testing.T, project string) (*store.Store, *sql.DB) {
++	t.Helper()
++	dataDir := t.TempDir()
++	st, err := store.Open(dataDir, project)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	db, err := sql.Open("sqlite", st.Path())
++	if err != nil {
++		t.Fatalf("open db: %v", err)
++	}
++	t.Cleanup(func() { db.Close() })
++	db.SetMaxOpenConns(8)
++	for _, pragma := range []string{
++		"PRAGMA journal_mode=WAL",
++		"PRAGMA foreign_keys=ON",
++		"PRAGMA busy_timeout=10000",
++	} {
++		if _, err := db.Exec(pragma); err != nil {
++			t.Fatalf("pragma %s: %v", pragma, err)
++		}
++	}
++	return st, db
++}
++
++
++
++// float32VectorBytes packs floats into the little-endian float32 BLOB layout
++// the embeddings table uses (step 07 convention).
++func float32VectorBytes(values ...float32) []byte {
++	buf := make([]byte, 4*len(values))
++	for i, v := range values {
++		u := math.Float32bits(v)
++		copy(buf[4*i:], []byte{byte(u), byte(u >> 8), byte(u >> 16), byte(u >> 24)})
++	}
++	return buf
++}
++
++// TestExportProjectStructure is 11.1 [RED]: ExportProject returns a bundle
++// with non-empty observations, graph edges, and embeddings, and every
++// observation record carries id/type/content/metadata/embeddings(base64)/
++// graph_ref.
++func TestExportProjectStructure(t *testing.T) {
++	_, db := openExportTestStore(t, "export-struct")
++	if _, err := db.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES ('s1', 'export-struct', '/tmp', '2026-01-01T00:00:00Z', 'active')`); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	st := &store.Store{DB: db}
++	svc := New(st, "export-struct")
++	ctx := context.Background()
++
++	symIDs := seedGraphForExport(t, db)
++
++	obsLinked, err := svc.Save(ctx, SaveInput{
++		SessionID: "s1",
++		Type:      "decision",
++		Title:     "linked observation",
++		Content:   "observation bound to an indexed symbol",
++		Source:    "/tmp/export.go",
++	})
++	if err != nil {
++		t.Fatalf("save linked: %v", err)
++	}
++	obsPlain, err := svc.Save(ctx, SaveInput{
++		SessionID: "s1",
++		Type:      "discovery",
++		Title:     "plain observation",
++		Content:   "observation with no graph binding",
++	})
++	if err != nil {
++		t.Fatalf("save plain: %v", err)
++	}
++
++	bundle, err := svc.ExportProject(ctx)
++	if err != nil {
++		t.Fatalf("ExportProject: %v", err)
++	}
++	if len(bundle.Observations) == 0 {
++		t.Fatalf("bundle.Observations is empty, want non-empty")
++	}
++	if len(bundle.GraphEdges) == 0 {
++		t.Fatalf("bundle.GraphEdges is empty, want non-empty")
++	}
++	if len(bundle.Embeddings) == 0 {
++		t.Fatalf("bundle.Embeddings is empty, want non-empty")
++	}
++
++	// Per-record field contract.
++	recs := map[int64]*ExportRecord{}
++	for i := range bundle.Observations {
++		r := &bundle.Observations[i]
++		recs[r.ID] = r
++		if r.ID == 0 {
++			t.Errorf("observation record %d has id 0", i)
++		}
++		if r.Type == "" {
++			t.Errorf("observation %d has empty type", r.ID)
++		}
++		if r.Content == "" {
++			t.Errorf("observation %d has empty content", r.ID)
++		}
++		if r.Metadata == nil {
++			t.Errorf("observation %d has nil metadata", r.ID)
++		} else {
++			if r.Metadata["title"] == "" {
++				t.Errorf("observation %d metadata missing title", r.ID)
++			}
++		}
++	}
++	linked := recs[obsLinked]
++	if linked == nil {
++		t.Fatalf("linked observation %d missing from bundle", obsLinked)
++	}
++	if !strings.Contains(linked.Content, "indexed symbol") {
++		t.Errorf("linked observation content = %q", linked.Content)
++	}
++	if linked.GraphRef == nil {
++		t.Fatalf("linked observation has no graph_ref, want symbol %d", symIDs[0])
++	}
++	if linked.Embeddings == nil {
++		t.Errorf("linked observation has nil embeddings (graph_ref=%d; should reference the symbol bridge)", *linked.GraphRef)
++	} else if linked.Embeddings["vector"] == "" {
++		t.Errorf("linked observation embedding vector is empty (graph_ref=%d)", *linked.GraphRef)
++	} else {
++		raw, err := base64.StdEncoding.DecodeString(linked.Embeddings["vector"])
++		if err != nil {
++			t.Fatalf("embeddings vector is not base64: %v", err)
++		}
++		if len(raw) == 0 {
++			t.Errorf("embedded vector is empty")
++		}
++	}
++	if linked.GraphRef == nil {
++		t.Fatalf("linked observation has no graph_ref, want symbol %d", symIDs[0])
++	}
++	if *linked.GraphRef != symIDs[0] {
++		t.Errorf("graph_ref = %d, want %d", *linked.GraphRef, symIDs[0])
++	}
++	plain := recs[obsPlain]
++	if plain == nil {
++		t.Fatalf("plain observation %d missing from bundle", obsPlain)
++	}
++	if plain.GraphRef != nil {
++		t.Errorf("plain observation has graph_ref %v, want nil", *plain.GraphRef)
++	}
++
++	// Edge records preserve the temporal window.
++	var windowed *EdgeRecord
++	for i := range bundle.GraphEdges {
++		e := &bundle.GraphEdges[i]
++		if e.Kind == "references" {
++			windowed = e
++		}
++	}
++	if windowed == nil {
++		t.Fatalf("references edge missing from bundle")
++	}
++	if windowed.ValidTo == nil {
++		t.Errorf("references edge lost its valid_to window")
++	}
++
++	// Embedding records carry symbol/model/dim/base64 vector.
++	var embs []EmbeddingRecord
++	embs = bundle.Embeddings
++	if len(embs) != 2 {
++		t.Fatalf("want 2 embedding records, got %d", len(embs))
++	}
++	for _, em := range embs {
++		if em.SymbolID == 0 || em.Model == "" || em.Dim <= 0 {
++			t.Errorf("embedding record incomplete: %+v", em)
++		}
++		raw, err := base64.StdEncoding.DecodeString(em.Vector)
++		if err != nil {
++			t.Fatalf("embedding vector not base64: %v", err)
++		}
++		if len(raw) != 4*em.Dim {
++			t.Errorf("vector len %d != 4*dim %d", len(raw), em.Dim)
++		}
++	}
++}
++
++// TestExportImportRoundtrip is 11.2 [RED]: export a project (5 observations,
++// 3 edges, 2 embeddings) to a JSON file, import it into a FRESH empty store,
++// and verify every record round-trips with matching IDs and content.
++func TestExportImportRoundtrip(t *testing.T) {
++	_, srcDB := openExportTestStore(t, "rt-src")
++	if _, err := srcDB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES ('s1', 'rt-src', '/tmp', '2026-01-01T00:00:00Z', 'active')`); err != nil {
++		t.Fatalf("insert session: %v", err)
++	}
++	srcSvc := New(&store.Store{DB: srcDB}, "rt-src")
++	ctx := context.Background()
++	symIDs := seedGraphForExport(t, srcDB)
++
++	// A second edge so the graph has 3.
++	fileID := fileIDOf(t, srcDB, "/tmp/export.go")
++	if _, err := srcDB.Exec(`
++		INSERT INTO edges (kind, from_id, file_id, to_id, to_name, target_path, confidence, line, valid_from, valid_to)
++		VALUES ('imports', ?, ?, ?, 'expGamma', '/tmp/export.go', 'EXTRACTED', 3, ?, NULL)`,
++		symIDs[0], fileID, symIDs[2], time.Now().Unix()); err != nil {
++		t.Fatalf("insert third edge: %v", err)
++	}
++
++	wantObs := map[int64]string{}
++	linkedID, err := srcSvc.Save(ctx, SaveInput{
++		SessionID: "s1",
++		Type:      "decision",
++		Title:     "roundtrip linked",
++		Content:   "bound to the exported symbol",
++		Source:    "/tmp/export.go",
++	})
++	if err != nil {
++		t.Fatalf("save linked: %v", err)
++	}
++	wantObs[linkedID] = "bound to the exported symbol"
++	for i, typ := range []string{"discovery", "bugfix", "pattern", "config"} {
++		id, err := srcSvc.Save(ctx, SaveInput{
++			SessionID: "s1",
++			Type:      typ,
++			Title:     "roundtrip note " + typ,
++			Content:   "content " + typ + " body for roundtrip",
++		})
++		if err != nil {
++			t.Fatalf("save %d: %v", i, err)
++		}
++		wantObs[id] = "content " + typ + " body for roundtrip"
++	}
++	if len(wantObs) != 5 {
++		t.Fatalf("want 5 distinct observations, got %d", len(wantObs))
++	}
++
++	bundle, err := srcSvc.ExportProject(ctx)
++	if err != nil {
++		t.Fatalf("export: %v", err)
++	}
++	if len(bundle.Observations) != 5 {
++		t.Fatalf("bundle has %d observations, want 5", len(bundle.Observations))
++	}
++	if len(bundle.GraphEdges) != 3 {
++		t.Fatalf("bundle has %d edges, want 3", len(bundle.GraphEdges))
++	}
++	if len(bundle.Embeddings) != 2 {
++		t.Fatalf("bundle has %d embeddings, want 2", len(bundle.Embeddings))
++	}
++
++	// Write the bundle to a JSON file (the portable artifact).
++	out := filepath.Join(t.TempDir(), "bundle.json")
++	f, err := os.Create(out)
++	if err != nil {
++		t.Fatalf("create: %v", err)
++	}
++	if err := srcSvc.WriteExport(ctx, f); err != nil {
++		t.Fatalf("write export: %v", err)
++	}
++	if err := f.Close(); err != nil {
++		t.Fatalf("close: %v", err)
++	}
++
++	// Fresh, empty store under a DIFFERENT project id (another instance).
++	dst, err := openStoreFor(t, "rt-dst")
++	if err != nil {
++		t.Fatalf("open dst: %v", err)
++	}
++	if _, err := dst.DB.Exec(`
++		INSERT INTO sessions (id, project, directory, started_at, status)
++		VALUES ('s1', 'rt-dst', '/tmp', '2026-01-01T00:00:00Z', 'active')`); err != nil {
++		t.Fatalf("dst session: %v", err)
++	}
++	in, err := os.Open(out)
++	if err != nil {
++		t.Fatalf("open bundle: %v", err)
++	}
++	defer in.Close()
++	dstSvc := New(dst, "rt-dst")
++	if err := dstSvc.ImportProject(ctx, in); err != nil {
++		t.Fatalf("import: %v", err)
++	}
++
++	// Observations: all 5 present, same IDs, same content.
++	for id, content := range wantObs {
++		var gotID int64
++		var gotContent, gotType string
++		err := dst.DB.QueryRow(`
++			SELECT id, content, type FROM observations WHERE id = ?`, id).
++			Scan(&gotID, &gotContent, &gotType)
++		if err != nil {
++			t.Fatalf("observation %d missing after import: %v", id, err)
++		}
++		if gotContent != content {
++			t.Errorf("observation %d content = %q, want %q", id, gotContent, content)
++		}
++	}
++
++	// Edges: all 3 present with the same endpoints and window.
++	var edgeCount int
++	if err := dst.DB.QueryRow(`SELECT COUNT(*) FROM edges`).Scan(&edgeCount); err != nil {
++		t.Fatalf("count edges: %v", err)
++	}
++	if edgeCount != 3 {
++		t.Fatalf("dst has %d edges, want 3", edgeCount)
++	}
++	var windowedTo sql.NullInt64
++	if err := dst.DB.QueryRow(`
++		SELECT valid_to FROM edges WHERE kind = 'references'`).Scan(&windowedTo); err != nil {
++		t.Fatalf("read windowed edge: %v", err)
++	}
++	if !windowedTo.Valid {
++		t.Errorf("windowed edge lost valid_to after import")
++	}
++
++	// Embeddings: both present, vectors byte-identical.
++	for i, symID := range []int64{symIDs[0], symIDs[2]} {
++		var blob []byte
++		var model string
++		if err := dst.DB.QueryRow(`
++			SELECT vector, model FROM embeddings WHERE symbol_id = ?`, symID).
++			Scan(&blob, &model); err != nil {
++			t.Fatalf("embedding for symbol %d missing: %v", symID, err)
++		}
++		if model == "" {
++			t.Errorf("embedding %d lost its model", symID)
++		}
++		var srcBlob []byte
++		if err := srcDB.QueryRow(`
++			SELECT vector FROM embeddings WHERE symbol_id = ?`, symID).Scan(&srcBlob); err != nil {
++			t.Fatalf("src embedding %d: %v", symID, err)
++		}
++		if string(blob) != string(srcBlob) {
++			t.Errorf("embedding %d vector changed on roundtrip", symID)
++		}
++		_ = i
++	}
++
++	// The linked observation kept its graph_ref binding.
++	var ref sql.NullInt64
++	if err := dst.DB.QueryRow(`SELECT graph_ref FROM observations WHERE id = ?`, linkedID).Scan(&ref); err != nil {
++		t.Fatalf("read dst graph_ref: %v", err)
++	}
++	if !ref.Valid || ref.Int64 != symIDs[0] {
++		t.Errorf("dst graph_ref = %v, want %d", ref, symIDs[0])
++	}
++}
++
++// fileIDOf looks up a files row by path.
++func fileIDOf(t *testing.T, db *sql.DB, path string) int64 {
++	t.Helper()
++	var id int64
++	if err := db.QueryRow(`SELECT id FROM files WHERE path = ?`, path).Scan(&id); err != nil {
++		t.Fatalf("lookup file %s: %v", path, err)
++	}
++	return id
++}

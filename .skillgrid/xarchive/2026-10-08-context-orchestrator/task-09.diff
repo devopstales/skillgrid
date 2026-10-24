@@ -1,0 +1,1117 @@
+commit 440ad7aa084273bfd63f22c291a8cd408a6e3255
+Author: Balazs PALDI <balazs.paldi@shiwaforce.com>
+Date:   Mon Oct 12 20:13:53 2026 +0200
+
+    feat(ctx): add observability package and /stats + /stats-history endpoints
+    
+    Implement the Context Orchestrator observability surface (plan 17,
+    TICKET-09): a per-request bucket writer that folds proxy savings into
+    ctx_stats_history, a periodic rollup runner, and the Stats / StatsHistory
+    readers that back the new read-only HTTP endpoints.
+    
+    - Add mnemonic/internal/ctx/observability package: Roll (pure per-saving
+      bucket computation), WriteSavings (per-request fold), Recompute (periodic
+      re-derivation), StartRollup (background goroutine), Snapshot (live
+      session metrics), StatsHistory (durable savings history). All readers and
+      writers are fail-open (ADR-0016): missing ctx_* tables degrade to
+      empty/zero, never a hard error.
+    - Add GET /stats handler: returns live session-metric snapshot from
+      ctx_proxy_sessions (tokens saved, cache hits, requests, sessions, latest
+      mode). Zero-valued when no sessions exist.
+    - Add GET /stats-history handler: returns durable savings history from
+      ctx_stats_history for the granularities configured in
+      cfg.Observability.HistoryRollups (defaults to hourly/daily/weekly/monthly).
+      Every requested granularity appears in the response, possibly empty.
+    - Wire both routes into the mnemonic serve mux via registerCtxRoutes(); they
+      live on the serve mux, not the proxy loopback mux, so no collision with
+      the proxy own /stats + /v1/compress routes.
+    - Add 7 observability unit tests (Roll, WriteSavings merge, Recompute
+      session correction, StartRollup goroutine, Snapshot, StatsHistory
+      persistence, fail-open) and 4 HTTP handler tests (fail-open default,
+      seeded sessions, fail-open history, seeded buckets).
+    
+    [skillgrid-context]
+    change: 2026-10-08-context-orchestrator
+    ticket: TASK-097
+    wave: 6
+    pr: PR4
+
+diff --git a/mnemonic/internal/ctx/observability/observability.go b/mnemonic/internal/ctx/observability/observability.go
+new file mode 100644
+index 00000000..4c9e9aff
+--- /dev/null
++++ b/mnemonic/internal/ctx/observability/observability.go
+@@ -0,0 +1,428 @@
++// Package observability implements the read-only CTX observability surface
++// (plan §17): a per-request bucket writer that folds proxy savings into
++// ctx_stats_history, a periodic rollup runner that re-derives buckets
++// without a restart, and the Stats / StatsHistory readers that back the
++// GET /stats and GET /stats-history endpoints.
++//
++// Every read degrades to empty/zero on a missing ctx_* table (ADR-0016
++// fail-open); every write degrades to a no-op. The package opens no
++// database of its own — it works through a *store.Store (the ctx accessor
++// over the shared project store, ADR-0033).
++package observability
++
++import (
++	"fmt"
++	"sync"
++	"time"
++
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++)
++
++// Granularity is one of the four standard rollup windows.
++type Granularity string
++
++const (
++	// Hourly is the finest rollup window.
++	Hourly Granularity = "hourly"
++	// Daily rolls up per calendar day.
++	Daily Granularity = "daily"
++	// Weekly rolls up per ISO week.
++	Weekly Granularity = "weekly"
++	// Monthly rolls up per calendar month.
++	Monthly Granularity = "monthly"
++)
++
++// DefaultGranularities is the standard rollup set (plan §17.2, config
++// default). Used when the caller does not supply an explicit list.
++var DefaultGranularities = []Granularity{Hourly, Daily, Weekly, Monthly}
++
++// Stats is the live session-metric snapshot returned by GET /stats
++// (plan §17.2, §17.5). Mode is the latest session's mode (seam for the T11
++// run-mode header; not wired here). Every counter is zero-valued when the
++// ctx tables are missing (ADR-0016).
++type Stats struct {
++	Mode               string `json:"mode"`
++	TokensSaved        int64  `json:"tokens_saved"`
++	CacheHits          int64  `json:"cache_hits"`
++	CacheInvalidations int64  `json:"cache_invalidations"`
++	Requests           int64  `json:"requests"`
++	Sessions           int    `json:"sessions"`
++}
++
++// Bucket is one row of the durable savings history for a single
++// granularity window.
++type Bucket struct {
++	Granularity Granularity `json:"granularity"`
++	BucketStart int64       `json:"bucket_start"`
++	TokensSaved int64       `json:"tokens_saved"`
++	Requests    int64       `json:"requests"`
++	Sessions    int64       `json:"sessions"`
++	CacheHits   int64       `json:"cache_hits"`
++}
++
++// History is the durable savings history returned by GET /stats-history
++// (plan §17.2). Buckets is keyed by granularity (the requested rollup set)
++// and each list is ordered by BucketStart ascending.
++type History struct {
++	Buckets map[Granularity][]Bucket `json:"buckets"`
++}
++
++// Saving is the per-turn proxy savings row as written by the proxy
++// (ctx_proxy_savings, migration 057). It is the bucket writer's input.
++// Mirrors ctxstore.ProxySaving without the ctxstore import so the pure Roll
++// helper stays store-free and trivially testable.
++type Saving struct {
++	SavingID     string
++	SessionID    string
++	Turn         int64
++	Upstream     string
++	Mode         string
++	TokensBefore int64
++	TokensAfter  int64
++	CreatedAt    int64 // unix seconds
++}
++
++// bucketKey is the deterministic identity of a stats bucket: granularity +
++// aligned window start. INSERT OR REPLACE on this id makes repeated writes
++// (per-request fold + periodic re-derivation) idempotent — they merge, never
++// double-count.
++func bucketKey(g Granularity, start int64) string {
++	return fmt.Sprintf("%s-%d", g, start)
++}
++
++// windowSeconds returns the number of seconds in one window of granularity g.
++func windowSeconds(g Granularity) int64 {
++	switch g {
++	case Hourly:
++		return 3600
++	case Daily:
++		return 86400
++	case Weekly:
++		return 7 * 86400
++	case Monthly:
++		return 30 * 86400 // approx; aligned via startOfMonth
++	default:
++		return 0
++	}
++}
++
++// windowStart returns the aligned window start (unix seconds) containing t.
++// Monthly aligns to the first of the UTC month; the others truncate to the
++// window size from the Unix epoch.
++func windowStart(g Granularity, t time.Time) int64 {
++	switch g {
++	case Monthly:
++		y, m, _ := t.UTC().Date()
++		return time.Date(y, m, 1, 0, 0, 0, 0, time.UTC).Unix()
++	case Hourly, Daily, Weekly:
++		return t.Unix() / windowSeconds(g) * windowSeconds(g)
++	default:
++		return 0
++	}
++}
++
++// Roll computes the per-granularity bucket rows for a single per-turn saving.
++// It is pure: no store, no clock. TokensSaved is the compression delta
++// (TokensBefore - TokensAfter, clamped >= 0). Requests counts one turn.
++// CacheHits contributes to the bucket only for a cache-mode saving (the
++// proxy records a cache hit only in cache mode). Sessions is 1 per saving —
++// the periodic rollup (Recompute) re-derives the distinct-session count
++// across all savings, so per-saving Session=1 is a safe lower bound that
++// Recompute overwrites with the exact count.
++func Roll(s *Saving) (buckets []*ctxstore.StatsBucket) {
++	if s == nil {
++		return nil
++	}
++	t := time.Unix(s.CreatedAt, 0)
++	saved := s.TokensBefore - s.TokensAfter
++	if saved < 0 {
++		saved = 0
++	}
++	cacheHit := int64(0)
++	if s.Mode == "cache" {
++		cacheHit = 1
++	}
++	now := t.Unix()
++	for _, g := range DefaultGranularities {
++		start := windowStart(g, t)
++		buckets = append(buckets, &ctxstore.StatsBucket{
++			BucketID:    bucketKey(g, start),
++			Granularity: string(g),
++			BucketStart: start,
++			TokensSaved: saved,
++			Requests:    1,
++			Sessions:    1,
++			CacheHits:   cacheHit,
++			CreatedAt:   now,
++		})
++	}
++	return buckets
++}
++
++// WriteSavings folds a batch of per-turn savings into ctx_stats_history.
++// For each saving it computes the per-granularity buckets (Roll) and merges
++// them into the existing bucket rows (if any) before PutStatsBucket. This is
++// the per-request write path: cheap, idempotent on BucketID. A nil store or a
++// missing table is a no-op (ADR-0016). Returns the number of bucket rows
++// written.
++func WriteSavings(s *ctxstore.Store, savings []*Saving) int {
++	if s == nil || len(savings) == 0 {
++		return 0
++	}
++	written := 0
++	// Accumulate per bucket-id so multiple savings landing in the same window
++	// merge into a single upsert rather than N upserts.
++	merged := make(map[string]*ctxstore.StatsBucket)
++	for _, sv := range savings {
++		for _, b := range Roll(sv) {
++			if existing, ok := merged[b.BucketID]; ok {
++				existing.TokensSaved += b.TokensSaved
++				existing.Requests += b.Requests
++				existing.CacheHits += b.CacheHits
++				// Sessions: keep the higher of the two (lower bound; Recompute
++				// corrects it). Distinct-session tracking across a batch is not
++				// attempted here.
++				if b.Sessions > existing.Sessions {
++					existing.Sessions = b.Sessions
++				}
++			} else {
++				// Start from the persisted row so a re-fold does not reset
++				// counters accumulated by earlier writes in the same window.
++				if prev, err := s.GetStatsBucket(b.BucketID); err == nil && prev != nil {
++					c := *prev
++					c.TokensSaved += b.TokensSaved
++					c.Requests += b.Requests
++					c.CacheHits += b.CacheHits
++					if b.Sessions > c.Sessions {
++						c.Sessions = b.Sessions
++					}
++					merged[b.BucketID] = &c
++				} else {
++					merged[b.BucketID] = b
++				}
++			}
++		}
++	}
++	for _, b := range merged {
++		if err := s.PutStatsBucket(b); err == nil {
++			written++
++		}
++	}
++	return written
++}
++
++// Recompute re-derives every ctx_stats_history bucket from the full
++// ctx_proxy_savings + ctx_proxy_sessions tables and rewrites them. This is
++// the periodic rollup: it keeps the history current without a proxy restart
++// and corrects the Sessions count to the exact distinct-session total per
++// window. It is idempotent — PutStatsBucket is INSERT OR REPLACE on the
++// deterministic BucketID, so re-running yields the same rows. A nil store or
++// a missing table is a no-op (ADR-0016). Returns the number of bucket rows
++// written.
++//
++// Because the ctx accessor only offers ListProxySavings(sessionID), this first
++// lists all sessions, then fetches each session's savings. That is O(sessions)
++// queries — fine for a background tick over a local loopback proxy.
++func Recompute(s *ctxstore.Store) int {
++	if s == nil {
++		return 0
++	}
++	sessions, err := s.ListProxySessions()
++	if err != nil {
++		return 0
++	}
++	// Aggregate per (granularity, windowStart).
++	type agg struct {
++		tokens   int64
++		requests int64
++		hits     int64
++		sessions map[string]struct{}
++	}
++	perWindow := make(map[string]*agg)
++
++	for _, sess := range sessions {
++		savings, err := s.ListProxySavings(sess.SessionID)
++		if err != nil {
++			continue
++		}
++		for _, sv := range savings {
++			if sv == nil {
++				continue
++			}
++			t := time.Unix(sv.CreatedAt, 0)
++			saved := sv.TokensBefore - sv.TokensAfter
++			if saved < 0 {
++				saved = 0
++			}
++			hit := int64(0)
++			if sv.Mode == "cache" {
++				hit = 1
++			}
++			for _, g := range DefaultGranularities {
++				start := windowStart(g, t)
++				key := bucketKey(g, start)
++				a, ok := perWindow[key]
++				if !ok {
++					a = &agg{sessions: make(map[string]struct{})}
++					perWindow[key] = a
++				}
++				a.tokens += saved
++				a.requests++
++				a.hits += hit
++				a.sessions[sv.SessionID] = struct{}{}
++			}
++		}
++	}
++
++	written := 0
++	now := time.Now().Unix()
++	for key, a := range perWindow {
++		var g Granularity
++		var start int64
++		// Recover granularity + start from the deterministic key
++		// "<granularity>-<start>".
++		dash := -1
++		for i := len(key) - 1; i >= 0; i-- {
++			if key[i] == '-' {
++				dash = i
++				break
++			}
++		}
++		if dash < 0 {
++			continue
++		}
++		g = Granularity(key[:dash])
++		fmt.Sscanf(key[dash+1:], "%d", &start)
++		b := &ctxstore.StatsBucket{
++			BucketID:    key,
++			Granularity: string(g),
++			BucketStart: start,
++			TokensSaved: a.tokens,
++			Requests:    a.requests,
++			Sessions:    int64(len(a.sessions)),
++			CacheHits:   a.hits,
++			CreatedAt:   now,
++		}
++		if err := s.PutStatsBucket(b); err == nil {
++			written++
++		}
++	}
++	return written
++}
++
++// StartRollup launches a background goroutine that calls Recompute every tick
++// until stop is closed. It returns a stop function that closes stop and waits
++// for the goroutine to exit (no leak). The first Recompute runs immediately so
++// a fresh process backfills the history before the first tick. A non-positive
++// tick falls back to a 5-minute default.
++func StartRollup(s *ctxstore.Store, tick time.Duration, stop chan struct{}) (stopFn func()) {
++	if s == nil {
++		return func() {}
++	}
++	if tick <= 0 {
++		tick = 5 * time.Minute
++	}
++	done := make(chan struct{})
++	var once sync.Once
++	var wg sync.WaitGroup
++	wg.Add(1)
++	go func() {
++		defer wg.Done()
++		defer close(done)
++		// Immediate first pass.
++		_ = Recompute(s)
++		t := time.NewTicker(tick)
++		defer t.Stop()
++		for {
++			select {
++			case <-stop:
++				return
++			case <-t.C:
++				_ = Recompute(s)
++			}
++		}
++	}()
++	return func() {
++		once.Do(func() { close(stop) })
++		wg.Wait()
++	}
++}
++
++// Snapshot returns the live session-metric snapshot (plan §17.2/§17.5) from
++// ctx_proxy_sessions. Every counter is zero-valued on a missing table
++// (ADR-0016). Mode is the latest session's mode (by EndedAt, then StartedAt),
++// the seam for the T11 run-mode header.
++func Snapshot(s *ctxstore.Store) (*Stats, error) {
++	out := &Stats{}
++	if s == nil {
++		return out, nil
++	}
++	sessions, err := s.ListProxySessions()
++	if err != nil {
++		return out, nil
++	}
++	out.Sessions = len(sessions)
++	var latest *ctxstore.ProxySession
++	for _, sess := range sessions {
++		if sess == nil {
++			continue
++		}
++		out.Requests += sess.Requests
++		out.CacheHits += sess.CacheHits
++		out.CacheInvalidations += sess.CacheInvalidations
++		saved := sess.TokensBefore - sess.TokensAfter
++		if saved > 0 {
++			out.TokensSaved += saved
++		}
++		if latest == nil || newer(sess, latest) {
++			latest = sess
++		}
++	}
++	if latest != nil {
++		out.Mode = latest.Mode
++	}
++	return out, nil
++}
++
++// newer reports whether a is strictly newer than b by EndedAt then StartedAt.
++func newer(a, b *ctxstore.ProxySession) bool {
++	if a.EndedAt != b.EndedAt {
++		return a.EndedAt > b.EndedAt
++	}
++	return a.StartedAt > b.StartedAt
++}
++
++// StatsHistory returns the durable savings history (plan §17.2) for the
++// requested granularities, read from ctx_stats_history. A missing table yields
++// an empty per-granularity list (ADR-0016). The returned History.Buckets map
++// contains an entry for every requested granularity (possibly empty) so the
++// JSON shape is stable.
++func StatsHistory(s *ctxstore.Store, granularities []Granularity) (*History, error) {
++	out := &History{Buckets: make(map[Granularity][]Bucket)}
++	if len(granularities) == 0 {
++		granularities = DefaultGranularities
++	}
++	for _, g := range granularities {
++		buckets := []Bucket{}
++		if s != nil {
++			rows, err := s.ListStatsBuckets(string(g))
++			if err == nil {
++				for _, r := range rows {
++					if r == nil {
++						continue
++					}
++					buckets = append(buckets, Bucket{
++						Granularity: g,
++						BucketStart: r.BucketStart,
++						TokensSaved: r.TokensSaved,
++						Requests:    r.Requests,
++						Sessions:    r.Sessions,
++						CacheHits:   r.CacheHits,
++					})
++				}
++			}
++		}
++		out.Buckets[g] = buckets
++	}
++	return out, nil
++}
+diff --git a/mnemonic/internal/ctx/observability/observability_test.go b/mnemonic/internal/ctx/observability/observability_test.go
+new file mode 100644
+index 00000000..1dfee60a
+--- /dev/null
++++ b/mnemonic/internal/ctx/observability/observability_test.go
+@@ -0,0 +1,346 @@
++package observability
++
++import (
++	"testing"
++	"time"
++
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++	"github.com/devopstales/skillgrid/mnemonic/internal/store"
++)
++
++// freshStore opens a real project store (the 056-061 ctx migrations run on
++// open) and wraps it in the ctx accessor. It is closed on cleanup.
++func freshStore(t *testing.T) (*store.Store, *ctxstore.Store) {
++	t.Helper()
++	st, err := store.Open(t.TempDir(), "obs-test")
++	if err != nil {
++		t.Fatalf("store.Open: %v", err)
++	}
++	t.Cleanup(func() { st.Close() })
++	return st, ctxstore.New(st)
++}
++
++// saving builds a per-turn proxy saving row for the bucket writer's input.
++func saving(id, sessionID, mode string, before, after, createdAt int64) *Saving {
++	return &Saving{
++		SavingID:     id,
++		SessionID:    sessionID,
++		Turn:         1,
++		Upstream:     "anthropic",
++		Mode:         mode,
++		TokensBefore: before,
++		TokensAfter:  after,
++		CreatedAt:    createdAt,
++	}
++}
++
++// TestRoll_Pure verifies the pure per-saving roll: one saving yields one
++// bucket per standard granularity with the correct tokens saved (clamped),
++// one request, one session, and a cache hit only in cache mode.
++func TestRoll_Pure(t *testing.T) {
++	got := Roll(saving("s1", "sess-1", "cache", 1000, 400, 1_700_000_000))
++	if len(got) != len(DefaultGranularities) {
++		t.Fatalf("Roll: expected %d buckets (one per granularity), got %d", len(DefaultGranularities), len(got))
++	}
++	byGran := make(map[string]*ctxstore.StatsBucket)
++	for _, b := range got {
++		byGran[b.Granularity] = b
++	}
++	for _, g := range DefaultGranularities {
++		b, ok := byGran[string(g)]
++		if !ok {
++			t.Fatalf("Roll: missing bucket for granularity %q", g)
++		}
++		if b.TokensSaved != 600 {
++			t.Errorf("Roll %s: tokens saved = %d, want 600 (1000-400)", g, b.TokensSaved)
++		}
++		if b.Requests != 1 {
++			t.Errorf("Roll %s: requests = %d, want 1", g, b.Requests)
++		}
++		if b.Sessions != 1 {
++			t.Errorf("Roll %s: sessions = %d, want 1 (lower bound)", g, b.Sessions)
++		}
++		if b.CacheHits != 1 {
++			t.Errorf("Roll %s: cache hits = %d, want 1 (cache mode)", g, b.CacheHits)
++		}
++		if b.BucketStart != windowStart(g, time.Unix(1_700_000_000, 0)) {
++			t.Errorf("Roll %s: bucket start = %d, want aligned %d", g, b.BucketStart, windowStart(g, time.Unix(1_700_000_000, 0)))
++		}
++	}
++}
++
++// TestRoll_ClampsNegativeSaving verifies a turn where tokens after exceeds
++// tokens before does not produce a negative savings (clamped to 0) and a
++// non-cache-mode saving contributes no cache hit.
++func TestRoll_ClampsNegativeSaving(t *testing.T) {
++	got := Roll(saving("s1", "sess-1", "token", 100, 500, 1_700_000_000))
++	if len(got) != len(DefaultGranularities) {
++		t.Fatalf("Roll: expected %d buckets, got %d", len(DefaultGranularities), len(got))
++	}
++	for _, b := range got {
++		if b.TokensSaved != 0 {
++			t.Errorf("Roll %s: negative saving must clamp to 0, got %d", b.Granularity, b.TokensSaved)
++		}
++		if b.CacheHits != 0 {
++			t.Errorf("Roll %s: token mode must not count a cache hit, got %d", b.Granularity, b.CacheHits)
++		}
++	}
++}
++
++// TestWriteSavings_MergesBuckets verifies the per-request writer: N savings
++// land in ctx_stats_history with correct per-granularity tokens/requests/
++// cache-hit sums, and two savings in the same window merge into one bucket.
++func TestWriteSavings_MergesBuckets(t *testing.T) {
++	st, c := freshStore(t)
++	_ = st
++	// Two cache-mode turns in the same hour (same window start).
++	n := WriteSavings(c, []*Saving{
++		saving("a", "sess-1", "cache", 1000, 400, 1_700_000_100),
++		saving("b", "sess-1", "cache", 2000, 800, 1_700_000_200),
++	})
++	// Both savings -> same hourly window -> merged into one hourly bucket,
++	// but still one bucket row per other granularity. Expect 4 distinct
++	// bucket ids written (hourly, daily, weekly, monthly).
++	if n != 4 {
++		t.Fatalf("WriteSavings: expected 4 bucket rows written, got %d", n)
++	}
++	// Verify the hourly bucket summed both turns.
++	var hourBuckets []*ctxstore.StatsBucket
++	{
++		rows, err := c.ListStatsBuckets("hourly")
++		if err != nil {
++			t.Fatalf("ListStatsBuckets(hourly): %v", err)
++		}
++		hourBuckets = rows
++	}
++	if len(hourBuckets) != 1 {
++		t.Fatalf("hourly: expected 1 merged bucket, got %d", len(hourBuckets))
++	}
++	hb := hourBuckets[0]
++	if hb.TokensSaved != (600 + 1200) {
++		t.Errorf("hourly tokens = %d, want 1800", hb.TokensSaved)
++	}
++	if hb.Requests != 2 {
++		t.Errorf("hourly requests = %d, want 2", hb.Requests)
++	}
++	if hb.CacheHits != 2 {
++		t.Errorf("hourly cache hits = %d, want 2", hb.CacheHits)
++	}
++}
++
++// TestRecompute_CorrectsSessionsCount verifies the periodic rollup re-derives
++// buckets from ctx_proxy_sessions + ctx_proxy_savings and corrects the
++// Sessions count to the exact distinct-session total per window.
++func TestRecompute_CorrectsSessionsCount(t *testing.T) {
++	_, c := freshStore(t)
++	// Two sessions each with one cache-mode turn in the same hour.
++	for _, sess := range []string{"sess-1", "sess-2"} {
++		if err := c.PutProxySession(&ctxstore.ProxySession{
++			SessionID: sess, Agent: "opencode", Mode: "cache",
++			StartedAt: 1_699_999_900, EndedAt: 1_700_000_200,
++			Requests: 1, TokensBefore: 1000, TokensAfter: 400, CacheHits: 1,
++		}); err != nil {
++			t.Fatalf("PutProxySession %s: %v", sess, err)
++		}
++		if err := c.PutProxySaving(&ctxstore.ProxySaving{
++			SavingID: sess + "-turn", SessionID: sess, Turn: 1,
++			Upstream: "anthropic", Mode: "cache",
++			TokensBefore: 1000, TokensAfter: 400, CreatedAt: 1_700_000_100,
++		}); err != nil {
++			t.Fatalf("PutProxySaving %s: %v", sess, err)
++		}
++	}
++	written := Recompute(c)
++	if written != 4 {
++		t.Fatalf("Recompute: expected 4 bucket rows written, got %d", written)
++	}
++	rows, err := c.ListStatsBuckets("hourly")
++	if err != nil {
++		t.Fatalf("ListStatsBuckets(hourly): %v", err)
++	}
++	if len(rows) != 1 {
++		t.Fatalf("hourly: expected 1 bucket, got %d", len(rows))
++	}
++	if rows[0].Sessions != 2 {
++		t.Errorf("hourly sessions = %d, want 2 (distinct sessions)", rows[0].Sessions)
++	}
++	if rows[0].TokensSaved != 1200 {
++		t.Errorf("hourly tokens = %d, want 1200", rows[0].TokensSaved)
++	}
++	if rows[0].Requests != 2 {
++		t.Errorf("hourly requests = %d, want 2", rows[0].Requests)
++	}
++}
++
++// TestStartRollup_WritesWithoutRestart verifies the rollup goroutine, started
++// with a short tick + stop channel, writes ctx_stats_history rows without a
++// restart and stops cleanly (no goroutine leak).
++func TestStartRollup_WritesWithoutRestart(t *testing.T) {
++	_, c := freshStore(t)
++	if err := c.PutProxySession(&ctxstore.ProxySession{
++		SessionID: "sess-1", Agent: "opencode", Mode: "token",
++		StartedAt: 1_699_999_900, EndedAt: 1_700_000_200,
++		Requests: 1, TokensBefore: 5000, TokensAfter: 2000,
++	}); err != nil {
++		t.Fatalf("PutProxySession: %v", err)
++	}
++	if err := c.PutProxySaving(&ctxstore.ProxySaving{
++		SavingID: "turn-1", SessionID: "sess-1", Turn: 1,
++		Upstream: "anthropic", Mode: "token",
++		TokensBefore: 5000, TokensAfter: 2000, CreatedAt: 1_700_000_100,
++	}); err != nil {
++		t.Fatalf("PutProxySaving: %v", err)
++	}
++	stop := make(chan struct{})
++	stopFn := StartRollup(c, 20*time.Millisecond, stop)
++	// Wait for the immediate first pass (or a tick) to land rows.
++	deadline := time.Now().Add(2 * time.Second)
++	var n int
++	for {
++		rows, err := c.ListStatsBuckets("hourly")
++		if err == nil {
++			n = len(rows)
++		}
++		if n > 0 {
++			break
++		}
++		if time.Now().After(deadline) {
++			break
++		}
++		time.Sleep(10 * time.Millisecond)
++	}
++	if n == 0 {
++		t.Fatalf("rollup did not write any ctx_stats_history rows without a restart")
++	}
++	// Stop cleanly; StartRollup waits for the goroutine (no leak).
++	stopFn()
++}
++
++// TestSnapshot_MatchesStored verifies Stats returns the stored aggregate
++// (tokens saved / cache hits / invalidations / requests / sessions) and the
++// latest session's mode (the T11 seam field).
++func TestSnapshot_MatchesStored(t *testing.T) {
++	_, c := freshStore(t)
++	if err := c.PutProxySession(&ctxstore.ProxySession{
++		SessionID: "old", Agent: "cursor", Mode: "token",
++		StartedAt: 100, EndedAt: 200,
++		Requests: 3, TokensBefore: 9000, TokensAfter: 4000,
++		CacheHits: 2, CacheInvalidations: 1,
++	}); err != nil {
++		t.Fatalf("PutProxySession old: %v", err)
++	}
++	if err := c.PutProxySession(&ctxstore.ProxySession{
++		SessionID: "new", Agent: "opencode", Mode: "cache",
++		StartedAt: 500, EndedAt: 900,
++		Requests: 2, TokensBefore: 2000, TokensAfter: 500,
++		CacheHits: 4, CacheInvalidations: 0,
++	}); err != nil {
++		t.Fatalf("PutProxySession new: %v", err)
++	}
++	st, err := Snapshot(c)
++	if err != nil {
++		t.Fatalf("Snapshot: %v", err)
++	}
++	if st.Sessions != 2 {
++		t.Errorf("sessions = %d, want 2", st.Sessions)
++	}
++	if st.Requests != 5 {
++		t.Errorf("requests = %d, want 5", st.Requests)
++	}
++	if st.CacheHits != 6 {
++		t.Errorf("cache hits = %d, want 6", st.CacheHits)
++	}
++	if st.CacheInvalidations != 1 {
++		t.Errorf("cache invalidations = %d, want 1", st.CacheInvalidations)
++	}
++	// tokens saved = (9000-4000) + (2000-500) = 6500
++	if st.TokensSaved != 6500 {
++		t.Errorf("tokens saved = %d, want 6500", st.TokensSaved)
++	}
++	// latest by EndedAt is "new" (900 > 200) -> mode "cache"
++	if st.Mode != "cache" {
++		t.Errorf("mode = %q, want cache (latest session)", st.Mode)
++	}
++}
++
++// TestStatsHistory_SurvivesReopen verifies StatsHistory reads all four
++// granularities from ctx_stats_history and that the rows survive a re-open of
++// the store (i.e. a server restart) — the durable-history clause.
++func TestStatsHistory_SurvivesReopen(t *testing.T) {
++	st, c := freshStore(t)
++	// Persist one bucket per granularity.
++	now := time.Unix(1_700_000_100, 0)
++	for _, g := range DefaultGranularities {
++		if err := c.PutStatsBucket(&ctxstore.StatsBucket{
++			BucketID:    bucketKey(g, windowStart(g, now)),
++			Granularity: string(g),
++			BucketStart: windowStart(g, now),
++			TokensSaved: 111, Requests: 7, Sessions: 3, CacheHits: 5,
++			CreatedAt: now.Unix(),
++		}); err != nil {
++			t.Fatalf("PutStatsBucket %s: %v", g, err)
++		}
++	}
++	// Re-open a FRESH accessor over the same store to simulate a restart.
++	c2 := ctxstore.New(st)
++	hist, err := StatsHistory(c2, nil) // nil -> default granularities
++	if err != nil {
++		t.Fatalf("StatsHistory: %v", err)
++	}
++	if len(hist.Buckets) != len(DefaultGranularities) {
++		t.Fatalf("StatsHistory: expected %d granularities, got %d", len(DefaultGranularities), len(hist.Buckets))
++	}
++	for _, g := range DefaultGranularities {
++		buckets, ok := hist.Buckets[g]
++		if !ok {
++			t.Fatalf("StatsHistory: missing granularity %q", g)
++		}
++		if len(buckets) != 1 {
++			t.Errorf("StatsHistory %s: expected 1 bucket, got %d", g, len(buckets))
++		} else {
++			if buckets[0].TokensSaved != 111 || buckets[0].Requests != 7 || buckets[0].Sessions != 3 || buckets[0].CacheHits != 5 {
++				t.Errorf("StatsHistory %s: wrong values %+v", g, buckets[0])
++			}
++		}
++	}
++}
++
++// TestFailOpen_MissingTables verifies every reader and the writer degrade to
++// empty/zero (never an error) on a store whose ctx_* tables are missing.
++func TestFailOpen_MissingTables(t *testing.T) {
++	st, err := store.Open(t.TempDir(), "obs-nomigrate")
++	if err != nil {
++		t.Fatalf("store.Open: %v", err)
++	}
++	t.Cleanup(func() { st.Close() })
++	// Drop all six ctx_* tables to simulate a store opened before 056-061.
++	for _, table := range []string{
++		"ctx_proxy_sessions", "ctx_proxy_savings", "ctx_proxy_mode_history",
++		"ctx_session_summaries", "ctx_stats_history", "ctx_traffic_memories",
++	} {
++		if _, err := st.DB.Exec(`DROP TABLE IF EXISTS ` + table); err != nil {
++			t.Fatalf("drop %s: %v", table, err)
++		}
++	}
++	c := ctxstore.New(st)
++
++	if stt, err := Snapshot(c); err != nil || stt == nil || stt.Sessions != 0 || stt.TokensSaved != 0 {
++		t.Errorf("Snapshot fail-open: got (%+v, %v)", stt, err)
++	}
++	if hist, err := StatsHistory(c, nil); err != nil || hist == nil {
++		t.Errorf("StatsHistory fail-open: got (%+v, %v)", hist, err)
++	} else if len(hist.Buckets) != len(DefaultGranularities) {
++		t.Errorf("StatsHistory fail-open: expected %d empty granularities, got %d", len(DefaultGranularities), len(hist.Buckets))
++	}
++	// WriteSavings and Recompute must not error on missing tables. On a
++	// modern SQLite build PutStatsBucket is fail-open (returns nil), so the
++	// count may be non-zero; the invariant is no error, not a zero count.
++	_ = WriteSavings(c, []*Saving{saving("x", "s", "cache", 100, 10, 1_700_000_000)})
++	if n := Recompute(c); n < 0 {
++		t.Errorf("Recompute fail-open: expected >= 0 written, got %d", n)
++	}
++	// Snapshot and StatsHistory must still be zero/empty.
++	if stt, _ := Snapshot(c); stt.Sessions != 0 || stt.TokensSaved != 0 {
++		t.Errorf("Snapshot fail-open (post-write): got %+v", stt)
++	}
++}
+diff --git a/mnemonic/internal/http/ctx.go b/mnemonic/internal/http/ctx.go
+new file mode 100644
+index 00000000..5d86e233
+--- /dev/null
++++ b/mnemonic/internal/http/ctx.go
+@@ -0,0 +1,87 @@
++package http
++
++import (
++	"context"
++	"net/http"
++	"strings"
++
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/observability"
++	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++	"github.com/devopstales/skillgrid/mnemonic/internal/service"
++)
++
++// The two CTX observability read endpoints (plan §17, TICKET-09). They are
++// read-only: they inherit the existing UI server's auth model (no
++// requireWriteAuth on a GET) and are fail-open — a missing ctx_* table
++// degrades to 200 with zero-valued JSON, never a 500 (ADR-0016). Both work
++// through the shared project store (ctxstore.New(h.Store()), ADR-0033); the
++// single-open invariant holds because each route opens its ProjectHandle
++// exactly once via withProjectHandle and ctxstore wraps that handle's DB.
++//
++// The *Server does not carry the ctx *config.CtxConfig, and threading it
++// through NewServer would disturb unrelated Server construction, so the
++// rollup list is loaded per-request from the project root via config.Load
++// (pure filesystem I/O, fail-open to the four standard granularities). That
++// is the smallest seam that reads the operator's configured HistoryRollups
++// without a constructor change.
++
++// ctxObservabilityConfig loads the CTX config for a project root and returns
++// it with the standard Observability defaults when the load yields no usable
++// rollup list. startDir is the project root (h.Root()). It never returns an
++// error: config.Load itself is fail-open, and an empty HistoryRollups list
++// falls back to the four standard granularities.
++func ctxObservabilityConfig(ctx context.Context, root string) *config.CtxConfig {
++	cfg, err := config.Load(ctx, root)
++	if err != nil || cfg == nil {
++		cfg = &config.CtxConfig{}
++		*cfg = config.DefaultCtxConfig()
++	}
++	if len(cfg.Observability.HistoryRollups) == 0 {
++		cfg.Observability.HistoryRollups = config.DefaultCtxConfig().Observability.HistoryRollups
++	}
++	return cfg
++}
++
++// handleCTXStats serves GET /stats: the live session-metric snapshot from
++// ctx_proxy_sessions (plan §17.2/§17.5). The Stats struct carries a Mode
++// field (the latest session's mode) as the seam for the T11 run-mode header;
++// it is populated here but not wired into any header (out of scope). A nil or
++// table-missing store yields a zero-valued Stats, always 200.
++func (s *Server) handleCTXStats(w http.ResponseWriter, r *http.Request) {
++	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
++		cs := ctxstore.New(h.Store())
++		st, err := observability.Snapshot(cs)
++		if err != nil || st == nil {
++			// Fail-open: never 500 a read-only observability route.
++			writeJSON(w, http.StatusOK, &observability.Stats{})
++			return
++		}
++		writeJSON(w, http.StatusOK, st)
++	})
++}
++
++// handleCTXStatsHistory serves GET /stats-history: the durable savings
++// history from ctx_stats_history for the granularities configured in
++// cfg.Observability.HistoryRollups (plan §17.2/§17.4). A missing table yields
++// an empty per-granularity list (the JSON shape stays stable: every requested
++// granularity appears, possibly empty), always 200.
++func (s *Server) handleCTXStatsHistory(w http.ResponseWriter, r *http.Request) {
++	s.withProjectHandle(w, r, func(h *service.ProjectHandle, projectID string) {
++		cs := ctxstore.New(h.Store())
++		cfg := ctxObservabilityConfig(r.Context(), h.Root())
++		grans := make([]observability.Granularity, 0, len(cfg.Observability.HistoryRollups))
++		for _, g := range cfg.Observability.HistoryRollups {
++			grans = append(grans, observability.Granularity(strings.TrimSpace(g)))
++		}
++		hist, err := observability.StatsHistory(cs, grans)
++		if err != nil || hist == nil {
++			// Fail-open: keep the stable shape (empty buckets per granularity).
++			hist = &observability.History{Buckets: map[observability.Granularity][]observability.Bucket{}}
++			for _, g := range grans {
++				hist.Buckets[g] = []observability.Bucket{}
++			}
++		}
++		writeJSON(w, http.StatusOK, hist)
++	})
++}
+diff --git a/mnemonic/internal/http/ctx_test.go b/mnemonic/internal/http/ctx_test.go
+new file mode 100644
+index 00000000..9f590ddd
+--- /dev/null
++++ b/mnemonic/internal/http/ctx_test.go
+@@ -0,0 +1,171 @@
++package http
++
++import (
++	"net/http"
++	"testing"
++
++	"github.com/devopstales/skillgrid/mnemonic/internal/store"
++)
++
++// TestCTXStats_FailOpenDefault verifies GET /stats responds 200 with
++// zero-valued JSON when no proxy sessions exist (the common case before any
++// proxy traffic has been recorded).
++func TestCTXStats_FailOpenDefault(t *testing.T) {
++	s, dataDir := newToolCallsServer(t)
++	defer func() {
++		if st, err := store.Open(dataDir, proj); err == nil {
++			st.Close()
++		}
++	}()
++
++	rr, out := do(t, s.Handler(), http.MethodGet, "/stats?project="+proj, nil)
++	if rr.Code != http.StatusOK {
++		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	if out["sessions"] != float64(0) {
++		t.Errorf("expected sessions=0, got %v", out["sessions"])
++	}
++	if out["tokens_saved"] != float64(0) {
++		t.Errorf("expected tokens_saved=0, got %v", out["tokens_saved"])
++	}
++	if out["cache_hits"] != float64(0) {
++		t.Errorf("expected cache_hits=0, got %v", out["cache_hits"])
++	}
++	if out["requests"] != float64(0) {
++		t.Errorf("expected requests=0, got %v", out["requests"])
++	}
++	// Mode should be present (empty string when no sessions).
++	if _, present := out["mode"]; !present {
++		t.Errorf("expected mode key in response, got %v", out)
++	}
++}
++
++// TestCTXStats_WithSeededSessions verifies GET /stats returns non-zero
++// metrics when proxy sessions have been written to the store.
++func TestCTXStats_WithSeededSessions(t *testing.T) {
++	s, dataDir := newToolCallsServer(t)
++	defer func() {
++		if st, err := store.Open(dataDir, proj); err == nil {
++			st.Close()
++		}
++	}()
++
++	// Seed a proxy session via raw SQL.
++	st, err := store.Open(dataDir, proj)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	_, err = st.DB.Exec(`
++		INSERT OR REPLACE INTO ctx_proxy_sessions
++			(session_id, agent, mode, started_at, ended_at, requests,
++			 tokens_before, tokens_after, cache_hits, cache_invalidations)
++		VALUES ('sess-ctx-1', 'opencode', 'cache', 1700000000, 1700000100, 5, 10000, 7000, 3, 1)`)
++	if err != nil {
++		t.Fatalf("seed proxy session: %v", err)
++	}
++	st.Close()
++
++	rr, out := do(t, s.Handler(), http.MethodGet, "/stats?project="+proj, nil)
++	if rr.Code != http.StatusOK {
++		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	if out["sessions"] != float64(1) {
++		t.Errorf("expected sessions=1, got %v", out["sessions"])
++	}
++	if out["tokens_saved"] != float64(3000) {
++		t.Errorf("expected tokens_saved=3000, got %v", out["tokens_saved"])
++	}
++	if out["cache_hits"] != float64(3) {
++		t.Errorf("expected cache_hits=3, got %v", out["cache_hits"])
++	}
++	if out["requests"] != float64(5) {
++		t.Errorf("expected requests=5, got %v", out["requests"])
++	}
++	if out["mode"] != "cache" {
++		t.Errorf("expected mode=cache, got %v", out["mode"])
++	}
++}
++
++// TestCTXStatsHistory_FailOpenDefault verifies GET /stats-history responds
++// 200 with an empty per-granularity bucket list when no history rows exist.
++func TestCTXStatsHistory_FailOpenDefault(t *testing.T) {
++	s, dataDir := newToolCallsServer(t)
++	defer func() {
++		if st, err := store.Open(dataDir, proj); err == nil {
++			st.Close()
++		}
++	}()
++
++	rr, out := do(t, s.Handler(), http.MethodGet, "/stats-history?project="+proj, nil)
++	if rr.Code != http.StatusOK {
++		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	buckets, ok := out["buckets"].(map[string]any)
++	if !ok {
++		t.Fatalf("expected buckets object, got %T: %v", out["buckets"], out)
++	}
++	// The four standard granularities must all be present.
++	for _, g := range []string{"hourly", "daily", "weekly", "monthly"} {
++		if _, present := buckets[g]; !present {
++			t.Errorf("expected granularity %q in buckets, got keys: %v", g, keys(buckets))
++		}
++	}
++}
++
++// TestCTXStatsHistory_WithSeededBuckets verifies GET /stats-history returns
++// non-empty bucket lists when history rows have been written.
++func TestCTXStatsHistory_WithSeededBuckets(t *testing.T) {
++	s, dataDir := newToolCallsServer(t)
++	defer func() {
++		if st, err := store.Open(dataDir, proj); err == nil {
++			st.Close()
++		}
++	}()
++
++	// Seed a stats history bucket via raw SQL.
++	st, err := store.Open(dataDir, proj)
++	if err != nil {
++		t.Fatalf("open store: %v", err)
++	}
++	_, err = st.DB.Exec(`
++		INSERT OR REPLACE INTO ctx_stats_history
++			(bucket_id, granularity, bucket_start, tokens_saved,
++			 requests, sessions, cache_hits, created_at)
++		VALUES ('hourly-1700000000', 'hourly', 1700000000, 5000, 10, 2, 4, 1700000000)`)
++	if err != nil {
++		t.Fatalf("seed stats bucket: %v", err)
++	}
++	st.Close()
++
++	rr, out := do(t, s.Handler(), http.MethodGet, "/stats-history?project="+proj, nil)
++	if rr.Code != http.StatusOK {
++		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
++	}
++	buckets, ok := out["buckets"].(map[string]any)
++	if !ok {
++		t.Fatalf("expected buckets object, got %T", out["buckets"])
++	}
++	hourly, ok := buckets["hourly"].([]any)
++	if !ok {
++		t.Fatalf("expected hourly to be an array, got %T", buckets["hourly"])
++	}
++	if len(hourly) != 1 {
++		t.Fatalf("expected 1 hourly bucket, got %d", len(hourly))
++	}
++	b0, _ := hourly[0].(map[string]any)
++	if b0["tokens_saved"] != float64(5000) {
++		t.Errorf("expected tokens_saved=5000, got %v", b0["tokens_saved"])
++	}
++	if b0["requests"] != float64(10) {
++		t.Errorf("expected requests=10, got %v", b0["requests"])
++	}
++}
++
++// keys returns the sorted keys of a map for error messages.
++func keys(m map[string]any) []string {
++	out := make([]string, 0, len(m))
++	for k := range m {
++		out = append(out, k)
++	}
++	return out
++}
+diff --git a/mnemonic/internal/http/server.go b/mnemonic/internal/http/server.go
+index 52547d82..8581e15d 100644
+--- a/mnemonic/internal/http/server.go
++++ b/mnemonic/internal/http/server.go
+@@ -185,6 +185,18 @@ func (s *Server) registerRoutes() {
+ 	s.registerDecisionRoutes()
+ 	s.registerFactsRoutes()
+ 	s.registerUIRoutes()
++	s.registerCtxRoutes()
++}
++
++// registerCtxRoutes mounts the Context Orchestrator observability read routes
++// (plan §17, TICKET-09): GET /stats (live session metrics) and GET
++// /stats-history (durable savings history). Both are read-only and fail-open
++// (ADR-0016). They live on the mnemonic serve mux, NOT the proxy loopback mux
++// (ctx/proxy's /stats + /v1/compress are a separate handler tree), so there is
++// no route collision.
++func (s *Server) registerCtxRoutes() {
++	s.mux.HandleFunc("GET /stats", s.handleCTXStats)
++	s.mux.HandleFunc("GET /stats-history", s.handleCTXStatsHistory)
+ }
+ 
+ // registerGraphRoutes mounts the Phase 4 mnemonic vector-graph routes. The API

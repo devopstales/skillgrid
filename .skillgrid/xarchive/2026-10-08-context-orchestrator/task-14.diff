@@ -1,0 +1,1063 @@
+diff --git a/mnemonic/cmd/mnemonic/ctx_proxy.go b/mnemonic/cmd/mnemonic/ctx_proxy.go
+index 59ad820a..de051952 100644
+--- a/mnemonic/cmd/mnemonic/ctx_proxy.go
++++ b/mnemonic/cmd/mnemonic/ctx_proxy.go
+@@ -13,9 +13,11 @@ import (
+ 	"time"
+ 
+ 	ctxconfig "github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/judgment"
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/observability"
+ 	ctxproxy "github.com/devopstales/skillgrid/mnemonic/internal/ctx/proxy"
+ 	ctxstore "github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/traffic"
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/loop"
+ )
+ 
+@@ -109,6 +111,15 @@ func runCtxProxy(args []string) {
+ 	// Build the proxy handler.
+ 	proxy := ctxproxy.New(cfg, cs, log, effectiveMode)
+ 
++	// T13/ADR-0034: wire the traffic human-gate and the judgment engine.
++	// Both are fail-open (ADR-0016): a nil store degrades each to a no-op.
++	// The judgment engine always runs (prefilter is deterministic and the
++	// model call is fail-open); the cache is store-backed when a store is
++	// available, and disabled (nil) otherwise. The gate injects applied
++	// traffic memories into the compression context (the T13 seam).
++	proxy.SetGate(traffic.NewGate(cs))
++	proxy.SetJudgment(judgment.New(cfg.Judgment, judgment.NewStoreCache(cs), nil))
++
+ 	// Set up signal handling for graceful shutdown. The signal context is
+ 	// created before the rollup so the rollup's stop channel can be tied to
+ 	// it (the rollup must not outlive the server's shutdown signal).
+diff --git a/mnemonic/internal/ctx/judgment/compress.go b/mnemonic/internal/ctx/judgment/compress.go
+new file mode 100644
+index 00000000..ccd6aec6
+--- /dev/null
++++ b/mnemonic/internal/ctx/judgment/compress.go
+@@ -0,0 +1,32 @@
++package judgment
++
++import (
++	"strings"
++)
++
++// truncateBudgetWords caps a truncated unit at this many words. Truncate-only:
++// the unit is shortened to the budget, never deleted and never rewritten
++// (the kept prefix is byte-identical to the original's start).
++const truncateBudgetWords = 12
++
++// Compress applies truncate-only compression to a unit according to the
++// decision. For ActionKeep it returns the unit unchanged (byte-identical). For
++// ActionTruncate it returns the unit with Content capped to the budget — a
++// strict prefix of the original words, so no stored message is rewritten and
++// the unit is never deleted.
++func Compress(u Unit, d Decision) Unit {
++	if d.Action != ActionTruncate {
++		return u
++	}
++	words := strings.Fields(u.Content)
++	if len(words) <= truncateBudgetWords {
++		// Already within budget: keep as-is (truncation would be a no-op).
++		return u
++	}
++	capped := strings.Join(words[:truncateBudgetWords], " ")
++	// Never expand: if the capped result is not strictly shorter, keep original.
++	if len(capped) >= len(u.Content) {
++		return u
++	}
++	return Unit{Role: u.Role, Content: capped}
++}
+diff --git a/mnemonic/internal/ctx/judgment/judgment.go b/mnemonic/internal/ctx/judgment/judgment.go
+new file mode 100644
+index 00000000..186314b9
+--- /dev/null
++++ b/mnemonic/internal/ctx/judgment/judgment.go
+@@ -0,0 +1,270 @@
++// Package judgment implements the ADR-0034 local-model judgment layer for CTX.
++//
++// It makes per-unit truncate decisions via the plan §12.13 pipeline:
++//
++//	prefilter (deterministic) → judge (Ollama HTTP) → compress (truncate-only)
++//
++// The deterministic pre-filter runs even when the model is down and classifies
++// each context unit as pin (keep as-is), dead (structural dead weight →
++// truncate), or remainder (needs a model decision). For remainder units the
++// judge calls the local Ollama endpoint; a keep-score below the threshold
++// truncates, otherwise it keeps. Truncate-only: a truncated unit is shortened
++// (capped to a budget), NEVER deleted and NEVER rewritten. Fail-open (ADR-0016):
++// any model/HTTP/network fault leaves the unit in its pre-judgment state —
++// nothing blocks the request and no unit is dropped.
++package judgment
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"fmt"
++	"io"
++	"net/http"
++	"strings"
++
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++)
++
++// Action is the judgment outcome for a single context unit.
++type Action int
++
++const (
++	// ActionKeep leaves the unit as-is.
++	ActionKeep Action = iota
++	// ActionTruncate shortens the unit (truncate-only; never deletes/rewrites).
++	ActionTruncate
++)
++
++// String renders the action for logging and the judgment cache.
++func (a Action) String() string {
++	if a == ActionTruncate {
++		return "trunc"
++	}
++	return "keep"
++}
++
++// Unit is one context unit to judge: a single message.
++type Unit struct {
++	Role    string
++	Content string
++}
++
++// Decision is the outcome of judging a unit.
++type Decision struct {
++	// Action is keep or truncate.
++	Action Action
++	// KeepScore is the model's keep-score in [0,1] (0 for deterministic).
++	KeepScore float64
++	// FromCache is true when the decision came from the fingerprint cache
++	// without a model call.
++	FromCache bool
++}
++
++// CacheStore persists and retrieves judgment decisions by fingerprint. It is the
++// narrow seam over the ctx_judgment_cache table; a nil implementation or any
++// error degrades to a cache miss (fail-open, ADR-0016).
++type CacheStore interface {
++	GetJudgmentCache(fingerprint string) (action string, keepScore float64, ok bool)
++	PutJudgmentCache(fingerprint, action string, keepScore float64, judgedAt int64)
++}
++
++// Judgment is the judgment engine. hc is injectable so tests can point it at an
++// httptest.Server; cache may be nil (cache disabled). All config comes from the
++// resolved config.Judgment — nothing is hardcoded.
++type Judgment struct {
++	endpoint  string
++	model     string
++	threshold float64
++	client    *http.Client
++	cache     CacheStore
++}
++
++// New builds a Judgment from the resolved config (the config.Judgment block)
++// and an injectable HTTP client. A nil hc uses a default client with a short
++// timeout. The cache may be nil (cache disabled). Nothing is hardcoded: the
++// endpoint, model and threshold all come from the passed config (ADR-0034).
++func New(cfg config.Judgment, cache CacheStore, hc *http.Client) *Judgment {
++	if hc == nil {
++		hc = &http.Client{Timeout: defaultTimeout}
++	}
++	return &Judgment{
++		endpoint:  cfg.Endpoint,
++		model:     cfg.Model,
++		threshold: cfg.Threshold,
++		client:    hc,
++		cache:     cache,
++	}
++}
++
++// Judge makes the per-unit decision for u. It first consults the fingerprint
++// cache (no model call on a hit), then the deterministic pre-filter, and only
++// for remainder units calls the model. Fail-open: any fault returns a keep (or
++// the deterministic pre-filter action), never an error that would block.
++func (j *Judgment) Judge(ctx context.Context, u Unit) (Decision, error) {
++	fp := Fingerprint(u)
++
++	// 1. Fingerprint cache: a hit serves the decision with NO model call.
++	if j.cache != nil {
++		if action, score, ok := j.cache.GetJudgmentCache(fp); ok {
++			return Decision{
++				Action:    actionToAction(action),
++				KeepScore: score,
++				FromCache: true,
++			}, nil
++		}
++	}
++
++	// 2. Deterministic pre-filter: runs even when the model is down.
++	class := PreFilter(u)
++	switch class {
++	case ClassPin:
++		// Keep as-is (facts-first: short, self-contained, high-signal).
++		return Decision{Action: ActionKeep, KeepScore: 1.0}, nil
++	case ClassDead:
++		// Structural dead weight: truncate (the deterministic budget stands;
++		// no model needed).
++		return Decision{Action: ActionTruncate, KeepScore: 0.0}, nil
++	}
++
++	// 3. Remainder: consult the model judge (fail-open).
++	score, ok := j.modelJudge(ctx, u)
++	if !ok {
++		// Model down / fault: fail open to KEEP (never drop, never block).
++		return Decision{Action: ActionKeep, KeepScore: 1.0}, nil
++	}
++
++	action := ActionKeep
++	if score < j.threshold {
++		action = ActionTruncate
++	}
++
++	// Persist the model decision for future cache hits.
++	if j.cache != nil {
++		j.cache.PutJudgmentCache(fp, action.String(), score, nowMillis())
++	}
++
++	return Decision{Action: action, KeepScore: score}, nil
++}
++
++// modelJudge calls the local Ollama endpoint and returns (keepScore, ok). ok is
++// false on any fault (conn refused, non-2xx, timeout, bad shape) — the caller
++// fails open. The keep-score is expected in [0,1].
++func (j *Judgment) modelJudge(ctx context.Context, u Unit) (float64, bool) {
++	if j.endpoint == "" {
++		return 0, false
++	}
++	prompt := fmt.Sprintf(
++		"Rate how much of this message should be KEPT for context (0.0 = drop most, 1.0 = keep all). Reply with JSON {\"score\": <0.0-1.0>}.\n\nrole: %s\n%s",
++		u.Role, u.Content)
++	reqBody := map[string]any{
++		"model":  j.model,
++		"prompt": prompt,
++	}
++	body, err := json.Marshal(reqBody)
++	if err != nil {
++		return 0, false
++	}
++	req, err := http.NewRequestWithContext(ctx, http.MethodPost, j.endpoint, bytes.NewReader(body))
++	if err != nil {
++		return 0, false
++	}
++	req.Header.Set("Content-Type", "application/json")
++
++	resp, err := j.client.Do(req)
++	if err != nil {
++		return 0, false
++	}
++	defer resp.Body.Close()
++	if resp.StatusCode != http.StatusOK {
++		return 0, false
++	}
++	raw, err := io.ReadAll(resp.Body)
++	if err != nil {
++		return 0, false
++	}
++	return parseKeepScore(raw)
++}
++
++// parseKeepScore extracts a keep-score in [0,1] from an Ollama response body.
++// It accepts a direct {"score": x} or an Ollama envelope whose text/field
++// contains {"score": x}. It returns (score, ok); ok is false when no valid
++// score can be extracted (the caller fails open).
++func parseKeepScore(raw []byte) (float64, bool) {
++	// Direct JSON object with a numeric score.
++	var direct struct {
++		Score *float64 `json:"score"`
++	}
++	if err := json.Unmarshal(raw, &direct); err == nil && direct.Score != nil {
++		return clamp01(*direct.Score), true
++	}
++	// Ollama envelope: {"message":{"content":"..."}} or {"response":"..."}.
++	var envelope struct {
++		Message struct {
++			Content string `json:"content"`
++		} `json:"message"`
++		Response string `json:"response"`
++		Text     string `json:"text"`
++	}
++	if err := json.Unmarshal(raw, &envelope); err == nil {
++		text := envelope.Message.Content
++		if text == "" {
++			text = envelope.Response
++		}
++		if text == "" {
++			text = envelope.Text
++		}
++		if text != "" {
++			if s, ok := scoreFromText(text); ok {
++				return s, true
++			}
++		}
++	}
++	return 0, false
++}
++
++// scoreFromText extracts a {"score": x} object embedded in free text.
++func scoreFromText(text string) (float64, bool) {
++	// Find the first '{' ... '}' substring that parses as a score object.
++	start := strings.Index(text, "{")
++	if start < 0 {
++		return 0, false
++	}
++	end := strings.Index(text[start:], "}")
++	if end < 0 {
++		return 0, false
++	}
++	sub := text[start : start+end+1]
++	var o struct {
++		Score *float64 `json:"score"`
++	}
++	if err := json.Unmarshal([]byte(sub), &o); err != nil || o.Score == nil {
++		return 0, false
++	}
++	return clamp01(*o.Score), true
++}
++
++func clamp01(x float64) float64 {
++	if x < 0 {
++		return 0
++	}
++	if x > 1 {
++		return 1
++	}
++	return x
++}
++
++func actionToAction(s string) Action {
++	if s == "trunc" || s == "truncate" {
++		return ActionTruncate
++	}
++	return ActionKeep
++}
++
++// Fingerprint is a deterministic SHA-256 over the unit (role + content).
++func Fingerprint(u Unit) string {
++	h := sha256.Sum256([]byte(u.Role + "\x00" + u.Content))
++	return hex.EncodeToString(h[:])
++}
+diff --git a/mnemonic/internal/ctx/judgment/judgment_test.go b/mnemonic/internal/ctx/judgment/judgment_test.go
+new file mode 100644
+index 00000000..58fea9bf
+--- /dev/null
++++ b/mnemonic/internal/ctx/judgment/judgment_test.go
+@@ -0,0 +1,289 @@
++package judgment
++
++import (
++	"context"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++)
++
++// newEngine builds a Judgment from the default config (endpooint/model/threshold
++// come from config, never hardcoded) and a cache, with an injectable client.
++func newEngine(cfg config.Judgment, cache CacheStore) *Judgment {
++	return New(cfg, cache, &http.Client{Timeout: defaultTimeout})
++}
++
++func TestPreFilterPinShortMessage(t *testing.T) {
++	if got := PreFilter(Unit{Role: "user", Content: "short high-signal fact"}); got != ClassPin {
++		t.Errorf("short message class = %s, want pin", got)
++	}
++}
++
++func TestPreFilterDeadEmpty(t *testing.T) {
++	if got := PreFilter(Unit{Role: "user", Content: "   "}); got != ClassDead {
++		t.Errorf("whitespace message class = %s, want dead", got)
++	}
++}
++
++func TestPreFilterDeadLabel(t *testing.T) {
++	if got := PreFilter(Unit{Role: "user", Content: "##"}); got != ClassDead {
++		t.Errorf("marker message class = %s, want dead", got)
++	}
++}
++
++func TestPreFilterRemainderLong(t *testing.T) {
++	long := strings.Repeat("word ", 100) // 100 words > pinMaxWords
++	if got := PreFilter(Unit{Role: "user", Content: long}); got != ClassRemainder {
++		t.Errorf("long message class = %s, want remainder", got)
++	}
++}
++
++// TestPreFilterDeterministic proves the pre-filter is a pure function: the same
++// unit always yields the same class (AC: pre-filter determinism).
++func TestPreFilterDeterministic(t *testing.T) {
++	u := Unit{Role: "user", Content: strings.Repeat("word ", 40)}
++	first := PreFilter(u)
++	for i := 0; i < 5; i++ {
++		if got := PreFilter(u); got != first {
++			t.Fatalf("pre-filter not deterministic: first=%s got=%s", first, got)
++		}
++	}
++}
++
++// TestJudgeFailOpenNoServer proves ADR-0016: with no model reachable, the
++// judge fails open — a remainder unit degrades to KEEP (never drop, never an
++// error), and a pin stays pinned.
++func TestJudgeFailOpenNoServer(t *testing.T) {
++	cfg := config.DefaultCtxConfig().Judgment
++	cfg.Endpoint = "http://127.0.0.1:19999/v1/systemone" // nothing listens here
++	j := newEngine(cfg, nil)
++
++	// A remainder unit (long) with a down model → fail open to keep.
++	d, err := j.Judge(context.Background(), Unit{Role: "user", Content: strings.Repeat("word ", 50)})
++	if err != nil {
++		t.Fatalf("Judge must fail open, not error: %v", err)
++	}
++	if d.Action != ActionKeep {
++		t.Errorf("fail-open action = %s, want keep (never drop)", d.Action)
++	}
++
++	// A pin unit is kept by the deterministic pre-filter (no model needed).
++	dp, _ := j.Judge(context.Background(), Unit{Role: "user", Content: "short fact"})
++	if dp.Action != ActionKeep {
++		t.Errorf("pin action = %s, want keep", dp.Action)
++	}
++}
++
++// TestJudgeBelowThresholdTruncates proves the decision rule: a model keep-score
++// BELOW the configured threshold truncates (ADR-0034).
++func TestJudgeBelowThresholdTruncates(t *testing.T) {
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/json")
++		_, _ = w.Write([]byte(`{"score":0.10}`))
++	}))
++	defer srv.Close()
++
++	cfg := config.DefaultCtxConfig().Judgment
++	cfg.Endpoint = srv.URL
++	j := newEngine(cfg, nil)
++
++	// A remainder unit (long) so the model is consulted.
++	d, err := j.Judge(context.Background(), Unit{Role: "user", Content: strings.Repeat("word ", 50)})
++	if err != nil {
++		t.Fatalf("Judge: %v", err)
++	}
++	if d.Action != ActionTruncate {
++		t.Errorf("score 0.10 < threshold 0.22 → action = %s, want truncate", d.Action)
++	}
++	if d.KeepScore != 0.10 {
++		t.Errorf("keep score = %f, want 0.10", d.KeepScore)
++	}
++}
++
++// TestJudgeAboveThresholdKeeps proves the decision rule: a model keep-score AT
++// OR ABOVE the configured threshold keeps the unit.
++func TestJudgeAboveThresholdKeeps(t *testing.T) {
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/json")
++		_, _ = w.Write([]byte(`{"score":0.85}`))
++	}))
++	defer srv.Close()
++
++	cfg := config.DefaultCtxConfig().Judgment
++	cfg.Endpoint = srv.URL
++	j := newEngine(cfg, nil)
++
++	d, err := j.Judge(context.Background(), Unit{Role: "user", Content: strings.Repeat("word ", 50)})
++	if err != nil {
++		t.Fatalf("Judge: %v", err)
++	}
++	if d.Action != ActionKeep {
++		t.Errorf("score 0.85 >= threshold 0.22 → action = %s, want keep", d.Action)
++	}
++}
++
++// TestJudgeEnvelopeScore proves the Ollama envelope shape (a score embedded in
++// message content) is parsed, and the decision follows the threshold.
++func TestJudgeEnvelopeScore(t *testing.T) {
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/json")
++		_, _ = w.Write([]byte(`{"message":{"content":"{\"score\": 0.42}"}}`))
++	}))
++	defer srv.Close()
++
++	cfg := config.DefaultCtxConfig().Judgment
++	cfg.Endpoint = srv.URL
++	j := newEngine(cfg, nil)
++
++	d, err := j.Judge(context.Background(), Unit{Role: "user", Content: strings.Repeat("word ", 50)})
++	if err != nil {
++		t.Fatalf("Judge: %v", err)
++	}
++	if d.KeepScore != 0.42 {
++		t.Errorf("envelope keep score = %f, want 0.42", d.KeepScore)
++	}
++	if d.Action != ActionKeep {
++		t.Errorf("score 0.42 >= 0.22 → action = %s, want keep", d.Action)
++	}
++}
++
++// TestFingerprintDeterministic proves the fingerprint is a stable function of
++// the unit (same input → same fingerprint; different → different).
++func TestFingerprintDeterministic(t *testing.T) {
++	u := Unit{Role: "user", Content: "hello world"}
++	if Fingerprint(u) != Fingerprint(u) {
++		t.Error("fingerprint not deterministic for same unit")
++	}
++	if Fingerprint(u) == Fingerprint(Unit{Role: "user", Content: "different"}) {
++		t.Error("different units must have different fingerprints")
++	}
++	// Role is part of the fingerprint: same content, different role differs.
++	if Fingerprint(u) == Fingerprint(Unit{Role: "assistant", Content: "hello world"}) {
++		t.Error("same content with different role must differ")
++	}
++}
++
++// TestCompressTruncateOnly proves the compressor is truncate-only: a keep
++// decision leaves the unit byte-identical; a truncate decision caps to a strict
++// prefix (never expands, never deletes).
++func TestCompressTruncateOnly(t *testing.T) {
++	// Keep: unchanged.
++	u := Unit{Role: "user", Content: "a b c d e f g"}
++	if got := Compress(u, Decision{Action: ActionKeep}); got.Content != u.Content {
++		t.Errorf("keep compressed = %q, want unchanged %q", got.Content, u.Content)
++	}
++
++	// Truncate: capped to a strict prefix, never longer.
++	long := strings.Repeat("word ", 200)
++	lu := Unit{Role: "user", Content: long}
++	c := Compress(lu, Decision{Action: ActionTruncate})
++	if len(c.Content) >= len(long) {
++		t.Errorf("truncate did not shorten: len %d >= %d", len(c.Content), len(long))
++	}
++	words := strings.Fields(c.Content)
++	if len(words) > truncateBudgetWords {
++		t.Errorf("truncated to %d words, want <= %d", len(words), truncateBudgetWords)
++	}
++	// The kept prefix must be the original's first words (no rewrite).
++	for i, w := range words {
++		if i >= len(strings.Fields(long)) || w != strings.Fields(long)[i] {
++			t.Fatalf("truncated content is not a strict prefix of the original")
++		}
++	}
++}
++
++// TestCompressNeverExpands proves a unit already within the truncate budget is
++// left as-is (a no-op, never expanded).
++func TestCompressNeverExpands(t *testing.T) {
++	u := Unit{Role: "user", Content: "short unit"}
++	if got := Compress(u, Decision{Action: ActionTruncate}); got.Content != u.Content {
++		t.Errorf("within-budget truncate expanded/changed: %q", got.Content)
++	}
++}
++
++// memoryCache is a tiny in-memory CacheStore for cache tests.
++type memoryCache struct {
++	m map[string][2]any // fingerprint → {action string, score float64}
++}
++
++func (m *memoryCache) GetJudgmentCache(fp string) (string, float64, bool) {
++	v, ok := m.m[fp]
++	if !ok {
++		return "", 0, false
++	}
++	return v[0].(string), v[1].(float64), true
++}
++
++func (m *memoryCache) PutJudgmentCache(fp, action string, score float64, judgedAt int64) {
++	m.m[fp] = [2]any{action, score}
++}
++
++// TestJudgeCacheHitNoModel proves a fingerprint cache hit serves the decision
++// with NO model call (the model endpoint is pointed at a dead address; the hit
++// still resolves).
++func TestJudgeCacheHitNoModel(t *testing.T) {
++	mc := &memoryCache{m: map[string][2]any{}}
++	cfg := config.DefaultCtxConfig().Judgment
++	cfg.Endpoint = "http://127.0.0.1:19999/v1/systemone" // dead — a miss would fail open
++	j := New(cfg, mc, &http.Client{Timeout: defaultTimeout})
++
++	u := Unit{Role: "user", Content: strings.Repeat("word ", 50)}
++
++	// Prime the cache with a truncate decision.
++	mc.PutJudgmentCache(Fingerprint(u), "trunc", 0.10, 0)
++
++	d, err := j.Judge(context.Background(), u)
++	if err != nil {
++		t.Fatalf("Judge: %v", err)
++	}
++	if !d.FromCache {
++		t.Error("decision not served from cache")
++	}
++	if d.Action != ActionTruncate {
++		t.Errorf("cached action = %s, want truncate", d.Action)
++	}
++}
++
++// TestJudgeCachesModelDecision proves a model decision for a remainder unit is
++// persisted so a second identical unit is served from cache (FromCache=true).
++func TestJudgeCachesModelDecision(t *testing.T) {
++	calls := 0
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		calls++
++		w.Header().Set("Content-Type", "application/json")
++		_, _ = w.Write([]byte(`{"score":0.05}`))
++	}))
++	defer srv.Close()
++
++	mc := &memoryCache{m: map[string][2]any{}}
++	cfg := config.DefaultCtxConfig().Judgment
++	cfg.Endpoint = srv.URL
++	j := New(cfg, mc, &http.Client{Timeout: defaultTimeout})
++
++	u := Unit{Role: "user", Content: strings.Repeat("word ", 50)}
++
++	if _, err := j.Judge(context.Background(), u); err != nil {
++		t.Fatalf("first Judge: %v", err)
++	}
++	if calls != 1 {
++		t.Fatalf("model calls after first judge = %d, want 1", calls)
++	}
++
++	// Second identical unit: served from cache, no new model call.
++	d, err := j.Judge(context.Background(), u)
++	if err != nil {
++		t.Fatalf("second Judge: %v", err)
++	}
++	if !d.FromCache {
++		t.Error("second decision not served from cache")
++	}
++	if calls != 1 {
++		t.Errorf("model calls after cached judge = %d, want 1 (no new call)", calls)
++	}
++	if d.Action != ActionTruncate {
++		t.Errorf("cached action = %s, want truncate", d.Action)
++	}
++}
+diff --git a/mnemonic/internal/ctx/judgment/prefilter.go b/mnemonic/internal/ctx/judgment/prefilter.go
+new file mode 100644
+index 00000000..e43e5055
+--- /dev/null
++++ b/mnemonic/internal/ctx/judgment/prefilter.go
+@@ -0,0 +1,120 @@
++package judgment
++
++import (
++	"strings"
++	"time"
++)
++
++// defaultTimeout bounds a single Ollama call so a hanging endpoint never stalls
++// the request (ADR-0016 fail-open).
++const defaultTimeout = 2 * time.Second
++
++// nowMillis returns the current unix time in milliseconds for judged_at stamps.
++func nowMillis() int64 { return time.Now().UnixMilli() }
++
++// PreFilterClass is the deterministic pre-filter classification of a unit.
++type PreFilterClass int
++
++const (
++	// ClassPin: keep as-is — a short, self-contained, high-signal unit
++	// (facts-first: a fact, a decision, a short answer).
++	ClassPin PreFilterClass = iota
++	// ClassDead: structural dead weight — empty, pure whitespace, or a pure
++	// boilerplate/label unit.
++	ClassDead
++	// ClassRemainder: needs a model decision.
++	ClassRemainder
++)
++
++// String renders the class for logging.
++func (c PreFilterClass) String() string {
++	switch c {
++	case ClassPin:
++		return "pin"
++	case ClassDead:
++		return "dead"
++	default:
++		return "remainder"
++	}
++}
++
++// pinMaxWords is the facts-first bound: a unit at or below this many words is
++// treated as a self-contained, high-signal unit (pin) and kept as-is.
++const pinMaxWords = 24
++
++// PreFilter deterministically classifies a unit without a model call. It is a
++// pure function: the same unit always yields the same class (pre-filter
++// determinism AC). It runs even when the model is down.
++//
++// Rules (plan §18 facts-first / structural-dead / label-remainder):
++//   - dead: empty content, pure whitespace, or a pure label/boilerplate unit
++//     (no sentence content — e.g. a lone heading marker, a role tag, or a
++//     single non-word token).
++//   - pin: short (<= pinMaxWords), self-contained, high-signal — a fact,
++//     decision, or short answer.
++//   - remainder: everything else — needs a model decision.
++func PreFilter(u Unit) PreFilterClass {
++	content := u.Content
++
++	// Structural dead weight: empty or pure whitespace.
++	trimmed := strings.TrimSpace(content)
++	if trimmed == "" {
++		return ClassDead
++	}
++
++	// Pure boilerplate/label: a lone marker with no sentence content. A unit
++	// that is a single token of non-letters (e.g. "##", "[label]", "---") or a
++	// pure label line (all-caps tag, no spaces, no sentence punctuation) is
++	// dead weight.
++	if isLabelOnly(trimmed) {
++		return ClassDead
++	}
++
++	// Facts-first: a short, self-contained, high-signal unit is pinned as-is.
++	words := strings.Fields(trimmed)
++	if len(words) <= pinMaxWords {
++		return ClassPin
++	}
++
++	// Otherwise it needs a model decision.
++	return ClassRemainder
++}
++
++// isLabelOnly reports whether s is a pure label/boilerplate unit: a single
++// token made of non-letters (markers like "##", "---", "[label]") or an
++// all-caps tag with no spaces and no sentence punctuation. These carry no
++// compressible content.
++func isLabelOnly(s string) bool {
++	// A single token with no spaces.
++	if strings.ContainsAny(s, " \t\n") {
++		return false
++	}
++	// Marker of pure non-letters (e.g. "##", "---", "***").
++	allNonLetter := true
++	for _, r := range s {
++		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
++			allNonLetter = false
++			break
++		}
++	}
++	if allNonLetter {
++		return true
++	}
++	// An all-caps single word (a label/tag) with no sentence punctuation.
++	upper := s
++	lower := strings.ToLower(s)
++	if upper == strings.ToUpper(upper) && upper != lower && !strings.ContainsAny(lower, ".?!") {
++		// Must contain at least one letter to be a label (not a number).
++		hasLetter := false
++		for _, r := range lower {
++			if r >= 'a' && r <= 'z' {
++				hasLetter = true
++				break
++			}
++		}
++		if hasLetter {
++			return true
++		}
++	}
++	return false
++}
+diff --git a/mnemonic/internal/ctx/judgment/storecache.go b/mnemonic/internal/ctx/judgment/storecache.go
+new file mode 100644
+index 00000000..e43473dd
+--- /dev/null
++++ b/mnemonic/internal/ctx/judgment/storecache.go
+@@ -0,0 +1,40 @@
++package judgment
++
++import (
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
++)
++
++// StoreCache adapts a *store.Store (the ctx accessor) to the judgment.CacheStore
++// seam. It is fail-open (ADR-0016): a nil store or any accessor error degrades
++// to a cache miss / no-op write, so the judgment pipeline never blocks.
++type StoreCache struct {
++	s *store.Store
++}
++
++// NewStoreCache wraps a ctx store accessor (may be nil — then every call is a
++// fail-open no-op / miss).
++func NewStoreCache(s *store.Store) *StoreCache {
++	return &StoreCache{s: s}
++}
++
++// GetJudgmentCache retrieves a cached decision by fingerprint. A nil store, a
++// missing row, or any error is a miss (ok=false) — fail-open.
++func (c *StoreCache) GetJudgmentCache(fingerprint string) (action string, keepScore float64, ok bool) {
++	if c == nil || c.s == nil {
++		return "", 0, false
++	}
++	jc, err := c.s.GetJudgmentCache(fingerprint)
++	if err != nil || jc == nil {
++		return "", 0, false
++	}
++	return jc.Decision, jc.Score, true
++}
++
++// PutJudgmentCache persists a decision by fingerprint. A nil store or any error
++// is a no-op — fail-open.
++func (c *StoreCache) PutJudgmentCache(fingerprint, action string, keepScore float64, judgedAt int64) {
++	if c == nil || c.s == nil {
++		return
++	}
++	_ = c.s.PutJudgmentCache(fingerprint, action, keepScore, judgedAt)
++}
+diff --git a/mnemonic/internal/ctx/proxy/proxy.go b/mnemonic/internal/ctx/proxy/proxy.go
+index 141e2093..f6205f75 100644
+--- a/mnemonic/internal/ctx/proxy/proxy.go
++++ b/mnemonic/internal/ctx/proxy/proxy.go
+@@ -15,6 +15,7 @@ import (
+ 	"time"
+ 
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/judgment"
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/observability"
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/store"
+ 	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/traffic"
+@@ -39,7 +40,12 @@ type Proxy struct {
+ 	// under Lock), never held across I/O.
+ 	gate *traffic.Gate
+ 
+-	// mu guards mode, lastChangeID, and gate.
++	// judge is the ADR-0034 judgment engine (prefilter → judge → compress).
++	// Nil means the judgment layer is not wired; the transform then uses the
++	// pure deterministic placeholder. Guarded by mu alongside gate.
++	judge *judgment.Judgment
++
++	// mu guards mode, lastChangeID, gate, and judge.
+ 	mu               sync.RWMutex
+ 	mode             Mode
+ 	lastChangeID     string
+@@ -62,6 +68,22 @@ func (p *Proxy) gateRef() *traffic.Gate {
+ 	return p.gate
+ }
+ 
++// SetJudgment installs (or clears with nil) the ADR-0034 judgment engine used
++// by the compression pipeline (prefilter → judge → compress). It is safe to
++// call concurrently with forwarding (guarded by mu).
++func (p *Proxy) SetJudgment(j *judgment.Judgment) {
++	p.mu.Lock()
++	p.judge = j
++	p.mu.Unlock()
++}
++
++// judgeRef returns the installed judgment engine (nil when none), under RLock.
++func (p *Proxy) judgeRef() *judgment.Judgment {
++	p.mu.RLock()
++	defer p.mu.RUnlock()
++	return p.judge
++}
++
+ // New builds a Proxy from resolved config, the shared ctx store accessor (may
+ // be nil — telemetry then no-ops, ADR-0016), and a logger. mode is the
+ // effective mode already resolved (CLI --mode > CTX_PROXY_MODE > config). The
+@@ -146,7 +168,18 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+ 	effectiveMode := mode
+ 	cacheHit := false
+ 	if mode != ModePassthrough {
+-		if b, hit, terr := applyTransform(mode, body); terr == nil {
++		// ADR-0034: when the judgment cache is wired, run the judgment pipeline
++		// (prefilter → judge → compress); otherwise use the pure deterministic
++		// transform. A fault fails open to passthrough (ADR-0016).
++		var b []byte
++		var hit bool
++		var terr error
++		if j := p.judgeRef(); j != nil {
++			b, hit, terr = applyTransformWithJudgment(r.Context(), mode, body, j)
++		} else {
++			b, hit, terr = applyTransform(mode, body)
++		}
++		if terr == nil {
+ 			if b != nil {
+ 				forwardBody = b
+ 				cacheHit = hit
+diff --git a/mnemonic/internal/ctx/proxy/savings.go b/mnemonic/internal/ctx/proxy/savings.go
+index d1e1afe6..7cc933b1 100644
+--- a/mnemonic/internal/ctx/proxy/savings.go
++++ b/mnemonic/internal/ctx/proxy/savings.go
+@@ -1,10 +1,13 @@
+ package proxy
+ 
+ import (
++	"context"
+ 	"encoding/json"
+ 	"fmt"
+ 	"net/http"
+ 	"strings"
++
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/judgment"
+ )
+ 
+ // The five savings headers added to every proxied response (plan 16.5).
+@@ -127,6 +130,76 @@ func summarize(m message) string {
+ 	return "[ctx-summarized " + m.Role + "]"
+ }
+ 
++// judgmentTransform is the ADR-0034 judgment pipeline (prefilter → judge →
++// compress) applied to a single message's content. It returns the compressed
++// content. Fail-open (ADR-0016): the engine never returns a blocking error; a
++// model fault degrades to the deterministic pre-filter decision, and the
++// compressor is truncate-only (never expands, never deletes).
++func judgmentTransform(ctx context.Context, j *judgment.Judgment, m message) message {
++	if len(m.Content) == 0 {
++		return m
++	}
++	d, _ := j.Judge(ctx, judgment.Unit{Role: m.Role, Content: m.Content})
++	compressed := judgment.Compress(judgment.Unit{Role: m.Role, Content: m.Content}, d)
++	return message{Role: m.Role, Content: compressed.Content}
++}
++
++// applyTransformWithJudgment is the judgment-aware variant of applyTransform.
++// When the engine is nil it falls back to the pure deterministic transform.
++// Otherwise it runs the ADR-0034 pipeline per message, using the request
++// context so a client disconnect bounds the (already short-timeout) Ollama call.
++func applyTransformWithJudgment(ctx context.Context, mode Mode, body []byte, j *judgment.Judgment) ([]byte, bool, error) {
++	if j == nil {
++		return applyTransform(mode, body)
++	}
++	var doc map[string]json.RawMessage
++	if err := json.Unmarshal(body, &doc); err != nil {
++		return nil, false, err
++	}
++	rawMsgs, ok := doc["messages"]
++	if !ok || len(rawMsgs) == 0 {
++		return nil, false, nil
++	}
++	var msgs []message
++	if err := json.Unmarshal(rawMsgs, &msgs); err != nil {
++		return nil, false, err
++	}
++	cacheHit := false
++	if mode == ModeCache {
++		cacheHit = headSplit(msgs) > 0
++	}
++	out := make([]message, len(msgs))
++	switch mode {
++	case ModePassthrough:
++		copy(out, msgs)
++	case ModeToken:
++		for i, m := range msgs {
++			out[i] = judgmentTransform(ctx, j, m)
++		}
++	case ModeCache:
++		head := headSplit(msgs)
++		for i, m := range msgs {
++			if i < head {
++				out[i] = m // frozen stable prefix
++			} else {
++				out[i] = judgmentTransform(ctx, j, m)
++			}
++		}
++	default:
++		return nil, false, fmt.Errorf("proxy: unknown mode %q", mode)
++	}
++	newRaw, err := json.Marshal(out)
++	if err != nil {
++		return nil, false, err
++	}
++	doc["messages"] = newRaw
++	outb, err := json.Marshal(doc)
++	if err != nil {
++		return nil, false, err
++	}
++	return outb, cacheHit, nil
++}
++
+ // applyTransform decodes the request body as a JSON object, transforms only
+ // the messages array in-place, and re-encodes the full object. This preserves
+ // all non-message fields (model, max_tokens, stream, etc.) instead of the
+diff --git a/mnemonic/internal/ctx/store/tables.go b/mnemonic/internal/ctx/store/tables.go
+index 127f695b..10cc7c42 100644
+--- a/mnemonic/internal/ctx/store/tables.go
++++ b/mnemonic/internal/ctx/store/tables.go
+@@ -600,3 +600,42 @@ func (s *Store) execTrafficStatus(memoryID, status string, appliedAt *int64, app
+ 	}
+ 	return n > 0, nil
+ }
++
++// JudgmentCache is one row of ctx_judgment_cache (069).
++type JudgmentCache struct {
++	Fingerprint string
++	Decision    string
++	Score       float64
++	JudgedAt    int64
++}
++
++// PutJudgmentCache upserts a judgment cache row (fail-open).
++func (s *Store) PutJudgmentCache(fingerprint, decision string, score float64, judgedAt int64) error {
++	query := `INSERT OR REPLACE INTO ctx_judgment_cache (fingerprint, decision, score, judged_at) VALUES (?, ?, ?, ?)`
++	_, err := s.db.Exec(query, fingerprint, decision, score, judgedAt)
++	if err != nil {
++		if failOpenOpen(err, "ctx_judgment_cache") {
++			return nil
++		}
++		return err
++	}
++	return nil
++}
++
++// GetJudgmentCache retrieves a judgment cache row by fingerprint (fail-open).
++func (s *Store) GetJudgmentCache(fingerprint string) (*JudgmentCache, error) {
++	query := `SELECT fingerprint, decision, score, judged_at FROM ctx_judgment_cache WHERE fingerprint = ?`
++	row := s.db.QueryRow(query, fingerprint)
++	var jc JudgmentCache
++	err := row.Scan(&jc.Fingerprint, &jc.Decision, &jc.Score, &jc.JudgedAt)
++	if err != nil {
++		if err == sql.ErrNoRows {
++			return nil, nil
++		}
++		if failOpenOpen(err, "ctx_judgment_cache") {
++			return nil, nil
++		}
++		return nil, err
++	}
++	return &jc, nil
++}
+diff --git a/mnemonic/internal/ctx/wrap/wrap.go b/mnemonic/internal/ctx/wrap/wrap.go
+index d0d5dd42..cc3ad1e0 100644
+--- a/mnemonic/internal/ctx/wrap/wrap.go
++++ b/mnemonic/internal/ctx/wrap/wrap.go
+@@ -11,7 +11,9 @@ import (
+ 	"time"
+ 
+ 	ctxconfig "github.com/devopstales/skillgrid/mnemonic/internal/ctx/config"
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/judgment"
+ 	ctxproxy "github.com/devopstales/skillgrid/mnemonic/internal/ctx/proxy"
++	"github.com/devopstales/skillgrid/mnemonic/internal/ctx/traffic"
+ )
+ 
+ // Options configures one Wrap run.
+@@ -95,6 +97,12 @@ func DefaultStartProxy(cfg *ctxconfig.CtxConfig, bind string, port int) (string,
+ 	mode := ctxproxy.Mode(cfg.Proxy.Mode)
+ 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+ 	p := ctxproxy.New(cfg, nil, log, mode)
++	// T13/ADR-0034: prewire the traffic gate and judgment cache. The wrap path
++	// has no shared store (nil), so both are fail-open no-ops here; this keeps
++	// the build symmetric with the `ctx proxy` CLI and lets a future store
++	// seam flow through without changing the StartProxy signature.
++	p.SetGate(traffic.NewGate(nil))
++	p.SetJudgment(judgment.New(cfg.Judgment, nil, nil))
+ 	srv := &http.Server{Handler: p.Handler()}
+ 	go func() { _ = srv.Serve(ln) }()
+ 	stop := func() {
+diff --git a/mnemonic/internal/store/migrations/069_ctx_judgment_cache.sql b/mnemonic/internal/store/migrations/069_ctx_judgment_cache.sql
+new file mode 100644
+index 00000000..42cf254c
+--- /dev/null
++++ b/mnemonic/internal/store/migrations/069_ctx_judgment_cache.sql
+@@ -0,0 +1,6 @@
++CREATE TABLE IF NOT EXISTS ctx_judgment_cache (
++    fingerprint  TEXT PRIMARY KEY,
++    decision     TEXT NOT NULL,
++    score        REAL NOT NULL,
++    judged_at    INTEGER NOT NULL
++);
