@@ -11,6 +11,7 @@ import (
 	"github.com/devopstales/skillgrid/mnemonic/internal/embedder"
 	"github.com/devopstales/skillgrid/mnemonic/internal/facts"
 	"github.com/devopstales/skillgrid/mnemonic/internal/hybrid"
+	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 	"github.com/devopstales/skillgrid/mnemonic/internal/skills"
 )
 
@@ -27,6 +28,10 @@ func runMemory(version string, args []string) {
 		os.Exit(2)
 	}
 	group := args[0]
+	if group == "global" {
+		runMemoryGlobal(args[1:])
+		return
+	}
 	if group != "fact" {
 		fmt.Fprintf(os.Stderr, "error: unknown memory group %q\n", group)
 		printMemoryUsage()
@@ -41,16 +46,16 @@ func runMemory(version string, args []string) {
 	fs := flag.NewFlagSet("memory fact", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var (
-		dir         string
-		project     string
-		sessionID   string
-		content     string
-		query       string
-		limit       int
-		includeDel  bool
-		mode        string
-		factIDStr   string
-		asJSON      bool
+		dir        string
+		project    string
+		sessionID  string
+		content    string
+		query      string
+		limit      int
+		includeDel bool
+		mode       string
+		factIDStr  string
+		asJSON     bool
 	)
 	fs.StringVar(&dir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
 	fs.StringVar(&project, "project", "", "project id (defaults to CWD-resolved)")
@@ -199,6 +204,82 @@ func runMemory(version string, args []string) {
 			writeFactTable(w, out)
 		})
 	}
+}
+
+// runMemoryGlobal handles `skillgrid memory global <subcommand>` — the
+// CLI surface for the cross-project fact store (change
+// 2026-10-24-global-llm-wiki, TICKET-05: prefetch; TICKET-06/08 add the
+// pending/approve/reject subcommands). Today only `prefetch` exists.
+func runMemoryGlobal(args []string) {
+	if len(args) == 0 {
+		printMemoryGlobalUsage()
+		os.Exit(2)
+	}
+	cmd := args[0]
+	if cmd != "prefetch" {
+		fmt.Fprintf(os.Stderr, "error: unknown memory global command %q\n", cmd)
+		printMemoryGlobalUsage()
+		os.Exit(2)
+	}
+
+	fs := flag.NewFlagSet("memory global prefetch", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var (
+		dir       string
+		sessionID string
+		asJSON    bool
+	)
+	fs.StringVar(&dir, "dir", envOr("SKILLGRID_MNEMONIC_DATA_DIR", ""), "mnemonic data directory")
+	fs.StringVar(&sessionID, "session-id", envOr("SKILLGRID_MEMORY_SESSION_ID", ""), "session id for the frozen-snapshot cache")
+	fs.BoolVar(&asJSON, "json", false, "print JSON instead of the raw block")
+	if err := fs.Parse(reorderMemArgs(args[1:])); err != nil {
+		os.Exit(2)
+	}
+
+	svc, _ := openMemService(dir, "")
+	gh, cleanup, err := svc.OpenGlobal()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+
+	st := facts.New(gh.Store().DB, service.GlobalProjectID)
+	snap := facts.NewSnapshot(st)
+	out, err := snap.Request(hCtx(), sessionID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	if asJSON {
+		printJSON(map[string]any{
+			"snapshot":   out,
+			"session_id": sessionID,
+			"project":    service.GlobalProjectID,
+		})
+		return
+	}
+	if out != "" {
+		fmt.Println(out)
+	}
+}
+
+// printMemoryGlobalUsage prints the `memory global` usage (stderr).
+func printMemoryGlobalUsage() {
+	fmt.Fprint(os.Stderr, `usage: skillgrid memory global <prefetch> [flags]
+
+  prefetch [--session-id ID] [--json]
+                                     render the frozen snapshot of the
+                                     __global__ store (GLOBAL MEMORY +
+                                     USER PROFILE sections, § separators,
+                                     usage headers, importance DESC)
+                                     and print it to stdout
+
+Flags:
+  --dir DATA_DIR     mnemonic data directory
+  --session-id ID    session id for the frozen-snapshot cache (also SKILLGRID_MEMORY_SESSION_ID)
+  --json             print the machine-readable JSON form instead of the raw block
+`)
 }
 
 // writeFactTable renders the fact list as a human-readable table (id, content).

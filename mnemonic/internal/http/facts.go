@@ -21,6 +21,26 @@ func (s *Server) registerFactsRoutes() {
 	s.mux.HandleFunc("POST /facts/{id}/forget", s.requireWriteAuth(s.handleFactForget))
 	s.mux.HandleFunc("POST /facts/{id}/decay", s.requireWriteAuth(s.handleFactDecay))
 	s.mux.HandleFunc("POST /facts/decay-all", s.requireWriteAuth(s.handleFactDecayAll))
+	s.mux.HandleFunc("GET /memory/global", s.handleGlobalMemoryPrefetch)
+}
+
+// handleGlobalMemoryPrefetch — GET /memory/global → 200 {snapshot}.
+// The OpenCode plugin's frozen-snapshot seam (TICKET-05): renders the
+// __global__ store via facts.RenderFrozenSnapshot (the same renderer the MCP
+// resource memory/global and the CLI use). Fail-open: any error yields an
+// empty snapshot string with HTTP 200 — the system prompt injection must
+// never fail.
+func (s *Server) handleGlobalMemoryPrefetch(w http.ResponseWriter, r *http.Request) {
+	snapshot := ""
+	gh, cleanup, err := s.svc.OpenGlobal()
+	if err == nil {
+		defer cleanup()
+		st := facts.New(gh.Store().DB, service.GlobalProjectID)
+		if block, err := facts.RenderFrozenSnapshot(r.Context(), st); err == nil {
+			snapshot = block
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"snapshot": snapshot})
 }
 
 // factsSessionID resolves the optional session id from the query, defaulting

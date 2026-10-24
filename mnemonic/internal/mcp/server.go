@@ -8,6 +8,7 @@ import (
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/devopstales/skillgrid/mnemonic/internal/facts"
 	"github.com/devopstales/skillgrid/mnemonic/internal/service"
 )
 
@@ -101,38 +102,7 @@ func ensurePool() *StorePool {
 
 // Start blocks on the stdio MCP loop until the client disconnects.
 func Start() error {
-	s := server.NewMCPServer(serverName, serverVersion, serverOptions()...)
-	s.Use(applyUnknownToolSuggestion)
-	registerMemoryTools(s)
-	registerCodeTools(s)
-	registerOrientTools(s)
-	registerGrepTools(s)
-	registerGraphTools(s)
-	registerExploreTools(s)
-	registerHybridTools(s)
-	registerCommunityTools(s)
-	registerRouteTools(s)
-	registerUnresolvedTools(s)
-	registerProcessTools(s)
-	registerKnowledgeTools(s)
-	registerWebTools(s)
-	registerTeamsTools(s)
-	registerRetrievalTools(s)
-	registerCompactionTools(s)
-	registerAffectedTools(s)
-	registerPdgTools(s)
-	registerTaintTools(s)
-	registerMemoryGovernanceTools(s)
-	registerMemoryLayerTools(s)
-	registerSessionTools(s)
-	registerSessionInjectTools(s)
-	registerQueryEventTools(s)
-	registerFactTools(s)
-	registerSkillTools(s)
-	registerMemoryHybridTools(s)
-	registerSecondBrainTools(s)
-	registerScanTools(s)
-	registerDepTools(s)
+	s := NewServer()
 	return server.ServeStdio(s)
 }
 
@@ -174,5 +144,54 @@ func NewServer() *Server {
 	registerSecondBrainTools(s)
 	registerScanTools(s)
 	registerDepTools(s)
+	registerMemoryGlobalResource(s)
 	return s
+}
+
+// memoryGlobalResourceURI is the MCP resource that serves the frozen global
+// memory snapshot (change 2026-10-24-global-llm-wiki, TICKET-05): clients
+// read memory/global to get the same block the OpenCode plugin injects.
+const memoryGlobalResourceURI = "memory/global"
+
+// registerMemoryGlobalResource registers the memory/global MCP resource.
+// The handler opens the __global__ store on each read and renders the
+// snapshot at read time (the frozen per-session cache is the OpenCode
+// plugin's job, not the resource's). Fail-open: any error returns empty
+// text content rather than a protocol error — the injection must never
+// break the client.
+func registerMemoryGlobalResource(s *server.MCPServer) {
+	s.AddResource(mcplib.NewResource(
+		memoryGlobalResourceURI,
+		"Global memory snapshot",
+		mcplib.WithResourceDescription(
+			"The frozen snapshot of the __global__ fact store: GLOBAL MEMORY + USER PROFILE sections, § separators, usage headers, sorted by importance. Fail-open: empty when the store cannot be read."),
+		mcplib.WithMIMEType("text/markdown"),
+	), func(ctx context.Context, req mcplib.ReadResourceRequest) ([]mcplib.ResourceContents, error) {
+		block, err := readMemoryGlobalResource(ctx)
+		return []mcplib.ResourceContents{mcplib.TextResourceContents{
+			URI:      memoryGlobalResourceURI,
+			MIMEType: "text/markdown",
+			Text:     block,
+		}}, err
+	})
+}
+
+// readMemoryGlobalResource renders the global snapshot, fail-open: any error
+// (store open, query) yields an empty string.
+func readMemoryGlobalResource(ctx context.Context) (string, error) {
+	s, err := rootService()
+	if err != nil {
+		return "", nil // fail-open
+	}
+	gh, cleanup, err := s.OpenGlobal()
+	if err != nil {
+		return "", nil // fail-open
+	}
+	defer cleanup()
+	st := facts.New(gh.Store().DB, service.GlobalProjectID)
+	block, err := facts.RenderFrozenSnapshot(ctx, st)
+	if err != nil {
+		return "", nil // fail-open
+	}
+	return block, nil
 }
