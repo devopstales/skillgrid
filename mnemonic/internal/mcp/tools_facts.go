@@ -19,6 +19,11 @@ func registerFactTools(s *server.MCPServer) {
 	s.AddTool(factForgetTool(), handleFactForget)
 	s.AddTool(factDecayTool(), handleFactDecay)
 	s.AddTool(factDecayAllTool(), handleFactDecayAll)
+	// Write approval pending queue (TICKET-06): list / approve / reject the
+	// staged (passive, distill) fact writes.
+	s.AddTool(factPendingListTool(), handleFactPendingList)
+	s.AddTool(factPendingApproveTool(), handleFactPendingApprove)
+	s.AddTool(factPendingRejectTool(), handleFactPendingReject)
 }
 
 // factScopeParam and factTargetParam are the two params every fact_* tool
@@ -377,6 +382,150 @@ func handleFactDecayAll(ctx context.Context, req mcplib.CallToolRequest) (*mcpli
 		"purged":    purged,
 		"threshold": threshold,
 		"event":     "fact_decay_batch",
+	})
+}
+
+// --- Write approval pending queue (TICKET-06) ----------------------------
+//
+// The pending queue (pending_facts, migration 073) stages PASSIVE
+// (background distill) fact writes when write_approval is enabled. These
+// three tools manage it: fact_pending_list shows the staged rows,
+// fact_pending_approve applies one (into facts, deleted from pending),
+// fact_pending_reject discards it. Explicit writes (fact_add) bypass the
+// gate entirely — they never produce a pending row. The Distiller bound to
+// a (project, global) store pair is the queue's accessor: pending rows live
+// in the store matching their scope, and approval applies to the same store.
+
+// openDistiller opens the two stores a scope routes to and builds the
+// Distiller over them (the pending queue's accessor). It reuses
+// openFactStores for the project/global routing and returns a cleanup that
+// releases both handles.
+func openDistiller(svc *service.Service, projectID string, scope facts.Scope) (*facts.Distiller, func(), error) {
+	// The pending queue spans BOTH stores (a staged row lives in the store
+	// matching its scope), so the Distiller is always built over the
+	// project + global pair regardless of the tool's scope param (the scope
+	// param is accepted for API symmetry but the queue is global by design).
+	gh, gclean, err := svc.OpenGlobal()
+	if err != nil {
+		return nil, nil, err
+	}
+	ph, pclean, err := svc.Open(projectID)
+	if err != nil {
+		gclean()
+		return nil, nil, err
+	}
+	globalStore := facts.New(gh.Store().DB, service.GlobalProjectID)
+	projectStore := facts.New(ph.Store().DB, projectID)
+	d := facts.NewDistiller(globalStore, projectStore)
+	// The write_approval gate is the Distiller's config: it does not affect
+	// the pending queue's read/approve/reject (those operate on already-
+	// staged rows), so it is left at its zero value here.
+	return d, func() { pclean(); gclean() }, nil
+}
+
+func factPendingListTool() mcplib.Tool {
+	return mcplib.NewTool("fact_pending_list",
+		mcplib.WithDescription("List staged (pending) fact writes in the write-approval queue. When write_approval is enabled, passive (background distill) fact writes are staged here instead of going directly to the fact store; explicit writes (fact_add) bypass the queue. Each row carries its content, target (memory|user), scope (project|global), and staging time. The queue is durable — it survives server restart."),
+		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
+		factScopeParam(),
+	)
+}
+
+func handleFactPendingList(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, err := rootService()
+	if err != nil {
+		return toolError(err)
+	}
+	projectID, err := projectIDFor(svc, req.GetString("project", ""))
+	if err != nil {
+		return toolError(err)
+	}
+	d, cleanup, err := openDistiller(svc, projectID, facts.ScopeProject)
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	rows, err := d.PendingList(ctx)
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{
+		"pending_facts": rows,
+		"count":         len(rows),
+	})
+}
+
+func factPendingApproveTool() mcplib.Tool {
+	return mcplib.NewTool("fact_pending_approve",
+		mcplib.WithDescription("Approve one staged (pending) fact write: move it from the pending queue into the fact store of its scope (project facts → the project store, global facts → the __global__ store) and delete it from the queue. Two-phase: approve → apply. The fact lands in facts with its staged content/target/scope. A pending id that is already gone (approved or rejected) is a clean error."),
+		mcplib.WithNumber("pending_id", mcplib.Required(), mcplib.Description("The pending_facts row id to approve (from fact_pending_list)")),
+		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
+		factScopeParam(),
+	)
+}
+
+func handleFactPendingApprove(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, err := rootService()
+	if err != nil {
+		return toolError(err)
+	}
+	projectID, err := projectIDFor(svc, req.GetString("project", ""))
+	if err != nil {
+		return toolError(err)
+	}
+	pendingID, err := req.RequireInt("pending_id")
+	if err != nil {
+		return toolError(err)
+	}
+	d, cleanup, err := openDistiller(svc, projectID, facts.ScopeProject)
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	factID, err := d.ApprovePending(ctx, int64(pendingID))
+	if err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{
+		"pending_id": int64(pendingID),
+		"fact_id":    factID,
+		"event":      "fact_pending_approved",
+	})
+}
+
+func factPendingRejectTool() mcplib.Tool {
+	return mcplib.NewTool("fact_pending_reject",
+		mcplib.WithDescription("Reject (discard) one staged (pending) fact write: delete it from the pending queue without applying it to the fact store. The fact never reaches facts. A pending id that is already gone (approved or rejected) is a clean error."),
+		mcplib.WithNumber("pending_id", mcplib.Required(), mcplib.Description("The pending_facts row id to reject (from fact_pending_list)")),
+		mcplib.WithString("project", mcplib.Description("Project id (defaults to CWD resolve)")),
+		factScopeParam(),
+	)
+}
+
+func handleFactPendingReject(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	svc, err := rootService()
+	if err != nil {
+		return toolError(err)
+	}
+	projectID, err := projectIDFor(svc, req.GetString("project", ""))
+	if err != nil {
+		return toolError(err)
+	}
+	pendingID, err := req.RequireInt("pending_id")
+	if err != nil {
+		return toolError(err)
+	}
+	d, cleanup, err := openDistiller(svc, projectID, facts.ScopeProject)
+	if err != nil {
+		return toolError(err)
+	}
+	defer cleanup()
+	if err := d.RejectPending(ctx, int64(pendingID)); err != nil {
+		return toolError(err)
+	}
+	return JSONResult(map[string]any{
+		"pending_id": int64(pendingID),
+		"event":      "fact_pending_rejected",
 	})
 }
 

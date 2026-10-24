@@ -98,10 +98,18 @@ type Extraction struct {
 type GlobalMemory struct {
 	MemoryCharLimit int
 	UserCharLimit   int
+	// WriteApproval gates passive (background distill) fact writes: when
+	// true, distill writes are staged in the pending_facts table (durable,
+	// survives restart) and applied only on explicit approval (approve) or
+	// discarded (reject). Explicit agent writes (fact_add) bypass the gate.
+	// Defaults to false (Hermes write_approval pattern: the first days of
+	// global memory are LLM-written, human-unreviewed).
+	WriteApproval bool
 }
 
 // DefaultGlobalMemory is the production default for mnemonic.global_memory:
-// the Hermes budgets (memory 2200 / user 1375 chars).
+// the Hermes budgets (memory 2200 / user 1375 chars) and write_approval off
+// (passive writes go straight to the store until an operator opts in).
 func DefaultGlobalMemory() GlobalMemory {
 	return GlobalMemory{MemoryCharLimit: 2200, UserCharLimit: 1375}
 }
@@ -481,8 +489,9 @@ type injectSection struct {
 // bounded global fact store's per-category char budgets. Absent or
 // non-positive keys keep the production defaults (2200 / 1375).
 type globalMemorySection struct {
-	MemoryCharLimit int `yaml:"memory_char_limit"`
-	UserCharLimit   int `yaml:"user_char_limit"`
+	MemoryCharLimit int   `yaml:"memory_char_limit"`
+	UserCharLimit   int   `yaml:"user_char_limit"`
+	WriteApproval   *bool `yaml:"write_approval"`
 }
 
 // clmSection is the mnemonic.claude section (Context Harness CLM, ADR-0027,
@@ -868,6 +877,13 @@ func mergeGlobalMemory(base GlobalMemory, section globalMemorySection) GlobalMem
 	}
 	if section.UserCharLimit > 0 {
 		out.UserCharLimit = section.UserCharLimit
+	}
+	// WriteApproval (TICKET-06): a pointer so an absent key keeps the
+	// default (false — the Hermes pattern: the first days of global memory
+	// are LLM-written, human-unreviewed); an explicit true opts the passive
+	// (distill) writes into the pending_facts approval queue.
+	if section.WriteApproval != nil {
+		out.WriteApproval = *section.WriteApproval
 	}
 	return out
 }

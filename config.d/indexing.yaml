@@ -43,3 +43,10 @@ web_ttl_days: {}
 global_memory:
   memory_char_limit: 2200
   user_char_limit: 1375
+  # Write approval for passive (background distill) fact writes (change
+  # 2026-10-24-global-llm-wiki TICKET-06). When true, distill writes are
+  # staged in the pending_facts queue (durable, survives restart) and applied
+  # only on explicit approval; explicit agent writes (fact_add) bypass the
+  # queue. Defaults to false — the Hermes write_approval pattern: the first
+  # days of global memory are LLM-written, human-unreviewed.
+  write_approval: false

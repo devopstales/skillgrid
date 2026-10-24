@@ -78,6 +78,8 @@ func TestAllToolsRegistered(t *testing.T) {
 		"use_skill",
 		// Skill improvement loop (2026-10-24-global-llm-wiki, TICKET-07).
 		"inspect_skill", "amend_skill", "evaluate_skill",
+		// Write approval pending queue (2026-10-24-global-llm-wiki, TICKET-06).
+		"fact_pending_list", "fact_pending_approve", "fact_pending_reject",
 		// Hybrid BM25+vector fact/skill search (2026-09-04-hermes-memory, TICKET-05).
 		"hybrid_search",
 		// On-demand session context injection (2026-09-24-mnemonic-session-inject, TICKET-05).
