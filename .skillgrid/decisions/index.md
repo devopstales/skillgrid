@@ -47,3 +47,4 @@
 - [04-adr-0046-knowledge-class-dimension.md](04-adr-0046-knowledge-class-dimension.md) — Knowledge Class Dimension
 - [04-adr-0047-fused-mem-search-contract.md](04-adr-0047-fused-mem-search-contract.md) — Fused mem_search Contract
 - [04-adr-0048-hybrid-sot.md](04-adr-0048-hybrid-sot.md) — Hybrid Source of Truth
+- [04-adr-0049-global-operational-memory.md](04-adr-0049-global-operational-memory.md) — Global operational memory: the cross-project fact store (__global__)
