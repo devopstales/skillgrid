@@ -105,7 +105,7 @@ func runMemory(version string, args []string) {
 	fs.StringVar(&mode, "mode", "", "search: FTS match mode (fts|hybrid; hybrid degrades to fts with no embedder)")
 	fs.StringVar(&factIDStr, "fact-id", "", "target fact id (forget|decay)")
 	fs.BoolVar(&asJSON, "json", false, "print JSON instead of a table")
-	fs.StringVar(&scopeStr, "scope", "", "store scope (add|search|forget|decay: project|global; search: all = fused search)")
+	fs.StringVar(&scopeStr, "scope", "", "store scope (add|forget|decay|list: project|global; search: all = fused search)")
 	fs.StringVar(&targetStr, "target", "", "fact target for add (memory|user)")
 	if err := fs.Parse(reorderMemArgs(args[2:])); err != nil {
 		os.Exit(2)
@@ -173,6 +173,14 @@ func runMemory(version string, args []string) {
 			os.Exit(2)
 		}
 	case "list":
+		if scope == facts.ScopeAll {
+			// There is no fused list: --scope all is the fused SEARCH path
+			// only, and silently reading only the global store (the old
+			// behavior) misreads as a fused listing.
+			fmt.Fprintln(os.Stderr, "error: --scope all is fused search only; list takes --scope project or global")
+			printMemoryUsage()
+			os.Exit(2)
+		}
 		// read-only; honors --limit/--include-deleted.
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown memory fact command %q\n", cmd)
@@ -498,10 +506,15 @@ func printMemoryGlobalUsage() {
   approve all [--json]
                                      apply every staged fact into the
                                      facts table of its own store and
-                                     empty the queue
+                                     empty the queue (best-effort: a
+                                     mid-run failure keeps rows approved
+                                     so far and exits 1 — re-run to
+                                     complete; the queue is idempotent)
   reject all [--json]
                                      discard every staged fact (it never
-                                     reaches facts)
+                                     reaches facts; best-effort like
+                                     approve all — re-run after a
+                                     mid-run failure to complete)
 
 Flags:
   --project ID       project bucket (pending/approve/reject; defaults to CWD-resolved)
@@ -619,11 +632,13 @@ func printMemoryUsage() {
   decay <id> [--scope project|global] [--session-id ID] [--json]
                                     apply the 014 AKL importance decay; prints the new score
   list [--scope project|global] [--limit N] [--include-deleted] [--json]
-                                    list live facts, newest first
+                                    list live facts from ONE store,
+                                    newest first (no fused list:
+                                    --scope all is a usage error)
 
 Flags:
   --project ID       project bucket (defaults to CWD-resolved)
-  --scope SCOPE      store scope: project (default), global, or all (search only)
+  --scope SCOPE      store scope: project (default), global, or all (search only; list/all is a usage error)
   --target TARGET    fact target for add: memory (default) or user
   --dir DATA_DIR     mnemonic data directory
   --session-id ID    session for the trail event (also SKILLGRID_MEMORY_SESSION_ID)

@@ -619,6 +619,27 @@ func TestMemoryFactScopeAllOnAddIsUsageError(t *testing.T) {
 	}
 }
 
+// TestMemoryFactScopeAllOnListIsUsageError (T08 review fix): --scope all
+// is the fused SEARCH path; there is no fused list, so list --scope all is
+// a usage error (exit 2, before the store opens) instead of silently
+// reading only the global store.
+func TestMemoryFactScopeAllOnListIsUsageError(t *testing.T) {
+	dataDir := t.TempDir()
+	project := "memcli-scope-all-list"
+
+	out, err := runMemoryCLIExpectError(t, dataDir, project, "fact", "list", "--scope", "all")
+	if err == nil {
+		t.Fatalf("memory fact list --scope all should fail:\n%s", out)
+	}
+	if !strings.Contains(out, "search") {
+		t.Fatalf("scope-all list error should point at the fused search path: %s", out)
+	}
+	// The store was never opened.
+	if _, err := os.Stat(dataDir + "/" + project + ".sqlite"); err == nil {
+		t.Fatalf("a scope-all list must not open the store (project db exists)")
+	}
+}
+
 // TestMemoryFactInvalidTarget (triangulation of G5): an unrecognized
 // --target is the same usage-error shape (exit 2, valid values listed).
 func TestMemoryFactInvalidTarget(t *testing.T) {
