@@ -53,8 +53,8 @@ The **phase** is not a separate file — it is read from the spec-zone artifacts
 | `report.md` absent, or `## Gate Decision` verdict EMPTY/`PENDING` (or section absent) | next: `qa` |
 | QA verdict filled (`PASS` / `CONCERNS` / `FAIL` / `WAIVED`) and `review.md` missing or its `## Verdict` floor not met | next: `requesting-code-review` |
 | `review.md` floor met (`met` or `met-with-fixes`) and the folder is still under `specs/` | next: `receiving-code-review`, then `ship` |
-| folder in `archive/`, verdict filled, retro sections EMPTY | next: `reflect` |
-| folder in `archive/` AND retro sections filled (e.g. `## Lessons` non-empty or `## Acceptance Verdict` present) | cycle complete → none |
+| folder in `xarchive/`, verdict filled, retro sections EMPTY | next: `reflect` |
+| folder in `xarchive/` AND retro sections filled (e.g. `## Lessons` non-empty or `## Acceptance Verdict` present) | cycle complete → none |
 
 The tail rows are the resume markers in `_shared/rules/sdd-structure.md`. If this table disagrees with that section, that section wins.
 

@@ -78,8 +78,8 @@ brainstorming → [research | prototype | sketch] → writing-blueprints → blu
 │       └── review.md           # requesting-code-review audit record; read by ship and reflect
 ├── xarchive/                   # CLOSED changes (committed, immutable); created lazily by ship (renamed from archive/, 2026-10-20)
 │   └── YYYY-MM-DD-<topic>/     #   moved here by ship; reflect completes report.md's retro half in place
-├── sdd/                        # scratch (gitignored)
-│   ├── <plan-basename>/
+├── sdd/                        # LIVE execution scratch (gitignored) — one dir per in-flight plan; holds only active-change ledgers, never a closed change's
+│   ├── <plan-basename>/        # one dir per in-flight plan (the ledger is short-lived; pruned once the change ships)
 │   │   ├── progress.md         # execution ledger
 │   │   ├── briefs/             # implementer briefs
 │   │   └── reviews/            # review packages
@@ -124,7 +124,7 @@ The deepest artifact present in the change dir determines the phase. This is the
 
 ### Resume rule
 
-`resume` and `using-skillgrid` MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The skill records the disagreement in `state.yaml` `notes:` and patches the phase to match.
+`resume` and `using-skillgrid` MUST derive phase from artifacts first, then cross-check `state.yaml`. If they disagree, **artifacts win** (the spec zone is the deeper truth — same principle as the state-drift-guard). The skill records the disagreement as a dated entry in `.skillgrid/log.md` and patches the phase to match. `state.yaml` holds no freeform journal — prose goes to `log.md`, not `state.yaml`.
 
 ### Edit scope guard
 
@@ -134,7 +134,7 @@ For fast-track changes (no `tasks.md`), the edit scope is the set of files named
 
 ### Blocked reasons
 
-If a phase cannot proceed (missing prerequisite, blocked dependency, unmet precondition), the skill MUST record the reason in `state.yaml` `notes:` using the format:
+If a phase cannot proceed (missing prerequisite, blocked dependency, unmet precondition), the skill MUST record the reason in `state.yaml` under the affected change entry using the format:
 
 ```
 blocked(<phase>): <one-line reason>
@@ -188,7 +188,6 @@ progress:
   completed_changes: 18
   blocked_changes: 0
 constraints_ref: .skillgrid/ASSUMPTIONS.md                       # pointer, not a copy
-notes: "Parallel development: changes map tracks in-flight changes."
 ```
 
 - The `changes:` map is the **resume pointer** — `resume` and `using-skillgrid` read it first, replacing the old "find newest `specs/` dir" heuristic. Each entry's `slug` is the `specs/<slug>/` directory name; `phase` + `status` describe where that change is right now.
@@ -376,13 +375,14 @@ cheap to fix (before integration).
 
 ## Archive
 
-On completion, **`ship`** moves the change folder out of the active `specs/` zone into a top-level, immutable `archive/` zone:
+On completion, **`ship`** moves the change folder out of the active `specs/` zone into the top-level, immutable `xarchive/` zone:
 
 ```
 .skillgrid/specs/YYYY-MM-DD-<topic>/  ──►  .skillgrid/xarchive/YYYY-MM-DD-<topic>/
 ```
 
-- **`specs/` is active-only.** A folder present in `specs/` is in-flight; a folder in `archive/` is closed. The date prefix in the folder name is preserved as the archive key.
+- **`specs/` is active-only.** A folder present in `specs/` is in-flight; a folder in `xarchive/` is closed. The date prefix in the folder name is preserved as the archive key.
+- **`xarchive/` is the single closed sink for the spec zone** — the only place a closed change's committed artifacts (briefing, blueprint, tasks, report, review) live. It is distinct from `sdd/`, which is **live execution scratch** (the Execution Ledger, ADR-0020): `sdd/<plan>/` holds the in-flight `progress.md` / briefs / reviews, is gitignored, and is ephemeral — `git clean -fdx` is the assumed disposal. A closed change's ledger is **not moved into `xarchive/`**; it simply stops being live. The two are separate sinks for separate lifetimes — never mix them, and never leave a closed change's ledger in `sdd/`.
 - **The move is mechanical** (shell `git mv` / `mv` only, never model Read→Write) with a **`diff -r` readback** against a pre-move snapshot — an empty diff is the only passing evidence. See `ship` (Step 7).
 - **`reflect`** then runs read-only over the archived folder: it completes `report.md`'s retro half in place (from `## Final-State Facts` onward — integration evidence + retrospective + archive summary) and owns the Mnemonic session close.
-- `archive/` is created lazily by `ship` if absent. Archived changes are **never deleted or modified** after the move (except the retro sections of `report.md`, completed in place by `reflect` after the move — the QA half is pre-move and included in the `diff -r` readback; the retro half is appended after).
+- `xarchive/` is created lazily by `ship` if absent. Archived changes are **never deleted or modified** after the move (except the retro sections of `report.md`, completed in place by `reflect` after the move — the QA half is pre-move and included in the `diff -r` readback; the retro half is appended after).

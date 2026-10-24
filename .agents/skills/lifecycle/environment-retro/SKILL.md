@@ -105,7 +105,7 @@ Then, for each finding that is a real build (a new hook, linter rule, CI job, or
 ## References
 
 - [`../reflect/SKILL.md`](../reflect/SKILL.md) — the caller; runs this skill after the change retro half, before session close.
-- [`../../_shared/rules/sdd-structure.md`](../../_shared/rules/sdd-structure.md) — the `report.md` retro half and the `archive/` layout this section lands in.
+- [`../../_shared/rules/sdd-structure.md`](../../_shared/rules/sdd-structure.md) — the `report.md` retro half and the `xarchive/` layout this section lands in.
 - [`../../_shared/rules/mnemonic-memory.md`](../../_shared/rules/mnemonic-memory.md) — the `mem_save` shape for durable environment findings.
 - [`../../_shared/rules/code-standards.md`](../../_shared/rules/code-standards.md) — the judgement-call standards file the mechanical-vs-judgement split feeds.
 - [`../ticketing/SKILL.md`](../ticketing/SKILL.md) — publishes the follow-up tickets for real builds.

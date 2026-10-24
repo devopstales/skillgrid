@@ -206,7 +206,7 @@ rules:
     T3: { name: GA,        blueprint: full,  qa: L4,        review: parallel+fresh-model }
   # --- Ship (integration + archive move) ---
   # skillgrid:ship merges/PRs/keeps the branch, then moves the change folder
-  # specs/ -> archive/. No release mechanics (VERSION/CHANGELOG) and no docs
+  # specs/ -> xarchive/. No release mechanics (VERSION/CHANGELOG) and no docs
   # check in any variant. fast_track_light: trivial/small skip PR-body
   # generation but the mechanical move is never waived.
   ship:
