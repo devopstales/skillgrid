@@ -1,10 +1,10 @@
 ---
 id: TASK-107
 title: 'TICKET-01: Migration 072 + Global Store Bootstrap'
-status: ready-for-agent
+status: in-progress
 assignee: []
 created_date: '2026-10-24 13:18'
-updated_date: '2026-10-24 13:19'
+updated_date: '2026-10-24 13:25'
 labels:
   - mnemonic
   - global-memory
