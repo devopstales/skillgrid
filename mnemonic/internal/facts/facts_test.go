@@ -566,6 +566,201 @@ func TestDecayAllEmptyStoreIsNoOp(t *testing.T) {
 	}
 }
 
+// seedFusedFact inserts one fact row directly (bypassing the session trail;
+// the fused-search fixtures seed both stores without a session in each).
+func seedFusedFact(t *testing.T, db *sql.DB, content, category string) int64 {
+	t.Helper()
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := db.Exec(`
+		INSERT INTO facts (content, category, created_at, updated_at)
+		VALUES (?, ?, ?, ?)`, content, category, now, now)
+	if err != nil {
+		t.Fatalf("seed fact: %v", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("seed fact id: %v", err)
+	}
+	return id
+}
+
+// TestFusedSearchReturnsBothStoresInterleaved (BDD: "happy path — fused
+// search returns hits from both stores"): scope=all searches BOTH stores and
+// returns their hits interleaved by each store's own BM25 rank (stable
+// merge, not RRF — blueprint M1), each hit labeled with scope (global /
+// project) and category (G1–G3).
+func TestFusedSearchReturnsBothStoresInterleaved(t *testing.T) {
+	pst, gst, _ := openTwoStores(t)
+	proj := New(pst.DB, "factstest")
+	glob := New(gst.DB, GlobalProjectID)
+
+	seedFusedFact(t, gst.DB, "user prefers concise responses", "user")         // global rank 1
+	seedFusedFact(t, gst.DB, "responses are too verbose here too", "memory")   // global rank 2
+	seedFusedFact(t, pst.DB, "the project response queue is shared", "memory") // project rank 1
+	seedFusedFact(t, pst.DB, "responses in this repo are verbose", "memory")   // project rank 2
+	seedFusedFact(t, pst.DB, "project uses Go 1.22 for the backend", "memory") // no 'response' token (FTS5 porter stem)
+
+	const sid = "sess-fused-interleave"
+	seedTestSession(t, pst, sid)
+
+	hits, err := FusedSearch(ctx, sid, "responses", 0, false, glob, proj)
+	if err != nil {
+		t.Fatalf("FusedSearch: %v", err)
+	}
+	// 4 hits: 2 global + 2 project (the Go fact contains no 'responses' token).
+	if len(hits) != 4 {
+		t.Fatalf("FusedSearch returned %d hits, want 4 (2 global + 2 project)", len(hits))
+	}
+
+	// G1: every hit is labeled scope + category.
+	for _, h := range hits {
+		if h.Scope != ScopeGlobal && h.Scope != ScopeProject {
+			t.Errorf("hit %q has scope %q, want global|project", h.Content, h.Scope)
+		}
+		if h.Category == "" {
+			t.Errorf("hit %q has no category label", h.Content)
+		}
+	}
+
+	// G2: strict alternation by each store's own rank (blueprint M1):
+	// global rank 1, project rank 1, global rank 2, project rank 2.
+	wantOrder := []struct {
+		scope    Scope
+		snippet  string
+		category string
+	}{
+		{ScopeGlobal, "user prefers concise responses", "user"},
+		{ScopeProject, "the project response queue is shared", "memory"},
+		{ScopeGlobal, "responses are too verbose here too", "memory"},
+		{ScopeProject, "responses in this repo are verbose", "memory"},
+	}
+	for i, w := range wantOrder {
+		if hits[i].Scope != w.scope {
+			t.Errorf("hit %d scope = %q, want %q", i, hits[i].Scope, w.scope)
+		}
+		if !strings.Contains(hits[i].Content, w.snippet) {
+			t.Errorf("hit %d content = %q, want the fact containing %q", i, hits[i].Content, w.snippet)
+		}
+		if hits[i].Category != w.category {
+			t.Errorf("hit %d category = %q, want %q", i, hits[i].Category, w.category)
+		}
+	}
+
+	// Triangulation — a second input: a query only the PROJECT store matches
+	// (BDD: "edge — fused search with no matches in one store"): only the
+	// project hit is returned, labeled scope=project.
+	hits, err = FusedSearch(ctx, sid, "Go 1.22", 0, false, glob, proj)
+	if err != nil {
+		t.Fatalf("FusedSearch 'Go': %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("FusedSearch 'Go' returned %d hits, want 1", len(hits))
+	}
+	if hits[0].Scope != ScopeProject || hits[0].Category != "memory" {
+		t.Errorf("single-store hit = scope %q category %q, want project/memory", hits[0].Scope, hits[0].Category)
+	}
+}
+
+// TestFusedSearchTrailGoesToProjectStoreOnly (BDD: "edge — fused search trail
+// goes to project store only"): the fact_search trail lands in the caller's
+// project store (blueprint M2) and nowhere in the global store — which holds
+// no sessions at all.
+func TestFusedSearchTrailGoesToProjectStoreOnly(t *testing.T) {
+	pst, gst, _ := openTwoStores(t)
+	proj := New(pst.DB, "factstest")
+	glob := New(gst.DB, GlobalProjectID)
+
+	const sid = "sess-fused-trail"
+	seedTestSession(t, pst, sid) // the session exists in the PROJECT store only
+
+	seedFusedFact(t, gst.DB, "global note about responses", "memory")
+	seedFusedFact(t, pst.DB, "project note about responses", "memory")
+
+	if _, err := FusedSearch(ctx, sid, "responses", 0, false, glob, proj); err != nil {
+		t.Fatalf("FusedSearch: %v", err)
+	}
+
+	// The trail row is in the PROJECT store, mode "fused".
+	var payload string
+	if err := pst.DB.QueryRow(`
+		SELECT payload FROM session_events
+		WHERE session_id = ? AND action_type = 'fact_search'`, sid).
+		Scan(&payload); err != nil {
+		t.Fatalf("fact_search trail missing from the project store: %v", err)
+	}
+	var ev struct {
+		Query      string  `json:"query"`
+		Mode       string  `json:"mode"`
+		GlobalIDs  []int64 `json:"global_ids"`
+		ProjectIDs []int64 `json:"project_ids"`
+	}
+	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
+		t.Fatalf("parse trail payload %q: %v", payload, err)
+	}
+	if ev.Mode != "fused" {
+		t.Errorf("trail mode = %q, want 'fused'", ev.Mode)
+	}
+	if ev.Query != "responses" {
+		t.Errorf("trail query = %q, want 'responses'", ev.Query)
+	}
+	if len(ev.GlobalIDs) != 1 || len(ev.ProjectIDs) != 1 {
+		t.Errorf("trail ids = global %v project %v, want one each", ev.GlobalIDs, ev.ProjectIDs)
+	}
+
+	// And the global store holds NO fact_search trail row.
+	var globalTrails int
+	if err := gst.DB.QueryRow(
+		`SELECT COUNT(*) FROM session_events WHERE action_type = 'fact_search'`,
+	).Scan(&globalTrails); err != nil {
+		t.Fatalf("count global trails: %v", err)
+	}
+	if globalTrails != 0 {
+		t.Errorf("global store holds %d fact_search trail rows, want 0", globalTrails)
+	}
+}
+
+// TestFusedSearchEmptyStoresReturnsEmpty (BDD: "failure — fused search with
+// empty stores returns empty"): both stores empty → empty result, no error.
+func TestFusedSearchEmptyStoresReturnsEmpty(t *testing.T) {
+	pst, gst, _ := openTwoStores(t)
+	proj := New(pst.DB, "factstest")
+	glob := New(gst.DB, GlobalProjectID)
+
+	const sid = "sess-fused-empty"
+	seedTestSession(t, pst, sid)
+
+	hits, err := FusedSearch(ctx, sid, "nothing-matches-this", 0, false, glob, proj)
+	if err != nil {
+		t.Fatalf("FusedSearch on empty stores: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("FusedSearch on empty stores returned %d hits, want 0", len(hits))
+	}
+
+	// No matches → no trail row written (the pre-change convention).
+	var eventsN int
+	if err := pst.DB.QueryRow(`
+		SELECT COUNT(*) FROM session_events
+		WHERE session_id = ? AND action_type = 'fact_search'`, sid).Scan(&eventsN); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	if eventsN != 0 {
+		t.Errorf("no-match fused search wrote %d trail rows, want 0", eventsN)
+	}
+}
+
+// TestFusedSearchRequiresBothStores is the boundary: a nil store is a clean
+// error before any query runs.
+func TestFusedSearchRequiresBothStores(t *testing.T) {
+	pst, gst, _ := openTwoStores(t)
+	if _, err := FusedSearch(ctx, "s", "q", 0, false, nil, New(pst.DB, "factstest")); err == nil {
+		t.Error("FusedSearch with a nil global store should fail")
+	}
+	if _, err := FusedSearch(ctx, "s", "q", 0, false, New(gst.DB, GlobalProjectID), nil); err == nil {
+		t.Error("FusedSearch with a nil project store should fail")
+	}
+}
+
 // TestSessionEventSequenceIsMonotonic guards the events trail: three
 // consecutive fact tool calls append strictly increasing sequences in the
 // session's event stream, and the stream stays readable in sequence order

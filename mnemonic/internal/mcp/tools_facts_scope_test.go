@@ -506,3 +506,83 @@ func sqlNullCheck(t *testing.T, gst *store.Store, id int64) bool {
 	}
 	return n == 1
 }
+
+// TestFactSearchScopeAllMCP (BDD: "happy path — fused search returns hits
+// from both stores"): fact_search(scope=all) is the fused-search read path —
+// it searches both stores, returns every hit labeled with scope + category,
+// and trails to the project store only (never the global store).
+func TestFactSearchScopeAllMCP(t *testing.T) {
+	dataDir, project, st := openFactMCPStore(t)
+	sid := "sess-mcp-scope-all"
+	seedFactMCPSession(t, st, project, dataDir, sid)
+
+	factAddIDWith(t, project, sid, "mcp global note about responses", "global", "memory")
+	factAddIDWith(t, project, sid, "mcp project note about responses", "project", "memory")
+
+	res, err := handleFactSearch(context.Background(), callReq("fact_search", map[string]any{
+		"project":    project,
+		"session_id": sid,
+		"query":      "responses",
+		"scope":      "all",
+	}))
+	if err != nil {
+		t.Fatalf("handleFactSearch scope=all: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("fact_search scope=all error: %s", callResultText(t, res))
+	}
+	var out struct {
+		Facts []struct {
+			Content  string `json:"content"`
+			Scope    string `json:"scope"`
+			Category string `json:"category"`
+		} `json:"facts"`
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal([]byte(callResultText(t, res)), &out); err != nil {
+		t.Fatalf("parse result: %v", err)
+	}
+	if out.Count != 2 {
+		t.Fatalf("count = %d, want 2 (one per store)", out.Count)
+	}
+	// Every hit is labeled scope + category; the two scopes are both present.
+	seen := map[string]bool{}
+	for _, f := range out.Facts {
+		if f.Scope != "global" && f.Scope != "project" {
+			t.Errorf("hit scope = %q, want global|project", f.Scope)
+		}
+		if f.Category != "memory" {
+			t.Errorf("hit category = %q, want memory", f.Category)
+		}
+		seen[f.Scope] = true
+	}
+	if !seen["global"] || !seen["project"] {
+		t.Errorf("hits do not cover both stores: %v", seen)
+	}
+
+	// The trail is in the PROJECT store (mode fused) and nowhere in the
+	// global store.
+	var payload string
+	if err := st.DB.QueryRow(`
+		SELECT payload FROM session_events
+		WHERE session_id = ? AND action_type = 'fact_search'`, sid).Scan(&payload); err != nil {
+		t.Fatalf("fact_search trail missing from the project store: %v", err)
+	}
+	if !strings.Contains(payload, `"mode":"fused"`) {
+		t.Errorf("trail payload %q does not carry mode fused", payload)
+	}
+	gst, err := store.Open(dataDir, "__global__")
+	if err != nil {
+		t.Fatalf("open global store: %v", err)
+	}
+	defer gst.Close()
+	var globalTrails int
+	if err := gst.DB.QueryRow(
+		`SELECT COUNT(*) FROM session_events WHERE action_type = 'fact_search'`,
+	).Scan(&globalTrails); err != nil {
+		t.Fatalf("count global trails: %v", err)
+	}
+	if globalTrails != 0 {
+		t.Errorf("global store holds %d fact_search trail rows, want 0", globalTrails)
+	}
+}

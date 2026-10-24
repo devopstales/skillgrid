@@ -258,12 +258,20 @@ func (s *Store) SearchWith(ctx context.Context, sessionID, query string, limit i
 	if limit <= 0 {
 		limit = defaultSearchLimit
 	}
+	return s.searchRanked(ctx, sessionID, query, ftsQuery, limit, includeDeleted, trailStore)
+}
+
+// searchRanked runs the FTS5 bm25-rank query and — when a session is given —
+// records the fact_search trail on the trail store (nil = this store).
+// sessionID "" suppresses the per-store trail (FusedSearch suppresses both
+// and records one fused trail in the project store itself).
+func (s *Store) searchRanked(ctx context.Context, sessionID, query, ftsQuery string, limit int, includeDeleted bool, trailStore *Store) ([]Fact, error) {
 	deletedClause := ""
 	if !includeDeleted {
 		deletedClause = " AND f.deleted_at IS NULL"
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT f.id, f.content, f.importance_score, f.recency_decay, f.maturity_tier,
+		SELECT f.id, f.content, f.category, f.importance_score, f.recency_decay, f.maturity_tier,
 		       f.retrieval_usage, f.created_at, f.updated_at
 		FROM facts f
 		INNER JOIN facts_fts ON facts_fts.rowid = f.id
@@ -277,7 +285,7 @@ func (s *Store) SearchWith(ctx context.Context, sessionID, query string, limit i
 	var out []Fact
 	for rows.Next() {
 		var f Fact
-		if err := rows.Scan(&f.ID, &f.Content, &f.ImportanceScore, &f.RecencyDecay,
+		if err := rows.Scan(&f.ID, &f.Content, &f.Category, &f.ImportanceScore, &f.RecencyDecay,
 			&f.MaturityTier, &f.RetrievalUsage, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan fact: %w", err)
 		}
@@ -286,24 +294,121 @@ func (s *Store) SearchWith(ctx context.Context, sessionID, query string, limit i
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate fact search: %w", err)
 	}
-	if len(out) > 0 && sessionID != "" {
-		ids := make([]int64, len(out))
-		for i, f := range out {
-			ids[i] = f.ID
+	if sessionID == "" || len(out) == 0 {
+		return out, nil
+	}
+	trailer := s
+	if trailStore != nil && trailStore.db != s.db {
+		trailer = trailStore
+	}
+	ids := make([]int64, len(out))
+	for i, f := range out {
+		ids[i] = f.ID
+	}
+	return out, trailer.insertEvent(ctx, sessionID, "fact_search", map[string]any{
+		"query":    query,
+		"mode":     "fts",
+		"fact_ids": ids,
+	})
+}
+
+// FusedHit is one hit in a FusedSearch result: the fact row plus the labels
+// that name where it came from (scope: global|project; category: memory|user).
+// The labels are required by the scope=all contract — the agent must be able
+// to tell the two disjoint stores apart from the result alone.
+type FusedHit struct {
+	Fact
+	Scope    Scope  `json:"scope"`
+	Category string `json:"category"`
+}
+
+// FusedSearch is the scope=all read path: it searches both the global and the
+// project store and STABLE-MERGES the results by each store's own BM25 rank —
+// not RRF, no score normalization (blueprint M1). The stores are disjoint
+// (a fact lives in exactly one store), so "interleave by rank" is well
+// defined: global rank 1, project rank 1, global rank 2, project rank 2, ...
+// (mergeFusedHits), which is a strict alternation with the global store
+// leading each pair — deterministic, no tuning constant.
+//
+// Each hit is labeled with its store's scope and the fact's stored category.
+// The session_events trail (action_type="fact_search", payload mode "fused",
+// matched fact ids tagged by store scope) goes to the PROJECT store only —
+// never to the global store (blueprint M2). With no matches nothing is
+// written; an empty store contributes no hits and no error.
+func FusedSearch(ctx context.Context, sessionID, query string, limit int, includeDeleted bool, global, project *Store) ([]FusedHit, error) {
+	if global == nil || global.db == nil || project == nil || project.db == nil {
+		return nil, errors.New("facts: fused search requires both the __global__ store and the project store handles")
+	}
+	ftsQuery, err := buildFactFTSQuery(query)
+	if err != nil {
+		return nil, err
+	}
+	if ftsQuery == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = defaultSearchLimit
+	}
+	// Both per-store searches pass an empty session: no per-store trail. The
+	// single fused trail is recorded in the project store below.
+	gRes, gErr := global.searchRanked(ctx, "", query, ftsQuery, limit, includeDeleted, nil)
+	pRes, pErr := project.searchRanked(ctx, "", query, ftsQuery, limit, includeDeleted, nil)
+	if gErr != nil {
+		return nil, fmt.Errorf("fused search (global store): %w", gErr)
+	}
+	if pErr != nil {
+		return nil, fmt.Errorf("fused search (project store): %w", pErr)
+	}
+	merged := mergeFusedHits(gRes, pRes, limit)
+	if len(merged) > 0 && sessionID != "" {
+		globalIDs := make([]int64, 0)
+		projectIDs := make([]int64, 0)
+		for _, h := range merged {
+			if h.Scope == ScopeGlobal {
+				globalIDs = append(globalIDs, h.ID)
+			} else {
+				projectIDs = append(projectIDs, h.ID)
+			}
 		}
-		trailer := s
-		if trailStore != nil && trailStore.db != s.db {
-			trailer = trailStore
-		}
-		if err := trailer.insertEvent(ctx, sessionID, "fact_search", map[string]any{
-			"query":    query,
-			"mode":     "fts",
-			"fact_ids": ids,
+		if err := project.insertEvent(ctx, sessionID, "fact_search", map[string]any{
+			"query":       query,
+			"mode":        "fused",
+			"global_ids":  globalIDs,
+			"project_ids": projectIDs,
 		}); err != nil {
 			return nil, err
 		}
 	}
-	return out, nil
+	return merged, nil
+}
+
+// mergeFusedHits stable-merges two rank-ordered hit lists (list order IS the
+// store's bm25 rank) by strict ALTERNATION: global rank 1, project rank 1,
+// global rank 2, project rank 2, ... (blueprint M1: "interleave results by
+// their respective BM25 rank"). The global store leads each pair — it is the
+// cross-project one, and a fixed lead keeps results deterministic. When one
+// side runs out of hits the rest of the other side appends in rank order.
+func mergeFusedHits(g, p []Fact, limit int) []FusedHit {
+	if limit <= 0 {
+		limit = defaultSearchLimit
+	}
+	label := func(f Fact, scope Scope) FusedHit {
+		category := f.Category
+		if category == "" {
+			category = CategoryMemory
+		}
+		return FusedHit{Fact: f, Scope: scope, Category: category}
+	}
+	out := make([]FusedHit, 0, limit)
+	for i := 0; len(out) < limit && (i < len(g) || i < len(p)); i++ {
+		if i < len(g) {
+			out = append(out, label(g[i], ScopeGlobal))
+		}
+		if i < len(p) {
+			out = append(out, label(p[i], ScopeProject))
+		}
+	}
+	return out
 }
 
 // Forget soft-deletes a fact (deleted_at = now, updated_at refreshed). The

@@ -29,10 +29,13 @@ func New(db *sql.DB, project string) *Store {
 // store's rows; production code works through the store's methods).
 func (s *Store) DB() *sql.DB { return s.db }
 
-// Fact is one durable fact row (TICKET-02 read model).
+// Fact is one durable fact row (TICKET-02 read model). Category is the
+// two-target routing (memory/user, migration 072); the search paths scan it
+// so scope=all results can label each hit (TICKET-03).
 type Fact struct {
 	ID              int64   `json:"id"`
 	Content         string  `json:"content"`
+	Category        string  `json:"category"`
 	ImportanceScore float64 `json:"importance_score"`
 	RecencyDecay    float64 `json:"recency_decay"`
 	MaturityTier    string  `json:"maturity_tier"`
@@ -66,7 +69,7 @@ func (s *Store) ListWith(ctx context.Context, limit int, includeDeleted bool) ([
 		deletedClause = " AND deleted_at IS NULL"
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, content, importance_score, recency_decay, maturity_tier,
+		SELECT id, content, category, importance_score, recency_decay, maturity_tier,
 		       retrieval_usage, created_at, updated_at
 		FROM facts
 		WHERE 1 = 1`+deletedClause+`
@@ -79,7 +82,7 @@ func (s *Store) ListWith(ctx context.Context, limit int, includeDeleted bool) ([
 	var out []Fact
 	for rows.Next() {
 		var f Fact
-		if err := rows.Scan(&f.ID, &f.Content, &f.ImportanceScore, &f.RecencyDecay,
+		if err := rows.Scan(&f.ID, &f.Content, &f.Category, &f.ImportanceScore, &f.RecencyDecay,
 			&f.MaturityTier, &f.RetrievalUsage, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan fact: %w", err)
 		}
