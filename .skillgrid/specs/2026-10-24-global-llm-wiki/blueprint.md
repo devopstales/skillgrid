@@ -10,11 +10,11 @@
 
 **Tier:** T2
 
-**Build shape:** Tracer thread — a thin end-to-end path (CLI `--scope global` → `global.sqlite` → MCP `fact_add` → prefetch injection) works first, then thickens with batch ops, distill, skill loop. Integration risk (two stores, RRF fusion, plugin hook) is the unknown; the tracer thread proves the wiring before the intelligence lands.
+**Build shape:** Tracer thread — a thin end-to-end path (CLI `--scope global` → `__global__.sqlite` → MCP `fact_add` → prefetch injection) works first, then thickens with batch ops, distill, skill loop. Integration risk (two stores, RRF fusion, plugin hook) is the unknown; the tracer thread proves the wiring before the intelligence lands.
 
-**Goal:** Add a cross-project, cross-session, cross-agent fact store in `global.sqlite` with AKL importance, char limit, prefetch injection, and a skill improvement loop (observe → inspect → amend → evaluate).
+**Goal:** Add a cross-project, cross-session, cross-agent fact store in `__global__.sqlite` with AKL importance, char limit, prefetch injection, and a skill improvement loop (observe → inspect → amend → evaluate).
 
-**Architecture:** Reuse the existing `facts`/`skills`/`skill_usage` schema (migration 011) in a `__global__` pseudo-project store at `~/.skillgrid/mnemonic/global.sqlite`. Add `category` (memory/user) to facts and `outcome`+`feedback` to `skill_usage` via two new migrations. Scope routing on `fact_*` MCP tools. RRF-fused search across both stores. OpenCode plugin hook for frozen-snapshot prefetch. Background distill extends the 013 hook to global scope. Skill loop reuses the existing `skills`/`skill_usage` tables.
+**Architecture:** Reuse the existing `facts`/`skills`/`skill_usage` schema (migration 011) in a `__global__` pseudo-project store at `~/.skillgrid/mnemonic/__global__.sqlite`. Add `category` (memory/user) to facts and `outcome`+`feedback` to `skill_usage` via two new migrations. Scope routing on `fact_*` MCP tools. RRF-fused search across both stores. OpenCode plugin hook for frozen-snapshot prefetch. Background distill extends the 013 hook to global scope. Skill loop reuses the existing `skills`/`skill_usage` tables.
 
 **Tech Stack:** Go 1.22+ (stdlib `database/sql` + `modernc.org/sqlite`), FTS5, existing `mnemonic` package structure. No new external dependencies.
 
@@ -24,7 +24,7 @@
 
 ## Terms
 
-- **Global store** — `~/.skillgrid/mnemonic/global.sqlite`, the `__global__` pseudo-project store. Per `.skillgrid/decisions/04-adr-0012-sqlite-as-second-brain.md`.
+- **Global store** — `~/.skillgrid/mnemonic/__global__.sqlite`, the `__global__` pseudo-project store. Per `.skillgrid/decisions/04-adr-0012-sqlite-as-second-brain.md`.
 - **Category** — `memory` (agent's operational notes) vs `user` (user profile). Per briefing design decision 20 (Hermes MEMORY.md / USER.md pattern).
 - **Prefetch injection** — frozen snapshot of top-k global facts in the system prompt at session start. Per briefing design decision 23.
 - **Skill loop** — observe → inspect → amend → evaluate. Per briefing design decision 27 (cognee pattern).
@@ -33,10 +33,10 @@
 ## Must-Haves (goal-backward verification)
 
 **Truths** (observable behaviors that must hold):
-- `Service.OpenGlobal()` creates `~/.skillgrid/mnemonic/global.sqlite` and returns a `ProjectHandle` for `__global__`.
+- `Service.OpenGlobal()` creates `~/.skillgrid/mnemonic/__global__.sqlite` and returns a `ProjectHandle` for `__global__`.
 - `ListProjects()` does NOT include `__global__` in its results.
 - `RunTTLExpiry()` does NOT process `__global__`.
-- `fact_add(scope="global", target="memory")` writes the fact to `global.sqlite` and the `session_events` trail to the caller's project store.
+- `fact_add(scope="global", target="memory")` writes the fact to `__global__.sqlite` and the `session_events` trail to the caller's project store.
 - `fact_add(scope="project")` writes to the per-project store (unchanged behavior).
 - `fact_search(scope="all")` returns hits from both stores (stable merge by BM25 rank), each labeled with `scope` + `category`.
 - `fact_forget`, `fact_decay`, `fact_decay_all` accept `scope` param (global facts can be forgotten/decayed).
@@ -85,7 +85,7 @@
 
 **One-way-door decisions** (hard to reverse — flag for explicit user approval):
 - ⚠ **Migration 072: `facts.category` column** — adds a `NOT NULL DEFAULT 'memory'` column to the `facts` table. Existing rows get `category='memory'`. Cannot be undone without a data migration.
-- ⚠ **Migration 073: `skill_usage.outcome` + `feedback` + `pending_facts` table** — adds two columns to `skill_usage` (existing rows get NULL) and creates `pending_facts` table in `global.sqlite`. Additive (no data loss) but the schema change is permanent.
+- ⚠ **Migration 073: `skill_usage.outcome` + `feedback` + `pending_facts` table** — adds two columns to `skill_usage` (existing rows get NULL) and creates `pending_facts` table in `__global__.sqlite`. Additive (no data loss) but the schema change is permanent.
 - ⚠ **`__global__` pseudo-project** — `__global__.sqlite` is a new store file in `~/.skillgrid/mnemonic/`. `ListProjects` and `RunTTLExpiry` must skip it. If the skip logic is wrong, `__global__` appears in project lists or gets TTL-expired.
 - ⚠ **`execute.go` observe-leg fix** — modifying `execute.go` to log `skill_usage` rows on failure/timeout changes the existing behavior (currently: only success rows). This affects all existing `use_skill` call sites.
 
@@ -151,13 +151,13 @@ plugins/opencode/
 
 | Boundary | Applicability | Design response | Planned RED test |
 |---|---|---|---|
-| Scope isolation (global vs project store) | Applicable: two stores, routing must not leak | `scope` param on all `fact_*` tools; routing in `facts/scope.go`; `__global__` skipped in `ListProjects`/`RunTTLExpiry` | `TestScopeIsolation`: `fact_add(scope=global)` → verify row in `global.sqlite`, NOT in project store. `fact_search(scope=project)` → verify no global hits. |
+| Scope isolation (global vs project store) | Applicable: two stores, routing must not leak | `scope` param on all `fact_*` tools; routing in `facts/scope.go`; `__global__` skipped in `ListProjects`/`RunTTLExpiry` | `TestScopeIsolation`: `fact_add(scope=global)` → verify row in `__global__.sqlite`, NOT in project store. `fact_search(scope=project)` → verify no global hits. |
 | Char limit overflow | Applicable: bounded store, error-on-overflow | Batch atomicity: limit checked on final result only. Error includes `current_entries` + `usage`. | `TestOverflowError`: add to 2150/2200 store → error with usage. `TestBatchFreeAndAdd`: free 200, add 250 → success (final 2150). |
 | Fused search correctness | Applicable: two stores, stable merge by BM25 rank | `scope=all` opens both stores, stable-merges by each store's own rank, labels each hit with scope + category. Trail goes to project store only. | `TestFusedSearch`: seed both stores with facts matching the query → `scope=all` returns all, interleaved by rank, labeled correctly. `TestFusedSearchTrailGoesToProjectStore`. |
 | Plugin hook (OpenCode V2) | Applicable: external plugin, prefix cache | Frozen snapshot at session start; `ctx.session.hook("context")` per ADR-0045. Mid-session writes don't change the prompt. | `TestPrefetchFrozen`: add fact after session start → verify system prompt unchanged. |
 | Write approval gate | Applicable: passive writes can be staged | `write_approval: true` → distill writes go to `pending_facts` table (durable). Explicit writes go through freely. | `TestWriteApproval`: `write_approval=true` → distill `fact_add` → verify row in `pending_facts` (not `facts`). Restart server. Approve → verify row in `facts`, deleted from `pending_facts`. |
 | Skill loop (amend → evaluate) | Applicable: self-modifying component | Amend writes to `<code_path>.amended` (not in-place). Evaluate compares outcome rate. Regression → discard. Git checkpoint = rollback. Observe leg: `execute.go` logs failure/timeout rows. | `TestObserveLogsFailures`: skill exits 1 → `skill_usage` row with `outcome='failure'`. `TestSkillEvaluateRollback`: declining outcome rate → amend → evaluate → verify original script restored. |
-| Trail FK (global fact_add) | Applicable: `session_events` FK to `sessions` in the same store | Global `fact_add` trails to caller's project store (where the session exists). `facts.Route` returns (dataStore, trailStore). | `TestGlobalAddTrailSemantics`: global `fact_add` from project session → fact in `global.sqlite`, trail in project store. |
+| Trail FK (global fact_add) | Applicable: `session_events` FK to `sessions` in the same store | Global `fact_add` trails to caller's project store (where the session exists). `facts.Route` returns (dataStore, trailStore). | `TestGlobalAddTrailSemantics`: global `fact_add` from project session → fact in `__global__.sqlite`, trail in project store. |
 | Migration (072, 073) | Applicable: schema change, one-way door | `NOT NULL DEFAULT 'memory'` for category (no NULLs). `outcome`/`feedback` are nullable (existing rows = NULL). | `TestMigration072`: run on existing store → all existing facts have `category='memory'`. `TestMigration073`: run on existing store → all existing skill_usage rows have NULL outcome. |
 
 ## Door Check
@@ -198,10 +198,10 @@ func TestOpenGlobalCreatesStore(t *testing.T) {
         t.Fatalf("OpenGlobal: %v", err)
     }
     defer release()
-    // Verify global.sqlite exists
+    // Verify __global__.sqlite exists
     dbPath := filepath.Join(dataDir, "__global__.sqlite")
     if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-        t.Fatalf("global.sqlite not created at %s", dbPath)
+        t.Fatalf("__global__.sqlite not created at %s", dbPath)
     }
     // Verify migration 072 ran (category column exists)
     var colExists int
@@ -292,7 +292,7 @@ git add mnemonic/internal/service/service.go
 git commit -m "feat(mnemonic): global store bootstrap + facts.category migration
 
 - Migration 072: ADD COLUMN category TEXT NOT NULL DEFAULT 'memory' TO facts
-- Service.OpenGlobal() → __global__ pseudo-project → global.sqlite
+- Service.OpenGlobal() → __global__ pseudo-project → __global__.sqlite
 - ListProjects/RunTTLExpiry skip __global__
 
 [skillgrid-context]
@@ -320,7 +320,7 @@ adr: 0049
 - Deletion test: if `scope.go` is deleted, MCP tools can't route; CLI can't accept `--scope`
 - Adapters: 2 (prod: MCP handler; test: direct `facts.Route` calls)
 
-**C3 resolution — trail semantics:** A global `fact_add` from a project session writes the fact to `global.sqlite` but the `session_events` trail row goes to the *project* store (where the session exists). `facts.Route` returns two stores: the data store (where facts live) and the trail store (where session_events go). For `scope=project`, both are the same store. For `scope=global`, dataStore=`__global__`, trailStore=caller's project store.
+**C3 resolution — trail semantics:** A global `fact_add` from a project session writes the fact to `__global__.sqlite` but the `session_events` trail row goes to the *project* store (where the session exists). `facts.Route` returns two stores: the data store (where facts live) and the trail store (where session_events go). For `scope=project`, both are the same store. For `scope=global`, dataStore=`__global__`, trailStore=caller's project store.
 
 **M4 resolution — config root:** `OpenGlobal` uses `s.dataDir` as both data and config root (the global store loads config from `~/.skillgrid/config.d/indexing.yaml`, not the CWD). `__global__` is NOT run through `NormalizeID` — it's passed raw to `store.Open` (which only rejects empty/`..`). The file name is `__global__.sqlite` (pinned in Task 1's door check test).
 
@@ -337,15 +337,15 @@ func TestScopeRouting(t *testing.T) {
 }
 
 func TestAddWithCategory(t *testing.T) {
-    // fact_add(scope=global, target=memory) → row in global.sqlite with category='memory'
-    // fact_add(scope=global, target=user) → row in global.sqlite with category='user'
+    // fact_add(scope=global, target=memory) → row in __global__.sqlite with category='memory'
+    // fact_add(scope=global, target=user) → row in __global__.sqlite with category='user'
     // Trail row goes to the project store (where the session exists)
 }
 
 func TestGlobalAddTrailSemantics(t *testing.T) {
     // Open project store + global store
     // fact_add(scope=global, sessionID="proj-session-1")
-    // Verify: fact row in global.sqlite
+    // Verify: fact row in __global__.sqlite
     // Verify: session_events trail row in project store (not global)
 }
 ```
@@ -719,7 +719,7 @@ adr: 0049
 - Deletion test: if `distill.go` is deleted, passive extraction stops; explicit `fact_add` still works
 - Adapters: 2 (prod: 013 hook; test: direct `Distill` calls)
 
-**M3 resolution — pending queue is a table, not in-memory:** A 4-line migration (folded into migration 073) adds a `pending_facts` table to `global.sqlite`: `(id, content, target, created_at, status)`. Staged writes go into this table. `fact_pending_list` reads from it. `fact_pending_approve` moves the row into `facts` and deletes from `pending_facts`. Survives restart.
+**M3 resolution — pending queue is a table, not in-memory:** A 4-line migration (folded into migration 073) adds a `pending_facts` table to `__global__.sqlite`: `(id, content, target, created_at, status)`. Staged writes go into this table. `fact_pending_list` reads from it. `fact_pending_approve` moves the row into `facts` and deletes from `pending_facts`. Survives restart.
 
 **Minor fix — coalescing:** One distill pass per session close. The LLM prompt classifies each fact as `project` or `global` scope. One LLM call, two stores. The prompt: "Extract durable facts. For each fact, specify scope: 'project' (specific to this project) or 'global' (cross-project, about the user or environment)."
 
@@ -730,7 +730,7 @@ adr: 0049
 ```go
 func TestDistillExtractsFacts(t *testing.T) {
     // Mock LLM returns: [{content: "user prefers concise", target: "user", scope: "global"}, {content: "project uses Go", target: "memory", scope: "project"}]
-    // Distill → global fact in global.sqlite, project fact in project store
+    // Distill → global fact in __global__.sqlite, project fact in project store
     // One LLM call (not two)
 }
 
@@ -943,7 +943,7 @@ adr: 0049
 ```go
 func TestCLIScopeGlobal(t *testing.T) {
     // skillgrid memory fact add --scope global --target memory "test fact"
-    // Verify row in global.sqlite
+    // Verify row in __global__.sqlite
 }
 
 func TestCLIPendingApprove(t *testing.T) {
