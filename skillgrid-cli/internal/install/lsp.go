@@ -114,7 +114,7 @@ func installLSPTools(c *Config) error {
 		}
 		Out(append([]any{"      ", t.Manager}, toAny(t.InstallArgs)...)...)
 		fns = append(fns, func() error {
-			if err := run(c, "", t.Manager, t.InstallArgs...); err != nil {
+			if err := runFunc(c, "", t.Manager, t.InstallArgs...); err != nil {
 				return fmt.Errorf("%s %s: %w", t.Manager, strings.Join(t.InstallArgs, " "), err)
 			}
 			return nil

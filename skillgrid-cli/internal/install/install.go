@@ -215,7 +215,7 @@ func syncRepo(c *Config) error {
 			return nil
 		}
 		Out("      git pull --ff-only in", c.RepoDir)
-		return run(c, c.RepoDir, "git", "pull", "--ff-only")
+		return runFunc(c, c.RepoDir, "git", "pull", "--ff-only")
 	}
 
 	if c.DryRun {
@@ -223,7 +223,7 @@ func syncRepo(c *Config) error {
 		return nil
 	}
 	Out("      git clone --branch", c.Branch, c.RepoURL, "→", c.RepoDir)
-	return run(c, "", "git", "clone", "--branch", c.Branch, c.RepoURL, c.RepoDir)
+	return runFunc(c, "", "git", "clone", "--branch", c.Branch, c.RepoURL, c.RepoDir)
 }
 
 // prerequisiteLookPath is exec.LookPath, replaced in tests.
@@ -364,7 +364,7 @@ func installAgents(c *Config) error {
 				continue
 			}
 			Out(append([]any{"      npm"}, toAny(args)...)...)
-			if err := run(c, "", "npm", args...); err != nil {
+			if err := runFunc(c, "", "npm", args...); err != nil {
 				return fmt.Errorf("npm %s: %w", strings.Join(args, " "), err)
 			}
 		}
@@ -420,7 +420,7 @@ func installInstallMcp(c *Config) error {
 		return nil
 	}
 	Out("      npm install -g", pkg)
-	return run(c, "", "npm", "install", "-g", pkg)
+	return runFunc(c, "", "npm", "install", "-g", pkg)
 }
 
 // npmPkgName strips a @version suffix from an npm package spec
@@ -468,7 +468,7 @@ func installMCPServers(c *Config) error {
 		}
 		args := npmInstallGlobalArgs(npmPkg)
 		Out(append([]any{"      npm"}, toAny(args)...)...)
-		if err := run(c, "", "npm", args...); err != nil {
+		if err := runFunc(c, "", "npm", args...); err != nil {
 			return fmt.Errorf("npm %s: %w", strings.Join(args, " "), err)
 		}
 	}
@@ -500,7 +500,7 @@ func installTools(c *Config) error {
 			continue
 		}
 		Out("      npm install -g", t.NPM)
-		if err := run(c, "", "npm", "install", "-g", t.NPM); err != nil {
+		if err := runFunc(c, "", "npm", "install", "-g", t.NPM); err != nil {
 			return fmt.Errorf("npm install -g %s: %w", t.NPM, err)
 		}
 	}
@@ -533,7 +533,7 @@ func installSecurityTools(c *Config) error {
 		}
 		Out(append([]any{"      ", t.Manager}, toAny(t.InstallArgs)...)...)
 		fns = append(fns, func() error {
-			if err := run(c, "", t.Manager, t.InstallArgs...); err != nil {
+			if err := runFunc(c, "", t.Manager, t.InstallArgs...); err != nil {
 				return fmt.Errorf("%s %s: %w", t.Manager, strings.Join(t.InstallArgs, " "), err)
 			}
 			return nil
@@ -559,6 +559,9 @@ func copyAgents(c *Config) error {
 }
 
 // --- helpers ---
+
+// runFunc is the function that executes a command. Replaced in tests.
+var runFunc = run
 
 // collectNPMPackages gathers all npm package names needed by the install:
 // selected agents, the install-mcp CLI, MCP server packages from tools.yaml,
@@ -644,7 +647,7 @@ func installNPMBatch(c *Config) error {
 		return nil
 	}
 	Out(append([]any{"      npm"}, toAny(args)...)...)
-	if err := run(c, "", "npm", args...); err != nil {
+	if err := runFunc(c, "", "npm", args...); err != nil {
 		return fmt.Errorf("npm install -g %s: %w", strings.Join(toInstall, " "), err)
 	}
 	return nil
