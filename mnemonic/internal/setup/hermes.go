@@ -275,9 +275,10 @@ func kanbanProject(repoRoot string) (slug, name string) {
 	return slug, name
 }
 
-// kanbanExec is the `hermes` CLI invoked for Kanban board creation; tests
-// replace it with a stub so the suite stays hermetic.
-var kanbanExec = func(args ...string) (string, error) {
+// KanbanExec is the `hermes` CLI invoked for Kanban board creation; tests
+// (in this package or the skillgrid-cli installer) replace it with a stub so
+// the suites stay hermetic on machines with a real hermes binary on PATH.
+var KanbanExec = func(args ...string) (string, error) {
 	return runKanbanCLI(args...)
 }
 
@@ -322,7 +323,7 @@ func createKanbanBoard(hermesHome, slug, name string, dryRun bool) error {
 	// target home even when the installer's own env differs.
 	prev := os.Getenv(HermesHomeEnv)
 	_ = os.Setenv(HermesHomeEnv, hermesHome)
-	out, err := kanbanExec(args...)
+	out, err := KanbanExec(args...)
 	if prev == "" {
 		_ = os.Unsetenv(HermesHomeEnv)
 	} else {

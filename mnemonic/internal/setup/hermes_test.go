@@ -31,12 +31,12 @@ var hermesMCPEntries = []MCPServerConfig{
 func stubKanban(t *testing.T) *[]string {
 	t.Helper()
 	var calls []string
-	orig := kanbanExec
-	kanbanExec = func(args ...string) (string, error) {
+	orig := KanbanExec
+	KanbanExec = func(args ...string) (string, error) {
 		calls = append(calls, strings.Join(args, " "))
 		return "ok", nil
 	}
-	t.Cleanup(func() { kanbanExec = orig })
+	t.Cleanup(func() { KanbanExec = orig })
 	return &calls
 }
 
@@ -387,22 +387,22 @@ func TestSetupHermes_KanbanBoard(t *testing.T) {
 
 	// Success path: the CLI is invoked with the project slug.
 	var gotArgs []string
-	orig := kanbanExec
-	kanbanExec = func(args ...string) (string, error) {
+	orig := KanbanExec
+	KanbanExec = func(args ...string) (string, error) {
 		gotArgs = args
 		return "board created", nil
 	}
 	if err := SetupHermes(home, scratch, nil, false); err != nil {
 		t.Fatalf("SetupHermes (kanban ok): %v", err)
 	}
-	kanbanExec = orig
+	KanbanExec = orig
 	if len(gotArgs) == 0 || gotArgs[0] != "kanban" || gotArgs[1] != "boards" ||
 		gotArgs[2] != "create" || gotArgs[3] != "kanban-test-proj" {
 		t.Fatalf("kanban create args = %v, want kanban boards create kanban-test-proj", gotArgs)
 	}
 
 	// Failure path: a failing CLI is non-fatal (the install completes).
-	kanbanExec = func(args ...string) (string, error) {
+	KanbanExec = func(args ...string) (string, error) {
 		return "", fmt.Errorf("exit status 1")
 	}
 	home2 := t.TempDir()
@@ -411,7 +411,7 @@ func TestSetupHermes_KanbanBoard(t *testing.T) {
 	if err := SetupHermes(home2, scratch, hermesMCPEntries, false); err != nil {
 		t.Fatalf("kanban failure must be non-fatal: %v", err)
 	}
-	kanbanExec = orig
+	KanbanExec = orig
 	// The rest of the install still completed (HERMES_HOME was set to a
 	// temp dir for this run, so the config lives directly under it).
 	if _, err := os.Stat(filepath.Join(hermesHome2, "config.yaml")); err != nil {
@@ -420,14 +420,14 @@ func TestSetupHermes_KanbanBoard(t *testing.T) {
 
 	// Dry-run path: the CLI is never invoked, only printed.
 	called := false
-	kanbanExec = func(args ...string) (string, error) {
+	KanbanExec = func(args ...string) (string, error) {
 		called = true
 		return "", nil
 	}
 	if err := SetupHermes(t.TempDir(), scratch, nil, true); err != nil {
 		t.Fatalf("SetupHermes dry-run: %v", err)
 	}
-	kanbanExec = orig
+	KanbanExec = orig
 	if called {
 		t.Fatal("dry-run must not invoke the kanban CLI")
 	}
