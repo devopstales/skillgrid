@@ -64,7 +64,7 @@ func memSaveTool() mcplib.Tool {
 		mcplib.WithString("title", mcplib.Required(), mcplib.Description("Short searchable title (verb + what)")),
 		mcplib.WithString("type", mcplib.Required(), mcplib.Description("Observation type: decision, architecture, bugfix, pattern, config, discovery, learning, preference, convention")),
 		mcplib.WithString("content", mcplib.Required(), mcplib.Description("Structured body with What/Why/Where/Learned sections")),
-		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Active session ID from mem_session_start")),
+		mcplib.WithString("session_id", mcplib.Required(), mcplib.Description("Active session ID from mem_session_start. Pass \"current\" to save under the harness session of this MCP process (the row is registered in the target store on first use).")),
 		mcplib.WithString("scope", mcplib.Description("Visibility scope: project (default), user, or global")),
 		mcplib.WithString("topic_key", mcplib.Description("Stable key for upserts, e.g. architecture/auth-model")),
 		mcplib.WithString("project", mcplib.Description("Optional explicit project name to record under (defaults to the CWD-resolved project). Surfaced as a drift warning if a prior mem_merge_projects retired it.")),
@@ -238,6 +238,28 @@ func handleMemSave(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Cal
 	sessionID, err := req.RequireString("session_id")
 	if err != nil {
 		return toolError(err)
+	}
+
+	// session_id "current" is a convenience alias for the harness session this
+	// process represents. The sessions FK is per-store, so the alias must
+	// resolve to a row that exists in the store this save lands in. Register
+	// (idempotent) after the alias retarget, so the row lands on the canonical
+	// store when one applies.
+	if sessionID == "current" {
+		agent := harnessFromContext(ctx)
+		created, eerr := h.Memory().EnsureSession(ctx, "current", h.ProjectID(), osGetwdSafe(), "", agent)
+		if eerr != nil {
+			return toolError(fmt.Errorf("resolve session_id \"current\": %w", eerr))
+		}
+		if !created {
+			// The row exists but was registered in a DIFFERENT store (a prior
+			// save resolved the alias under a different project arg).
+			// Re-anchor it into the store this save targets so the FK holds —
+			// the id is stable, only the project column moves.
+			if _, _, _, eerr := h.Memory().SessionStartByClientID(ctx, "current", osGetwdSafe(), ""); eerr != nil {
+				return toolError(fmt.Errorf("resolve session_id \"current\": %w", eerr))
+			}
+		}
 	}
 
 	projectName := explicitProject
@@ -1373,6 +1395,17 @@ func openNamed(explicit string) (*service.Service, *service.ProjectHandle, func(
 		}
 	}
 	return nil, nil, nil, err
+}
+
+// osGetwdSafe returns the current working directory, or "" when it cannot be
+// determined (session registration still works; the directory column stays
+// blank).
+func osGetwdSafe() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return dir
 }
 
 // retargetAlias moves a handle opened on a retired project name onto the
