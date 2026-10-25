@@ -11,9 +11,21 @@ context: >-
   Constraints: Go 1.22+ to build; Node/npm on PATH at install time.
 
 # --- Ticketing ---
+# type: backlogmd (default, local .backlog/ via the `backlog` CLI) | gh |
+# glab | jira | hermes-kanban (Hermes Agent Kanban board via the `hermes kanban`
+# CLI — set by `skillgrid install --agents hermes`; the Kanban board is the
+# source of truth, Backlog.md becomes a mirror)
 ticketing:
   enabled: true
-  type: backlogmd
+  type: hermes-kanban
+  # Required when type: hermes-kanban.
+  # board: Hermes Kanban board slug (one per project; created by the installer,
+  #   created again non-fatally by the ticketing skill if missing).
+  #   Defaults to the `project` name when unset.
+  # assignee: Hermes profile that executes the tickets (defaults to `default`).
+  kanban:
+    board: skillgrid
+    assignee: default
   backlogmd:
     dir: .backlog
     task_prefix: "task"

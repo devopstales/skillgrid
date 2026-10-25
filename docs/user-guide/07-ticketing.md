@@ -1,8 +1,8 @@
 # Ticketing
 
-The **`ticketing`** skill maps SDD work to an issue tracker. Default: **Backlog.md**. Alternatives: GitHub, GitLab, Jira.
+The **`ticketing`** skill maps SDD work to an issue tracker. Default: **Backlog.md**. Alternatives: GitHub, GitLab, Jira, Hermes Kanban.
 
-Tracker choice is recorded in `.skillgrid/config.yaml`. Per-tracker ticketing standards (CLI + formatting) live under `.agents/skills/_shared/rules/ticketing/` (`backlogmd`, `github`, `gitlab`, `jira` + `*-formatting.md`); the ticketing skill keeps `triage-labels.md` locally.
+Tracker choice is recorded in `.skillgrid/config.yaml`. Per-tracker ticketing standards (CLI + formatting) live under `.agents/skills/_shared/rules/ticketing/` (`backlogmd`, `github`, `gitlab`, `jira`, `hermes-kanban` + `*-formatting.md`); the ticketing skill keeps `triage-labels.md` locally.
 
 ## Quick path
 
@@ -12,6 +12,7 @@ Tracker choice is recorded in `.skillgrid/config.yaml`. Per-tracker ticketing st
 | GitHub | `gh` | `github.com` remote |
 | GitLab | `glab` | GitLab remote |
 | Jira | `jira` | Configured instance + project key |
+| Hermes Kanban | `hermes-kanban` | Hermes Agent installed (`skillgrid install --agents hermes`) |
 
 The skill runs a status machine: `backlog → ready → in-progress → review → done`, plus a privacy review before publishing.
 
@@ -26,6 +27,16 @@ backlog task view TASK-123 --plain
 - Storage: `.backlog/tasks/<ID>.md`
 - Do **not** edit task files by hand — use the `backlog` CLI
 - Session start: `backlog instructions overview`
+
+## Hermes Kanban
+
+Used when the project runs Hermes Agent (`ticketing.type: hermes-kanban`, set by `skillgrid install --agents hermes` along with `ticketing.kanban.board` / `ticketing.kanban.assignee`). Tickets publish to a Kanban board via the `hermes kanban` CLI; the **board is the source of truth** for status and any local Backlog.md entry becomes a mirror carrying the Kanban task ID. Coding tickets run in `--workspace worktree`, research tickets in `--workspace scratch`; dependencies publish as `--parents` links, in wave order (parents first).
+
+```bash
+hermes kanban boards list
+hermes kanban list
+hermes kanban show <task-id>
+```
 
 ## Mapping SDD → tickets
 

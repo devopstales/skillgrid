@@ -22,7 +22,7 @@ Publishes sliced tickets to the configured tracker, drives their status through 
 ## When to Use
 
 - When a change needs to be tracked as work tickets.
-- When creating, updating, or closing tickets in the configured tracker (Backlog.md, GitHub, GitLab, Jira).
+- When creating, updating, or closing tickets in the configured tracker (Backlog.md, GitHub, GitLab, Jira, Hermes Kanban).
 
 **When NOT to use:** only when there is no sliced `tasks.md` to publish. Slicing always invokes Ticketing; if `ticketing.enabled: false`, Ticketing records a local-only waiver instead of creating tracker items.
 
@@ -33,8 +33,10 @@ Read `.skillgrid/config.yaml` before starting. This skill reads:
 | Config key | Used for |
 |------------|----------|
 | `ticketing.enabled` | Tracker publication switch: `false` means record a local-only waiver after slicing; do not skip the Ticketing step itself |
-| `ticketing.type` | Tracker type: `backlogmd` \| `gh` \| `glab` \| `jira` |
+| `ticketing.type` | Tracker type: `backlogmd` \| `gh` \| `glab` \| `jira` \| `hermes-kanban` |
 | `ticketing.project_key` | Jira project key (when `ticketing.type: jira`) |
+| `ticketing.kanban.board` | Hermes Kanban board slug (when `ticketing.type: hermes-kanban`; default: the `project` name) |
+| `ticketing.kanban.assignee` | Hermes profile to assign tickets to (when `ticketing.type: hermes-kanban`; default `default`) |
 | `ticketing.backlogmd.dir` | Backlog.md directory (default `.backlog/`) |
 | `ticketing.backlogmd.task_prefix` | Backlog.md task ID prefix (default `task`) |
 | `ticketing.backlogmd.zero_padded_ids` | Backlog.md task ID zero-padding (default `3`) |
@@ -144,6 +146,9 @@ Read `.skillgrid/config.yaml` `ticketing.type`. Before publishing, read the matc
 | `gh` | [github.md](.agents/skills/_shared/rules/ticketing/github.md) | [github-formatting.md](.agents/skills/_shared/rules/ticketing/github-formatting.md) |
 | `glab` | [gitlab.md](.agents/skills/_shared/rules/ticketing/gitlab.md) | [gitlab-formatting.md](.agents/skills/_shared/rules/ticketing/gitlab-formatting.md) |
 | `jira` | [jira.md](.agents/skills/_shared/rules/ticketing/jira.md) | [jira-formatting.md](.agents/skills/_shared/rules/ticketing/jira-formatting.md) |
+| `hermes-kanban` | [hermes-kanban.md](.agents/skills/_shared/rules/ticketing/hermes-kanban.md) | (the CLI reference carries the create mapping and body template) |
+
+For `hermes-kanban`, the **Kanban board is the source of truth** for status; a local Backlog.md entry (if any) is a human-readable mirror that carries the Kanban task ID and whose status is updated *from* the board. Read [hermes-kanban.md](.agents/skills/_shared/rules/ticketing/hermes-kanban.md) before every Kanban publish.
 
 Triage role vocabulary: [references/triage-labels.md](references/triage-labels.md).
 
@@ -151,7 +156,7 @@ Triage role vocabulary: [references/triage-labels.md](references/triage-labels.m
 
 Run read-only checks first, per the tracker's CLI reference. Stop and ask if any check fails — never continue from failed discovery into publication.
 
-- **Auth**: `gh auth status` / `glab auth status` / `jira config` / `backlog status`.
+- **Auth**: `gh auth status` / `glab auth status` / `jira config` / `backlog status` / `hermes --version` (Hermes Kanban: the `hermes` binary on PATH; the board and assignee resolve from `ticketing.kanban.*`, and a missing board is created — creation failure is non-fatal, see [hermes-kanban.md](.agents/skills/_shared/rules/ticketing/hermes-kanban.md)).
 - **Repo/instance**: resolve from `git remote -v` or the tracker's config.
 - **Policy**: `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE/` (GitHub), issue templates (GitLab), project config (Jira), `backlog.config.yml` (Backlog).
 - **Labels**: only apply labels that exist and that repository policy permits. Jira: `jira issue list` + `jira project`. GitHub: `gh api "repos/$REPO/labels"`. GitLab: `glab api "projects/:id/labels"`. Backlog: `backlog.config.yml`.
@@ -209,6 +214,8 @@ Creation alone is not enough. When `tasks.md` has a real tracker ID (from Step 3
 | **Review** | `in-progress` → `review` | Comment review verdict |
 | **Done** | `review` → `done` | Set status done; closing commit uses `Closes <ID>` |
 
+Hermes Kanban specifics (`hermes-kanban`): the board status is the truth — `unblock` at wave start, `claim` at execution start, `request-review` at review, `complete` at done (the exact commands live in [hermes-kanban.md](.agents/skills/_shared/rules/ticketing/hermes-kanban.md)). When a local Backlog.md entry exists for the ticket, mirror the board status into it at each transition — the board wins on any conflict.
+
 If no tracker ID exists (e.g. `ticketing.enabled: false` or local-only waiver), skip all tracker mutations. Do not invent an id.
 
 ## Slicing Strategy
@@ -219,6 +226,7 @@ If no tracker ID exists (e.g. `ticketing.enabled: false` or local-only waiver), 
 | GitHub | One issue per ticket, sub-issue of epic issue |
 | GitLab | One issue per ticket, `/blocked_by` links |
 | Jira | Domain = epic, ticket = story, acceptance criteria = sub-tasks |
+| Hermes Kanban | One task per ticket on the configured board; epic = top-level task; dependencies via `--parents` / `link`; coding → `worktree` workspace, research → `scratch` |
 
 ## Common Rationalizations
 
@@ -240,7 +248,7 @@ If no tracker ID exists (e.g. `ticketing.enabled: false` or local-only waiver), 
 
 ## CLI-Only Guard
 
-**Do not edit tracker task files directly.** Use the tracker's CLI (`backlog`, `gh`, `glab`, `jira`) so metadata, relationships, and history stay consistent. Hand-editing a Backlog.md task file, a GitHub issue's body, or a Jira ticket's fields breaks the audit trail and the status machine.
+**Do not edit tracker task files directly.** Use the tracker's CLI (`backlog`, `gh`, `glab`, `jira`, `hermes kanban`) so metadata, relationships, and history stay consistent. Hand-editing a Backlog.md task file, a GitHub issue's body, a Jira ticket's fields, or a Kanban task's fields breaks the audit trail and the status machine.
 
 The only exception: writing the **Tracker ID** back into `tasks.md` (Step 3) — that is a local file, not the tracker.
 
@@ -255,7 +263,9 @@ The only exception: writing the **Tracker ID** back into `tasks.md` (Step 3) —
 - Invent a tracker ID — always read it from the create response
 - Leave the epic in `backlog` after the first ticket starts
 - Publishing before reading the tracker's CLI + formatting reference
-- Invoking `gh` / `glab` / `jira` / `backlog` without an auth check in the current context
+- Invoking `gh` / `glab` / `jira` / `backlog` / `hermes kanban` without an auth check in the current context
+- Publishing a coding ticket without `--workspace worktree` (or a research ticket without `--workspace scratch`)
+- Treating a Backlog.md mirror as the source of truth when the tracker is `hermes-kanban` (the board wins)
 - Applying a label that was not returned by discovery
 - A body containing a username, private hostname, or token that isn't a placeholder
 - A "duplicate" search that returned 1000+ results and was not narrowed
@@ -270,3 +280,4 @@ The only exception: writing the **Tracker ID** back into `tasks.md` (Step 3) —
 - [ ] The Pre-submission Privacy Review passed (no username, hostname, token, or private value in a ticket body)
 - [ ] Ticket bodies follow the tracker's Work-Item Formatting (title convention, component split, explicit `Blocked by:`)
 - [ ] When the tracker is Backlog.md, the Backlog completeness gate passed (`backlog task view <ID> --plain` shows type, references, DoD, and plan)
+- [ ] When the tracker is `hermes-kanban`, every ticket appears in `hermes kanban list`, `hermes kanban show <ID>` confirms assignee + parents + workspace, and any local Backlog.md mirror carries the Kanban task ID

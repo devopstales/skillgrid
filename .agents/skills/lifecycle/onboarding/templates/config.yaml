@@ -5,13 +5,17 @@ context: >-
 
 # --- Ticketing ---
 # Set enabled: false to skip ticket publishing entirely (tasks.md only).
-# type: backlogmd (default, local) | gh | glab | jira
+# type: backlogmd (default, local) | gh | glab | jira | hermes-kanban
 ticketing:
   enabled: {ticketing_enabled}
   type: {ticketing_type}
   # Required when type: jira
   # project_key: {jira_project_key}
   # instance: https://{jira_org}.atlassian.net
+  # Required when type: hermes-kanban (written by `skillgrid install --agents hermes`)
+  # kanban:
+  #   board: {project}        # Hermes Kanban board slug (defaults to the project name)
+  #   assignee: default       # Hermes profile that executes the tickets
   backlogmd:
     dir: .backlog
     task_prefix: "task"
