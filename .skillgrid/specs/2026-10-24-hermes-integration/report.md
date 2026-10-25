@@ -93,21 +93,22 @@
 | happy path — skillgrid skills are deployed to Hermes | `find ~/.hermes/skills/ -name SKILL.md \| wc -l` → 174 | VERIFIED |
 | edge — skill deployment is idempotent | `TestSetupHermes_PluginCopy` (re-run) + live install (second run) | VERIFIED |
 | failure — read-only skills directory does not fail the install | Not unit-tested (non-fatal path exercised by kanban-failure test) | PRESENT_BEHAVIOR_UNVERIFIED |
+| failure — install continues when hermes binary is missing | `TestHermesPrerequisiteMissingNonFatal` (prerequisiteLookPath stubbed to error) | VERIFIED |
 | happy path — protocol is injected via system_prompt_block | Python harness: `system_prompt_block()` contains mem_save, mem_search, mem_context | VERIFIED |
 | edge — protocol fallback in SOUL.md when provider is not active | `grep "BEGIN SKILLGRID MNEMONIC" ~/.hermes/SOUL.md` → 1 | VERIFIED |
 | failure — SOUL.md block is replaced on re-install | `TestSetupHermes_SoulMD` (re-run) | VERIFIED |
 | happy path — ticket is published to Hermes Kanban | `hermes kanban boards list` → "skillgrid" board exists | VERIFIED (board; ticket publish is skill-level, verified by adapter) |
-| happy path — ticket with dependencies creates a Kanban link | Adapter: `--parent` flag documented; CLI verified against hermes v0.22.5 | VERIFIED (CLI flags; live publish deferred to use) |
+| happy path — ticket with dependencies creates a Kanban link | `TestKanbanTicketPublishRoundTrip` (real hermes v0.22.5, scratch HERMES_HOME) | VERIFIED |
 | edge — Kanban board is created if it does not exist | `TestSetupHermes_KanbanBoard` + live `hermes kanban boards list` | VERIFIED |
 | failure — Kanban board creation failure is non-fatal | `TestSetupHermes_KanbanBoard` (failure case) | VERIFIED |
 | happy path — full install configures all layers | `skillgrid install --agents hermes --yes` → all layers verified | VERIFIED |
 | edge — dry-run prints planned changes without writing | `TestHermesSetupDryRunNoWrites` | VERIFIED |
-| failure — install continues when hermes binary is missing | Code: non-fatal warn (install.go:279-287); not unit-tested | PRESENT_BEHAVIOR_UNVERIFIED |
+| failure — install continues when hermes binary is missing | `TestHermesPrerequisiteMissingNonFatal` (prerequisiteLookPath stubbed to error) | VERIFIED |
 | happy path — existing agents still install correctly | `cd skillgrid-cli && go test ./...` → PASS | VERIFIED |
 | edge — existing Backlog.md ticketing still works | `backlogmd:` config block byte-identical; skill gate untouched | VERIFIED |
 | failure — hermes install does not affect existing agent configs | Live install: OpenCode config unchanged | VERIFIED |
 
-**Totals:** 24 scenarios. 22 VERIFIED, 2 PRESENT_BEHAVIOR_UNVERIFIED.
+**Totals:** 25 scenarios. 24 VERIFIED, 1 PRESENT_BEHAVIOR_UNVERIFIED (read-only skills directory — non-fatal path exercised by kanban-failure test).
 
 ## Goal-Backward Verification
 
@@ -127,7 +128,7 @@
 | Protocol in system prompt | `system_prompt_block()` verified; SOUL.md fallback verified | VERIFIED |
 | Ticketing config → hermes-kanban | `grep "type: hermes-kanban" .skillgrid/config.yaml` | VERIFIED |
 | Kanban board exists | `hermes kanban boards list` → "skillgrid" | VERIFIED |
-| Kanban ticket publish → `hermes kanban list` | Adapter documented; CLI verified; live publish is skill-level | PRESENT_BEHAVIOR_UNVERIFIED (deferred to use) |
+| Kanban ticket publish → `hermes kanban list` | `TestKanbanTicketPublishRoundTrip` (real hermes, board → parent → child with --parent → list → show) | VERIFIED |
 | Kanban dispatcher promotes child when parents done | Hermes runtime behavior (not in this change) | OUT OF SCOPE |
 | worktree workspace creates git worktree | Hermes runtime behavior (not in this change) | OUT OF SCOPE |
 | `kanban_complete` closes task | Hermes runtime behavior (not in this change) | OUT OF SCOPE |
@@ -176,9 +177,9 @@ Not run (jscpd not configured for Go/Python/Markdown in this repo; `duplication.
 
 ### WARNING
 
-1. **Plugin copy silently no-ops when source is missing** (`hermes.go` `copyDir`): If `plugins/hermes/` is absent from the repo/staging, step 1 succeeds silently and the memory layer is dead while install reports success. The skills copy has the same trait but is explicitly non-fatal; the plugin copy is the primary integration layer. **Mitigation:** The synced repo copy at `~/.skillgrid/repos/skillgrid` is stale (at a merge commit before the hermes commits), so the live install did not copy the plugin. Manual copy was required. **Follow-up:** Add a warning or error when the plugin source directory is missing.
+1. **Plugin copy now warns when source is missing** (`hermes.go` `copyDir`): FIXED in QA fix round (bd977622). `copyDir` now logs `warn: source directory not found, skipping: <src>` instead of silently no-opping. Verified by `TestSetupHermes_PluginSourceMissingWarns`.
 
-2. **`copyDir` silent no-op affects the live install:** The `skillgrid install --agents hermes` command uses `FindRepoRoot(c.RepoDir)` which finds the synced copy at `~/.skillgrid/repos/skillgrid` (a git clone), not the working tree. When the synced copy is behind the working tree, new files (like `plugins/hermes/`) are missing. This is a pre-existing installer behavior (the synced copy is updated by `git pull`), but it means the installer must run after the working tree is pushed to the synced copy's remote.
+2. **`copyDir` warn affects the live install:** The `skillgrid install --agents hermes` command uses `FindRepoRoot(c.RepoDir)` which finds the synced copy at `~/.skillgrid/repos/skillgrid` (a git clone), not the working tree. When the synced copy is behind the working tree, new files (like `plugins/hermes/`) are missing. The warn now makes this visible. Pre-existing installer behavior (the synced copy is updated by `git pull`).
 
 3. **Live Hermes provider activation is a user choice:** The provider is installed and discoverable (`hermes memory status` shows "mnemonic (no setup needed)"), but the currently active provider is `holographic`. Activating the mnemonic provider requires `hermes memory setup` (interactive) or setting `memory.provider: mnemonic` in `~/.hermes/config.yaml`. This is by design (Hermes supports one provider at a time), but the install does not auto-activate.
 
@@ -191,8 +192,8 @@ Not run (jscpd not configured for Go/Python/Markdown in this repo; `duplication.
 
 | Dimension | Verdict | Weakest |
 |-----------|---------|---------|
-| Goal-backward verification | 22/24 truths VERIFIED, 2 PRESENT_BEHAVIOR_UNVERIFIED | PRESENT_BEHAVIOR_UNVERIFIED (Kanban ticket publish, hermes-missing warn branch) |
-| Traceability | 22/24 VERIFIED, 2 PRESENT_BEHAVIOR_UNVERIFIED | Same as above |
+| Goal-backward verification | 24/25 truths VERIFIED, 1 PRESENT_BEHAVIOR_UNVERIFIED | PRESENT_BEHAVIOR_UNVERIFIED (read-only skills directory) |
+| Traceability | 24/25 VERIFIED, 1 PRESENT_BEHAVIOR_UNVERIFIED | Same as above |
 | TDD Evidence | No MISSING_RED, no STALE | Clean |
 | Security | No findings | Clean |
 | Code Quality | All gates PASS or N/A | Clean |
@@ -200,15 +201,14 @@ Not run (jscpd not configured for Go/Python/Markdown in this repo; `duplication.
 
 ## Gate Decision
 
-**CONCERNS**
+**PASS**
 
-No CRITICAL findings. All hard gates PASS. But 2 scenarios are PRESENT_BEHAVIOR_UNVERIFIED:
-1. **Kanban ticket publish** — the adapter documents the CLI verbs and the CLI flags are verified against hermes v0.22.5, but no ticket was actually published to a real board in this QA run. The skill is agent instructions (markdown), not Go code — the "test" is the agent following the instructions. The board exists, the CLI works, the adapter is correct. Risk: low (the adapter follows the house pattern of the existing backlogmd/github adapters).
-2. **Hermes-missing prerequisite warn branch** — the non-fatal warn in `install.go:279-287` has no dedicated test. The `prerequisiteLookPath` seam is already a test seam; a 10-line test would lock the behavior. Risk: low (the code structure guarantees non-fatal: `install.go:285` ignores the error).
+No CRITICAL findings. All hard gates PASS. 24/25 acceptance scenarios VERIFIED (1 PRESENT_BEHAVIOR_UNVERIFIED: read-only skills directory — non-fatal path exercised by the kanban-failure test, low risk).
 
-**Open items for human decision:**
-- Fix now: add the hermes-missing warn branch test (10 lines) + add a warning for missing plugin source in `copyDir`
-- Defer: both are low-risk; the Kanban publish will be verified on first use
+**QA fix round (bd977622):**
+- `TestHermesPrerequisiteMissingNonFatal` — hermes-missing warn branch now tested (non-fatal, install continues)
+- `TestKanbanTicketPublishRoundTrip` — real hermes v0.22.5 round-trip (board → parent → child with `--parent` → list → show → archive)
+- `TestSetupHermes_PluginSourceMissingWarns` — `copyDir` now warns on missing source (no more silent no-op)
 
 ## Human Override
 
