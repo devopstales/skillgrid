@@ -1,6 +1,6 @@
 # Citation formats per output target
 
-The ledger is format-agnostic: `sources.py render --style ...` emits the block,
+The ledger is format-agnostic: `node sources.mjs render --style ...` emits the block,
 this file says where it goes and what the inline marker looks like.
 
 ## Markdown / chat answers

@@ -14,7 +14,7 @@ metadata:
 
 ## Overview
 
-Every claim taken from an outside source gets an inline numbered citation plus a `Sources:` list, Perplexity-style. A ledger script (`scripts/sources.py`, stdlib-only) owns the `url → [n]` mapping so numbers and URLs come from retrieval, never from memory — the model only ever emits small integers it was handed. For high-stakes work the same ledger doubles as a fact-checking chain: verbatim quotes attached per source (rejected unless literally present in the fetched text), model-knowledge claims flagged `[unverified]`, `verify --evidence` failing drafts whose sources carry no evidence.
+Every claim taken from an outside source gets an inline numbered citation plus a `Sources:` list, Perplexity-style. A ledger script (`scripts/sources.mjs`, Node stdlib-only) owns the `url → [n]` mapping so numbers and URLs come from retrieval, never from memory — the model only ever emits small integers it was handed. For high-stakes work the same ledger doubles as a fact-checking chain: verbatim quotes attached per source (rejected unless literally present in the fetched text), model-knowledge claims flagged `[unverified]`, `verify --evidence` failing drafts whose sources carry no evidence.
 
 Covers chat answers, markdown documents, research reports, and wiki pages (`skillgrid:llm-wiki` output cites this way). Feed for `skillgrid:research` / `skillgrid:code-research` / `skillgrid:deep-research` findings — the `## Research:` sections those skills append are where this discipline pays off.
 
@@ -30,23 +30,27 @@ Ported from the Hermes `grounded-citations` skill under MIT (see ADR-0015). Beha
 
 ## Prerequisites
 
-Python 3, stdlib only. Script:
+Node 18+ (the repo runtime). Script:
 
 ```bash
-S=.agents/skills/knowledge/grounded-citations/scripts/sources.py
+S=.agents/skills/knowledge/grounded-citations/scripts/sources.mjs
 ```
+
+The Python original (`sources.py`) is retained as a fallback; `sources.mjs` is
+the canonical port (plan item J — single deterministic runtime). Same
+subcommands, same ledger format, byte-equivalent output.
 
 Ledger location: `.skillgrid/sdd/citations/ledger.json` (default; gitignored). Override per task with `--ledger <path>` or `SKILLGRID_CITATION_LEDGER`. Parallel subagents merging into one deliverable share one ledger via `--ledger` or the env var — otherwise their ids collide.
 
 ## How to Run
 
 ```bash
-python "$S" reset                                  # start a clean ledger
-python "$S" add https://example.com/a --title "A"  # prints: [1]
-python "$S" add https://example.com/b --title "B"  # prints: [2]
-python "$S" list                                   # ledger table
-python "$S" render                                 # Sources: block
-python "$S" verify draft.md                        # catch bad citations
+node "$S" reset                                  # start a clean ledger
+node "$S" add https://example.com/a --title "A"  # prints: [1]
+node "$S" add https://example.com/b --title "B"  # prints: [2]
+node "$S" list                                   # ledger table
+node "$S" render                                 # Sources: block
+node "$S" verify draft.md                        # catch bad citations
 ```
 
 `add` is idempotent and URL-normalized (fragment + trailing slash stripped; query kept): the same page always returns the same id, stable across many retrieval rounds.
